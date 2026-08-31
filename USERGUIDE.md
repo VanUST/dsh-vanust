@@ -64,7 +64,9 @@ credentials there** (each machine keeps its own keys in
 3. (Optional) run TUI tools like micro or yazi inside the terminal — the PTY
    renders full-screen apps fine.
 3. Click ▤ → **Files**: browse the workspace tree; select a directory and use
-   **Open in terminal** / **yazi** (if installed) / **System file manager**.
+   **Open in terminal** / **yazi** (if installed) / **Open in system**.
+   Click an image file (png/jpg/gif/webp/bmp/avif) — it previews in the panel;
+   **Open in system** on a file launches your default viewer.
 4. **Review** tab: shows git changes/diffs when the workspace is a repo.
 
 If the toggles are missing: the plugins did not load — see §5.
