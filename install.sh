@@ -37,8 +37,25 @@ fi
 echo "   node: $(node -v) (ok)"
 
 # 2. Pinned harness install (idempotent; re-running upgrades to the pin).
+#    Keep an existing user-local npm prefix (e.g. ~/.npm/node); only switch a
+#    system-wide prefix to a user-local one so no sudo is needed.
+CURRENT_PREFIX="$(npm config get prefix)"
+case "${CURRENT_PREFIX}" in
+  "${HOME}"/*) NPM_PREFIX="${CURRENT_PREFIX}" ;;
+  *) NPM_PREFIX="${NPM_PREFIX:-$HOME/.npm}"
+     npm config set prefix "${NPM_PREFIX}" >/dev/null
+     ;;
+esac
+echo "   npm prefix: ${NPM_PREFIX} (user-local, no sudo needed)"
 echo "   installing @deepseek-ai/dsh@${DSH_VERSION} (global)..."
 npm install -g --no-audit --no-fund "@deepseek-ai/dsh@${DSH_VERSION}"
+# Make the global bin dir reachable for this and future shells.
+case ":$PATH:" in
+  *":${NPM_PREFIX}/bin:"*) ;;
+  *) export PATH="${NPM_PREFIX}/bin:${PATH}"
+     echo "   PATH updated for this shell; add 'export PATH=\"${NPM_PREFIX}/bin:\$PATH\"' to ~/.bashrc"
+     ;;
+esac
 
 # 3. Web profile from the canonical kit files.
 mkdir -p "${DSH_HOME}/profiles/web"

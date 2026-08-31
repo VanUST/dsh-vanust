@@ -28,7 +28,9 @@ cd dsh-kit
 powershell -ExecutionPolicy Bypass -File install.ps1
 ```
 
-The installer does five things (idempotent; re-running upgrades to the pin):
+The installer does five things (idempotent; re-running upgrades to the pin). It installs
+into a **user-local npm prefix** (your existing `~/.npm/...` prefix is kept; a fresh
+machine gets `~/.npm`) — **no sudo/admin needed**:
 1. checks Node ≥ 24,
 2. `npm i -g @deepseek-ai/dsh@0.1.1-rc.2` (exact pin),
 3. writes `$DSH_HOME/profiles/web/{package.json,cordis.patch.yml}` from the

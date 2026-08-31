@@ -29,9 +29,19 @@ $nodeMajor = [int]((& node -p 'process.versions.node.split(".")[0]').Trim())
 if ($nodeMajor -lt 24) { Write-Error "Node $nodeMajor detected — dsh-kit requires Node >= 24."; exit 1 }
 Write-Host "   node: $(& node -v) (ok)"
 
-# 2. Pinned harness install.
+# 2. Pinned harness install (user-local prefix — no admin needed). Keep an
+#    existing user-local prefix; only switch a system-wide one.
+$currentPrefix = (& npm config get prefix).Trim()
+if ($currentPrefix.StartsWith($env:USERPROFILE)) {
+  $npmPrefix = $currentPrefix
+} else {
+  $npmPrefix = if ($env:NPM_PREFIX) { $env:NPM_PREFIX } else { Join-Path $env:USERPROFILE '.npm' }
+  npm config set prefix $npmPrefix | Out-Null
+}
+Write-Host "   npm prefix: $npmPrefix (user-local, no admin needed)"
 Write-Host "   installing @deepseek-ai/dsh@$DSH_VERSION (global)..."
-npm install -g "@deepseek-ai/dsh@$DSH_VERSION"
+npm install -g --no-audit --no-fund "@deepseek-ai/dsh@$DSH_VERSION"
+$env:PATH = "$npmPrefix;$env:PATH"
 
 # 3. Web profile from the canonical kit files.
 $profileDir = Join-Path $DSH_HOME 'profiles\web'
