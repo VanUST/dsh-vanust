@@ -30,6 +30,14 @@ echo "   bundling clients..."
 corepack pnpm exec tsdown --config packages/client/ui-terminal/tsdown.config.ts --env.DSH_BUILD_FACE client
 corepack pnpm exec tsdown --config packages/client/ui-workbench/tsdown.config.ts --env.DSH_BUILD_FACE client
 
+# Sanitize build-machine paths out of the bundles (the CSS virtual-module id
+# embeds the absolute source path; the kit is public). The id is only a
+# runtime style-tag attribute — replacing the prefix is safe.
+echo "   sanitizing machine paths from bundles..."
+sed -i 's#/home/[^/]*/deepseek-harness/#dsh-src/#' \
+  packages/client/ui-terminal/lib/client.js \
+  packages/client/ui-workbench/lib/client.js
+
 echo "   packing into ${KIT_DIR}/plugins..."
 for p in host/web-workbench client/ui-workbench client/ui-terminal; do
   (cd "packages/${p}" && corepack pnpm pack --out "${KIT_DIR}/plugins/$(basename "${p}")-$(node -p "require('./package.json').version").tgz")

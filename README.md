@@ -32,3 +32,5 @@ go through the gate: `npm i -g @deepseek-ai/dsh@<candidate>` →
 touch the live profile. Details + the API watchlist: **COMPAT.md**.
 
 **Versions:** harness pin `0.1.1-rc.2` · Node ≥ 24 · pnpm 11.7 (corepack).
+
+**License:** MIT (see `LICENSE`); third-party attributions in `NOTICE`.

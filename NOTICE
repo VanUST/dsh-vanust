@@ -1,0 +1,22 @@
+# Third-party notices
+
+The workbench plugin suite in this repository is derived from and built on:
+
+- **DeepSeek Harness** — MIT License.
+  https://github.com/deepseek-ai/deepseek-harness
+  The plugin packages (`dsh-host-web-workbench`, `dsh-client-ui-workbench`,
+  `dsh-client-ui-terminal`) were authored against its plugin APIs and are
+  shipped as prebuilt tarballs in `plugins/`.
+- **xterm.js** — MIT License, Copyright (c) 2014–2024 xterm.js authors
+  (https://github.com/xtermjs/xterm.js). Vendored as a static browser asset
+  inside `dsh-host-web-workbench` (`assets/xterm.js`, `assets/xterm.css`),
+  served at `/wb-api/static/`. The license header is preserved at the top of
+  the vendored file.
+- **node-pty** — MIT License, Copyright (c) Microsoft Corporation
+  (https://github.com/microsoft/node-pty). Resolved as a runtime dependency
+  of the host plugin.
+- **ws** — MIT License, Copyright (c) 2011 Einar Otto Stangvik
+  (https://github.com/websockets/ws). Runtime dependency of the host plugin.
+
+The harness itself (`@deepseek-ai/dsh`) is installed separately via npm; this
+repository contains no DeepSeek proprietary code.
