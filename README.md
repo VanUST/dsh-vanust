@@ -1,8 +1,8 @@
 # dsh-kit
 
 Portable setup for **DeepSeek Harness (dsh)** + the **web workbench plugin
-suite** (PTY terminal, file manager, git review, browser preview) across all
-your machines — 2× Linux, 1× Windows.
+suite** (PTY terminal, file manager, git review, browser preview, micro text
+editor) across all your machines — 2× Linux, 1× Windows.
 
 Clone this repo on a new machine, run `./install.sh` (or `install.ps1` on
 Windows), and `dsh web` is up with the same pinned harness version, the same
@@ -18,7 +18,7 @@ cd dsh-vanust
 dsh-kit/
 ├── install.sh / install.ps1   # fresh-machine setup (Node check → pinned dsh → profile → plugins → rules)
 ├── start.sh / start.ps1       # easy startup: dsh web --port 3080
-├── plugins/*.tgz              # the three workbench plugin tarballs (built from ~/deepseek-harness)
+├── plugins/*.tgz              # the four plugin tarballs (host + terminal + workbench + editor; built from ~/deepseek-harness)
 ├── profile/                   # canonical web profile: package.json (no deps) + cordis.patch.yml
 ├── rules/AGENTS.md            # user-global core operating rules (installed to $DSH_HOME/AGENTS.md)
 ├── scripts/verify-upgrade.sh  # upgrade gate: throwaway instance + full plugin probe suite
