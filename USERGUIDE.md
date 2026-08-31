@@ -15,16 +15,16 @@ major on every machine), git, and network access to npm.
 ### Linux / macOS
 
 ```bash
-git clone <your-remote>/dsh-kit.git
-cd dsh-kit
+git clone https://github.com/VanUST/dsh-vanust.git
+cd dsh-vanust
 ./install.sh          # node check → pinned dsh → web profile → plugins → rules
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
-git clone <your-remote>/dsh-kit.git
-cd dsh-kit
+git clone https://github.com/VanUST/dsh-vanust.git
+cd dsh-vanust
 powershell -ExecutionPolicy Bypass -File install.ps1
 ```
 

@@ -8,6 +8,12 @@ Clone this repo on a new machine, run `./install.sh` (or `install.ps1` on
 Windows), and `dsh web` is up with the same pinned harness version, the same
 plugins, and the same core operating rules.
 
+```bash
+git clone https://github.com/VanUST/dsh-vanust.git
+cd dsh-vanust
+./install.sh          # or: powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
 ```
 dsh-kit/
 ├── install.sh / install.ps1   # fresh-machine setup (Node check → pinned dsh → profile → plugins → rules)
