@@ -12,8 +12,8 @@ maintenance map"); this repo carries only **shipping artifacts** and the
 
 | File | Role | Update when |
 |---|---|---|
-| `plugins/*.tgz` | built plugin tarballs (host + 3 clients: terminal, workbench, editor) | every shipped plugin change — via `scripts/rebuild-plugins.sh`, then **commit** |
-| `profile/cordis.patch.yml` | canonical profile patch: host row + three `dsh.client` rows (`ui-workbench`, `ui-terminal`, `ui-editor`) | plugin ids/names change, or per-machine config is added (e.g. Windows `openCommand: explorer`) |
+| `plugins/*.tgz` | built plugin tarballs (host + 2 clients: terminal, workbench) | every shipped plugin change — via `scripts/rebuild-plugins.sh`, then **commit** |
+| `profile/cordis.patch.yml` | canonical profile patch: host row + two `dsh.client` rows (`ui-workbench`, `ui-terminal`) | plugin ids/names change, or per-machine config is added (e.g. Windows `openCommand: explorer`) |
 | `profile/package.json` | canonical profile manifest (bundles; **no deps** — installers add machine-local tarball paths) | bundle list changes |
 | `profile/pnpm-workspace.yaml` | pnpm policy incl. `allowBuilds: node-pty: true` (pre-approves its build script) | pnpm policy changes |
 | `rules/AGENTS.md` | user-global core operating rules, installed to `$DSH_HOME/AGENTS.md` | the rules themselves change (mirror `~/vibecoding/INSTRUCTIONS.md`) |

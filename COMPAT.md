@@ -45,10 +45,8 @@ installed harness).
 
 - The **`/wb-api` HTTP + WebSocket protocol** (host route + browser client are
   both in our packages). Transport hooks are H1/H2; the protocol itself is
-  ours (the WS accepts `cmd` + JSON `argv` for editor-style launches).
-  *Planned: `protocolVersion` in `/system/capabilities` so a mismatched
-  host/client fails loudly.* `/system/capabilities` shape: `tuiFileManager`,
-  `editor` (micro probe), `openCommand` — add fields additively.
+  ours. *Planned: `protocolVersion` in `/system/capabilities` so a mismatched
+  host/client fails loudly.*
 - The **`dsh:terminal.open`** cross-plugin event (name mirrored in both client
   packages — keep the two copies in sync).
 - The wire types mirrored in `ui-workbench|ui-terminal/src/client/types.ts`

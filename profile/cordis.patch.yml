@@ -17,5 +17,3 @@
     - id: ui-terminal
       name: '@deepseek-ai/dsh-client-ui-terminal'
 
-    - id: ui-editor
-      name: '@deepseek-ai/dsh-client-ui-editor'

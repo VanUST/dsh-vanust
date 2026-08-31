@@ -61,8 +61,8 @@ credentials there** (each machine keeps its own keys in
 2. Click `>_`: the chat column **moves up** (i3-style tiling — nothing is
    covered) and a real PTY shell opens in the bottom band. Type `htop` or
    `vim` — full-screen apps must work.
-3. Click `✎`: the **micro editor** panel opens (workspace file browser when
-   no file is targeted); in Files, select a file and use **Edit with micro**.
+3. (Optional) run TUI tools like micro or yazi inside the terminal — the PTY
+   renders full-screen apps fine.
 3. Click ▤ → **Files**: browse the workspace tree; select a directory and use
    **Open in terminal** / **yazi** (if installed) / **System file manager**.
 4. **Review** tab: shows git changes/diffs when the workspace is a repo.
@@ -76,7 +76,6 @@ If the toggles are missing: the plugins did not load — see §5.
 | Credentials | first-run onboarding | same |
 | System file manager | default `xdg-open` (nautilus/dolphin/… whatever you have) | **must set `openCommand: explorer`** (see below) |
 | TUI file manager (yazi button) | auto-detected on PATH | install yazi to get the button |
-| Micro editor (✎ panel) | auto-detected on PATH (`apt install micro`) | install micro (`winget install micro`) to get the Edit action |
 | Startup script | `./start.sh` | `.\start.ps1` |
 | Shell in terminal | `$SHELL` (bash/zsh/…) | pwsh (auto) |
 

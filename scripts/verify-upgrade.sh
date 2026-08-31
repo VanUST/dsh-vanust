@@ -76,10 +76,8 @@ probe "health"                "curl -sf ${BASE}/wb-api/health"
 probe "static xterm.js"       "curl -sf ${BASE}/wb-api/static/xterm.js -o /dev/null"
 probe "static xterm.css"      "curl -sf ${BASE}/wb-api/static/xterm.css -o /dev/null"
 probe "capabilities"          "curl -sf ${BASE}/wb-api/system/capabilities | grep -q openCommand"
-probe "capabilities: editor"   "curl -sf ${BASE}/wb-api/system/capabilities | grep -q editor"
 probe "boot graph: terminal"  "curl -sf ${BASE}/ | grep -q ui-terminal/client.js"
 probe "boot graph: workbench" "curl -sf ${BASE}/ | grep -q ui-workbench/client.js"
-probe "boot graph: editor"    "curl -sf ${BASE}/ | grep -q ui-editor/client.js"
 
 # WebSocket + PTY round-trip (run from the profile so 'ws' resolves).
 probe "ws+pty round-trip" "
