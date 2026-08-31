@@ -1,0 +1,10 @@
+packages:
+  - .
+
+nodeLinker: hoisted
+autoInstallPeers: false
+# Pre-approve node-pty's build/install script: its prebuilds cover
+# linux/darwin/win32 x64+arm64, but pnpm v11 blocks scripts by default and
+# the approval placeholder would otherwise abort scripted installs.
+allowBuilds:
+  node-pty: true
