@@ -17,3 +17,21 @@
     - id: ui-terminal
       name: '@deepseek-ai/dsh-client-ui-terminal'
 
+# ── flash-only model policy (2026-09-04; cost, ~3x pro premium) ────────────
+# Restrict the deepseek-official adapter catalog to deepseek-v4-flash and the
+# vision sibling so sessions and subagents can never pick deepseek-v4-pro.
+# Mirrored by the hot `llm-deepseek:` section in $DSH_HOME/settings.yaml.
+- id: llm-deepseek
+  config:
+    models:
+      - id: deepseek-v4-flash
+        name: DeepSeek-V4-Flash
+        contextWindow: 1000000
+        inputModalities: [text]
+      - id: deepseek-v4-flash-vision-exp
+        name: DeepSeek-V4-Flash-Vision-Exp
+        contextWindow: 1000000
+        inputModalities: [text, image]
+        imagePixelBudget: 640000
+        imageMaxBytes: 1048576
+

@@ -68,3 +68,13 @@ When the user asks to be grilled, or uses grill trigger phrases ("grill me", "st
 * **Recommend an answer:** For each question, provide your recommended answer.
 * **Look up facts, don't ask:** If a fact can be found by exploring the environment (filesystem, tools, docs, codebase), look it up rather than asking. The *decisions* are the user's — put each one to them and wait for the answer.
 * **No action until confirmed:** Do not act on the plan until the user confirms shared understanding has been reached.
+
+## 7. Model & Cost Policy — Flash-Only Agents
+
+Autonomous work in this harness is a cost-controlled operation; model choice is a hard policy, not a preference (usage analysis 2026-09).
+
+* **Every agent, subagent, and worker runs on `deepseek-v4-flash`** (provider `deepseek-official`). Never select, request, or delegate to `deepseek-v4-pro` — not in session model choices, not in `subagent`/`workflow` delegation options, not in any tool argument that names a model, and not by asking the user to switch to it.
+* `deepseek-v4-flash-vision-exp` is allowed only when the task genuinely requires image input; for plain text work use `deepseek-v4-flash`.
+* Do not "escalate" by switching models when a task gets hard. Finish with flash and surface the limitation to the user (§5) instead.
+* `deepseek-v4-pro` bills ~3× the flash rate on every token class (and 6× on peak-hour output). Treat any pro usage as an error.
+* Prefer off-peak hours for bulk work: DeepSeek peak windows are Mon–Fri 04:00–07:00 and 09:00–13:00 Moscow (01:00–04:00 and 06:00–10:00 UTC); off-peak is billed at half the peak rate, and weekends are fully off-peak.
