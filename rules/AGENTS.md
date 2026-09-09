@@ -21,6 +21,7 @@ You must define the contract and purpose of every class and function *before/abo
     * **OUTPUTS:** Detailed description of the expected outputs, including types and potential null states.
     * **KEYWORDS:** Contextually fitting keywords to aid in repository search and agent context retrieval.
 * **Mechanical Docstrings:** Inside the function/class definition, use standard docstrings to describe *what the code actually does mechanically* under the hood, which is distinct from its overarching purpose.
+* **Self-Contained, Factual Inline Documentation:** Inline documentation — the PURPOSE/INPUTS/OUTPUTS/KEYWORDS header, block comments, and docstrings — must be self-contained and purely factual. It must NEVER reference external documentation files (this rules file, any `AGENTS.md`, a `README`, or prose under `docs/`) as the source of a code element's contract, behavior, or motivation. Everything a reader needs to understand the code — including its rationale — must live inside the inline documentation itself, so the inline text stays consistent on its own. Cross-references are allowed ONLY to other code parts/functions (e.g. "see `resolve()`"), never to documentation files.
 * **Handling Edge Cases:** Explicitly document how the function behaves when given edge-case inputs (e.g., empty arrays, null pointers, negative integers) in both the OUTPUTS section and the internal docstring.
 
 ### Example Standard:
