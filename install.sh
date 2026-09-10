@@ -5,7 +5,7 @@
 #   1. checks Node >= 24 (node-pty ABI),
 #   2. installs the pinned harness version globally (`npm i -g`),
 #   3. creates $DSH_HOME/profiles/web from the kit's canonical profile files,
-#   4. installs the workbench plugin tarballs into the profile,
+#   4. installs the model-gate plugin tarball into the profile,
 #   5. installs the user-global core operating rules ($DSH_HOME/AGENTS.md).
 #
 # Usage:
@@ -18,7 +18,7 @@
 set -euo pipefail
 
 KIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DSH_VERSION="0.1.1-rc.2"        # pinned harness version (see COMPAT.md)
+DSH_VERSION="0.1.5-rc.1"        # pinned harness version (see COMPAT.md)
 PNPM_VERSION="11.7.0"           # matches the harness workspace toolchain
 DSH_HOME="${DSH_HOME:-$HOME/.npm/dsh}"
 
@@ -70,7 +70,7 @@ cp "${KIT_DIR}/profile/pnpm-workspace.yaml" "${DSH_HOME}/profiles/web/pnpm-works
 
 # 4. Plugin tarballs (pnpm writes machine-local absolute paths into the
 #    profile's package.json — the kit file stays canonical with no deps).
-echo "   installing workbench plugins..."
+echo "   installing the model-gate plugin..."
 (
   cd "${DSH_HOME}/profiles/web"
   corepack pnpm@${PNPM_VERSION} add "${KIT_DIR}"/plugins/*.tgz

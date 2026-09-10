@@ -2,36 +2,24 @@
 # a top-level YAML array of loader patch entries (id-targeted config
 # overrides, disables, and insert lists; `!!js` expressions allowed).
 
-# ── web workbench plugin suite (installed from tarballs) ────────────────────
-# Host bridge: /wb-api routes (workspace files/review + terminal sessions).
+# ── model-gate: cost policy for the official DeepSeek route ────────────────
+# Class-based flash-only gate: every llm/stream dispatch whose model is not a
+# Flash-tier id is vetoed before the adapter is invoked (root turns,
+# subagents, compaction, session titles), so a non-Flash model costs nothing
+# and fails loudly. The pattern admits future Flash releases without a policy
+# edit; non-Flash tiers (the pro line) match nothing.
 - insert:
-    - id: web-workbench
-      name: '@deepseek-ai/dsh-host-web-workbench'
-      # Flash-only model gate (hard block): every llm/stream dispatch whose
-      # exact model is not allowed is vetoed before the adapter is invoked,
-      # covering root turns, subagents, compaction, and session titles.
+    - id: model-gate
+      name: '@deepseek-ai/dsh-model-gate'
       config:
-        flashOnlyGate:
-          enabled: true
-          # Class-based policy: every Flash-tier id passes (current and future
-          # releases, plus the deprecated v4 aliases the API still serves);
-          # non-Flash tiers such as the pro line match nothing.
-          allowedModelPatterns:
-            - '^deepseek-(v[0-9.]+-)?flash(-[a-z0-9-]+)*$'
+        enabled: true
+        allowedModelPatterns:
+          - '^deepseek-(v[0-9.]+-)?flash(-[a-z0-9-]+)*$'
 
-    # Browser roster rows (dsh.client declarations) for the workbench +
-    # terminal panels; the client-modules node half scans these into
-    # window.__DSH_BOOT__.
-    - id: ui-workbench
-      name: '@deepseek-ai/dsh-client-ui-workbench'
-
-    - id: ui-terminal
-      name: '@deepseek-ai/dsh-client-ui-terminal'
-
-# ── flash-only model policy (2026-09-04, V4.1 update 2026-09-07) ────────────
-# The deepseek-official adapter advertises the current Flash model only
-# (deepseek-v4-pro never appears, and the retired V4-Flash aliases are not
-# offered). Mirrored by the hot `llm-deepseek:` section in settings.yaml.
+# ── model picker: advertise only the current Flash model ───────────────────
+# The gate is the hard block; this keeps non-Flash tiers out of the picker and
+# every catalog-driven list so the UI never offers what the gate would refuse.
+# Mirrored by the hot `llm-deepseek:` section in $DSH_HOME/settings.yaml.
 - id: llm-deepseek
   config:
     models:
@@ -41,4 +29,3 @@
         inputModalities: [text, image]
         imagePixelBudget: 640000
         imageMaxBytes: 1048576
-

@@ -3,7 +3,7 @@
 #   1. checks Node >= 24 (node-pty ABI),
 #   2. installs the pinned harness version globally (npm i -g),
 #   3. creates $env:DSH_HOME\profiles\web from the kit's canonical profile files,
-#   4. installs the workbench plugin tarballs into the profile,
+#   4. installs the model-gate plugin tarball into the profile,
 #   5. installs the user-global core operating rules ($env:DSH_HOME\AGENTS.md).
 #
 # Usage (PowerShell):
@@ -16,7 +16,7 @@
 $ErrorActionPreference = 'Stop'
 
 $KIT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
-$DSH_VERSION = '0.1.1-rc.2'
+$DSH_VERSION = '0.1.5-rc.1'
 $PNPM_VERSION = '11.7.0'
 $DSH_HOME = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $env:USERPROFILE '.npm\dsh' }
 
@@ -51,7 +51,7 @@ Copy-Item (Join-Path $KIT_DIR 'profile\package.json') (Join-Path $profileDir 'pa
 Copy-Item (Join-Path $KIT_DIR 'profile\pnpm-workspace.yaml') (Join-Path $profileDir 'pnpm-workspace.yaml') -Force
 
 # 4. Plugin tarballs.
-Write-Host '   installing workbench plugins...'
+Write-Host '   installing the model-gate plugin...'
 Push-Location $profileDir
 try {
   corepack pnpm@$PNPM_VERSION add (Get-ChildItem (Join-Path $KIT_DIR 'plugins\*.tgz') | ForEach-Object { $_.FullName })

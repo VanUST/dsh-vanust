@@ -7,88 +7,93 @@ every reference. Backends reject old on-disk formats."* — **breaking changes
 are the expected norm**. This file is the checklist that turns each upgrade
 from a leap into a gated, greppable procedure.
 
-Pinned baseline (this kit): `@deepseek-ai/dsh@0.1.1-rc.2`, Node ≥ 24,
+Pinned baseline (this kit): `@deepseek-ai/dsh@0.1.5-rc.1`, Node ≥ 24,
 pnpm 11.7 (corepack).
 
 ---
 
-## 1. The upstream API surface our plugins use
+## 1. The upstream API surface this kit uses
 
-Every row = one place upstream can break us. Greps are against the harness
-source checkout (`~/deepseek-harness`, pinned to the same version as the
-installed harness).
-
-### Host side — `packages/host/web-workbench`
+The kit ships exactly one plugin (`@deepseek-ai/dsh-model-gate`), so the
+watchlist is small. Greps run against the harness source checkout
+(`~/deepseek-harness`, on the branch/tag matching the installed harness).
 
 | # | Upstream API | Where | Verify grep (in checkout) |
 |---|---|---|---|
-| H1 | `ctx.webServer.register({kind:'prefix',path,handler})` | `@deepseek-ai/dsh-host-webserver` | `grep -n "interface WebRoute" packages/host/webserver/src/index.ts` |
-| H2 | `ctx.webServer.registerUpgrade({path,handler})` | same | `grep -n "interface WebUpgradeRoute" packages/host/webserver/src/index.ts` |
-| H3 | `ctx.workspaceRegistry.get(id)` + `WorkspaceId()` | `@deepseek-ai/dsh-workspace` | `grep -n "get(id" packages/workspace/workspace/src/index.ts` |
-| H4 | Cordis `Service`/`Context`/`[Service.init]` | vendored cordis (`vendor/cordis`) | `grep -n "abstract class Service" vendor/cordis/src/service.ts` |
-| H5 | schemastery `z.object` plugin Config | vendored schemastery | `grep -n "export function object" vendor/schemastery/src/*.ts` |
-| H6 | **external deps**: `node-pty@1.2.0-beta.15` (exact — native ABI, Node-major-sensitive), `ws@^8.21` | npm | `node -p "require('node-pty/package.json').version"` after install |
+| G1 | `llm/stream` waterfall event `(options: GenerateOptions, next) => AsyncIterable<StreamChunk>`, emitted around every dispatch | `@deepseek-ai/dsh-llm` | `grep -rn "'llm/stream'" packages/llm/llm/src/index.ts` |
+| G2 | `LlmError(message, code)` with a stable `code` on the thrown error | `@deepseek-ai/dsh-llm` | `grep -n "class LlmError" packages/llm/llm/src/index.ts` |
+| G3 | Cordis function-plugin idiom: `name` / `inject` / `Config` (schemastery) / `apply(ctx, config)` plus `ctx.on(event, listener, {global, prepend})` | vendored cordis | `grep -rn "waterfall" vendor/cordis/src/events.ts \| head` |
+| G4 | The `llm-deepseek` adapter's `models` catalog config (advertised models with `id`/`name`/`contextWindow`/`inputModalities` plus image budgets) | `@deepseek-ai/dsh-llm-deepseek` | `grep -n "models:" packages/llm/llm-deepseek/src/index.ts \| head` |
+| G5 | Profile composition: `insert` rows in `cordis.patch.yml`, plugin tarballs installed with pnpm into `$DSH_HOME/profiles/<name>` | `@deepseek-ai/dsh` CLI | `dsh --profile web --dump-config` after a change |
 
-### Client side — `packages/client/ui-workbench` + `ui-terminal`
+### Ours (stable by construction — upstream churn must not touch these)
 
-| # | Upstream API | Where | Verify grep |
-|---|---|---|---|
-| C1 | `ctx.slots.inject(name, fn)` / `ctx.slots.register({name,id,order,locale}, Component)` | `@deepseek-ai/dsh-client-ui-slots` + `ui-renderer` | `grep -rn "register(" packages/client/ui-slots/src/store.ts | head` |
-| C2 | Slot key `conversation.session.header.utilities` | `@deepseek-ai/dsh-client-ui-conversation` | `grep -rn "header.utilities" packages/client/ui-conversation/src/client/contract/slots.ts` |
-| C3 | Standard props `useSessions`/`useWorkspaces` (GlobalStandardProps) via `PropsRuntime` | `ui-session` / `ui-conversation` / `ui-slots` | `grep -rn "useSessions\|useWorkspaces" packages/client/ui-slots/src/index.ts` |
-| C4 | Locale face: `ctx.locale.register(NS,{zh,en})`, `t` seat, `LocaleNamespaceMap` merge | `@deepseek-ai/dsh-client-locale` | `grep -rn "interface LocaleNamespaceMap" packages/client/ui-slots/src/index.ts` |
-| C5 | **DOM structure coupling**: layout frame = `div:has(> [data-shell-overlay])` (ui-layout AppFrame) — used by the tiling CSS in both plugins | `@deepseek-ai/dsh-client-ui-layout` | `grep -rn "data-shell-overlay" packages/client/ui-layout/src/client/AppFrame.tsx` |
-| C6 | `dsh.client` manifest + loader rows + `/plugins/<id>/client.js` serving | `@deepseek-ai/dsh-client-modules` | `grep -rn "dsh.client" packages/client/modules/src/index.ts` |
-| C7 | `window.__DSH_BOOT__` boot graph shape (informational) | same | — |
-
-### Ours (stable by construction — do not let upstream churn touch these)
-
-- The **`/wb-api` HTTP + WebSocket protocol** (host route + browser client are
-  both in our packages). Transport hooks are H1/H2; the protocol itself is
-  ours. *Planned: `protocolVersion` in `/system/capabilities` so a mismatched
-  host/client fails loudly.*
-- The **`dsh:terminal.open`** cross-plugin event (name mirrored in both client
-  packages — keep the two copies in sync).
-- The wire types mirrored in `ui-workbench|ui-terminal/src/client/types.ts`
-  vs `web-workbench/src/types.ts` (keep in sync).
+- The **gate policy semantics**: class-based model matching, the
+  `MODEL_NOT_ALLOWED` failure code, and the config shape
+  `{ enabled, allowedModels?, allowedModelPatterns? }`.
+- The **flash-class default pattern** `^deepseek-(v[0-9.]+-)?flash(-[a-z0-9-]+)*$`,
+  which admits future Flash releases without a policy edit.
+- Kit-side: the profile patch's `llm-deepseek` catalog row that keeps
+  non-Flash tiers out of the picker.
 
 ---
 
 ## 2. Upgrade procedure (the gate)
 
-**Before any upgrade, snapshot:** `git -C <kit> commit` (plugins tarballs
-included) and `cp -r "$DSH_HOME/profiles/web" profiles-web.bak`.
+**Before any upgrade, snapshot:** `git -C <kit> commit` (plugin tarballs
+included), `cp -r "$DSH_HOME/profiles/web" <backup>/profiles-web`, and copy
+`settings.yaml` plus a tarball of `$DSH_HOME/sessions` and `storages` — session
+files are machine-local with no compatibility promise, so a rollback needs
+them.
 
 1. **Install the candidate** globally — exact version, never unpinned:
    `npm install -g "@deepseek-ai/dsh@<candidate>"`
-2. **Align the checkout:** point `HARNESS_DIR` at a checkout of the candidate
-   version (same tag), re-run `corepack pnpm install` if needed.
-3. **Rebuild the plugins** against that checkout: `./scripts/rebuild-plugins.sh`
-   (regenerates `plugins/*.tgz` into the kit — commit them).
-4. **Run the watchlist greps** (§1) against the candidate source. Any missing
-   hit = the API moved: read the new shape, adapt the package, rebuild again.
-5. **Run the gate:** `./scripts/verify-upgrade.sh` — boots a throwaway
-   instance from the kit with the candidate `dsh` and probes health, static
-   assets, capabilities, WS+PTY round-trip, and boot-graph membership.
-6. **Roll to live only on PASS:** reinstall the tarballs into the live
-   profile (`cd "$DSH_HOME/profiles/web" && corepack pnpm add <kit>/plugins/*.tgz`),
-   restart `dsh web`, refresh the browser.
-7. **On FAIL:** revert with step 0 (`npm i -g "@deepseek-ai/dsh@0.1.1-rc.2"`,
-   restore the profile backup), and report the failing probe upstream.
+2. **Align the checkout:** put `~/deepseek-harness` on the branch/tag whose
+   packages match the candidate, then `corepack pnpm install`.
+3. **Rebuild the plugin** against that checkout:
+   `HARNESS_DIR=~/deepseek-harness ./scripts/rebuild-plugins.sh` (repacks
+   `plugins/model-gate-<version>.tgz`; commit it).
+4. **Run the watchlist greps** (§1). A missing hit means the API moved: read
+   the new shape, adapt `packages/host/model-gate`, rebuild again.
+5. **Run the gate:** `./scripts/verify-upgrade.sh` — builds a throwaway
+   `$DSH_HOME` from the kit, installs the tarball, asserts the composed tree
+   mounts `model-gate`, boots `dsh web` (0.1.5+ fences the UI behind the
+   `?token=` printed on the boot line), and drives the **installed artifact**
+   against the candidate's cordis: a disallowed model must fail with
+   `MODEL_NOT_ALLOWED` before the dispatch base, a Flash model must reach it.
+6. **Probe session history separately** (the gate does not cover it): boot the
+   candidate against a *copy* of the real `sessions/` and confirm the chats
+   list. 0.1.5-rc.1 keeps same-layout v0/v1 readers, but the harness promises
+   nothing across versions.
+7. **Roll to live only on PASS:** repoint the live profile
+   (`cd "$DSH_HOME/profiles/web" && corepack pnpm remove <old> && corepack pnpm add <kit>/plugins/*.tgz`),
+   copy `profile/cordis.patch.yml` into the live profile, restart `dsh web`,
+   and open the **token URL printed at boot** (a bare `http://127.0.0.1:3080/`
+   now answers 401).
+8. **On FAIL:** revert with step 0 (`npm i -g "@deepseek-ai/dsh@<previous>"`,
+   restore the profile backup and tarball set) and report the failing probe.
 
-**Never** upgrade an unpinned `dsh` on a live machine, and never rebuild
-plugins against a `main` checkout much newer than the installed harness —
-the two must match.
+**Never** upgrade an unpinned `dsh` on a live machine, and never rebuild the
+plugin against a checkout much newer than the installed harness — the two must
+match.
 
 ---
 
 ## 3. Known upstream churn signals (from history)
 
-- The fork ecosystem (`yth1120/deepseek-harness`) shows that RPC layers have
-  already been replaced once (apiproxy vs the stock typert remotes) — client
-  transport surfaces (C1–C4) are the likeliest breakage points.
-- `SESSION_FORMAT_VERSION = 0`, no compat promise: **session files are
-  machine-local by design** — do not sync `$DSH_HOME/sessions|storages`
-  across machines or expect them to survive upgrades.
-- The "pre-release stance" section may be removed at the first tagged
-  release — that tag is when the API is expected to stabilize.
+- **0.1.5 introduced browser authentication.** `dsh web` prints
+  `http://…/?token=…`; requests without it answer 401. Bookmarks and probes
+  that assume an open `http://127.0.0.1:3080/` must use that URL.
+- **The web app now provides what this kit used to build.** Files
+  (`ui-sidebar-files`), document/media preview (`ui-sidebar-documentpreview`),
+  open-in-app and a docking layout (`ui-dockkit`) ship upstream, which is why
+  the kit retired its custom workbench and terminal plugins. Upstream's
+  `terminal/` family is model-facing agent tooling, not a browser panel.
+- **On-disk formats:** 0.1.5-rc.1 keeps frozen v0/v1 session readers and the
+  `--<cwd>--/<id>/session.jsonl.zstd` layout, so old session directories boot
+  clean — but this is not a promise. `SESSION_FORMAT_VERSION` remains 0 and the
+  storage backends may reject old formats at any release: do not sync
+  `$DSH_HOME/sessions|storages` across machines, and always snapshot before an
+  upgrade.
+- The "pre-release stance" above may be removed at the first tagged release —
+  that tag is when the API is expected to stabilize.

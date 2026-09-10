@@ -1,23 +1,27 @@
 # USERGUIDE.md — setting up and starting the harness on a new machine
 
-This kit installs **DeepSeek Harness (dsh)** + the web workbench plugin suite
-(terminal, file manager, git review, browser) on any of your machines:
-2× Linux, 1× Windows. The harness version is pinned; sessions and workspaces
-stay machine-local by design (see COMPAT.md §3).
+This kit installs **DeepSeek Harness (dsh)** on any of your machines (2× Linux,
+1× Windows) plus the single plugin this deployment adds beyond upstream:
+**`@deepseek-ai/dsh-model-gate`**, the class-based flash-only cost policy. The
+harness version is pinned; sessions and workspaces stay machine-local by design
+(see COMPAT.md §3).
+
+The user interface is upstream's own web app: conversations, the right sidebar
+with Files and document preview, open-in-app, and the agent's terminal tools all
+come from the harness itself. This kit no longer ships client plugins.
 
 ---
 
 ## 1. Fresh machine setup
 
-Requirements: **Node.js ≥ 24** (node-pty is ABI-sensitive — keep the same
-major on every machine), git, and network access to npm.
+Requirements: **Node.js ≥ 24**, git, and network access to npm.
 
 ### Linux / macOS
 
 ```bash
 git clone https://github.com/VanUST/dsh-vanust.git
 cd dsh-vanust
-./install.sh          # node check → pinned dsh → web profile → plugins → rules
+./install.sh          # node check → pinned dsh → web profile → plugin → rules
 ```
 
 ### Windows (PowerShell)
@@ -28,15 +32,12 @@ cd dsh-vanust
 powershell -ExecutionPolicy Bypass -File install.ps1
 ```
 
-The installer does five things (idempotent; re-running upgrades to the pin). It installs
-into a **user-local npm prefix** (your existing `~/.npm/...` prefix is kept; a fresh
-machine gets `~/.npm`) — **no sudo/admin needed**:
+The installer does four things (idempotent; re-running upgrades to the pin):
 1. checks Node ≥ 24,
-2. `npm i -g @deepseek-ai/dsh@0.1.1-rc.2` (exact pin),
+2. `npm i -g @deepseek-ai/dsh@0.1.5-rc.1` (exact pin),
 3. writes `$DSH_HOME/profiles/web/{package.json,cordis.patch.yml}` from the
-   kit's canonical copies,
-4. installs the three plugin tarballs into the profile (machine-local paths),
-5. installs the user-global core operating rules to `$DSH_HOME/AGENTS.md`.
+   kit's canonical copies and installs the plugin tarball into the profile,
+4. installs the user-global core operating rules to `$DSH_HOME/AGENTS.md`.
 
 `$DSH_HOME` = `~/.npm/dsh` (Linux) / `%USERPROFILE%\.npm\dsh` (Windows) —
 override with the `DSH_HOME` env var if you prefer another location.
@@ -50,77 +51,65 @@ override with the `DSH_HOME` env var if you prefer another location.
 dsh web --port 3080
 ```
 
+**Open the URL the command prints.** Since 0.1.5 the web app is fenced behind a
+login token: the boot line reads `http://127.0.0.1:3080/?token=…`, and a bare
+`http://127.0.0.1:3080/` answers *authentication required*. Keep that token URL
+(or the cookie it sets) rather than an old bookmark.
+
 First run: the GUI opens with an onboarding screen — **configure your API
 credentials there** (each machine keeps its own keys in
 `$DSH_HOME/.credentials.yaml`; do not sync that file).
 
 ## 3. First-run checks (1 minute)
 
-1. Open any workspace/session — the session header (top-right) shows two
-   compact toggles: **`>_`** (terminal) and **▤** (workbench).
-2. Click `>_`: the chat column **moves up** (i3-style tiling — nothing is
-   covered) and a real PTY shell opens in the bottom band. Type `htop` or
-   `vim` — full-screen apps must work.
-3. (Optional) run TUI tools like micro or yazi inside the terminal — the PTY
-   renders full-screen apps fine.
-3. Click ▤ → **Files**: browse the workspace tree; select a directory and use
-   **Open in terminal** / **yazi** (if installed) / **Open in system**.
-   Click an image file (png/jpg/gif/webp/bmp/avif) — it previews in the panel;
-   **Open in system** on a file launches your default viewer.
-4. **Review** tab: shows git changes/diffs when the workspace is a repo.
+1. Open any workspace/session; the chat renders and the right sidebar exposes
+   the upstream **Files** tree and document/preview tabs.
+2. Ask the agent to run a shell command — upstream's terminal tooling keeps
+   interactive sessions alive between tool calls, and command output renders as
+   a terminal block in the chat.
+3. Ask the agent to edit a file and confirm the change appears in the sidebar
+   preview.
 
-If the toggles are missing: the plugins did not load — see §5.
+If the UI loads but the agent immediately fails with `MODEL_NOT_ALLOWED`, the
+default model is not a Flash-class id — check `$DSH_HOME/settings.yaml`
+(`agent-default-model.model`) and the profile patch. If it fails with
+`MISSING_CREDENTIAL`, finish the onboarding credential step.
 
 ## 4. Per-machine configuration
 
 | Item | Linux | Windows |
 |---|---|---|
 | Credentials | first-run onboarding | same |
-| System file manager | default `xdg-open` (nautilus/dolphin/… whatever you have) | **must set `openCommand: explorer`** (see below) |
-| TUI file manager (yazi button) | auto-detected on PATH | install yazi to get the button |
 | Startup script | `./start.sh` | `.\start.ps1` |
-| Shell in terminal | `$SHELL` (bash/zsh/…) | pwsh (auto) |
+| Default model | `deepseek-flash` in `$DSH_HOME/settings.yaml` | same |
+| Shell tooling | upstream `terminal/` family | same |
 
-### Windows: system file manager
+## 5. Migrating an EXISTING machine
 
-Edit `$DSH_HOME\profiles\web\cordis.patch.yml` — add `config` to the
-web-workbench row:
-
-```yaml
-- insert:
-    - id: web-workbench
-      name: '@deepseek-ai/dsh-host-web-workbench'
-      config:
-        openCommand: explorer
-```
-
-then restart `dsh web`. (Linux needs no change — `xdg-open` is the default.)
-
-## 5. Migrating an EXISTING machine (instead of fresh install)
-
-The live profile already exists — only the plugin source paths may be stale
-(the old kit used `/tmp` paths). Fix:
+The live profile may still reference the retired workbench/terminal tarballs.
+Bring it to the shipped set:
 
 ```bash
 cd "$DSH_HOME/profiles/web"
-corepack pnpm add /path/to/dsh-kit/plugins/*.tgz   # rewrites to kit paths
-cp /path/to/dsh-kit/profile/cordis.patch.yml cordis.patch.yml   # if yours is older
-cp /path/to/dsh-kit/rules/AGENTS.md "$DSH_HOME/AGENTS.md"       # refresh rules
+corepack pnpm remove @deepseek-ai/dsh-host-web-workbench \
+  @deepseek-ai/dsh-client-ui-workbench @deepseek-ai/dsh-client-ui-terminal
+corepack pnpm add /path/to/dsh-kit/plugins/*.tgz
+cp /path/to/dsh-kit/profile/cordis.patch.yml cordis.patch.yml
+cp /path/to/dsh-kit/rules/AGENTS.md "$DSH_HOME/AGENTS.md"
 ```
 
-Then restart `dsh web` and refresh the browser.
+Then restart `dsh web` and open the token URL it prints.
 
 ## 6. Troubleshooting
 
 | Symptom | Cause / fix |
 |---|---|
-| Toggles missing after install | Plugins not in the profile: `dsh web --dump-config \| grep workbench` (should show 3 rows); re-run the `pnpm add` step |
-| Terminal says "Terminal failed" | Host plugin not serving `/wb-api/static/xterm.js` — curl it; host code changed → restart `dsh web` |
-| "Session cap reached" | max 4 concurrent PTY sessions (config `maxSessions` in the patch) |
-| System FM button errors on Windows | `openCommand` not set — see §4 |
+| `http://127.0.0.1:3080/` says authentication required | Expected since 0.1.5 — reopen the `?token=` URL printed by `dsh web` |
+| Agent fails `MODEL_NOT_ALLOWED` | A non-Flash model is configured; set `agent-default-model.model: deepseek-flash` (or widen `allowedModelPatterns` in the profile patch) |
+| Agent fails `MISSING_CREDENTIAL` | Credentials not stored — finish onboarding / the Models page |
 | `dsh web` won't start | port 3080 busy (`PORT=3081 ./start.sh`) or Node < 24 |
-| Terminal broken after a harness upgrade | run `scripts/verify-upgrade.sh` before upgrading — see COMPAT.md |
-| npm wants to reinstall node-pty | Node major changed — keep Node 24 on every machine (ABI) |
+| Gate not active after a config edit | The row registers at boot — restart `dsh web` |
+| Sessions from the old harness missing/odd after an upgrade | Session formats are not guaranteed across versions; restore the backup taken before the upgrade (COMPAT.md §2) |
 
 ## 7. Upgrades (short version)
 
@@ -128,7 +117,7 @@ See **COMPAT.md** for the full gate. One-liner habit:
 
 ```bash
 npm i -g "@deepseek-ai/dsh@<candidate>"        # 1. install candidate
-./scripts/rebuild-plugins.sh                   # 2. rebuild plugins (same version checkout)
+./scripts/rebuild-plugins.sh                   # 2. rebuild the plugin (matching checkout)
 ./scripts/verify-upgrade.sh                    # 3. gate on a throwaway instance
-# 4. only on PASS: reinstall tarballs + restart the live GUI
+# 4. only on PASS: repoint the live profile + restart the GUI (token URL)
 ```

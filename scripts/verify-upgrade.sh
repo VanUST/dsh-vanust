@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
-# dsh-kit upgrade gate — verify the plugin suite against a (possibly new)
-# harness version on a THROWAWAY instance BEFORE touching the live profile.
+# dsh-kit upgrade gate — verify the shipped plugin suite against a (possibly
+# new) harness version on a THROWAWAY instance BEFORE touching the live profile.
 #
 # Usage:
 #   # 1) install the candidate harness version globally, e.g.:
 #   #      npm install -g "@deepseek-ai/dsh@<candidate-version>"
-#   # 2) (optional) rebuild plugins from source against the matching checkout:
-#   #      ./scripts/rebuild-plugins.sh
-#   # 3) run the gate — it uses whatever `dsh` is on PATH:
+#   # 2) run the gate — it uses whatever `dsh` is on PATH:
 #   ./scripts/verify-upgrade.sh
 #
-# The gate builds a fresh $DSH_HOME from the kit, boots `dsh web` on an
-# isolated port, and probes the whole plugin surface: health, static assets,
-# capabilities, WebSocket+PTY round-trip, and boot-graph membership. PASS
-# means the candidate is safe to roll onto the live profile + restart.
+# The gate builds a fresh $DSH_HOME from the kit, installs the kit tarballs,
+# boots `dsh web` on an isolated port, and probes the surface the kit ships:
+# composition wiring (the model-gate row is mounted), web boot, and the cost
+# policy itself — a disallowed model must fail with MODEL_NOT_ALLOWED before
+# any dispatch, while the default Flash model must pass the gate and fail only
+# later (no credentials exist in the throwaway home). PASS means the candidate
+# is safe to roll onto the live profile + restart.
 set -euo pipefail
 
 KIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -21,6 +22,8 @@ PORT="${PORT:-3081}"
 TEST_ROOT="$(mktemp -d)"
 TEST_HOME="${TEST_ROOT}/home"
 PROFILE_DIR="${TEST_HOME}/profiles/web"
+BLOCKED_HOME="${TEST_ROOT}/blocked-home"
+ALLOWED_HOME="${TEST_ROOT}/allowed-home"
 
 cleanup() {
   if [ -n "${GATE_PID:-}" ]; then kill "${GATE_PID}" 2>/dev/null || true; fi
@@ -58,6 +61,11 @@ probe() { # probe <name> <command-string> — runs the command via bash -c
   fi
 }
 
+# ── composition wiring: the gate row is mounted in the composed tree ────────
+probe "composition mounts model-gate" \
+  "DSH_HOME='${TEST_HOME}' dsh --profile web --dump-config 2>/dev/null | grep -q 'dsh-model-gate'"
+
+# ── boot: the candidate serves the web app with the kit installed ───────────
 echo "   booting throwaway instance on :${PORT}..."
 DSH_HOME="${TEST_HOME}" dsh web --port "${PORT}" --no-open >"${TEST_ROOT}/web.log" 2>&1 &
 GATE_PID=$!
@@ -70,41 +78,49 @@ for i in $(seq 1 45); do
     exit 1
   fi
 done
-
-BASE="http://127.0.0.1:${PORT}"
-probe "health"                "curl -sf ${BASE}/wb-api/health"
-probe "static xterm.js"       "curl -sf ${BASE}/wb-api/static/xterm.js -o /dev/null"
-probe "static xterm.css"      "curl -sf ${BASE}/wb-api/static/xterm.css -o /dev/null"
-probe "capabilities"          "curl -sf ${BASE}/wb-api/system/capabilities | grep -q openCommand"
-probe "boot graph: terminal"  "curl -sf ${BASE}/ | grep -q ui-terminal/client.js"
-probe "boot graph: workbench" "curl -sf ${BASE}/ | grep -q ui-workbench/client.js"
-
-# WebSocket + PTY round-trip (run from the profile so 'ws' resolves).
-probe "ws+pty round-trip" "
-  cd '${PROFILE_DIR}' && timeout 30 node --input-type=module -e '
-    import WebSocket from \"ws\"
-    const ws = new WebSocket(\"ws://127.0.0.1:${PORT}/wb-api/terminal/ws?cols=80&rows=24\")
-    let out = \"\"
-    const timer = setTimeout(() => process.exit(1), 20000)
-    ws.on(\"message\", (raw) => {
-      const m = JSON.parse(String(raw))
-      if (m.type === \"ready\") ws.send(JSON.stringify({ type: \"input\", data: \"echo gate-ok\n\" }))
-      else if (m.type === \"output\") {
-        out += m.data
-        if (out.includes(\"gate-ok\")) { ws.send(JSON.stringify({ type: \"input\", data: \"exit\n\" })) }
-      } else if (m.type === \"exit\") { clearTimeout(timer); process.exit(0) }
-      else if (m.type === \"error\") process.exit(1)
-    })
-    ws.on(\"error\", () => process.exit(1))
-  '"
-
+# 0.1.5+ fences the browser UI behind a login token printed on the boot line.
+TOKEN="$(grep -oE 'token=[A-Za-z0-9_-]+' "${TEST_ROOT}/web.log" | head -1 | cut -d= -f2)"
+probe "web boot serves the app (token)" \
+  "[ -n '${TOKEN}' ] && curl -sf 'http://127.0.0.1:${PORT}/?token=${TOKEN}' -o /dev/null"
 kill "${GATE_PID}" 2>/dev/null || true
 wait "${GATE_PID}" 2>/dev/null || true
 GATE_PID=""
 
+# ── cost policy: the installed artifact vetoes a disallowed model ───────────
+# Runs the packed plugin against the candidate's own cordis in the throwaway
+# profile: no credentials, no model dispatch, and it exercises exactly the
+# shipped bundle. A disallowed model must fail with MODEL_NOT_ALLOWED before
+# the waterfall's base call; a Flash model must reach it.
+echo "   probing the installed gate artifact..."
+if (cd "${PROFILE_DIR}" && timeout 60 node --input-type=module -e '
+  import { Context } from "@deepseek-ai/cordis"
+  import * as gate from "@deepseek-ai/dsh-model-gate"
+  const ctx = new Context()
+  gate.apply(ctx, { enabled: true })
+  const base = () => (async function* () {})()
+  const call = (model) => {
+    try {
+      ctx.waterfall("llm/stream", { provider: "deepseek-official", model, messages: [] }, base)
+      return "allowed"
+    } catch (error) {
+      return error?.code ?? "threw-without-code"
+    }
+  }
+  const blocked = call("deepseek-v4-pro")
+  const allowed = call("deepseek-flash")
+  if (blocked !== "MODEL_NOT_ALLOWED") { console.error("blocked probe:", blocked); process.exit(1) }
+  if (allowed !== "allowed") { console.error("allowed probe:", allowed); process.exit(1) }
+') >"${TEST_ROOT}/policy.log" 2>&1; then
+  echo "   [ok ] disallowed model vetoed, Flash model admitted"
+else
+  echo "   [FAIL] installed gate artifact:"
+  tail -4 "${TEST_ROOT}/policy.log"
+  FAILED=1
+fi
+
 echo
 if [ "${FAILED}" -eq 0 ]; then
-  echo "== GATE PASS — safe to roll onto the live profile (back up the profile first, reinstall plugins, restart dsh web) =="
+  echo "== GATE PASS — safe to roll onto the live profile (back up first, reinstall tarballs, restart dsh web) =="
 else
   echo "== GATE FAIL — do NOT upgrade the live profile; see COMPAT.md and the logs above =="
   exit 1

@@ -1,33 +1,33 @@
 # AGENTS.md — dsh-kit
 
-Deployment kit for **DeepSeek Harness (dsh)** + the **web workbench plugin
-suite** across the user's machines (2× Linux, 1× Windows). Read
+Deployment kit for **DeepSeek Harness (dsh)** plus **`@deepseek-ai/dsh-model-gate`**,
+the one plugin this deployment adds beyond upstream (a class-based flash-only
+cost policy), across the user's machines (2× Linux, 1× Windows). Read
 `USERGUIDE.md` (per-machine setup/startup) and `COMPAT.md` (upgrade gate +
 upstream API watchlist) before changing anything. The plugin source lives in
-`~/deepseek-harness` (see its root AGENTS.md "Web workbench plugin suite —
-maintenance map"); this repo carries only **shipping artifacts** and the
-**canonical deployment files**.
+`~/deepseek-harness` (`packages/host/model-gate`); this repo carries only
+**shipping artifacts** and the **canonical deployment files**.
 
 ## What each artifact is and when to update it
 
 | File | Role | Update when |
 |---|---|---|
-| `plugins/*.tgz` | built plugin tarballs (host + 2 clients: terminal, workbench) | every shipped plugin change — via `scripts/rebuild-plugins.sh`, then **commit** |
-| `profile/cordis.patch.yml` | canonical profile patch: host row + two `dsh.client` rows (`ui-workbench`, `ui-terminal`) | plugin ids/names change, or per-machine config is added (e.g. Windows `openCommand: explorer`) |
+| `plugins/*.tgz` | the built `model-gate` plugin tarball | every shipped plugin change — via `scripts/rebuild-plugins.sh`, then **commit** |
+| `profile/cordis.patch.yml` | canonical profile patch: the `model-gate` row + the `llm-deepseek` catalog row | plugin ids/names or the model policy change |
 | `profile/package.json` | canonical profile manifest (bundles; **no deps** — installers add machine-local tarball paths) | bundle list changes |
 | `profile/pnpm-workspace.yaml` | pnpm policy incl. `allowBuilds: node-pty: true` (pre-approves its build script) | pnpm policy changes |
 | `rules/AGENTS.md` | user-global core operating rules, installed to `$DSH_HOME/AGENTS.md` | the rules themselves change (mirror `~/vibecoding/INSTRUCTIONS.md`) |
 | `install.sh` / `install.ps1` | fresh-machine setup (Node ≥ 24 → pinned dsh → profile → plugins → rules) | harness pin, Node requirement, or setup steps change |
 | `start.sh` / `start.ps1` | one-command startup (`dsh web --port 3080`) | port/launch changes |
-| `scripts/verify-upgrade.sh` | upgrade gate: throwaway instance + 7 probes (health, static assets, capabilities, boot graph, WS+PTY round-trip) | probe surface changes with the protocol |
+| `scripts/verify-upgrade.sh` | upgrade gate: throwaway instance + composition/boot/installed-artifact policy probes | probe surface changes with the protocol |
 | `scripts/rebuild-plugins.sh` | rebuild + repack from `~/deepseek-harness` (env `HARNESS_DIR`) | nothing — it is the update loop's front door |
-| `COMPAT.md` | 13-touchpoint upstream watchlist + upgrade procedure | upstream API churn is detected (run its greps each upgrade) |
+| `COMPAT.md` | upstream watchlist (5 touchpoints) + upgrade procedure | upstream API churn is detected (run its greps each upgrade) |
 | `USERGUIDE.md` | per-machine setup, first-run checks, Windows notes, troubleshooting | any user-facing step changes |
 
 ## Hard rules
 
-1. **Pins:** harness version exact (`@deepseek-ai/dsh@0.1.1-rc.2` in both
-   installers), `node-pty` exact (native ABI), Node ≥ 24 on every machine.
+1. **Pins:** harness version exact (`@deepseek-ai/dsh@0.1.5-rc.1` in both
+   installers), Node ≥ 24 on every machine.
    Bump all pins together and re-run the gate.
 2. **The gate is mandatory:** `npm i -g @deepseek-ai/dsh@<candidate>` →
    `scripts/rebuild-plugins.sh` (checkout pinned to the candidate) →
