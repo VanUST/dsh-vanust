@@ -13,9 +13,11 @@
       config:
         flashOnlyGate:
           enabled: true
-          allowedModels:
-            - deepseek-v4-flash
-            - deepseek-v4-flash-vision-exp
+          # Class-based policy: every Flash-tier id passes (current and future
+          # releases, plus the deprecated v4 aliases the API still serves);
+          # non-Flash tiers such as the pro line match nothing.
+          allowedModelPatterns:
+            - '^deepseek-(v[0-9.]+-)?flash(-[a-z0-9-]+)*$'
 
     # Browser roster rows (dsh.client declarations) for the workbench +
     # terminal panels; the client-modules node half scans these into
@@ -26,19 +28,15 @@
     - id: ui-terminal
       name: '@deepseek-ai/dsh-client-ui-terminal'
 
-# ── flash-only model policy (2026-09-04; cost, ~3x pro premium) ────────────
-# Restrict the deepseek-official adapter catalog to deepseek-v4-flash and the
-# vision sibling so sessions and subagents can never pick deepseek-v4-pro.
-# Mirrored by the hot `llm-deepseek:` section in $DSH_HOME/settings.yaml.
+# ── flash-only model policy (2026-09-04, V4.1 update 2026-09-07) ────────────
+# The deepseek-official adapter advertises the current Flash model only
+# (deepseek-v4-pro never appears, and the retired V4-Flash aliases are not
+# offered). Mirrored by the hot `llm-deepseek:` section in settings.yaml.
 - id: llm-deepseek
   config:
     models:
-      - id: deepseek-v4-flash
-        name: DeepSeek-V4-Flash
-        contextWindow: 1000000
-        inputModalities: [text]
-      - id: deepseek-v4-flash-vision-exp
-        name: DeepSeek-V4-Flash-Vision-Exp
+      - id: deepseek-flash
+        name: DeepSeek-V4.1-Flash
         contextWindow: 1000000
         inputModalities: [text, image]
         imagePixelBudget: 640000
