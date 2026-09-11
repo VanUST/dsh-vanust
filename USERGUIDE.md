@@ -133,14 +133,21 @@ To pick it up, add the entry from `profile/cordis.patch.yml` to your own profile
 install its tarball:
 
 ```bash
-# 1. install the new tarball into your profile
-cd "$DSH_HOME/profiles/web" && corepack pnpm@10.18.0 add "${KIT_DIR}"/plugins/cc-dsh-context-*.tgz
+# 1. install the new tarball into your profile.
+#    Use the pnpm major that installed the profile: the store layout is versioned
+#    (v10 vs v11), and a mismatched pnpm fails with ERR_PNPM_UNEXPECTED_STORE.
+#    install.sh installs with ${PNPM_VERSION} above, currently 11.7.0.
+cd "$DSH_HOME/profiles/web" && corepack pnpm@11.7.0 add "${KIT_DIR}"/plugins/cc-dsh-context-*.tgz
 
 # 2. add the matching insert entry to your cordis.patch.yml, copying it from
 #    ${KIT_DIR}/profile/cordis.patch.yml
 
 # 3. reload the profile; the harness restarts
 ```
+
+A plugin whose version did not change is **not** reinstalled: pnpm keeps the cached tarball even when
+the file on disk differs. Bump the plugin's version before repacking, or the old bytes stay in the
+profile and the fix appears not to work.
 
 Check composition without booting the app:
 
