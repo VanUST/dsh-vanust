@@ -43,27 +43,56 @@ def validate_user_session(user_id: str, auth_token: str) -> bool:
     # Implementation follows, including rigorous LDD logging...
 ```
 
-## 3. Fetch-Api-First Development
+## 3. Enforced Rules, Not Asserted Ones
+A rule is real only where something fails when it is broken. Prose that states a constraint without one
+enforces nothing: readers obey it and reviewers cite it, while a violation passes every check. Treat any
+rule you cannot tie to a failure as unverified.
+
+* **Find the enforcement before relying on a rule.** For each rule you intend to follow, identify the
+  command, linter rule, or test that would fail if it were violated. If you cannot, do not present it as
+  a constraint — say plainly that nothing enforces it.
+* **Read the project's declaration when one exists.** A repository may declare itself in a project-owned
+  file: its languages and how exactly each can be analysed, its verification commands, every rule it
+  claims with the command that enforces that rule, and the scope resolvers a work order may cite. When
+  such a file is present, read it before deciding what is expected of you, and prefer it over prose about
+  the project.
+* **A rule with no enforcement point is an unverified claim, not an optional rule.** Neither obey it
+  blindly nor ignore it: report the gap or write the enforcement. Do not quietly rely on it.
+* **Ask the project rather than guessing at it.** Where a tool can answer a question about the project's
+  structure, rules, or work in flight, call the tool. Prose is ignored often and a documentation server
+  almost always; executable output cannot drift from the code and is not a matter of trust.
+* **Work orders are scoped and machine-checked.** A specification you accept names the paths it may
+  write, the command that proves it finished, and its lifecycle state. Check whether other work in flight
+  claims overlapping paths before writing, because two tasks on one area produce whichever edit lands
+  last. When the work lands, delete the specification: a delivered work order describes work that is
+  already done, and a reader takes it as a description of the current state. Version control is the
+  archive.
+* **Enforcement is per project; the shape is universal.** A dynamic language, a compiled language, a game
+  engine, and a monorepo name different commands and different scope units, but the pattern does not
+  change: a rule, the thing that fails, and the area a change may touch. Do not assume a stack's tools;
+  read the project's declaration or ask the project for them.
+
+## 4. Fetch-Api-First Development
 Always fetch actual API first before writing and planning code. 
 
 * **Do not code from memory:** Unless code is trivial, you should always check existing APIs before writing code.
 * **Make API tests:** Do not code until verified a correct API usage. To do so, make API tests that confirm correct API understanding.
 
-## 4. Clean Architectural Patterns & Scalability
+## 5. Clean Architectural Patterns & Scalability
 You must strictly adhere to established, clean architectural patterns (e.g., SOLID, Clean Architecture, Separation of Concerns) to ensure robustness and maintainability.
 
 * **No "Ducktape" Solutions:** Avoid quick, hacky, or temporary fixes. Every piece of code should be written with the long-term scalability, maintainability, and performance of the system in mind.
 * **Modularity and Cohesion:** Design components to be highly cohesive and loosely coupled. Abstract logic should remain independent of implementation details, allowing components to be reused or replaced without cascading failures.
 * **Future-Proofing:** Anticipate future requirements and edge cases. Design data structures, interfaces, and APIs in a way that accommodates foreseeable scale and complexity without requiring massive refactoring.
 
-## 5. Architectural Decision Consultation
+## 6. Architectural Decision Consultation
 You must not make important architectural decisions unilaterally. Significant structural changes, design pattern selections, or technology choices must be validated with the user first.
 
 * **Pre-Implementation Consultation:** Before committing to a major architectural direction, pause and propose the architectural decision to the user. 
 * **Requirement Gathering:** Ask targeted, clarifying questions about the proposed architectural decision to deeply understand the user's specific requirements, constraints, and long-term goals.
 * **Iterative Refinement:** Use the user's feedback to tweak and refine the proposed solution. Only proceed with implementation once the architectural approach has been explicitly discussed and agreed upon.
 
-## 6. Grilling Option (grill-me)
+## 7. Grilling Option (grill-me)
 When the user asks to be grilled, or uses grill trigger phrases ("grill me", "stress-test my plan", "tear this plan apart", "sharpen this design"), run a grilling session before any implementation starts. If the task is ambiguous, not detailed enough, or contains contradictions with documentation/code — treat this as a trigger to grill the user until shared understanding is reached. It's better to ask important details first than fix later.
 
 * **One question at a time:** Interview the user about every aspect of the plan, walking down each branch of the decision tree. Ask questions one at a time and wait for feedback on each before continuing. Asking multiple questions at once is bewildering.
@@ -72,17 +101,17 @@ When the user asks to be grilled, or uses grill trigger phrases ("grill me", "st
 * **Look up facts, don't ask:** If a fact can be found by exploring the environment (filesystem, tools, docs, codebase), look it up rather than asking. The *decisions* are the user's — put each one to them and wait for the answer.
 * **No action until confirmed:** Do not act on the plan until the user confirms shared understanding has been reached.
 
-## 7. Model & Cost Policy — Flash-Only Agents
+## 8. Model & Cost Policy — Flash-Only Agents
 
 Autonomous work in this harness is a cost-controlled operation; model choice is a hard policy, not a preference (usage analysis 2026-09).
 
 * **Every agent, subagent, and worker runs on a FLASH-CLASS DeepSeek model** (provider `deepseek-official`) — any Flash-tier id, currently `deepseek-flash` (V4.1 Flash); the older `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp` ids are accepted but deprecated aliases of the same tier. The policy is by CLASS, never by version: when DeepSeek ships a new Flash release, adopt it without a policy change. Never select, request, or delegate to a non-Flash tier (`deepseek-v4-pro` or any successor pro tier) — not in session model choices, not in `subagent`/`workflow` delegation options, not in any tool argument that names a model, and not by asking the user to switch to it.
 * `deepseek-flash` handles image input natively (V4.1 Flash has vision built in), so no separate vision model id is needed.
-* Do not "escalate" by switching models when a task gets hard. Finish with flash and surface the limitation to the user (§5) instead.
+* Do not "escalate" by switching models when a task gets hard. Finish with flash and surface the limitation to the user (§6) instead.
 * `deepseek-v4-pro` bills ~5× the flash rate on every token class and is being retired (from 2026-09-14 07:00 Moscow the API itself routes pro to V4.1 Flash at Flash price); the ban stands regardless.
 * Prefer off-peak hours for bulk work: DeepSeek peak windows are Mon–Fri 04:00–07:00 and 09:00–13:00 Moscow (01:00–04:00 and 06:00–10:00 UTC); off-peak is billed at half the peak rate, and weekends are fully off-peak.
 
-## 8. Remote Systems — Explicit Permission Required
+## 9. Remote Systems — Explicit Permission Required
 
 Never change anything on a remote system without the user's explicit permission for that exact action.
 
