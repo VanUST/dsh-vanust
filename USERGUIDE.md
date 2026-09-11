@@ -121,3 +121,31 @@ npm i -g "@deepseek-ai/dsh@<candidate>"        # 1. install candidate
 ./scripts/verify-upgrade.sh                    # 3. gate on a throwaway instance
 # 4. only on PASS: repoint the live profile + restart the GUI (token URL)
 ```
+
+## Activating a newly added plugin on an already-installed machine
+
+`install.sh` protects an existing profile: if your `$DSH_HOME/profiles/<name>/cordis.patch.yml` differs
+from the kit's, it keeps yours and warns instead of overwriting. That is deliberate — the live profile
+holds machine-local configuration — but it means a plugin added to the kit after you installed does not
+reach your profile automatically.
+
+To pick it up, add the entry from `profile/cordis.patch.yml` to your own profile's patch layer and
+install its tarball:
+
+```bash
+# 1. install the new tarball into your profile
+cd "$DSH_HOME/profiles/web" && corepack pnpm@10.18.0 add "${KIT_DIR}"/plugins/cc-dsh-context-*.tgz
+
+# 2. add the matching insert entry to your cordis.patch.yml, copying it from
+#    ${KIT_DIR}/profile/cordis.patch.yml
+
+# 3. reload the profile; the harness restarts
+```
+
+Check composition without booting the app:
+
+```bash
+dsh --profile web --dump-config | grep -A1 'dsh-context'
+```
+
+A missing entry there means the plugin is installed but not wired.
