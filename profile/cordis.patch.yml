@@ -29,3 +29,20 @@
         inputModalities: [text, image]
         imagePixelBudget: 640000
         imageMaxBytes: 1048576
+
+# ── dsh-context: project structure, rules and work orders as tools ─────────
+# Exposes three tools to any agent on this harness: `context_module` (which module
+# owns a path, what it exports, what it links to), `context_rules` (which rules the
+# project claims and the exact command that fails when one is broken), and
+# `context_specs` (what work is in flight, which paths it claims, and where two
+# active specifications collide).
+#
+# Project-agnostic by design: it reads only `.dsh/project.json`, so a Python, C/C++
+# or Unity repository gets the same three tools by writing its own manifest. A project
+# without that file gets an actionable message naming it, never an empty result.
+#
+# Tools rather than documents on purpose: an agent calls a tool, while it ignores a
+# documentation server almost always and a prose file about half the time.
+- insert:
+    - id: dsh-context
+      name: '@cc/dsh-context'

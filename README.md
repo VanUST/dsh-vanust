@@ -1,9 +1,14 @@
 # dsh-kit
 
-Portable setup for **DeepSeek Harness (dsh)** plus the one plugin this
-deployment still needs beyond upstream — **`@deepseek-ai/dsh-model-gate`**, a
-class-based flash-only cost policy for the official DeepSeek route — across all
-your machines (2× Linux, 1× Windows).
+Portable setup for **DeepSeek Harness (dsh)** plus the two plugins this
+deployment needs beyond upstream, across all your machines (2× Linux, 1× Windows):
+
+- **`@deepseek-ai/dsh-model-gate`** — a class-based flash-only cost policy for the
+  official DeepSeek route.
+- **`@cc/dsh-context`** — project structure, enforced rules and in-flight work orders
+  exposed as three tools (`context_module`, `context_rules`, `context_specs`). It is
+  project-agnostic: it reads only `.dsh/project.json`, so a Python, C/C++ or Unity
+  repository gets the same tools by writing its own manifest.
 
 Clone this repo on a new machine, run `./install.sh` (or `install.ps1` on
 Windows), and `dsh web` is up with the same pinned harness version, the same
@@ -19,7 +24,8 @@ cd dsh-vanust
 dsh-kit/
 ├── install.sh / install.ps1   # fresh-machine setup (Node check → pinned dsh → profile → plugins → rules)
 ├── start.sh / start.ps1       # easy startup: dsh web --port 3080
-├── plugins/*.tgz              # the model-gate plugin tarball (built from ~/deepseek-harness)
+├── plugins/*.tgz              # plugin tarballs: model-gate (from ~/deepseek-harness),
+│                              # and cc-dsh-context (from the project that owns it)
 ├── profile/                   # canonical web profile: package.json (no deps) + cordis.patch.yml
 ├── rules/AGENTS.md            # user-global core operating rules (installed to $DSH_HOME/AGENTS.md)
 ├── scripts/verify-upgrade.sh  # upgrade gate: throwaway instance + shipped-artifact policy probe
@@ -32,6 +38,16 @@ dsh-kit/
 `.credentials.yaml`, `settings.yaml`, `node_modules`. The harness treats
 session files as version-0 format with no compatibility promise — keep them
 per-machine (see COMPAT.md §3).
+
+**Plugins** are installed from `plugins/*.tgz` by `install.sh`, which adds every tarball in that
+directory. Adding a plugin therefore means dropping its tarball there and adding an `insert` entry to
+`profile/cordis.patch.yml`. Adding one to an existing profile requires a profile reload, which restarts
+the harness.
+
+`@cc/dsh-context` is built from the project that owns it: `pnpm plugin:pack` there assembles the
+package and writes the tarball; copy it here as `cc-dsh-context-<version>.tgz`. Its version lives in
+`packages/tooling/src/dsh/plugin-meta.json` in that project, independent of the project's own version,
+because this package is installed on its own.
 
 **Upgrades:** the harness is pre-1.0 and breaking changes are policy. Always
 go through the gate: `npm i -g @deepseek-ai/dsh@<candidate>` →
