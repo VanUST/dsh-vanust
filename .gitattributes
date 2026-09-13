@@ -1,0 +1,14 @@
+# Line endings are part of these files' correctness, not a checkout preference.
+#
+# POSIX shells refuse a script whose shebang line ends CRLF, and this kit is
+# cloned onto Windows machines as well as Linux ones. Without this file, a clone
+# on Windows (core.autocrlf=true) rewrites every text file, so a checkout there
+# produces install.sh / start.sh / verify-upgrade.sh that fail on the Linux
+# machines when the directory is copied or the clone is shared.
+#
+# Scripts that any shell must read get LF everywhere; everything else is left to
+# the platform, so .ps1 and Markdown content stay natural to edit on Windows.
+*.sh   text eol=lf
+*.mjs  text eol=lf
+*.ps1  text eol=crlf
+*.tgz  binary

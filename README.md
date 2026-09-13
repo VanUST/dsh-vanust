@@ -6,7 +6,7 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
 - **`@deepseek-ai/dsh-model-gate`** — a class-based flash-only cost policy for the
   official DeepSeek route.
 - **`@cc/dsh-context`** — project structure, enforced rules and in-flight work orders
-  exposed as three tools (`context_module`, `context_rules`, `context_specs`). It is
+  exposed as tools (`context_module`, `context_rules`, `context_specs`). It is
   project-agnostic: it reads only `.dsh/project.json`, so a Python, C/C++ or Unity
   repository gets the same tools by writing its own manifest.
 
@@ -24,6 +24,7 @@ cd dsh-vanust
 dsh-kit/
 ├── install.sh / install.ps1   # fresh-machine setup (Node check → pinned dsh → profile → plugins → rules)
 ├── start.sh / start.ps1       # easy startup: dsh web --port 3080
+├── scripts/kit-update.mjs     # update path: hash drift check + convergence for an existing machine
 ├── plugins/*.tgz              # plugin tarballs: model-gate (from ~/deepseek-harness),
 │                              # and cc-dsh-context (from the project that owns it)
 ├── profile/                   # canonical web profile: package.json (no deps) + cordis.patch.yml
@@ -40,9 +41,27 @@ session files as version-0 format with no compatibility promise — keep them
 per-machine (see COMPAT.md §3).
 
 **Plugins** are installed from `plugins/*.tgz` by `install.sh`, which adds every tarball in that
-directory. Adding a plugin therefore means dropping its tarball there and adding an `insert` entry to
-`profile/cordis.patch.yml`. Adding one to an existing profile requires a profile reload, which restarts
-the harness.
+directory.
+
+**Keeping an installed machine current** is `scripts/kit-update.mjs`, which
+compares the kit's artifacts by content hash against a machine record
+(`$DSH_HOME/.dsh-kit-state.json`), writes the drifted profile files and rules,
+reinstalls the drifted tarballs with the pinned pnpm, and installs the pinned
+harness when it differs:
+
+```bash
+node scripts/kit-update.mjs --check            # report drift, change nothing
+node scripts/kit-update.mjs --check --fetch    # same, after asking git for new commits
+node scripts/kit-update.mjs --apply            # converge this machine, then record it
+```
+
+`kit-update.mjs` is the update path for a machine that is already installed —
+including one where a plugin was added to the kit after that machine was set up
+(see USERGUIDE §5). Its one rule to know: **bump a plugin's version before
+repacking it.** pnpm resolves a `file:` dependency by its path string, so a
+tarball that keeps its filename is served from the profile's lockfile snapshot;
+the updater drops that lockfile and verifies the installed bytes against the
+tarball, so this case is reported rather than passing silently.
 
 `@cc/dsh-context` is built from the project that owns it: `pnpm plugin:pack` there assembles the
 package and writes the tarball; copy it here as `cc-dsh-context-<version>.tgz`. Its version lives in

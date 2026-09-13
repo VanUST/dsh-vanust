@@ -1,10 +1,11 @@
 # USERGUIDE.md — setting up and starting the harness on a new machine
 
 This kit installs **DeepSeek Harness (dsh)** on any of your machines (2× Linux,
-1× Windows) plus the single plugin this deployment adds beyond upstream:
-**`@deepseek-ai/dsh-model-gate`**, the class-based flash-only cost policy. The
-harness version is pinned; sessions and workspaces stay machine-local by design
-(see COMPAT.md §3).
+1× Windows) plus the two plugins this deployment adds beyond upstream:
+**`@deepseek-ai/dsh-model-gate`**, the class-based flash-only cost policy, and
+**`@cc/dsh-context`**, which exposes a project's modules, rules and work orders
+as tools. The harness version is pinned; sessions and workspaces stay
+machine-local by design (see COMPAT.md §3).
 
 The user interface is upstream's own web app: conversations, the right sidebar
 with Files and document preview, open-in-app, and the agent's terminal tools all
@@ -59,6 +60,38 @@ login token: the boot line reads `http://127.0.0.1:3080/?token=…`, and a bare
 First run: the GUI opens with an onboarding screen — **configure your API
 credentials there** (each machine keeps its own keys in
 `$DSH_HOME/.credentials.yaml`; do not sync that file).
+
+### 2.1 Start from the kit so updates apply themselves
+
+The harness composes a profile once, at boot: a plugin, a patch row or a harness
+pin changed in the kit reaches a machine only after a restart. Make the restart
+the thing that converges the machine by starting through
+`scripts/kit-update.mjs` instead of calling `dsh web` directly:
+
+```bash
+# any machine — check and apply in one line, then boot
+node /path/to/dsh-kit/scripts/kit-update.mjs --check --fetch --json   # drift report
+node /path/to/dsh-kit/scripts/kit-update.mjs --apply                  # converge
+dsh web --port 3080
+```
+
+A small machine-local launcher wraps those three steps, so one command is both
+"update if needed" and "start": it runs the check, prints the concrete pending
+actions (harness / profile / plugins / rules), asks once before applying, and
+then boots and prints the token URL. Keep the launcher **outside** this
+repository, next to `$DSH_HOME`, because it holds a machine-specific kit path
+that must not be synced to the other machines.
+
+On Windows that launcher is `$DSH_HOME/dsh-web.ps1`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.dsh\dsh-web.ps1"
+# flags: -Port 3080 -NoFetch -Yes -CheckOnly -NoStart -KitPath <dir>
+```
+
+It records what it converged to in `$DSH_HOME/.dsh-kit-state.json`, and treats a
+non-interactive host (a service, a scheduled task) as "report the update, do not
+apply it unseen" — pass `-Yes` to apply without a prompt in those contexts.
 
 ## 3. First-run checks (1 minute)
 
@@ -129,8 +162,13 @@ from the kit's, it keeps yours and warns instead of overwriting. That is deliber
 holds machine-local configuration — but it means a plugin added to the kit after you installed does not
 reach your profile automatically.
 
-To pick it up, add the entry from `profile/cordis.patch.yml` to your own profile's patch layer and
-install its tarball:
+`scripts/kit-update.mjs --apply` is the supported way to pick one up: it writes the kit's patch layer,
+installs every kit tarball with the pinned pnpm, and verifies the installed bytes against each tarball.
+What it deliberately does **not** do is merge your own edits into the patch layer — it writes the kit's
+copy, so keep machine-specific rows in a second patch file passed with `--patch`, not in
+`profiles/web/cordis.patch.yml`.
+
+The manual equivalent, if you want to keep your own patch layer:
 
 ```bash
 # 1. install the new tarball into your profile.
@@ -145,9 +183,12 @@ cd "$DSH_HOME/profiles/web" && corepack pnpm@11.7.0 add "${KIT_DIR}"/plugins/cc-
 # 3. reload the profile; the harness restarts
 ```
 
-A plugin whose version did not change is **not** reinstalled: pnpm keeps the cached tarball even when
-the file on disk differs. Bump the plugin's version before repacking, or the old bytes stay in the
-profile and the fix appears not to work.
+A plugin whose version did not change is **not** reinstalled: pnpm resolves a `file:` dependency by its
+path string from the profile lockfile, so even a repacked tarball with new bytes is served from the old
+snapshot. Bump the plugin's version before repacking, or the old bytes stay in the profile and the fix
+appears not to work. `kit-update.mjs` drops the profile lockfile and prunes the store before re-adding,
+then verifies the installed bytes against the tarball and warns when they differ — so a silent version
+mistake becomes a visible warning, but the version bump is still what makes the update correct.
 
 Check composition without booting the app:
 
@@ -156,3 +197,7 @@ dsh --profile web --dump-config | grep -A1 'dsh-context'
 ```
 
 A missing entry there means the plugin is installed but not wired.
+
+`@cc/dsh-context` registers four tools: `context_module`, `context_rules`, `context_specs` and
+`ratchet_reconcile`. A project without `.dsh/project.json` gets an actionable message naming that file
+rather than an empty result — that is the plugin working, not a wiring fault.
