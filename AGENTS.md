@@ -22,6 +22,8 @@ upstream API watchlist) before changing anything. The plugin source lives in
 | `scripts/kit-update.mjs` | update path for an installed machine: content-hash drift check, profile/rules/rules write, tarball reinstall with a lockfile drop, pinned-harness install, machine state record in `$DSH_HOME/.dsh-kit-state.json` | kit artifact layout or the convergence contract changes |
 | `start.sh` / `start.ps1` | one-command startup (`dsh web --port 3080`) | port/launch changes |
 | `scripts/verify-upgrade.sh` | upgrade gate: throwaway instance + composition/boot/installed-artifact policy probes | probe surface changes with the protocol |
+| `scripts/probe-ratchet.mjs` | evidence for the ratchet brief: builds synthetic decision directories and prints what `ratchet_reconcile` hands the agent | the plugin's record reading changes (then `docs/RATCHET-DESIGN.md` quotes change with it) |
+| `docs/RATCHET-DESIGN.md` | supervisor brief: harness/plugin/system-prompt context, the ratchet as built, its defects with reproductions, open design questions | the ratchet is redesigned, or a defect in Part IV is fixed |
 | `scripts/rebuild-plugins.sh` | rebuild + repack from `~/deepseek-harness` (env `HARNESS_DIR`) | nothing — it is the update loop's front door |
 | `COMPAT.md` | upstream watchlist (5 touchpoints) + upgrade procedure | upstream API churn is detected (run its greps each upgrade) |
 | `USERGUIDE.md` | per-machine setup, first-run checks, Windows notes, troubleshooting | any user-facing step changes |
