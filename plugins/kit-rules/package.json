@@ -1,0 +1,19 @@
+{
+  "name": "@cc/dsh-kit-rules",
+  "version": "0.1.1",
+  "description": "Deployment-owned mandatory operating rules: contributes the kit's single rules file to the system prompt as a binding section, re-read on every prompt assembly, so no project-level instruction file can dilute or override it.",
+  "type": "module",
+  "main": "kit-rules.mjs",
+  "exports": {
+    ".": "./kit-rules.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "kit-rules.mjs"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
+  }
+}
+

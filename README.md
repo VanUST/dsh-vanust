@@ -1,6 +1,6 @@
 # dsh-kit
 
-Portable setup for **DeepSeek Harness (dsh)** plus the two plugins this
+Portable setup for **DeepSeek Harness (dsh)** plus the three plugins this
 deployment needs beyond upstream, across all your machines (2× Linux, 1× Windows):
 
 - **`@deepseek-ai/dsh-model-gate`** — a class-based flash-only cost policy for the
@@ -9,6 +9,14 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   exposed as tools (`context_module`, `context_rules`, `context_specs`). It is
   project-agnostic: it reads only `.dsh/project.json`, so a Python, C/C++ or Unity
   repository gets the same tools by writing its own manifest.
+- **`@cc/dsh-kit-rules`** — the deployment's own operating rules, contributed to the
+  system prompt as a binding section and re-read on every prompt assembly. It exists
+  because the harness's own workspace-instruction loader does the opposite of what this
+  deployment needs: it injects every `AGENTS.md`/`CLAUDE.md` from the project root down
+  to the working directory, frames them as guidance, and lets the most specific file
+  win. Cost policy, remote-change permission and verification duties must not be
+  dilutable by whichever repository the agent happens to sit in, and they must read as
+  binding — so that loader is disabled and this plugin owns the single rules file.
 
 Clone this repo on a new machine, run `./install.sh` (or `install.ps1` on
 Windows), and `dsh web` is up with the same pinned harness version, the same
@@ -26,9 +34,10 @@ dsh-kit/
 ├── start.sh / start.ps1       # easy startup: dsh web --port 3080
 ├── scripts/kit-update.mjs     # update path: hash drift check + convergence for an existing machine
 ├── plugins/*.tgz              # plugin tarballs: model-gate (from ~/deepseek-harness),
-│                              # and cc-dsh-context (from the project that owns it)
+│                              # cc-dsh-context (from the project that owns it), kit-rules
+├── plugins/kit-rules/         # source of the rules plugin; packed into its tarball above
 ├── profile/                   # canonical web profile: package.json (no deps) + cordis.patch.yml
-├── rules/AGENTS.md            # user-global core operating rules (installed to $DSH_HOME/AGENTS.md)
+├── rules/AGENTS.md            # the deployment's mandatory rules (installed to $DSH_HOME/AGENTS.md)
 ├── scripts/verify-upgrade.sh  # upgrade gate: throwaway instance + shipped-artifact policy probe
 ├── scripts/rebuild-plugins.sh # rebuild + repack plugins from the harness checkout
 ├── USERGUIDE.md               # per-machine setup, startup, first-run checks, Windows notes, troubleshooting
@@ -67,6 +76,29 @@ tarball, so this case is reported rather than passing silently.
 package and writes the tarball; copy it here as `cc-dsh-context-<version>.tgz`. Its version lives in
 `packages/tooling/src/dsh/plugin-meta.json` in that project, independent of the project's own version,
 because this package is installed on its own.
+
+`@cc/dsh-kit-rules` is built here from `plugins/kit-rules/`, which is the only plugin source this
+repository carries:
+
+```bash
+cd plugins/kit-rules && corepack pnpm@11.7.0 pack --out ../cc-dsh-kit-rules-<version>.tgz
+```
+
+**Where the rules come from, and why not from the repository.** The harness ships a
+workspace-instruction loader (`@deepseek-ai/dsh-agent-instructions`) that injects every
+`AGENTS.md`/`CLAUDE.md` between the project root and the working directory, wraps them in "may be
+relevant to your work … use them as guidance", and lets the most specific file take precedence. This
+deployment cannot use it: rules that carry cost policy, remote-change permission and verification
+duties must not be overridable by whichever repository the agent is opened in, and their framing has
+to read as binding, which is a code constant upstream and therefore not a configuration option. The
+profile patch therefore disables that row and mounts `@cc/dsh-kit-rules`, which reads exactly one file
+— `$DSH_HOME/AGENTS.md`, the kit's own rules — and contributes it to the system prompt as a section
+whose text is a provider, re-evaluated on every prompt assembly. Editing that file takes effect on
+the next request, without a restart, which is the hot reload worth keeping.
+
+**Consequence for projects:** a repository's own `AGENTS.md` no longer reaches the model. Project
+facts belong in `.dsh/project.json` and the `context_*` tools, where they are declared, checkable and
+carry the command that proves them — not in prose that competes with the deployment's rules.
 
 **Upgrades:** the harness is pre-1.0 and breaking changes are policy. Always
 go through the gate: `npm i -g @deepseek-ai/dsh@<candidate>` →

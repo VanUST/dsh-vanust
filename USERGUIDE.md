@@ -108,6 +108,39 @@ default model is not a Flash-class id — check `$DSH_HOME/settings.yaml`
 (`agent-default-model.model`) and the profile patch. If it fails with
 `MISSING_CREDENTIAL`, finish the onboarding credential step.
 
+## 3.1 Where the agent's rules come from (and how to change them)
+
+The agent's operating rules are `$DSH_HOME/AGENTS.md`, contributed to the system
+prompt by the kit's own `@cc/dsh-kit-rules` plugin as a **binding** section. Three
+consequences worth knowing:
+
+- **Edit the file, not the harness.** Save `$DSH_HOME/AGENTS.md` and the change
+  applies to the next request in every open session — no restart, because the
+  section's text is re-read on each prompt assembly.
+- **A repository's `AGENTS.md` does not reach the model.** The harness ships a
+  loader that would inject every `AGENTS.md`/`CLAUDE.md` from the project root
+  down to the working directory, frame them as guidance and let the most specific
+  one win; this deployment disables it (`- id: agent-instructions / disabled:
+  true` in `profile/cordis.patch.yml`), because a checkout must not be able to
+  override cost policy, remote-change permission or verification duties. Do not
+  re-enable it to "also pick up project notes".
+- **Project facts belong in `.dsh/project.json`.** That is what the `context_*`
+  tools read, and a rule declared there names the command that fails when it is
+  broken, which prose never does.
+
+To confirm what the model actually received, ask it in a scratch session — the
+row in `--dump-config` proves only that the plugin is mounted, not that rules
+reached the prompt:
+
+```bash
+dsh --profile headless "Answer only PRESENT or ABSENT: did you receive a block \
+beginning 'MANDATORY OPERATING RULES', and did you receive a message framed \
+'Instructions from: <path>'?"
+```
+
+The first must be `PRESENT` and the second `ABSENT`. If the plugin row is missing
+from `dsh --profile web --dump-config`, the patch layer was overwritten — see §5.
+
 ## 4. Per-machine configuration
 
 | Item | Linux | Windows |

@@ -2,6 +2,25 @@
 # a top-level YAML array of loader patch entries (id-targeted config
 # overrides, disables, and insert lists; `!!js` expressions allowed).
 
+# ── mandatory rules: the kit's own rules, never a project's ─────────────────
+# The harness ships a workspace-instruction loader that injects every AGENTS.md
+# and CLAUDE.md from the project root down to the working directory, frames them
+# as guidance ("may be relevant to your work"), and lets the most specific file
+# win. That is the wrong shape for this deployment: cost policy, remote-change
+# permission and verification duties must not be dilutable by whichever
+# repository the agent happens to sit in, and the framing must read as binding.
+#
+# So that loader is disabled and the kit's rules are contributed to the system
+# prompt directly instead. The section's text is a provider, re-evaluated on
+# every prompt assembly, so editing $DSH_HOME/AGENTS.md takes effect on the next
+# request without a restart. The plugin reads exactly one file, and no project
+# instruction file can reach the prompt at all.
+- id: agent-instructions
+  disabled: true
+- insert:
+    - id: kit-rules
+      name: '@cc/dsh-kit-rules'
+
 # ── model-gate: cost policy for the official DeepSeek route ────────────────
 # Class-based flash-only gate: every llm/stream dispatch whose model is not a
 # Flash-tier id is vetoed before the adapter is invoked (root turns,

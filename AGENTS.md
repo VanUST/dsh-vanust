@@ -12,11 +12,12 @@ upstream API watchlist) before changing anything. The plugin source lives in
 
 | File | Role | Update when |
 |---|---|---|
-| `plugins/*.tgz` | the built `model-gate` plugin tarball | every shipped plugin change — via `scripts/rebuild-plugins.sh`, then **commit** |
-| `profile/cordis.patch.yml` | canonical profile patch: the `model-gate` row + the `llm-deepseek` catalog row | plugin ids/names or the model policy change |
+| `plugins/*.tgz` | the built plugin tarballs (`model-gate`, `cc-dsh-kit-rules`; `cc-dsh-context` copied from its owning project) | every shipped plugin change — rebuild/repack, then **commit** |
+| `plugins/kit-rules/` | source of `@cc/dsh-kit-rules`: contributes `$DSH_HOME/AGENTS.md` to the system prompt as a binding section, re-read per prompt assembly | the rules must reach the prompt differently (framing, precedence, source) |
+| `profile/cordis.patch.yml` | canonical profile patch: the `agent-instructions` disable, `kit-rules`, `model-gate`, the `llm-deepseek` catalog row, `dsh-context` | plugin ids/names, instruction routing, or the model policy change |
 | `profile/package.json` | canonical profile manifest (bundles; **no deps** — installers add machine-local tarball paths) | bundle list changes |
 | `profile/pnpm-workspace.yaml` | pnpm policy incl. `allowBuilds: node-pty: true` (pre-approves its build script) | pnpm policy changes |
-| `rules/AGENTS.md` | user-global core operating rules, installed to `$DSH_HOME/AGENTS.md` | the rules themselves change (mirror `~/vibecoding/INSTRUCTIONS.md`) |
+| `rules/AGENTS.md` | the deployment's mandatory rules, installed to `$DSH_HOME/AGENTS.md` and injected by `kit-rules` | the rules themselves change (mirror `~/vibecoding/INSTRUCTIONS.md`) |
 | `install.sh` / `install.ps1` | fresh-machine setup (Node ≥ 24 → pinned dsh → profile → plugins → rules) | harness pin, Node requirement, or setup steps change |
 | `scripts/kit-update.mjs` | update path for an installed machine: content-hash drift check, profile/rules/rules write, tarball reinstall with a lockfile drop, pinned-harness install, machine state record in `$DSH_HOME/.dsh-kit-state.json` | kit artifact layout or the convergence contract changes |
 | `start.sh` / `start.ps1` | one-command startup (`dsh web --port 3080`) | port/launch changes |
@@ -52,6 +53,18 @@ upstream API watchlist) before changing anything. The plugin source lives in
    lockfile and verifies installed bytes against the tarball, so a violation is
    reported as a warning instead of shipping quietly — but the fix is upstream
    of it, in the version bump.
+7. **The deployment rules come from this kit and nowhere else.** The profile
+   patch disables the harness's workspace-instruction loader and mounts
+   `kit-rules`, which reads only `$DSH_HOME/AGENTS.md`. Never re-enable that
+   loader to "also pick up project instructions": its precedence model lets a
+   repository override the rules that carry cost policy and remote-change
+   permission. Project facts belong in `.dsh/project.json` and the `context_*`
+   tools, where a rule names the command that fails when it is broken.
+8. **Verify prompt-affecting changes on a throwaway profile before the live
+   one.** A `kit-rules` change is invisible in `--dump-config` beyond the row
+   itself; run a headless turn against a scratch profile and ask what the model
+   received, because the failure mode (rules silently absent, or a stale plugin
+   installed under an unchanged version) produces a boot that looks healthy.
 
 ## Common workflows
 
