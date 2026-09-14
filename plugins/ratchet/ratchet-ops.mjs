@@ -63,6 +63,61 @@ import {
 /** Promisified execFile, so the command runner can await a process without a shell. */
 const execFileAsync = promisify(execFileCallback)
 
+/**
+ * Laws that were in force and are gone, with no active record retiring them.
+ *
+ * The comparison is against the law set the LEDGER last recorded, not against the
+ * persisted bundle: `compile --write` rewrites that bundle, so asking it "were you
+ * missing a law?" is asking the overwritten copy. The ledger is append-only and is
+ * therefore the only artifact a deletion does not rewrite — which is exactly why the
+ * check has to read it.
+ *
+ * A first run on a project with no recorded history returns nothing rather than
+ * everything: `null` from the reader means "no set was ever recorded", while `[]`
+ * means "a set with no laws", and only the first may be treated as unknown.
+ *
+ * @param root - Absolute project root.
+ * @param compiled - The result of compiling the corpus.
+ * @returns An array of problems; empty when no law left force, or when each one left
+ *   through an active record's explicit `remove` op.
+ */
+function lawRemovalProblems(root, compiled) {
+  const previous = state.readRecordedLawIds(root)
+  if (previous === null) return []
+  const current = new Set((compiled.bundle?.laws ?? []).map((law) => law.id))
+  const retired = new Set(compiled.removedByDecision ?? [])
+  return previous
+    .filter((id) => !current.has(id) && !retired.has(id))
+    .sort()
+    .map((id) =>
+      problem(
+        'LAW_REMOVED_WITHOUT_DECISION',
+        `law "${id}" was in force and is no longer compiled, and no active record removes it; deleting the record that declared it retires a constraint without a decision, so retire it with an explicit "op: remove" or restore it`,
+        id,
+        { lawId: id },
+      ),
+    )
+}
+
+/**
+ * The spec drift the gate reports, filtered by whether the project tracks documents.
+ *
+ * A MISSING document is only a problem when the project tracks specs, because
+ * otherwise every project that has not opted into generated documents fails on the
+ * day it adopts the ratchet. An EDITED or STALE document is a problem either way:
+ * both describe a file that exists on disk and disagrees with the laws, and
+ * suppressing them was once the difference between a green gate and a corpus whose
+ * human-readable view was silently wrong.
+ *
+ * @param tracks - Whether missing documents should be reported.
+ * @param drift - Result of comparing generated text with disk.
+ * @returns The drift subset the gate should turn into problems.
+ */
+function reportedSpecDrift(tracks, drift) {
+  if (tracks) return drift
+  return { drifted: drift.drifted, stale: drift.stale, missing: [] }
+}
+
 /** Process exit codes, so the shell gate and the tools agree on one vocabulary. */
 export const EXIT = Object.freeze({
   /** Nothing to report. */
@@ -191,7 +246,7 @@ export function status(root) {
   const rendered = compiled.bundle === null ? { files: {} } : renderSpecs(compiled.bundle)
   const tracksSpecs = state.tracksSpecDocuments(root, manifest.config?.specsDir, manifest.config?.specsRequired)
   const drift = detectSpecDrift(root, rendered.files)
-  problems.push(...specDriftProblems(tracksSpecs ? drift : { drifted: drift.drifted, missing: [] }))
+  problems.push(...specDriftProblems(reportedSpecDrift(tracksSpecs, drift)))
 
   return {
     ok: problems.length === 0,
@@ -307,6 +362,11 @@ export function compile({ root, write = false } = {}) {
   const compiled = compileProject(root)
   const rendered = compiled.bundle === null ? { files: {}, specHash: null } : renderSpecs(compiled.bundle)
 
+  // BEFORE persisting: persisting appends this run's law set to the ledger, and this
+  // check is a comparison against the previous one. Running it after would compare the
+  // set with itself and always find nothing.
+  const removalProblems = lawRemovalProblems(root, compiled)
+
   // The report and the spec bundle are recorded either way, because a report that
   // exists only on success cannot record a failure.
   const persisted =
@@ -314,7 +374,10 @@ export function compile({ root, write = false } = {}) {
       ? persistCompile(root, {
           bundle: compiled.bundle,
           specFiles: write && compiled.bundle !== null ? rendered.files : null,
-          report: { ...compiled.report, problems: compiled.problems },
+          report: { ...compiled.report, problems: [...compiled.problems, ...removalProblems] },
+          // `null` holds the recorded set at its previous value: a run that reported an
+          // unexplained removal must not also record the shrunken set as the new truth.
+          lawIds: removalProblems.length === 0 ? (compiled.bundle?.laws ?? []).map((law) => law.id) : null,
         })
       : { written: [], ledger: { error: 'the ratchet is not enabled in this project' } }
 
@@ -329,7 +392,8 @@ export function compile({ root, write = false } = {}) {
   const drift = detectSpecDrift(root, rendered.files)
   const problems = [
     ...compiled.problems,
-    ...specDriftProblems(tracksSpecs ? drift : { drifted: drift.drifted, missing: [] }),
+    ...removalProblems,
+    ...specDriftProblems(reportedSpecDrift(tracksSpecs, drift)),
   ]
 
   return {
@@ -396,9 +460,13 @@ export async function verify({ root, runCommand = null } = {}) {
   const rendered = renderSpecs(compiled.bundle)
   const tracksSpecs = state.tracksSpecDocuments(root, manifest.config?.specsDir, manifest.config?.specsRequired)
   const drift = detectSpecDrift(root, rendered.files)
+  // Also BEFORE persisting, for the same reason as in `compile`: the persisted verify
+  // appends the law set this run observed, so the comparison has to happen first.
+  const removalProblems = lawRemovalProblems(root, compiled)
   const problems = [
     ...verified.problems,
-    ...specDriftProblems(tracksSpecs ? drift : { drifted: drift.drifted, missing: [] }),
+    ...removalProblems,
+    ...specDriftProblems(reportedSpecDrift(tracksSpecs, drift)),
   ]
   const report = {
     ...verified.report,
@@ -409,6 +477,7 @@ export async function verify({ root, runCommand = null } = {}) {
     report,
     evaluatedSpecHash: compiled.report.specHash,
     toolVersion: null,
+    lawIds: removalProblems.length === 0 ? (compiled.bundle?.laws ?? []).map((law) => law.id) : null,
   })
 
   return {

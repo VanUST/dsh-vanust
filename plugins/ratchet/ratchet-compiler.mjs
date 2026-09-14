@@ -399,6 +399,31 @@ export function resolveActiveSet(records, config) {
     // unzoned agent decision cannot escape regulation by staying unzoned.
     const relevantZones = zonesForRecord(record, config)
 
+    // Authority comes from the zones a record declares, so a law may not enforce
+    // against a path those zones do not govern. Without this, declaring a permissive
+    // zone grants authority over a path the manifest reserves to a human — the
+    // declaration becomes a formality rather than the thing that grants power. Only a
+    // positive target is checked: a law may legitimately READ outside its zone, and
+    // refusing that would break honest records, but only a target it checks against
+    // gives it power over the path.
+    const declaredPaths = declaredZonePaths(record, config)
+    for (const law of record.laws) {
+      for (const check of law.checks ?? []) {
+        for (const target of check.paths ?? []) {
+          if (typeof target !== 'string' || target.startsWith('!')) continue
+          if (pathIsGoverned(target, declaredPaths)) continue
+          problems.push(
+            problem(
+              'LAW_PATH_OUTSIDE_DECLARED_ZONE',
+              `law "${law.id}" enforces against ${target}, which none of its record's declared zones govern (${record.zones.length === 0 ? 'the record declares no zone' : `declared: ${record.zones.join(', ')}`}); a law may only enforce inside the authority its record claims, or the zone declaration is not what grants it`,
+              record.id,
+              { path: record.path, lawId: law.id, target, zones: record.zones },
+            ),
+          )
+        }
+      }
+    }
+
     let selfAuthorised = record.status === 'active'
     let effectiveConsent = consent
     const refusals = []
@@ -532,6 +557,51 @@ export function zonesForRecord(record, config) {
 }
 
 /**
+ * Every path a record's declared zones actually govern.
+ *
+ * `zonesForRecord` deliberately returns policy without paths, because authority is
+ * the only thing activation needs. A law's target is a different question, and it
+ * needs the paths — so this resolves the same declaration a second way rather than
+ * widening the first. A zone the manifest does not declare contributes nothing: its
+ * policy is a reported problem already, and inventing paths for it would let an
+ * unknown zone grant authority.
+ *
+ * @param record - A parsed ADR record.
+ * @param config - Parsed ratchet configuration.
+ * @returns An array of zone path globs; empty when the record declares no zone, or
+ *   only zones the manifest does not declare.
+ */
+export function declaredZonePaths(record, config) {
+  const zones = config?.zones ?? []
+  const declared = []
+  for (const entry of zonesForRecord(record, config)) {
+    if (entry.missing === true) continue
+    const zone = zones.find((candidate) => candidate.id === entry.id)
+    if (zone !== undefined) declared.push(...(zone.paths ?? []))
+  }
+  return declared
+}
+
+/**
+ * Whether any of a record's declared zone globs covers a law's target path.
+ *
+ * The two sides are compared the way `validateZones` already compares zone globs:
+ * a trailing `/**` is a prefix claim, and containment counts in either direction so
+ * that a target naming a directory is covered by a zone naming a file inside it.
+ *
+ * @param target - A positive glob or path from a law's check.
+ * @param zonePaths - Zone path globs from {@link declaredZonePaths}.
+ * @returns `true` when the target falls inside the declared authority.
+ */
+export function pathIsGoverned(target, zonePaths) {
+  const clean = String(target).replace(/\/\*\*$/, '')
+  return (zonePaths ?? []).some((entry) => {
+    const prefix = String(entry).replace(/\/\*\*$/, '')
+    return clean === prefix || clean.startsWith(`${prefix}/`) || prefix.startsWith(`${clean}/`)
+  })
+}
+
+/**
  * Compiles the active records into a spec bundle.
  *
  * Collisions are reported rather than resolved. A duplicate law id is an error,
@@ -548,6 +618,10 @@ export function zonesForRecord(record, config) {
 export function compileLaws(active, config) {
   const problems = []
   const reviewRequired = []
+  // Law ids an active record retires by an explicit `remove` op. Collected rather
+  // than derived later, because once the bundle is built the difference between a
+  // retirement and a deletion has already been erased.
+  const retired = new Set()
   const laws = new Map()
 
   for (const record of active) {
@@ -583,6 +657,7 @@ export function compileLaws(active, config) {
           continue
         }
         laws.delete(law.id)
+        retired.add(law.id)
         continue
       }
 
@@ -667,6 +742,11 @@ export function compileLaws(active, config) {
     },
     problems,
     reviewRequired,
+    // Which laws an active record explicitly retires. Returned because "a law is
+    // gone" and "a law was retired" are different facts, and only the corpus knows
+    // the second: a caller comparing law sets against history needs it to tell a
+    // deliberate retirement from a deletion.
+    removedByDecision: [...retired],
   }
 }
 
@@ -776,6 +856,10 @@ export function compileProject(root) {
     report,
     bundle: compiled.bundle,
     problems,
+    // Forwarded from `compileLaws` because it is a fact about the corpus, not about the
+    // bundle: once the bundle is built, a law retired by a decision and a law deleted
+    // from the corpus are both simply absent.
+    removedByDecision: compiled.removedByDecision,
   }
 }
 

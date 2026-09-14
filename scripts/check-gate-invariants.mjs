@@ -41,7 +41,7 @@
  *   - Nothing here mutates the checked-out project: the invariants are asserted by
  *     constructing inputs, never by breaking the repository.
  */
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -50,6 +50,7 @@ const KIT = resolve(fileURLToPath(import.meta.url), '..', '..')
 const PLUGIN_DIR = join(KIT, 'plugins', 'ratchet').replace(/\\/g, '/')
 
 const { compileProject, readAdrCorpus } = await import(`file:///${PLUGIN_DIR}/ratchet-compiler.mjs`)
+const { compile, verify } = await import(`file:///${PLUGIN_DIR}/ratchet-ops.mjs`)
 const { verifyProject, codeHashFor, listFiles } = await import(`file:///${PLUGIN_DIR}/ratchet-verifier.mjs`)
 const { ratificationQueue, buildQuiz, deriveDecisions, offeredBy } = await import(
   `file:///${PLUGIN_DIR}/ratchet-ratify.mjs`
@@ -187,6 +188,57 @@ function law({ id = 'auth.one', statement = 'One.', checks = null, unenforced = 
     }
   }
   return lines
+}
+
+/**
+ * A complete fixture ADR file body, for a case that needs more than one record.
+ *
+ * `project()` renders the first record itself and takes only `laws:` lines for it; a
+ * second record needs the whole file, and writing it by hand in each case would put the
+ * frontmatter contract in two more places to drift.
+ *
+ * @param id - The four-digit id, which must match the filename prefix.
+ * @param laws - Rendered `laws:` frontmatter lines, as `law()` returns.
+ * @returns The file's text.
+ */
+function adrText(id, laws) {
+  return [
+    '---',
+    `id: "${id}"`,
+    `title: Fixture ${id}`,
+    'type: adr',
+    'status: active',
+    'author:',
+    '  authority: agent',
+    '  name: fixture',
+    'created: "2026-09-14T00:00:00Z"',
+    'source:',
+    '  kind: file',
+    `  path: ${SOURCE_PATH}`,
+    'zones:',
+    '  - auth',
+    'supersedes: []',
+    'approves: []',
+    ...laws,
+    '---',
+    '',
+    '## Context',
+    '',
+    'Fixture context.',
+    '',
+    '## Decision',
+    '',
+    'Fixture decision.',
+    '',
+    '## Reasoning',
+    '',
+    'Fixture reasoning, which is long enough to be a reason rather than a token.',
+    '',
+    '## Consequences',
+    '',
+    'Fixture consequences.',
+    '',
+  ].join('\n')
 }
 
 /** Compiles and verifies one fixture, returning the codes seen at each stage. */
@@ -595,6 +647,124 @@ claim(
   questionParts.every((part) => part.endsWith('=true')),
   questionParts.join(' '),
 )
+
+// 13. A green gate means the corpus is CURRENT: a generated spec that disagrees with
+//     its decision, or that is missing while the project tracks specs, is reported, and
+//     a compile that persists a bundle without regenerating the document is reported
+//     too. ADR 0012 made this law; before it, the tracking flag short-circuited the
+//     on-disk clause and the stale-document half was dropped by the caller, so a
+//     project could commit generated specs, let them drift, and still verify clean.
+{
+  const root = project('spec-current', { laws: law({ checks: [{ type: 'required_text', paths: ['src/auth/x.ts'], pattern: 'one' }] }) }, {
+    files: { 'src/auth/x.ts': 'const one = 1\n' },
+  })
+  // `specsRequired: true`, because with it false the on-disk clause is the only thing
+  // that can start tracking — and deleting the LAST document leaves nothing on disk to
+  // notice, so "the project never generated specs" and "somebody deleted them all" would
+  // be the same state. That is the residual the flag closes.
+  const manifestPath = join(root, '.dsh', 'project.json')
+  writeFileSync(manifestPath, `${JSON.stringify({ ...JSON.parse(readFileSync(manifestPath, 'utf8')), ratchet: { ...JSON.parse(readFileSync(manifestPath, 'utf8')).ratchet, specsRequired: true } }, null, 2)}\n`)
+  await compile({ root, write: true })
+  const clean = await verify({ root })
+  // Edit the decision without regenerating its document: the document now describes a
+  // law that no longer exists, and nothing on disk is marked as changed.
+  const adrPath = join(root, 'docs', 'adrs', '0001-a.adr.md')
+  writeFileSync(adrPath, readFileSync(adrPath, 'utf8').replace('statement: One.', 'statement: One, edited.'))
+  const afterEdit = await verify({ root })
+  // Put it back and instead delete a document the project tracks.
+  writeFileSync(adrPath, readFileSync(adrPath, 'utf8').replace('statement: One, edited.', 'statement: One.'))
+  await compile({ root, write: true })
+  const specFile = join(root, 'docs', 'specs', `${readdirSync(join(root, 'docs', 'specs'))[0]}`)
+  rmSync(specFile, { force: true })
+  const afterDelete = await verify({ root })
+  // And the quiet one: a compile that persists the bundle without writing documents.
+  writeFileSync(adrPath, readFileSync(adrPath, 'utf8').replace('statement: One.', 'statement: One, edited.'))
+  await compile({ root, write: false })
+  const afterUnwritten = await verify({ root })
+  const parts = [
+    `clean-corpus-passes=${clean.problems.length === 0}`,
+    `edited-decision-reported=${afterEdit.problems.some((entry) => entry.code === 'SPEC_OUT_OF_DATE')}`,
+    `deleted-document-reported=${afterDelete.problems.some((entry) => entry.code === 'SPEC_OUT_OF_DATE')}`,
+    `unwritten-compile-reported=${afterUnwritten.problems.some((entry) => entry.code === 'SPEC_OUT_OF_DATE')}`,
+  ]
+  claim(
+    'a generated spec that is stale, missing, or unwritten is reported by verify',
+    parts.every((part) => part.endsWith('=true')),
+    parts.join(' '),
+  )
+}
+
+// 14. A green gate means the corpus is COMPLETE: a law that was in force and is gone,
+//     with no active record retiring it, is reported — and stays reported run after run,
+//     because a run that recorded the shrunken set would certify the deletion one
+//     command later. Before ADR 0012 this was silent and the whole release gate passed.
+{
+  const root = project(
+    'law-complete',
+    { laws: law({ id: 'auth.kept', checks: [{ type: 'required_text', paths: ['src/auth/x.ts'], pattern: 'one' }] }) },
+    { files: { 'src/auth/x.ts': 'const one = 1\n' } },
+  )
+  const retirable = law({ id: 'auth.retirable', checks: [{ type: 'required_text', paths: ['src/auth/x.ts'], pattern: 'one' }] })
+  writeFileSync(join(root, 'docs', 'adrs', '0002-b.adr.md'), adrText('0002', retirable))
+  await verify({ root })
+  // Delete the second law from its record — not a retirement, a deletion.
+  const second = join(root, 'docs', 'adrs', '0002-b.adr.md')
+  rmSync(second, { force: true })
+  const first = await verify({ root })
+  const secondRun = await verify({ root })
+  const reported = (result) => result.problems.some((entry) => entry.code === 'LAW_REMOVED_WITHOUT_DECISION')
+  // The same removal, declared: a record whose law carries `op: remove`.
+  const declared = project(
+    'law-retired',
+    { laws: law({ id: 'auth.kept', checks: [{ type: 'required_text', paths: ['src/auth/x.ts'], pattern: 'one' }] }) },
+    { files: { 'src/auth/x.ts': 'const one = 1\n' } },
+  )
+  writeFileSync(join(declared, 'docs', 'adrs', '0002-b.adr.md'), adrText('0002', retirable))
+  await verify({ root: declared })
+  rmSync(join(declared, 'docs', 'adrs', '0002-b.adr.md'), { force: true })
+  writeFileSync(
+    join(declared, 'docs', 'adrs', '0003-c.adr.md'),
+    adrText('0003', ['laws:', '  - op: remove', '    id: auth.retirable']),
+  )
+  const accepted = await verify({ root: declared })
+  const parts = [
+    `deletion-reported=${reported(first)}`,
+    `still-reported-next-run=${reported(secondRun)}`,
+    `declared-removal-accepted=${!reported(accepted)}`,
+  ]
+  claim(
+    'a law that leaves force without a recorded removal is reported, and a recorded removal is accepted',
+    parts.every((part) => part.endsWith('=true')),
+    parts.join(' '),
+  )
+}
+
+// 15. A green gate means the corpus is WITHIN ITS AUTHORITY: a law whose positive check
+//     paths fall outside the zones its record declares is refused, because declaring a
+//     less restricted zone must not grant power over a path the manifest reserves.
+{
+  const outside = project(
+    'zone-outside',
+    { laws: law({ checks: [{ type: 'required_text', paths: ['other/thing.ts'], pattern: 'one' }] }) },
+    { files: { 'other/thing.ts': 'const one = 1\n' } },
+  )
+  const inside = project(
+    'zone-inside',
+    { laws: law({ checks: [{ type: 'required_text', paths: ['src/auth/thing.ts'], pattern: 'one' }] }) },
+    { files: { 'src/auth/thing.ts': 'const one = 1\n' } },
+  )
+  const outsideCompiled = compileProject(outside)
+  const insideCompiled = compileProject(inside)
+  const parts = [
+    `outside-refused=${outsideCompiled.problems.some((entry) => entry.code === 'LAW_PATH_OUTSIDE_DECLARED_ZONE')}`,
+    `inside-accepted=${!insideCompiled.problems.some((entry) => entry.code === 'LAW_PATH_OUTSIDE_DECLARED_ZONE')}`,
+  ]
+  claim(
+    'a law targeting a path outside its declared zones is refused, and one inside them is accepted',
+    parts.every((part) => part.endsWith('=true')),
+    parts.join(' '),
+  )
+}
 
 if (failures.length > 0) {
   process.stderr.write(`gate invariants FAILED\n${failures.map((entry) => `  - ${entry}`).join('\n')}\n`)

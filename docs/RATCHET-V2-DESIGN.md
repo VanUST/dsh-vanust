@@ -90,7 +90,10 @@ imports one that sits below it in this picture, and only `ratchet-tools.mjs`
 imports the harness.**
 
 Two consequences make the rule worth keeping. The static layer is testable by
-running Node — 248 tests in about 4 s with no harness, no credentials and no model.
+running Node — the suite prints its own count in about 9 s with no harness, no credentials
+and no model. **No figure is quoted here:** the counts in this section drifted for months while
+the section claimed to be the way to reproduce the evidence, and a number a command prints is
+one the command owns.
 And the *judge* is injected into `ratchet-ops.review` while the *human channel* is
 injected into `ratchet-ops.ratifyInteractively`, which is what lets both paths run
 under a two-line fake in a test and under a real child agent or a real question
@@ -1129,24 +1132,24 @@ Still open:
 ## 10. Running the evidence
 
 ```powershell
-# static + dynamic + ingestion + ratification: 248 tests, no harness, no model, ~4 s
+# static + dynamic + ingestion + ratification: no harness, no model (prints its own count)
 node --test scripts/test-ratchet.mjs
 
 # the guard's rule: what requiresDecisionRecord refuses, and what satisfies it
 node --test scripts/test-ratchet-guard.mjs
 
-# portability and packaging: 13/13
+# portability and packaging (prints its own tally)
 node scripts/check-portability.mjs
 
 # the consent surface, instruction routing and the gate's own invariants
 node scripts/check-consent-surface.mjs              # 7 claims, no harness needed
-node scripts/check-instruction-routing.mjs          # 8 claims, no harness needed
-node scripts/check-gate-invariants.mjs              # 12 verdicts, asserted behaviourally
+node scripts/check-instruction-routing.mjs          # no harness needed
+node scripts/check-gate-invariants.mjs              # verdicts asserted behaviourally
 
 # the breaker at release-gate scope: 6 invariants, one full gate per case
 node scripts/falsify-kit-gate.mjs
 
-# the kit's own gate: 19 laws in force, 21 checks (18 command checks, 4 distinct), ~10 s
+# the kit's own gate: run it — the verdict line reports the law and check counts
 node plugins/ratchet/ratchet-cli.mjs verify --root .
 
 # and that the gate FAILS when an invariant is broken: 6/6 cases

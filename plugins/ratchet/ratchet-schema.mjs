@@ -75,6 +75,8 @@ export const PROBLEM_CODES = Object.freeze({
   LAW_ZONE_MISSING: 'a law names a zone the manifest does not declare',
   LAW_TARGET_DANGLING: 'a law removes or amends a law id that no active ADR declares',
   LAW_REMOVE_UNAUTHORISED: 'a law removes a decision whose force came from a human ratification, without that authority',
+  LAW_PATH_OUTSIDE_DECLARED_ZONE: 'a law enforces against a path its record does not govern',
+  LAW_REMOVED_WITHOUT_DECISION: 'a law that was in force is gone and no active record removes it',
   LAW_UNCHECKED: 'a law in force declares no machine check and does not say why',
   SPEC_HASH_MISMATCH: 'a generated spec file was edited after generation',
   SPEC_OUT_OF_DATE: 'the generated spec bundle does not match the compiled laws',

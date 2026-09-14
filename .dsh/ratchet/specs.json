@@ -196,6 +196,46 @@
       "unenforced": null
     },
     {
+      "id": "shipped-plugins.laws-cannot-leave-force-silently",
+      "statement": "A law that was in force and is no longer compiled is reported unless an active record removes it by id, so a constraint cannot be deleted without a decision that names it.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0012",
+      "sourcePath": "docs/adrs/0012-a-green-gate-means-a-current-corpus.adr.md",
+      "approvedBy": "0013",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node scripts/check-gate-invariants.mjs",
+          "expects": "a law that leaves force without a recorded removal is reported, and a recorded removal is accepted",
+          "timeoutMs": 120000
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.laws-stay-inside-their-declared-authority",
+      "statement": "A record's law whose positive check paths fall outside the union of the zones that record declares is refused, because declaring a less restricted zone must not grant authority over a path the manifest reserves.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0012",
+      "sourcePath": "docs/adrs/0012-a-green-gate-means-a-current-corpus.adr.md",
+      "approvedBy": "0013",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node scripts/check-gate-invariants.mjs",
+          "expects": "a law targeting a path outside its declared zones is refused, and one inside them is accepted",
+          "timeoutMs": 120000
+        }
+      ],
+      "unenforced": null
+    },
+    {
       "id": "shipped-plugins.no-harness-import-in-logic",
       "statement": "No file under the ratchet plugin may import the harness except its tool adapter, ratchet-tools.mjs.",
       "zones": [
@@ -319,6 +359,26 @@
       "unenforced": null
     },
     {
+      "id": "shipped-plugins.specs-cannot-drift-silently",
+      "statement": "A generated spec document that no longer matches the decision it was compiled from, or that is missing while the project tracks generated specs, is reported by verify, and so is a compile that persists a bundle without regenerating the document, so a green verify cannot coexist with a stale human-readable view of the laws.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0012",
+      "sourcePath": "docs/adrs/0012-a-green-gate-means-a-current-corpus.adr.md",
+      "approvedBy": "0013",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node scripts/check-gate-invariants.mjs",
+          "expects": "a stale, missing or unwritten generated spec is reported, and a rebuilt corpus verifies clean",
+          "timeoutMs": 120000
+        }
+      ],
+      "unenforced": null
+    },
+    {
       "id": "shipped-plugins.state-records-what-was-judged",
       "statement": "A verification records the spec hash it judged, so a later reader can tell whether the code is still verified against the laws in force.",
       "zones": [
@@ -334,6 +394,26 @@
           "run": "node --test scripts/test-ratchet.mjs",
           "expects": "changing a law makes the recorded verification stale, and a zero-check verification does not count as verified",
           "timeoutMs": 300000
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.the-authority-table-cannot-be-relaxed-silently",
+      "statement": "The manifest's zone table decides which paths a human reserves, so a change to a reservation is visible to the gate rather than silent, and the deployment-rules zone still declares humanOnly authority.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0012",
+      "sourcePath": "docs/adrs/0012-a-green-gate-means-a-current-corpus.adr.md",
+      "approvedBy": "0013",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node scripts/check-consent-surface.mjs",
+          "expects": "the authority table still reserves deployment-rules to humans",
+          "timeoutMs": 120000
         }
       ],
       "unenforced": null

@@ -5,18 +5,33 @@
   "languages": [
     {
       "id": "javascript",
-      "extensions": [".mjs", ".js"],
-      "roots": ["plugins", "scripts", "probes"]
+      "extensions": [
+        ".mjs",
+        ".js"
+      ],
+      "roots": [
+        "plugins",
+        "scripts",
+        "probes"
+      ]
     },
     {
       "id": "shell",
-      "extensions": [".sh"],
-      "roots": ["."]
+      "extensions": [
+        ".sh"
+      ],
+      "roots": [
+        "."
+      ]
     },
     {
       "id": "powershell",
-      "extensions": [".ps1"],
-      "roots": ["."]
+      "extensions": [
+        ".ps1"
+      ],
+      "roots": [
+        "."
+      ]
     }
   ],
   "rules": [
@@ -25,7 +40,7 @@
       "statement": "Every agent, subagent and worker runs on a Flash-class DeepSeek model; no non-Flash tier is selected or delegated to.",
       "statedIn": "AGENTS.md",
       "enforcedBy": null,
-      "pendingReason": "the model-gate plugin vetoes a non-Flash model at the llm/stream waterfall, but nothing in this kit asserts that the veto is installed and enabled; that check is unbuilt"
+      "pendingReason": "the model-gate plugin vetoes a non-Flash model at the llm/stream waterfall, and scripts/verify-upgrade.sh probes exactly that (\"disallowed model vetoed, Flash model admitted\"); what is still unbuilt is a check that the veto is INSTALLED and ENABLED outside the throwaway profile, which is why this rule does not yet cite the release gate as its enforcement point"
     },
     {
       "id": "pin-the-harness",
@@ -38,43 +53,57 @@
       "id": "kit-rules-are-the-only-rules",
       "statement": "The deployment's mandatory rules come from $DSH_HOME/AGENTS.md via kit-rules; no repository instruction file reaches the prompt.",
       "statedIn": "AGENTS.md",
-      "enforcedBy": { "command": "instruction-routing" }
+      "enforcedBy": {
+        "command": "instruction-routing"
+      }
     },
     {
       "id": "rules-need-an-enforcement-point",
       "statement": "A rule is real only where a command fails when it is broken; a rule the kit cannot tie to a failure is reported as an unverified claim.",
       "statedIn": "AGENTS.md",
-      "enforcedBy": { "command": "ratchet-tests" }
+      "enforcedBy": {
+        "command": "ratchet-tests"
+      }
     },
     {
       "id": "portability-across-machines",
       "statement": "The kit runs on Linux and Windows; shipped source carries no platform-specific path, separator or binary assumption.",
       "statedIn": "AGENTS.md",
-      "enforcedBy": { "command": "portability" }
+      "enforcedBy": {
+        "command": "portability"
+      }
     },
     {
       "id": "tarballs-are-built-artifacts",
       "statement": "A plugin's tarball is produced by a script, its version is bumped whenever its bytes change, and every module a plugin ships is listed in its package manifest.",
       "statedIn": "AGENTS.md",
-      "enforcedBy": { "command": "portability" }
+      "enforcedBy": {
+        "command": "portability"
+      }
     },
     {
       "id": "consent-is-recorded",
       "statement": "A decision enters force only through a human consent recorded against the exact text that was approved; editing an approved record voids the consent, and a record the zone does not authorise is not in force.",
       "statedIn": "docs/adrs/0007-consent-is-recorded.adr.md",
-      "enforcedBy": { "command": "ratchet-tests" }
+      "enforcedBy": {
+        "command": "ratchet-tests"
+      }
     },
     {
       "id": "consent-travels-the-human-channel",
       "statement": "The ratification question reaches the human through the harness user-questions channel carrying the record's own text, and no shell command can mint a consent.",
       "statedIn": "docs/adrs/0007-consent-is-recorded.adr.md",
-      "enforcedBy": { "command": "ratify-probe" }
+      "enforcedBy": {
+        "command": "ratify-probe"
+      }
     },
     {
       "id": "enforcement-is-checked-behaviourally",
       "statement": "An invariant the kit enforces with a command is checked by driving the production modules and requiring the wrong verdict to be refused; no enforcement point rests on a test name or on output a green run prints anyway.",
       "statedIn": "docs/adrs/0009-enforcement-is-checked-behaviourally.adr.md",
-      "enforcedBy": { "command": "gate-invariants" }
+      "enforcedBy": {
+        "command": "gate-invariants"
+      }
     }
   ],
   "verification": [
@@ -123,7 +152,7 @@
     {
       "id": "adr-panel-render",
       "command": "node scripts/test-adr-panel.mjs",
-      "purpose": "the ADR panel's browser bundle rendered for real: the shipped client.js is loaded through a stub module loader and driven over the kit's own corpus, asserting the UX contract — three reader-facing sections, states filled and provenance outlined, the awaiting-a-human state in the warn tone, the decided-in chip taking the tone of the record it names, and every toned pill's text resolving through the installed theme to a colour other than its own fill",
+      "purpose": "the ADR panel's browser bundle rendered for real: the shipped client.js is loaded through a stub module loader and driven over the kit's own corpus, asserting the UX contract \u2014 three reader-facing sections, states filled and provenance outlined, the awaiting-a-human state in the warn tone, the decided-in chip taking the tone of the record it names, and every toned pill's text resolving through the installed theme to a colour other than its own fill",
       "path": "scripts/test-adr-panel.mjs"
     },
     {
@@ -146,12 +175,30 @@
     }
   ],
   "scopes": [
-    { "resolver": "path", "root": "plugins" },
-    { "resolver": "path", "root": "scripts" },
-    { "resolver": "path", "root": "probes" },
-    { "resolver": "path", "root": "docs" },
-    { "resolver": "path", "root": "rules" },
-    { "resolver": "path", "root": "profile" }
+    {
+      "resolver": "path",
+      "root": "plugins"
+    },
+    {
+      "resolver": "path",
+      "root": "scripts"
+    },
+    {
+      "resolver": "path",
+      "root": "probes"
+    },
+    {
+      "resolver": "path",
+      "root": "docs"
+    },
+    {
+      "resolver": "path",
+      "root": "rules"
+    },
+    {
+      "resolver": "path",
+      "root": "profile"
+    }
   ],
   "ratchet": {
     "enabled": true,
@@ -161,27 +208,38 @@
     "reportsDir": "reports/ratchet",
     "stateDir": ".dsh/ratchet",
     "defaultAgentAuthority": "proposeOnly",
-    "specsRequired": false,
+    "specsRequired": true,
     "zones": [
       {
         "id": "shipped-plugins",
-        "paths": ["plugins/**"],
+        "paths": [
+          "plugins/**"
+        ],
         "agentAuthority": "proposeOnly",
         "requiresDecisionRecord": false
       },
       {
         "id": "kit-tooling",
-        "paths": ["scripts/**", "probes/**"],
+        "paths": [
+          "scripts/**",
+          "probes/**"
+        ],
         "agentAuthority": "activeIfNoConflict",
         "requiresDecisionRecord": false
       },
       {
         "id": "deployment-rules",
-        "paths": ["rules/**", "profile/**", "install.sh", "install.ps1", "start.sh", "start.ps1"],
+        "paths": [
+          "rules/**",
+          "profile/**",
+          "install.sh",
+          "install.ps1",
+          "start.sh",
+          "start.ps1"
+        ],
         "agentAuthority": "humanOnly",
         "requiresDecisionRecord": false
       }
     ]
   }
 }
-

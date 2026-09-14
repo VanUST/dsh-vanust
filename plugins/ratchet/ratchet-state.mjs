@@ -183,7 +183,7 @@ export function readLedger(root) {
  * @returns `{ written, ledger }` — the repository-relative paths written, and the
  *   ledger append result.
  */
-export function persistCompile(root, { bundle, report, specFiles = null }) {
+export function persistCompile(root, { bundle, report, specFiles = null, lawIds = null }) {
   const written = []
   if (bundle !== null) {
     written.push(
@@ -204,6 +204,17 @@ export function persistCompile(root, { bundle, report, specFiles = null }) {
     ok: report.problems.length === 0,
     activeAdrs: report.counts.active,
     laws: report.counts.laws,
+    // The law IDS, not the count. A count cannot tell a retirement from a deletion:
+    // 19 laws becoming 18 looks the same whichever way it happened, and the persisted
+    // bundle is overwritten by the very compile that would be asked about it. The
+    // ledger is append-only, so it is the one place the previous set survives.
+    //
+    // A `null` here means the caller found an unexplained removal and is deliberately
+    // NOT advancing the record. Omitting the field keeps the last known set in force
+    // as the comparison base, so the problem keeps being reported until a decision
+    // retires the law or it comes back — a run that recorded the shrunken set would
+    // certify the deletion one command later.
+    ...(Array.isArray(lawIds) ? { lawIds: [...lawIds].sort() } : {}),
     specHash: report.specHash,
     problems: report.problems.length,
     reviewRequired: report.reviewRequired.length,
@@ -226,7 +237,7 @@ export function persistCompile(root, { bundle, report, specFiles = null }) {
  *   implying the code was covered.
  * @returns `{ written, ledger }`.
  */
-export function persistVerify(root, { report, evaluatedSpecHash, toolVersion = null }) {
+export function persistVerify(root, { report, evaluatedSpecHash, toolVersion = null, lawIds = null }) {
   const written = [
     writeArtifact(root, STATE_PATHS.verifyReport, `${JSON.stringify(report, null, 2)}\n`).path,
   ]
@@ -255,10 +266,48 @@ export function persistVerify(root, { report, evaluatedSpecHash, toolVersion = n
     errors: report.problems.length,
     checksEvaluated: report.counts.checksEvaluated,
     filesWalked: report.counts.filesWalked,
+    // Recorded here as well as on compile: a verify is a run that observed a law set,
+    // and a project that only ever verifies still needs a history to compare against.
+    // Omitted when the caller found an unexplained removal — see `persistCompile`.
+    ...(Array.isArray(lawIds) ? { lawIds: [...lawIds].sort() } : {}),
     specHash: evaluatedSpecHash,
     codeHash: evaluatedCodeHash,
   })
   return { written, ledger }
+}
+
+/**
+ * The law ids the most recent ledger entry recorded, or `null` when none did.
+ *
+ * Read backwards from the end of an append-only file, so the answer is the last set
+ * any run observed rather than the current one — which is the whole point, since the
+ * current set is what a deletion has already changed. `null` (no history) is a
+ * distinct answer from `[]` (a corpus with no laws): the caller must not report
+ * every law as newly added on a project that has simply never recorded a set.
+ *
+ * @param root - Absolute project root.
+ * @returns A sorted copy of the recorded ids, or `null` when the ledger holds none.
+ */
+export function readRecordedLawIds(root) {
+  let text
+  try {
+    text = readFileSync(join(root, STATE_PATHS.ledger), 'utf8')
+  } catch {
+    return null
+  }
+  const lines = text.split('\n')
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    if (lines[index].trim() === '') continue
+    let entry
+    try {
+      entry = JSON.parse(lines[index])
+    } catch {
+      // A torn final line is possible; keep walking rather than abandoning history.
+      continue
+    }
+    if (Array.isArray(entry?.lawIds)) return [...entry.lawIds]
+  }
+  return null
 }
 
 /**
@@ -384,17 +433,28 @@ export function verificationEvents(report, specHash) {
  * "The specs directory is empty" and "somebody deleted our specs" are different
  * situations, and treating the first as the second makes every project that has
  * not opted into generated documents fail verification on the day it adopts the
- * ratchet. A project tracks specs once it has asked for them (`specsRequired`) or
- * once any generated document exists on disk — after which deleting one is drift.
+ * ratchet. A project therefore tracks specs once ANY generated document exists on
+ * disk, or once it asks for them with `ratchet.specsRequired: true`.
+ *
+ * `specsRequired: false` does NOT opt out once documents exist. It was read that way
+ * once and the reading was wrong: the flag means "do not REQUIRE generated
+ * documents", not "do not NOTICE the ones this project committed". Returning false
+ * here suppressed the deleted-document problem and the stale-document problem
+ * together, so a project could commit generated specs, let them drift from the
+ * decisions they were compiled from, and still verify clean — the exact drift this
+ * function exists to catch. Opting out of generated documents is done by not having
+ * them.
  *
  * @param root - Absolute project root.
  * @param specsDir - Manifest-declared specs directory.
  * @param explicit - Value of `ratchet.specsRequired` when the manifest sets it.
- * @returns `true` when missing generated documents should be reported.
+ *   Only `true` short-circuits; `false` and `undefined` both fall through to the
+ *   on-disk test.
+ * @returns `true` when missing generated documents should be reported; `false` when
+ *   the directory is absent or unreadable. Never throws.
  */
 export function tracksSpecDocuments(root, specsDir, explicit = undefined) {
   if (explicit === true) return true
-  if (explicit === false) return false
   const directory = join(root, specsDir ?? 'docs/specs')
   if (!existsSync(directory)) return false
   try {

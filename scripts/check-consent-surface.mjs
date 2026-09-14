@@ -30,7 +30,7 @@
  *     plugin's own code plus the CLI, so it runs in any checkout.
  */
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -223,6 +223,29 @@ claim(
 )
 
 for (const root of [blockedRoot, terminalRoot, pendingRoot]) rmSync(root, { recursive: true, force: true })
+
+// 6. The authority table is what makes the surface a surface. A zone that reserves a
+//    path to humans is the only reason `proposeOnly` and `humanOnly` mean anything, and
+//    the manifest is itself governed by no zone — so relaxing it is otherwise invisible.
+//    This is a tripwire, not a proof: it reports that the reservation was edited, and
+//    the decision to edit it is still a human's.
+{
+  const manifestPath = join(KIT, '.dsh', 'project.json')
+  let reserved = false
+  let detail = 'the manifest is unreadable as JSON'
+  try {
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    const zone = (manifest?.ratchet?.zones ?? []).find((entry) => entry.id === 'deployment-rules')
+    reserved = zone?.agentAuthority === 'humanOnly'
+    detail =
+      zone === undefined
+        ? 'the manifest declares no deployment-rules zone'
+        : `deployment-rules agentAuthority=${JSON.stringify(zone.agentAuthority)}`
+  } catch (error) {
+    detail = `the manifest is unreadable as JSON: ${String(error)}`
+  }
+  claim('the authority table still reserves deployment-rules to humans', reserved, detail)
+}
 
 if (failures.length > 0) {
   process.stderr.write(`consent surface FAILED\n${failures.map((entry) => `  - ${entry}`).join('\n')}\n`)
