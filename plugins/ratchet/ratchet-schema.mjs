@@ -227,6 +227,67 @@ export const COMMAND_STREAMS = Object.freeze(['stdout', 'stderr', 'both'])
  * correct glob law while believing it was being strict.
  */
 /**
+ * Every field a check may carry, and what kind of thing it names.
+ *
+ * This is the table the parser validates against, and it is what makes the zone-authority
+ * rule complete BY CONSTRUCTION rather than by enumeration. Six independent breaker rounds
+ * found six omissions in a hand-written list of path-bearing fields — the singular `path`,
+ * then `path_boundary`'s `zone` and `deny`, then `..` traversal inside them, then
+ * `required_file_in_list.list` — because a check could carry ANY key the parser did not
+ * know and the verifier might then read it. A field the parser refuses cannot reach the
+ * verifier, so the set of fields a check can carry is now closed here, and the path targets
+ * the compiler checks are exactly the fields marked `path` (plus a `zone`'s own paths).
+ *
+ * The kinds:
+ *   - `path`    — a repository path or glob the check acts on. A target, and the thing the
+ *                 zone rule constrains.
+ *   - `zone`    — a zone ID whose own `paths` become targets.
+ *   - `opaque`  — a shell command. Its reach is not statically knowable, and the docstring
+ *                 on `CHECK_TARGET_FIELDS` says why that is undecidable rather than
+ *                 unimplemented.
+ *   - `content` — a regex matched against file CONTENTS, not a path.
+ *   - `package` — a dependency name compared against manifest entries, not a path.
+ *   - `scalar`  — a flag, key, timing or expected-output value: not a path.
+ */
+/**
+ * Fields any check may carry, whatever its type, and what they are.
+ *
+ * `basis` is the sentence in the ingested source that requires the check. The ingestion
+ * layer records it on every derived check so the check can be traced to the reasoning that
+ * produced it, and the verifier never reads it — it is provenance, not enforcement. It
+ * belongs here rather than repeated in every row of the table below, and it is exactly the
+ * kind of field a hand-written enumeration of "path-bearing fields" forgets: it was found
+ * by closing the field set and watching eight ingestion tests fail.
+ */
+export const UNIVERSAL_CHECK_FIELDS = Object.freeze({
+  basis: 'annotation',
+})
+
+export const CHECK_FIELD_KINDS = Object.freeze({
+  required_file: { path: 'path' },
+  forbidden_file: { path: 'path' },
+  required_file_in_list: { path: 'path', list: 'path', keys: 'scalar', contains: 'scalar', containsIs: 'scalar' },
+  required_glob: { pattern: 'path' },
+  forbidden_glob: { pattern: 'path' },
+  required_text: { paths: 'path', pattern: 'content', flags: 'scalar' },
+  forbidden_text: { paths: 'path', pattern: 'content', flags: 'scalar' },
+  required_text_glob: { paths: 'path', pattern: 'content', flags: 'scalar', anyOf: 'scalar' },
+  forbidden_text_glob: { paths: 'path', pattern: 'content', flags: 'scalar', anyOf: 'scalar' },
+  path_boundary: { deny: 'path', zone: 'zone' },
+  command: {
+    run: 'opaque',
+    expects: 'scalar',
+    outputContains: 'scalar',
+    outputMatches: 'scalar',
+    outputNotContains: 'scalar',
+    stream: 'scalar',
+    timeoutMs: 'scalar',
+  },
+  required_dependency: { patterns: 'package' },
+  forbidden_dependency: { patterns: 'package' },
+})
+
+/**
  * Which check field names the path a check acts on, per check type.
  *
  * One table, because the alternative was tried twice and failed twice. A cross-check that
@@ -259,21 +320,21 @@ export const COMMAND_STREAMS = Object.freeze(['stdout', 'stderr', 'both'])
  * `../outside/list.json` was read from outside the project root with the cross-check
  * reporting nothing — found by a breaker, like every other omission in this table.
  */
-export const CHECK_TARGET_FIELDS = Object.freeze({
-  required_file: ['path'],
-  forbidden_file: ['path'],
-  required_file_in_list: ['path', 'list'],
-  required_glob: ['pattern'],
-  forbidden_glob: ['pattern'],
-  required_text: ['paths'],
-  forbidden_text: ['paths'],
-  required_text_glob: ['paths'],
-  forbidden_text_glob: ['paths'],
-  path_boundary: ['deny', 'zonePaths'],
-  command: [],
-  required_dependency: [],
-  forbidden_dependency: [],
-})
+export const CHECK_TARGET_FIELDS = Object.freeze(
+  Object.fromEntries(
+    Object.entries(CHECK_FIELD_KINDS).map(([type, fields]) => [
+      type,
+      [
+        ...Object.entries(fields)
+          .filter(([, kind]) => kind === 'path')
+          .map(([field]) => field),
+        // The zone's own paths are a target the check reaches through `check.zone`. Not a
+        // field on the check, which is why it is added here rather than in the kind table.
+        ...(Object.values(fields).includes('zone') ? ['zonePaths'] : []),
+      ],
+    ]),
+  ),
+)
 
 export const REGEX_PATTERN_CHECK_TYPES = Object.freeze([
   'required_text',
@@ -630,6 +691,26 @@ export function validateLawChecks(law, subject) {
         problem(
           'ADR_FIELD_INVALID',
           `law "${lawId}" uses check type ${JSON.stringify(check.type)}; supported types are ${CHECK_TYPES.join(', ')}`,
+          subject,
+          { lawId },
+        ),
+      )
+      continue
+    }
+    // The field set is closed. A check may carry `type` and the fields CHECK_FIELD_KINDS
+    // names for it, and nothing else — because an unknown field is not evaluated, so it
+    // does nothing at all, and because a path an unclassified field names would escape
+    // the zone rule. That rule was evaded six times, every time through a field nobody had
+    // classified, so the fix belongs here rather than in a longer list over there.
+    const knownFields = CHECK_FIELD_KINDS[check.type] ?? {}
+    const unknownFields = Object.keys(check).filter(
+      (key) => key !== 'type' && !(key in knownFields) && !(key in UNIVERSAL_CHECK_FIELDS),
+    )
+    if (unknownFields.length > 0) {
+      problems.push(
+        problem(
+          'ADR_FIELD_INVALID',
+          `law "${lawId}" check ${check.type} carries ${unknownFields.map((key) => JSON.stringify(key)).join(', ')}, which this check type does not define; it defines ${['type', ...Object.keys(knownFields), ...Object.keys(UNIVERSAL_CHECK_FIELDS)].join(', ')}. An unknown field is never read, so it enforces nothing whatever it names`,
           subject,
           { lawId },
         ),

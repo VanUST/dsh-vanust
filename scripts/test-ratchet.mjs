@@ -945,128 +945,50 @@ async function verifyRawLaws(name, checks, { files = {}, zones = null } = {}) {
   return { root, report: verified.report, problems: verified.problems, codes: verified.problems.map((entry) => entry.code) }
 }
 
-test('schema: every check field the verifier reads is a declared target or explicitly not a path', () => {
-  // The type-level test above closes the case where a whole check type is unclassified.
-  // This closes the field level, because the type table was right four times while a
-  // FIELD inside a classified type was missed twice: `required_file_in_list` declared
-  // only `path` while the verifier also joined `list`, and a `list` of
-  // `../outside/list.json` was read from outside the project root unreported. The pairs
-  // below come from reading the verifier's own source, so a field it starts using that
-  // nobody classified fails this test instead of silently escaping the zone rule.
-  const source = readFileSync(join(PLUGIN, 'ratchet-verifier.mjs'), 'utf8')
-  const groups = []
-  for (const match of source.matchAll(/(?:case '([a-z_]+)':\s*)+?\{/g)) {
-    groups.push({
-      labels: [...match[0].matchAll(/case '([a-z_]+)':/g)].map((entry) => entry[1]),
-      start: match.index + match[0].length,
-    })
-  }
-  // Three read forms, because a guard that only understands the first is the same kind of
-  // hole it exists to catch: this test was written with `check.field` alone and stayed
-  // GREEN when `check['field']` and `const { field } = check` were added to a copy.
-  const fieldsReadIn = (text) => {
-    const found = new Set()
-    for (const match of text.matchAll(/check\.([a-zA-Z_$][\w$]*)/g)) found.add(match[1])
-    for (const match of text.matchAll(/check\[\s*['"]([a-zA-Z_$][\w$]*)['"]\s*\]/g)) found.add(match[1])
-    for (const match of text.matchAll(/(?:const|let|var)\s*\{([^}]*)\}\s*=\s*check\b/g)) {
-      for (const entry of match[1].split(',')) {
-        // `{ list }` and `{ list: theList }` both read the field `list`.
-        const name = entry.split(':')[0].split('=')[0].trim()
-        if (/^[a-zA-Z_$][\w$]*$/.test(name)) found.add(name)
-      }
-    }
-    return found
+test('schema: a check carries only its own fields, and every path field is a zone target', () => {
+  // This replaces a test that derived the fields by PARSING THE VERIFIER'S SOURCE. Six
+  // independent breaker rounds showed that approach misses a new read form every time —
+  // `check.field`, then `check['field']`, destructuring, aliasing, optional chaining,
+  // whitespace before the dot — and a guard that needs a fresh regex for each syntax is
+  // not a guard. The field set is now closed where a check is parsed, and the compiler's
+  // targets are DERIVED from the same table, so they cannot disagree and no syntax can
+  // hide a path: a field the parser refuses never reaches the verifier at all.
+  const types = [...schema.CHECK_TYPES]
+  const missing = types.filter((type) => schema.CHECK_FIELD_KINDS[type] === undefined)
+  const extra = Object.keys(schema.CHECK_FIELD_KINDS).filter((type) => !types.includes(type))
+  assert.deepEqual(missing, [], 'check types with no field-kind entry')
+  assert.deepEqual(extra, [], 'field-kind entries that are not check types')
+
+  for (const type of types) {
+    const kinds = schema.CHECK_FIELD_KINDS[type]
+    const expected = [
+      ...Object.entries(kinds)
+        .filter(([, kind]) => kind === 'path')
+        .map(([field]) => field),
+      // A `zone` field names a zone whose own paths the check reaches.
+      ...(Object.values(kinds).includes('zone') ? ['zonePaths'] : []),
+    ].sort()
+    assert.deepEqual([...schema.CHECK_TARGET_FIELDS[type]].sort(), expected, `${type} targets are derived`)
   }
 
-  const readPairs = new Set()
-  const attributed = new Set()
-  groups.forEach((group, index) => {
-    const end = index + 1 < groups.length ? groups[index + 1].start : source.length
-    const body = source.slice(group.start, end)
-    for (const field of fieldsReadIn(body)) {
-      attributed.add(field)
-      for (const label of group.labels) readPairs.add(`${label}.${field}`)
-    }
-  })
-  assert.ok(readPairs.size > 0, 'the verifier source must yield field pairs')
-  // A read that appears outside every `case` block cannot be attributed to a type, so it
-  // is reported rather than silently dropped.
-  const unattributed = [...fieldsReadIn(source)].filter((field) => !attributed.has(field)).sort()
-  assert.deepEqual(unattributed, [], 'check fields read outside any case block, so no type owns them')
-
-  const targetPairs = new Set()
-  for (const [type, fields] of Object.entries(schema.CHECK_TARGET_FIELDS)) {
-    for (const field of fields) if (field !== 'zonePaths') targetPairs.add(`${type}.${field}`)
-  }
-
-  // Every pair the verifier reads that is NOT a path target, with the reason it is not.
-  // A pair here is a positive claim, and the second assertion refuses one that is also
-  // declared a target, so the two lists cannot disagree.
-  const NON_PATH = new Map([
-    // A shell command and how its output is judged. `run` is opaque by construction: a
-    // command string is not statically reducible to the paths it touches.
-    ...['expects', 'outputContains', 'outputMatches', 'outputNotContains', 'run', 'stream', 'timeoutMs', 'type'].map((field) => [`command.${field}`, 'the command surface, not a path']),
-    // Dependency names compared against manifest entries.
-    ...['patterns', 'type'].flatMap((field) => [[`required_dependency.${field}`, 'a package name, not a path'], [`forbidden_dependency.${field}`, 'a package name, not a path']]),
-    // A regex over file CONTENT, its flags, and the any-of switch.
-    ...['flags', 'pattern', 'anyOf', 'type'].flatMap((field) => [
-      [`required_text.${field}`, 'the content matcher, not a path'],
-      [`forbidden_text.${field}`, 'the content matcher, not a path'],
-      [`required_text_glob.${field}`, 'the content matcher, not a path'],
-      [`forbidden_text_glob.${field}`, 'the content matcher, not a path'],
-    ]),
-    // A zone ID. The paths it resolves to are reached through `zonePaths` in the table.
-    ['path_boundary.zone', 'a zone id; its paths are reached through zonePaths'],
-    // Values looked for inside the list file, and the keys that hold them.
-    ['required_file_in_list.contains', 'a value inside the list file, not a path'],
-    ['required_file_in_list.containsIs', 'a value inside the list file, not a path'],
-    ['required_file_in_list.keys', 'keys into the list file, not a path'],
-  ])
-
-  // `check` must not be aliased. Every read form this test understands starts at the
-  // identifier `check`; `const c = check; c.list` would be invisible to all of them, and a
-  // guard an ordinary rename defeats is not a guard. Destructuring binds FROM `check` and
-  // is understood, so `} = check` is allowed and any other `= check` is not.
-  // `check` followed by `.`, a word character or `[` is a READ of a field, not an alias of
-  // the object, so only a bare `= check` binding counts.
-  const aliased = [...source.matchAll(/=\s*check(?![.\w$\[])/g)]
-    .filter((match) => !/\}\s*$/.test(source.slice(Math.max(0, match.index - 40), match.index)))
-    .map((match) => source.slice(match.index, match.index + 30))
-  assert.deepEqual(aliased, [], 'the verifier must not alias `check`; aliased reads defeat field derivation')
-
-  // Equality, not containment, and both directions matter:
-  //   - a read that is neither a target nor allowlisted is an unclassified path, and
-  //   - a DECLARED TARGET THAT IS NEVER READ is a stale table entry, which is how a guard
-  //     loses coverage silently: replacing `check.list` with a destructured read once made
-  //     `list` disappear from the derivation, and containment let that pass.
-  const unclassified = [...readPairs].filter((pair) => !targetPairs.has(pair) && !NON_PATH.has(pair)).sort()
-  assert.deepEqual(unclassified, [], 'check fields that are neither a path target nor allowlisted')
-  const contradictory = [...NON_PATH.keys()].filter((pair) => targetPairs.has(pair)).sort()
-  assert.deepEqual(contradictory, [], 'fields allowlisted as non-path but declared as targets')
-  const unread = [...targetPairs].filter((pair) => !readPairs.has(pair)).sort()
-  assert.deepEqual(unread, [], 'declared target fields the verifier does not read')
-})
-
-test('schema: every check type declares which field names the path it acts on', () => {
-  // The rule this protects was evaded twice, both times because the field enumeration was
-  // written by hand: the singular `path` was missing, then `path_boundary`'s `zone` and
-  // `deny` were missing entirely. A new check type that names a path and is not classified
-  // here would reintroduce exactly that hole, so its absence is a failing test rather than
-  // a silent gap.
-  const classified = Object.keys(schema.CHECK_TARGET_FIELDS)
-  const declared = [...schema.CHECK_TYPES]
-  const missing = declared.filter((type) => !classified.includes(type))
-  const extra = classified.filter((type) => !declared.includes(type))
-  assert.deepEqual(missing, [], 'check types with no entry in CHECK_TARGET_FIELDS')
-  assert.deepEqual(extra, [], 'CHECK_TARGET_FIELDS entries that are not check types')
-  // And a `[]` entry is a positive claim, not an oversight: the type must be one the
-  // verifier reads no path field for.
-  const noTargets = classified.filter((type) => schema.CHECK_TARGET_FIELDS[type].length === 0).sort()
-  assert.deepEqual(
-    noTargets,
-    ['command', 'forbidden_dependency', 'required_dependency'].sort(),
-    'a check type claiming no path target must be one that genuinely has none',
+  // And the parser refuses a field the type does not define, so a path in an unclassified
+  // field cannot exist in a record in the first place.
+  const refused = schema.validateLawChecks(
+    { id: 'auth.x', checks: [{ type: 'required_file', path: 'src/auth/a.ts', secretPath: 'rules/AGENTS.md' }] },
+    'test',
   )
+  assert.ok(
+    refused.some((entry) => entry.code === 'ADR_FIELD_INVALID' && /secretPath/.test(entry.message)),
+    'an undefined field is refused by name',
+  )
+  const accepted = schema.validateLawChecks({ id: 'auth.x', checks: [{ type: 'required_file', path: 'src/auth/a.ts' }] }, 'test')
+  assert.deepEqual(accepted, [], 'a check made only of defined fields is accepted')
+  // `basis` is the one exception, because ingestion records it on every derived check.
+  const annotated = schema.validateLawChecks(
+    { id: 'auth.x', checks: [{ type: 'required_file', path: 'src/auth/a.ts', basis: 'the source says so' }] },
+    'test',
+  )
+  assert.deepEqual(annotated, [], 'the universal basis annotation is accepted on any check')
 })
 
 test('verifier: required_file passes when present and fails when absent', async () => {
@@ -2921,7 +2843,14 @@ test('ingest: a check that cannot be evaluated is dropped with its reason, never
   assert.equal(result.dropped.length, 3)
   assert.ok(result.dropped.some((entry) => /telepathy/.test(entry.reason)), 'an unknown type is named')
   assert.ok(result.dropped.some((entry) => /pattern/.test(entry.reason)), 'a missing required field is named')
-  assert.ok(result.dropped.some((entry) => /cannot write into a record/.test(entry.reason)), 'a field the renderer would silently omit is refused')
+  // `note` is refused by the schema's field set, which now runs before the renderer's own
+  // check: an unknown field is not read by anything, so it enforces nothing whatever it
+  // names, and that is the more useful thing to say. The check is still dropped and the
+  // field is still named, which is what this case is about.
+  assert.ok(
+    result.dropped.some((entry) => /"note"/.test(entry.reason) && /does not define/.test(entry.reason)),
+    'a field the ratchet does not store is refused by name',
+  )
 })
 
 /** A payload whose quoted bases are sentences from CONVENTION_SOURCE. */

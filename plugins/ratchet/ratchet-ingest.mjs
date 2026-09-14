@@ -33,7 +33,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { MIN_UNENFORCED_LENGTH, PROBLEM_CODES, hashSource, normaliseText, problem, validateLawChecks } from './ratchet-schema.mjs'
+import { CHECK_FIELD_KINDS, MIN_UNENFORCED_LENGTH, PROBLEM_CODES, UNIVERSAL_CHECK_FIELDS, hashSource, normaliseText, problem, validateLawChecks } from './ratchet-schema.mjs'
 
 /**
  * The output contract for ingestion.
@@ -689,25 +689,14 @@ export function renderAdr({ fields, sourcePath, sourceHash, createdAt, authorNam
  */
 export const RENDERABLE_CHECK_KEYS = Object.freeze([
   'type',
-  'path',
-  'pattern',
-  'paths',
-  'patterns',
-  'zone',
-  'deny',
-  'anyOf',
-  'run',
-  'expects',
-  'timeoutMs',
-  'outputContains',
-  'outputNotContains',
-  'outputMatches',
-  'stream',
-  'list',
-  'keys',
-  'contains',
-  'containsIs',
-  'flags',
+  // Derived from the schema, not written out again. Three separate hand-written lists of
+  // check keys existed — this one, the schema's field kinds, and the compiler's target
+  // fields — and the compiler's missed a path field six times over. A list that is only
+  // ever derived cannot drift from the thing it describes.
+  ...new Set([
+    ...Object.values(CHECK_FIELD_KINDS).flatMap((fields) => Object.keys(fields)),
+    ...Object.keys(UNIVERSAL_CHECK_FIELDS),
+  ]),
 ])
 
 /** Check fields the record format stores as one quoted scalar. */

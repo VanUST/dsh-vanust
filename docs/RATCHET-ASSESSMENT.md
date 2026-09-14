@@ -515,8 +515,31 @@ test now reads `plugins/ratchet/ratchet-verifier.mjs` itself, extracts every fie
 type reads, and requires the result to EQUAL the declared targets plus an explicit non-path
 allowlist — each entry carrying its reason.
 
-A fifth breaker falsified the first version of that guard, correctly, and the ways it was wrong
-are worth recording because they are the same failure one level up. It understood only
+A fifth breaker falsified the first version of that guard, correctly, and a sixth falsified the
+second — `check?.field` and `check .field` slipped past it, and an undeclared field read through
+a call argument was invisible. The lesson of six rounds was the same each time, so the approach
+was abandoned rather than patched:
+
+> A guard that enumerates the ways a field can be READ needs a new rule for every syntax. A
+> guard that CLOSES the set of fields a check can CARRY needs none.
+
+`CHECK_FIELD_KINDS` now names every field each check type may carry and what it is — `path`,
+`zone`, `opaque`, `content`, `package`, or `scalar` — the parser refuses any field a type does
+not define, and the compiler's target list is DERIVED from that table rather than written
+beside it. So a path can only arrive in a field marked `path`, and the cross-check covers every
+one of them by construction. Closing the set immediately found something no enumeration had
+ever mentioned: the ingestion layer records a `basis` annotation on every derived check, which
+is now a documented universal field. It also let two other hand-written key lists collapse into
+the derived one, which is where the drift would have come from next.
+
+The regex guard is gone. What replaced it asserts the derivation itself — every `path` field is
+a target, a `zone` adds the zone's paths, nothing else is one — plus the parser's refusal of an
+undefined field, which is behaviour rather than source text. The six fields that defeated the
+first six rounds — `extraList`, `someNewPath`, `zzzOptional`, `zzzComputed`, `zzzDot`,
+`secretPath` — are now refused where a check is parsed.
+
+The earlier, still-instructive history of that guard: a fifth breaker falsified the first
+version, correctly, and the ways it was wrong are the same failure one level up. It understood only
 `check.field`; it stayed green when `check['field']` and `const { field } = check` were added;
 and because its assertion was containment rather than equality, a read that DISAPPEARED was
 silently accepted — replacing `check.list` with a destructured read made `list` vanish from the
