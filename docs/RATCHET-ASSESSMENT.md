@@ -449,7 +449,35 @@ The finding generalises past the omission: **a gate composed of probes does not 
 thing the probes enforce.** Everything the gate asserted was a command in `scripts/`, while
 the laws those commands back were checked only by a command nobody had wired in.
 
-### 3.9 Why it does not work — the synthesis
+### 3.9 Finding 7 — the fix for Findings 1–3 was itself incomplete, and the breaker said so
+
+Recorded because it is the strongest evidence in this document for why the breaker role is
+not ceremony. The first implementation of ADR 0012 was handed to an independent breaker
+with the three claims it was supposed to establish. It found **two real evasions**, both
+inside the law's wording rather than outside it, so both were correctness bugs in the
+implementation rather than gaps in the decision:
+
+- **An orphaned document was invisible.** The stale-spec check compared only the files the
+  *current* bundle renders, so renaming a zone changed the generated filename and left the
+  old `docs/specs/<old-zone>.spec.md` behind, describing laws that no longer exist, with
+  `verify` green. A document nothing current produces is exactly what "no longer matches the
+  decision it was compiled from" covers; it is now reported as `SPEC_ORPHANED`.
+- **The zone cross-check read one field of three.** A check names its target in `paths` for
+  the text and boundary checks, the singular `path` for the file checks, and `pattern` for
+  the glob checks. Only `paths` was read, so a `required_file` on `path: rules/AGENTS.md`
+  enforced against a human-only path with nothing reported — the same escape, one field
+  over. All three fields are now read.
+
+Both were reproduced before and after the correction. Three test fixtures also failed as a
+consequence, two of them verifier glob tests and one falsify case whose entire premise was a
+law targeting a path its zones did not cover — a premise the rule now makes unconstructible,
+which is why that test asserts what holds instead.
+
+The lesson is not that the fix was careless. It is that the first version passed every check
+its author had thought to write, including three new behavioural invariants, and still had
+two holes: the invariants tested the case, not the class.
+
+### 3.10 Why it does not work — the synthesis
 
 The findings are not five unrelated bugs. They are one property, seen five times:
 
@@ -481,7 +509,7 @@ the script that checks it still passes"). The findings above show the admission 
 narrow: the agent need not touch the module or the script at all. It can remove the law, or
 re-aim a law at a reserved path by relabelling its zone.
 
-### 3.10 What would change the answer
+### 3.11 What would change the answer
 
 Ordered by effect per unit of effort, each one a candidate decision record rather than a
 patch to apply blindly. **Items 1, 2 and 3 were put to a human as ADR `0012`, ratified as
