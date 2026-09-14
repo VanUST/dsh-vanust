@@ -511,12 +511,21 @@ containment gave **0 divergences**, so the traversal fix was sound and the miss 
 over.
 
 That is four rounds of the same shape, so the guard moved from the content to the method. A
-test now reads `plugins/ratchet/ratchet-verifier.mjs` itself, extracts every `check.<field>`
-each check type reads, and fails when a pair is neither a declared target nor on an explicit
-non-path allowlist with a reason — and it fails the other way too, if a field is allowlisted
-as a non-path and also declared a target. Adding a field the verifier reads without saying
-what it is is now a red test rather than the fifth silent hole. The guard was falsified by
-adding an unclassified read to a copy: the test fails naming `required_file.newField`.
+test now reads `plugins/ratchet/ratchet-verifier.mjs` itself, extracts every field each check
+type reads, and requires the result to EQUAL the declared targets plus an explicit non-path
+allowlist — each entry carrying its reason.
+
+A fifth breaker falsified the first version of that guard, correctly, and the ways it was wrong
+are worth recording because they are the same failure one level up. It understood only
+`check.field`; it stayed green when `check['field']` and `const { field } = check` were added;
+and because its assertion was containment rather than equality, a read that DISAPPEARED was
+silently accepted — replacing `check.list` with a destructured read made `list` vanish from the
+derivation while the table still declared it. The guard now covers dot access, computed access
+and destructuring, requires equality in both directions so a declared target that is never read
+is also a failure, and refuses aliasing of `check` outright, since `const c = check; c.list`
+would defeat every one of those forms. Each change was falsified before it was trusted:
+computed access, destructuring, aliasing and a removed read were each introduced into a copy,
+and each now fails the test naming the offending pair.
 
 **The one boundary this rule cannot close, stated rather than implied.** A `command` check's
 `run` string can read any path — a third breaker demonstrated an agent-authored record

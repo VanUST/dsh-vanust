@@ -961,15 +961,38 @@ test('schema: every check field the verifier reads is a declared target or expli
       start: match.index + match[0].length,
     })
   }
+  // Three read forms, because a guard that only understands the first is the same kind of
+  // hole it exists to catch: this test was written with `check.field` alone and stayed
+  // GREEN when `check['field']` and `const { field } = check` were added to a copy.
+  const fieldsReadIn = (text) => {
+    const found = new Set()
+    for (const match of text.matchAll(/check\.([a-zA-Z_$][\w$]*)/g)) found.add(match[1])
+    for (const match of text.matchAll(/check\[\s*['"]([a-zA-Z_$][\w$]*)['"]\s*\]/g)) found.add(match[1])
+    for (const match of text.matchAll(/(?:const|let|var)\s*\{([^}]*)\}\s*=\s*check\b/g)) {
+      for (const entry of match[1].split(',')) {
+        // `{ list }` and `{ list: theList }` both read the field `list`.
+        const name = entry.split(':')[0].split('=')[0].trim()
+        if (/^[a-zA-Z_$][\w$]*$/.test(name)) found.add(name)
+      }
+    }
+    return found
+  }
+
   const readPairs = new Set()
+  const attributed = new Set()
   groups.forEach((group, index) => {
     const end = index + 1 < groups.length ? groups[index + 1].start : source.length
     const body = source.slice(group.start, end)
-    for (const field of new Set([...body.matchAll(/check\.([a-zA-Z]+)/g)].map((entry) => entry[1]))) {
+    for (const field of fieldsReadIn(body)) {
+      attributed.add(field)
       for (const label of group.labels) readPairs.add(`${label}.${field}`)
     }
   })
   assert.ok(readPairs.size > 0, 'the verifier source must yield field pairs')
+  // A read that appears outside every `case` block cannot be attributed to a type, so it
+  // is reported rather than silently dropped.
+  const unattributed = [...fieldsReadIn(source)].filter((field) => !attributed.has(field)).sort()
+  assert.deepEqual(unattributed, [], 'check fields read outside any case block, so no type owns them')
 
   const targetPairs = new Set()
   for (const [type, fields] of Object.entries(schema.CHECK_TARGET_FIELDS)) {
@@ -1000,10 +1023,28 @@ test('schema: every check field the verifier reads is a declared target or expli
     ['required_file_in_list.keys', 'keys into the list file, not a path'],
   ])
 
+  // `check` must not be aliased. Every read form this test understands starts at the
+  // identifier `check`; `const c = check; c.list` would be invisible to all of them, and a
+  // guard an ordinary rename defeats is not a guard. Destructuring binds FROM `check` and
+  // is understood, so `} = check` is allowed and any other `= check` is not.
+  // `check` followed by `.`, a word character or `[` is a READ of a field, not an alias of
+  // the object, so only a bare `= check` binding counts.
+  const aliased = [...source.matchAll(/=\s*check(?![.\w$\[])/g)]
+    .filter((match) => !/\}\s*$/.test(source.slice(Math.max(0, match.index - 40), match.index)))
+    .map((match) => source.slice(match.index, match.index + 30))
+  assert.deepEqual(aliased, [], 'the verifier must not alias `check`; aliased reads defeat field derivation')
+
+  // Equality, not containment, and both directions matter:
+  //   - a read that is neither a target nor allowlisted is an unclassified path, and
+  //   - a DECLARED TARGET THAT IS NEVER READ is a stale table entry, which is how a guard
+  //     loses coverage silently: replacing `check.list` with a destructured read once made
+  //     `list` disappear from the derivation, and containment let that pass.
   const unclassified = [...readPairs].filter((pair) => !targetPairs.has(pair) && !NON_PATH.has(pair)).sort()
   assert.deepEqual(unclassified, [], 'check fields that are neither a path target nor allowlisted')
   const contradictory = [...NON_PATH.keys()].filter((pair) => targetPairs.has(pair)).sort()
   assert.deepEqual(contradictory, [], 'fields allowlisted as non-path but declared as targets')
+  const unread = [...targetPairs].filter((pair) => !readPairs.has(pair)).sort()
+  assert.deepEqual(unread, [], 'declared target fields the verifier does not read')
 })
 
 test('schema: every check type declares which field names the path it acts on', () => {
