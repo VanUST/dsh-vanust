@@ -29,6 +29,17 @@
  *   submitter is mounted it prints the command instead. It cannot mint a consent: a
  *   consent record is not a decision and is never offered for ratification.
  *
+ *   COLOUR: one `tone(kind)` helper maps a semantic kind onto the shell's state and
+ *   label theme tokens (`var(--token, fallback)`, so any theme works and a missing token
+ *   still renders). Every status surface — pill, row accent bar, row tint, check-kind
+ *   chip and histogram segment — reads that one helper, so they cannot drift. The
+ *   window carries a one-line legend so the colours explain themselves. A decision
+ *   awaiting a human is the warn tone and leads the list; in-force is success, a
+ *   derived in-force/ratified state is success and labelled derived, superseded is
+ *   muted (never error), rejected/withdrawn is error, a consent and a human author are
+ *   the business tone, and an agent author is neutral. Ordering is presentation only:
+ *   awaiting-human, then in force, then everything else, each by id.
+ *
  * KEYWORDS
  *   ADR panel, decisions, consents, specs, law cards, check histogram, slots,
  *   shell.overlay, session header, workspace files, remote, ratification, ask the
@@ -257,7 +268,7 @@ window.__ModuleLoader__.load({
 		 */
 		function parseAdr(item) {
 			var record = {
-				id: null, title: item.name, type: null, status: null, authority: null,
+				id: null, title: item.name, type: null, status: null, authority: null, authorName: null,
 				created: null, sourcePath: null, sourceHash: null, zones: [], supersedes: [],
 				approves: [], laws: [], body: "", sections: [], path: item.path, error: null
 			};
@@ -273,6 +284,7 @@ window.__ModuleLoader__.load({
 				record.type = scalar(lines, "type");
 				record.status = scalar(lines, "status");
 				record.authority = nestedScalar(lines, "author", "authority");
+				record.authorName = nestedScalar(lines, "author", "name");
 				record.created = scalar(lines, "created");
 				record.sourcePath = nestedScalar(lines, "source", "path");
 				record.sourceHash = nestedScalar(lines, "source", "hash");
@@ -404,13 +416,14 @@ window.__ModuleLoader__.load({
 		function displayedState(record, relations) {
 			var superseded = record.id === null ? undefined : relations.supersededBy[record.id];
 			if (superseded !== undefined && superseded.length > 0) {
-				return { text: "superseded by " + superseded.join(", "), derived: true };
+				return { text: "superseded by " + superseded.join(", "), derived: true, kind: "superseded" };
 			}
 			var approvals = record.id === null ? undefined : relations.approvedBy[record.id];
 			if (approvals !== undefined && approvals.length > 0 && record.status === "proposed") {
-				return { text: "in force (ratified by " + approvals.join(", ") + ")", derived: true };
+				return { text: "in force (ratified by " + approvals.join(", ") + ")", derived: true, kind: "ratified" };
 			}
-			return { text: record.status === null || record.status === "" ? "unknown" : record.status, derived: false };
+			var status = record.status === null || record.status === "" ? "unknown" : record.status;
+			return { text: status, derived: false, kind: stateKindOfStatus(status) };
 		}
 		/**
 		 * Whether the ratify affordance may be offered for a record.
@@ -564,6 +577,9 @@ window.__ModuleLoader__.load({
 					decisions.push(record);
 					if (record.id !== null && record.id !== "") decisionIds[record.id] = true;
 				}
+				// Presentation ordering: an awaiting-human decision is the one a reader came
+				// for, so it leads; superseded records sink. Nothing is filtered or changed.
+				decisions.sort(byDecisionPriority);
 				return {
 					decisions: decisions,
 					consents: consents,
@@ -583,6 +599,18 @@ window.__ModuleLoader__.load({
 			var right = b.id === null ? "" : String(b.id);
 			if (left !== right) return left < right ? -1 : 1;
 			return String(a.title === null ? "" : a.title).localeCompare(String(b.title === null ? "" : b.title));
+		}
+		/** @returns the presentation rank of a decision: awaiting a human, then in force, then the rest. */
+		function decisionRank(record) {
+			var kind = record.state === undefined || record.state === null ? "unknown" : record.state.kind;
+			if (kind === "pending") return 0;
+			if (kind === "active" || kind === "in-force" || kind === "ratified") return 1;
+			return 2;
+		}
+		/** Presentation ordering only: awaiting-human decisions first, then in force, then superseded/other, each by id. */
+		function byDecisionPriority(a, b) {
+			var rank = decisionRank(a) - decisionRank(b);
+			return rank !== 0 ? rank : byAdrId(a, b);
 		}
 		//#endregion
 
@@ -645,8 +673,15 @@ window.__ModuleLoader__.load({
 		function smallButtonStyle() {
 			return { appearance: "none", border: "1px solid var(--dsw-alias-border-l2, rgba(128,128,128,0.35))", background: "transparent", color: "inherit", borderRadius: 6, padding: "3px 9px", fontSize: 12, cursor: "pointer" };
 		}
-		function primaryButtonStyle() {
-			return { appearance: "none", border: "1px solid var(--dsw-alias-border-l2, rgba(128,128,128,0.45))", background: "var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,0.2))", color: "inherit", borderRadius: 6, padding: "4px 10px", fontSize: 12, cursor: "pointer", marginTop: 8 };
+		function primaryButtonStyle(colours) {
+			var base = { appearance: "none", border: "1px solid var(--dsw-alias-border-l2, rgba(128,128,128,0.45))", background: "var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,0.2))", color: "inherit", borderRadius: 6, padding: "4px 10px", fontSize: 12, cursor: "pointer", marginTop: 8 };
+			if (colours !== undefined) {
+				base.border = "1px solid " + colours.border;
+				base.background = colours.bg;
+				base.color = colours.fg;
+				base.fontWeight = 600;
+			}
+			return base;
 		}
 		function codeStyle() {
 			return { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 11, padding: "1px 4px", borderRadius: 4, background: "rgba(128,128,128,0.18)" };
@@ -684,7 +719,139 @@ window.__ModuleLoader__.load({
 		function barStyle() {
 			return { display: "flex", height: 10, borderRadius: 999, overflow: "hidden", border: "1px solid var(--dsw-alias-border-l2, rgba(128,128,128,0.28))", marginTop: 6 };
 		}
-		var HISTOGRAM_COLORS = ["rgba(120,170,255,0.55)", "rgba(120,220,160,0.55)", "rgba(240,190,110,0.55)", "rgba(220,140,220,0.55)", "rgba(160,160,170,0.55)"];
+		function accentTrackStyle() {
+			return { display: "flex", gap: 10, alignItems: "stretch" };
+		}
+		function accentBarStyle(colours) {
+			return { width: 3, borderRadius: 2, flex: "none", background: colours.fg };
+		}
+		function awaitingRowStyle(colours) {
+			var base = cardStyle();
+			base.background = colours.bg;
+			base.borderColor = colours.border;
+			return base;
+		}
+		function consentRowStyle(colours) {
+			var base = cardStyle();
+			base.background = colours.bg;
+			base.borderColor = colours.border;
+			return base;
+		}
+		function legendStyle() {
+			return { display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 6 };
+		}
+		function countsStyle() {
+			return { fontSize: 11, color: "var(--dsw-alias-label-secondary, inherit)", marginTop: 2 };
+		}
+		function mutedInlineStyle() {
+			return { fontSize: 11, color: "var(--dsw-alias-label-tertiary, rgba(160,160,170,0.95))" };
+		}
+		function ctaNoteStyle() {
+			return { fontSize: 11, color: "var(--dsw-alias-label-tertiary, rgba(160,160,170,0.95))", marginTop: 4, lineHeight: "16px" };
+		}
+
+		//#region colour model
+		/**
+		 * The shell's theme tokens, read through `var(--token, fallback)` so the panel
+		 * looks right in any theme and still renders if a token is missing.
+		 *
+		 * One helper returns the three values every status surface needs (text, tint,
+		 * border), so a pill, a row accent and a row tint for the same state cannot
+		 * drift apart. Only the shell's own state/label/business aliases are used; no
+		 * literal palette is invented where a token exists.
+		 *
+		 * @param kind - one of the semantic kinds the panel displays a state with:
+		 *   `in-force`/`active`/`ratified` (success), `pending` (warn — the one that must
+		 *   catch the eye), `superseded` (muted, never error), `rejected`/`withdrawn`
+		 *   (error), `consent`/`human` (business), `agent`/`neutral`, `unknown` (warn),
+		 *   and the check kinds `check-required`/`check-forbidden`/`check-command`.
+		 * @returns `{ fg, bg, border }`, each a CSS value; unknown kinds get the neutral
+		 *   tone rather than throwing.
+		 */
+		function tone(kind) {
+			var palette = {
+				success: {
+					fg: "var(--dsw-alias-state-success-primary, #7ddc9a)",
+					bg: "var(--dsw-alias-state-success-tertiary, rgba(125,220,154,0.14))",
+					border: "var(--dsw-alias-state-success-secondary, rgba(125,220,154,0.45))"
+				},
+				warn: {
+					fg: "var(--dsw-alias-state-warn-label, var(--dsw-alias-state-warn-primary, #e8c46a))",
+					bg: "var(--dsw-alias-state-warn-tertiary, rgba(232,196,106,0.16))",
+					border: "var(--dsw-alias-state-warn-secondary, rgba(232,196,106,0.5))"
+				},
+				error: {
+					fg: "var(--dsw-alias-label-error, var(--dsw-alias-state-error-primary, #e5735f))",
+					bg: "var(--dsw-alias-state-error-secondary, rgba(229,115,95,0.16))",
+					border: "var(--dsw-alias-state-error-primary, #e5735f)"
+				},
+				business: {
+					fg: "var(--dsw-alias-state-business-primary, #8fb8ff)",
+					bg: "var(--dsw-alias-state-business-tertiary, rgba(143,184,255,0.15))",
+					border: "var(--dsw-alias-state-business-primary, #8fb8ff)"
+				},
+				neutral: {
+					fg: "var(--dsw-alias-label-secondary, inherit)",
+					bg: "rgba(128,128,128,0.10)",
+					border: "var(--dsw-alias-border-l2, rgba(128,128,128,0.35))"
+				},
+				muted: {
+					fg: "var(--dsw-alias-label-tertiary, rgba(160,160,170,0.95))",
+					bg: "rgba(128,128,128,0.07)",
+					border: "var(--dsw-alias-border-l2, rgba(128,128,128,0.28))"
+				}
+			};
+			var byKind = {
+				"in-force": "success",
+				active: "success",
+				ratified: "success",
+				"check-required": "success",
+				pending: "warn",
+				unknown: "warn",
+				superseded: "muted",
+				rejected: "error",
+				withdrawn: "error",
+				"check-forbidden": "error",
+				consent: "business",
+				human: "business",
+				"check-command": "business",
+				agent: "neutral",
+				neutral: "neutral"
+			};
+			return palette[byKind[kind] === undefined ? "neutral" : byKind[kind]];
+		}
+
+		/** @returns the tone kind for a frontmatter status string. */
+		function stateKindOfStatus(status) {
+			if (status === "active") return "active";
+			if (status === "proposed") return "pending";
+			if (status === "superseded") return "superseded";
+			if (status === "rejected" || status === "withdrawn") return status;
+			return "unknown";
+		}
+
+		/** @returns the tone kind for a check type: forbidden is an error, required a need, a command the routine gate. */
+		function checkKind(type) {
+			var name = String(type == null ? "" : type);
+			if (name.indexOf("forbidden") === 0) return "check-forbidden";
+			if (name.indexOf("required") === 0) return "check-required";
+			if (name === "command") return "check-command";
+			return "neutral";
+		}
+
+		/** @returns the tone kind for an authority: a human's decision is a business fact, an agent's is neutral. */
+		function authorityKind(authority) {
+			if (authority === "human") return "human";
+			if (authority === "agent") return "agent";
+			return "neutral";
+		}
+
+		/** @returns `name · authority`, or the authority alone when the name did not parse. */
+		function authorLabel(record) {
+			var name = record.authorName === null || record.authorName === "" ? null : record.authorName;
+			var authority = record.authority === null || record.authority === "" ? "unknown" : record.authority;
+			return name === null ? authority : name + " · " + authority;
+		}
 		//#endregion
 
 		//#region small element helpers
@@ -698,6 +865,18 @@ window.__ModuleLoader__.load({
 			}
 			return React.createElement("span", props, text);
 		}
+		/**
+		 * A chip coloured by meaning.
+		 * @param text - the label.
+		 * @param kind - a {@link tone} kind.
+		 * @param extra - optional style overrides (e.g. the dashed derived chip).
+		 * @param onClick - optional click handler; the pill becomes a button role when set.
+		 * @returns the pill element.
+		 */
+		function pill(text, kind, extra, onClick) {
+			var colours = tone(kind);
+			return chip(text, Object.assign({ color: colours.fg, background: colours.bg, borderColor: colours.border }, extra || {}), onClick);
+		}
 		/** @returns a monospace element. */
 		function mono(text) {
 			return React.createElement("code", { style: codeStyle() }, text);
@@ -708,6 +887,17 @@ window.__ModuleLoader__.load({
 				React.createElement("div", { key: key + "-l", style: metaLabelStyle() }, label),
 				React.createElement("div", { key: key + "-v" }, value === "" || value === null || value === undefined ? "unknown" : value)
 			];
+		}
+		/** @returns a `label: node` pair for the metadata grid, for a value that is itself an element (a pill). */
+		function metaRowNode(label, node, key) {
+			return [
+				React.createElement("div", { key: key + "-l", style: metaLabelStyle() }, label),
+				React.createElement("div", { key: key + "-v" }, node)
+			];
+		}
+		/** @returns the provenance line: the author name and authority as one pill. */
+		function authorPill(record, extra) {
+			return pill(authorLabel(record), authorityKind(record.authority), extra);
 		}
 		//#endregion
 
@@ -790,9 +980,10 @@ window.__ModuleLoader__.load({
 			return React.createElement("div", { style: lawCardStyle() },
 				React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap" } },
 					mono(law.id),
-					chip("authority: " + (law.authority === null || law.authority === "" ? "unknown" : law.authority)),
-					chip(
+					pill("authority: " + (law.authority === null || law.authority === "" ? "unknown" : law.authority), authorityKind(law.authority)),
+					pill(
 						"decided in " + (law.decidedIn === null || law.decidedIn === "" ? "unknown" : law.decidedIn),
+						"neutral",
 						linked ? linkChipStyle() : null,
 						linked ? function () { onSelectAdr(law.decidedIn); } : null
 					)),
@@ -801,16 +992,18 @@ window.__ModuleLoader__.load({
 					? React.createElement("div", { style: mutedStyle() }, "No checks declared.")
 					: React.createElement("div", { style: { marginTop: 4, display: "grid", gap: 2 } }, law.checks.map(function (check, index) {
 						return React.createElement("div", { key: String(index), style: { display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap" } },
-							chip(check.type),
+							pill(check.type, checkKind(check.type)),
 							mono(check.detail));
 					})));
 		}
-		/** @returns the metadata grid for one decision. */
+		/** @returns the metadata grid for one decision, with the state and author as coloured pills. */
 		function metadataBlock(adr) {
 			var rows = [];
-			rows = rows.concat(metaRow("type", adr.type, "type"));
-			rows = rows.concat(metaRow("state", adr.state.text + (adr.state.derived ? " (derived)" : ""), "state"));
-			rows = rows.concat(metaRow("authority", adr.authority, "auth"));
+			rows = rows.concat(metaRowNode("type", pill(adr.type === null || adr.type === "" ? "unknown" : adr.type, "neutral"), "type"));
+			rows = rows.concat(metaRowNode("state", React.createElement("span", null,
+				pill(adr.state.text, adr.state.kind, adr.state.derived ? derivedChipStyle() : null),
+				adr.state.derived ? React.createElement("span", { style: mutedInlineStyle() }, " (derived)") : null), "state"));
+			rows = rows.concat(metaRowNode("author", authorPill(adr), "auth"));
 			rows = rows.concat(metaRow("created", adr.created, "created"));
 			rows = rows.concat(metaRow("source", (adr.sourcePath === null ? "unknown" : adr.sourcePath) + " · " + shortHash(adr.sourceHash), "source"));
 			rows = rows.concat(metaRow("zones", adr.zones.length === 0 ? "none" : adr.zones.join(", "), "zones"));
@@ -883,6 +1076,8 @@ window.__ModuleLoader__.load({
 			var outcome = React.useState(null);
 			var result = outcome[0];
 			var setResult = outcome[1];
+			var colours = tone(adr.state.kind);
+			var awaiting = adr.state.kind === "pending";
 			var children = [
 				React.createElement("div", {
 					key: "head",
@@ -894,22 +1089,24 @@ window.__ModuleLoader__.load({
 				},
 					React.createElement("span", { style: badgeStyle() }, "#" + (adr.id === null || adr.id === "" ? "????" : adr.id)),
 					React.createElement("span", { style: { fontWeight: 700 } }, adr.title),
-					chip(adr.state.text, adr.state.derived ? derivedChipStyle() : null),
-					chip(adr.type === null || adr.type === "" ? "type?" : adr.type),
-					chip("author: " + (adr.authority === null || adr.authority === "" ? "unknown" : adr.authority)),
+					pill(adr.state.text, adr.state.kind, adr.state.derived ? derivedChipStyle() : null),
+					authorPill(adr),
+					adr.type === null || adr.type === "" ? null : pill(adr.type, "neutral"),
 					React.createElement("span", { style: disclosureStyle() }, expanded ? "▾" : "▸")),
 				adr.summary === "" ? null : React.createElement("div", { key: "summary", style: summaryStyle() }, adr.summary),
+				adr.state.derived ? React.createElement("div", { key: "derived", style: mutedInlineStyle() }, "state derived from the corpus; the ratchet CLI is the authority") : null,
 				adr.error === null ? null : React.createElement("div", { key: "err", style: warnStyle() }, "frontmatter: " + adr.error)
 			];
 			if (adr.canRatify === true) {
-				children.push(React.createElement("div", { key: "ask", style: { marginTop: 6 } },
-					canAsk ? React.createElement("button", { type: "button", style: primaryButtonStyle(), onClick: function () {
+				children.push(React.createElement("div", { key: "ask", style: { marginTop: 8 } },
+					canAsk ? React.createElement("button", { type: "button", style: primaryButtonStyle(colours), onClick: function () {
 						try {
 							setResult(askAgent(adr.id) === true ? "submitted" : "unavailable");
 						} catch (error) {
 							setResult("unavailable");
 						}
 					} }, "Ask the agent to ratify") : null,
+					React.createElement("div", { key: "note", style: ctaNoteStyle() }, "This asks the agent to put the decision to you as a question. It does not record a consent; only your answer does."),
 					result === "submitted" ? React.createElement("div", { style: mutedStyle() }, "Asked. Answer the agent's ratification question when it arrives.") : null,
 					(!canAsk || result === "unavailable") ? React.createElement("div", { style: mutedStyle() },
 						canAsk ? "The composer refused the request. " : "No live Session composer is reachable from this window, so it cannot submit a message. ",
@@ -934,7 +1131,10 @@ window.__ModuleLoader__.load({
 						return section === null ? null : React.createElement(SectionView, { key: title, section: section });
 					})));
 			}
-			return React.createElement("div", { style: cardStyle() }, children);
+			return React.createElement("div", { style: awaiting ? awaitingRowStyle(colours) : cardStyle() },
+				React.createElement("div", { style: accentTrackStyle() },
+					React.createElement("div", { style: accentBarStyle(colours) }),
+					React.createElement("div", { style: { flex: 1, minWidth: 0 } }, children)));
 		}
 
 		/**
@@ -945,16 +1145,23 @@ window.__ModuleLoader__.load({
 		 */
 		function ConsentRow(props) {
 			var adr = props.adr;
-			return React.createElement("div", { style: cardStyle() },
-				React.createElement("div", { style: rowHeadStyle() },
-					React.createElement("span", { style: badgeStyle() }, "#" + (adr.id === null || adr.id === "" ? "????" : adr.id)),
-					React.createElement("span", { style: { fontWeight: 700 } }, adr.title),
-					chip(adr.status === null ? "status?" : adr.status),
-					chip(adr.type),
-					chip("author: " + (adr.authority === null || adr.authority === "" ? "unknown" : adr.authority)),
-					chip("approves " + (adr.approves.length === 0 ? "unknown" : adr.approves.join(", ")))),
-				adr.approves.length === 0 ? null : React.createElement("div", { style: mutedStyle() }, "Puts into force: " + adr.approves.join(", ") + " at the content hash recorded in its frontmatter."),
-				adr.error === null ? null : React.createElement("div", { style: warnStyle() }, "frontmatter: " + adr.error));
+			var colours = tone("consent");
+			return React.createElement("div", { style: consentRowStyle(colours) },
+				React.createElement("div", { style: accentTrackStyle() },
+					React.createElement("div", { style: accentBarStyle(colours) }),
+					React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+						React.createElement("div", { style: rowHeadStyle() },
+							React.createElement("span", { style: badgeStyle() }, "#" + (adr.id === null || adr.id === "" ? "????" : adr.id)),
+							React.createElement("span", { style: { fontWeight: 700 } }, adr.title),
+							pill("consent", "consent"),
+							pill(adr.status === null || adr.status === "" ? "unknown" : adr.status, stateKindOfStatus(adr.status)),
+							authorPill(adr),
+							pill("approves " + (adr.approves.length === 0 ? "unknown" : adr.approves.join(", ")), adr.approves.length === 0 ? "unknown" : "consent")),
+						adr.approves.length === 0
+							? null
+							: React.createElement("div", { style: { fontSize: 12, marginTop: 6, lineHeight: "18px" } },
+								"Puts ", mono(adr.approves.join(", ")), " into force at the content hash recorded in its frontmatter."),
+						adr.error === null ? null : React.createElement("div", { style: warnStyle() }, "frontmatter: " + adr.error))));
 		}
 
 		/**
@@ -991,13 +1198,13 @@ window.__ModuleLoader__.load({
 				spec.error === null || spec.error === undefined ? null : React.createElement("div", { style: warnStyle() }, spec.error),
 				kinds.length === 0 ? null : React.createElement("div", null,
 					React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 } }, kinds.map(function (kind) {
-						return chip(kind + " × " + counts[kind]);
+						return pill(kind + " × " + counts[kind], checkKind(kind));
 					})),
-					React.createElement("div", { style: barStyle() }, kinds.map(function (kind, index) {
+					React.createElement("div", { style: barStyle() }, kinds.map(function (kind) {
 						return React.createElement("div", {
 							key: kind,
 							title: kind + ": " + counts[kind],
-							style: { flex: counts[kind], height: "100%", background: HISTOGRAM_COLORS[index % HISTOGRAM_COLORS.length] }
+							style: { flex: counts[kind], height: "100%", background: tone(checkKind(kind)).fg }
 						});
 					}))),
 				spec.laws.length === 0
@@ -1005,6 +1212,25 @@ window.__ModuleLoader__.load({
 					: React.createElement("div", { style: { marginTop: 6 } }, spec.laws.map(function (law) {
 						return React.createElement(LawCard, { key: law.id, law: law, zone: spec.zone, decisionIds: decisionIds, onSelectAdr: onSelectAdr });
 					})));
+		}
+
+		/**
+		 * The colour legend: one compact row that makes every tone self-explanatory
+		 * without a modal. It is reference text, not a control.
+		 * @returns the legend row.
+		 */
+		function Legend() {
+			var items = [
+				{ text: "in force", kind: "active" },
+				{ text: "awaiting human", kind: "pending" },
+				{ text: "superseded", kind: "superseded" },
+				{ text: "consent", kind: "consent" },
+				{ text: "human", kind: "human" },
+				{ text: "agent", kind: "agent" }
+			];
+			return React.createElement("div", { style: legendStyle(), "aria-label": "colour legend" }, items.map(function (item) {
+				return pill(item.text, item.kind);
+			}));
 		}
 
 		/** @returns the failure block, or null when nothing failed. */
@@ -1077,6 +1303,12 @@ window.__ModuleLoader__.load({
 			if (!state.open) return null;
 			var canAsk = typeof state.ask === "function";
 			var loading = current.status === "loading";
+			var awaitingCount = 0;
+			for (var di = 0; di < current.decisions.length; di += 1) {
+				var decisionState = current.decisions[di].state;
+				if (decisionState !== undefined && decisionState !== null && decisionState.kind === "pending") awaitingCount += 1;
+			}
+			var countsLine = current.decisions.length + " decisions · " + awaitingCount + " awaiting a human · " + current.consents.length + " consents · " + current.specs.length + " specs";
 			var onSelectAdr = function (adrId) {
 				setExpandedId(adrId);
 			};
@@ -1089,12 +1321,14 @@ window.__ModuleLoader__.load({
 						React.createElement("div", { style: { minWidth: 0 } },
 							React.createElement("div", { style: { fontSize: 14, fontWeight: 600 } }, "Decisions and specs"),
 							React.createElement("div", { style: { fontSize: 11, opacity: 0.7, marginTop: 2 } },
-								state.sessionId === null ? "no Session bound — open this from a Session header" : "viewer only — the ratchet CLI (ratchet verify) is the authority on what is enforced; states here are read from the corpus files")),
+								state.sessionId === null ? "no Session bound — open this from a Session header" : "viewer only — the ratchet CLI (ratchet verify) is the authority on what is enforced; states here are read from the corpus files"),
+							React.createElement("div", { style: countsStyle() }, countsLine)),
 						React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center" } },
 							React.createElement("button", { type: "button", style: smallButtonStyle(), disabled: loading, onClick: function () { bump(seq[0] + 1); } }, loading ? "Loading…" : "Reload"),
 							React.createElement("button", { type: "button", style: smallButtonStyle(), onClick: closePanel }, "Close"))),
 					React.createElement("div", { style: overlayBodyStyle() },
 						React.createElement(FailuresBlock, { failures: current.failures }),
+						React.createElement(Legend, null),
 						React.createElement("div", null,
 							React.createElement("h3", { style: sectionHeadingStyle() }, "Decisions (docs/adrs/*.adr.md, type ≠ approval)"),
 							current.decisions.length === 0
