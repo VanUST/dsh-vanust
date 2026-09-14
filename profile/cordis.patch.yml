@@ -65,3 +65,25 @@
 - insert:
     - id: dsh-context
       name: '@cc/dsh-context'
+
+# ── ratchet: the project's own decisions, compiled into laws ───────────────
+# Contributes seven tools to any agent on this harness: `ratchet_status` (what the
+# project's laws are and whether the code has been checked against them),
+# `ratchet_compile` (ADRs → laws, and a corpus review when the compiler cannot
+# decide a question), `ratchet_verify` (the deterministic gate), `ratchet_bootstrap`
+# (the manifest and skeleton a project needs first), `ratchet_review` (an advisory
+# judge for the questions no static check decides), `ratchet_ingest_source` (raw
+# reasoning → a proposed ADR, with every quote checked against the source) and
+# `ratchet_ratify` (the human quiz that puts a proposed decision into force).
+#
+# The ratification path is why this row is worth mounting everywhere: without it a
+# decision an agent may only PROPOSE cannot become law at all, and the ratchet says
+# so rather than activating it. The quiz goes through the harness user-questions
+# channel, so the answer is the human's and not the model's transcription of one.
+#
+# The plugin injects `tools` and nothing else: the subagent runtime, the question
+# channel and the agent registry are reached opportunistically at call time, because
+# declaring a service a composition does not mount fails the entire boot.
+- insert:
+    - id: ratchet
+      name: '@cc/dsh-ratchet'

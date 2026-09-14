@@ -1,0 +1,43 @@
+{
+  "name": "@cc/dsh-ratchet",
+  "version": "0.2.4",
+  "description": "Ratchet: a local architecture compiler for DSH projects. Compiles architecture decision records into enforced specs, verifies code against them deterministically, reports every problem with a stable code, and puts a proposed decision to a human as a question whose answer is recorded against the exact text that was approved.",
+  "type": "module",
+  "main": "ratchet-tools.mjs",
+  "bin": {
+    "ratchet": "ratchet-cli.mjs"
+  },
+  "exports": {
+    ".": "./ratchet-tools.mjs",
+    "./ops": "./ratchet-ops.mjs",
+    "./schema": "./ratchet-schema.mjs",
+    "./compiler": "./ratchet-compiler.mjs",
+    "./verifier": "./ratchet-verifier.mjs",
+    "./state": "./ratchet-state.mjs",
+    "./guard": "./ratchet-guard.mjs",
+    "./ingest": "./ratchet-ingest.mjs",
+    "./ratify": "./ratchet-ratify.mjs",
+    "./dynamic": "./ratchet-dynamic.mjs",
+    "./bootstrap": "./ratchet-bootstrap.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "ratchet-schema.mjs",
+    "ratchet-compiler.mjs",
+    "ratchet-verifier.mjs",
+    "ratchet-state.mjs",
+    "ratchet-guard.mjs",
+    "ratchet-ingest.mjs",
+    "ratchet-ratify.mjs",
+    "ratchet-dynamic.mjs",
+    "ratchet-bootstrap.mjs",
+    "ratchet-ops.mjs",
+    "ratchet-tools.mjs",
+    "ratchet-cli.mjs"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-tools": "^0.1.5-rc.1"
+  }
+}

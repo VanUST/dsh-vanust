@@ -1,0 +1,16 @@
+{
+  "name": "@cc/dsh-api-probe",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Throwaway plugin used only by scripts/probe-dsh-api.mjs to confirm DSH plugin/tool APIs against a scratch DSH_HOME. Not shipped.",
+  "type": "module",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./package.json": "./package.json"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-tools": "^0.1.5-rc.1"
+  }
+}

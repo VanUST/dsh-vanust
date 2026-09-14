@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "lastVerify": {
+    "at": "2026-09-13T20:00:27.523Z",
+    "ok": true,
+    "specHash": "sha256:13fd2c390977366cc65da7b1e1fec59a4fec02596f14392ac66247d1528d4ef7",
+    "codeHash": "sha256:1bc118d4c96c75c2b63a8ff4b7f3ecbb70f9465b596107ca1fb7a4877d5bd769",
+    "errors": 0,
+    "filesWalked": 85,
+    "checksEvaluated": 21
+  },
+  "lastGoodVerify": {
+    "at": "2026-09-13T20:00:27.523Z",
+    "specHash": "sha256:13fd2c390977366cc65da7b1e1fec59a4fec02596f14392ac66247d1528d4ef7",
+    "codeHash": "sha256:1bc118d4c96c75c2b63a8ff4b7f3ecbb70f9465b596107ca1fb7a4877d5bd769"
+  },
+  "toolVersion": null
+}

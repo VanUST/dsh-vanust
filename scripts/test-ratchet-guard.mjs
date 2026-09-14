@@ -1,0 +1,265 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+import { tmpdir } from 'node:os'
+
+const PLUGIN = resolve(import.meta.dirname, '..', 'plugins', 'ratchet')
+const guardModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-guard.mjs`)
+const schema = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-schema.mjs`)
+
+const SOURCE_TEXT = '# Grilling session\n\nWe agreed sessions must move to Redis.\n'
+const SOURCE_PATH = 'docs/ratchet/sources/sessions.md'
+
+/**
+ * Writes a project whose manifest declares two zones: `auth` requires a decision
+ * record and `loose` does not.
+ */
+function project(name, { withRecord = false, status = 'active', authority = 'human' } = {}) {
+  const root = join(tmpdir(), `ratchet-guard-${name}-${Math.random().toString(36).slice(2, 8)}`)
+  rmSync(root, { recursive: true, force: true })
+  mkdirSync(join(root, '.dsh'), { recursive: true })
+  mkdirSync(join(root, 'docs', 'adrs'), { recursive: true })
+  mkdirSync(join(root, 'docs', 'ratchet', 'sources'), { recursive: true })
+  mkdirSync(join(root, 'src', 'auth'), { recursive: true })
+  mkdirSync(join(root, 'src', 'loose'), { recursive: true })
+  writeFileSync(join(root, 'src', 'auth', 'session.ts'), 'export const x = 1\n')
+  writeFileSync(join(root, 'src', 'loose', 'util.ts'), 'export const y = 2\n')
+  writeFileSync(join(root, SOURCE_PATH), SOURCE_TEXT)
+  writeFileSync(
+    join(root, '.dsh', 'project.json'),
+    `${JSON.stringify(
+      {
+        manifestVersion: 2,
+        name,
+        languages: [{ id: 'typescript', extensions: ['.ts'], roots: ['src'] }],
+        rules: [],
+        ratchet: {
+          enabled: true,
+          decisionsDir: 'docs/adrs',
+          sourcesDir: 'docs/ratchet/sources',
+          defaultAgentAuthority: 'proposeOnly',
+          zones: [
+            { id: 'auth', paths: ['src/auth/**'], agentAuthority: 'humanOnly', requiresDecisionRecord: true },
+            { id: 'loose', paths: ['src/loose/**'], agentAuthority: 'activeIfNoConflict', requiresDecisionRecord: false },
+          ],
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  )
+  if (withRecord) writeAdr(root, { status, authority })
+  return root
+}
+
+/** Writes an ADR naming zone `auth`, with a correct source hash. */
+function writeAdr(root, { status = 'active', authority = 'human', zone = 'auth' } = {}) {
+  writeFileSync(
+    join(root, 'docs', 'adrs', '0001-sessions-use-redis.adr.md'),
+    [
+      '---',
+      'id: "0001"',
+      'title: Sessions use Redis',
+      'type: adr',
+      `status: ${status}`,
+      'author:',
+      `  authority: ${authority}`,
+      '  name: ada',
+      'source:',
+      '  kind: file',
+      `  path: ${SOURCE_PATH}`,
+      `  hash: ${schema.hashSource(readFileSync(join(root, SOURCE_PATH), 'utf8'))}`,
+      'zones:',
+      `  - ${zone}`,
+      'supersedes: []',
+      'approves: []',
+      'laws:',
+      '  - op: upsert',
+      '    id: auth.sessions.redis',
+      '    statement: Session storage must use Redis.',
+      '    checks: []',
+      '---',
+      '',
+      '## Context',
+      '',
+      'Files break under two instances.',
+      '',
+      '## Decision',
+      '',
+      'Session storage must use Redis.',
+      '',
+      '## Reasoning',
+      '',
+      'Redis is already deployed and provides TTL, so no new dependency is introduced.',
+      '',
+      '## Consequences',
+      '',
+      '- File-backed session adapters are prohibited.',
+      '',
+    ].join('\n'),
+  )
+}
+
+/** Runs the guard for one call and returns `'ALLOWED'` or the denial's first line. */
+function call(guard, name, args) {
+  const reason = guard({ name, arguments: args })
+  return reason === undefined ? 'ALLOWED' : `DENIED: ${reason.split('\n')[0]}`
+}
+
+// ---------------------------------------------------------------------------
+
+test('guard: a write into a zone requiring a decision record is refused when none exists', () => {
+  const root = project('deny')
+  const guard = guardModule.createGuard({ root })
+  const outcome = call(guard, 'write', { file_path: 'src/auth/session.ts' })
+  assert.ok(outcome.startsWith('DENIED:'), outcome)
+  assert.ok(outcome.includes('src/auth/session.ts'))
+  assert.ok(outcome.includes('"auth"'))
+})
+
+test('guard: the denial names the fix, so an agent can satisfy it', () => {
+  const root = project('denial-text')
+  const guard = guardModule.createGuard({ root })
+  const reason = guard({ name: 'edit', arguments: { file_path: 'src/auth/session.ts' } })
+  assert.ok(reason.includes('docs/adrs'), 'names the decisions directory')
+  assert.ok(reason.includes('Reasoning'), 'names the required section')
+  assert.ok(reason.includes('ratchet-cli.mjs hash'), 'names the command that computes the source hash')
+  assert.ok(reason.includes('ratchet_compile'), 'names the check to run afterwards')
+})
+
+test('guard: writing the record unblocks the write, without restarting anything', () => {
+  // The cache must notice the new record. A guard that only re-read after a restart
+  // would leave a contributor stuck at the exact moment they complied.
+  const root = project('unblock')
+  const guard = guardModule.createGuard({ root })
+  assert.ok(call(guard, 'write', { file_path: 'src/auth/session.ts' }).startsWith('DENIED:'))
+
+  writeAdr(root, { status: 'active' })
+  assert.equal(call(guard, 'write', { file_path: 'src/auth/session.ts' }), 'ALLOWED')
+})
+
+test('guard: a PROPOSED record does not satisfy the requirement', () => {
+  // A proposal is intent, not law. Accepting it would let an agent write the ADR and
+  // then proceed unilaterally, which is the override the authority model prevents.
+  const root = project('proposed-only')
+  writeAdr(root, { status: 'proposed', authority: 'agent' })
+  const guard = guardModule.createGuard({ root })
+  assert.ok(call(guard, 'write', { file_path: 'src/auth/session.ts' }).startsWith('DENIED:'))
+})
+
+test('guard: a record naming a DIFFERENT zone does not satisfy this one', () => {
+  const root = project('other-zone')
+  writeAdr(root, { zone: 'loose' })
+  const guard = guardModule.createGuard({ root })
+  assert.ok(call(guard, 'write', { file_path: 'src/auth/session.ts' }).startsWith('DENIED:'))
+})
+
+test('guard: reads are never refused, so reconnaissance stays possible', () => {
+  const root = project('reads')
+  const guard = guardModule.createGuard({ root })
+  assert.equal(call(guard, 'read', { file_path: 'src/auth/session.ts' }), 'ALLOWED')
+  assert.equal(call(guard, 'grep', { pattern: 'redis' }), 'ALLOWED')
+})
+
+test('guard: the files that satisfy the rule are themselves never refused', () => {
+  const root = project('exempt')
+  const guard = guardModule.createGuard({ root })
+  for (const path of [
+    'docs/adrs/0002-new.adr.md',
+    'docs/ratchet/sources/new.md',
+    '.dsh/project.json',
+    '.dsh/ratchet/specs.json',
+    'reports/ratchet/verify-report.json',
+    'docs/specs/auth.spec.md',
+  ]) {
+    assert.equal(call(guard, 'write', { file_path: path }), 'ALLOWED', `${path} must stay writable`)
+  }
+})
+
+test('guard: a zone without requiresDecisionRecord is not guarded', () => {
+  const root = project('unguarded-zone')
+  const guard = guardModule.createGuard({ root })
+  assert.equal(call(guard, 'write', { file_path: 'src/loose/util.ts' }), 'ALLOWED')
+})
+
+test('guard: a path in no zone is not guarded', () => {
+  const root = project('unzoned')
+  const guard = guardModule.createGuard({ root })
+  assert.equal(call(guard, 'write', { file_path: 'README.md' }), 'ALLOWED')
+  assert.equal(call(guard, 'write', { file_path: 'frontend/app.tsx' }), 'ALLOWED')
+})
+
+test('guard: a path outside the project is not this guard\'s business', () => {
+  const root = project('outside')
+  const guard = guardModule.createGuard({ root })
+  assert.equal(call(guard, 'write', { file_path: join(tmpdir(), 'elsewhere', 'x.ts') }), 'ALLOWED')
+})
+
+test('guard: a call naming no path is allowed rather than guessed at', () => {
+  // Guessing that a shell command mutates a regulated file would refuse work the
+  // guard cannot see, and a false denial costs more than a missed one here.
+  const root = project('no-path')
+  const guard = guardModule.createGuard({ root })
+  assert.equal(call(guard, 'pwsh', { command: 'rm -rf src' }), 'ALLOWED')
+  assert.equal(call(guard, 'write', {}), 'ALLOWED')
+  assert.equal(call(guard, 'write', null), 'ALLOWED')
+})
+
+test('guard: a project that never opted in is left completely alone', () => {
+  // Inert means inert: a project with no ratchet section must not have writes
+  // refused because some other project does.
+  const root = join(tmpdir(), `ratchet-guard-inert-${Math.random().toString(36).slice(2, 8)}`)
+  rmSync(root, { recursive: true, force: true })
+  mkdirSync(join(root, '.dsh'), { recursive: true })
+  writeFileSync(join(root, '.dsh', 'project.json'), JSON.stringify({ manifestVersion: 2, name: 'x', rules: [] }))
+  const guard = guardModule.createGuard({ root })
+  assert.equal(call(guard, 'write', { file_path: 'src/auth/session.ts' }), 'ALLOWED')
+
+  const empty = join(tmpdir(), `ratchet-guard-nomanifest-${Math.random().toString(36).slice(2, 8)}`)
+  rmSync(empty, { recursive: true, force: true })
+  mkdirSync(empty, { recursive: true })
+  assert.equal(call(guardModule.createGuard({ root: empty }), 'write', { file_path: 'src/auth/session.ts' }), 'ALLOWED')
+})
+
+test('guard: a project with no zone declaring requiresDecisionRecord is inert', () => {
+  const root = project('no-required-zone')
+  const manifest = JSON.parse(readFileSync(join(root, '.dsh', 'project.json'), 'utf8'))
+  manifest.ratchet.zones[0].requiresDecisionRecord = false
+  writeFileSync(join(root, '.dsh', 'project.json'), JSON.stringify(manifest, null, 2))
+  const guard = guardModule.createGuard({ root })
+  assert.equal(call(guard, 'write', { file_path: 'src/auth/session.ts' }), 'ALLOWED')
+})
+
+test('guard: relative and absolute paths are judged identically', () => {
+  const root = project('absolute')
+  const guard = guardModule.createGuard({ root })
+  const relativeOutcome = call(guard, 'write', { file_path: 'src/auth/session.ts' })
+  const absoluteOutcome = call(guard, 'write', { file_path: join(root, 'src', 'auth', 'session.ts') })
+  assert.ok(relativeOutcome.startsWith('DENIED:'))
+  assert.equal(absoluteOutcome, relativeOutcome, 'the same file must be refused however it is spelled')
+})
+
+test('guard: alternative path argument names are recognised', () => {
+  const root = project('alt-args')
+  const guard = guardModule.createGuard({ root })
+  for (const key of ['file_path', 'path', 'filePath', 'filename']) {
+    assert.ok(
+      call(guard, 'write', { [key]: 'src/auth/session.ts' }).startsWith('DENIED:'),
+      `${key} must be recognised as the target path`,
+    )
+  }
+})
+
+test('governanceOf: the exempt paths are exempt for stated reasons', () => {
+  const root = project('governance')
+  const state = guardModule.loadDecisionState(root)
+  for (const path of ['.dsh/project.json', 'docs/adrs/0001-x.adr.md', 'docs/ratchet/sources/x.md', '.dsh/ratchet/specs.json', 'reports/ratchet/x.json', 'docs/specs/auth.spec.md']) {
+    const governance = guardModule.governanceOf(path, state.config)
+    assert.equal(governance.governed, false, `${path} must not be governed`)
+    assert.ok(typeof governance.reason === 'string' && governance.reason.length > 0, `${path} needs a stated reason`)
+  }
+  const governed = guardModule.governanceOf('src/auth/session.ts', state.config)
+  assert.equal(governed.governed, true)
+  assert.equal(governed.zone.id, 'auth')
+})

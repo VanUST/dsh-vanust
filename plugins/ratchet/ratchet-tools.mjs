@@ -1,0 +1,712 @@
+/**
+ * Ratchet tool surface: the ratchet's operations, declared as harness tools.
+ *
+ * This file is an adapter and nothing else. It resolves the project root from the
+ * session workspace, declares the model-facing schemas, shapes responses, and owns
+ * the two harness connections — the subagent runtime a judge is spawned on, and the
+ * user-questions channel a ratification is put to a human through. Every decision
+ * about what a project's laws are, whether the code obeys them, whether a human
+ * consented, and what a report says lives in `ratchet-schema.mjs`,
+ * `ratchet-compiler.mjs`, `ratchet-verifier.mjs`, `ratchet-state.mjs`,
+ * `ratchet-ratify.mjs` and `ratchet-ops.mjs`, none of which import the harness.
+ *
+ * That split is not tidiness. It is what lets the gate be run by a shell and by a
+ * test through the SAME code path the model calls, so "the gate fails when it
+ * should" is a fact about the gate rather than a claim about a tool declaration.
+ * The test suite exercises the operations directly and needs no harness, no
+ * credentials and no model.
+ *
+ * Two harness facts constrain the declarations, both measured rather than assumed
+ * (see `docs/RATCHET-API-FACTS.md`):
+ *
+ *   - Every tool is declared with `defineTool`. A definition registered directly
+ *     against `ctx.tools.register()` is validated as RAW JSON Schema, so a
+ *     zero-argument tool whose parameter root lacks a `type` makes the provider
+ *     reject the entire request with `Invalid schema for function …`.
+ *   - `inject: ['tools']` is the whole dependency. Nothing here reaches the
+ *     subagent runtime, the user-questions channel or any optional service through
+ *     injection, so a deployment that mounts only the base bundle can still compile
+ *     and verify.
+ */
+import { defineTool } from '@deepseek-ai/dsh-tools'
+import { MANIFEST_PATH, PROBLEM_CODES } from './ratchet-schema.mjs'
+import { REVIEW_JOBS } from './ratchet-dynamic.mjs'
+import { registerGuard } from './ratchet-guard.mjs'
+import {
+  bootstrap,
+  compile,
+  findRoot,
+  ratifications,
+  ratify,
+  ratifyInteractively,
+  review,
+  status,
+  submitReview,
+  summariseProblems,
+  verify,
+} from './ratchet-ops.mjs'
+
+/** Cordis function-plugin name; also the id a profile patch row targets. */
+export const name = 'ratchet'
+
+/**
+ * Services requested before `apply` runs.
+ *
+ * `tools` only, deliberately. Cordis makes an injection a hard gate in both
+ * directions (measured; see `docs/RATCHET-API-FACTS.md` §3.3): declaring a name no
+ * service registers leaves the entry pending and fails the whole boot, while
+ * reading `ctx.<name>` without declaring it throws. The static layer must keep
+ * working in a base-only composition, so the subagents runtime is reached
+ * opportunistically through `ctx.get('subagents')` at call time — and its absence
+ * is the degraded path rather than a boot failure.
+ */
+export const inject = ['tools']
+
+/**
+ * The service name the subagent runtime registers under.
+ *
+ * **Plural.** The row id is `subagent` and the package's prose says `subagents`
+ * while the constructor calls `super(ctx, "subagents")`. Asking for the singular
+ * returns `undefined` and produced a completely false "the runtime is
+ * unreachable" finding during API discovery, so the name lives in one constant
+ * with this note attached rather than being spelled at each call site.
+ */
+export const SUBAGENTS_SERVICE = 'subagents'
+
+/**
+ * The service name the human-question channel registers under.
+ *
+ * Camel-case and plural, exactly as the service registers it (`super(ctx,
+ * "userQuestions")`). Like the subagent runtime it is reached through
+ * `ctx.get(name)` at call time rather than through `inject`, because declaring a
+ * service an installation does not mount fails the whole boot — and a project
+ * without a question channel can still compile, verify and report.
+ */
+export const USER_QUESTIONS_SERVICE = 'userQuestions'
+
+/**
+ * The service name the live agent registry registers under.
+ *
+ * Read for one fact only: whether the calling agent is a runtime ROOT. The
+ * auto-review a compile triggers asks it before spawning a judge, so a judge that
+ * itself compiles cannot start a review of its own (see `isRootCaller`).
+ */
+export const AGENTS_SERVICE = 'agents'
+
+export { PROBLEM_CODES }
+
+/**
+ * Resolves the project root for one tool call.
+ *
+ * The workspace comes from the session the call belongs to, never from the server's
+ * launch directory: the harness is normally started from a home or app directory, so
+ * searching upward from `process.cwd()` finds no manifest.
+ *
+ * @param exec - Tool-execution context supplied by the harness.
+ * @returns `{ root, found }` where `root` is the session workspace even when no
+ *   manifest was found above it — `ratchet_bootstrap` needs to know where to write,
+ *   and a workspace is a better answer than nothing. `found` distinguishes the two
+ *   cases for the operations that genuinely require a manifest.
+ */
+export function rootFor(exec) {
+  const cwd = exec?.agent?.session?.header?.cwd
+  if (typeof cwd !== 'string' || cwd.length === 0) return { root: null, found: false }
+  const found = findRoot(cwd)
+  return { root: found ?? cwd, found: found !== null }
+}
+
+/**
+ * Registers the four ratchet tools.
+ *
+ * @param ctx - Cordis context; must expose `tools` (declared in `inject`).
+ * @returns Nothing. Registrations are made inside `ctx.effect`, the disposal
+ *   contract that lets a hot reload replace them instead of colliding with the
+ *   registry's duplicate-name rule.
+ */
+export function apply(ctx) {
+  // The guard is registered OUTSIDE the tool-registration effect, and on its own
+  // effect: it is a different extension point (`tools.guard`), governs calls to
+  // other plugins' tools, and must survive a failure to register any single tool.
+  registerGuard(ctx, (exec) => rootFor(exec).root)
+
+  ctx.effect(() => {
+    const disposers = []
+
+    /** Registers one tool, reporting a failure instead of taking the tree down. */
+    const register = (definition) => {
+      try {
+        disposers.push(ctx.tools.register(definition))
+      } catch (error) {
+        process.stderr.write(`ratchet: cannot register ${definition.name}: ${String(error)}\n`)
+      }
+    }
+
+    /**
+     * The canonical output declaration.
+     *
+     * `{ type: 'json' }` is the DSL's unconstrained lossless-JSON node. It is
+     * available here only because these are `defineTool` definitions; a raw
+     * registered schema is validated as JSON Schema and rejects it.
+     */
+    const output = () => ({
+      schema: { type: 'json' },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    })
+
+    /**
+     * Runs one operation that requires an existing project.
+     *
+     * Async because verification is: a law may declare a `command` check, and awaiting
+     * here is what lets the tool return the result rather than a promise. The runner
+     * is deliberately NOT supplied — a tool an agent calls mid-edit must not spawn
+     * processes the user did not ask for, so a command check surfaces as
+     * `checksPending` and the answer says so.
+     */
+    const withRoot = async (exec, operation) => {
+      const { root, found } = rootFor(exec)
+      if (root === null || !found) {
+        const problems = [
+          {
+            code: 'MANIFEST_MISSING',
+            severity: 'error',
+            subject: null,
+            message:
+              root === null
+                ? `this session has no workspace directory, so there is nowhere to look for ${MANIFEST_PATH}`
+                : `no ${MANIFEST_PATH} found in ${root} or any parent, so this project declares no decisions`,
+          },
+        ]
+        return {
+          ok: false,
+          stage: 'resolve-root',
+          reason: problems[0].message,
+          fix: 'call ratchet_bootstrap in preview mode to see the manifest and directories it would create, then apply it',
+          problems,
+          summary: summariseProblems(problems),
+        }
+      }
+      return operation(root)
+    }
+
+    /**
+     * Puts one quiz to the human through the harness user-questions channel.
+     *
+     * Reached opportunistically, like the subagent runtime: a deployment with no
+     * question channel is a deployment where ratification cannot happen, which is a
+     * fact to report rather than a boot to fail. Every failure mode is returned as a
+     * value — no service, no agent to route through, a service with no `ask`, a
+     * thrown ask (the seam refuses a caller that is not the live root agent, which
+     * is exactly the case of a subagent trying to obtain consent for its parent's
+     * decision, and that refusal must not be mistaken for consent).
+     *
+     * `null` means "this call has no channel", which the operation turns into a
+     * prepared quiz and an actionable next step rather than an exception.
+     *
+     * @param exec - Tool-execution context, for the agent and the abort signal.
+     * @returns An `askHuman` for the ratification operation, or `null`.
+     */
+    const humanChannel = (exec) => {
+      const service = ctx.get(USER_QUESTIONS_SERVICE)
+      const agent = exec?.agent
+      if (service === undefined || service === null || typeof service.ask !== 'function' || agent === undefined) {
+        return null
+      }
+      return async (quiz) => {
+        try {
+          const answer = await service.ask({
+            agent,
+            questions: quiz.questions,
+            ...(exec?.signal === undefined ? {} : { signal: exec.signal }),
+          })
+          return { kind: 'ok', answer }
+        } catch (error) {
+          return { kind: 'unavailable', reason: String(error) }
+        }
+      }
+    }
+
+    /**
+     * Builds the judge spawner a review or an ingestion runs on.
+     *
+     * Reached opportunistically through `ctx.get`, never through `inject` (see
+     * SUBAGENTS_SERVICE). One closure for every caller, because a second copy is a
+     * second place for the disposal contract to be forgotten — and `dispose()` is
+     * mandatory: the run does not reach quiescence without it, so skipping it on the
+     * cancellation path leaks the work being cancelled.
+     *
+     * @param exec - Tool-execution context; its agent is the judge's parent, which
+     *   `start` requires, and its signal lets a cancelled tool call cancel the judge.
+     * @returns An async `(prompt, outputSchema)` returning the judge's result, or
+     *   `null` when this call cannot spawn one.
+     */
+    const judgeSpawner = (exec) => {
+      const runtime = ctx.get(SUBAGENTS_SERVICE)
+      const agent = exec?.agent
+      if (runtime === undefined || agent === undefined) return null
+      return async (prompt, outputSchema) => {
+        const run = await runtime.start('spawn', {
+          label: 'ratchet-judge',
+          prompt: [{ type: 'text', text: prompt }],
+          parent: agent,
+          signal: exec.signal,
+          outputSchema,
+        })
+        try {
+          const result = await run.result
+          return {
+            structured: result.structured ?? null,
+            output: textOf(result.output),
+            stopReason: result.stopReason,
+            diagnostic: result.diagnostic ?? null,
+          }
+        } finally {
+          await run.dispose()
+        }
+      }
+    }
+
+    /**
+     * Reports whether one call is made by a live ROOT agent.
+     *
+     * The auto-review a compile triggers is guarded by this, and the guard is not
+     * cosmetic: a spawned judge is a full agent, so a judge that ran
+     * `ratchet_compile` would trigger a review of its own, spawn another judge, and
+     * repeat for as long as the models kept cooperating. The subagent runtime owns
+     * the fact "this agent is a root"; asking it is exact where an in-process flag
+     * would be a guess. A composition without the registry answers `false`, so the
+     * conservative outcome — no automatic judge — is also the one that cannot
+     * recurse.
+     *
+     * @param exec - Tool-execution context.
+     * @returns `true` only when the registry confirms this agent is a runtime root.
+     */
+    const isRootCaller = (exec) => {
+      const agents = ctx.get(AGENTS_SERVICE)
+      const agent = exec?.agent
+      if (agents === undefined || typeof agents.roots !== 'function' || agent === undefined) return false
+      try {
+        return agents.roots().includes(agent)
+      } catch {
+        return false
+      }
+    }
+
+    register(
+      defineTool({
+        name: 'ratchet_status',
+        description:
+          'Report the ratchet state of this project without changing it: whether a manifest is present and ' +
+          'ratchet-enabled, how many ADRs are active or proposed, the current spec hash, whether the ' +
+          'persisted spec bundle is out of date, and whether the code has been verified against the laws ' +
+          'currently in force. Call this first when you do not know whether a project uses the ratchet. ' +
+          'It reports VERIFY_NOT_RUN when no verification covers the current laws, which is the difference ' +
+          'between "checked and clean" and "never checked".',
+        parameters: {},
+        output: output(),
+        execute(_args, exec) {
+          return withRoot(exec, status)
+        },
+      }),
+    )
+
+    register(
+      defineTool({
+        name: 'ratchet_bootstrap',
+        description:
+          'Create the manifest and directory skeleton a project needs before the ratchet can do anything. ' +
+          'Use mode "preview" first: it returns the manifest text and the exact paths that would be ' +
+          'created, and writes nothing. Use mode "apply" to write them. Existing files are never ' +
+          'overwritten unless force is true, and every skipped path is reported.',
+        parameters: {
+          mode: {
+            type: 'string',
+            enum: ['preview', 'apply'],
+            description: 'preview (default) reports the plan; apply writes it.',
+          },
+          name: { type: 'string', description: 'Project name recorded in the manifest.' },
+          mainPaths: { type: 'string', description: 'Glob for the default zone, e.g. "src/**".' },
+          force: { type: 'boolean', description: 'Overwrite existing files. Default false.' },
+        },
+        output: output(),
+        execute(args, exec) {
+          const mode = args.mode === 'apply' ? 'apply' : 'preview'
+          // Bootstrap is the one operation that must work when nothing else does:
+          // it takes the session workspace directly, because the manifest it is
+          // about to create is the thing `withRoot` would have required.
+          const { root } = rootFor(exec)
+          return Promise.resolve(
+            bootstrap({
+              root,
+              mode,
+              name: args.name,
+              mainPaths: args.mainPaths,
+              force: args.force === true,
+            }),
+          )
+        },
+      }),
+    )
+
+    /**
+     * Runs the corpus review a compile asked for, when this call can run one.
+     *
+     * The compiler does not guess at a semantic conflict: it marks the question and
+     * records it. Leaving it there meant the mark was made and nothing ever acted on
+     * it — a report that says "somebody should judge this" and no judgement — so a
+     * compile now carries the review out itself.
+     *
+     * Three refusals are reported rather than passed over: the caller turned it off,
+     * the composition has no judge, or the call did not come from a live root agent.
+     * The third is the recursion guard, and it is the reason the result says
+     * `ran: false` instead of silently doing nothing — a judge that compiles must not
+     * start a review that spawns a judge.
+     *
+     * The review is ADVISORY and stays advisory here: it never changes the compile's
+     * verdict, because a non-deterministic check that can fail a build is one people
+     * learn to re-run until it passes.
+     *
+     * @param result - The compile result to annotate.
+     * @param root - Absolute project root.
+     * @param exec - Tool-execution context.
+     * @param enabled - `false` when the caller passed `review: false`.
+     * @returns The compile result, with a `dynamicReview` field describing what ran
+     *   and what it found. Never throws: a failed judge is a reported outcome.
+     */
+    const reviewWhenRequired = async (result, root, exec, enabled) => {
+      const questions = Array.isArray(result?.reviewRequired) ? result.reviewRequired : []
+      if (enabled !== true || questions.length === 0) return result
+
+      const rootCaller = isRootCaller(exec)
+      const spawnJudge = rootCaller ? judgeSpawner(exec) : null
+      if (spawnJudge === null) {
+        return {
+          ...result,
+          dynamicReview: {
+            ran: false,
+            questions,
+            reason: rootCaller
+              ? 'this composition cannot spawn a judge, so the corpus review the compiler asked for was not run'
+              : 'the caller is not a live root agent, so the ratchet did not spawn a judge from inside a judge; run the review from the session that owns this work',
+          },
+        }
+      }
+
+      const started = Date.now()
+      const outcome = await review({ root, job: 'review_corpus', spawnJudge, record: true })
+      return {
+        ...result,
+        dynamicReview: {
+          ran: true,
+          elapsedMs: Date.now() - started,
+          advisory: outcome.advisory === true,
+          gate: outcome.gate === true,
+          findings: outcome.findings ?? [],
+          problems: outcome.problems ?? [],
+          questions,
+          report: outcome.report ?? null,
+        },
+        nextStep:
+          'the corpus review is advisory; ratchet_verify is the gate, and it is the compile problems above that a task has to clear',
+      }
+    }
+
+    register(
+      defineTool({
+        name: 'ratchet_compile',
+        description:
+          'Compile the active architecture decision records into the laws the project enforces, and report ' +
+          'every structural, authority and collision problem the corpus contains. Call this after adding or ' +
+          'amending an ADR, and before implementing anything a decision governs. It always records its ' +
+          'report and the machine-readable spec bundle; pass write: true to also emit the generated spec ' +
+          'documents. It reports SPEC_HASH_MISMATCH when a generated document was edited by hand. When the ' +
+          'compiler reports that a question needs judgement it also runs the corpus review and returns its ' +
+          'findings under dynamicReview, which is advisory and never changes the compile verdict.',
+        parameters: {
+          write: {
+            type: 'boolean',
+            description:
+              'Also write the generated spec documents under the manifest specs directory. Default false — ' +
+              'the report and the spec bundle are recorded either way.',
+          },
+          review: {
+            type: 'boolean',
+            description:
+              'Run the corpus review when the compiler reports that a question needs judgement. Default true; ' +
+              'set false to keep the compile purely static and pay no judge round trip.',
+          },
+        },
+        output: output(),
+        execute(args, exec) {
+          return withRoot(exec, async (root) => {
+            const result = compile({ root, write: args.write === true })
+            return reviewWhenRequired(result, root, exec, args.review !== false)
+          })
+        },
+      }),
+    )
+
+    register(
+      defineTool({
+        name: 'ratchet_verify',
+        description:
+          'Verify the codebase against the compiled laws: required and forbidden files, globs, text and ' +
+          'dependencies, and zone path boundaries. This is deterministic — it asks no model — and it is the ' +
+          'gate: a task that changed code in a regulated zone is not finished until this reports ok. It ' +
+          'writes reports/ratchet/verify-report.json and records the spec hash it judged; every problem ' +
+          'names the law, the file and the evidence, and a check that could not be evaluated is reported ' +
+          'rather than passed.',
+        parameters: {},
+        output: output(),
+        execute(_args, exec) {
+          return withRoot(exec, (root) => verify({ root }))
+        },
+      }),
+    )
+
+    register(
+      defineTool({
+        name: 'ratchet_ratify',
+        description:
+          'Put PROPOSED decisions to the human and record their consent. This is the only way a decision an agent ' +
+          'proposed enters force THROUGH THE RATCHET: the ratchet asks the human one question per waiting record, ' +
+          'showing that record\'s own text, and writes an approval ADR only when the answer selects that question\'s ' +
+          'approve label — anything else is unreadable, is re-asked once in a different shape, and mints nothing. ' +
+          'The consent is bound to a content hash of the text the human was shown, so editing an approved record — ' +
+          'or editing it while the question is open — voids it until it is ratified again. There is deliberately NO ' +
+          'argument that accepts an answer you composed: a consent this ratchet cannot check against a question it ' +
+          'asked is a consent it cannot tell from a sentence an agent typed. It is not the only way a file can ' +
+          'reach the corpus: a record whose frontmatter says `authority: human` self-activates, and a hand-written ' +
+          'approval that reproduces the ratification block correctly is indistinguishable from this one — nothing ' +
+          'in a file-based mechanism can tell them apart, so a human reading the diff is the check. If the human ' +
+          'channel is unavailable here, the result says so and nothing is written.',
+        parameters: {
+          ids: {
+            type: 'string',
+            description:
+              'Comma-separated ADR ids to ratify, e.g. "0001,0007". Default: every decision waiting for a human.',
+          },
+        },
+        output: output(),
+        execute(args, exec) {
+          const { root, found } = rootFor(exec)
+          if (root === null || !found) {
+            const problems = [
+              {
+                code: 'MANIFEST_MISSING',
+                severity: 'error',
+                subject: null,
+                message:
+                  root === null
+                    ? `this session has no workspace directory, so there is nowhere to look for ${MANIFEST_PATH}`
+                    : `no ${MANIFEST_PATH} found in ${root} or any parent, so this project declares no decisions to ratify`,
+              },
+            ]
+            return Promise.resolve({
+              ok: false,
+              stage: 'ratify',
+              reason: problems[0].message,
+              problems,
+              summary: summariseProblems(problems),
+            })
+          }
+
+          const ids =
+            typeof args.ids === 'string' && args.ids.trim().length > 0
+              ? args.ids.split(',').map((entry) => entry.trim()).filter((entry) => entry.length > 0)
+              : null
+          const askedBy = askedByFor(exec)
+
+          // The question/answer/re-ask sequence is the operation's, so a probe can
+          // drive the production path against a real channel and a test can drive it
+          // with a literal answer. This adapter contributes only the channel — and
+          // when there is none, the operation reports that rather than accepting an
+          // answer from the model instead of the human.
+          return ratifyInteractively({ root, ids, askedBy, askHuman: humanChannel(exec) })
+        },
+      }),
+    )
+
+    register(
+      defineTool({
+        name: 'ratchet_review',
+        description:
+          'Ask an INDEPENDENT judge agent whether something respects the project\'s decisions in meaning ' +
+          'rather than in letter — the questions no static check can decide. Use it for a proposed ' +
+          'decision, a code change, a conflict the compiler flagged, or to explain a violation. This is ' +
+          'ADVISORY ONLY: it never changes whether work is done, and `ratchet_verify` remains the gate. ' +
+          'Pass `verdict` instead of a job to file your own answer when no judge could be spawned. ' +
+          'Findings that cite a law or ADR which does not exist are reported as unusable rather than ' +
+          'passed on.',
+        parameters: {
+          job: {
+            type: 'string',
+            enum: Object.keys(REVIEW_JOBS),
+            description:
+              'What to review: review_corpus, review_change, review_proposal, review_conflict, ' +
+              'explain_violation, or grill_preparation. Default review_corpus.',
+          },
+          change: { type: 'string', description: 'The proposed change or diff to review.' },
+          proposal: { type: 'string', description: 'The proposed ADR text, for review_proposal.' },
+          source: { type: 'string', description: 'The raw source the proposal came from.' },
+          conflict: { type: 'string', description: 'The conflict to adjudicate, for review_conflict.' },
+          violation: { type: 'string', description: 'The static violation to explain.' },
+          question: { type: 'string', description: 'An extra question for the judge.' },
+          verdict: {
+            type: 'json',
+            description:
+              'Your own verdict, for the degraded path: {ok, findings:[{severity, kind, explanation, ' +
+              'lawId?, sourceAdr?, suggestedAction?}]}. Used when you answered the prompt yourself.',
+          },
+        },
+        output: output(),
+        execute(args, exec) {
+          const resolved = rootFor(exec)
+          const job = typeof args.job === 'string' && args.job.length > 0 ? args.job : 'review_corpus'
+
+          // Filing a verdict the caller produced. Validated exactly like a spawned
+          // judge's, because the argument for checking a model's output applies at
+          // least as strongly to output a model wrote by hand.
+          if (args.verdict !== undefined && args.verdict !== null) {
+            if (!resolved.found) {
+              return Promise.resolve({
+                ok: false,
+                stage: 'review',
+                advisory: true,
+                reason: `no ${MANIFEST_PATH} found, so there are no laws to check the verdict against`,
+              })
+            }
+            return Promise.resolve(
+              submitReview({ root: resolved.root, job, verdict: args.verdict, record: true }),
+            )
+          }
+
+          if (!resolved.found) {
+            return Promise.resolve({
+              ok: false,
+              stage: 'review',
+              advisory: true,
+              reason: `no ${MANIFEST_PATH} found, so there are no decisions to review against`,
+            })
+          }
+
+          // Reached opportunistically, never injected: see SUBAGENTS_SERVICE.
+          return review({
+            root: resolved.root,
+            job,
+            change: args.change ?? null,
+            proposal: args.proposal ?? null,
+            source: args.source ?? null,
+            conflict: args.conflict ?? null,
+            violation: args.violation ?? null,
+            question: args.question ?? null,
+            spawnJudge: judgeSpawner(exec),
+            record: true,
+          })
+        },
+      }),
+    )
+
+    register(
+      defineTool({
+        name: 'ratchet_ingest_source',
+        description:
+          'Turn a raw source of reasoning — a grilling transcript, a task brief, an investigation note — into a ' +
+          'PROPOSED architecture decision record. It reads the source, has a judge extract the decision, its ' +
+          'reasoning and the checks the decision implies, and verifies that every sentence the judge attributes to ' +
+          'the source actually appears there: a justification or a check whose quoted basis is not in the source is ' +
+          'refused or dropped rather than recorded. When the source states a decision without stating why, it returns ' +
+          'INSUFFICIENT_REASONING and asks for the reasoning to be captured first. Nothing is written unless write is ' +
+          'true, and the record it produces is always `proposed`: a human decides whether it becomes law, through ' +
+          'ratchet_ratify. Pass `ingest` to file an answer you obtained yourself when no judge could be spawned.',
+        parameters: {
+          source: {
+            type: 'string',
+            description: 'Repository-relative path of the source file to ingest, e.g. docs/ratchet/sources/x.md.',
+          },
+          write: {
+            type: 'boolean',
+            description:
+              'Write the generated ADR under the decisions directory. Default false — the record is returned ' +
+              'for review first, and it is only written if it compiles.',
+          },
+          ingest: {
+            type: 'json',
+            description:
+              'A result you produced for this source, in the shape the returned prompt asks for. It is validated ' +
+              'exactly like a spawned judge\'s result, provenance checks included; use it when no judge could be spawned.',
+          },
+        },
+        output: output(),
+        execute(args, exec) {
+          const resolved = rootFor(exec)
+          const sourcePath = typeof args.source === 'string' && args.source.length > 0 ? args.source : null
+          if (sourcePath === null) {
+            return Promise.resolve({
+              ok: false,
+              stage: 'ingest',
+              reason: 'ingestion needs the path of a source file holding the reasoning to record',
+            })
+          }
+          if (!resolved.found) {
+            return Promise.resolve({
+              ok: false,
+              stage: 'ingest',
+              reason: `no ${MANIFEST_PATH} found, so there is no decisions directory or zone list to record against; call ratchet_bootstrap first`,
+            })
+          }
+
+          const runtime = ctx.get(SUBAGENTS_SERVICE)
+          const agent = exec?.agent
+          return ingest({
+            root: resolved.root,
+            sourcePath,
+            write: args.write === true,
+            submitted: args.ingest ?? null,
+            spawnJudge: judgeSpawner(exec),
+          })
+        },
+      }),
+    )
+
+    return () => {
+      for (const dispose of disposers) dispose()
+    }
+  })
+}
+
+/**
+ * Names who asked the human, for the approval's ratification block.
+ *
+ * The agent id IS the session id in this harness (`Agent.id` and `Session.id` are
+ * the same branded value), so it identifies the conversation a consent was given
+ * in. A call with no agent is recorded as `unattributed` rather than with an
+ * invented name: an approval nobody can be asked about is a fact a reader should
+ * see, and a plausible-looking substitute would hide it.
+ *
+ * @param exec - Tool-execution context.
+ * @returns A non-empty string, either `session <id>` or `unattributed`.
+ */
+function askedByFor(exec) {
+  const id = exec?.agent?.id
+  if (typeof id !== 'string' || id.length === 0) return 'unattributed'
+  // The harness already brands agent ids with a `session-` prefix, so prepending the
+  // word produced `session session-<id>` in a durable record.
+  return id.startsWith('session') ? id : `session ${id}`
+}
+
+/**
+ * Concatenates the text blocks of a subagent result's output.
+ *
+ * A child asked for a schema answers through `structured` and may return empty
+ * text, while a child that ignored the schema answers in text. Both are read, so
+ * neither shape is mistaken for an empty verdict.
+ *
+ * @param content - Content blocks, or any value.
+ * @returns The joined text, or an empty string.
+ */
+function textOf(content) {
+  return (Array.isArray(content) ? content : [])
+    .filter((block) => block?.type === 'text' && typeof block.text === 'string')
+    .map((block) => block.text)
+    .join('\n')
+}

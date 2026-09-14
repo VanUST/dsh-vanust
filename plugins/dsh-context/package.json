@@ -1,0 +1,24 @@
+{
+  "name": "@cc/dsh-context",
+  "version": "0.1.3",
+  "description": "Project-context tools for any repository: module lookup, enforced-rule listing and work-order scope validation, read from a project manifest so no language, package manager or test runner is assumed.",
+  "type": "module",
+  "main": "plugin-context.mjs",
+  "exports": {
+    ".": "./plugin-context.mjs",
+    "./core": "./context-core.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "plugin-context.mjs",
+    "reconcile-tool.mjs",
+    "context-core.mjs",
+    "context-core.d.mts",
+    "reconcile-tool.d.mts"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-tools": "^0.1.5-rc.1"
+  }
+}

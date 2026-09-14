@@ -25,6 +25,19 @@ watchlist is small. Greps run against the harness source checkout
 | G3 | Cordis function-plugin idiom: `name` / `inject` / `Config` (schemastery) / `apply(ctx, config)` plus `ctx.on(event, listener, {global, prepend})` | vendored cordis | `grep -rn "waterfall" vendor/cordis/src/events.ts \| head` |
 | G4 | The `llm-deepseek` adapter's `models` catalog config (advertised models with `id`/`name`/`contextWindow`/`inputModalities` plus image budgets) | `@deepseek-ai/dsh-llm-deepseek` | `grep -n "models:" packages/llm/llm-deepseek/src/index.ts \| head` |
 | G5 | Profile composition: `insert` rows in `cordis.patch.yml`, plugin tarballs installed with pnpm into `$DSH_HOME/profiles/<name>` | `@deepseek-ai/dsh` CLI | `dsh --profile web --dump-config` after a change |
+| G6 | `defineTool` from `@deepseek-ai/dsh-tools` compiles an author schema into the enforced JSON-Schema subset; a definition registered directly is validated as RAW JSON Schema and rejects the DSL-only `{type:'json'}` node | `@deepseek-ai/dsh-tools` | `node scripts/probe-dsh-api.mjs` (checks `tool.*.dispatched`, `output_schema.*`) |
+| G7 | The subagent runtime registers as **`subagents`** (plural, `super(ctx, "subagents")`); `ctx.get(name)` resolves a mounted service without an `inject` declaration, while reading `ctx.<name>` for an undeclared service throws `cannot get property "<name>" without inject` | `@deepseek-ai/dsh-subagent` | `node scripts/probe-dsh-api.mjs --probe-judge` (6/6; spawns a real judge child) |
+| G8 | A tool body's session workspace is `exec.agent.session.header.cwd`; `exec.signal` is an `AbortSignal`; `exec.deferContext` is callable | `@deepseek-ai/dsh-agent`, `@deepseek-ai/dsh-session`, `@deepseek-ai/dsh-tools` | `node scripts/probe-dsh-api.mjs` (checks `env.*`) |
+| G9 | Durable `tool/result` shape is `data.message.content[]`, one block per result **per batch**, each with `toolCallId` and `isError` — not a flat `{callId, content, isError}` | `@deepseek-ai/dsh-session` log format | `node scripts/probe-dsh-api.mjs` (a wrong reader yields zero results while every record exists) |
+| G10 | The human-question seam registers as **`userQuestions`** (`super(ctx, "userQuestions")`) and answers through the `user-questions/request` waterfall; `ask({ agent, questions, signal })` resolves `{ answers: [{ id, selected, custom? }] }`, authenticates the exact live runtime ROOT when an agent is supplied (`CALLER_NOT_LIVE`, `DELEGATED_CALLER`), and a root-scope listener receives an agent-scoped dispatch | `@deepseek-ai/dsh-user-questions` | `node scripts/probe-dsh-api.mjs --ratchet-ratify` (10/10; a stub answerer stands in for the human) |
+| G11 | The live agent registry registers as **`agents`**; `agents.roots()` lists the runtime roots, which is how a tool tells a root caller from a spawned child | `@deepseek-ai/dsh-agent` | `node scripts/probe-dsh-api.mjs --ratchet` (the plugin boots) plus the recursion-guard test in `scripts/test-ratchet.mjs` |
+| G12 | The permission presets a session runs under (`workspace-write` → approval `ask`, `danger-full-access` → approval `never`) come from `@deepseek-ai/dsh-permission-presets`, and the effective policy is a session event folded by `ctx.approval` | `@deepseek-ai/dsh-permission-presets`, `@deepseek-ai/dsh-user-approval` | `grep -n "danger-full-access" node_modules/@deepseek-ai/dsh-permission-presets/lib/index.js` in the installed harness |
+
+G10 and G11 are the ratification path's dependencies and the sharpest new ones: an
+upstream rename of either, or a change to how `ask()` authenticates its caller, would
+turn ratification into a degraded path that reports a reason instead of recording a
+consent — which is why the probe asserts both, and why a decision nobody can be asked
+about stays pending instead of being silently activated.
 
 ### Ours (stable by construction — upstream churn must not touch these)
 
@@ -35,6 +48,32 @@ watchlist is small. Greps run against the harness source checkout
   which admits future Flash releases without a policy edit.
 - Kit-side: the profile patch's `llm-deepseek` catalog row that keeps
   non-Flash tiers out of the picker.
+
+### The ratchet's watchlist (G6–G12)
+
+`@cc/dsh-ratchet` ships as a tarball with a profile row of its own
+(`plugins/cc-dsh-ratchet-*.tgz`, mounted by `profile/cordis.patch.yml`), and its
+static layer and its dynamic layer are both implemented and tested against the
+facts in `docs/RATCHET-API-FACTS.md`. Every upgrade must re-run the
+probe, because **the ratchet's guarantees are only as good as the harness facts
+underneath them**:
+
+```bash
+node --test scripts/test-ratchet.mjs                # 248 tests, no harness needed
+node scripts/check-consent-surface.mjs              # 7 claims about the consent surface
+node scripts/check-instruction-routing.mjs          # 8 claims about instruction routing
+node scripts/check-gate-invariants.mjs              # 12 verdicts, asserted behaviourally
+node scripts/falsify-kit-gate.mjs                   # 6 invariants broken, ~5 minutes
+node scripts/probe-dsh-api.mjs                      # 18/18 harness facts
+node scripts/probe-dsh-api.mjs --probe-judge        # 6/6 dynamic capability (costs a child turn)
+node scripts/probe-dsh-api.mjs --ratchet-ratify     # 10/10 ratification seam (no model turn)
+node scripts/probe-dsh-api.mjs --ratchet            # 3/3 the plugin still boots
+```
+
+Two of these are churn detectors rather than ratchet tests. **G7 is the sharp one:**
+an upstream rename of the `subagents` service would silently turn the dynamic layer
+into its degraded mode, and the probe is what makes that a red check instead of a
+quiet capability loss.
 
 ---
 

@@ -61,6 +61,57 @@ probe() { # probe <name> <command-string> — runs the command via bash -c
   fi
 }
 
+# ── the ratchet's own gates, before anything touches a live profile ─────────
+# These are the kit's enforcement points for rules that would otherwise be prose:
+#   * the static ratchet suite proves the compiler and verifier behave, and that
+#     the gate FAILS when it should (the falsification cases);
+#   * the ratchet CLI proves the gate is reachable from a shell with real exit
+#     codes, which is what makes "a task is not complete until verification
+#     passes" a rule something can fail.
+# Neither uses the harness, so a red result here is a kit defect rather than an
+# upstream one — which is exactly the distinction an upgrade gate needs to make.
+if command -v node >/dev/null 2>&1; then
+  # Portability and packaging first: these are the checks that catch a defect
+  # BEFORE the harness is involved, and a failure here is unambiguously a kit
+  # defect rather than an upstream one. The packaging half matters most on this
+  # axis — the kit is authored on Windows and deployed to Linux, so a path
+  # assumption or a missing `files` entry passes every local run.
+  probe "portability and packaging checks" \
+    "node '${KIT_DIR}/scripts/check-portability.mjs'"
+  probe "the consent surface (no shell mint, no answer-accepting argument)" \
+    "node '${KIT_DIR}/scripts/check-consent-surface.mjs' | grep -q 'consent surface ok'"
+  probe "instruction routing (only the home rules reach the prompt)" \
+    "node '${KIT_DIR}/scripts/check-instruction-routing.mjs' | grep -q 'instruction routing ok'"
+  # The behavioural half of the gate: these invariants are asserted by driving the
+  # production modules, not by a test name, because a test with an empty body passes
+  # and a suite prints `fail 0` over an empty file. Measured: a mutation that made a
+  # law with no check pass silently survived the gate once the covering test's body
+  # was deleted.
+  probe "gate invariants (each wrong verdict is refused)" \
+    "node '${KIT_DIR}/scripts/check-gate-invariants.mjs' | grep -q 'gate invariants ok'"
+  probe "ratchet static suite (schema, compiler, verifier, dynamic, gate)" \
+    "node --test '${KIT_DIR}/scripts/test-ratchet.mjs'"
+  probe "ratchet CLI runs and reports its own usage" \
+    "node '${KIT_DIR}/plugins/ratchet/ratchet-cli.mjs' --help | grep -q 'ratchet'"
+  # The CLI must REFUSE an unknown command rather than exiting 0. A gate that
+  # silently succeeds on a typo is worse than no gate: CI would stay green while
+  # checking nothing.
+  probe "ratchet CLI rejects an unknown command (exit 3)" \
+    "! node '${KIT_DIR}/plugins/ratchet/ratchet-cli.mjs' verfy >/dev/null 2>&1"
+  probe "ratchet CLI rejects an unknown review job (exit 3)" \
+    "! node '${KIT_DIR}/plugins/ratchet/ratchet-cli.mjs' review --job nope >/dev/null 2>&1"
+  # A shell must not be able to MINT a consent: an agent can run a shell command, so
+  # a CLI ratify would be an agent ratify with extra steps. The verb must not exist.
+  probe "ratchet CLI has no ratify verb (exit 3, never a mint)" \
+    "! node '${KIT_DIR}/plugins/ratchet/ratchet-cli.mjs' ratify --root '${KIT_DIR}' >/dev/null 2>&1"
+  # And the read-only half must work and be honest about what waits for a human.
+  probe "ratchet CLI lists what waits for a human" \
+    "node '${KIT_DIR}/plugins/ratchet/ratchet-cli.mjs' pending --root '${KIT_DIR}' | grep -q 'cannot ratify'"
+else
+  echo "   [FAIL] node is required to run the ratchet gates"
+  FAILED=1
+fi
+
 # ── composition wiring: the gate row is mounted in the composed tree ────────
 probe "composition mounts model-gate" \
   "DSH_HOME='${TEST_HOME}' dsh --profile web --dump-config 2>/dev/null | grep -q 'dsh-model-gate'"

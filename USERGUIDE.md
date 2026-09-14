@@ -1,11 +1,13 @@
 # USERGUIDE.md — setting up and starting the harness on a new machine
 
 This kit installs **DeepSeek Harness (dsh)** on any of your machines (2× Linux,
-1× Windows) plus the two plugins this deployment adds beyond upstream:
-**`@deepseek-ai/dsh-model-gate`**, the class-based flash-only cost policy, and
-**`@cc/dsh-context`**, which exposes a project's modules, rules and work orders
-as tools. The harness version is pinned; sessions and workspaces stay
-machine-local by design (see COMPAT.md §3).
+1× Windows) plus the plugins this deployment adds beyond upstream:
+**`@deepseek-ai/dsh-model-gate`** (the class-based flash-only cost policy),
+**`@cc/dsh-kit-rules`** (delivers `$DSH_HOME/AGENTS.md` to the model as its
+binding rule section), **`@cc/dsh-context`** (a project's modules, rules and work
+orders as tools) and **`@cc/dsh-ratchet`** (architecture decisions compiled into
+checks a command can fail — §3.2). The harness version is pinned; sessions and
+workspaces stay machine-local by design (see COMPAT.md §3).
 
 The user interface is upstream's own web app: conversations, the right sidebar
 with Files and document preview, open-in-app, and the agent's terminal tools all
@@ -36,8 +38,9 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 The installer does four things (idempotent; re-running upgrades to the pin):
 1. checks Node ≥ 24,
 2. `npm i -g @deepseek-ai/dsh@0.1.5-rc.1` (exact pin),
-3. writes `$DSH_HOME/profiles/web/{package.json,cordis.patch.yml}` from the
-   kit's canonical copies and installs the plugin tarball into the profile,
+3. writes `$DSH_HOME/profiles/web/{package.json,cordis.patch.yml,pnpm-workspace.yaml}`
+   from the kit's canonical copies and installs every `plugins/*.tgz` into the
+   profile,
 4. installs the user-global core operating rules to `$DSH_HOME/AGENTS.md`.
 
 `$DSH_HOME` = `~/.npm/dsh` (Linux) / `%USERPROFILE%\.npm\dsh` (Windows) —
@@ -141,6 +144,56 @@ beginning 'MANDATORY OPERATING RULES', and did you receive a message framed \
 The first must be `PRESENT` and the second `ABSENT`. If the plugin row is missing
 from `dsh --profile web --dump-config`, the patch layer was overwritten — see §5.
 
+## 3.2 The ratchet: what it asks of you
+
+`@cc/dsh-ratchet` turns a project's architecture decisions (`docs/adrs/*.adr.md`)
+into checks a command can fail. For a project that declares a `ratchet` section in
+`.dsh/project.json`, three things involve you rather than the agent:
+
+**1. A decision an agent wrote waits for your yes.** See what is waiting:
+
+```bash
+node /path/to/dsh-kit/plugins/ratchet/ratchet-cli.mjs pending --root /path/to/project
+```
+
+Each entry prints the record's id, the zones it governs, its **content hash** —
+that hash is the exact text a "yes" would cover — and, for a record that cannot be
+ratified at all, a `BLOCKED` line with the reason (an agent may not activate a
+decision in a zone the project reserves to humans).
+
+**2. The yes itself happens in a session, not in a shell.** Ask the agent to ratify
+the pending record; `ratchet_ratify` puts a question to you showing the record's own
+text, with an approve answer and a decline answer. Your answer writes an approval
+ADR plus a transcript of the exchange. There is deliberately no CLI verb, no tool
+argument and no file you can hand the ratchet that would let an agent answer for
+you — `pending` prints, and only your answer mints.
+
+**3. Then commit the pair.** The consent binds the text you were shown: editing an
+approved record afterwards voids it (`RATIFICATION_STALE`), so the record and its
+approval are only meaningful together. Do not accept a hand-written approval file —
+one that repeats the channel, time and hash correctly is indistinguishable from a
+generated one, and asking an agent to write it is asking it to forge your consent.
+
+Day to day the agent works the other way round: `ratchet_status` reports whether the
+code has been checked against the laws currently in force, `ratchet_verify` runs the
+deterministic checks (the gate), `ratchet_compile` compiles the records into laws,
+`ratchet_review` asks an independent judge the questions no static check can decide,
+`ratchet_ingest_source` turns a grilling transcript or a brief into a *proposed*
+record, and `ratchet_bootstrap` writes the manifest skeleton. The same operations are
+available from the shell:
+
+```bash
+node /path/to/dsh-kit/plugins/ratchet/ratchet-cli.mjs verify --root /path/to/project
+# exit 0 every law held, 1 a check failed, 2 the project or its decisions are
+# unusable so nothing was checked, 3 a usage error
+```
+
+Two limits worth knowing, because both are by design. The shell cannot spawn a
+review judge (a shell has no agent to parent one with) — `ratchet review` prints the
+prompt it would have sent and says `NOT RUN`, and you can paste it into a session.
+And a dynamic review is **advisory**: it never changes the exit code, so an opinion
+is never mistaken for the gate.
+
 ## 4. Per-machine configuration
 
 | Item | Linux | Windows |
@@ -234,3 +287,10 @@ A missing entry there means the plugin is installed but not wired.
 `@cc/dsh-context` registers four tools: `context_module`, `context_rules`, `context_specs` and
 `ratchet_reconcile`. A project without `.dsh/project.json` gets an actionable message naming that file
 rather than an empty result — that is the plugin working, not a wiring fault.
+
+`@cc/dsh-ratchet` registers seven: `ratchet_status`, `ratchet_compile`, `ratchet_verify`, `ratchet_ratify`,
+`ratchet_review`, `ratchet_ingest_source` and `ratchet_bootstrap` (§3.2). Check both rows are mounted with:
+
+```bash
+dsh --profile web --dump-config | grep -E 'dsh-context|dsh-ratchet'
+```

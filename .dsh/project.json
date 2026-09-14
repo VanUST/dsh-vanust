@@ -1,0 +1,175 @@
+{
+  "manifestVersion": 2,
+  "name": "dsh-kit",
+  "description": "Deployment kit for DeepSeek Harness plus the model-gate plugin. This manifest is what makes the kit's own context_* tools answer for the kit, and what the ratchet section below compiles into laws the kit checks itself against.",
+  "languages": [
+    {
+      "id": "javascript",
+      "extensions": [".mjs", ".js"],
+      "roots": ["plugins", "scripts", "probes"]
+    },
+    {
+      "id": "shell",
+      "extensions": [".sh"],
+      "roots": ["."]
+    },
+    {
+      "id": "powershell",
+      "extensions": [".ps1"],
+      "roots": ["."]
+    }
+  ],
+  "rules": [
+    {
+      "id": "flash-only-models",
+      "statement": "Every agent, subagent and worker runs on a Flash-class DeepSeek model; no non-Flash tier is selected or delegated to.",
+      "statedIn": "AGENTS.md",
+      "enforcedBy": null,
+      "pendingReason": "the model-gate plugin vetoes a non-Flash model at the llm/stream waterfall, but nothing in this kit asserts that the veto is installed and enabled; that check is unbuilt"
+    },
+    {
+      "id": "pin-the-harness",
+      "statement": "The harness version is pinned exactly in install.sh and install.ps1, and no machine runs an unpinned dsh.",
+      "statedIn": "AGENTS.md",
+      "enforcedBy": null,
+      "pendingReason": "the pins exist in both installers, but no command compares them or refuses an unpinned harness; that check is unbuilt"
+    },
+    {
+      "id": "kit-rules-are-the-only-rules",
+      "statement": "The deployment's mandatory rules come from $DSH_HOME/AGENTS.md via kit-rules; no repository instruction file reaches the prompt.",
+      "statedIn": "AGENTS.md",
+      "enforcedBy": { "command": "instruction-routing" }
+    },
+    {
+      "id": "rules-need-an-enforcement-point",
+      "statement": "A rule is real only where a command fails when it is broken; a rule the kit cannot tie to a failure is reported as an unverified claim.",
+      "statedIn": "AGENTS.md",
+      "enforcedBy": { "command": "ratchet-tests" }
+    },
+    {
+      "id": "portability-across-machines",
+      "statement": "The kit runs on Linux and Windows; shipped source carries no platform-specific path, separator or binary assumption.",
+      "statedIn": "AGENTS.md",
+      "enforcedBy": { "command": "portability" }
+    },
+    {
+      "id": "tarballs-are-built-artifacts",
+      "statement": "A plugin's tarball is produced by a script, its version is bumped whenever its bytes change, and every module a plugin ships is listed in its package manifest.",
+      "statedIn": "AGENTS.md",
+      "enforcedBy": { "command": "portability" }
+    },
+    {
+      "id": "consent-is-recorded",
+      "statement": "A decision enters force only through a human consent recorded against the exact text that was approved; editing an approved record voids the consent, and a record the zone does not authorise is not in force.",
+      "statedIn": "docs/adrs/0007-consent-is-recorded.adr.md",
+      "enforcedBy": { "command": "ratchet-tests" }
+    },
+    {
+      "id": "consent-travels-the-human-channel",
+      "statement": "The ratification question reaches the human through the harness user-questions channel carrying the record's own text, and no shell command can mint a consent.",
+      "statedIn": "docs/adrs/0007-consent-is-recorded.adr.md",
+      "enforcedBy": { "command": "ratify-probe" }
+    },
+    {
+      "id": "enforcement-is-checked-behaviourally",
+      "statement": "An invariant the kit enforces with a command is checked by driving the production modules and requiring the wrong verdict to be refused; no enforcement point rests on a test name or on output a green run prints anyway.",
+      "statedIn": "docs/adrs/0009-enforcement-is-checked-behaviourally.adr.md",
+      "enforcedBy": { "command": "gate-invariants" }
+    }
+  ],
+  "verification": [
+    {
+      "id": "gate",
+      "command": "bash scripts/verify-upgrade.sh",
+      "purpose": "the upgrade and portability gate: throwaway instance, composition, boot and installed-artifact probes",
+      "path": "scripts/verify-upgrade.sh"
+    },
+    {
+      "id": "ratchet-tests",
+      "command": "node --test scripts/test-ratchet.mjs",
+      "purpose": "the ratchet's static and dynamic layers, its verdict validation and its gate exit codes",
+      "path": "scripts/test-ratchet.mjs"
+    },
+    {
+      "id": "guard-tests",
+      "command": "node --test scripts/test-ratchet-guard.mjs",
+      "purpose": "requiresDecisionRecord enforcement: what is refused, what is exempt, and what satisfies the rule",
+      "path": "scripts/test-ratchet-guard.mjs"
+    },
+    {
+      "id": "portability",
+      "command": "node scripts/check-portability.mjs",
+      "purpose": "platform assumptions in shipped source, and modules missing from a plugin's files list",
+      "path": "scripts/check-portability.mjs"
+    },
+    {
+      "id": "ratify-probe",
+      "command": "node scripts/probe-dsh-api.mjs --ratchet-ratify",
+      "purpose": "the ratification seam end to end against a live profile: the question reaches a human channel with the live root agent, answers are derived from labels, and the approval puts the decision into force",
+      "path": "scripts/probe-dsh-api.mjs"
+    },
+    {
+      "id": "consent-surface",
+      "command": "node scripts/check-consent-surface.mjs",
+      "purpose": "the consent surface: no shell mint, no tool argument that accepts an answer, blocked decisions reported with their reason, and retired decisions not queued",
+      "path": "scripts/check-consent-surface.mjs"
+    },
+    {
+      "id": "instruction-routing",
+      "command": "node scripts/check-instruction-routing.mjs",
+      "purpose": "instruction routing: the harness workspace-instruction loader is disabled by row id, kit-rules is mounted in its place, it reads only the home rules file, and the installers ship that file",
+      "path": "scripts/check-instruction-routing.mjs"
+    },
+    {
+      "id": "gate-invariants",
+      "command": "node scripts/check-gate-invariants.mjs",
+      "purpose": "the gate's own invariants, asserted behaviourally: a law nothing checks is reported, a check that cannot fail is refused, a stream assertion reads each stream as written, a hand-written approval mints nothing, and the code hash moves when the code does",
+      "path": "scripts/check-gate-invariants.mjs"
+    },
+    {
+      "id": "falsify-gate",
+      "command": "node scripts/falsify-kit-gate.mjs",
+      "purpose": "the breaker at release-gate scope: break one kit invariant at a time and require the real gate to fail, six cases, each verified to have broken something first (~5 minutes)",
+      "path": "scripts/falsify-kit-gate.mjs"
+    }
+  ],
+  "scopes": [
+    { "resolver": "path", "root": "plugins" },
+    { "resolver": "path", "root": "scripts" },
+    { "resolver": "path", "root": "probes" },
+    { "resolver": "path", "root": "docs" },
+    { "resolver": "path", "root": "rules" },
+    { "resolver": "path", "root": "profile" }
+  ],
+  "ratchet": {
+    "enabled": true,
+    "decisionsDir": "docs/adrs",
+    "sourcesDir": "docs/ratchet/sources",
+    "specsDir": "docs/specs",
+    "reportsDir": "reports/ratchet",
+    "stateDir": ".dsh/ratchet",
+    "defaultAgentAuthority": "proposeOnly",
+    "specsRequired": false,
+    "zones": [
+      {
+        "id": "shipped-plugins",
+        "paths": ["plugins/**"],
+        "agentAuthority": "proposeOnly",
+        "requiresDecisionRecord": false
+      },
+      {
+        "id": "kit-tooling",
+        "paths": ["scripts/**", "probes/**"],
+        "agentAuthority": "activeIfNoConflict",
+        "requiresDecisionRecord": false
+      },
+      {
+        "id": "deployment-rules",
+        "paths": ["rules/**", "profile/**", "install.sh", "install.ps1", "start.sh", "start.ps1"],
+        "agentAuthority": "humanOnly",
+        "requiresDecisionRecord": false
+      }
+    ]
+  }
+}
+

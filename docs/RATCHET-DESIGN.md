@@ -1,5 +1,18 @@
 # Ratchet subsystem — design brief for a supervisor
 
+> **Superseded for design purposes (2026-09-13).** This brief documents the ratchet
+> as it existed in `@cc/dsh-context` 0.1.2 and the eleven defects reproduced against
+> it. It is kept because those defects are the requirements the replacement was
+> built to satisfy, and because Part IV's reproductions are the regressions
+> `scripts/test-ratchet.mjs` covers. For the current design read
+> `docs/RATCHET-V2-DESIGN.md`; for the harness facts the replacement rests on read
+> `docs/RATCHET-API-FACTS.md`. The Part V open questions are answered by those two
+> documents, and §8 of the design records the ones still open.
+>
+> Nothing below has been edited: the findings are historical evidence, and the
+> `ratchet_reconcile` behaviour they describe is unchanged in `@cc/dsh-context`,
+> which the kit no longer modifies.
+
 **Written:** 2026-09-12 · **Harness:** `@deepseek-ai/dsh@0.1.5-rc.1` (globally installed) ·
 **Kit:** `dsh-vanust` at `7c2fefc` · **Subject:** `@cc/dsh-context` 0.1.2 · `ratchet_reconcile` and the
 parts of the harness it depends on.

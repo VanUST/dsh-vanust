@@ -3,3 +3,24 @@ node_modules/
 *.log
 .DS_Store
 profiles-web.bak/
+
+# Development-only package links. `plugins/ratchet/node_modules` and
+# `probes/api-probe/node_modules` are junctions to the harness packages a
+# development checkout does not otherwise have on its resolution path — the
+# installed plugin resolves them through the profile it is installed into.
+plugins/ratchet/node_modules/
+probes/api-probe/node_modules/
+
+# Machine-local scratch state for the API probes.
+probes/**/scratch/
+
+# Per-run evidence, not source. The probe and gate reports change on every run, so
+# committing them would put a diff on every check and drown the changes that matter.
+reports/
+
+# NOT ignored, deliberately: `.dsh/ratchet/specs.json` and `state.json` are the kit's
+# current declared law and the record of what was verified against it. Reviewing a law
+# change as a diff is the point, and `SPEC_OUT_OF_DATE` only means something if the
+# bundle it compares against is in the repository. Generated spec documents under
+# `docs/specs/` are likewise tracked for the same reason.
+

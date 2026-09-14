@@ -1,0 +1,406 @@
+{
+  "version": 1,
+  "project": "dsh-kit",
+  "laws": [
+    {
+      "id": "kit-tooling.api-facts-are-runnable",
+      "statement": "A harness fact a shipped plugin depends on must be assertable by a command that exits non-zero when the fact stops holding.",
+      "zones": [
+        "kit-tooling"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0005",
+      "sourcePath": "docs/adrs/0005-measured-api-facts.adr.md",
+      "approvedBy": null,
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "the API probe exits non-zero when a fact is not confirmed",
+          "timeoutMs": 300000
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "kit-tooling.enforcement-is-checked-behaviourally",
+      "statement": "An invariant the kit enforces with a command is checked by driving the production modules and requiring the wrong verdict to be refused, so an enforcement point never rests on a test name or on output a green run prints anyway.",
+      "zones": [
+        "kit-tooling"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0009",
+      "sourcePath": "docs/adrs/0009-enforcement-is-checked-behaviourally.adr.md",
+      "approvedBy": null,
+      "checks": [
+        {
+          "type": "command",
+          "run": "node scripts/check-gate-invariants.mjs",
+          "expects": "every gate invariant is refused when it is broken",
+          "timeoutMs": 120000,
+          "outputContains": "gate invariants ok"
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "kit-tooling.every-command-has-an-implementation",
+      "statement": "A declared verification command names a file that exists, because a command whose implementation is absent enforces nothing while reading as an enforcement point.",
+      "zones": [
+        "kit-tooling"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0006",
+      "sourcePath": "docs/adrs/0006-rules-name-their-enforcement.adr.md",
+      "approvedBy": null,
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "every declared verification command names a file that exists",
+          "timeoutMs": 300000
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "kit-tooling.rules-name-a-declared-command",
+      "statement": "A rule the kit claims must name a command the manifest declares and whose implementation exists; a rule with no enforcement point is reported as an unverified claim rather than presented as a constraint.",
+      "zones": [
+        "kit-tooling"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0006",
+      "sourcePath": "docs/adrs/0006-rules-name-their-enforcement.adr.md",
+      "approvedBy": null,
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "every manifest rule cites a declared verification command whose file exists",
+          "timeoutMs": 300000
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "kit-tooling.verification-is-bound-to-the-code",
+      "statement": "A recorded verification names the code it judged as well as the laws it judged, so a status cannot report a clean, verified project over a tree the gate rejects.",
+      "zones": [
+        "kit-tooling"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0009",
+      "sourcePath": "docs/adrs/0009-enforcement-is-checked-behaviourally.adr.md",
+      "approvedBy": null,
+      "checks": [
+        {
+          "type": "command",
+          "run": "node scripts/check-gate-invariants.mjs",
+          "expects": "the code hash covers file contents and changes when they change",
+          "timeoutMs": 120000,
+          "outputContains": "gate invariants ok"
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.adapter-is-the-only-harness-edge",
+      "statement": "The tool adapter is the only module allowed to import the harness, and a module added later cannot escape the boundary by not being named.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0001",
+      "sourcePath": "docs/adrs/0001-derive-the-core-by-injection.adr.md",
+      "approvedBy": "0008",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "every ratchet test passes, including the boundary falsification case",
+          "timeoutMs": 300000
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.consent-is-hash-bound",
+      "statement": "An approval puts a decision into force only while the decision still hashes to the text the approval recorded, so editing an approved record voids the consent instead of inheriting it.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0007",
+      "sourcePath": "docs/adrs/0007-consent-is-recorded.adr.md",
+      "approvedBy": "0008",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "the ratification tests pass, including the falsification that an edited record loses its force",
+          "outputContains": "fail 0"
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.consent-travels-the-human-channel",
+      "statement": "A ratification question reaches the human through the harness user-questions channel carrying the record's own text, and its answer is derived from a selected label rather than interpreted.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0007",
+      "sourcePath": "docs/adrs/0007-consent-is-recorded.adr.md",
+      "approvedBy": "0008",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "the test that the quiz carries the record's own text as the question detail",
+          "outputContains": "the quiz shows the record text itself"
+        },
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "the test that a decision is derived from the selected label and from nothing else",
+          "outputContains": "derived from the selected label"
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.judge-is-injected",
+      "statement": "A capability the harness provides reaches a logic module as an injected function, so the module remains testable without a deployment.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0001",
+      "sourcePath": "docs/adrs/0001-derive-the-core-by-injection.adr.md",
+      "approvedBy": "0008",
+      "checks": [
+        {
+          "type": "required_text",
+          "paths": [
+            "plugins/ratchet/ratchet-ops.mjs"
+          ],
+          "pattern": "spawnJudge"
+        },
+        {
+          "type": "required_text_glob",
+          "paths": [
+            "plugins/ratchet/ratchet-dynamic.mjs"
+          ],
+          "pattern": "never imports the harness",
+          "anyOf": true
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.no-harness-import-in-logic",
+      "statement": "No file under the ratchet plugin may import the harness except its tool adapter, ratchet-tools.mjs.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0001",
+      "sourcePath": "docs/adrs/0001-derive-the-core-by-injection.adr.md",
+      "approvedBy": "0008",
+      "checks": [
+        {
+          "type": "forbidden_text_glob",
+          "paths": [
+            "plugins/ratchet/**/*.mjs",
+            "!plugins/ratchet/node_modules/**",
+            "!plugins/ratchet/ratchet-tools.mjs"
+          ],
+          "pattern": "@deepseek-ai/(dsh-tools|cordis)"
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.no-raw-tool-schemas",
+      "statement": "A plugin must not register a tool definition whose parameters or output schema was written by hand, because the registry validates those as raw JSON Schema and rejects the author DSL.",
+      "zones": [
+        "kit-tooling"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0003",
+      "sourcePath": "docs/adrs/0003-tools-are-built-with-define-tool.adr.md",
+      "approvedBy": null,
+      "checks": [
+        {
+          "type": "command",
+          "run": "node scripts/check-portability.mjs",
+          "expects": "no registration call passes a hand-written schema",
+          "timeoutMs": 120000
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.no-shell-mint",
+      "statement": "No shell command mints a consent and no tool argument accepts a caller-composed answer; the CLI can only report which decisions are waiting for a human, and it reports the ones it cannot ratify with the reason.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0007",
+      "sourcePath": "docs/adrs/0007-consent-is-recorded.adr.md",
+      "approvedBy": "0008",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node scripts/check-consent-surface.mjs",
+          "expects": "the consent surface refuses a shell mint, refuses an answer that answers no question, and reports a blocked decision with its reason",
+          "outputContains": "consent surface ok"
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.problem-codes-are-declared",
+      "statement": "Every problem the ratchet emits carries a code from the closed vocabulary in ratchet-schema.mjs; a code invented at a call site is a defect.",
+      "zones": [
+        "kit-tooling"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0002",
+      "sourcePath": "docs/adrs/0002-problem-codes-are-stable.adr.md",
+      "approvedBy": null,
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "every emitted problem code is declared in PROBLEM_CODES",
+          "timeoutMs": 300000
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.problems-carry-a-subject",
+      "statement": "A problem record carries a self-contained message and a subject, so a branch can filter on the subject and a reader can act without opening the source.",
+      "zones": [
+        "kit-tooling"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0002",
+      "sourcePath": "docs/adrs/0002-problem-codes-are-stable.adr.md",
+      "approvedBy": null,
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "every problem record carries a code, a subject and a self-contained message",
+          "timeoutMs": 300000
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.reports-are-written-on-failure-too",
+      "statement": "An operation that produces a report writes it whether it succeeded or failed, because a report that exists only on success cannot record a failure.",
+      "zones": [
+        "kit-tooling"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0004",
+      "sourcePath": "docs/adrs/0004-success-is-an-artifact.adr.md",
+      "approvedBy": null,
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "a failing compile still writes its report and its ledger event",
+          "timeoutMs": 300000
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.state-records-what-was-judged",
+      "statement": "A verification records the spec hash it judged, so a later reader can tell whether the code is still verified against the laws in force.",
+      "zones": [
+        "kit-tooling"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0004",
+      "sourcePath": "docs/adrs/0004-success-is-an-artifact.adr.md",
+      "approvedBy": null,
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "changing a law makes the recorded verification stale, and a zero-check verification does not count as verified",
+          "timeoutMs": 300000
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.tools-use-defineTool",
+      "statement": "Every tool a shipped plugin registers is built with defineTool, including one that takes no arguments.",
+      "zones": [
+        "kit-tooling"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0003",
+      "sourcePath": "docs/adrs/0003-tools-are-built-with-define-tool.adr.md",
+      "approvedBy": null,
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "every registered tool was built with defineTool and declares an output schema",
+          "timeoutMs": 300000
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.unenforced-laws-are-reported",
+      "statement": "A law in force that declares no check and does not say why is reported as unenforced, because a rule with no enforcement point is an unverified claim.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0007",
+      "sourcePath": "docs/adrs/0007-consent-is-recorded.adr.md",
+      "approvedBy": "0008",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "the test that a silent law is LAW_UNCHECKED and a stated reason is accepted",
+          "outputContains": "fail 0"
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.writes-are-atomic",
+      "statement": "A report reaches a reader whole or not at all, so a crash mid-write cannot be mistaken for a gate that failed.",
+      "zones": [
+        "kit-tooling"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0004",
+      "sourcePath": "docs/adrs/0004-success-is-an-artifact.adr.md",
+      "approvedBy": null,
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "every artifact write goes through a temporary file and a rename",
+          "timeoutMs": 300000
+        }
+      ],
+      "unenforced": null
+    }
+  ]
+}
