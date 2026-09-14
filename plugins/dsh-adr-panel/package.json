@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-adr-panel",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Web-UI panel for a project's ADR records and spec documents: a Session-header button opening a frame-wide overlay, with a read-only ratify affordance that asks the agent instead of minting consent",
   "type": "module",
   "main": "index.js",
