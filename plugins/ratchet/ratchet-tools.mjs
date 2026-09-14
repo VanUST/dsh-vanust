@@ -29,6 +29,7 @@
  *     and verify.
  */
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { resolve } from 'node:path'
 import { MANIFEST_PATH, PROBLEM_CODES } from './ratchet-schema.mjs'
 import { REVIEW_JOBS } from './ratchet-dynamic.mjs'
 import { registerGuard } from './ratchet-guard.mjs'
@@ -162,8 +163,17 @@ export function apply(ctx) {
      * processes the user did not ask for, so a command check surfaces as
      * `checksPending` and the answer says so.
      */
-    const withRoot = async (exec, operation) => {
-      const { root, found } = rootFor(exec)
+    const withRoot = async (exec, operation, explicitRoot = null) => {
+      // An explicit `root` wins over the session workspace. Measured on a real task: an
+      // agent working in another project called `ratchet_status`, which resolved the
+      // SESSION workspace — the kit — and answered with the kit's state
+      // (`VERIFY_NOT_RUN`) for a project that was verified and green. Every tool answers
+      // about a project, so the caller must be able to say which one; the resolved root
+      // is in every result either way.
+      const { root, found } =
+        typeof explicitRoot === 'string' && explicitRoot.length > 0
+          ? { root: resolve(explicitRoot), found: true }
+          : rootFor(exec)
       if (root === null || !found) {
         const problems = [
           {
@@ -301,10 +311,16 @@ export function apply(ctx) {
           'currently in force. Call this first when you do not know whether a project uses the ratchet. ' +
           'It reports VERIFY_NOT_RUN when no verification covers the current laws, which is the difference ' +
           'between "checked and clean" and "never checked".',
-        parameters: {},
+        parameters: {
+          root: {
+            type: 'string',
+            description:
+              'Absolute path of the project to report on. Defaults to the session workspace, whose resolved path is in the result as `root` — pass this when you are working in a project other than the one the session was opened on, because the tools otherwise answer for the session workspace.',
+          },
+        },
         output: output(),
-        execute(_args, exec) {
-          return withRoot(exec, status)
+        execute(args, exec) {
+          return withRoot(exec, status, args.root)
         },
       }),
     )
@@ -437,10 +453,14 @@ export function apply(ctx) {
         },
         output: output(),
         execute(args, exec) {
-          return withRoot(exec, async (root) => {
-            const result = compile({ root, write: args.write === true })
-            return reviewWhenRequired(result, root, exec, args.review !== false)
-          })
+          return withRoot(
+            exec,
+            async (root) => {
+              const result = compile({ root, write: args.write === true })
+              return reviewWhenRequired(result, root, exec, args.review !== false)
+            },
+            args.root,
+          )
         },
       }),
     )
@@ -459,10 +479,16 @@ export function apply(ctx) {
           'command (a test suite, a lint, a script) therefore makes this tool a report and not a verdict — ' +
           '`node plugins/ratchet/ratchet-cli.mjs verify --root <project>` in a shell is the gate, and only ' +
           'that can return ok. Use this tool to see which laws exist and which filesystem checks hold.',
-        parameters: {},
+        parameters: {
+          root: {
+            type: 'string',
+            description:
+              'Absolute path of the project to verify. Defaults to the session workspace, whose resolved path is in the result as `root` — pass this when the project you changed is not the one the session was opened on.',
+          },
+        },
         output: output(),
-        execute(_args, exec) {
-          return withRoot(exec, (root) => verify({ root }))
+        execute(args, exec) {
+          return withRoot(exec, (root) => verify({ root }), args.root)
         },
       }),
     )
