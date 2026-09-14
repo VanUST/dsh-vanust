@@ -93,7 +93,7 @@ summarised here because a reviewer will otherwise assume the conventional behavi
 
 ## 4. What this review cycle changed, and why
 
-Five commits on `main`, in order:
+Fifteen commits on `main`, in order:
 
 1. `e613324` — cross-platform fixes and the contradiction resolution.
 2. `10bc046` — the project-agnostic breaker, plus a gate readiness bug.
@@ -102,6 +102,29 @@ Five commits on `main`, in order:
 4. `135c0e6` — documentation corrections for the recovery behaviour.
 5. `c32bb4a` — command-check memoisation (12.7× gate speedup) and the timing
    corrections it invalidated.
+6. `2182b01` — the reviewer brief, and the consent-law enforcement gap as a proposed
+   amendment (`0010`) with its reasoning source.
+7. `4702c58` — ADR 0010 ratified by a human: the approval record `0011` and its
+   transcript, and `0007` superseded.
+8. `e66bcbc` — `@cc/dsh-adr-panel`, the web-UI window on decisions and specs: a
+   browser-half bundle, a session-header button and a `shell.overlay` frame.
+9. `aea1f3d` — the panel reworked for the reader: consents separated from decisions,
+   specs rendered as law cards, records expandable.
+10. `d743a86` — the panel's colour language: one `tone(kind)` helper shared by pills,
+    row accents, tints and histogram segments.
+11. `6a5aac4` — the panel made project-agnostic (it reads `.dsh/project.json` instead of
+    the kit's own layout) and self-identifying (`PANEL_VERSION` in the window header).
+12. `6d33cd6` — one `in force` state per record, with provenance shown beside it rather
+    than as a second status.
+13. `64d1eab` — that distinction made visible: states filled, provenance outlined, the
+    legend grouped by family, and a law's `decided in` chip taking the tone of the
+    record it names (panel `0.1.5`).
+14. `f5aee6a` — the panel's render contract enforced rather than parsed:
+    `scripts/test-adr-panel.mjs` executes the shipped bundle, and the gate gains the
+    probe.
+15. `547b7cb` — the bundle's header version pinned to the package's by that test (they
+    had already drifted once), and the panel README's "not verified without a browser"
+    list narrowed to the harness-runtime surface the test stubs; panel `0.1.6`.
 
 Notable decisions that are **not** each an ADR:
 
@@ -130,6 +153,7 @@ cd /tmp/dsh-review
 export PATH="$HOME/.npm/node/bin:$PATH"   # Node >= 24, and the harness install
 node scripts/dev-link.mjs                 # links @deepseek-ai/dsh-tools beside the code
 node scripts/check-portability.mjs        # platform + packaging + plugin inventory
+node scripts/test-adr-panel.mjs           # the panel's shipped bundle rendered for real (21 assertions), offline
 node --test scripts/test-ratchet.mjs      # the suite (263 tests, offline, no model)
 node scripts/check-instruction-routing.mjs
 node scripts/check-gate-invariants.mjs
@@ -138,9 +162,10 @@ node plugins/ratchet/ratchet-cli.mjs falsify --root .  # the breaker: breaks, re
 node scripts/falsify-kit-gate.mjs         # the kit-specific breaker (6 cases, runs the gate per case)
 ```
 
-Expected: portability `14/14`; gate invariants `16/16` plus `gate invariants ok`; tests
-`263 pass / 0 fail`; gate `20 checks evaluated, 0 pending, no problems`; falsify
-`3 detected, 0 missed, 3 skipped`; kit breaker `6/6`.
+Expected: portability `14/14`; tests `263 pass / 0 fail`; panel `adr panel render ok` with
+`22/22` assertions; gate invariants `16/16` plus `gate invariants ok`; gate
+`20 checks evaluated, 0 pending, no problems`; falsify `3 detected, 0 missed, 3 skipped`;
+kit breaker `6/6`.
 `scripts/verify-upgrade.sh` is the full upgrade gate and additionally installs the
 tarballs into a throwaway profile, boots `dsh web` on port 3081 and probes the cost
 policy; it needs network for pnpm. The probes that run a model
@@ -189,10 +214,13 @@ report a pass. The gate is the CLI above; the tools are for an agent mid-session
 - **The harness is a release candidate** (0.1.5-rc.1). `COMPAT.md` is the watchlist of the
   twelve upstream touchpoints, with the grep that detects each; upgrades must go through
   `scripts/verify-upgrade.sh` before a live profile is touched.
-- **This machine's live profile is converged** on `main` as of `c32bb4a` (ratchet 0.2.8,
-  kit-rules 0.1.1, dsh-context 0.1.3, model-gate 0.1.5-rc.1) and the GUI was restarted, so
-  the ratchet tools and the `ratchet-judge` subagent are live. A reviewer on another
-  machine gets that state with `./install.sh` or `node scripts/kit-update.mjs --apply`.
+- **This machine's live profile is converged** on `main` (ratchet 0.2.8, kit-rules 0.1.1,
+  dsh-context 0.1.3, model-gate 0.1.5-rc.1, adr-panel 0.1.6) and the GUI was restarted, so
+  the ratchet tools, the `ratchet-judge` subagent and the ADR panel are live. The shipped
+  artifacts last changed at `547b7cb`; this brief is documentation and is not installed by
+  `kit-update.mjs`, so it stays out of the convergence comparison — which is by file hash,
+  never by git state. A reviewer on another machine gets that state with `./install.sh` or
+  `node scripts/kit-update.mjs --apply`.
 
 ## 7. Suggested reading order
 
