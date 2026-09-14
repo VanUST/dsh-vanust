@@ -263,6 +263,11 @@ function readJson(path) {
  * Inventory the kit: the canonical files this machine must project. Every entry
  * carries both a hash and the source path so the applier never has to re-derive
  * either.
+ *
+ * `rules` is a LIST, not one file: the deployment's rules reach a model through
+ * `AGENTS.md`, and the procedure those rules point at for setup, update and
+ * verification lives in `DEPLOYMENT.md` beside it. Both are installed together,
+ * because a pointer to a file the machine does not have is worse than no pointer.
  */
 function inventoryKit(kit, profile) {
   const items = {
@@ -271,7 +276,12 @@ function inventoryKit(kit, profile) {
       { id: 'package.json', src: join(kit, 'profile', 'package.json'), dst: join('profiles', profile, 'package.json') },
       { id: 'pnpm-workspace.yaml', src: join(kit, 'profile', 'pnpm-workspace.yaml'), dst: join('profiles', profile, 'pnpm-workspace.yaml') },
     ].map((item) => ({ ...item, hash: hashFile(item.src) })),
-    rules: { id: 'AGENTS.md', src: join(kit, 'rules', 'AGENTS.md'), dst: 'AGENTS.md', hash: hashFile(join(kit, 'rules', 'AGENTS.md')) },
+    rules: ['AGENTS.md', 'DEPLOYMENT.md'].map((id) => ({
+      id,
+      src: join(kit, 'rules', id),
+      dst: id,
+      hash: hashFile(join(kit, 'rules', id)),
+    })),
     plugins: listFiles(join(kit, 'plugins'), '.tgz').map((name) => {
       const src = join(kit, 'plugins', name)
       return { id: name, src, hash: hashFile(src), package: tarballPackageName(src) }
@@ -291,11 +301,16 @@ function inventoryKit(kit, profile) {
  * not. `unrecorded` covers the first run, where nothing is known to be applied.
  */
 function computeDrift({ items, state, profile, home }) {
+  // The recorded rules hash was a single string before `DEPLOYMENT.md` joined
+  // `AGENTS.md`; a state written by that version cannot vouch for the new file, so an
+  // unreadable entry counts as drift and the next apply rewrites both.
+  const recordedRule = (id) =>
+    typeof state?.rules === 'string' ? (id === 'AGENTS.md' ? state.rules : null) : (state?.rules?.[id] ?? null)
   if (!state) {
     return {
       reason: 'no-state-record',
       profileFiles: items.profile.filter((i) => i.hash).map((i) => i.id),
-      rules: items.rules.hash ? true : false,
+      rules: items.rules.every((i) => i.hash),
       plugins: items.plugins.map((p) => p.id),
     }
   }
@@ -305,7 +320,7 @@ function computeDrift({ items, state, profile, home }) {
   const plugins = items.plugins
     .filter((item) => item.hash !== state.plugins?.[item.id])
     .map((item) => item.id)
-  const rules = Boolean(items.rules.hash) && items.rules.hash !== state.rules
+  const rules = items.rules.some((item) => Boolean(item.hash) && item.hash !== recordedRule(item.id))
   const profileJson = readJson(join(home, 'profiles', profile, 'package.json'))
   const installedPlugins = Object.keys(profileJson?.dependencies ?? {})
 
@@ -338,7 +353,7 @@ function describeRepository(kit, state) {
  */
 function installFiles({ items, home, profile }) {
   const written = []
-  for (const item of [...items.profile, items.rules]) {
+  for (const item of [...items.profile, ...items.rules]) {
     if (!item.hash) { warn(`kit file missing, skipped: ${item.src}`); continue }
     const dst = join(home, item.dst)
     mkdirSync(dirname(dst), { recursive: true })
@@ -490,7 +505,7 @@ function buildState({ items, kit, repo, harness }) {
     kit,
     appliedHead: repo?.head ?? null,
     profile: Object.fromEntries(items.profile.filter((i) => i.hash).map((i) => [i.id, i.hash])),
-    rules: items.rules.hash,
+    rules: Object.fromEntries(items.rules.filter((i) => i.hash).map((i) => [i.id, i.hash])),
     plugins: Object.fromEntries(items.plugins.map((p) => [p.id, p.hash])),
     harness,
   }
@@ -536,14 +551,14 @@ function main(argv) {
   log('kit.artifacts', {
     profileFiles: items.profile.length,
     plugins: items.plugins.map((p) => p.id),
-    rules: items.rules.hash ? 'present' : 'missing',
+    rules: items.rules.map((i) => `${i.id}:${i.hash ? 'present' : 'missing'}`),
   })
 
   const plan = []
   if (drift) {
     if (drift.profileFiles.length) plan.push({ action: 'write-profile-files', items: drift.profileFiles })
     if (drift.plugins.length) plan.push({ action: 'install-plugins', items: drift.plugins })
-    if (drift.rules) plan.push({ action: 'write-rules', items: ['AGENTS.md'] })
+    if (drift.rules) plan.push({ action: 'write-rules', items: items.rules.map((i) => i.id) })
   }
   const installedHarness = installedHarnessVersion()
   if (harnessPin && installedHarness !== harnessPin) {
@@ -573,7 +588,7 @@ function main(argv) {
   const writtenFiles = installFiles({ items, home, profile: opts.profile })
   if (writtenFiles.length) applied.push('write-profile-files')
   log('files.installed', { items: writtenFiles })
-  if (drift?.rules || items.rules.hash) applied.push('write-rules')
+  if (drift?.rules || items.rules.every((i) => i.hash)) applied.push('write-rules')
 
   const stalePkgs = new Set()
   for (const id of drift?.plugins ?? []) {

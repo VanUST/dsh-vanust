@@ -59,8 +59,21 @@ try {
   Pop-Location
 }
 
-# 5. User-global core operating rules.
+# 5. User-global core operating rules, plus the procedure they point at. Both are
+#    installed together: the rules name $DSH_HOME/DEPLOYMENT.md as the setup/update
+#    procedure an agent should follow, and a pointer to a missing file is worse than
+#    no pointer at all.
 Copy-Item (Join-Path $KIT_DIR 'rules\AGENTS.md') (Join-Path $DSH_HOME 'AGENTS.md') -Force
+Copy-Item (Join-Path $KIT_DIR 'rules\DEPLOYMENT.md') (Join-Path $DSH_HOME 'DEPLOYMENT.md') -Force
+
+# 6. Development links, so the kit's OWN gate runs from this checkout. The ratchet's tool
+#    adapter imports `@deepseek-ai/dsh-tools`, which lives in the harness install and not
+#    in this repository; the tests and probes resolve it through a link beside them. Not
+#    fatal if it fails — the DEPLOYMENT does not need the link, only the self-check does.
+& node (Join-Path $KIT_DIR 'scripts\dev-link.mjs') | Out-Null
+if ($LASTEXITCODE -ne 0) {
+  Write-Warning "could not link the harness packages; run 'node scripts\dev-link.mjs' in $KIT_DIR before using the kit's own gate."
+}
 
 Write-Host
 Write-Host '== done =='

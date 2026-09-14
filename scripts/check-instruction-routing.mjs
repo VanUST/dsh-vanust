@@ -87,7 +87,7 @@ if (kitRules.missing === true) {
 
 // 4. The rules the deployment installs are the kit's own copy, so the file a model
 //    reads is the file this repository reviews.
-for (const relative of ['rules/AGENTS.md']) {
+for (const relative of ['rules/AGENTS.md', 'rules/DEPLOYMENT.md']) {
   const rules = read(relative)
   claim(`${relative} exists`, rules.missing !== true, rules.missing === true ? 'missing' : `${rules.text.length} bytes`)
 }
@@ -102,6 +102,84 @@ for (const relative of ['install.sh', 'install.ps1', 'scripts/kit-update.mjs']) 
     /AGENTS\.md/.test(script.text) &&
     (/rules[/\\]AGENTS\.md/.test(script.text) || /['"]rules['"]/.test(script.text))
   claim(`${relative} installs rules/AGENTS.md`, installs, script.missing === true ? 'missing' : installs ? 'referenced' : 'no reference to rules/AGENTS.md')
+  // And DEPLOYMENT.md travels with it, because AGENTS.md points at it: a machine that
+  // installs the pointer without the file sends every agent to read nothing.
+  const installsProcedure =
+    script.missing !== true && /DEPLOYMENT\.md/.test(script.text)
+  claim(
+    `${relative} installs rules/DEPLOYMENT.md`,
+    installsProcedure,
+    script.missing === true ? 'missing' : installsProcedure ? 'referenced' : 'no reference to DEPLOYMENT.md',
+  )
+}
+
+// 5. The pointer and the procedure agree: the rules file names DEPLOYMENT.md, the
+//    procedure names the commands it tells an agent to run, and every kit file it
+//    names exists. This is what keeps an agent-facing document from drifting into
+//    fiction — prose is not a gate, but the files it tells an agent to run are.
+const agents = read('rules/AGENTS.md')
+if (agents.missing === true) {
+  claim('rules/AGENTS.md names the deployment procedure', false, 'missing')
+} else {
+  const points = /DEPLOYMENT\.md/.test(agents.text) && /\$DSH_HOME/.test(agents.text)
+  claim(
+    'rules/AGENTS.md names $DSH_HOME/DEPLOYMENT.md as the operating procedure',
+    points,
+    points ? 'pointer present' : 'no pointer to the procedure',
+  )
+}
+const procedure = read('rules/DEPLOYMENT.md')
+if (procedure.missing === true) {
+  claim('the deployment procedure names runnable kit files', false, 'missing')
+} else {
+  const named = [...procedure.text.matchAll(/scripts\/([a-z0-9-]+\.mjs)/g)].map((match) => match[1])
+  const missing = [...new Set(named)].filter((name) => !existsSync(join(KIT, 'scripts', name)))
+  claim(
+    'every script the procedure names exists',
+    named.length > 0 && missing.length === 0,
+    missing.length === 0 ? `${new Set(named).size} script(s) named, all present` : `missing: ${missing.join(', ')}`,
+  )
+  // Every plugin the profile MOUNTS must be named in the procedure: a table that
+  // describes a smaller deployment than the one installed is the kind of drift an agent
+  // cannot detect, because it has nothing to compare against.
+  const patchText = read('profile/cordis.patch.yml')
+  const mounted =
+    patchText.missing === true ? [] : [...patchText.text.matchAll(/name:\s*'(@[^']+)'/g)].map((match) => match[1])
+  const unnamed = mounted.filter((name) => !procedure.text.includes(name))
+  claim(
+    'every mounted plugin is named in the procedure',
+    mounted.length > 0 && unnamed.length === 0,
+    unnamed.length === 0 ? `${mounted.length} mounted plugin(s), all documented` : `undocumented: ${unnamed.join(', ')}`,
+  )
+  // The pin it quotes must be the pin the installers enforce, or the procedure sends an
+  // agent to install a version the kit does not ship. Both installers hold it in
+  // `DSH_VERSION`, so the variable is read before the inline spelling is tried.
+  const quoted = /`(\d+\.\d+\.\d+(?:-[a-z0-9.]+)?)`/.exec(procedure.text)
+  const installerPins = ['install.sh', 'install.ps1']
+    .map((relative) => read(relative))
+    .filter((entry) => entry.missing !== true)
+    .map(
+      (entry) =>
+        /DSH_VERSION\s*=\s*['"]?([0-9][^'"\s]*)/.exec(entry.text)?.[1] ??
+        /@deepseek-ai\/dsh@([0-9][^"'\s]*)/.exec(entry.text)?.[1] ??
+        null,
+    )
+  const samePin = quoted !== null && installerPins.length === 2 && installerPins.every((pin) => pin === quoted[1])
+  claim(
+    'the harness version the procedure quotes is the installers pin',
+    samePin,
+    samePin ? quoted[1] : `procedure: ${quoted?.[1] ?? 'none'}, installers: ${installerPins.join(', ')}`,
+  )
+  // And the clone URL matches the one the README gives a human, so the two documents
+  // cannot send an agent and a person to different repositories.
+  const readme = read('README.md')
+  const procedureUrl = /https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\.git/.exec(procedure.text)?.[0] ?? null
+  const readmeUrl = readme.missing === true ? null : (/https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\.git/.exec(readme.text)?.[0] ?? null)
+  claim(
+    'the clone URL agrees with README.md',
+    procedureUrl !== null && procedureUrl === readmeUrl,
+    procedureUrl === readmeUrl ? procedureUrl : `procedure: ${procedureUrl}, README: ${readmeUrl}`,
+  )
 }
 
 if (failures.length > 0) {

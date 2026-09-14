@@ -26,7 +26,22 @@ plugins, and the same core operating rules.
 git clone https://github.com/VanUST/dsh-vanust.git
 cd dsh-vanust
 ./install.sh          # or: powershell -ExecutionPolicy Bypass -File install.ps1
+node scripts/dev-link.mjs   # only if install.sh warned: links the harness packages
+                            # so the KIT'S OWN tests and ratchet gate run from this clone
 ```
+
+**What a clone alone gives you, stated exactly.** Everything the deployment
+installs is in the repository: the four plugin tarballs, the canonical profile, the
+rules file, the pinned version in both installers, and the ratchet's decision
+corpus with its state. Two things come from outside it, and both are steps the
+installer performs rather than files a clone could carry: the harness itself
+(`npm i -g @deepseek-ai/dsh@0.1.5-rc.1`, so npm must be reachable) and your API
+credentials (per machine, configured at first run — never in the repository).
+One further step is needed only to run the kit's OWN gate from the checkout: the
+ratchet's tool adapter imports `@deepseek-ai/dsh-tools`, which lives in the harness
+install, so `scripts/dev-link.mjs` links it beside the plugin (a gitignored
+`node_modules`). Without that link the suite fails with one line naming it, and
+`install.sh` runs it for you.
 
 ```
 dsh-kit/
@@ -38,6 +53,8 @@ dsh-kit/
 ├── plugins/kit-rules/         # source of the rules plugin; packed into its tarball above
 ├── profile/                   # canonical web profile: package.json (no deps) + cordis.patch.yml
 ├── rules/AGENTS.md            # the deployment's mandatory rules (installed to $DSH_HOME/AGENTS.md)
+├── plugins/ratchet/           # source of @cc/dsh-ratchet (packed into its tarball above)
+├── scripts/dev-link.mjs       # links the harness packages so the kit's own gate runs from a clone
 ├── scripts/verify-upgrade.sh  # upgrade gate: throwaway instance + shipped-artifact policy probe
 ├── scripts/rebuild-plugins.sh # rebuild + repack plugins from the harness checkout
 ├── USERGUIDE.md               # per-machine setup, startup, first-run checks, Windows notes, troubleshooting

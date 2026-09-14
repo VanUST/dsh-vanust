@@ -11,7 +11,7 @@
  * INPUTS
  *   --check   report what would change and write nothing (default is to write).
  *   None; the file list is the shipped source under `plugins/`, `scripts/` and
- *   `probes/`.
+ *   `probes/`, plus the repository's own shell entry points.
  *
  * OUTPUTS
  *   One line per changed file with its CRLF count, then a total. Exit 0 when the
@@ -41,6 +41,16 @@ const CHECK_ONLY = process.argv.includes('--check')
  * this tool would fix leaves the contributor hand-editing bytes.
  */
 const ROOTS = ['plugins', 'scripts', 'probes']
+
+/**
+ * Root-level files that are shipped source as well.
+ *
+ * `install.sh` and `start.sh` are run by a POSIX shell, so a CRLF shebang is a script
+ * that does not start — the one case where the working-tree bytes matter more than the
+ * repository's. The `.ps1` files are excluded deliberately: `.gitattributes` gives them
+ * `eol=crlf`, so CRLF is their correct form.
+ */
+const ROOT_FILES = ['install.sh', 'start.sh']
 const TEXT = /\.(mjs|js|sh|json|md)$/
 const SKIP_DIRECTORIES = new Set(['node_modules', '.git'])
 
@@ -62,21 +72,23 @@ function candidates(root) {
 
 const changed = []
 const skipped = []
-for (const root of ROOTS) {
-  for (const file of candidates(root)) {
-    const bytes = readFileSync(file)
-    const text = bytes.toString('utf8')
-    if (text.includes('\uFFFD')) {
-      skipped.push(`${relative(KIT, file).replace(/\\/g, '/')} (not valid UTF-8)`)
-      continue
-    }
-    const crlf = (text.match(/\r\n/g) ?? []).length
-    const loneCr = (text.match(/\r(?!\n)/g) ?? []).length
-    if (crlf === 0 && loneCr === 0) continue
-    const normalised = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-    changed.push({ file, crlf, loneCr })
-    if (!CHECK_ONLY) writeFileSync(file, normalised, 'utf8')
+const targets = [
+  ...ROOTS.flatMap((root) => candidates(root)),
+  ...ROOT_FILES.map((name) => join(KIT, name)).filter((file) => statSync(file, { throwIfNoEntry: false })?.isFile()),
+]
+for (const file of targets) {
+  const bytes = readFileSync(file)
+  const text = bytes.toString('utf8')
+  if (text.includes('\uFFFD')) {
+    skipped.push(`${relative(KIT, file).replace(/\\/g, '/')} (not valid UTF-8)`)
+    continue
   }
+  const crlf = (text.match(/\r\n/g) ?? []).length
+  const loneCr = (text.match(/\r(?!\n)/g) ?? []).length
+  if (crlf === 0 && loneCr === 0) continue
+  const normalised = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+  changed.push({ file, crlf, loneCr })
+  if (!CHECK_ONLY) writeFileSync(file, normalised, 'utf8')
 }
 
 for (const entry of changed) {

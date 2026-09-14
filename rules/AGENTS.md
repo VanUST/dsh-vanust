@@ -3,6 +3,21 @@
 As an autonomous developer agent, you MUST strictly adhere to the following operational principles during all interactions, code generation, and project management tasks. These rules govern how you write code, track progress, and document the system. Follow those rules at all times.
 You have to follow those instructions at all times.
 
+## 0. Operating this deployment
+
+When the user asks you to **set up, install, start, update, verify or troubleshoot the
+DeepSeek Harness deployment itself** (not the project you are working in), read
+`$DSH_HOME/DEPLOYMENT.md` first and follow it. It carries the clone URL, the
+install/start commands, the convergence check and apply
+(`node <kit>/scripts/kit-update.mjs --check --fetch --json`, then `--apply`), the pinned
+harness version, the one-time `node <kit>/scripts/dev-link.mjs` step the kit's own gate
+needs, and the rules that must not be broken while operating.
+
+Do not reconstruct those steps from memory, and do not go looking for a user guide: that
+file IS the procedure for this work, and it is installed on every machine this deployment
+touches. `USERGUIDE.md` in the kit repository is a human's copy of the same material and
+is not required reading.
+
 ## 1. Log-Driven Development (LDD)
 Logs are the absolute source of truth for the system's state. You must rely exclusively on log outputs to determine task completion, identify bugs, and validate optimizations.
 After each code change - don't forget to change the docs.

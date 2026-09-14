@@ -76,8 +76,21 @@ echo "   installing the kit plugins (cost gate, project context)..."
   corepack pnpm@${PNPM_VERSION} add "${KIT_DIR}"/plugins/*.tgz
 )
 
-# 5. User-global core operating rules.
+# 5. User-global core operating rules, plus the procedure they point at. Both are
+#    installed together: the rules name $DSH_HOME/DEPLOYMENT.md as the setup/update
+#    procedure an agent should follow, and a pointer to a missing file is worse than
+#    no pointer at all.
 cp "${KIT_DIR}/rules/AGENTS.md" "${DSH_HOME}/AGENTS.md"
+cp "${KIT_DIR}/rules/DEPLOYMENT.md" "${DSH_HOME}/DEPLOYMENT.md"
+
+# 6. Development links, so the kit's OWN gate runs from this checkout.
+#    The ratchet's tool adapter imports `@deepseek-ai/dsh-tools`, which lives in the
+#    harness install and not in this repository; the tests and probes resolve it through
+#    a link beside them. Not fatal if it fails — the DEPLOYMENT does not need the link,
+#    only the kit's self-check does — so a failure is reported with the command to fix it.
+if ! node "${KIT_DIR}/scripts/dev-link.mjs" >/dev/null 2>&1; then
+  echo "   WARN: could not link the harness packages; run 'node scripts/dev-link.mjs' in ${KIT_DIR} before using the kit's own gate." >&2
+fi
 
 echo
 echo "== done =="

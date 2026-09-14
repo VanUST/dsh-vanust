@@ -35,13 +35,18 @@ cd dsh-vanust
 powershell -ExecutionPolicy Bypass -File install.ps1
 ```
 
-The installer does four things (idempotent; re-running upgrades to the pin):
+The installer does five things (idempotent; re-running upgrades to the pin):
 1. checks Node ≥ 24,
 2. `npm i -g @deepseek-ai/dsh@0.1.5-rc.1` (exact pin),
 3. writes `$DSH_HOME/profiles/web/{package.json,cordis.patch.yml,pnpm-workspace.yaml}`
    from the kit's canonical copies and installs every `plugins/*.tgz` into the
    profile,
-4. installs the user-global core operating rules to `$DSH_HOME/AGENTS.md`.
+4. installs the user-global core operating rules to `$DSH_HOME/AGENTS.md`,
+5. links the harness packages (`@deepseek-ai/dsh-tools`) beside the plugin and the
+   probes, which is what lets the kit's own tests and ratchet gate run from this
+   checkout. Step 5 is not needed by the deployment — an installed plugin resolves
+   its peers through the profile — so if it warns, `dsh web` still works; run
+   `node scripts/dev-link.mjs` before using the gate yourself.
 
 `$DSH_HOME` = `~/.npm/dsh` (Linux) / `%USERPROFILE%\.npm\dsh` (Windows) —
 override with the `DSH_HOME` env var if you prefer another location.
@@ -180,9 +185,11 @@ deterministic checks (the gate), `ratchet_compile` compiles the records into law
 `ratchet_review` asks an independent judge the questions no static check can decide,
 `ratchet_ingest_source` turns a grilling transcript or a brief into a *proposed*
 record, and `ratchet_bootstrap` writes the manifest skeleton. The same operations are
-available from the shell:
+available from the shell — after the one setup step a fresh clone needs, because the
+gate runs the kit's tests from the checkout:
 
 ```bash
+node /path/to/dsh-kit/scripts/dev-link.mjs          # once per clone; install.sh does it
 node /path/to/dsh-kit/plugins/ratchet/ratchet-cli.mjs verify --root /path/to/project
 # exit 0 every law held, 1 a check failed, 2 the project or its decisions are
 # unusable so nothing was checked, 3 a usage error

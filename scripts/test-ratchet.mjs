@@ -16,7 +16,26 @@ const dynamic = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-dyna
 const state = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-state.mjs`)
 const ratifyModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-ratify.mjs`)
 const ratchetBootstrap = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-bootstrap.mjs`)
-const tools = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-tools.mjs`)
+
+// The harness adapter is loaded LAZILY and by hand, because it is the one module here
+// that imports a package the repository does not carry: `@deepseek-ai/dsh-tools`. A
+// static import made a fresh clone fail during module evaluation вЂ” `ERR_MODULE_NOT_FOUND`
+// with a stack trace, before a single test could say what was wrong вЂ” and that is how
+// "clone the repo and run the gate" quietly became "clone, install, and also link"
+// without anyone noticing. Every other test still runs; one failure names the fix, and
+// the tests that need the adapter are skipped with the same reason.
+let tools = null
+let toolsLoadError = null
+try {
+  tools = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-tools.mjs`)
+} catch (error) {
+  toolsLoadError = String(error?.message ?? error)
+}
+/** The reason the adapter-dependent tests are skipped, or `false` when they can run. */
+const HARNESS_SKIP =
+  toolsLoadError === null
+    ? false
+    : `the harness packages this checkout imports are not linked (run: node scripts/dev-link.mjs)`
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -73,7 +92,7 @@ function adrText({
   if (sourceHash !== null) lines.push(`  hash: ${sourceHash}`)
   // Empty lists are written inline (`zones: []`) rather than as a bare key with
   // no entries. A bare `zones:` followed by the next key is a mapping whose value
-  // never arrives, and the parser correctly reports it as a missing field â” which
+  // never arrives, and the parser correctly reports it as a missing field ГўВЂвЂќ which
   // is a property of the FORMAT, not a defect, so the fixture must respect it.
   if (zones.length === 0) lines.push('zones: []')
   else {
@@ -128,7 +147,7 @@ function adrText({
             if (check.unenforced !== undefined) lines.push(`        unenforced: ${check.unenforced}`)
             // Every field the record format carries, so a test can state the shape it
             // is about. Without these the fixture silently dropped them and every
-            // command-check case collapsed into the same "needs a run" problem — a
+            // command-check case collapsed into the same "needs a run" problem вЂ” a
             // suite that passes for a reason unrelated to what it claims to test.
             for (const key of ['run', 'expects', 'outputContains', 'outputNotContains', 'outputMatches', 'stream', 'list', 'contains', 'containsIs', 'zone']) {
               if (check[key] === undefined) continue
@@ -1000,8 +1019,8 @@ test('verifier: a path_boundary deny that can never overlap its zone is reported
 
 test('verifier: a deny that only LOOKS disjoint is not reported inert', async () => {
   // The proof, not a guess. The first overlap test compared the two globs as path
-  // strings, so `**/legacy/**` — which matches `src/auth/legacy/old.ts`, and does so
-  // through the same `matchFiles` the check itself uses — was declared non-overlapping
+  // strings, so `**/legacy/**` вЂ” which matches `src/auth/legacy/old.ts`, and does so
+  // through the same `matchFiles` the check itself uses вЂ” was declared non-overlapping
   // and a law that HOLDS over a clean tree was reported broken with a false reason.
   const leadingWildcard = await verifyOneLaw('boundary-leading-wildcard', [
     { type: 'path_boundary', zone: 'auth', deny: ['**/legacy/**'] },
@@ -1172,7 +1191,19 @@ test('regression: a corpus that lost a record reports it instead of answering "n
 // tool surface: the plugin registers through defineTool and the harness boots
 // ---------------------------------------------------------------------------
 
-test('tools: the plugin module loads and every tool is declared', () => {
+test('setup: the harness packages this checkout imports are linked', () => {
+  // The single failure that tells a reader of a fresh clone what to do. Everything else
+  // in this file runs without the harness; only the adapter test needs the packages, and
+  // `install.sh` links them on a machine it set up. Without this test the reader got an
+  // ERR_MODULE_NOT_FOUND stack trace and no way to know it was a setup step.
+  assert.equal(
+    toolsLoadError,
+    null,
+    'the tool surface in this plugin imports @deepseek-ai/dsh-tools, which lives in the harness install rather than in this repository; run `node scripts/dev-link.mjs` in the kit checkout to link it',
+  )
+})
+
+test('tools: the plugin module loads and every tool is declared', { skip: HARNESS_SKIP }, () => {
   const pluginPath = `file:///${join(PLUGIN, 'ratchet-tools.mjs').replace(/\\/g, '/')}`
   const output = execFileSync(process.execPath, [
     '-e',
@@ -1234,7 +1265,7 @@ test('tools: a manifest bootstrap preview produces a config the parser accepts',
 
 test('tools: the bootstrapped starter record agrees with the source file beside it', () => {
   // The README says every ADR records its source hash, and the generated pair has to hold
-  // that from the first file a project owns — a starter record whose hash matched nothing
+  // that from the first file a project owns вЂ” a starter record whose hash matched nothing
   // taught the reader that the hash is decoration.
   const root = join(tmpdir(), `ratchet-bootstrap-hash-${Math.random().toString(36).slice(2, 8)}`)
   rmSync(root, { recursive: true, force: true })
@@ -1265,12 +1296,18 @@ test('tools: the bootstrapped starter record agrees with the source file beside 
 /**
  * Mounts the plugin over a stub harness and returns its registered tools by name.
  *
- * A stub rather than a boot: the claim under test is the WIRING — which service is
+ * A stub rather than a boot: the claim under test is the WIRING вЂ” which service is
  * consulted, what happens when it is absent, and that a judge cannot start a review
- * of its own — and each of those is a branch a live profile would take minutes and
+ * of its own вЂ” and each of those is a branch a live profile would take minutes and
  * a model turn to reach.
  */
 function mountPlugin(services = {}) {
+  if (tools === null) {
+    // Thrown rather than returned: a caller that cannot load the adapter has nothing to
+    // assert about, and a silent empty registry would turn every wiring claim into a
+    // passing test about nothing.
+    throw new Error(`the harness adapter did not load: ${toolsLoadError}`)
+  }
   const definitions = new Map()
   const ctx = {
     effect(fn) {
@@ -1328,7 +1365,7 @@ function stubRuntime(spawned) {
   }
 }
 
-test('compile: a judgement the compiler asked for is made, not merely recorded', async () => {
+test('compile: a judgement the compiler asked for is made, not merely recorded', { skip: HARNESS_SKIP }, async () => {
   const root = ambiguousProject('compile-trigger')
   const compiled = compile(root)
   assert.ok(compiled.report.reviewRequired.length > 0, 'the fixture must be one the compiler cannot decide')
@@ -1345,10 +1382,10 @@ test('compile: a judgement the compiler asked for is made, not merely recorded',
   assert.equal(result.dynamicReview.gate, false, 'a review never becomes the gate')
 })
 
-test('compile: a judge cannot start a review of its own, and says so', async () => {
+test('compile: a judge cannot start a review of its own, and says so', { skip: HARNESS_SKIP }, async () => {
   const root = ambiguousProject('compile-trigger-child')
   const spawned = []
-  // The same runtime, but the registry does not list this caller as a root — which
+  // The same runtime, but the registry does not list this caller as a root вЂ” which
   // is exactly what a spawned judge looks like from inside its own tool call.
   const agent = { id: 'agent-child', session: { header: { cwd: root } } }
   const definitions = mountPlugin({ subagents: stubRuntime(spawned), agents: { roots: () => [] } })
@@ -1359,7 +1396,7 @@ test('compile: a judge cannot start a review of its own, and says so', async () 
   assert.equal(spawned.length, 0, 'no judge was spawned from inside a judge')
 })
 
-test('compile: the trigger is skippable, and a composition with no judge reports that', async () => {
+test('compile: the trigger is skippable, and a composition with no judge reports that', { skip: HARNESS_SKIP }, async () => {
   const root = ambiguousProject('compile-trigger-off')
   const spawned = []
   const agent = { id: 'agent-root', session: { header: { cwd: root } } }
@@ -1909,7 +1946,7 @@ test('dynamic: a verdict is read from structured output, plain JSON, a fence, or
   assert.equal(dynamic.parseVerdict(verdict, '').source, 'structured')
   assert.equal(dynamic.parseVerdict(null, JSON.stringify(verdict)).source, 'text')
   assert.equal(dynamic.parseVerdict(null, '```json\n' + JSON.stringify(verdict) + '\n```').source, 'fenced')
-  assert.equal(dynamic.parseVerdict(null, `Here you go: ${JSON.stringify(verdict)} — hope that helps`).source, 'embedded')
+  assert.equal(dynamic.parseVerdict(null, `Here you go: ${JSON.stringify(verdict)} вЂ” hope that helps`).source, 'embedded')
 })
 
 test('dynamic: text with no JSON object yields no verdict, not an empty one', () => {
@@ -2039,7 +2076,7 @@ test('dynamic: with no judge the review degrades and says so, instead of failing
       assert.ok(result.prompt.includes('Reply with ONLY this JSON object'))
       // The note must name the real cause. It used to say the deployment mounts no
       // subagents runtime, which sent a shell user hunting for a plugin row that was
-      // already there — the CLI never spawns a judge on any deployment.
+      // already there вЂ” the CLI never spawns a judge on any deployment.
       assert.ok(result.note.includes('did not spawn a judge'), result.note)
       assert.ok(result.note.includes('a shell has no agent to parent one with'), result.note)
       assert.deepEqual(result.problems, [], 'degrading is a capability, not a problem')
@@ -2214,7 +2251,7 @@ test('packaging: the plugin has no dependency on a package the profile must hois
 
 test('gate: a corpus with no law in force is a finding, not a misconfiguration', () => {
   // Every record proposed and none approved is a legitimate project state. It must
-  // report LAWS_NONE at exit 1 — "nothing is enforced" — rather than exit 2, which
+  // report LAWS_NONE at exit 1 вЂ” "nothing is enforced" вЂ” rather than exit 2, which
   // would send a reader hunting for a broken file instead of an unapproved proposal.
   const root = makeProject({
     name: 'gate-laws-none',
@@ -2429,7 +2466,7 @@ test('ingest: slugFor produces a name the strict filename rule accepts', () => {
     'Use Redis for session storage',
     'Define-Tool is the only way!',
     '  spaces  and   more  ',
-    'Ünïcödé and symbols: *&^%',
+    'ГњnГЇcГ¶dГ© and symbols: *&^%',
     '',
   ]) {
     const slug = ingest.slugFor(title)
@@ -2572,8 +2609,8 @@ async function ingestProject(name) {
 /**
  * Quotes taken verbatim from the fixture project's own source (SOURCE_TEXT).
  *
- * The fixture has to be a real project — ingestion reads the manifest for its zone
- * list and the decisions directory for existing ids — and its source is a different
+ * The fixture has to be a real project вЂ” ingestion reads the manifest for its zone
+ * list and the decisions directory for existing ids вЂ” and its source is a different
  * document from RICH_SOURCE. Using one document's sentences against another's
  * source is exactly what the verbatim check refuses, which is why the two quote sets
  * are separate named constants rather than one shared string.
@@ -2799,7 +2836,7 @@ test('verifier: a law nothing checks is LAW_UNCHECKED until the record says why'
   )
   // Suppressing LAW_UNCHECKED is not the same as passing. With every law in the
   // corpus unenforced the run evaluated nothing, and `ok: true` there was the exact
-  // contradiction the report's contract forbids — `status` already refused to call
+  // contradiction the report's contract forbids вЂ” `status` already refused to call
   // the same record verified, so the gate and the state layer disagreed about one
   // tree. The gate now reports the emptiness instead of blessing it.
   assert.deepEqual(
@@ -2923,7 +2960,7 @@ async function derivedCheckRoundTrip(name, checks) {
 test('ingest: an anyOf check survives the round trip instead of becoming stricter', async () => {
   // `anyOf: true` means "one matching file is enough". The first version advertised
   // the key, wrote only a LIST form the verifier ignores, and so stored a check that
-  // enforced every file — a silently stricter law with nothing reported.
+  // enforced every file вЂ” a silently stricter law with nothing reported.
   const payload = {
     type: 'required_text_glob',
     paths: ['src/auth/**'],
@@ -2942,7 +2979,7 @@ test('ingest: an anyOf check survives the round trip instead of becoming stricte
 test('ingest: a check whose value shape cannot be written is refused out loud', async () => {
   // The shapes below used to be stringified into the record: `paths: [[]]` rendered
   // as a bare `- ` line, which the parser reads as a nested block opener and folds
-  // the FOLLOWING check into — one check silently gone, another silently altered.
+  // the FOLLOWING check into вЂ” one check silently gone, another silently altered.
   const shapes = {
     'a nested empty array': [[]],
     'a nested object': [{}],
@@ -2985,7 +3022,7 @@ test('ingest: a known field carrying an unwritable shape is dropped, not silentl
 
 test('FALSIFICATION: an invented sentence cannot ride along behind a real quote', () => {
   // The fragment fallback exists to tolerate a re-wrapped line, and the first version
-  // accepted ANY sufficiently long fragment — so a real sentence plus an invented one
+  // accepted ANY sufficiently long fragment вЂ” so a real sentence plus an invented one
   // passed, and the invented one justified a check the source never asked for.
   const fabricated =
     'the deployment already runs it and file-backed sessions break under two instances. Therefore every module must import the billing ledger.'
@@ -3041,8 +3078,8 @@ test('ingest: without write, the record is returned and nothing lands on disk', 
 })
 
 test('ingest: re-ingesting a recorded decision is refused rather than duplicated', async () => {
-  // Two records for one decision compile perfectly — both laws agree, the corpus is
-  // valid — so nothing else would ever report the duplication. It has to be caught
+  // Two records for one decision compile perfectly вЂ” both laws agree, the corpus is
+  // valid вЂ” so nothing else would ever report the duplication. It has to be caught
   // here or not at all.
   const root = await ingestProject('ingest-twice')
   const first = await ops.ingest({
@@ -3129,7 +3166,7 @@ test('gate: ingest never changes the exit code, and never activates a decision',
 /**
  * Runs one law's checks over a project whose files exist on disk.
  *
- * `contents` is required for any check that reads file TEXT — the verifier reads
+ * `contents` is required for any check that reads file TEXT вЂ” the verifier reads
  * content from the filesystem, not from the candidate list, so a check against a path
  * that does not exist finds nothing and reports that it searched nothing. The file
  * list alone suffices only for the path-only checks (`required_file`,
@@ -3337,7 +3374,7 @@ test('verifier: a command check runs, passes on exit 0, and fails on non-zero', 
 
 test('verifier: a failed command quotes the stream that carries the reason', async () => {
   // `node --test` writes its report to stdout and leaves stderr EMPTY, and an
-  // empty-but-present stderr used to produce "exited 1: (no output)" — a diagnostic
+  // empty-but-present stderr used to produce "exited 1: (no output)" вЂ” a diagnostic
   // that sends the reader to the wrong problem entirely.
   const stdoutOnly = await lawCheck('cmd-stdout-only', { checks: [{ type: 'command', run: 'node --test x.mjs', expects: 'the tests pass' }] }, {
     files: [],
@@ -3362,7 +3399,7 @@ test('verifier: a failed command quotes the stream that carries the reason', asy
 
 test('verifier: a failing command reports the vocabulary code, not the process status', async () => {
   // The extra fields of a problem record are merged into it, so a field named `code`
-  // overwrote the problem's own code with the exit status — problems whose code was
+  // overwrote the problem's own code with the exit status вЂ” problems whose code was
   // the number 7, and a summary keyed by "7". A caller branches on the code.
   const result = await lawCheck('cmd-exit-code', { checks: [{ type: 'command', run: 'node x.mjs', expects: 'it works' }] }, {
     files: [],
@@ -3413,7 +3450,7 @@ test('verifier: a verification that evaluated nothing is not ok', async () => {
 test('verifier: a verification that evaluated SOME checks and skipped others is not a pass', async () => {
   // The rule has to hold for SOME as well as for NONE. When only the all-pending case
   // was refused, a session verification ran the filesystem checks, left every `command`
-  // check pending, and returned ok:true — to the agent that was told this is the gate —
+  // check pending, and returned ok:true вЂ” to the agent that was told this is the gate вЂ”
   // while the CLI on the same tree evaluated all of them and could be red.
   const root = makeProject({
     name: 'some-evaluated',
@@ -3466,7 +3503,7 @@ test('verifier: a forbidden_text law over no matching file is not a pass', async
 
 test('verifier: a command check asserts on the whole capture, not on a truncated prefix', async () => {
   // The runner used to slice stdout to a report-sized budget, and the output
-  // assertions then read the slice — so a token printed past the cut was reported as
+  // assertions then read the slice вЂ” so a token printed past the cut was reported as
   // absent, and a forbidden one printed past it passed.
   const root = makeProject({ name: 'full-capture', adrs: {} })
   const run = ops.createCommandRunner({ root, timeoutMs: 30_000 })
@@ -3635,7 +3672,7 @@ test('FALSIFICATION: a backslash in a derived check reaches the record unchanged
 test('FALSIFICATION: a dependency check is written in the field the verifier reads', async () => {
   // `paths` was accepted for dependency checks and then ignored by the reader, so a
   // required dependency was reported satisfied over a manifest that did not declare
-  // it — a false pass with nothing reported anywhere.
+  // it вЂ” a false pass with nothing reported anywhere.
   const viaPaths = await derivedCheckRoundTrip('ingest-dependency-paths', [
     { type: 'required_dependency', paths: ['redis'], basis: FIXTURE_BASIS.reasoningBasis },
   ])
@@ -3682,7 +3719,7 @@ test('FALSIFICATION: every line terminator is refused, so no field vanishes', ()
 
 test('FALSIFICATION: a case-insensitive check keeps its flags instead of being dropped', async () => {
   // `flags` is read by the verifier and validated by the schema, but the renderer did
-  // not know the key — so a correct check was refused as unwritable and the law
+  // not know the key вЂ” so a correct check was refused as unwritable and the law
   // landed with no checks at all.
   const { result } = await derivedCheckRoundTrip('ingest-flags', [
     { type: 'required_text', paths: ['src/auth/**'], pattern: 'REDIS', flags: 'i', basis: FIXTURE_BASIS.reasoningBasis },
@@ -3728,7 +3765,7 @@ test('status: a verification that skipped checks is not reported as verified', a
   // The tool surface supplies no command runner by design, so a session verification
   // evaluates the filesystem checks and leaves every `command` check pending. That
   // was recorded as a clean verification, after which `status` reported green while
-  // the real enforcement had never run — the CLI and the tool disagreeing about what
+  // the real enforcement had never run вЂ” the CLI and the tool disagreeing about what
   // "verified" means, on the same tree.
   const root = makeProject({
     name: 'partial-verification',
@@ -3767,8 +3804,8 @@ test('status: a verification that skipped checks is not reported as verified', a
 })
 
 test('gate: the ingest command reports a failure instead of crashing on it', () => {
-  // `result.adr.id` was read unconditionally, so an ordinary failure — no manifest,
-  // or a source file that does not exist — died with a TypeError and printed a stack
+  // `result.adr.id` was read unconditionally, so an ordinary failure вЂ” no manifest,
+  // or a source file that does not exist вЂ” died with a TypeError and printed a stack
   // trace instead of the reason the operation had just computed.
   const project = makeProject({ name: 'cli-ingest-missing-source', adrs: {} })
   const missingSource = cli(['ingest', 'docs/ratchet/sources/absent.md', '--root', project])
@@ -3787,7 +3824,7 @@ test('gate: the ingest command reports a failure instead of crashing on it', () 
 test('compiler: an agent record cannot retire a human-ratified law', () => {
   // Consent is not durable if the next record can undo it. A law in force because a
   // human ratified it was removable by an agent-authored record in any zone that lets
-  // agents activate their own decisions — silently, with the gate still green.
+  // agents activate their own decisions вЂ” silently, with the gate still green.
   const target = adrText({ id: '0011', status: 'proposed', authority: 'agent', zones: ['api'], laws: [{ id: 'api.x', statement: 'Agent law.', checks: [] }] })
   const remover = adrText({
     id: '0013',
@@ -3871,7 +3908,7 @@ test('kit: every problem code emitted anywhere is declared in the vocabulary', a
   }
   for (const file of files) {
     const text = readFileSync(file, 'utf8')
-    // Codes are emitted through the `problem('CODE', …)` helper; matching that call
+    // Codes are emitted through the `problem('CODE', вЂ¦)` helper; matching that call
     // shape avoids counting a code mentioned in a comment or a message.
     for (const match of text.matchAll(/\bproblem\(\s*'([A-Z][A-Z0-9_]{3,})'/g)) {
       if (!declared.has(match[1])) offenders.push(`${file.replace(KIT_ROOT, '')}: ${match[1]}`)
@@ -3948,18 +3985,26 @@ test('kit: every shipped plugin declares the peer packages it imports', () => {
 test('FALSIFICATION: the instruction-routing rule has an enforcement point that fails when broken', () => {
   // The claim: the deployment's rules reach a model through kit-rules alone, because the
   // harness's workspace-instruction loader is composed off. It was cited against
-  // check-portability.mjs, which never reads the profile — so the two lines that disable
+  // check-portability.mjs, which never reads the profile вЂ” so the two lines that disable
   // the loader could be deleted with every declared check still green. This runs the real
   // check over a copy of the real files it reads and requires it to fail on a mutated
   // copy, which is the difference between a rule and a sentence about a rule.
   const tree = join(tmpdir(), `kit-instruction-routing-${Math.random().toString(36).slice(2, 8)}`)
   rmSync(tree, { recursive: true, force: true })
+  // Every file the check READS, because it is a copy of a real kit tree rather than a
+  // stub: the extended check also verifies that the scripts the deployment procedure
+  // names exist, and the installers/updater carry the procedure.
   const parts = [
     'scripts/check-instruction-routing.mjs',
     'scripts/kit-update.mjs',
+    'scripts/dev-link.mjs',
+    'scripts/test-ratchet.mjs',
+    'scripts/check-portability.mjs',
     'profile/cordis.patch.yml',
     'plugins/kit-rules/kit-rules.mjs',
     'rules/AGENTS.md',
+    'rules/DEPLOYMENT.md',
+    'README.md',
     'install.sh',
     'install.ps1',
   ]
@@ -4140,8 +4185,8 @@ test('schema: a ratification that covers some approved records and not others is
 
 test('FALSIFICATION: a hand-written approval ADR mints no law', () => {
   // The claim under test is "a decision enters force only through a recorded
-  // consent". Before the ratification block existed, this file — one an agent can
-  // write — activated the decision. It must now compile to no law at all.
+  // consent". Before the ratification block existed, this file вЂ” one an agent can
+  // write вЂ” activated the decision. It must now compile to no law at all.
   const { root } = ratifiableProject('falsify-handwritten', {
     extraAdrs: {
       '0012-approve.adr.md': adrText({
@@ -4524,13 +4569,13 @@ test('gate: check is machine-readable without asking, and a job that never ran s
 // ---------------------------------------------------------------------------
 // the breaker's findings, as regressions
 //
-// A breaker was given one claim — "no input makes the gate report the wrong verdict" —
+// A breaker was given one claim вЂ” "no input makes the gate report the wrong verdict" вЂ”
 // and falsified it nine times. Each of those inputs is a test here, named for the
 // verdict it was about, so the same input cannot quietly work again.
 // ---------------------------------------------------------------------------
 
 test('BREAKER: a forbidden-text glob whose selection is empty is not a clean pass', async () => {
-  // `paths: ['src/**', '!src/**']` selects nothing, so the check read no file — and
+  // `paths: ['src/**', '!src/**']` selects nothing, so the check read no file вЂ” and
   // reported the law satisfied over a tree that contained the forbidden text. The
   // three sibling checks already refused this; the glob spelling of the family did not.
   const result = await lawCheck(
@@ -4552,7 +4597,7 @@ test('BREAKER: a forbidden-text glob whose selection is empty is not a clean pas
 
 test('BREAKER: a corpus nothing can check does not verify clean, and status agrees', async () => {
   // The all-`unenforced` corpus: no check declared anywhere, nothing pending, so the
-  // verifier reported `ok: true` with `checksEvaluated: 0` — while `status` on the same
+  // verifier reported `ok: true` with `checksEvaluated: 0` вЂ” while `status` on the same
   // tree refused to call it verified. Two subsystems, one question, opposite answers.
   const root = makeProject({
     name: 'breaker-all-unenforced',
@@ -4576,7 +4621,7 @@ test('BREAKER: a corpus nothing can check does not verify clean, and status agre
 test('BREAKER: a module listed in a package manifest does not ship if it does not exist', async () => {
   // `check.path` was required by the schema and never read, so a law saying
   // "plugins/demo/b.mjs ships" was satisfied by a manifest naming a file that was not
-  // in the tree — while the check's own failure message asserted that it was.
+  // in the tree вЂ” while the check's own failure message asserted that it was.
   const result = await lawCheck(
     'breaker-file-in-list-absent',
     {
@@ -4618,7 +4663,7 @@ test('BREAKER: a module listed in a package manifest does not ship if it does no
 
 test('BREAKER: a check that can never fail is refused where the decision is compiled', () => {
   // `deny: []` restricts nothing and was accepted, counted as evaluated, and passed
-  // over any tree — strictly weaker than a deny that cannot overlap, which the verifier
+  // over any tree вЂ” strictly weaker than a deny that cannot overlap, which the verifier
   // reports. And an empty glob compiles to /^$/ and a `forbidden_glob` over it found no
   // offender while the forbidden file sat in the tree.
   const root = makeProject({
@@ -4676,7 +4721,7 @@ test('BREAKER: command output assertions read each stream as written', async () 
 test('BREAKER: status stops reporting a verified project once the code changes', async () => {
   // The recorded verification bound the LAW hash and nothing else, so editing any file
   // left `status` reporting a verified, clean project while `verify` on the same tree
-  // exited 1 — the CLI documents status as "exit 0 only when verified and clean".
+  // exited 1 вЂ” the CLI documents status as "exit 0 only when verified and clean".
   const root = makeProject({
     name: 'breaker-status-vs-code',
     adrs: {
@@ -4700,7 +4745,7 @@ test('BREAKER: status stops reporting a verified project once the code changes',
   assert.ok(afterEdit.problems.some((entry) => entry.code === 'VERIFY_NOT_RUN'))
   assert.equal(afterEdit.problems.find((entry) => entry.code === 'VERIFY_NOT_RUN').stale, true)
 
-  // Re-verifying the new tree restores the verdict — and only the new tree.
+  // Re-verifying the new tree restores the verdict вЂ” and only the new tree.
   const second = await ops.verify({ root })
   assert.equal(second.ok, true)
   assert.notEqual(second.codeHash, first.codeHash, 'the two verdicts name different trees')
@@ -4711,10 +4756,10 @@ test('BREAKER: status stops reporting a verified project once the code changes',
 // FALSIFICATION: a consent this ratchet cannot check is not a consent
 // ---------------------------------------------------------------------------
 
-test('FALSIFICATION: the ratchet_ratify tool has no argument that accepts a caller-composed answer', () => {
+test('FALSIFICATION: the ratchet_ratify tool has no argument that accepts a caller-composed answer', { skip: HARNESS_SKIP }, () => {
   // The claim under test: a consent can only come from an answer to a question this
   // ratchet asked. The first version of this tool took an `answers` object, which
-  // made it an agent mint with extra steps — an agent could read the quiz it had just
+  // made it an agent mint with extra steps вЂ” an agent could read the quiz it had just
   // been handed, type the approve label, and mint law. The tool must have no such
   // argument, and the operation must refuse an answer it cannot pair with a quiz.
   const definitions = mountPlugin({})
@@ -4767,7 +4812,7 @@ test('FALSIFICATION: a record edited while the question is open is not ratified'
 
 test('ratify: preparing a quiz reports no consent-shaped problem', () => {
   // The unpaired-answer guard's condition was `answer !== null || answer !==
-  // undefined`, which is true for every value — so a call that supplied NOTHING was
+  // undefined`, which is true for every value вЂ” so a call that supplied NOTHING was
   // told "an answer was supplied without the quiz it answers", and every
   // no-channel result carried a defect that never happened.
   const { root } = ratifiableProject('ratify-prepare-clean')
@@ -4780,7 +4825,7 @@ test('ratify: preparing a quiz reports no consent-shaped problem', () => {
 test('compiler: a record the zone refuses cannot retire the decision it supersedes', () => {
   // Supersession was decided from the raw consent, before the humanOnly refusal, so a
   // ratified agent record in a zone reserved to humans still retired the human
-  // decision it named — emptying the bundle with only the refusal reported.
+  // decision it named вЂ” emptying the bundle with only the refusal reported.
   const human = adrText({ id: '0001', zones: ['auth'], laws: [{ id: 'auth.old', statement: 'The old rule.', checks: [] }] })
   const replacement = adrText({
     id: '0002',
@@ -4858,7 +4903,7 @@ test('status: a failed verification of the current laws is reported, not hidden'
 })
 
 test('schema: an escaped quote in a quoted scalar is unescaped, so the declared command runs', () => {
-  // Keeping the backslashes verbatim sent `node -e \"…\"` to the runner as an
+  // Keeping the backslashes verbatim sent `node -e \"вЂ¦\"` to the runner as an
   // argument containing quote characters: node evaluated a string literal, exited 0,
   // and the law was reported checked while its command never ran.
   const parsed = schema.parseFrontmatter(['---', 'run: "node -e \\"console.log(1)\\""', '---', ''].join('\n'))

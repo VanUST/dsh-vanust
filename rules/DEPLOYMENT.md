@@ -1,0 +1,128 @@
+# DEPLOYMENT.md — operating this machine's DeepSeek Harness
+
+This file is the procedure for setting up, starting, updating and verifying the
+DeepSeek Harness deployment on a machine. It is written to be read by an AGENT that
+was asked to do the work, and it is installed to `$DSH_HOME/DEPLOYMENT.md` by the
+installers. The commands here are the ones that are checked: `scripts/check-instruction-routing.mjs`
+fails if a file this document names is missing, if the harness pin below disagrees with
+the installers, or if the clone URL disagrees with `README.md`.
+
+`$DSH_HOME` is `~/.npm/dsh` on Linux/macOS and `%USERPROFILE%\.npm\dsh` on Windows,
+unless the `DSH_HOME` environment variable overrides it.
+
+## 1. What this deployment is
+
+The upstream harness plus four plugins, all pinned and installed from one kit repository:
+
+| Piece | What it does |
+|---|---|
+| `@deepseek-ai/dsh-model-gate` | cost policy: every dispatch whose model is not Flash-class is vetoed before it costs anything |
+| `@cc/dsh-kit-rules` | contributes `$DSH_HOME/AGENTS.md` (this deployment's binding rules) to every session's system prompt |
+| `@cc/dsh-context` | `context_module`, `context_rules`, `context_specs`, `ratchet_reconcile` — answers about the current project from `.dsh/project.json` |
+| `@cc/dsh-ratchet` | compiles `docs/adrs/*.adr.md` into laws, verifies code against them, and puts proposed decisions to the human as a question |
+
+Pinned harness version: **`0.1.5-rc.1`**. Node ≥ 24. The kit is the only source of the
+deployment's files; a machine is a projection of it.
+
+## 2. Fresh machine
+
+```bash
+git clone https://github.com/VanUST/dsh-vanust.git ~/dsh-kit
+cd ~/dsh-kit
+./install.sh                  # Windows: powershell -ExecutionPolicy Bypass -File install.ps1
+./start.sh                    # Windows: .\start.ps1     (dsh web --port 3080)
+```
+
+`install.sh` / `install.ps1` are idempotent: Node check → pinned `npm i -g
+@deepseek-ai/dsh@0.1.5-rc.1` → profile files under `$DSH_HOME/profiles/web` → every
+`plugins/*.tgz` installed into that profile → `$DSH_HOME/AGENTS.md` and
+`$DSH_HOME/DEPLOYMENT.md` → the development links (§4).
+
+Two steps in that list are the HUMAN's, not yours: entering API credentials (the
+onboarding screen on first boot) and anything that touches another machine.
+
+## 3. Update an installed machine
+
+The kit is the source of truth; the machine record is `$DSH_HOME/.dsh-kit-state.json`,
+and drift is decided by CONTENT HASH, never by version numbers or git state.
+
+```bash
+node "$KIT/scripts/kit-update.mjs" --check --fetch --json   # report drift, change nothing
+node "$KIT/scripts/kit-update.mjs" --apply                  # converge, then record it
+```
+
+- `--check --fetch` asks git for new commits first; `--json` is the machine-readable form.
+- `--apply` writes the canonical profile files, `AGENTS.md`, `DEPLOYMENT.md`, reinstalls
+  every drifted plugin tarball with the pinned pnpm (dropping the profile lockfile and
+  pruning the store first, because pnpm keys a `file:` dependency by its path string),
+  installs the pinned harness when it differs, then records what it applied.
+- A machine that disagrees with the kit cannot look converged: `--check` exits non-zero
+  and names the files.
+- Restart `dsh web` afterwards — the profile is composed once, at boot.
+
+`$KIT` is the clone's directory. If you do not know it, read it from
+`$DSH_HOME/.dsh-kit-state.json` (`kit`), or ask: `node <kit>/scripts/kit-update.mjs --help`.
+
+## 4. Run the kit's own gate (before trusting a change)
+
+The deployment does not need this; the kit's self-check does. The ratchet's tool adapter
+imports `@deepseek-ai/dsh-tools`, which lives in the harness install rather than in the
+repository, so a fresh clone links it once:
+
+```bash
+node "$KIT/scripts/dev-link.mjs"                    # once per clone; install.sh does it
+node --test "$KIT/scripts/test-ratchet.mjs"         # the ratchet's full suite
+node "$KIT/scripts/check-portability.mjs"           # platform assumptions + packaging
+node "$KIT/plugins/ratchet/ratchet-cli.mjs" verify --root "$KIT"   # the kit's own gate
+```
+
+`verify` exit codes: `0` every law held, `1` a check failed, `2` the project or its
+decisions are unusable so nothing was checked, `3` a usage error. A verification that
+could not evaluate every check is a failure, not a pass.
+
+## 5. Rules you must not break while operating this
+
+1. **The harness pin is exact.** Never `npm i -g @deepseek-ai/dsh` without a version, and
+   never upgrade a live machine outside the gate: candidate → `scripts/rebuild-plugins.sh`
+   → `scripts/verify-upgrade.sh` → only on PASS touch the live profile (COMPAT.md §2).
+2. **Bump a plugin's version before repacking it.** pnpm serves a `file:` dependency from
+   the profile lockfile by path, so a repacked tarball with an unchanged filename does not
+   land. The updater warns about it; the version bump is what makes it correct.
+3. **Tarballs live in the kit repository.** Never install a plugin from a temporary path.
+4. **Never commit machine-local state:** `$DSH_HOME/sessions`, `$DSH_HOME/storages`,
+   `.credentials.yaml`, `settings.yaml`, `node_modules`.
+5. **The kit's `profile/` files are canonical templates.** `kit-update.mjs` writes them
+   over the machine's copies; machine-specific rows belong in a second patch file passed
+   with `--patch`, not in `profiles/<name>/cordis.patch.yml`.
+6. **Another machine is a remote system.** Reading it is fine; changing it needs the
+   user's explicit permission for that exact action, every time.
+7. **A prompt-affecting change is verified on a throwaway profile first** — a changed
+   `AGENTS.md`, `DEPLOYMENT.md` or `kit-rules` is invisible in `--dump-config` beyond the
+   row itself.
+8. **A rule is real only where a command fails.** Before claiming something is enforced,
+   name the command that exits non-zero when it is broken.
+
+## 6. First-run checks (1 minute, human-visible)
+
+```bash
+dsh --profile headless "Answer only PRESENT or ABSENT: did you receive a block \
+beginning 'MANDATORY OPERATING RULES', and did you receive a message framed \
+'Instructions from: <path>'?"
+```
+
+The first answer must be `PRESENT` and the second `ABSENT`: this deployment disables the
+harness's workspace-instruction loader on purpose, so only `$DSH_HOME/AGENTS.md` reaches a
+model. Then open the token URL `dsh web` printed, and confirm the chat renders, a shell
+command runs, and a file edit appears in the sidebar.
+
+## 7. Troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| `http://127.0.0.1:3080/` says authentication required | expected: reopen the `?token=` URL the boot printed |
+| `MODEL_NOT_ALLOWED` | a non-Flash model is configured; the default must be `deepseek-flash` |
+| `MISSING_CREDENTIAL` | credentials live per machine in `$DSH_HOME/.credentials.yaml`; finish onboarding |
+| A plugin change had no effect | the profile composes at boot — restart `dsh web` |
+| A repacked tarball had no effect | its version was not bumped (§5.2) |
+| `ERR_MODULE_NOT_FOUND` for `@deepseek-ai/dsh-tools` | the checkout is not linked: `node $KIT/scripts/dev-link.mjs` |
+| The gate reports `VERIFY_NOT_RUN` | the laws or the code changed since the recorded verification: run `verify` again |

@@ -59,7 +59,9 @@ probe, because **the ratchet's guarantees are only as good as the harness facts
 underneath them**:
 
 ```bash
-node --test scripts/test-ratchet.mjs                # 248 tests, no harness needed
+node scripts/dev-link.mjs                           # once per clone: links the harness
+                                                    # packages the kit's tests import
+node --test scripts/test-ratchet.mjs                # 249 tests, no RUNNING harness needed
 node scripts/check-consent-surface.mjs              # 7 claims about the consent surface
 node scripts/check-instruction-routing.mjs          # 8 claims about instruction routing
 node scripts/check-gate-invariants.mjs              # 12 verdicts, asserted behaviourally

@@ -92,8 +92,11 @@ const CHECKS = [
     // `scripts` and `probes` are included because they are shipped source too: an
     // untracked file written by a Windows editing pass keeps its CRLF in the working
     // tree, and while it stayed out of this rule a 4,800-line CRLF test file passed
-    // every check. `.tgz` and other binaries are skipped by the extension filter.
-    paths: ['plugins', 'scripts', 'probes'],
+    // every check. The root shell entry points are here for the same reason — a CRLF
+    // `install.sh` is a script that does not start on Linux, and the git-attribute check
+    // below cannot see the working-tree bytes. `.tgz` and other binaries are skipped by
+    // the extension filter, and the `.ps1` files are CRLF by policy.
+    paths: ['plugins', 'scripts', 'probes', 'install.sh', 'start.sh'],
     allow: [],
     raw: true,
   },
