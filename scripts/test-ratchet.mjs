@@ -945,6 +945,28 @@ async function verifyRawLaws(name, checks, { files = {}, zones = null } = {}) {
   return { root, report: verified.report, problems: verified.problems, codes: verified.problems.map((entry) => entry.code) }
 }
 
+test('schema: every check type declares which field names the path it acts on', () => {
+  // The rule this protects was evaded twice, both times because the field enumeration was
+  // written by hand: the singular `path` was missing, then `path_boundary`'s `zone` and
+  // `deny` were missing entirely. A new check type that names a path and is not classified
+  // here would reintroduce exactly that hole, so its absence is a failing test rather than
+  // a silent gap.
+  const classified = Object.keys(schema.CHECK_TARGET_FIELDS)
+  const declared = [...schema.CHECK_TYPES]
+  const missing = declared.filter((type) => !classified.includes(type))
+  const extra = classified.filter((type) => !declared.includes(type))
+  assert.deepEqual(missing, [], 'check types with no entry in CHECK_TARGET_FIELDS')
+  assert.deepEqual(extra, [], 'CHECK_TARGET_FIELDS entries that are not check types')
+  // And a `[]` entry is a positive claim, not an oversight: the type must be one the
+  // verifier reads no path field for.
+  const noTargets = classified.filter((type) => schema.CHECK_TARGET_FIELDS[type].length === 0).sort()
+  assert.deepEqual(
+    noTargets,
+    ['command', 'forbidden_dependency', 'required_dependency'].sort(),
+    'a check type claiming no path target must be one that genuinely has none',
+  )
+})
+
 test('verifier: required_file passes when present and fails when absent', async () => {
   const present = await verifyOneLaw('reqfile-ok', [{ type: 'required_file', path: 'src/auth/session.ts' }], {
     files: { 'src/auth/session.ts': 'export const x = 1\n' },

@@ -18,6 +18,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   AUTHORITIES,
+  CHECK_TARGET_FIELDS,
   MANIFEST_PATH,
   PROBLEM_CODES,
   RATCHET_DIR_DEFAULT,
@@ -640,26 +641,20 @@ export function pathIsGoverned(target, zonePaths) {
  */
 export function checkTargets(check, config = null) {
   const targets = []
-  for (const entry of check.paths ?? []) {
-    if (typeof entry === 'string' && !entry.startsWith('!')) targets.push(entry)
-  }
-  if (typeof check.path === 'string' && check.path.length > 0 && !check.path.startsWith('!')) {
-    targets.push(check.path)
-  }
-  if (
-    (check.type === 'required_glob' || check.type === 'forbidden_glob') &&
-    typeof check.pattern === 'string' &&
-    check.pattern.length > 0 &&
-    !check.pattern.startsWith('!')
-  ) {
-    targets.push(check.pattern)
-  }
-  if (check.type === 'path_boundary') {
-    for (const entry of check.deny ?? []) {
-      if (typeof entry === 'string' && entry.length > 0 && !entry.startsWith('!')) targets.push(entry)
+  for (const field of CHECK_TARGET_FIELDS[check.type] ?? []) {
+    // Not a field on the check: the paths of the zone the check names, resolved through
+    // the manifest. A zone the manifest does not declare contributes nothing — the
+    // verifier reports `LAW_ZONE_MISSING` for it.
+    if (field === 'zonePaths') {
+      const zone = (config?.zones ?? []).find((candidate) => candidate.id === check.zone)
+      for (const entry of zone?.paths ?? []) {
+        if (typeof entry === 'string' && entry.length > 0 && !entry.startsWith('!')) targets.push(entry)
+      }
+      continue
     }
-    const zone = (config?.zones ?? []).find((candidate) => candidate.id === check.zone)
-    for (const entry of zone?.paths ?? []) {
+    const value = check[field]
+    const entries = Array.isArray(value) ? value : [value]
+    for (const entry of entries) {
       if (typeof entry === 'string' && entry.length > 0 && !entry.startsWith('!')) targets.push(entry)
     }
   }

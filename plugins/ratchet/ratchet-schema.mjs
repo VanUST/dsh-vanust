@@ -226,6 +226,42 @@ export const COMMAND_STREAMS = Object.freeze(['stdout', 'stderr', 'both'])
  * compile as one — so a validator that compiled every `pattern` would reject every
  * correct glob law while believing it was being strict.
  */
+/**
+ * Which check field names the path a check acts on, per check type.
+ *
+ * One table, because the alternative was tried twice and failed twice. A cross-check that
+ * enumerates the fields by hand missed the singular `path` (so `required_file` enforced on
+ * a human-only path with nothing reported) and then missed `path_boundary`'s `zone` and
+ * `deny` entirely (so a record declaring one zone could constrain another). Both were
+ * found by an independent breaker, not by reading the code.
+ *
+ * The table is the only place the mapping exists: `checkTargets` reads it, and a test
+ * fails when a type in {@link CHECK_TYPES} is missing from it, so adding a check type
+ * without saying what path it acts on is a red test rather than a silent hole. A `[]`
+ * entry is a positive claim — the type has no path target by design, which is true of
+ * `command` (a shell command, not a path) and of the dependency checks, whose `patterns`
+ * name packages rather than files.
+ *
+ * `zonePaths` is not a field on the check. It stands for the paths of the zone the check
+ * names in `check.zone`, resolved through the manifest, because a `path_boundary` makes
+ * two path claims at once: it denies `deny` to that zone, so both halves reach a path.
+ */
+export const CHECK_TARGET_FIELDS = Object.freeze({
+  required_file: ['path'],
+  forbidden_file: ['path'],
+  required_file_in_list: ['path'],
+  required_glob: ['pattern'],
+  forbidden_glob: ['pattern'],
+  required_text: ['paths'],
+  forbidden_text: ['paths'],
+  required_text_glob: ['paths'],
+  forbidden_text_glob: ['paths'],
+  path_boundary: ['deny', 'zonePaths'],
+  command: [],
+  required_dependency: [],
+  forbidden_dependency: [],
+})
+
 export const REGEX_PATTERN_CHECK_TYPES = Object.freeze([
   'required_text',
   'forbidden_text',
