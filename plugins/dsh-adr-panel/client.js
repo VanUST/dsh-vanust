@@ -15,6 +15,17 @@
  *   `inject` factory. Decision and spec text is read through
  *   `ctx.remote.workspaceFiles.list/read`, addressed by the Session id.
  *
+ *   PROJECT-AGNOSTIC: the node that renders is discovered from the project itself, not
+ *   hardcoded. `.dsh/project.json` is read once per load for `ratchet.decisionsDir`,
+ *   `ratchet.specsDir` and `name`, falling back to `docs/adrs`, `docs/specs` and the
+ *   first spec's `Project:` line when the manifest is absent, unparseable or silent.
+ *   No zone name, law-id shape, file name beyond the `*.adr.md` / `*.spec.md` suffixes,
+ *   or presence of any record is assumed.
+ *
+ *   DIAGNOSTIC: the window header carries this bundle's own `PANEL_VERSION`. A browser
+ *   keeps its revision-addressed client bundle until the page reloads, so without a
+ *   version a stale bundle and a bug look identical.
+ *
  * OUTPUTS
  *   One contribution to `conversation.session.header.actions` and one to
  *   `shell.overlay`. The overlay renders nothing while closed and never mutates a
@@ -59,6 +70,15 @@
  *     as plain text and is not clickable.
  *   - Window closed during a load: the AbortController cancels the reads and no state
  *     is written after unmount.
+ *   - No `.dsh/project.json`, an unparseable one, or one without
+ *     `ratchet.decisionsDir`/`ratchet.specsDir`: the documented defaults are used, and an
+ *     unparseable manifest is a non-fatal note rather than a failed load.
+ *   - A project with no decision files or no specs (or no such directory): a clean empty
+ *     line that names the resolved directory, never a crash.
+ *   - The spec histogram counts fewer checks than the document declares: a warn line says
+ *     so, because a parse gap must not render as an unlabelled segment.
+ *   - A check whose parsed type is empty: its type pill renders `unknown` in the neutral
+ *     tone, so a check row can never be a detail with no label.
  */
 window.__ModuleLoader__.load({
 	id: "@cc/dsh-adr-panel",
@@ -67,6 +87,21 @@ window.__ModuleLoader__.load({
 		var exports = module.exports;
 		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 		var React = require("react");
+
+		/**
+		 * The panel's own version, rendered as a muted chip in the window header.
+		 *
+		 * A browser keeps its revision-addressed client bundle until the page reloads, so
+		 * an installed update can be invisible while the previous bundle stays live. This
+		 * constant is the only way to tell a stale bundle from a bug: bump it with every
+		 * change to this file, and keep it equal to the package's version.
+		 */
+		const PANEL_VERSION = "0.1.3";
+		/** The manifest a ratchet project declares its directories and name in. */
+		const MANIFEST_PATH = ".dsh/project.json";
+		/** Directories used when the manifest is absent, unparseable, or silent. */
+		const DEFAULT_DECISIONS_DIR = "docs/adrs";
+		const DEFAULT_SPECS_DIR = "docs/specs";
 
 		//#region panel store
 		/**
@@ -309,6 +344,9 @@ window.__ModuleLoader__.load({
 		 * @param item - `{ name, path, text, eof }` read from `docs/specs`.
 		 * @returns `{ name, path, zone, project, hash, laws, counts, eof, error }`; never
 		 *   throws. A field that does not parse is null and renders as `unknown`.
+		 *   `counts.checks` is the number of check lines the document declares and
+		 *   `counts.parsedChecks` is how many of them parsed, so a parse gap is observable
+		 *   rather than silent.
 		 */
 		function parseSpec(item) {
 			var spec = { name: item.name, path: item.path, zone: null, project: null, hash: null, laws: [], eof: item.eof !== false, error: null };
@@ -320,6 +358,11 @@ window.__ModuleLoader__.load({
 				spec.zone = zone === null ? null : zone[1].trim();
 				spec.project = project === null ? null : project[1].trim();
 				spec.hash = hash === null ? null : hash[1];
+				// The number of check LINES the document declares, counted independently of
+				// whether each one parses into a check. `counts.checks` is this declared total
+				// and `counts.parsedChecks` is what actually parsed, so a check line the type
+				// pattern does not recognise is visible as a difference instead of vanishing.
+				var declaredChecks = 0;
 				var lines = text.split("\n");
 				var law = null;
 				var inChecks = false;
@@ -353,6 +396,7 @@ window.__ModuleLoader__.load({
 						continue;
 					}
 					if (inChecks) {
+						if (/^[ \t]+-[ \t]*\S/.test(line)) declaredChecks += 1;
 						var check = line.match(/^[ \t]+-[ \t]*([A-Za-z0-9_]+):[ \t]*(.*)$/);
 						if (check !== null) {
 							law.checks.push({ type: check[1].trim(), detail: check[2].trim() });
@@ -367,10 +411,10 @@ window.__ModuleLoader__.load({
 				}
 				var checks = 0;
 				for (var k = 0; k < spec.laws.length; k += 1) checks += spec.laws[k].checks.length;
-				spec.counts = { laws: spec.laws.length, checks: checks };
+				spec.counts = { laws: spec.laws.length, checks: declaredChecks, parsedChecks: checks };
 			} catch (error) {
 				spec.error = describeError(error);
-				spec.counts = { laws: 0, checks: 0 };
+				spec.counts = { laws: 0, checks: 0, parsedChecks: 0 };
 			}
 			return spec;
 		}
@@ -497,6 +541,62 @@ window.__ModuleLoader__.load({
 		//#endregion
 
 		//#region reading
+		/** @returns a manifest directory string with trailing slashes removed, or null when absent or blank. */
+		function dirValue(value) {
+			return typeof value === "string" && value.trim() !== "" ? value.trim().replace(/\/+$/, "") : null;
+		}
+		/**
+		 * Read and parse the project manifest, when the project has one.
+		 *
+		 * A missing manifest is normal — the documented defaults apply — while one that
+		 * cannot be parsed is a non-fatal note, because the panel has to keep working on
+		 * the defaults rather than fail the whole load.
+		 * @returns a promise for `{ manifest, note }` where `note` is null or one message;
+		 *   never rejects.
+		 */
+		function readManifest(files, sessionId, signal) {
+			return files.read(sessionId, MANIFEST_PATH, {}, signal).then(function (read) {
+				if (read === undefined || read === null || read.ok !== true) return { manifest: null, note: null };
+				var text = String(read.value && read.value.text ? read.value.text : "");
+				try {
+					return { manifest: JSON.parse(text), note: null };
+				} catch (error) {
+					return { manifest: null, note: MANIFEST_PATH + " could not be parsed (" + describeError(error) + "); the default directories are used" };
+				}
+			}, function () {
+				return { manifest: null, note: null };
+			});
+		}
+		/**
+		 * The directories a ratchet project declares, falling back to the documented
+		 * defaults. Resolved from the manifest so the panel works in any project rather
+		 * than only in the one it was written in.
+		 * @returns `{ decisionsDir, specsDir }`, both non-empty and without a trailing slash.
+		 */
+		function resolveDirs(manifest) {
+			var ratchet = manifest !== null && typeof manifest === "object" ? manifest.ratchet : null;
+			var section = ratchet !== null && typeof ratchet === "object" ? ratchet : {};
+			var decisions = dirValue(section.decisionsDir);
+			var specs = dirValue(section.specsDir);
+			return {
+				decisionsDir: decisions === null ? DEFAULT_DECISIONS_DIR : decisions,
+				specsDir: specs === null ? DEFAULT_SPECS_DIR : specs
+			};
+		}
+		/**
+		 * The project's own name: the manifest's `name`, else the first spec's `Project:`
+		 * line, else a neutral placeholder. Never a hardcoded repository name.
+		 * @returns a non-empty display string.
+		 */
+		function projectNameOf(manifest, specs) {
+			var named = manifest !== null && typeof manifest === "object" && typeof manifest.name === "string" ? manifest.name.trim() : "";
+			if (named !== "") return named;
+			for (var i = 0; i < specs.length; i += 1) {
+				var specProject = specs[i].project;
+				if (typeof specProject === "string" && specProject.trim() !== "") return specProject.trim();
+			}
+			return "this project";
+		}
 		/**
 		 * Read one directory's files of one suffix, through the workspace-files Remote.
 		 *
@@ -541,56 +641,86 @@ window.__ModuleLoader__.load({
 			});
 		}
 		/**
+		 * The zero-value panel result, so every early return has the same shape.
+		 * @returns a result with no records, the default directories and no project name.
+		 */
+		function emptyPanel(failures, notes) {
+			return {
+				decisions: [],
+				consents: [],
+				specs: [],
+				relations: { approvedBy: {}, supersededBy: {} },
+				lawsByDecision: {},
+				decisionIds: {},
+				dirs: { decisionsDir: DEFAULT_DECISIONS_DIR, specsDir: DEFAULT_SPECS_DIR },
+				projectName: "this project",
+				notes: notes === undefined ? [] : notes,
+				failures: failures === undefined ? [] : failures
+			};
+		}
+		/**
 		 * Load and derive the whole catalogue for one Session.
+		 *
+		 * The directories and the project name come from the project's own manifest, so the
+		 * panel works in any ratchet project; a missing manifest means the documented
+		 * defaults, and an unparseable one is a non-fatal note rather than a failed load.
 		 * @returns a promise for
-		 *   `{ decisions, consents, specs, relations, lawsByDecision, decisionIds, failures }`;
+		 *   `{ decisions, consents, specs, relations, lawsByDecision, decisionIds, dirs, projectName, notes, failures }`;
 		 *   never rejects.
 		 */
 		function loadPanel(ctx, sessionId, signal) {
 			var files = ctx && ctx.remote ? ctx.remote.workspaceFiles : undefined;
 			if (files === undefined || files === null || typeof files.list !== "function" || typeof files.read !== "function") {
-				return Promise.resolve({ decisions: [], consents: [], specs: [], relations: { approvedBy: {}, supersededBy: {} }, lawsByDecision: {}, decisionIds: {}, failures: ["the workspace file API is not reachable here: ctx.remote.workspaceFiles.list/read are absent, so no record could be read"] });
+				return Promise.resolve(emptyPanel(["the workspace file API is not reachable here: ctx.remote.workspaceFiles.list/read are absent, so no record could be read"]));
 			}
 			if (typeof sessionId !== "string" || sessionId === "") {
-				return Promise.resolve({ decisions: [], consents: [], specs: [], relations: { approvedBy: {}, supersededBy: {} }, lawsByDecision: {}, decisionIds: {}, failures: ["no Session is bound, so the workspace root cannot be resolved"] });
+				return Promise.resolve(emptyPanel(["no Session is bound, so the workspace root cannot be resolved"]));
 			}
 			var failures = [];
-			return Promise.all([
-				readDirectory(files, sessionId, "docs/adrs", ".adr.md", signal, failures),
-				readDirectory(files, sessionId, "docs/specs", ".spec.md", signal, failures)
-			]).then(function (both) {
-				var adrs = both[0].filter(Boolean).map(parseAdr).sort(byAdrId);
-				var specs = both[1].filter(Boolean).map(parseSpec);
-				var relations = buildRelations(adrs);
-				var decisions = [];
-				var consents = [];
-				var decisionIds = {};
-				for (var i = 0; i < adrs.length; i += 1) {
-					var record = adrs[i];
-					if (record.type === "approval") {
-						consents.push(record);
-						continue;
+			var notes = [];
+			return readManifest(files, sessionId, signal).then(function (manifestResult) {
+				if (manifestResult.note !== null) notes.push(manifestResult.note);
+				var dirs = resolveDirs(manifestResult.manifest);
+				return Promise.all([
+					readDirectory(files, sessionId, dirs.decisionsDir, ".adr.md", signal, failures),
+					readDirectory(files, sessionId, dirs.specsDir, ".spec.md", signal, failures)
+				]).then(function (both) {
+					var adrs = both[0].filter(Boolean).map(parseAdr).sort(byAdrId);
+					var specs = both[1].filter(Boolean).map(parseSpec);
+					var relations = buildRelations(adrs);
+					var decisions = [];
+					var consents = [];
+					var decisionIds = {};
+					for (var i = 0; i < adrs.length; i += 1) {
+						var record = adrs[i];
+						if (record.type === "approval") {
+							consents.push(record);
+							continue;
+						}
+						record.state = displayedState(record, relations);
+						record.canRatify = canOfferRatify(record, relations);
+						record.summary = decisionSummary(record);
+						decisions.push(record);
+						if (record.id !== null && record.id !== "") decisionIds[record.id] = true;
 					}
-					record.state = displayedState(record, relations);
-					record.canRatify = canOfferRatify(record, relations);
-					record.summary = decisionSummary(record);
-					decisions.push(record);
-					if (record.id !== null && record.id !== "") decisionIds[record.id] = true;
-				}
-				// Presentation ordering: an awaiting-human decision is the one a reader came
-				// for, so it leads; superseded records sink. Nothing is filtered or changed.
-				decisions.sort(byDecisionPriority);
-				return {
-					decisions: decisions,
-					consents: consents,
-					specs: specs,
-					relations: relations,
-					lawsByDecision: lawsByDecision(specs),
-					decisionIds: decisionIds,
-					failures: failures
-				};
+					// Presentation ordering: an awaiting-human decision is the one a reader came
+					// for, so it leads; superseded records sink. Nothing is filtered or changed.
+					decisions.sort(byDecisionPriority);
+					return {
+						decisions: decisions,
+						consents: consents,
+						specs: specs,
+						relations: relations,
+						lawsByDecision: lawsByDecision(specs),
+						decisionIds: decisionIds,
+						dirs: dirs,
+						projectName: projectNameOf(manifestResult.manifest, specs),
+						notes: notes,
+						failures: failures
+					};
+				});
 			}, function (error) {
-				return { decisions: [], consents: [], specs: [], relations: { approvedBy: {}, supersededBy: {} }, lawsByDecision: {}, decisionIds: {}, failures: ["the panel could not load: " + describeError(error)] };
+				return emptyPanel(["the panel could not load: " + describeError(error)], notes);
 			});
 		}
 		/** @returns the records ordered by id, then title. */
@@ -992,7 +1122,7 @@ window.__ModuleLoader__.load({
 					? React.createElement("div", { style: mutedStyle() }, "No checks declared.")
 					: React.createElement("div", { style: { marginTop: 4, display: "grid", gap: 2 } }, law.checks.map(function (check, index) {
 						return React.createElement("div", { key: String(index), style: { display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap" } },
-							pill(check.type, checkKind(check.type)),
+							pill(check.type === null || check.type === undefined || check.type === "" ? "unknown" : check.type, checkKind(check.type)),
 							mono(check.detail));
 					})));
 		}
@@ -1176,17 +1306,24 @@ window.__ModuleLoader__.load({
 			var onSelectAdr = props.onSelectAdr;
 			var counts = {};
 			var kinds = [];
+			var counted = 0;
 			for (var i = 0; i < spec.laws.length; i += 1) {
 				for (var j = 0; j < spec.laws[i].checks.length; j += 1) {
-					var type = spec.laws[i].checks[j].type;
+					var parsedType = spec.laws[i].checks[j].type;
+					var type = parsedType === null || parsedType === undefined || parsedType === "" ? "unknown" : parsedType;
 					if (counts[type] === undefined) {
 						counts[type] = 0;
 						kinds.push(type);
 					}
 					counts[type] += 1;
+					counted += 1;
 				}
 			}
 			kinds.sort();
+			// A parse gap must never render as an unlabelled segment: the bar is built from
+			// the same array as the chips, so if their total disagrees with what the spec
+			// document declares, say so rather than showing a bar that looks complete.
+			var histogramComplete = counted === spec.counts.checks;
 			return React.createElement("div", { style: cardStyle() },
 				React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" } },
 					React.createElement("span", { style: { fontWeight: 700 } }, spec.zone === null ? spec.name : spec.zone),
@@ -1207,6 +1344,7 @@ window.__ModuleLoader__.load({
 							style: { flex: counts[kind], height: "100%", background: tone(checkKind(kind)).fg }
 						});
 					}))),
+				histogramComplete ? null : React.createElement("div", { style: warnStyle() }, "The check histogram is incomplete: it counted " + counted + " of the " + spec.counts.checks + " checks this document declares, so at least one check could not be parsed."),
 				spec.laws.length === 0
 					? React.createElement("div", { style: mutedStyle() }, "No law blocks were found in this document.")
 					: React.createElement("div", { style: { marginTop: 6 } }, spec.laws.map(function (law) {
@@ -1255,7 +1393,7 @@ window.__ModuleLoader__.load({
 			var closePanel = props.closePanel;
 			var askAgent = props.askAgent;
 			var load = props.load;
-			var emptyView = { status: "idle", decisions: [], consents: [], specs: [], relations: { approvedBy: {}, supersededBy: {} }, lawsByDecision: {}, decisionIds: {}, failures: [] };
+			var emptyView = { status: "idle", decisions: [], consents: [], specs: [], relations: { approvedBy: {}, supersededBy: {} }, lawsByDecision: {}, decisionIds: {}, dirs: { decisionsDir: DEFAULT_DECISIONS_DIR, specsDir: DEFAULT_SPECS_DIR }, projectName: "this project", notes: [], failures: [] };
 			var view = React.useState(emptyView);
 			var current = view[0];
 			var setView = view[1];
@@ -1279,6 +1417,9 @@ window.__ModuleLoader__.load({
 						relations: result.relations === undefined ? emptyView.relations : result.relations,
 						lawsByDecision: result.lawsByDecision === undefined ? {} : result.lawsByDecision,
 						decisionIds: result.decisionIds === undefined ? {} : result.decisionIds,
+						dirs: result.dirs === undefined ? emptyView.dirs : result.dirs,
+						projectName: result.projectName === undefined ? "this project" : result.projectName,
+						notes: result.notes === undefined ? [] : result.notes,
 						failures: result.failures === undefined ? [] : result.failures
 					});
 				}, function (error) {
@@ -1319,7 +1460,10 @@ window.__ModuleLoader__.load({
 				React.createElement("div", { style: overlayWindowStyle(), role: "dialog", "aria-label": "Decisions and specs", onMouseDown: function (event) { event.stopPropagation(); } },
 					React.createElement("div", { style: overlayHeaderStyle() },
 						React.createElement("div", { style: { minWidth: 0 } },
-							React.createElement("div", { style: { fontSize: 14, fontWeight: 600 } }, "Decisions and specs"),
+							React.createElement("div", { style: { fontSize: 14, fontWeight: 600, display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" } },
+								current.projectName,
+								React.createElement("span", { style: { fontSize: 12, fontWeight: 400, opacity: 0.7 } }, "decisions and specs"),
+								chip("adr-panel " + PANEL_VERSION)),
 							React.createElement("div", { style: { fontSize: 11, opacity: 0.7, marginTop: 2 } },
 								state.sessionId === null ? "no Session bound — open this from a Session header" : "viewer only — the ratchet CLI (ratchet verify) is the authority on what is enforced; states here are read from the corpus files"),
 							React.createElement("div", { style: countsStyle() }, countsLine)),
@@ -1328,11 +1472,16 @@ window.__ModuleLoader__.load({
 							React.createElement("button", { type: "button", style: smallButtonStyle(), onClick: closePanel }, "Close"))),
 					React.createElement("div", { style: overlayBodyStyle() },
 						React.createElement(FailuresBlock, { failures: current.failures }),
+						current.notes !== undefined && current.notes.length > 0
+							? React.createElement("div", { style: warnStyle() }, current.notes.map(function (note, index) {
+								return React.createElement("div", { key: String(index) }, note);
+							}))
+							: null,
 						React.createElement(Legend, null),
 						React.createElement("div", null,
-							React.createElement("h3", { style: sectionHeadingStyle() }, "Decisions (docs/adrs/*.adr.md, type ≠ approval)"),
+							React.createElement("h3", { style: sectionHeadingStyle() }, "Decisions (" + current.dirs.decisionsDir + "/*.adr.md, type ≠ approval)"),
 							current.decisions.length === 0
-								? React.createElement("p", { style: mutedStyle() }, "No decision records were found, or none could be read.")
+								? React.createElement("p", { style: mutedStyle() }, "No decision files (*.adr.md) were found in " + current.dirs.decisionsDir + ", or none could be read.")
 								: React.createElement("div", { style: { display: "grid", gap: 8 } }, current.decisions.map(function (adr) {
 									return React.createElement(DecisionRow, {
 										key: adr.path,
@@ -1347,16 +1496,16 @@ window.__ModuleLoader__.load({
 									});
 								}))),
 						React.createElement("div", null,
-							React.createElement("h3", { style: sectionHeadingStyle() }, "Consents (type: approval)"),
+							React.createElement("h3", { style: sectionHeadingStyle() }, "Consents (" + current.dirs.decisionsDir + "/*.adr.md, type: approval)"),
 							current.consents.length === 0
-								? React.createElement("p", { style: mutedStyle() }, "No consent records were found, or none could be read.")
+								? React.createElement("p", { style: mutedStyle() }, "No consent records (*.adr.md) were found in " + current.dirs.decisionsDir + ".")
 								: React.createElement("div", { style: { display: "grid", gap: 8 } }, current.consents.map(function (adr) {
 									return React.createElement(ConsentRow, { key: adr.path, adr: adr });
 								}))),
 						React.createElement("div", null,
-							React.createElement("h3", { style: sectionHeadingStyle() }, "Specs (docs/specs/*.spec.md)"),
+							React.createElement("h3", { style: sectionHeadingStyle() }, "Specs (" + current.dirs.specsDir + "/*.spec.md)"),
 							current.specs.length === 0
-								? React.createElement("p", { style: mutedStyle() }, "No spec documents were found, or none could be read.")
+								? React.createElement("p", { style: mutedStyle() }, "No spec files (*.spec.md) were found in " + current.dirs.specsDir + ", or none could be read.")
 								: React.createElement("div", { style: { display: "grid", gap: 8 } }, current.specs.map(function (spec) {
 									return React.createElement(SpecView, { key: spec.path, spec: spec, decisionIds: current.decisionIds, onSelectAdr: onSelectAdr });
 								}))))));
