@@ -781,9 +781,10 @@ It is two seconds, it runs inside the gate, and it is named by ADR 0009's laws.
 Stated plainly, because a rule with no enforcement point is an unverified claim:
 
 - **The kit ratchets itself, and its gate passes.** `node plugins/ratchet/ratchet-cli.mjs
-  verify --root .` exits 0 over **19 laws in force** from eight decisions plus one approval,
-  running 21 declared checks — of which **18 are `command` checks that run 4 distinct
-  commands, 14 of them the same `node --test scripts/test-ratchet.mjs`**. That is worth
+  verify --root .` exits 0 over **19 laws in force** from eight decisions (0007 was
+  superseded by the human-ratified 0010) plus two approval records, running 20 declared
+  checks — of which **17 are `command` checks that run 4 distinct commands, 10 of them the
+  same `node --test scripts/test-ratchet.mjs`**. That is worth
   stating rather than counting as eighteen independent guarantees: the suite is one wide
   assertion set, so a law whose command is that suite is only as strong as the assertions
   inside it. What closed that gap is `scripts/check-gate-invariants.mjs`, which asserts the
@@ -803,14 +804,15 @@ Stated plainly, because a rule with no enforcement point is an unverified claim:
   agent editing both the module and the script that checks it still passes.** A
   self-verifying system has no external reference point; all this design buys is that the
   edit is two files, one of them named by a law, instead of one deleted test body.
-- **0001 and 0007 are law because a human ratified them, and 0002–0006 are not.** The two
-  records governing `shipped-plugins` (where the manifest gives agents `proposeOnly`) were
-  put into force by a human answering the quiz, and approval ADR 0008 records that consent
-  as one content hash per record; the boundary rule about where the harness may be imported
-  is therefore in force. **The other five decisions (0002–0006) are in force on an agent's
-  own say-so**, because they bind `kit-tooling`, a zone where the manifest lets an agent
-  activate its own record. That is the configured policy, not an accident, and it is the
-  honest reading of "seven decisions in force": five of them a human has never seen.
+- **0001 and 0010 are law because a human ratified them, and 0002–0006 and 0009 are not.**
+  The records governing `shipped-plugins` (where the manifest gives agents `proposeOnly`)
+  were put into force by a human answering the quiz: approval ADR 0008 records that consent
+  for 0001 and 0007, and approval ADR 0011 records it for 0010, which supersedes 0007. The
+  boundary rule about where the harness may be imported is therefore in force. **The other
+  six decisions (0002–0006 and 0009) are in force on an agent's own say-so**, because they
+  bind `kit-tooling`, a zone where the manifest lets an agent activate its own record. That
+  is the configured policy, not an accident, and it is the honest reading of "eight
+  decisions in force": six of them a human has never seen.
 - **A frontmatter word is the whole difference between a decision an agent may make and
   one it may not.** The compiler constrains records whose `authority` is `agent` and
   records whose `type` is `approval`; a record that declares `authority: human`
@@ -1085,11 +1087,12 @@ deleted:
 
 Still open:
 
-1. **The consent a human gave covers 0001 and 0007, and nothing else.** Approval 0008
-   put those two into force with one content hash each; 0002–0006 are in force because the
+1. **The consent a human gave covers 0001 and 0010, and nothing else.** Approval 0008
+   put 0001 and 0007 into force with one content hash each; approval 0011 did the same for
+   0010, which then superseded 0007. 0002–0006 and 0009 are in force because the
    `kit-tooling` zone lets an agent activate its own record, and no human has read them.
    Both states are the configured policy, and the difference is worth keeping visible
-   rather than describing seven decisions as collectively "approved".
+   rather than describing eight decisions as collectively "approved".
 2. **`specsRequired` defaults to false, so spec drift is only checked once a project has
    generated documents.** Deliberate and accepted — a gate that fails on day one for
    files a project never asked for is a gate people disable on day two — but it means a

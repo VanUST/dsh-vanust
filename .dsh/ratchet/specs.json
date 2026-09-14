@@ -131,15 +131,16 @@
         "shipped-plugins"
       ],
       "authority": "agent",
-      "sourceAdr": "0007",
-      "sourcePath": "docs/adrs/0007-consent-is-recorded.adr.md",
-      "approvedBy": "0008",
+      "sourceAdr": "0010",
+      "sourcePath": "docs/adrs/0010-enforce-the-consent-laws-behaviourally.adr.md",
+      "approvedBy": "0011",
       "checks": [
         {
           "type": "command",
-          "run": "node --test scripts/test-ratchet.mjs",
-          "expects": "the ratification tests pass, including the falsification that an edited record loses its force",
-          "outputContains": "fail 0"
+          "run": "node scripts/check-gate-invariants.mjs",
+          "expects": "an edited approved record is refused and its law leaves force",
+          "timeoutMs": 120000,
+          "outputContains": "gate invariants ok"
         }
       ],
       "unenforced": null
@@ -151,21 +152,16 @@
         "shipped-plugins"
       ],
       "authority": "agent",
-      "sourceAdr": "0007",
-      "sourcePath": "docs/adrs/0007-consent-is-recorded.adr.md",
-      "approvedBy": "0008",
+      "sourceAdr": "0010",
+      "sourcePath": "docs/adrs/0010-enforce-the-consent-laws-behaviourally.adr.md",
+      "approvedBy": "0011",
       "checks": [
         {
           "type": "command",
-          "run": "node --test scripts/test-ratchet.mjs",
-          "expects": "the test that the quiz carries the record's own text as the question detail",
-          "outputContains": "the quiz shows the record text itself"
-        },
-        {
-          "type": "command",
-          "run": "node --test scripts/test-ratchet.mjs",
-          "expects": "the test that a decision is derived from the selected label and from nothing else",
-          "outputContains": "derived from the selected label"
+          "run": "node scripts/check-gate-invariants.mjs",
+          "expects": "the question detail is the record's own text and only the approve label yields consent",
+          "timeoutMs": 120000,
+          "outputContains": "gate invariants ok"
         }
       ],
       "unenforced": null
@@ -249,9 +245,9 @@
         "shipped-plugins"
       ],
       "authority": "agent",
-      "sourceAdr": "0007",
-      "sourcePath": "docs/adrs/0007-consent-is-recorded.adr.md",
-      "approvedBy": "0008",
+      "sourceAdr": "0010",
+      "sourcePath": "docs/adrs/0010-enforce-the-consent-laws-behaviourally.adr.md",
+      "approvedBy": "0011",
       "checks": [
         {
           "type": "command",
@@ -369,15 +365,16 @@
         "shipped-plugins"
       ],
       "authority": "agent",
-      "sourceAdr": "0007",
-      "sourcePath": "docs/adrs/0007-consent-is-recorded.adr.md",
-      "approvedBy": "0008",
+      "sourceAdr": "0010",
+      "sourcePath": "docs/adrs/0010-enforce-the-consent-laws-behaviourally.adr.md",
+      "approvedBy": "0011",
       "checks": [
         {
           "type": "command",
-          "run": "node --test scripts/test-ratchet.mjs",
-          "expects": "the test that a silent law is LAW_UNCHECKED and a stated reason is accepted",
-          "outputContains": "fail 0"
+          "run": "node scripts/check-gate-invariants.mjs",
+          "expects": "a law with no check and no stated reason is reported as unenforced",
+          "timeoutMs": 120000,
+          "outputContains": "gate invariants ok"
         }
       ],
       "unenforced": null

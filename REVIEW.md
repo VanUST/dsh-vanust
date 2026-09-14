@@ -138,8 +138,9 @@ node plugins/ratchet/ratchet-cli.mjs falsify --root .  # the breaker: breaks, re
 node scripts/falsify-kit-gate.mjs         # the kit-specific breaker (6 cases, runs the gate per case)
 ```
 
-Expected: portability `14/14`; tests `263 pass / 0 fail`; gate `21 checks evaluated, 0
-pending, no problems`; falsify `3 detected, 0 missed, 3 skipped`; kit breaker `6/6`.
+Expected: portability `14/14`; gate invariants `16/16` plus `gate invariants ok`; tests
+`263 pass / 0 fail`; gate `20 checks evaluated, 0 pending, no problems`; falsify
+`3 detected, 0 missed, 3 skipped`; kit breaker `6/6`.
 `scripts/verify-upgrade.sh` is the full upgrade gate and additionally installs the
 tarballs into a throwaway profile, boots `dsh web` on port 3081 and probes the cost
 policy; it needs network for pnpm. The probes that run a model
@@ -152,18 +153,17 @@ report a pass. The gate is the CLI above; the tools are for an agent mid-session
 
 ## 6. Open items, stated plainly
 
-- **A conflict between two in-force decisions is being closed.** ADR 0009's law says an
+- **A conflict between two in-force decisions is closed.** ADR 0009's law says an
   enforcement point "never rests on a test name or on output a green run prints anyway",
-  while three laws from ADR 0007 (human-ratified) assert `outputContains: "fail 0"` or
-  test names. The kit's own dynamic review found this. Amendment **ADR 0010** is written
-  and `proposed` (`sha256:524d6d0a…`); it restates 0007's four laws and re-binds three to
-  `scripts/check-gate-invariants.mjs`, which now covers both missing claims as behavioural
-  invariants — editing an approved record voids its consent and the law leaves force; and
-  the question detail is the record's own file text with only the exact approve label
-  minting consent. Each was falsified in a scratch copy (a weakened production function
-  makes it exit non-zero), so neither is a marker that a green run prints anyway. **Until
-  a human ratifies 0010, those three laws are still weakly enforced**, and 0007 is not
-  edited — its consent record stays valid.
+  while three laws from ADR 0007 asserted `outputContains: "fail 0"` or test names. The
+  kit's own dynamic review found the contradiction. Amendment **ADR 0010** now supersedes
+  0007; a human ratified it through the user-questions quiz, and the approval is recorded
+  as ADR 0011 with its transcript. All four laws are restated unchanged and three are
+  re-bound to `scripts/check-gate-invariants.mjs`, which covers both missing claims as
+  behavioural invariants — editing an approved record voids its consent and the law leaves
+  force; and the question detail is the record's own file text with only the exact approve
+  label minting consent. Each was falsified in a scratch copy. 0007's file was not edited;
+  it is retired by supersession, so the consent 0008 recorded for it is not rewritten.
 - **`RATIFICATION_STALE` cannot verify who wrote a record**, only that the text still
   hashes to what a consent recorded. A forged ratification block is indistinguishable
   from a generated one; a hand-written `authority: human` self-activates. This is ADR
