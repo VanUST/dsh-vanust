@@ -93,7 +93,9 @@ summarised here because a reviewer will otherwise assume the conventional behavi
 
 ## 4. What this review cycle changed, and why
 
-Fifteen commits on `main`, in order:
+Nineteen commits on `main`. The substantive ones, in order — two further commits
+(`9b9acda`, `cc6c08e`) only re-record the ratchet's verification state and change no
+shipped artifact:
 
 1. `e613324` — cross-platform fixes and the contradiction resolution.
 2. `10bc046` — the project-agnostic breaker, plus a gate readiness bug.
@@ -125,6 +127,9 @@ Fifteen commits on `main`, in order:
 15. `547b7cb` — the bundle's header version pinned to the package's by that test (they
     had already drifted once), and the panel README's "not verified without a browser"
     list narrowed to the harness-runtime surface the test stubs; panel `0.1.6`.
+16. `115bcb6` — the last unenforced packaging rule closed: `tarball:matches-source`
+    fails when a packed file no longer matches the source it was packed from, which is
+    what a source edit without a repack leaves behind.
 
 Notable decisions that are **not** each an ADR:
 
@@ -162,7 +167,7 @@ node plugins/ratchet/ratchet-cli.mjs falsify --root .  # the breaker: breaks, re
 node scripts/falsify-kit-gate.mjs         # the kit-specific breaker (6 cases, runs the gate per case)
 ```
 
-Expected: portability `14/14`; tests `263 pass / 0 fail`; panel `adr panel render ok` with
+Expected: portability `15/15`; tests `263 pass / 0 fail`; panel `adr panel render ok` with
 `22/22` assertions; gate invariants `16/16` plus `gate invariants ok`; gate
 `20 checks evaluated, 0 pending, no problems`; falsify `3 detected, 0 missed, 3 skipped`;
 kit breaker `6/6`.
@@ -211,16 +216,22 @@ report a pass. The gate is the CLI above; the tools are for an agent mid-session
 - **A judge stopped with `stopReason: error` once** during a live `review_corpus` while
   its text was still parsed into validated findings. The findings were correct and were
   verified by hand; the stop reason itself is unexplained and worth a second run.
+- **The new source-versus-tarball check has two stated limits.** It compares dependency
+  NAMES but not their version ranges for a `snapshot` row, because the packer resolves
+  `workspace:` protocol ranges and there is nothing here to resolve them against; and its
+  ustar reader does not apply a PAX `path=` override, so such an entry would be reported
+  as packed-but-absent-from-source — a loud failure, never a silent pass.
 - **The harness is a release candidate** (0.1.5-rc.1). `COMPAT.md` is the watchlist of the
   twelve upstream touchpoints, with the grep that detects each; upgrades must go through
   `scripts/verify-upgrade.sh` before a live profile is touched.
 - **This machine's live profile is converged** on `main` (ratchet 0.2.8, kit-rules 0.1.1,
-  dsh-context 0.1.3, model-gate 0.1.5-rc.1, adr-panel 0.1.6) and the GUI was restarted, so
-  the ratchet tools, the `ratchet-judge` subagent and the ADR panel are live. The shipped
-  artifacts last changed at `547b7cb`; this brief is documentation and is not installed by
-  `kit-update.mjs`, so it stays out of the convergence comparison — which is by file hash,
-  never by git state. A reviewer on another machine gets that state with `./install.sh` or
-  `node scripts/kit-update.mjs --apply`.
+  dsh-context 0.1.3, model-gate 0.1.5-rc.1, adr-panel 0.1.6). The panel's client bundle is
+  revision-addressed, so a `dsh web` that was already running keeps serving the bundle it
+  loaded until it is restarted; the header chip naming the panel version is how that is
+  detected. The shipped artifacts last changed at `547b7cb`; this brief is documentation and
+  is not installed by `kit-update.mjs`, so it stays out of the convergence comparison —
+  which is by file hash, never by git state. A reviewer on another machine gets that state
+  with `./install.sh` or `node scripts/kit-update.mjs --apply`.
 
 ## 7. Suggested reading order
 
