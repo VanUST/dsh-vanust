@@ -129,7 +129,7 @@ window.__ModuleLoader__.load({
 		 * constant is the only way to tell a stale bundle from a bug: bump it with every
 		 * change to this file, and keep it equal to the package's version.
 		 */
-		const PANEL_VERSION = "0.1.5";
+		const PANEL_VERSION = "0.1.6";
 		/** The manifest a ratchet project declares its directories and name in. */
 		const MANIFEST_PATH = ".dsh/project.json";
 		/** Directories used when the manifest is absent, unparseable, or silent. */

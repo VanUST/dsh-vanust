@@ -288,6 +288,15 @@ claim(
   JSON.stringify(headings) === JSON.stringify(['Decisions', 'Consents', 'Specs']),
   JSON.stringify(headings),
 )
+// The header chip is the only way a reader tells a stale client bundle from a bug, so
+// it must name the version the package actually declares — a hand-maintained constant
+// next to a versioned manifest drifts silently otherwise.
+const packageVersion = JSON.parse(readFileSync(join(KIT, 'plugins', 'dsh-adr-panel', 'package.json'), 'utf8')).version
+claim(
+  'the window header names the bundle version the package declares',
+  texts.includes(`adr-panel ${packageVersion}`),
+  `package=${packageVersion}; header chips=${JSON.stringify(texts.filter((text) => /^adr-panel /.test(text)))}`,
+)
 claim(
   'no glob pattern leaks into the chrome',
   !texts.some((text) => /\*\.(adr|spec)\.md/.test(text)),

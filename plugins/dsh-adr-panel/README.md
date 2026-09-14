@@ -42,6 +42,13 @@ no file and calls no mutating method.
 
 ## What is NOT verified without a browser
 
+Rendering is no longer on this list: `scripts/test-adr-panel.mjs` executes the shipped
+bundle offline — a stub module loader, a minimal React, `apply` driven with a fake client
+context — and asserts the rendered tree (the three sections, filled states, outlined
+provenance, the state tones, the `decided in` chip). What that cannot reach is the
+harness-runtime surface below: it stubs the loader and the injected services, so it
+measures what the bundle does with them, not whether the running shell supplies them.
+
 - That the module loader resolves `require("react")` for a dynamically installed
   tarball plugin. The shipped bundles use `require("react/jsx-runtime")`; `react`
   itself should resolve, but it was not exercised in a browser.
