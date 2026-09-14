@@ -127,6 +127,12 @@
       "path": "scripts/check-gate-invariants.mjs"
     },
     {
+      "id": "falsify",
+      "command": "node plugins/ratchet/ratchet-cli.mjs falsify --root .",
+      "purpose": "the project-agnostic breaker: break one generic invariant at a time, require the gate to fail, and restore every mutation; writes only inside the declared scopes",
+      "path": "plugins/ratchet/ratchet-cli.mjs"
+    },
+    {
       "id": "falsify-gate",
       "command": "node scripts/falsify-kit-gate.mjs",
       "purpose": "the breaker at release-gate scope: break one kit invariant at a time and require the real gate to fail, six cases, each verified to have broken something first (~5 minutes)",

@@ -33,6 +33,7 @@ against its own decisions.
 | `plugins/model-gate/` | **read-only source snapshot** of `@deepseek-ai/dsh-model-gate`, copied from the harness checkout and pinned by its `SOURCE-NOTICE.md`. Read-only in the strict sense: nothing here ships, the tarball is built by `scripts/rebuild-plugins.sh` in the harness checkout, and an edit here is overwritten by the next rebuild | a harness upgrade moves the pinned ref (then re-copy the snapshot and update the notice) |
 | `plugins/kit-rules/` | source of `@cc/dsh-kit-rules`: contributes `$DSH_HOME/AGENTS.md` to the system prompt as a binding section, re-read per prompt assembly | the rules must reach the prompt differently (framing, precedence, source) |
 | `plugins/ratchet/` | source of `@cc/dsh-ratchet`: the Ratchet v2 static layer (ADR schema, law compiler, deterministic verifier, state/reports/ledger, bootstrap, the `requiresDecisionRecord` guard) plus the dynamic layer (review, grilling agenda, ingestion) plus **ratification** (the human quiz, the transcription of its answer, and the hash-bound approval it writes) and the `ratchet` CLI. **Shipped since 2026-09-14: tarball `plugins/cc-dsh-ratchet-*.tgz` and a `ratchet` row in `profile/cordis.patch.yml`** | any ratchet behaviour changes (bump the version, repack, reinstall) |
+| `plugins/ratchet/ratchet-falsify.mjs` | the **project-agnostic breaker**: `ratchet falsify --root <project>` breaks one generic invariant at a time (a hand-written approval, a law with no check, and the four file/text check kinds), runs the real verifier, and requires the expected problem code. It writes only inside the project's declared scopes plus the ratchet's own record dirs, reports an out-of-scope target without touching it, restores every mutation and the persisted verdict, handles SIGINT/SIGTERM so a killed run restores the mutation in flight, and reports a check that cannot fail as `missed`. Exit 0 all detected, 1 any missed or errored, 2 unusable | a generic invariant or check kind is added, or the scoping model changes |
 | `plugins/dsh-context/` | source of `@cc/dsh-context`, **reconstructed from the shipped tarball** — the owning project is not on this machine and the package is not on npm. Read its `SOURCE-NOTICE.md` before editing; if the owning project becomes reachable, it owns this package again | a change to the context plugin (then `node scripts/pack-plugin.mjs --dir plugins/dsh-context`) |
 | `scripts/pack-plugin.mjs` | the repack step for any in-repo plugin: derives the tarball prefix from the package name, bumps the patch version, packs, removes every other tarball for the package, prints the sha256. Refuses to overwrite an existing version, because pnpm serves an unchanged filename from the lockfile. `--dir plugins/<name>` selects the plugin; `--dry-run` reports without writing | the packing rule changes |
 | `scripts/test-ratchet.mjs` | the ratchet's tests: schema, compiler, verifier, state, bootstrap, dynamic prompts, grilling agendas, ingestion, derived checks, **ratification and its falsifications**, verdict breaker regressions, verdict validation, tool declarations, and the gate's exit codes. Needs no RUNNING harness, no credentials and no model — but the tool-surface tests import `@deepseek-ai/dsh-tools`, so the checkout must be linked (`node scripts/dev-link.mjs`); without it the suite fails with one line naming that command rather than a module-not-found stack | any ratchet behaviour changes |
@@ -106,8 +107,9 @@ against its own decisions.
    installed under an unchanged version) produces a boot that looks healthy.
 9. **A gate is real only where a command fails.** Before claiming the ratchet
    (or anything else in this kit) enforces a rule, name the command that exits
-   non-zero when the rule is broken. `node --test scripts/test-ratchet.mjs` and
-   `node plugins/ratchet/ratchet-cli.mjs verify` are the current answers for the
+   non-zero when the rule is broken. `node --test scripts/test-ratchet.mjs`,
+   `node plugins/ratchet/ratchet-cli.mjs verify` and
+   `node plugins/ratchet/ratchet-cli.mjs falsify` are the current answers for the
    ratchet; where there is no such command, the rule is an unverified claim and
    `docs/RATCHET-V2-DESIGN.md` §6.4 lists it as one.
 10. **`plugins/dsh-context/` is a reconstruction, not the owning project's
@@ -154,6 +156,11 @@ against its own decisions.
   (`cd $DSH_HOME/profiles/web && corepack pnpm add <kit>/plugins/*.tgz`) → restart
   `dsh web` → commit the new tarballs. `plugins/inventory.json` names each plugin's
   packing entry point.
+- **Falsify a project's laws:** `node plugins/ratchet/ratchet-cli.mjs falsify --root <project>`
+  breaks one generic invariant at a time and requires the gate to fail, then restores
+  every mutation and the persisted verdict. It writes only inside the project's declared
+  scopes; an out-of-scope target is reported, not touched. Minutes rather than seconds,
+  because every applicable case runs the real gate.
 - **Upgrade the harness:** follow COMPAT.md §2 (snapshot → candidate →
   rebuild → greps → gate → roll).
 - **New machine:** clone → `./install.sh` (or `install.ps1`) → `./start.sh`

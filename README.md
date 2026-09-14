@@ -131,6 +131,26 @@ the next request, without a restart, which is the hot reload worth keeping.
 facts belong in `.dsh/project.json` and the `context_*` tools, where they are declared, checkable and
 carry the command that proves them — not in prose that competes with the deployment's rules.
 
+**Reviewing this kit.** The reviewable units, and where they are:
+
+- **Plugin source** — `plugins/ratchet/`, `plugins/kit-rules/`, and the reconstructed
+  `plugins/dsh-context/`; `plugins/model-gate/` is a read-only upstream snapshot. Each
+  package whose owning project is not this repository carries a `SOURCE-NOTICE.md` that
+  states exactly what it is and is not. `plugins/inventory.json` is the set.
+- **Decisions** — `docs/adrs/*.adr.md`, each citing its reasoning in
+  `docs/ratchet/sources/` whose sha256 the ratchet verifies; the consent that put a
+  decision into force is an approval record bound to a content hash.
+- **Design rationale** — `docs/RATCHET-V2-DESIGN.md` (living contracts),
+  `docs/RATCHET-DESIGN.md` (the superseded brief whose defects motivated the rewrite) and
+  `docs/RATCHET-API-FACTS.md` (harness facts measured by `scripts/probe-dsh-api.mjs`).
+- **Enforcement** — `node scripts/check-portability.mjs` (platform + packaging + plugin
+  inventory), `node --test scripts/test-ratchet.mjs`, the gate itself
+  (`node plugins/ratchet/ratchet-cli.mjs verify --root .`), and the breaker
+  (`node plugins/ratchet/ratchet-cli.mjs falsify --root .`), which breaks one generic
+  invariant at a time and requires the gate to fail. The last three need the one-time
+  `node scripts/dev-link.mjs`. `rules/DEPLOYMENT.md` §4 is the same list with the exit
+  codes.
+
 **Upgrades:** the harness is pre-1.0 and breaking changes are policy. Always
 go through the gate: `npm i -g @deepseek-ai/dsh@<candidate>` →
 `./scripts/rebuild-plugins.sh` → `./scripts/verify-upgrade.sh` → only then

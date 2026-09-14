@@ -750,6 +750,20 @@ verification pays for. Running it leaves the recorded verification pointing at t
 last mutated law set — the laws on disk really did change while it ran — so `status`
 reports `VERIFY_NOT_RUN` afterwards until the gate is run again.
 
+`ratchet falsify` is that same experiment made project-agnostic, so a project other
+than this kit can run one. It reads the manifest's declared scopes, the ratchet zones,
+and the ratchet's own record directories, then constructs each mutation from the laws
+the project actually has. A target outside that set is reported and skipped rather
+than written, because breaking something out of context is always possible and proves
+nothing. There are six generic cases — a hand-written approval, a law with no check,
+and the four file and text check kinds — and a check that cannot fail is reported
+`missed`, not counted as a pass. Every mutation is restored in a `finally`, the
+persisted verification state is snapshotted and restored so a run leaves no verdict
+behind, and a signal restores the mutation in flight: a breaker that leaves a project
+broken is worse than no breaker at all. `SIGKILL` cannot be caught, so a run must be
+allowed to finish. Exit codes: `0` every applicable case detected, `1` any missed or
+errored, `2` the project is unusable.
+
 `scripts/check-gate-invariants.mjs` is the cheap half, and it exists because of a
 measured attack on the expensive one. A law enforced by `node --test …` plus
 `outputContains: "fail 0"` was satisfied by a GREEN RUN of a suite whose covering test

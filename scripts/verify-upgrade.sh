@@ -121,16 +121,24 @@ echo "   booting throwaway instance on :${PORT}..."
 DSH_HOME="${TEST_HOME}" dsh web --port "${PORT}" --no-open >"${TEST_ROOT}/web.log" 2>&1 &
 GATE_PID=$!
 
-for i in $(seq 1 45); do
-  curl -s -o /dev/null "http://127.0.0.1:${PORT}/" 2>/dev/null && break
-  sleep 2
+# 0.1.5+ fences the browser UI behind a login token printed on the boot line, so the
+# token IS the readiness signal: the port accepts connections before that line is
+# written, and reading the log once — right after a successful curl — produced an empty
+# TOKEN and, under `set -e` with `pipefail`, a silent abort with no `[FAIL]` line. Poll
+# for the token line itself, bounded, and let a missing one reach the probe as a failure.
+TOKEN=""
+for i in $(seq 1 60); do
+  TOKEN="$(grep -oE 'token=[A-Za-z0-9_-]+' "${TEST_ROOT}/web.log" 2>/dev/null | head -1 | cut -d= -f2 || true)"
+  if [ -n "${TOKEN}" ]; then break; fi
   if ! kill -0 "${GATE_PID}" 2>/dev/null; then
     echo "   [FAIL] instance exited during boot (see ${TEST_ROOT}/web.log)"
     exit 1
   fi
+  sleep 1
 done
-# 0.1.5+ fences the browser UI behind a login token printed on the boot line.
-TOKEN="$(grep -oE 'token=[A-Za-z0-9_-]+' "${TEST_ROOT}/web.log" | head -1 | cut -d= -f2)"
+if [ -z "${TOKEN}" ]; then
+  echo "   [FAIL] no boot token appeared in ${TEST_ROOT}/web.log within 60s"
+fi
 probe "web boot serves the app (token)" \
   "[ -n '${TOKEN}' ] && curl -sf 'http://127.0.0.1:${PORT}/?token=${TOKEN}' -o /dev/null"
 kill "${GATE_PID}" 2>/dev/null || true

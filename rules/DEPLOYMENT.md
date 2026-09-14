@@ -74,11 +74,19 @@ node "$KIT/scripts/dev-link.mjs"                    # once per clone; install.sh
 node --test "$KIT/scripts/test-ratchet.mjs"         # the ratchet's full suite
 node "$KIT/scripts/check-portability.mjs"           # platform assumptions + packaging
 node "$KIT/plugins/ratchet/ratchet-cli.mjs" verify --root "$KIT"   # the kit's own gate
+node "$KIT/plugins/ratchet/ratchet-cli.mjs" falsify --root "$KIT"  # break the gate, require it to fail
 ```
 
 `verify` exit codes: `0` every law held, `1` a check failed, `2` the project or its
 decisions are unusable so nothing was checked, `3` a usage error. A verification that
 could not evaluate every check is a failure, not a pass.
+
+`falsify` is the breaker and its exit codes are its own: `0` every applicable case was
+detected, `1` a case was missed (a check that cannot fail), `2` the project is unusable.
+It mutates the project and restores everything it touched, including the persisted
+verdict, and writes only inside the scopes the manifest declares. It takes minutes,
+because every case runs the real gate, so give it time to finish: `SIGKILL` cannot be
+caught and would leave a mutation behind.
 
 ## 5. Rules you must not break while operating this
 

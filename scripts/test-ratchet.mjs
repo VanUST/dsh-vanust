@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -16,6 +16,7 @@ const dynamic = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-dyna
 const state = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-state.mjs`)
 const ratifyModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-ratify.mjs`)
 const ratchetBootstrap = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-bootstrap.mjs`)
+const falsifyModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-falsify.mjs`)
 
 // The harness adapter is loaded LAZILY and by hand, because it is the one module here
 // that imports a package the repository does not carry: `@deepseek-ai/dsh-tools`. A
@@ -4965,4 +4966,170 @@ test('ratify: the transcript records the hash the question offered, and the aske
     approval.includes('askedBy: session-abc123'),
     'an id that already carries the session prefix is not prefixed twice',
   )
+})
+
+// ---------------------------------------------------------------------------
+// The breaker: `falsify` is project-agnostic and restores everything it breaks
+// ---------------------------------------------------------------------------
+
+/** A fixture whose only law is a required_file check over a file that exists. */
+function falsifiableProject(name, { zones = undefined, requiredFile = 'src/auth/keep.ts' } = {}) {
+  return makeProject({
+    name,
+    zones,
+    adrs: {
+      '0001-keep-the-file.adr.md': adrText({
+        id: '0001',
+        title: 'Keep the file',
+        laws: [
+          {
+            id: 'auth.keep-the-file',
+            statement: 'The keep file must exist.',
+            checks: [{ type: 'required_file', path: requiredFile }],
+          },
+        ],
+      }),
+    },
+    files: { [requiredFile]: 'export const keep = 1\n' },
+  })
+}
+
+/** Reads every file under a root into a Map, for a byte-for-byte comparison. */
+function snapshotTree(root) {
+  const map = new Map()
+  for (const relative of verifier.listFiles(root)) map.set(relative, readFileSync(join(root, relative)))
+  return map
+}
+
+test('falsify: a breakable case is DETECTED on a fixture project', async () => {
+  const root = falsifiableProject('falsify-detected')
+  const result = await falsifyModule.falsify({ root })
+  const required = result.cases.find((entry) => entry.id === 'required-file-missing')
+  assert.equal(required.status, 'detected', 'removing a required file must make the gate report it')
+  assert.equal(required.expectedCode, 'CODE_REQUIRED_FILE_MISSING')
+  assert.ok(required.observedCodes.includes('CODE_REQUIRED_FILE_MISSING'))
+  assert.equal(result.ok, true, `unexpected non-detected cases: ${JSON.stringify(result.cases)}`)
+})
+
+test('falsify: a case whose check cannot fail is reported MISSED, never silently green', async () => {
+  const root = falsifiableProject('falsify-missed')
+  // A verifier that reports nothing stands in for a gate that fails to detect the
+  // mutation. If falsify called that a pass it would be the very failure it exists
+  // to catch, so the case must come back `missed` and the overall run must not be ok.
+  const result = await falsifyModule.falsify({ root, verifyImpl: async () => ({ ok: true, problems: [] }) })
+  const required = result.cases.find((entry) => entry.id === 'required-file-missing')
+  assert.equal(required.status, 'missed')
+  assert.equal(result.ok, false, 'a missed case is not a pass')
+  assert.ok(result.counts.missed >= 1)
+})
+
+test('falsify: an out-of-scope target is reported and never written', async () => {
+  // The only writable zone is src/auth/**, so a law naming outside/ is out of scope
+  // even though the file exists. Breaking it would prove nothing about the project's
+  // declared scope, so the breaker must refuse and leave the file untouched.
+  const root = falsifiableProject('falsify-out-of-scope', {
+    zones: [{ id: 'auth', paths: ['src/auth/**'], agentAuthority: 'humanOnly', requiresDecisionRecord: true }],
+    requiredFile: 'outside/keep.ts',
+  })
+  const before = readFileSync(join(root, 'outside/keep.ts'))
+  const result = await falsifyModule.falsify({ root })
+  const required = result.cases.find((entry) => entry.id === 'required-file-missing')
+  assert.equal(required.status, 'out-of-scope', JSON.stringify(required))
+  assert.ok(
+    readFileSync(join(root, 'outside/keep.ts')).equals(before),
+    'an out-of-scope target must be byte-identical after the run',
+  )
+})
+
+test('falsify: a full run restores every mutated file and the persisted state', async () => {
+  const root = falsifiableProject('falsify-restores')
+  const before = snapshotTree(root)
+  assert.equal(existsSync(join(root, '.dsh', 'ratchet', 'state.json')), false, 'fixture starts unverified')
+
+  const result = await falsifyModule.falsify({ root })
+  assert.ok(result.counts.detected >= 1, 'the fixture has at least one breakable case')
+
+  const after = snapshotTree(root)
+  assert.deepEqual([...after.keys()].sort(), [...before.keys()].sort(), 'the file set changed')
+  for (const [relative, bytes] of before) {
+    assert.ok(bytes.equals(after.get(relative)), `${relative} was not restored byte-for-byte`)
+  }
+  assert.equal(existsSync(join(root, '.dsh', 'ratchet', 'state.json')), false, 'state.json must be restored')
+  assert.equal(existsSync(join(root, '.dsh', 'ratchet', 'ledger.jsonl')), false, 'the ledger must be restored')
+})
+
+test('falsify: a project with no manifest is unusable, not a green run', async () => {
+  const root = join(tmpdir(), `ratchet-test-falsify-unusable-${Math.random().toString(36).slice(2, 8)}`)
+  rmSync(root, { recursive: true, force: true })
+  mkdirSync(root, { recursive: true })
+  const result = await falsifyModule.falsify({ root })
+  assert.equal(result.unusable, true)
+  assert.equal(result.ok, false)
+  assert.equal(result.cases.length, 0)
+  assert.equal(result.problems[0].code, 'MANIFEST_MISSING')
+})
+
+test('falsify: SIGTERM mid-run restores the in-flight mutation and the persisted state', async () => {
+  // `finally` does not run on an unhandled signal, so a killed run used to leave the
+  // 9001 ADR behind and the ledger modified. The command check sleeps, which keeps the
+  // run inside a mutated case long enough for the signal to land; the mutation file is
+  // awaited rather than timed, so the test never races a finished run.
+  const root = makeProject({
+    name: 'falsify-signal',
+    adrs: {
+      '0001-slow-gate.adr.md': adrText({
+        id: '0001',
+        title: 'Slow gate',
+        laws: [
+          {
+            id: 'auth.slow-gate',
+            statement: 'The keep file must exist, and the check is slow.',
+            checks: [
+              { type: 'required_file', path: 'src/auth/keep.ts' },
+              { type: 'command', run: 'node -e "setTimeout(()=>{}, 30000)"', timeoutMs: 60000 },
+            ],
+          },
+        ],
+      }),
+    },
+    files: { 'src/auth/keep.ts': 'export const keep = 1\n' },
+  })
+  const before = snapshotTree(root)
+  const adrDir = join(root, 'docs', 'adrs')
+  const child = spawn(process.execPath, [CLI, 'falsify', '--root', root], { stdio: 'ignore' })
+
+  let mutated = false
+  const deadline = Date.now() + 30_000
+  while (Date.now() < deadline) {
+    // Case 1 (the approval ADR) fails at the compile stage, so it finishes before the
+    // slow command runs. Case 2 adds an active law with no check, which compiles, so its
+    // `9002` record is the mutation held in flight by the sleeping command check.
+    if (existsSync(adrDir) && readdirSync(adrDir).some((name) => /^900\d-/.test(name))) {
+      mutated = true
+      break
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, 50))
+  }
+  assert.ok(mutated, 'the run never reached a mutation, so the test would race a finished run')
+
+  child.kill('SIGTERM')
+  const exit = await new Promise((resolveExit) => {
+    child.once('exit', (code, signal) => resolveExit({ code, signal }))
+  })
+  assert.ok(
+    exit.code === 143 || exit.signal === 'SIGTERM',
+    `the child was not terminated by the signal: ${JSON.stringify(exit)}`,
+  )
+
+  const after = snapshotTree(root)
+  assert.deepEqual([...after.keys()].sort(), [...before.keys()].sort(), 'the file set changed')
+  for (const [relative, bytes] of before) {
+    assert.ok(bytes.equals(after.get(relative)), `${relative} was not restored after the signal`)
+  }
+  assert.ok(
+    !readdirSync(adrDir).some((name) => name.startsWith('900')),
+    'a falsification ADR was left behind by the killed run',
+  )
+  assert.equal(existsSync(join(root, '.dsh', 'ratchet', 'state.json')), false, 'state.json must be restored')
+  assert.equal(existsSync(join(root, '.dsh', 'ratchet', 'ledger.jsonl')), false, 'the ledger must be restored')
 })

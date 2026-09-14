@@ -23,6 +23,8 @@
  *     bootstrap [--apply]    preview (default) or create the manifest and skeleton
  *     hash <file>            print the sha256:<hex> a source file hashes to
  *     check                  `verify` with machine-readable output for CI
+ *     falsify                break one generic invariant at a time and require the
+ *                            gate to fail (project-agnostic; mutates and restores)
  *   Options: `--root <dir>` (default: search upward from the working directory),
  *   `--json` (machine-readable result on stdout), `--quiet` (problems only).
  *   Exit codes: 0 ok, 1 the ratchet ran and reported problems, 2 the project or
@@ -52,6 +54,7 @@ import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { UNUSABLE_PROBLEM_CODES, hashSource } from './ratchet-schema.mjs'
 import { REVIEW_JOBS } from './ratchet-dynamic.mjs'
+import { falsify } from './ratchet-falsify.mjs'
 import {
   EXIT,
   bootstrap,
@@ -81,6 +84,7 @@ Commands:
   pending             list the decisions waiting for a human ratification
   review              build an advisory review prompt or grilling agenda
   ingest <source>     turn a raw source into a PROPOSED ADR (advisory)
+  falsify             break one generic invariant at a time and require the gate to fail
   hash <file>         print the sha256 of a decision source file
 
 Options:
@@ -99,6 +103,9 @@ Exit codes:
   2  the project or its decisions are unusable, so nothing was checked
   3  usage error
 
+\`falsify\` uses 0 when every applicable case was detected, 1 when any case was missed
+or errored, and 2 when the project is unusable.
+
 \`review\` always exits 0. Its answer comes from a model, so it is advisory by
 construction: a non-deterministic check that can fail a build is one people learn
 to re-run until it passes. The static gate is \`verify\`.
@@ -112,7 +119,7 @@ to re-run until it passes. The static gate is \`verify\`.
  *   first thing that could not be parsed.
  */
 export function parseArgs(argv) {
-  const commands = new Set(['status', 'compile', 'verify', 'check', 'bootstrap', 'pending', 'review', 'ingest', 'hash', 'help'])
+  const commands = new Set(['status', 'compile', 'verify', 'check', 'bootstrap', 'pending', 'review', 'ingest', 'falsify', 'hash', 'help'])
   const options = {
     root: null,
     json: false,
@@ -301,6 +308,12 @@ export async function run(argv) {
       spawnJudge: null,
       write: options.write,
     })
+  } else if (command === 'falsify') {
+    // The breaker: it mutates the project, runs the real verifier, and restores every
+    // mutation. It is deterministic and needs no model — the counterexample is the
+    // output, not a verdict. `handleSignals` is set because the CLI owns this process:
+    // a SIGTERM must restore the mutation in flight before exiting.
+    result = await falsify({ root, runCommand, handleSignals: true })
   } else {
     process.stderr.write(`ratchet: unknown command ${JSON.stringify(command)}\n\n${USAGE}`)
     return 3
@@ -434,6 +447,26 @@ export async function run(argv) {
       }
       process.stdout.write('  advisory: this never changes the exit code; `verify` is the gate\n')
     }
+    if (command === 'falsify') {
+      if (result.unusable === true) {
+        process.stdout.write('  NOT RUN — the project is unusable, so no case was attempted\n')
+        for (const entry of result.problems ?? []) process.stdout.write(`  ${entry.code}: ${entry.message}\n`)
+      } else {
+        for (const entry of result.cases) {
+          process.stdout.write(
+            `  [${entry.status}] ${entry.id}${entry.target === null || entry.target === undefined ? '' : ` -> ${entry.target}`}\n`,
+          )
+          if (entry.detail !== null && entry.detail !== undefined) process.stdout.write(`         ${entry.detail}\n`)
+          if (entry.observedCodes.length > 0) {
+            process.stdout.write(`         observed: ${entry.observedCodes.join(', ')}\n`)
+          }
+        }
+        process.stdout.write(
+          `  ${result.counts.detected} detected, ${result.counts.missed} missed, ${result.counts.skipped} skipped, ` +
+            `${result.counts['out-of-scope']} out-of-scope, ${result.counts.error} error\n`,
+        )
+      }
+    }
     if (result.reports !== undefined && result.ok) {
       process.stdout.write(`  evidence: ${Object.values(result.reports).join(', ')}\n`)
     }
@@ -450,6 +483,13 @@ export async function run(argv) {
   if (command === 'review' || command === 'ingest') {
     const unusable = (result.problems ?? []).some((entry) => UNUSABLE_PROBLEM_CODES.includes(entry.code))
     return unusable ? EXIT.CONFIG : exitCodeForReview()
+  }
+  // Falsify has its own three-way contract: every applicable case detected is a pass,
+  // any missed (or errored) case is a failure, and a project that cannot be falsified
+  // at all is a configuration error rather than a red gate.
+  if (command === 'falsify') {
+    if (result.unusable === true) return EXIT.CONFIG
+    return result.ok === true ? EXIT.OK : EXIT.PROBLEMS
   }
   return exitCodeFor(result)
 }
