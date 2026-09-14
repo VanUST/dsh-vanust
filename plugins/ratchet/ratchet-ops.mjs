@@ -20,10 +20,10 @@
  * from a stack trace.
  */
 import { execFile as execFileCallback } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { promisify } from 'node:util'
 import { dirname, join, resolve } from 'node:path'
-import { MANIFEST_PATH, PROBLEM_CODES, UNUSABLE_PROBLEM_CODES, hashSource, parseAdr, problem } from './ratchet-schema.mjs'
+import { MANIFEST_PATH, PROBLEM_CODES, UNUSABLE_PROBLEM_CODES, hashSource, normaliseText, parseAdr, problem } from './ratchet-schema.mjs'
 import {
   compileProject,
   comparePersistedBundle,
@@ -185,8 +185,18 @@ function vcsRevisionFor(root) {
     const head = normaliseText(readFileSync(join(root, '.git', 'HEAD'), 'utf8')).trim()
     const match = /^ref:\s*(.+)$/.exec(head)
     if (match === null) return head.length > 0 ? head.slice(0, 12) : null
-    const ref = normaliseText(readFileSync(join(root, '.git', match[1]), 'utf8')).trim()
-    return ref.length > 0 ? ref.slice(0, 12) : null
+    const ref = match[1].trim()
+    try {
+      const loose = normaliseText(readFileSync(join(root, '.git', ref), 'utf8')).trim()
+      return loose.length > 0 ? loose.slice(0, 12) : null
+    } catch {
+      // A `git gc` packs refs and deletes `.git/refs/heads/<branch>`, so a healthy
+      // repository has no loose ref to read and used to report "no VCS revision".
+      const packed = normaliseText(readFileSync(join(root, '.git', 'packed-refs'), 'utf8'))
+      const line = packed.split('\n').find((entry) => entry.endsWith(` ${ref}`))
+      const sha = line === undefined ? null : line.trim().split(/\s+/)[0]
+      return sha !== null && /^[0-9a-f]{7,40}$/.test(sha) ? sha.slice(0, 12) : null
+    }
   } catch {
     return null
   }
@@ -267,6 +277,19 @@ export function status(root) {
   // caller at all. A history with silent gaps is worse than one that says it has gaps:
   // "the ledger shows no violation" means nothing if two lines were dropped.
   const ledger = state.readLedger(root)
+  // A ledger that cannot be READ is the same silence as one that cannot be parsed: the
+  // error branch was returned and dropped, so a ledger path replaced by a directory
+  // raised nothing at all.
+  if (ledger.error !== undefined) {
+    problems.push(
+      problem(
+        'LEDGER_DAMAGED',
+        `${STATE_PATHS.ledger} could not be read (${ledger.error}), so this project's history is unavailable: treat the absence of a recorded violation as unknown rather than as none`,
+        null,
+        { error: ledger.error },
+      ),
+    )
+  }
   if ((ledger.skipped ?? 0) > 0) {
     problems.push(
       problem(
@@ -430,9 +453,26 @@ export function compile({ root, write = false } = {}) {
 
   // The spec documents are written BEFORE drift is measured, so the drift describes the
   // tree the caller now has: a first `--write` run used to report every document as
-  // missing and fail while creating exactly the files it complained about.
-  const specWrite =
-    write && compiled.bundle !== null ? writeSpecDocuments(root, rendered.files) : { written: [] }
+  // missing and fail while creating exactly the files it complained about. A write that
+  // FAILS is a result, not an exception: the same containment `verify` needs applies
+  // here, because an unhandled EPERM exited 1 — the code that means "ran and found
+  // problems" — left no ledger line, and left the previous report standing.
+  let specWrite = { written: [] }
+  const writeProblems = []
+  if (write && compiled.bundle !== null) {
+    try {
+      specWrite = writeSpecDocuments(root, rendered.files)
+    } catch (error) {
+      writeProblems.push(
+        problem(
+          'ARTIFACT_WRITE_FAILED',
+          `this compile could not write its generated spec documents (${String(error)}), so the documents on disk are from an earlier run and this one left no record of them`,
+          null,
+          { wrote: false },
+        ),
+      )
+    }
+  }
 
   const config = readManifest(root).config
   const tracksSpecs = state.tracksSpecDocuments(root, config?.specsDir, config?.specsRequired)
@@ -441,6 +481,7 @@ export function compile({ root, write = false } = {}) {
     ...compiled.problems,
     ...removalProblems,
     ...specDriftProblems(reportedSpecDrift(tracksSpecs, drift)),
+    ...writeProblems,
   ]
 
   // Persisted AFTER the drift is known, and with the FULL problem list. It used to be
@@ -567,9 +608,13 @@ export async function verify({ root, runCommand = null } = {}) {
       lawIds: removalProblems.length === 0 ? (compiled.bundle?.laws ?? []).map((law) => law.id) : null,
     })
   } catch (error) {
+    // Whether the per-run report reached disk before the state write failed decides what
+    // the reader should be told: the report exists but is a green verdict for a run the
+    // CLI calls "unusable", so the message must not claim the output is the only record.
+    const reportWroteOnDisk = existsSync(join(root, STATE_PATHS.verifyReport))
     const failure = problem(
       'ARTIFACT_WRITE_FAILED',
-      `this verification ran and evaluated ${report.counts.checksEvaluated} check(s), but its report and state could not be written (${String(error)}), so nothing durable records the result. The verdict is in the output above and nowhere else; make ${STATE_PATHS.verifyReport} writable and run the gate again`,
+      `this verification ran and evaluated ${report.counts.checksEvaluated} check(s), but its report and state could not be written (${String(error)}), so this run left no durable verdict${reportWroteOnDisk ? `; the report on disk is the one written moments before the failure, and it does NOT contain this problem — read the run's output, not that file` : ''}`,
       null,
       { counts: report.counts, wrote: false },
     )
@@ -577,6 +622,22 @@ export async function verify({ root, runCommand = null } = {}) {
     report.problems = problems
     report.counts = { ...report.counts, errors: problems.length }
     appendLedger(root, 'ratchet.verify.write-failed', { error: String(error).slice(0, 300), checksEvaluated: report.counts.checksEvaluated })
+  }
+
+  // A ledger that cannot be appended to loses the audit line, and the module reports it
+  // on stderr rather than failing the operation. That is right for the operation and
+  // wrong for the record: a run whose history line is missing must not also be reported
+  // as a clean success, or "the ledger shows no violation" starts meaning "the ledger
+  // shows nothing".
+  if (persisted.ledger !== undefined && persisted.ledger !== null && persisted.ledger.error !== undefined) {
+    problems.push(
+      problem(
+        'ARTIFACT_WRITE_FAILED',
+        `this verification ran and its report was written, but the ledger line could not be appended (${persisted.ledger.error}), so the audit trail does not record this run`,
+        null,
+        { ledger: STATE_PATHS.ledger },
+      ),
+    )
   }
 
   return {

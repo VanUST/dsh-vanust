@@ -10,13 +10,29 @@
 # permission and verification duties must not be dilutable by whichever
 # repository the agent happens to sit in, and the framing must read as binding.
 #
-# So that loader is disabled and the kit's rules are contributed to the system
+# So that loader is neutered and the kit's rules are contributed to the system
 # prompt directly instead. The section's text is a provider, re-evaluated on
 # every prompt assembly, so editing $DSH_HOME/AGENTS.md takes effect on the next
 # request without a restart. The plugin reads exactly one file, and no project
 # instruction file can reach the prompt at all.
+#
+# WHY THERE IS NO `disabled: true` HERE, although the kit shipped one for months.
+# Measured: a live web profile still injected a repository's AGENTS.md into fresh
+# sessions, with this row shown as `disabled: true` in `--dump-config`, on a server
+# booted after this file was written — while a scratch composition from the same
+# patch honoured the flag. And `--dump-config` shows that patch `config` merges for
+# an ENABLED row (see `llm-deepseek` below) but not for a disabled one, so a flag
+# that is ignored on some composition also blocks the fix that would work.
+#
+# Emptying the discovery is the route that does not depend on the flag: with no
+# candidate filenames the loader has nothing to find, whatever it is handed. The
+# cost is one sentence in the prompt — its own "no workspace instructions are
+# currently active" baseline — which carries no repository content. The live
+# confirmation is asking a session what it received.
 - id: agent-instructions
-  disabled: true
+  config:
+    instructionFileCandidates: []
+    localInstructionFileCandidates: []
 - insert:
     - id: kit-rules
       name: '@cc/dsh-kit-rules'

@@ -4234,12 +4234,18 @@ test('FALSIFICATION: the instruction-routing rule has an enforcement point that 
 
   const patchPath = join(tree, 'profile', 'cordis.patch.yml')
   const patch = readFileSync(patchPath, 'utf8')
-  const broken = patch.replace(/(- id: agent-instructions\s*\n\s*disabled:\s*)true/, '$1false')
-  assert.notEqual(broken, patch, 'the fixture must actually change the disabling row')
+  // The claim under test is the one that carries the weight now: the loader's row must
+  // EMPTY its discovery. `disabled: true` alone was measured inert on the live web
+  // profile, so putting that flag back is the mutation that matters, not removing it.
+  const broken = patch.replace(
+    /instructionFileCandidates:\s*\[\s*\]/,
+    "instructionFileCandidates:\n      - AGENTS.md",
+  )
+  assert.notEqual(broken, patch, 'the fixture must actually stop emptying the discovery')
   writeFileSync(patchPath, broken)
   const mutated = run()
-  assert.equal(mutated.status, 1, 're-enabling that loader must fail the check')
-  assert.match(mutated.stderr, /workspace-instruction loader is disabled/)
+  assert.equal(mutated.status, 1, 'restoring the discovery candidates must fail the check')
+  assert.match(mutated.stderr, /empties its instruction-file discovery/)
   rmSync(tree, { recursive: true, force: true })
 })
 

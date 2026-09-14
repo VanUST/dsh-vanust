@@ -290,6 +290,11 @@ export function persistVerify(root, { report, evaluatedSpecHash, toolVersion = n
       ok: report.problems.length === 0,
       specHash: evaluatedSpecHash,
       codeHash: evaluatedCodeHash,
+      // Which tool judged this, and which revision of the tree. The report carries them
+      // already; without them here a reader of `state.json` alone — the file `status`
+      // reads — cannot tie the verdict to a version or a commit.
+      toolVersion: toolVersion ?? null,
+      vcsRevision: report.vcsRevision ?? null,
       errors: report.problems.length,
       filesWalked: report.counts.filesWalked,
       checksEvaluated: report.counts.checksEvaluated,

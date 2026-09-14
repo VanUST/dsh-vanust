@@ -1,18 +1,20 @@
 {
   "version": 1,
   "lastVerify": {
-    "at": "2026-09-14T16:23:05.617Z",
+    "at": "2026-09-14T16:33:13.013Z",
     "ok": true,
     "specHash": "sha256:0599af12a86f8d90964aa352bcff19c85b34a1c3a9af6c4add897f35a6a3d342",
-    "codeHash": "sha256:e219497a72e7c1ae8c0b74787abaafe6d43bf8fe2d734e6bd84387d030a2bf17",
+    "codeHash": "sha256:5b6473d91a235b9c4b8a38712ba620e32660cb3850d2b17cb819ff76982369fe",
+    "toolVersion": "0.2.20",
+    "vcsRevision": "f857da26ae23",
     "errors": 0,
     "filesWalked": 115,
     "checksEvaluated": 24
   },
   "lastGoodVerify": {
-    "at": "2026-09-14T16:23:05.617Z",
+    "at": "2026-09-14T16:33:13.013Z",
     "specHash": "sha256:0599af12a86f8d90964aa352bcff19c85b34a1c3a9af6c4add897f35a6a3d342",
-    "codeHash": "sha256:e219497a72e7c1ae8c0b74787abaafe6d43bf8fe2d734e6bd84387d030a2bf17"
+    "codeHash": "sha256:5b6473d91a235b9c4b8a38712ba620e32660cb3850d2b17cb819ff76982369fe"
   },
-  "toolVersion": null
+  "toolVersion": "0.2.20"
 }

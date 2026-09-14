@@ -793,6 +793,23 @@ export function validateLawChecks(law, subject) {
         ),
       )
     }
+    // An exclusion is applied to what is already selected, so one written FIRST excludes
+    // nothing at all — `['!src/legacy/**', 'src/**']` searched the legacy directory the
+    // decision meant to exclude, while `['src/**', '!src/legacy/**']` did not. Two
+    // spellings of one intent, opposite verdicts, and the reader cannot see which model
+    // the engine implements. The ordering is kept (it is what allows a later include to
+    // re-add something), and the shape that can only be a no-op is refused instead.
+    const pathList = Array.isArray(check.paths) ? check.paths : Array.isArray(check.patterns) ? check.patterns : null
+    if (pathList !== null && pathList.length > 0 && typeof pathList[0] === 'string' && pathList[0].startsWith('!')) {
+      problems.push(
+        problem(
+          'ADR_FIELD_INVALID',
+          `law "${lawId}" check ${check.type} writes an exclusion first: ${JSON.stringify(pathList[0])} excludes nothing, because an exclusion applies to the selection built so far. Write the includes first (["src/**", "!src/legacy/**"]); in this order the check silently searched what you meant to exclude`,
+          subject,
+          { lawId, paths: pathList },
+        ),
+      )
+    }
     // A dependency check reads `patterns` and NOTHING else. `paths` was accepted
     // here because this branch serves the text checks too, and a check written with
     // `paths` was then stored, compiled and evaluated as an EMPTY pattern list —

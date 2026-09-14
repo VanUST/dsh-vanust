@@ -53,11 +53,28 @@ const patch = read('profile/cordis.patch.yml')
 if (patch.missing === true) {
   claim('the canonical profile patch exists', false, patch.path)
 } else {
-  const disabledRow = /^-\s*id:\s*agent-instructions\s*$[\s\S]{0,120}?^\s*disabled:\s*true\s*$/m.test(patch.text)
+  // The row must EMPTY the loader's discovery. It used to require `disabled: true`
+  // instead, which the live web profile was measured to ignore: fresh sessions there
+  // received a repository's AGENTS.md with the row shown as `disabled: true`, on a server
+  // booted after the file was written. `--dump-config` also shows that patch `config`
+  // merges for an enabled row and not for a disabled one, so the flag was blocking the
+  // fix that works. Empty candidate lists leave the loader nothing to find regardless.
+  const emptied =
+    /^-\s*id:\s*agent-instructions\s*$[\s\S]{0,300}?instructionFileCandidates:\s*\[\s*\][\s\S]{0,120}?localInstructionFileCandidates:\s*\[\s*\]/m.test(
+      patch.text,
+    )
   claim(
-    'the harness workspace-instruction loader is disabled by row id',
-    disabledRow,
-    disabledRow ? 'id: agent-instructions + disabled: true' : 'no "- id: agent-instructions" followed by "disabled: true"',
+    'the loader row empties its instruction-file discovery',
+    emptied,
+    emptied ? 'both candidate lists empty' : 'instructionFileCandidates/localInstructionFileCandidates are not both empty',
+  )
+  // And it must not ALSO be disabled, because a disabled row's config is not merged —
+  // the two lines together would silently restore the old, ineffective state.
+  const alsoDisabled = /^-\s*id:\s*agent-instructions\s*$[\s\S]{0,300}?^\s*disabled:\s*true\s*$/m.test(patch.text)
+  claim(
+    'and is not disabled, which would discard that config',
+    !alsoDisabled,
+    alsoDisabled ? 'the row is both disabled and configured; the config will not merge' : 'not disabled',
   )
 
   // 2. And the kit's own rules plugin is what is mounted in its place.

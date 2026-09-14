@@ -101,7 +101,7 @@ import { homedir } from 'node:os'
 import { dirname, join, parse, resolve, sep } from 'node:path'
 import { MANIFEST_PATH, problem } from './ratchet-schema.mjs'
 import { compileProject } from './ratchet-compiler.mjs'
-import { globToRegExp, listFiles, matchFiles } from './ratchet-verifier.mjs'
+import { globToRegExp, listFiles, matchFiles, selectFiles } from './ratchet-verifier.mjs'
 import { STATE_PATHS } from './ratchet-state.mjs'
 import { verify } from './ratchet-ops.mjs'
 
@@ -414,7 +414,21 @@ function createJournal({ root, stateDir }) {
       const absolute = join(root, relativePath)
       try {
         if (entry.existed === true && typeof entry.backup === 'string') {
-          const bytes = readBytes(join(root, stateDir, entry.backup))
+          // The backup path comes from the journal, which is a file an attacker (or a
+          // corrupted write) can influence, so it is contained exactly like the entry
+          // path: a `backup: "../../outside/secret"` used to copy bytes from OUTSIDE the
+          // project into it. The journal lives under the state directory, so a legitimate
+          // backup is always a path inside it.
+          const backupAbsolute = resolve(root, stateDir, entry.backup)
+          const backupsRoot = resolve(root, stateDir)
+          const contained = backupAbsolute === backupsRoot || backupAbsolute.startsWith(`${backupsRoot}${sep}`)
+          if (!contained) {
+            process.stderr.write(
+              `ratchet: refused to restore ${relativePath}: its journal backup ${JSON.stringify(entry.backup)} is outside ${stateDir}\n`,
+            )
+            return
+          }
+          const bytes = readBytes(backupAbsolute)
           if (bytes !== null) writeAtomic(absolute, bytes)
         } else {
           safeUnlink(absolute)
@@ -478,7 +492,17 @@ function recoverJournal({ root, stateDir }) {
     }
     try {
       if (entry.existed === true && typeof entry.backup === 'string') {
-        const bytes = readBytes(join(root, stateDir, entry.backup))
+        // The backup path is journal DATA, so it is contained like the entry path: a
+        // `backup: "../../outside/secret"` copied bytes from outside the project into it.
+        // A legitimate backup always lives under the state directory the journal does.
+        const backupsRoot = resolve(root, stateDir)
+        const backupAbsolute = resolve(backupsRoot, entry.backup)
+        const backupContained = backupAbsolute === backupsRoot || backupAbsolute.startsWith(`${backupsRoot}${sep}`)
+        if (!backupContained) {
+          warnings.push(`recovery refused ${relativePath}: its journal backup ${JSON.stringify(entry.backup)} is outside ${stateDir}`)
+          continue
+        }
+        const bytes = readBytes(backupAbsolute)
         if (bytes === null) {
           warnings.push(`recovery could not find the backup for ${relativePath}`)
         } else {
@@ -924,7 +948,12 @@ const CASES = [
       let outOfScope = null
       let unsynthesizable = null
       for (const { law, check } of entries) {
-        const scopeFiles = [...new Set((check.paths ?? []).flatMap((pattern) => matchFiles(context.files, pattern)))].sort()
+        // The SAME selector the verifier uses. This line kept the old one — one `matchFiles`
+        // per pattern, where `!src/aaa/**` is the literal glob `^!src/aaa/.*$` — so the
+        // breaker mutated a file the decision excludes, the gate correctly stayed green,
+        // and `falsify` reported `missed`: a release-gate command failing for a reason
+        // that is not a defect.
+        const scopeFiles = selectFiles(context.files, check.paths)
         if (scopeFiles.length === 0) continue // The verifier already fails an empty scope.
         const witness = regexWitness(check.pattern, check.flags)
         if (witness === null) {
@@ -986,7 +1015,8 @@ const CASES = [
         }
         // A pattern that matches the empty string cannot be removed.
         if (expression.test('')) continue
-        const scopeFiles = [...new Set((check.paths ?? []).flatMap((entry) => matchFiles(context.files, entry)))].sort()
+        // The same selector as the verifier — see the comment on the first scope above.
+        const scopeFiles = selectFiles(context.files, check.paths)
         if (scopeFiles.length === 0) continue // The verifier already fails an empty scope.
         const matching = scopeFiles.filter((file) => {
           const bytes = readBytes(join(context.root, file))
