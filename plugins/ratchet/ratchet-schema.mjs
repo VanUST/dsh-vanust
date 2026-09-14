@@ -253,11 +253,16 @@ export const COMMAND_STREAMS = Object.freeze(['stdout', 'stderr', 'both'])
  * `zonePaths` is not a field on the check. It stands for the paths of the zone the check
  * names in `check.zone`, resolved through the manifest, because a `path_boundary` makes
  * two path claims at once: it denies `deny` to that zone, so both halves reach a path.
+ *
+ * `required_file_in_list` names two paths, not one: the file that must be listed, and the
+ * list it must appear in. Only the first was declared, so a `list` of
+ * `../outside/list.json` was read from outside the project root with the cross-check
+ * reporting nothing — found by a breaker, like every other omission in this table.
  */
 export const CHECK_TARGET_FIELDS = Object.freeze({
   required_file: ['path'],
   forbidden_file: ['path'],
-  required_file_in_list: ['path'],
+  required_file_in_list: ['path', 'list'],
   required_glob: ['pattern'],
   forbidden_glob: ['pattern'],
   required_text: ['paths'],

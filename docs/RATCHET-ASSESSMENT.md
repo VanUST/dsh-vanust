@@ -502,6 +502,22 @@ enumerated field against literal targets, all of the matcher attacks (`rules`, `
 `.`, `./**`, the empty string, `{a,b}` alternation, character classes, Windows separators),
 one-way containment, and the false-positive direction on the kit's own corpus.
 
+A fourth breaker confirmed all of that — and then found a **fifth path field**, one the field
+table itself had omitted: `required_file_in_list` resolves two paths, the file that must be
+listed and the list it must appear in, and only the first was declared. A `list` of
+`../outside/list.json` was read from outside the project root with nothing reported. Its own
+fuzzing is worth recording: 1295 generated targets compared against `node:path.posix.normalize`
+containment gave **0 divergences**, so the traversal fix was sound and the miss was one field
+over.
+
+That is four rounds of the same shape, so the guard moved from the content to the method. A
+test now reads `plugins/ratchet/ratchet-verifier.mjs` itself, extracts every `check.<field>`
+each check type reads, and fails when a pair is neither a declared target nor on an explicit
+non-path allowlist with a reason — and it fails the other way too, if a field is allowlisted
+as a non-path and also declared a target. Adding a field the verifier reads without saying
+what it is is now a red test rather than the fifth silent hole. The guard was falsified by
+adding an unclassified read to a copy: the test fails naming `required_file.newField`.
+
 **The one boundary this rule cannot close, stated rather than implied.** A `command` check's
 `run` string can read any path — a third breaker demonstrated an agent-authored record
 declaring a permissive zone enforcing over a human-only file through `readFileSync` inside a

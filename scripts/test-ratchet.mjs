@@ -945,6 +945,67 @@ async function verifyRawLaws(name, checks, { files = {}, zones = null } = {}) {
   return { root, report: verified.report, problems: verified.problems, codes: verified.problems.map((entry) => entry.code) }
 }
 
+test('schema: every check field the verifier reads is a declared target or explicitly not a path', () => {
+  // The type-level test above closes the case where a whole check type is unclassified.
+  // This closes the field level, because the type table was right four times while a
+  // FIELD inside a classified type was missed twice: `required_file_in_list` declared
+  // only `path` while the verifier also joined `list`, and a `list` of
+  // `../outside/list.json` was read from outside the project root unreported. The pairs
+  // below come from reading the verifier's own source, so a field it starts using that
+  // nobody classified fails this test instead of silently escaping the zone rule.
+  const source = readFileSync(join(PLUGIN, 'ratchet-verifier.mjs'), 'utf8')
+  const groups = []
+  for (const match of source.matchAll(/(?:case '([a-z_]+)':\s*)+?\{/g)) {
+    groups.push({
+      labels: [...match[0].matchAll(/case '([a-z_]+)':/g)].map((entry) => entry[1]),
+      start: match.index + match[0].length,
+    })
+  }
+  const readPairs = new Set()
+  groups.forEach((group, index) => {
+    const end = index + 1 < groups.length ? groups[index + 1].start : source.length
+    const body = source.slice(group.start, end)
+    for (const field of new Set([...body.matchAll(/check\.([a-zA-Z]+)/g)].map((entry) => entry[1]))) {
+      for (const label of group.labels) readPairs.add(`${label}.${field}`)
+    }
+  })
+  assert.ok(readPairs.size > 0, 'the verifier source must yield field pairs')
+
+  const targetPairs = new Set()
+  for (const [type, fields] of Object.entries(schema.CHECK_TARGET_FIELDS)) {
+    for (const field of fields) if (field !== 'zonePaths') targetPairs.add(`${type}.${field}`)
+  }
+
+  // Every pair the verifier reads that is NOT a path target, with the reason it is not.
+  // A pair here is a positive claim, and the second assertion refuses one that is also
+  // declared a target, so the two lists cannot disagree.
+  const NON_PATH = new Map([
+    // A shell command and how its output is judged. `run` is opaque by construction: a
+    // command string is not statically reducible to the paths it touches.
+    ...['expects', 'outputContains', 'outputMatches', 'outputNotContains', 'run', 'stream', 'timeoutMs', 'type'].map((field) => [`command.${field}`, 'the command surface, not a path']),
+    // Dependency names compared against manifest entries.
+    ...['patterns', 'type'].flatMap((field) => [[`required_dependency.${field}`, 'a package name, not a path'], [`forbidden_dependency.${field}`, 'a package name, not a path']]),
+    // A regex over file CONTENT, its flags, and the any-of switch.
+    ...['flags', 'pattern', 'anyOf', 'type'].flatMap((field) => [
+      [`required_text.${field}`, 'the content matcher, not a path'],
+      [`forbidden_text.${field}`, 'the content matcher, not a path'],
+      [`required_text_glob.${field}`, 'the content matcher, not a path'],
+      [`forbidden_text_glob.${field}`, 'the content matcher, not a path'],
+    ]),
+    // A zone ID. The paths it resolves to are reached through `zonePaths` in the table.
+    ['path_boundary.zone', 'a zone id; its paths are reached through zonePaths'],
+    // Values looked for inside the list file, and the keys that hold them.
+    ['required_file_in_list.contains', 'a value inside the list file, not a path'],
+    ['required_file_in_list.containsIs', 'a value inside the list file, not a path'],
+    ['required_file_in_list.keys', 'keys into the list file, not a path'],
+  ])
+
+  const unclassified = [...readPairs].filter((pair) => !targetPairs.has(pair) && !NON_PATH.has(pair)).sort()
+  assert.deepEqual(unclassified, [], 'check fields that are neither a path target nor allowlisted')
+  const contradictory = [...NON_PATH.keys()].filter((pair) => targetPairs.has(pair)).sort()
+  assert.deepEqual(contradictory, [], 'fields allowlisted as non-path but declared as targets')
+})
+
 test('schema: every check type declares which field names the path it acts on', () => {
   // The rule this protects was evaded twice, both times because the field enumeration was
   // written by hand: the singular `path` was missing, then `path_boundary`'s `zone` and
