@@ -257,5 +257,10 @@ report a pass. The gate is the CLI above; the tools are for an agent mid-session
    its source in `docs/ratchet/sources/2026-09-14-enforcement-amendment.md`.
 5. `docs/RATCHET-DESIGN.md` — the superseded brief whose eleven defects motivated the
    rewrite; frozen as historical evidence, not a description of the current code.
+6. `docs/RATCHET-ASSESSMENT.md` — the adversarial pass over the ratchet as a product, with
+   the counterexamples that falsify five of its claims and the reproductions for each. Read
+   it last and read it sceptically: it is a reading taken at one commit, it is not
+   maintained, and §3.7 lists what could *not* be broken so the strength of the rest is
+   measurable.
 6. `plugins/ratchet/ratchet-falsify.mjs` — the breaker, as the clearest statement of how
    this kit treats verification.
