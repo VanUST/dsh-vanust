@@ -23,6 +23,13 @@ probes/**/scratch/
 # committing them would put a diff on every check and drown the changes that matter.
 reports/
 
+# Transient breaker state. A falsification run journals the original bytes of every
+# file it is about to mutate, so a hard kill is recoverable; both the journal and its
+# backups are deleted on a clean run and must never be committed.
+.dsh/ratchet/falsify-journal.json
+.dsh/ratchet/falsify-backups/
+*.falsify-tmp
+
 # NOT ignored, deliberately: `.dsh/ratchet/specs.json` and `state.json` are the kit's
 # current declared law and the record of what was verified against it. Reviewing a law
 # change as a diff is the point, and `SPEC_OUT_OF_DATE` only means something if the

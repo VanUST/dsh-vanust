@@ -10,5 +10,7 @@
 # the platform, so .ps1 and Markdown content stay natural to edit on Windows.
 *.sh   text eol=lf
 *.mjs  text eol=lf
+*.js   text eol=lf
+*.ts   text eol=lf
 *.ps1  text eol=crlf
 *.tgz  binary

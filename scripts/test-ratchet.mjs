@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -5132,4 +5132,188 @@ test('falsify: SIGTERM mid-run restores the in-flight mutation and the persisted
   )
   assert.equal(existsSync(join(root, '.dsh', 'ratchet', 'state.json')), false, 'state.json must be restored')
   assert.equal(existsSync(join(root, '.dsh', 'ratchet', 'ledger.jsonl')), false, 'the ledger must be restored')
+})
+
+test('falsify: a symlinked directory inside a scope cannot move a write outside the root', async (t) => {
+  const outside = join(tmpdir(), `ratchet-falsify-outside-${Math.random().toString(36).slice(2, 8)}`)
+  rmSync(outside, { recursive: true, force: true })
+  mkdirSync(outside, { recursive: true })
+  writeFileSync(join(outside, 'evil.ts'), 'export const evil = 1\n')
+
+  const root = makeProject({
+    name: 'falsify-symlink',
+    adrs: {
+      '0001-forbid.adr.md': adrText({
+        id: '0001',
+        title: 'Forbid the file',
+        laws: [
+          {
+            id: 'auth.forbid-evil',
+            statement: 'The evil file must not exist.',
+            checks: [{ type: 'forbidden_file', path: 'src/auth/outside-link/evil.ts' }],
+          },
+        ],
+      }),
+    },
+  })
+  mkdirSync(join(root, 'src', 'auth'), { recursive: true })
+  try {
+    symlinkSync(outside, join(root, 'src', 'auth', 'outside-link'), 'dir')
+  } catch (error) {
+    t.skip(`symlinks are unavailable on this platform: ${String(error)}`)
+    return
+  }
+  const before = readFileSync(join(outside, 'evil.ts'))
+  const result = await falsifyModule.falsify({ root })
+  const forbidden = result.cases.find((entry) => entry.id === 'forbidden-file-present')
+  assert.equal(forbidden.status, 'out-of-scope', JSON.stringify(forbidden))
+  assert.ok(
+    readFileSync(join(outside, 'evil.ts')).equals(before),
+    'a target behind a symlink must never be written',
+  )
+})
+
+test('falsify --recover restores a stale journal and removes its residue', () => {
+  // Models a hard-killed run: a mutated file, a journal naming it, a backup of the
+  // original, and the temporary sibling an interrupted atomic write would leave.
+  const root = falsifiableProject('falsify-recover')
+  const stateDir = join(root, '.dsh', 'ratchet')
+  const target = 'docs/adrs/0001-keep-the-file.adr.md'
+  const original = readFileSync(join(root, target))
+  mkdirSync(join(stateDir, 'falsify-backups'), { recursive: true })
+  writeFileSync(join(stateDir, 'falsify-backups', '1.bin'), original)
+  writeFileSync(join(root, target), 'MUTATED BY A KILLED RUN\n')
+  writeFileSync(`${join(root, target)}.falsify-tmp`, 'torn write\n')
+  writeFileSync(
+    join(stateDir, 'falsify-journal.json'),
+    `${JSON.stringify({ version: 1, root, files: [{ path: target, existed: true, backup: 'falsify-backups/1.bin' }] }, null, 2)}\n`,
+  )
+
+  const result = falsifyModule.recover({ root })
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.recovered, [target])
+  assert.ok(readFileSync(join(root, target)).equals(original), 'the original bytes must be back')
+  assert.equal(existsSync(join(stateDir, 'falsify-journal.json')), false, 'the journal must be gone')
+  assert.equal(existsSync(join(stateDir, 'falsify-backups')), false, 'the backups must be gone')
+  assert.equal(existsSync(`${join(root, target)}.falsify-tmp`), false, 'no torn-write residue may remain')
+})
+
+test('falsify: a SIGKILLed run leaves a journal, and the next recover repairs the tree', async () => {
+  const root = makeProject({
+    name: 'falsify-sigkill',
+    adrs: {
+      '0001-slow-gate.adr.md': adrText({
+        id: '0001',
+        title: 'Slow gate',
+        laws: [
+          {
+            id: 'auth.slow-gate',
+            statement: 'The keep file must exist, and the check is slow.',
+            checks: [
+              { type: 'required_file', path: 'src/auth/keep.ts' },
+              { type: 'command', run: 'node -e "setTimeout(()=>{}, 30000)"', timeoutMs: 60000 },
+            ],
+          },
+        ],
+      }),
+    },
+    files: { 'src/auth/keep.ts': 'export const keep = 1\n' },
+  })
+  const before = snapshotTree(root)
+  const adrDir = join(root, 'docs', 'adrs')
+  const child = spawn(process.execPath, [CLI, 'falsify', '--root', root], { stdio: 'ignore' })
+
+  const deadline = Date.now() + 30_000
+  let mutated = false
+  while (Date.now() < deadline) {
+    if (existsSync(adrDir) && readdirSync(adrDir).some((name) => /^900\d-/.test(name))) {
+      mutated = true
+      break
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, 50))
+  }
+  assert.ok(mutated, 'the run never reached a mutation, so the test would race a finished run')
+
+  child.kill('SIGKILL')
+  const exit = await new Promise((resolveExit) => child.once('exit', (code, signal) => resolveExit({ code, signal })))
+  assert.ok(exit.signal === 'SIGKILL' || exit.code === null, `expected a hard kill: ${JSON.stringify(exit)}`)
+
+  const journal = join(root, '.dsh', 'ratchet', 'falsify-journal.json')
+  assert.ok(existsSync(journal), 'the hard-killed run must leave a journal to recover from')
+
+  const recovered = falsifyModule.recover({ root })
+  assert.ok(recovered.recovered.length >= 1, 'recovery must name what it repaired')
+
+  const after = snapshotTree(root)
+  assert.deepEqual([...after.keys()].sort(), [...before.keys()].sort(), 'the file set changed after recovery')
+  for (const [relative, bytes] of before) {
+    assert.ok(bytes.equals(after.get(relative)), `${relative} was not restored from the journal`)
+  }
+  assert.equal(existsSync(journal), false, 'the journal must be gone after recovery')
+  assert.deepEqual(
+    verifier.listFiles(root).filter((path) => path.endsWith('.falsify-tmp')),
+    [],
+    'no atomic-write residue may remain',
+  )
+})
+
+test('CLI: falsify --recover repairs a stale journal and exits 0', () => {
+  const root = falsifiableProject('falsify-recover-cli')
+  const stateDir = join(root, '.dsh', 'ratchet')
+  const target = 'docs/adrs/0001-keep-the-file.adr.md'
+  const original = readFileSync(join(root, target))
+  mkdirSync(join(stateDir, 'falsify-backups'), { recursive: true })
+  writeFileSync(join(stateDir, 'falsify-backups', '1.bin'), original)
+  writeFileSync(join(root, target), 'MUTATED\n')
+  writeFileSync(
+    join(stateDir, 'falsify-journal.json'),
+    `${JSON.stringify({ version: 1, root, files: [{ path: target, existed: true, backup: 'falsify-backups/1.bin' }] }, null, 2)}\n`,
+  )
+  const run = spawnSync(process.execPath, [CLI, 'falsify', '--root', root, '--recover'], { encoding: 'utf8' })
+  assert.equal(run.status, 0, run.stderr)
+  assert.ok(run.stdout.includes('restored'), `expected a recovery report, got: ${run.stdout}`)
+  assert.ok(readFileSync(join(root, target)).equals(original))
+  assert.equal(existsSync(join(stateDir, 'falsify-journal.json')), false)
+})
+
+test('falsify --recover leaves an unreadable journal and its backups in place', () => {
+  // A journal that cannot be parsed names no paths. Deleting it and its backups would
+  // destroy the only copy of the originals, so recovery must refuse to clean up and
+  // leave both for a human — a warning, not silent data loss.
+  const root = falsifiableProject('falsify-recover-corrupt')
+  const stateDir = join(root, '.dsh', 'ratchet')
+  mkdirSync(join(stateDir, 'falsify-backups'), { recursive: true })
+  writeFileSync(join(stateDir, 'falsify-backups', '1.bin'), 'ORIGINAL')
+  writeFileSync(join(stateDir, 'falsify-journal.json'), '{ this is not json')
+  const result = falsifyModule.recover({ root })
+  assert.ok(
+    result.warnings.some((warning) => warning.includes('could not be read')),
+    JSON.stringify(result.warnings),
+  )
+  assert.ok(existsSync(join(stateDir, 'falsify-journal.json')), 'the journal must be left for inspection')
+  assert.ok(
+    existsSync(join(stateDir, 'falsify-backups', '1.bin')),
+    'the backups must be left for inspection',
+  )
+})
+
+test('falsify --recover repairs without a readable manifest', () => {
+  // Recovery must not depend on the manifest: a project a hard-killed run left broken
+  // may also have a broken manifest, and refusing to recover would strand the damage.
+  const root = falsifiableProject('falsify-recover-nomanifest')
+  const stateDir = join(root, '.dsh', 'ratchet')
+  const target = 'docs/adrs/0001-keep-the-file.adr.md'
+  const original = readFileSync(join(root, target))
+  mkdirSync(join(stateDir, 'falsify-backups'), { recursive: true })
+  writeFileSync(join(stateDir, 'falsify-backups', '1.bin'), original)
+  writeFileSync(join(root, target), 'MUTATED\n')
+  writeFileSync(
+    join(stateDir, 'falsify-journal.json'),
+    JSON.stringify({ version: 1, root, files: [{ path: target, existed: true, backup: 'falsify-backups/1.bin' }] }),
+  )
+  writeFileSync(join(root, '.dsh', 'project.json'), '{ broken manifest')
+  const result = falsifyModule.recover({ root })
+  assert.equal(result.unusable, undefined, `recovery must not need a manifest: ${JSON.stringify(result)}`)
+  assert.ok(readFileSync(join(root, target)).equals(original), 'the original must be restored')
+  assert.equal(existsSync(join(stateDir, 'falsify-journal.json')), false, 'the journal is gone after recovery')
 })

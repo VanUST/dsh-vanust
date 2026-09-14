@@ -58,7 +58,7 @@ dsh-kit/
 ├── scripts/kit-update.mjs     # update path: hash drift check + convergence for an existing machine
 ├── plugins/inventory.json     # the shipped plugin set + each plugin's provenance (the source of truth)
 ├── plugins/*.tgz              # plugin tarballs: model-gate, cc-dsh-context, cc-dsh-kit-rules, cc-dsh-ratchet
-├── plugins/model-gate/        # read-only source snapshot of model-gate (see its SOURCE-NOTICE.md)
+├── plugins/model-gate/        # source snapshot + built lib/ of model-gate (see its SOURCE-NOTICE.md)
 ├── plugins/kit-rules/         # source of the rules plugin; packed into its tarball above
 ├── plugins/ratchet/           # source of @cc/dsh-ratchet (packed into its tarball above)
 ├── plugins/dsh-context/       # reconstructed source of @cc/dsh-context (see its SOURCE-NOTICE.md)

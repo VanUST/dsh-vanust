@@ -54,7 +54,7 @@ import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { UNUSABLE_PROBLEM_CODES, hashSource } from './ratchet-schema.mjs'
 import { REVIEW_JOBS } from './ratchet-dynamic.mjs'
-import { falsify } from './ratchet-falsify.mjs'
+import { falsify, recover } from './ratchet-falsify.mjs'
 import {
   EXIT,
   bootstrap,
@@ -94,6 +94,8 @@ Options:
   --question <text> extra question for the review
   --no-commands     verify WITHOUT running command checks (they are reported pending,
                     and a run with pending checks is never a pass)
+  --recover         with \`falsify\`: repair a stale journal from a hard-killed run and
+                    exit without running any case (0 recovered or nothing to do, 2 unusable)
   --json            print one JSON object instead of a report
   --quiet           print only problems and the exit-relevant summary
 
@@ -104,7 +106,8 @@ Exit codes:
   3  usage error
 
 \`falsify\` uses 0 when every applicable case was detected, 1 when any case was missed
-or errored, and 2 when the project is unusable.
+or errored, and 2 when the project is unusable. With \`--recover\` it always exits 0
+unless the project is unusable.
 
 \`review\` always exits 0. Its answer comes from a model, so it is advisory by
 construction: a non-deterministic check that can fail a build is one people learn
@@ -127,6 +130,7 @@ export function parseArgs(argv) {
     write: false,
     apply: false,
     commands: true,
+    recover: false,
     job: 'review_corpus',
     change: null,
     question: null,
@@ -141,6 +145,7 @@ export function parseArgs(argv) {
     else if (token === '--quiet') options.quiet = true
     else if (token === '--write') options.write = true
     else if (token === '--apply') options.apply = true
+    else if (token === '--recover') options.recover = true
     else if (token === '--no-commands') options.commands = false
     else if (token === '--root' || token === '--job' || token === '--change' || token === '--question') {
       const value = argv[index + 1]
@@ -312,8 +317,9 @@ export async function run(argv) {
     // The breaker: it mutates the project, runs the real verifier, and restores every
     // mutation. It is deterministic and needs no model — the counterexample is the
     // output, not a verdict. `handleSignals` is set because the CLI owns this process:
-    // a SIGTERM must restore the mutation in flight before exiting.
-    result = await falsify({ root, runCommand, handleSignals: true })
+    // a SIGTERM must restore the mutation in flight before exiting. `--recover` repairs a
+    // hard-killed run's journal and runs no case.
+    result = options.recover === true ? recover({ root }) : await falsify({ root, runCommand, handleSignals: true })
   } else {
     process.stderr.write(`ratchet: unknown command ${JSON.stringify(command)}\n\n${USAGE}`)
     return 3
@@ -451,7 +457,18 @@ export async function run(argv) {
       if (result.unusable === true) {
         process.stdout.write('  NOT RUN — the project is unusable, so no case was attempted\n')
         for (const entry of result.problems ?? []) process.stdout.write(`  ${entry.code}: ${entry.message}\n`)
+      } else if (options.recover === true) {
+        if (result.recovered.length === 0) process.stdout.write('  nothing to recover\n')
+        else {
+          for (const relativePath of result.recovered) process.stdout.write(`  restored ${relativePath}\n`)
+          process.stdout.write(`  recovered ${result.recovered.length} path(s) from a stale journal\n`)
+        }
+        for (const warning of result.warnings ?? []) process.stdout.write(`  warning: ${warning}\n`)
       } else {
+        for (const entry of result.recovered ?? []) {
+          process.stdout.write(`  recovered ${entry} from a previous killed run\n`)
+        }
+        for (const warning of result.warnings ?? []) process.stdout.write(`  warning: ${warning}\n`)
         for (const entry of result.cases) {
           process.stdout.write(
             `  [${entry.status}] ${entry.id}${entry.target === null || entry.target === undefined ? '' : ` -> ${entry.target}`}\n`,
@@ -489,6 +506,8 @@ export async function run(argv) {
   // at all is a configuration error rather than a red gate.
   if (command === 'falsify') {
     if (result.unusable === true) return EXIT.CONFIG
+    // `--recover` only repairs; recovered-or-nothing is a success by definition.
+    if (options.recover === true) return EXIT.OK
     return result.ok === true ? EXIT.OK : EXIT.PROBLEMS
   }
   return exitCodeFor(result)

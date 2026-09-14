@@ -15,9 +15,10 @@
  *   The breaker role's rules are constraints, not ceremony. A case falsifies ONE named
  *   claim inside ONE declared scope; a target outside that scope is reported and
  *   skipped, never written, because breaking something out of context is always
- *   possible and proves nothing. Every mutation is restored in a `finally`, the run
- *   snapshots and restores the persisted verification state, and a case whose check
- *   cannot fail is reported as `missed` — the finding that matters.
+ *   possible and proves nothing. Every mutation is journaled before it is written and
+ *   restored in a `finally`, every write is atomic, the persisted verification state is
+ *   part of the journal, and a case whose check cannot fail is reported as `missed` —
+ *   the finding that matters.
  *
  * INPUTS
  *   `falsify({ root, runCommand, verifyImpl, handleSignals })`
@@ -31,42 +32,62 @@
  *                   run and restore the in-flight mutation before the process exits
  *                   130/143. Default `false`, because only a caller that owns the
  *                   process (the CLI) may decide to terminate it; the CLI passes `true`.
+ *   `recover({ root })` repairs a stale journal without running any case; the CLI's
+ *   `falsify --recover` calls it.
  *
  * OUTPUTS
  *   A promise for
- *   `{ ok, root, cases, counts }` where each case is
+ *   `{ ok, root, cases, counts, recovered, warnings }` where each case is
  *   `{ id, claim, scope, status, expectedCode, observedCodes, target, detail }` and
  *   `status` is one of `detected`, `missed`, `skipped`, `out-of-scope`, `error`.
- *   `ok` is true iff no case is `missed` or `error`. When the project cannot be used
- *   at all the result is `{ ok: false, unusable: true, cases: [], counts }`, which the
- *   CLI reports as exit 2.
+ *   `ok` is true iff no case is `missed` or `error`. `recovered` names the paths a stale
+ *   journal from an earlier killed run repaired before this run started. When the project
+ *   cannot be used at all the result is `{ ok: false, unusable: true, cases: [], counts }`,
+ *   which the CLI reports as exit 2.
  *
  * KEYWORDS
- *   falsification, breaker, adversarial, ratchet, gate, project-agnostic, mutation
+ *   falsification, breaker, adversarial, ratchet, gate, project-agnostic, mutation,
+ *   journal, atomic write, recovery, symlink containment
  *
  * BEHAVIOUR ON EDGE CASES
  *   - No `.dsh/project.json`, an unreadable manifest, the ratchet disabled, or a
  *     corpus that does not compile: reported unusable, no case runs, nothing is
  *     written.
  *   - A root that is the filesystem root or the user's home directory is refused
- *     outright: a breaker must be scoped to one project.
+ *     outright, compared by REAL path so a symlink cannot defeat the refusal: a breaker
+ *     must be scoped to one project.
  *   - A target that is outside the declared writable set, or under `.git`,
  *     `node_modules`, `sessions`, `storages`, `.credentials.yaml` or `settings.yaml`,
- *     is `out-of-scope` and is never written.
+ *     is `out-of-scope` and is never written. A target whose deepest existing ancestor
+ *     resolves through a symlink to outside the real project root is refused the same
+ *     way, because `resolve()` alone does not follow symlinks.
  *   - A check type no law uses yields `skipped` with the reason, never a failure.
  *   - A law whose target is already in the violating state yields `skipped`: the gate
  *     already fails, so the failure cannot be attributed to this mutation.
  *   - `SIGINT` and `SIGTERM` are caught for the duration of a run when the caller passes
- *     `handleSignals: true` (the CLI does): the in-flight mutation and the persisted
- *     state are restored, then the process exits 130 or 143. A `finally` block alone does
- *     NOT cover these — Node terminates on an unhandled signal without unwinding — which
- *     is exactly why the handlers exist. A caller that does not own the process leaves
- *     them off and keeps the `finally` restore. `SIGKILL` cannot be caught by any
- *     process, so a `kill -9` mid-run may leave one mutation in place: give a
- *     falsification run time to finish rather than killing it hard.
+ *     `handleSignals: true` (the CLI does): the in-flight mutation, the journal and the
+ *     persisted state are restored, then the process exits 130 or 143. A `finally` block
+ *     alone does NOT cover these — Node terminates on an unhandled signal without
+ *     unwinding — which is exactly why the handlers exist.
+ *   - `SIGKILL` cannot be caught by any process, so a `kill -9` mid-run is unrecoverable
+ *     IN THE INSTANT and may leave one mutation and the journal on disk. It is not
+ *     lasting damage: every write is atomic (temp sibling + rename), so a kill cannot
+ *     truncate a file, and the next `falsify` run — or `falsify --recover` — restores
+ *     everything the journal records and deletes it.
  */
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, parse, resolve, sep } from 'node:path'
 import { MANIFEST_PATH, problem } from './ratchet-schema.mjs'
@@ -89,6 +110,16 @@ const DEFAULT_DECISIONS_DIR = 'docs/adrs'
 const DEFAULT_SOURCES_DIR = 'docs/ratchet/sources'
 const DEFAULT_STATE_DIR = '.dsh/ratchet'
 
+/** The recovery journal and its backup directory, inside the ratchet state directory. */
+const JOURNAL_FILE = 'falsify-journal.json'
+const BACKUP_DIR = 'falsify-backups'
+
+/**
+ * Suffix of the temporary sibling every atomic write goes through. Deterministic so a
+ * recovery can remove the residue of a write that a hard kill interrupted.
+ */
+const TEMP_SUFFIX = '.falsify-tmp'
+
 /**
  * Resolves the directories a project's ratchet configuration uses.
  *
@@ -105,6 +136,24 @@ function recordDirs(manifest) {
     sourcesDir: pick(section.sourcesDir, DEFAULT_SOURCES_DIR).replace(/\/+$/, ''),
     stateDir: pick(section.stateDir, DEFAULT_STATE_DIR).replace(/\/+$/, ''),
   }
+}
+
+/**
+ * The state directory the journal may live in, contained by the project.
+ *
+ * The journal and its backups are written from the manifest's `stateDir`, so a manifest
+ * that points that value outside the project would otherwise move the breaker's own
+ * writes out of the root before any case runs. An escaping value falls back to the
+ * documented default rather than refusing the whole run: the journal location is not the
+ * project's decision to weaponise, and a breaker that will not run at all is worse than
+ * one that writes its journal somewhere safe.
+ *
+ * @param root - Absolute project root.
+ * @param stateDir - The manifest's `stateDir`.
+ * @returns A repository-relative state directory inside the root.
+ */
+function safeStateDir(root, stateDir) {
+  return containment(root, stateDir).ok ? stateDir : DEFAULT_STATE_DIR
 }
 
 /**
@@ -144,18 +193,38 @@ function writableGlobs(manifest) {
 }
 
 /**
- * Decides whether one repository-relative path may be written.
+ * The real path of a path, or its resolved path when it cannot be resolved.
  *
- * Four independent refusals, because each catches a different mistake: a path that
- * escapes the root, a path under a directory the breaker must never touch, a
- * machine-local file, and a path outside the project's declared writable set.
+ * `realpathSync` follows symlinks, which is the point: the lexical checks cannot see
+ * that a directory inside a declared scope points somewhere else on disk. When the call
+ * fails — a platform without symlink support, an unreadable path — the resolved path is
+ * returned so the caller still has a containment answer rather than an exception.
+ *
+ * @param path - Absolute or relative path.
+ * @returns An absolute path.
+ */
+function realPathOf(path) {
+  try {
+    return realpathSync(path)
+  } catch {
+    return resolve(path)
+  }
+}
+
+/**
+ * Decides whether one repository-relative path is contained by the project.
+ *
+ * Three independent refusals, because each catches a different mistake: a path that
+ * escapes the root lexically, a path under a directory the breaker must never touch, and
+ * a path whose deepest EXISTING ancestor resolves — through a symlink — outside the real
+ * project root. The third is why `resolve()` alone is not enough: a symlinked directory
+ * inside a declared scope would otherwise let a write land anywhere on the machine.
  *
  * @param root - Absolute project root.
  * @param relativePath - Repository-relative path, in either separator style.
- * @param globs - The writable globs.
- * @returns `{ ok: true }`, or `{ ok: false, reason }` naming the refusal.
+ * @returns `{ ok: true, absolute }`, or `{ ok: false, reason }` naming the refusal.
  */
-function assertWritable(root, relativePath, globs) {
+function containment(root, relativePath) {
   const posix = String(relativePath ?? '').split('\\').join('/')
   if (posix.length === 0) return { ok: false, reason: 'the target is empty' }
   if (posix.startsWith('/') || /(^|\/)\.\.(\/|$)/.test(posix)) {
@@ -168,15 +237,52 @@ function assertWritable(root, relativePath, globs) {
   }
   const segments = posix.split('/')
   if (segments.some((segment) => FORBIDDEN_SEGMENTS.has(segment))) {
-    return { ok: false, reason: `the target is under a forbidden directory (${segments.find((segment) => FORBIDDEN_SEGMENTS.has(segment))})` }
+    return {
+      ok: false,
+      reason: `the target is under a forbidden directory (${segments.find((segment) => FORBIDDEN_SEGMENTS.has(segment))})`,
+    }
   }
   if (FORBIDDEN_FILES.has(segments[segments.length - 1])) {
     return { ok: false, reason: 'the target is a machine-local file' }
   }
+  // The deepest EXISTING ancestor is resolved, because the target itself may not exist
+  // yet: `src/auth/new-file` must be judged by where its directory really is.
+  const realRoot = realPathOf(rootAbsolute)
+  let ancestor = absolute
+  while (!existsSync(ancestor)) {
+    const parent = dirname(ancestor)
+    if (parent === ancestor) {
+      return { ok: false, reason: 'the target has no existing ancestor inside the project root' }
+    }
+    ancestor = parent
+  }
+  const realAncestor = realPathOf(ancestor)
+  if (realAncestor !== realRoot && !realAncestor.startsWith(`${realRoot}${sep}`)) {
+    return { ok: false, reason: 'the target resolves outside the project root through a symlink' }
+  }
+  return { ok: true, absolute }
+}
+
+/**
+ * Decides whether one repository-relative path may be written.
+ *
+ * Containment plus the project's declared writable scopes: a path the project did not
+ * declare the ratchet works on is out of scope by definition, because breaking it would
+ * prove nothing.
+ *
+ * @param root - Absolute project root.
+ * @param relativePath - Repository-relative path, in either separator style.
+ * @param globs - The writable globs.
+ * @returns `{ ok: true, absolute }`, or `{ ok: false, reason }` naming the refusal.
+ */
+function assertWritable(root, relativePath, globs) {
+  const contained = containment(root, relativePath)
+  if (!contained.ok) return contained
+  const posix = String(relativePath ?? '').split('\\').join('/')
   if (!globs.some((glob) => globToRegExp(glob).test(posix))) {
     return { ok: false, reason: 'the target is outside the writable scope this project declares' }
   }
-  return { ok: true }
+  return contained
 }
 
 /**
@@ -208,7 +314,8 @@ function safeUnlink(path) {
 }
 
 /**
- * Writes bytes, creating the parent directory.
+ * Writes bytes, creating the parent directory. Used for journal and backup material,
+ * where a non-atomic write of a file the journal can regenerate is acceptable.
  *
  * @param path - Absolute path.
  * @param bytes - Buffer or string to write.
@@ -220,38 +327,171 @@ function writeBytes(path, bytes) {
 }
 
 /**
- * Snapshots the persisted verification artifacts so a run leaves no trace.
+ * The temporary sibling an atomic write goes through.
  *
- * `verify` writes a report, a state file and a ledger append; a falsification run
- * must not leave the project looking as though it had been verified against laws it
- * no longer has.
- *
- * @param root - Absolute project root.
- * @returns An array of `{ absolute, bytes }` where `bytes` is null when the file was
- *   absent, so restoration can remove a file the run created.
+ * @param absolute - Absolute target path.
+ * @returns The temporary path.
  */
-function snapshotState(root) {
-  return [STATE_PATHS.state, STATE_PATHS.ledger, STATE_PATHS.verifyReport].map((relativePath) => {
-    const absolute = join(root, relativePath)
-    return { absolute, bytes: existsSync(absolute) ? readBytes(absolute) : null }
-  })
+function tempSibling(absolute) {
+  return `${absolute}${TEMP_SUFFIX}`
 }
 
 /**
- * Restores every artifact {@link snapshotState} captured.
+ * Writes bytes to a file atomically.
  *
- * @param snapshots - The snapshot array.
- * @returns Nothing; a failure to restore one file does not stop the others.
+ * The bytes go to a temporary sibling and are then renamed over the target, so a kill can
+ * never leave a truncated file at the target: the rename either happened or it did not.
+ *
+ * @param path - Absolute path.
+ * @param bytes - Buffer or string to write.
+ * @returns Nothing.
  */
-function restoreState(snapshots) {
-  for (const snapshot of snapshots) {
+function writeAtomic(path, bytes) {
+  mkdirSync(dirname(path), { recursive: true })
+  const temporary = tempSibling(path)
+  writeFileSync(temporary, bytes)
+  renameSync(temporary, path)
+}
+
+/**
+ * A per-run mutation journal: the durable record that lets a hard-killed run be repaired.
+ *
+ * A signal handler can restore the mutation in flight, but SIGKILL cannot be caught at
+ * all. So every mutated path is recorded here BEFORE it is written — with a sibling
+ * backup of its original bytes, or the fact that it did not exist — and the journal is
+ * persisted after each record. The next `falsify` run, or `ratchet falsify --recover`,
+ * restores everything the journal names and deletes it.
+ *
+ * @param options - `{ root, stateDir }`.
+ * @returns A journal with `path`, `record`, `restore`, `restoreAll` and `clear`.
+ */
+function createJournal({ root, stateDir }) {
+  const journalPath = join(root, stateDir, JOURNAL_FILE)
+  const backupRoot = join(root, stateDir, BACKUP_DIR)
+  const entries = new Map()
+  let sequence = 0
+
+  const persist = () => {
+    writeAtomic(journalPath, `${JSON.stringify({ version: 1, root, files: [...entries.values()] }, null, 2)}\n`)
+  }
+
+  return {
+    path: journalPath,
+    entries,
+    /**
+     * Records a path's original state before it is first mutated.
+     *
+     * The backup reaches disk before the journal names it, so a crash between the two
+     * leaves an unreferenced backup rather than a journal entry with nothing to restore.
+     * Recording an already-recorded path is a no-op, because the FIRST original is the
+     * one that must come back.
+     */
+    record(relativePath) {
+      if (entries.has(relativePath)) return
+      const bytes = readBytes(join(root, relativePath))
+      let backup = null
+      if (bytes !== null) {
+        sequence += 1
+        backup = `${BACKUP_DIR}/${sequence}.bin`
+        writeBytes(join(root, stateDir, `${BACKUP_DIR}/${sequence}.bin`), bytes)
+      }
+      entries.set(relativePath, { path: relativePath, existed: bytes !== null, backup })
+      persist()
+    },
+    /** Restores one recorded path, then removes any temporary sibling left behind. */
+    restore(relativePath) {
+      const entry = entries.get(relativePath)
+      if (entry === undefined) return
+      const absolute = join(root, relativePath)
+      try {
+        if (entry.existed === true && typeof entry.backup === 'string') {
+          const bytes = readBytes(join(root, stateDir, entry.backup))
+          if (bytes !== null) writeAtomic(absolute, bytes)
+        } else {
+          safeUnlink(absolute)
+        }
+      } finally {
+        safeUnlink(tempSibling(absolute))
+      }
+    },
+    restoreAll() {
+      for (const relativePath of [...entries.keys()]) this.restore(relativePath)
+    },
+    /** Deletes the journal and its backups. Idempotent. */
+    clear() {
+      safeUnlink(journalPath)
+      safeUnlink(tempSibling(journalPath))
+      try {
+        rmSync(backupRoot, { recursive: true, force: true })
+      } catch {
+        // A leftover backup directory is inert once the journal that named it is gone.
+      }
+    },
+  }
+}
+
+/**
+ * Repairs the damage a previous run left behind, from its journal.
+ *
+ * Restores every recorded path (recreating files that existed, removing files that did
+ * not), removes the deterministic temporary sibling of each, and deletes the journal. It
+ * never writes outside the project root: an entry that no longer passes containment is
+ * reported and skipped rather than followed.
+ *
+ * @param options - `{ root, stateDir }`.
+ * @returns `{ recovered, warnings }`.
+ */
+function recoverJournal({ root, stateDir }) {
+  const journalPath = join(root, stateDir, JOURNAL_FILE)
+  if (!existsSync(journalPath)) return { recovered: [], warnings: [] }
+  const warnings = []
+  const recovered = []
+  let journal = null
+  let unreadable = false
+  try {
+    journal = JSON.parse(readFileSync(journalPath, 'utf8'))
+  } catch (error) {
+    unreadable = true
+    warnings.push(
+      `the journal at ${JOURNAL_FILE} could not be read (${String(error)}); the journal and its backups were left in place for inspection`,
+    )
+  }
+  // A journal that cannot be parsed names no paths, so there is nothing to restore, and
+  // deleting the backups would destroy the only copy of the originals. Leave both.
+  if (unreadable) return { recovered, warnings }
+  for (const entry of Array.isArray(journal?.files) ? journal.files : []) {
+    const relativePath = typeof entry?.path === 'string' ? entry.path : null
+    if (relativePath === null) continue
+    const contained = containment(root, relativePath)
+    if (!contained.ok) {
+      warnings.push(`recovery skipped ${relativePath}: ${contained.reason}`)
+      continue
+    }
     try {
-      if (snapshot.bytes === null) safeUnlink(snapshot.absolute)
-      else writeBytes(snapshot.absolute, snapshot.bytes)
-    } catch {
-      // Best effort: one unrestorable file must not abort the remaining restores.
+      if (entry.existed === true && typeof entry.backup === 'string') {
+        const bytes = readBytes(join(root, stateDir, entry.backup))
+        if (bytes === null) {
+          warnings.push(`recovery could not find the backup for ${relativePath}`)
+        } else {
+          writeAtomic(contained.absolute, bytes)
+          recovered.push(relativePath)
+        }
+      } else {
+        safeUnlink(contained.absolute)
+        recovered.push(relativePath)
+      }
+    } finally {
+      safeUnlink(tempSibling(contained.absolute))
     }
   }
+  try {
+    rmSync(join(root, stateDir, BACKUP_DIR), { recursive: true, force: true })
+  } catch {
+    // Leftover backups are inert once the journal is gone.
+  }
+  safeUnlink(journalPath)
+  safeUnlink(tempSibling(journalPath))
+  return { recovered, warnings }
 }
 
 /**
@@ -385,12 +625,16 @@ function falsifyAdr({ id, title, type, authority, status, approves = [], laws = 
 }
 
 /**
- * Verifies the project can be falsified at all, before any case runs.
+ * Refuses a root a breaker must never operate on, whatever the manifest says.
+ *
+ * Separate from {@link unusableProblem} so RECOVERY can use it without requiring a
+ * readable manifest: a project whose manifest is missing or broken may still have a
+ * journal that must be replayed, and refusing to do so would strand the damage.
  *
  * @param root - Absolute project root.
- * @returns `null` when usable, else a problem record the CLI renders as exit 2.
+ * @returns `null` when the root is a usable directory, else a problem record.
  */
-function unusableProblem(root) {
+function rootProblem(root) {
   if (!existsSync(root)) return problem('MANIFEST_MISSING', `${root} does not exist`)
   let stats
   try {
@@ -399,12 +643,27 @@ function unusableProblem(root) {
     return problem('MANIFEST_MISSING', `${root} could not be inspected: ${String(error)}`)
   }
   if (!stats.isDirectory()) return problem('DIR_NOT_A_DIRECTORY', `${root} is not a directory`)
-  if (root === parse(root).root || root === resolve(homedir())) {
+  // Compared against the REAL path, so a symlink to `/` or to a home directory cannot
+  // defeat the refusal by arriving under a different spelling.
+  const realRoot = realPathOf(root)
+  if (realRoot === parse(realRoot).root || realRoot === realPathOf(homedir())) {
     return problem(
       'MANIFEST_INVALID',
-      `refusing to falsify ${root}: it is the filesystem root or a home directory, and a breaker must be scoped to one project`,
+      `refusing to operate on ${root}: it is the filesystem root or a home directory, and a breaker must be scoped to one project`,
     )
   }
+  return null
+}
+
+/**
+ * Verifies the project can be falsified at all, before any case runs.
+ *
+ * @param root - Absolute project root.
+ * @returns `null` when usable, else a problem record the CLI renders as exit 2.
+ */
+function unusableProblem(root) {
+  const base = rootProblem(root)
+  if (base !== null) return base
   const manifestPath = join(root, MANIFEST_PATH)
   if (!existsSync(manifestPath)) {
     return problem(
@@ -467,18 +726,19 @@ async function runCase(spec, context, pendingRestore) {
   result.target = plan.target ?? null
   if (plan.detail !== undefined) result.detail = plan.detail
 
-  // Publish the in-flight restore BEFORE the first write, so a signal that arrives
-  // while `mutate()` is mid-way still finds something to undo. Every case's restore is
-  // idempotent — it writes captured bytes back or unlinks a file it created — so the
-  // signal handler and the normal `finally` may both call it, and either order is safe.
-  const restoreMutation = typeof plan.restore === 'function' ? plan.restore : null
+  // Each case records what it mutated through the context helpers; the journal can
+  // restore that even after a hard kill. The in-flight restore is published BEFORE the
+  // first write, so a signal that arrives mid-`mutate()` still finds what to undo. Both
+  // paths are idempotent, so the handler and the normal `finally` may run in either order.
+  context.resetTouched()
+  const restoreMutation = () => context.restoreTouched()
   if (pendingRestore !== undefined) pendingRestore.current = restoreMutation
 
   try {
     plan.mutate()
   } catch (error) {
     try {
-      restoreMutation?.()
+      restoreMutation()
     } catch {
       // The mutation failed, so there is likely nothing to restore; report the cause.
     }
@@ -501,7 +761,7 @@ async function runCase(spec, context, pendingRestore) {
     result.detail = `the verifier threw: ${String(error)}`
   } finally {
     try {
-      restoreMutation?.()
+      restoreMutation()
     } catch (error) {
       result.status = 'error'
       result.detail = `the mutation could not be restored: ${String(error)}`
@@ -544,8 +804,7 @@ const CASES = [
         status: 'ready',
         target: relative,
         detail: `an approval ADR naming decision ${targetId} while recording no channel, time or consent hash`,
-        mutate: () => writeBytes(join(context.root, relative), text),
-        restore: () => safeUnlink(join(context.root, relative)),
+        mutate: () => context.mutateFile(relative, text),
       }
     },
   },
@@ -577,8 +836,7 @@ const CASES = [
         status: 'ready',
         target: relative,
         detail: 'an active human-authored law with an empty check list and no unenforced reason',
-        mutate: () => writeBytes(join(context.root, relative), text),
-        restore: () => safeUnlink(join(context.root, relative)),
+        mutate: () => context.mutateFile(relative, text),
       }
     },
   },
@@ -603,20 +861,11 @@ const CASES = [
         }
       }
       const relative = candidate.check.path
-      const absolute = join(context.root, relative)
-      let bytes = null
       return {
         status: 'ready',
         target: relative,
         detail: `removed ${relative}, required by law "${candidate.law.id}"`,
-        mutate: () => {
-          bytes = readBytes(absolute)
-          if (bytes === null) throw new Error(`${relative} could not be read`)
-          unlinkSync(absolute)
-        },
-        restore: () => {
-          if (bytes !== null) writeBytes(absolute, bytes)
-        },
+        mutate: () => context.deleteFile(relative),
       }
     },
   },
@@ -647,13 +896,11 @@ const CASES = [
         }
       }
       const relative = candidate.check.path
-      const absolute = join(context.root, relative)
       return {
         status: 'ready',
         target: relative,
         detail: `created ${relative}, forbidden by law "${candidate.law.id}"`,
-        mutate: () => writeBytes(absolute, 'ratchet-falsify: this file must not exist\n'),
-        restore: () => safeUnlink(absolute),
+        mutate: () => context.mutateFile(relative, 'ratchet-falsify: this file must not exist\n'),
       }
     },
   },
@@ -686,22 +933,17 @@ const CASES = [
           outOfScope = { target, reason: writable.reason }
           continue
         }
-        const absolute = join(context.root, target)
-        let bytes = null
         return {
           status: 'ready',
           target,
           detail: `appended ${JSON.stringify(witness)} to ${target}, forbidden by law "${law.id}"`,
           mutate: () => {
-            bytes = readBytes(absolute)
+            const bytes = readBytes(join(context.root, target))
             if (bytes === null) throw new Error(`${target} could not be read`)
             const text = bytes.toString('utf8')
             const next = `${text}${text.endsWith('\n') ? '' : '\n'}${witness}\n`
             if (Buffer.byteLength(next) > MAX_WRITE_BYTES + bytes.length) throw new Error('the mutation would exceed the write cap')
-            writeBytes(absolute, next)
-          },
-          restore: () => {
-            if (bytes !== null) writeBytes(absolute, bytes)
+            context.mutateFile(target, next)
           },
         }
       }
@@ -747,7 +989,6 @@ const CASES = [
           outOfScope = { target: unwritable, reason: assertWritable(context.root, unwritable, context.globs).reason }
           continue
         }
-        const originals = new Map()
         const global = new RegExp(pattern, `${cleanFlags}g`)
         return {
           status: 'ready',
@@ -755,15 +996,10 @@ const CASES = [
           detail: `removed ${JSON.stringify(pattern)} from ${matching.length} file(s) required by law "${law.id}"`,
           mutate: () => {
             for (const file of matching) {
-              const absolute = join(context.root, file)
-              const bytes = readBytes(absolute)
+              const bytes = readBytes(join(context.root, file))
               if (bytes === null) throw new Error(`${file} could not be read`)
-              originals.set(absolute, bytes)
-              writeBytes(absolute, bytes.toString('utf8').replace(global, ''))
+              context.mutateFile(file, bytes.toString('utf8').replace(global, ''))
             }
-          },
-          restore: () => {
-            for (const [absolute, bytes] of originals) writeBytes(absolute, bytes)
           },
         }
       }
@@ -796,6 +1032,10 @@ export async function falsify({ root, runCommand = null, verifyImpl = verify, ha
   const manifest = JSON.parse(readFileSync(join(absoluteRoot, MANIFEST_PATH), 'utf8'))
   const dirs = recordDirs(manifest)
   const globs = writableGlobs(manifest)
+  const stateDir = safeStateDir(absoluteRoot, dirs.stateDir)
+  // Repair anything a previous hard-killed run left behind BEFORE compiling, so the
+  // corpus this run judges is the project's own rather than a mutation's.
+  const recovery = recoverJournal({ root: absoluteRoot, stateDir })
   const files = listFiles(absoluteRoot)
   const compiled = compileProject(absoluteRoot)
   if (!compiled.ok) {
@@ -806,6 +1046,8 @@ export async function falsify({ root, runCommand = null, verifyImpl = verify, ha
       cases: [],
       counts: { total: 0, detected: 0, missed: 0, skipped: 0, 'out-of-scope': 0, error: 0 },
       problems: compiled.problems,
+      recovered: recovery.recovered,
+      warnings: recovery.warnings,
     }
   }
   const laws = compiled.bundle?.laws ?? []
@@ -821,25 +1063,72 @@ export async function falsify({ root, runCommand = null, verifyImpl = verify, ha
     }
     throw new Error('no free four-digit id remains for a falsification record')
   }
-  const context = { root: absoluteRoot, globs, files, laws, recordIds, dirs, freeId, runCommand, verifyImpl }
+  const journal = createJournal({ root: absoluteRoot, stateDir })
+  // The persisted verdict is recorded up front: `verify` writes it during the run, and a
+  // hard kill would otherwise leave a project that looks verified against laws it no
+  // longer has.
+  for (const stateArtifact of [STATE_PATHS.state, STATE_PATHS.ledger, STATE_PATHS.verifyReport]) {
+    journal.record(stateArtifact)
+  }
 
-  const snapshots = snapshotState(absoluteRoot)
+  let touched = new Set()
+  const context = {
+    root: absoluteRoot,
+    globs,
+    files,
+    laws,
+    recordIds,
+    dirs,
+    freeId,
+    runCommand,
+    verifyImpl,
+    /** Journals a path, then writes it atomically. Refuses anything out of scope. */
+    mutateFile(relativePath, bytes) {
+      const writable = assertWritable(absoluteRoot, relativePath, globs)
+      if (!writable.ok) throw new Error(`refusing to mutate ${relativePath}: ${writable.reason}`)
+      journal.record(relativePath)
+      touched.add(relativePath)
+      writeAtomic(join(absoluteRoot, relativePath), bytes)
+    },
+    /** Journals a path, then removes it. Refuses anything out of scope. */
+    deleteFile(relativePath) {
+      const writable = assertWritable(absoluteRoot, relativePath, globs)
+      if (!writable.ok) throw new Error(`refusing to mutate ${relativePath}: ${writable.reason}`)
+      journal.record(relativePath)
+      touched.add(relativePath)
+      safeUnlink(join(absoluteRoot, relativePath))
+    },
+    resetTouched() {
+      touched = new Set()
+    },
+    restoreTouched() {
+      for (const relativePath of [...touched]) journal.restore(relativePath)
+    },
+  }
+
   const cases = []
   // Per-invocation, not module-global: two concurrent runs must not be able to restore
   // each other's mutation, and a signal must find exactly the mutation in flight.
   const pendingRestore = { current: null }
-  // A `finally` does not run when Node terminates on an unhandled signal, so the
-  // restore path is armed as a handler for the duration of the run. `process.exit`
-  // after a synchronous restore means the mutation and the persisted verdict are both
-  // undone before the process leaves; 130/143 are the conventional signal exit codes.
+  // A `finally` does not run when Node terminates on an unhandled signal, so the restore
+  // path is armed as a handler for the duration of the run. The journal covers what the
+  // in-flight restore misses — every path ever recorded — which is what makes a hard
+  // SIGKILL repairable by the next run. `process.exit` after synchronous restores means
+  // the mutation and the persisted verdict are both undone; 130/143 are the conventional
+  // signal exit codes.
   const onSignal = (code) => () => {
     try {
       pendingRestore.current?.()
     } catch {
-      // A restore failure must not stop the state restore or the exit.
+      // A restore failure must not stop the journal restore or the exit.
     }
     try {
-      restoreState(snapshots)
+      journal.restoreAll()
+    } catch {
+      // Best effort: the process is already leaving.
+    }
+    try {
+      journal.clear()
     } catch {
       // Best effort: the process is already leaving.
     }
@@ -858,12 +1147,52 @@ export async function falsify({ root, runCommand = null, verifyImpl = verify, ha
   } finally {
     if (onSigint !== null) process.removeListener('SIGINT', onSigint)
     if (onSigterm !== null) process.removeListener('SIGTERM', onSigterm)
-    restoreState(snapshots)
+    journal.restoreAll()
+    journal.clear()
   }
 
   const counts = { total: cases.length, detected: 0, missed: 0, skipped: 0, 'out-of-scope': 0, error: 0 }
   for (const entry of cases) counts[entry.status] = (counts[entry.status] ?? 0) + 1
-  return { ok: counts.missed === 0 && counts.error === 0, root: absoluteRoot, cases, counts }
+  return {
+    ok: counts.missed === 0 && counts.error === 0,
+    root: absoluteRoot,
+    cases,
+    counts,
+    recovered: recovery.recovered,
+    warnings: recovery.warnings,
+  }
+}
+
+/**
+ * Repairs the project from a stale falsification journal, without running any case.
+ *
+ * The companion to a hard-killed run: SIGKILL cannot be caught, so the repair happens on
+ * the next invocation instead. Recreating files that existed, removing files that did
+ * not, deleting the journal, and reporting what it touched.
+ *
+ * @param options - `{ root }`.
+ * @returns `{ ok, root, recovered, warnings }`, or `{ unusable: true, problems }` when the
+ *   project cannot be read at all.
+ */
+export function recover({ root } = {}) {
+  const absoluteRoot = resolve(root)
+  // Only the root-level refusal applies here. The manifest is NOT required: recovery
+  // exists to repair a project a hard-killed run left broken, and a manifest that is
+  // itself missing or unreadable must not strand the damage. No case mutates the
+  // manifest, so falling back to the default journal location is safe.
+  const base = rootProblem(absoluteRoot)
+  if (base !== null) {
+    return { ok: false, root: absoluteRoot, unusable: true, recovered: [], warnings: [], problems: [base] }
+  }
+  let stateDir = DEFAULT_STATE_DIR
+  try {
+    const manifest = JSON.parse(readFileSync(join(absoluteRoot, MANIFEST_PATH), 'utf8'))
+    stateDir = recordDirs(manifest).stateDir
+  } catch {
+    // No readable manifest: the journal still lives at the documented default.
+  }
+  const result = recoverJournal({ root: absoluteRoot, stateDir: safeStateDir(absoluteRoot, stateDir) })
+  return { ok: true, root: absoluteRoot, recovered: result.recovered, warnings: result.warnings }
 }
 
 /**

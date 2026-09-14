@@ -35,8 +35,10 @@
  * BEHAVIOUR ON EDGE CASES
  *   - A case whose target file is missing is reported and skipped, never treated as a
  *     pass.
- *   - Every edit is reverted in a `finally`, so an interrupted run does not leave the
- *     kit broken.
+ *   - Every edit is reverted in a `finally` AND on `SIGINT`/`SIGTERM`: a `finally` does
+ *     not run when Node terminates on an unhandled signal, so the case in flight is
+ *     restored by a signal handler before the process exits 130/143. `SIGKILL` cannot be
+ *     caught by any process, so a `kill -9` mid-run can leave one edit behind.
  *   - The gate's output is captured and echoed for a failing case, so the reason is
  *     visible rather than inferred.
  */
@@ -200,6 +202,22 @@ const CASES = [
   },
 ]
 
+// A `finally` does not run on an unhandled signal, so the case in flight is published
+// here and the handlers below restore it before exiting. `SIGKILL` cannot be caught.
+let activeRestore = null
+const onSignal = (code) => () => {
+  try {
+    activeRestore?.()
+  } catch {
+    // Best effort: the process is already leaving.
+  }
+  process.exit(code)
+}
+const onSigint = onSignal(130)
+const onSigterm = onSignal(143)
+process.once('SIGINT', onSigint)
+process.once('SIGTERM', onSigterm)
+
 let failures = 0
 let invalid = 0
 for (const testCase of CASES) {
@@ -208,6 +226,7 @@ for (const testCase of CASES) {
   let result
   try {
     restore = testCase.breaks()
+    activeRestore = restore
   } catch (error) {
     // A case that could not break anything is not a passing case. Reporting it as
     // one is how a breaker fabricates a clean bill of health.
@@ -218,7 +237,11 @@ for (const testCase of CASES) {
   try {
     result = gate()
   } finally {
-    restore()
+    try {
+      restore?.()
+    } finally {
+      activeRestore = null
+    }
   }
   const failed = result.code !== 0
   // A case names either the law that must report it or the problem code that must
@@ -240,6 +263,9 @@ for (const testCase of CASES) {
     if (line !== undefined) process.stdout.write(`   ${line.trim()}\n`)
   }
 }
+
+process.removeListener('SIGINT', onSigint)
+process.removeListener('SIGTERM', onSigterm)
 
 const broken = failures + invalid
 process.stdout.write(

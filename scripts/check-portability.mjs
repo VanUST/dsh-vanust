@@ -6,8 +6,9 @@
  *
  *   It also checks the plugin INVENTORY: `plugins/inventory.json` must agree with the
  *   tarballs on disk, each plugin's source directory and `SOURCE-NOTICE.md`, its
- *   packing entry point, its mounted profile row and its mention in `README.md`. The
- *   count is what drifted — the kit described itself as shipping one plugin, then
+ *   packing entry point, its mounted profile row and its mention in `README.md`, and a
+ *   snapshot's declared entry point must exist so the package is complete, not a shell.
+ *   The count is what drifted — the kit described itself as shipping one plugin, then
  *   three, while four tarballs were installed and four rows mounted — and a prose
  *   count that nothing checks is how a document stays confidently wrong.
  *
@@ -357,6 +358,23 @@ for (const dir of ['plugins/ratchet', 'plugins/dsh-context', 'plugins/kit-rules'
       if ((row.provenance === 'reconstruction' || row.provenance === 'snapshot') &&
         (typeof row.notice !== 'string' || !existsSync(join(KIT, row.notice)))) {
         problems.push(`${id}: a ${row.provenance} source has no SOURCE-NOTICE.md`)
+      }
+      // A snapshot must be a complete package, not a shell: its declared entry point
+      // has to exist, or a reviewer cannot import what the tarball ships and the
+      // directory is a source list that resolves to nothing.
+      if (row.provenance === 'snapshot' && typeof row.source === 'string') {
+        const manifestPath = join(KIT, row.source, 'package.json')
+        if (existsSync(manifestPath)) {
+          try {
+            const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+            const entry = typeof manifest.main === 'string' ? manifest.main : null
+            if (entry === null || !existsSync(join(KIT, row.source, entry))) {
+              problems.push(`${id}: snapshot declares main ${JSON.stringify(entry)} but it is not in ${row.source}`)
+            }
+          } catch (error) {
+            problems.push(`${id}: snapshot package.json is unreadable: ${String(error)}`)
+          }
+        }
       }
       if (typeof row.pack !== 'string' || !existsSync(join(KIT, row.pack))) {
         problems.push(`${id}: packing entry point ${JSON.stringify(row.pack)} does not exist`)

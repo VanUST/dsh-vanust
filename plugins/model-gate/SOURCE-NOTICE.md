@@ -17,11 +17,19 @@ produces it.
 | License | MIT (Copyright (c) 2026 DeepSeek); see the repository `NOTICE` |
 
 What is included: `src/index.ts`, `tests/gate.spec.ts`, `package.json`,
-`tsconfig.json`, `README.md`, and the upstream `LICENSE` (MIT, Copyright (c) 2026
-DeepSeek), which the MIT terms require to travel with the source. What is excluded:
-`lib/` (the compiled output that the tarball actually ships) and `node_modules/`. The
-`package.json` dependencies use the harness workspace protocol (`workspace:^`) and do
-not resolve from this directory; that is expected, because nothing here is executed.
+`tsconfig.json`, `README.md`, the upstream `LICENSE` (MIT, Copyright (c) 2026
+DeepSeek), and the **built output** the tarball ships — `lib/index.js` and
+`lib/types/index.d.ts` (with its source map). What is excluded: `node_modules/` and
+`lib/tsconfig.tsbuildinfo` (a build cache). The `package.json` dependencies use the
+harness workspace protocol (`workspace:^`), so `npm install` here will not resolve
+them: this directory is imported and packed, never installed.
+
+Including `lib/` is what makes the snapshot a complete package rather than a shell.
+`main` (`lib/index.js`) and `types` (`lib/types/index.d.ts`) resolve, so a reader can
+`import '@deepseek-ai/dsh-model-gate'` from this directory and pack it with
+`npm pack`, with no build step and no harness checkout. What still needs the harness
+toolchain is **regenerating `lib/` from `src/`**: that is upstream's build (tsdown
+over the monorepo's project references), not something this kit reproduces.
 
 ## This is not the build tree
 
