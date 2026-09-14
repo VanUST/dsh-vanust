@@ -568,6 +568,17 @@ function main(argv) {
 
   if (!drift && plan.length === 0) {
     log('kit.current', { state: statePath(home) })
+    // An apply that finds nothing to do still records the head it verified, or the
+    // state's `appliedHead` freezes at the last run that wrote an artifact: the machine
+    // is converged, but the record points at an older commit and `changedSinceApplied`
+    // grows with every scripts-only or documentation commit. Only `--apply` writes —
+    // `--check` promises to write nothing, and a check that mutated the state would be
+    // the one thing a caller runs it to avoid.
+    if (opts.mode === 'apply') {
+      const settled = buildState({ items, kit, repo, harness: harnessPin })
+      writeFileSync(statePath(home), `${JSON.stringify(settled, null, 2)}\n`)
+      log('kit.state-written', { path: statePath(home), actions: [] })
+    }
     emit({ ok: true, kit, home, profile: opts.profile, drift: null, plan, applied: [], harness: harnessPin, repo })
     return 0
   }
