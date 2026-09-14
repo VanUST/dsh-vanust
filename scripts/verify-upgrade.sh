@@ -101,10 +101,15 @@ if command -v node >/dev/null 2>&1; then
   # The panel's browser half never executes under the harness, so a React mistake in
   # it ships silently and is only found by reloading a tab. This renders the real
   # bundle over the real corpus and asserts the UX contract — states filled,
-  # provenance outlined, state tones distinct — so a bundle that parses but renders
-  # wrong fails here instead of in a screenshot.
+  # provenance outlined, state tones distinct, and every toned pill's text resolving
+  # through the installed theme to a colour other than its own fill.
+  #
+  # The probe requires the theme-dependent half to have RUN: this gate has a harness
+  # installed by definition, so a `[SKIP]` here would mean the colour check did nothing
+  # while the marker still printed. A standalone run on a machine with no harness may
+  # skip; this one may not.
   probe "ADR panel renders its contract from the shipped bundle" \
-    "node '${KIT_DIR}/scripts/test-adr-panel.mjs' | grep -q 'adr panel render ok'"
+    "out=\$(node '${KIT_DIR}/scripts/test-adr-panel.mjs'); echo \"\$out\"; echo \"\$out\" | grep -q 'adr panel render ok' && ! echo \"\$out\" | grep -q 'SKIP'"
   # The behavioural half of the gate: these invariants are asserted by driving the
   # production modules, not by a test name, because a test with an empty body passes
   # and a suite prints `fail 0` over an empty file. Measured: a mutation that made a

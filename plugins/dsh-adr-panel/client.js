@@ -67,6 +67,13 @@
  *   is legible without reading every row, and draws each group in the shape its pills
  *   use elsewhere — the `in force by` group is outlined, the other two filled.
  *
+ *   A FILL IS A TINT: a pill's background comes from a `-tertiary` token or the shell's
+ *   danger surface, never a `-secondary` or `-primary`, because those name solid variants
+ *   whose value can equal the text colour — in the dark theme the error pair is literally
+ *   the same red, which painted the label invisible. The error tone is the one kind the
+ *   shell defines no `-tertiary` for, so it borrows `interactive-bg-hover-danger`, the red
+ *   surface the shell's own components pair with `state-error-primary`.
+ *
  *   A law card's `decided in <id>` chip takes the tone of the decision it names, not a
  *   fixed neutral: a law decided by a superseded or unknown decision must not read like
  *   an enforced one. The chip is the tone of that decision's state when the decision is
@@ -129,7 +136,7 @@ window.__ModuleLoader__.load({
 		 * constant is the only way to tell a stale bundle from a bug: bump it with every
 		 * change to this file, and keep it equal to the package's version.
 		 */
-		const PANEL_VERSION = "0.1.6";
+		const PANEL_VERSION = "0.1.7";
 		/** The manifest a ratchet project declares its directories and name in. */
 		const MANIFEST_PATH = ".dsh/project.json";
 		/** Directories used when the manifest is absent, unparseable, or silent. */
@@ -981,6 +988,15 @@ window.__ModuleLoader__.load({
 		 * drift apart. Only the shell's own state/label/business aliases are used; no
 		 * literal palette is invented where a token exists.
 		 *
+		 * A BACKGROUND IS A TINT, NEVER A `-secondary` OR `-primary`: those name the
+		 * solid mid and bright variants, and the theme's error pair is the same colour
+		 * in dark mode (`state-error-primary` and `state-error-secondary` both resolve
+		 * to red-400), so filling a pill with `-secondary` paints the text the same
+		 * colour as its own background and the label disappears. The theme defines
+		 * `-tertiary` for success, warn and business but has NO error tint at all, so
+		 * the error background is `interactive-bg-hover-danger` — the translucent red
+		 * surface the shell pairs with `state-error-primary` in its own components.
+		 *
 		 * @param kind - one of the semantic kinds the panel displays a state with:
 		 *   `in-force`/`active`/`ratified` (success), `pending` (warn — the one that must
 		 *   catch the eye), `superseded` (muted, never error), `rejected`/`withdrawn`
@@ -1002,8 +1018,8 @@ window.__ModuleLoader__.load({
 					border: "var(--dsw-alias-state-warn-secondary, rgba(232,196,106,0.5))"
 				},
 				error: {
-					fg: "var(--dsw-alias-label-error, var(--dsw-alias-state-error-primary, #e5735f))",
-					bg: "var(--dsw-alias-state-error-secondary, rgba(229,115,95,0.16))",
+					fg: "var(--dsw-alias-state-error-primary, #e5735f)",
+					bg: "var(--dsw-alias-interactive-bg-hover-danger, rgba(229,115,95,0.16))",
 					border: "var(--dsw-alias-state-error-primary, #e5735f)"
 				},
 				business: {

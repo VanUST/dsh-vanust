@@ -13,18 +13,30 @@
  *   UX contract states. A synthetic corpus then exercises the states the real
  *   corpus does not contain (a superseded decision, an unknown `decided in` id).
  *
+ *   It also checks the pills' COLOUR, not just the token each one names. A pill can
+ *   cite the right theme variable and still be unreadable, because what matters is
+ *   the value that variable resolves to: the theme's dark variant maps both
+ *   `state-error-primary` and `state-error-secondary` to the same solid red, so a
+ *   pill whose background used `-secondary` was filled with exactly its own text
+ *   colour and its label vanished. Where the shell's theme bundle can be found,
+ *   every rendered pill's foreground and background are resolved through it in both
+ *   variants and required to differ by a minimum contrast ratio.
+ *
  * INPUTS
  *   None. The kit root is derived from this script's location, and every file read
- *   is the kit's own source. No network, no credentials, no harness, no model.
+ *   is the kit's own source. The shell theme is read only if it can be found beside
+ *   an installed harness. No network, no credentials, no model.
  *
  * OUTPUTS
- *   One `[PASS]`/`[FAIL]` line per assertion, then `adr panel render ok` and exit 0
- *   when every assertion held, or the failures on stderr and exit 1. A caller that
+ *   One `[PASS]`/`[FAIL]` line per assertion, and a `[SKIP]` line for the contrast
+ *   check when no theme is installed — never a silent pass, because a check with
+ *   nothing to read is not a passing check. Then `adr panel render ok` and exit 0
+ *   when every claim held, or the failures on stderr and exit 1. A caller that
  *   greps for the marker cannot mistake a partial run for a pass.
  *
  * KEYWORDS
  *   adr panel, client bundle, render test, slots, state pill, provenance, tone,
- *   contract, browser half, stub loader
+ *   contract, browser half, stub loader, theme tokens, contrast, readability
  *
  * BEHAVIOUR ON EDGE CASES
  *   - The bundle failing to call `window.__ModuleLoader__.load`, or its factory
@@ -35,10 +47,14 @@
  *   - The real corpus is read as it is: if a directory is absent the render shows a
  *     failure line and the structural assertions still run, because the layout, not
  *     the data, is what this test is about.
+ *   - No installed theme, or a pill whose colour cannot be resolved to a concrete
+ *     value, is reported as skipped or unresolved rather than counted as contrast
+ *     it never measured.
  */
 
-import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { delimiter, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const KIT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -257,6 +273,12 @@ if (registry['shell.overlay'] === undefined) {
   process.exit(1)
 }
 
+/** A pill is the node carrying `chipStyle`: a fully rounded chip with that padding. */
+const isPillNode = (node) => node.tag === 'span' && node.style !== undefined && node.style.borderRadius === 999 && node.style.padding === '1px 6px'
+
+/** Every pill rendered so far, across all scenarios, for the colour check. */
+const renderedPills = []
+
 /** Renders the overlay from one inject face and returns the recorded nodes. */
 async function renderOverlay(prefix, overrideLoad) {
   const overlay = registry['shell.overlay']
@@ -272,6 +294,7 @@ async function renderOverlay(prefix, overrideLoad) {
     await flush(root, prefix)
     await new Promise((resolveTick) => setTimeout(resolveTick, 30))
     await flush(root, prefix)
+    for (const node of nodes) if (isPillNode(node)) renderedPills.push({ text: node.text, style: node.style })
     return { ok: true }
   } catch (error) {
     return { ok: false, error: String(error) }
@@ -323,7 +346,7 @@ claim(
  * `span` for its key, so a text match alone finds that wrapper first; a pill is
  * the node that carries `chipStyle`'s pill radius.
  */
-const pills = (label) => nodes.filter((entry) => entry.tag === 'span' && entry.text === label && entry.style && entry.style.borderRadius === 999)
+const pills = (label) => nodes.filter((entry) => isPillNode(entry) && entry.text === label)
 const isFilled = (style) => typeof style.background === 'string' && style.background !== 'transparent'
 const backgroundOf = (node) => String((node === undefined || node.style === undefined ? {} : node.style).background)
 
@@ -402,6 +425,196 @@ claim(
   new Set([backgroundOf(knownChip), backgroundOf(supersededChip), backgroundOf(unknownChip)]).size === 3,
   [backgroundOf(knownChip), backgroundOf(supersededChip), backgroundOf(unknownChip)].join(' | '),
 )
+
+// ── the pills must be readable, not merely well-named ───────────────────────
+// A pill's colour is a `var(--token, fallback)` string, so every structural
+// assertion above passes even when the theme resolves that token to a value that
+// hides the label. This resolves the rendered styles against the shell's own theme
+// and requires each pill's text to contrast with the surface behind it.
+
+/** Candidate roots that may hold the shell theme bundle, nearest first. */
+function themeRoots() {
+  const roots = []
+  if (process.env.DSH_HOME) roots.push(join(process.env.DSH_HOME, 'profiles', 'web'), process.env.DSH_HOME)
+  const dsh = dirname(dirname(process.execPath))
+  roots.push(
+    join(dsh, 'lib', 'node_modules', '@deepseek-ai', 'dsh', 'node_modules'),
+    join(homedir(), '.npm', 'node', 'lib', 'node_modules', '@deepseek-ai', 'dsh', 'node_modules'),
+    '/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules',
+  )
+  // The global install that owns the `dsh` command, which is not necessarily the same
+  // prefix as the interpreter running this script.
+  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
+    if (dir === '' || !existsSync(join(dir, 'dsh'))) continue
+    const prefix = dirname(dir)
+    roots.push(
+      join(prefix, 'lib', 'node_modules', '@deepseek-ai', 'dsh', 'node_modules'),
+      join(prefix, 'node_modules', '@deepseek-ai', 'dsh', 'node_modules'),
+    )
+  }
+  return roots
+}
+
+/** The shell theme bundle, or null when no harness installation carries one. */
+function findTheme() {
+  for (const root of themeRoots()) {
+    for (const candidate of [join(root, 'node_modules'), root]) {
+      const file = join(candidate, '@deepseek-ai', 'dsh-client-ui-theme', 'lib', 'client.js')
+      if (existsSync(file)) return file
+    }
+  }
+  return null
+}
+
+/**
+ * The `--token: value` declarations of one variant.
+ *
+ * The theme declares each variant under `body{…}` (light) and
+ * `body[data-ds-dark-theme]{…}` (dark), and it emits several such blocks — one set
+ * holding the `--dsw-static-*` palette and the next holding the `--dsw-alias-*`
+ * layer that references it, then further complete themes. Blocks are read in order
+ * and merging stops at the first one that carries the alias layer, so the map is
+ * one coherent variant rather than a mix of several. Without this, reading only the
+ * first block yields a map with no `--dsw-alias-*` tokens at all and the contrast
+ * check measures nothing while still reporting the variants as found.
+ */
+function themeVariant(source, selector) {
+  const vars = new Map()
+  for (const match of source.matchAll(new RegExp(`${selector.replace(/[[\]]/g, '\\$&')}\\{`, 'g'))) {
+    let depth = 0
+    let index = source.indexOf('{', match.index)
+    const open = index
+    for (; index < source.length; index += 1) {
+      if (source[index] === '{') depth += 1
+      else if (source[index] === '}') {
+        depth -= 1
+        if (depth === 0) break
+      }
+    }
+    const body = source.slice(open + 1, index)
+    for (const declaration of body.matchAll(/(--dsw-[a-z0-9-]+)\s*:\s*([^;}]+)/g)) {
+      if (!vars.has(declaration[1])) vars.set(declaration[1], declaration[2].trim())
+    }
+    if (vars.has('--dsw-alias-bg-base')) break
+  }
+  return vars.size === 0 ? null : vars
+}
+
+/** Resolves a `var(--a, var(--b, literal))` chain to its literal, or null. */
+function resolveToken(expression, vars, depth = 0) {
+  if (expression === undefined || depth > 16) return null
+  const text = String(expression).trim()
+  const match = /^var\(\s*(--dsw-[a-z0-9-]+)\s*(?:,\s*([\s\S]*))?\)$/.exec(text)
+  if (match === null) return text
+  const declared = vars.get(match[1])
+  if (declared !== undefined) return resolveToken(declared, vars, depth + 1)
+  return match[2] === undefined ? null : resolveToken(match[2], vars, depth + 1)
+}
+
+/** `[r, g, b, a]` for a hex or rgb()/rgba() value; null for anything else. */
+function parseColour(text) {
+  if (text === null || text === undefined) return null
+  const value = String(text).trim()
+  if (value === 'transparent') return [0, 0, 0, 0]
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec(value)
+  if (hex !== null) {
+    const digits = hex[1]
+    const expand = (part) => parseInt(part.length === 1 ? part + part : part, 16)
+    if (digits.length === 3) return [expand(digits[0]), expand(digits[1]), expand(digits[2]), 1]
+    return [
+      expand(digits.slice(0, 2)),
+      expand(digits.slice(2, 4)),
+      expand(digits.slice(4, 6)),
+      digits.length === 8 ? expand(digits.slice(6, 8)) / 255 : 1,
+    ]
+  }
+  const rgb = /^rgba?\(([^)]+)\)$/i.exec(value)
+  if (rgb !== null) {
+    const parts = rgb[1].split(/[,/\s]+/).filter(Boolean).map(Number)
+    if (parts.length >= 3 && parts.slice(0, 3).every(Number.isFinite)) {
+      return [parts[0], parts[1], parts[2], parts.length > 3 && Number.isFinite(parts[3]) ? parts[3] : 1]
+    }
+  }
+  return null
+}
+
+/** `top` composited over an opaque `base`, both `[r, g, b, a]`. */
+function over(top, base) {
+  const alpha = top[3]
+  return [top[0] * alpha + base[0] * (1 - alpha), top[1] * alpha + base[1] * (1 - alpha), top[2] * alpha + base[2] * (1 - alpha), 1]
+}
+
+/** WCAG relative luminance. */
+function luminance(colour) {
+  const channel = (value) => {
+    const part = value / 255
+    return part <= 0.03928 ? part / 12.92 : ((part + 0.055) / 1.055) ** 2.4
+  }
+  return 0.2126 * channel(colour[0]) + 0.7152 * channel(colour[1]) + 0.0722 * channel(colour[2])
+}
+
+/** WCAG contrast ratio, 1 for identical colours. */
+function contrastRatio(a, b) {
+  const one = luminance(a)
+  const two = luminance(b)
+  return (Math.max(one, two) + 0.05) / (Math.min(one, two) + 0.05)
+}
+
+/**
+ * Below this a pill's label is effectively its own fill.
+ *
+ * The bar is deliberately far under the design system's own contrast rather than a
+ * WCAG target: the light theme's tints measure about 2.1 by design (green-100 behind
+ * green-500), and second-guessing the shell's palette is not this test's job. What it
+ * catches is COLLAPSE — a pill filled with the very colour its text is drawn in, which
+ * is what a `-secondary` background produced in the dark theme at a ratio of 1.00.
+ */
+const MINIMUM_CONTRAST = 1.5
+
+const themeFile = findTheme()
+if (themeFile === null) {
+  process.stdout.write('  [SKIP] every pill is legible against its own fill — no installed shell theme to resolve against\n')
+} else {
+  const themeSource = readFileSync(themeFile, 'utf8')
+  const variants = { light: themeVariant(themeSource, 'body'), dark: themeVariant(themeSource, 'body[data-ds-dark-theme]') }
+  const unresolved = []
+  const inherited = []
+  const measured = []
+  for (const [variant, vars] of Object.entries(variants)) {
+    if (vars === null) continue
+    const surface = parseColour(resolveToken(vars.get('--dsw-specific-menu'), vars))
+    if (surface === null) continue
+    for (const pill of renderedPills) {
+      // A plain chip sets neither: it inherits the surrounding text colour on the card,
+      // so there is no pair to compare and claiming one would be measuring nothing.
+      if (pill.style.color === undefined && pill.style.background === undefined) {
+        inherited.push(`${variant}:${pill.text}`)
+        continue
+      }
+      const foreground = parseColour(resolveToken(pill.style.color, vars))
+      const background = parseColour(resolveToken(pill.style.background, vars))
+      if (foreground === null || background === null) {
+        unresolved.push(`${variant}:${pill.text}`)
+        continue
+      }
+      measured.push({ variant, text: pill.text, ratio: contrastRatio(foreground, over(background, surface)) })
+    }
+  }
+  const worst = measured.reduce((low, entry) => (low === null || entry.ratio < low.ratio ? entry : low), null)
+  const failing = measured.filter((entry) => entry.ratio < MINIMUM_CONTRAST)
+  claim(
+    `no pill is filled with its own text colour (contrast >= ${MINIMUM_CONTRAST})`,
+    measured.length > 0 && failing.length === 0,
+    failing.length > 0
+      ? failing.map((entry) => `${entry.variant} "${entry.text}" ${entry.ratio.toFixed(2)}`).join(' | ')
+      : `worst ${worst === null ? 'n/a' : `${worst.variant} "${worst.text}" ${worst.ratio.toFixed(2)}`} of ${measured.length} toned pill(s), ${inherited.length} plain chip(s) inherit their colour`,
+  )
+  claim(
+    'every toned pill colour resolved through the theme',
+    unresolved.length === 0,
+    `${unresolved.length} unresolvable: ${unresolved.slice(0, 6).join(', ')}`,
+  )
+}
 
 // ── report ──────────────────────────────────────────────────────────────────
 for (const entry of claims) {

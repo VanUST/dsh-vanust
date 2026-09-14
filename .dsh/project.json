@@ -123,7 +123,7 @@
     {
       "id": "adr-panel-render",
       "command": "node scripts/test-adr-panel.mjs",
-      "purpose": "the ADR panel's browser bundle rendered for real: the shipped client.js is loaded through a stub module loader and driven over the kit's own corpus, asserting the UX contract — three reader-facing sections, states filled and provenance outlined, the awaiting-a-human state in the warn tone, and the decided-in chip taking the tone of the record it names",
+      "purpose": "the ADR panel's browser bundle rendered for real: the shipped client.js is loaded through a stub module loader and driven over the kit's own corpus, asserting the UX contract — three reader-facing sections, states filled and provenance outlined, the awaiting-a-human state in the warn tone, the decided-in chip taking the tone of the record it names, and every toned pill's text resolving through the installed theme to a colour other than its own fill",
       "path": "scripts/test-adr-panel.mjs"
     },
     {

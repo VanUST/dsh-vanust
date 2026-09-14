@@ -65,8 +65,13 @@ measures what the bundle does with them, not whether the running shell supplies 
   declares the unwrapped value; the client file browser checks `.ok`, so the wrapper
   is used here. If the runtime instead returns the bare value, the panel shows a
   visible load failure rather than crashing.
-- Theme variables (`--dsw-*`) are used with literal fallbacks; the exact token names
-  were not verified against the running theme.
+- Theme variables (`--dsw-*`) are used with literal fallbacks. `scripts/test-adr-panel.mjs`
+  resolves every colour the bundle renders through the installed theme, in both its light
+  and dark variants, and requires each toned pill's text to differ from its own fill
+  (this is what caught the error pill being filled with `state-error-secondary`, which in
+  the dark theme is the same red as its text). What is still not verified is the theme's
+  own contrast: the check refuses a collapse, not a low-contrast palette, and whether the
+  shell's tints read well is the shell's decision, not this panel's.
 
 ## Fallbacks and deliberate omissions
 
