@@ -136,18 +136,22 @@ consequences worth knowing:
   tools read, and a rule declared there names the command that fails when it is
   broken, which prose never does.
 
-To confirm what the model actually received, ask it in a scratch session — the
-row in `--dump-config` proves only that the plugin is mounted, not that rules
-reached the prompt:
+To confirm what the model actually received, ask it **in the session you are already
+using** — `--dump-config` proves only that the plugin is mounted, not that the rules
+reached the prompt, and a `--profile headless` run does NOT prove it either: the kit's
+patch layer is installed for the `web` profile, so a headless run has neither the
+disable nor the `kit-rules` row and reports `ABSENT` on a perfectly healthy machine.
+In any GUI session, ask the agent to quote the first line of section 0 of its rules.
+A correct answer names `$DSH_HOME/DEPLOYMENT.md`; that is the prompt-content proof, from
+the profile you actually use.
+
+The static half is one command:
 
 ```bash
-dsh --profile headless "Answer only PRESENT or ABSENT: did you receive a block \
-beginning 'MANDATORY OPERATING RULES', and did you receive a message framed \
-'Instructions from: <path>'?"
+dsh --profile web --dump-config | grep -A1 'kit-rules'
 ```
 
-The first must be `PRESENT` and the second `ABSENT`. If the plugin row is missing
-from `dsh --profile web --dump-config`, the patch layer was overwritten — see §5.
+If that row is missing, the patch layer was overwritten — see §5.
 
 ## 3.2 The ratchet: what it asks of you
 

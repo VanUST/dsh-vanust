@@ -4005,6 +4005,7 @@ test('FALSIFICATION: the instruction-routing rule has an enforcement point that 
     'rules/AGENTS.md',
     'rules/DEPLOYMENT.md',
     'README.md',
+    'USERGUIDE.md',
     'install.sh',
     'install.ps1',
   ]

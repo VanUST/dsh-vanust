@@ -104,16 +104,24 @@ could not evaluate every check is a failure, not a pass.
 
 ## 6. First-run checks (1 minute, human-visible)
 
+The rules reach a model in the profile you actually use (`web`). Confirm it from inside a
+session rather than from a separate profile: **a `--profile headless` run proves nothing
+here** — the kit's patch layer is installed for `web`, so a headless run has neither the
+loader disable nor the `kit-rules` row and reports `ABSENT` on a healthy machine. Ask the
+agent in any GUI session to quote the first line of section 0 of its rules; a correct
+answer names `$DSH_HOME/DEPLOYMENT.md`.
+
+Then confirm the static half:
+
 ```bash
-dsh --profile headless "Answer only PRESENT or ABSENT: did you receive a block \
-beginning 'MANDATORY OPERATING RULES', and did you receive a message framed \
-'Instructions from: <path>'?"
+dsh --profile web --dump-config | grep -A1 'kit-rules'   # the row must be mounted
 ```
 
-The first answer must be `PRESENT` and the second `ABSENT`: this deployment disables the
-harness's workspace-instruction loader on purpose, so only `$DSH_HOME/AGENTS.md` reaches a
-model. Then open the token URL `dsh web` printed, and confirm the chat renders, a shell
-command runs, and a file edit appears in the sidebar.
+Finally open the token URL `dsh web` printed, and confirm the chat renders, a shell command
+runs, and a file edit appears in the sidebar. Two failures worth recognising: a missing
+plugin row means the patch layer was overwritten, and an agent that reports receiving
+`Instructions from: <path>` means the workspace-instruction loader is enabled again — both
+are fixed by re-installing the profile files (§3).
 
 ## 7. Troubleshooting
 

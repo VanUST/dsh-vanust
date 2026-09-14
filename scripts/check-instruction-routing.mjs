@@ -182,6 +182,38 @@ if (procedure.missing === true) {
   )
 }
 
+// 6. No document may offer a `--profile headless` run as proof that the rules reached a
+//    model. Measured: the kit installs its patch layer for the `web` profile, so a
+//    headless run has neither the loader disable nor the `kit-rules` row and answers
+//    ABSENT on a healthy machine — a check that fails for a reason unrelated to what it
+//    claims to test, which is worse than no check. Mentioning that trap is fine (both
+//    documents now warn about it); printing such a command as the verification is not.
+//    The prompt-content proof is asking the agent in the session you are already in.
+for (const relative of ['rules/DEPLOYMENT.md', 'USERGUIDE.md']) {
+  const document = read(relative)
+  if (document.missing === true) {
+    claim(`${relative} never offers a headless routing probe`, false, 'missing')
+    continue
+  }
+  // Only a headless line that is a COMMAND counts (`dsh --profile headless …` at the
+  // start of a line, as it appears in a fenced block); prose that warns about the trap
+  // is the opposite of the defect and must not be flagged.
+  const lines = document.text.split('\n')
+  const probeLines = lines
+    .map((line, index) => ({ line, index }))
+    .filter((entry) => /^\s*(?:\$ )?dsh\s+--profile\s+headless/.test(entry.line))
+    .filter((entry) => {
+      const block = lines.slice(entry.index, entry.index + 3).join('\n')
+      return /PRESENT or ABSENT|MANDATORY OPERATING RULES|Instructions from:/.test(block)
+    })
+    .map((entry) => entry.line.trim())
+  claim(
+    `${relative} never offers a headless routing probe`,
+    probeLines.length === 0,
+    probeLines.length === 0 ? 'no headless probe command' : `probe offered: ${probeLines[0].slice(0, 80)}`,
+  )
+}
+
 if (failures.length > 0) {
   process.stderr.write(`instruction routing FAILED\n${failures.map((entry) => `  - ${entry}`).join('\n')}\n`)
   process.exit(1)
