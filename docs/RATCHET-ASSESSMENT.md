@@ -333,6 +333,18 @@ lawhood, so precisely the six decisions no human ever saw are the six whose cons
 be removed without trace. The declared `op: remove` path produces the same artifacts as the
 deletion, so the auditable route and the silent one leave identical evidence.
 
+**Fixed by ADR 0012, with two limits worth stating.** Compile and verify now record the law
+ids they observed in the append-only ledger and report any id that was in force and is gone
+without an explicit `op: remove`; the recorded set is held rather than advanced while an
+unexplained removal stands, so the problem persists across runs rather than being certified
+one command later. The limits: the guarantee starts from the first run that records a set,
+so a clone with no ledger has no history to compare against until it has verified once; and
+the ledger is a single shared file, so two interleaved runs could observe a law set
+mid-flight — the same "no single runner" limitation `ratchet falsify` already carries. The
+check makes that visible rather than silent: `ratchet falsify` now reports an extra
+`LAW_REMOVED_WITHOUT_DECISION` during its own run, because its harness restores the record
+it created before it restores the ledger, and the transient disappearance is real.
+
 ### 3.4 Finding 3 — a human-only zone is escapable by declaring a different zone
 
 **Claim attacked:** "A zone the manifest reserves to humans is genuinely reserved: an agent
