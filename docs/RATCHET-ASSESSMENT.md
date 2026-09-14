@@ -13,6 +13,13 @@ described in `REVIEW.md`. The adversarial half was run twice over: by the author
 three independent breaker agents given one named claim and a declared scope each. Every
 counterexample names its exact input, command, and observed-versus-expected result.
 
+**What has happened since.** Findings 1, 2 and 3 were put to a human as ADR `0012` and
+ratified by `0013`; they are now laws with behavioural enforcement points, and ratchet is
+`0.2.9` (`f8a01d8`). A fourth defect was found while implementing them and is recorded
+below as Finding 6. The readings in Parts 1 and 2 that the fixes did not touch — the
+concentration of checks behind four commands, the advisory dynamic layer, the inert guard,
+and the text-check weakness — still stand, and are the reason Finding 4 remains open.
+
 ---
 
 ## Part 1 — The product: the problem, the logic, and the interface
@@ -406,7 +413,31 @@ one:
 - **The falsification machinery itself** → `falsify` reports `missed` rather than a pass,
   and `falsify-kit-gate` turns the gate red in 6/6 cases.
 
-### 3.8 Why it does not work — the synthesis
+### 3.8 Finding 6 — the release gate never ran the verification it was the gate for
+
+Found while confirming that Finding 2's fix held end to end. `scripts/verify-upgrade.sh`
+probed fifteen things — portability, the consent surface, instruction routing, the panel,
+the gate's own invariants, the suite, the CLI's exit codes, composition, boot, the model
+gate — and **never once ran `ratchet verify`**. So a corpus with a law deleted still
+produced `GATE PASS`, one command after `verify` called the same corpus a problem:
+
+```bash
+cp -a /home/iustimov/dsh-kit /tmp/law-gate2 && cd /tmp/law-gate2
+# delete a law block from an agent-activated record, then
+node plugins/ratchet/ratchet-cli.mjs compile --root . --write   # exit 1, LAW_REMOVED_WITHOUT_DECISION
+PORT=3097 bash scripts/verify-upgrade.sh                        # GATE PASS   <- before the fix
+```
+
+The design document's §6.5 says "the kit ratchets itself, with 19 laws in force and a
+passing gate". Those were two facts about two different commands, presented as one, and
+nothing tied them together. The gate now runs `verify` over the kit's own corpus and fails
+with the same deletion (`GATE FAIL`), which is what makes the sentence true.
+
+The finding generalises past the omission: **a gate composed of probes does not verify the
+thing the probes enforce.** Everything the gate asserted was a command in `scripts/`, while
+the laws those commands back were checked only by a command nobody had wired in.
+
+### 3.9 Why it does not work — the synthesis
 
 The findings are not five unrelated bugs. They are one property, seen five times:
 
@@ -438,28 +469,42 @@ the script that checks it still passes"). The findings above show the admission 
 narrow: the agent need not touch the module or the script at all. It can remove the law, or
 re-aim a law at a reserved path by relabelling its zone.
 
-### 3.9 What would change the answer
+### 3.10 What would change the answer
 
 Ordered by effect per unit of effort, each one a candidate decision record rather than a
-patch to apply blindly:
+patch to apply blindly. **Items 1, 2 and 3 were put to a human as ADR `0012`, ratified as
+`0013`, and are now law with behavioural enforcement points (ratchet `0.2.9`, `f8a01d8`),
+together with Finding 6's missing gate probe; item 6 was corrected as a stale statement
+rather than decided; items 4 and 5 remain open.**
 
-1. **Turn spec tracking on** (`ratchet.specsRequired: true`), or implement §6.6's on-disk
-   clause in `tracksSpecDocuments`. One line restores the drift guarantee that is this
-   project's headline claim.
-2. **Derive a law's zone from the paths it governs**, or refuse a law whose check targets a
-   path outside the zone its record declares. Without this, a `humanOnly` reservation is a
-   convention.
-3. **Make the law set itself a tracked artifact** — fail when a law that was in force
-   disappears without an explicit `remove` recorded in a decision, so a deletion and a
-   retirement stop being indistinguishable.
+1. ~~**Turn spec tracking on** (`ratchet.specsRequired: true`), or implement §6.6's on-disk
+   clause in `tracksSpecDocuments`.~~ **Done both ways:** the clause is implemented, a stale
+   or edited document is always reported, and the kit requires specs so that deleting the
+   last one is drift too.
+2. ~~**Derive a law's zone from the paths it governs**, or refuse a law whose check targets a
+   path outside the zone its record declares.~~ **Done:** the cross-check refuses the
+   escape, and the corpus was audited first so it stayed green.
+3. ~~**Make the law set itself a tracked artifact** — fail when a law that was in force
+   disappears without an explicit `remove` recorded in a decision.~~ **Done**, in the
+   append-only ledger, with the recorded set deliberately held while an unexplained removal
+   stands.
 4. **Treat `required_text` as a smell in review.** `judge-is-injected` shows the good
    pattern: the text check is a hint, the command check is the constraint. A `required_text`
-   whose pattern is a sentence is not a check at all.
+   whose pattern is a sentence is not a check at all. **Open by choice:** the operator's
+   reading is that the semantic verification for "violates the intent where no check catches
+   it" is the dynamic layer's `review_change` job, which exists and is confirmed by
+   execution but is advisory by construction, so this class is mitigated by review rather
+   than by a rule.
 5. **Give the figures an enforcement point, or delete them.** No document count should be
-   in prose that no command reads.
-6. **Decide `flash-only-models`:** cite the gate probe that already enforces it, or say
-   plainly that the policy is unenforced.
+   in prose that no command reads. **Partly done:** the design document no longer quotes a
+   figure it cannot own, but nothing yet fails when a document's numbers go stale.
+6. ~~**Decide `flash-only-models`:** cite the gate probe that already enforces it, or say
+   plainly that the policy is unenforced.~~ **Corrected:** the `pendingReason` now names the
+   gate probe that exists and says what is still missing, which is a check that the veto is
+   installed outside the throwaway profile.
+7. **Run `verify` inside the release gate** (Finding 6). Done — the probe now exists, and
+   the gate fails on a deleted law.
 
-None of these is a rewrite. The framework underneath them is sound, and the falsification
-discipline that found these five is the reason to believe that.
+None of these was a rewrite. The framework underneath them is sound, and the falsification
+discipline that found them is the reason to believe that.
 

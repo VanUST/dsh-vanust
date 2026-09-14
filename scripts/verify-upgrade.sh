@@ -135,6 +135,13 @@ if command -v node >/dev/null 2>&1; then
   # And the read-only half must work and be honest about what waits for a human.
   probe "ratchet CLI lists what waits for a human" \
     "node '${KIT_DIR}/plugins/ratchet/ratchet-cli.mjs' pending --root '${KIT_DIR}' | grep -q 'cannot ratify'"
+  # The kit ratchets ITSELF, so the gate has to run the verification it is the gate for.
+  # It did not, and the omission was not academic: a law could be deleted from an
+  # agent-activated record, recompiled, and this gate still reported PASS over a
+  # corpus that `ratchet verify` called a problem one command later. A probe that runs
+  # the other probes is not redundant — it is the one that checks the laws they enforce.
+  probe "the kit's own corpus verifies against its laws (exit 0, 0 problems)" \
+    "node '${KIT_DIR}/plugins/ratchet/ratchet-cli.mjs' verify --root '${KIT_DIR}' | grep -q 'no problems'"
 else
   echo "   [FAIL] node is required to run the ratchet gates"
   FAILED=1
