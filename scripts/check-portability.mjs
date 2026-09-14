@@ -12,6 +12,12 @@
  *   three, while four tarballs were installed and four rows mounted — and a prose
  *   count that nothing checks is how a document stays confidently wrong.
  *
+ *   Finally it checks that each tarball still AGREES WITH ITS SOURCE. A repacked
+ *   tarball keeps its filename, and a stale one installs the same old bytes into every
+ *   profile while the checkout shows the new code — so an installed copy and the tree a
+ *   reviewer reads can disagree with nothing failing. Every packed file must exist in
+ *   the source directory and, except for `package.json`, be byte-identical to it.
+ *
  *   The kit runs on 2x Linux and 1x Windows, but everything in it is authored on
  *   the Windows machine. That asymmetry is exactly how a `C:/` prefix or a
  *   backslash-splitting regex survives review: it works everywhere the author
@@ -39,6 +45,8 @@
  *   - A source directory that does not exist is reported as a failure rather than
  *     skipped: a check with nothing to read is not a passing check.
  *   - A `package.json` that cannot be parsed is reported with its path.
+ *   - A tarball that cannot be read or parsed is reported as its own finding, never as
+ *     an empty comparison that passes.
  *   - A line is reported once even when several patterns match it, so the output
  *     stays readable as the codebase grows.
  */
@@ -47,6 +55,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { gunzipSync } from 'node:zlib'
 
 const KIT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -141,6 +150,87 @@ function filesUnder(target) {
   }
   walk(absolute)
   return found
+}
+
+/**
+ * Read the regular-file entries of a gzipped tar as a `name -> bytes` map.
+ *
+ * A tarball is read in pure Node rather than by spawning `tar`: this module is the
+ * one that forbids a bare-binary spawn, and Windows ships `tar.exe` only from build
+ * 17063 while the archive format here is a fixed ustar layout.
+ *
+ * The reader is deliberately partial. It returns null — never a partial map — when
+ * the archive cannot be parsed, so a caller reports an unreadable tarball instead of
+ * treating "no entries compared" as agreement. Directory entries, GNU long names
+ * (type `L`) and PAX extended headers (type `x`) are skipped; their bodies are still
+ * sized correctly, so a later entry is not misread. A PAX `path=` override is not
+ * applied, which would surface as a packed file missing from the source tree — a
+ * loud failure rather than a silent pass.
+ *
+ * @param archive - absolute path to a `.tgz`.
+ * @returns `Map<string, Buffer>` keyed by the path inside the archive (`package/…`),
+ *   or null when it cannot be read or parsed.
+ */
+function readTarball(archive) {
+  let raw
+  try {
+    raw = gunzipSync(readFileSync(archive))
+  } catch {
+    return null
+  }
+  const entries = new Map()
+  let offset = 0
+  while (offset + 512 <= raw.length) {
+    const header = raw.subarray(offset, offset + 512)
+    // A zero block ends the archive; trailing padding is otherwise all zeroes.
+    if (header.every((byte) => byte === 0)) break
+    const field = (start, length) => header.subarray(start, start + length).toString('utf8').replace(/\0[\s\S]*$/, '')
+    const name = field(0, 100)
+    const prefix = field(345, 155)
+    const size = parseInt(field(124, 12).trim(), 8)
+    const type = String.fromCharCode(header[156])
+    if (name === '' || !Number.isFinite(size) || size < 0) return null
+    offset += 512
+    if (type === '0' || type === '\0') {
+      entries.set(prefix === '' ? name : `${prefix}/${name}`, raw.subarray(offset, offset + size))
+    }
+    offset += Math.ceil(size / 512) * 512
+  }
+  return entries.size > 0 ? entries : null
+}
+
+/** JSON with object keys in a fixed order, so two equal documents compare equal. */
+function stableStringify(value) {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`
+  if (value !== null && typeof value === 'object') {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+      .join(',')}}`
+  }
+  return JSON.stringify(value)
+}
+
+/** The dependency maps a packer may rewrite while leaving every other field alone. */
+const DEPENDENCY_MAPS = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']
+
+/**
+ * A manifest in comparable form.
+ *
+ * `relaxDependencyVersions` drops each dependency map to its sorted key list. It is
+ * set for a `snapshot` row, whose tarball is produced by a packer that resolves
+ * `workspace:` protocol ranges to concrete versions and may reorder the map — the
+ * dependency NAMES are still compared, so a dependency added on one side only is
+ * still caught.
+ */
+function comparableManifest(manifest, relaxDependencyVersions) {
+  const copy = JSON.parse(JSON.stringify(manifest))
+  if (relaxDependencyVersions) {
+    for (const key of DEPENDENCY_MAPS) {
+      if (copy[key] !== null && typeof copy[key] === 'object') copy[key] = Object.keys(copy[key]).sort()
+    }
+  }
+  return stableStringify(copy)
 }
 
 const results = []
@@ -408,6 +498,72 @@ for (const dir of ['plugins/ratchet', 'plugins/dsh-context', 'plugins/kit-rules'
         : problems.join(' | '),
     )
   }
+}
+
+// ── each tarball must still agree with the source it was packed from ────────
+// The packer is the only link between the two, and it leaves no evidence: a tarball
+// that kept its filename while its source changed installs the old bytes into every
+// profile, and the checkout a reviewer reads shows code that was never shipped. This
+// is the check that makes "rebuild and repack" a rule with a failure behind it.
+{
+  const problems = []
+  let inventory = null
+  try {
+    inventory = JSON.parse(readFileSync(join(KIT, 'plugins', 'inventory.json'), 'utf8'))
+  } catch {
+    // The inventory check above already reports the unreadable manifest.
+  }
+  const pluginDir = join(KIT, 'plugins')
+  let compared = 0
+  for (const row of inventory?.plugins ?? []) {
+    if (typeof row.source !== 'string' || typeof row.tarballPrefix !== 'string') continue
+    const versions = readdirSync(pluginDir).filter(
+      (name) => name.startsWith(`${row.tarballPrefix}-`) && name.endsWith('.tgz'),
+    )
+    // Anything other than exactly one tarball is the inventory check's finding.
+    if (versions.length !== 1) continue
+    const entries = readTarball(join(pluginDir, versions[0]))
+    if (entries === null) {
+      problems.push(`${row.id}: ${versions[0]} is unreadable or not a parseable tar`)
+      continue
+    }
+    for (const [name, bytes] of entries) {
+      const rel = name.replace(/^package\//, '')
+      const sourcePath = join(KIT, row.source, rel)
+      if (!existsSync(sourcePath) || !statSync(sourcePath).isFile()) {
+        problems.push(`${row.id}: ${rel} is packed but absent from ${row.source}`)
+        continue
+      }
+      compared += 1
+      const sourceBytes = readFileSync(sourcePath)
+      if (rel !== 'package.json') {
+        if (!sourceBytes.equals(bytes)) problems.push(`${row.id}: ${rel} differs between ${row.source} and ${versions[0]}`)
+        continue
+      }
+      // A manifest is compared as a document, not as bytes: the packer may reorder
+      // keys, and for a snapshot it resolves `workspace:` ranges to real versions.
+      try {
+        const relax = row.provenance === 'snapshot'
+        const sourceManifest = comparableManifest(JSON.parse(sourceBytes.toString('utf8')), relax)
+        const packedManifest = comparableManifest(JSON.parse(bytes.toString('utf8')), relax)
+        if (sourceManifest !== packedManifest) {
+          problems.push(
+            `${row.id}: package.json differs between ${row.source} and ${versions[0]}` +
+              (relax ? ' beyond the dependency maps a packer resolves' : ''),
+          )
+        }
+      } catch (error) {
+        problems.push(`${row.id}: ${versions[0]} has an unparseable package.json: ${String(error)}`)
+      }
+    }
+  }
+  check(
+    'tarball:matches-source',
+    problems.length === 0,
+    problems.length === 0
+      ? `${compared} packed file(s) match the source tree byte for byte`
+      : problems.slice(0, 6).join(' | '),
+  )
 }
 
 // ── report ─────────────────────────────────────────────────────────────────

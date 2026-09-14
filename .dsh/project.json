@@ -99,7 +99,7 @@
     {
       "id": "portability",
       "command": "node scripts/check-portability.mjs",
-      "purpose": "platform assumptions in shipped source, and modules missing from a plugin's files list",
+      "purpose": "platform assumptions in shipped source; modules missing from a plugin's files list; and every packed file matching the source it was packed from, so a stale tarball cannot ship old bytes",
       "path": "scripts/check-portability.mjs"
     },
     {
