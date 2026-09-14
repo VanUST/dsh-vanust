@@ -983,6 +983,16 @@ test('schema: a check carries only its own fields, and every path field is a zon
   )
   const accepted = schema.validateLawChecks({ id: 'auth.x', checks: [{ type: 'required_file', path: 'src/auth/a.ts' }] }, 'test')
   assert.deepEqual(accepted, [], 'a check made only of defined fields is accepted')
+  // Object.prototype's names are not fields. `key in knownFields` admitted them, so a
+  // closure that reads as airtight let `toString`, `constructor` and an own `__proto__`
+  // through — harmless here, because nothing reads them, but not closed.
+  for (const prototypeName of ['toString', 'constructor', 'valueOf', 'hasOwnProperty']) {
+    const inherited = schema.validateLawChecks(
+      { id: 'auth.x', checks: [{ type: 'required_file', path: 'src/auth/a.ts', [prototypeName]: 'boom' }] },
+      'test',
+    )
+    assert.ok(inherited.length > 0, `${prototypeName} must not count as a defined field`)
+  }
   // `basis` is the one exception, because ingestion records it on every derived check.
   const annotated = schema.validateLawChecks(
     { id: 'auth.x', checks: [{ type: 'required_file', path: 'src/auth/a.ts', basis: 'the source says so' }] },
@@ -1683,6 +1693,45 @@ test('state: changing a law makes the previous verification stale', async () => 
   assert.equal(after.verified.stale, true)
   assert.ok(after.problems.some((entry) => entry.code === 'VERIFY_NOT_RUN'))
   assert.ok(after.problems.some((entry) => entry.code === 'SPEC_OUT_OF_DATE'))
+})
+
+test('gate: a tampered persisted bundle cannot inject a law into verify', async () => {
+  // `verify` recompiles from the corpus, so `.dsh/ratchet/specs.json` is a RECORD of what
+  // was compiled, not an input to what is checked. That is what keeps the closed check-field
+  // set closed: without it, a law carrying a field the parser refuses could be smuggled in
+  // by writing it straight into the persisted bundle, and the zone rule would never see it.
+  const root = makeProject({
+    name: 'bundle-injection',
+    files: { 'src/auth/x.ts': 'redis\n' },
+    adrs: {
+      '0001-a.adr.md': adrText({
+        id: '0001',
+        sourceHash: schema.hashSource(SOURCE_TEXT),
+        zones: ['auth'],
+        laws: [{ id: 'a.one', statement: 'One.', checks: [{ type: 'required_text', paths: ['src/auth/**'], pattern: 'redis' }] }],
+      }),
+    },
+  })
+  // `compile` is what writes the persisted bundle; `verify` alone does not.
+  ops.compile({ root, write: true })
+  await ops.verify({ root })
+  const bundlePath = join(root, '.dsh', 'ratchet', 'specs.json')
+  const bundle = JSON.parse(readFileSync(bundlePath, 'utf8'))
+  bundle.laws.push({
+    id: 'injected.law',
+    statement: 'Injected into the persisted bundle.',
+    zones: ['auth'],
+    authority: 'agent',
+    sourceAdr: '0001',
+    approvedBy: null,
+    checks: [{ type: 'required_file', path: 'src/auth/x.ts', secretPath: 'rules/AGENTS.md' }],
+  })
+  writeFileSync(bundlePath, `${JSON.stringify(bundle, null, 2)}\n`)
+  const verified = await ops.verify({ root })
+  assert.ok(
+    !(verified.laws ?? []).some((law) => law.id === 'injected.law'),
+    'a law written only into the persisted bundle is not compiled from it',
+  )
 })
 
 test('state: a verification that evaluated zero checks does not count as verified', async () => {

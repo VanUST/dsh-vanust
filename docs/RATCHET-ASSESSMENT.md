@@ -538,6 +538,18 @@ undefined field, which is behaviour rather than source text. The six fields that
 first six rounds — `extraList`, `someNewPath`, `zzzOptional`, `zzzComputed`, `zzzDot`,
 `secretPath` — are now refused where a check is parsed.
 
+A seventh breaker confirmed the closure — 13/13 derivations exact, out-of-zone targets refused,
+`basis` accepted — and found one narrow false negative that is worth recording because it is a
+different kind of mistake from the previous six. The closure tested `key in knownFields`, which
+walks the **prototype chain**, so a check could carry `toString`, `constructor`, `valueOf` or an
+own `__proto__`. None of those is a path and the verifier reads none of them, so nothing was
+enforced that should not have been; the mistake was a closure that admitted Object.prototype's
+names, and `Object.hasOwn` is the whole fix. The same round also left one question open — whether
+a tampered persisted bundle could inject an unchecked law — and that is now answered in the
+suite: `verify` recompiles from the corpus, so a law written only into
+`.dsh/ratchet/specs.json` is never compiled from it, which is what keeps the field closure from
+being bypassed by writing around the parser.
+
 The earlier, still-instructive history of that guard: a fifth breaker falsified the first
 version, correctly, and the ways it was wrong are the same failure one level up. It understood only
 `check.field`; it stayed green when `check['field']` and `const { field } = check` were added;

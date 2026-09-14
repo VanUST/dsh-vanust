@@ -703,8 +703,14 @@ export function validateLawChecks(law, subject) {
     // the zone rule. That rule was evaded six times, every time through a field nobody had
     // classified, so the fix belongs here rather than in a longer list over there.
     const knownFields = CHECK_FIELD_KINDS[check.type] ?? {}
+    // `Object.hasOwn`, not `key in …`: `in` walks the prototype chain, so a field named
+    // `toString`, `constructor`, `valueOf` or `hasOwnProperty` passed the closure and was
+    // stored in the record. It carried no path — the verifier never reads those names — so
+    // nothing was enforced that should not have been, but a closure that admits
+    // Object.prototype's names is not closed. Found by a breaker, not by reading this.
     const unknownFields = Object.keys(check).filter(
-      (key) => key !== 'type' && !(key in knownFields) && !(key in UNIVERSAL_CHECK_FIELDS),
+      (key) =>
+        key !== 'type' && !Object.hasOwn(knownFields, key) && !Object.hasOwn(UNIVERSAL_CHECK_FIELDS, key),
     )
     if (unknownFields.length > 0) {
       problems.push(
