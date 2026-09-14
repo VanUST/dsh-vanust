@@ -35,6 +35,22 @@ echo "== dsh-kit upgrade gate =="
 echo "   dsh : $(command -v dsh || echo MISSING) ($(dsh --version 2>/dev/null | head -1 || echo '?') )"
 echo "   kit : ${KIT_DIR}"
 
+# Node >= 24 is a hard prerequisite, and without this guard its absence is
+# misreported: pnpm 11 aborts with `ERR_UNKNOWN_BUILTIN_MODULE` on Node 20, which
+# reads like a kit defect rather than an old interpreter on PATH. Fail with the
+# actual cause, and name the interpreter in the header so a log pins its environment.
+if ! command -v node >/dev/null 2>&1; then
+  echo "   [FAIL] node is not on PATH; Node >= 24 is required"
+  exit 1
+fi
+NODE_MAJOR="$(node -p 'Number(process.versions.node.split(".")[0])' 2>/dev/null || echo 0)"
+if [ "${NODE_MAJOR}" -lt 24 ]; then
+  echo "   [FAIL] Node >= 24 is required; found $(node --version) at $(command -v node)"
+  echo "          pnpm 11 and the harness both need it — put a Node 24+ first on PATH and re-run."
+  exit 1
+fi
+echo "   node: $(command -v node) ($(node --version))"
+
 # Build the throwaway home from the canonical kit files.
 mkdir -p "${PROFILE_DIR}"
 cp "${KIT_DIR}/profile/cordis.patch.yml" "${PROFILE_DIR}/cordis.patch.yml"
@@ -82,6 +98,13 @@ if command -v node >/dev/null 2>&1; then
     "node '${KIT_DIR}/scripts/check-consent-surface.mjs' | grep -q 'consent surface ok'"
   probe "instruction routing (only the home rules reach the prompt)" \
     "node '${KIT_DIR}/scripts/check-instruction-routing.mjs' | grep -q 'instruction routing ok'"
+  # The panel's browser half never executes under the harness, so a React mistake in
+  # it ships silently and is only found by reloading a tab. This renders the real
+  # bundle over the real corpus and asserts the UX contract — states filled,
+  # provenance outlined, state tones distinct — so a bundle that parses but renders
+  # wrong fails here instead of in a screenshot.
+  probe "ADR panel renders its contract from the shipped bundle" \
+    "node '${KIT_DIR}/scripts/test-adr-panel.mjs' | grep -q 'adr panel render ok'"
   # The behavioural half of the gate: these invariants are asserted by driving the
   # production modules, not by a test name, because a test with an empty body passes
   # and a suite prints `fail 0` over an empty file. Measured: a mutation that made a
