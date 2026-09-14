@@ -115,7 +115,7 @@ function lawRemovalProblems(root, compiled) {
  */
 function reportedSpecDrift(tracks, drift) {
   if (tracks) return drift
-  return { drifted: drift.drifted, stale: drift.stale, missing: [] }
+  return { drifted: drift.drifted, stale: drift.stale, missing: [], orphaned: drift.orphaned ?? [] }
 }
 
 /** Process exit codes, so the shell gate and the tools agree on one vocabulary. */

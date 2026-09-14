@@ -80,6 +80,7 @@ export const PROBLEM_CODES = Object.freeze({
   LAW_UNCHECKED: 'a law in force declares no machine check and does not say why',
   SPEC_HASH_MISMATCH: 'a generated spec file was edited after generation',
   SPEC_OUT_OF_DATE: 'the generated spec bundle does not match the compiled laws',
+  SPEC_ORPHANED: 'a generated spec file no longer corresponds to any law in force',
   ZONE_INVALID: 'a zone declaration is malformed',
   ZONE_PATH_INVALID: 'a zone glob is not a usable repository-relative pattern',
   ZONE_OVERLAP: 'two zones claim the same path with different authority',

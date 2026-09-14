@@ -928,13 +928,13 @@ test('verifier: forbidden_file passes when absent and fails when present', async
 })
 
 test('verifier: required_glob fails when nothing matches', async () => {
-  const result = await verifyOneLaw('reqglob', [{ type: 'required_glob', pattern: 'tests/auth/**' }])
+  const result = await verifyOneLaw('reqglob', [{ type: 'required_glob', pattern: 'src/auth/tests/**' }])
   assert.deepEqual(result.codes, ['CODE_REQUIRED_GLOB_MISSING'])
 })
 
 test('verifier: forbidden_glob reports the offending matches', async () => {
-  const result = await verifyOneLaw('forbglob', [{ type: 'forbidden_glob', pattern: 'src/legacy/**' }], {
-    files: { 'src/legacy/old.ts': 'x\n', 'src/legacy/older.ts': 'y\n' },
+  const result = await verifyOneLaw('forbglob', [{ type: 'forbidden_glob', pattern: 'src/auth/legacy/**' }], {
+    files: { 'src/auth/legacy/old.ts': 'x\n', 'src/auth/legacy/older.ts': 'y\n' },
   })
   assert.deepEqual(result.codes, ['CODE_FORBIDDEN_GLOB_PRESENT'])
   assert.equal(result.problems[0].matches.length, 2)
@@ -2281,7 +2281,7 @@ test('gate: LAWS_NONE and NO_VALID_ADRS are different codes for different proble
   const proposedOnly = makeProject({
     name: 'gate-proposed',
     adrs: {
-      '0001-p.adr.md': adrText({ id: '0001', status: 'proposed', authority: 'agent', zones: ['auth'], laws: [{ id: 'a.b', statement: 'S.', checks: [{ type: 'required_file', path: 'x.ts' }] }] }),
+      '0001-p.adr.md': adrText({ id: '0001', status: 'proposed', authority: 'agent', zones: ['auth'], laws: [{ id: 'a.b', statement: 'S.', checks: [{ type: 'required_file', path: 'src/auth/x.ts' }] }] }),
     },
   })
   const proposedResult = cli(['verify', '--root', proposedOnly])
@@ -5023,24 +5023,32 @@ test('falsify: a case whose check cannot fail is reported MISSED, never silently
   assert.ok(result.counts.missed >= 1)
 })
 
-test('falsify: an out-of-scope target is reported and never written', async () => {
-  // The only writable zone is src/auth/**, so a law naming outside/ is out of scope
-  // even though the file exists. Breaking it would prove nothing about the project's
-  // declared scope, so the breaker must refuse and leave the file untouched.
+test('falsify: a law whose target lies outside its declared zone never reaches the breaker', async () => {
+  // This used to exercise the breaker's out-of-scope branch with a law targeting a path
+  // the declared scopes did not cover. ADR 0012 made that law impossible to declare: the
+  // compiler refuses a positive target outside the record's own zones, so the branch is
+  // no longer reachable from a law's target and the property that must hold instead is
+  // that the corpus is refused before the breaker runs and nothing is written. The
+  // branch keeps its coverage through the symlink-containment case below, which reaches
+  // `assertWritable` the way a law no longer can.
   const root = falsifiableProject('falsify-out-of-scope', {
     zones: [{ id: 'auth', paths: ['src/auth/**'], agentAuthority: 'humanOnly', requiresDecisionRecord: true }],
     requiredFile: 'outside/keep.ts',
   })
   const before = readFileSync(join(root, 'outside/keep.ts'))
+  assert.ok(
+    compiler.compileProject(root).problems.some((entry) => entry.code === 'LAW_PATH_OUTSIDE_DECLARED_ZONE'),
+    'the compiler must refuse the law before the breaker is handed it',
+  )
   const result = await falsifyModule.falsify({ root })
-  const required = result.cases.find((entry) => entry.id === 'required-file-missing')
-  assert.equal(required.status, 'out-of-scope', JSON.stringify(required))
+  assert.equal(result.ok, false)
+  assert.equal(result.unusable, true)
+  assert.equal(result.cases.length, 0, 'an unusable corpus claims no cases')
   assert.ok(
     readFileSync(join(root, 'outside/keep.ts')).equals(before),
     'an out-of-scope target must be byte-identical after the run',
   )
 })
-
 test('falsify: a full run restores every mutated file and the persisted state', async () => {
   const root = falsifiableProject('falsify-restores')
   const before = snapshotTree(root)

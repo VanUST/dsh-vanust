@@ -409,8 +409,7 @@ export function resolveActiveSet(records, config) {
     const declaredPaths = declaredZonePaths(record, config)
     for (const law of record.laws) {
       for (const check of law.checks ?? []) {
-        for (const target of check.paths ?? []) {
-          if (typeof target !== 'string' || target.startsWith('!')) continue
+        for (const target of checkTargets(check)) {
           if (pathIsGoverned(target, declaredPaths)) continue
           problems.push(
             problem(
@@ -594,11 +593,51 @@ export function declaredZonePaths(record, config) {
  * @returns `true` when the target falls inside the declared authority.
  */
 export function pathIsGoverned(target, zonePaths) {
-  const clean = String(target).replace(/\/\*\*$/, '')
+  const clean = String(target).replace(/^\.\//, '').replace(/\/\*\*$/, '')
   return (zonePaths ?? []).some((entry) => {
-    const prefix = String(entry).replace(/\/\*\*$/, '')
+    const raw = String(entry).replace(/^\.\//, '')
+    // A zone that claims the whole repository. It is not a prefix like the others, and
+    // treating it as one made it govern nothing at all.
+    if (raw === '**' || raw === '*') return true
+    const prefix = raw.replace(/\/\*\*$/, '')
     return clean === prefix || clean.startsWith(`${prefix}/`) || prefix.startsWith(`${clean}/`)
   })
+}
+
+/**
+ * Every positive path target a check enforces against, whichever field holds it.
+ *
+ * A check names its target in one of three places, and the field depends on the type:
+ * `paths` for the text and boundary checks, the singular `path` for the file checks
+ * (`required_file`, `forbidden_file`, `required_file_in_list`), and `pattern` for the
+ * glob checks, where it is a path glob rather than a regex. Reading only `paths` missed
+ * the other two entirely, and a `required_file` on `path: rules/AGENTS.md` therefore
+ * enforced against a human-only path with the zone cross-check reporting nothing —
+ * the same escape the cross-check exists to close, one field over.
+ *
+ * Dependency checks name packages, not paths, so `patterns` is not a target and is
+ * deliberately not read. Negations are exclusions, not claims, and are skipped.
+ *
+ * @param check - One parsed check.
+ * @returns An array of target paths or globs; empty when the check enforces on none.
+ */
+export function checkTargets(check) {
+  const targets = []
+  for (const entry of check.paths ?? []) {
+    if (typeof entry === 'string' && !entry.startsWith('!')) targets.push(entry)
+  }
+  if (typeof check.path === 'string' && check.path.length > 0 && !check.path.startsWith('!')) {
+    targets.push(check.path)
+  }
+  if (
+    (check.type === 'required_glob' || check.type === 'forbidden_glob') &&
+    typeof check.pattern === 'string' &&
+    check.pattern.length > 0 &&
+    !check.pattern.startsWith('!')
+  ) {
+    targets.push(check.pattern)
+  }
+  return targets
 }
 
 /**
@@ -1075,11 +1114,14 @@ export function comparePersistedBundle(persisted, current) {
 /**
  * Reports the spec documents that are missing, edited, or out of date.
  *
- * Three distinct situations, three distinct codes: an EDITED document means a
- * human changed generated output; a MISSING one means the project tracks specs and
- * one has gone; a STALE one is unedited but was generated from older laws. A stale
- * document is the quietest of the three — it looks perfect and describes a law that
- * no longer exists — which is why the header stamp exists and why it is read.
+ * Four distinct situations, four distinct codes: an EDITED document means a human
+ * changed generated output; a MISSING one means the project tracks specs and one has
+ * gone; a STALE one is unedited but was generated from older laws; and an ORPHANED one
+ * is current-looking and simply belongs to no law in force, which is what renaming or
+ * removing a zone leaves behind. The stale document is the quietest of the first three
+ * — it looks perfect and describes a law that no longer exists — which is why the
+ * header stamp exists and why it is read. The orphan is quieter still: nothing in the
+ * current bundle names it, so a comparison driven by the bundle never looks at it.
  *
  * @param drift - Result of comparing generated text with disk.
  * @returns An array of problems; empty when every produced file matches.
@@ -1103,6 +1145,16 @@ export function specDriftProblems(drift) {
         `the generated spec document ${entry.path} was written from spec ${entry.recorded} but the laws now hash to ${entry.wanted}; the document is unedited and describes decisions that are no longer in force, so regenerate it`,
         entry.path,
         { path: entry.path, recorded: entry.recorded, wanted: entry.wanted },
+      ),
+    )
+  }
+  for (const entry of drift?.orphaned ?? []) {
+    problems.push(
+      problem(
+        'SPEC_ORPHANED',
+        `the generated spec document ${entry.path} records spec ${entry.recorded ?? 'no hash'} and no decision in force generates it any more; a zone that was renamed or removed left its document behind, and the document describes laws that no longer exist`,
+        entry.path,
+        { path: entry.path, recorded: entry.recorded ?? null },
       ),
     )
   }

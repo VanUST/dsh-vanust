@@ -681,14 +681,32 @@ claim(
   writeFileSync(adrPath, readFileSync(adrPath, 'utf8').replace('statement: One.', 'statement: One, edited.'))
   await compile({ root, write: false })
   const afterUnwritten = await verify({ root })
+  // The quietest case, and the one an adversarial pass found: rename the zone, and the
+  // document the OLD name generated is orphaned. A comparison driven by the files the
+  // current bundle renders never looks at it, so it survived a green verify.
+  const orphanRoot = project(
+    'spec-orphan',
+    { laws: law({ checks: [{ type: 'required_text', paths: ['src/auth/x.ts'], pattern: 'one' }] }) },
+    { files: { 'src/auth/x.ts': 'const one = 1\n' } },
+  )
+  await compile({ root: orphanRoot, write: true })
+  const orphanManifest = join(orphanRoot, '.dsh', 'project.json')
+  const renamed = JSON.parse(readFileSync(orphanManifest, 'utf8'))
+  renamed.ratchet.zones = renamed.ratchet.zones.map((zone) => (zone.id === 'auth' ? { ...zone, id: 'auth-renamed' } : zone))
+  writeFileSync(orphanManifest, `${JSON.stringify(renamed, null, 2)}\n`)
+  const orphanAdr = join(orphanRoot, 'docs', 'adrs', '0001-a.adr.md')
+  writeFileSync(orphanAdr, readFileSync(orphanAdr, 'utf8').replace('  - auth\n', '  - auth-renamed\n'))
+  await compile({ root: orphanRoot, write: true })
+  const afterRename = await verify({ root: orphanRoot })
   const parts = [
     `clean-corpus-passes=${clean.problems.length === 0}`,
     `edited-decision-reported=${afterEdit.problems.some((entry) => entry.code === 'SPEC_OUT_OF_DATE')}`,
     `deleted-document-reported=${afterDelete.problems.some((entry) => entry.code === 'SPEC_OUT_OF_DATE')}`,
     `unwritten-compile-reported=${afterUnwritten.problems.some((entry) => entry.code === 'SPEC_OUT_OF_DATE')}`,
+    `orphaned-document-reported=${afterRename.problems.some((entry) => entry.code === 'SPEC_ORPHANED')}`,
   ]
   claim(
-    'a generated spec that is stale, missing, or unwritten is reported by verify',
+    'a generated spec that is stale, missing, unwritten or orphaned is reported by verify',
     parts.every((part) => part.endsWith('=true')),
     parts.join(' '),
   )
@@ -753,14 +771,33 @@ claim(
     { laws: law({ checks: [{ type: 'required_text', paths: ['src/auth/thing.ts'], pattern: 'one' }] }) },
     { files: { 'src/auth/thing.ts': 'const one = 1\n' } },
   )
+  // The same escape written in the SINGULAR field. The file checks (`required_file`,
+  // `forbidden_file`, `required_file_in_list`) name their target in `path`, and reading
+  // only `paths` let a `required_file` enforce against a human-only path with nothing
+  // reported — the cross-check closed for one field and open for two others.
+  const singular = project(
+    'zone-singular-path',
+    { laws: law({ checks: [{ type: 'required_file', path: 'other/thing.ts' }] }) },
+    { files: { 'other/thing.ts': 'const one = 1\n' } },
+  )
+  const globbed = project(
+    'zone-glob-pattern',
+    { laws: law({ checks: [{ type: 'required_glob', pattern: 'other/*.ts' }] }) },
+    { files: { 'other/thing.ts': 'const one = 1\n' } },
+  )
   const outsideCompiled = compileProject(outside)
   const insideCompiled = compileProject(inside)
+  const singularCompiled = compileProject(singular)
+  const globbedCompiled = compileProject(globbed)
+  const refused = (result) => result.problems.some((entry) => entry.code === 'LAW_PATH_OUTSIDE_DECLARED_ZONE')
   const parts = [
-    `outside-refused=${outsideCompiled.problems.some((entry) => entry.code === 'LAW_PATH_OUTSIDE_DECLARED_ZONE')}`,
-    `inside-accepted=${!insideCompiled.problems.some((entry) => entry.code === 'LAW_PATH_OUTSIDE_DECLARED_ZONE')}`,
+    `outside-refused=${refused(outsideCompiled)}`,
+    `singular-path-refused=${refused(singularCompiled)}`,
+    `glob-pattern-refused=${refused(globbedCompiled)}`,
+    `inside-accepted=${!refused(insideCompiled)}`,
   ]
   claim(
-    'a law targeting a path outside its declared zones is refused, and one inside them is accepted',
+    'a law targeting a path outside its declared zones is refused, in any field, and one inside them is accepted',
     parts.every((part) => part.endsWith('=true')),
     parts.join(' '),
   )
