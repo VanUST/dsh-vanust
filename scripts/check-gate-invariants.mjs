@@ -2,8 +2,8 @@
  * PURPOSE
  *   Enforce, behaviourally, that the gate still CATCHES the breakage each of its
  *   laws exists for. Every assertion here drives the production modules
- *   (schema, compiler, verifier) over a synthetic project and requires the wrong
- *   verdict to be refused.
+ *   (schema, compiler, verifier, and the ratification path) over a synthetic
+ *   project and requires the wrong verdict to be refused.
  *
  *   It exists because a `command` check is only as strong as the command, and the
  *   kit's laws were asserting on a test runner's output — `outputContains:
@@ -29,7 +29,8 @@
  *   a pass.
  *
  * KEYWORDS
- *   gate, falsification, invariants, mutation testing, verifier, enforcement point
+ *   gate, falsification, invariants, mutation testing, verifier, enforcement point,
+ *   ratification, consent, content hash, human channel
  *
  * BEHAVIOUR ON EDGE CASES
  *   - A missing module is a FAILURE, not a skip: every invariant here is about a
@@ -48,8 +49,11 @@ import { fileURLToPath } from 'node:url'
 const KIT = resolve(fileURLToPath(import.meta.url), '..', '..')
 const PLUGIN_DIR = join(KIT, 'plugins', 'ratchet').replace(/\\/g, '/')
 
-const { compileProject } = await import(`file:///${PLUGIN_DIR}/ratchet-compiler.mjs`)
+const { compileProject, readAdrCorpus } = await import(`file:///${PLUGIN_DIR}/ratchet-compiler.mjs`)
 const { verifyProject, codeHashFor, listFiles } = await import(`file:///${PLUGIN_DIR}/ratchet-verifier.mjs`)
+const { ratificationQueue, buildQuiz, deriveDecisions, offeredBy } = await import(
+  `file:///${PLUGIN_DIR}/ratchet-ratify.mjs`
+)
 
 const failures = []
 const claim = (name, ok, detail) => {
@@ -398,6 +402,199 @@ writeFileSync(join(hashRoot, 'src', 'auth', 'a.ts'), 'export const a = 2\n')
 const after = codeHashFor(hashRoot, listFiles(hashRoot))
 claim('the code hash is stable over an unchanged tree', before === stable, `${before} / ${stable}`)
 claim('the code hash changes when a file changes', before !== after, `${before} / ${after}`)
+
+// 11. A ratification is a claim about a TEXT, not a title. A ratified record is in
+//     force only while its file still hashes to what the approval recorded, and
+//     editing it voids the consent instead of inheriting it. This is the behavioural
+//     enforcement point for ADR 0007's `shipped-plugins.consent-is-hash-bound`, which
+//     used to assert on a test runner's output.
+const RATIFIED_TARGET = [
+  '---',
+  'id: "0001"',
+  'title: A fixture decision pending a human',
+  'type: adr',
+  'status: proposed',
+  'author:',
+  '  authority: agent',
+  '  name: fixture',
+  'created: "2026-09-14T00:00:00Z"',
+  'source:',
+  '  kind: file',
+  `  path: ${SOURCE_PATH}`,
+  'zones:',
+  '  - auth',
+  'supersedes: []',
+  'approves: []',
+  'laws:',
+  '  - op: upsert',
+  '    id: auth.one',
+  '    statement: One.',
+  '    checks:',
+  '      - type: required_file',
+  '        path: src/auth/a.ts',
+  '---',
+  '',
+  '## Context',
+  '',
+  'Fixture context.',
+  '',
+  '## Decision',
+  '',
+  'Fixture decision.',
+  '',
+  '## Reasoning',
+  '',
+  'Fixture reasoning, which is long enough to be a reason rather than a token.',
+  '',
+  '## Consequences',
+  '',
+  'Fixture consequences.',
+  '',
+].join('\n')
+
+/**
+ * Renders the approval ADR that records one ratification of one target.
+ *
+ * @param options - `{ targetId, contentHash }`; the hash is the production value
+ *   read from the parsed target record, never re-derived here.
+ * @returns The complete approval file text, in the shape the ratification writer
+ *   produces.
+ */
+function approvalAdr({ targetId, contentHash }) {
+  return [
+    '---',
+    'id: "0002"',
+    'title: A ratification recorded in a fixture',
+    'type: approval',
+    'status: active',
+    'author:',
+    '  authority: human',
+    '  name: human',
+    'created: "2026-09-14T00:00:00Z"',
+    'source:',
+    '  kind: file',
+    `  path: ${SOURCE_PATH}`,
+    'zones: []',
+    'supersedes: []',
+    'approves:',
+    `  - "${targetId}"`,
+    'laws: []',
+    'ratification:',
+    '  channel: user-question',
+    '  at: "2026-09-14T00:00:00Z"',
+    '  askedBy: session fixture',
+    '  targets:',
+    `    - id: "${targetId}"`,
+    `      contentHash: ${contentHash}`,
+    '---',
+    '',
+    '## Context',
+    '',
+    'The transcript the approval cites.',
+    '',
+    '## Decision',
+    '',
+    `Put ${targetId} into force at the text it had when the question was asked.`,
+    '',
+    '## Reasoning',
+    '',
+    'A consent that did not name the text it covered would approve whatever the file said next.',
+    '',
+    '## Consequences',
+    '',
+    'Editing the target voids this consent until a human is asked again.',
+    '',
+  ].join('\n')
+}
+
+const ratificationRoot = project(
+  'ratification-hash-bound',
+  { laws: law({ id: 'auth.one', checks: [{ type: 'required_file', path: 'src/auth/a.ts' }] }) },
+  { files: { 'src/auth/a.ts': 'export const a = 1\n' } },
+)
+writeFileSync(join(ratificationRoot, 'docs', 'adrs', '0001-a.adr.md'), RATIFIED_TARGET)
+const ratificationConfig = JSON.parse(
+  readFileSync(join(ratificationRoot, '.dsh', 'project.json'), 'utf8'),
+).ratchet
+const ratifiedTarget = readAdrCorpus(ratificationRoot, ratificationConfig).records.find(
+  (record) => record.id === '0001',
+)
+writeFileSync(
+  join(ratificationRoot, 'docs', 'adrs', '0002-approval.adr.md'),
+  approvalAdr({ targetId: '0001', contentHash: ratifiedTarget?.contentHash ?? 'sha256:pending' }),
+)
+const intactCompile = compileProject(ratificationRoot)
+const intactStale = intactCompile.problems.some((entry) => entry.code === 'RATIFICATION_STALE')
+const intactLaw = (intactCompile.bundle?.laws ?? []).some((entry) => entry.id === 'auth.one')
+writeFileSync(
+  join(ratificationRoot, 'docs', 'adrs', '0001-a.adr.md'),
+  RATIFIED_TARGET.replace('Fixture decision.', 'Edited after the human consented.'),
+)
+const editedCompile = compileProject(ratificationRoot)
+const editedStale = editedCompile.problems.some((entry) => entry.code === 'RATIFICATION_STALE')
+const editedLaw = (editedCompile.bundle?.laws ?? []).some((entry) => entry.id === 'auth.one')
+claim(
+  'editing an approved record voids its consent (RATIFICATION_STALE) and its law leaves force',
+  ratifiedTarget !== undefined && intactStale === false && intactLaw === true &&
+    editedStale === true && editedLaw === false,
+  `intact: stale=${intactStale} law=${intactLaw}; edited: stale=${editedStale} law=${editedLaw}`,
+)
+
+// 12. The question a human answers carries the record's own file text, and the answer
+//     is derived from the selected label rather than interpreted. This is the
+//     behavioural enforcement point for ADR 0007's
+//     `shipped-plugins.consent-travels-the-human-channel`.
+const questionRoot = project(
+  'ratification-question-text',
+  { laws: law({ id: 'auth.one', checks: [{ type: 'required_file', path: 'src/auth/a.ts' }] }) },
+  { files: { 'src/auth/a.ts': 'export const a = 1\n' } },
+)
+writeFileSync(join(questionRoot, 'docs', 'adrs', '0001-a.adr.md'), RATIFIED_TARGET)
+const queue = ratificationQueue(questionRoot)
+const waiting = queue.pending.find((entry) => entry.id === '0001')
+const quiz = buildQuiz(waiting === undefined ? [] : [waiting])
+const question = quiz.questions[0] ?? { id: null, header: null, question: '', detail: null }
+const role = quiz.roles[question.id] ?? { approveLabel: null, rejectLabel: null }
+const frozen = offeredBy(quiz, '0001')
+const approved = deriveDecisions(quiz, { answers: [{ id: question.id, selected: [role.approveLabel] }] })
+const rejected = deriveDecisions(quiz, { answers: [{ id: question.id, selected: [role.rejectLabel] }] })
+const otherLabel = deriveDecisions(quiz, {
+  answers: [{ id: question.id, selected: ['Approve ADR 9999'] }],
+})
+const freeText = deriveDecisions(quiz, { answers: [{ id: question.id, custom: 'yes, go ahead' }] })
+const unanswered = deriveDecisions(quiz, null)
+const reask = buildQuiz(waiting === undefined ? [] : [waiting], {
+  attempt: 2,
+  previous: unanswered.unreadable,
+})
+const reaskQuestion = reask.questions[0] ?? { id: null, header: null, question: '', detail: null }
+const reaskRole = reask.roles[reaskQuestion.id] ?? { approveLabel: null, rejectLabel: null }
+const reaskApproved = deriveDecisions(reask, {
+  answers: [{ id: reaskQuestion.id, selected: [reaskRole.approveLabel] }],
+})
+const staleLabel = deriveDecisions(reask, {
+  answers: [{ id: reaskQuestion.id, selected: [role.approveLabel] }],
+})
+const questionParts = [
+  `waiting=${waiting !== undefined}`,
+  `queue-text-is-file-text=${waiting?.text === RATIFIED_TARGET}`,
+  `detail-is-file-text=${question.detail === RATIFIED_TARGET}`,
+  `detail-is-prose=${String(question.detail).includes('## Reasoning')}`,
+  `frozen-hash=${frozen?.contentHash === waiting?.contentHash}`,
+  `approve-label-mints=${approved.approved.length === 1 && approved.approved[0] === '0001'}`,
+  `reject-label-mints-nothing=${rejected.approved.length === 0 && rejected.rejected.length === 1}`,
+  `another-label-mints-nothing=${otherLabel.approved.length === 0 && otherLabel.unreadable.length === 1}`,
+  `free-text-mints-nothing=${freeText.approved.length === 0 && freeText.unreadable.length === 1}`,
+  `no-answer-mints-nothing=${unanswered.approved.length === 0 && unanswered.unreadable.length === 1}`,
+  `reask-asks-differently=${reaskQuestion.header !== question.header && String(reaskQuestion.question).includes('could not be read') && reaskQuestion.detail === RATIFIED_TARGET}`,
+  `reask-approve-label-mints=${reaskApproved.approved.length === 1 && reaskApproved.approved[0] === '0001'}`,
+  `reask-old-label-mints-nothing=${staleLabel.approved.length === 0 && staleLabel.unreadable.length === 1}`,
+]
+claim(
+  "the ratification question carries the record's own file text and only its exact approve label mints consent",
+  questionParts.every((part) => part.endsWith('=true')),
+  questionParts.join(' '),
+)
 
 if (failures.length > 0) {
   process.stderr.write(`gate invariants FAILED\n${failures.map((entry) => `  - ${entry}`).join('\n')}\n`)

@@ -131,7 +131,10 @@ the next request, without a restart, which is the hot reload worth keeping.
 facts belong in `.dsh/project.json` and the `context_*` tools, where they are declared, checkable and
 carry the command that proves them — not in prose that competes with the deployment's rules.
 
-**Reviewing this kit.** The reviewable units, and where they are:
+**Reviewing this kit.** The reviewable units, and where they are. `REVIEW.md` carries the
+context no repository can hold: the machine this was verified on, the upstream project as
+a dependency, the layout facts that explain apparent failures, the history of the last
+review cycle, and every limitation that remains.
 
 - **Plugin source** — `plugins/ratchet/`, `plugins/kit-rules/`, and the reconstructed
   `plugins/dsh-context/`; `plugins/model-gate/` is a read-only upstream snapshot. Each
