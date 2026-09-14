@@ -3334,6 +3334,77 @@ async function lawCheck(name, law, { files, contents = null, config = { zones: [
   })
 }
 
+test('BREAKER: a verdict is bound to the laws, the tree AND the authority table', async () => {
+  // The breaker's Finding 2 of round two: relaxing a zone's `agentAuthority` widened what
+  // an agent may put into force, and `status` still reported the project verified and
+  // current — because the manifest is under `.dsh`, which is excluded from the walk, so
+  // neither the law hash nor the code hash moved. ADR 0012's fourth rule is that the zone
+  // table cannot be relaxed without the gate saying so.
+  const zones = (authority) => [{ id: 'guarded', paths: ['src/**'], agentAuthority: authority, requiresDecisionRecord: false }]
+  const build = (name, authority) =>
+    makeProject({
+      name,
+      zones: zones(authority),
+      adrs: {
+        '0001-a.adr.md': adrText({
+          id: '0001',
+          zones: ['guarded'],
+          laws: [{ id: 'guarded.a-file', statement: 'The file exists.', checks: [{ type: 'required_file', path: 'src/a.ts' }] }],
+        }),
+      },
+      files: { 'src/a.ts': 'export const a = 1\n' },
+    })
+
+  const root = build('verdict-identity', 'activeIfNoConflict')
+  const verified = await ops.verify({ root })
+  assert.equal(verified.ok, true, 'the fixture starts verified')
+  assert.equal(typeof verified.configHash, 'string', 'the report names the authority table it judged under')
+
+  // Positive controls: the tree and the laws, each on its own.
+  writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 2\n')
+  assert.equal(ops.status(root).verified.stale, true, 'a code edit invalidates the verdict')
+  writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 1\n')
+  await ops.verify({ root })
+  assert.equal(ops.status(root).verified.ran, true, 'and re-verifying restores it')
+
+  // The finding: the authority table alone.
+  const manifestPath = join(root, '.dsh', 'project.json')
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+  manifest.ratchet.zones = zones('proposeOnly')
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+  const after = ops.status(root)
+  assert.equal(after.verified.ran, false, 'relaxing a zone authority invalidates the verdict')
+  assert.equal(after.verified.stale, true)
+  assert.match(after.verified.reason, /authority table changed/)
+  assert.ok(after.problems.some((entry) => entry.code === 'VERIFY_NOT_RUN'))
+})
+
+test('state: a verification records which tool and which revision judged it', async () => {
+  // The log reviewer's F7: the fields existed but read `readFileSync` and `normaliseText`
+  // without importing either, so a swallowed ReferenceError made them permanently null —
+  // and `state.json` carried no revision at all.
+  const root = makeProject({
+    name: 'verdict-provenance',
+    adrs: {
+      '0001-a.adr.md': adrText({
+        id: '0001',
+        zones: ['auth'],
+        laws: [{ id: 'auth.one', statement: 'One.', checks: [{ type: 'required_file', path: 'src/auth/a.ts' }] }],
+      }),
+    },
+    files: { 'src/auth/a.ts': 'export const a = 1\n' },
+  })
+  const verified = await ops.verify({ root })
+  assert.equal(verified.ok, true)
+  assert.match(String(verified.toolVersion), /^\d+\.\d+\.\d+/, 'the tool version is recorded')
+  const recorded = state.readState(root).value.lastVerify
+  assert.equal(recorded.toolVersion, verified.toolVersion, 'and reaches state.json')
+  assert.equal(recorded.configHash, verified.configHash, 'with the authority table the verdict was judged under')
+  // A fixture is not a git checkout, so the revision is null there — but it must be a
+  // null the caller can tell from "not asked", not a crash.
+  assert.ok(recorded.vcsRevision === null || typeof recorded.vcsRevision === 'string')
+})
+
 test('verifier: forbidden_text_glob catches every match, not just the first', async () => {
   // A boundary three files cross is three edits; naming one sends the reader back
   // for the rest.

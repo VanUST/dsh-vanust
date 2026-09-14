@@ -33,7 +33,7 @@ import {
   resolveActiveSet,
   specDriftProblems,
 } from './ratchet-compiler.mjs'
-import { DEFAULT_COMMAND_TIMEOUT_MS, codeHashFor, listFiles, verifyProject } from './ratchet-verifier.mjs'
+import { DEFAULT_COMMAND_TIMEOUT_MS, codeHashFor, configHashFor, listFiles, verifyProject } from './ratchet-verifier.mjs'
 import * as state from './ratchet-state.mjs'
 import * as dynamic from './ratchet-dynamic.mjs'
 import * as ingestModule from './ratchet-ingest.mjs'
@@ -85,6 +85,12 @@ const execFileAsync = promisify(execFileCallback)
 function lawRemovalProblems(root, compiled) {
   const previous = state.readRecordedLawIds(root)
   if (previous === null) return []
+  // A corpus that did not compile has no law set to compare against: with an unreadable
+  // manifest every law "disappeared", so this reported all twenty-three of them as
+  // removed without a decision — twenty-three findings that say nothing about the code
+  // and bury the one real problem. The comparison needs a bundle; without one it is not
+  // made.
+  if (compiled.bundle === null) return []
   const current = new Set((compiled.bundle?.laws ?? []).map((law) => law.id))
   const retired = new Set(compiled.removedByDecision ?? [])
   return previous
@@ -265,6 +271,7 @@ export function status(root) {
     compiled.report.specHash,
     checksExpected,
     codeHashFor(root, walked),
+    configHashFor(manifest.config),
   )
 
   // The persisted bundle and the last verification are read here, not inferred
@@ -648,6 +655,9 @@ export async function verify({ root, runCommand = null } = {}) {
     // The tree this verdict is about. A caller that keeps the spec hash to answer "which
     // laws were judged" needs this half too, or the answer silently outlives the code.
     codeHash: report.codeHash ?? null,
+    // The authority table, so a caller that keeps the verdict can compare all three legs
+    // of its identity rather than two of them.
+    configHash: report.configHash ?? null,
     toolVersion: report.toolVersion,
     vcsRevision: report.vcsRevision,
     counts: report.counts,

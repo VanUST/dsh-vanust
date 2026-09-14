@@ -226,6 +226,42 @@ export function codeHashFor(root, files) {
 }
 
 /**
+ * Hashes the authority table a verification was judged under.
+ *
+ * The third leg of a verdict's identity, beside the laws it judged and the tree it read.
+ * The manifest decides which zones exist and which of them an agent may activate at all,
+ * and `.dsh/` is excluded from the walk — so relaxing `agentAuthority` from `humanOnly`
+ * to `activeIfNoConflict` left `status` reporting a verified, current project while the
+ * gate was red, because neither the law hash nor the code hash had moved. ADR 0012 says
+ * the zone table cannot be relaxed without the gate saying so; this is how `status` says
+ * it. Only the fields that grant or withhold authority are hashed — a project name or a
+ * directory spelling must not invalidate a verdict.
+ *
+ * @param config - Parsed ratchet configuration, or `null`.
+ * @returns `sha256:<hex>` over the canonical authority identity. `null` when there is no
+ *   configuration to hash, which the state layer treats as "cannot say".
+ */
+export function configHashFor(config) {
+  if (config === null || config === undefined) return null
+  const identity = {
+    defaultAgentAuthority: config.defaultAgentAuthority ?? null,
+    zones: (config.zones ?? [])
+      .map((zone) => ({
+        id: zone.id,
+        paths: [...(zone.paths ?? [])].sort(),
+        agentAuthority: zone.agentAuthority ?? null,
+        requiresDecisionRecord: zone.requiresDecisionRecord === true,
+      }))
+      .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)),
+    decisionsDir: config.decisionsDir ?? null,
+    sourcesDir: config.sourcesDir ?? null,
+    specsDir: config.specsDir ?? null,
+    specsRequired: config.specsRequired === true,
+  }
+  return `sha256:${createHash('sha256').update(JSON.stringify(identity)).digest('hex')}`
+}
+
+/**
  * Reads a file, normalising line endings.
  *
  * @param root - Absolute project root.
@@ -1059,6 +1095,8 @@ export async function verifyProject({ root, bundle, config, manifest = null, fil
     // The tree this verdict applies to. Without it the record answers only "which
     // laws did you judge", and `status` kept calling an edited tree verified.
     codeHash: codeHashFor(root, fileList),
+    // And the authority table it was judged under — see `configHashFor`.
+    configHash: configHashFor(config),
     generatedAt: new Date().toISOString(),
     durationMs: Date.now() - started,
     counts: {

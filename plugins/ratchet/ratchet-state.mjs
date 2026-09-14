@@ -282,6 +282,10 @@ export function persistVerify(root, { report, evaluatedSpecHash, toolVersion = n
     writeArtifact(root, STATE_PATHS.verifyReport, `${JSON.stringify(report, null, 2)}\n`).path,
   ]
   const evaluatedCodeHash = typeof report.codeHash === 'string' ? report.codeHash : null
+  // The authority table, recorded with the laws and the tree: the three things a verdict
+  // is about. Absent here, relaxing a zone's `agentAuthority` invalidated neither hash,
+  // so `status` reported a verified project that the gate was failing.
+  const evaluatedConfigHash = typeof report.configHash === 'string' ? report.configHash : null
   const previous = readState(root)
   const state = {
     version: 1,
@@ -290,6 +294,7 @@ export function persistVerify(root, { report, evaluatedSpecHash, toolVersion = n
       ok: report.problems.length === 0,
       specHash: evaluatedSpecHash,
       codeHash: evaluatedCodeHash,
+      configHash: evaluatedConfigHash,
       // Which tool judged this, and which revision of the tree. The report carries them
       // already; without them here a reader of `state.json` alone — the file `status`
       // reads — cannot tie the verdict to a version or a commit.
@@ -301,7 +306,7 @@ export function persistVerify(root, { report, evaluatedSpecHash, toolVersion = n
     },
     lastGoodVerify:
       report.problems.length === 0
-        ? { at: report.generatedAt, specHash: evaluatedSpecHash, codeHash: evaluatedCodeHash }
+        ? { at: report.generatedAt, specHash: evaluatedSpecHash, codeHash: evaluatedCodeHash, configHash: evaluatedConfigHash }
         : (previous.value?.lastGoodVerify ?? null),
     toolVersion,
   }
@@ -317,6 +322,7 @@ export function persistVerify(root, { report, evaluatedSpecHash, toolVersion = n
     ...(Array.isArray(lawIds) ? { lawIds: [...lawIds].sort() } : {}),
     specHash: evaluatedSpecHash,
     codeHash: evaluatedCodeHash,
+    configHash: evaluatedConfigHash,
   })
   return { written, ledger }
 }
@@ -382,7 +388,7 @@ export function readRecordedLawIds(root) {
  * @returns `{ ran, stale, reason, recorded? }`. `ran` is true only for a complete
  *   evaluation of the current laws over the current code.
  */
-export function verificationStatus(root, currentSpecHash, expectedChecks = null, currentCodeHash = null) {
+export function verificationStatus(root, currentSpecHash, expectedChecks = null, currentCodeHash = null, currentConfigHash = null) {
   const state = readState(root)
   if (state.missing === true) {
     return { ran: false, stale: false, reason: `no ${STATE_PATHS.state} exists, so no verification has been recorded` }
@@ -432,6 +438,28 @@ export function verificationStatus(root, currentSpecHash, expectedChecks = null,
         ran: false,
         stale: true,
         reason: `the code changed since the last verification at ${recorded.at}: it judged ${recorded.codeHash}, and the tree now hashes to ${currentCodeHash}`,
+        recorded,
+      }
+    }
+  }
+  // The authority table. ADR 0012's fourth rule: the zone table "cannot be relaxed
+  // without the gate saying so". `.dsh/` is excluded from the walk, so neither hash above
+  // moves when a zone's `agentAuthority` is widened — status called such a project
+  // verified and current while `verify` was red on the tripwire law.
+  if (currentConfigHash !== null) {
+    if (typeof recorded.configHash !== 'string') {
+      return {
+        ran: false,
+        stale: true,
+        reason: `the last verification at ${recorded.at} recorded no authority table, so it cannot be tied to the zones the manifest declares now; re-run the verify command`,
+        recorded,
+      }
+    }
+    if (recorded.configHash !== currentConfigHash) {
+      return {
+        ran: false,
+        stale: true,
+        reason: `the authority table changed since the last verification at ${recorded.at}: the manifest now declares zones, authorities or directories that the verdict was not judged under (${recorded.configHash} → ${currentConfigHash})`,
         recorded,
       }
     }

@@ -53,6 +53,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { UNUSABLE_PROBLEM_CODES, hashSource } from './ratchet-schema.mjs'
+import { writeArtifact } from './ratchet-state.mjs'
 import { REVIEW_JOBS } from './ratchet-dynamic.mjs'
 import { falsify, recover } from './ratchet-falsify.mjs'
 import {
@@ -320,6 +321,22 @@ export async function run(argv) {
     // a SIGTERM must restore the mutation in flight before exiting. `--recover` repairs a
     // hard-killed run's journal and runs no case.
     result = options.recover === true ? recover({ root }) : await falsify({ root, runCommand, handleSignals: true })
+    // Then the run is RECORDED, after the restore. The breaker restores the project
+    // byte-identically — the ledger included, because the journal backs up the ratchet's
+    // own record directories — so a run whose whole purpose is to prove the gate can fail
+    // was the one gate command with no durable evidence: "the ledger is the audit trail"
+    // did not cover it. Writing the summary here leaves the code tree untouched (nothing
+    // restores anything afterwards) and gives the release gate a record that survives the
+    // terminal.
+    try {
+      writeArtifact(
+        root,
+        'reports/ratchet/falsify-report.json',
+        `${JSON.stringify({ kind: 'ratchet/falsify-report', at: new Date().toISOString(), ...result }, null, 2)}\n`,
+      )
+    } catch (error) {
+      process.stderr.write(`ratchet: could not write the falsify report: ${String(error)}\n`)
+    }
   } else {
     process.stderr.write(`ratchet: unknown command ${JSON.stringify(command)}\n\n${USAGE}`)
     return 3
