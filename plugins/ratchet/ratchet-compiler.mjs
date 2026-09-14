@@ -409,7 +409,7 @@ export function resolveActiveSet(records, config) {
     const declaredPaths = declaredZonePaths(record, config)
     for (const law of record.laws) {
       for (const check of law.checks ?? []) {
-        for (const target of checkTargets(check)) {
+        for (const target of checkTargets(check, config)) {
           if (pathIsGoverned(target, declaredPaths)) continue
           problems.push(
             problem(
@@ -600,28 +600,45 @@ export function pathIsGoverned(target, zonePaths) {
     // treating it as one made it govern nothing at all.
     if (raw === '**' || raw === '*') return true
     const prefix = raw.replace(/\/\*\*$/, '')
-    return clean === prefix || clean.startsWith(`${prefix}/`) || prefix.startsWith(`${clean}/`)
+    // Containment is ONE-WAY: the target must fall inside the zone. The reverse test —
+    // "is the zone inside the target?" — was there so a target naming a directory would
+    // be covered by a zone naming a file inside it, and it did the opposite of what the
+    // rule is for: a law whose target was `plugins/**` was accepted by a record that
+    // declared only `plugins/demo/**`, and then enforced on `plugins/other/**`, outside
+    // the authority that record claimed. A target broader than the zone reaches outside
+    // it by construction and must be refused, not accommodated.
+    return clean === prefix || clean.startsWith(`${prefix}/`)
   })
 }
 
 /**
  * Every positive path target a check enforces against, whichever field holds it.
  *
- * A check names its target in one of three places, and the field depends on the type:
- * `paths` for the text and boundary checks, the singular `path` for the file checks
- * (`required_file`, `forbidden_file`, `required_file_in_list`), and `pattern` for the
- * glob checks, where it is a path glob rather than a regex. Reading only `paths` missed
- * the other two entirely, and a `required_file` on `path: rules/AGENTS.md` therefore
- * enforced against a human-only path with the zone cross-check reporting nothing —
- * the same escape the cross-check exists to close, one field over.
+ * A check names its target in one of four places, and the field depends on the type:
+ * `paths` for the text checks, the singular `path` for the file checks
+ * (`required_file`, `forbidden_file`, `required_file_in_list`), `pattern` for the glob
+ * checks where it is a path glob rather than a regex, and for `path_boundary` both the
+ * `deny` list and the paths of the ZONE it constrains. Missing a field is how this rule
+ * was evaded twice: a `required_file` on `path:` was invisible while only `paths` was
+ * read, and a `path_boundary` was invisible while `deny` and `zone` were not read at
+ * all.
+ *
+ * A `path_boundary` is worth spelling out, because it makes two path claims at once: it
+ * denies files under the named zone anything matching `deny`. Both halves reach into a
+ * path, so both are targets — the `deny` patterns themselves, and the zone's own paths,
+ * resolved through the manifest. A record that constrains another zone while declaring
+ * only its own has reached outside its authority whichever half you look at.
  *
  * Dependency checks name packages, not paths, so `patterns` is not a target and is
  * deliberately not read. Negations are exclusions, not claims, and are skipped.
  *
  * @param check - One parsed check.
+ * @param config - Parsed ratchet configuration, used to resolve a `path_boundary`'s
+ *   zone to the paths it governs. A zone the manifest does not declare contributes
+ *   nothing here; the verifier reports `LAW_ZONE_MISSING` for it.
  * @returns An array of target paths or globs; empty when the check enforces on none.
  */
-export function checkTargets(check) {
+export function checkTargets(check, config = null) {
   const targets = []
   for (const entry of check.paths ?? []) {
     if (typeof entry === 'string' && !entry.startsWith('!')) targets.push(entry)
@@ -636,6 +653,15 @@ export function checkTargets(check) {
     !check.pattern.startsWith('!')
   ) {
     targets.push(check.pattern)
+  }
+  if (check.type === 'path_boundary') {
+    for (const entry of check.deny ?? []) {
+      if (typeof entry === 'string' && entry.length > 0 && !entry.startsWith('!')) targets.push(entry)
+    }
+    const zone = (config?.zones ?? []).find((candidate) => candidate.id === check.zone)
+    for (const entry of zone?.paths ?? []) {
+      if (typeof entry === 'string' && entry.length > 0 && !entry.startsWith('!')) targets.push(entry)
+    }
   }
   return targets
 }

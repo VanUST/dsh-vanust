@@ -785,16 +785,48 @@ claim(
     { laws: law({ checks: [{ type: 'required_glob', pattern: 'other/*.ts' }] }) },
     { files: { 'other/thing.ts': 'const one = 1\n' } },
   )
+  // A fourth field: `path_boundary` names its target in `zone` and `deny`, and the
+  // record's power is to constrain files in that zone. Reading neither made it invisible.
+  const twoZones = [
+    { id: 'auth', paths: ['src/auth/**'], agentAuthority: 'activeIfNoConflict', requiresDecisionRecord: false },
+    { id: 'reserved', paths: ['rules/**'], agentAuthority: 'humanOnly', requiresDecisionRecord: false },
+  ]
+  const boundary = project(
+    'zone-boundary',
+    { laws: law({ checks: [{ type: 'path_boundary', zone: 'reserved', deny: ['rules/**'] }] }) },
+    { zones: twoZones, files: { 'rules/AGENTS.md': 'x\n' } },
+  )
+  const boundaryInside = project(
+    'zone-boundary-inside',
+    { laws: law({ checks: [{ type: 'path_boundary', zone: 'auth', deny: ['src/auth/legacy/**'] }] }) },
+    { files: { 'src/auth/legacy/old.ts': 'x\n' } },
+  )
+  // And a target BROADER than the zone: `plugins/**` from a record declaring only
+  // `plugins/demo/**` also matches `plugins/other/**`, which is outside its authority.
+  const broader = project(
+    'zone-broader-target',
+    { laws: law({ checks: [{ type: 'forbidden_glob', pattern: 'plugins/**' }] }) },
+    {
+      files: { 'plugins/demo/a.mjs': 'x\n', 'plugins/other/b.mjs': 'x\n' },
+      zones: [{ id: 'auth', paths: ['plugins/demo/**'], agentAuthority: 'activeIfNoConflict', requiresDecisionRecord: false }],
+    },
+  )
   const outsideCompiled = compileProject(outside)
   const insideCompiled = compileProject(inside)
   const singularCompiled = compileProject(singular)
   const globbedCompiled = compileProject(globbed)
+  const boundaryCompiled = compileProject(boundary)
+  const boundaryInsideCompiled = compileProject(boundaryInside)
+  const broaderCompiled = compileProject(broader)
   const refused = (result) => result.problems.some((entry) => entry.code === 'LAW_PATH_OUTSIDE_DECLARED_ZONE')
   const parts = [
     `outside-refused=${refused(outsideCompiled)}`,
     `singular-path-refused=${refused(singularCompiled)}`,
     `glob-pattern-refused=${refused(globbedCompiled)}`,
+    `path-boundary-refused=${refused(boundaryCompiled)}`,
+    `broader-than-zone-refused=${refused(broaderCompiled)}`,
     `inside-accepted=${!refused(insideCompiled)}`,
+    `boundary-inside-accepted=${!refused(boundaryInsideCompiled)}`,
   ]
   claim(
     'a law targeting a path outside its declared zones is refused, in any field, and one inside them is accepted',

@@ -906,6 +906,45 @@ async function verifyOneLaw(name, checks, { files = {}, zones = null, manifest =
   return { root, report: verified.report, problems: verified.problems, codes: verified.problems.map((entry) => entry.code) }
 }
 
+/**
+ * Drives the verifier with a hand-built bundle, skipping the compiler.
+ *
+ * Some checks can no longer be declared through the compiler at all: ADR 0012 refuses a
+ * law whose positive target falls outside its record's zones, and a `path_boundary` whose
+ * deny is provably disjoint from its zone is exactly that — a target somewhere the record
+ * does not govern. Those cases still need to be verified, because the verifier is what a
+ * bundle from an older ratchet, or a later one, will be handed. Building the bundle here
+ * tests the verifier's own logic instead of the compiler's refusal.
+ */
+async function verifyRawLaws(name, checks, { files = {}, zones = null } = {}) {
+  const root = makeProject({
+    name,
+    files,
+    zones,
+    adrs: {
+      '0001-a.adr.md': adrText({
+        id: '0001',
+        zones: ['auth'],
+        laws: [{ id: 'auth.check', statement: 'Enforced.', checks: [{ type: 'required_text', paths: ['src/auth/**'], pattern: 'x' }] }],
+      }),
+    },
+  })
+  const manifestRead = compiler.readManifest(root)
+  const bundle = {
+    version: 1,
+    project: name,
+    laws: [{ id: 'auth.check', statement: 'Enforced.', zones: ['auth'], authority: 'human', sourceAdr: '0001', approvedBy: null, checks }],
+  }
+  const verified = await verifier.verifyProject({
+    root,
+    bundle,
+    config: manifestRead.config,
+    manifest: manifestRead.config,
+    runCommand: null,
+  })
+  return { root, report: verified.report, problems: verified.problems, codes: verified.problems.map((entry) => entry.code) }
+}
+
 test('verifier: required_file passes when present and fails when absent', async () => {
   const present = await verifyOneLaw('reqfile-ok', [{ type: 'required_file', path: 'src/auth/session.ts' }], {
     files: { 'src/auth/session.ts': 'export const x = 1\n' },
@@ -1013,7 +1052,7 @@ test('verifier: a path_boundary deny that can never overlap its zone is reported
   // A deny glob is repository-relative, so denying `src/legacy/**` to a zone that
   // manages `src/auth/**` can never match and enforces nothing. Reporting it is
   // the difference between a restriction and the appearance of one.
-  const result = await verifyOneLaw('boundary-inert', [{ type: 'path_boundary', zone: 'auth', deny: ['src/legacy/**'] }])
+  const result = await verifyRawLaws('boundary-inert', [{ type: 'path_boundary', zone: 'auth', deny: ['src/legacy/**'] }])
   assert.deepEqual(result.codes, ['DYNAMIC_REVIEW_REQUIRED'])
   assert.ok(result.problems[0].message.includes('cannot match a file the zone owns'))
 })
@@ -1023,13 +1062,13 @@ test('verifier: a deny that only LOOKS disjoint is not reported inert', async ()
   // strings, so `**/legacy/**` вЂ” which matches `src/auth/legacy/old.ts`, and does so
   // through the same `matchFiles` the check itself uses вЂ” was declared non-overlapping
   // and a law that HOLDS over a clean tree was reported broken with a false reason.
-  const leadingWildcard = await verifyOneLaw('boundary-leading-wildcard', [
+  const leadingWildcard = await verifyRawLaws('boundary-leading-wildcard', [
     { type: 'path_boundary', zone: 'auth', deny: ['**/legacy/**'] },
   ])
   assert.deepEqual(leadingWildcard.codes, [], 'a deny that can match is never called inert')
 
   // And the same deny still fires when a file actually crosses it.
-  const crossed = await verifyOneLaw(
+  const crossed = await verifyRawLaws(
     'boundary-leading-wildcard-hit',
     [{ type: 'path_boundary', zone: 'auth', deny: ['**/legacy/**'] }],
     { files: { 'src/auth/legacy/old.ts': 'x\n' } },
@@ -1037,7 +1076,7 @@ test('verifier: a deny that only LOOKS disjoint is not reported inert', async ()
   assert.deepEqual(crossed.codes, ['CODE_FORBIDDEN_GLOB_PRESENT'])
 
   // A wildcard in the middle of a prefix keeps the prefix it can still prove.
-  const suffixWildcard = await verifyOneLaw('boundary-suffix-wildcard', [
+  const suffixWildcard = await verifyRawLaws('boundary-suffix-wildcard', [
     { type: 'path_boundary', zone: 'auth', deny: ['**/*.tmp'] },
   ])
   assert.deepEqual(suffixWildcard.codes, [])
@@ -1045,25 +1084,25 @@ test('verifier: a deny that only LOOKS disjoint is not reported inert', async ()
   // A wildcard segment ends the provable prefix, so a deny that diverges only AFTER
   // one is ambiguous rather than proven disjoint. Ambiguity is never reported as
   // inert: the check asks for judgement instead of inventing a verdict.
-  const dirWildcard = await verifyOneLaw('boundary-dir-wildcard', [
+  const dirWildcard = await verifyRawLaws('boundary-dir-wildcard', [
     { type: 'path_boundary', zone: 'auth', deny: ['src/legacy-*/*.ts'] },
   ])
   assert.deepEqual(dirWildcard.codes, [], 'an ambiguous deny is not called inert')
 
   // And a divergence in the literal prefix is still provable, wildcards or not.
-  const literalDivergence = await verifyOneLaw('boundary-literal-divergence', [
+  const literalDivergence = await verifyRawLaws('boundary-literal-divergence', [
     { type: 'path_boundary', zone: 'auth', deny: ['src/legacy/*.ts'] },
   ])
   assert.deepEqual(literalDivergence.codes, ['DYNAMIC_REVIEW_REQUIRED'], 'a wildcard AFTER a diverging literal segment is still a proof')
 
-  const noLiteralAtAll = await verifyOneLaw('boundary-no-literal', [
+  const noLiteralAtAll = await verifyRawLaws('boundary-no-literal', [
     { type: 'path_boundary', zone: 'auth', deny: ['*/**'] },
   ])
   assert.deepEqual(noLiteralAtAll.codes, [], 'a deny with no literal segment could match anything, so nothing is proven')
 })
 
 test('verifier: path_boundary naming an undeclared zone is reported as LAW_ZONE_MISSING', async () => {
-  const result = await verifyOneLaw('boundary-nozone', [{ type: 'path_boundary', zone: 'nosuch', deny: ['src/**'] }])
+  const result = await verifyRawLaws('boundary-nozone', [{ type: 'path_boundary', zone: 'nosuch', deny: ['src/**'] }])
   assert.deepEqual(result.codes, ['LAW_ZONE_MISSING'])
 })
 
