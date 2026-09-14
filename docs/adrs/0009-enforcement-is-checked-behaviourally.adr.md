@@ -79,10 +79,10 @@ happens to call it. A mutation that changes the verdict fails this check immedia
 without anyone having to notice that a test body went missing.
 
 The alternative — running the full `scripts/falsify-kit-gate.mjs` experiment inside the
-gate — was measured and rejected as the *primary* point: it takes about five minutes,
-because each of its six cases runs the whole gate. It stays a declared verification
-command for the release gate, where that cost buys end-to-end evidence; the behavioural
-check is what runs on every verification.
+gate — was measured and rejected as the *primary* point: it runs the whole gate once per
+case, about a minute on this kit, where the behavioural check is two seconds. It stays a
+declared verification command for the release gate, where that cost buys end-to-end
+evidence; the behavioural check is what runs on every verification.
 
 ## Consequences
 

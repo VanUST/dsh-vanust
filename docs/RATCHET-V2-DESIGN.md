@@ -744,11 +744,11 @@ fails for the wrong reason is a gate that will pass for the wrong reason.
 cases, each verified to have actually broken something before the gate runs — the
 last two being a hand-written approval ADR, which must mint nothing, and a law
 injected with no check and no stated reason, which must be reported `LAW_UNCHECKED`.
-It takes about five minutes, because each case runs the whole gate, so it is a
-release-gate command (`falsify-gate` in the manifest) rather than something every
-verification pays for. Running it leaves the recorded verification pointing at the
-last mutated law set — the laws on disk really did change while it ran — so `status`
-reports `VERIFY_NOT_RUN` afterwards until the gate is run again.
+It runs the whole gate once per case, so it is a release-gate command (`falsify-gate`
+in the manifest) rather than something every verification pays for. Running it leaves
+the recorded verification pointing at the last mutated law set — the laws on disk
+really did change while it ran — so `status` reports `VERIFY_NOT_RUN` afterwards until
+the gate is run again.
 
 `ratchet falsify` is that same experiment made project-agnostic, so a project other
 than this kit can run one. It reads the manifest's declared scopes, the ratchet zones,
@@ -793,7 +793,7 @@ Stated plainly, because a rule with no enforcement point is an unverified claim:
   six cases — a new module importing the harness, an undeclared problem code, a rule
   citing a command nobody declared, a module dropped from its package manifest, a
   hand-written approval ADR, and a law with no check and no reason — each required to turn
-  the gate red, and taking about five minutes because every case runs the whole gate.
+  the gate red, running the whole gate per case.
 - **A `command` check is only as strong as the command, and the text assertion is the weak
   part.** The breaker's sharpest case: a law enforced by `node --test …` with
   `outputContains: "fail 0"` passed over a mutation that made a silent law verify clean,
@@ -909,6 +909,31 @@ Missing generated documents are only a problem once the project tracks them: any
 ratchet fails verification on day one for documents it never asked for, and a gate
 that fails on day one is a gate people disable on day two. Deleting a tracked spec
 is still `SPEC_OUT_OF_DATE`.
+
+### 6.7 Duplicate commands run once, and why nothing was rewritten in another language
+
+A corpus names the same command from several laws — this kit declares its test suite
+fourteen times — and the verifier used to execute it once per law. One `verify` therefore
+took **125.5 s** for one answer: 14 × the suite's 8.5 s, plus four other commands.
+Memoising by exact `run` string (with `cwd` and `timeoutMs` in the key) inside a single
+`verifyProject` brought it to **9.9 s**, a 12.7× cut, while every law still counts its own
+check as evaluated. The assumption this rests on is stated next to the code: **a command
+check is read-only with respect to the project**, because a check that changed the tree
+would make an identical later command observe the earlier run's result.
+
+The remaining cost is not JavaScript. The slowest tests in the suite are 200–400 ms
+subprocess-spawning tests, and the run is dominated by process starts and temporary
+fixture I/O, not by CPU-bound computation — V8 already compiles the hot paths. Two
+candidate optimisations were measured rather than assumed:
+
+- **Node's compile cache** (`NODE_COMPILE_CACHE`) on the suite: 9.25 s → 8.92 s warm,
+  about 4%, which does not justify the cache directory it adds to every run. Rejected.
+- **Rewriting load-bearing modules in a faster language or a compiled addon**: rejected.
+  It would trade a readable pure-JavaScript verifier for a build toolchain, native
+  packaging per platform, and a second implementation of the law semantics, to speed up
+  work that is I/O and process-bound. If the gate needs to be faster still, the lever is
+  fewer process starts — batching CLI assertions in tests, or splitting the suite so
+  `node --test` can parallelise it — not a different language.
 
 ---
 
@@ -1115,10 +1140,10 @@ node scripts/check-consent-surface.mjs              # 7 claims, no harness neede
 node scripts/check-instruction-routing.mjs          # 8 claims, no harness needed
 node scripts/check-gate-invariants.mjs              # 12 verdicts, asserted behaviourally
 
-# the breaker at release-gate scope: 6 invariants, ~5 minutes
+# the breaker at release-gate scope: 6 invariants, one full gate per case
 node scripts/falsify-kit-gate.mjs
 
-# the kit's own gate: 19 laws in force, 21 checks (18 of them command checks), ~50 s
+# the kit's own gate: 19 laws in force, 21 checks (18 command checks, 4 distinct), ~10 s
 node plugins/ratchet/ratchet-cli.mjs verify --root .
 
 # and that the gate FAILS when an invariant is broken: 6/6 cases

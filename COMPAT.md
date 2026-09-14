@@ -66,7 +66,7 @@ node --test scripts/test-ratchet.mjs                # 249 tests, no RUNNING harn
 node scripts/check-consent-surface.mjs              # 7 claims about the consent surface
 node scripts/check-instruction-routing.mjs          # 8 claims about instruction routing
 node scripts/check-gate-invariants.mjs              # 12 verdicts, asserted behaviourally
-node scripts/falsify-kit-gate.mjs                   # 6 invariants broken, ~5 minutes
+node scripts/falsify-kit-gate.mjs                   # 6 invariants broken, ~1 minute
 node scripts/probe-dsh-api.mjs                      # 18/18 harness facts
 node scripts/probe-dsh-api.mjs --probe-judge        # 6/6 dynamic capability (costs a child turn)
 node scripts/probe-dsh-api.mjs --ratchet-ratify     # 10/10 ratification seam (no model turn)

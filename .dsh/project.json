@@ -135,7 +135,7 @@
     {
       "id": "falsify-gate",
       "command": "node scripts/falsify-kit-gate.mjs",
-      "purpose": "the breaker at release-gate scope: break one kit invariant at a time and require the real gate to fail, six cases, each verified to have broken something first (~5 minutes)",
+      "purpose": "the breaker at release-gate scope: break one kit invariant at a time and require the real gate to fail, six cases, each verified to have broken something first",
       "path": "scripts/falsify-kit-gate.mjs"
     }
   ],

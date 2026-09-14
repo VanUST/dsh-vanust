@@ -5317,3 +5317,40 @@ test('falsify --recover repairs without a readable manifest', () => {
   assert.ok(readFileSync(join(root, target)).equals(original), 'the original must be restored')
   assert.equal(existsSync(join(stateDir, 'falsify-journal.json')), false, 'the journal is gone after recovery')
 })
+
+test('verifier: an identical command runs once per verification, not once per law', async () => {
+  // Fourteen laws in this kit name the same test suite. Running it per law made one
+  // verify take ~2 minutes for one answer. Within a verification the tree does not
+  // change, so the same command has the same result and re-running it proves nothing
+  // new — but every law still counts its own check as evaluated.
+  const root = makeProject({ name: 'command-dedupe', adrs: {} })
+  let calls = 0
+  const bundle = {
+    version: 1,
+    project: 'command-dedupe',
+    laws: ['a', 'b', 'c'].map((suffix) => ({
+      id: `x.${suffix}`,
+      statement: 'S.',
+      sourceAdr: '0001',
+      checks: [
+        { type: 'command', run: 'node suite.mjs', expects: 'the suite passes' },
+        { type: 'command', run: 'node other.mjs', expects: 'the other command passes' },
+      ],
+      zones: [],
+      authority: 'human',
+      approvedBy: null,
+    })),
+  }
+  const result = await verifier.verifyProject({
+    root,
+    bundle,
+    config: { zones: [] },
+    runCommand: async () => {
+      calls += 1
+      return { code: 0, stdout: 'ok', stderr: '', timedOut: false }
+    },
+  })
+  assert.equal(result.ok, true, JSON.stringify(result.problems))
+  assert.equal(result.report.counts.checksEvaluated, 6, 'every law still evaluates both of its checks')
+  assert.equal(calls, 2, 'two distinct commands must run twice, not once per law')
+})

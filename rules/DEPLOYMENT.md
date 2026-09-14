@@ -84,8 +84,8 @@ could not evaluate every check is a failure, not a pass.
 `falsify` is the breaker and its exit codes are its own: `0` every applicable case was
 detected, `1` a case was missed (a check that cannot fail), `2` the project is unusable.
 It mutates the project and restores everything it touched, including the persisted
-verdict, and writes only inside the scopes the manifest declares. It takes minutes,
-because every case runs the real gate. `SIGKILL` cannot be caught, but every mutation is
+verdict, and writes only inside the scopes the manifest declares. It runs the whole gate
+once per case, so give it about a minute. `SIGKILL` cannot be caught, but every mutation is
 journaled before it is written, so `ratchet falsify --recover` (or the next `falsify`
 run) repairs what a hard kill left behind.
 

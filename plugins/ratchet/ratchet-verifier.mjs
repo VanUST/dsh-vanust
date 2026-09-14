@@ -844,13 +844,46 @@ export async function verifyLaw({ root, law, files, dependencies, config, runCom
 }
 
 /**
+ * Wraps a command runner so each distinct command runs once per verification.
+ *
+ * A corpus routinely names the same command from several laws — this kit declares one
+ * test suite fourteen times — and executing it once per law costs fourteen times the wall
+ * clock for one answer. Within a single verification the tree and the working directory
+ * do not change, so an identical command has an identical result and re-running it proves
+ * nothing new. The key is the command plus the options that change its meaning (`cwd`,
+ * `timeoutMs`); the promise is cached so concurrent identical calls share one run.
+ *
+ * **Command checks are therefore assumed to be read-only with respect to the project.**
+ * A command that mutated a file a later identical command reads would now observe the
+ * first run's result instead of its own. A check whose job is to change the tree is not a
+ * check: verification must not depend on the order in which laws are evaluated.
+ *
+ * @param runCommand - The caller's `(run, options) => Promise<outcome>`.
+ * @returns A runner with the same signature that executes each distinct call once.
+ */
+function memoizeCommandRunner(runCommand) {
+  const cache = new Map()
+  return (run, options = {}) => {
+    const key = `${options.cwd ?? ''}\u0000${options.timeoutMs ?? ''}\u0000${run}`
+    let outcome = cache.get(key)
+    if (outcome === undefined) {
+      outcome = runCommand(run, options)
+      cache.set(key, outcome)
+    }
+    return outcome
+  }
+}
+
+/**
  * Runs the full static verification of a project against its compiled laws.
  *
  * @param options - `{ root, bundle, config, manifest, files, runCommand }`. `files`
  *   may be supplied to avoid re-walking in a caller that already did; otherwise the
  *   project is walked once. `runCommand` is optional: without it, `command` checks
  *   are reported as pending rather than passed, so the verifier stays a pure
- *   filesystem reader unless a caller deliberately opts into running something.
+ *   filesystem reader unless a caller deliberately opts into running something. A
+ *   supplied runner is memoised per distinct command for the duration of this call —
+ *   see `memoizeCommandRunner` for why, and for the read-only assumption it rests on.
  * @returns `{ ok, report, problems }` where `report.counts` records how many laws
  *   and checks were actually evaluated. A report whose `checksEvaluated` is zero
  *   with `ok: true` is a contradiction, and the gates in this kit assert that it
@@ -863,11 +896,14 @@ export async function verifyProject({ root, bundle, config, manifest = null, fil
   const dependencies = readDeclaredDependencies(root, fileList, manifest)
   problems.push(...dependencies.problems)
 
+  // One process per distinct command, not one per law that names it.
+  const runOnce = runCommand === null ? null : memoizeCommandRunner(runCommand)
+
   let checksEvaluated = 0
   const pending = []
   const lawResults = []
   for (const law of bundle?.laws ?? []) {
-    const result = await verifyLaw({ root, law, files: fileList, dependencies, config, runCommand })
+    const result = await verifyLaw({ root, law, files: fileList, dependencies, config, runCommand: runOnce })
     checksEvaluated += result.checked
     pending.push(...result.pending.map((entry) => ({ lawId: law.id, ...entry })))
     problems.push(...result.problems)
