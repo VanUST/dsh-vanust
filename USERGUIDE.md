@@ -1,17 +1,22 @@
 # USERGUIDE.md — setting up and starting the harness on a new machine
 
 This kit installs **DeepSeek Harness (dsh)** on any of your machines (2× Linux,
-1× Windows) plus the plugins this deployment adds beyond upstream:
+1× Windows) plus the **five** plugins this deployment adds beyond upstream:
 **`@deepseek-ai/dsh-model-gate`** (the class-based flash-only cost policy),
 **`@cc/dsh-kit-rules`** (delivers `$DSH_HOME/AGENTS.md` to the model as its
 binding rule section), **`@cc/dsh-context`** (a project's modules, rules and work
-orders as tools) and **`@cc/dsh-ratchet`** (architecture decisions compiled into
-checks a command can fail — §3.2). The harness version is pinned; sessions and
-workspaces stay machine-local by design (see COMPAT.md §3).
+orders as tools), **`@cc/dsh-ratchet`** (architecture decisions compiled into
+checks a command can fail — §3.2) and **`@cc/dsh-adr-panel`** (a Session-header
+window on those decisions, their consents and the generated specs — §3.3).
+`plugins/inventory.json` is the single source of truth for that set and for each
+plugin's provenance; `scripts/check-portability.mjs` fails when a tarball, a
+mounted profile row, a source directory or a packing entry point disagrees with
+it. The harness version is pinned; sessions and workspaces stay machine-local by
+design (see COMPAT.md §3).
 
 The user interface is upstream's own web app: conversations, the right sidebar
 with Files and document preview, open-in-app, and the agent's terminal tools all
-come from the harness itself. This kit no longer ships client plugins.
+come from the harness itself, plus the ADR panel above.
 
 ---
 
@@ -131,7 +136,15 @@ consequences worth knowing:
   one win; this deployment disables it (`- id: agent-instructions / disabled:
   true` in `profile/cordis.patch.yml`), because a checkout must not be able to
   override cost policy, remote-change permission or verification duties. Do not
-  re-enable it to "also pick up project notes".
+  re-enable it to "also pick up project notes". **Measured, both ways:** compose a
+  scratch profile from the profile patch and the loader injects nothing, while
+  without the disable a marked `AGENTS.md` in the project reaches the model. **The
+  catch is the running server, not the configuration:** a `dsh web` that started
+  before the patch was in place keeps its old composition for its whole life, so a
+  session can still receive `Instructions from: <path>` while `--dump-config` shows
+  the row disabled. The fix is a restart through the kit's launcher (which applies
+  the update first); the confirmation is asking the agent, in the session, to quote
+  the first line of section 0 of its rules — see §3.1's check below.
 - **Project facts belong in `.dsh/project.json`.** That is what the `context_*`
   tools read, and a rule declared there names the command that fails when it is
   broken, which prose never does.

@@ -214,6 +214,40 @@ for (const relative of ['rules/DEPLOYMENT.md', 'USERGUIDE.md']) {
   )
 }
 
+// 7. Every document that describes the shipped plugin set must agree with the inventory.
+//    A user guide that denies the existence of a shipped plugin is the same class of lie as
+//    a rule with no enforcement point: it reads as authoritative and nothing contradicted
+//    it. USERGUIDE.md said "This kit no longer ships client plugins" while
+//    `@cc/dsh-adr-panel` — a browser-half client plugin — was mounted in the profile, and
+//    this check passed because it only looked at DEPLOYMENT.md's list.
+const inventory = read('plugins/inventory.json')
+if (inventory.missing === true) {
+  claim('the plugin inventory is readable', false, 'missing')
+} else {
+  let rows = []
+  try {
+    rows = JSON.parse(inventory.text).plugins ?? []
+  } catch (error) {
+    claim('the plugin inventory is readable', false, String(error))
+  }
+  for (const relative of ['README.md', 'USERGUIDE.md']) {
+    const document = read(relative)
+    if (document.missing === true) {
+      claim(`${relative} names every shipped plugin`, false, 'missing')
+      continue
+    }
+    const unnamed = rows.map((row) => row.package).filter((name) => !document.text.includes(name))
+    claim(
+      `${relative} names every shipped plugin`,
+      rows.length > 0 && unnamed.length === 0,
+      unnamed.length === 0 ? `${rows.length} plugin(s), all named` : `not named: ${unnamed.join(', ')}`,
+    )
+  }
+  const userGuide = read('USERGUIDE.md')
+  const denies = userGuide.missing === true ? false : /no longer ships client plugins/i.test(userGuide.text)
+  claim('USERGUIDE.md does not deny the client plugin it ships', !denies, denies ? 'the sentence is back' : 'no denial')
+}
+
 if (failures.length > 0) {
   process.stderr.write(`instruction routing FAILED\n${failures.map((entry) => `  - ${entry}`).join('\n')}\n`)
   process.exit(1)

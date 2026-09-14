@@ -450,11 +450,15 @@ export function apply(ctx) {
         name: 'ratchet_verify',
         description:
           'Verify the codebase against the compiled laws: required and forbidden files, globs, text and ' +
-          'dependencies, and zone path boundaries. This is deterministic — it asks no model — and it is the ' +
-          'gate: a task that changed code in a regulated zone is not finished until this reports ok. It ' +
-          'writes reports/ratchet/verify-report.json and records the spec hash it judged; every problem ' +
-          'names the law, the file and the evidence, and a check that could not be evaluated is reported ' +
-          'rather than passed.',
+          'dependencies, and zone path boundaries. This is deterministic — it asks no model — and it ' +
+          'writes reports/ratchet/verify-report.json, recording the spec hash AND the code hash it judged. ' +
+          'Every problem names the law, the file and the evidence, and a check that could not be evaluated ' +
+          'is reported rather than passed. WHAT THIS TOOL CANNOT DO, so "done" is not claimed on its word: ' +
+          'it supplies no command runner, so every `command` check comes back pending and the result is ' +
+          'VERIFY_INCOMPLETE with ok:false however healthy the code is. A law whose enforcement is a ' +
+          'command (a test suite, a lint, a script) therefore makes this tool a report and not a verdict — ' +
+          '`node plugins/ratchet/ratchet-cli.mjs verify --root <project>` in a shell is the gate, and only ' +
+          'that can return ok. Use this tool to see which laws exist and which filesystem checks hold.',
         parameters: {},
         output: output(),
         execute(_args, exec) {

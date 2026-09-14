@@ -94,10 +94,17 @@ export const PROBLEM_CODES = Object.freeze({
   CODE_TEXT_FORBIDDEN_PRESENT: 'a forbidden_text check found a match',
   CODE_COMMAND_FAILED: 'a command check ran and did not exit zero',
   CODE_COMMAND_OUTPUT_MISMATCH: 'a command check ran and its output did not match what the law asserts about it',
+  // A selection problem, not a verdict about the code. It used to be reported under
+  // `CODE_REQUIRED_TEXT_MISSING` / `CODE_TEXT_FORBIDDEN_PRESENT`, whose definitions say
+  // "found no match" / "found a match" — so a caller branching on the code was told a
+  // verdict had been reached when in fact nothing was read.
+  CODE_TEXT_SCOPE_EMPTY: 'a text check selected no file, so it was not evaluated and proves nothing',
   VERIFY_NOT_RUN: 'no verification report exists for the current spec hash',
   VERIFY_NOTHING_EVALUATED: 'a verification ran but evaluated no check, so it proves nothing about the code',
   VERIFY_INCOMPLETE: 'a verification left checks unevaluated, so it is not a pass',
   VERIFICATION_FAILED: 'the most recent verification of the current laws reported problems',
+  ARTIFACT_WRITE_FAILED: 'a report or state artifact could not be written, so nothing durable records this run',
+  LEDGER_DAMAGED: 'the ledger holds lines that cannot be read, so its history has gaps',
   DYNAMIC_REVIEW_REQUIRED: 'the static compiler decided the question needs a judgement',
   APPROVAL_TARGET_UNKNOWN: 'an approval ADR names a decision that no file in this project declares',
   RATIFICATION_UNPROVEN: 'an approval ADR carries nothing showing that a human saw and consented to the text it approves',
@@ -136,6 +143,10 @@ export const UNUSABLE_PROBLEM_CODES = Object.freeze([
   'DIR_NOT_A_DIRECTORY',
   'DIR_UNREADABLE',
   'NO_VALID_ADRS',
+  // A run whose evidence could not be written is not "the ratchet ran and found
+  // problems": nothing durable records what it found, so a caller must not be told
+  // "violations" (exit 1) when the truth is "this run left no trace" (exit 2).
+  'ARTIFACT_WRITE_FAILED',
 ])
 
 /** The two authorities, ordered.

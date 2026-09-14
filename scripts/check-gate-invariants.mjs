@@ -323,8 +323,41 @@ const noScope = await verdict('forbidden-text-glob-empty', {
 })
 claim(
   'a forbidden-text glob over no file is not a clean pass',
-  noScope.codes.includes('CODE_TEXT_FORBIDDEN_PRESENT'),
+  noScope.codes.includes('CODE_TEXT_SCOPE_EMPTY'),
   JSON.stringify(noScope.codes),
+)
+
+// 5b. An exclusion means the same thing for EVERY text spelling. The breaker's pair: the
+// plain spelling built its scope with one `matchFiles` per pattern, so `!src/legacy/**`
+// became the literal glob `^!src/legacy/.*$` — one declaration, two verdicts. A
+// forbidden-text law accused the file its own exclusion removed (false failure), and a
+// required-text law whose exclusion cancelled its inclusion reported itself satisfied
+// with nothing examined (a check that cannot fail).
+const excludedForbidden = await verdict(
+  'exclusion-plain-forbidden',
+  { laws: law({ checks: [{ type: 'forbidden_text', paths: ['src/**', '!src/legacy/**'], pattern: 'FORBIDDEN_MARKER' }] }) },
+  { files: { 'src/keep.ts': 'clean\n', 'src/legacy/old.ts': 'FORBIDDEN_MARKER\n' } },
+)
+claim(
+  'an excluded file is not accused by the plain text spelling',
+  excludedForbidden.codes.length === 0 && excludedForbidden.laws.length === 1,
+  `laws=${excludedForbidden.laws.length} codes=${JSON.stringify(excludedForbidden.codes)}`,
+)
+const cancelledPlain = await verdict(
+  'exclusion-cancelling-plain',
+  { laws: law({ checks: [{ type: 'required_text', paths: ['src/**', '!src/**'], pattern: 'clean' }] }) },
+  { files: { 'src/keep.ts': 'clean\n' } },
+)
+const cancelledGlob = await verdict(
+  'exclusion-cancelling-glob',
+  { laws: law({ checks: [{ type: 'required_text_glob', paths: ['src/**', '!src/**'], pattern: 'clean' }] }) },
+  { files: { 'src/keep.ts': 'clean\n' } },
+)
+claim(
+  'a selection an exclusion empties fails in both spellings',
+  cancelledPlain.codes.includes('CODE_TEXT_SCOPE_EMPTY') &&
+    JSON.stringify(cancelledPlain.codes) === JSON.stringify(cancelledGlob.codes),
+  `plain=${JSON.stringify(cancelledPlain.codes)} glob=${JSON.stringify(cancelledGlob.codes)}`,
 )
 
 // 6. A check that cannot fail is refused where the decision is compiled.

@@ -42,6 +42,7 @@ import {
   appendLedger,
   detectSpecDrift,
   persistCompile,
+  writeSpecDocuments,
   persistVerify,
   readSpecBundle,
   verificationStatus,
@@ -147,6 +148,51 @@ export function summariseProblems(problems) {
 }
 
 /**
+ * The ratchet's own version, read from its package manifest.
+ *
+ * Recorded with every verification because a verdict is only interpretable against the
+ * tool that produced it: a check vocabulary or a verdict rule can change between
+ * versions, and `state.json` used to carry `toolVersion: null` forever, so a reader
+ * could not tell which ratchet had judged anything.
+ *
+ * @returns The version string, or `null` when the manifest cannot be read. Never throws.
+ */
+function ratchetToolVersion() {
+  for (const candidate of ['../package.json', './package.json']) {
+    try {
+      const manifest = JSON.parse(readFileSync(new URL(candidate, import.meta.url), 'utf8'))
+      if (typeof manifest.version === 'string') return manifest.version
+    } catch {
+      // Try the next candidate: a bundled copy may sit at a different depth.
+    }
+  }
+  return null
+}
+
+/**
+ * The VCS revision of the tree, read from `.git` without spawning git.
+ *
+ * `codeHash` proves the tree changed; it cannot say WHAT it changed to in terms a human
+ * recognises. A short revision in the report and the state turns "the code moved" into a
+ * reference someone can look at, and costs one file read.
+ *
+ * @param root - Absolute project root.
+ * @returns The short revision, or `null` for a tree that is not a git checkout (or a
+ *   `.git` file, as a worktree or submodule has). Never throws.
+ */
+function vcsRevisionFor(root) {
+  try {
+    const head = normaliseText(readFileSync(join(root, '.git', 'HEAD'), 'utf8')).trim()
+    const match = /^ref:\s*(.+)$/.exec(head)
+    if (match === null) return head.length > 0 ? head.slice(0, 12) : null
+    const ref = normaliseText(readFileSync(join(root, '.git', match[1]), 'utf8')).trim()
+    return ref.length > 0 ? ref.slice(0, 12) : null
+  } catch {
+    return null
+  }
+}
+
+/**
  * Resolves a project root by ascending from a starting directory.
  *
  * Verification is done on the START directory rather than trusting the walk:
@@ -216,6 +262,21 @@ export function status(root) {
   // currently in force" are different facts, and collapsing them is how a project
   // reports itself verified while nothing has checked it.
   const problems = [...compiled.problems, ...comparison.problems]
+  // The ledger is the audit trail, and its reader counts lines it cannot parse rather
+  // than throwing — but nothing surfaced that count, and `readLedger` had no production
+  // caller at all. A history with silent gaps is worse than one that says it has gaps:
+  // "the ledger shows no violation" means nothing if two lines were dropped.
+  const ledger = state.readLedger(root)
+  if ((ledger.skipped ?? 0) > 0) {
+    problems.push(
+      problem(
+        'LEDGER_DAMAGED',
+        `${STATE_PATHS.ledger} holds ${ledger.skipped} line(s) that cannot be parsed, so this project's history has gaps: a run that is missing from it may still have happened. Repair or archive the file before trusting the ledger as a record`,
+        null,
+        { skipped: ledger.skipped, events: (ledger.events ?? []).length },
+      ),
+    )
+  }
   if (!verification.ran && compiled.bundle !== null) {
     problems.push(
       problem(
@@ -367,26 +428,12 @@ export function compile({ root, write = false } = {}) {
   // set with itself and always find nothing.
   const removalProblems = lawRemovalProblems(root, compiled)
 
-  // The report and the spec bundle are recorded either way, because a report that
-  // exists only on success cannot record a failure.
-  const persisted =
-    compiled.report.enabled === true || compiled.bundle !== null
-      ? persistCompile(root, {
-          bundle: compiled.bundle,
-          specFiles: write && compiled.bundle !== null ? rendered.files : null,
-          report: { ...compiled.report, problems: [...compiled.problems, ...removalProblems] },
-          // `null` holds the recorded set at its previous value: a run that reported an
-          // unexplained removal must not also record the shrunken set as the new truth.
-          lawIds: removalProblems.length === 0 ? (compiled.bundle?.laws ?? []).map((law) => law.id) : null,
-        })
-      : { written: [], ledger: { error: 'the ratchet is not enabled in this project' } }
+  // The spec documents are written BEFORE drift is measured, so the drift describes the
+  // tree the caller now has: a first `--write` run used to report every document as
+  // missing and fail while creating exactly the files it complained about.
+  const specWrite =
+    write && compiled.bundle !== null ? writeSpecDocuments(root, rendered.files) : { written: [] }
 
-  // Drift is checked AFTER the write, not before. Before the write, a first run
-  // reports every spec file as missing and fails while creating exactly the files
-  // it complains about — so the command that fixes the problem reports the problem
-  // it just fixed. After the write, the result describes the state the caller now
-  // has; when `write` is false nothing was written and the check is a report on
-  // the current state, which is what a read-only compile should say.
   const config = readManifest(root).config
   const tracksSpecs = state.tracksSpecDocuments(root, config?.specsDir, config?.specsRequired)
   const drift = detectSpecDrift(root, rendered.files)
@@ -395,6 +442,23 @@ export function compile({ root, write = false } = {}) {
     ...removalProblems,
     ...specDriftProblems(reportedSpecDrift(tracksSpecs, drift)),
   ]
+
+  // Persisted AFTER the drift is known, and with the FULL problem list. It used to be
+  // persisted before, holding only the compile and removal problems, so a compile that
+  // exited 1 over stale generated documents left `compile-report.json` with
+  // `"problems": []` and a ledger line saying `ok: true` — the two artifacts a reader or
+  // a CI job consults instead of the terminal, both certifying a run that failed.
+  const persisted =
+    compiled.report.enabled === true || compiled.bundle !== null
+      ? persistCompile(root, {
+          bundle: compiled.bundle,
+          specFiles: null,
+          report: { ...compiled.report, problems },
+          // `null` holds the recorded set at its previous value: a run that reported an
+          // unexplained removal must not also record the shrunken set as the new truth.
+          lawIds: removalProblems.length === 0 ? (compiled.bundle?.laws ?? []).map((law) => law.id) : null,
+        })
+      : { written: [], ledger: { error: 'the ratchet is not enabled in this project' } }
 
   return {
     ok: problems.length === 0,
@@ -410,7 +474,7 @@ export function compile({ root, write = false } = {}) {
       missing: tracksSpecs ? drift.missing : [],
     },
     tracksSpecDocuments: tracksSpecs,
-    wrote: persisted.written,
+    wrote: [...specWrite.written, ...persisted.written],
     problems,
     summary: summariseProblems(problems),
   }
@@ -427,7 +491,17 @@ export function compile({ root, write = false } = {}) {
 export async function verify({ root, runCommand = null } = {}) {
   const compiled = compileProject(root)
   if (!compiled.ok) {
-    appendLedger(root, 'ratchet.verify.blocked', { stage: 'compile', problems: compiled.problems.length })
+    // The blocking problems themselves, not only how many there were. A count left the
+    // cause in terminal output that scrolls away, while the ledger — the one artifact
+    // that is supposed to survive the run — said "problems: 2" and nothing else. The
+    // spec hash is included because a blocked verify still judged a corpus.
+    appendLedger(root, 'ratchet.verify.blocked', {
+      stage: 'compile',
+      problems: compiled.problems.length,
+      problemCodes: summariseProblems(compiled.problems).byCode,
+      specHash: compiled.report.specHash,
+      subjects: compiled.problems.map((entry) => entry.subject).filter((subject) => subject !== null).slice(0, 20),
+    })
     return {
       ok: false,
       stage: 'compile',
@@ -472,13 +546,38 @@ export async function verify({ root, runCommand = null } = {}) {
     ...verified.report,
     problems,
     counts: { ...verified.report.counts, errors: problems.length },
+    // Which tool produced this verdict, and which revision of the tree. Without them a
+    // reader cannot answer "was this judged before or after that change" from the
+    // artifacts alone — `codeHash` says the tree moved, not where it moved to.
+    toolVersion: ratchetToolVersion(),
+    vcsRevision: vcsRevisionFor(root),
   }
-  const persisted = persistVerify(root, {
-    report,
-    evaluatedSpecHash: compiled.report.specHash,
-    toolVersion: null,
-    lawIds: removalProblems.length === 0 ? (compiled.bundle?.laws ?? []).map((law) => law.id) : null,
-  })
+  // A write that fails is a RESULT, not an exception. The first version let the ENOENT or
+  // EPERM escape, so a verify that could write nothing exited 1 — the code the CLI
+  // documents as "ran and found problems" — left `state.json` describing the PREVIOUS
+  // run, appended no ledger line, and left a `*.tmp-<pid>` sibling behind. The caller now
+  // gets a problem with its own code, which maps to exit 2 ("nothing was checked")
+  // because nothing durable records that anything was.
+  let persisted = { written: [], ledger: { written: false } }
+  try {
+    persisted = persistVerify(root, {
+      report,
+      evaluatedSpecHash: compiled.report.specHash,
+      toolVersion: report.toolVersion,
+      lawIds: removalProblems.length === 0 ? (compiled.bundle?.laws ?? []).map((law) => law.id) : null,
+    })
+  } catch (error) {
+    const failure = problem(
+      'ARTIFACT_WRITE_FAILED',
+      `this verification ran and evaluated ${report.counts.checksEvaluated} check(s), but its report and state could not be written (${String(error)}), so nothing durable records the result. The verdict is in the output above and nowhere else; make ${STATE_PATHS.verifyReport} writable and run the gate again`,
+      null,
+      { counts: report.counts, wrote: false },
+    )
+    problems.push(failure)
+    report.problems = problems
+    report.counts = { ...report.counts, errors: problems.length }
+    appendLedger(root, 'ratchet.verify.write-failed', { error: String(error).slice(0, 300), checksEvaluated: report.counts.checksEvaluated })
+  }
 
   return {
     ok: problems.length === 0,
@@ -488,6 +587,8 @@ export async function verify({ root, runCommand = null } = {}) {
     // The tree this verdict is about. A caller that keeps the spec hash to answer "which
     // laws were judged" needs this half too, or the answer silently outlives the code.
     codeHash: report.codeHash ?? null,
+    toolVersion: report.toolVersion,
+    vcsRevision: report.vcsRevision,
     counts: report.counts,
     dependencyManifests: report.dependencyManifests,
     laws: report.laws,

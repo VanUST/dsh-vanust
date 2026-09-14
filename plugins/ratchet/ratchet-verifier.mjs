@@ -327,6 +327,42 @@ export function readDeclaredDependencies(root, files, manifest) {
 }
 
 /**
+ * Suggests the correction for a path list that selected no file.
+ *
+ * The first thing anyone writes is the directory name — `paths: [src]` — and a glob
+ * engine matches it against whole paths, so it selects nothing and the check reports
+ * itself unevaluated. That is a safe failure, but the reader is left to guess why, and
+ * the guess is not obvious: the spelling that looks right is the one that does nothing.
+ * The hint only fires when the pattern really does name a file or a directory in the
+ * tree, so it never invents a correction for a stale glob.
+ *
+ * @param root - Absolute project root.
+ * @param paths - The `paths` array the check declared.
+ * @param files - The walked file list.
+ * @returns A sentence naming the first entry that resolves to a path, or `''` when none
+ *   does. Never throws.
+ */
+function scopeHint(root, paths, files) {
+  for (const pattern of paths ?? []) {
+    if (typeof pattern !== 'string' || pattern.length === 0 || pattern.startsWith('!')) continue
+    const bare = pattern.replace(/\/+$/, '')
+    const namesSomething =
+      (files ?? []).some((file) => file === bare || file.startsWith(`${bare}/`)) ||
+      (() => {
+        try {
+          return statSync(join(root, bare)).isDirectory()
+        } catch {
+          return false
+        }
+      })()
+    if (namesSomething) {
+      return `"${pattern}" names a path rather than a glob; a directory needs its glob — write "${bare}/**" to select the files under it`
+    }
+  }
+  return ''
+}
+
+/**
  * Selects the files a glob set addresses, honouring exclusion patterns.
  *
  * A path beginning with `!` removes matches. Exclusions apply in the order written,
@@ -453,11 +489,19 @@ export async function verifyLaw({ root, law, files, dependencies, config, runCom
       }
       case 'required_text': {
         checked += 1
-        const scope = (check.paths ?? []).flatMap((pattern) => matchFiles(files, pattern))
+        // `selectFiles`, not one `matchFiles` per pattern: `paths` may carry
+        // `!`-prefixed EXCLUSIONS for this spelling too — the compiler's `checkTargets`
+        // has always read them that way, so the two disagreeing was a defect, not a
+        // shorthand. Reading `!src/legacy/**` as a literal glob made a forbidden-text law
+        // accuse the file its own decision excluded (a false failure) and let a
+        // required-text law whose exclusion cancels its inclusion report itself
+        // satisfied with nothing examined. The glob spellings use this same selector, so
+        // the same declaration now gets the same answer whichever way it is written.
+        const scope = selectFiles(files, check.paths)
         if (scope.length === 0) {
           fail(
-            'CODE_REQUIRED_TEXT_MISSING',
-            `law "${law.id}" requires the text ${JSON.stringify(check.pattern)} under ${(check.paths ?? []).join(', ')}, but no file matches those paths, so nothing was searched (decided in ${law.sourceAdr})`,
+            'CODE_TEXT_SCOPE_EMPTY',
+            `law "${law.id}" requires the text ${JSON.stringify(check.pattern)} under ${(check.paths ?? []).join(', ')}, but no file matches those paths, so nothing was searched and this check was NOT evaluated (decided in ${law.sourceAdr}). ${scopeHint(root, check.paths, files)}`,
             { paths: check.paths, pattern: check.pattern },
           )
           break
@@ -482,14 +526,16 @@ export async function verifyLaw({ root, law, files, dependencies, config, runCom
       }
       case 'forbidden_text': {
         checked += 1
-        const scope = (check.paths ?? []).flatMap((pattern) => matchFiles(files, pattern))
-        // The mirror of the required-text case, and the reason it is here: a
-        // forbidden-text check with nothing to search found no offenders and
-        // reported the law satisfied. "No file was examined" is not evidence.
+        // The same selector as `required_text` and the glob spellings, for the same
+        // reason: see the comment there. The empty-scope guard below is the mirror of the
+        // required-text case, and the reason it is here: a forbidden-text check with
+        // nothing to search found no offenders and reported the law satisfied. "No file
+        // was examined" is not evidence.
+        const scope = selectFiles(files, check.paths)
         if (scope.length === 0) {
           fail(
-            'CODE_TEXT_FORBIDDEN_PRESENT',
-            `law "${law.id}" forbids ${JSON.stringify(check.pattern)} under ${(check.paths ?? []).join(', ')} or wherever those paths point, but no file matches them, so nothing was searched and the check proves nothing (decided in ${law.sourceAdr})`,
+            'CODE_TEXT_SCOPE_EMPTY',
+            `law "${law.id}" forbids ${JSON.stringify(check.pattern)} under ${(check.paths ?? []).join(', ')} or wherever those paths point, but no file matches them, so nothing was searched and this check was NOT evaluated (decided in ${law.sourceAdr}). ${scopeHint(root, check.paths, files)}`,
             { paths: check.paths, pattern: check.pattern },
           )
           break
@@ -618,10 +664,10 @@ export async function verifyLaw({ root, law, files, dependencies, config, runCom
         // there.
         if (scope.length === 0) {
           fail(
-            check.type === 'required_text_glob' ? 'CODE_REQUIRED_TEXT_MISSING' : 'CODE_TEXT_FORBIDDEN_PRESENT',
+            'CODE_TEXT_SCOPE_EMPTY',
             check.type === 'required_text_glob'
-              ? `law "${law.id}" requires the text ${JSON.stringify(check.pattern)} under ${(check.paths ?? []).join(', ')}, but the globs select no file, so nothing was searched (decided in ${law.sourceAdr})`
-              : `law "${law.id}" forbids ${JSON.stringify(check.pattern)} under ${(check.paths ?? []).join(', ')}, but the globs select no file, so nothing was searched and the check proves nothing (decided in ${law.sourceAdr})`,
+              ? `law "${law.id}" requires the text ${JSON.stringify(check.pattern)} under ${(check.paths ?? []).join(', ')}, but the globs select no file, so nothing was searched and this check was NOT evaluated (decided in ${law.sourceAdr}). ${scopeHint(root, check.paths, files)}`
+              : `law "${law.id}" forbids ${JSON.stringify(check.pattern)} under ${(check.paths ?? []).join(', ')}, but the globs select no file, so nothing was searched and this check was NOT evaluated (decided in ${law.sourceAdr}). ${scopeHint(root, check.paths, files)}`,
             { paths: check.paths, pattern: check.pattern },
           )
           break

@@ -1037,7 +1037,10 @@ test('verifier: forbidden_glob reports the offending matches', async () => {
 
 test('verifier: required_text fails when no file matches the paths, and says nothing was searched', async () => {
   const result = await verifyOneLaw('reqtext-noscope', [{ type: 'required_text', paths: ['src/auth/**'], pattern: 'redis' }])
-  assert.deepEqual(result.codes, ['CODE_REQUIRED_TEXT_MISSING'])
+  // A selection problem, not a verdict about the code: the code says so, because
+  // `CODE_REQUIRED_TEXT_MISSING` means "searched and found nothing" and a caller
+  // branching on it was told a verdict had been reached when nothing was read.
+  assert.deepEqual(result.codes, ['CODE_TEXT_SCOPE_EMPTY'])
   assert.ok(result.problems[0].message.includes('nothing was searched'))
 })
 
@@ -3370,6 +3373,56 @@ test('verifier: an exclusion removes a file from a forbidden_text_glob', async (
   assert.deepEqual(result.problems, [], 'the excluded adapter and dependency are not offenders')
 })
 
+test('BREAKER: an exclusion in `paths` means the same thing for every text spelling', async () => {
+  // The breaker's Finding 1 and 2, one root cause. `paths` may carry `!` exclusions for
+  // the plain spellings too — the compiler's `checkTargets` always read them that way —
+  // but the verifier was building the plain-text scope with one `matchFiles` per pattern,
+  // where `!src/legacy/**` compiled to the literal glob `^!src/legacy/.*$`. Two opposite
+  // verdicts followed from one declaration: a forbidden-text law accused the file its own
+  // exclusion removed (a FALSE FAILURE), and a required-text law whose exclusion cancelled
+  // its inclusion reported itself satisfied with nothing examined (a check that cannot
+  // fail). Both spellings now go through `selectFiles`.
+  const excluded = { 'src/keep.txt': 'clean\n', 'src/legacy/old.txt': 'FORBIDDEN_TOKEN\n' }
+  const declared = ['src/**', '!src/legacy/**']
+
+  const forbidding = async (type, name) =>
+    lawCheck(
+      name,
+      { checks: [{ type, paths: declared, pattern: 'FORBIDDEN_TOKEN' }] },
+      { files: Object.keys(excluded), contents: excluded },
+    )
+  assert.deepEqual((await forbidding('forbidden_text', 'exclusion-plain-forbidden')).problems, [], 'the excluded file is not an offender')
+  assert.deepEqual(
+    (await forbidding('forbidden_text_glob', 'exclusion-glob-forbidden')).problems,
+    [],
+    'and the glob spelling agrees with the plain one',
+  )
+
+  const cancelling = async (type, name) =>
+    lawCheck(
+      name,
+      { checks: [{ type, paths: ['src/**', '!src/**'], pattern: 'clean' }] },
+      { files: Object.keys(excluded), contents: excluded },
+    )
+  const plain = await cancelling('required_text', 'cancelled-exclusion-plain')
+  const glob = await cancelling('required_text_glob', 'cancelled-exclusion-glob')
+  assert.deepEqual(
+    plain.problems.map((entry) => entry.code),
+    ['CODE_TEXT_SCOPE_EMPTY'],
+    'a selection the exclusion empties is not a check that held',
+  )
+  assert.match(plain.problems[0].message, /nothing was searched/)
+  assert.deepEqual(plain.problems.map((entry) => entry.code), glob.problems.map((entry) => entry.code), 'both spellings, one answer')
+
+  // And an exclusion that removes only part of a selection still narrows it.
+  const partial = await lawCheck(
+    'exclusion-partial',
+    { checks: [{ type: 'required_text', paths: declared, pattern: 'clean' }] },
+    { files: Object.keys(excluded), contents: { ...excluded, 'src/legacy/old.txt': 'clean too\n' } },
+  )
+  assert.deepEqual(partial.problems, [], 'the included file still satisfies the law')
+})
+
 test('FALSIFICATION: the boundary law catches a NEW module that imports the harness', async () => {
   // The claim under test is "a module added later cannot escape the boundary". An
   // explicit path list fails this by construction; a glob with exclusions passes it.
@@ -3639,7 +3692,7 @@ test('verifier: a forbidden_text law over no matching file is not a pass', async
   )
   assert.equal(result.checked, 1)
   assert.equal(result.problems.length, 1)
-  assert.equal(result.problems[0].code, 'CODE_TEXT_FORBIDDEN_PRESENT')
+  assert.equal(result.problems[0].code, 'CODE_TEXT_SCOPE_EMPTY')
   assert.match(result.problems[0].message, /nothing was searched/)
 })
 
@@ -4159,6 +4212,7 @@ test('FALSIFICATION: the instruction-routing rule has an enforcement point that 
     'scripts/test-ratchet.mjs',
     'scripts/check-portability.mjs',
     'profile/cordis.patch.yml',
+    'plugins/inventory.json',
     'plugins/kit-rules/kit-rules.mjs',
     'rules/AGENTS.md',
     'rules/DEPLOYMENT.md',
@@ -4742,7 +4796,7 @@ test('BREAKER: a forbidden-text glob whose selection is empty is not a clean pas
     { checks: [{ type: 'forbidden_text_glob', paths: ['src/**', '!src/**'], pattern: 'FORBIDDEN_MARKER' }] },
     { files: ['src/a.mjs'], contents: { 'src/a.mjs': 'FORBIDDEN_MARKER\n' } },
   )
-  assert.deepEqual(result.problems.map((entry) => entry.code), ['CODE_TEXT_FORBIDDEN_PRESENT'])
+  assert.deepEqual(result.problems.map((entry) => entry.code), ['CODE_TEXT_SCOPE_EMPTY'])
   assert.match(result.problems[0].message, /nothing was searched/)
 
   // The same law with a selection that works still finds the offender.

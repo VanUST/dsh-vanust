@@ -49,8 +49,8 @@
  *   - `hash` on a missing file: message on stderr, exit 2.
  */
 
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { UNUSABLE_PROBLEM_CODES, hashSource } from './ratchet-schema.mjs'
 import { REVIEW_JOBS } from './ratchet-dynamic.mjs'
@@ -485,7 +485,13 @@ export async function run(argv) {
       }
     }
     if (result.reports !== undefined && result.ok) {
-      process.stdout.write(`  evidence: ${Object.values(result.reports).join(', ')}\n`)
+      // Only the artifacts that are actually there. This line used to name every path the
+      // operation could write — including `verify-report.json` after it had been deleted —
+      // so a reader was pointed at evidence that did not exist while the output said OK.
+      const present = Object.values(result.reports).filter((path) => existsSync(join(root, path)))
+      const missing = Object.values(result.reports).filter((path) => !existsSync(join(root, path)))
+      process.stdout.write(`  evidence: ${present.length > 0 ? present.join(', ') : '(none written yet)'}\n`)
+      if (missing.length > 0) process.stdout.write(`  not written: ${missing.join(', ')}\n`)
     }
   }
 

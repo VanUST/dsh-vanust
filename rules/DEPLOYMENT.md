@@ -121,6 +121,16 @@ loader disable nor the `kit-rules` row and reports `ABSENT` on a healthy machine
 agent in any GUI session to quote the first line of section 0 of its rules; a correct
 answer names `$DSH_HOME/DEPLOYMENT.md`.
 
+**Know what a wrong answer means.** The disable itself is measured to work: compose a
+scratch profile from the profile patch and a repository's marked `AGENTS.md` reaches no
+model, while without the disable it does. What survives a correct patch is a *running
+server*: `dsh web` composes its profile once, at boot, so a server started before the patch
+was in place keeps serving the old composition for its whole life — a session can receive
+`Instructions from: <path>` while `--dump-config` shows the row disabled. Treat that as
+"restart required", not as "the patch is broken": restart through the kit's launcher, then
+ask again. This is the one prompt-affecting failure no static check can see, and it is why
+the confirmation is a question to the live session.
+
 Then confirm the static half:
 
 ```bash

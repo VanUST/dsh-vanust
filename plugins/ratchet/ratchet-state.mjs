@@ -23,7 +23,7 @@
  * than no report, because a reader cannot tell the difference between "the gate
  * failed" and "the gate was interrupted".
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { normaliseText } from './ratchet-schema.mjs'
 
@@ -53,7 +53,21 @@ export function writeArtifact(root, path, text) {
   mkdirSync(dirname(absolute), { recursive: true })
   const temporary = `${absolute}.tmp-${process.pid}`
   writeFileSync(temporary, text, 'utf8')
-  renameSync(temporary, absolute)
+  try {
+    renameSync(temporary, absolute)
+  } catch (error) {
+    // The rename is the step that can fail where the temp write succeeded — the target
+    // being a directory, a permission change between the two, an antivirus lock. Leaving
+    // the temp file behind made the next reader's directory listing show a
+    // `*.tmp-<pid>` sibling that looks like a half-written report, so it is removed
+    // before the error is passed on.
+    try {
+      rmSync(temporary, { force: true })
+    } catch {
+      // Nothing further to do: the caller reports the rename failure either way.
+    }
+    throw error
+  }
   return { path, bytes: Buffer.byteLength(text, 'utf8') }
 }
 
@@ -175,13 +189,39 @@ export function readLedger(root) {
 }
 
 /**
+ * Writes the generated spec documents for one compile.
+ *
+ * Split out of {@link persistCompile} so the caller can write the documents BEFORE it
+ * computes spec drift: drift describes the tree the caller now has, so computing it
+ * first made a `--write` run report every file as missing and fail while creating exactly
+ * the files it complained about. The reason it cannot simply move into `persistCompile`
+ * is that the persisted report and the ledger's `ok` must carry the drift problems too —
+ * a compile that exited 1 because a generated document was stale used to be recorded as
+ * `ok: true` with no problems, because the report was written before drift was measured.
+ *
+ * @param root - Absolute project root.
+ * @param specFiles - Map of repository-relative path to generated text.
+ * @returns `{ written }` — the paths written, in the order given.
+ */
+export function writeSpecDocuments(root, specFiles) {
+  const written = []
+  for (const [path, text] of Object.entries(specFiles ?? {})) {
+    written.push(writeArtifact(root, path, text).path)
+  }
+  return { written }
+}
+
+/**
  * Persists the spec bundle and the compile report.
  *
  * @param root - Absolute project root.
- * @param options - `{ bundle, report, specFiles }`; `specFiles` maps a
- *   repository-relative path to generated text and is written when present.
+ * @param options - `{ bundle, report, specFiles, lawIds }`; `specFiles` maps a
+ *   repository-relative path to generated text and is written when present. A caller
+ *   that writes the documents itself (to measure drift between the write and the report)
+ *   passes `null` and uses {@link writeSpecDocuments}.
  * @returns `{ written, ledger }` — the repository-relative paths written, and the
- *   ledger append result.
+ *   ledger append result. `report.problems` is the FULL set the caller returned, so the
+ *   ledger's `ok` and the `problems` count cannot disagree with the exit code.
  */
 export function persistCompile(root, { bundle, report, specFiles = null, lawIds = null }) {
   const written = []
