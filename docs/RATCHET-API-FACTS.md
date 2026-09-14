@@ -142,8 +142,9 @@ regression-tested by name:
   refused with `RATIFICATION_STALE`. The earlier version re-derived the queue after
   asking, so a concurrent writer could have an approval bind a substitute the human
   never read.
-- **Nothing on the tool surface accepts an answer.** `ratchet_ratify` has one argument
-  (`ids`); the operation refuses an answer it cannot pair with a quiz it built. The
+- **Nothing on the tool surface accepts an answer.** `ratchet_ratify` has two arguments,
+  `ids` (which records) and `root` (which project holds them) — both are questions the
+  ratchet asks, and the operation refuses an answer it cannot pair with a quiz it built. The
   earlier version took an `answers` object, which made it an agent mint with extra
   steps — an agent could read the quiz it was handed, type the approve label and mint
   law, with no human channel composed at all. The reproduction that falsified it is

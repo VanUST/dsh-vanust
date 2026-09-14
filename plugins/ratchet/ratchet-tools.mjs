@@ -515,10 +515,24 @@ export function apply(ctx) {
             description:
               'Comma-separated ADR ids to ratify, e.g. "0001,0007". Default: every decision waiting for a human.',
           },
+          root: {
+            type: 'string',
+            description:
+              'Absolute path of the project whose decisions to put to the human. Defaults to the session workspace. Pass it when the record waiting for a human lives in another project: the question is about that project\'s text, and the approval is written into that project.',
+          },
         },
         output: output(),
         execute(args, exec) {
-          const { root, found } = rootFor(exec)
+          // An explicit `root` wins over the session workspace, for the same reason the read
+          // side needs it: a session opened on one project could not put another project's
+          // record to the human at all, so the only ways to approve that record were to open
+          // a second session or to hand-write an approval — and a hand-written approval is
+          // indistinguishable from a forged one. Measured: an agent working in a governed
+          // game project could not ratify its own proposed record from the kit's session.
+          const { root, found } =
+            typeof args.root === 'string' && args.root.length > 0
+              ? { root: resolve(args.root), found: true }
+              : rootFor(exec)
           if (root === null || !found) {
             const problems = [
               {

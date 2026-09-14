@@ -5054,7 +5054,11 @@ test('FALSIFICATION: the ratchet_ratify tool has no argument that accepts a call
   // argument, and the operation must refuse an answer it cannot pair with a quiz.
   const definitions = mountPlugin({})
   const parameters = definitions.get('ratchet_ratify').parameters
-  assert.deepEqual(Object.keys(parameters.properties ?? {}), ['ids'], 'the only argument is which records to ask about')
+  assert.deepEqual(
+    Object.keys(parameters.properties ?? {}).sort(),
+    ['ids', 'root'],
+    'the arguments say WHICH records and WHICH project, and nothing else',
+  )
   assert.equal(parameters.properties.answers, undefined, 'no argument may carry an answer')
 
   const { root } = ratifiableProject('falsify-unpaired-answer')

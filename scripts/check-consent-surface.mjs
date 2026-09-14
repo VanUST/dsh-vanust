@@ -201,10 +201,15 @@ tools.apply({
   tools: { register: (definition) => (registered.set(definition.name, definition), () => {}), guard: () => () => {}, schemas: () => [] },
 })
 const schema = registered.get('ratchet_ratify')?.parameters ?? {}
-const parameterNames = Object.keys(schema.properties ?? {})
+const parameterNames = Object.keys(schema.properties ?? {}).sort()
+// `ids` says WHICH records are being put to the human and `root` says WHICH project holds
+// them; both are questions the ratchet asks, neither is an answer to one. The claim is that
+// the surface carries no key an answer could travel in, so it is asserted as an exact
+// allow-list rather than as a deny-list: a new argument is then a deliberate edit here.
+const ALLOWED_PARAMETERS = ['ids', 'root']
 claim(
   'the tool exposes no argument that accepts an answer',
-  parameterNames.length === 1 && parameterNames[0] === 'ids',
+  JSON.stringify(parameterNames) === JSON.stringify(ALLOWED_PARAMETERS),
   `parameters=${JSON.stringify(parameterNames)}`,
 )
 
