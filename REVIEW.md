@@ -133,6 +133,12 @@ this brief does not enumerate them because they change no shipped artifact:
 17. `a2e8523` — the machine's own state record made honest: an apply that finds nothing
     to do now advances `appliedHead` to the head it verified, instead of freezing at the
     last run that wrote an artifact. Only `--apply` writes; `--check` still writes nothing.
+18. `49e1f61` — the panel's error pill made readable. Its fill used
+    `state-error-secondary`, which the dark theme resolves to the same red as the text
+    the pill falls back to, so the `rejected / withdrawn` swatch and the
+    `forbidden_text_glob` spec chips were solid blocks with invisible labels. The fill
+    is now the shell's own `interactive-bg-hover-danger`, and the render test resolves
+    every toned pill through the installed theme and refuses that collapse; panel `0.1.7`.
 
 Notable decisions that are **not** each an ADR:
 
@@ -171,7 +177,7 @@ node scripts/falsify-kit-gate.mjs         # the kit-specific breaker (6 cases, r
 ```
 
 Expected: portability `15/15`; tests `263 pass / 0 fail`; panel `adr panel render ok` with
-`22/22` assertions; gate invariants `16/16` plus `gate invariants ok`; gate
+`24/24` assertions; gate invariants `16/16` plus `gate invariants ok`; gate
 `20 checks evaluated, 0 pending, no problems`; falsify `3 detected, 0 missed, 3 skipped`;
 kit breaker `6/6`.
 `scripts/verify-upgrade.sh` is the full upgrade gate and additionally installs the
@@ -219,6 +225,10 @@ report a pass. The gate is the CLI above; the tools are for an agent mid-session
 - **A judge stopped with `stopReason: error` once** during a live `review_corpus` while
   its text was still parsed into validated findings. The findings were correct and were
   verified by hand; the stop reason itself is unexplained and worth a second run.
+- **The panel's colour check refuses collapse, not low contrast.** It fails a pill whose
+  text resolves to its own fill (the defect above measured 1.00) and passes the shell's
+  own tints, whose light variant measures about 2.09 by design. Whether those tints read
+  well is the shell's decision; the panel does not second-guess the palette it is handed.
 - **The new source-versus-tarball check has two stated limits.** It compares dependency
   NAMES but not their version ranges for a `snapshot` row, because the packer resolves
   `workspace:` protocol ranges and there is nothing here to resolve them against; and its
@@ -228,10 +238,10 @@ report a pass. The gate is the CLI above; the tools are for an agent mid-session
   twelve upstream touchpoints, with the grep that detects each; upgrades must go through
   `scripts/verify-upgrade.sh` before a live profile is touched.
 - **This machine's live profile is converged** on `main` (ratchet 0.2.8, kit-rules 0.1.1,
-  dsh-context 0.1.3, model-gate 0.1.5-rc.1, adr-panel 0.1.6). The panel's client bundle is
+  dsh-context 0.1.3, model-gate 0.1.5-rc.1, adr-panel 0.1.7). The panel's client bundle is
   revision-addressed, so a `dsh web` that was already running keeps serving the bundle it
   loaded until it is restarted; the header chip naming the panel version is how that is
-  detected. The shipped artifacts last changed at `547b7cb`; this brief is documentation and
+  detected. The shipped artifacts last changed at `49e1f61`; this brief is documentation and
   is not installed by `kit-update.mjs`, so it stays out of the convergence comparison —
   which is by file hash, never by git state. A reviewer on another machine gets that state
   with `./install.sh` or `node scripts/kit-update.mjs --apply`.
