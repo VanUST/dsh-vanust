@@ -30,10 +30,15 @@
  *   One contribution to `conversation.session.header.actions` and one to
  *   `shell.overlay`. The overlay renders nothing while closed and never mutates a
  *   file. Two record kinds are rendered separately: Decisions (`type !== "approval"`)
- *   and Consents (`type === "approval"`). A decision's displayed state is derived with
- *   the precedence `superseded by <id>` -> `in force (ratified by <id>)` -> its
- *   frontmatter status, and a derived state is labelled so it cannot be mistaken for a
- *   field. The ratify affordance appears ONLY for a decision that is
+ *   and Consents (`type === "approval"`). There is exactly ONE force state: a record
+ *   whose frontmatter says `active` and a proposed record a consent put into force both
+ *   read `in force`, and HOW it entered force is a separate provenance pill — `ratified
+ *   by <ids>` (a link to the consent, success tone), `agent-activated` (in force on an
+ *   agent's say-so, warn tone because no human has seen it) or `human-authored`
+ *   (business tone). `awaiting a human`, `superseded by <id>`, `rejected` and
+ *   `withdrawn` are states with no provenance pill. A state computed from another
+ *   record rather than read from this record's frontmatter is rendered dashed/italic.
+ *   The ratify affordance appears ONLY for a decision that is
  *   `type !== "approval"`, frontmatter `status === "proposed"`,
  *   `author.authority === "agent"`, and named by no consent's `approves`; it submits a
  *   user message asking the agent to run `ratchet_ratify`, and when no Session-scoped
@@ -96,7 +101,7 @@ window.__ModuleLoader__.load({
 		 * constant is the only way to tell a stale bundle from a bug: bump it with every
 		 * change to this file, and keep it equal to the package's version.
 		 */
-		const PANEL_VERSION = "0.1.3";
+		const PANEL_VERSION = "0.1.4";
 		/** The manifest a ratchet project declares its directories and name in. */
 		const MANIFEST_PATH = ".dsh/project.json";
 		/** Directories used when the manifest is absent, unparseable, or silent. */
@@ -304,7 +309,7 @@ window.__ModuleLoader__.load({
 		function parseAdr(item) {
 			var record = {
 				id: null, title: item.name, type: null, status: null, authority: null, authorName: null,
-				created: null, sourcePath: null, sourceHash: null, zones: [], supersedes: [],
+				created: null, sourcePath: null, sourceHash: null, ratificationAt: null, zones: [], supersedes: [],
 				approves: [], laws: [], body: "", sections: [], path: item.path, error: null
 			};
 			try {
@@ -323,6 +328,7 @@ window.__ModuleLoader__.load({
 				record.created = scalar(lines, "created");
 				record.sourcePath = nestedScalar(lines, "source", "path");
 				record.sourceHash = nestedScalar(lines, "source", "hash");
+				record.ratificationAt = nestedScalar(lines, "ratification", "at");
 				record.zones = listValues(lines, "zones");
 				record.supersedes = listValues(lines, "supersedes");
 				record.approves = listValues(lines, "approves");
@@ -451,23 +457,50 @@ window.__ModuleLoader__.load({
 			return { approvedBy: approvedBy, supersededBy: supersededBy };
 		}
 		/**
-		 * The state a decision is displayed with, in fixed precedence.
+		 * The state a decision is displayed with, in fixed precedence, and the separate
+		 * provenance of its force.
+		 *
+		 * There is exactly ONE force state. `status: active` and a proposed record put into
+		 * force by a consent are both `in force`; they differ only in provenance, which is
+		 * a second pill: `ratified by <ids>` (a human consented), `agent-activated` (in
+		 * force on an agent's say-so, rendered as attention rather than failure) or
+		 * `human-authored`. A proposed record no consent names is `awaiting a human` and
+		 * carries no provenance pill. Supersession, rejection and withdrawal are states
+		 * with no provenance, because how they entered force is no longer the question.
+		 *
 		 * @param record - a parsed decision.
 		 * @param relations - `{ approvedBy, supersededBy }`.
-		 * @returns `{ text, derived }`; `derived` is true when the text was computed
-		 *   from another record rather than read from this one's frontmatter.
+		 * @returns `{ state, provenance }`. `state` is `{ text, kind, derived }`, where
+		 *   `derived` marks a value computed from another record rather than read from this
+		 *   one's frontmatter. `provenance` is `{ text, kind, link }` or null, where `link`
+		 *   names the consent records a `ratified by` pill may select.
 		 */
 		function displayedState(record, relations) {
+			var approvals = record.id === null ? undefined : relations.approvedBy[record.id];
+			var ratified = approvals !== undefined && approvals.length > 0;
 			var superseded = record.id === null ? undefined : relations.supersededBy[record.id];
 			if (superseded !== undefined && superseded.length > 0) {
-				return { text: "superseded by " + superseded.join(", "), derived: true, kind: "superseded" };
+				return { state: { text: "superseded by " + superseded.join(", "), kind: "superseded", derived: true }, provenance: null };
 			}
-			var approvals = record.id === null ? undefined : relations.approvedBy[record.id];
-			if (approvals !== undefined && approvals.length > 0 && record.status === "proposed") {
-				return { text: "in force (ratified by " + approvals.join(", ") + ")", derived: true, kind: "ratified" };
+			if (record.status === "rejected" || record.status === "withdrawn") {
+				return { state: { text: record.status, kind: stateKindOfStatus(record.status), derived: false }, provenance: null };
 			}
-			var status = record.status === null || record.status === "" ? "unknown" : record.status;
-			return { text: status, derived: false, kind: stateKindOfStatus(status) };
+			if (record.status === "proposed" && !ratified) {
+				return { state: { text: "awaiting a human", kind: "pending", derived: false }, provenance: null };
+			}
+			var activeInFrontmatter = record.status === "active";
+			if (!activeInFrontmatter && !ratified) {
+				var unknown = record.status === null || record.status === "" ? "unknown" : record.status;
+				return { state: { text: unknown, kind: stateKindOfStatus(unknown), derived: false }, provenance: null };
+			}
+			var provenance = null;
+			if (ratified) provenance = { text: "ratified by " + approvals.join(", "), kind: "ratified", link: approvals };
+			else if (record.authority === "human") provenance = { text: "human-authored", kind: "human", link: null };
+			else if (record.authority === "agent") provenance = { text: "agent-activated", kind: "pending", link: null };
+			return {
+				state: { text: "in force", kind: "in-force", derived: !activeInFrontmatter },
+				provenance: provenance
+			};
 		}
 		/**
 		 * Whether the ratify affordance may be offered for a record.
@@ -537,6 +570,12 @@ window.__ModuleLoader__.load({
 			var parts = value.indexOf(":") === -1 ? [value] : [value.slice(0, value.indexOf(":") + 1), value.slice(value.indexOf(":") + 1)];
 			if (parts.length === 1) return parts[0].slice(0, 8) + "…";
 			return parts[0] + parts[1].slice(0, 8) + "…";
+		}
+		/** @returns the date part of an ISO timestamp, or the value as written when it does not parse. */
+		function recordedDate(value) {
+			var text = String(value == null ? "" : value);
+			var match = text.match(/^(\d{4}-\d{2}-\d{2})/);
+			return match === null ? text : match[1];
 		}
 		//#endregion
 
@@ -652,6 +691,7 @@ window.__ModuleLoader__.load({
 				relations: { approvedBy: {}, supersededBy: {} },
 				lawsByDecision: {},
 				decisionIds: {},
+				recordIds: {},
 				dirs: { decisionsDir: DEFAULT_DECISIONS_DIR, specsDir: DEFAULT_SPECS_DIR },
 				projectName: "this project",
 				notes: notes === undefined ? [] : notes,
@@ -691,13 +731,17 @@ window.__ModuleLoader__.load({
 					var decisions = [];
 					var consents = [];
 					var decisionIds = {};
+					var recordIds = {};
 					for (var i = 0; i < adrs.length; i += 1) {
 						var record = adrs[i];
+						if (record.id !== null && record.id !== "") recordIds[record.id] = true;
 						if (record.type === "approval") {
 							consents.push(record);
 							continue;
 						}
-						record.state = displayedState(record, relations);
+						var force = displayedState(record, relations);
+						record.state = force.state;
+						record.provenance = force.provenance;
 						record.canRatify = canOfferRatify(record, relations);
 						record.summary = decisionSummary(record);
 						decisions.push(record);
@@ -713,6 +757,7 @@ window.__ModuleLoader__.load({
 						relations: relations,
 						lawsByDecision: lawsByDecision(specs),
 						decisionIds: decisionIds,
+						recordIds: recordIds,
 						dirs: dirs,
 						projectName: projectNameOf(manifestResult.manifest, specs),
 						notes: notes,
@@ -982,6 +1027,32 @@ window.__ModuleLoader__.load({
 			var authority = record.authority === null || record.authority === "" ? "unknown" : record.authority;
 			return name === null ? authority : name + " · " + authority;
 		}
+		/**
+		 * The provenance pill: HOW a decision entered force, shown beside the single
+		 * `in force` state.
+		 *
+		 * A `ratified by <ids>` pill is a link when every consent it names is present in
+		 * the corpus; when one cannot be resolved it renders as plain text rather than a
+		 * link that would go nowhere. `agent-activated` and `human-authored` carry no link.
+		 *
+		 * @param provenance - `{ text, kind, link }` or null.
+		 * @param recordIds - map of every record id in the corpus.
+		 * @param onSelectAdr - selects/expands a record by id.
+		 * @returns a pill element, or null when there is no provenance to show.
+		 */
+		function provenancePill(provenance, recordIds, onSelectAdr) {
+			if (provenance === null || provenance === undefined) return null;
+			var link = provenance.link;
+			var resolvable = link !== null && link !== undefined && link.length > 0 && link.every(function (id) {
+				return recordIds !== undefined && recordIds[id] === true;
+			});
+			return pill(
+				provenance.text,
+				provenance.kind,
+				resolvable ? linkChipStyle() : null,
+				resolvable ? function () { onSelectAdr(link[0]); } : null
+			);
+		}
 		//#endregion
 
 		//#region small element helpers
@@ -1127,12 +1198,15 @@ window.__ModuleLoader__.load({
 					})));
 		}
 		/** @returns the metadata grid for one decision, with the state and author as coloured pills. */
-		function metadataBlock(adr) {
+		function metadataBlock(adr, recordIds, onSelectAdr) {
 			var rows = [];
 			rows = rows.concat(metaRowNode("type", pill(adr.type === null || adr.type === "" ? "unknown" : adr.type, "neutral"), "type"));
 			rows = rows.concat(metaRowNode("state", React.createElement("span", null,
 				pill(adr.state.text, adr.state.kind, adr.state.derived ? derivedChipStyle() : null),
 				adr.state.derived ? React.createElement("span", { style: mutedInlineStyle() }, " (derived)") : null), "state"));
+			if (adr.provenance !== null && adr.provenance !== undefined) {
+				rows = rows.concat(metaRowNode("provenance", provenancePill(adr.provenance, recordIds, onSelectAdr), "prov"));
+			}
 			rows = rows.concat(metaRowNode("author", authorPill(adr), "auth"));
 			rows = rows.concat(metaRow("created", adr.created, "created"));
 			rows = rows.concat(metaRow("source", (adr.sourcePath === null ? "unknown" : adr.sourcePath) + " · " + shortHash(adr.sourceHash), "source"));
@@ -1200,6 +1274,7 @@ window.__ModuleLoader__.load({
 			var onToggle = props.onToggle;
 			var laws = props.laws === undefined ? [] : props.laws;
 			var decisionIds = props.decisionIds;
+			var recordIds = props.recordIds;
 			var onSelectAdr = props.onSelectAdr;
 			var canAsk = props.canAsk;
 			var askAgent = props.askAgent;
@@ -1220,11 +1295,11 @@ window.__ModuleLoader__.load({
 					React.createElement("span", { style: badgeStyle() }, "#" + (adr.id === null || adr.id === "" ? "????" : adr.id)),
 					React.createElement("span", { style: { fontWeight: 700 } }, adr.title),
 					pill(adr.state.text, adr.state.kind, adr.state.derived ? derivedChipStyle() : null),
+					provenancePill(adr.provenance, recordIds, onSelectAdr),
 					authorPill(adr),
-					adr.type === null || adr.type === "" ? null : pill(adr.type, "neutral"),
+					adr.type === null || adr.type === "" || adr.type === "adr" ? null : pill(adr.type, "neutral"),
 					React.createElement("span", { style: disclosureStyle() }, expanded ? "▾" : "▸")),
 				adr.summary === "" ? null : React.createElement("div", { key: "summary", style: summaryStyle() }, adr.summary),
-				adr.state.derived ? React.createElement("div", { key: "derived", style: mutedInlineStyle() }, "state derived from the corpus; the ratchet CLI is the authority") : null,
 				adr.error === null ? null : React.createElement("div", { key: "err", style: warnStyle() }, "frontmatter: " + adr.error)
 			];
 			if (adr.canRatify === true) {
@@ -1248,7 +1323,7 @@ window.__ModuleLoader__.load({
 			}
 			if (expanded) {
 				children.push(React.createElement("div", { key: "details", style: detailsStyle() },
-					metadataBlock(adr),
+					metadataBlock(adr, recordIds, onSelectAdr),
 					React.createElement("div", null,
 						React.createElement("div", { style: subHeadingStyle() }, "Laws decided here (" + laws.length + ")"),
 						laws.length === 0
@@ -1275,23 +1350,43 @@ window.__ModuleLoader__.load({
 		 */
 		function ConsentRow(props) {
 			var adr = props.adr;
+			var expanded = props.expanded === true;
+			var onToggle = props.onToggle;
 			var colours = tone("consent");
+			var children = [
+				React.createElement("div", {
+					key: "head",
+					style: rowHeadStyle(),
+					role: "button",
+					tabIndex: 0,
+					"aria-expanded": expanded ? "true" : "false",
+					onClick: onToggle
+				},
+					React.createElement("span", { style: badgeStyle() }, "#" + (adr.id === null || adr.id === "" ? "????" : adr.id)),
+					React.createElement("span", { style: { fontWeight: 700 } }, adr.title),
+					pill("consent", "consent"),
+					authorPill(adr),
+					adr.ratificationAt === null || adr.ratificationAt === "" ? null : pill("recorded " + recordedDate(adr.ratificationAt), "neutral"),
+					pill("approves " + (adr.approves.length === 0 ? "unknown" : adr.approves.join(", ")), adr.approves.length === 0 ? "unknown" : "consent"),
+					React.createElement("span", { style: disclosureStyle() }, expanded ? "▾" : "▸")),
+				adr.error === null ? null : React.createElement("div", { key: "err", style: warnStyle() }, "frontmatter: " + adr.error)
+			];
+			if (expanded) {
+				children.push(React.createElement("div", { key: "details", style: detailsStyle() },
+					adr.approves.length === 0
+						? React.createElement("div", { style: mutedStyle() }, "This consent names no decision to put into force.")
+						: React.createElement("div", { style: { fontSize: 12, lineHeight: "18px" } },
+							"Puts ", mono(adr.approves.join(", ")), " into force at the content hash recorded in its frontmatter."),
+					React.createElement("div", { style: metaStyle() }, [].concat(
+						metaRow("recorded", adr.ratificationAt === null || adr.ratificationAt === "" ? "unknown" : adr.ratificationAt, "recorded"),
+						metaRow("created", adr.created, "created"),
+						metaRow("source", (adr.sourcePath === null ? "unknown" : adr.sourcePath) + " · " + shortHash(adr.sourceHash), "source"),
+						metaRow("approves", adr.approves.length === 0 ? "none" : adr.approves.join(", "), "approves")))));
+			}
 			return React.createElement("div", { style: consentRowStyle(colours) },
 				React.createElement("div", { style: accentTrackStyle() },
 					React.createElement("div", { style: accentBarStyle(colours) }),
-					React.createElement("div", { style: { flex: 1, minWidth: 0 } },
-						React.createElement("div", { style: rowHeadStyle() },
-							React.createElement("span", { style: badgeStyle() }, "#" + (adr.id === null || adr.id === "" ? "????" : adr.id)),
-							React.createElement("span", { style: { fontWeight: 700 } }, adr.title),
-							pill("consent", "consent"),
-							pill(adr.status === null || adr.status === "" ? "unknown" : adr.status, stateKindOfStatus(adr.status)),
-							authorPill(adr),
-							pill("approves " + (adr.approves.length === 0 ? "unknown" : adr.approves.join(", ")), adr.approves.length === 0 ? "unknown" : "consent")),
-						adr.approves.length === 0
-							? null
-							: React.createElement("div", { style: { fontSize: 12, marginTop: 6, lineHeight: "18px" } },
-								"Puts ", mono(adr.approves.join(", ")), " into force at the content hash recorded in its frontmatter."),
-						adr.error === null ? null : React.createElement("div", { style: warnStyle() }, "frontmatter: " + adr.error))));
+					React.createElement("div", { style: { flex: 1, minWidth: 0 } }, children)));
 		}
 
 		/**
@@ -1359,16 +1454,19 @@ window.__ModuleLoader__.load({
 		 */
 		function Legend() {
 			var items = [
-				{ text: "in force", kind: "active" },
-				{ text: "awaiting human", kind: "pending" },
+				{ text: "in force", kind: "in-force" },
+				{ text: "awaiting a human", kind: "pending" },
 				{ text: "superseded", kind: "superseded" },
 				{ text: "consent", kind: "consent" },
-				{ text: "human", kind: "human" },
-				{ text: "agent", kind: "agent" }
+				{ text: "ratified by …", kind: "ratified" },
+				{ text: "agent-activated", kind: "pending" },
+				{ text: "human-authored", kind: "human" }
 			];
-			return React.createElement("div", { style: legendStyle(), "aria-label": "colour legend" }, items.map(function (item) {
-				return pill(item.text, item.kind);
-			}));
+			return React.createElement("div", { style: legendStyle(), "aria-label": "colour legend" },
+				items.map(function (item) {
+					return pill(item.text, item.kind);
+				}),
+				React.createElement("span", { style: mutedInlineStyle() }, "a dashed pill is derived from the corpus; ratchet verify is the authority on what is enforced"));
 		}
 
 		/** @returns the failure block, or null when nothing failed. */
@@ -1393,7 +1491,7 @@ window.__ModuleLoader__.load({
 			var closePanel = props.closePanel;
 			var askAgent = props.askAgent;
 			var load = props.load;
-			var emptyView = { status: "idle", decisions: [], consents: [], specs: [], relations: { approvedBy: {}, supersededBy: {} }, lawsByDecision: {}, decisionIds: {}, dirs: { decisionsDir: DEFAULT_DECISIONS_DIR, specsDir: DEFAULT_SPECS_DIR }, projectName: "this project", notes: [], failures: [] };
+			var emptyView = { status: "idle", decisions: [], consents: [], specs: [], relations: { approvedBy: {}, supersededBy: {} }, lawsByDecision: {}, decisionIds: {}, recordIds: {}, dirs: { decisionsDir: DEFAULT_DECISIONS_DIR, specsDir: DEFAULT_SPECS_DIR }, projectName: "this project", notes: [], failures: [] };
 			var view = React.useState(emptyView);
 			var current = view[0];
 			var setView = view[1];
@@ -1417,6 +1515,7 @@ window.__ModuleLoader__.load({
 						relations: result.relations === undefined ? emptyView.relations : result.relations,
 						lawsByDecision: result.lawsByDecision === undefined ? {} : result.lawsByDecision,
 						decisionIds: result.decisionIds === undefined ? {} : result.decisionIds,
+						recordIds: result.recordIds === undefined ? {} : result.recordIds,
 						dirs: result.dirs === undefined ? emptyView.dirs : result.dirs,
 						projectName: result.projectName === undefined ? "this project" : result.projectName,
 						notes: result.notes === undefined ? [] : result.notes,
@@ -1490,6 +1589,7 @@ window.__ModuleLoader__.load({
 										onToggle: function () { toggle(adr.id); },
 										laws: current.lawsByDecision[adr.id],
 										decisionIds: current.decisionIds,
+										recordIds: current.recordIds,
 										onSelectAdr: onSelectAdr,
 										canAsk: canAsk,
 										askAgent: askAgent
@@ -1500,7 +1600,12 @@ window.__ModuleLoader__.load({
 							current.consents.length === 0
 								? React.createElement("p", { style: mutedStyle() }, "No consent records (*.adr.md) were found in " + current.dirs.decisionsDir + ".")
 								: React.createElement("div", { style: { display: "grid", gap: 8 } }, current.consents.map(function (adr) {
-									return React.createElement(ConsentRow, { key: adr.path, adr: adr });
+									return React.createElement(ConsentRow, {
+										key: adr.path,
+										adr: adr,
+										expanded: expandedId === adr.id,
+										onToggle: function () { toggle(adr.id); }
+									});
 								}))),
 						React.createElement("div", null,
 							React.createElement("h3", { style: sectionHeadingStyle() }, "Specs (" + current.dirs.specsDir + "/*.spec.md)"),
