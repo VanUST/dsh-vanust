@@ -4,6 +4,13 @@
  *   on the Linux machines this kit is deployed to, and for the packaging mistakes
  *   that would make a plugin work from a checkout but fail once installed.
  *
+ *   It also checks the plugin INVENTORY: `plugins/inventory.json` must agree with the
+ *   tarballs on disk, each plugin's source directory and `SOURCE-NOTICE.md`, its
+ *   packing entry point, its mounted profile row and its mention in `README.md`. The
+ *   count is what drifted — the kit described itself as shipping one plugin, then
+ *   three, while four tarballs were installed and four rows mounted — and a prose
+ *   count that nothing checks is how a document stays confidently wrong.
+ *
  *   The kit runs on 2x Linux and 1x Windows, but everything in it is authored on
  *   the Windows machine. That asymmetry is exactly how a `C:/` prefix or a
  *   backslash-splitting regex survives review: it works everywhere the author
@@ -309,6 +316,80 @@ for (const dir of ['plugins/ratchet', 'plugins/dsh-context', 'plugins/kit-rules'
       ? 'entry detection compares resolved paths, so it behaves the same on either separator'
       : 'entry detection relies on a string suffix; use fileURLToPath(import.meta.url) instead',
   )
+}
+
+// ── the plugin inventory: one row per shipped plugin, checked against disk ──
+// The count is the point. Three documents once described this kit as shipping one
+// plugin and another as shipping three, while four tarballs were installed and four
+// rows mounted; every one of those sentences was true when written and none was
+// checked. This is what makes the inventory a claim rather than a comment: a row, a
+// tarball, a source directory, a packing entry point, a mounted profile row and a
+// README mention must all agree.
+{
+  const inventoryPath = join(KIT, 'plugins', 'inventory.json')
+  let inventory = null
+  try {
+    inventory = JSON.parse(readFileSync(inventoryPath, 'utf8'))
+  } catch (error) {
+    check('inventory:readable', false, `${inventoryPath} is not readable JSON: ${String(error)}`)
+  }
+  if (inventory !== null) {
+    const rows = Array.isArray(inventory.plugins) ? inventory.plugins : []
+    const problems = []
+    const claimed = new Set()
+    const PROVENANCE = new Set(['in-repo', 'reconstruction', 'snapshot'])
+    const pluginDir = join(KIT, 'plugins')
+    const patch = readFileSync(join(KIT, 'profile', 'cordis.patch.yml'), 'utf8')
+    const readme = readFileSync(join(KIT, 'README.md'), 'utf8')
+    for (const row of rows) {
+      const id = row.id ?? '(unnamed row)'
+      if (typeof row.package !== 'string' || row.package.length === 0) problems.push(`${id}: declares no package name`)
+      if (!PROVENANCE.has(row.provenance)) {
+        problems.push(`${id}: provenance ${JSON.stringify(row.provenance)} is not one of ${[...PROVENANCE].join(', ')}`)
+      }
+      if (typeof row.source !== 'string' || !existsSync(join(KIT, row.source))) {
+        problems.push(`${id}: source ${JSON.stringify(row.source)} does not exist`)
+      } else if (!existsSync(join(KIT, row.source, 'package.json'))) {
+        problems.push(`${id}: source ${row.source} has no package.json`)
+      }
+      // A reconstructed or snapshot source is not this repository's own tree, so it
+      // must carry the notice that says where it came from.
+      if ((row.provenance === 'reconstruction' || row.provenance === 'snapshot') &&
+        (typeof row.notice !== 'string' || !existsSync(join(KIT, row.notice)))) {
+        problems.push(`${id}: a ${row.provenance} source has no SOURCE-NOTICE.md`)
+      }
+      if (typeof row.pack !== 'string' || !existsSync(join(KIT, row.pack))) {
+        problems.push(`${id}: packing entry point ${JSON.stringify(row.pack)} does not exist`)
+      }
+      const versions = readdirSync(pluginDir).filter(
+        (name) => name.startsWith(`${row.tarballPrefix}-`) && name.endsWith('.tgz'),
+      )
+      if (versions.length !== 1) {
+        problems.push(
+          `${id}: expected exactly one plugins/${row.tarballPrefix}-*.tgz, found ${versions.length}` +
+            (versions.length > 0 ? ` (${versions.join(', ')})` : ''),
+        )
+      }
+      for (const version of versions) claimed.add(version)
+      if (row.mounted === true && !patch.includes(`id: ${id}`)) {
+        problems.push(`${id}: declared mounted but profile/cordis.patch.yml has no \`id: ${id}\` row`)
+      }
+      if (typeof row.package === 'string' && !readme.includes(row.package)) {
+        problems.push(`${id}: ${row.package} is not named in README.md`)
+      }
+    }
+    const unclaimed = readdirSync(pluginDir)
+      .filter((name) => name.endsWith('.tgz'))
+      .filter((name) => !claimed.has(name))
+    if (unclaimed.length > 0) problems.push(`tarball(s) no inventory row claims: ${unclaimed.join(', ')}`)
+    check(
+      'inventory:matches-disk',
+      problems.length === 0,
+      problems.length === 0
+        ? `${rows.length} plugin row(s) agree with the tarballs, sources, packing entry points, profile rows and README`
+        : problems.join(' | '),
+    )
+  }
 }
 
 // ── report ─────────────────────────────────────────────────────────────────

@@ -242,6 +242,13 @@ function parseArgs(argv) {
 /**
  * Locate the credential store the scratch home needs.
  *
+ * Tries the same home resolution the kit's other components use: an explicit
+ * `DSH_HOME`, then the harness's conventional `~/.dsh`, then the npm-local
+ * `~/.npm/dsh` this deployment installs into. The last candidate matters because
+ * the kit's installers default `DSH_HOME` to `~/.npm/dsh`, so a shell that has
+ * not exported it would otherwise report "no credentials" against a machine that
+ * has them.
+ *
  * @returns The first existing candidate path, or `null` when none exists.
  */
 function credentialsSource() {
@@ -249,6 +256,7 @@ function credentialsSource() {
     process.env.DSH_CREDENTIALS,
     join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), '.credentials.yaml'),
     join(homedir(), '.dsh', '.credentials.yaml'),
+    join(homedir(), '.npm', 'dsh', '.credentials.yaml'),
   ].filter((candidate) => typeof candidate === 'string' && candidate.length > 0)
   return candidates.find((candidate) => existsSync(candidate)) ?? null
 }
@@ -321,6 +329,14 @@ function buildHome(home, profile, credentials, bundles, probeJudge, ratchet, rat
  * task spans several lines and contains backticks, which a shell on Windows
  * would re-parse.
  *
+ * The three candidates cover the layouts a global install actually uses, and all
+ * three are needed because the probe runs on both platforms this kit targets:
+ * Windows puts globals under `%APPDATA%\npm`, npm installed beside its own
+ * interpreter keeps them in a sibling `node_modules`, and a POSIX global install
+ * keeps them under `<prefix>/lib/node_modules`. Checking only the first two
+ * located the launcher on Windows and on a Windows-style prefix, and failed on a
+ * Linux machine whose only harness was a POSIX global install.
+ *
  * @returns `{ command, prefixArgs }` for `spawnSync`.
  */
 function launcher() {
@@ -328,6 +344,7 @@ function launcher() {
   const candidates = [
     join(process.env.APPDATA ?? '', 'npm', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'),
     join(dirname(process.execPath), 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'),
+    join(dirname(process.execPath), '..', 'lib', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'),
   ]
   const bin = candidates.find((candidate) => existsSync(candidate))
   if (bin === undefined) {
@@ -463,8 +480,8 @@ const credentials = credentialsSource()
 if (credentials === null) {
   process.stderr.write(
     'probe-dsh-api: no credentials file found; tried $DSH_CREDENTIALS, ' +
-      '$DSH_HOME/.credentials.yaml and ~/.dsh/.credentials.yaml. The probe needs an ' +
-      'authenticated one-shot run to observe tool execution.\n',
+      '$DSH_HOME/.credentials.yaml, ~/.dsh/.credentials.yaml and ~/.npm/dsh/.credentials.yaml. ' +
+      'The probe needs an authenticated one-shot run to observe tool execution.\n',
   )
   process.exit(1)
 }

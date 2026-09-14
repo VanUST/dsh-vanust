@@ -14,9 +14,10 @@ pnpm 11.7 (corepack).
 
 ## 1. The upstream API surface this kit uses
 
-The kit ships exactly one plugin (`@deepseek-ai/dsh-model-gate`), so the
-watchlist is small. Greps run against the harness source checkout
-(`~/deepseek-harness`, on the branch/tag matching the installed harness).
+The kit ships four plugins (`plugins/inventory.json` is the source of truth), so the
+watchlist below spans two surfaces: G1–G5 are what `@deepseek-ai/dsh-model-gate` uses,
+and G6–G12 are what `@cc/dsh-ratchet` rests on. Greps run against the harness source
+checkout (`~/deepseek-harness`, on the branch/tag matching the installed harness).
 
 | # | Upstream API | Where | Verify grep (in checkout) |
 |---|---|---|---|

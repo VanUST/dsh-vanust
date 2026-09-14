@@ -1,7 +1,8 @@
 # Ratchet v2 — module contracts and technical design
 
-**Written:** 2026-09-13 · **Supersedes nothing** · **Status:** static layer built and
-tested; dynamic layer contract specified, not yet built.
+**Written:** 2026-09-13 · **Supersedes nothing** · **Status:** living design. This
+document fixes contracts, not build state; for what currently exists and what it
+proves, run the two commands in §1.
 
 **How to read this.** This document fixes the *contracts between modules*: what
 each module owns, what it may not know about, and what an implementation must keep
@@ -18,25 +19,22 @@ on one of them, the fact is cited by section.
 
 ---
 
-## 1. What is built, and what that proves
+## 1. The enforcement point, not a status report
 
-| Artifact | State | Evidence |
-|---|---|---|
-| `plugins/ratchet/ratchet-schema.mjs` | built | 25 tests |
-| `plugins/ratchet/ratchet-compiler.mjs` | built | 24 tests |
-| `plugins/ratchet/ratchet-verifier.mjs` | built | 22 tests |
-| `plugins/ratchet/ratchet-state.mjs` | built — reports, state, ledger, drift | 7 tests |
-| `plugins/ratchet/ratchet-bootstrap.mjs` | built | 2 tests |
-| `plugins/ratchet/ratchet-ops.mjs` | built — the four operations plus review | covered via the gate and review tests |
-| `plugins/ratchet/ratchet-dynamic.mjs` | built — bundle, six prompts, parsing, strict validation | 21 tests |
-| `plugins/ratchet/ratchet-cli.mjs` | built — **the enforcement point**, plus `review` | 8 gate tests incl. 4 falsification cases |
-| `plugins/ratchet/ratchet-tools.mjs` | built, boots in a live profile | `node scripts/probe-dsh-api.mjs --ratchet` → 3/3 |
-| dynamic review, end to end | built — a real judge reviewed a real fixture | `--ratchet-review` → **6/6** |
-| `scripts/test-ratchet.mjs` | **120 tests, 0 failures** | `node --test scripts/test-ratchet.mjs` (~1.8 s) |
+The ratchet's artifacts live in `plugins/ratchet/` and their contracts are §2 onward.
+This section deliberately records no build status and no test counts: those drift, and
+a stale count is worse than none because a reader trusts it. Whether the code still
+satisfies these contracts is a command's answer, not a document's:
 
-The static layer is complete and gated by a command that exits non-zero. The
-dynamic layer is built, tested without a harness, and proven end to end through
-its production code path.
+```bash
+node --test scripts/test-ratchet.mjs                           # the suite, offline
+node plugins/ratchet/ratchet-cli.mjs verify --root <project>   # the gate on a project
+node scripts/probe-dsh-api.mjs --ratchet-review                # dynamic review, end to end
+```
+
+The static layer is gated by a command that exits non-zero; the dynamic layer is
+proven through its production code path by the third command. What each module must
+keep true is the rest of this document.
 
 ---
 

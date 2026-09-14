@@ -1059,6 +1059,30 @@ function compileRenderedAdr(root, rendered, config) {
 }
 
 /**
+ * Resolve the npm CLI entry that belongs to the running interpreter.
+ *
+ * A law that runs `npm` cannot spawn the bare name: on Windows npm is a `.cmd` shim
+ * that `execFile` refuses, and even where it would resolve, a bare name leaves WHICH
+ * npm ambiguous when the law runs under the harness's own interpreter. Resolving the
+ * entry beside that interpreter pins both. Two layouts exist and both are checked:
+ * npm installed beside its interpreter sits in a sibling `node_modules`, while a
+ * POSIX global install keeps it under `<prefix>/lib/node_modules`. Checking only the
+ * first located npm on Windows and failed on a Linux machine whose only install was
+ * the POSIX global one.
+ *
+ * @returns Absolute path to `npm-cli.js`. When neither layout exists the sibling
+ *   candidate is returned anyway, so the failure names the path that was expected
+ *   instead of quietly running a different npm.
+ */
+function resolveNpmCli() {
+  const candidates = [
+    join(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+    join(dirname(process.execPath), '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+  ]
+  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]
+}
+
+/**
  * Builds a command runner for `command` checks.
  *
  * This is the only place in the ratchet that starts a process, and it exists as a
@@ -1097,10 +1121,7 @@ export function createCommandRunner({ root, timeoutMs = DEFAULT_COMMAND_TIMEOUT_
       command === 'node'
         ? [process.execPath, args]
         : command === 'npm'
-          ? [
-              process.execPath,
-              [join(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js'), ...args],
-            ]
+          ? [process.execPath, [resolveNpmCli(), ...args]]
           : [command, args]
     try {
       const outcome = await execFileAsync(resolved, resolvedArgs, {

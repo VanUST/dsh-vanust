@@ -5,8 +5,12 @@
 #   1. checks Node >= 24 (node-pty ABI),
 #   2. installs the pinned harness version globally (`npm i -g`),
 #   3. creates $DSH_HOME/profiles/web from the kit's canonical profile files,
-#   4. installs the model-gate plugin tarball into the profile,
-#   5. installs the user-global core operating rules ($DSH_HOME/AGENTS.md).
+#   4. installs every plugin tarball in plugins/ into the profile (four plugins:
+#      model-gate, dsh-context, kit-rules, ratchet — see plugins/inventory.json),
+#   5. installs the user-global core operating rules ($DSH_HOME/AGENTS.md) and the
+#      DEPLOYMENT.md procedure they point at,
+#   6. links the harness packages so the kit's own tests and gate run from this
+#      checkout.
 #
 # Usage:
 #   git clone <your-remote>/dsh-kit.git && cd dsh-kit
@@ -70,7 +74,7 @@ cp "${KIT_DIR}/profile/pnpm-workspace.yaml" "${DSH_HOME}/profiles/web/pnpm-works
 
 # 4. Plugin tarballs (pnpm writes machine-local absolute paths into the
 #    profile's package.json — the kit file stays canonical with no deps).
-echo "   installing the kit plugins (cost gate, project context)..."
+echo "   installing the kit plugins (model-gate, dsh-context, kit-rules, ratchet)..."
 (
   cd "${DSH_HOME}/profiles/web"
   corepack pnpm@${PNPM_VERSION} add "${KIT_DIR}"/plugins/*.tgz

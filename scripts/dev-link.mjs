@@ -14,9 +14,9 @@
  * INPUTS
  *   `--check`  report only, write nothing (exit 1 when a link is missing).
  *   `--quiet`  print nothing but the failures and the final line.
- *   None otherwise. The harness install is located from `$DSH_HOME/profiles/*` first and
- *   the global `dsh` package second, both derived from the environment rather than
- *   configured.
+ *   None otherwise. The harness install is located from the profile stores under
+ *   `$DSH_HOME/profiles` first and the global `dsh` package second, both derived from
+ *   the environment rather than configured.
  *
  * OUTPUTS
  *   One line per link, then `dev links ok` and exit 0; the failures and the command that
@@ -67,9 +67,19 @@ function hasPackages(root) {
 /**
  * Candidate `node_modules` directories that may hold the harness packages.
  *
- * Ordered by how close they are to what a deployment actually installs: the profile's
- * own store first (the harness is installed there), then the global `dsh` package
- * (where the harness carries its dependencies), then the platform's global root.
+ * Ordered by how close they are to what a deployment actually installs: the pnpm
+ * workspace store at the profiles root first, then each profile's own store, then the
+ * global `dsh` package (where the harness carries its dependencies), then the
+ * platform's global root.
+ *
+ * Both profile locations are needed because pnpm splits a workspace's packages between
+ * two directories: the profile's direct dependencies land in
+ * `<profiles>/<profile>/node_modules`, while the packages shared across the workspace
+ * (including the harness the profile bundles) are hoisted to `<profiles>/node_modules`.
+ * Looking only one level down missed the hoisted store, so a machine whose `dsh-tools`
+ * lived there was told no harness was installed even though one was. Entries named
+ * `node_modules` are skipped in the per-profile scan because the store they name is
+ * already a candidate and `<profiles>/node_modules/node_modules` is not a package tree.
  *
  * @returns Absolute candidate paths, possibly non-existent. Never throws.
  */
@@ -77,9 +87,10 @@ function candidateRoots() {
   const roots = []
   const home = process.env.DSH_HOME ?? join(process.env.USERPROFILE ?? process.env.HOME ?? '', '.dsh')
   const profiles = join(home, 'profiles')
+  roots.push(join(profiles, 'node_modules'))
   try {
     for (const entry of readdirSync(profiles, { withFileTypes: true })) {
-      if (entry.isDirectory()) roots.push(join(profiles, entry.name, 'node_modules'))
+      if (entry.isDirectory() && entry.name !== 'node_modules') roots.push(join(profiles, entry.name, 'node_modules'))
     }
   } catch {
     // No profiles directory: the harness has not been installed yet, which the caller

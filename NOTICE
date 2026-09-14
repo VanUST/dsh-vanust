@@ -1,22 +1,27 @@
 # Third-party notices
 
-The workbench plugin suite in this repository is derived from and built on:
+This repository is a deployment kit for **DeepSeek Harness (dsh)**. The
+third-party components it contains or depends on:
 
-- **DeepSeek Harness** — MIT License.
-  https://github.com/deepseek-ai/deepseek-harness
-  The plugin packages (`dsh-host-web-workbench`, `dsh-client-ui-workbench`,
-  `dsh-client-ui-terminal`) were authored against its plugin APIs and are
-  shipped as prebuilt tarballs in `plugins/`.
-- **xterm.js** — MIT License, Copyright (c) 2014–2024 xterm.js authors
-  (https://github.com/xtermjs/xterm.js). Vendored as a static browser asset
-  inside `dsh-host-web-workbench` (`assets/xterm.js`, `assets/xterm.css`),
-  served at `/wb-api/static/`. The license header is preserved at the top of
-  the vendored file.
-- **node-pty** — MIT License, Copyright (c) Microsoft Corporation
-  (https://github.com/microsoft/node-pty). Resolved as a runtime dependency
-  of the host plugin.
-- **ws** — MIT License, Copyright (c) 2011 Einar Otto Stangvik
-  (https://github.com/websockets/ws). Runtime dependency of the host plugin.
+- **DeepSeek Harness** — MIT License, Copyright (c) 2026 DeepSeek
+  (https://github.com/deepseek-ai/deepseek-harness).
+  - `plugins/model-gate/` is a read-only source snapshot of
+    `packages/host/model-gate` from that repository; its `SOURCE-NOTICE.md`
+    pins the ref it was copied from and `LICENSE` carries the upstream MIT
+    terms. The shipped `plugins/model-gate-*.tgz` is built from that package.
+  - `@deepseek-ai/dsh-tools`, `@deepseek-ai/cordis` and the other harness
+    packages are peer dependencies of the shipped plugins, resolved from the
+    harness installation rather than vendored here.
 
-The harness itself (`@deepseek-ai/dsh`) is installed separately via npm; this
-repository contains no DeepSeek proprietary code.
+- **`@cc/dsh-context`** — present as `plugins/dsh-context/`, a hand
+  reconstruction of a package whose owning project is unreachable and which is
+  not published on npm (see its `SOURCE-NOTICE.md`). Its package manifest
+  declares the MIT License. Original authorship is unknown; this repository
+  claims no copyright in it.
+
+- **`@cc/dsh-kit-rules`** and **`@cc/dsh-ratchet`** — this deployment's own
+  packages, under this repository's `LICENSE` (MIT).
+
+The harness itself (`@deepseek-ai/dsh`) is installed separately with npm. The
+runtime dependencies its bundles pull in (for example `node-pty`, `ws` and
+xterm.js) are installed with it and are not redistributed in this repository.

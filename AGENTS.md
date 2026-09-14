@@ -1,12 +1,18 @@
 # AGENTS.md — dsh-kit
 
-Deployment kit for **DeepSeek Harness (dsh)** plus **`@deepseek-ai/dsh-model-gate`**,
-the one plugin this deployment adds beyond upstream (a class-based flash-only
-cost policy), across the user's machines (2× Linux, 1× Windows). Read
-`USERGUIDE.md` (per-machine setup/startup) and `COMPAT.md` (upgrade gate +
-upstream API watchlist) before changing anything. The plugin source lives in
-`~/deepseek-harness` (`packages/host/model-gate`); this repo carries only
-**shipping artifacts** and the **canonical deployment files**.
+Deployment kit for **DeepSeek Harness (dsh)** plus the **four plugins** this
+deployment adds beyond upstream, across the user's machines (2× Linux, 1× Windows):
+`@deepseek-ai/dsh-model-gate`, `@cc/dsh-context`, `@cc/dsh-kit-rules` and
+`@cc/dsh-ratchet`. `plugins/inventory.json` is the single source of truth for that
+set and for each plugin's provenance; `scripts/check-portability.mjs` fails when a
+tarball, a mounted profile row, a source directory or a packing entry point disagrees
+with it. Read `USERGUIDE.md` (per-machine setup/startup) and `COMPAT.md` (upgrade
+gate + upstream API watchlist) before changing anything.
+
+The kit ships each plugin's tarball and, for every plugin whose owning project is not
+this repository, a read-only **source snapshot** beside a `SOURCE-NOTICE.md` that pins
+what it was copied from. The build may still run in the owning project (the harness
+checkout for `model-gate`); the snapshot is what makes the plugin reviewable here.
 
 ## What each artifact is and when to update it
 
@@ -23,13 +29,15 @@ against its own decisions.
 | `docs/adrs/*.adr.md` | the kit's architecture decisions: **eight decisions in force** (0001–0007 and 0009) plus one approval record (0008). 0002–0006 and 0009 govern `kit-tooling`/`scripts`, where agents may self-activate — so a human has read neither those five nor 0009. 0001 and 0007 govern `shipped-plugins`, which the manifest restricts to `proposeOnly`, so their frontmatter still reads `proposed` — they are in force because a **human ratified them**, and 0008 carries that consent as one content hash per record. Editing 0001, 0007 or 0008 voids the consent (`RATIFICATION_STALE`), which is why a change to them ships as a new amendment ADR for the human to ratify, never as an edit | a decision is made; a human ratifies a proposed record |
 | `docs/ratchet/sources/` | the reasoning each ADR cites, with a sha256 the ratchet verifies, plus the transcript of every ratification session | a decision's reasoning is added or changed (then update the ADR's hash with `ratchet hash`) |
 | `plugins/*.tgz` | the built plugin tarballs (`model-gate`, `cc-dsh-kit-rules`, `cc-dsh-context`, `cc-dsh-ratchet`). `cc-dsh-context` is packed from `plugins/dsh-context/` — the owning project is unreachable, see that directory's `SOURCE-NOTICE.md` | every shipped plugin change — rebuild/repack, then **commit** |
+| `plugins/inventory.json` | the single source of truth for the shipped plugin set: one row per plugin with its package name, tarball prefix, provenance (`in-repo`, `reconstruction` or `snapshot`), source directory, optional `SOURCE-NOTICE.md`, packing entry point and whether it is mounted in the profile patch | a plugin is added, renamed, repacked elsewhere, or its provenance changes |
+| `plugins/model-gate/` | **read-only source snapshot** of `@deepseek-ai/dsh-model-gate`, copied from the harness checkout and pinned by its `SOURCE-NOTICE.md`. Read-only in the strict sense: nothing here ships, the tarball is built by `scripts/rebuild-plugins.sh` in the harness checkout, and an edit here is overwritten by the next rebuild | a harness upgrade moves the pinned ref (then re-copy the snapshot and update the notice) |
 | `plugins/kit-rules/` | source of `@cc/dsh-kit-rules`: contributes `$DSH_HOME/AGENTS.md` to the system prompt as a binding section, re-read per prompt assembly | the rules must reach the prompt differently (framing, precedence, source) |
 | `plugins/ratchet/` | source of `@cc/dsh-ratchet`: the Ratchet v2 static layer (ADR schema, law compiler, deterministic verifier, state/reports/ledger, bootstrap, the `requiresDecisionRecord` guard) plus the dynamic layer (review, grilling agenda, ingestion) plus **ratification** (the human quiz, the transcription of its answer, and the hash-bound approval it writes) and the `ratchet` CLI. **Shipped since 2026-09-14: tarball `plugins/cc-dsh-ratchet-*.tgz` and a `ratchet` row in `profile/cordis.patch.yml`** | any ratchet behaviour changes (bump the version, repack, reinstall) |
-| `plugins/dsh-context/` | source of `@cc/dsh-context`, **reconstructed from the shipped tarball** — the owning project is not on this machine and the package is not on npm. Read its `SOURCE-NOTICE.md` before editing; if the owning project becomes reachable, it owns this package again | a change to the context plugin (then `node scripts/pack-dsh-context.mjs`) |
-| `scripts/pack-dsh-context.mjs` | the repack step for `@cc/dsh-context`: bumps the patch version, packs, removes every other tarball for the package, prints the sha256. Refuses to overwrite an existing version, because pnpm serves an unchanged filename from the lockfile | the packing rule changes, or another plugin needs the same treatment |
+| `plugins/dsh-context/` | source of `@cc/dsh-context`, **reconstructed from the shipped tarball** — the owning project is not on this machine and the package is not on npm. Read its `SOURCE-NOTICE.md` before editing; if the owning project becomes reachable, it owns this package again | a change to the context plugin (then `node scripts/pack-plugin.mjs --dir plugins/dsh-context`) |
+| `scripts/pack-plugin.mjs` | the repack step for any in-repo plugin: derives the tarball prefix from the package name, bumps the patch version, packs, removes every other tarball for the package, prints the sha256. Refuses to overwrite an existing version, because pnpm serves an unchanged filename from the lockfile. `--dir plugins/<name>` selects the plugin; `--dry-run` reports without writing | the packing rule changes |
 | `scripts/test-ratchet.mjs` | the ratchet's tests: schema, compiler, verifier, state, bootstrap, dynamic prompts, grilling agendas, ingestion, derived checks, **ratification and its falsifications**, verdict breaker regressions, verdict validation, tool declarations, and the gate's exit codes. Needs no RUNNING harness, no credentials and no model — but the tool-surface tests import `@deepseek-ai/dsh-tools`, so the checkout must be linked (`node scripts/dev-link.mjs`); without it the suite fails with one line naming that command rather than a module-not-found stack | any ratchet behaviour changes |
 | `scripts/test-ratchet-guard.mjs` | the `requiresDecisionRecord` guard: what it refuses, what is exempt, what satisfies it, and that the cache notices a new ADR without a restart | the guard's rule changes |
-| `scripts/check-portability.mjs` | mechanical cross-platform checks over shipped source — Windows-only paths, separator assumptions, CRLF in `.sh`/`.mjs`, bare-binary spawns — plus packaging: every module a plugin imports must be in its `files` list | the kit gains a platform assumption, or a plugin gains a module |
+| `scripts/check-portability.mjs` | mechanical cross-platform checks over shipped source — Windows-only paths, separator assumptions, CRLF in `.sh`/`.mjs`, bare-binary spawns — plus packaging: every module a plugin imports must be in its `files` list, and every `plugins/inventory.json` row must agree with the tarballs, sources, `SOURCE-NOTICE.md`s, packing entry points, mounted profile rows and `README.md` | the kit gains a platform assumption, a plugin gains a module, or the plugin inventory changes |
 | `scripts/check-consent-surface.mjs` | the consent surface as an enforcement point: no shell mint, no tool argument that accepts an answer, blocked decisions reported with their reason, retired decisions not queued. Prints `consent surface ok` | a consent-shaped claim moves from a function into the tool or CLI surface |
 | `scripts/dev-link.mjs` | links the harness packages (`@deepseek-ai/dsh-tools`) beside `plugins/ratchet` and `probes/api-probe`, which is what lets the kit's own tests and gate run from a fresh clone. The DEPLOYMENT never needs it — an installed plugin resolves its peers through the profile — so it is setup, not a gate. `--check` reports without writing, and both installers run it | a module gains a harness import, or the harness layout changes |
 | `scripts/normalize-eol.mjs` | repair for the detector above: a Windows editing pass (`Set-Content`, `WriteAllText`) writes CRLF into shipped source, and this rewrites it as LF. `--check` reports without writing | shipped source was edited on Windows |
@@ -38,8 +46,8 @@ against its own decisions.
 | `probes/api-probe/` | throwaway plugin the API probe mounts over a scratch `DSH_HOME`; never shipped, and its `node_modules/` is a local junction to the harness packages. `review-probe.mjs` drives the ratchet's real review path against a fixture project; `ratify-probe.mjs` drives the ratification quiz through the user-questions channel with a stub answerer standing in for the human | a harness API fact needs re-measuring, or a production path needs proving end to end |
 | `scripts/probe-dsh-api.mjs` | API discovery and integration: builds a scratch home, mounts the probe rows, asserts the harness facts the ratchet rests on. `--probe-judge` spawns a judge child; `--ratchet-review` runs the ratchet's own review end to end; `--ratchet-ratify` runs the ratification quiz end to end; `--ratchet` boots the shipped plugin | a harness fact changes, or a new capability must be proven before it is designed against |
 | `docs/RATCHET-API-FACTS.md` | the measured harness facts, each with its reproduction and the command producing it | a probe result changes (then the quoted figures change with it) |
-| `docs/RATCHET-V2-DESIGN.md` | module contracts, the one-way boundary rule, what is built versus specified, rejected alternatives, open questions | a contract or the static/dynamic boundary changes |
-| `profile/cordis.patch.yml` | canonical profile patch: the `agent-instructions` disable, `kit-rules`, `model-gate`, the `llm-deepseek` catalog row, `dsh-context` | plugin ids/names, instruction routing, or the model policy change |
+| `docs/RATCHET-V2-DESIGN.md` | the living design: module contracts, the one-way boundary rule, rejected alternatives, open questions. It deliberately carries no build status or test counts — those drift, and `scripts/ratchet-cli.mjs verify` and the suite are the current answer | a contract or the static/dynamic boundary changes |
+| `profile/cordis.patch.yml` | canonical profile patch: the `agent-instructions` disable, `kit-rules`, `model-gate`, the `llm-deepseek` catalog row, `dsh-context` and `ratchet` | plugin ids/names, instruction routing, or the model policy change |
 | `profile/package.json` | canonical profile manifest (bundles; **no deps** — installers add machine-local tarball paths) | bundle list changes |
 | `profile/pnpm-workspace.yaml` | pnpm policy incl. `allowBuilds: node-pty: true` (pre-approves its build script) | pnpm policy changes |
 | `rules/AGENTS.md` | the deployment's mandatory rules, installed to `$DSH_HOME/AGENTS.md` and injected by `kit-rules`. **Section 0 points at `$DSH_HOME/DEPLOYMENT.md`** as the procedure for setup, update, verification and troubleshooting, because the operator is an agent and a user guide is a file nobody opens | the rules themselves change (mirror `~/vibecoding/INSTRUCTIONS.md`) |
@@ -103,9 +111,9 @@ against its own decisions.
    ratchet; where there is no such command, the rule is an unverified claim and
    `docs/RATCHET-V2-DESIGN.md` §6.4 lists it as one.
 10. **`plugins/dsh-context/` is a reconstruction, not the owning project's
-    tree.** Edit it only through `scripts/pack-dsh-context.mjs`, which bumps the
-    version (hard rule 6) and leaves one tarball behind. If the owning project
-    becomes reachable, it takes the package back — see the directory's
+    tree.** Edit it only through `scripts/pack-plugin.mjs --dir plugins/dsh-context`,
+    which bumps the version (hard rule 6) and leaves one tarball behind. If the owning
+    project becomes reachable, it takes the package back — see the directory's
     `SOURCE-NOTICE.md`.
 11. **The kit is authored on Windows and deployed to Linux.** Run
     `node scripts/check-portability.mjs` before shipping any change to shipped
@@ -139,9 +147,13 @@ against its own decisions.
   writes the approval ADR plus its transcript. Then compile, verify and **commit the
   approved record together with its approval**: an edit to either one afterwards
   voids the consent, so they are only meaningful as a pair.
-- **Ship a plugin change:** `HARNESS_DIR=~/deepseek-harness ./scripts/rebuild-plugins.sh`
-  → reinstall on the machine (`cd $DSH_HOME/profiles/web && corepack pnpm add <kit>/plugins/*.tgz`)
-  → restart `dsh web` → commit the new tarballs.
+- **Ship a plugin change:** for `model-gate`,
+  `HARNESS_DIR=~/deepseek-harness ./scripts/rebuild-plugins.sh`; for any in-repo
+  plugin (`dsh-context`, `kit-rules`, `ratchet`),
+  `node scripts/pack-plugin.mjs --dir plugins/<name>`. Then reinstall on the machine
+  (`cd $DSH_HOME/profiles/web && corepack pnpm add <kit>/plugins/*.tgz`) → restart
+  `dsh web` → commit the new tarballs. `plugins/inventory.json` names each plugin's
+  packing entry point.
 - **Upgrade the harness:** follow COMPAT.md §2 (snapshot → candidate →
   rebuild → greps → gate → roll).
 - **New machine:** clone → `./install.sh` (or `install.ps1`) → `./start.sh`

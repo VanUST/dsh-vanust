@@ -3623,6 +3623,22 @@ test('ops: the command runner reports a real exit code and captures output', asy
   assert.ok(bad.stderr.includes('2'))
 })
 
+test('ops: a law may run npm, resolved through the interpreter on either platform', async () => {
+  // `npm` is not a spawnable bare name on Windows (it is a `.cmd` shim) and a bare name
+  // is ambiguous about WHICH npm a law should use, so the runner resolves `npm-cli.js`
+  // beside the running interpreter. That resolution has two real layouts — a sibling
+  // `node_modules` for npm installed next to its interpreter, and a POSIX
+  // `<prefix>/lib/node_modules` for a global install — and checking only the first made
+  // every `npm` law pass on the author's Windows machine and fail on Linux. Running the
+  // real command is what tells the two apart; a source-level assertion on the path
+  // string would not have caught the layout that was missing.
+  const root = makeProject({ name: 'runner-npm', adrs: {} })
+  const run = ops.createCommandRunner({ root, timeoutMs: 60_000 })
+  const result = await run('npm --version')
+  assert.equal(result.code, 0, `npm did not run: ${result.stderr}`)
+  assert.match(result.stdout.trim(), /^\d+\.\d+\.\d+/)
+})
+
 // ---------------------------------------------------------------------------
 // FALSIFICATION: the round trip is an exact pair of inverse transformations
 // ---------------------------------------------------------------------------

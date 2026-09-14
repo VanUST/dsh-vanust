@@ -1,4 +1,4 @@
-# `@cc/dsh-context` — source of the shipped 0.1.2 tarball
+# `@cc/dsh-context` — reconstructed source of the shipped tarball
 
 ## Read this before editing
 
@@ -43,7 +43,7 @@ from the profile lockfile and the new bytes never land (kit hard rule 6).
 
 ```bash
 # from the kit root
-node scripts/pack-dsh-context.mjs          # bumps the patch version, repacks, prints the new hash
+node scripts/pack-plugin.mjs --dir plugins/dsh-context   # bumps the patch version, repacks, prints the new hash
 ```
 
 The packer refuses to overwrite an existing tarball with the same version, and it

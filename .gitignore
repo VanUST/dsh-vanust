@@ -1,15 +1,20 @@
 # dsh-kit — local artifacts
-node_modules/
+# No trailing slash: a POSIX link is a symlink, which git classifies as a file
+# rather than a directory, so `node_modules/` would leave it untracked-but-visible
+# and dirty the tree after the documented dev-link setup step.
+node_modules
 *.log
 .DS_Store
 profiles-web.bak/
 
 # Development-only package links. `plugins/ratchet/node_modules` and
-# `probes/api-probe/node_modules` are junctions to the harness packages a
-# development checkout does not otherwise have on its resolution path — the
-# installed plugin resolves them through the profile it is installed into.
-plugins/ratchet/node_modules/
-probes/api-probe/node_modules/
+# `probes/api-probe/node_modules` point at the harness packages a development
+# checkout does not otherwise have on its resolution path — the installed plugin
+# resolves them through the profile it is installed into. Windows creates these as
+# junctions and POSIX as symlinks, hence the slash-free patterns above: only a
+# slash-free pattern matches both.
+plugins/ratchet/node_modules
+probes/api-probe/node_modules
 
 # Machine-local scratch state for the API probes.
 probes/**/scratch/

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# dsh-kit plugin rebuild — rebuild the model-gate plugin from the harness source
-# checkout and pack a fresh tarball into kit/plugins/.
+# dsh-kit model-gate rebuild — rebuild the model-gate plugin from the harness source
+# checkout and pack a fresh tarball into kit/plugins/. This script covers model-gate
+# only: the in-repo plugins (`dsh-context`, `kit-rules`, `ratchet`) are packed by
+# `scripts/pack-plugin.mjs` instead, and `plugins/inventory.json` names every
+# plugin's packing entry point.
 #
 # Prereqs (see COMPAT.md): the checkout must sit on the branch/tag matching the
 # installed harness version (the plugin builds against that generation's
