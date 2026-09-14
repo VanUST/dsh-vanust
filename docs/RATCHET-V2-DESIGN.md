@@ -757,12 +757,13 @@ the project actually has. A target outside that set is reported and skipped rath
 than written, because breaking something out of context is always possible and proves
 nothing. There are six generic cases — a hand-written approval, a law with no check,
 and the four file and text check kinds — and a check that cannot fail is reported
-`missed`, not counted as a pass. Every mutation is restored in a `finally`, the
-persisted verification state is snapshotted and restored so a run leaves no verdict
-behind, and a signal restores the mutation in flight: a breaker that leaves a project
-broken is worse than no breaker at all. `SIGKILL` cannot be caught, so a run must be
-allowed to finish. Exit codes: `0` every applicable case detected, `1` any missed or
-errored, `2` the project is unusable.
+`missed`, not counted as a pass. Every mutation is journaled before it is written and
+written atomically, the persisted verification state is snapshotted and restored so a
+run leaves no verdict behind, and a signal restores the mutation in flight: a breaker
+that leaves a project broken is worse than no breaker at all. `SIGKILL` cannot be
+caught, so the journal is the repair — the next run, or `ratchet falsify --recover`,
+restores what a hard kill left behind. Exit codes: `0` every applicable case detected,
+`1` any missed or errored, `2` the project is unusable.
 
 `scripts/check-gate-invariants.mjs` is the cheap half, and it exists because of a
 measured attack on the expensive one. A law enforced by `node --test …` plus
