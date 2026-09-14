@@ -89,3 +89,17 @@
 - insert:
     - id: ratchet
       name: '@cc/dsh-ratchet'
+
+# ── adr-panel: the decisions and specs window ───────────────────────────────
+# A browser-half-only plugin: its host body is an empty `apply`, and the whole
+# feature is the `./client` bundle the client-module loader serves. It adds a
+# session-header button that opens a frame-wide overlay listing the project's ADR
+# records and spec documents, reading them through the workspace file API.
+#
+# It cannot mint a consent by construction: the only ratification affordance asks
+# the agent to run `ratchet_ratify`, so the question still reaches the human
+# through the user-questions channel and the ratchet's own hash-bound approval
+# remains the single path into force.
+- insert:
+    - id: adr-panel
+      name: '@cc/dsh-adr-panel'

@@ -39,6 +39,15 @@
       "source": "plugins/ratchet",
       "pack": "scripts/pack-plugin.mjs",
       "mounted": true
+    },
+    {
+      "id": "adr-panel",
+      "package": "@cc/dsh-adr-panel",
+      "tarballPrefix": "cc-dsh-adr-panel",
+      "provenance": "in-repo",
+      "source": "plugins/dsh-adr-panel",
+      "pack": "scripts/pack-plugin.mjs",
+      "mounted": true
     }
   ]
 }

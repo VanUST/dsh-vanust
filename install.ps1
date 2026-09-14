@@ -3,8 +3,8 @@
 #   1. checks Node >= 24 (node-pty ABI),
 #   2. installs the pinned harness version globally (npm i -g),
 #   3. creates $env:DSH_HOME\profiles\web from the kit's canonical profile files,
-#   4. installs every plugin tarball in plugins\ into the profile (four plugins:
-#      model-gate, dsh-context, kit-rules, ratchet — see plugins\inventory.json),
+#   4. installs every plugin tarball in plugins\ into the profile (five plugins:
+#      model-gate, dsh-context, kit-rules, ratchet, adr-panel — see plugins\inventory.json),
 #   5. installs the user-global core operating rules ($env:DSH_HOME\AGENTS.md) and the
 #      DEPLOYMENT.md procedure they point at,
 #   6. links the harness packages so the kit's own tests and gate run from this checkout.

@@ -196,7 +196,7 @@ report a pass. The gate is the CLI above; the tools are for an agent mid-session
 
 ## 7. Suggested reading order
 
-1. `README.md` — the four plugins, the clone, and the "Reviewing this kit" map.
+1. `README.md` — the five plugins, the clone, and the "Reviewing this kit" map.
 2. `AGENTS.md` — the artifact table and the twelve hard rules (rule 9 is the one that
    says a gate is real only where a command fails, and rule 12 is consent).
 3. `docs/RATCHET-V2-DESIGN.md` — the module contracts, the one-way boundary, §6.7 on

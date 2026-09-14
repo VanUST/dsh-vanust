@@ -1,0 +1,29 @@
+{
+  "name": "@cc/dsh-adr-panel",
+  "version": "0.1.0",
+  "description": "Web-UI panel for a project's ADR records and spec documents: a Session-header button opening a frame-wide overlay, with a read-only ratify affordance that asks the agent instead of minting consent",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-api-workspace-files"
+      ]
+    }
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "README.md"
+  ],
+  "license": "MIT"
+}
