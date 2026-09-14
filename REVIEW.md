@@ -93,9 +93,9 @@ summarised here because a reviewer will otherwise assume the conventional behavi
 
 ## 4. What this review cycle changed, and why
 
-Nineteen commits on `main`. The substantive ones, in order — two further commits
-(`9b9acda`, `cc6c08e`) only re-record the ratchet's verification state and change no
-shipped artifact:
+The cycle's substantive commits, in order. `git log e613324..HEAD` is the authoritative
+list: several commits between these only re-record the ratchet's verification state, and
+this brief does not enumerate them because they change no shipped artifact:
 
 1. `e613324` — cross-platform fixes and the contradiction resolution.
 2. `10bc046` — the project-agnostic breaker, plus a gate readiness bug.
@@ -130,6 +130,9 @@ shipped artifact:
 16. `115bcb6` — the last unenforced packaging rule closed: `tarball:matches-source`
     fails when a packed file no longer matches the source it was packed from, which is
     what a source edit without a repack leaves behind.
+17. `a2e8523` — the machine's own state record made honest: an apply that finds nothing
+    to do now advances `appliedHead` to the head it verified, instead of freezing at the
+    last run that wrote an artifact. Only `--apply` writes; `--check` still writes nothing.
 
 Notable decisions that are **not** each an ADR:
 
