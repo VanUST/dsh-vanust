@@ -18,15 +18,15 @@ checkout for `model-gate`); the snapshot is what makes the plugin reviewable her
 
 The kit declares itself in `.dsh/project.json`: its languages, its verification
 commands, the rules it claims with the command that fails when each is broken, and
-the eleven records under `docs/adrs/` — eight decisions in force, two approval records,
-and the superseded ADR 0007. Two tools read it —
+the thirteen records under `docs/adrs/` — ten decisions in force, three approval
+records, and the superseded ADR 0007. Two tools read it —
 the `context_*` tools answer questions about the kit, and the ratchet checks the kit
 against its own decisions.
 
 | File | Role | Update when |
 |---|---|---|
 | `.dsh/project.json` | the kit's self-declaration: languages, rules with `enforcedBy`, verification commands, scopes, zones | a rule, a verification command or a zone changes |
-| `docs/adrs/*.adr.md` | the kit's architecture decisions: **eight decisions in force** — 0001–0006, 0009 and 0010 (0007 was superseded by 0010 once a human ratified it) — plus two approval records (0008 for 0001–0007, 0011 for 0010). 0002–0006 and 0009 govern `kit-tooling`/`scripts`, where agents may self-activate. 0001 and 0010 govern `shipped-plugins`, which the manifest restricts to `proposeOnly`, so they are in force because a **human ratified them**; 0008 and 0011 carry that consent as one content hash per record. Editing a ratified record or its approval voids the consent (`RATIFICATION_STALE`), which is why a change to either ships as a new amendment ADR for the human to ratify, never as an edit | a decision is made; a human ratifies a proposed record |
+| `docs/adrs/*.adr.md` | the kit's architecture decisions: **ten decisions in force** — 0001, 0002–0006, 0009, 0010 and 0012 (0007 was superseded by 0010 once a human ratified it) — plus three approval records (0008 for 0001–0007, 0011 for 0010, 0013 for 0012). 0002–0006 and 0009 govern `kit-tooling`/`scripts`, where agents may self-activate. 0001, 0010 and 0012 govern `shipped-plugins`, which the manifest restricts to `proposeOnly`, so they are in force because a **human ratified them**; 0008, 0011 and 0013 carry that consent as one content hash per record. A record's own `status` is not what puts it in force — 0001, 0010 and 0012 each ship as `proposed` and enter force through the approval that covers them, which is why the count is read from the compiled bundle rather than from the frontmatter. Editing a ratified record or its approval voids the consent (`RATIFICATION_STALE`), which is why a change to either ships as a new amendment ADR for the human to ratify, never as an edit | a decision is made; a human ratifies a proposed record |
 | `docs/ratchet/sources/` | the reasoning each ADR cites, with a sha256 the ratchet verifies, plus the transcript of every ratification session | a decision's reasoning is added or changed (then update the ADR's hash with `ratchet hash`) |
 | `plugins/*.tgz` | the built plugin tarballs (`model-gate`, `cc-dsh-kit-rules`, `cc-dsh-context`, `cc-dsh-ratchet`, `cc-dsh-adr-panel`). `cc-dsh-context` is packed from `plugins/dsh-context/` — the owning project is unreachable, see that directory's `SOURCE-NOTICE.md` | every shipped plugin change — rebuild/repack, then **commit** |
 | `plugins/inventory.json` | the single source of truth for the shipped plugin set: one row per plugin with its package name, tarball prefix, provenance (`in-repo`, `reconstruction` or `snapshot`), source directory, optional `SOURCE-NOTICE.md`, packing entry point and whether it is mounted in the profile patch | a plugin is added, renamed, repacked elsewhere, or its provenance changes |
