@@ -55,7 +55,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { delimiter, dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const KIT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const CLIENT = join(KIT, 'plugins', 'dsh-adr-panel', 'client.js')
@@ -201,7 +201,11 @@ globalThis.window = {
   removeEventListener() {},
 }
 try {
-  await import(CLIENT)
+  // `pathToFileURL`, not the path: a dynamic import takes a URL, and on Windows a raw
+  // `C:\…` path is read as the scheme `c:` and rejected with
+  // ERR_UNSUPPORTED_ESM_URL_SCHEME — so this check crashed on the platform the kit is
+  // AUTHORED on while passing on the one it is deployed to.
+  await import(pathToFileURL(CLIENT).href)
 } catch (error) {
   process.stderr.write(`adr panel render FAILED\n  the bundle could not be evaluated: ${String(error)}\n`)
   process.exit(1)

@@ -89,6 +89,17 @@ const CHECKS = [
     allow: [],
   },
   {
+    id: 'no-raw-path-in-dynamic-import',
+    pattern: /\bimport\(\s*(?:[A-Za-z_$][\w$]*\s*\)|['"][A-Za-z]:[\\/]|['"]\/)/,
+    why: 'a dynamic import takes a URL: a filesystem path is read as a scheme and rejected on Windows (ERR_UNSUPPORTED_ESM_URL_SCHEME), so wrap it in pathToFileURL(...).href',
+    // Every shipped and tooling root, because the failure this caught lived in a
+    // verification script: a dynamic import of a bare path variable holding a `C:\…` path
+    // made the panel render check crash on Windows while passing on the platform it was
+    // written on.
+    paths: ['plugins', 'scripts', 'probes'],
+    allow: [],
+  },
+  {
     id: 'no-shell-dependent-spawns',
     // A spawn whose FIRST argument is a bare binary name. A prose mention of the
     // pattern inside a comment is not a defect, which is why this requires the
@@ -506,6 +517,27 @@ for (const dir of ['plugins/ratchet', 'plugins/dsh-context', 'plugins/kit-rules'
 // profile, and the checkout a reviewer reads shows code that was never shipped. This
 // is the check that makes "rebuild and repack" a rule with a failure behind it.
 {
+  /** Extensions whose bytes are compared as TEXT, with line endings normalised. */
+  const TEXTUAL_FILE = /\.(mjs|cjs|js|jsx|ts|tsx|mts|cts|json|map|md|markdown|txt|ya?ml|css|html|sh|ps1|d\.ts)$/i
+  const TEXTUAL_NAME = /^(license|notice|readme|changelog)$/i
+
+  /**
+   * Compares a packed file with its source, ignoring line-ending differences in text.
+   *
+   * @param sourceBytes - The file as it is on disk in this checkout.
+   * @param packedBytes - The same file as the tarball carries it.
+   * @param relativePath - Repository-relative name, used to decide text vs binary.
+   * @returns `true` when the two are the same file for review purposes.
+   */
+  function fileBytesMatch(sourceBytes, packedBytes, relativePath) {
+    if (sourceBytes.equals(packedBytes)) return true
+    const base = relativePath.split('/').pop()
+    const textual = TEXTUAL_FILE.test(base) || TEXTUAL_NAME.test(base) || !base.includes('.')
+    if (!textual) return false
+    const normalise = (buffer) => buffer.toString('utf8').replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n')
+    return normalise(sourceBytes) === normalise(packedBytes)
+  }
+
   const problems = []
   let inventory = null
   try {
@@ -537,7 +569,16 @@ for (const dir of ['plugins/ratchet', 'plugins/dsh-context', 'plugins/kit-rules'
       compared += 1
       const sourceBytes = readFileSync(sourcePath)
       if (rel !== 'package.json') {
-        if (!sourceBytes.equals(bytes)) problems.push(`${row.id}: ${rel} differs between ${row.source} and ${versions[0]}`)
+        // Text is compared with line endings NORMALISED. The author packs on one platform
+        // and every machine checks out on its own: `.gitattributes` pins `*.sh` and `*.mjs`
+        // to LF and leaves `.md`, `LICENSE` and the rest to the platform, so a Windows
+        // checkout holds CRLF in exactly those files while the tarball — packed from an LF
+        // tree — holds LF. Comparing raw bytes made this check fail on an unchanged kit for
+        // a reason that has nothing to do with what it is for, which is noticing that the
+        // source moved on and the tarball did not.
+        if (!fileBytesMatch(sourceBytes, bytes, rel)) {
+          problems.push(`${row.id}: ${rel} differs between ${row.source} and ${versions[0]}`)
+        }
         continue
       }
       // A manifest is compared as a document, not as bytes: the packer may reorder

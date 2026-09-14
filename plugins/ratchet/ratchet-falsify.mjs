@@ -32,6 +32,10 @@
  *                   run and restore the in-flight mutation before the process exits
  *                   130/143. Default `false`, because only a caller that owns the
  *                   process (the CLI) may decide to terminate it; the CLI passes `true`.
+ *                   POSIX only: Windows has no catchable SIGTERM — the process is
+ *                   terminated without running the handler — so there the journal plus
+ *                   `falsify --recover` (or the next run) is what repairs the tree. That
+ *                   path is tested on every platform.
  *   `recover({ root })` repairs a stale journal without running any case; the CLI's
  *   `falsify --recover` calls it.
  *
@@ -68,7 +72,12 @@
  *     `handleSignals: true` (the CLI does): the in-flight mutation, the journal and the
  *     persisted state are restored, then the process exits 130 or 143. A `finally` block
  *     alone does NOT cover these — Node terminates on an unhandled signal without
- *     unwinding — which is exactly why the handlers exist.
+ *     unwinding — which is exactly why the handlers exist. **This is a POSIX guarantee.**
+ *     Windows has no catchable `SIGTERM`: `process.kill(pid, 'SIGTERM')` terminates the
+ *     process through the OS, the handler never runs, and the mutation stays on disk until
+ *     the next run — or `falsify --recover` — repairs it from the journal. The journal and
+ *     recovery path are therefore the cross-platform answer, and the handler is the
+ *     POSIX fast path.
  *   - `SIGKILL` cannot be caught by any process, so a `kill -9` mid-run is unrecoverable
  *     IN THE INSTANT and may leave one mutation and the journal on disk. It is not
  *     lasting damage: every write is atomic (temp sibling + rename), so a kill cannot

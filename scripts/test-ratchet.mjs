@@ -5218,7 +5218,16 @@ test('falsify: a project with no manifest is unusable, not a green run', async (
   assert.equal(result.problems[0].code, 'MANIFEST_MISSING')
 })
 
-test('falsify: SIGTERM mid-run restores the in-flight mutation and the persisted state', async () => {
+test('falsify: SIGTERM mid-run restores the in-flight mutation and the persisted state', {
+  // Windows has no catchable SIGTERM: `child.kill('SIGTERM')` terminates the process
+  // through the OS, so the handler cannot run and the mutation survives until recovery.
+  // The claim is a POSIX one, and the cross-platform answer — journal plus
+  // `falsify --recover` — has its own test below, which runs everywhere.
+  skip:
+    process.platform === 'win32'
+      ? 'Windows does not deliver a catchable SIGTERM; the journal + falsify --recover path covers it (see the SIGKILL recovery test)'
+      : false,
+}, async () => {
   // `finally` does not run on an unhandled signal, so a killed run used to leave the
   // 9001 ADR behind and the ledger modified. The command check sleeps, which keeps the
   // run inside a mutated case long enough for the signal to land; the mutation file is

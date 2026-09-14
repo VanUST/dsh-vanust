@@ -6,11 +6,24 @@
 # produces install.sh / start.sh / verify-upgrade.sh that fail on the Linux
 # machines when the directory is copied or the clone is shared.
 #
-# Scripts that any shell must read get LF everywhere; everything else is left to
-# the platform, so .ps1 and Markdown content stay natural to edit on Windows.
-*.sh   text eol=lf
-*.mjs  text eol=lf
-*.js   text eol=lf
-*.ts   text eol=lf
-*.ps1  text eol=crlf
-*.tgz  binary
+# Scripts that any shell must read get LF everywhere. So does the DATA the tools parse:
+# `docs/adrs/*.adr.md`, `docs/specs/*.spec.md`, `plugins/inventory.json` and every
+# plugin README/LICENSE. Those were left to the platform, and a Windows checkout then
+# held CRLF in exactly them — which broke the panel's line-oriented parsers (`.` never
+# matches `\r`, so a spec parsed to zero laws) and made the tarball-versus-source check
+# fail on an unchanged kit. A file whose bytes are read by a program is not "natural to
+# edit on Windows"; it is input.
+#
+# `.ps1` stays CRLF, because PowerShell is the one consumer that prefers it.
+*.sh    text eol=lf
+*.mjs   text eol=lf
+*.js    text eol=lf
+*.ts    text eol=lf
+*.md    text eol=lf
+*.json  text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+LICENSE text eol=lf
+NOTICE  text eol=lf
+*.ps1   text eol=crlf
+*.tgz   binary

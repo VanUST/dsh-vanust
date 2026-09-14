@@ -136,7 +136,7 @@ window.__ModuleLoader__.load({
 		 * constant is the only way to tell a stale bundle from a bug: bump it with every
 		 * change to this file, and keep it equal to the package's version.
 		 */
-		const PANEL_VERSION = "0.1.7";
+		const PANEL_VERSION = "0.1.10";
 		/** The manifest a ratchet project declares its directories and name in. */
 		const MANIFEST_PATH = ".dsh/project.json";
 		/** Directories used when the manifest is absent, unparseable, or silent. */
@@ -336,6 +336,24 @@ window.__ModuleLoader__.load({
 			return buffer.join(" ").trim();
 		}
 		/**
+		 * Normalise the line endings and the byte-order mark of a file the panel reads.
+		 *
+		 * Both parsers below are line-oriented and several of their patterns end in `$`,
+		 * while `.` never matches `\r` — so on a checkout whose working tree holds CRLF
+		 * (Windows, where `.gitattributes` leaves `.md` to the platform) `## <law id>` and
+		 * the other anchored patterns match nothing, and a spec renders as a document with
+		 * zero laws rather than as an error. Normalising at the single point where text
+		 * enters the panel makes the two parsers independent of how git checked the corpus
+		 * out, which is what "the panel shows what the record says" has to mean.
+		 *
+		 * @param value - The text as the host returned it, or anything else.
+		 * @returns The text with a leading BOM removed and every CRLF/CR replaced by LF.
+		 *   Non-string input becomes the empty string.
+		 */
+		function normaliseText(value) {
+			return String(value == null ? "" : value).replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
+		}
+		/**
 		 * Parse one ADR file into the fields the panel shows. Every field that does not
 		 * parse stays null (or []) and is rendered as `unknown`; nothing is invented.
 		 * @param item - `{ name, path, text }` read from `docs/adrs`.
@@ -392,7 +410,7 @@ window.__ModuleLoader__.load({
 		function parseSpec(item) {
 			var spec = { name: item.name, path: item.path, zone: null, project: null, hash: null, laws: [], eof: item.eof !== false, error: null };
 			try {
-				var text = String(item.text == null ? "" : item.text).replace(/^\uFEFF/, "");
+				var text = normaliseText(item.text);
 				var zone = text.match(/^#[ \t]+Spec:[ \t]*(.+?)[ \t]*$/m);
 				var project = text.match(/^Project:[ \t]*(.+?)[ \t]*$/m);
 				var hash = text.match(/spec-hash:[ \t]*(sha256:[0-9a-fA-F]+)/);
@@ -703,7 +721,7 @@ window.__ModuleLoader__.load({
 						}
 						var eof = read.value ? read.value.eof !== false : true;
 						if (eof === false) failures.push(path + ": only the first page was read, so the panel may be incomplete");
-						return { name: name, path: path, text: String(read.value && read.value.text ? read.value.text : ""), eof: eof };
+						return { name: name, path: path, text: normaliseText(read.value && read.value.text ? read.value.text : ""), eof: eof };
 					}, function (error) {
 						failures.push(path + ": " + describeError(error));
 						return null;
