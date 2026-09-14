@@ -48,13 +48,36 @@
  *   COLOUR: one `tone(kind)` helper maps a semantic kind onto the shell's state and
  *   label theme tokens (`var(--token, fallback)`, so any theme works and a missing token
  *   still renders). Every status surface — pill, row accent bar, row tint, check-kind
- *   chip and histogram segment — reads that one helper, so they cannot drift. The
- *   window carries a one-line legend so the colours explain themselves. A decision
- *   awaiting a human is the warn tone and leads the list; in-force is success, a
- *   derived in-force/ratified state is success and labelled derived, superseded is
+ *   chip and histogram segment — reads that one helper, so they cannot drift. A
+ *   decision awaiting a human is the warn tone and leads the list; in-force is success,
+ *   a derived in-force/ratified state is success and labelled derived, superseded is
  *   muted (never error), rejected/withdrawn is error, a consent and a human author are
  *   the business tone, and an agent author is neutral. Ordering is presentation only:
  *   awaiting-human, then in force, then everything else, each by id.
+ *
+ *   SHAPE OF A STATUS: the two kinds of status are drawn differently on purpose. A
+ *   **state** — in force, awaiting a human, superseded, rejected, withdrawn — is a
+ *   FILLED pill, because it describes where the record stands and, when it awaits a
+ *   human, is the call to action. **Provenance** — how an in-force record got there:
+ *   `ratified by <ids>`, `agent-activated`, `human-authored` — is an OUTLINED pill
+ *   (transparent background, coloured border and text, same tone), because it informs
+ *   rather than acts. A record `type` such as `consent` is filled. A state derived from
+ *   another record keeps its dashed/italic treatment. The legend groups the three
+ *   families under muted labels (`state`, `in force by`, `record`) so the distinction
+ *   is legible without reading every row, and draws each group in the shape its pills
+ *   use elsewhere — the `in force by` group is outlined, the other two filled.
+ *
+ *   A law card's `decided in <id>` chip takes the tone of the decision it names, not a
+ *   fixed neutral: a law decided by a superseded or unknown decision must not read like
+ *   an enforced one. The chip is the tone of that decision's state when the decision is
+ *   in the corpus, and neutral when it is not.
+ *
+ *   THE WINDOW'S TEXT IS THE READER'S, NOT THE PARSER'S: section headings are the plain
+ *   names (`Decisions`, `Consents`, `Specs`) with the resolved directory on a muted
+ *   second line, not the glob pattern they were listed with; the header summary lists
+ *   only non-zero counts and renders the awaiting-for-a-human count as its own warn
+ *   pill; and an author label collapses to one word when the name and the authority are
+ *   the same (`human`, never `human · human`).
  *
  * KEYWORDS
  *   ADR panel, decisions, consents, specs, law cards, check histogram, slots,
@@ -71,8 +94,13 @@
  *   - Frontmatter or a spec that does not parse: the record is listed with whatever
  *     parsed and a note; a field that did not parse renders as `unknown`, and parsing
  *     never throws.
- *   - A `decided in <id>` that names no decision in the corpus: the chip is rendered
- *     as plain text and is not clickable.
+ *   - A `decided in <id>` that names no decision in the corpus, or one whose state is
+ *     not `in force`: the chip is rendered as plain text, is not clickable, and takes
+ *     the neutral tone (unknown id) or the named decision's own state tone.
+ *   - An author whose name and authority are the same word: the label collapses to that
+ *     one word.
+ *   - A section with nothing to show: a clean line naming the resolved directory, never
+ *     a crash, and the header summary omits its zero count.
  *   - Window closed during a load: the AbortController cancels the reads and no state
  *     is written after unmount.
  *   - No `.dsh/project.json`, an unparseable one, or one without
@@ -101,7 +129,7 @@ window.__ModuleLoader__.load({
 		 * constant is the only way to tell a stale bundle from a bug: bump it with every
 		 * change to this file, and keep it equal to the package's version.
 		 */
-		const PANEL_VERSION = "0.1.4";
+		const PANEL_VERSION = "0.1.5";
 		/** The manifest a ratchet project declares its directories and name in. */
 		const MANIFEST_PATH = ".dsh/project.json";
 		/** Directories used when the manifest is absent, unparseable, or silent. */
@@ -836,6 +864,18 @@ window.__ModuleLoader__.load({
 		function linkChipStyle() {
 			return { cursor: "pointer", textDecoration: "underline dotted" };
 		}
+		/**
+		 * An outlined pill: how provenance is drawn, as opposed to a filled state.
+		 *
+		 * A state is filled because it says where a record stands and, when it awaits a
+		 * human, is the call to action. Provenance only reports how an in-force record
+		 * got there, so it keeps the tone's text and border colour and drops the tint —
+		 * information, not a second status.
+		 * @returns the style override.
+		 */
+		function outlineStyle() {
+			return { background: "transparent" };
+		}
 		function mutedStyle() {
 			return { fontSize: 12, opacity: 0.7, margin: "4px 0" };
 		}
@@ -914,6 +954,12 @@ window.__ModuleLoader__.load({
 		}
 		function legendStyle() {
 			return { display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 6 };
+		}
+		function legendGroupLabelStyle() {
+			return { fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--dsw-alias-label-tertiary, rgba(160,160,170,0.95))" };
+		}
+		function legendSeparatorStyle() {
+			return { width: 1, alignSelf: "stretch", background: "var(--dsw-alias-border-l2, rgba(128,128,128,0.35))", margin: "0 2px" };
 		}
 		function countsStyle() {
 			return { fontSize: 11, color: "var(--dsw-alias-label-secondary, inherit)", marginTop: 2 };
@@ -1021,15 +1067,23 @@ window.__ModuleLoader__.load({
 			return "neutral";
 		}
 
-		/** @returns `name · authority`, or the authority alone when the name did not parse. */
+		/**
+		 * `name · authority`, collapsing to the authority alone when the name did not
+		 * parse OR when the two are the same word: a record whose author is
+		 * `human`/`human` must read `human`, never `human · human`.
+		 * @returns the author label.
+		 */
 		function authorLabel(record) {
 			var name = record.authorName === null || record.authorName === "" ? null : record.authorName;
 			var authority = record.authority === null || record.authority === "" ? "unknown" : record.authority;
-			return name === null ? authority : name + " · " + authority;
+			if (name === null) return authority;
+			if (name.toLowerCase() === authority.toLowerCase()) return authority;
+			return name + " · " + authority;
 		}
 		/**
 		 * The provenance pill: HOW a decision entered force, shown beside the single
-		 * `in force` state.
+		 * `in force` state, drawn OUTLINED rather than filled so it cannot be mistaken
+		 * for a state of its own.
 		 *
 		 * A `ratified by <ids>` pill is a link when every consent it names is present in
 		 * the corpus; when one cannot be resolved it renders as plain text rather than a
@@ -1046,10 +1100,11 @@ window.__ModuleLoader__.load({
 			var resolvable = link !== null && link !== undefined && link.length > 0 && link.every(function (id) {
 				return recordIds !== undefined && recordIds[id] === true;
 			});
+			var extra = Object.assign({}, outlineStyle(), resolvable ? linkChipStyle() : {});
 			return pill(
 				provenance.text,
 				provenance.kind,
-				resolvable ? linkChipStyle() : null,
+				extra,
 				resolvable ? function () { onSelectAdr(link[0]); } : null
 			);
 		}
@@ -1099,6 +1154,35 @@ window.__ModuleLoader__.load({
 		/** @returns the provenance line: the author name and authority as one pill. */
 		function authorPill(record, extra) {
 			return pill(authorLabel(record), authorityKind(record.authority), extra);
+		}
+		/**
+		 * A count and its noun, singular at exactly one.
+		 * @param count - a number; anything else is treated as 0.
+		 * @param noun - the singular noun.
+		 * @returns e.g. `1 decision`, `3 decisions`.
+		 */
+		function plural(count, noun) {
+			var n = typeof count === "number" && isFinite(count) ? count : 0;
+			return n + " " + noun + (n === 1 ? "" : "s");
+		}
+		/**
+		 * A section heading: the human title on top and, on a muted second line, the
+		 * directory the section was read from. The file pattern is deliberately NOT
+		 * shown — it is implementation detail — while the directory is, because that is
+		 * the fact a reader needs in order to go and find the file.
+		 *
+		 * It is a component, so it takes the one props object React passes, not two
+		 * positional arguments.
+		 * @param props.title - the section title.
+		 * @param props.sourceDir - the resolved directory; a null, empty or absent value
+		 *   renders the title alone.
+		 * @returns the heading element.
+		 */
+		function sectionHeading(props) {
+			var sourceDir = props.sourceDir;
+			return React.createElement("div", { style: { margin: "4px 0 8px" } },
+				React.createElement("h3", { style: Object.assign({}, sectionHeadingStyle(), { margin: 0 }) }, props.title),
+				sourceDir === null || sourceDir === undefined || sourceDir === "" ? null : React.createElement("div", { style: mutedInlineStyle() }, sourceDir));
 		}
 		//#endregion
 
@@ -1172,19 +1256,33 @@ window.__ModuleLoader__.load({
 				React.createElement("div", { style: subHeadingStyle() }, section.title),
 				blocks);
 		}
-		/** @returns one law as a card, with a clickable `decided in` chip when it links. */
+		/**
+		 * One compiled law, as a card.
+		 * @param props.law the compiled law.
+		 * @param props.decisionIds map of decision id to boolean, for link-ability.
+		 * @param props.decisionStates map of decision id to state kind, or undefined
+		 *   when the caller has none. It colours the `decided in` chip so a law whose
+		 *   decision is superseded or awaiting a human does not read as if it were in
+		 *   force. A missing entry (and an absent map) falls back to `neutral`.
+		 * @param props.onSelectAdr callback receiving a decision id.
+		 * @returns the card; the `decided in` chip is clickable only when `linked`.
+		 */
 		function LawCard(props) {
 			var law = props.law;
 			var decisionIds = props.decisionIds;
+			var decisionStates = props.decisionStates;
 			var onSelectAdr = props.onSelectAdr;
 			var linked = law.decidedIn !== null && law.decidedIn !== "" && decisionIds[law.decidedIn] === true;
+			var decidedKind = decisionStates !== undefined && decisionStates !== null && law.decidedIn !== null && decisionStates[law.decidedIn] !== undefined
+				? decisionStates[law.decidedIn]
+				: "neutral";
 			return React.createElement("div", { style: lawCardStyle() },
 				React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap" } },
 					mono(law.id),
 					pill("authority: " + (law.authority === null || law.authority === "" ? "unknown" : law.authority), authorityKind(law.authority)),
 					pill(
 						"decided in " + (law.decidedIn === null || law.decidedIn === "" ? "unknown" : law.decidedIn),
-						"neutral",
+						decidedKind,
 						linked ? linkChipStyle() : null,
 						linked ? function () { onSelectAdr(law.decidedIn); } : null
 					)),
@@ -1266,6 +1364,8 @@ window.__ModuleLoader__.load({
 		 * One decision record: identification, derived state, a summary, and — when
 		 * expanded — metadata, the laws it decided, and the four body sections. Only a
 		 * proposed, agent-authored, not-yet-approved decision gets the ratify affordance.
+		 * @param props.decisionStates map of decision id to state kind, threaded to the
+		 *   `decided in` chip of every law card this row renders.
 		 * @returns the card.
 		 */
 		function DecisionRow(props) {
@@ -1274,6 +1374,7 @@ window.__ModuleLoader__.load({
 			var onToggle = props.onToggle;
 			var laws = props.laws === undefined ? [] : props.laws;
 			var decisionIds = props.decisionIds;
+			var decisionStates = props.decisionStates;
 			var recordIds = props.recordIds;
 			var onSelectAdr = props.onSelectAdr;
 			var canAsk = props.canAsk;
@@ -1329,7 +1430,7 @@ window.__ModuleLoader__.load({
 						laws.length === 0
 							? React.createElement("div", { style: mutedStyle() }, "No compiled law names this decision.")
 							: React.createElement("div", null, laws.map(function (entry) {
-								return React.createElement(LawCard, { key: entry.law.id, law: entry.law, zone: entry.zone, decisionIds: decisionIds, onSelectAdr: onSelectAdr });
+								return React.createElement(LawCard, { key: entry.law.id, law: entry.law, zone: entry.zone, decisionIds: decisionIds, decisionStates: decisionStates, onSelectAdr: onSelectAdr });
 							}))),
 					["Context", "Decision", "Reasoning", "Consequences"].map(function (title) {
 						var section = findSection(adr.sections, title);
@@ -1393,11 +1494,14 @@ window.__ModuleLoader__.load({
 		 * One compiled spec: identity, a check-kind histogram, and one law card per
 		 * `##` block. The histogram is the visualization: proportional segments plus a
 		 * labelled chip per check kind.
+		 * @param props.decisionStates map of decision id to state kind, threaded to the
+		 *   `decided in` chip of every law card in this spec.
 		 * @returns the card.
 		 */
 		function SpecView(props) {
 			var spec = props.spec;
 			var decisionIds = props.decisionIds;
+			var decisionStates = props.decisionStates;
 			var onSelectAdr = props.onSelectAdr;
 			var counts = {};
 			var kinds = [];
@@ -1443,30 +1547,61 @@ window.__ModuleLoader__.load({
 				spec.laws.length === 0
 					? React.createElement("div", { style: mutedStyle() }, "No law blocks were found in this document.")
 					: React.createElement("div", { style: { marginTop: 6 } }, spec.laws.map(function (law) {
-						return React.createElement(LawCard, { key: law.id, law: law, zone: spec.zone, decisionIds: decisionIds, onSelectAdr: onSelectAdr });
+						return React.createElement(LawCard, { key: law.id, law: law, zone: spec.zone, decisionIds: decisionIds, decisionStates: decisionStates, onSelectAdr: onSelectAdr });
 					})));
 		}
 
 		/**
-		 * The colour legend: one compact row that makes every tone self-explanatory
-		 * without a modal. It is reference text, not a control.
+		 * The colour legend, grouped by what a pill is claiming: a record's state, who
+		 * put it in force, or the kind of record it is. Each group is rendered in the
+		 * same shape its pills use elsewhere — states and record kinds filled, the
+		 * provenance group outlined via `outlineStyle()` — so the legend is a key to
+		 * what the rows look like, not a separate vocabulary.
+		 *
+		 * The trailing note explains the one shape that is not a group: a dashed pill.
+		 * It is reference text, not a control.
 		 * @returns the legend row.
 		 */
 		function Legend() {
-			var items = [
-				{ text: "in force", kind: "in-force" },
-				{ text: "awaiting a human", kind: "pending" },
-				{ text: "superseded", kind: "superseded" },
-				{ text: "consent", kind: "consent" },
-				{ text: "ratified by …", kind: "ratified" },
-				{ text: "agent-activated", kind: "pending" },
-				{ text: "human-authored", kind: "human" }
+			var groups = [
+				{
+					label: "state",
+					outlined: false,
+					items: [
+						{ text: "in force", kind: "in-force" },
+						{ text: "awaiting a human", kind: "pending" },
+						{ text: "superseded", kind: "superseded" },
+						{ text: "rejected / withdrawn", kind: "rejected" }
+					]
+				},
+				{
+					label: "in force by",
+					outlined: true,
+					items: [
+						{ text: "ratified by …", kind: "ratified" },
+						{ text: "agent-activated", kind: "pending" },
+						{ text: "human-authored", kind: "human" }
+					]
+				},
+				{
+					label: "record",
+					outlined: false,
+					items: [
+						{ text: "decision", kind: "neutral" },
+						{ text: "consent", kind: "consent" }
+					]
+				}
 			];
-			return React.createElement("div", { style: legendStyle(), "aria-label": "colour legend" },
-				items.map(function (item) {
-					return pill(item.text, item.kind);
-				}),
-				React.createElement("span", { style: mutedInlineStyle() }, "a dashed pill is derived from the corpus; ratchet verify is the authority on what is enforced"));
+			var nodes = [];
+			groups.forEach(function (group, groupIndex) {
+				if (groupIndex > 0) nodes.push(React.createElement("span", { key: "sep" + groupIndex, style: legendSeparatorStyle(), "aria-hidden": "true" }));
+				nodes.push(React.createElement("span", { key: "label" + groupIndex, style: legendGroupLabelStyle() }, group.label));
+				group.items.forEach(function (item, itemIndex) {
+					nodes.push(React.createElement("span", { key: "item" + groupIndex + "-" + itemIndex }, pill(item.text, item.kind, group.outlined ? outlineStyle() : null)));
+				});
+			});
+			nodes.push(React.createElement("span", { key: "note", style: mutedInlineStyle() }, "a dashed pill is derived from the corpus, not read from a file"));
+			return React.createElement("div", { style: legendStyle(), "aria-label": "colour legend" }, nodes);
 		}
 
 		/** @returns the failure block, or null when nothing failed. */
@@ -1544,11 +1679,23 @@ window.__ModuleLoader__.load({
 			var canAsk = typeof state.ask === "function";
 			var loading = current.status === "loading";
 			var awaitingCount = 0;
+			var decisionStates = {};
 			for (var di = 0; di < current.decisions.length; di += 1) {
-				var decisionState = current.decisions[di].state;
+				var decisionRecord = current.decisions[di];
+				var decisionState = decisionRecord.state;
 				if (decisionState !== undefined && decisionState !== null && decisionState.kind === "pending") awaitingCount += 1;
+				if (decisionRecord.id !== null && decisionRecord.id !== "" && decisionState !== undefined && decisionState !== null && decisionState.kind !== undefined) {
+					decisionStates[decisionRecord.id] = decisionState.kind;
+				}
 			}
-			var countsLine = current.decisions.length + " decisions · " + awaitingCount + " awaiting a human · " + current.consents.length + " consents · " + current.specs.length + " specs";
+			// Only the counts that are non-zero: a row of `0 consents · 0 specs` states
+			// nothing, and an absent count already means none. The one count that is an
+			// instruction rather than a tally — how many decisions wait for a human —
+			// is rendered as its own pending pill so it cannot be skimmed past.
+			var countParts = [];
+			if (current.decisions.length > 0) countParts.push(plural(current.decisions.length, "decision"));
+			if (current.consents.length > 0) countParts.push(plural(current.consents.length, "consent"));
+			if (current.specs.length > 0) countParts.push(plural(current.specs.length, "spec"));
 			var onSelectAdr = function (adrId) {
 				setExpandedId(adrId);
 			};
@@ -1565,7 +1712,11 @@ window.__ModuleLoader__.load({
 								chip("adr-panel " + PANEL_VERSION)),
 							React.createElement("div", { style: { fontSize: 11, opacity: 0.7, marginTop: 2 } },
 								state.sessionId === null ? "no Session bound — open this from a Session header" : "viewer only — the ratchet CLI (ratchet verify) is the authority on what is enforced; states here are read from the corpus files"),
-							React.createElement("div", { style: countsStyle() }, countsLine)),
+							React.createElement("div", { style: countsStyle() },
+								countParts.length === 0 ? "nothing was read" : countParts.join(" · "),
+								awaitingCount > 0
+									? React.createElement("span", { style: { marginLeft: 8 } }, pill(awaitingCount + " awaiting a human", "pending"))
+									: null)),
 						React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center" } },
 							React.createElement("button", { type: "button", style: smallButtonStyle(), disabled: loading, onClick: function () { bump(seq[0] + 1); } }, loading ? "Loading…" : "Reload"),
 							React.createElement("button", { type: "button", style: smallButtonStyle(), onClick: closePanel }, "Close"))),
@@ -1578,9 +1729,9 @@ window.__ModuleLoader__.load({
 							: null,
 						React.createElement(Legend, null),
 						React.createElement("div", null,
-							React.createElement("h3", { style: sectionHeadingStyle() }, "Decisions (" + current.dirs.decisionsDir + "/*.adr.md, type ≠ approval)"),
+							React.createElement(sectionHeading, { title: "Decisions", sourceDir: current.dirs.decisionsDir }),
 							current.decisions.length === 0
-								? React.createElement("p", { style: mutedStyle() }, "No decision files (*.adr.md) were found in " + current.dirs.decisionsDir + ", or none could be read.")
+								? React.createElement("p", { style: mutedStyle() }, "No decision files were found in " + current.dirs.decisionsDir + ", or none could be read.")
 								: React.createElement("div", { style: { display: "grid", gap: 8 } }, current.decisions.map(function (adr) {
 									return React.createElement(DecisionRow, {
 										key: adr.path,
@@ -1589,6 +1740,7 @@ window.__ModuleLoader__.load({
 										onToggle: function () { toggle(adr.id); },
 										laws: current.lawsByDecision[adr.id],
 										decisionIds: current.decisionIds,
+										decisionStates: decisionStates,
 										recordIds: current.recordIds,
 										onSelectAdr: onSelectAdr,
 										canAsk: canAsk,
@@ -1596,9 +1748,9 @@ window.__ModuleLoader__.load({
 									});
 								}))),
 						React.createElement("div", null,
-							React.createElement("h3", { style: sectionHeadingStyle() }, "Consents (" + current.dirs.decisionsDir + "/*.adr.md, type: approval)"),
+							React.createElement(sectionHeading, { title: "Consents", sourceDir: current.dirs.decisionsDir }),
 							current.consents.length === 0
-								? React.createElement("p", { style: mutedStyle() }, "No consent records (*.adr.md) were found in " + current.dirs.decisionsDir + ".")
+								? React.createElement("p", { style: mutedStyle() }, "No consent records were found in " + current.dirs.decisionsDir + ".")
 								: React.createElement("div", { style: { display: "grid", gap: 8 } }, current.consents.map(function (adr) {
 									return React.createElement(ConsentRow, {
 										key: adr.path,
@@ -1608,11 +1760,11 @@ window.__ModuleLoader__.load({
 									});
 								}))),
 						React.createElement("div", null,
-							React.createElement("h3", { style: sectionHeadingStyle() }, "Specs (" + current.dirs.specsDir + "/*.spec.md)"),
+							React.createElement(sectionHeading, { title: "Specs", sourceDir: current.dirs.specsDir }),
 							current.specs.length === 0
-								? React.createElement("p", { style: mutedStyle() }, "No spec files (*.spec.md) were found in " + current.dirs.specsDir + ", or none could be read.")
+								? React.createElement("p", { style: mutedStyle() }, "No spec files were found in " + current.dirs.specsDir + ", or none could be read.")
 								: React.createElement("div", { style: { display: "grid", gap: 8 } }, current.specs.map(function (spec) {
-									return React.createElement(SpecView, { key: spec.path, spec: spec, decisionIds: current.decisionIds, onSelectAdr: onSelectAdr });
+									return React.createElement(SpecView, { key: spec.path, spec: spec, decisionIds: current.decisionIds, decisionStates: decisionStates, onSelectAdr: onSelectAdr });
 								}))))));
 		}
 		//#endregion
