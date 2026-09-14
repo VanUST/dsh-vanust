@@ -492,6 +492,26 @@ it from a hand-written document the project may legitimately keep in that direct
 alternative — reporting every `*.spec.md` — would accuse hand-written files, so the marker
 stays the test. Stripping it also violates the file's own DO NOT EDIT banner.
 
+A third breaker, given the field table, found one more: a target that **climbs out of its
+zone**. `plugins/../rules/**` resolves to `rules/**` — outside a declaration of `plugins/**`
+— and the comparison was textual, so it began with the zone's prefix and was accepted. The
+verifier does not normalise `..` either, so the target matched no walked file and enforced
+nothing; that makes it inert, not authorised, and it is now refused by lexical resolution
+before the comparison. Everything else that breaker attacked survived, including every
+enumerated field against literal targets, all of the matcher attacks (`rules`, `rules/`,
+`.`, `./**`, the empty string, `{a,b}` alternation, character classes, Windows separators),
+one-way containment, and the false-positive direction on the kit's own corpus.
+
+**The one boundary this rule cannot close, stated rather than implied.** A `command` check's
+`run` string can read any path — a third breaker demonstrated an agent-authored record
+declaring a permissive zone enforcing over a human-only file through `readFileSync` inside a
+`node -e`. A `run` string is not statically reducible to the paths it touches; that is
+undecidable in general, not a gap left unfilled. So the zone rule constrains *declared* path
+targets and cannot constrain an opaque command, exactly as the `requiresDecisionRecord`
+guard cannot see a shell write. The mitigation is the same one the design already names for
+the guard — review — and the honest guidance is that a law which must be held to a zone
+should carry a path check for the path and a command check for the behaviour.
+
 The lesson is not that the fix was careless. It is that the first version passed every check
 its author had thought to write, including three new behavioural invariants, and still had
 two holes; the second passed the checks added for those, and still had two more. The

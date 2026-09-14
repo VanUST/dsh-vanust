@@ -811,6 +811,14 @@ claim(
       zones: [{ id: 'auth', paths: ['plugins/demo/**'], agentAuthority: 'activeIfNoConflict', requiresDecisionRecord: false }],
     },
   )
+  // A target that climbs out of its zone. `plugins/../rules/**` resolves to `rules/**`,
+  // outside a declaration of `plugins/**`, and comparing the two as strings accepted it
+  // because the text began with the zone's prefix.
+  const climbing = project(
+    'zone-climbing-target',
+    { laws: law({ checks: [{ type: 'forbidden_glob', pattern: 'src/auth/../../rules/**' }] }) },
+    { files: { 'rules/AGENTS.md': 'x\n' } },
+  )
   const outsideCompiled = compileProject(outside)
   const insideCompiled = compileProject(inside)
   const singularCompiled = compileProject(singular)
@@ -818,6 +826,7 @@ claim(
   const boundaryCompiled = compileProject(boundary)
   const boundaryInsideCompiled = compileProject(boundaryInside)
   const broaderCompiled = compileProject(broader)
+  const climbingCompiled = compileProject(climbing)
   const refused = (result) => result.problems.some((entry) => entry.code === 'LAW_PATH_OUTSIDE_DECLARED_ZONE')
   const parts = [
     `outside-refused=${refused(outsideCompiled)}`,
@@ -825,6 +834,7 @@ claim(
     `glob-pattern-refused=${refused(globbedCompiled)}`,
     `path-boundary-refused=${refused(boundaryCompiled)}`,
     `broader-than-zone-refused=${refused(broaderCompiled)}`,
+    `climbing-target-refused=${refused(climbingCompiled)}`,
     `inside-accepted=${!refused(insideCompiled)}`,
     `boundary-inside-accepted=${!refused(boundaryInsideCompiled)}`,
   ]

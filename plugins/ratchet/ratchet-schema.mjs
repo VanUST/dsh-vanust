@@ -238,9 +238,17 @@ export const COMMAND_STREAMS = Object.freeze(['stdout', 'stderr', 'both'])
  * The table is the only place the mapping exists: `checkTargets` reads it, and a test
  * fails when a type in {@link CHECK_TYPES} is missing from it, so adding a check type
  * without saying what path it acts on is a red test rather than a silent hole. A `[]`
- * entry is a positive claim — the type has no path target by design, which is true of
- * `command` (a shell command, not a path) and of the dependency checks, whose `patterns`
- * name packages rather than files.
+ * entry is a positive claim — the type has no path target by design, which is true of the
+ * dependency checks, whose `patterns` name packages rather than files, and of `command`.
+ *
+ * `command` is the honest boundary of this rule rather than a clean case. A shell command
+ * can read or write any path it likes, and a `run` string is not statically reducible to
+ * the set of paths it touches — that is undecidable in general, not merely unimplemented.
+ * So this cross-check cannot constrain it, and an agent-authored command check whose `run`
+ * names a reserved path is refused by nothing here. Its reach is bounded by the same thing
+ * that bounds the guard's, which the design already states for the same reason: review. A
+ * law that must be held to a zone should carry a path check for the path, and a command
+ * check for the behaviour.
  *
  * `zonePaths` is not a field on the check. It stands for the paths of the zone the check
  * names in `check.zone`, resolved through the manifest, because a `path_boundary` makes

@@ -594,7 +594,14 @@ export function declaredZonePaths(record, config) {
  * @returns `true` when the target falls inside the declared authority.
  */
 export function pathIsGoverned(target, zonePaths) {
-  const clean = String(target).replace(/^\.\//, '').replace(/\/\*\*$/, '')
+  const clean = normaliseGlobPath(target)
+  // A target that climbs above the repository root is not a path the project can govern,
+  // whatever it names. `plugins/../rules/**` resolves to `rules/**` — outside a zone of
+  // `plugins/**` — and comparing the two as strings accepted it, because the text began
+  // with the zone's prefix. The verifier happens not to normalise `..` either, so such a
+  // target matches no walked file and enforces nothing; that makes it inert, not
+  // authorised, and a target the compiler cannot place is refused rather than trusted.
+  if (clean.escaped) return false
   return (zonePaths ?? []).some((entry) => {
     const raw = String(entry).replace(/^\.\//, '')
     // A zone that claims the whole repository. It is not a prefix like the others, and
@@ -608,8 +615,37 @@ export function pathIsGoverned(target, zonePaths) {
     // declared only `plugins/demo/**`, and then enforced on `plugins/other/**`, outside
     // the authority that record claimed. A target broader than the zone reaches outside
     // it by construction and must be refused, not accommodated.
-    return clean === prefix || clean.startsWith(`${prefix}/`)
+    return clean.path === prefix || clean.path.startsWith(`${prefix}/`)
   })
+}
+
+/**
+ * A target glob with `.` and `..` segments resolved lexically.
+ *
+ * Lexical, not filesystem: the target names files that may not exist yet, and a check is
+ * a claim about paths rather than about the tree at this instant. A backslash is left
+ * alone rather than treated as a separator, because the verifier's matcher does not treat
+ * it as one — normalising it here would make the cross-check accept a target the matcher
+ * reads as a single literal filename.
+ *
+ * @param value - A target path or glob.
+ * @returns `{ path, escaped }`. `escaped` is true when the target climbs above the root,
+ *   which no zone can govern.
+ */
+function normaliseGlobPath(value) {
+  const parts = String(value).replace(/^\.\//, '').split('/')
+  const out = []
+  let escaped = false
+  for (const part of parts) {
+    if (part === '' || part === '.') continue
+    if (part === '..') {
+      if (out.length === 0) escaped = true
+      else out.pop()
+      continue
+    }
+    out.push(part)
+  }
+  return { path: out.join('/'), escaped }
 }
 
 /**
