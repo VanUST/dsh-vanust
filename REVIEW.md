@@ -358,6 +358,90 @@ report a pass. The gate is the CLI above; the tools are for an agent mid-session
   which is by file hash, never by git state. A reviewer on another machine gets that state
   with `./install.sh` or `node scripts/kit-update.mjs --apply`.
 
+### Findings from the independent review dispatch (2026-09-15)
+
+Six reviewers and breakers ran against this tree in scratch copies. The items below are
+the counterexamples that survived a reproducibility check. **Fixed** means a command now
+fails without the fix; **open** means no command in this kit fails when the defect is
+present, so the rule it undercuts is an unverified claim rather than an enforced one.
+
+Fixed in this cycle, each with the counterexample it answers:
+
+- `ratchet falsify` reported `detected` for a case whose expected problem was already on
+  the corpus: on a tree whose only law had `checks: []`, `verify` already reported
+  `LAW_UNCHECKED` and the `law-with-no-check` case still claimed the mutation caused it.
+  The case now reads the compiled bundle and returns `skipped` when such a law is already
+  in force. (`hand-written-approval` needs no such baseline: an unproven approval is a
+  COMPILE problem, so the corpus is `unusable` before any case runs.)
+- Deleting `.dsh/ratchet/ledger.jsonl` laundered a law removal — one `rm` turned the red
+  gate green and the next run recorded the shrunken set as truth. When the ledger holds no
+  recorded set, `lawRemovalProblems` now reads the persisted bundle, which this run has not
+  yet rewritten; `check-gate-invariants.mjs` case 14b removes a law after deleting the
+  ledger and requires the removal to be reported twice in a row.
+- The emitted-code scanner read only `problem(` call sites, so a code invented in the
+  `fail(` closure inside `verifyLaw` was invisible. It now reads both shapes, and a case
+  feeds it `fail('INVENTED_CODE_FROM_FAIL', …)` and requires it to be seen.
+- `stateDir`/`reportsDir` were configurable in the manifest while the writers hardcoded
+  their paths, so the guard and the breaker read a directory nothing wrote. The manifest
+  now refuses any value other than the fixed default.
+- `scripts/kit-update.mjs` had no Node ≥ 24 guard, and `start.sh` runs it each boot with
+  stderr swallowed, so on an old runtime it failed silently. The guard is added; it is
+  read here rather than exercised, because this machine has only Node 24 installed.
+- `check-consent-surface.mjs` enforced "no tool argument accepts an answer" by tool NAME
+  (exactly `ratchet_ratify` and `ratchet_ingest_source`), so an `answers` parameter on any
+  other tool passed every check while minting a real approval. It now scans **every**
+  registered tool's parameters and refuses an answer-shaped property unless it is the
+  boolean `ratify` trigger. Verified against the breaker's own mutation: with `answers`
+  added to `ratchet_verify`, the check now prints `[FAIL] ... offenders=["ratchet_verify.answers"]`
+  and exits 1, where before it printed `consent surface ok`.
+
+Open, each with the reproduction the reviewer gave:
+
+- **A supersession un-mints a ratified consent with the gate green** (HIGH).
+  `ratchet-compiler.mjs` lets any record self-active under `activeIfNoConflict` retire its
+  `supersedes` targets, while `LAW_REMOVE_UNAUTHORISED` guards only `op: remove`. An
+  agent record naming a ratified record in `supersedes` leaves `ok: true`, no problem, and
+  the ratified law gone; `ratchet compile` prints `0 law(s), no problems`, while the
+  equivalent `op: remove` is refused. This is the same rule the code states in a comment
+  two lines above the guard ("Consent is not durable if the next record can undo it").
+- **`ops.ratify()` trusts a caller-authored quiz.** When `offeredBy()` returns null the
+  answer's hash is never checked against a question the ratchet asked, so a hand-written
+  `quiz` object plus a typed answer mints an approval. Not reachable from the shipped tool
+  or CLI today, but it falsifies the claim at the function contract.
+- **The panel re-implements the host's force model** and disagrees with it on five inputs:
+  an invalid-consent approval (host pending + `RATIFICATION_UNPROVEN`, panel "in force"),
+  an agent record active in a `proposeOnly` zone, an omitted `defaultAgentAuthority`,
+  non-empty inline flow lists, and a withdrawn superseder. `test-adr-panel.mjs` and
+  `check-consent-surface.mjs` are both green, because the only corpus either renders is
+  this kit's own, on which the two models agree.
+- **`validateZones` and `zoneFor` disagree on `**`**: `['**' humanOnly, 'src/auth/**'
+  activeIfNoConflict]` passes with no `ZONE_OVERLAP` while `zoneFor('src/auth/login.ts')`
+  answers `auth`. Relatedly, spec filenames are not injective — zones `auth.v1` and
+  `auth-v1` map to one file and one zone's laws are dropped without a problem.
+- **Machine-written state is trusted.** Hand-editing `.dsh/ratchet/state.json` makes
+  `status` report verified-clean while `verify` exits 1, and deleting
+  `.dsh/ratchet/contradiction.json` lifts a judge's block (the guard goes from DENIED to
+  ALLOWED) even though the tool output says not to edit it.
+- **The gate's kit-rules guarantee is a static token check.** Making the provider return
+  `''` (rules never reach the prompt) leaves `check-instruction-routing`,
+  `check-portability` and `ratchet verify` green; no probe inspects an assembled prompt.
+- **`tarballs-are-built-artifacts`' version clause cannot fail** for the check it cites
+  (`check-portability.mjs` compares bytes against source, not the version string), so a
+  hand `pnpm pack` at an unchanged version passes.
+- Earlier in the dispatch, still open: a law in force in two zones blocks only the first
+  record's zone; the contradiction branch ignores `governanceOf` exemptions, so a judged
+  contradiction in `docs/adrs`/`sources` deadlocks the documented edit-to-clear route;
+  `paths: ["src/auth/"]` parses clean and governs nothing; the guard's `zoneFor` and
+  `pathIsGoverned` drift; the panel's request-consumption test is blind to a deleted
+  `clearRequest()`; the panel's button colours are never measured although its README
+  claims every colour is.
+
+Two findings were **refuted by measurement** and are recorded so they are not re-raised:
+the corpus is not red at HEAD (`ratchet verify` exits 0 and the ADR 0024 source hash
+matches its file byte-for-byte — the reviewer had snapshotted an earlier commit), and
+`tracksSpecDocuments` does fall through on `specsRequired: false` exactly as its docstring
+says.
+
 ## 7. Suggested reading order
 
 1. `README.md` — the five plugins, the clone, and the "Reviewing this kit" map.

@@ -26,6 +26,10 @@
  * BEHAVIOUR ON EDGE CASES
  *   - A fixture that cannot be written is a failure, not a skip: the claims are about
  *     behaviour, and behaviour nobody could set up is behaviour nobody verified.
+ *   - The tool-surface claim covers EVERY tool the plugin registers, read from the
+ *     plugin's own registrations rather than from a list in this file, so a tool added
+ *     later is inspected without an edit here. The one exception it encodes is a
+ *     boolean `ratify` trigger, which asks for the question and carries no answer.
  *   - No network, no harness, no credentials and no model: everything here is the
  *     plugin's own code plus the CLI, so it runs in any checkout.
  */
@@ -226,6 +230,34 @@ claim(
   JSON.stringify(ingestParameters) === JSON.stringify(INGEST_ALLOWED_PARAMETERS) &&
     ingestSchema.properties?.ratify?.type === 'boolean',
   `parameters=${JSON.stringify(ingestParameters)} ratify=${JSON.stringify(ingestSchema.properties?.ratify?.type)}`,
+)
+
+// 4c. The claim is about the SURFACE, not about two named tools. The checks above
+//     read `ratchet_ratify` and `ratchet_ingest_source` by name, so a NEW tool — or a
+//     new argument on an uninspected existing tool — could accept a caller-composed
+//     answer and pass them. Every registered tool is scanned here instead, and a
+//     property whose NAME denotes an answer is refused unless it is the one known
+//     boolean trigger (`ratify`, which causes the question and carries no answer).
+//     This is deliberately a whole-surface name denylist, not an allow-list of tool
+//     names: it fails on a tool nobody thought to add to a list.
+const ANSWER_SHAPED = /^(answer|answers|decision|consent|approve|approveLabel|approved|reject|rejectLabel|rejected|ratification|selected|selection|choice|yes|no|label)$/i
+const TRIGGER_PROPERTIES = new Set(['ratify'])
+const answerOffenders = []
+for (const [name, definition] of registered) {
+  const properties = definition?.parameters?.properties ?? {}
+  for (const [property, propertySchema] of Object.entries(properties)) {
+    if (!ANSWER_SHAPED.test(property)) continue
+    // A boolean `ratify` asks the ratchet to put its question; it says nothing about
+    // the answer. Everything else, whatever its type, is a way for a caller to compose
+    // one, so it is refused.
+    if (TRIGGER_PROPERTIES.has(property) && propertySchema?.type === 'boolean') continue
+    answerOffenders.push(`${name}.${property}`)
+  }
+}
+claim(
+  'no registered tool argument is named like a caller-composed answer',
+  answerOffenders.length === 0 && registered.size >= 3,
+  `tools=${registered.size} offenders=${JSON.stringify(answerOffenders)}`,
 )
 
 // The panel's OTHER consent properties are enforced behaviourally, and by executing the

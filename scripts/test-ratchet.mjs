@@ -4237,6 +4237,26 @@ test('ingest: a law id that looks like another YAML type is still an id', () => 
 
 const KIT_ROOT = resolve(import.meta.dirname, '..')
 
+/**
+ * Extracts every problem code a source text emits.
+ *
+ * Codes reach a report through two helpers: `problem(code, …)` in the schema, the
+ * loader and the ops layer, and `fail(code, …)` — a closure over `problem` — inside
+ * `verifyLaw`. A scan that matches only the first shape is blind to a code invented
+ * at a check site, which is where codes are most often added.
+ */
+function emittedProblemCodes(text) {
+  return [...text.matchAll(/\b(?:problem|fail)\(\s*'([A-Z][A-Z0-9_]{3,})'/g)].map((match) => match[1])
+}
+
+test('kit: the emitted-code scanner sees both `problem(` and `fail(` call sites', () => {
+  // The scanner is the only thing between an invented code and the closed vocabulary,
+  // so its own coverage is a claim that has to be shown. This is the counterexample
+  // that used to pass: a code emitted through `fail(` was invisible.
+  const sample = "problem('MANIFEST_MISSING', 'x')\nfail('INVENTED_CODE_FROM_FAIL', 'y')\n"
+  assert.deepEqual(emittedProblemCodes(sample), ['MANIFEST_MISSING', 'INVENTED_CODE_FROM_FAIL'])
+})
+
 test('kit: every problem code emitted anywhere is declared in the vocabulary', async () => {
   // ADR-0002's real invariant: a code emitted but absent from the table is a defect,
   // because a caller branches on the code and an undeclared one cannot be branched on.
@@ -4256,10 +4276,10 @@ test('kit: every problem code emitted anywhere is declared in the vocabulary', a
   }
   for (const file of files) {
     const text = readFileSync(file, 'utf8')
-    // Codes are emitted through the `problem('CODE', вЂ¦)` helper; matching that call
-    // shape avoids counting a code mentioned in a comment or a message.
-    for (const match of text.matchAll(/\bproblem\(\s*'([A-Z][A-Z0-9_]{3,})'/g)) {
-      if (!declared.has(match[1])) offenders.push(`${file.replace(KIT_ROOT, '')}: ${match[1]}`)
+    // Matching only the call shape keeps a code mentioned in a comment or a message
+    // from being counted.
+    for (const code of emittedProblemCodes(text)) {
+      if (!declared.has(code)) offenders.push(`${file.replace(KIT_ROOT, '')}: ${code}`)
     }
   }
   assert.deepEqual(offenders, [], `undeclared problem codes: ${offenders.join(', ')}`)
@@ -5650,6 +5670,30 @@ test('falsify: a case whose check cannot fail is reported MISSED, never silently
   assert.equal(required.status, 'missed')
   assert.equal(result.ok, false, 'a missed case is not a pass')
   assert.ok(result.counts.missed >= 1)
+})
+
+test('falsify: a case whose expected problem already exists is SKIPPED, never called detected', async () => {
+  // `detected` asserts the MUTATION caused the problem. `LAW_UNCHECKED` is a
+  // verification problem, not a compile one, so a corpus that already declares an
+  // unchecked law still compiles and the case would otherwise run and report
+  // `detected` for a problem it did not create.
+  const root = falsifiableProject('falsify-baseline')
+  writeFileSync(
+    join(root, 'docs', 'adrs', '0002-already-unchecked.adr.md'),
+    adrText({
+      id: '0002',
+      title: 'Already unchecked',
+      laws: [{ id: 'auth.already-unchecked', statement: 'No check and no stated reason.', checks: [] }],
+    }),
+  )
+  const result = await falsifyModule.falsify({ root })
+  const unchecked = result.cases.find((entry) => entry.id === 'law-with-no-check')
+  assert.equal(unchecked.status, 'skipped')
+  assert.match(unchecked.detail, /already declares a law with no check/)
+  assert.ok(
+    !result.cases.some((entry) => entry.id === 'law-with-no-check' && entry.status === 'detected'),
+    'a problem present before the mutation is not a detection',
+  )
 })
 
 test('falsify: a law whose target lies outside its declared zone never reaches the breaker', async () => {

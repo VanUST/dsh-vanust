@@ -362,6 +362,33 @@ export function readRecordedLawIds(root) {
 }
 
 /**
+ * The law ids the persisted spec bundle names, or `null` when it names none.
+ *
+ * The ledger is the primary record of the previous law set, but the file itself can
+ * be deleted and a missing ledger must not turn "a law was removed" into "no history".
+ * This is the fallback the removal check reads then. `.dsh/ratchet/specs.json` is
+ * rewritten only by `compile --write`, and the removal check runs BEFORE that rewrite,
+ * so on the run that matters it still holds the set the project had. Deleting the
+ * ledger alone therefore no longer launders a removal; deleting the bundle as well is
+ * the unauthenticated-state gap no file-based check can close without signed history.
+ *
+ * @param root - Absolute project root.
+ * @returns A sorted copy of the ids the persisted bundle records, or `null` when the
+ *   bundle is absent, unreadable, or holds a law the reader cannot identify.
+ */
+export function readPersistedLawIds(root) {
+  const read = readSpecBundle(root)
+  if (read.missing === true || read.error !== undefined) return null
+  const laws = read.value?.laws
+  if (!Array.isArray(laws)) return null
+  const ids = laws.map((law) => law?.id).filter((id) => typeof id === 'string')
+  // A bundle with an unidentifiable law cannot be compared law-by-law: treating the
+  // readable subset as the whole set would report every unnamed law as removed.
+  if (ids.length !== laws.length) return null
+  return [...ids].sort()
+}
+
+/**
  * Reports what the recorded verification actually covered.
  *
  * A recorded run counts as verified only when it judged the CURRENT laws, evaluated

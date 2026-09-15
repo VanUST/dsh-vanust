@@ -95,11 +95,17 @@ const PATH_ARGUMENTS = Object.freeze(['file_path', 'path', 'filePath', 'filename
  *   decision, so the guard's behaviour is explainable rather than merely permissive.
  */
 export function governanceOf(path, config) {
-  const decisionsDir = (config?.decisionsDir ?? 'docs/adrs').replace(/\/+$/, '')
-  const sourcesDir = (config?.sourcesDir ?? 'docs/ratchet/sources').replace(/\/+$/, '')
-  const stateDir = (config?.stateDir ?? '.dsh/ratchet').replace(/\/+$/, '')
-  const reportsDir = (config?.reportsDir ?? 'reports/ratchet').replace(/\/+$/, '')
-  const specsDir = (config?.specsDir ?? 'docs/specs').replace(/\/+$/, '')
+  // `./docs/adrs` and `docs/adrs` are the same directory, and only the decoder knew: a `./`-prefixed
+  // `decisionsDir` defeated the exemption below, so the guard refused the very ADR write that
+  // satisfies the rule — with a denial that both prescribed creating the record and ended by saying
+  // that write is never refused. Normalised here, the way the rest of the module already normalises
+  // a path.
+  const cleanDir = (value, fallback) => String(value ?? fallback).replace(/^\.\//, '').replace(/\/+$/, '')
+  const decisionsDir = cleanDir(config?.decisionsDir, 'docs/adrs')
+  const sourcesDir = cleanDir(config?.sourcesDir, 'docs/ratchet/sources')
+  const stateDir = cleanDir(config?.stateDir, '.dsh/ratchet')
+  const reportsDir = cleanDir(config?.reportsDir, 'reports/ratchet')
+  const specsDir = cleanDir(config?.specsDir, 'docs/specs')
 
   if (path === MANIFEST_PATH) return { governed: false, reason: 'the manifest itself is how a project opts in' }
   if (path.startsWith(`${decisionsDir}/`) || path === decisionsDir) {

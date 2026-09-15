@@ -41,7 +41,7 @@
  *   - Nothing here mutates the checked-out project: the invariants are asserted by
  *     constructing inputs, never by breaking the repository.
  */
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -785,6 +785,43 @@ claim(
   ]
   claim(
     'a law that leaves force without a recorded removal is reported, and a recorded removal is accepted',
+    parts.every((part) => part.endsWith('=true')),
+    parts.join(' '),
+  )
+}
+
+// 14b. Deleting the audit trail does not launder a removal. With the ledger gone the
+//      previous set is read from the persisted spec bundle, which this run has not yet
+//      rewritten. Deleting the ledger used to make the removal invisible — one `rm`
+//      turned the red gate green, and the next run recorded the shrunken set as truth.
+{
+  const root = project(
+    'law-complete-ledger-gone',
+    { laws: law({ id: 'auth.kept', checks: [{ type: 'required_text', paths: ['src/auth/x.ts'], pattern: 'one' }] }) },
+    { files: { 'src/auth/x.ts': 'const one = 1\n' } },
+  )
+  writeFileSync(
+    join(root, 'docs', 'adrs', '0002-b.adr.md'),
+    adrText('0002', law({ id: 'auth.retirable', checks: [{ type: 'required_text', paths: ['src/auth/x.ts'], pattern: 'one' }] })),
+  )
+  // A real compile --write is what records the persisted bundle this fallback reads.
+  await compile({ root, write: true })
+  await verify({ root })
+  const ledger = join(root, '.dsh', 'ratchet', 'ledger.jsonl')
+  const bundle = join(root, '.dsh', 'ratchet', 'specs.json')
+  const bundleRecorded = existsSync(bundle)
+  rmSync(ledger, { force: true })
+  rmSync(join(root, 'docs', 'adrs', '0002-b.adr.md'), { force: true })
+  const first = await verify({ root })
+  const secondRun = await verify({ root })
+  const reported = (result) => result.problems.some((entry) => entry.code === 'LAW_REMOVED_WITHOUT_DECISION')
+  const parts = [
+    `bundle-available=${bundleRecorded}`,
+    `ledger-gone-removal-reported=${reported(first)}`,
+    `still-reported-next-run=${reported(secondRun)}`,
+  ]
+  claim(
+    'a removal is still reported after the ledger that recorded the law set is deleted',
     parts.every((part) => part.endsWith('=true')),
     parts.join(' '),
   )

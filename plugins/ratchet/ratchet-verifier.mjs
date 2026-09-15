@@ -32,7 +32,7 @@ import { PROBLEM_CODES, globToRegExp, normaliseText, problem, zoneFor } from './
 // and file selection must agree and the compiler and the guard cannot import this file. It
 // is re-exported here so the callers that already reach it through the verifier keep working.
 export { globToRegExp }
-import { bundleHash } from './ratchet-compiler.mjs'
+import { bundleHash, normaliseGlobPath } from './ratchet-compiler.mjs'
 
 /** Report title embedded in every verification report. */
 export const VERIFY_REPORT_KIND = 'ratchet/verify-report'
@@ -441,7 +441,19 @@ export async function verifyLaw({ root, law, files, dependencies, config, runCom
     problems.push(problem(code, message, law.id, { lawId: law.id, ...extra }))
   }
 
-  for (const check of law.checks) {
+  // A check target written `./src/auth/**` or `src/../src/auth/**` names the same path as the
+  // control spelling, and the COMPILER already normalises it (`pathIsGoverned` strips `./` and
+  // resolves `..`). This matcher compared the RAW string against walked paths, which never contain
+  // `./` or `..`, so a `forbidden_*` law over a tree holding the forbidden file reported SATISFIED —
+  // a false green — and a `required_*` law reported a file that exists as missing. Normalised once,
+  // for the kinds whose target is a PATH: a `pattern` on a text check is text, and normalising it
+  // would corrupt a regex that happens to contain a slash or a dot.
+  for (const raw of law.checks) {
+    const check = { ...raw }
+    if (typeof check.path === 'string') check.path = normaliseGlobPath(check.path).path
+    if (typeof check.pattern === 'string' && (check.type === 'required_glob' || check.type === 'forbidden_glob')) {
+      check.pattern = normaliseGlobPath(check.pattern).path
+    }
     switch (check.type) {
       case 'required_file': {
         checked += 1

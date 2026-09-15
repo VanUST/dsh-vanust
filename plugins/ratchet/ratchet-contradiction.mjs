@@ -155,8 +155,13 @@ function writeContradictions(root, entries) {
  *
  * @returns The entry that was written.
  */
-export function recordContradiction(root, { target, findings, job = null, at = null } = {}) {
+export function recordContradiction(root, { target, findings, job = null, at = null, replace = true } = {}) {
   const entries = readContradictions(root)
+  const key = contradictionKey(target)
+  // A SELF-REVIEW may raise a block and never REPLACE one. Overwriting an independent judge's
+  // finding with the agent's own would lift the zone that finding blocked, silently and
+  // deterministically, which is the bypass the two-caller rule exists to prevent.
+  if (replace === false && entries[key] !== undefined) return entries[key]
   const entry = {
     job,
     at: at ?? new Date().toISOString(),
@@ -170,7 +175,7 @@ export function recordContradiction(root, { target, findings, job = null, at = n
       ...(finding.suggestedAction === undefined ? {} : { suggestedAction: finding.suggestedAction }),
     })),
   }
-  entries[contradictionKey(target)] = entry
+  entries[key] = entry
   writeContradictions(root, entries)
   return entry
 }

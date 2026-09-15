@@ -616,7 +616,7 @@ export function pathIsGoverned(target, zonePaths) {
  * @returns `{ path, escaped }`. `escaped` is true when the target climbs above the root,
  *   which no zone can govern.
  */
-function normaliseGlobPath(value) {
+export function normaliseGlobPath(value) {
   const parts = String(value).replace(/^\.\//, '').split('/')
   const out = []
   let escaped = false

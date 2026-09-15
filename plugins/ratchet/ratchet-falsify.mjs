@@ -67,7 +67,11 @@
  *     way, because `resolve()` alone does not follow symlinks.
  *   - A check type no law uses yields `skipped` with the reason, never a failure.
  *   - A law whose target is already in the violating state yields `skipped`: the gate
- *     already fails, so the failure cannot be attributed to this mutation.
+ *     already fails, so the failure cannot be attributed to this mutation. Every case
+ *     proves that baseline structurally in its `plan` — from the compiled bundle for
+ *     the unchecked-law case, from the target's on-disk state for the file/text ones.
+ *     A corpus that already reports the expected code at compile time makes the whole
+ *     run `unusable`, so no case runs against it at all.
  *   - `SIGINT` and `SIGTERM` are caught for the duration of a run when the caller passes
  *     `handleSignals: true` (the CLI does): the in-flight mutation, the journal and the
  *     persisted state are restored, then the process exits 130 or 143. A `finally` block
@@ -808,9 +812,10 @@ async function runCase(spec, context, pendingRestore) {
 /**
  * The generic cases. Each names one claim, the scope it touches, and how to break it.
  *
- * Cases 1 and 2 always run on a compilable corpus. Cases 3–6 are conditional: when no
- * law uses the check type they are `skipped` with the reason, because a project is
- * allowed not to use every check kind.
+ * Cases 1 and 2 always run on a compilable corpus; case 2 skips when the corpus already
+ * declares an unchecked law, because then the expected problem is not the mutation's.
+ * Cases 3–6 are conditional: when no law uses the check type they are `skipped` with the
+ * reason, because a project is allowed not to use every check kind.
  */
 const CASES = [
   {
@@ -847,6 +852,18 @@ const CASES = [
     expectedCode: 'LAW_UNCHECKED',
     scope: (context) => `${context.dirs.decisionsDir}/**`,
     plan(context) {
+      // A `detected` verdict asserts the MUTATION caused the problem, so a corpus that
+      // already has an unchecked law would report `detected` for a case that proved
+      // nothing. The compiled bundle says whether one exists, so the baseline is read
+      // from it rather than paid for with a second verification — a verification here
+      // would also run any `command` check the project declares a second time, which on
+      // a slow gate doubled the run and outlived the caller's own timeout.
+      if (context.laws.some((entry) => (entry.checks ?? []).length === 0 && !entry.unenforced)) {
+        return {
+          status: 'skipped',
+          detail: 'the corpus already declares a law with no check and no stated reason, so LAW_UNCHECKED would not be attributable to this case',
+        }
+      }
       const id = context.freeId()
       const relative = `${context.dirs.decisionsDir}/${id}-falsify-unchecked.adr.md`
       const writable = assertWritable(context.root, relative, context.globs)

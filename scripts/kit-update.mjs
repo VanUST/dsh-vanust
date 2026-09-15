@@ -38,6 +38,10 @@
  *   - Kit directory missing a file: that item is skipped and reported, never
  *     fatal; a machine can still be converged for the artifacts that exist.
  *   - No tarballs in kit/plugins: plugin convergence is a no-op (not an error).
+ *   - Node older than 24: refused before any read or write with one message and
+ *     exit 1. The pinned harness and pnpm 11's Corepack abort on older runtimes,
+ *     and `start.sh` runs this script each boot with stderr swallowed, so without
+ *     the guard the failure was silent and the machine still looked converged.
  *   - JSON mode never mixes logs into stdout, so a caller can always parse it.
  */
 
@@ -525,6 +529,20 @@ function main(argv) {
   JSON_MODE = opts.json
   const kit = resolve(opts.kit)
   const home = resolve(opts.home)
+
+  // Node >= 24 is a hard prerequisite. Checked before anything is read or written,
+  // because the failure it prevents is a silent one: pnpm 11's Corepack and the
+  // pinned harness abort on an older runtime, and `start.sh` runs this script on
+  // every boot with stderr swallowed, so an unguarded run left a machine that
+  // looked converged while no plugin or rule had been installed.
+  const nodeMajor = Number.parseInt(process.versions.node.split('.')[0], 10)
+  if (!Number.isInteger(nodeMajor) || nodeMajor < 24) {
+    const message = `Node >= 24 is required (found ${process.version}); pnpm 11 and the pinned harness both need it, so this convergence cannot run. Put a Node 24+ first on PATH and re-run.`
+    if (JSON_MODE) emit({ ok: false, error: message })
+    else process.stderr.write(`error: ${message}\n`)
+    return 1
+  }
+
   const harnessPin = pinnedHarness(kit)
 
   log('kit.inventory', { kit, home, profile: opts.profile, mode: opts.mode })

@@ -68,14 +68,16 @@ const execFileAsync = promisify(execFileCallback)
 /**
  * Laws that were in force and are gone, with no active record retiring them.
  *
- * The comparison is against the law set the LEDGER last recorded, not against the
- * persisted bundle: `compile --write` rewrites that bundle, so asking it "were you
- * missing a law?" is asking the overwritten copy. The ledger is append-only and is
- * therefore the only artifact a deletion does not rewrite — which is exactly why the
- * check has to read it.
+ * The comparison is against the previous law set, read from the LEDGER first, because
+ * `compile --write` rewrites the persisted bundle and a deletion that also removed the
+ * ledger used to leave no history to compare against. When the ledger holds no recorded
+ * set — it was deleted, or holds only runs that recorded none — the persisted bundle is
+ * read as the fallback: `readPersistedLawIds` explains why that is safe here and which
+ * gap it leaves. Both reads happen BEFORE this run persists, so neither can compare the
+ * set with itself.
  *
  * A first run on a project with no recorded history returns nothing rather than
- * everything: `null` from the reader means "no set was ever recorded", while `[]`
+ * everything: `null` from both readers means "no set was ever recorded", while `[]`
  * means "a set with no laws", and only the first may be treated as unknown.
  *
  * @param root - Absolute project root.
@@ -84,7 +86,7 @@ const execFileAsync = promisify(execFileCallback)
  *   through an active record's explicit `remove` op.
  */
 function lawRemovalProblems(root, compiled) {
-  const previous = state.readRecordedLawIds(root)
+  const previous = state.readRecordedLawIds(root) ?? state.readPersistedLawIds(root)
   if (previous === null) return []
   // A corpus that did not compile has no law set to compare against: with an unreadable
   // manifest every law "disappeared", so this reported all twenty-three of them as
@@ -1000,11 +1002,13 @@ export async function review({
       zones: declined.zones.length,
       target: contradictionModule.contradictionKey(target),
     })
-  } else if (record && independentJudge) {
-    // Only an INDEPENDENT clean verdict retires a block. A self-submitted verdict may report a
-    // contradiction but may not clear one, or an agent could lift its own block by answering its
-    // own question — the same distinction the consent model draws between an answer and one a
-    // caller composed.
+  } else if (record && independentJudge && parsed.problem === null && judgeError === null && validation.ok) {
+    // Only an INDEPENDENT, USABLE, clean verdict retires a block. Two ways this was wrong:
+    // a self-submitted verdict could clear one (an agent lifting its own block by answering its own
+    // question), and so could an independent judge whose answer could not be parsed or failed
+    // validation — prose, `{}`, or a finding citing a law nobody declares. An unusable answer is not
+    // a clean bill of health, which is what `validateVerdict` warns about in its own comment; here it
+    // silently lifted the block instead.
     contradictionModule.clearContradiction(root, target)
   }
 
@@ -2060,7 +2064,10 @@ export function submitReview({ root, job, verdict, record = true, change = null,
   const judgedSomething = proposal !== null || change !== null || source !== null
   if (record && blocking.length > 0) {
     const target = contradictionModule.contradictionTarget({ job: report.job, proposal, change, source, records: context.records })
-    contradictionModule.recordContradiction(root, { target, findings: blocking, job: report.job })
+    // `replace: false`: an existing entry stands. A self-review that OVERWRITES an independent
+    // finding lifts the zone that finding blocked — a deterministic bypass by the agent the gate
+    // gates, which is the one thing this path is documented never to allow.
+    contradictionModule.recordContradiction(root, { target, findings: blocking, job: report.job, replace: false })
   }
 
   return {

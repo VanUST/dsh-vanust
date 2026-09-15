@@ -40,8 +40,9 @@ export const RATCHET_DIR_DEFAULT = 'docs/adrs'
  *
  * The set is closed and stable on purpose: a caller (or an agent reading the
  * report) branches on the code, so adding a code is a compatible change and
- * renaming one is not. `verify-upgrade.sh` asserts every emitted code is in this
- * table, which is what stops a code being invented at a call site.
+ * renaming one is not. `scripts/test-ratchet.mjs` scans every emitted code at both
+ * call shapes — the `problem` helper and the `fail` closure inside `verifyLaw` —
+ * against this table, which is what stops a code being invented at a call site.
  */
 export const PROBLEM_CODES = Object.freeze({
   MANIFEST_MISSING: 'the manifest file does not exist',
