@@ -328,8 +328,27 @@ report a pass. The gate is the CLI above; the tools are for an agent mid-session
   cases remain (a mutation that breaks `buildQuiz` makes the scripts exit 1 with a
   `TypeError` instead of the `FAILED` marker); the gate still fails, so only the diagnosis is
   poorer, and it is recorded as a limit rather than fixed by restructuring both scripts.
-- **Four decisions await a human:** `0015` (the grill session consents through the question
-  channel), `0017` (a proposal licenses the work, a contradiction stops it), `0018` (a question
+- **The guard's zone matcher, symlink handling, cache key and editor policy were all wrong, and
+  are fixed.** An independent breaker falsified four verdicts against the *fixed* guard: a zone
+  declaring `paths: ["**"]` governed nothing (zone membership was a directory-prefix test while
+  file selection used the project's glob matcher, so the manifest accepted declarations the guard
+  ignored); a write through a symlink into a governed zone was allowed; the cache key
+  `name:size:mtimeMs` missed a same-size rewrite with a restored mtime (30 stale ALLOWs in 400
+  natural rewrites); and `str_replace_editor {command: "view"}` — a read — was refused. The glob
+  matcher now lives in `ratchet-schema.mjs` and `zoneFor` and the verifier share it; `changedPath`
+  resolves the deepest existing ancestor through `realpathSync`; the key carries `mtimeNs` and
+  `ctimeNs`; a `view` is exempt. Each fix has a test taken from its counterexample and was
+  re-verified by reverting it in a copy and requiring the test to fail.
+- **The panel answers a click directly, with no chat quiz.** The operator rejected the previous
+  design in as many words: "Buttons in ADR should approve/decline adr directly, without
+  intermediate chat". A ratifiable row now carries Approve and Decline; a click records
+  `(record, decision)` and submits the ratchet's `/ratify <id>` so the ratchet ASKS, and the entry
+  that claims the question settles it with the label the ratchet offered for that record. The wire
+  gained `intent.targetId`, because a presentation that cannot tell which record a question is
+  about must not answer it. A question with no click behind it is still offered in the window, so
+  nothing is unanswerable, and a request naming another record — or no request — is asserted NOT to
+  settle anything.
+- **Four decisions await a human:** `0017` (a proposal licenses the work, a contradiction stops it), `0018` (a question
   says where it is shown) and `0019` (the panel's consent laws are enforced by executing the
   bundle). None is in force, none is blocking, and each is a record
   a human can ratify from the panel the previous cycle shipped — which is the flow ADR 0017
