@@ -528,18 +528,18 @@ export function verificationEvents(report, specHash) {
  */
 export function tracksSpecDocuments(root, specsDir, explicit = undefined) {
   if (explicit === true) return true
-  // An explicit `false` is an opt-out. Before this branch, `false` fell through to the
-  // directory scan, so a project that turned tracking off while its generated documents
-  // were on disk was tracked anyway — the setting said one thing and the behaviour did
-  // another, which is the class of defect this project exists to remove.
-  if (explicit === false) return false
   const directory = join(root, specsDir ?? 'docs/specs')
-  if (!existsSync(directory)) return false
   try {
-    return readdirSync(directory).some((entry) => entry.endsWith('.spec.md'))
+    if (existsSync(directory) && readdirSync(directory).some((entry) => entry.endsWith('.spec.md'))) return true
   } catch {
-    return false
+    // An unreadable directory is not evidence that the project has no documents.
   }
+  // A project that has EVER tracked specs keeps tracking them. The persisted bundle is the
+  // evidence, and without this clause deleting the LAST generated document switched the guarantee
+  // off silently: the on-disk test above asks whether any document exists, so removing the only one
+  // answered "no" and the deletion became invisible. That is the same drift this function exists to
+  // catch, reachable by deleting one file.
+  return existsSync(join(root, STATE_PATHS.specBundle))
 }
 
 /**

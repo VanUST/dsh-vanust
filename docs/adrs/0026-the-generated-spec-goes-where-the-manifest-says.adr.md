@@ -10,7 +10,7 @@ created: "2026-09-15T00:00:00Z"
 source:
   kind: file
   path: docs/ratchet/sources/2026-09-15-the-generated-spec-goes-where-the-manifest-says.md
-  hash: sha256:8c05965d16a4a8207658f678b5b4316d543d75a552249446593a752e27435338
+  hash: sha256:444be1e916da32a306b491a4a4fa6ecbe7bff81468e43b51669b61e90c3f8576
 zones:
   - shipped-plugins
 supersedes: []

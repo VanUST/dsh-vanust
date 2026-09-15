@@ -1620,7 +1620,39 @@ export function parseRatchetConfig(manifestText, manifestHash = null) {
       )
       continue
     }
-    config[field] = ratchet[field].trim().replace(/\/+$/, '')
+    const resolved = ratchet[field].trim().replace(/\/+$/, '')
+    // A directory that climbs out of the project, or is absolute, is not a place this project can
+    // govern: `specsDir: "../escaped/specs"` wrote generated documents OUTSIDE the root and the
+    // ratchet reported nothing, because the one field nobody containment-checked was the one that
+    // escaped. Checked for every directory field, in the parser, so no writer has to remember.
+    if (resolved.startsWith('/') || /^[A-Za-z]:/.test(resolved) || /(^|\/)\.\.(\/|$)/.test(resolved)) {
+      problems.push(
+        problem(
+          'MANIFEST_INVALID',
+          `${MANIFEST_PATH} declares ratchet.${field} = ${JSON.stringify(ratchet[field])}, which is not a path inside the project; the ratchet reads and writes only inside the project root`,
+        ),
+      )
+      continue
+    }
+    config[field] = resolved
+  }
+
+  // `reportsDir` and `stateDir` are accepted by this parser and NOT honoured by the writers: the
+  // state and report paths are frozen constants, so a project declaring either had its artifacts
+  // land somewhere other than the manifest said while the write guard and the breaker read the
+  // DECLARED directory and disagreed with the writers about where state lives. Until they are
+  // honoured, the manifest is refused rather than accepted and ignored: a path field is honoured or
+  // refused, never silently ignored. The alternative -- accepting it and writing elsewhere -- is the
+  // defect this refusal removes.
+  for (const field of ['reportsDir', 'stateDir']) {
+    const fallback = field === 'reportsDir' ? 'reports/ratchet' : '.dsh/ratchet'
+    if (config[field] === undefined || config[field] === fallback) continue
+    problems.push(
+      problem(
+        'MANIFEST_INVALID',
+        `${MANIFEST_PATH} declares ratchet.${field} = ${JSON.stringify(config[field])}, which this ratchet does not honour: its state and report paths are fixed at ${fallback}, because they are machine-written files the guard and the breaker also resolve. Setting it put the artifacts somewhere other than the manifest said while the guard read the manifest. Remove the field or set it to ${fallback}`,
+      ),
+    )
   }
 
   if (ratchet.defaultAgentAuthority !== undefined) {

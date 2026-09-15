@@ -1780,18 +1780,33 @@ test('state: a verification that evaluated zero checks does not count as verifie
   assert.ok(after.problems.some((entry) => entry.code === 'VERIFY_NOT_RUN'))
 })
 
-test('state: an explicit specsRequired false opts out of tracking even with documents on disk', () => {
+test('state: specsRequired false does NOT opt out once generated documents exist', () => {
+  // ADR 0012, ratified by 0013, decided this: "the project sets `specsRequired: false` while
+  // committing two generated specs, and the code short-circuits on that flag instead of
+  // implementing the on-disk clause the design document already states", and its consequence —
+  // "a project that removes `specsRequired` no longer loses drift detection". A later commit
+  // (7306c19, whose own subject was "turn spec tracking ON by default") reintroduced the
+  // short-circuit and this test asserted it, so a ratified decision was regressed by a test that
+  // encoded the defect. Only `true` short-circuits.
   const root = makeProject({ name: 'specs-opt-out' })
   mkdirSync(join(root, 'docs', 'specs'), { recursive: true })
   writeFileSync(join(root, 'docs', 'specs', 'zone.spec.md'), '# Spec\n')
 
-  assert.equal(
-    state.tracksSpecDocuments(root, 'docs/specs', undefined),
-    true,
-    'a generated document on disk is tracked when the manifest says nothing',
-  )
-  assert.equal(state.tracksSpecDocuments(root, 'docs/specs', false), false, 'the explicit opt-out is honoured')
+  assert.equal(state.tracksSpecDocuments(root, 'docs/specs', undefined), true, 'a document on disk is tracked when the manifest says nothing')
+  assert.equal(state.tracksSpecDocuments(root, 'docs/specs', false), true, 'and `false` does not opt out while it exists')
   assert.equal(state.tracksSpecDocuments(root, 'docs/specs', true), true, 'the explicit opt-in is honoured')
+})
+
+test('state: deleting the LAST generated document cannot switch drift detection off', () => {
+  // The on-disk clause asks whether any document exists, so removing the only one answered "no" and
+  // the deletion became invisible — the drift this function exists to catch, reachable by deleting
+  // one file. The persisted bundle is the evidence that the project tracks specs.
+  const root = makeProject({ name: 'specs-last-doc' })
+  mkdirSync(join(root, '.dsh', 'ratchet'), { recursive: true })
+  writeFileSync(join(root, state.STATE_PATHS.specBundle), '{"version":1}\n')
+  assert.equal(state.tracksSpecDocuments(root, 'docs/specs', false), true, 'a project that ever tracked specs keeps tracking them')
+  rmSync(join(root, '.dsh', 'ratchet'), { recursive: true, force: true })
+  assert.equal(state.tracksSpecDocuments(root, 'docs/specs', false), false, 'and a project that never did is left alone')
 })
 
 test('state: the ledger is append-only and survives an unreadable line', () => {
@@ -6189,4 +6204,46 @@ test('compiler: a generated spec goes where the manifest says, not to a hardcode
     true,
     `a project with its own specs directory must verify green: ${JSON.stringify(verified.problems?.map((entry) => entry.code))}`,
   )
+})
+
+test('schema: a directory field the writers do not honour is refused, not accepted and ignored', () => {
+  // `reportsDir` and `stateDir` were parsed, validated and stored, and the state/report paths are
+  // frozen constants no writer rebased — so a project declaring either got its artifacts somewhere
+  // other than the manifest said, while the guard and the breaker resolved the DECLARED directory
+  // and disagreed with the writers about where state lives. A path field is honoured or refused,
+  // never accepted and ignored.
+  for (const [field, value] of [
+    ['stateDir', 'var/ratch'],
+    ['reportsDir', 'out/reports'],
+  ]) {
+    const root = makeProject({ name: `unhonoured-${field}`, extraManifest: { [field]: value } })
+    const manifest = compiler.readManifest(root)
+    assert.ok(
+      manifest.problems.some((entry) => entry.code === 'MANIFEST_INVALID' && entry.message.includes(field)),
+      `${field} = ${value} must be refused while no writer honours it`,
+    )
+  }
+  // ...and the values the writers actually use are accepted, so the refusal is not a blanket ban.
+  const ok = makeProject({
+    name: 'honoured-dir-defaults',
+    extraManifest: { stateDir: '.dsh/ratchet', reportsDir: 'reports/ratchet' },
+  })
+  assert.equal(compiler.readManifest(ok).problems.length, 0, 'the defaults the writers use are fine')
+})
+
+test('schema: a directory field cannot escape the project root', () => {
+  // `specsDir: "../escaped-out/specs"` compiled green and wrote generated documents OUTSIDE the
+  // project, because the one directory field nobody containment-checked was the one that escaped.
+  for (const [field, value] of [
+    ['specsDir', '../escaped-out/specs'],
+    ['decisionsDir', '/etc/decisions'],
+    ['sourcesDir', 'a/../../b'],
+  ]) {
+    const root = makeProject({ name: `escape-${field}`, extraManifest: { [field]: value } })
+    const manifest = compiler.readManifest(root)
+    assert.ok(
+      manifest.problems.some((entry) => entry.code === 'MANIFEST_INVALID' && entry.message.includes(field)),
+      `${field} = ${value} must be refused`,
+    )
+  }
 })
