@@ -5974,3 +5974,34 @@ test('verifier: an identical command runs once per verification, not once per la
   assert.equal(result.report.counts.checksEvaluated, 6, 'every law still evaluates both of its checks')
   assert.equal(calls, 2, 'two distinct commands must run twice, not once per law')
 })
+
+test('schema: zoneFor and the compiler decide membership with one predicate', () => {
+  // They were two implementations — a directory-prefix test in `zoneFor` and a different prefix
+  // test in `pathIsGoverned` — and they disagreed in both directions: a zone declaring a bare
+  // directory governed a write in the guard and was invisible to the compiler's authority check,
+  // while a zone with a wildcard mid-path was governed by the guard and refused by the compiler.
+  // A zone the manifest accepts must mean the same thing everywhere, so this drives both through
+  // the same table.
+  const cases = [
+    ['src/auth/**', 'src/auth/x.ts', true],
+    ['src/auth/**', 'src/auth', true],
+    ['src/auth/**', 'src/authdeep/x.ts', false],
+    ['src/auth', 'src/auth/x.ts', true],
+    ['src/auth', 'src/auth', true],
+    ['src/auth', 'src/authdeep/x.ts', false],
+    ['src/auth/*', 'src/auth/x.ts', true],
+    ['src/auth/*', 'src/auth/deep/x.ts', false],
+    ['**/auth/**', 'src/deep/auth/x.ts', true],
+    ['**/auth/**', 'src/deep/other/x.ts', false],
+    ['src/au?h/**', 'src/auth/x.ts', true],
+    ['src/au?h/**', 'src/auuuh/x.ts', false],
+    ['**', 'anything/at/all.ts', true],
+    ['*', 'anything/deep.ts', true],
+  ]
+  for (const [zonePath, file, expected] of cases) {
+    const byZone = schema.zoneFor(file, [{ id: 'z', paths: [zonePath], agentAuthority: 'proposeOnly' }]) !== null
+    const byCompiler = compiler.pathIsGoverned(file, [zonePath])
+    assert.equal(byZone, byCompiler, `zoneFor and pathIsGoverned disagree for ${JSON.stringify(zonePath)} vs ${file}`)
+    assert.equal(byZone, expected, `${JSON.stringify(zonePath)} should ${expected ? '' : 'not '}cover ${file}`)
+  }
+})

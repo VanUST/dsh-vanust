@@ -16,18 +16,7 @@
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import {
-  AUTHORITIES,
-  CHECK_TARGET_FIELDS,
-  MANIFEST_PATH,
-  PROBLEM_CODES,
-  RATCHET_DIR_DEFAULT,
-  hashSource,
-  normaliseText,
-  parseAdr,
-  parseRatchetConfig,
-  problem,
-} from './ratchet-schema.mjs'
+import { AUTHORITIES, CHECK_TARGET_FIELDS, MANIFEST_PATH, PROBLEM_CODES, RATCHET_DIR_DEFAULT, hashSource, normaliseText, parseAdr, parseRatchetConfig, problem, zonePathCovers } from './ratchet-schema.mjs'
 
 /** Report title embedded in every bundle, so a consumer can reject a foreign file. */
 export const COMPILE_REPORT_KIND = 'ratchet/compile-report'
@@ -602,21 +591,16 @@ export function pathIsGoverned(target, zonePaths) {
   // target matches no walked file and enforces nothing; that makes it inert, not
   // authorised, and a target the compiler cannot place is refused rather than trusted.
   if (clean.escaped) return false
-  return (zonePaths ?? []).some((entry) => {
-    const raw = String(entry).replace(/^\.\//, '')
-    // A zone that claims the whole repository. It is not a prefix like the others, and
-    // treating it as one made it govern nothing at all.
-    if (raw === '**' || raw === '*') return true
-    const prefix = raw.replace(/\/\*\*$/, '')
-    // Containment is ONE-WAY: the target must fall inside the zone. The reverse test —
-    // "is the zone inside the target?" — was there so a target naming a directory would
-    // be covered by a zone naming a file inside it, and it did the opposite of what the
-    // rule is for: a law whose target was `plugins/**` was accepted by a record that
-    // declared only `plugins/demo/**`, and then enforced on `plugins/other/**`, outside
-    // the authority that record claimed. A target broader than the zone reaches outside
-    // it by construction and must be refused, not accommodated.
-    return clean.path === prefix || clean.path.startsWith(`${prefix}/`)
-  })
+  // Containment is ONE-WAY — the target must fall inside the zone — and it is decided by the SAME
+  // predicate `zoneFor` places a file with. It was a second implementation here, and the two
+  // disagreed in both directions: a zone declaring `src/auth` governed a write in the guard and
+  // was invisible to this check, while a zone with a wildcard mid-path was governed by the guard
+  // and refused here. The reverse test — "is the zone inside the target?" — was removed earlier
+  // for a different reason: a law whose target was `plugins/**` was accepted by a record that
+  // declared only `plugins/demo/**`, and then enforced on `plugins/other/**`, outside the
+  // authority that record claimed. A target broader than the zone reaches outside it by
+  // construction and must be refused, not accommodated.
+  return (zonePaths ?? []).some((entry) => zonePathCovers(entry, clean.path))
 }
 
 /**

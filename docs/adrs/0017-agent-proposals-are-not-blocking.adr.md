@@ -10,7 +10,7 @@ created: "2026-09-15T00:00:00Z"
 source:
   kind: file
   path: docs/ratchet/sources/2026-09-15-agent-proposals-are-not-blocking.md
-  hash: sha256:ccad2f78460fb4789d6b732878d2c54165dd42c6df045b4272385fd3a609dc83
+  hash: sha256:6c143b5cdcb46c5239a78fe8e9d4dfd03090af461967b3617ec74adaa9dab345
 zones:
   - shipped-plugins
 supersedes: []

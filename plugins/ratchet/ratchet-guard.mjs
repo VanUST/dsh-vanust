@@ -270,14 +270,14 @@ export function changedPath(exec, root) {
     const value = args[key]
     if (typeof value !== 'string' || value.length === 0) continue
     const absolute = isAbsolute(value) ? resolve(value) : resolve(root, value)
-    const lexical = relative(root, absolute).split('\\').join('/')
-    // A path outside the project is not this guard's business: an agent writing to
-    // a temporary directory or another checkout is not changing this architecture.
-    if (lexical.startsWith('..') || isAbsolute(lexical)) return null
-    // ...and neither is one that only PRETENDS to be inside it. A symlink is how a governed
-    // zone is reached from a path that reads as ungoverned: `staging/link` pointing at
-    // `src/auth` made `staging/link/session.ts` an ALLOW while the write landed in
-    // `src/auth/session.ts`, because the guard compared strings and never asked the zone.
+    // Resolve FIRST, judge second. Comparing the lexical path against the project root before
+    // resolving meant a path that READS as outside was never resolved at all, and two shapes
+    // walked into governed zones through that gap: an absolute path spelled through the
+    // project's real location when the root itself is a symlink, and a symlink OUTSIDE the
+    // project pointing into a governed zone. In both the backend's target was inside the zone
+    // and the guard answered before asking the filesystem. `resolvedInside` gives the same
+    // answer for both spellings, and returns null for a path that genuinely leaves the project,
+    // which the guard reads as "not its business" — the same answer a plain outside path gets.
     return resolvedInside(absolute, root)
   }
   return null
@@ -290,8 +290,9 @@ export function changedPath(exec, root) {
  * The deepest EXISTING ancestor is resolved and the rest is re-appended, because a write
  * creates its target and the target therefore usually does not exist yet — resolving the whole
  * path would fail on exactly the calls this guard has to judge. A path whose real location is
- * outside the project returns `null`, which the guard reads as "not its business", the same
- * answer a lexically-outside path gets.
+ * outside the project returns `null`, which the guard reads as "not its business". There is no
+ * separate lexical test: comparing the string first is what let a symlinked root and an outside
+ * alias into governed zones, because it answered before this function could resolve them.
  *
  * @param absolute - The resolved-but-not-real path the call named.
  * @param root - Absolute project root.

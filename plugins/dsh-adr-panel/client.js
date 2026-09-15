@@ -132,6 +132,12 @@
  *   - The same interaction is never settled twice: the decision is recorded against the
  *     interaction, because the harness throws when one pending question is settled twice
  *     and a render can run an effect more than once.
+ *   - A click whose ask produced no question expires (`REQUEST_TTL_MS`) instead of staying
+ *     armed: the record can be edited between the click and a later question, and an armed
+ *     answer would then consent to text the human never saw. A request with no timestamp is
+ *     not trusted either.
+ *   - A request names its record EXACTLY. A prefix, a suffix or stray whitespace is a
+ *     different record and answers nothing.
  *   - A pending question that is not the ratchet's, or is the ratchet's but not a
  *     claimable shape (several questions, no detail, multi-select, not exactly two
  *     labelled options, no option carrying the intent's approve label, no callable
@@ -193,7 +199,7 @@ window.__ModuleLoader__.load({
 		 * constant is the only way to tell a stale bundle from a bug: bump it with every
 		 * change to this file, and keep it equal to the package's version.
 		 */
-		const PANEL_VERSION = "0.1.15";
+		const PANEL_VERSION = "0.1.16";
 		/** The manifest a ratchet project declares its directories and name in. */
 		const MANIFEST_PATH = ".dsh/project.json";
 		/** Directories used when the manifest is absent, unparseable, or silent. */
@@ -274,6 +280,19 @@ window.__ModuleLoader__.load({
 		 * render. A WeakSet holds the interaction without keeping it alive.
 		 */
 		const autoSettled = new WeakSet();
+
+		/**
+		 * How long a recorded click may stay armed waiting for the ratchet's question.
+		 *
+		 * A click records an answer and then asks, and the question arrives asynchronously. If it
+		 * never arrives — the channel is down, the id is refused, the ask is lost — the recorded
+		 * answer must NOT stay armed: the same record can be edited in between, and a later
+		 * question about the NEW text would then be answered by a click the human made about the
+		 * old one. The consent the ratchet records is bound to the text its question showed, so a
+		 * click that outlived its ask is a click about a text that may no longer exist. Two
+		 * minutes is far longer than a local round trip and far shorter than a session.
+		 */
+		const REQUEST_TTL_MS = 120000;
 
 		//#region ratification question
 		/**
@@ -1816,6 +1835,17 @@ window.__ModuleLoader__.load({
 			React.useEffect(function () {
 				if (claim === null || request === null || request === undefined) return undefined;
 				if (request.adrId !== claim.targetId) return undefined;
+				// A recorded click is an answer about the text the human was looking at. If the ask
+				// produced no question — the channel is down, the id was refused, the ask was lost —
+				// the answer must not stay armed, because the record can be edited in the meantime
+				// and the NEXT question about it would then be answered by a click the human made
+				// about the OLD text. The ratchet binds a consent to the text its question showed;
+				// a click that outlived its ask is a click about a text that may no longer exist,
+				// which is exactly what `RATIFICATION_STALE` exists to refuse.
+				if (typeof request.at !== "number" || Date.now() - request.at > REQUEST_TTL_MS) {
+					if (typeof clearRequest === "function") clearRequest();
+					return undefined;
+				}
 				if (autoSettled.has(matched)) return undefined;
 				autoSettled.add(matched);
 				var label = request.decision === "approve" ? claim.approve.label : claim.decline.label;
@@ -2422,7 +2452,15 @@ window.__ModuleLoader__.load({
 									if (typeof adrId !== "string" || adrId === "") return false;
 									var submitter = store.getSnapshot().ask;
 									if (typeof submitter !== "function") return false;
-									store.set({ request: { adrId: adrId, decision: decision === "decline" ? "decline" : "approve" } });
+									store.set({
+										request: {
+											adrId: adrId,
+											decision: decision === "decline" ? "decline" : "approve",
+											// When the click happened, so a question that arrives much later
+											// cannot be answered by it. See REQUEST_TTL_MS.
+											at: Date.now()
+										}
+									});
 									try {
 										submitter(adrId);
 										return true;

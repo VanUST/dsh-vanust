@@ -860,24 +860,47 @@ const seatButtons = seatNodes.filter((node) => node.tag === 'button')
 // called `pending.answer(...)`, passed every assertion while putting the answer — and the
 // ability to send it — back into the Conversation. The seat is forbidden the answer, so the
 // check has to be about the answer's presence anywhere, not about the tag it arrived in.
+// The needles: both labels, the question, the record text, and a SHORT prefix of it — a guard
+// that only matched the whole text let `detail.slice(0, 12)` through.
 const forbiddenHere = [
   ['an answer label', [approveLabel, declineLabel]],
   ['the question', [ratifyQuestion.question]],
-  ['the record text', [ratifyQuestion.detail, ratifyQuestion.detail.slice(0, 24)]],
+  ['the record text', [ratifyQuestion.detail, ratifyQuestion.detail.slice(0, 8)]],
 ]
+const allNeedles = forbiddenHere.flatMap(([, needles]) => needles).filter((needle) => typeof needle === 'string' && needle !== '')
+
+// Every string a browser can render, wherever it is carried: text, ANY string-valued prop (not a
+// hand-written list — an `aria-description` or a `data-label` was outside one), and the one prop
+// that is markup rather than text.
+const NON_TEXT_PROPS = new Set(['style', 'children', 'type', 'key', 'ref', 'className'])
 const leaked = []
-for (const [what, needles] of forbiddenHere) {
-  for (const needle of needles) {
-    if (typeof needle !== 'string' || needle === '') continue
-    const hit = seatNodes.find((node) => typeof node.text === 'string' && node.text.includes(needle))
-    if (hit !== undefined) leaked.push(`${what} as <${hit.tag}> ${JSON.stringify(needle.slice(0, 32))}`)
+for (const node of seatNodes) {
+  for (const needle of allNeedles) {
+    if (typeof node.text === 'string' && node.text.includes(needle)) {
+      leaked.push(`text in <${node.tag}> ${JSON.stringify(needle.slice(0, 24))}`)
+    }
+  }
+  const props = node.props === undefined ? {} : node.props
+  for (const [key, value] of Object.entries(props)) {
+    if (NON_TEXT_PROPS.has(key)) continue
+    if (key === 'dangerouslySetInnerHTML') {
+      const html = value === null || value === undefined ? '' : String(value.__html === undefined ? '' : value.__html)
+      for (const needle of allNeedles) {
+        if (html.includes(needle)) leaked.push(`dangerouslySetInnerHTML ${JSON.stringify(needle.slice(0, 24))}`)
+      }
+      continue
+    }
+    if (typeof value !== 'string') continue
+    for (const needle of allNeedles) {
+      if (value.includes(needle)) leaked.push(`${key}=${JSON.stringify(value.slice(0, 32))}`)
+    }
   }
 }
 claim(
-  'the seat puts nothing the question owns in the Conversation',
+  'the seat puts nothing the question owns in the Conversation, in text or in any attribute',
   leaked.length === 0,
   leaked.length === 0
-    ? `checked ${forbiddenHere.reduce((total, [, needles]) => total + needles.length, 0)} strings across ${seatNodes.length} nodes`
+    ? `checked ${allNeedles.length} strings over ${seatNodes.length} nodes, every string prop and dangerouslySetInnerHTML`
     : leaked.join(' | '),
 )
 claim(
@@ -898,44 +921,34 @@ claim(
   JSON.stringify(openCalls),
 )
 
-// Attributes carry text a browser displays and `collectText` cannot see: an
-// `<input type="submit" value="Approve">` has no children, so a text-only guard would call it
-// empty. The labels are therefore checked in the props too.
-const propLeak = []
-for (const node of seatNodes) {
-  for (const key of ['value', 'defaultValue', 'aria-label', 'title', 'placeholder', 'alt']) {
-    const value = node.props === undefined ? undefined : node.props[key]
-    if (typeof value === 'string' && [approveLabel, declineLabel].some((label) => value.includes(label))) {
-      propLeak.push(`${key}=${JSON.stringify(value)}`)
-    }
-  }
-}
-claim(
-  'no attribute the seat renders carries an answer label a browser would show',
-  propLeak.length === 0,
-  propLeak.length === 0 ? `checked ${seatNodes.length} nodes` : propLeak.join(' | '),
-)
-
-// And the decisive one, independent of tags, text and attributes: NO handler in the seat can
-// settle the question. A hidden answer path — an `onClick` on the pointer's own container, an
-// `<a>` whose label is assembled at render time, an element whose role a text guard cannot see
-// — is caught here because the interaction itself reports whether it was settled, which is the
-// only thing that actually matters. The pointer's own opener may run; it must not answer.
+// And the decisive one, independent of tags, text, attributes and markup: NO handler in the seat
+// can settle the question. `onClick` alone was the first version's hole — an `onMouseDown` that
+// answered passed it — so every handler a host element can carry is invoked. The pointer's own
+// opener may run; it must not answer.
+const HANDLER_PROPS = [
+  'onClick', 'onMouseDown', 'onMouseUp', 'onPointerDown', 'onPointerUp', 'onPointerMove',
+  'onKeyDown', 'onKeyUp', 'onKeyPress', 'onSubmit', 'onChange', 'onInput', 'onFocus',
+  'onTouchStart', 'onTouchEnd', 'onContextMenu', 'onDoubleClick',
+]
 const answersBefore = answerCalls.length
 const cancelsBefore = cancellations.length
+let handlersInvoked = 0
 for (const node of seatNodes) {
-  const onClick = node.props === undefined ? undefined : node.props.onClick
-  if (typeof onClick !== 'function') continue
-  try {
-    onClick({ preventDefault() {}, stopPropagation() {} })
-  } catch {
-    // A handler that throws changed no state; the assertion below is about settlement.
+  const props = node.props === undefined ? {} : node.props
+  for (const name of HANDLER_PROPS) {
+    if (typeof props[name] !== 'function') continue
+    handlersInvoked += 1
+    try {
+      props[name]({ preventDefault() {}, stopPropagation() {}, nativeEvent: {} })
+    } catch {
+      // A handler that throws changed no state; the assertion below is about settlement.
+    }
   }
 }
 claim(
   'no handler in the seat can settle the ratification question',
   answerCalls.length === answersBefore && cancellations.length === cancelsBefore,
-  `answers=${answerCalls.length - answersBefore} cancels=${cancellations.length - cancelsBefore} over ${seatNodes.filter((node) => typeof node.props?.onClick === 'function').length} handler(s)`,
+  `answers=${answerCalls.length - answersBefore} cancels=${cancellations.length - cancelsBefore} over ${handlersInvoked} handler(s)`,
 )
 
 // ── the window is the only place the question is put ────────────────────────
@@ -1026,54 +1039,75 @@ claim(
 // ── the row's buttons answer the ratchet's question directly ────────────────
 //
 // The requirement, in the operator's words: "Buttons in ADR should approve/decline adr
-// directly, without intermediate chat". Two halves, and each is tested on its own, because
-// getting either wrong produces the thing that was rejected — a click that does nothing, or a
-// quiz the human is sent away to answer.
+// directly, without intermediate chat". Two halves, each tested on its own, because getting
+// either wrong produces the thing that was rejected — a click that does nothing, or a quiz the
+// human is sent away to answer.
 //
-//  1. the row routes a click as (record, decision) and makes the ratchet ASK;
-//  2. the entry that receives the question answers it with the label the RATCHET offered,
-//     for the record the click named and no other, and never without a click.
+// The REAL `requestRatify` runs here. An earlier version of this test replaced it with a spy,
+// and that stub is what let three mutations through: it never asked, never recorded, and never
+// reached the file surface.
 
-// (1) The row, rendered from the real corpus, where 0017-0019 are agent-authored proposals.
-const requested = []
-// Clear any pending question first: the window's fallback section also renders Approve and
-// Decline, and this case is about the ROW's buttons, which are the direct path.
-panelStore.set({ ask: function () {}, ratify: null })
-await flush(
-  React.createElement(
-    registry['shell.overlay'].Component,
-    Object.assign({}, registry['shell.overlay'].config.inject(), {
-      requestRatify: (adrId, decision) => {
-        requested.push([adrId, decision])
-        return true
-      },
-      usePanel: (selector) => selector(panelStore.getSnapshot()),
-    }),
-  ),
-  'ratify-row',
-)
-const rowButtons = nodes.filter((node) => node.tag === 'button').map((node) => node.text)
+const asked = []
+const overlayForRows = registry['shell.overlay'].config.inject()
+panelStore.set({ ask: function (adrId) { asked.push(adrId) }, ratify: null, request: null })
+
+/** Renders the window over the real corpus and returns its buttons. */
+const renderRows = async (tag) => {
+  await flush(
+    React.createElement(
+      registry['shell.overlay'].Component,
+      Object.assign({}, overlayForRows, { usePanel: (selector) => selector(panelStore.getSnapshot()) }),
+    ),
+    tag,
+  )
+  return nodes.filter((node) => node.tag === 'button')
+}
+
+const rowButtons = await renderRows('ratify-row')
+const rowLabels = [...new Set(rowButtons.map((node) => node.text))]
 claim(
   'a ratifiable decision offers Approve and Decline on its own row',
-  rowButtons.includes('Approve') && rowButtons.includes('Decline'),
-  JSON.stringify([...new Set(rowButtons)]),
+  rowLabels.includes('Approve') && rowLabels.includes('Decline'),
+  JSON.stringify(rowLabels),
 )
 claim(
   'and no row asks the human to go and answer a quiz somewhere else',
-  !rowButtons.includes('Ratify…'),
-  JSON.stringify([...new Set(rowButtons)]),
-)
-const rowApprove = nodes.filter((node) => node.tag === 'button').find((node) => node.text === 'Approve')
-if (rowApprove !== undefined) rowApprove.props.onClick()
-claim(
-  'the row routes the click as the record and the decision, and nothing else',
-  requested.length === 1 &&
-    typeof requested[0][0] === 'string' && requested[0][0] !== '' && requested[0][0] !== undefined &&
-    requested[0][1] === 'approve',
-  JSON.stringify(requested),
+  !rowLabels.includes('Ratify…'),
+  JSON.stringify(rowLabels),
 )
 
-// (2) The claiming entry, which is the only thing that can answer.
+// Approve: the click must record (record, decision) AND make the ratchet ask.
+const rowApprove = rowButtons.find((node) => node.text === 'Approve')
+if (rowApprove !== undefined) rowApprove.props.onClick()
+const afterApprove = panelStore.getSnapshot().request
+claim(
+  'the Approve click records the record, the decision and when it happened',
+  afterApprove !== null && afterApprove !== undefined &&
+    typeof afterApprove.adrId === 'string' && afterApprove.adrId !== '' &&
+    afterApprove.decision === 'approve' && typeof afterApprove.at === 'number',
+  JSON.stringify(afterApprove),
+)
+claim(
+  'and it makes the ratchet ask about that same record',
+  asked.length === 1 && asked[0] === afterApprove.adrId,
+  JSON.stringify(asked),
+)
+
+// Decline: the other button routes the OTHER decision, which a test that only clicked Approve
+// could not tell.
+panelStore.set({ request: null })
+const declineButtons = await renderRows('ratify-row-decline')
+const rowDecline = declineButtons.find((node) => node.text === 'Decline')
+if (rowDecline !== undefined) rowDecline.props.onClick()
+const afterDecline = panelStore.getSnapshot().request
+claim(
+  'the Decline click records a decline for that record, and asks for it',
+  afterDecline !== null && afterDecline !== undefined &&
+    afterDecline.decision === 'decline' && afterDecline.adrId === asked[1] && asked.length === 2,
+  `request=${JSON.stringify(afterDecline)} asked=${JSON.stringify(asked)}`,
+)
+
+// ── the claiming entry, which is the only thing that can answer ─────────────
 const composerRegistrationForRow = registry['conversation.composer']
 const settleMembers = composerRegistrationForRow.config.inject()
 /** One fresh interaction, so the once-only guard does not carry between cases. */
@@ -1087,15 +1121,23 @@ const freshPending = (answers) => ({
     return Promise.resolve()
   },
 })
-const settleCase = async (name, request, expectedLabel, expectedDecision) => {
+const targetId = ratifyQuestion.intent.targetId
+let clearCount = 0
+
+/**
+ * Renders the claiming entry with one recorded request and reports what it settled.
+ * @param expectCleared - whether the entry must also have consumed the request.
+ */
+const settleCase = async (name, request, expectedLabel, expectedDecision, expectCleared = false) => {
   const answers = []
+  const clearsBefore = clearCount
   await flush(
     React.createElement(
       composerRegistrationForRow.Component,
       Object.assign({}, settleMembers, {
         matched: freshPending(answers),
         publishRatify: () => {},
-        clearRequest: () => {},
+        clearRequest: () => { clearCount += 1 },
         openPanel: () => {},
         usePanel: () => request,
       }),
@@ -1103,7 +1145,7 @@ const settleCase = async (name, request, expectedLabel, expectedDecision) => {
     name,
   )
   const derived = answers.length === 0 ? null : deriveDecisions(quiz, answers[0])
-  const ok =
+  const settledOk =
     expectedLabel === null
       ? answers.length === 0
       : JSON.stringify(answers[0]) === JSON.stringify({ answers: [{ id: ratifyQuestion.id, selected: [expectedLabel] }] }) &&
@@ -1111,25 +1153,66 @@ const settleCase = async (name, request, expectedLabel, expectedDecision) => {
         derived.decisions.length === 1 &&
         derived.decisions[0].decision === expectedDecision &&
         derived.unreadable.length === 0
-  claim(name, ok, `answers=${JSON.stringify(answers)} derived=${derived === null ? 'none' : JSON.stringify(derived.decisions)}`)
+  const clearedOk = expectCleared ? clearCount === clearsBefore + 1 : true
+  claim(name, settledOk && clearedOk, `answers=${JSON.stringify(answers)} cleared=${clearCount - clearsBefore} derived=${derived === null ? 'none' : JSON.stringify(derived.decisions)}`)
 }
+const fresh = () => Date.now()
+
 await settleCase(
   "a click on Approve answers the question with the ratchet's own approve label",
-  { adrId: ratifyQuestion.intent.targetId, decision: 'approve' },
+  { adrId: targetId, decision: 'approve', at: fresh() },
   approveLabel,
   'approved',
 )
 await settleCase(
   "a click on Decline answers it with the ratchet's own reject label",
-  { adrId: ratifyQuestion.intent.targetId, decision: 'decline' },
+  { adrId: targetId, decision: 'decline', at: fresh() },
   declineLabel,
   'rejected',
 )
+
+// The record the click named, matched EXACTLY. A prefix, a suffix or stray whitespace is a
+// different record, and answering it would consent to a decision nobody clicked on.
 await settleCase(
-  'a request naming a DIFFERENT record does not answer this question',
-  { adrId: '0000-not-the-target', decision: 'approve' },
+  'a request naming a different record does not answer this question',
+  { adrId: '0000-not-the-target', decision: 'approve', at: fresh() },
   null,
   null,
+)
+await settleCase(
+  "a request whose id is only a PREFIX of this question's does not answer it",
+  { adrId: targetId.slice(0, 1), decision: 'approve', at: fresh() },
+  null,
+  null,
+)
+await settleCase(
+  'a request whose id carries an extra character does not answer it',
+  { adrId: `${targetId}X`, decision: 'approve', at: fresh() },
+  null,
+  null,
+)
+await settleCase(
+  'a request whose id differs by whitespace does not answer it',
+  { adrId: ` ${targetId}`, decision: 'approve', at: fresh() },
+  null,
+  null,
+)
+
+// A click that outlived its ask. The record can be edited between the click and the question, so
+// an armed answer must expire rather than consent to text the human never saw.
+await settleCase(
+  'a click older than the request lifetime does not answer a later question, and is discarded',
+  { adrId: targetId, decision: 'approve', at: fresh() - 10 * 60 * 1000 },
+  null,
+  null,
+  true,
+)
+await settleCase(
+  'a request with no timestamp is not trusted either',
+  { adrId: targetId, decision: 'approve' },
+  null,
+  null,
+  true,
 )
 await settleCase(
   "with no click recorded, the panel does not answer on the human's behalf",
@@ -1137,6 +1220,29 @@ await settleCase(
   null,
   null,
 )
+
+// One question, one answer. The harness THROWS on a second settlement, and a re-render or a
+// re-mount is how a second one happens.
+{
+  const answers = []
+  const element = React.createElement(
+    composerRegistrationForRow.Component,
+    Object.assign({}, settleMembers, {
+      matched: freshPending(answers),
+      publishRatify: () => {},
+      clearRequest: () => {},
+      openPanel: () => {},
+      usePanel: () => ({ adrId: targetId, decision: 'approve', at: fresh() }),
+    }),
+  )
+  await flush(element, 'settle-once-a')
+  await flush(element, 'settle-once-b')
+  claim(
+    'the same question is answered once, however many renders it takes',
+    answers.length === 1,
+    `answers=${answers.length}`,
+  )
+}
 
 // ── a grilling session keeps the Conversation quiz ──────────────────────────
 // The one exception, and the reason the ratchet has to say where a question is shown:

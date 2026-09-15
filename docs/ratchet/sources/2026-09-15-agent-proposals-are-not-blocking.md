@@ -165,3 +165,26 @@ because the safe reading of a command nobody recognises is that it might change 
 
 Each fix has a test taken from the counterexample that motivated it, and each was re-run against
 a copy with the fix reverted to confirm the test fails without it.
+
+## Two more findings against the fixed guard, and the divergence they exposed (2026-09-15)
+
+**The lexical test answered before the filesystem did.** `changedPath` returned `null` as soon as
+the lexical path left the project, and only then would anything be resolved. Two shapes walked
+into governed zones through that gap: an absolute path spelled through the project's REAL
+location when the root itself is a symlink (a symlinked session cwd produces exactly that), and a
+symlink outside the project pointing into a governed zone. In both, the backend's target was
+inside the zone and the guard answered without asking. The lexical test is gone: the path is
+resolved first — the deepest existing ancestor through `realpathSync`, the tail re-appended — and
+containment is judged on where the write actually lands. A path that genuinely leaves the project
+still returns `null`, which the guard reads as "not its business".
+
+**`zoneFor` and `pathIsGoverned` were still two implementations.** Unifying the glob matcher
+removed the disagreement between the guard and the verifier's file selection, but the compiler's
+authority check had its own prefix model, so the same zone path meant different things in the two
+places that decide authority: a zone declaring a bare directory governed a write in the guard and
+was invisible to `pathIsGoverned`, while a zone with a wildcard mid-path was governed by the guard
+and refused by the compiler. One predicate, `zonePathCovers`, now answers for both, and a test
+drives a table of zone paths through both and requires identical answers — the shapes where they
+disagreed, plus the ones where they already agreed, so the unification cannot silently narrow
+`zoneFor` either. A wildcard-free zone path names a DIRECTORY and covers its subtree; reading it
+as an exact path was a silent narrowing of what a zone means.

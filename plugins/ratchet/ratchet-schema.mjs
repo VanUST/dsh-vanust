@@ -1792,25 +1792,58 @@ function literalRunLength(glob) {
   return first === -1 ? glob.length : first
 }
 
+/**
+ * Whether one declared zone path covers one repository-relative path.
+ *
+ * THE single definition of zone membership, shared by `zoneFor` (which zone a path is in) and the
+ * compiler's `pathIsGoverned` (whether a law's target falls inside the zones a record declared).
+ * They used to be two implementations — a directory-prefix test in one and a different one in the
+ * other — and they disagreed in both directions: a zone declaring `src/auth` governed writes in
+ * one place and not the other, and a zone with a wildcard mid-path governed nothing at all.
+ *
+ * The shapes a declared zone path can take:
+ *  - `**` and `*` name the whole repository;
+ *  - a path with NO wildcard names a directory, so it covers its subtree — `src/auth` covers
+ *    `src/auth/x.ts`, which is what a zone has always meant, and reading it as an exact path was
+ *    a silent narrowing;
+ *  - a glob ending in `/**` also names its own directory;
+ *  - anything else is the project's glob: `*` within one segment, `**` for any depth, `?` for one
+ *    character.
+ *
+ * @param glob - A declared zone path.
+ * @param path - Repository-relative path.
+ * @returns Whether the zone path covers the path. `null`/`undefined` in either position is not a
+ *   match rather than a throw.
+ */
+export function zonePathCovers(glob, path) {
+  if (glob === null || glob === undefined || path === null || path === undefined) return false
+  const raw = String(glob).replace(/^\.\//, '')
+  if (raw === '**' || raw === '*') return true
+  if (!/[*?]/.test(raw)) return path === raw || path.startsWith(`${raw}/`)
+  if (raw.endsWith('/**') && path === raw.slice(0, -3)) return true
+  return globToRegExp(raw).test(path)
+}
+
+/**
+ * The zone a repository-relative path belongs to, or `null`.
+ *
+ * The most specific declaration wins, measured as the length of the literal run before the first
+ * wildcard, so `src/auth/**` beats `src/**` and a whole-repository zone ranks below every named
+ * one — ranking it `0` is what lets it win anything at all, since `-1` could never beat the
+ * sentinel and left the zone governing nothing.
+ *
+ * @param path - Repository-relative path.
+ * @param zones - Declared zones.
+ * @returns The winning zone, or `null` when none covers the path.
+ */
 export function zoneFor(path, zones) {
   let best = null
   let bestLength = -1
   for (const zone of zones ?? []) {
     for (const glob of zone.paths ?? []) {
       const raw = String(glob).replace(/^\.\//, '')
-      // A zone that claims the whole repository. `globToRegExp('*')` is one segment and
-      // would not match a nested path, and `**` is spelled as "anything" on purpose, so
-      // both are read as the whole repository rather than run through the matcher.
-      const isWholeRepo = raw === '**' || raw === '*'
-      // A glob ending in `/**` also names its own directory: `plugins/**` governs
-      // `plugins` as well as what is under it.
-      const isOwnDirectory = raw.endsWith('/**') && path === raw.slice(0, -3)
-      if (!isWholeRepo && !isOwnDirectory && !globToRegExp(raw).test(path)) continue
-      // Ranked by the length of the literal run that precedes the first wildcard. A
-      // whole-repository zone has none, so it ranks BELOW every named zone and ABOVE the
-      // -1 sentinel — ranking it -1 as well left it never winning, which is the same
-      // "declared but governs nothing" failure the matcher was changed to remove.
-      const literal = isWholeRepo ? 0 : literalRunLength(raw)
+      if (!zonePathCovers(raw, path)) continue
+      const literal = raw === '**' || raw === '*' ? 0 : literalRunLength(raw)
       if (literal > bestLength) {
         best = zone
         bestLength = literal

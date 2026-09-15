@@ -536,3 +536,50 @@ test('guard: reading through an editor tool is reconnaissance, not a write', () 
     'an unrecognised command is treated as a write, not as a read',
   )
 })
+
+test('guard: a symlinked project root is judged by where the write lands', () => {
+  // The guard compared the LEXICAL path against the root before resolving anything, so an absolute
+  // path spelled through the project's REAL location — which is what a symlinked session cwd
+  // produces — was answered before the filesystem was asked, and landed in a governed zone with no
+  // record and an ALLOW.
+  const real = project('symlinked-root')
+  const link = `${real}-link`
+  symlinkSync(real, link)
+  const guard = guardModule.createGuard({ root: link })
+  assert.ok(call(guard, 'write', { file_path: 'src/auth/session.ts' }).startsWith('DENIED:'), 'the relative spelling is governed')
+  assert.ok(
+    call(guard, 'write', { file_path: join(real, 'src', 'auth', 'session.ts') }).startsWith('DENIED:'),
+    'and so is the absolute spelling through the real root — the same file',
+  )
+})
+
+test('guard: a symlink outside the project pointing into a governed zone is governed', () => {
+  // An alias anywhere on the machine made a governed zone writable with no ADR at all, because the
+  // alias path reads as outside the project and the lexical check answered first.
+  const root = project('outside-alias')
+  const alias = join(tmpdir(), `ratchet-guard-alias-${Math.random().toString(36).slice(2, 8)}`)
+  rmSync(alias, { recursive: true, force: true })
+  symlinkSync(join(root, 'src', 'auth'), alias)
+  try {
+    const guard = guardModule.createGuard({ root })
+    assert.ok(
+      call(guard, 'write', { file_path: join(alias, 'new.ts') }).startsWith('DENIED:'),
+      'a write through the alias lands in the zone',
+    )
+  } finally {
+    rmSync(alias, { force: true })
+  }
+})
+
+test('guard: a zone naming a directory governs that directory', () => {
+  // Reading a wildcard-free zone path as an exact path was a silent narrowing: `src/api` governed
+  // `src/api` and nothing under it, while the compiler's authority check still treated the subtree
+  // as inside. A zone names a directory.
+  const root = project('bare-directory-zone')
+  setZonePaths(root, 'api', ['src/api'])
+  const guard = guardModule.createGuard({ root })
+  assert.ok(
+    call(guard, 'write', { file_path: 'src/api/handler.ts' }).startsWith('DENIED:'),
+    'a path with no wildcard names a directory, so its subtree is governed',
+  )
+})
