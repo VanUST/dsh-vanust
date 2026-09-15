@@ -199,7 +199,7 @@ window.__ModuleLoader__.load({
 		 * constant is the only way to tell a stale bundle from a bug: bump it with every
 		 * change to this file, and keep it equal to the package's version.
 		 */
-		const PANEL_VERSION = "0.1.16";
+		const PANEL_VERSION = "0.1.17";
 		/** The manifest a ratchet project declares its directories and name in. */
 		const MANIFEST_PATH = ".dsh/project.json";
 		/** Directories used when the manifest is absent, unparseable, or silent. */
@@ -685,8 +685,14 @@ window.__ModuleLoader__.load({
 		 * @returns `{ approvedBy, supersededBy }`, each a plain object of arrays.
 		 */
 		function buildRelations(adrs) {
-			var approvedBy = {};
-			var supersededBy = {};
+			// PROTOTYPE-LESS maps. A record id or an approved/superseded id is read from a file, so it
+			// can be `constructor`, `__proto__` or any other Object member: a plain `{}` then answers
+			// an inherited function where the code expects an array, and the guards `!== undefined`
+			// and `.length` both pass before `.join`/`.push` throws. ONE such id made the whole
+			// corpus vanish behind "the panel could not load". A null-prototype object has no
+			// inherited members to collide with.
+			var approvedBy = Object.create(null);
+			var supersededBy = Object.create(null);
 			for (var i = 0; i < adrs.length; i += 1) {
 				var record = adrs[i];
 				var name = record.id === null ? record.path : record.id;
@@ -745,6 +751,18 @@ window.__ModuleLoader__.load({
 				}
 				return { state: { text: "not in force", kind: "neutral", derived: false }, provenance: null };
 			}
+			// An agent's `status: active` is NOT force by itself. The ratchet refuses it in a zone
+			// whose `agentAuthority` is `humanOnly` (it can never enter force, even ratified) and
+			// leaves it out in a `proposeOnly` zone until a human ratifies; the compiler reports it
+			// as excluded. Reading the frontmatter alone made the panel say "in force" for exactly
+			// the records the ratchet excludes — and hid a decision the ratchet would offer.
+			var refusedZone = record.status === "active" && !ratified ? agentActivationRefused(record, zonePolicies) : null;
+			if (refusedZone !== null) {
+				var why = blockedReason(record, zonePolicies);
+				return why === null
+					? { state: { text: "not in force \u2014 zone \"" + refusedZone + "\" needs a human ratification", kind: "pending", derived: false }, provenance: null }
+					: { state: { text: "blocked \u2014 " + why, kind: "neutral", derived: false }, provenance: null };
+			}
 			var activeInFrontmatter = record.status === "active";
 			if (!activeInFrontmatter && !ratified) {
 				var unknown = record.status === null || record.status === "" ? "unknown" : record.status;
@@ -758,6 +776,48 @@ window.__ModuleLoader__.load({
 				state: { text: "in force", kind: "in-force", derived: !activeInFrontmatter },
 				provenance: provenance
 			};
+		}
+		/**
+		 * Why the ratchet could not put this decision to a human, or null.
+		 *
+		 * Mirrors `ratificationQueue` in the ratchet: a record is blocked when it names a
+		 * zone the manifest does not declare, or when it is agent-authored and any zone it
+		 * declares reserves its paths to a human. Only an agent-authored record is ever
+		 * blocked, because authorship already carries the authority a consent would grant.
+		 *
+		 * @param record - a parsed record.
+		 * @param zonePolicies - the manifest's zone id to `agentAuthority` map.
+		 * @returns a one-line reason, or null when the record is not blocked.
+		 */
+		function agentActivationRefused(record, zonePolicies) {
+			if (record.authority !== "agent") return null;
+			var declared = Array.isArray(record.zones) ? record.zones : [];
+			for (var index = 0; index < declared.length; index += 1) {
+				var policy = zonePolicies[declared[index]];
+				if (policy === undefined || policy === "proposeOnly" || policy === "humanOnly") return declared[index];
+			}
+			return null;
+		}
+		/**
+		 * Whether the manifest denies an agent's own record force in any zone it names.
+		 *
+		 * The ratchet refuses an agent-authored record that declares itself `active` in a zone whose
+		 * `agentAuthority` is `humanOnly` (it can never enter force, even ratified) and leaves it out
+		 * in a `proposeOnly` zone until a human ratifies. Reading the frontmatter's `active` as force
+		 * without this made the panel report "in force" for exactly the records the ratchet excludes.
+		 *
+		 * @param record - a parsed record.
+		 * @param zonePolicies - the manifest's zone id to `agentAuthority` map.
+		 * @returns the first zone whose policy refuses an agent's activation, or null.
+		 */
+		function agentActivationRefused(record, zonePolicies) {
+			if (record.authority !== "agent") return null;
+			var declared = Array.isArray(record.zones) ? record.zones : [];
+			for (var index = 0; index < declared.length; index += 1) {
+				var policy = zonePolicies[declared[index]];
+				if (policy === undefined || policy === "proposeOnly" || policy === "humanOnly") return declared[index];
+			}
+			return null;
 		}
 		/**
 		 * Why the ratchet could not put this decision to a human, or null.
