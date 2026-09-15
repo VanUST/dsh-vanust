@@ -10,7 +10,7 @@ created: "2026-09-15T06:47:00Z"
 source:
   kind: file
   path: docs/ratchet/sources/2026-09-15-adr-panel-ratify-affordance.md
-  hash: sha256:36ec57d24944dec2ad70ca2fe93adadd224f539810f06d6e121ffe1c598dd111
+  hash: sha256:2e7e705c779d9955583dd48ce43244e9dc50315c094b2a6ba8aca6c88209499c
 zones:
   - shipped-plugins
   - kit-tooling

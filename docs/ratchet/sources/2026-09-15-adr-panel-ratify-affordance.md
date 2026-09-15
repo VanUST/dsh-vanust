@@ -88,3 +88,47 @@ the panel must not write the approval file in its place.
 - Whether the action should also be offered for a decision the queue reports as blocked, as a way
   to surface *why* it cannot be ratified. The reading here is no: the overlay already renders the
   blocked state.
+
+## Measurement: the panel can present the question (2026-09-15)
+
+The open question above asked whether the panel's **host** half can reach the Agent-scoped
+seam. Measured, and the answer changes the shape of the problem: it does not need to.
+
+**Asking is already solved by a command.** `/ratify [<adr-id> …]` is registered host-side
+from `ratchet-tools.mjs` through the harness `commands` service. A command handler holds
+`invocation.agent`, which is exactly the capability `userQuestions.ask` needs, so the
+question reaches the human without the panel's host half ever holding the seam. The panel's
+client half can trigger it by submitting `/ratify <id>` to the composer.
+
+**Presenting is reachable from the client half, with a shipped precedent.** A question is
+answered through a slot chain, not a private surface:
+
+- `dsh-client-ui-conversation/lib/client.js:14932` renders `conversation.composer` with
+  `renderSlotChain`, so the composer seat is a **chain**, and more than one plugin may
+  register into it.
+- `dsh-client-ui-renderer/lib/client.js:828-849` is the chain election: entries are
+  iterated, each `entry.select(ownerProps)` is called, the **first non-null match wins**,
+  and a selector that throws is treated as declining.
+- `dsh-client-ui-user-questions/lib/client.js:874-879` is the registrant that owns the
+  question today: `select: ({ pendingInteraction }) => pendingInteraction instanceof
+  PendingQuestion ? pendingInteraction : null`, registered with no `priority` (so `0`).
+- `dsh-client-ui-approval/lib/client.js:265-282` is the shipped precedent for a **second
+  claimant of the same seat**: it registers `priority: 1` with its own `select` over its own
+  pending type, receives its requests with `ctx.remote.$on(...)`, and registers its own
+  precedence domain with `ctx.uiSession.registerPendingInteraction(() => 0)`.
+
+So a client plugin can take over the composer seat for the question it recognises, and the
+generic flow is suppressed rather than duplicated. The panel recognises the ratchet's
+question **structurally** — `pendingInteraction.questions[0].intent` — because the
+`PendingQuestion` class is not exported and `instanceof` is therefore unavailable to a
+third-party bundle. That is a requirement on the ratchet: its question must carry an intent
+that names the operation, which is a change to a shipped plugin and so a change this record
+has to cover.
+
+**What this measurement is, and what it is not.** It is a source reading with exact file and
+line citations, reproducible by reading those four sites. It is **not yet** an executed
+probe: believing it also requires that a third-party bundle's `select` is reached, that
+claiming the seat suppresses the generic flow, and that the claimed interaction exposes an
+`answer` the panel can call with the same batch shape the generic flow sends. Those three
+are the implementation's first measurement, to be recorded in `docs/RATCHET-API-FACTS.md`
+with its reproduction, and the law above stays unenforced until they are.
