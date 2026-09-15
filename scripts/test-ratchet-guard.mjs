@@ -126,6 +126,26 @@ function call(guard, name, args) {
 
 // ---------------------------------------------------------------------------
 
+/**
+ * Links a directory so that the same path resolves through it, on every platform.
+ *
+ * @param target - Absolute path of the directory the link points at.
+ * @param path - Absolute path of the link to create.
+ * @returns Nothing. Throws when the platform refuses to create the link.
+ */
+function linkDirectory(target, path) {
+  // Windows refuses an unprivileged SYMLINK (EPERM) unless Developer Mode is on, which would have
+  // meant skipping the three tests whose subject is a link — on the platform this kit is authored
+  // on, and a skipped test is not evidence. A directory JUNCTION needs no privilege, resolves
+  // through realpath exactly as a symlink does, and is reported as a symlink by `lstat`, so the
+  // same code path in the guard is exercised either way.
+  if (process.platform === 'win32') {
+    symlinkSync(target, path, 'junction')
+  } else {
+    symlinkSync(target, path)
+  }
+}
+
 test('guard: a write into a zone requiring a decision record is refused when none exists', () => {
   const root = project('deny')
   const guard = guardModule.createGuard({ root })
@@ -478,7 +498,7 @@ test('guard: a write through a symlink into a governed zone is governed', () => 
   // as ungoverned. The harness filesystem writes THROUGH a symlink to its target.
   const root = project('symlink')
   mkdirSync(join(root, 'staging'), { recursive: true })
-  symlinkSync(join(root, 'src', 'auth'), join(root, 'staging', 'link'))
+  linkDirectory(join(root, 'src', 'auth'), join(root, 'staging', 'link'))
   const guard = guardModule.createGuard({ root })
   assert.ok(call(guard, 'write', { file_path: 'src/auth/session.ts' }).startsWith('DENIED:'), 'the zone itself is governed')
   assert.ok(
@@ -547,7 +567,7 @@ test('guard: a symlinked project root is judged by where the write lands', () =>
   // record and an ALLOW.
   const real = project('symlinked-root')
   const link = `${real}-link`
-  symlinkSync(real, link)
+  linkDirectory(real, link)
   const guard = guardModule.createGuard({ root: link })
   assert.ok(call(guard, 'write', { file_path: 'src/auth/session.ts' }).startsWith('DENIED:'), 'the relative spelling is governed')
   assert.ok(
@@ -562,7 +582,7 @@ test('guard: a symlink outside the project pointing into a governed zone is gove
   const root = project('outside-alias')
   const alias = join(tmpdir(), `ratchet-guard-alias-${Math.random().toString(36).slice(2, 8)}`)
   rmSync(alias, { recursive: true, force: true })
-  symlinkSync(join(root, 'src', 'auth'), alias)
+  linkDirectory(join(root, 'src', 'auth'), alias)
   try {
     const guard = guardModule.createGuard({ root })
     assert.ok(
