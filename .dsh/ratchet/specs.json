@@ -167,6 +167,20 @@
       "unenforced": null
     },
     {
+      "id": "shipped-plugins.ingestion-ratifies-only-a-record-it-wrote",
+      "statement": "Ingestion puts a decision to the human only after it has written it, and reports rather than mints when the record was not written, no question channel is available, or the answer cannot be read.",
+      "zones": [
+        "shipped-plugins",
+        "kit-tooling"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0015",
+      "sourcePath": "docs/adrs/0015-the-grill-session-consents-through-the-question-channel.adr.md",
+      "approvedBy": "0020",
+      "checks": [],
+      "unenforced": "The behaviour is asserted by two tests in `scripts/test-ratchet.mjs` — one drives the tool with a supplied judge result and a stub channel and requires an approval, the other drives it with no judge and requires `attempted: false` and no question. No gate-level check binds them yet, because the suite is a single `node --test` invocation that prints TAP rather than a stable marker line; it becomes enforceable when a dedicated invariant script drives the tool into the three fail-closed states and asserts nothing is minted."
+    },
+    {
       "id": "shipped-plugins.judge-is-injected",
       "statement": "A capability the harness provides reaches a logic module as an injected function, so the module remains testable without a deployment.",
       "zones": [
@@ -414,6 +428,28 @@
           "run": "node scripts/check-consent-surface.mjs",
           "expects": "the authority table still reserves deployment-rules to humans",
           "timeoutMs": 120000
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.the-grill-entry-triggers-the-one-question-and-accepts-no-answer",
+      "statement": "The grill session's consent entry puts the ratchet's own question to the human through the one question channel and exposes no key an answer could travel in, so it is a third entry to the single channel and never a third channel.",
+      "zones": [
+        "shipped-plugins",
+        "kit-tooling"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0015",
+      "sourcePath": "docs/adrs/0015-the-grill-session-consents-through-the-question-channel.adr.md",
+      "approvedBy": "0020",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node scripts/check-consent-surface.mjs",
+          "expects": "the ingestion surface triggers the ratchet question and accepts no answer",
+          "timeoutMs": 120000,
+          "outputContains": "consent surface ok"
         }
       ],
       "unenforced": null
