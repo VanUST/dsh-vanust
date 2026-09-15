@@ -734,6 +734,7 @@ const refused = [
   ['a lost detail', { pendingInteraction: { ...pendingRatify, questions: variantQuestions().map(({ detail, ...rest }) => rest) } }],
   ['a multi-select', { pendingInteraction: { ...pendingRatify, questions: variantQuestions().map((item) => ({ ...item, multiSelect: true })) } }],
   ['a third option', { pendingInteraction: { ...pendingRatify, questions: variantQuestions().map((item) => ({ ...item, options: [...item.options, { label: 'Maybe', description: '' }] })) } }],
+  ['a missing targetId', { pendingInteraction: { ...pendingRatify, questions: variantQuestions().map((item) => ({ ...item, intent: { kind: item.intent.kind, approve: item.intent.approve } })) } }],
   ['a renamed approve label', { pendingInteraction: { ...pendingRatify, questions: variantQuestions().map((item) => ({ ...item, options: item.options.map((option) => ({ ...option, label: option.label === item.intent.approve ? 'Yes please' : option.label })) })) } }],
   ['no callable answer', { pendingInteraction: { questions: variantQuestions() } }],
 ]
@@ -1019,6 +1020,122 @@ claim(
   'Not now leaves the question unanswered instead of answering it',
   cancellations.length === 1 && answerCalls.length === 2,
   `cancels=${cancellations.length} answers=${answerCalls.length}`,
+)
+
+
+// ── the row's buttons answer the ratchet's question directly ────────────────
+//
+// The requirement, in the operator's words: "Buttons in ADR should approve/decline adr
+// directly, without intermediate chat". Two halves, and each is tested on its own, because
+// getting either wrong produces the thing that was rejected — a click that does nothing, or a
+// quiz the human is sent away to answer.
+//
+//  1. the row routes a click as (record, decision) and makes the ratchet ASK;
+//  2. the entry that receives the question answers it with the label the RATCHET offered,
+//     for the record the click named and no other, and never without a click.
+
+// (1) The row, rendered from the real corpus, where 0017-0019 are agent-authored proposals.
+const requested = []
+// Clear any pending question first: the window's fallback section also renders Approve and
+// Decline, and this case is about the ROW's buttons, which are the direct path.
+panelStore.set({ ask: function () {}, ratify: null })
+await flush(
+  React.createElement(
+    registry['shell.overlay'].Component,
+    Object.assign({}, registry['shell.overlay'].config.inject(), {
+      requestRatify: (adrId, decision) => {
+        requested.push([adrId, decision])
+        return true
+      },
+      usePanel: (selector) => selector(panelStore.getSnapshot()),
+    }),
+  ),
+  'ratify-row',
+)
+const rowButtons = nodes.filter((node) => node.tag === 'button').map((node) => node.text)
+claim(
+  'a ratifiable decision offers Approve and Decline on its own row',
+  rowButtons.includes('Approve') && rowButtons.includes('Decline'),
+  JSON.stringify([...new Set(rowButtons)]),
+)
+claim(
+  'and no row asks the human to go and answer a quiz somewhere else',
+  !rowButtons.includes('Ratify…'),
+  JSON.stringify([...new Set(rowButtons)]),
+)
+const rowApprove = nodes.filter((node) => node.tag === 'button').find((node) => node.text === 'Approve')
+if (rowApprove !== undefined) rowApprove.props.onClick()
+claim(
+  'the row routes the click as the record and the decision, and nothing else',
+  requested.length === 1 &&
+    typeof requested[0][0] === 'string' && requested[0][0] !== '' && requested[0][0] !== undefined &&
+    requested[0][1] === 'approve',
+  JSON.stringify(requested),
+)
+
+// (2) The claiming entry, which is the only thing that can answer.
+const composerRegistrationForRow = registry['conversation.composer']
+const settleMembers = composerRegistrationForRow.config.inject()
+/** One fresh interaction, so the once-only guard does not carry between cases. */
+const freshPending = (answers) => ({
+  questions: quiz.questions,
+  answer(batch) {
+    answers.push(batch)
+    return Promise.resolve()
+  },
+  cancel() {
+    return Promise.resolve()
+  },
+})
+const settleCase = async (name, request, expectedLabel, expectedDecision) => {
+  const answers = []
+  await flush(
+    React.createElement(
+      composerRegistrationForRow.Component,
+      Object.assign({}, settleMembers, {
+        matched: freshPending(answers),
+        publishRatify: () => {},
+        clearRequest: () => {},
+        openPanel: () => {},
+        usePanel: () => request,
+      }),
+    ),
+    name,
+  )
+  const derived = answers.length === 0 ? null : deriveDecisions(quiz, answers[0])
+  const ok =
+    expectedLabel === null
+      ? answers.length === 0
+      : JSON.stringify(answers[0]) === JSON.stringify({ answers: [{ id: ratifyQuestion.id, selected: [expectedLabel] }] }) &&
+        derived !== null &&
+        derived.decisions.length === 1 &&
+        derived.decisions[0].decision === expectedDecision &&
+        derived.unreadable.length === 0
+  claim(name, ok, `answers=${JSON.stringify(answers)} derived=${derived === null ? 'none' : JSON.stringify(derived.decisions)}`)
+}
+await settleCase(
+  "a click on Approve answers the question with the ratchet's own approve label",
+  { adrId: ratifyQuestion.intent.targetId, decision: 'approve' },
+  approveLabel,
+  'approved',
+)
+await settleCase(
+  "a click on Decline answers it with the ratchet's own reject label",
+  { adrId: ratifyQuestion.intent.targetId, decision: 'decline' },
+  declineLabel,
+  'rejected',
+)
+await settleCase(
+  'a request naming a DIFFERENT record does not answer this question',
+  { adrId: '0000-not-the-target', decision: 'approve' },
+  null,
+  null,
+)
+await settleCase(
+  "with no click recorded, the panel does not answer on the human's behalf",
+  null,
+  null,
+  null,
 )
 
 // ── a grilling session keeps the Conversation quiz ──────────────────────────

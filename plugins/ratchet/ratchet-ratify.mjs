@@ -253,7 +253,14 @@ export function buildQuiz(entries, { attempt = 1, previous = [], present = 'pane
       // before it claims one. It is attached ONLY for the panel: the harness's own card is
       // the presentation that offers a free-text answer, and a grilling session needs that
       // card rather than a surface the human has to leave the conversation to find.
-      ...(forPanel ? { intent: { kind: RATIFY_INTENT_KIND, approve: approveLabel } } : {}),
+      // `targetId` names the record the question is about, so a presentation can settle the
+      // question for the record the human actually clicked. Without it a client would have to
+      // parse the question id to learn the target, which is the ratchet's private naming and
+      // not a contract. A presentation that cannot tell which record is being asked about
+      // must not answer on the human's behalf.
+      ...(forPanel
+        ? { intent: { kind: RATIFY_INTENT_KIND, approve: approveLabel, targetId: entry.id } }
+        : {}),
       question:
         attempt === 1
           ? `Put "${entry.title ?? entry.id}" into force as law?`

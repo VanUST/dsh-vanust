@@ -50,20 +50,28 @@
  *   reserves to a human (`humanOnly`), where a consent cannot transfer authorship. A
  *   human-authored proposed decision is never offered: its authorship already carries
  *   the authority, so it shows `not in force` and awaits its author's activation, not a
- *   question. The affordance submits the ratchet's own `/ratify <id>` command, which
- *   runs host-side without a model turn and puts the ratchet's question to the human
- *   through the question channel, and when no Session-scoped submitter is mounted it
- *   prints the command instead. The question that follows is presented HERE, in this
- *   window, and nowhere else: the composer entry claims the seat only for a question
- *   whose intent is the ratchet's `ratify-decision` and whose answers are exactly the
- *   two options that intent names, and it renders a POINTER there — the decision's name
- *   and a button that opens this window — never the question, its detail or either
- *   answer label, so an agent's decision never becomes a quiz in the Conversation. The
- *   window renders the question's own text with the two labels as buttons. A question
- *   without that intent, which is what a grilling session asks, is not claimed at all
- *   and is answered in the Conversation. It cannot mint a consent: every button sends
- *   one of the labels the ratchet itself put in the question, and
- *   a consent record is not a decision and is never offered for ratification.
+ *   question. A ratifiable decision's row carries **Approve** and **Decline**, and a click
+ *   routes it in one step: the row records which decision and which answer the human chose
+ *   and submits the ratchet's own `/ratify <id>` command, which runs host-side without a
+ *   model turn and puts the ratchet's question to the human through the ONE question
+ *   channel; the composer entry claims that question and answers it with the label the
+ *   RATCHET offered for the decision the click named. So the human's click is the consent,
+ *   the ratchet asked the question it is paired with, and no quiz is shown anywhere — which
+ *   is the difference between answering a question and being sent to answer one. When no
+ *   Session-scoped submitter is mounted the row prints the command instead.
+ *
+ *   The composer entry claims the seat only for a question whose intent is the ratchet's
+ *   `ratify-decision`, whose answers are exactly the two options that intent names, and
+ *   which names the record it is about (`intent.targetId`) — a question whose record the
+ *   panel cannot identify is never answered on the human's behalf. It renders a POINTER
+ *   there, or `Recording your answer…` while a click is being honoured, and never the
+ *   question, its detail or either answer label, so an agent's decision never becomes a
+ *   quiz in the Conversation. A question that arrives with no click behind it — an agent
+ *   called `ratchet_ratify`, say — is shown in this window with its two labels, so it is
+ *   never unanswerable. A question without that intent, which is what a grilling session
+ *   asks, is not claimed at all and is answered in the Conversation. The panel cannot mint
+ *   a consent: every button sends one of the labels the ratchet itself put in the question,
+ *   and a consent record is not a decision and is never offered for ratification.
  *
  *   COLOUR: one `tone(kind)` helper maps a semantic kind onto the shell's state and
  *   label theme tokens (`var(--token, fallback)`, so any theme works and a missing token
@@ -115,8 +123,15 @@
  * BEHAVIOUR ON EDGE CASES
  *   - `ctx.remote.workspaceFiles` absent: the window still renders and shows that
  *     the file API is unreachable; the header button is unaffected.
- *   - No `inputActions` (no live Session composer): the ratify affordance renders the
- *     CLI command instead of a submit button.
+ *   - No `inputActions` (no live Session composer): the row's Approve and Decline render
+ *     the CLI command instead of the two buttons.
+ *   - A click whose question never arrives (the channel is unreachable, or the ratchet
+ *     refused the id): the row says so and the CLI fallback stays; nothing is recorded.
+ *   - A question naming a record no click asked about: it is NOT answered, and this window
+ *     offers it with both labels instead, so the panel never answers for the human.
+ *   - The same interaction is never settled twice: the decision is recorded against the
+ *     interaction, because the harness throws when one pending question is settled twice
+ *     and a render can run an effect more than once.
  *   - A pending question that is not the ratchet's, or is the ratchet's but not a
  *     claimable shape (several questions, no detail, multi-select, not exactly two
  *     labelled options, no option carrying the intent's approve label, no callable
@@ -178,7 +193,7 @@ window.__ModuleLoader__.load({
 		 * constant is the only way to tell a stale bundle from a bug: bump it with every
 		 * change to this file, and keep it equal to the package's version.
 		 */
-		const PANEL_VERSION = "0.1.14";
+		const PANEL_VERSION = "0.1.15";
 		/** The manifest a ratchet project declares its directories and name in. */
 		const MANIFEST_PATH = ".dsh/project.json";
 		/** Directories used when the manifest is absent, unparseable, or silent. */
@@ -211,18 +226,20 @@ window.__ModuleLoader__.load({
 		 * the Session-header entry publishes for the overlay to call, and the pending
 		 * ratification question the composer entry claims.
 		 *
-		 * `ratify` is the ONE cross-seat value in this store, and it is a crossing on
-		 * purpose: the ratification question is published by the harness as a
+		 * `ratify` and `request` are the two cross-seat values, and both are crossings on
+		 * purpose. The ratification question is published by the harness as a
 		 * Session-scoped pending interaction, and only the composer seat receives it as a
-		 * slot prop. The overlay is a different seat and cannot read that prop, so the
-		 * entry that does receive it hands the interaction here and the overlay renders
-		 * the same two buttons from this one value. Both surfaces settle the SAME
-		 * interaction, so a click in either one is one answer; the second surface stops
-		 * rendering when the first settles, because the interaction is gone.
+		 * slot prop; the overlay is a different seat and cannot read that prop, so the
+		 * entry that receives it hands the interaction here. `request` crosses the other
+		 * way: the row is in the overlay and the thing that can answer is in the composer
+		 * seat, so the row records which decision and which answer the human clicked, and
+		 * the claiming entry settles the ratchet's question with that answer the moment it
+		 * exists — which is what makes the row's buttons direct instead of a prompt to go
+		 * and answer a quiz somewhere else.
 		 * @returns a bare getSnapshot/subscribe source the renderer binds into a hook.
 		 */
 		function createPanelStore() {
-			var state = { open: false, sessionId: null, ask: null, ratify: null };
+			var state = { open: false, sessionId: null, ask: null, ratify: null, request: null };
 			var listeners = new Set();
 			return {
 				getSnapshot: function () {
@@ -248,6 +265,16 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 
+		/**
+		 * The interactions this entry has already answered on a row's behalf.
+		 *
+		 * A render can run an effect more than once (a strict-mode double invoke, a
+		 * re-mount), and the harness THROWS when one pending question is settled twice, so
+		 * the decision is recorded against the interaction itself rather than against a
+		 * render. A WeakSet holds the interaction without keeping it alive.
+		 */
+		const autoSettled = new WeakSet();
+
 		//#region ratification question
 		/**
 		 * PURPOSE
@@ -265,16 +292,23 @@ window.__ModuleLoader__.load({
 		 *   (not `true`), `questions[0].options` (exactly two, each with a string `label`,
 		 *   one of them equal to `intent.approve`), and `answer` (a function).
 		 *
+		 *   `intent.targetId` (a non-empty string naming the record) is REQUIRED, because
+		 *   the panel settles the question on the human's behalf from a click on that
+		 *   record's row: without it the panel cannot tell which record a question is
+		 *   about, and a presentation that cannot tell must not answer at all. Its own
+		 *   question id is the ratchet's private naming, not a contract to parse.
+		 *
 		 * OUTPUTS
-		 *   `{ pending, id, header, question, detail, approve, decline }`, or `null` when
-		 *   the value is not a claimable ratification question — `null`/`undefined`, an
-		 *   array of zero or several questions, a missing or foreign `intent`, an absent
-		 *   detail, a multi-select, a number of options other than two, a non-string
-		 *   label, no option carrying `intent.approve`, or no callable `answer`. A
-		 *   question with free text reachable is still claimable: free text is not an
-		 *   answer this ratchet can read (it is reported unreadable and re-asked), so the
-		 *   two declared options are every answer that changes anything, and `Not now`
-		 *   keeps the exit the harness's own plan-review card keeps.
+		 *   `{ pending, id, targetId, header, question, detail, approve, decline }`, or
+		 *   `null` when the value is not a claimable ratification question —
+		 *   `null`/`undefined`, an array of zero or several questions, a missing or foreign
+		 *   `intent`, a missing `intent.targetId`, an absent detail, a multi-select, a
+		 *   number of options other than two, a non-string label, no option carrying
+		 *   `intent.approve`, or no callable `answer`. A question with free text reachable
+		 *   is still claimable: free text is not an answer this ratchet can read (it is
+		 *   reported unreadable and re-asked), so the two declared options are every answer
+		 *   that changes anything, and `Not now` keeps the exit the harness's own
+		 *   plan-review card keeps.
 		 *
 		 * KEYWORDS
 		 *   ratification, presentation intent, composer seat, chain select, claim guard,
@@ -289,6 +323,7 @@ window.__ModuleLoader__.load({
 			if (question === null || typeof question !== "object") return null;
 			var intent = question.intent;
 			if (intent === null || typeof intent !== "object" || intent.kind !== RATIFY_INTENT_KIND) return null;
+			if (typeof intent.targetId !== "string" || intent.targetId === "") return null;
 			if (question.detail === undefined || question.detail === null) return null;
 			if (question.multiSelect === true) return null;
 			var options = Array.isArray(question.options) ? question.options : [];
@@ -305,6 +340,7 @@ window.__ModuleLoader__.load({
 			return {
 				pending: interaction,
 				id: question.id,
+				targetId: intent.targetId,
 				header: typeof question.header === "string" ? question.header : "",
 				question: typeof question.question === "string" ? question.question : "",
 				detail: question.detail,
@@ -1679,6 +1715,8 @@ window.__ModuleLoader__.load({
 		 *   props.claim — a value from `ratifyQuestionOf`, used only for its `header` (which
 		 *   names the decision). `props.openPanel` — the injected opener, taking the
 		 *   Session id. `props.sessionId` — the composer seat's Session identity.
+		 *   `props.settling` — true while a click in this record's row is being recorded,
+		 *   in which case the card says so instead of offering the pointer.
 		 *
 		 * OUTPUTS
 		 *   A card naming the decision, a sentence saying where the question is, and one
@@ -1694,6 +1732,11 @@ window.__ModuleLoader__.load({
 			var claim = props.claim;
 			var openPanel = props.openPanel;
 			var sessionId = props.sessionId;
+			if (props.settling === true) {
+				return React.createElement("div", { style: Object.assign({}, cardStyle(), { borderColor: tone("pending").border }) },
+					React.createElement("div", { style: { fontSize: 13, fontWeight: 600, lineHeight: "18px" } }, "Recording your answer…"),
+					React.createElement("div", { style: ctaNoteStyle() }, "The ratchet asked its own question for this decision and your click is being sent as the answer. Nothing is written until the ratchet reads it."));
+			}
 			return React.createElement("div", { style: Object.assign({}, cardStyle(), { borderColor: tone("pending").border }) },
 				claim.header === "" ? null : React.createElement("div", { style: { fontSize: 11, opacity: 0.7, marginBottom: 4 } }, claim.header),
 				React.createElement("div", { style: { fontSize: 13, fontWeight: 600, lineHeight: "18px" } }, "A decision is waiting for your ratification."),
@@ -1729,6 +1772,8 @@ window.__ModuleLoader__.load({
 		 *   entry it is the pending interaction. `props.publishRatify` — the injected
 		 *   callback that mirrors the interaction into the panel store for the window.
 		 *   `props.openPanel` and `props.sessionId` — forwarded to `RatifyPointer`.
+		 *   `props.usePanel` — the store hook the registration binds, read for the request
+		 *   a row recorded. `props.clearRequest` — the injected callback that consumes it.
 		 *
 		 * OUTPUTS
 		 *   The `RatifyPointer` card for a claimable question, or `null` for anything else
@@ -1747,6 +1792,9 @@ window.__ModuleLoader__.load({
 		function RatifyComposer(props) {
 			var matched = props.matched;
 			var publishRatify = props.publishRatify;
+			var usePanel = props.usePanel;
+			var clearRequest = props.clearRequest;
+			var request = typeof usePanel === "function" ? usePanel(function (snapshot) { return snapshot.request; }) : null;
 			var claim = ratifyQuestionOf(matched);
 			React.useEffect(function () {
 				if (typeof publishRatify !== "function") return undefined;
@@ -1760,11 +1808,34 @@ window.__ModuleLoader__.load({
 					publishRatify(null);
 				};
 			}, [matched, publishRatify]);
+			// The row's click, honoured. It is the human's answer — the label sent is the
+			// one the RATCHET put on this question, chosen by which button the human pressed
+			// — so it travels the one consent channel exactly as the chat quiz's answer
+			// does, and no part of the panel composes it. A question for a different record
+			// is never settled by a click on this one.
+			React.useEffect(function () {
+				if (claim === null || request === null || request === undefined) return undefined;
+				if (request.adrId !== claim.targetId) return undefined;
+				if (autoSettled.has(matched)) return undefined;
+				autoSettled.add(matched);
+				var label = request.decision === "approve" ? claim.approve.label : claim.decline.label;
+				try {
+					var settled = claim.pending.answer({ answers: [{ id: claim.id, selected: [label] }] });
+					if (settled !== null && typeof settled === "object" && typeof settled.then === "function") {
+						settled.then(function () {}, function () {});
+					}
+				} catch (error) {
+					// The row reports that nothing settled; the question stays for the window.
+				}
+				if (typeof clearRequest === "function") clearRequest();
+				return undefined;
+			}, [matched, request]);
 			if (claim === null) return null;
 			return React.createElement(RatifyPointer, {
 				claim: claim,
 				openPanel: props.openPanel,
-				sessionId: props.sessionId
+				sessionId: props.sessionId,
+				settling: request !== null && request !== undefined && request.adrId === claim.targetId
 			});
 		}
 
@@ -1833,7 +1904,7 @@ window.__ModuleLoader__.load({
 			var recordIds = props.recordIds;
 			var onSelectAdr = props.onSelectAdr;
 			var canAsk = props.canAsk;
-			var askAgent = props.askAgent;
+			var requestRatify = props.requestRatify;
 			var outcome = React.useState(null);
 			var result = outcome[0];
 			var setResult = outcome[1];
@@ -1859,16 +1930,24 @@ window.__ModuleLoader__.load({
 				adr.error === null ? null : React.createElement("div", { key: "err", style: warnStyle() }, "frontmatter: " + adr.error)
 			];
 			if (adr.canRatify === true) {
+				var decide = function (decision) {
+					if (typeof requestRatify !== "function") {
+						setResult("unavailable");
+						return;
+					}
+					try {
+						setResult(requestRatify(adr.id, decision) === true ? decision : "unavailable");
+					} catch (error) {
+						setResult("unavailable");
+					}
+				};
 				children.push(React.createElement("div", { key: "ask", style: { marginTop: 8 } },
-					canAsk ? React.createElement("button", { type: "button", style: primaryButtonStyle(colours), onClick: function () {
-						try {
-							setResult(askAgent(adr.id) === true ? "submitted" : "unavailable");
-						} catch (error) {
-							setResult("unavailable");
-						}
-					} }, "Ratify…") : null,
-					React.createElement("div", { key: "note", style: ctaNoteStyle() }, "This asks the ratchet to put the decision to you as a question. Answer it here: the approve and reject buttons appear in this window, and they carry the ratchet's own labels. It does not record a consent by itself; only your click on one of those answers does."),
-					result === "submitted" ? React.createElement("div", { style: mutedStyle() }, "Asked. Answer the ratification question above — it is in this window while it is open, and in the Session composer while it is closed.") : null,
+					canAsk ? React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" } },
+						React.createElement("button", { type: "button", style: Object.assign({}, primaryButtonStyle(colours), { marginTop: 0 }), onClick: function () { decide("approve"); } }, "Approve"),
+						React.createElement("button", { type: "button", style: smallButtonStyle(), onClick: function () { decide("decline"); } }, "Decline")) : null,
+					React.createElement("div", { key: "note", style: ctaNoteStyle() }, "Your click is the consent: the ratchet asks its own question about this decision and this answers it with the ratchet's own label, exactly as the chat quiz would. No quiz appears — there is nothing to go and answer."),
+					result === "approve" ? React.createElement("div", { style: mutedStyle() }, "Approving… the ratchet's question is being answered with its own approve label.") : null,
+					result === "decline" ? React.createElement("div", { style: mutedStyle() }, "Declining… the ratchet's question is being answered with its own reject label.") : null,
 					(!canAsk || result === "unavailable") ? React.createElement("div", { style: mutedStyle() },
 						canAsk ? "The composer refused the request. " : "No live Session composer is reachable from this window, so it cannot submit a message. ",
 						"Run from a session: ask the agent to call ",
@@ -2079,7 +2158,7 @@ window.__ModuleLoader__.load({
 				return snapshot;
 			});
 			var closePanel = props.closePanel;
-			var askAgent = props.askAgent;
+			var requestRatify = props.requestRatify;
 			var load = props.load;
 			var emptyView = { status: "idle", decisions: [], consents: [], specs: [], relations: { approvedBy: {}, supersededBy: {} }, lawsByDecision: {}, decisionIds: {}, recordIds: {}, dirs: { decisionsDir: DEFAULT_DECISIONS_DIR, specsDir: DEFAULT_SPECS_DIR }, projectName: "this project", notes: [], failures: [] };
 			var view = React.useState(emptyView);
@@ -2120,6 +2199,15 @@ window.__ModuleLoader__.load({
 					if (controller !== null) controller.abort();
 				};
 			}, [state.open, state.sessionId, seq[0]]);
+			// A recorded answer changes the corpus (an Approval ADR is written), so the window
+			// re-reads itself shortly after a click. Timed rather than awaited because the
+			// settlement happens in the composer seat, in another subtree, and the panel has no
+			// result to subscribe to; the Reload button remains for anything slower.
+			React.useEffect(function () {
+				if (state.request === null || state.request === undefined) return undefined;
+				var timer = setTimeout(function () { bump(seq[0] + 1); }, 2500);
+				return function () { clearTimeout(timer); };
+			}, [state.request]);
 			React.useEffect(function () {
 				if (!state.open) return undefined;
 				function onKey(event) {
@@ -2206,7 +2294,7 @@ window.__ModuleLoader__.load({
 										recordIds: current.recordIds,
 										onSelectAdr: onSelectAdr,
 										canAsk: canAsk,
-										askAgent: askAgent
+										requestRatify: requestRatify
 									});
 								}))),
 						React.createElement("div", null,
@@ -2270,6 +2358,14 @@ window.__ModuleLoader__.load({
 			const openPanel = function (sessionId) {
 				store.set({ open: true, sessionId: typeof sessionId === "string" && sessionId !== "" ? sessionId : null });
 			};
+			/**
+			 * Consumes the recorded answer once the claiming entry has sent it, so a later
+			 * question about the same record is not answered by a stale click.
+			 * @returns Nothing.
+			 */
+			const clearRequest = function () {
+				store.set({ request: null });
+			};
 			ctx.effect(function () {
 				return ctx.slots.inject("conversation.session.header.actions", function () {
 					return ctx.slots.register({
@@ -2314,6 +2410,27 @@ window.__ModuleLoader__.load({
 										return false;
 									}
 								},
+								/**
+								 * The row's click, end to end: record which decision and which answer the
+								 * human chose, then make the ratchet ASK, so the answer is the answer to
+								 * a question the ratchet put. Both halves are needed and neither is
+								 * optional: the ask is what makes the click a consent this ratchet can
+								 * pair, and the recorded decision is what lets the claiming entry send
+								 * the label the ratchet offered rather than one the panel invented.
+								 */
+								requestRatify: function (adrId, decision) {
+									if (typeof adrId !== "string" || adrId === "") return false;
+									var submitter = store.getSnapshot().ask;
+									if (typeof submitter !== "function") return false;
+									store.set({ request: { adrId: adrId, decision: decision === "decline" ? "decline" : "approve" } });
+									try {
+										submitter(adrId);
+										return true;
+									} catch (error) {
+										store.set({ request: null });
+										return false;
+									}
+								},
 								load: function (signal) {
 									return loadPanel(ctx, store.getSnapshot().sessionId, signal);
 								}
@@ -2348,7 +2465,12 @@ window.__ModuleLoader__.load({
 							return ratifyQuestionOf(interaction) === null ? null : interaction;
 						},
 						inject: function () {
-							return { publishRatify: publishRatify, openPanel: openPanel };
+							return {
+								hooks: { panel: store },
+								publishRatify: publishRatify,
+								clearRequest: clearRequest,
+								openPanel: openPanel
+							};
 						}
 					}, RatifyComposer);
 				});
