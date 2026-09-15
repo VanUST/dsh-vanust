@@ -4625,6 +4625,38 @@ test('ratify: the quiz shows the record text itself and offers exactly two deriv
   assert.equal(existsSync(join(root, 'docs', 'adrs', '0012-ratify-adr-0011.adr.md')), false, 'preparing writes nothing')
 })
 
+test('ratify: the question declares the presentation intent a two-button surface may claim', () => {
+  // The ADR panel offers this question as two buttons, and the harness permits that only
+  // when two buttons can express EVERY answer the question allows: it reads `intent.kind`,
+  // requires the intent to name the approve label, and refuses a batch with a third option
+  // or a multi-select. So the intent is not decoration — it is what stops the panel from
+  // rendering a question whose answers it cannot send.
+  const quiz = ratifyModule.buildQuiz(
+    [{ id: '0011', title: 'A decision', text: 'body', laws: [{ id: 'api.x', op: 'upsert', statement: 's' }] }],
+    { attempt: 1 },
+  )
+  const question = quiz.questions[0]
+  assert.equal(question.intent.kind, 'ratify-decision', 'the kind is pinned: the panel cannot import it')
+  assert.equal(question.intent.kind, ratifyModule.RATIFY_INTENT_KIND)
+  assert.equal(question.intent.approve, question.options[0].label, 'the intent names the approve label')
+  assert.equal(question.intent.approve, 'Approve')
+  assert.notEqual(question.intent.kind, 'plan-review', 'that kind is the plan mode\'s, and the harness renders it itself')
+
+  // The shape a two-button claim requires, asserted rather than assumed.
+  assert.equal(question.options.length, 2, 'binary: one approve label and exactly one other')
+  assert.notEqual(question.multiSelect, true, 'single choice')
+  assert.equal(question.detail, 'body', 'the detail carries the record text the human is shown')
+  assert.equal(typeof question.options[0].description, 'string', 'each option says what it does')
+
+  // The re-ask keeps the same intent, so a second attempt is still claimable.
+  const again = ratifyModule.buildQuiz(
+    [{ id: '0011', title: 'A decision', text: 'body', laws: [] }],
+    { attempt: 2, previous: [{ id: '0011', reason: 'free text' }] },
+  )
+  assert.equal(again.questions[0].intent.kind, 'ratify-decision')
+  assert.equal(again.questions[0].intent.approve, again.questions[0].options[0].label)
+})
+
 test('ratify: a decision is derived from the selected label and from nothing else', () => {
   const quiz = ratifyModule.buildQuiz(
     [{ id: '0011', title: 'A decision', text: 'body', laws: [{ id: 'api.x', op: 'upsert', statement: 's' }] }],

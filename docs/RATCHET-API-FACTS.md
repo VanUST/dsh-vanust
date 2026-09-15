@@ -164,6 +164,52 @@ rejection.
 
 ---
 
+### 2.6 A question can carry a presentation intent, and the panel can claim the seat
+
+The ADR panel is to offer a proposed decision's ratification as two buttons instead of the
+generic question flow. Two halves had to be measured, and only one of them can be measured
+from a terminal.
+
+**Measured by execution (the asking half).** The ratchet stamps its question with
+`intent: { kind: 'ratify-decision', approve: <approve label> }`, and the question still
+crosses the seam, is answered, is re-asked differently when the answer cannot be read, and
+produces an approval and a transcript:
+
+| Fact | Evidence |
+|---|---|
+| A question may carry an `intent` the asker defines; the seam does not reject it | `node scripts/probe-dsh-api.mjs --ratchet-ratify` → **10/10**, and the approved records land |
+| A two-button presentation may claim it: the batch is a binary single choice over one record | the same run's questions read `options: ["Approve","Reject"]`, one question per record, no multi-select |
+| A re-ask stays claimable | `[{id:"ratify-again-0001", options:["Approve ADR 0001","Reject ADR 0001"]}]` |
+
+The intent matters because of a constraint in the harness rather than in this kit: a
+presentation may claim a question **only when it can send every answer that question
+allows** — "an intent changes the layout, never which answers are reachable"
+(`dsh-client-ui-user-questions/lib/client.js`, `planReviewOf`). A ratify question is a
+binary single choice over one record, so two buttons express every answer it has.
+
+**Read, not yet measured (the presenting half).** A client plugin can claim the composer
+seat, and there is a shipped precedent, but this is a source reading with citations and not
+an executed fact:
+
+- the seat is a **chain**: `dsh-client-ui-conversation/lib/client.js:14932` renders
+  `conversation.composer` with `renderSlotChain`;
+- the election is the first entry whose `select()` returns non-null
+  (`dsh-client-ui-renderer/lib/client.js:828-849`, a throwing selector counts as declining);
+- `dsh-client-ui-user-questions/lib/client.js:874-879` owns the seat today with a `select`
+  over its own `PendingQuestion` and no `priority`;
+- `dsh-client-ui-approval/lib/client.js:265-282` is a **second claimant of the same seat**,
+  at `priority: 1`, with its own `select` and its own pending-interaction domain — which is
+  the pattern the panel would follow.
+
+Three consequences are what still need running, and they are the implementation's first
+task: that a third-party bundle's `select` is reached at all, that claiming the seat
+suppresses the generic flow rather than duplicating it, and that the claimed interaction
+exposes an `answer` the panel can call with the same batch shape the generic flow sends.
+The panel must also recognise the question **structurally** (`questions[0].intent`) because
+`PendingQuestion` is not exported and a third-party bundle cannot use `instanceof`.
+
+---
+
 ## 3. Where declarations and behaviour diverge
 
 Five findings. Each is a trap a reasonable implementer would walk into, which is

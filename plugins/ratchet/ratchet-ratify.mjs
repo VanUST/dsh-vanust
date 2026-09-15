@@ -56,6 +56,27 @@ export const RATIFY_APPROVE = 'Approve'
 /** The label that means "leave it proposed". Exact match, never a prefix. */
 export const RATIFY_REJECT = 'Reject'
 
+/**
+ * The presentation intent this ratchet's question declares.
+ *
+ * A client plugin may claim a question from the harness's one composer chain only if it can
+ * send every answer that question allows, and the client learns what a question is from
+ * `intent.kind`: a request whose intent no presentation claims falls through to the generic
+ * flow. Naming the operation is therefore what lets the ADR panel offer this question as two
+ * buttons **without** becoming a second consent path — the panel returns the option's own
+ * label, and this module derives the decision from it exactly as it does for the chat quiz.
+ *
+ * Deliberately not `plan-review`: that kind belongs to the plan mode, and the harness renders
+ * its own surface for it. A question this ratchet asks is a binary single choice over one
+ * record, which is the shape a two-button presentation is allowed to claim.
+ *
+ * The panel bundle cannot import this constant — it is a standalone browser closure served
+ * from its own tarball — so the string is written on both sides and each copy is asserted
+ * against the literal. Renaming it in one place alone would silently return the question to
+ * the generic flow.
+ */
+export const RATIFY_INTENT_KIND = 'ratify-decision'
+
 /** Where transcripts of ratification sessions are recorded. */
 export const RATIFY_TRANSCRIPT_DIR = 'docs/ratchet/sources'
 
@@ -209,6 +230,12 @@ export function buildQuiz(entries, { attempt = 1, previous = [] } = {}) {
     questions.push({
       id: questionId,
       header: attempt === 1 ? `Ratify ADR ${entry.id}` : `Answer not readable — ADR ${entry.id}`,
+      // The presentation intent, naming the operation and the label that means "yes". Two
+      // buttons can express every answer this question allows — one approve label, one
+      // other option, single choice — which is the condition the harness puts on a
+      // presentation claiming a question, and the condition the ADR panel must re-check
+      // before it claims one.
+      intent: { kind: RATIFY_INTENT_KIND, approve: approveLabel },
       question:
         attempt === 1
           ? `Put "${entry.title ?? entry.id}" into force as law?`
