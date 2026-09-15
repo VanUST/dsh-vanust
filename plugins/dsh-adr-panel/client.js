@@ -39,13 +39,17 @@
  *   `withdrawn` are states with no provenance pill. A state computed from another
  *   record rather than read from this record's frontmatter is rendered dashed/italic.
  *   The ratify affordance appears ONLY for a decision that is
- *   `type !== "approval"`, frontmatter `status === "proposed"`,
- *   `author.authority === "agent"`, and named by no consent's `approves`; it submits the
- *   ratchet's own `/ratify <id>` command, which runs host-side without a model turn and
- *   puts the ratchet's question to the human through the question channel, and when no
- *   Session-scoped submitter is mounted it prints the command instead. It cannot mint a
- *   consent: the answer is the human's, and a consent record is not a decision and is
- *   never offered for ratification.
+ *   `type !== "approval"`, frontmatter `status === "proposed"`, **agent-authored**,
+ *   named by no consent's `approves`, and **not blocked** — blocked meaning it names a
+ *   zone the manifest does not declare, or an agent record in a zone the manifest
+ *   reserves to a human (`humanOnly`), where a consent cannot transfer authorship. A
+ *   human-authored proposed decision is never offered: its authorship already carries
+ *   the authority, so it shows `not in force` and awaits its author's activation, not a
+ *   question. The affordance submits the ratchet's own `/ratify <id>` command, which
+ *   runs host-side without a model turn and puts the ratchet's question to the human
+ *   through the question channel, and when no Session-scoped submitter is mounted it
+ *   prints the command instead. It cannot mint a consent: the answer is the human's, and
+ *   a consent record is not a decision and is never offered for ratification.
  *
  *   COLOUR: one `tone(kind)` helper maps a semantic kind onto the shell's state and
  *   label theme tokens (`var(--token, fallback)`, so any theme works and a missing token
@@ -138,7 +142,7 @@ window.__ModuleLoader__.load({
 		 * constant is the only way to tell a stale bundle from a bug: bump it with every
 		 * change to this file, and keep it equal to the package's version.
 		 */
-		const PANEL_VERSION = "0.1.10";
+		const PANEL_VERSION = "0.1.12";
 		/** The manifest a ratchet project declares its directories and name in. */
 		const MANIFEST_PATH = ".dsh/project.json";
 		/** Directories used when the manifest is absent, unparseable, or silent. */
@@ -530,7 +534,7 @@ window.__ModuleLoader__.load({
 		 *   one's frontmatter. `provenance` is `{ text, kind, link }` or null, where `link`
 		 *   names the consent records a `ratified by` pill may select.
 		 */
-		function displayedState(record, relations) {
+		function displayedState(record, relations, zonePolicies) {
 			var approvals = record.id === null ? undefined : relations.approvedBy[record.id];
 			var ratified = approvals !== undefined && approvals.length > 0;
 			var superseded = record.id === null ? undefined : relations.supersededBy[record.id];
@@ -541,7 +545,19 @@ window.__ModuleLoader__.load({
 				return { state: { text: record.status, kind: stateKindOfStatus(record.status), derived: false }, provenance: null };
 			}
 			if (record.status === "proposed" && !ratified) {
-				return { state: { text: "awaiting a human", kind: "pending", derived: false }, provenance: null };
+				// Only an AGENT's decision needs approval. A human-authored record carries its
+				// own authority, so it is not "awaiting a human" — it awaits its author's own
+				// activation, and labelling it as a call to consent contradicted the author
+				// chip beside it. A blocked agent record is named as blocked rather than
+				// offered, because the ratchet would refuse the question.
+				if (record.authority === "agent") {
+					var blocked = blockedReason(record, zonePolicies);
+					if (blocked !== null) {
+						return { state: { text: "blocked \u2014 " + blocked, kind: "neutral", derived: false }, provenance: null };
+					}
+					return { state: { text: "awaiting a human", kind: "pending", derived: false }, provenance: null };
+				}
+				return { state: { text: "not in force", kind: "neutral", derived: false }, provenance: null };
 			}
 			var activeInFrontmatter = record.status === "active";
 			if (!activeInFrontmatter && !ratified) {
@@ -558,23 +574,62 @@ window.__ModuleLoader__.load({
 			};
 		}
 		/**
+		 * Why the ratchet could not put this decision to a human, or null.
+		 *
+		 * Mirrors `ratificationQueue` in the ratchet: a record is blocked when it names a
+		 * zone the manifest does not declare, or when it is agent-authored and any zone it
+		 * declares reserves its paths to a human. Only an agent-authored record is ever
+		 * blocked, because authorship already carries the authority a consent would grant.
+		 *
+		 * @param record - a parsed record.
+		 * @param zonePolicies - the manifest's zone id to `agentAuthority` map.
+		 * @returns a one-line reason, or null when the record is not blocked.
+		 */
+		function blockedReason(record, zonePolicies) {
+			var declared = Array.isArray(record.zones) ? record.zones : [];
+			var index = 0;
+			for (index = 0; index < declared.length; index += 1) {
+				if (zonePolicies[declared[index]] === undefined) {
+					return "zone \"" + declared[index] + "\" is not declared in the manifest";
+				}
+			}
+			if (record.authority !== "agent") return null;
+			for (index = 0; index < declared.length; index += 1) {
+				if (zonePolicies[declared[index]] === "humanOnly") {
+					return "zone \"" + declared[index] + "\" reserves its paths to a human, so this needs a human author";
+				}
+			}
+			return null;
+		}
+		/**
 		 * Whether the ratify affordance may be offered for a record.
 		 *
-		 * All four conditions are required. A consent record is never offered one — that
-		 * is the unnecessary recursion — and an already-approved or superseded decision is
-		 * not either, because asking a human to ratify what is already in force proposes
-		 * nothing.
+		 * ONLY AN AGENT'S PROPOSED DECISION IS OFFERED. A human-authored record already
+		 * carries its own authority, so asking a human to approve it proposes a consent to
+		 * the person who wrote the decision — the contradiction of an "awaiting a human"
+		 * state beside a human author chip. Such a record awaits activation by its author
+		 * instead. Among agent decisions, one the ratchet would refuse is not offered
+		 * either: a BLOCKED record (an undeclared zone, or a zone reserved to humans) could
+		 * not enter force on a "yes", so the affordance is withheld and the state names the
+		 * reason.
+		 *
+		 * The condition is the ratchet's own, read from the manifest, so the panel cannot
+		 * offer an action the ratchet would reject or hide one it would accept.
 		 *
 		 * @param record - a parsed record.
 		 * @param relations - `{ approvedBy, supersededBy }`.
-		 * @returns true only when the record is a decision awaiting a first consent.
+		 * @param zonePolicies - the manifest's zone id to `agentAuthority` map, empty when
+		 *   there is no manifest.
+		 * @returns true only when the record is an agent's decision the ratchet can put to
+		 *   the human.
 		 */
-		function canOfferRatify(record, relations) {
+		function canOfferRatify(record, relations, zonePolicies) {
 			if (record.type === "approval") return false;
 			if (record.status !== "proposed") return false;
 			if (record.authority !== "agent") return false;
 			var approvals = record.id === null ? undefined : relations.approvedBy[record.id];
-			return approvals === undefined || approvals.length === 0;
+			if (approvals !== undefined && approvals.length > 0) return false;
+			return blockedReason(record, zonePolicies) === null;
 		}
 		/**
 		 * Index the compiled laws by the decision that decided them, so the decision view
@@ -678,6 +733,29 @@ window.__ModuleLoader__.load({
 			};
 		}
 		/**
+		 * The zone policies the panel judges a record's authority against.
+		 *
+		 * The panel reads the manifest for the same reason it reads the directories: an
+		 * affordance must follow the project's declaration rather than a hardcoded rule.
+		 * The map is what lets the ratify affordance agree with the ratchet's queue about
+		 * which decisions a human can actually consent to.
+		 * @returns `{ [zoneId]: agentAuthority }`, empty when the manifest is absent,
+		 *   silent, or declares no zones.
+		 */
+		function zonePoliciesOf(manifest) {
+			var ratchet = manifest !== null && typeof manifest === "object" ? manifest.ratchet : null;
+			var section = ratchet !== null && typeof ratchet === "object" ? ratchet : {};
+			var zones = Array.isArray(section.zones) ? section.zones : [];
+			var policies = {};
+			for (var i = 0; i < zones.length; i += 1) {
+				var zone = zones[i];
+				if (zone !== null && typeof zone === "object" && typeof zone.id === "string" && zone.id !== "") {
+					policies[zone.id] = typeof zone.agentAuthority === "string" ? zone.agentAuthority : "";
+				}
+			}
+			return policies;
+		}
+		/**
 		 * The project's own name: the manifest's `name`, else the first spec's `Project:`
 		 * line, else a neutral placeholder. Never a hardcoded repository name.
 		 * @returns a non-empty display string.
@@ -776,6 +854,7 @@ window.__ModuleLoader__.load({
 			return readManifest(files, sessionId, signal).then(function (manifestResult) {
 				if (manifestResult.note !== null) notes.push(manifestResult.note);
 				var dirs = resolveDirs(manifestResult.manifest);
+				var zonePolicies = zonePoliciesOf(manifestResult.manifest);
 				return Promise.all([
 					readDirectory(files, sessionId, dirs.decisionsDir, ".adr.md", signal, failures),
 					readDirectory(files, sessionId, dirs.specsDir, ".spec.md", signal, failures)
@@ -794,10 +873,10 @@ window.__ModuleLoader__.load({
 							consents.push(record);
 							continue;
 						}
-						var force = displayedState(record, relations);
+						var force = displayedState(record, relations, zonePolicies);
 						record.state = force.state;
 						record.provenance = force.provenance;
-						record.canRatify = canOfferRatify(record, relations);
+						record.canRatify = canOfferRatify(record, relations, zonePolicies);
 						record.summary = decisionSummary(record);
 						decisions.push(record);
 						if (record.id !== null && record.id !== "") decisionIds[record.id] = true;

@@ -4732,6 +4732,22 @@ test('ratify: a rejected answer writes nothing and leaves the record proposed', 
   assert.deepEqual(compile(root).laws, [])
 })
 
+test('ratify: a human-authored proposed decision is not waiting for approval', () => {
+  // Only an agent's decision needs a consent. A human-authored record carries its own
+  // authority, so it is neither pending nor blocked: its author activates it. Offering
+  // it would ask the author to approve the decision they wrote.
+  const root = makeProject({
+    name: 'human-authored-pending',
+    zones: [{ id: 'api', paths: ['src/api/**'], agentAuthority: 'proposeOnly' }],
+    adrs: {
+      '0001-human.adr.md': adrText({ id: '0001', status: 'proposed', authority: 'human', zones: ['api'], laws: [] }),
+    },
+  })
+  const queue = ops.ratifications(root)
+  assert.deepEqual(queue.pending.map((entry) => entry.id), [], 'a human-authored record is not queued for a question')
+  assert.deepEqual(queue.blocked.map((entry) => entry.id), [], 'and it is not blocked either; it awaits its author')
+})
+
 // ---------------------------------------------------------------------------
 // the tool adapter: a declared tool whose body was never executed
 // ---------------------------------------------------------------------------

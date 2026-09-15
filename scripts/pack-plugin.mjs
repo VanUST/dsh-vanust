@@ -206,8 +206,19 @@ if (options.dryRun) {
 // Bump the source version before packing, so the tarball's own manifest records the
 // version its filename claims. A mismatch there is the kind of detail that makes an
 // installed plugin unidentifiable later.
+let bundleBackup = null
+const clientBundlePath = join(sourceDir, 'client.js')
 if (target !== current) {
   writeFileSync(manifestPath, `${JSON.stringify({ ...manifest, version: target }, null, 2)}\n`, 'utf8')
+  // A hand-written browser bundle cannot read its own package.json, so it declares its
+  // version in a constant. That is a second copy of the version and it drifts the moment
+  // the packer bumps one and not the other — `test-adr-panel.mjs` exists because it did.
+  // Rewriting the constant here keeps the copy equal to the manifest.
+  if (existsSync(clientBundlePath)) {
+    bundleBackup = readFileSync(clientBundlePath, 'utf8')
+    const rewritten = bundleBackup.replace(/(\bPANEL_VERSION\s*=\s*")[^"]*(")/u, `$1${target}$2`)
+    if (rewritten !== bundleBackup) writeFileSync(clientBundlePath, rewritten, 'utf8')
+  }
 }
 
 let packOutput
@@ -220,9 +231,11 @@ try {
   })
 } catch (error) {
   // Restore the version: a failed pack must not leave a bumped manifest behind, or the
-  // next run bumps again and the package skips a version.
+  // next run bumps again and the package skips a version. The bundle constant is restored
+  // with it, because a half-applied bump is worse than none.
   if (target !== current) {
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+    if (bundleBackup !== null) writeFileSync(clientBundlePath, bundleBackup, 'utf8')
   }
   process.stderr.write(`pack-plugin: npm pack failed:\n${String(error.stderr ?? error)}\n`)
   process.exit(1)

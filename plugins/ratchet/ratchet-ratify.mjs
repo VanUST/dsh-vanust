@@ -108,6 +108,12 @@ export function ratificationQueue(root) {
   const blocked = []
 
   for (const record of [...resolved.proposed, ...resolved.excluded]) {
+    // Only an AGENT's decision needs approval. A human-authored record carries its own
+    // authority: it enters force when its author declares it active, so offering it as a
+    // question would ask the author to approve the decision they wrote. It is neither
+    // pending nor blocked — it is simply not in force yet, and the author's own edit is
+    // the act that changes that.
+    if (record.authority !== 'agent') continue
     const zones = zonesForRecord(record, config)
     const humanOnly = zones.filter((zone) => zone.agentAuthority === 'humanOnly')
     let text = null
