@@ -45,6 +45,7 @@ import {
   compile,
   findRoot,
   ingest,
+  ingestBatch,
   ratifications,
   ratify,
   ratifyInteractively,
@@ -742,7 +743,9 @@ export function apply(ctx) {
             enum: Object.keys(REVIEW_JOBS),
             description:
               'What to review: review_corpus, review_change, review_proposal, review_conflict, ' +
-              'explain_violation, or grill_preparation. Default review_corpus.',
+              'explain_violation, grill_preparation, or review_duplicates — the last being the ADVISORY ' +
+              'duplicate report: decisions that state one constraint in different words, which no text ' +
+              'comparison can see. Default review_corpus.',
           },
           change: { type: 'string', description: 'The proposed change or diff to review.' },
           proposal: { type: 'string', description: 'The proposed ADR text, for review_proposal.' },
@@ -881,6 +884,76 @@ export function apply(ctx) {
           })
           if (args.ratify !== true) return ingested
           return ratifyIngested(ingested, { root: resolved.root, exec })
+        },
+      }),
+    )
+
+    // The batch extractor: a surface of its OWN, not a mode of the tool above. The two carry
+    // different guarantees — a single ingestion proves every sentence the judge attributes to
+    // the source is in it, a batch proves only that each decision cites a span that is — and
+    // one tool whose guarantees depend on an argument is a tool whose caller cannot tell
+    // which one they got. It is also the reason the consent-surface check scans every
+    // registered tool rather than a list: a second ingestion surface has to be inspected for
+    // an answer-shaped argument without anybody remembering to add it there.
+    register(
+      defineTool({
+        name: 'ratchet_ingest_batch',
+        description:
+          'Extract MANY proposed architecture decision records from one source in one call, for a document ' +
+          'that states several decisions. Every decision must carry a verbatim span from the source, and this ' +
+          'tool locates that span in the source itself before writing the record: a decision whose span it ' +
+          'cannot find is refused ALONE, and the other decisions in the batch are still written. The batch is ' +
+          'capped, and a batch above the cap is refused together with the heading boundaries the tool found, so ' +
+          'a large document is split mechanically rather than by judgement. Every record it writes is ' +
+          '`proposed` — no batch puts a decision into force, and a human ratifies through ratchet_ratify. ' +
+          'This is deliberately a separate tool from ratchet_ingest_source, whose stronger per-sentence ' +
+          'attribution guarantee is unchanged. Pass `ingest` to file an answer you obtained yourself when no ' +
+          'judge could be spawned.',
+        parameters: {
+          source: {
+            type: 'string',
+            description: 'Repository-relative path of the source file to extract decisions from.',
+          },
+          write: {
+            type: 'boolean',
+            description:
+              'Write the generated records under the decisions directory. Default false — the records are ' +
+              'returned for review first, and each one is written only if it compiles.',
+          },
+          ingest: {
+            type: 'json',
+            description:
+              'A batch result you produced for this source, in the shape the returned prompt asks for: ' +
+              '`{ decisions: [{ span, title, decision, reasoning, reasoningBasis, context, contextBasis, … }] }`. ' +
+              'Validated exactly like a spawned judge\'s result, provenance checks included; use it when no ' +
+              'judge could be spawned.',
+          },
+        },
+        output: output(),
+        async execute(args, exec) {
+          const resolved = rootFor(exec)
+          const sourcePath = typeof args.source === 'string' && args.source.length > 0 ? args.source : null
+          if (sourcePath === null) {
+            return {
+              ok: false,
+              stage: 'ingest-batch',
+              reason: 'batch extraction needs the path of a source file holding the reasoning to record',
+            }
+          }
+          if (!resolved.found) {
+            return {
+              ok: false,
+              stage: 'ingest-batch',
+              reason: `no ${MANIFEST_PATH} found, so there is no decisions directory or zone list to record against; call ratchet_bootstrap first`,
+            }
+          }
+          return ingestBatch({
+            root: resolved.root,
+            sourcePath,
+            write: args.write === true,
+            submitted: args.ingest ?? null,
+            spawnJudge: judgeSpawner(exec),
+          })
         },
       }),
     )

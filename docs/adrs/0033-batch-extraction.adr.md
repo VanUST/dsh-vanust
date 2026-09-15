@@ -19,23 +19,43 @@ laws:
   - op: upsert
     id: ingestion.a-batch-decision-cites-a-span-the-tool-locates-itself
     statement: Every decision a batch extraction writes carries a quoted span from the source, and the tool locates that span in the source itself before the record is written, so a justification cannot be attributed to a document that does not contain it.
-    checks: []
-    unenforced: "the batch tool does not exist yet. It becomes enforceable as the tool's own refusal, falsified by a hand-written span that is not in the source."
+    checks:
+      - type: command
+        run: node --test scripts/test-ratchet.mjs
+        expects: a decision whose span is not in the source mints nothing, while the locatable decisions in the same batch are written
+        outputContains: "a decision whose span cannot be located is refused alone"
+      - type: command
+        run: node --test scripts/test-ratchet.mjs
+        expects: the extractor is reachable as a tool of its own and every record it writes is proposed
+        outputContains: "many decisions from one source become many proposed records"
   - op: upsert
     id: ingestion.an-unlocatable-span-refuses-that-record-alone
     statement: A decision whose span cannot be located is refused while the other decisions in the same batch are still written, so one misattributed extraction costs one record rather than the batch.
-    checks: []
-    unenforced: "the batch tool does not exist yet. It becomes enforceable as a test that one bad span leaves the other records written and reports the refusal by name."
+    checks:
+      - type: command
+        run: node --test scripts/test-ratchet.mjs
+        expects: the refusal names the decision and its code, and the rest of the batch lands
+        outputContains: "a decision whose span cannot be located is refused alone"
   - op: upsert
     id: ingestion.a-batch-is-capped-and-an-oversized-source-is-split-on-its-headings
     statement: A batch extraction is capped in the number of decisions it will write, and a source above the cap is refused with the heading boundaries the tool found, so the split is mechanical rather than a judgement about where to cut.
-    checks: []
-    unenforced: "the batch tool does not exist yet. It becomes enforceable as a test that a document above the cap is refused and that the refusal names the headings it found."
+    checks:
+      - type: command
+        run: node --test scripts/test-ratchet.mjs
+        expects: a batch above the cap is refused whole with the heading boundaries the tool found, and nothing is written
+        outputContains: "a batch above the cap is refused with the headings the tool found"
   - op: upsert
     id: ingestion.batch-extraction-is-a-distinct-surface-and-writes-only-proposed-records
     statement: Batch extraction is a surface of its own, distinct from single-decision ingestion, and every record it writes is proposed; no batch puts a decision in force.
-    checks: []
-    unenforced: "the tool does not exist yet. It becomes enforceable through the consent-surface check — which scans every registered tool, not a named list — plus a test that a batch writes records that are all proposed."
+    checks:
+      - type: command
+        run: node scripts/check-consent-surface.mjs
+        expects: the whole registered tool surface — the batch extractor included — still carries no argument that accepts a caller-composed answer
+        outputContains: "consent surface ok"
+      - type: command
+        run: node --test scripts/test-ratchet.mjs
+        expects: ratchet_ingest_batch is registered beside ratchet_ingest_source rather than as a mode of it, and its parameters are exactly the source, the write flag and the submitted result
+        outputContains: "not a mode of single-decision ingestion"
 ---
 
 ## Context

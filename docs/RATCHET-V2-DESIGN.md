@@ -132,6 +132,16 @@ compiler cannot make the verifier lenient.
 section requirements, manifest and zone configuration, the zone↔path resolver, the
 source hash.
 
+**`resolves` is form-checked here and force-checked in the compiler.** A resolution is
+an ordinary decision record — there is no `type: resolution` — that settles a conflict
+by removing the losing laws, superseding the losing record and naming both sides in
+`resolves`. This module owns only what is a property of one file: the list must hold
+exactly two distinct four-digit ADR ids, and an approval record may not declare one at
+all. Whether an id names a record, and whether that record holds or is losing force, are
+questions about the corpus and belong to `validateResolutions` (§3.2). `TERMINAL_ADR_STATUSES`
+(`superseded`, `rejected`, `withdrawn`) is defined here once, because two readers need the
+same answer: the retirement audit in the compiler and the claim a record makes about itself.
+
 **Returns:** `{ record, problems }` from `parseAdr`, where `record` is `null` only
 when the file declares no id at all. A file that parses but breaks a rule returns
 **both** — because the compiler must still reason about the corpus while the gate
@@ -192,6 +202,28 @@ otherwise. `specFileMatches` compares generated text to disk after line-ending
 normalisation, which is what makes `SPEC_HASH_MISMATCH` a statement about a human
 edit rather than about a checkout.
 
+**Two audits that need the corpus and the bundle, so they run after both.**
+`validateResolutions` refuses a `resolves` list naming a record that does not exist
+(`ADR_RESOLVES_DANGLING`) or one that neither holds force nor is losing it
+(`ADR_RESOLVES_OUTSIDE_FORCE`). "Losing it" is read from what the corpus and the
+resolution itself declare — a record in force supersedes it or removes one of its
+laws, or THIS record does — because a proposed resolution is not in force yet: reading
+it as "already emptied" would refuse every resolution until after the moment it was
+needed, which is the mechanism refusing itself.
+
+`validateRetirement` requires a record another record in force superseded, whose laws
+are all out of force, to carry a terminal status (`RETIREMENT_STATUS_MISSING`), and
+refuses a terminal record that is still the SOURCE of a law in force
+(`TERMINAL_RECORD_DECLARES_LIVE_LAW`). Two deliberate narrowings, both measured:
+supersession is the signal rather than an `op: remove` of a record's last law, because
+a law can only be removed while its record is in force — so a record emptied by
+removals that then marks itself terminal makes every one of those removals
+`LAW_TARGET_DANGLING`, and there is no green corpus in that state; and the second half
+asks whether the record is the law's SOURCE, not whether a law with one of its ids is in
+force, because two records may re-declare one law id and the compiler merges them, so a
+retired record's statement can legitimately still hold through the record that replaced
+it.
+
 ### 3.3 `ratchet-verifier.mjs` — the gate
 
 **Owns:** the file walk, glob semantics, every check type, dependency-manifest
@@ -222,14 +254,17 @@ never read node_modules`.
 
 ### 3.4 `ratchet-tools.mjs` — the harness adapter
 
-**Owns:** project-root resolution from the session workspace, the seven tool
+**Owns:** project-root resolution from the session workspace, the eight tool
 declarations, bootstrap generation and application, and nothing else.
 
-Seven tools: `ratchet_status`, `ratchet_bootstrap`, `ratchet_compile`,
-`ratchet_verify`, `ratchet_review`, `ratchet_ingest_source` and `ratchet_ratify`.
-`ratchet_verify` compiles first and refuses to verify against a bundle the corpus
-no longer produces — judging code by a law nobody currently decides is worse than
-not judging it.
+Eight tools: `ratchet_status`, `ratchet_bootstrap`, `ratchet_compile`,
+`ratchet_verify`, `ratchet_review`, `ratchet_ingest_source`, `ratchet_ingest_batch`
+and `ratchet_ratify`. `ratchet_verify` compiles first and refuses to verify against a
+bundle the corpus no longer produces — judging code by a law nobody currently decides
+is worse than not judging it. `ratchet_ingest_batch` is a surface of its own rather
+than a mode of `ratchet_ingest_source` (§5.4), because the two carry different
+attribution guarantees and one tool whose guarantees differ by argument is one whose
+caller cannot tell which they got.
 
 `inject: ['tools']` is the entire declared dependency. The subagent runtime, the
 user-questions channel and the agent registry are resolved opportunistically at call
@@ -393,12 +428,20 @@ that distrusts. The pieces:
 | `degradeToSelfReview` | the prompt plus the note, when no judge can be spawned |
 | `buildReviewReport` | the report, well formed even when the answer was unusable |
 
-Six jobs: `review_corpus`, `review_change`, `review_proposal`, `review_conflict`,
-`explain_violation`, `grill_preparation`. Five answer with a verdict; the sixth
-answers with an agenda, and the format instruction is the job's own — a judge sent
-the verdict contract where questions were wanted returns findings, because the format
+Seven jobs: `review_corpus`, `review_change`, `review_proposal`, `review_conflict`,
+`explain_violation`, `grill_preparation`, `review_duplicates`. Six answer with a verdict;
+the seventh answers with an agenda, and the format instruction is the job's own — a judge
+sent the verdict contract where questions were wanted returns findings, because the format
 is what it actually answers. An agenda with no questions is reported rather than
 accepted: it looks like completed preparation while asking the human nothing.
+
+`review_duplicates` is the advisory half of duplicate detection (ADR 0032): two decisions
+stating one constraint in different words. Its findings carry `kind: semantic_duplicate`,
+which is deliberately absent from `BLOCKING_FINDING_KINDS` — a duplicate is a question for
+a human to settle with a resolution, not a change that contradicts law in force — so the
+report is advisory like every other judgement. The deterministic half is
+`scripts/check-duplicate-decisions.mjs`, a command that runs no model; the two strengths
+must not merge, and a test asserts the separation by running both over one corpus.
 
 A job whose material is missing is **not asked** — the call reports what is missing,
 because asking anyway invites the judge to invent the absent half.
@@ -477,6 +520,36 @@ provenance checks as a spawned judge's — which is what turns the degraded case
 session with no subagents runtime) from a dead end into a slower path. The operation
 that returns the prompt now also returns `submitHint`, naming the argument that
 files an answer.
+
+#### Batch extraction — `ratchet_ingest_batch`, and what it gives up
+
+One call, many proposed records, for a document that states several decisions (ADR 0033).
+The single-decision path proves that every sentence the judge attributes to the source
+appears in it; one read of a large document weakens exactly that proof, and the weakness is
+bounded mechanically rather than trusted away. Four constraints, in the order they act:
+
+1. **The cap refuses the whole call.** `BATCH_DECISION_CAP` bounds the decisions one call
+   will write, and a batch above it is refused with the **headings the tool found** in the
+   source (`headingsIn`, ATX headings with line numbers, fenced code skipped), so splitting
+   a large document is a mechanical choice rather than a judgement about where to cut. The
+   cap is a constant rather than an argument: a cap a caller could raise does not bound the
+   call it exists to bound.
+2. **Every decision carries a `span`, and the tool locates it itself.** `quoteAppears` — the
+   same verbatim locator the single path uses for `reasoningBasis` — is applied to the span
+   before anything is written, so a passage the judge invented mints nothing.
+3. **A refusal costs one record.** A decision whose span is not found, whose zone the
+   manifest does not declare, whose reasoning is missing or whose laws are malformed is
+   reported by index, title and code (`SPAN_NOT_LOCATED`, `DECISION_INVALID`,
+   `INSUFFICIENT_REASONING`, `ALREADY_RECORDED`, `DOES_NOT_COMPILE`, `WRITE_FAILED`) while
+   the rest of the batch still lands. Ids are assigned as decisions are accepted, so two
+   decisions in one batch cannot collide.
+4. **Every record it writes is `proposed`.** It reuses `renderAdr`, which emits the status
+   unconditionally, and each record is parsed against the rules a written record faces
+   before it is written.
+
+The batch is a TOOL and cannot be a CLI command, for the reason the whole dynamic layer
+exists: the judge needs a live root agent to be spawned under, and the CLI has none. Its
+degraded path returns the prompt, the cap and the headings.
 
 ### 5.5 The dynamic layer, measured
 
@@ -861,6 +934,34 @@ Stated plainly, because a rule with no enforcement point is an unverified claim:
   `proposeOnly`. It is reported here rather than silently fixed: renaming a law id is
   removing one law and adding another, and re-binding the records would take eight laws
   out of force until a human ratified them. Both are decisions for the corpus owner.
+- **A fully removed record cannot be marked retired, so the retirement rule covers
+  supersession only.** `validateRetirement` requires a record another record in force
+  superseded — and whose laws are therefore all out of force — to carry a terminal status.
+  It deliberately does not fire on a record whose laws were all removed one by one, because
+  that state cannot be made green: a law is removable only while its declaring record is in
+  force, so marking that record terminal makes every one of its removals
+  `LAW_TARGET_DANGLING` (a terminal record contributes no law to remove), while leaving it
+  live contradicts the rule. ADR 0031's decision describes a resolution that "removes the
+  losing laws AND supersedes the losing record"; the machinery as it stands cannot express
+  the first half for a FULL removal, and the second half is what the audit enforces. The
+  gap is reported here because papering over it with a check nobody can satisfy would be
+  worse than the gap: a rule with no green state is a rule people learn to disable.
+- **The shared-source duplicate rule asks for a shared law, not a shared source alone.**
+  ADR 0032's statement reads as "one source cited by two records", and read literally it
+  fails this kit's own corpus: four decisions cite one design-session document and two cite
+  one API-discovery document, and ADR 0033 blesses exactly that shape — a batch writes one
+  record per decision from ONE source, so a literal rule would make two records from one
+  batch call fail the gate immediately. `scripts/check-duplicate-decisions.mjs` therefore
+  reports a shared source when the records ALSO declare a law id in common, which is what
+  distinguishes a restatement from a second decision drawn from the same document. Two
+  consequences, stated rather than hidden: a re-ingestion that renames every law id and
+  shares no law with the first record is not reported, and the narrowing is a decision this
+  design made rather than one ADR 0032 settled.
+- **A model verdict still cannot gate, and the duplicate command proves it.** The rule is
+  only real where something fails when it is broken, so the boundary has a test: one corpus
+  that the deterministic command calls clean and the `review_duplicates` judge calls a
+  duplicate. The command's exit code is a function of the files alone, and it loads no
+  review layer.
 - **The Part 17 obligation to write an ADR before an architectural decision** is the
   same guard seen from the other side, so it is enforced exactly where a zone opts in
   and nowhere else.

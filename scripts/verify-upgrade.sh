@@ -96,6 +96,11 @@ if command -v node >/dev/null 2>&1; then
     "node '${KIT_DIR}/scripts/check-portability.mjs'"
   probe "the consent surface (no shell mint, no answer-accepting argument)" \
     "node '${KIT_DIR}/scripts/check-consent-surface.mjs' | grep -q 'consent surface ok'"
+  # The deterministic half of duplicate detection. It runs no model: the corpus is read, two
+  # decidable rules are applied, and the exit code is the verdict. Its ADVISORY counterpart
+  # (`ratchet_review --job review_duplicates`) spawns a judge and never reaches this exit code.
+  probe "duplicate decisions (decidable duplicates fail, merges and one source do not)" \
+    "node '${KIT_DIR}/scripts/check-duplicate-decisions.mjs' --root '${KIT_DIR}' | grep -q 'duplicate decisions ok'"
   probe "instruction routing (only the home rules reach the prompt)" \
     "node '${KIT_DIR}/scripts/check-instruction-routing.mjs' | grep -q 'instruction routing ok'"
   # The static line above reads files: a kit-rules provider that stopped

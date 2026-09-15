@@ -19,23 +19,43 @@ laws:
   - op: upsert
     id: lifecycle.a-resolution-answers-to-the-removal-authority
     statement: A resolution, retirement or merge that takes away a law's force answers to exactly the same authority as an explicit removal, so an agent-authored record may do it only where the zones let an agent hold force, and a law whose force came from a human ratification stays in force until a human ratifies the record that removes it.
-    checks: []
-    unenforced: "the resolution path does not exist yet: the compiler refuses `remove` and `supersedes` from an agent record against a ratified law (LAW_REMOVE_UNAUTHORISED), and the resolution record will be bound to that same refusal. It becomes enforceable with a test that a resolution removing a ratified law is refused until ratified, and accepted once it is."
+    checks:
+      - type: command
+        run: node --test scripts/test-ratchet.mjs
+        expects: a resolution that removes a law whose force came from a human ratification is refused until the resolution itself is ratified, and authorised once it is
+        outputContains: "a resolution removing a ratified law is refused until it is ratified"
   - op: upsert
     id: lifecycle.a-resolution-is-an-ordinary-record-with-a-resolves-list
     statement: A resolution is an ordinary decision record that removes the losing laws, supersedes the losing record and names both sides in a `resolves` list, so the corpus can audit which conflict was settled and by what.
-    checks: []
-    unenforced: "the `resolves` field is not in the schema yet, and the audit it exists for needs the compiler to read it. It becomes enforceable with a schema rule that a record declaring `resolves` names records that exist and are in or leaving force, plus a refusal when a resolution names one side only."
+    checks:
+      - type: command
+        run: node --test scripts/test-ratchet.mjs
+        expects: resolves is refused unless it names exactly two distinct ADR ids, so naming one side only cannot settle anything
+        outputContains: "the field carries exactly two distinct ADR ids"
+      - type: command
+        run: node --test scripts/test-ratchet.mjs
+        expects: a resolution naming a record that does not exist, or one that is neither in force nor leaving it, is refused by the corpus audit
+        outputContains: "a resolution naming a record that is neither in force nor leaving it"
   - op: upsert
     id: lifecycle.a-standing-block-lifts-when-the-challenged-law-leaves-force
     statement: A contradiction stops blocking writes once its findings no longer name a law in force, so a ratified resolution lifts the block without any separate clearing gesture and no resolved conflict is ever cleared by hand-editing a cache.
-    checks: []
-    unenforced: "measured behaviour of `blockedZones`, which drops an entry whose findings no longer name a law in force, and of the ledger fold that survives deleting `contradiction.json`. It becomes enforceable with a test that removes the challenged law's force through a resolution and asserts the zone is writable again, and that the block returns if the resolution is withdrawn."
+    checks:
+      - type: command
+        run: node --test scripts/test-ratchet.mjs
+        expects: a resolution that takes the challenged law out of force makes the zone writable again with no clearing gesture, and withdrawing the resolution puts the block back
+        outputContains: "a resolution that takes the challenged law out of force lifts the standing block"
   - op: upsert
     id: lifecycle.a-retired-record-says-so
     statement: A record that is retired says so in its own frontmatter, so a reader is never left following a decision whose laws no longer hold, and the retirement is visible without running the compiler.
-    checks: []
-    unenforced: "nothing yet requires a terminal status on a record whose laws were all removed. It becomes enforceable with a check that a record whose laws are all out of force by a resolution carries a terminal status, and that a terminal record declares no law in force."
+    checks:
+      - type: command
+        run: node --test scripts/test-ratchet.mjs
+        expects: a record a resolution retired, whose laws are all out of force, must carry a terminal status, and a terminal record that still sources a law in force is refused
+        outputContains: "a record a resolution retired says so in its own frontmatter"
+      - type: command
+        run: node --test scripts/test-ratchet.mjs
+        expects: a record whose status is terminal may not be the source of a law in force
+        outputContains: "a terminal record may not be the source of a law in force"
 ---
 
 ## Context
@@ -89,3 +109,14 @@ changes to express what `remove` plus `supersedes` already mean.
   the corpus and not two.
 - Deferred, and recorded as deferred in the source: a hard requirement answering a *semantic*
   duplicate, the per-record lifecycle queue, and expiry for specifications that never land.
+- **Measured while building the mechanism, and reported rather than resolved: the "removes the
+  losing laws" half cannot be combined with the supersession half of this decision.** A resolution
+  that supersedes the losing record takes that record out of force, so the record contributes no
+  law and the resolution's own `op: remove` of the losing law is reported as
+  `LAW_TARGET_DANGLING`; and a record whose laws were all removed by explicit `op: remove` cannot
+  then be given a terminal status either, because a terminal record contributes no law to remove.
+  There is no green corpus in which a record is FULLY removed, so `validateRetirement` fires on
+  supersession (with every law out of force) and not on removal, and the two halves of the
+  decision above cannot both be honoured at once. Which half should give way is a further decision
+  this record does not take, and it is deliberately not papered over with a rule nobody can
+  satisfy.

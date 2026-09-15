@@ -16,7 +16,7 @@
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { AUTHORITIES, CHECK_TARGET_FIELDS, MANIFEST_PATH, PROBLEM_CODES, RATCHET_DIR_DEFAULT, globsMayOverlap, hashSource, normaliseText, parseAdr, parseRatchetConfig, problem, zonePathCovers } from './ratchet-schema.mjs'
+import { AUTHORITIES, CHECK_TARGET_FIELDS, MANIFEST_PATH, PROBLEM_CODES, RATCHET_DIR_DEFAULT, TERMINAL_ADR_STATUSES, globsMayOverlap, hashSource, normaliseText, parseAdr, parseRatchetConfig, problem, zonePathCovers } from './ratchet-schema.mjs'
 
 /** Report title embedded in every bundle, so a consumer can reject a foreign file. */
 export const COMPILE_REPORT_KIND = 'ratchet/compile-report'
@@ -865,6 +865,157 @@ export function compileLaws(active, config) {
 }
 
 /**
+ * Audits every `resolves` list against the corpus.
+ *
+ * A resolution is an ordinary record that settles a conflict by removing the losing laws
+ * and superseding the losing record; `resolves` names BOTH sides so a reader can audit
+ * which conflict was settled and by what. The form of the list is judged by `parseAdr`,
+ * because it is a property of one file. The two questions here are properties of the
+ * corpus: does an id name a record at all, and is that record one of the two sides — a
+ * record holding force, or one on its way out of it?
+ *
+ * "Leaving force" is judged from what the corpus and THIS record declare, not only from
+ * what is already true, because a resolution has to be writable before it can be ratified.
+ * A record is leaving force when a record in force supersedes it, when a record in force
+ * removes one of its laws, or when this resolution supersedes it or removes one of its
+ * laws. Reading it any other way made the mechanism unusable in the flow it exists for: a
+ * proposed resolution is not in force yet, so it cannot have already emptied the record it
+ * names, and a check that demanded the emptiness first would refuse every resolution until
+ * after the moment it was needed.
+ *
+ * @param records - Parsed ADR records.
+ * @param options - `{ active, removedByDecision }`: the records in force, and the law ids an
+ *   active record retires with an explicit `op: remove` (both from `resolveActiveSet` and
+ *   `compileLaws`). Both default to empty, which makes every side "not leaving" — a caller
+ *   that has not resolved the corpus gets refusals rather than silent passes.
+ * @returns An array of problems; empty when every resolution names two sides that exist and
+ *   that hold or are losing force.
+ */
+export function validateResolutions(records, { active = [], removedByDecision = [] } = {}) {
+  const problems = []
+  const byId = new Map(records.map((record) => [record.id, record]))
+  const inForce = new Set((active ?? []).map((record) => record.id))
+  const removed = new Set(removedByDecision ?? [])
+
+  for (const record of records) {
+    for (const target of record.resolves ?? []) {
+      const named = byId.get(target)
+      if (named === undefined) {
+        problems.push(
+          problem(
+            'ADR_RESOLVES_DANGLING',
+            `${record.path} resolves "${target}", which is not the id of any ADR in this project; a resolution of a record nobody wrote settles nothing, and the corpus cannot audit which conflict it was about`,
+            record.id,
+            { path: record.path, target },
+          ),
+        )
+        continue
+      }
+      if (inForce.has(target)) continue
+      const supersededByForce = named.supersededBy !== null && named.supersededBy !== undefined
+      const emptiedByForce = named.laws.some((law) => law.op === 'upsert' && removed.has(law.id))
+      const supersededHere = (record.supersedes ?? []).includes(target)
+      const emptiedHere = (record.laws ?? []).some(
+        (law) => law.op === 'remove' && named.laws.some((declared) => declared.op === 'upsert' && declared.id === law.id),
+      )
+      if (supersededByForce || emptiedByForce || supersededHere || emptiedHere) continue
+      problems.push(
+        problem(
+          'ADR_RESOLVES_OUTSIDE_FORCE',
+          `${record.path} resolves "${target}" (${named.path}), which is neither in force nor leaving it: no record in force supersedes it or removes one of its laws, and this resolution neither supersedes it nor removes one of its laws, so the record named is standing exactly where it was and the conflict the resolution claims to settle is not the one the corpus has`,
+          record.id,
+          { path: record.path, target, targetPath: named.path, targetStatus: named.status },
+        ),
+      )
+    }
+  }
+  return problems
+}
+
+/**
+ * Requires a record a decision retired to say so, and a retired record to hold nothing in
+ * force.
+ *
+ * Both halves exist because a reader follows the FILES, not the compiler. The first: a
+ * record a resolution took out of force, whose laws are therefore all out of force too, is
+ * retired, and its frontmatter has to say so — otherwise a reader finds a record that looks
+ * live and governs nothing, which is exactly the state ADR 0031 exists to make visible. The
+ * second: a record that says `superseded`, `rejected` or `withdrawn` must not still be the
+ * SOURCE of a law in force, or the corpus is governing by a decision it has retired.
+ *
+ * The FIRST half fires on a record another record in force supersedes AND that contributes
+ * no law to the bundle. Supersession is the signal, not an `op: remove` of the last law,
+ * and that is a measured property of the machinery rather than a preference: a law can only
+ * be removed while the record declaring it is in force, so a record whose laws were all
+ * removed one by one is still in force — and marking it terminal makes every one of those
+ * removals `LAW_TARGET_DANGLING`, because a terminal record contributes no law to remove.
+ * There is therefore no green corpus in which a fully removed record carries a terminal
+ * status, and a check that demanded one would be a rule nobody can satisfy. A resolution
+ * that retires a record says so with `supersedes`; removing individual laws remains the
+ * partial tool it is. The case the machinery cannot express is recorded in ADR 0031's
+ * consequences rather than enforced here.
+ *
+ * The second half deliberately asks whether the record is the source of the law, not
+ * whether a law with one of its ids is in force. Two records may re-declare one law id with
+ * an identical statement, and the compiler merges them into a single law bound to the union
+ * of both records' zones — so a retired record's statement can legitimately still hold,
+ * declared by the record that replaced it. What may not survive is the retired record's own
+ * contribution, because force that outlives its source is the retirement failing silently.
+ *
+ * @param records - Parsed ADR records.
+ * @param bundle - The compiled spec bundle, or `null` when the corpus did not compile.
+ * @param options - Unused by this audit today; accepted so its call shape matches the other
+ *   corpus audits and a later rule that needs retired law ids does not change every caller.
+ * @returns An array of problems; empty when every retired record is terminal and no terminal
+ *   record is the source of a law in force. A `null` bundle yields an empty result rather
+ *   than a throw, because a compile that could not build a bundle has already reported why.
+ */
+export function validateRetirement(records, bundle) {
+  const problems = []
+  if (bundle === null || bundle === undefined) return problems
+  const laws = bundle.laws ?? []
+  const liveById = new Map(laws.map((law) => [law.id, law]))
+
+  for (const record of records) {
+    if (record.type !== 'adr') continue
+    const upserts = record.laws.filter((law) => law.op === 'upsert')
+    if (TERMINAL_ADR_STATUSES.includes(record.status)) {
+      const stillSourced = upserts.filter((law) => liveById.get(law.id)?.sourceAdr === record.id)
+      if (stillSourced.length > 0) {
+        problems.push(
+          problem(
+            'TERMINAL_RECORD_DECLARES_LIVE_LAW',
+            `${record.path} declares status "${record.status}" and is still the source of ${stillSourced.map((law) => `"${law.id}"`).join(', ')} in force; a reader who trusts the status stops following this record while the gate keeps enforcing it, so either the status is wrong or the law should have left force with it`,
+            record.id,
+            { path: record.path, status: record.status, laws: stillSourced.map((law) => law.id) },
+          ),
+        )
+      }
+      continue
+    }
+    if (upserts.length === 0) continue
+    const superseded = record.supersededBy !== null && record.supersededBy !== undefined
+    if (!superseded) continue
+    const allOut = upserts.every((law) => !liveById.has(law.id))
+    if (!allOut) continue
+    problems.push(
+      problem(
+        'RETIREMENT_STATUS_MISSING',
+        `${record.path} was superseded by ${record.supersededBy} and every law it declares is out of force, but its status is "${record.status}"; a retired record has to say so in its own frontmatter — set a terminal status (${TERMINAL_ADR_STATUSES.join(', ')}) so a reader is not left following a decision whose laws no longer hold`,
+        record.id,
+        {
+          path: record.path,
+          status: record.status,
+          supersededBy: record.supersededBy ?? null,
+          laws: upserts.map((law) => law.id),
+        },
+      ),
+    )
+  }
+  return problems
+}
+
+/**
  * Verifies the declared zones describe a usable partition of the repository.
  *
  * @param config - Parsed ratchet configuration.
@@ -959,6 +1110,14 @@ export function compileProject(root) {
   problems.push(...compiled.problems)
   report.reviewRequired = compiled.reviewRequired
   report.counts.laws = compiled.bundle.laws.length
+
+  // Two audits that need the whole corpus and the compiled bundle, so they run here rather
+  // than inside either half. `validateResolutions` asks whether each `resolves` list names
+  // two sides that exist and that hold or are losing force; `validateRetirement` asks that a
+  // record a decision emptied says it is retired, and that a retired record sources no law
+  // in force.
+  problems.push(...validateResolutions(corpus.records, { active: resolved.active, removedByDecision: compiled.removedByDecision }))
+  problems.push(...validateRetirement(corpus.records, compiled.bundle))
 
   report.problems = problems
   report.specHash = bundleHash(compiled.bundle)

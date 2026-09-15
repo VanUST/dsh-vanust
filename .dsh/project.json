@@ -174,6 +174,12 @@
       "path": "scripts/check-consent-surface.mjs"
     },
     {
+      "id": "duplicate-decisions",
+      "command": "node scripts/check-duplicate-decisions.mjs",
+      "purpose": "the deterministic duplicate check the gate runs: one law statement text under two law ids, and one source hash cited by two records that declare a law in common, exit 1 with a stable code; a re-declared law with an identical statement (a merge) and many decisions from one source with disjoint laws exit 0; duplicates that only a judge can see are a separate advisory report and never reach this exit code",
+      "path": "scripts/check-duplicate-decisions.mjs"
+    },
+    {
       "id": "instruction-routing",
       "command": "node scripts/check-instruction-routing.mjs",
       "purpose": "instruction routing: the harness workspace-instruction loader is disabled by row id, kit-rules is mounted in its place, it reads only the home rules file, and the installers ship that file",

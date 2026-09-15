@@ -110,6 +110,24 @@ export const PROBLEM_CODES = Object.freeze({
   APPROVAL_TARGET_UNKNOWN: 'an approval ADR names a decision that no file in this project declares',
   RATIFICATION_UNPROVEN: 'an approval ADR carries nothing showing that a human saw and consented to the text it approves',
   RATIFICATION_STALE: 'a decision was edited after it was ratified, so the recorded consent does not cover the text now in the file',
+  // A resolution names the two sides of a conflict it settles. The three codes below are
+  // the three ways a `resolves` list can fail to mean anything: it is not two distinct ADR
+  // ids, one of the ids names no file, or an id names a record that neither holds force
+  // nor is on its way out of it — so the conflict the record claims to have settled is
+  // not the conflict the corpus has.
+  ADR_RESOLVES_INVALID: 'a resolves list is not exactly two distinct ADR ids',
+  ADR_RESOLVES_DANGLING: 'resolves names an ADR id that does not exist',
+  ADR_RESOLVES_OUTSIDE_FORCE: 'resolves names a record that is neither in force nor leaving it',
+  // Retirement: a record that a resolution emptied must say so, and a record that says it
+  // is retired must not still be the source of a law in force.
+  RETIREMENT_STATUS_MISSING: 'a record whose laws are all out of force by a decision does not carry a terminal status',
+  TERMINAL_RECORD_DECLARES_LIVE_LAW: 'a record with a terminal status still contributes a law in force',
+  // Duplicate decisions. These two are emitted by `scripts/check-duplicate-decisions.mjs`,
+  // the deterministic command the gate runs; they are in this table because the table is
+  // the closed vocabulary of problems *this project* reports, and a command that prints a
+  // code a caller cannot look up is a code that gets branched on by string equality.
+  DUPLICATE_LAW_STATEMENT: 'one law statement text is declared under two different law ids',
+  DUPLICATE_SOURCE_CITED: 'one source hash is cited by two records that declare a law in common',
 })
 
 /**
@@ -127,6 +145,18 @@ export const ADR_STATUSES = Object.freeze([
   'rejected',
   'withdrawn',
 ])
+
+/**
+ * The statuses that mean "this record is done" — the record claims no force and never
+ * will again.
+ *
+ * Defined here rather than at each reader because two readers need the same answer and a
+ * second list is a second answer: the compiler refuses a terminal record that still
+ * contributes a law in force, and refuses a record whose laws a decision emptied but whose
+ * status is not terminal. `active` and `proposed` are deliberately absent: both are live
+ * claims, one of force and one of a pending decision.
+ */
+export const TERMINAL_ADR_STATUSES = Object.freeze(['superseded', 'rejected', 'withdrawn'])
 
 /**
  * Problem codes that make a project UNUSABLE rather than merely unhappy.
@@ -1433,6 +1463,63 @@ export function parseAdr({ filename, source, root = null, decisionsDir = RATCHET
   const ratification = readRatification(data, { path, id, type: data.type })
   problems.push(...ratification.problems)
 
+  // `resolves` names the two sides of a conflict a resolution settles. Only the FORM is
+  // judged here, because only the form is a property of one file: whether an id names a
+  // record at all, and whether that record holds or is losing force, are questions about
+  // the corpus, and they are answered by the compiler's `validateResolutions`. Splitting
+  // it that way is what keeps the sentence "the file is well formed" separate from "the
+  // corpus makes sense".
+  const resolves = Array.isArray(data.resolves) ? data.resolves.map((entry) => String(entry)) : []
+  if (data.resolves !== undefined && data.resolves !== null) {
+    if (!Array.isArray(data.resolves)) {
+      problems.push(
+        problem(
+          'ADR_RESOLVES_INVALID',
+          `${path} declares resolves ${JSON.stringify(data.resolves)} rather than a list; a resolution names the two sides of the conflict it settles`,
+          id,
+          { path },
+        ),
+      )
+    } else if (data.resolves.length !== 2) {
+      problems.push(
+        problem(
+          'ADR_RESOLVES_INVALID',
+          `${path} declares resolves with ${data.resolves.length} entr${data.resolves.length === 1 ? 'y' : 'ies'}; a resolution names exactly the TWO sides of the conflict it settles, so naming one side only settles nothing a reader can audit`,
+          id,
+          { path, resolves },
+        ),
+      )
+    } else if (resolves.some((entry) => !/^\d{4}$/.test(entry))) {
+      problems.push(
+        problem(
+          'ADR_RESOLVES_INVALID',
+          `${path} declares resolves ${JSON.stringify(resolves)}; every entry must be a four-digit ADR id`,
+          id,
+          { path, resolves },
+        ),
+      )
+    } else if (resolves[0] === resolves[1]) {
+      problems.push(
+        problem(
+          'ADR_RESOLVES_INVALID',
+          `${path} declares resolves ${JSON.stringify(resolves)}, naming "${resolves[0]}" on both sides; a conflict is between two records`,
+          id,
+          { path, resolves },
+        ),
+      )
+    }
+    if (data.type === 'approval') {
+      problems.push(
+        problem(
+          'ADR_RESOLVES_INVALID',
+          `${path} is an approval record and declares resolves; an approval puts another decision into force and settles no conflict, so a resolution here would be read as governing something it does not name`,
+          id,
+          { path },
+        ),
+      )
+    }
+  }
+
   // Source verification: "no decision without reasoning" is only a rule where
   // something fails when the reasoning is gone. The source file is read and
   // hashed here, and the three failure modes stay distinct — a missing file, an
@@ -1513,6 +1600,11 @@ export function parseAdr({ filename, source, root = null, decisionsDir = RATCHET
       laws,
       supersedes,
       approves,
+      // The two sides of the conflict this record settles, in declaration order. Empty on
+      // every record that is not a resolution, which is the overwhelming majority; the
+      // field is carried on the record rather than looked up so the compiler can audit
+      // resolutions without re-reading the frontmatter.
+      resolves,
       // The record's own hash, over the same normalised text every other hash in
       // this module uses. A ratification stores the hash it approved, so the
       // compiler can tell "this is the text the human consented to" from "this is

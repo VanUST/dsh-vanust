@@ -18,6 +18,7 @@ const state = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-state.
 const ratifyModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-ratify.mjs`)
 const ratchetBootstrap = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-bootstrap.mjs`)
 const falsifyModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-falsify.mjs`)
+const ingestModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-ingest.mjs`)
 
 // The harness adapter is loaded LAZILY and by hand, because it is the one module here
 // that imports a package the repository does not carry: `@deepseek-ai/dsh-tools`. A
@@ -66,6 +67,7 @@ function adrText({
   zones = ['auth'],
   supersedes = [],
   approves = [],
+  resolves = [],
   ratification = null,
   ratificationLines = null,
   laws = [],
@@ -110,6 +112,13 @@ function adrText({
   else {
     lines.push('approves:')
     for (const entry of approves) lines.push(`  - "${entry}"`)
+  }
+  // Written only when a resolution declares it, so every existing fixture stays byte
+  // identical: `resolves` is a new optional field, and a fixture that started emitting
+  // `resolves: []` would change the text of records whose hashes other tests pin.
+  if (resolves.length > 0) {
+    lines.push('resolves:')
+    for (const entry of resolves) lines.push(`  - "${entry}"`)
   }
   // A ratification block, rendered from parts or injected verbatim. The verbatim
   // form exists so the malformed shapes (no channel, no timestamp, an empty target
@@ -1349,6 +1358,7 @@ test('tools: the plugin module loads and every tool is declared', { skip: HARNES
   assert.deepEqual(parsed.tools, [
     'ratchet_bootstrap',
     'ratchet_compile',
+    'ratchet_ingest_batch',
     'ratchet_ingest_source',
     'ratchet_ratify',
     'ratchet_review',
@@ -2827,6 +2837,17 @@ const FIXTURE_BASIS = Object.freeze({
 /** A grounded ingestion result written against the fixture's own source. */
 function fixtureIngestResult(overrides = {}) {
   return ingestResult({ ...FIXTURE_BASIS, ...overrides })
+}
+
+/**
+ * One decision in a batch extraction, grounded in the fixture project's own source.
+ *
+ * The `span` is what makes a batch decision different from a single-ingestion result: the
+ * tool locates it in the source before writing anything, so a fixture without one is a
+ * fixture whose every decision would be refused.
+ */
+function batchDecision(overrides = {}) {
+  return { span: 'the deployment already runs it', ...fixtureIngestResult(), ...overrides }
 }
 
 test('ingest: the generated record compiles in the project it would land in', async () => {
@@ -6643,4 +6664,572 @@ test('state: verificationStatus reads the append-only ledger, not the editable s
   assert.equal(after.verified.ran, true, 'the ledger verdict is the authority, not the edited cache')
   assert.equal(after.verified.last.specHash, finish.specHash, 'and the reported verdict is the one the ledger recorded')
   assert.notEqual(after.verified.last.specHash, cache.lastVerify.specHash, 'the false hash in the cache is ignored')
+})
+
+// ---------------------------------------------------------------------------
+// the decision lifecycle: resolves, retirement, duplicates and batch extraction
+// ---------------------------------------------------------------------------
+
+const DUPLICATE_COMMAND = join(resolve(import.meta.dirname, '..'), 'scripts', 'check-duplicate-decisions.mjs')
+
+/** Runs the deterministic duplicate command and returns its exit code and streams. */
+function duplicateCommand(root) {
+  const run = spawnSync(process.execPath, [DUPLICATE_COMMAND, '--root', root], { encoding: 'utf8' })
+  return { status: run.status, stdout: `${run.stdout ?? ''}${run.stderr ?? ''}` }
+}
+
+/** A second reasoning document, for fixtures whose records must cite different sources. */
+const OTHER_SOURCE_PATH = 'docs/ratchet/sources/2026-09-12-api-shape.md'
+const OTHER_SOURCE_TEXT = [
+  '# Design session: API shape',
+  '',
+  'We agreed the version is carried in the path rather than a header because a path',
+  'is visible in every access log and a header is not.',
+  '',
+].join('\n')
+
+/** A project with two conflicting decisions in one agent-activated zone. */
+function resolutionProject(name, { resolution, firstStatus = 'active' } = {}) {
+  return makeProject({
+    name,
+    zones: [{ id: 'tests', paths: ['tests/**'], agentAuthority: 'activeIfNoConflict', requiresDecisionRecord: false }],
+    adrs: {
+      '0001-a.adr.md': adrText({
+        id: '0001',
+        status: firstStatus,
+        authority: 'agent',
+        zones: ['tests'],
+        laws: [{ id: 'tests.one', statement: 'One.', checks: [] }],
+      }),
+      '0002-b.adr.md': adrText({
+        id: '0002',
+        status: 'active',
+        authority: 'agent',
+        zones: ['tests'],
+        laws: [{ id: 'tests.two', statement: 'Two.', checks: [] }],
+      }),
+      '0003-resolution.adr.md': adrText({
+        id: '0003',
+        status: 'active',
+        authority: 'agent',
+        zones: ['tests'],
+        supersedes: ['0001'],
+        resolves: ['0001', '0002'],
+        laws: [{ id: 'tests.three', statement: 'Three.', checks: [] }],
+      }),
+      ...(resolution === undefined ? {} : { '0004-extra.adr.md': resolution }),
+    },
+  })
+}
+
+test('resolves: the field carries exactly two distinct ADR ids, or is refused', () => {
+  const good = schema.parseAdr({
+    filename: '0003-r.adr.md',
+    source: adrText({ id: '0003', resolves: ['0001', '0002'] }),
+  })
+  assert.deepEqual(good.problems.map((entry) => entry.code), [])
+  assert.deepEqual(good.record.resolves, ['0001', '0002'])
+
+  // One side only: the conflict the record claims to have settled cannot be audited, which
+  // is the whole reason the field exists.
+  const oneSided = schema.parseAdr({
+    filename: '0003-r.adr.md',
+    source: adrText({ id: '0003', resolves: ['0001'] }),
+  })
+  assert.ok(oneSided.problems.some((entry) => entry.code === 'ADR_RESOLVES_INVALID'), 'one side is refused')
+
+  const bothSidesSame = schema.parseAdr({
+    filename: '0003-r.adr.md',
+    source: adrText({ id: '0003', resolves: ['0001', '0001'] }),
+  })
+  assert.ok(
+    bothSidesSame.problems.some((entry) => entry.code === 'ADR_RESOLVES_INVALID'),
+    'the same record on both sides is not a conflict',
+  )
+
+  const three = schema.parseAdr({
+    filename: '0003-r.adr.md',
+    source: adrText({ id: '0003', resolves: ['0001', '0002', '0004'] }),
+  })
+  assert.ok(three.problems.some((entry) => entry.code === 'ADR_RESOLVES_INVALID'), 'three sides is not a resolution')
+})
+
+test('compiler: a resolution naming a record that does not exist is ADR_RESOLVES_DANGLING', () => {
+  const root = resolutionProject('resolves-dangling')
+  writeFileSync(
+    join(root, 'docs', 'adrs', '0003-resolution.adr.md'),
+    adrText({
+      id: '0003',
+      status: 'active',
+      authority: 'agent',
+      zones: ['tests'],
+      supersedes: ['0001'],
+      resolves: ['0001', '0099'],
+      laws: [{ id: 'tests.three', statement: 'Three.', checks: [] }],
+    }),
+  )
+  const result = compile(root)
+  assert.ok(result.codes.includes('ADR_RESOLVES_DANGLING'), `codes=${JSON.stringify(result.codes)}`)
+})
+
+test('compiler: a resolution naming a record that is neither in force nor leaving it is refused', () => {
+  // 0004 is proposed in a zone where only `active` self-activates, nothing supersedes it and
+  // no record removes its law: it stands exactly where it was, so a resolution naming it
+  // settles a conflict the corpus does not have.
+  const root = makeProject({
+    name: 'resolves-outside-force',
+    zones: [{ id: 'tests', paths: ['tests/**'], agentAuthority: 'activeIfNoConflict', requiresDecisionRecord: false }],
+    adrs: {
+      '0001-a.adr.md': adrText({ id: '0001', authority: 'agent', zones: ['tests'], laws: [{ id: 'tests.one', statement: 'One.', checks: [] }] }),
+      '0004-d.adr.md': adrText({ id: '0004', status: 'proposed', authority: 'agent', zones: ['tests'], laws: [{ id: 'tests.four', statement: 'Four.', checks: [] }] }),
+      '0003-resolution.adr.md': adrText({
+        id: '0003',
+        status: 'active',
+        authority: 'agent',
+        zones: ['tests'],
+        resolves: ['0001', '0004'],
+        laws: [{ id: 'tests.three', statement: 'Three.', checks: [] }],
+      }),
+    },
+  })
+  const result = compile(root)
+  assert.ok(result.codes.includes('ADR_RESOLVES_OUTSIDE_FORCE'), `codes=${JSON.stringify(result.codes)}`)
+
+  // And the same resolution naming the superseded side is accepted: `supersedes` names a
+  // record that is leaving force, which is the other half of the rule. The losing record
+  // carries a terminal status because the retirement rule requires it — that is a separate
+  // test, and asserting it here keeps this one about the resolves rule.
+  const accepted = compile(resolutionProject('resolves-leaving', { firstStatus: 'superseded' }))
+  assert.deepEqual(accepted.codes, [], `codes=${JSON.stringify(accepted.codes)}`)
+  assert.ok(accepted.laws.includes('tests.two'), 'the surviving side keeps its law')
+})
+
+test('compiler: a resolution removing a ratified law is refused until it is ratified', () => {
+  // The authority rule, driven through the resolution path rather than restated: an
+  // agent-authored resolution may not take away a law whose force came from a human
+  // ratification, and becomes able to do it once a human ratifies the resolution.
+  const losing = adrText({
+    id: '0001',
+    status: 'proposed',
+    authority: 'agent',
+    zones: ['tests'],
+    laws: [{ id: 'tests.one', statement: 'One.', checks: [] }],
+  })
+  const approval = approvalText({ id: '0002', approved: [{ id: '0001', text: losing }] })
+  const resolution = adrText({
+    id: '0003',
+    status: 'active',
+    authority: 'agent',
+    zones: ['tests'],
+    resolves: ['0001', '0004'],
+    laws: [{ op: 'remove', id: 'tests.one', checks: [] }],
+  })
+  const root = makeProject({
+    name: 'resolves-authority',
+    zones: [{ id: 'tests', paths: ['tests/**'], agentAuthority: 'activeIfNoConflict', requiresDecisionRecord: false }],
+    adrs: {
+      '0001-a.adr.md': losing,
+      '0002-approval.adr.md': approval,
+      '0003-resolution.adr.md': resolution,
+      '0004-d.adr.md': adrText({ id: '0004', authority: 'agent', zones: ['tests'], laws: [{ id: 'tests.four', statement: 'Four.', checks: [] }] }),
+    },
+  })
+  const refused = compile(root)
+  assert.ok(
+    refused.codes.includes('LAW_REMOVE_UNAUTHORISED'),
+    `an unratified resolution may not retire ratified law: ${JSON.stringify(refused.codes)}`,
+  )
+  assert.ok(refused.laws.includes('tests.one'), 'and the ratified law is still in force')
+
+  // The same resolution, ratified by a human: the removal is now authorised and the law
+  // leaves force.
+  writeFileSync(join(root, 'docs', 'adrs', '0005-approve-resolution.adr.md'), approvalText({ id: '0005', approved: [{ id: '0003', text: resolution }] }))
+  const allowed = compile(root)
+  assert.deepEqual(allowed.codes, [], `codes=${JSON.stringify(allowed.codes)}`)
+  assert.ok(!allowed.laws.includes('tests.one'), 'the ratified resolution retires the law it names')
+  assert.ok(allowed.laws.includes('tests.four'), 'and the surviving side keeps its own')
+})
+
+test('compiler: a record a resolution retired says so in its own frontmatter', () => {
+  // 0001 is superseded by the resolution and every law it declares is out of force, so a
+  // reader following the files would find a record that looks live and governs nothing.
+  const missing = compile(resolutionProject('retirement-missing', { firstStatus: 'active' }))
+  assert.ok(
+    missing.codes.includes('RETIREMENT_STATUS_MISSING'),
+    `a retired record must carry a terminal status: ${JSON.stringify(missing.codes)}`,
+  )
+
+  const declared = compile(resolutionProject('retirement-declared', { firstStatus: 'superseded' }))
+  assert.deepEqual(declared.codes, [], `a terminal status satisfies the rule: ${JSON.stringify(declared.codes)}`)
+  assert.ok(!declared.laws.includes('tests.one'), 'the retired record contributes no law')
+})
+
+test('compiler: a terminal record may not be the source of a law in force', () => {
+  // A human can ratify a record whose own status says it is withdrawn, and then the corpus
+  // enforces a law from a decision it has retired: a reader who trusts the status stops
+  // following the record while the gate keeps checking the code against it.
+  const withdrawn = adrText({
+    id: '0001',
+    status: 'withdrawn',
+    authority: 'agent',
+    zones: ['tests'],
+    laws: [{ id: 'tests.one', statement: 'One.', checks: [] }],
+  })
+  const root = makeProject({
+    name: 'terminal-live-law',
+    zones: [{ id: 'tests', paths: ['tests/**'], agentAuthority: 'activeIfNoConflict', requiresDecisionRecord: false }],
+    adrs: {
+      '0001-a.adr.md': withdrawn,
+      '0002-approval.adr.md': approvalText({ id: '0002', approved: [{ id: '0001', text: withdrawn }] }),
+    },
+  })
+  const result = compile(root)
+  assert.ok(
+    result.codes.includes('TERMINAL_RECORD_DECLARES_LIVE_LAW'),
+    `codes=${JSON.stringify(result.codes)}`,
+  )
+
+  // The same record left live is not a problem: a live record may declare a law in force.
+  const live = compile(
+    makeProject({
+      name: 'live-law',
+      zones: [{ id: 'tests', paths: ['tests/**'], agentAuthority: 'activeIfNoConflict', requiresDecisionRecord: false }],
+      adrs: { '0001-a.adr.md': adrText({ id: '0001', authority: 'agent', zones: ['tests'], laws: [{ id: 'tests.one', statement: 'One.', checks: [] }] }) },
+    }),
+  )
+  assert.deepEqual(live.codes, [])
+})
+
+/**
+ * The zones a project's recorded contradictions block right now.
+ *
+ * Drives the production reads — corpus, active set, compiled bundle, standing entries — so a
+ * test asserts what the guard would refuse rather than what a component returns in isolation.
+ */
+function blockedZonesNow(root) {
+  const manifest = compiler.readManifest(root)
+  const corpus = compiler.readAdrCorpus(root, manifest.config)
+  const resolved = compiler.resolveActiveSet(corpus.records, manifest.config)
+  const compiled = compiler.compileLaws(resolved.active, manifest.config)
+  const standing = contradictionModule.standingContradictions(root, { resolved })
+  return contradictionModule.blockedZones(standing, {
+    active: resolved.active,
+    proposed: resolved.proposed,
+    laws: compiled.bundle.laws,
+  })
+}
+
+test('lifecycle: a resolution that takes the challenged law out of force lifts the standing block', async () => {
+  // ADR 0031's hinge: a block is bound to a LAW, and it is dropped once its findings name no
+  // law in force — so a resolution that retires the law is the way out, with no separate
+  // clearing gesture, and withdrawing the resolution puts the block back.
+  const first = adrText({
+    id: '0001',
+    status: 'active',
+    authority: 'agent',
+    zones: ['tests'],
+    laws: [{ id: 'tests.one', statement: 'One.', checks: [] }],
+  })
+  const resolution = (status) =>
+    adrText({
+      id: '0002',
+      status,
+      authority: 'agent',
+      zones: ['tests'],
+      supersedes: ['0001'],
+      resolves: ['0001', '0003'],
+      laws: [],
+    })
+  const root = makeProject({
+    name: 'resolution-lifts-block',
+    zones: [{ id: 'tests', paths: ['tests/**'], agentAuthority: 'activeIfNoConflict', requiresDecisionRecord: false }],
+    adrs: {
+      '0001-a.adr.md': first,
+      // Withdrawn, so the law is still in force and the block is real.
+      '0002-resolution.adr.md': resolution('withdrawn'),
+      '0003-c.adr.md': adrText({ id: '0003', authority: 'agent', zones: ['tests'], laws: [{ id: 'tests.three', statement: 'Three.', checks: [] }] }),
+    },
+  })
+  contradictionModule.recordContradiction(root, {
+    target: { kind: 'review', id: 'review_change', hash: null },
+    findings: [{ severity: 'error', kind: 'semantic_violation', lawId: 'tests.one', explanation: 'the change contradicts the decision in meaning' }],
+    job: 'review_change',
+  })
+  assert.ok(blockedZonesNow(root).has('tests'), 'the contradicted law blocks the zone it governs')
+
+  // The resolution enters force: it supersedes 0001, so 0001 contributes no law and the
+  // finding names a law that is no longer in force.
+  writeFileSync(join(root, 'docs', 'adrs', '0002-resolution.adr.md'), resolution('active'))
+  assert.equal(blockedZonesNow(root).has('tests'), false, 'the block lifts by itself once the law leaves force')
+
+  // Withdraw the resolution and the law is back, so the block is back with it: nothing was
+  // cleared by hand, and the block follows the corpus rather than a gesture.
+  writeFileSync(join(root, 'docs', 'adrs', '0002-resolution.adr.md'), resolution('withdrawn'))
+  assert.ok(blockedZonesNow(root).has('tests'), 'the block returns when the resolution is withdrawn')
+})
+
+test('duplicates: one statement under two law ids fails the deterministic command', () => {
+  const root = makeProject({
+    name: 'duplicate-statement',
+    adrs: {
+      '0001-a.adr.md': adrText({ id: '0001', zones: ['auth'], laws: [{ id: 'auth.one', statement: 'Sessions must use Redis.', checks: [] }] }),
+      '0002-b.adr.md': adrText({ id: '0002', zones: ['auth'], laws: [{ id: 'auth.two', statement: 'Sessions must use Redis.', checks: [] }] }),
+    },
+  })
+  const run = duplicateCommand(root)
+  assert.equal(run.status, 1, `a decidable duplicate is a failure: ${run.stdout}`)
+  assert.match(run.stdout, /DUPLICATE_LAW_STATEMENT/)
+  assert.match(run.stdout, /auth\.one/)
+  assert.match(run.stdout, /auth\.two/)
+  assert.doesNotMatch(run.stdout, /duplicate decisions ok/, 'a failing run does not print the pass marker')
+})
+
+test('duplicates: one source cited by two records that share a law fails the command', () => {
+  // The compiler is silent here — one law id with one statement is a merge, not a conflict —
+  // so this is exactly the duplication no static check otherwise sees.
+  const shared = { sourceHash: schema.hashSource(SOURCE_TEXT), zones: ['auth'] }
+  const root = makeProject({
+    name: 'duplicate-source',
+    adrs: {
+      '0001-a.adr.md': adrText({ id: '0001', ...shared, laws: [{ id: 'auth.one', statement: 'Sessions must use Redis.', checks: [] }] }),
+      '0002-b.adr.md': adrText({ id: '0002', ...shared, laws: [{ id: 'auth.one', statement: 'Sessions must use Redis.', checks: [] }] }),
+    },
+  })
+  assert.deepEqual(compile(root).codes, [], 'the compiler merges the re-declaration and reports nothing')
+  const run = duplicateCommand(root)
+  assert.equal(run.status, 1, `one document ingested twice is a failure: ${run.stdout}`)
+  assert.match(run.stdout, /DUPLICATE_SOURCE_CITED/)
+  assert.match(run.stdout, /0001/)
+  assert.match(run.stdout, /0002/)
+})
+
+test('duplicates: a re-declared law with an identical statement is NOT a duplicate, and merges', () => {
+  // ADR 0032 is explicit: one law id with one statement declared by two records is the
+  // corpus agreeing with itself. The compiler binds it to the union of the zones both
+  // records named, and the deterministic command must stay silent — a check that reported
+  // it would refuse a corpus the compiler has already merged.
+  const root = makeProject({
+    name: 'duplicate-merge',
+    files: { [OTHER_SOURCE_PATH]: OTHER_SOURCE_TEXT },
+    adrs: {
+      '0001-a.adr.md': adrText({
+        id: '0001',
+        zones: ['auth'],
+        sourceHash: schema.hashSource(SOURCE_TEXT),
+        laws: [{ id: 'shared.one', statement: 'One law, declared twice.', checks: [] }],
+      }),
+      '0002-b.adr.md': adrText({
+        id: '0002',
+        zones: ['tests'],
+        sourcePath: OTHER_SOURCE_PATH,
+        sourceHash: schema.hashSource(OTHER_SOURCE_TEXT),
+        laws: [{ id: 'shared.one', statement: 'One law, declared twice.', checks: [] }],
+      }),
+    },
+  })
+  const compiled = compiler.compileProject(root)
+  assert.deepEqual(compiled.problems.map((entry) => entry.code), [])
+  const law = compiled.bundle.laws.find((entry) => entry.id === 'shared.one')
+  assert.ok(law !== undefined, 'the law is in force once')
+  assert.deepEqual(
+    [...law.zones].sort(),
+    ['auth', 'tests'],
+    'the law governs the UNION of the zones both records named, which is what makes it a merge rather than a duplicate',
+  )
+  assert.equal(compiled.bundle.laws.filter((entry) => entry.id === 'shared.one').length, 1, 'one law, not two')
+
+  const run = duplicateCommand(root)
+  assert.equal(run.status, 0, `a merge is not a duplicate: ${run.stdout}`)
+  assert.match(run.stdout, /duplicate decisions ok/)
+})
+
+test('duplicates: many decisions from one source with disjoint laws are not duplicates', () => {
+  // The shape batch extraction produces (ADR 0033) and the shape this kit's own corpus has:
+  // one reasoning document, several decisions, no law declared twice. Reporting a shared
+  // source on its own would forbid the batch mechanism the corpus also decided on.
+  const shared = { sourceHash: schema.hashSource(SOURCE_TEXT) }
+  const root = makeProject({
+    name: 'duplicate-shared-source',
+    adrs: {
+      '0001-a.adr.md': adrText({ id: '0001', zones: ['auth'], ...shared, laws: [{ id: 'auth.one', statement: 'One.', checks: [] }] }),
+      '0002-b.adr.md': adrText({ id: '0002', zones: ['auth'], ...shared, laws: [{ id: 'auth.two', statement: 'Two.', checks: [] }] }),
+    },
+  })
+  const run = duplicateCommand(root)
+  assert.equal(run.status, 0, `one source, two decisions: ${run.stdout}`)
+  assert.match(run.stdout, /duplicate decisions ok/)
+})
+
+test('duplicates: a corpus that cannot be read exits 2, so nothing checked is never a pass', () => {
+  const empty = makeProject({ name: 'duplicate-unusable', adrs: {} })
+  const run = duplicateCommand(empty)
+  assert.equal(run.status, 2, run.stdout)
+  assert.doesNotMatch(run.stdout, /duplicate decisions ok/)
+})
+
+test('duplicates: the semantic report is advisory and the deterministic command does not depend on it', async () => {
+  // The boundary ADR 0032 draws: meaning is a judge's question, and a model verdict must not
+  // be able to fail a build. Two records here state one constraint in different words, from
+  // different sources, under different law ids — the deterministic rules see nothing, and
+  // the judge sees a duplicate. The two must not merge.
+  const root = makeProject({
+    name: 'duplicate-semantic',
+    files: { [OTHER_SOURCE_PATH]: OTHER_SOURCE_TEXT },
+    adrs: {
+      '0001-a.adr.md': adrText({
+        id: '0001',
+        zones: ['auth'],
+        sourceHash: schema.hashSource(SOURCE_TEXT),
+        laws: [{ id: 'auth.one', statement: 'Sessions must live in Redis.', checks: [] }],
+      }),
+      '0002-b.adr.md': adrText({
+        id: '0002',
+        zones: ['auth'],
+        sourcePath: OTHER_SOURCE_PATH,
+        sourceHash: schema.hashSource(OTHER_SOURCE_TEXT),
+        laws: [{ id: 'auth.two', statement: 'Session state belongs in a Redis store rather than on disk.', checks: [] }],
+      }),
+    },
+  })
+  const deterministic = duplicateCommand(root)
+  assert.equal(deterministic.status, 0, `no rule this command decides is broken: ${deterministic.stdout}`)
+  assert.match(deterministic.stdout, /duplicate decisions ok/)
+
+  // ...and the judge, over the same corpus, reports the duplicate.
+  const verdict = {
+    ok: false,
+    findings: [
+      {
+        severity: 'error',
+        kind: 'semantic_duplicate',
+        lawId: 'auth.one',
+        explanation: 'auth.two restates the constraint auth.one states, in different words, for the same store',
+      },
+    ],
+  }
+  const reported = await ops.review({
+    root,
+    job: 'review_duplicates',
+    spawnJudge: async () => ({ structured: verdict, output: '', stopReason: 'completed' }),
+  })
+  assert.equal(reported.findings.length, 1, 'the judge sees what the command cannot')
+  assert.equal(reported.findings[0].kind, 'semantic_duplicate')
+  assert.equal(reported.declined, false, 'a duplicate finding is reported, never a block')
+  assert.equal(reported.gate, false, 'and it is not a gate')
+  // The exit code of the deterministic command is unchanged by any of that: it is a separate
+  // process whose only inputs are the files, and it never loads the review layer.
+  const commandSource = readFileSync(DUPLICATE_COMMAND, 'utf8')
+  assert.doesNotMatch(commandSource, /ratchet-dynamic|ratchet-ops|spawnJudge|subagents/, 'the command loads no judge')
+  assert.equal(duplicateCommand(root).status, 0, 'running it again after a judge answered still exits 0')
+})
+
+test('batch: many decisions from one source become many proposed records', async () => {
+  const root = await ingestProject('batch-good')
+  const result = await ops.ingestBatch({
+    root,
+    sourcePath: SOURCE_PATH,
+    submitted: {
+      decisions: [
+        batchDecision({ title: 'Use Redis for session storage', laws: [{ id: 'auth.session.redis', statement: 'Session storage must use Redis.', checks: [] }] }),
+        batchDecision({
+          title: 'Read sessions through one adapter',
+          span: 'file-backed sessions break under two instances',
+          contextBasis: 'file-backed sessions break under two instances',
+          laws: [{ id: 'auth.session.adapter', statement: 'Session reads go through one adapter.', checks: [] }],
+        }),
+      ],
+    },
+    write: true,
+    now: '2026-09-16T00:00:00Z',
+  })
+  assert.equal(result.ok, true, JSON.stringify(result.problems?.map((entry) => entry.code)))
+  assert.equal(result.advisory, true, 'a batch is advisory: it writes proposals, it does not gate')
+  assert.equal(result.status, 'proposed')
+  assert.deepEqual(result.refused, [])
+  assert.equal(result.written.length, 2, JSON.stringify(result.written))
+  assert.deepEqual(result.records.map((record) => record.status), ['proposed', 'proposed'])
+  assert.deepEqual(result.records.map((record) => record.id), ['0002', '0003'], 'ids advance across the batch')
+  assert.deepEqual(compiler.compileProject(root).problems.map((entry) => entry.code), [], 'the project still compiles')
+  const texts = result.records.map((record) => readFileSync(join(root, record.path), 'utf8'))
+  assert.ok(texts.every((text) => /^status: proposed$/m.test(text)), 'every written record is proposed')
+})
+
+test('batch: a decision whose span cannot be located is refused alone', async () => {
+  const root = await ingestProject('batch-one-bad')
+  const result = await ops.ingestBatch({
+    root,
+    sourcePath: SOURCE_PATH,
+    submitted: {
+      decisions: [
+        batchDecision({ title: 'Use Redis for session storage', laws: [{ id: 'auth.session.redis', statement: 'Session storage must use Redis.', checks: [] }] }),
+        batchDecision({
+          title: 'A decision whose span was invented',
+          span: 'we benchmarked Redis against every alternative for a week',
+        }),
+      ],
+    },
+    write: true,
+    now: '2026-09-16T00:00:00Z',
+  })
+  // `ok` is false because the batch did not land whole, and one record still landed: that is
+  // the degradation the record asks for — one misattributed extraction costs one record.
+  assert.equal(result.ok, false)
+  assert.equal(result.written.length, 1, JSON.stringify(result.written))
+  assert.deepEqual(result.refused.map((entry) => entry.code), ['SPAN_NOT_LOCATED'])
+  assert.equal(result.refused[0].title, 'A decision whose span was invented')
+  assert.equal(result.records.length, 1)
+  assert.equal(result.records[0].status, 'proposed')
+  assert.ok(
+    !result.records.some((record) => record.title === 'A decision whose span was invented'),
+    'the record with the invented span minted nothing',
+  )
+})
+
+test('batch: a batch above the cap is refused with the headings the tool found', async () => {
+  const root = await ingestProject('batch-over-cap')
+  const cap = ingestModule.BATCH_DECISION_CAP
+  const result = await ops.ingestBatch({
+    root,
+    sourcePath: SOURCE_PATH,
+    submitted: {
+      decisions: Array.from({ length: cap + 1 }, (_, index) => batchDecision({ title: `Decision ${index}` })),
+    },
+    write: true,
+  })
+  assert.equal(result.ok, false)
+  assert.equal(result.code, 'BATCH_OVER_CAP')
+  assert.equal(result.cap, cap)
+  assert.equal(result.written, undefined, 'nothing is written for a batch over the cap')
+  assert.ok(Array.isArray(result.headings) && result.headings.length > 0, 'the refusal carries the headings it found')
+  assert.equal(result.headings[0].title, 'Grilling session: session storage')
+  assert.match(result.nextStep, /split the source/)
+  assert.equal(readdirSync(join(root, 'docs', 'adrs')).length, 1, 'only the starter record exists')
+})
+
+test('batch: the extractor is a surface of its own, not a mode of single-decision ingestion', { skip: HARNESS_SKIP }, () => {
+  const registered = toolHarness()
+  const batch = registered.get('ratchet_ingest_batch')
+  const single = registered.get('ratchet_ingest_source')
+  assert.ok(batch !== undefined, 'ratchet_ingest_batch is registered')
+  assert.ok(single !== undefined, 'ratchet_ingest_source keeps its own surface')
+  assert.notEqual(batch, single)
+  assert.deepEqual(Object.keys(batch.parameters.properties).sort(), ['ingest', 'source', 'write'])
+  // Neither surface accepts an answer: `ingest` files a result the caller obtained, `write`
+  // asks for the file, `source` says which document. The consent-surface check scans every
+  // registered tool for the same reason.
+  assert.equal(single.parameters.properties.ratify?.type, 'boolean')
+  assert.equal(batch.parameters.properties.ratify, undefined, 'a batch is not a consent entry')
+  assert.match(batch.description, /cap/i)
+  assert.match(batch.description, /proposed/i)
+})
+
+test('batch: the degraded path returns the prompt, the cap and the source hash', async () => {
+  const root = await ingestProject('batch-degraded')
+  const result = await ops.ingestBatch({ root, sourcePath: SOURCE_PATH })
+  assert.equal(result.degraded, true)
+  assert.equal(result.cap, ingestModule.BATCH_DECISION_CAP)
+  assert.match(result.prompt, /"decisions"/)
+  assert.match(result.prompt, /verbatim/)
+  assert.match(result.submitHint, /ratchet_ingest_batch/)
+  assert.equal(result.sourceHash, schema.hashSource(SOURCE_TEXT))
 })

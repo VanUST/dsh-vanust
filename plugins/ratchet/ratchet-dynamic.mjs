@@ -92,6 +92,22 @@ export const REVIEW_JOBS = Object.freeze({
       'Do any active decisions contradict each other in meaning, even where their laws do not collide textually?',
     needs: [],
   },
+  /**
+   * The corpus may hold the same decision twice in different words.
+   *
+   * This is the ADVISORY half of duplicate detection and deliberately not a gate: the
+   * deterministic subset — one statement text under two law ids, one source cited twice by
+   * records that share a law — is decided by `scripts/check-duplicate-decisions.mjs`, which
+   * runs no model and whose exit code is the gate. Meaning is not decidable, so it is asked
+   * here and reported, and `kind: semantic_duplicate` is a reporting kind rather than a
+   * blocking one: a model verdict must not be able to fail a build.
+   */
+  review_duplicates: {
+    id: 'review_duplicates',
+    asks:
+      'Do two decisions on record state the same constraint in different words — the same decision recorded twice, where no text comparison can see it? Name each decision you believe is a restatement of another and say what makes them one decision rather than two. A pair that merely touches the same subject is not a duplicate.',
+    needs: [],
+  },
 })
 
 /**
@@ -136,6 +152,11 @@ export const FINDING_KINDS = Object.freeze([
   'incompatible_checks',
   'incoherent_corpus',
   'prose_law_mismatch',
+  // The advisory duplicate: two records that state one constraint in different words. It is
+  // deliberately NOT in `BLOCKING_FINDING_KINDS` — a duplicate is a question for a human to
+  // settle with a resolution, not a change that contradicts law in force — so a judge's
+  // duplicate finding is reported and never gates.
+  'semantic_duplicate',
 ])
 
 /**

@@ -938,5 +938,335 @@ export function findExistingBySlug(root, title, decisionsDir = 'docs/adrs') {
   return names.find((name) => name === `${slug}.adr.md` || name.endsWith(`-${slug}.adr.md`)) ?? null
 }
 
+// ---------------------------------------------------------------------------
+// batch extraction: one call, many proposed records, each citing a located span
+// ---------------------------------------------------------------------------
+//
+// Batch extraction serves VOLUME. Handed a document holding many decisions, one call per
+// decision costs one judge round trip each, and the whole point of the batch is that a
+// large handover becomes a handful of calls. The cost is accepted knowingly and bounded
+// mechanically: the single-decision path proves that every sentence the judge attributes to
+// the source appears there, and one read of a large document weakens exactly that proof.
+// What replaces it here is a per-record SPAN — a verbatim quote the judge says the decision
+// was drawn from — which this module locates in the source ITSELF before anything is
+// written, so an invented span refuses its own record and cannot ride along behind the rest.
+//
+// Three further properties are structural rather than stylistic:
+//
+//   - **One refusal costs one record.** A batch degrades one record at a time: a decision
+//     whose span is not in the source, whose zone the manifest does not declare, or whose
+//     reasoning is missing is reported by name while the others still land. The alternative
+//     — refusing the batch — makes one bad extraction cost every good one with it.
+//   - **The batch is capped, and the cap is a constant.** A larger source is split on its
+//     HEADINGS, which this module finds and reports, so the split is mechanical rather than
+//     a judgement about where to cut. A cap a caller could raise would be a cap that does
+//     not bound the call it exists to bound.
+//   - **Everything it writes is proposed.** It reuses `renderAdr`, which emits
+//     `status: proposed` unconditionally, so no batch can put a decision into force — a
+//     human still ratifies through the one consent channel.
+
+/** How many decisions one batch extraction may write. */
+export const BATCH_DECISION_CAP = 10
+
+/**
+ * The output contract for batch ingestion.
+ *
+ * One object with one `decisions` array. Each entry carries the same fields a
+ * single-decision ingestion does, plus `span`: the verbatim quote this module locates in the
+ * source. The span is a field of its own rather than a reuse of `reasoningBasis` because it
+ * is the batch's whole attribution guarantee, and a guarantee that shares a field with
+ * something else is a guarantee a later change can remove by accident.
+ */
+export const BATCH_INGEST_SCHEMA = Object.freeze({
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    decisions: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          span: { type: 'string' },
+          ...INGEST_SCHEMA.properties,
+        },
+        required: ['span', 'title', 'decision', 'reasoning', 'reasoningBasis', 'context', 'contextBasis'],
+      },
+    },
+  },
+  required: ['decisions'],
+})
+
+/** The system instruction for a batch extraction judge. */
+export const BATCH_SYSTEM = [
+  'You turn a project\'s raw reasoning into SEVERAL proposed architecture decision records',
+  'in one pass.',
+  '',
+  'The source below is the ONLY evidence. Do not add reasoning it does not contain, do not',
+  'soften it, and do not supply the justification a reader would expect. Extract only the',
+  'decisions the source actually states; a document with three decisions yields three',
+  'records, not seven.',
+  '',
+  'Every decision you return carries a `span`: a sentence copied VERBATIM out of the source,',
+  'in the original language, naming the passage the decision was drawn from. The span is',
+  'looked for in the source by the tool, and a decision whose span is not found is refused',
+  'while the rest of the batch is still written.',
+  '',
+  'Every record you produce is PROPOSED, never active. A human decides whether it becomes',
+  'law.',
+].join('\n')
+
+/** The output contract for a batch extraction, with the span requirement explained. */
+export const BATCH_FORMAT = [
+  'Reply with ONLY this JSON object and nothing else — no prose, no code fence:',
+  '',
+  '{',
+  '  "decisions": [',
+  '    {',
+  '      "span": "<a sentence copied VERBATIM from the source that this decision was drawn from>",',
+  '      "title": "<short, imperative, no trailing period>",',
+  '      "decision": "<what was decided, one sentence>",',
+  '      "reasoning": "<why, drawn from the source>",',
+  '      "reasoningBasis": "<the sentence in the source that supports it, verbatim>",',
+  '      "context": "<the problem the decision addresses>",',
+  '      "contextBasis": "<the sentence in the source that states the problem, verbatim>",',
+  '      "consequences": ["<what follows from the decision>"],',
+  '      "zones": ["<zone ids from the manifest, chosen from the list in the material>"],',
+  '      "laws": [',
+  '        {',
+  '          "id": "<zone>.<area>.<subject>",',
+  '          "statement": "<what must be true of the code, stated as a requirement>",',
+  '          "checks": [ { "type": "<check type>", "<its fields>": "<value>", "basis": "<the sentence in the source that requires this check, verbatim>" } ],',
+  '          "unenforced": "<only when nothing can check this law: what cannot be checked, and why>",',
+  '          "unenforcedBasis": "<the sentence in the source that says so, verbatim>"',
+  '        }',
+  '      ]',
+  '    }',
+  '  ]',
+  '}',
+  '',
+  'Rules that decide whether a decision in this batch is written at all:',
+  '',
+  '- `span` is REQUIRED on every decision and must appear in the source verbatim. The tool',
+  '  looks for it; a decision whose span it cannot find is refused, alone.',
+  '- `reasoningBasis` and `contextBasis` are checked against the source exactly as they are',
+  '  for a single-decision ingestion, and a check whose `basis` is not in the source is',
+  '  dropped rather than recorded.',
+  '- Every `zones` entry must be a zone the manifest declares, and a decision governing no',
+  '  zone is refused: nothing could ever require it.',
+  `- At most ${BATCH_DECISION_CAP} decisions per call. A source with more is split on its headings and`,
+  '  given to several calls; the tool reports the headings it found when a batch is over the',
+  '  cap.',
+  '',
+  'Extract only what the source states. A decision you cannot ground in a quoted span is a',
+  'decision the source did not make; leave it out rather than inventing the passage.',
+].join('\n')
+
+/**
+ * Builds the material a batch extraction judge reads.
+ *
+ * The same shape as `renderIngestPrompt` — project, zones, existing ids, the corpus, the
+ * source, the answer format — because a judge asked for many decisions needs exactly what a
+ * judge asked for one does. The differences are the cap and the span requirement, both of
+ * which live in the answer format rather than here.
+ *
+ * @param options - `{ config, sourceText, sourcePath, existingIds, corpusSummary }`.
+ * @returns The prompt text.
+ */
+export function renderBatchIngestPrompt({ config = null, sourceText, sourcePath, existingIds = [], corpusSummary = null }) {
+  const zones = (config?.zones ?? []).map((zone) => `${zone.id} (${zone.paths.join(', ')})`)
+  return [
+    BATCH_SYSTEM,
+    '',
+    '# Project',
+    '',
+    `Name: ${config?.project ?? '(unnamed)'}`,
+    `Decisions directory: ${config?.decisionsDir ?? 'docs/adrs'}`,
+    '',
+    'Zones, and who may decide in them:',
+    zones.length === 0 ? '(no zones declared)' : zones.map((zone) => `- ${zone}`).join('\n'),
+    `Default agent authority: ${config?.defaultAgentAuthority ?? 'proposeOnly'}`,
+    '',
+    `Existing ADR ids (do not reuse): ${existingIds.length === 0 ? '(none)' : existingIds.join(', ')}`,
+    `Decisions per call: at most ${BATCH_DECISION_CAP}`,
+    '',
+    ...(corpusSummary === null ? [] : ['# Decisions already on record', '', corpusSummary, '']),
+    `# Source: ${sourcePath}`,
+    '',
+    '```',
+    String(sourceText).trim(),
+    '```',
+    '',
+    '# Answer format',
+    '',
+    BATCH_FORMAT,
+  ].join('\n')
+}
+
+/**
+ * Every heading boundary in a source document.
+ *
+ * The cap on a batch is mechanical, so the guidance a caller gets when a source is too large
+ * to extract in one call has to be mechanical too: this returns the `#`-prefixed headings
+ * with their line numbers and levels, and the caller splits on them. A fenced code block is
+ * skipped, because a `#` inside one is a comment in whatever language the fence holds and
+ * splitting a document there would cut a decision in half.
+ *
+ * Setext headings (a line underlined with `===` or `---`) are deliberately NOT reported: the
+ * underline form is indistinguishable from a horizontal rule without more context than a
+ * line, and a wrong boundary is worse than a missing one.
+ *
+ * @param sourceText - The source document.
+ * @returns An array of `{ line, level, title }` in document order; empty when the document
+ *   carries no ATX heading, which is a fact the caller reports rather than a failure.
+ */
+export function headingsIn(sourceText) {
+  const lines = normaliseText(String(sourceText ?? '')).split('\n')
+  const headings = []
+  let fenced = false
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]
+    if (/^\s*(```|~~~)/.test(line)) {
+      fenced = !fenced
+      continue
+    }
+    if (fenced) continue
+    const heading = /^(#{1,6})\s+(.+?)\s*$/.exec(line)
+    if (heading === null) continue
+    headings.push({ line: index + 1, level: heading[1].length, title: heading[2] })
+  }
+  return headings
+}
+
+/**
+ * Validates a whole batch extraction, one decision at a time.
+ *
+ * The cap is checked FIRST and refuses the batch as a unit, because the cap is a statement
+ * about the call rather than about any one decision in it: a caller that asked for more than
+ * the cap needs the source split, and writing the first ten decisions would hide that. The
+ * refusal carries `headings` from {@link headingsIn}, so the split is a mechanical choice.
+ *
+ * Past the cap, every decision is independent. Each one must carry a `span` this module
+ * finds in the source, and must then pass the SAME validation a single-decision ingestion
+ * passes (`validateIngest`) — the required text fields, the anti-fabrication check on the
+ * two bases, the zone list, the law ids and statements. A decision that fails is reported by
+ * index and title with the code that names what was wrong, and the ids of the accepted
+ * decisions are folded into the existing set as they are chosen, so two decisions in one
+ * batch can never be assigned one id.
+ *
+ * @param candidate - The judge's parsed result, or `null`.
+ * @param options - `{ sourceText, config, existingIds, cap }`. `cap` defaults to
+ *   {@link BATCH_DECISION_CAP} and exists for the test that pins the boundary.
+ * @returns `{ ok, overCap, cap, headings, accepted, refused, problems }` where `accepted`
+ *   holds `{ index, title, span, fields, dropped }` ready for `renderAdr`, and `refused`
+ *   holds `{ index, title, code, reason, problems }`. `ok` is true only when every decision
+ *   in the batch was accepted and at least one was: a batch that landed five of six records
+ *   is a batch that needs its sixth fixed, and saying so is the point. An over-cap candidate
+ *   yields `overCap: true` with nothing accepted and nothing refused.
+ */
+export function validateBatchIngest(candidate, { sourceText, config = null, existingIds = [], cap = BATCH_DECISION_CAP } = {}) {
+  const headings = headingsIn(sourceText)
+  const empty = {
+    ok: false,
+    overCap: false,
+    cap,
+    headings,
+    accepted: [],
+    refused: [],
+    problems: [],
+  }
+  if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate) || !Array.isArray(candidate.decisions)) {
+    return {
+      ...empty,
+      problems: [
+        problem(
+          'DYNAMIC_REVIEW_REQUIRED',
+          'the judge returned no usable batch result, so no record was proposed; a batch is an object with a "decisions" array, and an absent one is reported rather than read as an empty source',
+        ),
+      ],
+    }
+  }
+  if (candidate.decisions.length === 0) {
+    return {
+      ...empty,
+      problems: [
+        problem(
+          'DYNAMIC_REVIEW_REQUIRED',
+          'the batch carries no decisions, so it is not an extraction; an empty batch may mean the source states nothing, which is a result to report rather than a record to write',
+        ),
+      ],
+    }
+  }
+  if (candidate.decisions.length > cap) {
+    // The whole call, not the surplus. See the docstring: the cap is about the call.
+    return { ...empty, overCap: true }
+  }
+
+  const ids = [...existingIds]
+  const accepted = []
+  const refused = []
+  for (const [index, raw] of candidate.decisions.entries()) {
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+      refused.push({
+        index,
+        title: null,
+        code: 'DECISION_NOT_A_MAPPING',
+        reason: 'the entry is not a mapping, so no decision could be read from it',
+        problems: [],
+      })
+      continue
+    }
+    const title = typeof raw.title === 'string' && raw.title.trim().length > 0 ? raw.title.trim() : null
+    const span = typeof raw.span === 'string' ? raw.span : ''
+    const located = quoteAppears(span, sourceText)
+    if (!located.ok) {
+      refused.push({
+        index,
+        title,
+        code: 'SPAN_NOT_LOCATED',
+        span: span.slice(0, 200),
+        reason: `the span this decision cites cannot be located in the source (${located.reason}), so the decision cannot be attributed to the document and no record was written from it`,
+        problems: [],
+      })
+      continue
+    }
+    const validation = validateIngest(raw, { sourceText, config, existingIds: ids })
+    if (validation.insufficientReasoning) {
+      refused.push({
+        index,
+        title,
+        code: 'INSUFFICIENT_REASONING',
+        span: span.slice(0, 200),
+        reason: validation.reason,
+        problems: [],
+      })
+      continue
+    }
+    if (!validation.ok) {
+      refused.push({
+        index,
+        title,
+        code: 'DECISION_INVALID',
+        span: span.slice(0, 200),
+        reason: `the decision did not pass the rules a record has to meet: ${(validation.problems ?? []).map((entry) => entry.message).join('; ') || 'no reason was reported'}`,
+        problems: validation.problems ?? [],
+      })
+      continue
+    }
+    accepted.push({ index, title: validation.fields.title, span, fields: validation.fields, dropped: validation.dropped ?? [] })
+    ids.push(validation.fields.id)
+  }
+
+  return {
+    ok: accepted.length > 0 && refused.length === 0,
+    overCap: false,
+    cap,
+    headings,
+    accepted,
+    refused,
+    problems: [],
+  }
+}
+
 /** Re-exported so a caller needs one import for the whole ingestion path. */
 export { PROBLEM_CODES }

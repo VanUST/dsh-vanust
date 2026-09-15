@@ -1339,6 +1339,288 @@ export async function ingest({
 }
 
 /**
+ * Extracts MANY proposed records from one source in one call.
+ *
+ * The batch counterpart of {@link ingest}, and a separate operation rather than a mode flag
+ * because the two carry different guarantees: a single ingestion proves that every sentence
+ * the judge attributes to the source appears there, while a batch proves only that each
+ * decision cites a span that does — a weaker per-record attribution, knowingly accepted in
+ * exchange for serving a document that holds many decisions. One call whose guarantees
+ * differ by argument is a call whose callers cannot tell which guarantee they got.
+ *
+ * The work is split the same way `ingest` splits it: this operation owns the project, the
+ * source, the ledger and the disk; `ratchet-ingest.mjs` owns the prompt, the contract, the
+ * span locator, the cap and per-decision validation. The judge is injected, so this module
+ * never imports the harness and the whole path is testable with a submitted answer.
+ *
+ * Order of operations, and why:
+ *
+ *  1. The cap is checked before anything is written, and it refuses the whole call. A batch
+ *     above the cap needs the source SPLIT, and the refusal carries the headings
+ *     `ratchet-ingest.mjs` found so the split is mechanical.
+ *  2. Each decision is validated independently. One whose span cannot be located, whose
+ *     zones are undeclared or whose reasoning is missing is refused BY NAME while the rest
+ *     still land: one misattributed extraction costs one record, not the batch.
+ *  3. Each accepted record is parsed against the rules a written record faces BEFORE it is
+ *     written, and one that does not compile is not written. A refusal that still left the
+ *     file behind would be the worst outcome — a corpus the ratchet cannot read, from a call
+ *     that reported a refusal.
+ *
+ * Every record it writes is `proposed`: the renderer emits that status unconditionally, so
+ * no batch puts a decision into force.
+ *
+ * @param options - `{ root, sourcePath, spawnJudge, submitted, write, authorName, now }`.
+ *   `submitted` is a caller-produced judge result, validated exactly like a spawned one;
+ *   `spawnJudge` is `null` in a shell, which yields the degraded path — the prompt returned
+ *   unrun with the source hash, the cap and the headings, so the caller can answer it.
+ * @returns A JSON-safe result with `ok`, `stage: 'ingest-batch'`, `advisory: true`, the
+ *   `cap`, the `headings` found, `records` (one entry per decision with its id, path, laws
+ *   and whether it was written), `written` (the paths that landed), `refused` (one entry per
+ *   refused decision, with the code naming what was wrong), `problems`, `summary` and
+ *   `nextStep`. `ok` is true only when every decision landed: a batch that wrote five of six
+ *   records reports the sixth. A missing manifest, an unreadable source or an over-cap batch
+ *   yields `ok: false` with the reason and writes nothing.
+ */
+export async function ingestBatch({
+  root,
+  sourcePath,
+  spawnJudge = null,
+  submitted = null,
+  write = false,
+  authorName = 'ratchet-ingest',
+  now = null,
+} = {}) {
+  const manifest = readManifest(root)
+  if (manifest.config === null || manifest.config.enabled !== true) {
+    const problems = manifest.config === null
+      ? manifest.problems
+      : [problem('RATCHET_DISABLED', `${MANIFEST_PATH} does not declare ratchet.enabled, so there is nowhere to record a decision`)]
+    return { ok: false, stage: 'ingest-batch', problems, summary: summariseProblems(problems) }
+  }
+  const config = manifest.config
+
+  const source = ingestModule.readSource(root, sourcePath)
+  if (source.error !== undefined) {
+    const problems = [problem('ADR_SOURCE_MISSING', source.error, null, { path: sourcePath })]
+    return { ok: false, stage: 'ingest-batch', problems, summary: summariseProblems(problems) }
+  }
+
+  const existing = ingestModule.existingAdrIds(root, config.decisionsDir)
+  const context = contextFor(root)
+  const prompt = ingestModule.renderBatchIngestPrompt({
+    config,
+    sourceText: source.text,
+    sourcePath,
+    existingIds: existing.ids,
+    corpusSummary: context.stable,
+  })
+  const headings = ingestModule.headingsIn(source.text)
+
+  if (spawnJudge === null && submitted === null) {
+    return {
+      ok: false,
+      stage: 'ingest-batch',
+      advisory: true,
+      degraded: true,
+      sourcePath,
+      sourceHash: source.hash,
+      existingIds: existing.ids,
+      nextId: ingestModule.nextAdrId(existing.ids),
+      cap: ingestModule.BATCH_DECISION_CAP,
+      headings,
+      prompt,
+      outputSchema: ingestModule.BATCH_INGEST_SCHEMA,
+      note:
+        'No judge could be spawned, so the batch prompt is returned unrun. Answer it and submit the result, ' +
+        'or call this again from a session that can spawn a judge.',
+      submitHint:
+        'call ratchet_ingest_batch again with the same source and `ingest` set to the JSON object this prompt asks for',
+      problems: [],
+      summary: summariseProblems([]),
+    }
+  }
+
+  let judgeResult = null
+  let judgeError = null
+  let parsed
+  let judgeIdentity
+  if (submitted !== null && submitted !== undefined) {
+    parsed = { verdict: submitted, source: 'submitted', problem: null }
+    judgeIdentity = { kind: 'caller', reason: 'the caller supplied the result; the ratchet spawned no judge' }
+  } else {
+    try {
+      judgeResult = await spawnJudge(prompt, ingestModule.BATCH_INGEST_SCHEMA)
+    } catch (error) {
+      judgeError = String(error)
+    }
+    parsed =
+      judgeResult === null || judgeResult === undefined
+        ? { verdict: null, source: null, problem: judgeError ?? 'the judge produced no result' }
+        : dynamic.parseVerdict(judgeResult.structured ?? null, judgeResult.output ?? null)
+    judgeIdentity =
+      judgeResult === null || judgeResult === undefined
+        ? { kind: 'none', reason: judgeError ?? 'no result' }
+        : { kind: 'subagent', stopReason: judgeResult.stopReason ?? null, verdictSource: parsed.source }
+  }
+
+  const validation = ingestModule.validateBatchIngest(parsed.verdict, {
+    sourceText: source.text,
+    config,
+    existingIds: existing.ids,
+  })
+
+  if (validation.overCap) {
+    appendLedger(root, 'ratchet.ingest.batch-over-cap', { sourcePath, cap: validation.cap, headings: headings.length })
+    return {
+      ok: false,
+      stage: 'ingest-batch',
+      advisory: true,
+      code: 'BATCH_OVER_CAP',
+      sourcePath,
+      sourceHash: source.hash,
+      judge: judgeIdentity,
+      cap: validation.cap,
+      // The boundaries the tool found, so the caller splits the source mechanically rather
+      // than guessing where its sections are.
+      headings: validation.headings,
+      reason: `the batch carries more decisions than the cap of ${validation.cap}, so nothing was written: a batch above the cap is split on the source's headings and given to several calls`,
+      nextStep: `split the source at the headings below and call again with at most ${validation.cap} decisions each; a call that writes the first ${validation.cap} would hide the decisions it did not reach`,
+      problems: [],
+      summary: summariseProblems([]),
+    }
+  }
+
+  const problems = [...validation.problems]
+  if (parsed.problem !== null) {
+    problems.push(problem('DYNAMIC_REVIEW_REQUIRED', `the batch extraction produced no usable result: ${parsed.problem}`))
+  }
+  if (judgeError !== null) {
+    problems.push(problem('DYNAMIC_REVIEW_REQUIRED', `the judge could not be run: ${judgeError}`))
+  }
+  if (validation.problems.length > 0) {
+    appendLedger(root, 'ratchet.ingest.batch-rejected', { sourcePath, problems: validation.problems.length })
+    return {
+      ok: false,
+      stage: 'ingest-batch',
+      advisory: true,
+      sourcePath,
+      sourceHash: source.hash,
+      judge: judgeIdentity,
+      cap: validation.cap,
+      headings: validation.headings,
+      problems,
+      summary: summariseProblems(problems),
+    }
+  }
+
+  const records = []
+  const refused = [...validation.refused]
+  for (const decision of validation.accepted) {
+    // A decision already on record is not written a second time, for the same reason the
+    // single-decision path refuses it: two records for one decision compile perfectly and the
+    // duplication is invisible until somebody counts.
+    const alreadyRecorded = ingestModule.findExistingBySlug(root, decision.fields.title, config.decisionsDir)
+    if (alreadyRecorded !== null) {
+      refused.push({
+        index: decision.index,
+        title: decision.title,
+        code: 'ALREADY_RECORDED',
+        span: decision.span.slice(0, 200),
+        reason: `a record for this decision already exists at ${config.decisionsDir}/${alreadyRecorded}`,
+        problems: [],
+      })
+      continue
+    }
+
+    const rendered = ingestModule.renderAdr({
+      fields: decision.fields,
+      sourcePath,
+      sourceHash: source.hash,
+      createdAt: now ?? new Date().toISOString(),
+      authorName,
+      decisionsDir: config.decisionsDir,
+    })
+    const compiled = compileRenderedAdr(root, rendered, config)
+    let writtenPath = null
+    if (write) {
+      if (!compiled.ok) {
+        refused.push({
+          index: decision.index,
+          title: decision.title,
+          code: 'DOES_NOT_COMPILE',
+          span: decision.span.slice(0, 200),
+          reason: `the generated record does not compile, so it was not written: ${compiled.problems.map((entry) => entry.message).join('; ')}`,
+          problems: compiled.problems,
+        })
+        continue
+      }
+      const outcome = ingestModule.writeIngested(root, rendered)
+      if (outcome.error !== undefined) {
+        refused.push({
+          index: decision.index,
+          title: decision.title,
+          code: 'WRITE_FAILED',
+          span: decision.span.slice(0, 200),
+          reason: outcome.error,
+          problems: [],
+        })
+        continue
+      }
+      writtenPath = outcome.written
+    }
+    records.push({
+      index: decision.index,
+      id: decision.fields.id,
+      filename: rendered.filename,
+      path: rendered.path,
+      title: decision.fields.title,
+      // Always proposed, whatever the judge said: `renderAdr` emits the status, and this is
+      // restated here so a caller reading the batch result does not have to open the file.
+      status: 'proposed',
+      zones: decision.fields.zones,
+      laws: decision.fields.laws.map((law) => law.id),
+      span: decision.span,
+      acceptedChecks: decision.fields.laws.reduce((total, law) => total + law.checks.length, 0),
+      dropped: decision.dropped,
+      compiles: compiled.ok,
+      written: writtenPath,
+    })
+  }
+
+  const written = records.map((record) => record.written).filter((path) => path !== null)
+  appendLedger(root, 'ratchet.ingest.batch-propose', {
+    sourcePath,
+    decisions: validation.accepted.length,
+    written: written.length,
+    refused: refused.length,
+    cap: validation.cap,
+  })
+
+  return {
+    ok: records.length > 0 && refused.length === 0,
+    stage: 'ingest-batch',
+    advisory: true,
+    status: 'proposed',
+    sourcePath,
+    sourceHash: source.hash,
+    judge: judgeIdentity,
+    cap: validation.cap,
+    headings: validation.headings,
+    records,
+    written,
+    refused,
+    problems,
+    summary: summariseProblems(problems),
+    nextStep:
+      refused.length > 0
+        ? 'fix the refused decisions and call again: each refusal names the decision and what was wrong with it, and the records that were accepted are already written'
+        : records.length === 0
+          ? 'nothing was accepted from this batch, so no record exists to ratify'
+          : 'every record is proposed: a human must ratify each one before it becomes law, through the one consent channel',
+  }
+}
+
+/**
  * Checks a generated ADR against the rules a written record would face.
  *
  * The record is PARSED rather than written and compiled in place, for two reasons.
