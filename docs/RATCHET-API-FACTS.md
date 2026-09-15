@@ -405,7 +405,7 @@ claim fail with the 14-record set above.
 
 ## 3. Where declarations and behaviour diverge
 
-Five findings. Each is a trap a reasonable implementer would walk into, which is
+Seven findings. Each is a trap a reasonable implementer would walk into, which is
 why each is recorded with its reproduction rather than as advice.
 
 ### 3.1 `{type: 'json'}` is a `defineTool` DSL node, not a JSON Schema type
@@ -565,6 +565,62 @@ runs without a `JSON.stringify` round trip in between. This is a real class of
 bug for a compiler that builds report objects from optional inputs.
 
 ---
+
+### 3.6 A judge names a law correctly and describes the wrong statement, and nothing can refute it
+
+Measured on this kit, through the production path. `ratchet_review` with
+`job: review_corpus` runs an independent judge whose verdict becomes a recorded block when a
+finding is an error of a blocking kind and names a law (`ratchet-contradiction.mjs`,
+`BLOCKING_FINDING_KINDS`). What the validator checked was that the `lawId` **resolves** —
+`validateVerdict` refused a law id absent from the bundle and passed everything else.
+
+The judge returned:
+
+```
+severity: error, kind: semantic_violation,
+lawId: shipped-plugins.a-consent-travels-a-channel-it-records,
+explanation: "...states that every ratification comes through the harness seam..."
+suggestedAction: "amend ADR 0007's law..."
+```
+
+Every part of that resolves. The law id is real and in force; the ADR it names is real. The
+statement the explanation attributes to the id, however, belongs to a law ADR 0035 had already
+removed, and the law actually in force under that id says the opposite — it names BOTH channels,
+`user-question` for a Session and `adr-panel` for the panel's window. The judge weighed ADR 0034's
+and ADR 0007's **prose**, and ADR 0007 is superseded.
+
+The consequence was mechanical, not advisory: the finding was over the zone `shipped-plugins`, so
+the write guard refused **every** file under `plugins/**` — including the plugin files whose own
+fix would have been needed. A second independent review, told to read the compiled bundle rather
+than any record's prose, confirmed the first finding was about a superseded statement, raised
+nothing against it, and cleared the block.
+
+**The fix, and why it is the right shape.** A finding that names a `lawId` must also carry
+`lawQuote`: the in-force statement verbatim, or the spec hash. The validator compares it against
+the compiled law and reports the finding as unusable when it does not match; a law-bound finding
+with no quote is unusable too — the same treatment a citation of a law that does not exist
+already got. A finding that quotes the law correctly is a genuine dispute: it blocks.
+
+**Consequence for Ratchet:** a model's reference to a law is a pointer, and a pointer that
+resolves is not evidence that the model read what it points at. Where a verdict can stop work,
+the input it judged has to be quotable and checked, not merely nameable.
+
+### 3.7 A tool call runs the plugin code the session loaded, so a source edit is invisible to it
+
+Measured while building the corpus-review record. `ratchet-ops.mjs` was edited to append
+`ratchet.contradiction.reviewed` (with the spec hash) from the verdict path of `review`, and the
+edit was in the file on disk. Calling the `ratchet_review` tool then produced
+`ratchet.review.finish` in the ledger and **no** `ratchet.contradiction.reviewed` line — twice,
+across two tool calls and one `compile`.
+
+`node plugins/ratchet/ratchet-cli.mjs` runs that same edited file in a fresh process and reports
+the new behaviour, because a fresh process re-imports it. The tool surface does not: the plugin was
+loaded when the session booted, and a Node module graph does not re-read a file because it changed.
+
+**Consequence for Ratchet:** a behaviour added to a plugin module is not live in the session that
+is already running, so a measurement taken through a tool is a measurement of the OLD code. Verify
+a plugin change from a CLI or test process, or after restarting whatever loaded the plugin — and do
+not read a missing ledger line as proof that the code path is wrong.
 
 ## 4. Facts about session logs (used for evidence and by the ledger design)
 

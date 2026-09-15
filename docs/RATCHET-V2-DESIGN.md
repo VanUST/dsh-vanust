@@ -678,7 +678,50 @@ consent without an answer from the human channel, that the gate reports what it
 cannot corroborate, and that a reader sees a transcript of the actual questions. The
 residual gap is recorded in ADR 0007 and in §6.5 rather than papered over.
 
-### 5.10 The compile trigger — a judgement asked for is made
+### 5.11 One ingestion entry point, and the path chosen for the caller
+
+Two extractors existed and a developer had to choose between them, and choosing wrongly was
+invisible: a fifty-decision document sent to the single-decision path produced one record and
+left the rest, while a one-decision source sent to the batch path carried weaker attribution
+than it needed. `ratchet_ingest` takes that choice away. It measures the source, and when the
+document is larger than `BATCH_DECISION_CAP` it cuts it at its HEADINGS — mechanically, never
+by judgement — into chunks that each hold at most the cap in headings and therefore at most the
+cap in decisions, then drives one extraction per chunk. A document the cap can hold is one
+chunk and one judge call, so the common case costs nothing extra.
+
+Attribution stays per decision and per chunk: every decision must cite a span that
+`validateBatchIngest` locates in the text it was extracted from, so a span from another chunk
+is refused — the chunk is the scope — and a refusal costs one record while the rest of its
+chunk lands. Every record is written `proposed`. When a judge cannot be spawned the operation
+does not fail and does not ingest half the document: it returns the per-chunk prompts it would
+have sent and the answers come back in the same `ingest` argument the one-chunk case already
+uses — a single verdict object for one chunk, an array of them otherwise. That is the
+split-and-drive behaviour a tool can implement without an invented API.
+
+The two older tools stay registered and unchanged, because each carries a documented guarantee:
+`ratchet_ingest_source` proves every sentence the judge attributes to the source is in it, which
+is stronger than the span check, and `ratchet_ingest_batch` lets a caller drive the cap and the
+split itself. What changed is that neither is the path anyone has to know about.
+
+### 5.12 Duplicate detection drafts the settlement
+
+`scripts/check-duplicate-decisions.mjs` reports and fails the gate; a human used to interpret.
+`ratchet_deduplicate` turns each finding into an ordinary `proposed` record carrying
+`resolves: [loser, winner]` and an `op: remove` for the law that duplicates — the SURGICAL form
+ADR 0031 settled — so the developer's only act is to ratify or decline, and deleting the draft
+is the whole of a decline. The two sides are ordered by id, which is the order the decisions were
+recorded in, so the decision a reader has followed longest is the one that survives; that is a
+choice, not a deduction, and the record says so.
+
+The decidable RULES live in `ratchet-dedupe.mjs`, shared with the gate command, because a report
+and a drafter that each decided what a duplicate is would drift apart silently — one would
+report a duplicate the other never settled. A law an active record has retired is not counted,
+so settling a duplicate turns the gate green rather than leaving it red for ever. Findings it
+cannot draft — a `humanOnly` zone, a terminal record, no shared law id — are returned under
+`undraftable` with the reason rather than dropped, because a duplicate the command reports and
+the drafts do not mention reads as handled.
+
+### 5.13 The compile trigger — a judgement asked for is made
 
 `compileLaws` marks a question it cannot decide (`reviewRequired`: two records
 declaring one law id and statement with different check sets) and does not choose
@@ -934,18 +977,76 @@ Stated plainly, because a rule with no enforcement point is an unverified claim:
   `proposeOnly`. It is reported here rather than silently fixed: renaming a law id is
   removing one law and adding another, and re-binding the records would take eight laws
   out of force until a human ratified them. Both are decisions for the corpus owner.
-- **A fully removed record cannot be marked retired, so the retirement rule covers
-  supersession only.** `validateRetirement` requires a record another record in force
-  superseded — and whose laws are therefore all out of force — to carry a terminal status.
-  It deliberately does not fire on a record whose laws were all removed one by one, because
-  that state cannot be made green: a law is removable only while its declaring record is in
-  force, so marking that record terminal makes every one of its removals
+- **A fully removed record still cannot be marked retired, and the retirement rule is now
+  stated as the choice it always was.** `validateRetirement` requires a record another record
+  in force superseded — and whose laws are therefore all out of force — to carry a terminal
+  status. It deliberately does not fire on a record whose laws were all removed one by one,
+  because that state cannot be made green: a law is removable only while its declaring record
+  is in force, so marking that record terminal makes every one of its removals
   `LAW_TARGET_DANGLING` (a terminal record contributes no law to remove), while leaving it
-  live contradicts the rule. ADR 0031's decision describes a resolution that "removes the
-  losing laws AND supersedes the losing record"; the machinery as it stands cannot express
-  the first half for a FULL removal, and the second half is what the audit enforces. The
-  gap is reported here because papering over it with a check nobody can satisfy would be
-  worse than the gap: a rule with no green state is a rule people learn to disable.
+  live contradicts the rule. ADR 0031 first described a resolution that "removes the losing
+  laws AND supersedes the losing record", which the machinery cannot express; the record was
+  corrected to the rule the machinery can hold. A resolution takes away force in exactly ONE
+  of two ways — the **surgical** form removes a named law and the record keeps governing, the
+  **replacement** form supersedes the whole record and it then carries a terminal status — and
+  a record asking for both is refused by name as `RESOLUTION_AMBIGUOUS`. That refusal exists
+  because the combination used to surface one stage later as the `LAW_TARGET_DANGLING` +
+  `RETIREMENT_STATUS_MISSING` pair, which says what is wrong without saying which half to
+  drop.
+- **A generated law card is regenerated automatically only when the ratchet wrote its bytes.**
+  A ratification changes the law set, and the generated cards are written from it, so the
+  ratifying operation rewrites the cards that drifted — which is what removes the step where a
+  developer had to know to run `ratchet compile --write` before `verify` would pass. The guard
+  is the ledger: the digests of the documents the ratchet itself wrote are recorded, and a
+  document whose current bytes are not among them was written by somebody else and is left
+  exactly where it is, so `verify` keeps reporting the edit. The residual limit is stated
+  plainly: a card's bytes cannot say whether a person edited it, so a card that is BOTH stale
+  and hand-edited is reported as stale rather than as edited — the problem code a reader sees
+  may name the wrong cause, but the file is never silently overwritten.
+- **A corpus edit that is not made through a ratifying operation leaves the cards to a manual
+  compile.** Editing a decision file by hand, or writing a record some other way, changes the
+  law set without going through `ratify`, and the next `verify` reports `SPEC_OUT_OF_DATE` and
+  names the command. That is a manual step on a path an agent does not own end to end; it is
+  reported rather than papered over because the alternative — regenerating on every `verify` —
+  would make the gate a writer.
+- **A law-bound finding must quote the law it judges, and that rule is what stops a judge error
+  from freezing the corpus.** A finding that names a `lawId` must carry `lawQuote` — the
+  in-force statement verbatim, or the spec hash of the law set. The verdict validator compares
+  the quote with the compiled law and reports the finding as UNUSABLE when it does not match;
+  a finding with no quote at all is malformed rather than authoritative, which is the treatment
+  a citation of a law that does not exist already got. A finding that quotes the law correctly
+  is a genuine dispute: it blocks, and it waits for a human ruling or for a resolution that
+  retires the law. The rule exists because its absence was measured here: a judge named a law
+  that was in force while quoting a SUPERSEDED statement of it, the id resolved, nothing could
+  refute the finding, and the write guard refused every file under `plugins/**` until an
+  independent review happened to reach a different reading. A law id is a pointer a model can
+  misread; a quotation is a claim that can be checked. Findings bound to no law are unaffected,
+  because not every real problem has one law behind it.
+- **The corpus review records which law set it read, and that is a fact, never a verdict.**
+  `ratchet review --job review_corpus` appends `ratchet.contradiction.reviewed` with the spec
+  hash the judge judged, and `compile`, `verify` and `status` each carry the comparison as a
+  `contradictionReview` field: `reviewed`, `stale`, the hash that was recorded and the time.
+  It is deliberately NOT a problem in any of the three, and that is the one place this design
+  departs from `VERIFY_NOT_RUN` — which is a problem, in `status`, because a shell can clear
+  it. A review needs a judge, a judge needs a live root agent, and the `ratchet` CLI has
+  neither, so no shell command a reader can run would clear a red gate built on this; a gate
+  that is red on the first run of every new project and stays red until somebody starts a
+  session is a gate people disable, which is the reasoning §6.6 already records for generated
+  specs. The judgement itself is still only ever a recorded block the guard acts on, so no
+  model answer can fail a build.
+- **The reporting side has no shell or tool exit, and that is a real gap.** `ratchet_review`
+  does spawn a judge from a session, so an agent can review; the CLI cannot, and a call whose
+  judge could not be spawned records nothing. The `contradictionReview` field also has no
+  consumer in the panel yet: it is reported by the three commands and by the tools' results,
+  and the developer meets it in the output rather than in a window. Closing that is a UI
+  change, not a mechanism one, and it is listed here rather than implied to be done.
+- **The `ratchet.contradiction.reviewed` event is written by the code the SESSION loaded.** A
+  plugin module is imported once when the plugin boots, so a source edit that adds this event
+  is invisible to the tool surface of the session that is already running, while a fresh CLI
+  process sees it. Measured: two `ratchet_review` calls produced `ratchet.review.finish` and
+  no `reviewed` line, and the field read `reviewed: false` afterwards. So the fact clears
+  either from a session started after the change or from a review run by a process that
+  imported the current module.
 - **The shared-source duplicate rule asks for a shared law, not a shared source alone.**
   ADR 0032's statement reads as "one source cited by two records", and read literally it
   fails this kit's own corpus: four decisions cite one design-session document and two cite
@@ -1155,8 +1256,56 @@ hash per record instead, and an edit voids the consent.
 
 ---
 
-## 9. Open questions
+## 8b. The developer's loop, before and after
 
+Written down because the point of the change is fewer steps, and a claim about fewer steps that
+is not counted is a claim. "Here is a document of decisions" → "law in force, gate green".
+
+**Before**
+
+| # | Step | Who |
+|---|---|---|
+| 1 | Choose between `ratchet_ingest_source` and `ratchet_ingest_batch` — and get it wrong invisibly for a document of the other size | human/agent |
+| 2 | Call the chosen tool, read the returned prompt | agent |
+| 3 | Call it again with `ingest:` carrying the answer, plus `write: true` | agent |
+| 4 | `ratchet compile` | agent |
+| 5 | `ratchet pending` to see what is waiting, then call `ratchet_ratify` and answer the quiz | human |
+| 6 | `ratchet compile --write` — because the ratification invalidated the generated cards | agent, and only if they knew the rule |
+| 7 | `ratchet verify` | agent |
+| 8 | Commit the record together with its approval | human |
+| 9 | Discover, if it happens, that the corpus has a duplicate: read `check-duplicate-decisions`, then hand-draft a `resolves` record | agent |
+| 10 | Discover, if it happens, that two decisions contradict in meaning — because nothing ran a review, so nothing said so | nobody, until it bites |
+
+Two of those ten are discovery steps with no signal telling anyone to take them, and step 6 is
+folklore: the failure it prevents is `SPEC_OUT_OF_DATE`, which names a command rather than the
+step that was missed.
+
+**After**
+
+| # | Step | Who |
+|---|---|---|
+| 1 | `ratchet_ingest` with the source (the tool splits it, drives each chunk, and reports what it did) | agent |
+| 2 | Call it again with `ingest:` carrying the answers, plus `write: true` | agent |
+| 3 | `ratchet compile` — which regenerates the cards a changed law set invalidated, and runs the corpus review when the law set changed | agent |
+| 4 | Click **Approve** in the ADR panel (or answer the quiz) | human |
+| 5 | `ratchet verify` | agent |
+| 6 | Commit the record together with its approval | human |
+| 7 | `ratchet_deduplicate` when a duplicate exists: the drafted resolution is the only thing to ratify | agent |
+
+Ten steps to seven, and the two discovery steps are gone: the split is chosen for the caller,
+and the corpus review runs from the operation that changed the law set rather than from somebody
+remembering. **Step 4 is manual and must be**: a decision enters force only through a recorded
+human consent, and that is the one act the mechanism exists to protect rather than to automate —
+an agent that could clear it would not need the mechanism. Everything else that remains manual is
+manual for a stated reason: step 6 is the commit, which the operator owns; and step 7 is a
+command rather than automatic because drafting a resolution nobody asked for is writing a
+proposal about a conflict the corpus owner may want to read first. The residual manual step that
+is NOT consent is the re-ratification of a record an operator edits by hand: the edit voids the
+consent, and the gate says `RATIFICATION_STALE` and names the record.
+
+---
+
+## 9. Open questions
 Closed since the first draft, recorded so the change is visible rather than quietly
 deleted:
 

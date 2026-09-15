@@ -27,6 +27,7 @@ import { MANIFEST_PATH, PROBLEM_CODES, UNUSABLE_PROBLEM_CODES, hashSource, norma
 import {
   compileProject,
   comparePersistedBundle,
+  bundleHash,
   readAdrCorpus,
   readManifest,
   renderSpecs,
@@ -37,12 +38,14 @@ import { DEFAULT_COMMAND_TIMEOUT_MS, codeHashFor, configHashFor, listFiles, veri
 import * as state from './ratchet-state.mjs'
 import * as dynamic from './ratchet-dynamic.mjs'
 import * as contradictionModule from './ratchet-contradiction.mjs'
+import * as dedupeModule from './ratchet-dedupe.mjs'
 import * as ingestModule from './ratchet-ingest.mjs'
 import {
   STATE_PATHS,
   appendLedger,
   detectSpecDrift,
   persistCompile,
+  readLedger,
   writeSpecDocuments,
   persistVerify,
   readSpecBundle,
@@ -337,6 +340,16 @@ export function status(root) {
     )
   }
 
+  // The corpus's MEANING is checked by a different instrument — a judge, not the deterministic
+  // verifier — and "nobody has looked" is a fact about a project rather than a defect in it.
+  // It is therefore carried as a field the human-readable output prints and does NOT make
+  // `status` red. The reason is the one §6.6 already records for generated specs: a status
+  // that is red on the first run of every new project, for a step that needs a model and a
+  // network, is a status people learn to ignore — and an ignored status is worse than a
+  // separate line. `VERIFY_NOT_RUN` stays a problem because a shell can clear it.
+  const contradictionReview =
+    compiled.bundle === null ? null : contradictionReviewFact(root, bundleHash(compiled.bundle))
+
   const rendered = compiled.bundle === null ? { files: {} } : renderSpecs(compiled.bundle, manifest.config?.specsDir)
   const tracksSpecs = state.tracksSpecDocuments(root, manifest.config?.specsDir, manifest.config?.specsRequired)
   const drift = detectSpecDrift(root, rendered.files)
@@ -366,6 +379,7 @@ export function status(root) {
       reason: verification.reason,
       last: verification.recorded ?? null,
     },
+    contradictionReview,
     reports: {
       compile: STATE_PATHS.compileReport,
       verify: STATE_PATHS.verifyReport,
@@ -530,6 +544,14 @@ export function compile({ root, write = false } = {}) {
     },
     tracksSpecDocuments: tracksSpecs,
     wrote: [...specWrite.written, ...persisted.written],
+    // A deterministic fact, reported and never a gate: whether any corpus review has recorded
+    // the law set this compile produced. `status` is where it is a problem, the way
+    // `VERIFY_NOT_RUN` is; here it is a field the CLI prints, so the operation that changed
+    // the laws says out loud what nobody has judged about them yet.
+    contradictionReview:
+      compiled.bundle === null
+        ? null
+        : contradictionReviewFact(root, bundleHash(compiled.bundle)),
     problems,
     summary: summariseProblems(problems),
   }
@@ -667,8 +689,7 @@ export async function verify({ root, runCommand = null } = {}) {
     configHash: report.configHash ?? null,
     toolVersion: report.toolVersion,
     vcsRevision: report.vcsRevision,
-    counts: report.counts,
-    dependencyManifests: report.dependencyManifests,
+    counts: report.counts,    dependencyManifests: report.dependencyManifests,
     laws: report.laws,
     specDrift: {
       drifted: drift.drifted.map((entry) => entry.path),
@@ -677,6 +698,9 @@ export async function verify({ root, runCommand = null } = {}) {
     },
     reports: { verify: STATE_PATHS.verifyReport, state: STATE_PATHS.state, ledger: STATE_PATHS.ledger },
     wrote: persisted.written,
+    // The same deterministic fact a compile carries. Advisory here by construction: it is a
+    // field, not a problem, so a project nobody has reviewed yet can still be verified.
+    contradictionReview: contradictionReviewFact(root, bundleHash(compiled.bundle)),
     problems,
     summary: summariseProblems(problems),
   }
@@ -769,6 +793,131 @@ function contextFor(root) {
     proposedRecords,
     bundle: compiled.bundle,
   }
+}
+
+/**
+ * The ledger event that records a corpus contradiction review having run.
+ *
+ * One event per run, carrying the spec hash of the law set the judge actually read. It is the
+ * deterministic fact a later `compile` or `verify` compares against: not what the judge
+ * concluded — a model verdict is never a gate — but WHICH LAW SET HAS BEEN LOOKED AT. Without
+ * it, "no contradiction was found" and "nobody ever looked" are the same state, which is how
+ * three ratified laws came to contradict the shipped panel with no command noticing.
+ */
+export const CONTRADICTION_REVIEW_EVENT = 'ratchet.contradiction.reviewed'
+
+/** Where a corpus review is recorded, and where its staleness is read from. */
+const CORPUS_REVIEW_JOBS = new Set(['review_corpus'])
+
+/**
+ * Reports whether the corpus's meaning has been reviewed for the law set now in force.
+ *
+ * The question this answers is deterministic, which is what lets the answer be reported by a
+ * build gate: it is not "does the corpus contradict itself" — that is a judge's, and a
+ * non-deterministic check that can fail a build is one people learn to re-run until it passes
+ * — but "has any contradiction review run against the laws as they are now".
+ *
+ * The comparison is by spec hash, so it costs nothing when nothing changed: a corpus whose law
+ * set is untouched since the last review is neither re-judged nor reported.
+ *
+ * @param root - Absolute project root.
+ * @param specHash - Hash of the laws compiled now.
+ * @returns `{ reviewed, stale, at, recordedHash, reason }`. `reviewed` is false when no corpus
+ *   review has ever been recorded, in which case `reason` says so and `stale` is true — a
+ *   corpus nobody has looked at is not a corpus that has been checked.
+ */
+export function contradictionReviewStatus(root, specHash) {
+  const events = readLedger(root).events ?? []
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]
+    if (event === null || typeof event !== 'object' || event.event !== CONTRADICTION_REVIEW_EVENT) continue
+    const recordedHash = typeof event.specHash === 'string' ? event.specHash : null
+    if (recordedHash === specHash) {
+      return { reviewed: true, stale: false, at: event.at ?? null, recordedHash, reason: null }
+    }
+    return {
+      reviewed: true,
+      stale: true,
+      at: event.at ?? null,
+      recordedHash,
+      reason: `the last contradiction review ran at ${event.at ?? '(unknown time)'} against the law set hashing to ${recordedHash ?? '(none)'}, and the laws now hash to ${specHash}, so the corpus has changed since anything looked at its meaning`,
+    }
+  }
+  return {
+    reviewed: false,
+    stale: true,
+    at: null,
+    recordedHash: null,
+    reason: `no contradiction review has ever been recorded for this project, so no run has looked for a decision that contradicts another in meaning — the deterministic checks see only the letter, which is how a contradiction can be written and enforced at the same time`,
+  }
+}
+
+/**
+ * Records that a corpus review ran, against the law set it read.
+ *
+ * @param root - Absolute project root.
+ * @param specHash - Hash of the laws the judge judged.
+ * @param job - The review job.
+ * @returns The ledger append result. A ledger that cannot be appended to is reported by
+ *   `appendLedger` itself and does not fail the review.
+ */
+function recordContradictionReview(root, specHash, job) {
+  return appendLedger(root, CONTRADICTION_REVIEW_EVENT, { job, specHash, advisory: true })
+}
+
+/**
+ * The deterministic fact about contradiction detection, for a compile or a verify result.
+ *
+ * Deliberately NOT a problem, and so deliberately not a gate. `status` reports the same fact
+ * the way it reports `VERIFY_NOT_RUN` — there it is a problem, because a status is a claim
+ * about what is known — while `compile` and `verify` carry it as a named field the CLI prints.
+ * The distinction is what keeps a rule that fires on the first run of every new project from
+ * being a rule people disable on the second: a project that has never been reviewed has one
+ * deterministic fact to read, not a red gate it cannot clear without a judge.
+ *
+ * @param root - Absolute project root.
+ * @param specHash - Hash of the laws compiled now.
+ * @returns `{ reviewed, stale, at, recordedHash, reason }` — see
+ *   {@link contradictionReviewStatus}.
+ */
+function contradictionReviewFact(root, specHash) {
+  return contradictionReviewStatus(root, specHash)
+}
+
+/**
+ * The in-force statement of every law in a bundle, keyed by id.
+ *
+ * @param bundle - A compiled spec bundle, or `null`.
+ * @returns A plain object of law id to statement text. `{}` for a null bundle, so a caller
+ *   that has no bundle gets a map that matches nothing rather than a throw.
+ */
+function lawStatementsOf(bundle) {
+  const out = {}
+  for (const law of bundle?.laws ?? []) {
+    if (typeof law?.id === 'string' && typeof law.statement === 'string') out[law.id] = law.statement
+  }
+  return out
+}
+
+/**
+ * The spec hash of every law in a bundle, keyed by id.
+ *
+ * The hash of one law is not stored on the bundle — the bundle hashes as a whole — so this is
+ * the whole-bundle hash, which is what a judge can see and quote. It is enough for the check
+ * it serves: a finding that cites the current bundle hash is talking about the law set that
+ * is in force, and the statement comparison covers the per-law case.
+ *
+ * @param bundle - A compiled spec bundle, or `null`.
+ * @returns A plain object of law id to `sha256:<hex>`. `{}` for a null bundle.
+ */
+function lawHashesOf(bundle) {
+  const out = {}
+  if (bundle === null || bundle === undefined) return out
+  const hash = bundleHash(bundle)
+  for (const law of bundle.laws ?? []) {
+    if (typeof law?.id === 'string') out[law.id] = hash
+  }
+  return out
 }
 
 /**
@@ -966,6 +1115,13 @@ export async function review({
   const validation = dynamic.validateVerdict(parsed.verdict, {
     lawIds: context.lawIds,
     adrIds: context.adrIds,
+    // What each law in force SAYS, and its hash, so a finding bound to a law has to quote
+    // that law to be believed. Without this the validator can only check that the id exists,
+    // and a judge that names a real id while describing a superseded statement produces a
+    // finding nothing can refute — measured on this kit, where exactly that froze every
+    // write under `plugins/**` until a second review corrected it.
+    laws: lawStatementsOf(context.bundle),
+    lawHashes: lawHashesOf(context.bundle),
   })
   const problems = [...extra, ...validation.problems]
 
@@ -1031,6 +1187,11 @@ export async function review({
       findings: report.findings.length,
       usable: problems.length === 0,
     })
+    // A corpus review is the one that answers "does this law set contradict itself in
+    // meaning", so it is the one that records WHICH law set was read. Recorded even when the
+    // judge's answer was unusable: "somebody looked and the answer was unusable" and "nobody
+    // looked" are different states, and the ledger has to be able to tell them apart.
+    if (CORPUS_REVIEW_JOBS.has(job)) recordContradictionReview(root, bundleHash(context.bundle), job)
   }
 
   return {
@@ -1515,7 +1676,80 @@ export async function ingestBatch({
 
   const records = []
   const refused = [...validation.refused]
-  for (const decision of validation.accepted) {
+  buildBatchRecords({
+    root,
+    config,
+    accepted: validation.accepted,
+    refused,
+    records,
+    sourcePath,
+    sourceHash: source.hash,
+    write,
+    now,
+    authorName,
+  })
+
+  const written = records.map((record) => record.written).filter((path) => path !== null)
+  appendLedger(root, 'ratchet.ingest.batch-propose', {
+    sourcePath,
+    decisions: validation.accepted.length,
+    written: written.length,
+    refused: refused.length,
+    cap: validation.cap,
+  })
+
+  return {
+    ok: records.length > 0 && refused.length === 0,
+    stage: 'ingest-batch',
+    advisory: true,
+    status: 'proposed',
+    sourcePath,
+    sourceHash: source.hash,
+    judge: judgeIdentity,
+    cap: validation.cap,
+    headings: validation.headings,
+    records,
+    written,
+    refused,
+    problems,
+    summary: summariseProblems(problems),
+    nextStep:
+      refused.length > 0
+        ? 'fix the refused decisions and call again: each refusal names the decision and what was wrong with it, and the records that were accepted are already written'
+        : records.length === 0
+          ? 'nothing was accepted from this batch, so no record exists to ratify'
+          : 'every record is proposed: a human must ratify each one before it becomes law, through the one consent channel',
+  }
+}
+
+/**
+ * Turns accepted decisions into records, writing each one, and records each refusal in place.
+ *
+ * Extracted from the batch operation so the multi-chunk path uses the SAME record-building
+ * rules rather than a second copy of them: two paths that each decide what compiles, what is
+ * already recorded and what a refusal looks like are two paths that will disagree. Mutates
+ * `records` and `refused`, which the caller owns, so the caller's ordering is preserved.
+ *
+ * @param options - `{ root, config, accepted, refused, records, sourcePath, sourceHash,
+ *   write, now, authorName }`. `accepted` is `validateIngest`'s accepted list; `refused` is
+ *   appended to, never replaced.
+ * @returns Nothing. A decision already on record, one that does not compile, and one whose
+ *   file cannot be written each become a refusal with its own code, and the rest become
+ *   records. Empty `accepted` writes nothing.
+ */
+function buildBatchRecords({
+  root,
+  config,
+  accepted = [],
+  refused,
+  records,
+  sourcePath,
+  sourceHash,
+  write,
+  now,
+  authorName,
+}) {
+  for (const decision of accepted) {
     // A decision already on record is not written a second time, for the same reason the
     // single-decision path refuses it: two records for one decision compile perfectly and the
     // duplication is invisible until somebody counts.
@@ -1535,7 +1769,7 @@ export async function ingestBatch({
     const rendered = ingestModule.renderAdr({
       fields: decision.fields,
       sourcePath,
-      sourceHash: source.hash,
+      sourceHash,
       createdAt: now ?? new Date().toISOString(),
       authorName,
       decisionsDir: config.decisionsDir,
@@ -1586,37 +1820,295 @@ export async function ingestBatch({
       written: writtenPath,
     })
   }
+}
+
+/**
+ * Ingests a document of decisions through ONE entry point that decides how to read it.
+ *
+ * The two extraction paths were two tools a developer had to choose between, and choosing
+ * wrongly was invisible: a fifty-decision document sent to the single-decision path produced
+ * one record and silently left the rest, while a one-decision source sent to the batch path
+ * carried weaker attribution than it needed. Neither is a mistake the caller can see from the
+ * outside, so the choice is not the caller's to make. This operation makes it: it splits the
+ * source into the chunks one batch may carry ({@link planIngestChunks}), asks a judge for each
+ * chunk in turn, validates each answer against ITS OWN chunk rather than against the whole
+ * document, and writes what passes. A document the cap can hold is one chunk and therefore
+ * exactly one judge call, which is what keeps the common case cheap.
+ *
+ * The attribution guarantee is unchanged and is per decision: every decision must cite a span
+ * that {@link validateBatchIngest} locates in the text it was extracted from, and a decision
+ * whose span cannot be found is refused ALONE while the rest of its chunk still lands.
+ * Nothing here can put a decision into force — every record is written `proposed`.
+ *
+ * When no judge can be spawned, the operation does not fail: it returns the per-chunk prompts
+ * this system asked for and says so, and the answers come back the same way the single-chunk
+ * path already accepts them — in the `ingest` argument of the next call. That is the
+ * split-and-drive behaviour a tool can implement without a judge, and it is deliberately not
+ * an invented API: the prompt and the schema are the ones the judge would have received.
+ *
+ * @param options - `{ root, sourcePath, write, submitted, spawnJudge, authorName, now }`.
+ *   `submitted` is either a single chunk verdict (an object with a `decisions` array, which
+ *   is what the one-chunk case asks for) or an array of them in chunk order; a missing or
+ *   `null` entry for a chunk is the chunk the caller did not answer. `spawnJudge` is
+ *   `(prompt, schema) => Promise<{ structured, output, stopReason }>` or `null`.
+ * @returns The canonical multi-chunk ingest result: `{ ok, stage, chunks, records, written,
+ *   refused, unanswered, problems, summary, nextStep }`. `chunks` reports what the split did
+ *   — its boundaries, its headings and the judge's identity per chunk — so "what did it do to
+ *   my document" is answerable from the result rather than inferred.
+ */
+export async function ingestAuto({
+  root,
+  sourcePath,
+  write = false,
+  submitted = null,
+  spawnJudge = null,
+  authorName = 'ratchet-ingest',
+  now = null,
+} = {}) {
+  const manifest = readManifest(root)
+  if (manifest.config === null || manifest.config.enabled !== true) {
+    const problems = manifest.config === null
+      ? manifest.problems
+      : [problem('RATCHET_DISABLED', `${MANIFEST_PATH} does not declare ratchet.enabled, so there is nowhere to record a decision`)]
+    return { ok: false, stage: 'ingest-auto', problems, summary: summariseProblems(problems) }
+  }
+  const config = manifest.config
+
+  const source = ingestModule.readSource(root, sourcePath)
+  if (source.error !== undefined) {
+    const problems = [problem('ADR_SOURCE_MISSING', source.error, null, { path: sourcePath })]
+    return { ok: false, stage: 'ingest-auto', problems, summary: summariseProblems(problems) }
+  }
+
+  const plan = ingestModule.planIngestChunks(source.text)
+  const existing = ingestModule.existingAdrIds(root, config.decisionsDir)
+  const context = contextFor(root)
+  // The answers, by chunk. A single verdict object is the one-chunk case; an array is one
+  // answer per chunk with `null` for the ones still missing. Neither shape carries a
+  // decision of its own: every entry is validated exactly as the batch path validates one.
+  const answers = Array.isArray(submitted) ? submitted : plan.chunks.length === 1 && submitted !== null ? [submitted] : []
+
+  const records = []
+  const refused = []
+  const chunks = []
+  const unanswered = []
+  const problems = []
+  const ids = [...existing.ids]
+
+  for (const chunk of plan.chunks) {
+    const prompt = ingestModule.renderBatchIngestPrompt({
+      config,
+      sourceText: chunk.text,
+      sourcePath,
+      existingIds: ids,
+      corpusSummary: context.stable,
+    })
+    const answer = answers[chunk.index - 1] ?? null
+    let verdict = null
+    let judgeIdentity = null
+
+    if (answer !== null && answer !== undefined) {
+      verdict = answer
+      judgeIdentity = { kind: 'caller', reason: 'the caller supplied the result; the ratchet spawned no judge' }
+    } else if (spawnJudge !== null) {
+      try {
+        const judged = await spawnJudge(prompt, ingestModule.BATCH_INGEST_SCHEMA)
+        const parsed = judged === null || judged === undefined
+          ? { verdict: null, problem: 'the judge produced no result' }
+          : dynamic.parseVerdict(judged.structured ?? null, judged.output ?? null)
+        verdict = parsed.verdict
+        judgeIdentity = { kind: 'subagent', stopReason: judged?.stopReason ?? null, verdictSource: parsed.source ?? null }
+        if (parsed.problem !== null && parsed.problem !== undefined) {
+          problems.push(problem('DYNAMIC_REVIEW_REQUIRED', `chunk ${chunk.index} produced no usable result: ${parsed.problem}`))
+        }
+      } catch (error) {
+        judgeIdentity = { kind: 'none', reason: String(error) }
+        problems.push(problem('DYNAMIC_REVIEW_REQUIRED', `the judge could not be run for chunk ${chunk.index}: ${String(error)}`))
+      }
+    } else {
+      unanswered.push({
+        index: chunk.index,
+        startLine: chunk.startLine,
+        endLine: chunk.endLine,
+        headings: chunk.headings,
+        prompt,
+      })
+      chunks.push({
+        index: chunk.index,
+        startLine: chunk.startLine,
+        endLine: chunk.endLine,
+        headings: chunk.headings,
+        mechanical: chunk.mechanical,
+        judge: null,
+        accepted: 0,
+        refused: 0,
+        unanswered: true,
+      })
+      continue
+    }
+
+    const validation = ingestModule.validateBatchIngest(verdict, {
+      sourceText: chunk.text,
+      config,
+      existingIds: ids,
+      cap: plan.cap,
+    })
+    const before = { records: records.length, refused: refused.length }
+    // A decision this chunk refused is reported whatever the batch verdict was, and an
+    // over-cap batch is the ONE case with no per-decision verdicts at all: `validateBatchIngest`
+    // returns before judging any decision when the call itself is too large. Gating on
+    // `problems` alone was wrong — the per-decision failures live in `refused` and `problems`
+    // is empty for them — so a chunk whose single decision cited a span from another chunk
+    // fell into the "nothing to see" branch and its refusal vanished.
+    refused.push(...(validation.refused ?? []).map((entry) => ({ ...entry, chunk: chunk.index })))
+    if (validation.overCap) {
+      problems.push(
+        problem(
+          'DYNAMIC_REVIEW_REQUIRED',
+          `chunk ${chunk.index} (lines ${chunk.startLine}-${chunk.endLine}) still carries more decisions than the cap of ${plan.cap} after the split, so nothing was written from it: the split cuts on headings, so this means one heading covers more than ${plan.cap} decisions and the chunk has to be split by hand`,
+        ),
+      )
+    } else {
+      problems.push(...validation.problems)
+      buildBatchRecords({
+        root,
+        config,
+        accepted: validation.accepted,
+        refused,
+        records,
+        sourcePath,
+        sourceHash: source.hash,
+        write,
+        now,
+        authorName,
+      })
+      for (const decision of validation.accepted) ids.push(decision.fields.id)
+    }
+
+    chunks.push({
+      index: chunk.index,
+      startLine: chunk.startLine,
+      endLine: chunk.endLine,
+      headings: chunk.headings,
+      mechanical: chunk.mechanical,
+      judge: judgeIdentity,
+      accepted: records.length - before.records,
+      refused: refused.length - before.refused,
+      unanswered: false,
+    })
+  }
 
   const written = records.map((record) => record.written).filter((path) => path !== null)
-  appendLedger(root, 'ratchet.ingest.batch-propose', {
+  appendLedger(root, 'ratchet.ingest.auto', {
     sourcePath,
-    decisions: validation.accepted.length,
+    chunks: chunks.length,
+    unanswered: unanswered.length,
     written: written.length,
     refused: refused.length,
-    cap: validation.cap,
   })
 
   return {
-    ok: records.length > 0 && refused.length === 0,
-    stage: 'ingest-batch',
+    ok: records.length > 0 && refused.length === 0 && unanswered.length === 0 && problems.length === 0,
+    stage: 'ingest-auto',
     advisory: true,
     status: 'proposed',
     sourcePath,
     sourceHash: source.hash,
-    judge: judgeIdentity,
-    cap: validation.cap,
-    headings: validation.headings,
+    cap: plan.cap,
+    chunkCount: chunks.length,
+    chunks,
     records,
     written,
     refused,
+    unanswered,
     problems,
     summary: summariseProblems(problems),
     nextStep:
-      refused.length > 0
-        ? 'fix the refused decisions and call again: each refusal names the decision and what was wrong with it, and the records that were accepted are already written'
-        : records.length === 0
-          ? 'nothing was accepted from this batch, so no record exists to ratify'
-          : 'every record is proposed: a human must ratify each one before it becomes law, through the one consent channel',
+      unanswered.length > 0
+        ? `no judge could be spawned for ${unanswered.length} of ${chunks.length} chunk(s), so their prompts are returned unrun: answer them and call ratchet_ingest again with the same source and \`ingest\` set to the array of results, or call again from a session that can spawn a judge. Chunk ${unanswered[0].index} covers lines ${unanswered[0].startLine}-${unanswered[0].endLine}`
+        : refused.length > 0
+          ? 'fix the refused decisions and call again: each refusal names its chunk, the decision and what was wrong with it, and the records that were accepted are already written'
+          : records.length === 0
+            ? 'nothing was accepted from this source, so no record exists to ratify'
+            : 'every record is proposed: a human ratifies each one before it becomes law, through the one consent channel',
+  }
+}
+
+/**
+ * Drafts one proposed resolution for every duplicate the deterministic rules can decide.
+ *
+ * This is the automatic half of deduplication, and it stops exactly where consent begins. It
+ * detects the duplicates a machine can decide, drafts an ordinary `proposed` decision record
+ * for each — `resolves: [loser, winner]` plus the surgical `op: remove` for the law that
+ * duplicates, as ADR 0031 settled — writes them if asked, and reports what it did. It writes
+ * no approval and puts nothing into force: the developer's only act is to ratify or decline,
+ * and deleting a draft is the whole of a decline. A finding it cannot draft is reported with
+ * its reason rather than guessed at.
+ *
+ * The deterministic command keeps its own exit code and never runs a model; this operation
+ * shares the same rule module rather than a second copy of the rules, so the report and the
+ * drafts cannot disagree about what a duplicate is.
+ *
+ * @param options - `{ root, write, createdAt }`. `write` places each draft under the
+ *   decisions directory, refusing to overwrite an existing file.
+ * @returns The drafting result from `draftResolutions`, plus `stage` and a `nextStep` naming
+ *   the one action left to the developer. An unusable corpus is returned as
+ *   `ok: false, unusable: true` with its problems, never as an empty corpus.
+ */
+export function deduplicate({ root, write = false, createdAt = null } = {}) {
+  const drafted = dedupeModule.draftResolutions(root, { write, createdAt })
+  const problems = drafted.problems ?? []
+  const codes = problems.map((entry) => entry.code)
+  if (drafted.unusable === true) {
+    appendLedger(root, 'ratchet.dedupe.unusable', { problems: problems.length })
+    return {
+      ok: false,
+      unusable: true,
+      stage: 'deduplicate',
+      scanned: drafted.scanned ?? null,
+      duplicates: [],
+      drafts: [],
+      undraftable: [],
+      written: [],
+      problems,
+      summary: summariseProblems(problems),
+    }
+  }
+  const written = drafted.drafts.map((draft) => draft.written).filter((path) => path !== null && path !== undefined)
+  appendLedger(root, 'ratchet.dedupe.draft', {
+    duplicates: drafted.drafts.length + drafted.undraftable.length,
+    drafted: drafted.drafts.length,
+    undraftable: drafted.undraftable.length,
+    written: written.length,
+  })
+  return {
+    ok: codes.length === 0,
+    stage: 'deduplicate',
+    advisory: true,
+    scanned: drafted.scanned,
+    duplicates: drafted.drafts.map((draft) => draft.duplicate),
+    drafts: drafted.drafts.map((draft) => ({
+      id: draft.id,
+      title: draft.title,
+      path: draft.path,
+      text: draft.written === null ? draft.text : undefined,
+      status: draft.status,
+      removes: draft.removes,
+      withdraws: draft.withdraws,
+      keeps: draft.keeps,
+      written: draft.written,
+      duplicate: draft.duplicate.code,
+    })),
+    undraftable: drafted.undraftable,
+    written,
+    problems,
+    summary: summariseProblems(problems),
+    nextStep:
+      drafted.drafts.length === 0 && drafted.undraftable.length === 0
+        ? 'the corpus holds no decidable duplicate: the deterministic rules examined it and found nothing to settle'
+        : drafted.drafts.length === 0
+          ? 'every duplicate found needs a human-authored record rather than a draft; each reason is under "undraftable"'
+          : `ratify the drafted resolution${drafted.drafts.length === 1 ? '' : 's'} to settle ${drafted.drafts.length === 1 ? 'the duplicate' : 'the duplicates'}: nothing is in force until a human consents, and deleting a draft is how it is declined`,
   }
 }
 
@@ -1884,6 +2376,127 @@ function quizRejection(supplied, expected) {
     }
   }
   return null
+}
+
+/**
+ * The generated-document digests this project has itself written, from its ledger.
+ *
+ * A generated law card's own bytes cannot say whether a person has since edited it:
+ * a card left carrying an older law set's hash and a card somebody annotated and left
+ * carrying the older hash are the same shape. The ledger can say, because a document
+ * the ratchet wrote is one whose digest it recorded, and any other byte sequence in
+ * that path was written by something else. That is what makes the automatic
+ * regeneration below safe: it rewrites only documents the ratchet produced, and
+ * leaves anything else exactly where a reader can see it.
+ *
+ * @param root - Absolute project root.
+ * @returns A `Set` of `sha256:<64 hex>` document digests, empty when nothing was recorded.
+ */
+function writtenSpecDigests(root) {
+  const known = new Set()
+  for (const event of readLedger(root).events ?? []) {
+    if (typeof event?.specDigest === 'string') known.add(event.specDigest)
+    for (const digest of Array.isArray(event?.specDigests) ? event.specDigests : []) {
+      if (typeof digest === 'string') known.add(digest)
+    }
+  }
+  return known
+}
+
+/**
+ * Regenerates the generated spec documents from a compile that has just run.
+ *
+ * A ratification changes the law set, and the generated law cards are written from
+ * that law set. Until this existed, the sequence was: ratify, then somebody who
+ * KNEW the rule ran `ratchet compile --write`, then `ratchet verify` — and a
+ * developer who did not know it ran verify, which failed with `SPEC_OUT_OF_DATE`
+ * on a tree that was otherwise correct. The rule was folklore: nothing in the tool
+ * output named it, and the failure looked like a defect rather than a missed step.
+ *
+ * The write is therefore the ratifying operation's own last step, which is what
+ * makes the rule unnecessary to know. It costs one render and one byte comparison
+ * at the one moment the law set changed, and writes nothing when nothing drifted.
+ *
+ * The drift CHECK is deliberately not weakened, which is why the write is guarded by
+ * {@link writtenSpecDigests} rather than by a drift verdict alone. A card the ratchet
+ * wrote is regenerated from the new law set; a card whose current bytes the ledger
+ * never recorded was written by somebody else, and is left untouched so that `verify`
+ * keeps reporting `SPEC_HASH_MISMATCH` against it. Without that guard the automatic
+ * write would erase the very edit the drift check exists to surface — a person's
+ * annotation made into a law card that looks machine-generated.
+ *
+ * A write that fails is returned as a problem rather than thrown: an EPERM here is
+ * an ordinary outcome, and letting it escape would turn a recorded consent into an
+ * exception at the caller after the approval ADR is already on disk.
+ *
+ * @param root - Absolute project root.
+ * @param compiled - The compile result for the law set now in force; its `bundle`
+ *   is the source of the documents. A compile with no bundle (`bundle: null`)
+ *   writes nothing, because there are no laws to render.
+ * @returns `{ written, paths, skipped, problems }`. `written` lists the paths this
+ *   call actually rewrote, `paths` every document the bundle renders, `skipped` the
+ *   documents left alone because the ledger does not attribute their bytes to the
+ *   ratchet, and `problems` is empty on success and carries one
+ *   `ARTIFACT_WRITE_FAILED` when the write failed.
+ */
+function regenerateSpecs(root, compiled) {
+  if (compiled?.bundle === null || compiled?.bundle === undefined) {
+    return { written: [], paths: [], skipped: [], problems: [] }
+  }
+  const manifest = readManifest(root)
+  const rendered = renderSpecs(compiled.bundle, manifest.config?.specsDir)
+  const drift = detectSpecDrift(root, rendered.files)
+  const ours = writtenSpecDigests(root)
+  const stale = new Set([...(drift.missing ?? []), ...(drift.stale ?? []).map((entry) => entry.path)])
+  const toWrite = {}
+  const skipped = []
+  for (const [path, text] of Object.entries(rendered.files)) {
+    if (!stale.has(path)) continue
+    const absolute = join(root, path)
+    if (existsSync(absolute)) {
+      let current = null
+      try {
+        current = hashSource(readFileSync(absolute, 'utf8'))
+      } catch {
+        current = null
+      }
+      if (current === null || !ours.has(current)) {
+        skipped.push(path)
+        continue
+      }
+    }
+    toWrite[path] = text
+  }
+  if (Object.keys(toWrite).length === 0) {
+    return { written: [], paths: Object.keys(rendered.files), skipped, problems: [] }
+  }
+  try {
+    const result = writeSpecDocuments(root, toWrite)
+    // The digests of what was just written, recorded so the NEXT law set can tell
+    // these bytes apart from a person's. One entry per document, not per run, and the
+    // event is one line: this is the smallest record that makes the guard above true.
+    appendLedger(root, 'ratchet.ratify.specs-regenerated', {
+      written: result.written.length,
+      paths: result.written,
+      skipped,
+      specDigests: result.written.map((path) => hashSource(toWrite[path])),
+    })
+    return { written: result.written, paths: Object.keys(rendered.files), skipped, problems: [] }
+  } catch (error) {
+    return {
+      written: [],
+      paths: Object.keys(rendered.files),
+      skipped,
+      problems: [
+        problem(
+          'ARTIFACT_WRITE_FAILED',
+          `the ratification was recorded, but the generated spec documents could not be brought in step with the new law set (${String(error)}): the documents on disk describe the previous laws, and \`ratchet compile --write\` is the command that writes them`,
+          null,
+          { wrote: false, paths: Object.keys(toWrite) },
+        ),
+      ],
+    }
+  }
 }
 
 /**
@@ -2245,6 +2858,9 @@ export function ratify({
   // the law set that the approval just changed, and any problem the new record
   // introduced, rather than asserting that the ratification worked.
   const after = compileProject(root)
+  // ...and the generated law cards are regenerated from that same bundle, in the same
+  // operation. See `regenerateSpecs` for why this is not left to the caller.
+  const specs = regenerateSpecs(root, after)
   appendLedger(root, 'ratchet.ratify.mint', {
     approval: approvalId,
     ratified: approvedEntries.map((entry) => entry.id),
@@ -2253,9 +2869,10 @@ export function ratify({
     laws: after.report.counts.laws,
     inForce: after.report.counts.active,
     wrote: written.written.length,
+    specsRegenerated: specs.written.length,
   })
 
-  const problems = [...unknownProblems, ...unreadableProblems, ...changedProblems, ...after.problems]
+  const problems = [...unknownProblems, ...unreadableProblems, ...changedProblems, ...after.problems, ...specs.problems]
   return {
     ok: problems.length === 0,
     stage: 'ratify',
@@ -2271,11 +2888,14 @@ export function ratify({
     transcript: { path: transcriptPath, hash: hashSource(transcriptText) },
     counts: after.report.counts,
     specHash: after.report.specHash,
+    specFiles: specs.paths,
+    specsRegenerated: specs.written,
+    specsSkipped: specs.skipped,
     problems,
     summary: summariseProblems(problems),
     nextStep:
       reask === null
-        ? 'run ratchet verify: the ratified decisions are law now, so the code has to be checked against the law set they changed'
+        ? `run ratchet verify: the ratified decisions are law now, so the code has to be checked against the law set they changed${specs.written.length === 0 ? '' : ` (the ${specs.written.length} generated spec document${specs.written.length === 1 ? '' : 's'} the new laws changed were regenerated here)`}`
         : 'the records that were ratified are in force; ask the re-ask questions for the ones whose answers could not be read',
   }
 }

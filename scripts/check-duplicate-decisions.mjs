@@ -33,6 +33,15 @@
  *   build is one people learn to re-run until it passes, so the two strengths are kept
  *   apart on purpose, and a test pins the separation.
  *
+ *   The two rules themselves live in `plugins/ratchet/ratchet-dedupe.mjs`, together with the
+ *   draft-resolution half that turns each finding into a `proposed` record a human ratifies
+ *   (`ratchet deduplicate`). They are shared rather than restated because a command and a
+ *   drafter that each decided what a duplicate is would drift apart silently: the command
+ *   would report a duplicate that was never drafted, or the drafter would settle one the
+ *   command never reported. That module imports no review, no judge and no operation, so this
+ *   process still loads nothing that could run a model, and its exit code stays independent
+ *   of any judge.
+ *
  * INPUTS
  *   `--root <dir>`  the project to check (default: the nearest ancestor of the working
  *                   directory that holds `.dsh/project.json`). `--json` prints the whole
@@ -63,8 +72,16 @@
  */
 import { existsSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
-import { readAdrCorpus, readManifest } from '../plugins/ratchet/ratchet-compiler.mjs'
+import { compileProject, readAdrCorpus, readManifest } from '../plugins/ratchet/ratchet-compiler.mjs'
 import { MANIFEST_PATH } from '../plugins/ratchet/ratchet-schema.mjs'
+// The two decidable rules live in the plugin, because the drafting half has to apply the
+// SAME rules: a command and a drafter that each decided what a duplicate is would drift
+// apart, and the drift would be invisible — the command would report a duplicate the drafter
+// did not settle, or the drafter would settle one the command never reported. That module
+// imports no review, no judge and no operation: the check below stays model-free and
+// deterministic, which is what its exit code promises.
+import { findDuplicates } from '../plugins/ratchet/ratchet-dedupe.mjs'
+export { findDuplicates }
 
 /**
  * The nearest ancestor of a directory that holds the project manifest.
@@ -80,88 +97,6 @@ function findRoot(start) {
     if (parent === current) return null
     current = parent
   }
-}
-
-/**
- * Collects the decidable duplicates in one corpus.
- *
- * Pure: it reads the records it is given and returns findings, so the two rules can be
- * asserted directly as well as through the process exit code. Both rules are reported
- * per-occurrence rather than per-pair, keyed on the statement text (rule 1) and on the
- * source hash (rule 2), because that key is the thing the caller has to change.
- *
- * @param records - Parsed ADR records, as `readAdrCorpus` returns them.
- * @returns `{ scanned, duplicates }` where `scanned` counts the records, law statements and
- *   source hashes examined, and `duplicates` is an array of
- *   `{ code, key, message, records, lawIds }`. Empty `duplicates` means the corpus holds no
- *   duplicate this command can decide — not that it holds none at all.
- */
-export function findDuplicates(records) {
-  const list = Array.isArray(records) ? records : []
-  const byStatement = new Map()
-  const bySource = new Map()
-  let statements = 0
-  let sources = 0
-
-  for (const record of list) {
-    if (record === null || typeof record !== 'object') continue
-    for (const law of record.laws ?? []) {
-      if (law === null || typeof law !== 'object' || law.op !== 'upsert') continue
-      if (typeof law.id !== 'string' || law.id.length === 0) continue
-      statements += 1
-      const statement = typeof law.statement === 'string' ? law.statement.trim() : ''
-      if (statement.length === 0) continue
-      // Rule 1 keys on the TEXT, because the same constraint under two ids is one constraint
-      // the corpus cannot attribute. Keying on the text is what makes a re-declaration under
-      // ONE id invisible here and merged by the compiler, which is the intended behaviour.
-      if (!byStatement.has(statement)) byStatement.set(statement, new Map())
-      const ids = byStatement.get(statement)
-      if (!ids.has(law.id)) ids.set(law.id, [])
-      ids.get(law.id).push(record.id)
-    }
-
-    const hash = record.source?.hash
-    if (typeof hash !== 'string' || hash.length === 0) continue
-    sources += 1
-    if (!bySource.has(hash)) bySource.set(hash, [])
-    bySource.get(hash).push(record)
-  }
-
-  const duplicates = []
-  for (const [statement, ids] of byStatement) {
-    if (ids.size < 2) continue
-    duplicates.push({
-      code: 'DUPLICATE_LAW_STATEMENT',
-      key: statement,
-      message: `one law statement is declared under ${ids.size} different law ids (${[...ids.keys()].join(', ')}); the corpus holds one constraint twice and neither record owns it, so either merge them under one id or settle which decision governs`,
-      records: [...new Set([...ids.values()].flat())].sort(),
-      lawIds: [...ids.keys()].sort(),
-    })
-  }
-  for (const [hash, group] of bySource) {
-    if (group.length < 2) continue
-    const byLaw = new Map()
-    for (const record of group) {
-      for (const law of record.laws ?? []) {
-        if (law === null || typeof law !== 'object' || law.op !== 'upsert') continue
-        if (typeof law.id !== 'string' || law.id.length === 0) continue
-        if (!byLaw.has(law.id)) byLaw.set(law.id, [])
-        byLaw.get(law.id).push(record.id)
-      }
-    }
-    const shared = [...byLaw.entries()].filter(([, ids]) => new Set(ids).size > 1)
-    if (shared.length === 0) continue
-    duplicates.push({
-      code: 'DUPLICATE_SOURCE_CITED',
-      key: hash,
-      message: `source ${hash} is cited by ${group.length} records (${group.map((record) => record.id).sort().join(', ')}) and they declare ${shared.map(([id]) => `"${id}"`).join(', ')} in common; one document was ingested twice and the later record is a restatement rather than a decision`,
-      records: group.map((record) => record.id).sort(),
-      lawIds: shared.map(([id]) => id).sort(),
-    })
-  }
-
-  duplicates.sort((left, right) => (left.code < right.code ? -1 : left.code > right.code ? 1 : left.key < right.key ? -1 : 1))
-  return { scanned: { records: list.length, statements, sources }, duplicates }
 }
 
 /**
@@ -207,7 +142,13 @@ export function checkDuplicates(root) {
       problems: corpus.problems,
     }
   }
-  const { scanned, duplicates } = findDuplicates(corpus.records)
+  const { scanned, duplicates } = findDuplicates(corpus.records, {
+    // A law an active record retires with `op: remove` is out of force, so a declaration of it
+    // that survives in an older record is not a duplicate of anything. The set comes from the
+    // compiler, not from a second reading of `op: remove`, so this command and the drafter
+    // cannot disagree about what is in force.
+    removedLawIds: compileProject(root).removedByDecision ?? [],
+  })
   return {
     ok: duplicates.length === 0,
     stage: duplicates.length === 0 ? 'clean' : 'duplicates',

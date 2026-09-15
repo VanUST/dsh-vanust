@@ -101,6 +101,12 @@ export const PROBLEM_CODES = Object.freeze({
   // verdict had been reached when in fact nothing was read.
   CODE_TEXT_SCOPE_EMPTY: 'a text check selected no file, so it was not evaluated and proves nothing',
   VERIFY_NOT_RUN: 'no verification report exists for the current spec hash',
+  // Not a verdict about the corpus, and deliberately not one: it says WHICH law set a
+  // contradiction review has actually read. "The judge found nothing" and "nobody ever
+  // looked" are different states, and without this code they report the same way — which is
+  // how a decision can be written that contradicts one in force and still pass every
+  // deterministic check.
+  CONTRADICTION_DETECTION_STALE: 'no contradiction review has run against the law set now in force',
   VERIFY_NOTHING_EVALUATED: 'a verification ran but evaluated no check, so it proves nothing about the code',
   VERIFY_INCOMPLETE: 'a verification left checks unevaluated, so it is not a pass',
   VERIFICATION_FAILED: 'the most recent verification of the current laws reported problems',
@@ -118,6 +124,13 @@ export const PROBLEM_CODES = Object.freeze({
   ADR_RESOLVES_INVALID: 'a resolves list is not exactly two distinct ADR ids',
   ADR_RESOLVES_DANGLING: 'resolves names an ADR id that does not exist',
   ADR_RESOLVES_OUTSIDE_FORCE: 'resolves names a record that is neither in force nor leaving it',
+  // A resolution takes away force in exactly ONE of two ways, and combining them is a
+  // record that cannot be compiled cleanly: superseding a record takes all of its laws
+  // out of force, so removing one of them as well has no target left, and a record whose
+  // laws were removed one by one cannot also be given a terminal status. The two shapes
+  // are named separately so a draft resolution can be corrected without reading the
+  // compiler: `op: remove` for the law that conflicts, `supersedes` for the whole record.
+  RESOLUTION_AMBIGUOUS: 'a resolution both removes a losing law and supersedes the record that declares it, so which of the two it means is not decidable',
   // Retirement: a record that a resolution emptied must say so, and a record that says it
   // is retired must not still be the source of a law in force.
   RETIREMENT_STATUS_MISSING: 'a record whose laws are all out of force by a decision does not carry a terminal status',

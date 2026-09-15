@@ -3,6 +3,190 @@
   "project": "dsh-kit",
   "laws": [
     {
+      "id": "duplicates.a-redeclared-law-with-an-identical-statement-merges",
+      "statement": "A law declared by two records with an identical statement is not a duplicate and not a conflict, and governs the union of the zones both records named.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0032",
+      "sourcePath": "docs/adrs/0032-duplicate-decisions.adr.md",
+      "approvedBy": "0039",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "a re-declared law with an identical statement is one law bound to the union of both records' zones, and the deterministic command reports nothing for it",
+          "outputContains": "a re-declared law with an identical statement is NOT a duplicate, and merges"
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "duplicates.identical-statements-under-different-ids-are-refused",
+      "statement": "Two active records that declare the same law statement under different law ids are refused, because the corpus then holds one constraint twice and neither record owns it.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0032",
+      "sourcePath": "docs/adrs/0032-duplicate-decisions.adr.md",
+      "approvedBy": "0039",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node scripts/check-duplicate-decisions.mjs",
+          "expects": "this corpus holds no decidable duplicate, which is the command the gate runs",
+          "outputContains": "duplicate decisions ok"
+        },
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "one statement text under two law ids fails that command with DUPLICATE_LAW_STATEMENT, so the command can fail rather than merely pass",
+          "outputContains": "one statement under two law ids fails the deterministic command"
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "duplicates.one-source-cited-by-two-records-is-reported",
+      "statement": "Two decision records citing the same source is reported, because it means one document was ingested twice and the second record is a restatement rather than a decision.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0032",
+      "sourcePath": "docs/adrs/0032-duplicate-decisions.adr.md",
+      "approvedBy": "0039",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node scripts/check-duplicate-decisions.mjs",
+          "expects": "every source hash in this corpus is cited once, or cited by records that declare no law in common",
+          "outputContains": "duplicate decisions ok"
+        },
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "one source cited by two records that declare a law in common fails the command with DUPLICATE_SOURCE_CITED, and one source carrying disjoint decisions does not",
+          "outputContains": "one source cited by two records that share a law fails the command"
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "duplicates.only-a-judge-sees-is-reported-and-never-gates",
+      "statement": "A duplicate that only a judge can see — the same decision restated in different words — is reported as an advisory finding the agent must work through, and never fails the build, because a model verdict must not become a build gate.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0032",
+      "sourcePath": "docs/adrs/0032-duplicate-decisions.adr.md",
+      "approvedBy": "0039",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "the semantic duplicate is reported by the advisory judge job over a corpus the deterministic command calls clean, and it neither blocks nor moves that command's exit code",
+          "outputContains": "the semantic report is advisory and the deterministic command does not depend on it"
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "ingestion.a-batch-decision-cites-a-span-the-tool-locates-itself",
+      "statement": "Every decision a batch extraction writes carries a quoted span from the source, and the tool locates that span in the source itself before the record is written, so a justification cannot be attributed to a document that does not contain it.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0033",
+      "sourcePath": "docs/adrs/0033-batch-extraction.adr.md",
+      "approvedBy": "0040",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "a decision whose span is not in the source mints nothing, while the locatable decisions in the same batch are written",
+          "outputContains": "a decision whose span cannot be located is refused alone"
+        },
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "the extractor is reachable as a tool of its own and every record it writes is proposed",
+          "outputContains": "many decisions from one source become many proposed records"
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "ingestion.a-batch-is-capped-and-an-oversized-source-is-split-on-its-headings",
+      "statement": "A batch extraction is capped in the number of decisions it will write, and a source above the cap is refused with the heading boundaries the tool found, so the split is mechanical rather than a judgement about where to cut.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0033",
+      "sourcePath": "docs/adrs/0033-batch-extraction.adr.md",
+      "approvedBy": "0040",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "a batch above the cap is refused whole with the heading boundaries the tool found, and nothing is written",
+          "outputContains": "a batch above the cap is refused with the headings the tool found"
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "ingestion.an-unlocatable-span-refuses-that-record-alone",
+      "statement": "A decision whose span cannot be located is refused while the other decisions in the same batch are still written, so one misattributed extraction costs one record rather than the batch.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0033",
+      "sourcePath": "docs/adrs/0033-batch-extraction.adr.md",
+      "approvedBy": "0040",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "the refusal names the decision and its code, and the rest of the batch lands",
+          "outputContains": "a decision whose span cannot be located is refused alone"
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "ingestion.batch-extraction-is-a-distinct-surface-and-writes-only-proposed-records",
+      "statement": "Batch extraction is a surface of its own, distinct from single-decision ingestion, and every record it writes is proposed; no batch puts a decision in force.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0033",
+      "sourcePath": "docs/adrs/0033-batch-extraction.adr.md",
+      "approvedBy": "0040",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node scripts/check-consent-surface.mjs",
+          "expects": "the whole registered tool surface — the batch extractor included — still carries no argument that accepts a caller-composed answer",
+          "outputContains": "consent surface ok"
+        },
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "ratchet_ingest_batch is registered beside ratchet_ingest_source rather than as a mode of it, and its parameters are exactly the source, the write flag and the submitted result",
+          "outputContains": "not a mode of single-decision ingestion"
+        }
+      ],
+      "unenforced": null
+    },
+    {
       "id": "kit-tooling.api-facts-are-runnable",
       "statement": "A harness fact a shipped plugin depends on must be assertable by a command that exits non-zero when the fact stops holding.",
       "zones": [
@@ -105,6 +289,175 @@
       "unenforced": null
     },
     {
+      "id": "lifecycle.a-resolution-answers-to-the-removal-authority",
+      "statement": "A resolution, retirement or merge that takes away a law's force answers to exactly the same authority as an explicit removal, so an agent-authored record may do it only where the zones let an agent hold force, and a law whose force came from a human ratification stays in force until a human ratifies the record that removes it.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0031",
+      "sourcePath": "docs/adrs/0031-a-decision-is-resolved-under-the-removal-authority.adr.md",
+      "approvedBy": "0038",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "a resolution that removes a law whose force came from a human ratification is refused until the resolution itself is ratified, and authorised once it is",
+          "outputContains": "a resolution removing a ratified law is refused until it is ratified"
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "lifecycle.a-resolution-is-an-ordinary-record-with-a-resolves-list",
+      "statement": "A resolution is an ordinary decision record that removes the losing laws, supersedes the losing record and names both sides in a `resolves` list, so the corpus can audit which conflict was settled and by what.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0031",
+      "sourcePath": "docs/adrs/0031-a-decision-is-resolved-under-the-removal-authority.adr.md",
+      "approvedBy": "0038",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "resolves is refused unless it names exactly two distinct ADR ids, so naming one side only cannot settle anything",
+          "outputContains": "the field carries exactly two distinct ADR ids"
+        },
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "a resolution naming a record that does not exist, or one that is neither in force nor leaving it, is refused by the corpus audit",
+          "outputContains": "a resolution naming a record that is neither in force nor leaving it"
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "lifecycle.a-retired-record-says-so",
+      "statement": "A record that is retired says so in its own frontmatter, so a reader is never left following a decision whose laws no longer hold, and the retirement is visible without running the compiler.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0031",
+      "sourcePath": "docs/adrs/0031-a-decision-is-resolved-under-the-removal-authority.adr.md",
+      "approvedBy": "0038",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "a record a resolution retired, whose laws are all out of force, must carry a terminal status, and a terminal record that still sources a law in force is refused",
+          "outputContains": "a record a resolution retired says so in its own frontmatter"
+        },
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "a record whose status is terminal may not be the source of a law in force",
+          "outputContains": "a terminal record may not be the source of a law in force"
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "lifecycle.a-standing-block-lifts-when-the-challenged-law-leaves-force",
+      "statement": "A contradiction stops blocking writes once its findings no longer name a law in force, so a ratified resolution lifts the block without any separate clearing gesture and no resolved conflict is ever cleared by hand-editing a cache.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0031",
+      "sourcePath": "docs/adrs/0031-a-decision-is-resolved-under-the-removal-authority.adr.md",
+      "approvedBy": "0038",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "a resolution that takes the challenged law out of force makes the zone writable again with no clearing gesture, and withdrawing the resolution puts the block back",
+          "outputContains": "a resolution that takes the challenged law out of force lifts the standing block"
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.a-consent-answers-a-question-the-ratchet-asked",
+      "statement": "A consent is minted only from an answer to the question the ratchet builds for the records waiting — the same targets, the same two labels, and a frozen content hash for every one of them — so a caller-composed quiz with no frozen text mints nothing, while a record edited after the question was asked is still answered by the stale-text rule rather than by the shape check.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0027",
+      "sourcePath": "docs/adrs/0027-every-enforcement-point-the-review-falsified-can-fail.adr.md",
+      "approvedBy": "0037",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "a caller-composed quiz with an empty frozen list is refused with RATIFICATION_UNPROVEN and writes nothing, the ratchet's own quiz mints, and an edited record still reports RATIFICATION_STALE",
+          "timeoutMs": 300000
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.a-consent-names-the-surface-that-carried-it",
+      "statement": "A ratification records, in its approval and its transcript, the channel that actually carried the question to the human, so a consent obtained through the harness user-questions seam records user-question and one obtained through the ADR panel's decision window records adr-panel, and both values are in the ratchet's closed channel vocabulary and in the panel's copy of it.",
+      "zones": [
+        "shipped-plugins",
+        "kit-tooling"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0034",
+      "sourcePath": "docs/adrs/0034-the-panel-records-through-a-host-route.adr.md",
+      "approvedBy": "0041",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node scripts/check-consent-surface.mjs",
+          "expects": "the panel knows every channel the ratchet accepts, and an approval the consent service writes for the route names adr-panel in its frontmatter and in its transcript",
+          "timeoutMs": 180000,
+          "outputContains": "consent surface ok"
+        },
+        {
+          "type": "command",
+          "run": "node scripts/probe-dsh-api.mjs --adr-panel-consent",
+          "expects": "the approval the route writes over real HTTP records the panel channel, not the harness seam's",
+          "timeoutMs": 600000,
+          "outputContains": "adr panel consent route ok"
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.a-consent-travels-a-channel-it-records",
+      "statement": "A ratification question reaches the human through one of the ratchet's closed vocabulary of channels, carrying the record's own text, and its answer is derived from a selected label rather than interpreted; the approval and its transcript both record the channel that actually carried it, so a consent obtained in a Session names user-question and one obtained in the panel's decision window names adr-panel.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0035",
+      "sourcePath": "docs/adrs/0035-a-consent-travels-a-channel-it-records.adr.md",
+      "approvedBy": "0042",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node scripts/probe-dsh-api.mjs --adr-panel-consent",
+          "expects": "the panel consent route asks, refuses a composed or foreign or replayed answer, and mints on the question's own label",
+          "timeoutMs": 300000,
+          "outputContains": "adr panel consent route ok"
+        },
+        {
+          "type": "command",
+          "run": "node scripts/check-consent-surface.mjs",
+          "expects": "the ratchet's channel vocabulary and the panel's copy of it are equal, and a consent through the route names the route",
+          "timeoutMs": 120000,
+          "outputContains": "consent surface ok"
+        }
+      ],
+      "unenforced": null
+    },
+    {
       "id": "shipped-plugins.a-contradiction-with-law-in-force-stops-the-work",
       "statement": "A proposed decision that removes a law in force, or redeclares one under a different statement, refuses writes into the zones it names — including zones a decision in force already covers — and the refusal is recomputed from the corpus on every write, so editing the proposal lifts it with no other action; only the decidable form of a contradiction is caught here and the rest is refused to the review judge with that limit stated.",
       "zones": [
@@ -120,6 +473,26 @@
           "run": "node --test scripts/test-ratchet-guard.mjs",
           "expects": "a proposal that contradicts law in force stops writes until it is edited, and a removal stops them too",
           "timeoutMs": 180000
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.a-generated-artifact-goes-where-the-manifest-says",
+      "statement": "Every path the ratchet writes or reads for its own records, generated specs, reports and state is resolved from the manifest, so a project that declares any of those directories gets its artifacts there and a reader that resolves the manifest cannot disagree with a writer that does not; a path field the manifest accepts is either honoured or refused, never accepted and ignored.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0026",
+      "sourcePath": "docs/adrs/0026-the-generated-spec-goes-where-the-manifest-says.adr.md",
+      "approvedBy": "0036",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "a project whose specs directory is not docs/specs compiles and verifies green, with its document written where the manifest says",
+          "timeoutMs": 300000
         }
       ],
       "unenforced": null
@@ -165,6 +538,26 @@
           "type": "command",
           "run": "node --test scripts/test-ratchet-guard.mjs",
           "expects": "a judged contradiction refuses the write, names the law and the judge's reasoning, and stops when the judged text changes",
+          "timeoutMs": 300000
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.a-law-declared-in-two-zones-governs-both",
+      "statement": "When two active records declare the same law id and statement, the compiled law is bound to the union of the zones both named, and a contradiction against it blocks every one of them, because the same law in two zones is one law.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0027",
+      "sourcePath": "docs/adrs/0027-every-enforcement-point-the-review-falsified-can-fail.adr.md",
+      "approvedBy": "0037",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "the bundle law carries both zones and blockedZones returns both ids",
           "timeoutMs": 300000
         }
       ],
@@ -237,6 +630,26 @@
       "unenforced": null
     },
     {
+      "id": "shipped-plugins.a-repack-of-an-existing-version-carries-a-new-version",
+      "statement": "A tarball whose bytes differ from the copy committed at HEAD must carry a new package version, because pnpm resolves a file dependency by path string and an unchanged filename is served from the lockfile while the new bytes never land; the check is skipped, never passed, when git or the committed copy is unavailable.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0027",
+      "sourcePath": "docs/adrs/0027-every-enforcement-point-the-review-falsified-can-fail.adr.md",
+      "approvedBy": "0037",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node scripts/check-portability.mjs",
+          "expects": "a tarball repacked at an unchanged version fails tarball:version-bumped while a version bump passes",
+          "timeoutMs": 300000
+        }
+      ],
+      "unenforced": null
+    },
+    {
       "id": "shipped-plugins.a-self-review-may-raise-a-block-and-never-clear-one",
       "statement": "A self-submitted verdict may record a contradiction it sees in the caller's own work, but only an independent judge's clean verdict, or an edit that moves the content hash the finding was bound to, retires a recorded block; a self-review that names no material declines without recording anything, because a block on material nobody named is a block nobody can clear.",
       "zones": [
@@ -251,6 +664,46 @@
           "type": "command",
           "run": "node --test scripts/test-ratchet.mjs",
           "expects": "a self-review raises a block, a clean self-review does not lift it, and an unnamed one records nothing",
+          "timeoutMs": 300000
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.a-supersession-answers-to-the-same-authority-as-a-removal",
+      "statement": "A record retires another through supersedes only if it could have removed the laws that record declares — a human-authored or human-ratified record may supersede anything, and an agent-authored unratified record may not supersede a human-authored record or one whose force came from a human ratification — so a refusal reports LAW_REMOVE_UNAUTHORISED and the target's laws stay in force.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0027",
+      "sourcePath": "docs/adrs/0027-every-enforcement-point-the-review-falsified-can-fail.adr.md",
+      "approvedBy": "0037",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "an agent supersession of a ratified or human-authored record is refused with LAW_REMOVE_UNAUTHORISED and leaves the law in force, while the same supersession by a human-authored or ratified record succeeds",
+          "timeoutMs": 300000
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.a-zone-id-is-a-filename",
+      "statement": "A zone id is restricted to [A-Za-z0-9_-], because the id names the zone's generated spec file and any lossy slug lets two ids share one file and drop a zone's laws from the human-readable view, so a manifest declaring any other character is refused with ZONE_INVALID.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0027",
+      "sourcePath": "docs/adrs/0027-every-enforcement-point-the-review-falsified-can-fail.adr.md",
+      "approvedBy": "0037",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "a manifest declaring zone id auth.v1 is refused with ZONE_INVALID and auth-v1 is accepted",
           "timeoutMs": 300000
         }
       ],
@@ -311,27 +764,6 @@
           "type": "command",
           "run": "node scripts/check-gate-invariants.mjs",
           "expects": "an edited approved record is refused and its law leaves force",
-          "timeoutMs": 120000,
-          "outputContains": "gate invariants ok"
-        }
-      ],
-      "unenforced": null
-    },
-    {
-      "id": "shipped-plugins.consent-travels-the-human-channel",
-      "statement": "A ratification question reaches the human through the harness user-questions channel carrying the record's own text, and its answer is derived from a selected label rather than interpreted.",
-      "zones": [
-        "shipped-plugins"
-      ],
-      "authority": "agent",
-      "sourceAdr": "0010",
-      "sourcePath": "docs/adrs/0010-enforce-the-consent-laws-behaviourally.adr.md",
-      "approvedBy": "0011",
-      "checks": [
-        {
-          "type": "command",
-          "run": "node scripts/check-gate-invariants.mjs",
-          "expects": "the question detail is the record's own text and only the approve label yields consent",
           "timeoutMs": 120000,
           "outputContains": "gate invariants ok"
         }
@@ -585,6 +1017,32 @@
       "unenforced": null
     },
     {
+      "id": "shipped-plugins.the-append-only-record-outlives-its-cache",
+      "statement": "A judge's contradiction and a verification verdict are read from the append-only ledger and only fall back to the mutable JSON caches, so deleting or hand-editing contradiction.json or state.json cannot lift a block or certify a tree the last run did not judge; the decisions directory, the sources, the manifest and the machine-written state are exempt from a standing contradiction block, because editing the proposal or its reasoning is the documented way out of one.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0027",
+      "sourcePath": "docs/adrs/0027-every-enforcement-point-the-review-falsified-can-fail.adr.md",
+      "approvedBy": "0037",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet-guard.mjs",
+          "expects": "a block survives deleting contradiction.json and is lifted only by clearContradiction, and the decisions directory and sources stay writable while the governed zone does not",
+          "timeoutMs": 300000
+        },
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "verificationStatus reports the ledger's verdict when state.json is hand-edited to disagree",
+          "timeoutMs": 300000
+        }
+      ],
+      "unenforced": null
+    },
+    {
       "id": "shipped-plugins.the-authority-table-cannot-be-relaxed-silently",
       "statement": "The manifest's zone table decides which paths a human reserves, so a change to a reservation is visible to the gate rather than silent, and the deployment-rules zone still declares humanOnly authority.",
       "zones": [
@@ -600,6 +1058,64 @@
           "run": "node scripts/check-consent-surface.mjs",
           "expects": "the authority table still reserves deployment-rules to humans",
           "timeoutMs": 120000
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.the-consent-route-is-not-a-second-consent-path",
+      "statement": "The ADR panel's consent route builds no question and interprets no answer, it calls the ratchet's own ratify operation for both halves, and that operation writes an approval only for the approve label of a question it built for the records waiting now, refusing a hand-composed payload with no quiz, a quiz it did not build, an answer about a record edited since the question was asked, a replayed quiz and a record its zones do not let a consent put into force.",
+      "zones": [
+        "shipped-plugins",
+        "kit-tooling"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0034",
+      "sourcePath": "docs/adrs/0034-the-panel-records-through-a-host-route.adr.md",
+      "approvedBy": "0041",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node scripts/probe-dsh-api.mjs --adr-panel-consent",
+          "expects": "the route driven over real HTTP with a stub human writes the approval and its transcript, and every refusal mints nothing",
+          "timeoutMs": 600000,
+          "outputContains": "adr panel consent route ok"
+        },
+        {
+          "type": "command",
+          "run": "node scripts/check-consent-surface.mjs",
+          "expects": "the service the route reaches refuses a label with no quiz, a foreign quiz, a human-only zone, a replay and a stale text",
+          "timeoutMs": 180000,
+          "outputContains": "consent surface ok"
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.the-consent-route-is-unreachable-by-an-agent",
+      "statement": "No tool, CLI verb or command argument exposes the consent route, and every request to it must pass the harness browser trust fence and carry a capability minted per plugin activation, held in memory and delivered only through the index document this process served, so the token is written to no file and to no log and nothing an agent can call obtains it.",
+      "zones": [
+        "shipped-plugins",
+        "kit-tooling"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0034",
+      "sourcePath": "docs/adrs/0034-the-panel-records-through-a-host-route.adr.md",
+      "approvedBy": "0041",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node scripts/probe-dsh-api.mjs --adr-panel-consent",
+          "expects": "an unauthenticated loopback request is refused without writing, and a browser session with a missing or tampered capability is refused before the ratchet is reached",
+          "timeoutMs": 600000,
+          "outputContains": "adr panel consent route ok"
+        },
+        {
+          "type": "command",
+          "run": "node scripts/check-consent-surface.mjs",
+          "expects": "no registered tool names the route, its service, its header or its capability global",
+          "timeoutMs": 180000,
+          "outputContains": "consent surface ok"
         }
       ],
       "unenforced": null
@@ -627,18 +1143,33 @@
       "unenforced": null
     },
     {
-      "id": "shipped-plugins.the-panel-offers-consent-only-through-the-question-channel",
-      "statement": "The ADR panel's ratify action puts the ratchet's own question to the human through the harness user-questions seam and produces an approval only when the human selects the approve label, so the overlay is an entry to the one consent channel and never a second one.",
+      "id": "shipped-plugins.the-panel-records-consent-without-a-chat-message",
+      "statement": "The ADR panel's Approve and Decline record the human's decision through the panel's own host route, so the click produces the consent with no composer message, no model turn and no agent in the loop, and what the row sends is the label the ratchet itself put on the question it built, paired with that same question.",
       "zones": [
         "shipped-plugins",
         "kit-tooling"
       ],
       "authority": "agent",
-      "sourceAdr": "0014",
-      "sourcePath": "docs/adrs/0014-the-panel-ratifies-through-the-question-channel.adr.md",
-      "approvedBy": "0016",
-      "checks": [],
-      "unenforced": "The host-side action does not exist yet, so there is nothing to drive. It becomes enforceable when `scripts/check-consent-surface.mjs` exercises the panel surface the way it already exercises the CLI and tool surface — a fixture with a stub question seam that requires an approval record and a transcript on an exact approve, no artifact on a reject or an unreadable answer, and no artifact when the seam is unavailable."
+      "sourceAdr": "0034",
+      "sourcePath": "docs/adrs/0034-the-panel-records-through-a-host-route.adr.md",
+      "approvedBy": "0041",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node scripts/test-adr-panel.mjs",
+          "expects": "the shipped bundle asks the host route for the ratchet's question, renders it, sends its own label back paired with it, and composes no composer message",
+          "timeoutMs": 180000,
+          "outputContains": "adr panel render ok"
+        },
+        {
+          "type": "command",
+          "run": "node scripts/check-consent-surface.mjs",
+          "expects": "the panel and its host agree on the route, the service, the header and the capability, and the whole registered tool surface names none of them",
+          "timeoutMs": 180000,
+          "outputContains": "consent surface ok"
+        }
+      ],
+      "unenforced": null
     },
     {
       "id": "shipped-plugins.the-panel-records-no-consent-of-its-own",
@@ -655,29 +1186,50 @@
       "unenforced": "Same phase as the law above, and enforceable by the same script extension, which must assert that the panel bundle calls no write and that the host action mints nothing without an answered question. Its mechanical half already holds and is asserted today — the bundle reads through `workspaceFiles.list`/`read` and writes nothing — by `node scripts/test-adr-panel.mjs`, which prints `adr panel render ok`."
     },
     {
-      "id": "shipped-plugins.the-panels-consent-laws-are-enforced-by-executing-the-bundle",
-      "statement": "The panel's consent laws — that it offers consent only through the ratchet's own question and records none of its own — are enforced by executing the shipped browser bundle and driving the real slot core, requiring the claim to be elected for the ratchet's real question while a claim at the default priority loses, the Conversation seat to render nothing the question owns in text, in a displayed attribute or behind any handler that can settle the question, the window's clicks to send exactly the batch the ratchet reads back as an approval or a rejection, and the whole render to call nothing but the file surface's two reads.",
+      "id": "shipped-plugins.the-panel-window-is-a-surface-of-one-consent-operation",
+      "statement": "The panel's decision window is a second SURFACE for the ratchet's single consent operation and never a second consent path: the route builds no question and interprets no answer, both halves call the ratchet's own ratify operation, and an answer mints only when the human selects the approve label of the question the ratchet built for the records waiting at that moment.",
       "zones": [
         "shipped-plugins"
       ],
       "authority": "agent",
-      "sourceAdr": "0019",
-      "sourcePath": "docs/adrs/0019-the-panels-consent-laws-are-enforced-behaviourally.adr.md",
-      "approvedBy": "0023",
+      "sourceAdr": "0035",
+      "sourcePath": "docs/adrs/0035-a-consent-travels-a-channel-it-records.adr.md",
+      "approvedBy": "0042",
       "checks": [
         {
           "type": "command",
-          "run": "node scripts/test-adr-panel.mjs",
-          "expects": "the panel's consent surface is measured by acting on it, not read",
-          "timeoutMs": 180000,
-          "outputContains": "adr panel render ok"
+          "run": "node scripts/probe-dsh-api.mjs --adr-panel-consent",
+          "expects": "a hand-composed payload, a foreign quiz, a replayed quiz, a stale text and a human-only zone each write nothing",
+          "timeoutMs": 300000,
+          "outputContains": "adr panel consent route ok"
         },
         {
           "type": "command",
           "run": "node scripts/check-consent-surface.mjs",
-          "expects": "the panel matches the intent the ratchet sends, and a grill gets no intent to claim",
-          "timeoutMs": 180000,
+          "expects": "no tool names the consent route, its service, its header or its capability global",
+          "timeoutMs": 120000,
           "outputContains": "consent surface ok"
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.the-panels-consent-path-is-enforced-by-executing-the-bundle",
+      "statement": "The panel's consent path is enforced by executing the shipped browser bundle against a stub host for the panel's own route — requiring a row's Approve and Decline to ask the route for the ratchet's own question, to render it with the record's own text and both of its labels, to post back the label it was shown paired with that same question, to show the outcome, to report a refusal rather than a false success, to fall back to the command with no capability, and to compose no composer message in any scenario.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0035",
+      "sourcePath": "docs/adrs/0035-a-consent-travels-a-channel-it-records.adr.md",
+      "approvedBy": "0042",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node scripts/test-adr-panel.mjs",
+          "expects": "the shipped bundle records a decision through the route and submits no composer message",
+          "timeoutMs": 300000,
+          "outputContains": "adr panel render ok"
         }
       ],
       "unenforced": null
@@ -773,6 +1325,26 @@
           "type": "command",
           "run": "node --test scripts/test-ratchet.mjs",
           "expects": "every artifact write goes through a temporary file and a rename",
+          "timeoutMs": 300000
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.zone-overlap-is-one-predicate",
+      "statement": "Whether two declared zone paths can cover a common path is decided by one shared predicate that is conservative rather than optimistic, so validateZones reports ZONE_OVERLAP for a whole-repository ** against a named zone and for a mid-path wildcard such as **/auth/**, where comparing stripped prefixes reported nothing.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0027",
+      "sourcePath": "docs/adrs/0027-every-enforcement-point-the-review-falsified-can-fail.adr.md",
+      "approvedBy": "0037",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "** and src/auth/** with different authority report ZONE_OVERLAP, src/** and **/auth/** report it, and genuinely disjoint paths do not",
           "timeoutMs": 300000
         }
       ],

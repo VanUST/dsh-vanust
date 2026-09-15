@@ -883,13 +883,22 @@ export function compileLaws(active, config) {
  * names, and a check that demanded the emptiness first would refuse every resolution until
  * after the moment it was needed.
  *
+ * One combination is refused outright, with its own code: a resolution that supersedes a
+ * record AND removes one of that record's laws. Supersession takes every law the record
+ * declares out of force, so the removal has no target left to name; and a record emptied
+ * law by law is still in force, so it cannot also carry the terminal status supersession
+ * requires. The two shapes are alternatives — a surgical removal for a record that stays
+ * in force with one law withdrawn, a supersession for a whole record being replaced — and
+ * a record asking for both is reported as `RESOLUTION_AMBIGUOUS` here rather than as an
+ * unavailable removal target one stage later.
+ *
  * @param records - Parsed ADR records.
  * @param options - `{ active, removedByDecision }`: the records in force, and the law ids an
  *   active record retires with an explicit `op: remove` (both from `resolveActiveSet` and
  *   `compileLaws`). Both default to empty, which makes every side "not leaving" — a caller
  *   that has not resolved the corpus gets refusals rather than silent passes.
  * @returns An array of problems; empty when every resolution names two sides that exist and
- *   that hold or are losing force.
+ *   that hold or are losing force, and takes away force in exactly one of the two ways.
  */
 export function validateResolutions(records, { active = [], removedByDecision = [] } = {}) {
   const problems = []
@@ -911,14 +920,33 @@ export function validateResolutions(records, { active = [], removedByDecision = 
         )
         continue
       }
+      // A resolution takes away force in exactly ONE of two ways. Superseding the losing
+      // record leaves nothing to remove — every law it declares is out of force the moment
+      // it is superseded — so a resolution that ALSO names one of those laws with
+      // `op: remove` is reported as `LAW_TARGET_DANGLING` by the law compiler, and one
+      // whose laws were removed one by one cannot then be given a terminal status without
+      // `RETIREMENT_STATUS_MISSING`. The combination is therefore refused here, by name,
+      // rather than surfacing as that pair one step later: a drafter reads which of the two
+      // shapes to keep instead of reverse-engineering an unavailable target.
+      const supersedesHere = (record.supersedes ?? []).includes(target)
+      const removedHere = (record.laws ?? []).filter(
+        (law) => law.op === 'remove' && named.laws.some((declared) => declared.op === 'upsert' && declared.id === law.id),
+      )
+      if (supersedesHere && removedHere.length > 0) {
+        problems.push(
+          problem(
+            'RESOLUTION_AMBIGUOUS',
+            `${record.path} both supersedes "${target}" (${named.path}) and removes ${removedHere.map((law) => `"${law.id}"`).join(', ')} from it; supersession already takes every law that record declares out of force, so the removal has no target and which shape this resolution means is not decidable. Keep the removal for a record that stays in force with one law withdrawn, or keep the supersession for a record that is being replaced, and drop the other`,
+            record.id,
+            { path: record.path, target, targetPath: named.path, removed: removedHere.map((law) => law.id) },
+          ),
+        )
+      }
       if (inForce.has(target)) continue
       const supersededByForce = named.supersededBy !== null && named.supersededBy !== undefined
       const emptiedByForce = named.laws.some((law) => law.op === 'upsert' && removed.has(law.id))
-      const supersededHere = (record.supersedes ?? []).includes(target)
-      const emptiedHere = (record.laws ?? []).some(
-        (law) => law.op === 'remove' && named.laws.some((declared) => declared.op === 'upsert' && declared.id === law.id),
-      )
-      if (supersededByForce || emptiedByForce || supersededHere || emptiedHere) continue
+      const emptiedHere = removedHere.length > 0
+      if (supersededByForce || emptiedByForce || supersedesHere || emptiedHere) continue
       problems.push(
         problem(
           'ADR_RESOLVES_OUTSIDE_FORCE',

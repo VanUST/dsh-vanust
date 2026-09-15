@@ -1358,6 +1358,8 @@ test('tools: the plugin module loads and every tool is declared', { skip: HARNES
   assert.deepEqual(parsed.tools, [
     'ratchet_bootstrap',
     'ratchet_compile',
+    'ratchet_deduplicate',
+    'ratchet_ingest',
     'ratchet_ingest_batch',
     'ratchet_ingest_source',
     'ratchet_ratify',
@@ -2181,16 +2183,82 @@ test('dynamic: a well-formed finding passes validation', () => {
           kind: 'semantic_violation',
           lawId: 'auth.session-storage.redis',
           sourceAdr: '0001',
+          lawQuote: 'Session storage must use Redis.',
           explanation: 'The change reintroduces a file-backed adapter.',
           suggestedAction: 'Remove it or supersede the decision.',
         },
       ],
     },
-    { lawIds: ['auth.session-storage.redis'], adrIds: ['0001'] },
+    {
+      lawIds: ['auth.session-storage.redis'],
+      adrIds: ['0001'],
+      laws: { 'auth.session-storage.redis': 'Session storage must use Redis.' },
+    },
   )
   assert.equal(result.problems.length, 0)
   assert.equal(result.findings.length, 1)
+  assert.equal(result.findings[0].lawQuote, 'Session storage must use Redis.', 'the quote is carried, so a reader can see what was judged')
   assert.equal(result.ok, false, "the judge's own ok is preserved")
+})
+
+test('FALSIFICATION: a finding that quotes the law it names is checked against it', () => {
+  // The rule this pins, and the failure it exists for: a judge named a law that WAS in force
+  // and described a SUPERSEDED statement of it, and the finding stood — freezing every write
+  // in a zone until a second review corrected it. A quotation turns that from an unfalsifiable
+  // claim into a comparison, and a comparison that fails refuses the finding.
+  const laws = { 'auth.session-storage.redis': 'Session storage must use Redis.' }
+  const lawIds = ['auth.session-storage.redis']
+
+  const correct = dynamic.validateVerdict(
+    { ok: false, findings: [{ severity: 'error', kind: 'semantic_violation', lawId: 'auth.session-storage.redis', lawQuote: 'Session storage must use Redis.', explanation: 'x' }] },
+    { lawIds, adrIds: [], laws },
+  )
+  assert.equal(correct.problems.length, 0, 'a correct quotation is accepted')
+  assert.equal(correct.findings.length, 1)
+
+  // The same finding, quoting the text the id used to carry before the decision was restated.
+  const superseded = dynamic.validateVerdict(
+    { ok: false, findings: [{ severity: 'error', kind: 'semantic_violation', lawId: 'auth.session-storage.redis', lawQuote: 'Sessions must be stored in files.', explanation: 'x' }] },
+    { lawIds, adrIds: [], laws },
+  )
+  assert.equal(superseded.findings.length, 0, 'a finding about a statement that is not the compiled law is not forwarded')
+  assert.equal(superseded.ok, false, 'and the verdict cannot be reported as ok')
+  assert.ok(
+    superseded.problems.some((entry) => entry.message.includes('does not match law')),
+    JSON.stringify(superseded.problems.map((entry) => entry.message)),
+  )
+
+  // NO QUOTATION AT ALL is malformed, not authoritative — the same treatment a citation of a
+  // law that does not exist already gets.
+  const unquoted = dynamic.validateVerdict(
+    { ok: false, findings: [{ severity: 'error', kind: 'semantic_violation', lawId: 'auth.session-storage.redis', explanation: 'x' }] },
+    { lawIds, adrIds: [], laws },
+  )
+  assert.equal(unquoted.findings.length, 0, 'a law-bound finding with no quotation is unusable')
+  assert.ok(
+    unquoted.problems.some((entry) => entry.message.includes('quotes neither')),
+    JSON.stringify(unquoted.problems.map((entry) => entry.message)),
+  )
+
+  // A finding that names NO law is unaffected: not every real problem binds to one law.
+  const unbound = dynamic.validateVerdict(
+    { ok: false, findings: [{ severity: 'warning', kind: 'incoherent_corpus', explanation: 'two decisions pull apart' }] },
+    { lawIds, adrIds: [], laws },
+  )
+  assert.equal(unbound.problems.length, 0)
+  assert.equal(unbound.findings.length, 1)
+})
+
+test('FALSIFICATION: a bundle hash is an acceptable quotation for a law-bound finding', () => {
+  // The rule offers the statement OR the hash, because a judge that reads the compiled bundle
+  // sees one hash for the whole law set. Quoting it is a claim the ratchet can also check.
+  const hash = `sha256:${'a'.repeat(64)}`
+  const withHash = dynamic.validateVerdict(
+    { ok: false, findings: [{ severity: 'error', kind: 'intent_violation', lawId: 'auth.x', lawQuote: `the law set hashing to ${hash}`, explanation: 'x' }] },
+    { lawIds: ['auth.x'], adrIds: [], laws: { 'auth.x': 'Something else entirely.' }, lawHashes: { 'auth.x': hash } },
+  )
+  assert.equal(withHash.problems.length, 0, 'a hash that matches the law set is accepted')
+  assert.equal(withHash.findings.length, 1)
 })
 
 test('FALSIFICATION: a judge citing a law that does not exist is not passed on', () => {
@@ -2306,6 +2374,7 @@ test('dynamic: a review job is answered by an injected judge and the verdict com
               severity: 'error',
               kind: 'semantic_violation',
               lawId: 'auth.session-storage.redis',
+              lawQuote: 'Session storage must use Redis.',
               sourceAdr: '0001',
               explanation: 'A file-backed session adapter contradicts the Redis decision.',
               suggestedAction: 'Remove the adapter or supersede 0001.',
@@ -4433,13 +4502,13 @@ test('FALSIFICATION: the instruction-routing rule has an enforcement point that 
 // ---------------------------------------------------------------------------
 
 /** A project whose single agent decision is proposed in a proposeOnly zone. */
-function ratifiableProject(name, { zone = 'api', extraAdrs = {}, extraFiles = {} } = {}) {
+function ratifiableProject(name, { zone = 'api', extraAdrs = {}, extraFiles = {}, laws = null } = {}) {
   const target = adrText({
     id: '0011',
     status: 'proposed',
     authority: 'agent',
     zones: [zone],
-    laws: [{ id: 'api.x', statement: 'Agent law.', checks: [] }],
+    laws: laws ?? [{ id: 'api.x', statement: 'Agent law.', checks: [] }],
   })
   const root = makeProject({
     name,
@@ -4846,8 +4915,107 @@ test('ratify: an approved answer writes the transcript and the approval, and the
   assert.deepEqual(compiled.laws, ['api.x'])
 })
 
-test('ratify: a rejected answer writes nothing and leaves the record proposed', () => {
-  const { root } = ratifiableProject('ratify-reject')
+test('ratify: a ratification leaves the generated law cards in step with the law set it changed', () => {
+  // The ratify -> verify loop. A ratification changes the law set, and the generated law
+  // cards are written from that law set, so the very next `verify` used to fail with
+  // `SPEC_OUT_OF_DATE` unless somebody who knew the rule ran `compile --write` — a step
+  // nothing in the tool output named. The ratifying operation now regenerates the cards,
+  // so the rule is not a thing a developer has to know.
+  //
+  // This is the case where the card did not exist at all: a document is rendered from the
+  // laws in force, and before the first consent this corpus has none. The companion case
+  // below is the one that used to fail — a card left carrying an older set's hash.
+  const { root } = ratifiableProject('ratify-specs', {
+    // A law with a real check, so the `verify` at the end of this test is a claim about a
+    // codebase rather than about a corpus that declares nothing to evaluate.
+    laws: [{ id: 'api.x', statement: 'Agent law.', checks: [{ type: 'required_text', paths: ['src/api/x.ts'], pattern: 'handler' }] }],
+    extraFiles: { 'src/api/x.ts': 'export const handler = () => 1\n' },
+  })
+  const prepared = ops.ratify({ root, at: '2026-09-14T09:00:00Z' })
+  const minted = ops.ratify({ root, answer: answerWith(prepared.quiz, ['Approve']), quiz: prepared.quiz, at: '2026-09-14T09:00:00Z' })
+  assert.deepEqual(minted.ratified, ['0011'])
+  assert.deepEqual(minted.problems, [], `expected a clean ratification, got ${JSON.stringify(minted.problems.map((entry) => entry.code))}`)
+  assert.deepEqual(readdirSync(join(root, 'docs', 'specs')), ['api.spec.md'], 'the law card for the one zone is written by the ratification')
+  const specPath = join(root, 'docs', 'specs', 'api.spec.md')
+  assert.ok(readFileSync(specPath, 'utf8').includes('api.x'), 'the card names the law the ratification put into force')
+  assert.deepEqual(minted.specsRegenerated, ['docs/specs/api.spec.md'], 'and the ratification reports the card it wrote')
+
+  // The point of the whole thing: the next verify is green without a manual compile.
+  return ops.verify({ root }).then((verified) => {
+    const codes = verified.problems.map((entry) => entry.code)
+    assert.ok(!codes.includes('SPEC_OUT_OF_DATE'), `verify must not report a stale document after a ratification, got ${JSON.stringify(codes)}`)
+    assert.deepEqual(verified.problems, [], `expected the gate green after a ratification, got ${JSON.stringify(codes)}`)
+  })
+})
+
+test('ratify: a law card stale at the next ratification is brought back in step by that call', () => {
+  const { root } = ratifiableProject('ratify-specs-stale', {
+    extraAdrs: {
+      '0013-second.adr.md': adrText({
+        id: '0013',
+        status: 'proposed',
+        authority: 'agent',
+        zones: ['api'],
+        laws: [{ id: 'api.y', statement: 'Agent law two.', checks: [] }],
+      }),
+    },
+  })
+  const first = ops.ratify({ root, ids: ['0011'], at: '2026-09-14T09:00:00Z' })
+  ops.ratify({ root, ids: ['0011'], answer: answerWith(first.quiz, ['Approve']), quiz: first.quiz, at: '2026-09-14T09:00:00Z' })
+  const specPath = join(root, 'docs', 'specs', 'api.spec.md')
+  const withOneLaw = readFileSync(specPath, 'utf8')
+  assert.ok(withOneLaw.includes('api.x') && !withOneLaw.includes('api.y'), 'the card describes only the law in force so far')
+
+  // The second decision is ratified, which changes the law set. The card on disk still
+  // carries the previous set's hash, so this is exactly the state that used to need a
+  // manual `compile --write` before `verify` would pass.
+  const second = ops.ratify({ root, ids: ['0013'], at: '2026-09-14T09:10:00Z' })
+  const secondMinted = ops.ratify({ root, ids: ['0013'], answer: answerWith(second.quiz, ['Approve']), quiz: second.quiz, at: '2026-09-14T09:10:00Z' })
+  assert.deepEqual(secondMinted.ratified, ['0013'])
+  assert.deepEqual(secondMinted.specsRegenerated, ['docs/specs/api.spec.md'], 'the stale card is regenerated by the ratification that made it stale')
+  assert.ok(readFileSync(specPath, 'utf8').includes('api.y'), 'the regenerated card names the law the second consent put into force')
+})
+
+test('ratify: the regeneration does NOT overwrite a hand-edited law card', () => {
+  // The drift check is not weakened by the regeneration. A card's bytes cannot say whether
+  // a person edited it, so the guard is the ledger: a document whose current bytes the
+  // ratchet never wrote is somebody else's, and it is left exactly where it is. What must
+  // hold is therefore not a particular problem CODE — a card that is both stale and edited
+  // is reported as stale, which is what the deterministic check can see — but the two
+  // facts a reader depends on: the edit survives, and the gate still reports the card.
+  const { root } = ratifiableProject('ratify-specs-edited', {
+    extraAdrs: {
+      '0013-second.adr.md': adrText({
+        id: '0013',
+        status: 'proposed',
+        authority: 'agent',
+        zones: ['api'],
+        laws: [{ id: 'api.y', statement: 'Agent law two.', checks: [] }],
+      }),
+    },
+  })
+  const first = ops.ratify({ root, ids: ['0011'], at: '2026-09-14T09:00:00Z' })
+  ops.ratify({ root, ids: ['0011'], answer: answerWith(first.quiz, ['Approve']), quiz: first.quiz, at: '2026-09-14T09:00:00Z' })
+  const specPath = join(root, 'docs', 'specs', 'api.spec.md')
+  writeFileSync(specPath, `${readFileSync(specPath, 'utf8')}\nA human added this line.\n`)
+  const second = ops.ratify({ root, ids: ['0013'], at: '2026-09-14T09:10:00Z' })
+  const secondMinted = ops.ratify({ root, ids: ['0013'], answer: answerWith(second.quiz, ['Approve']), quiz: second.quiz, at: '2026-09-14T09:10:00Z' })
+  assert.deepEqual(secondMinted.specsRegenerated, [], 'an edited document is not regenerated by the ratification')
+  assert.deepEqual(secondMinted.specsSkipped, ['docs/specs/api.spec.md'], 'and the ratification says which document it left alone')
+  assert.ok(
+    readFileSync(specPath, 'utf8').includes('A human added this line.'),
+    'the hand edit is still there, so the ratification did not destroy the evidence of it',
+  )
+  return ops.verify({ root }).then((verified) => {
+    const aboutTheCard = verified.problems.filter((entry) => String(entry.subject ?? '').includes('api.spec.md') || String(entry.message).includes('api.spec.md'))
+    assert.ok(
+      aboutTheCard.length > 0,
+      `verify must still report the card it did not touch, got ${JSON.stringify(verified.problems.map((entry) => entry.code))}`,
+    )
+  })
+})
+
+test('ratify: a rejected answer writes nothing and leaves the record proposed', () => {  const { root } = ratifiableProject('ratify-reject')
   const prepared = ops.ratify({ root })
   const result = ops.ratify({ root, answer: answerWith(prepared.quiz, ['Reject']), quiz: prepared.quiz, at: '2026-09-14T09:00:00Z' })
 
@@ -6105,7 +6273,7 @@ test('dynamic: a clean independent verdict retires a recorded contradiction', as
   const judgeSaying = (verdict) => async () => ({ structured: verdict, output: '', stopReason: 'completed' })
   const blocking = {
     ok: false,
-    findings: [{ severity: 'error', kind: 'semantic_violation', lawId: 'auth.session-storage.redis', explanation: 'a file-backed adapter contradicts the Redis decision' }],
+    findings: [{ severity: 'error', kind: 'semantic_violation', lawId: 'auth.session-storage.redis', lawQuote: 'Session storage must use Redis.', explanation: 'a file-backed adapter contradicts the Redis decision' }],
   }
   const first = await ops.review({ root, job: 'review_change', change: 'the same change', spawnJudge: judgeSaying(blocking) })
   assert.equal(first.declined, true)
@@ -6128,8 +6296,8 @@ test('dynamic: a verdict with nothing blocking does not record anything', async 
   const advisory = {
     ok: true,
     findings: [
-      { severity: 'warning', kind: 'semantic_violation', lawId: 'auth.session-storage.redis', explanation: 'a warning is not a block' },
-      { severity: 'error', kind: 'prose_law_mismatch', lawId: 'auth.session-storage.redis', explanation: 'the record disagreeing with itself is not this change contradicting law' },
+      { severity: 'warning', kind: 'semantic_violation', lawId: 'auth.session-storage.redis', lawQuote: 'Session storage must use Redis.', explanation: 'a warning is not a block' },
+      { severity: 'error', kind: 'prose_law_mismatch', lawId: 'auth.session-storage.redis', lawQuote: 'Session storage must use Redis.', explanation: 'the record disagreeing with itself is not this change contradicting law' },
       { severity: 'error', kind: 'insufficient_reasoning', explanation: 'no law named' },
       { severity: 'error', kind: 'semantic_violation', lawId: 'no.such.law', explanation: 'a law nobody declares cannot place a block' },
     ],
@@ -6150,7 +6318,7 @@ test('dynamic: a self-review may raise a block but may not clear one', () => {
   const root = reviewableProject('dyn-self-block')
   const blocking = {
     ok: false,
-    findings: [{ severity: 'error', kind: 'intent_violation', lawId: 'auth.session-storage.redis', explanation: 'inverts the decision' }],
+    findings: [{ severity: 'error', kind: 'intent_violation', lawId: 'auth.session-storage.redis', lawQuote: 'Session storage must use Redis.', explanation: 'inverts the decision' }],
   }
   const raised = ops.submitReview({ root, job: 'review_change', change: 'a change', verdict: blocking })
   assert.equal(raised.declined, true)
@@ -6174,7 +6342,7 @@ test('dynamic: a self-review that names nothing records a block a later review c
   const root = reviewableProject('dyn-self-untargeted')
   const blocking = {
     ok: false,
-    findings: [{ severity: 'error', kind: 'intent_violation', lawId: 'auth.session-storage.redis', explanation: 'inverts the decision' }],
+    findings: [{ severity: 'error', kind: 'intent_violation', lawId: 'auth.session-storage.redis', lawQuote: 'Session storage must use Redis.', explanation: 'inverts the decision' }],
   }
   const result = ops.submitReview({ root, job: 'review_change', verdict: blocking })
   assert.equal(result.declined, true, 'the finding is reported')
@@ -6191,7 +6359,7 @@ test('dynamic: an independent clean review retires a job-scoped block', async ()
   const judgeSaying = (verdict) => async () => ({ structured: verdict, output: '', stopReason: 'completed' })
   const blocking = {
     ok: false,
-    findings: [{ severity: 'error', kind: 'semantic_violation', lawId: 'auth.session-storage.redis', explanation: 'contradicts' }],
+    findings: [{ severity: 'error', kind: 'semantic_violation', lawId: 'auth.session-storage.redis', lawQuote: 'Session storage must use Redis.', explanation: 'contradicts' }],
   }
   const first = await ops.review({ root, job: 'review_change', change: 'the first change', spawnJudge: judgeSaying(blocking) })
   assert.equal(first.declined, true)
@@ -6225,7 +6393,7 @@ test('dynamic: a finding against a PROPOSED record binds to that record and reti
     spawnJudge: async () => ({
       structured: {
         ok: false,
-        findings: [{ severity: 'error', kind: 'semantic_violation', lawId: 'auth.session-storage.redis', sourceAdr: '0001', explanation: 'contradicts' }],
+        findings: [{ severity: 'error', kind: 'semantic_violation', lawId: 'auth.session-storage.redis', sourceAdr: '0001', lawQuote: 'Session storage must use Redis.', explanation: 'contradicts' }],
       },
       output: '',
       stopReason: 'completed',
@@ -6850,6 +7018,57 @@ test('compiler: a resolution removing a ratified law is refused until it is rati
   assert.ok(allowed.laws.includes('tests.four'), 'and the surviving side keeps its own')
 })
 
+test('compiler: a resolution removes a named law or supersedes a whole record, never both', () => {
+  // A resolution takes away force in exactly ONE of two ways and each is a complete answer.
+  // Combining them is not a stronger resolution, it is an unanswerable one: superseding the
+  // losing record takes every law it declares out of force, so a removal of one of those
+  // laws has no target left, and a record emptied law by law is still in force so it cannot
+  // also carry the terminal status supersession needs. The surgical form is the default a
+  // drafter should reach for — remove the law that conflicts and leave the rest of the
+  // record governing — and supersession is for a whole record being replaced.
+  const losing = (status) =>
+    adrText({
+      id: '0001',
+      status,
+      authority: 'agent',
+      zones: ['tests'],
+      laws: [
+        { id: 'tests.one', statement: 'One.', checks: [] },
+        { id: 'tests.kept', statement: 'Kept.', checks: [] },
+      ],
+    })
+  const other = adrText({ id: '0002', status: 'active', authority: 'agent', zones: ['tests'], laws: [{ id: 'tests.two', statement: 'Two.', checks: [] }] })
+  const resolution = (extra) =>
+    adrText({
+      id: '0003',
+      status: 'active',
+      authority: 'agent',
+      zones: ['tests'],
+      ...extra,
+      resolves: ['0001', '0002'],
+      laws: [{ op: 'remove', id: 'tests.one', checks: [] }],
+    })
+  const project = (name, ownResolution, targetStatus) =>
+    makeProject({
+      name,
+      zones: [{ id: 'tests', paths: ['tests/**'], agentAuthority: 'activeIfNoConflict', requiresDecisionRecord: false }],
+      adrs: { '0001-a.adr.md': losing(targetStatus), '0002-b.adr.md': other, '0003-resolution.adr.md': ownResolution },
+    })
+
+  // The surgical form: one law leaves force, the rest of the losing record keeps governing.
+  const removed = compile(project('resolution-surgical', resolution({}), 'active'))
+  assert.deepEqual(removed.codes, [], `the surgical form compiles clean: ${JSON.stringify(removed.codes)}`)
+  assert.ok(!removed.laws.includes('tests.one'), 'the conflicting law leaves force')
+  assert.ok(removed.laws.includes('tests.kept'), 'and the rest of the losing record stays in force')
+
+  // The same resolution with `supersedes` added on top: which shape it means is not decidable.
+  const bothWays = compile(project('resolution-ambiguous', resolution({ supersedes: ['0001'] }), 'active'))
+  assert.ok(
+    bothWays.codes.includes('RESOLUTION_AMBIGUOUS'),
+    `removing a law and superseding its record in one resolution is refused by name: ${JSON.stringify(bothWays.codes)}`,
+  )
+})
+
 test('compiler: a record a resolution retired says so in its own frontmatter', () => {
   // 0001 is superseded by the resolution and every law it declares is out of force, so a
   // reader following the files would find a record that looks live and governs nothing.
@@ -6966,6 +7185,136 @@ test('lifecycle: a resolution that takes the challenged law out of force lifts t
   // cleared by hand, and the block follows the corpus rather than a gesture.
   writeFileSync(join(root, 'docs', 'adrs', '0002-resolution.adr.md'), resolution('withdrawn'))
   assert.ok(blockedZonesNow(root).has('tests'), 'the block returns when the resolution is withdrawn')
+})
+
+test('dedupe: a duplicate produces a drafted resolution that removes the law and keeps the record', () => {
+  // The developer's only remaining act is to ratify or decline. The draft is an ordinary
+  // `proposed` record with `resolves: [loser, winner]` and the SURGICAL `op: remove` ADR 0031
+  // settled on: the duplicated law leaves force, the losing record keeps everything else.
+  const root = makeProject({
+    name: 'dedupe-draft',
+    zones: [{ id: 'auth', paths: ['src/auth/**'], agentAuthority: 'activeIfNoConflict' }],
+    adrs: {
+      '0001-a.adr.md': adrText({
+        id: '0001',
+        zones: ['auth'],
+        authority: 'agent',
+        laws: [
+          { id: 'auth.one', statement: 'Sessions must use Redis.', checks: [] },
+          { id: 'auth.kept', statement: 'Sessions expire.', checks: [] },
+        ],
+      }),
+      '0002-b.adr.md': adrText({ id: '0002', zones: ['auth'], authority: 'agent', laws: [{ id: 'auth.two', statement: 'Sessions must use Redis.', checks: [] }] }),
+    },
+  })
+  const result = ops.deduplicate({ root, write: true, createdAt: '2026-09-16T00:00:00Z' })
+  assert.equal(result.ok, true, JSON.stringify(result.problems))
+  assert.equal(result.duplicates.length, 1, 'the statement rule found the duplicate')
+  assert.equal(result.duplicates[0].code, 'DUPLICATE_LAW_STATEMENT')
+  assert.equal(result.drafts.length, 1)
+  const draft = result.drafts[0]
+  assert.equal(draft.written, draft.path, 'the draft was placed')
+  assert.equal(draft.keeps, '0001', 'the EARLIER record keeps the law, so the decision a reader has followed longest survives')
+  assert.equal(draft.withdraws, '0002', 'the later record loses the duplicated law')
+  assert.equal(draft.removes, 'auth.two')
+
+  // The draft is a real record: it parses, it says proposed, and it resolves both sides.
+  const text = readFileSync(join(root, draft.path), 'utf8')
+  assert.match(text, /^status: proposed$/m, 'nothing machine-drafted is in force')
+  assert.match(text, /^resolves:$/m)
+  assert.match(text, /- op: remove/)
+  assert.match(text, /id: auth\.two/)
+  const parsed = schema.parseAdr({ filename: draft.path.split('/').pop(), source: text, root })
+  assert.deepEqual(parsed.problems, [], `the draft must parse clean: ${JSON.stringify(parsed.problems.map((entry) => entry.code))}`)
+
+  // And the corpus compiles with the draft standing as a proposal, which is the state a
+  // human is asked to ratify.
+  assert.deepEqual(compiler.compileProject(root).problems.map((entry) => entry.code), [])
+  // The deterministic command still fails: the duplicate is reported until a human settles
+  // it, and drafting is not settling.
+  assert.equal(duplicateCommand(root).status, 1, 'the drafter does not clear the deterministic gate')
+})
+
+test('dedupe: ratifying the draft settles the duplicate, and the losing record keeps its other laws', () => {
+  const root = makeProject({
+    name: 'dedupe-ratify',
+    zones: [{ id: 'auth', paths: ['src/auth/**'], agentAuthority: 'activeIfNoConflict' }],
+    adrs: {
+      '0001-a.adr.md': adrText({
+        id: '0001',
+        zones: ['auth'],
+        authority: 'agent',
+        laws: [{ id: 'auth.one', statement: 'Sessions must use Redis.', checks: [] }],
+      }),
+      '0002-b.adr.md': adrText({
+        id: '0002',
+        zones: ['auth'],
+        authority: 'agent',
+        laws: [
+          { id: 'auth.two', statement: 'Sessions must use Redis.', checks: [] },
+          { id: 'auth.kept', statement: 'Sessions expire.', checks: [] },
+        ],
+      }),
+    },
+  })
+  const drafted = ops.deduplicate({ root, write: true, createdAt: '2026-09-16T00:00:00Z' })
+  assert.equal(drafted.drafts.length, 1)
+  const draftPath = drafted.drafts[0].path
+  const draftText = readFileSync(join(root, draftPath), 'utf8')
+
+  // The draft is `proposed`, so nothing has changed yet.
+  const before = compile(root)
+  assert.ok(before.laws.includes('auth.two'), 'the duplicated law is still in force while the resolution is proposed')
+
+  // A human ratifies it, which is the one act the machinery leaves to them. The approval takes
+  // the id AFTER the draft, because the draft already claimed one.
+  const approvalId = String(Number(drafted.drafts[0].id) + 1).padStart(4, '0')
+  writeFileSync(
+    join(root, 'docs', 'adrs', `${approvalId}-approval.adr.md`),
+    approvalText({ id: approvalId, approved: [{ id: drafted.drafts[0].id, text: draftText }] }),
+  )
+  const after = compile(root)
+  assert.deepEqual(after.codes, [], `the settled corpus compiles clean: ${JSON.stringify(after.codes)}`)
+  assert.ok(!after.laws.includes('auth.two'), 'the duplicated law leaves force')
+  assert.ok(after.laws.includes('auth.one'), 'the kept decision still governs')
+  assert.ok(after.laws.includes('auth.kept'), 'and the losing record keeps the law the conflict did not touch')
+  assert.equal(duplicateCommand(root).status, 0, 'with the duplicate settled the deterministic gate is green again')
+  // The draft is a proposed record, not an approval, so it stays where it is as the record of
+  // the settlement rather than being consumed.
+  assert.ok(readFileSync(join(root, draftPath), 'utf8').includes('status: proposed'))
+})
+
+test('dedupe: a duplicate it cannot draft is reported with the reason, never skipped', () => {
+  // A `humanOnly` zone makes the removal unratifiable by this path, so a draft would be a
+  // question nobody could answer. The finding is reported as undraftable rather than dropped:
+  // a duplicate the command reports and the drafts do not mention would read as handled.
+  const root = makeProject({
+    name: 'dedupe-undraftable',
+    zones: [{ id: 'auth', paths: ['src/auth/**'], agentAuthority: 'humanOnly' }],
+    adrs: {
+      '0001-a.adr.md': adrText({ id: '0001', zones: ['auth'], authority: 'human', status: 'active', laws: [{ id: 'auth.one', statement: 'Sessions must use Redis.', checks: [] }] }),
+      '0002-b.adr.md': adrText({ id: '0002', zones: ['auth'], authority: 'agent', laws: [{ id: 'auth.two', statement: 'Sessions must use Redis.', checks: [] }] }),
+    },
+  })
+  assert.equal(duplicateCommand(root).status, 1, 'the duplicate is still reported deterministically')
+  const result = ops.deduplicate({ root })
+  assert.deepEqual(result.drafts, [], 'nothing was drafted')
+  assert.equal(result.undraftable.length, 1)
+  assert.match(result.undraftable[0].reason, /humanOnly|reserved to humans/)
+  assert.equal(result.ok, true, 'the run happened and reported what it could not do')
+})
+
+test('dedupe: the deterministic command loads no judge, and drafting loads no judge either', () => {
+  // The exit code of the deterministic command must stay independent of any judge, and the
+  // drafter must not smuggle one in: both carry no model. A judge's finding never reaches
+  // either — `ratchet_review --job review_duplicates` is the advisory report and it never
+  // gates, which the semantic-duplicate test above pins from the other side.
+  const commandSource = readFileSync(DUPLICATE_COMMAND, 'utf8')
+  assert.doesNotMatch(commandSource, /ratchet-dynamic|ratchet-ops|spawnJudge|subagents/, 'the command loads no judge')
+  const dedupeSource = readFileSync(join(resolve(import.meta.dirname, '..'), 'plugins', 'ratchet', 'ratchet-dedupe.mjs'), 'utf8')
+  assert.doesNotMatch(dedupeSource, /ratchet-dynamic|spawnJudge|subagents|ratchet-review/, 'the drafter loads no judge')
+  const opsSource = readFileSync(join(resolve(import.meta.dirname, '..'), 'plugins', 'ratchet', 'ratchet-ops.mjs'), 'utf8')
+  assert.doesNotMatch(opsSource, /export function deduplicate[\s\S]{0,2000}?spawnJudge/, 'and the operation takes no judge argument')
 })
 
 test('duplicates: one statement under two law ids fails the deterministic command', () => {
@@ -7103,6 +7452,11 @@ test('duplicates: the semantic report is advisory and the deterministic command 
         severity: 'error',
         kind: 'semantic_duplicate',
         lawId: 'auth.one',
+        // The duplicate finding names a law too, so it quotes it: the rule is about any
+        // law-bound finding, not only about a blocking one, and a judge that has to quote
+        // the law it is talking about cannot report a duplicate of a statement that is not
+        // the one in force.
+        lawQuote: 'Sessions must live in Redis.',
         explanation: 'auth.two restates the constraint auth.one states, in different words, for the same store',
       },
     ],
@@ -7121,6 +7475,148 @@ test('duplicates: the semantic report is advisory and the deterministic command 
   const commandSource = readFileSync(DUPLICATE_COMMAND, 'utf8')
   assert.doesNotMatch(commandSource, /ratchet-dynamic|ratchet-ops|spawnJudge|subagents/, 'the command loads no judge')
   assert.equal(duplicateCommand(root).status, 0, 'running it again after a judge answered still exits 0')
+})
+
+// ---------------------------------------------------------------------------
+// one ingestion entry point: the path is chosen for the caller, not by them
+// ---------------------------------------------------------------------------
+
+/**
+ * A source with more headed sections than one batch may carry.
+ *
+ * Every sentence a decision may cite is generated from the section number, so a fixture
+ * cannot accidentally cite another section's text: a batch decision's span is located in the
+ * chunk it was extracted from, and a helper that reused one sentence would make every
+ * cross-chunk assertion pass for the wrong reason.
+ */
+const MANY_SOURCE_TEXT = [
+  '# A design session with many decisions',
+  '',
+  ...Array.from({ length: ingestModule.BATCH_DECISION_CAP + 2 }, (_unused, position) => [
+    `## Decision ${position + 1}`,
+    '',
+    `We agreed decision number ${position + 1} because the deployment already runs it.`,
+    '',
+  ]).flat(),
+].join('\n')
+
+const MANY_SOURCE_PATH = 'docs/ratchet/sources/2026-09-16-many-decisions.md'
+
+/** One batch decision grounded in section `number` of {@link MANY_SOURCE_TEXT}. */
+function manyDecision(number, overrides = {}) {
+  const sentence = `We agreed decision number ${number} because the deployment already runs it.`
+  return {
+    span: sentence,
+    title: `Decision ${number}`,
+    decision: `Adopt what decision ${number} states.`,
+    reasoning: `Because ${sentence}`,
+    reasoningBasis: sentence,
+    context: `The session reached decision ${number}.`,
+    contextBasis: sentence,
+    zones: ['auth'],
+    laws: [],
+    ...overrides,
+  }
+}
+
+test('auto-ingest: one entry point reads a source the cap can hold in one call', async () => {
+  const root = await ingestProject('auto-ingest-one')
+  const result = await ops.ingestAuto({
+    root,
+    sourcePath: SOURCE_PATH,
+    submitted: { decisions: [batchDecision({ title: 'Use Redis for session storage', laws: [{ id: 'auth.session.redis', statement: 'Session storage must use Redis.', checks: [] }] })] },
+    write: true,
+    now: '2026-09-16T00:00:00Z',
+  })
+  assert.equal(result.ok, true, JSON.stringify(result.problems?.map((entry) => entry.message)))
+  assert.equal(result.status, 'proposed', 'the unified path is still proposals only')
+  assert.equal(result.chunkCount, 1, 'a document the cap can hold is one chunk')
+  assert.equal(result.chunks[0].accepted, 1)
+  assert.equal(result.written.length, 1)
+  assert.deepEqual(result.unanswered, [])
+})
+
+test('auto-ingest: a source above the cap is split on its headings and driven chunk by chunk', async () => {
+  const root = await ingestProject('auto-ingest-many')
+  writeFileSync(join(root, MANY_SOURCE_PATH), MANY_SOURCE_TEXT)
+
+  const cap = ingestModule.BATCH_DECISION_CAP
+  const plan = ingestModule.planIngestChunks(MANY_SOURCE_TEXT)
+  assert.equal(plan.chunks.length, 2, `the split is mechanical: ${JSON.stringify(plan.chunks.map((chunk) => [chunk.startLine, chunk.endLine]))}`)
+  assert.ok(
+    plan.chunks.every((chunk, index) => index === 0 || chunk.startLine === plan.headings[cap].line),
+    'the second chunk starts on a heading, so no section is divided between two chunks',
+  )
+  assert.ok(
+    plan.chunks.map((chunk) => chunk.headings.length).every((count) => count <= cap),
+    'each chunk holds at most the cap in headings, so at most the cap in decisions',
+  )
+
+  // The answers come back as an ARRAY, one verdict per chunk, which is the shape the tool
+  // returns when no judge could be spawned.
+  const answers = plan.chunks.map((chunk, index) => ({ decisions: [manyDecision(index * cap + 1)] }))
+  const result = await ops.ingestAuto({
+    root,
+    sourcePath: MANY_SOURCE_PATH,
+    submitted: answers,
+    write: true,
+    now: '2026-09-16T00:00:00Z',
+  })
+  assert.equal(result.chunkCount, 2)
+  assert.deepEqual(result.unanswered, [])
+  assert.equal(result.written.length, 2, `both chunks landed: ${JSON.stringify(result.refused)}`)
+  assert.deepEqual(result.records.map((record) => record.status), ['proposed', 'proposed'])
+  assert.deepEqual(compiler.compileProject(root).problems.map((entry) => entry.code), [], 'the project still compiles')
+})
+
+test('auto-ingest: a span located only in ANOTHER chunk is refused, so the chunk is the scope', async () => {
+  const root = await ingestProject('auto-ingest-scope')
+  writeFileSync(join(root, MANY_SOURCE_PATH), MANY_SOURCE_TEXT)
+  const cap = ingestModule.BATCH_DECISION_CAP
+  const plan = ingestModule.planIngestChunks(MANY_SOURCE_TEXT)
+
+  // Chunk 1 cites a sentence that lives in chunk 2. Attribution is to the text the judge was
+  // given, so this cannot be located and is refused — while chunk 2's own answer lands.
+  const answers = [
+    { decisions: [manyDecision(cap + 1, { title: 'Cross-chunk span' })] },
+    { decisions: [manyDecision(cap + 1, { title: 'Chunk two decision' })] },
+  ]
+  const result = await ops.ingestAuto({
+    root,
+    sourcePath: MANY_SOURCE_PATH,
+    submitted: answers,
+    write: true,
+    now: '2026-09-16T00:00:00Z',
+  })
+  assert.equal(result.written.length, 1, `one record lands and one extraction costs one record: ${JSON.stringify(result)}`)
+  assert.deepEqual(result.refused.map((entry) => entry.code), ['SPAN_NOT_LOCATED'])
+  assert.equal(result.refused[0].chunk, 1, 'the refusal names the chunk it came from')
+  assert.ok(plan.chunks[1].text.includes(`decision number ${cap + 1}`), 'and the sentence really is in the other chunk')
+})
+
+test('auto-ingest: with no judge the split is returned unrun, and the answers resume the same call', async () => {
+  const root = await ingestProject('auto-ingest-degraded')
+  writeFileSync(join(root, MANY_SOURCE_PATH), MANY_SOURCE_TEXT)
+
+  const bare = await ops.ingestAuto({ root, sourcePath: MANY_SOURCE_PATH, spawnJudge: null })
+  assert.equal(bare.ok, false, 'nothing was read, so this is not a success')
+  assert.equal(bare.unanswered.length, 2, 'every chunk is returned unrun rather than half-ingested')
+  assert.equal(bare.written.length, 0)
+  assert.ok(typeof bare.unanswered[0].prompt === 'string' && bare.unanswered[0].prompt.length > 0, 'the prompt the judge would have received is returned')
+  assert.match(bare.nextStep, /no judge could be spawned/, 'and the result says why, in the words a developer needs')
+
+  // Resume: the same call with the answers, which is what a session that cannot spawn a
+  // judge uses to finish the ingestion.
+  const cap = ingestModule.BATCH_DECISION_CAP
+  const resumed = await ops.ingestAuto({
+    root,
+    sourcePath: MANY_SOURCE_PATH,
+    submitted: bare.unanswered.map((entry) => ({ decisions: [manyDecision((entry.index - 1) * cap + 1)] })),
+    write: true,
+    now: '2026-09-16T00:00:00Z',
+  })
+  assert.deepEqual(resumed.unanswered, [])
+  assert.equal(resumed.written.length, 2, JSON.stringify(resumed.refused))
 })
 
 test('batch: many decisions from one source become many proposed records', async () => {

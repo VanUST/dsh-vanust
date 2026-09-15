@@ -53,8 +53,8 @@
  *     it never measured.
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { delimiter, dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -1607,15 +1607,20 @@ function applyOverApi(api) {
 }
 
 /**
- * Applies the bundle to a fresh context over a fixture's fake workspace files.
+ * Builds the fake workspace-files api a fixture's files are read through.
  *
  * The two reads mirror the harness's: `read` answers with the page a line-joined
  * reconstruction produces, `readAll` with the file's exact bytes. A fixture built by
  * `fixtureAdr` ends in a newline, so the two texts differ by that byte — which is the
  * difference a content hash is sensitive to.
+ *
+ * @param files - Repository-relative path to file text.
+ * @returns The api object `ctx.remote.workspaceFiles` carries. A path the fixture does
+ *   not hold answers `ok: false` rather than an empty file, so a missing record is
+ *   reported as unreadable instead of as an empty record.
  */
-function applyFresh(files) {
-  const api = {
+function apiOverFiles(files) {
+  return {
     list(_sessionId, directory) {
       const prefix = `${String(directory).replace(/\/+$/, '')}/`
       const entries = Object.keys(files)
@@ -1638,15 +1643,24 @@ function applyFresh(files) {
       return Promise.resolve({ ok: true, value: { data: Buffer.from(files[key], 'utf8').toString('base64'), eof: true } })
     },
   }
-  return applyOverApi(api)
+}
+
+/** Applies the bundle to a fresh context over a fixture's fake workspace files. */
+function applyFresh(files) {
+  return applyOverApi(apiOverFiles(files))
+}
+
+/** Runs the PANEL's own `loadPanel` over a set of fixture files, through the real transport shape. */
+async function panelOverFiles(files) {
+  const freshRegistry = applyFresh(files)
+  const members = freshRegistry['shell.overlay'].config.inject()
+  members.hooks.panel.set({ open: true, sessionId: 'fixture-session' })
+  return members.load(undefined)
 }
 
 /** Runs the PANEL's own `loadPanel` over a fixture and indexes its decisions by id. */
 async function panelDecisions(files) {
-  const freshRegistry = applyFresh(files)
-  const members = freshRegistry['shell.overlay'].config.inject()
-  members.hooks.panel.set({ open: true, sessionId: 'fixture-session' })
-  const result = await members.load(undefined)
+  const result = await panelOverFiles(files)
   const byId = {}
   for (const decision of result.decisions) byId[decision.id] = decision
   return byId
@@ -1830,20 +1844,100 @@ await claimAgrees(
 // the file's own bytes, which is the defect that made seven decisions in force read as
 // `awaiting a human` while the ratchet reported seven waiting.
 const { ratificationQueue } = await import(pathToFileURL(join(KIT, 'plugins', 'ratchet', 'ratchet-ratify.mjs')).href)
+
+/**
+ * The ids the PANEL shows as waiting, in a stable order.
+ *
+ * @param loaded - The overlay's `load` result.
+ * @returns Sorted decision ids whose state kind is `pending`. An empty corpus
+ *   yields `[]`, which is the correct answer for a corpus where everything is
+ *   ratified rather than a failure of the panel.
+ */
+const waitingOf = (loaded) =>
+  loaded.decisions
+    .filter((decision) => decision.state !== null && decision.state !== undefined && decision.state.kind === 'pending')
+    .map((decision) => decision.id)
+    .sort()
+
+/** Writes a fixture's files under a throwaway directory, so the real corpus reader can read it. */
+function materialise(files) {
+  const root = mkdtempSync(join(tmpdir(), 'adr-panel-fixture-'))
+  for (const [relative, text] of Object.entries(files)) {
+    const absolute = join(root, relative)
+    mkdirSync(dirname(absolute), { recursive: true })
+    writeFileSync(absolute, text)
+  }
+  return root
+}
+
+/** Reads the panel's overlay over the kit's real corpus, through the real transport shape. */
+async function panelOverRealCorpus() {
+  const freshRegistry = applyOverApi(fileApi)
+  const members = freshRegistry['shell.overlay'].config.inject()
+  members.hooks.panel.set({ open: true, sessionId: 'stub-session' })
+  return members.load(undefined)
+}
+
+// A corpus with NOTHING waiting and a corpus with EVERYTHING waiting are two different
+// cases, and only one of them can be stated of a named corpus. The kit's own corpus is a
+// moving target — today every record is ratified, tomorrow two are proposed again — so a
+// requirement that it hands out at least one waiter makes the mechanism's health depend on
+// how much work happens to be outstanding: it holds exactly while the project has something
+// pending and turns red the moment the project succeeds. That was this test's defect. The
+// MECHANISM is therefore measured on a corpus this file controls, and the kit's own corpus
+// is measured for the two properties that hold whatever state it is in: the queue reads it
+// without a problem, and the panel derives exactly the waiting set the queue reports.
+const pendingFixture = fixture('a decision waiting for a human', {
+  zones: ZONE_ACTIVE,
+  defaultAgentAuthority: 'activeIfNoConflict',
+  adrs: {
+    '0001': { status: 'active', zones: ['z'], title: 'already in force' },
+    '0002': { status: 'proposed', zones: ['z'], title: 'awaiting a human' },
+  },
+  expect: { '0001': 'in-force', '0002': 'proposed' },
+  expectRatify: { '0002': true },
+})
+{
+  const pendingRoot = materialise(pendingFixture.files)
+  try {
+    const fixtureQueue = ratificationQueue(pendingRoot)
+    const fixturePanel = await panelOverFiles(pendingFixture.files)
+    claim(
+      'the ratchet derives a waiting set over a corpus that has one',
+      fixtureQueue.ok === true && fixtureQueue.pending.length > 0,
+      `ok=${String(fixtureQueue.ok)} pending=${fixtureQueue.pending.length} problems=${JSON.stringify(fixtureQueue.problems.map((entry) => entry.code))}`,
+    )
+    const panelWaiting = waitingOf(fixturePanel)
+    const ratchetWaiting = fixtureQueue.pending.map((entry) => entry.id).sort()
+    claim(
+      'the panel derives exactly the waiting set the ratchet reports for that corpus',
+      JSON.stringify(panelWaiting) === JSON.stringify(ratchetWaiting) && ratchetWaiting.length > 0,
+      `panel=${JSON.stringify(panelWaiting)} ratchet=${JSON.stringify(ratchetWaiting)}`,
+    )
+    // The hash is what makes the equality above mean "both read the same bytes". The panel
+    // hashes through the whole-file read and the queue through `readFileSync`; it is the
+    // hash the panel reports for each waiting record that has to be the hash the queue
+    // recorded, and that is what a page-joined read destroys.
+    const queueHash = fixtureQueue.pending.find((entry) => entry.id === '0002')?.contentHash ?? null
+    const panelEntry = fixturePanel.decisions.find((decision) => decision.id === '0002') ?? null
+    claim(
+      'and the content hash it reports for a waiter is the hash the ratchet recorded',
+      panelEntry !== null && panelEntry.contentHash !== null && panelEntry.contentHash === queueHash,
+      `panel=${String(panelEntry?.contentHash)} ratchet=${String(queueHash)}`,
+    )
+  } finally {
+    rmSync(pendingRoot, { recursive: true, force: true })
+  }
+}
+
 const realQueue = ratificationQueue(KIT)
 claim(
-  'the ratchet derives a queue over the kit’s own corpus',
-  realQueue.ok === true && realQueue.pending.length > 0,
+  'the ratchet reads the kit’s own corpus into a queue without a problem',
+  realQueue.ok === true && realQueue.problems.length === 0,
   `ok=${String(realQueue.ok)} pending=${realQueue.pending.length} problems=${JSON.stringify(realQueue.problems.map((entry) => entry.code))}`,
 )
-const realRegistry = applyOverApi(fileApi)
-const realMembers = realRegistry['shell.overlay'].config.inject()
-realMembers.hooks.panel.set({ open: true, sessionId: 'stub-session' })
-const realPanel = await realMembers.load(undefined)
-const panelWaiting = realPanel.decisions
-  .filter((decision) => decision.state !== null && decision.state !== undefined && decision.state.kind === 'pending')
-  .map((decision) => decision.id)
-  .sort()
+const realPanel = await panelOverRealCorpus()
+const panelWaiting = waitingOf(realPanel)
 const ratchetWaiting = realQueue.pending.map((entry) => entry.id).sort()
 claim(
   'the panel derives exactly the waiting set the ratchet reports over the kit’s own corpus',

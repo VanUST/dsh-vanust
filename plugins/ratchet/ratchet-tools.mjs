@@ -43,8 +43,10 @@ import { registerGuard } from './ratchet-guard.mjs'
 import {
   bootstrap,
   compile,
+  deduplicate,
   findRoot,
   ingest,
+  ingestAuto,
   ingestBatch,
   ratifications,
   ratify,
@@ -537,7 +539,14 @@ export function apply(ctx) {
      */
     const reviewWhenRequired = async (result, root, exec, enabled) => {
       const questions = Array.isArray(result?.reviewRequired) ? result.reviewRequired : []
-      if (enabled !== true || questions.length === 0) return result
+      // Two reasons to run the corpus review, and the second is what makes detection
+      // AUTOMATIC rather than something a developer remembers. The compiler asks for a
+      // judgement when it can prove a question needs one; independently of that, a law set
+      // that no corpus review has read is a law set whose meaning nobody has looked at, and
+      // `CONTRADICTION_DETECTION_STALE` is the deterministic fact the gate reports about it.
+      // Reviewing here is what clears that fact as part of the operation that created it.
+      const stale = (result?.problems ?? []).some((entry) => entry.code === 'CONTRADICTION_DETECTION_STALE')
+      if (enabled !== true || (questions.length === 0 && !stale)) return result
 
       const rootCaller = isRootCaller(exec)
       const spawnJudge = rootCaller ? judgeSpawner(exec) : null
@@ -547,6 +556,7 @@ export function apply(ctx) {
           dynamicReview: {
             ran: false,
             questions,
+            stale,
             reason: rootCaller
               ? 'this composition cannot spawn a judge, so the corpus review the compiler asked for was not run'
               : 'the caller is not a live root agent, so the ratchet did not spawn a judge from inside a judge; run the review from the session that owns this work',
@@ -556,8 +566,16 @@ export function apply(ctx) {
 
       const started = Date.now()
       const outcome = await review({ root, job: 'review_corpus', spawnJudge, record: true })
+      // The review records which law set it read, so the staleness the caller was told about
+      // is cleared by this very call. The compile's own verdict is NOT changed: the judge's
+      // findings stay advisory, and it is the presence of a recorded review — not what it
+      // said — that the gate reads.
+      const rechecked = await compile({ root })
       return {
         ...result,
+        problems: rechecked.problems,
+        summary: rechecked.summary,
+        ok: rechecked.ok,
         dynamicReview: {
           ran: true,
           elapsedMs: Date.now() - started,
@@ -566,6 +584,7 @@ export function apply(ctx) {
           findings: outcome.findings ?? [],
           problems: outcome.problems ?? [],
           questions,
+          stale,
           report: outcome.report ?? null,
         },
         nextStep:
@@ -954,6 +973,120 @@ export function apply(ctx) {
             submitted: args.ingest ?? null,
             spawnJudge: judgeSpawner(exec),
           })
+        },
+      }),
+    )
+
+    // The entry point a developer actually calls. The two extractors above are still
+    // registered and are deliberately unchanged — each carries a documented guarantee, and a
+    // caller who needs the stronger per-sentence attribution of `ratchet_ingest_source`
+    // should still be able to ask for it by name. What this adds is that nobody has to: it
+    // measures the document, splits it on its headings when the cap requires it, drives one
+    // judge call per chunk, validates each answer against its own chunk, and reports what it
+    // did. A document the cap can hold is one chunk and one call.
+    register(
+      defineTool({
+        name: 'ratchet_ingest',
+        description:
+          'Turn a document that states one or MANY decisions into PROPOSED architecture decision records, ' +
+          'choosing the extraction path itself. It splits a source too large for one call on its HEADINGS ' +
+          '(mechanically, never by judgement), runs one extraction per chunk, and validates every decision ' +
+          'against the text it was drawn from: a decision whose cited span cannot be located is refused ALONE ' +
+          'and the rest of its chunk still lands. Every record it writes is `proposed` — nothing here puts a ' +
+          'decision into force, and a human ratifies through ratchet_ratify. It reports the chunk boundaries, ' +
+          'what each chunk produced and what it refused, so the split is visible rather than implied. Pass ' +
+          '`ingest` to file answers you obtained yourself — a single verdict object for a one-chunk source, or ' +
+          'an array of one verdict per chunk — which is how a session that cannot spawn a judge still completes ' +
+          'the ingestion. Use `ratchet_ingest_source` instead when you specifically want its stronger ' +
+          'per-sentence attribution check, and `ratchet_ingest_batch` when you want to drive the cap and the ' +
+          'split yourself.',
+        parameters: {
+          source: {
+            type: 'string',
+            description: 'Repository-relative path of the source file to extract decisions from.',
+          },
+          write: {
+            type: 'boolean',
+            description:
+              'Write the generated records under the decisions directory. Default false — the records are ' +
+              'returned for review first, and each one is written only if it compiles.',
+          },
+          ingest: {
+            type: 'json',
+            description:
+              'Answers you obtained yourself, when no judge could be spawned: a single verdict object ' +
+              '(`{ decisions: [{ span, title, decision, reasoning, reasoningBasis, context, contextBasis, … }] }`) ' +
+              'for a one-chunk source, or an array of one such object per chunk in order. Each is validated ' +
+              'exactly like a spawned judge\'s result, provenance checks included; a `null` entry leaves that ' +
+              'chunk unanswered.',
+          },
+        },
+        output: output(),
+        async execute(args, exec) {
+          const resolved = rootFor(exec)
+          const sourcePath = typeof args.source === 'string' && args.source.length > 0 ? args.source : null
+          if (sourcePath === null) {
+            return {
+              ok: false,
+              stage: 'ingest-auto',
+              reason: 'ingestion needs the path of a source file holding the reasoning to record',
+            }
+          }
+          if (!resolved.found) {
+            return {
+              ok: false,
+              stage: 'ingest-auto',
+              reason: `no ${MANIFEST_PATH} found, so there is no decisions directory or zone list to record against; call ratchet_bootstrap first`,
+            }
+          }
+          return ingestAuto({
+            root: resolved.root,
+            sourcePath,
+            write: args.write === true,
+            submitted: args.ingest ?? null,
+            spawnJudge: judgeSpawner(exec),
+          })
+        },
+      }),
+    )
+
+    // The drafting half of duplicate detection. `scripts/check-duplicate-decisions.mjs` reports
+    // and fails the gate; this turns each report into a `proposed` resolution a human can
+    // ratify. It runs no model — the two rules are decidable from the files — so there is no
+    // `ingest`-style answer argument here, and nothing it writes is in force.
+    register(
+      defineTool({
+        name: 'ratchet_deduplicate',
+        description:
+          'Detect the duplicate decisions a machine can decide and DRAFT the resolution that settles each ' +
+          'one, so the only remaining act is a human ratification. Two rules are decidable from the files: one ' +
+          'law statement declared under two different law ids, and one source cited by two records that also ' +
+          'declare a law in common. For each it drafts an ordinary `proposed` record carrying ' +
+          '`resolves: [loser, winner]` and an `op: remove` for the duplicated law — the surgical settlement, ' +
+          'which withdraws the one law and leaves the rest of that record governing. It writes no approval and ' +
+          'puts nothing into force: deleting a draft is how it is declined. A finding it cannot draft (a ' +
+          'humanOnly zone, a terminal record, no shared law id) is reported with its reason rather than guessed ' +
+          'at. The deterministic command keeps its own exit code and never runs a judge.',
+        parameters: {
+          write: {
+            type: 'boolean',
+            description:
+              'Write each drafted resolution under the decisions directory. Default false — the drafts are ' +
+              'returned as text for review first, and the file is the thing a human deletes to decline.',
+          },
+        },
+        output: output(),
+        async execute(args, exec) {
+          const resolved = rootFor(exec)
+          if (!resolved.found) {
+            return {
+              ok: false,
+              stage: 'deduplicate',
+              unusable: true,
+              reason: `no ${MANIFEST_PATH} found, so there is no corpus to deduplicate`,
+            }
+          }
+          return deduplicate({ root: resolved.root, write: args.write === true })
         },
       }),
     )

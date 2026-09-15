@@ -132,6 +132,18 @@ export const VERDICT_SCHEMA = Object.freeze({
           kind: { type: 'string' },
           lawId: { type: 'string' },
           sourceAdr: { type: 'string' },
+          /**
+           * The in-force statement of the law this finding judges, quoted verbatim, or its
+           * spec hash. Required whenever `lawId` is present.
+           *
+           * A law id is a pointer a model can misread; a quotation is a claim that can be
+           * checked. Without one, a finding that names a law is about whatever statement the
+           * judge believed the id carried — which is how a false positive over a SUPERSEDED
+           * statement froze every write in a zone, with the law actually in force saying the
+           * opposite. The verdict validator compares this against the compiled law and refuses
+           * the finding when it does not match, so a judge error cannot stop work.
+           */
+          lawQuote: { type: 'string' },
           explanation: { type: 'string' },
           suggestedAction: { type: 'string' },
         },
@@ -242,6 +254,13 @@ export const JUDGE_SYSTEM = [
   '',
   'Cite only law ids and ADR ids that appear in the material below. If you cannot',
   'cite one, describe the problem without a citation rather than inventing an id.',
+  '',
+  'When a finding names a lawId it MUST also carry `lawQuote`: the statement that law',
+  'has IN THE MATERIAL BELOW, copied verbatim, or the spec hash printed at the top of',
+  'it. Quote it from the material, never from memory and never from another record',
+  'that talks about the law — a finding whose quote does not match the law as it is in',
+  'force is discarded, and a finding that names a law without quoting it is discarded',
+  'with it. A finding about a decision\'s PROSE alone names no lawId.',
 ].join('\n')
 
 /**
@@ -718,7 +737,7 @@ function firstJsonObject(text) {
  *   judge's own verdict AND the absence of reference errors; a verdict that cannot
  *   be trusted is never reported as `ok`.
  */
-export function validateVerdict(verdict, { lawIds = [], adrIds = [] } = {}) {
+export function validateVerdict(verdict, { lawIds = [], adrIds = [], laws = null, lawHashes = null } = {}) {
   const problems = []
   if (verdict === null || typeof verdict !== 'object' || Array.isArray(verdict)) {
     return {
@@ -736,6 +755,12 @@ export function validateVerdict(verdict, { lawIds = [], adrIds = [] } = {}) {
 
   const knownLaws = new Set(lawIds)
   const knownAdrs = new Set(adrIds)
+  // What each law in force actually SAYS, so a finding can be required to quote it. The two
+  // maps are optional so an older caller that has only the ids still works — a finding that
+  // cannot be checked against a statement is reported as unusable rather than trusted, which
+  // is the conservative direction.
+  const statements = laws === null || laws === undefined ? null : new Map(Object.entries(laws))
+  const hashes = lawHashes === null || lawHashes === undefined ? null : new Map(Object.entries(lawHashes))
   const findings = []
   const rawFindings = Array.isArray(verdict.findings) ? verdict.findings : []
   if (!Array.isArray(verdict.findings)) {
@@ -769,12 +794,36 @@ export function validateVerdict(verdict, { lawIds = [], adrIds = [] } = {}) {
     if (typeof raw.explanation !== 'string' || raw.explanation.trim().length === 0) {
       referenceErrors.push('the finding carries no explanation')
     }
+    // A finding bound to a law must QUOTE it. The quote is the whole difference between a
+    // judgement about the corpus and a judgement about what the judge believed the id meant:
+    // the failure this closes is a finding raised against a law's SUPERSEDED statement, which
+    // named a law in force and read a statement that no longer existed. A finding that names
+    // no law is unaffected — a judge may report an incoherent corpus without binding it to one.
+    if (typeof raw.lawId === 'string' && raw.lawId.length > 0 && knownLaws.has(raw.lawId)) {
+      const quote = typeof raw.lawQuote === 'string' ? raw.lawQuote.trim() : ''
+      if (quote.length === 0) {
+        referenceErrors.push(
+          'the finding names a law but quotes neither its statement nor its hash, so there is nothing to check it against',
+        )
+      } else if (statements !== null) {
+        const statement = statements.get(raw.lawId) ?? null
+        const hash = hashes === null ? null : hashes.get(raw.lawId) ?? null
+        const collapsed = (value) => String(value ?? '').toLowerCase().replace(/\s+/g, ' ').trim()
+        const matchesStatement = statement !== null && collapsed(statement) === collapsed(quote)
+        const matchesHash = hash !== null && quote.includes(hash)
+        if (!matchesStatement && !matchesHash) {
+          referenceErrors.push(
+            `the quote does not match law ${JSON.stringify(raw.lawId)} as it is in force; the finding is about a text that is not the compiled law, so it cannot block anything`,
+          )
+        }
+      }
+    }
 
     if (referenceErrors.length > 0) {
       problems.push(
         problem(
           'DYNAMIC_REVIEW_REQUIRED',
-          `the judge cited something that does not exist (${referenceErrors.join('; ')}); the finding is reported as unusable rather than passed on, because a reader cannot act on a reference that resolves to nothing`,
+          `the judge cited something that does not exist or cannot be checked (${referenceErrors.join('; ')}); the finding is reported as unusable rather than passed on, because a reader cannot act on a reference that resolves to nothing and a finding about a superseded statement would freeze work the law permits`,
           raw.lawId ?? null,
           { index, referenceErrors, raw },
         ),
@@ -787,6 +836,7 @@ export function validateVerdict(verdict, { lawIds = [], adrIds = [] } = {}) {
       kind: raw.kind,
       lawId: raw.lawId ?? null,
       sourceAdr: raw.sourceAdr ?? null,
+      lawQuote: typeof raw.lawQuote === 'string' ? raw.lawQuote : null,
       explanation: raw.explanation,
       suggestedAction: raw.suggestedAction ?? null,
     })

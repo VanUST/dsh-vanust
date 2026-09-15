@@ -61,6 +61,7 @@ import {
   bootstrap,
   compile,
   createCommandRunner,
+  deduplicate,
   exitCodeFor,
   exitCodeForReview,
   findRoot,
@@ -85,6 +86,7 @@ Commands:
   pending             list the decisions waiting for a human ratification
   review              build an advisory review prompt or grilling agenda
   ingest <source>     turn a raw source into a PROPOSED ADR (advisory)
+  deduplicate [--write] draft a PROPOSED resolution for every decidable duplicate
   falsify             break one generic invariant at a time and require the gate to fail
   hash <file>         print the sha256 of a decision source file
 
@@ -123,7 +125,7 @@ to re-run until it passes. The static gate is \`verify\`.
  *   first thing that could not be parsed.
  */
 export function parseArgs(argv) {
-  const commands = new Set(['status', 'compile', 'verify', 'check', 'bootstrap', 'pending', 'review', 'ingest', 'falsify', 'hash', 'help'])
+  const commands = new Set(['status', 'compile', 'verify', 'check', 'bootstrap', 'pending', 'review', 'ingest', 'deduplicate', 'falsify', 'hash', 'help'])
   const options = {
     root: null,
     json: false,
@@ -314,6 +316,11 @@ export async function run(argv) {
       spawnJudge: null,
       write: options.write,
     })
+  } else if (command === 'deduplicate') {
+    // The drafting half of duplicate detection, and the same split as ingest: it needs no
+    // model, so a shell can do all of it. `--write` places the drafts; without it the text
+    // is printed, which is how a reviewer reads a settlement before it exists as a file.
+    result = deduplicate({ root, write: options.write })
   } else if (command === 'falsify') {
     // The breaker: it mutates the project, runs the real verifier, and restores every
     // mutation. It is deterministic and needs no model — the counterexample is the
@@ -355,9 +362,18 @@ export async function run(argv) {
           : result.code === 'INSUFFICIENT_REASONING' || result.code === 'ALREADY_RECORDED'
             ? result.code
             : 'ADVISORY'
-        : result.ok
-          ? 'OK'
-          : 'PROBLEMS'
+        : command === 'deduplicate'
+          ? // Advisory, and it says what it did rather than whether a problem list is empty:
+            // a corpus with no duplicate and a corpus it could not settle are both "no
+            // problems" and need opposite next actions.
+            result.unusable === true
+              ? 'UNUSABLE'
+              : result.drafts.length === 0 && result.undraftable.length === 0
+                ? 'CLEAN'
+                : 'DRAFTED'
+          : result.ok
+            ? 'OK'
+            : 'PROBLEMS'
     process.stdout.write(`ratchet ${command}: ${state} (${root})\n`)
     // How much was actually evaluated, printed BEFORE the problem list. A gate that
     // says "OK" without saying what it looked at is the same failure as a check that
@@ -375,6 +391,19 @@ export async function run(argv) {
       )
     }
     printProblems(result, options.quiet)
+    // A fact that is not a problem still has to be READ, which is why it is printed here
+    // rather than left in the JSON. `compile` and `verify` both carry it: it says whether any
+    // corpus review has recorded the law set now in force, which is the one thing the
+    // deterministic checks cannot answer for themselves. Silence would be indistinguishable
+    // from "reviewed and clean", which is the state this field exists to tell apart.
+    if (result.contradictionReview !== null && result.contradictionReview !== undefined) {
+      const review = result.contradictionReview
+      process.stdout.write(
+        review.stale === true
+          ? `  contradiction detection: NOT RUN for these laws — ${review.reason}\n`
+          : `  contradiction detection: ${review.at ?? '(no time recorded)'} read the law set now in force\n`,
+      )
+    }
     if (result.summary !== undefined && result.summary.total > 0) {
       process.stdout.write(
         `  ${result.summary.total} problem(s): ${Object.entries(result.summary.byCode)
@@ -414,6 +443,22 @@ export async function run(argv) {
       process.stdout.write(
         '  a shell cannot ask you anything, so this command cannot ratify: run the ratification in a session, where the ratchet puts the question to you and records your answer\n',
       )
+    }
+    if (command === 'deduplicate') {
+      if (result.scanned !== null && result.scanned !== undefined) {
+        process.stdout.write(
+          `  examined ${result.scanned.records} record(s), ${result.scanned.statements} law statement(s), ${result.scanned.sources} source hash(es)\n`,
+        )
+      }
+      for (const draft of result.drafts) {
+        process.stdout.write(`  draft ${draft.id}: ${draft.title}\n`)
+        process.stdout.write(`    withdraws ${draft.removes} from ADR ${draft.withdraws}; ADR ${draft.keeps} keeps governing\n`)
+        process.stdout.write(`    ${draft.written === null ? `not written (${draft.path}; pass --write)` : `written to ${draft.written}`}\n`)
+      }
+      for (const entry of result.undraftable) {
+        process.stdout.write(`  NOT DRAFTED [${entry.duplicate.code}]: ${entry.reason}\n`)
+      }
+      if (result.nextStep !== undefined) process.stdout.write(`  ${result.nextStep}\n`)
     }
     if (command === 'review' || command === 'ingest') {
       if (result.degraded === true) {
@@ -532,6 +577,15 @@ export async function run(argv) {
     // `--recover` only repairs; recovered-or-nothing is a success by definition.
     if (options.recover === true) return EXIT.OK
     return result.ok === true ? EXIT.OK : EXIT.PROBLEMS
+  }
+  // Deduplication drafts proposals; it never gates. A corpus with a duplicate is the
+  // deterministic command's red gate (`check-duplicate-decisions`), not this one's, so the
+  // exit code here distinguishes only "the corpus could not be read" (2) from "the run
+  // happened" (0). Making this command fail on a duplicate it had just drafted would mean
+  // the drafter's own output turned the command red.
+  if (command === 'deduplicate') {
+    if (result.unusable === true) return EXIT.CONFIG
+    return EXIT.OK
   }
   return exitCodeFor(result)
 }

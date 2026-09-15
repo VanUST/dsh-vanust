@@ -1139,6 +1139,76 @@ export function headingsIn(sourceText) {
 }
 
 /**
+ * Splits a source document into the chunks one batch extraction can carry.
+ *
+ * The cap is mechanical and so is the split, which is what makes the whole path usable
+ * without a developer deciding where to cut. A document no larger than the cap is ONE
+ * chunk, and a larger one is cut at its headings so that each chunk holds at most `cap`
+ * headings — and therefore at most `cap` decisions, since a decision is drawn from the
+ * heading that introduces it. The cut is on a heading boundary, so no section is divided
+ * between two chunks, and the heading that opens a chunk is included in it.
+ *
+ * When a single heading covers more than the cap — a document with one enormous section —
+ * there is no heading to cut on and the chunk is cut at line boundaries instead. That is
+ * reported as `mechanical: false` for the affected chunk rather than hidden: a cut that can
+ * divide one decision between two chunks is a weaker split, and the caller has to be able
+ * to see that it happened.
+ *
+ * @param sourceText - The source document.
+ * @param options - `{ cap }`, defaulting to {@link BATCH_DECISION_CAP}.
+ * @returns `{ chunks, cap, headings, total }`. `chunks` holds `{ index, startLine,
+ *   endLine, text, headings, mechanical }`, numbered from 1 in document order, where
+ *   `startLine` and `endLine` are 1-based inclusive line numbers. A document with no
+ *   heading at all yields one chunk over the whole text, so an unheaded source is
+ *   ingested rather than refused.
+ */
+export function planIngestChunks(sourceText, { cap = BATCH_DECISION_CAP } = {}) {
+  const text = normaliseText(String(sourceText ?? ''))
+  const lines = text.split('\n')
+  const headings = headingsIn(text)
+  const limit = Number.isInteger(cap) && cap > 0 ? cap : BATCH_DECISION_CAP
+
+  const slice = (startLine, endLine) => lines.slice(startLine - 1, endLine).join('\n')
+  const make = (index, startLine, endLine, mechanical) => ({
+    index,
+    startLine,
+    endLine,
+    text: slice(startLine, endLine),
+    headings: headings.filter((heading) => heading.line >= startLine && heading.line <= endLine).map((heading) => heading.title),
+    mechanical,
+  })
+
+  // A document the cap can hold, and a document with no heading to cut on, are both one
+  // chunk. The second is deliberately not a failure: a source that is one long narrative
+  // holds one decision, and refusing it would make the tool useless on exactly the sources
+  // a person writes by hand.
+  if (headings.length <= limit) {
+    return { chunks: [make(1, 1, Math.max(lines.length, 1), true)], cap: limit, headings, total: 1 }
+  }
+
+  // A heading boundary starts a section that runs to the line before the next heading. The
+  // preface before the first heading belongs to the first chunk, so no text is dropped.
+  const bounds = headings.map((heading, position) => ({
+    line: heading.line,
+    end: position + 1 < headings.length ? headings[position + 1].line - 1 : lines.length,
+  }))
+
+  const chunks = []
+  let cursor = 0
+  while (cursor < bounds.length) {
+    const first = bounds[cursor]
+    const group = bounds.slice(cursor, cursor + limit)
+    const last = group[group.length - 1]
+    const startLine = chunks.length === 0 ? 1 : first.line
+    const endLine = Math.max(last.end, startLine)
+    chunks.push(make(chunks.length + 1, startLine, endLine, true))
+    cursor += limit
+  }
+
+  return { chunks, cap: limit, headings, total: chunks.length }
+}
+
+/**
  * Validates a whole batch extraction, one decision at a time.
  *
  * The cap is checked FIRST and refuses the batch as a unit, because the cap is a statement
