@@ -213,6 +213,21 @@ claim(
   `parameters=${JSON.stringify(parameterNames)}`,
 )
 
+// 4b. The grill entry is a third ENTRY to the same channel, not a third channel: it
+//     triggers the ratchet's own question and carries no key an answer could travel in.
+//     Asserted as an exact allow-list for the same reason as the tool above, so a new
+//     argument on the ingestion surface is a deliberate edit here rather than a quiet
+//     widening of what the ratchet accepts.
+const ingestSchema = registered.get('ratchet_ingest_source')?.parameters ?? {}
+const ingestParameters = Object.keys(ingestSchema.properties ?? {}).sort()
+const INGEST_ALLOWED_PARAMETERS = ['ingest', 'ratify', 'source', 'write']
+claim(
+  'the grill entry triggers the question and accepts no answer',
+  JSON.stringify(ingestParameters) === JSON.stringify(INGEST_ALLOWED_PARAMETERS) &&
+    ingestSchema.properties?.ratify?.type === 'boolean',
+  `parameters=${JSON.stringify(ingestParameters)} ratify=${JSON.stringify(ingestSchema.properties?.ratify?.type)}`,
+)
+
 // 5. And an answer without the quiz it answers is refused, writing nothing.
 const composed = ops.ratify({
   root: pendingRoot,

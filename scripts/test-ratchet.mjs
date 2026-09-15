@@ -4733,6 +4733,103 @@ test('ratify: a rejected answer writes nothing and leaves the record proposed', 
 })
 
 // ---------------------------------------------------------------------------
+// the tool adapter: a declared tool whose body was never executed
+// ---------------------------------------------------------------------------
+
+/** Applies the adapter against a fake context and returns the registered tools. */
+function toolHarness({ ask = null } = {}) {
+  const registered = new Map()
+  const questions = ask === null ? undefined : { ask }
+  tools.apply({
+    effect: (fn) => fn(),
+    on: () => () => {},
+    get: (name) => (name === 'userQuestions' ? questions : undefined),
+    tools: {
+      register: (definition) => (registered.set(definition.name, definition), () => {}),
+      guard: () => () => {},
+      schemas: () => [],
+    },
+  })
+  return registered
+}
+
+test('tool: ratchet_ingest_source runs, and ratify puts the new decision to the human in the same call', async () => {
+  // A `proposeOnly` zone, because that is the only kind the ratchet can put to a human:
+  // a `humanOnly` zone refuses an agent record even when ratified, so a fixture using
+  // one would test the refusal rather than the consent.
+  const root = makeProject({
+    name: 'tool-ingest-ratify',
+    zones: [{ id: 'api', paths: ['src/api/**'], agentAuthority: 'proposeOnly' }],
+    adrs: {
+      '0001-starter.adr.md': adrText({
+        id: '0001',
+        sourceHash: schema.hashSource(SOURCE_TEXT),
+        zones: ['api'],
+        laws: [{ id: 'api.starter', statement: 'A starter law.', checks: [] }],
+      }),
+    },
+  })
+  const asked = []
+  const registered = toolHarness({
+    ask: async ({ questions }) => {
+      asked.push(questions)
+      return { answers: questions.map((question) => ({ id: question.id, selected: ['Approve'] })) }
+    },
+  })
+  const tool = registered.get('ratchet_ingest_source')
+  assert.ok(tool !== undefined, 'the ingest tool is registered')
+
+  // The `ingest` argument supplies the judge's result, so this path needs no model.
+  const result = await tool.execute(
+    {
+      source: SOURCE_PATH,
+      write: true,
+      ratify: true,
+      ingest: fixtureIngestResult({
+        zones: ['api'],
+        laws: [{ id: 'api.session-storage.redis', statement: 'Session storage must use Redis.', checks: [] }],
+      }),
+    },
+    { agent: { id: 'session-tool-ingest', session: { header: { cwd: root } } } },
+  )
+
+  assert.equal(result.ok, true, JSON.stringify(result.problems?.map((entry) => entry.code)))
+  assert.equal(result.ratify?.attempted, undefined, 'the ratification ran rather than reporting nothing to ratify')
+  assert.equal(asked.length, 1, 'the question reached the human channel, not the model')
+  assert.deepEqual(result.ratified, [result.adr.id])
+  assert.ok(
+    readdirSync(join(root, 'docs', 'adrs')).some((name) => name.includes('ratify')),
+    'an approval ADR was written for the ingested decision',
+  )
+})
+
+test('tool: ingestion with ratify mints nothing when the record was not written', async () => {
+  const root = await ingestProject('tool-ingest-fail-closed')
+  const asked = []
+  const registered = toolHarness({
+    ask: async ({ questions }) => {
+      asked.push(questions)
+      return { answers: questions.map((question) => ({ id: question.id, selected: ['Approve'] })) }
+    },
+  })
+  const tool = registered.get('ratchet_ingest_source')
+
+  // No judge and no submitted result, so ingestion cannot produce a record to consent to.
+  const result = await tool.execute(
+    { source: SOURCE_PATH, write: true, ratify: true },
+    { agent: { id: 'session-tool-ingest-2', session: { header: { cwd: root } } } },
+  )
+
+  assert.equal(result.ratify?.attempted, false, 'nothing was written, so nothing was put to the human')
+  assert.equal(asked.length, 0, 'no question is asked when there is nothing to consent to')
+  assert.equal(
+    readdirSync(join(root, 'docs', 'adrs')).length,
+    1,
+    'only the starter record exists; the grill entry minted nothing',
+  )
+})
+
+// ---------------------------------------------------------------------------
 // the /ratify command: the same operation, reached without a model turn
 // ---------------------------------------------------------------------------
 

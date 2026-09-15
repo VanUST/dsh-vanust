@@ -37,6 +37,7 @@ import {
   bootstrap,
   compile,
   findRoot,
+  ingest,
   ratifications,
   ratify,
   ratifyInteractively,
@@ -294,6 +295,52 @@ export function apply(ctx) {
           kind: 'error',
           text: `the ratification did not settle: ${String(error)}. Nothing was written for a call that threw, so no consent was minted.`,
         }
+      }
+    }
+
+    /**
+     * Puts a freshly ingested decision to the human in the same call, when asked.
+     *
+     * This is the grill entry: the agent grills the human, writes the reasoning to a
+     * source, and asks the ratchet to record the decision — and the human consents in
+     * the same flow, through the one question channel. It is a third ENTRY, never a
+     * third channel: the quiz is the ratchet's own and no argument accepts an answer.
+     *
+     * It FAILS CLOSED. A record that was not written is not ratified, because there is
+     * nothing on disk to consent to and the approval would bind a text only the caller
+     * has seen; a missing channel or an unreadable answer mints nothing. The proposal
+     * and the reason are returned instead, so the caller can put the question itself.
+     *
+     * @param ingested - The `ingest` operation's result.
+     * @param context - `{ root, exec }` — the project and the call whose agent is asked.
+     * @returns The ingestion result, plus a `ratify` field holding the canonical
+     *   ratification result and a `ratifyOutcome` string rendering it. When the record
+     *   was not written, `ratify` carries `{ attempted: false, reason }` and nothing is
+     *   minted.
+     */
+    const ratifyIngested = async (ingested, { root, exec }) => {
+      const id = ingested?.adr?.id
+      if (typeof id !== 'string' || id.length === 0 || ingested?.written === null || ingested?.written === undefined) {
+        return {
+          ...ingested,
+          ratify: {
+            attempted: false,
+            reason:
+              'the record was not written, so there is nothing to ratify: call again with write enabled, then the question can be put to the human',
+          },
+        }
+      }
+      const result = await ratifyInteractively({
+        root,
+        ids: [id],
+        askedBy: askedByFor(exec),
+        askHuman: humanChannel(exec),
+      })
+      return {
+        ...ingested,
+        ratify: result,
+        ratified: result.ratified ?? [],
+        ratifyOutcome: renderRatifyOutcome(result),
       }
     }
 
@@ -723,7 +770,9 @@ export function apply(ctx) {
           'refused or dropped rather than recorded. When the source states a decision without stating why, it returns ' +
           'INSUFFICIENT_REASONING and asks for the reasoning to be captured first. Nothing is written unless write is ' +
           'true, and the record it produces is always `proposed`: a human decides whether it becomes law, through ' +
-          'ratchet_ratify. Pass `ingest` to file an answer you obtained yourself when no judge could be spawned.',
+          'ratchet_ratify. Pass `ingest` to file an answer you obtained yourself when no judge could be spawned. Pass ' +
+          '`ratify` to end a grill session with the ratchet\'s own question: once the record is written, the same ' +
+          'call puts it to the human through the question channel and records the approval.',
         parameters: {
           source: {
             type: 'string',
@@ -741,35 +790,43 @@ export function apply(ctx) {
               'A result you produced for this source, in the shape the returned prompt asks for. It is validated ' +
               'exactly like a spawned judge\'s result, provenance checks included; use it when no judge could be spawned.',
           },
+          ratify: {
+            type: 'boolean',
+            description:
+              'After writing the record, put it to the human as the ratchet\'s own question in the same call — the ' +
+              'grill-session entry to consent, and never a second channel: no value here accepts an answer. Fails ' +
+              'closed, so nothing is approved when the record was not written, when no question channel is ' +
+              'available, or when the answer cannot be read. Default false.',
+          },
         },
         output: output(),
-        execute(args, exec) {
+        async execute(args, exec) {
           const resolved = rootFor(exec)
           const sourcePath = typeof args.source === 'string' && args.source.length > 0 ? args.source : null
           if (sourcePath === null) {
-            return Promise.resolve({
+            return {
               ok: false,
               stage: 'ingest',
               reason: 'ingestion needs the path of a source file holding the reasoning to record',
-            })
+            }
           }
           if (!resolved.found) {
-            return Promise.resolve({
+            return {
               ok: false,
               stage: 'ingest',
               reason: `no ${MANIFEST_PATH} found, so there is no decisions directory or zone list to record against; call ratchet_bootstrap first`,
-            })
+            }
           }
 
-          const runtime = ctx.get(SUBAGENTS_SERVICE)
-          const agent = exec?.agent
-          return ingest({
+          const ingested = await ingest({
             root: resolved.root,
             sourcePath,
             write: args.write === true,
             submitted: args.ingest ?? null,
             spawnJudge: judgeSpawner(exec),
           })
+          if (args.ratify !== true) return ingested
+          return ratifyIngested(ingested, { root: resolved.root, exec })
         },
       }),
     )
