@@ -60,6 +60,13 @@ node "$KIT/scripts/kit-update.mjs" --apply                  # converge, then rec
 - A machine that disagrees with the kit cannot look converged: `--check` exits non-zero
   and names the files.
 - Restart `dsh web` afterwards — the profile is composed once, at boot.
+- **A restart kills every subagent running in a session, because they run inside the server
+  process.** They are not lost — the session keeps them and a later message resumes one from
+  where it stopped — but work in flight is gone and nothing re-runs it by itself. So: do not
+  restart while a subagent is mid-task unless you are willing to re-run it, and after a restart
+  PING each subagent you still need (`send_message`, or start a fresh one) before assuming its
+  report is coming. Treat an unfinished subagent as an outstanding item, not as a silent
+  failure.
 
 `$KIT` is the clone's directory. If you do not know it, read it from
 `$DSH_HOME/.dsh-kit-state.json` (`kit`), or ask: `node <kit>/scripts/kit-update.mjs --help`.
@@ -151,6 +158,7 @@ are fixed by re-installing the profile files (§3).
 | `MODEL_NOT_ALLOWED` | a non-Flash model is configured; the default must be `deepseek-flash` |
 | `MISSING_CREDENTIAL` | credentials live per machine in `$DSH_HOME/.credentials.yaml`; finish onboarding |
 | A plugin change had no effect | the profile composes at boot — restart `dsh web` |
+| A subagent stopped mid-task with no report | the server restarted under it; ping it to resume (see §4) — it is not lost, and only its in-flight work is |
 | A repacked tarball had no effect | its version was not bumped (§5.2) |
 | `ERR_MODULE_NOT_FOUND` for `@deepseek-ai/dsh-tools` | the checkout is not linked: `node $KIT/scripts/dev-link.mjs` |
 | The gate reports `VERIFY_NOT_RUN` | the laws or the code changed since the recorded verification: run `verify` again |
