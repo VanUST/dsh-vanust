@@ -328,9 +328,10 @@ report a pass. The gate is the CLI above; the tools are for an agent mid-session
   cases remain (a mutation that breaks `buildQuiz` makes the scripts exit 1 with a
   `TypeError` instead of the `FAILED` marker); the gate still fails, so only the diagnosis is
   poorer, and it is recorded as a limit rather than fixed by restructuring both scripts.
-- **Three decisions await a human:** `0015` (the grill session consents through the question
-  channel), `0017` (a proposal licenses the work, a contradiction stops it) and `0018` (a
-  question says where it is shown). None is in force, none is blocking, and each is a record
+- **Four decisions await a human:** `0015` (the grill session consents through the question
+  channel), `0017` (a proposal licenses the work, a contradiction stops it), `0018` (a question
+  says where it is shown) and `0019` (the panel's consent laws are enforced by executing the
+  bundle). None is in force, none is blocking, and each is a record
   a human can ratify from the panel the previous cycle shipped — which is the flow ADR 0017
   describes, applied to ADR 0017 itself.
 - **This machine's live profile is converged** on `main` (ratchet 0.2.27, kit-rules 0.1.1,
