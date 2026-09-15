@@ -417,6 +417,13 @@ const synthetic = {
       laws: [], summary: '', sections: [], error: null,
       state: { text: 'superseded by 0009', kind: 'superseded', derived: true }, provenance: null, canRatify: false,
     },
+    {
+      id: '0017', path: 'synthetic/0017.adr.md', title: 'a decision awaiting a human', type: 'adr',
+      status: 'proposed', authority: 'agent', authorName: 'deepseek-flash', created: '2026-09-15',
+      sourcePath: 'docs/ratchet/sources/y.md', sourceHash: 'def67890', zones: ['zone-a'], supersedes: [], approves: [],
+      laws: [], summary: 'awaiting a ratification', sections: [], error: null,
+      state: { text: 'awaiting a human', kind: 'pending', derived: false }, provenance: null, canRatify: true,
+    },
   ],
   consents: [],
   specs: [{
@@ -426,7 +433,7 @@ const synthetic = {
   }],
   relations: { approvedBy: {}, supersededBy: { '0002': ['0009'] } },
   lawsByDecision: { '0002': [{ law: syntheticLaw('L-super', '0002'), zone: 'zone-a' }] },
-  decisionIds: { '0002': true },
+  decisionIds: { '0002': true, '0017': true },
   recordIds: { '0002': true, '0009': true },
   dirs: { decisionsDir: 'docs/adrs', specsDir: 'docs/specs' },
   projectName: 'synthetic project',
@@ -1051,12 +1058,15 @@ const asked = []
 const overlayForRows = registry['shell.overlay'].config.inject()
 panelStore.set({ ask: function (adrId) { asked.push(adrId) }, ratify: null, request: null })
 
-/** Renders the window over the real corpus and returns its buttons. */
+/** Renders the window over the SYNTHETIC corpus and returns its buttons. */
 const renderRows = async (tag) => {
   await flush(
     React.createElement(
       registry['shell.overlay'].Component,
-      Object.assign({}, overlayForRows, { usePanel: (selector) => selector(panelStore.getSnapshot()) }),
+      Object.assign({}, overlayForRows, {
+        usePanel: (selector) => selector(panelStore.getSnapshot()),
+        load: () => Promise.resolve(synthetic),
+      }),
     ),
     tag,
   )

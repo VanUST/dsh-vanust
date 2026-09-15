@@ -105,6 +105,92 @@
       "unenforced": null
     },
     {
+      "id": "shipped-plugins.a-contradiction-with-law-in-force-stops-the-work",
+      "statement": "A proposed decision that removes a law in force, or redeclares one under a different statement, refuses writes into the zones it names — including zones a decision in force already covers — and the refusal is recomputed from the corpus on every write, so editing the proposal lifts it with no other action; only the decidable form of a contradiction is caught here and the rest is refused to the review judge with that limit stated.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0017",
+      "sourcePath": "docs/adrs/0017-agent-proposals-are-not-blocking.adr.md",
+      "approvedBy": "0021",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet-guard.mjs",
+          "expects": "a proposal that contradicts law in force stops writes until it is edited, and a removal stops them too",
+          "timeoutMs": 180000
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.a-proposal-never-licenses-a-human-only-zone",
+      "statement": "A proposed record never satisfies requiresDecisionRecord in a zone whose agentAuthority is humanOnly, because the compiler refuses an agent-authored record there even when a human ratifies it, so a proposal that licensed the write would let an agent govern a zone the manifest reserved to humans.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0017",
+      "sourcePath": "docs/adrs/0017-agent-proposals-are-not-blocking.adr.md",
+      "approvedBy": "0021",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet-guard.mjs",
+          "expects": "a proposed record cannot license a zone the manifest reserves to humans",
+          "timeoutMs": 180000
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.a-proposed-decision-licenses-the-work",
+      "statement": "A PROPOSED decision that names a zone satisfies that zone's requiresDecisionRecord, so an agent may write the work it describes before a human decides, while the proposal itself adds no law, no check and no generated spec — only decisions in force compile.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0017",
+      "sourcePath": "docs/adrs/0017-agent-proposals-are-not-blocking.adr.md",
+      "approvedBy": "0021",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet-guard.mjs",
+          "expects": "a proposed record licenses a governed write without becoming law",
+          "timeoutMs": 180000
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.a-question-says-where-it-is-shown",
+      "statement": "The ratchet's presentation intent is attached to a ratification question only when the caller asks for the panel, so a grilling session's question declares none and the harness's own card asks it in the Conversation; an unrecognised presentation is treated as the Conversation's, because a value that does not say panel is one no client may claim on the ratchet's behalf.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0018",
+      "sourcePath": "docs/adrs/0018-the-question-says-where-it-is-shown.adr.md",
+      "approvedBy": "0022",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "the caller's presentation reaches the question and the re-ask",
+          "timeoutMs": 300000
+        },
+        {
+          "type": "command",
+          "run": "node scripts/check-consent-surface.mjs",
+          "expects": "the panel matches the intent the ratchet sends, and a grill gets no intent to claim",
+          "timeoutMs": 180000
+        }
+      ],
+      "unenforced": null
+    },
+    {
       "id": "shipped-plugins.adapter-is-the-only-harness-edge",
       "statement": "The tool adapter is the only module allowed to import the harness, and a module added later cannot escape the boundary by not being named.",
       "zones": [
@@ -120,6 +206,26 @@
           "run": "node --test scripts/test-ratchet.mjs",
           "expects": "every ratchet test passes, including the boundary falsification case",
           "timeoutMs": 300000
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.an-agents-decision-is-never-a-chat-quiz",
+      "statement": "The ADR panel claims the Conversation's composer seat for a ratification question in order to suppress the harness's card and renders a pointer there — the decision's name and a way into the panel — never the question, its record text or either answer label, which appear only in the decision window; the claim is a suppression and not the only route to the human, so with nothing claiming the seat the question is still asked and answerable in the Conversation.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0018",
+      "sourcePath": "docs/adrs/0018-the-question-says-where-it-is-shown.adr.md",
+      "approvedBy": "0022",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node scripts/test-adr-panel.mjs",
+          "expects": "the seat does not put the question or its record text in the Conversation, and offers no answer button",
+          "timeoutMs": 180000
         }
       ],
       "unenforced": null
@@ -481,6 +587,55 @@
       "approvedBy": "0016",
       "checks": [],
       "unenforced": "Same phase as the law above, and enforceable by the same script extension, which must assert that the panel bundle calls no write and that the host action mints nothing without an answered question. Its mechanical half already holds and is asserted today — the bundle reads through `workspaceFiles.list`/`read` and writes nothing — by `node scripts/test-adr-panel.mjs`, which prints `adr panel render ok`."
+    },
+    {
+      "id": "shipped-plugins.the-panels-consent-laws-are-enforced-by-executing-the-bundle",
+      "statement": "The panel's consent laws — that it offers consent only through the ratchet's own question and records none of its own — are enforced by executing the shipped browser bundle and driving the real slot core, requiring the claim to be elected for the ratchet's real question while a claim at the default priority loses, the Conversation seat to render nothing the question owns in text, in a displayed attribute or behind any handler that can settle the question, the window's clicks to send exactly the batch the ratchet reads back as an approval or a rejection, and the whole render to call nothing but the file surface's two reads.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0019",
+      "sourcePath": "docs/adrs/0019-the-panels-consent-laws-are-enforced-behaviourally.adr.md",
+      "approvedBy": "0023",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node scripts/test-adr-panel.mjs",
+          "expects": "the panel's consent surface is measured by acting on it, not read",
+          "timeoutMs": 180000,
+          "outputContains": "adr panel render ok"
+        },
+        {
+          "type": "command",
+          "run": "node scripts/check-consent-surface.mjs",
+          "expects": "the panel matches the intent the ratchet sends, and a grill gets no intent to claim",
+          "timeoutMs": 180000,
+          "outputContains": "consent surface ok"
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.the-question-seam-is-measured-by-the-probe",
+      "statement": "The ratification question's path to a human is measured end to end against a live profile rather than assumed — the question reaches a real human channel with the live root agent, its presentation intent survives the wire, the answers are derived from the labels, an unreadable answer is re-asked in a different shape, and the approval puts the decision into force — because the panel presenting that question is only trustworthy if the thing being presented is.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0019",
+      "sourcePath": "docs/adrs/0019-the-panels-consent-laws-are-enforced-behaviourally.adr.md",
+      "approvedBy": "0023",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node scripts/probe-dsh-api.mjs --ratchet-ratify",
+          "expects": "the ratification quiz runs end to end and the approval lands",
+          "timeoutMs": 600000,
+          "outputContains": "10/10 facts confirmed by execution"
+        }
+      ],
+      "unenforced": null
     },
     {
       "id": "shipped-plugins.the-question-seam-is-measured-from-the-panel-host",
