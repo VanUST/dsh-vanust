@@ -358,6 +358,49 @@ this route: both ends are measured, the wire is not. And the capability global r
 real page render: the probe reads the injection table the renderer consumes, but no browser
 was opened. The reasoning source listed by ADR 0034 says both, plainly.
 
+### 2.8 `workspaceFiles.read` is a page of LINES, and it drops a final newline
+
+**The fact.** The workspace file API has two text-carrying reads and they are not
+interchangeable. `read(scope, path, range, signal)` returns ONE PAGE of lines from
+`cutPage`, which splits the file on `\n`, keeps the requested lines, and rebuilds the page
+as `lines.join("\n")` (`@deepseek-ai/dsh-api-workspace-files/lib/index.js:182-226`); the
+trailing line is pushed only when it is non-empty, so a file whose last line ends in a
+newline comes back WITHOUT that newline. `readAll(scope, path, signal)` returns the file's
+exact bytes, base64-encoded, from `fs.readByteRange` (`:443-464`). The page defaults are
+`offset: 1`, `limit: config.maxLines` (5000) (`:526-534`).
+
+**Measured.** Driving the real exported `WorkspaceFiles` class in-process (a real cordis
+`Context`, a `node:fs`-backed `fs` stub) over this kit's own corpus:
+`docs/adrs/0014-the-panel-ratifies-through-the-question-channel.adr.md` is **8946 bytes on
+disk and 8945 bytes from `read`**, and its paged text hashes to
+`sha256:4c386eb718a689317eafa67994a8163e28b057ce4183fce86d1c56982c4afc99` while the
+ratification ADR 0016 records `sha256:307b2c2011e0666528e85986444c0dee55913091cc5f23aaea574c0864c4dbc3`
+— the whole-file hash. Ten of this corpus's decisions are bound by a recorded consent. A
+hash taken over the raw paged text matches none of the ten. After the panel's own
+CR→LF normalisation it matches only the two whose files happen to end in CRLF, where the
+dropped `\n` is restored by the `\r`; for the eight whose files end in a plain LF it
+matches none of them.
+
+**Why it matters here, and the trap.** A ratification binds one content hash to one exact
+text, and the ratchet computes it over the whole file (`hashSource`, `ratchet-schema.mjs`
+`:1639`). A reader that hashes a page instead is comparing against a text the human never
+approved, so every consent silently fails: on 2026-09-15 the ADR panel displayed **14**
+decisions as `awaiting a human` — the 7 the ratchet really queued plus 7 whose consents its
+page-based hash could not verify — while `node plugins/ratchet/ratchet-cli.mjs pending
+--root .` reported 7. The corpus makes the bug non-uniform, which is what hid it: a record
+whose file ends in CRLF survives the line rejoin (its `\r` becomes the `\n` the normaliser
+would have produced), so some ratified records read `in force` while their LF-ended
+siblings did not. That asymmetry is why the fix is "hash the file's bytes", not "add a
+newline back".
+
+**Reproduction.** `@deepseek-ai/dsh-api-workspace-files/lib/index.js:182-226` is the
+behaviour; `scripts/test-adr-panel.mjs` reproduces the same transport shape (`pageOf`, and
+a `readAll` carrying base64 bytes), drives the shipped panel over the kit's real
+`docs/adrs` through it, and requires the waiting set it derives to EQUAL the set
+`ratificationQueue` — the function `ratchet pending` calls — reports. Run
+`node scripts/test-adr-panel.mjs`: reverting the panel's hash to the paged text makes that
+claim fail with the 14-record set above.
+
 ---
 
 ## 3. Where declarations and behaviour diverge

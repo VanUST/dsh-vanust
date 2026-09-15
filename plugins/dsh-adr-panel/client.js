@@ -42,6 +42,19 @@
  *   No zone name, law-id shape, file name beyond the `*.adr.md` / `*.spec.md` suffixes,
  *   or presence of any record is assumed.
  *
+ *   A RECORD'S TEXT IS READ BYTE-EXACTLY, because a consent is a claim about an exact
+ *   text. The workspace file API has two reads: a paged `read` that returns ONE PAGE of
+ *   lines REBUILT by joining them with `\n`, and a whole-file `readAll` that returns the
+ *   file's exact bytes as base64. The paged text is not the file's text: a file whose
+ *   last line ends in a newline comes back without it (measured against the harness's
+ *   own service: 8946 bytes on disk, 8945 returned). Hashing that reconstruction made a
+ *   record whose last line ends in a plain LF hash to a value no ratification ever
+ *   recorded, so every consent it carried read as unproven and a decision in force was
+ *   displayed as `awaiting a human` — the exact class of wrong verdict this panel is
+ *   forbidden to show. The whole-file read is therefore the ONLY source of a hash;
+ *   where it is unavailable the record is left without one, which means "not proven"
+ *   rather than "proven against a text nobody approved", and the reason is reported.
+ *
  *   DIAGNOSTIC: the window header carries this bundle's own `PANEL_VERSION`. A browser
  *   keeps its revision-addressed client bundle until the page reloads, so without a
  *   version a stale bundle and a bug look identical.
@@ -201,6 +214,12 @@
  *     buttons re-enable; the click never throws out of the handler.
  *   - A directory or a single file that cannot be read: reported as a line, and the
  *     rest of the list still renders.
+ *   - A record the whole-file read cannot serve — a harness whose file API has no
+ *     `readAll`, a file above its cap, or bytes that do not decode: the paged read is
+ *     used for the display text, the record is given NO content hash, and a line names
+ *     the file and the reason. A consent that cannot be verified is reported as
+ *     unverifiable rather than as unpaid, and is never inferred from a text that is not
+ *     the file's own.
  *   - Frontmatter or a spec that does not parse: the record is listed with whatever
  *     parsed and a note; a field that did not parse renders as `unknown`, and parsing
  *     never throws.
@@ -243,7 +262,7 @@ window.__ModuleLoader__.load({
 		 * are equal again after a release and the constant is one ahead only in the working
 		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.20";
+		const PANEL_VERSION = "0.1.22";
 		/** The manifest a ratchet project declares its directories and name in. */
 		const MANIFEST_PATH = ".dsh/project.json";
 		/** Directories used when the manifest is absent, unparseable, or silent. */
@@ -821,8 +840,10 @@ window.__ModuleLoader__.load({
 		 *   edited out from under — which is the stale-consent case the host refuses.
 		 *
 		 * INPUTS
-		 *   text - The record text as the file API returned it (already normalised by
-		 *     `readDirectory`). Any non-string is treated as the empty string.
+		 *   text - The record's WHOLE-FILE text as {@link readRecordText} returned it
+		 *     (already normalised there). A text that is only a page of the file is not
+		 *     this record's text and must not be hashed: see `readRecordText`. Any
+		 *     non-string is treated as the empty string.
 		 *
 		 * OUTPUTS
 		 *   A promise for `sha256:<64 lowercase hex>`, or `null` when the platform exposes
@@ -1530,13 +1551,109 @@ window.__ModuleLoader__.load({
 			return "this project";
 		}
 		/**
+		 * Decode the base64 payload a whole-file read returns.
+		 *
+		 * The workspace file API's `readAll` answers with the file's exact bytes encoded
+		 * as base64, because the wire carries text. Decoding here — rather than hashing
+		 * the base64 — is what makes the result comparable with a ratification's
+		 * `contentHash`, which the ratchet computed over the file's decoded text.
+		 *
+		 * INPUTS
+		 *   data - the base64 string (`readAll`'s `value.data`), or any value.
+		 *
+		 * OUTPUTS
+		 *   The decoded text, or `null` when the platform exposes no `atob` or no
+		 *   `TextDecoder`, when the payload is not valid base64, or when `data` is not a
+		 *   string. An empty payload decodes to the empty string — a real (if useless)
+		 *   file — and is not confused with a failure, which is `null`.
+		 *
+		 * KEYWORDS
+		 *   base64, utf-8, text decoder, whole-file read, content hash
+		 */
+		function decodeBase64Utf8(data) {
+			if (typeof data !== "string") return null;
+			if (typeof atob !== "function" || typeof TextDecoder !== "function") return null;
+			try {
+				var binary = atob(data);
+				var bytes = new Uint8Array(binary.length);
+				for (var i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+				return new TextDecoder("utf-8").decode(bytes);
+			} catch (error) {
+				return null;
+			}
+		}
+		/**
+		 * PURPOSE
+		 *   Read one record's text in the form that can be hashed the way the ratchet
+		 *   hashed it. A consent binds one content hash to one exact text, so the panel
+		 *   must hash the file's bytes and never a reconstruction of them: the paged
+		 *   `read` rebuilds the text by joining the file's lines with `\n`, which DROPS a
+		 *   final newline, and a record whose last line ends in a plain LF then hashes to
+		 *   a value no ratification recorded — so a decision a human ratified is shown as
+		 *   awaiting a human. The whole-file `readAll` returns the file's exact bytes.
+		 *
+		 * INPUTS
+		 *   files - the workspace-files Remote. `readAll` is used when it is a function;
+		 *   `read` is the fallback.
+		 *   sessionId - the Session whose workspace root resolves the path.
+		 *   path - the file's path, as `readDirectory` composed it.
+		 *   signal - the caller's AbortSignal, or undefined.
+		 *   failures - the shared failure list. A fallback appends one line, because a
+		 *   text that is not byte-exact cannot verify a consent and saying so is the only
+		 *   honest alternative to reporting the decision as unpaid.
+		 *
+		 * OUTPUTS
+		 *   A promise for `{ text, exact, eof }`, or `null` when nothing could be read.
+		 *   `text` is normalised for display and parsing; `exact` is true ONLY when it is
+		 *   the file's decoded whole bytes, and the caller computes a content hash ONLY
+		 *   then. `eof` is false when the fallback served a first page that does not reach
+		 *   the end. Never rejects: every failure becomes a line in `failures` and a
+		 *   `null` (or a page-based record), so the rest of the corpus still renders.
+		 *
+		 * KEYWORDS
+		 *   whole-file read, readAll, base64, content hash, trailing newline, page fallback
+		 */
+		function readRecordText(files, sessionId, path, signal, failures) {
+			var fromPage = function (reason) {
+				return files.read(sessionId, path, {}, signal).then(function (read) {
+					if (read === undefined || read === null || read.ok !== true) {
+						failures.push(path + ": " + describeError(read && read.error));
+						return null;
+					}
+					var eof = read.value ? read.value.eof !== false : true;
+					if (eof === false) failures.push(path + ": only the first page was read, so the panel may be incomplete");
+					failures.push(path + ": read only as a page (" + reason + "), so a ratification this record carries cannot be verified");
+					return { text: normaliseText(read.value && read.value.text ? read.value.text : ""), exact: false, eof: eof };
+				}, function (error) {
+					failures.push(path + ": " + describeError(error));
+					return null;
+				});
+			};
+			if (typeof files.readAll !== "function") return fromPage("this workspace file API exposes no whole-file read");
+			return files.readAll(sessionId, path, signal).then(function (read) {
+				var decoded = read !== undefined && read !== null && read.ok === true ? decodeBase64Utf8(read.value && read.value.data) : null;
+				if (decoded === null) {
+					// Two different failures reach here and they read differently: a whole-file read the
+					// host refused, and a payload this platform cannot decode.
+					var why = read !== undefined && read !== null && read.ok === true ? "its bytes could not be decoded here" : describeError(read && read.error);
+					return fromPage(why);
+				}
+				return { text: normaliseText(decoded), exact: true, eof: read.value ? read.value.eof !== false : true };
+			}, function (error) {
+				return fromPage(describeError(error));
+			});
+		}
+		/**
 		 * Read one directory's files of one suffix, through the workspace-files Remote.
 		 *
 		 * The Remote resolves a Session id to its workspace root and returns a
 		 * RemoteResult, so every branch is data: an unreadable directory or file is
-		 * pushed into `failures` and the remaining items still load.
+		 * pushed into `failures` and the remaining items still load. Each file's text
+		 * comes from {@link readRecordText}, so a caller can tell a byte-exact text from
+		 * a page that only approximates one.
 		 *
-		 * @returns a promise for the readable items.
+		 * @returns a promise for the readable items, each
+		 *   `{ name, path, text, exact, eof }`.
 		 */
 		function readDirectory(files, sessionId, dir, suffix, signal, failures) {
 			return files.list(sessionId, dir, signal).then(function (listing) {
@@ -1554,17 +1671,9 @@ window.__ModuleLoader__.load({
 				if (listing.value && listing.value.truncated === true) failures.push(dir + ": the listing was truncated by the host");
 				return Promise.all(names.map(function (name) {
 					var path = String(base).replace(/\/+$/, "") + "/" + name;
-					return files.read(sessionId, path, {}, signal).then(function (read) {
-						if (read === undefined || read === null || read.ok !== true) {
-							failures.push(path + ": " + describeError(read && read.error));
-							return null;
-						}
-						var eof = read.value ? read.value.eof !== false : true;
-						if (eof === false) failures.push(path + ": only the first page was read, so the panel may be incomplete");
-						return { name: name, path: path, text: normaliseText(read.value && read.value.text ? read.value.text : ""), eof: eof };
-					}, function (error) {
-						failures.push(path + ": " + describeError(error));
-						return null;
+					return readRecordText(files, sessionId, path, signal, failures).then(function (item) {
+						if (item === null) return null;
+						return { name: name, path: path, text: item.text, exact: item.exact, eof: item.eof };
 					});
 				}));
 			}, function (error) {
@@ -1621,12 +1730,15 @@ window.__ModuleLoader__.load({
 				]).then(function (both) {
 					var items = both[0].filter(Boolean);
 					// Every record's sha256 is computed once, before the relations are built, so a
-					// ratification can be matched against the text now in the file. A digest that
-					// cannot be computed is null, which proves no consent for that target.
+					// ratification can be matched against the text now in the file. It is taken from
+					// the record's WHOLE-FILE text only: a hash over a text that is not the file's own
+					// proves nothing, so a record read only as a page is left without one — which the
+					// force model treats as no consent, and which the failure line reported for that
+					// file explains. A digest that cannot be computed is null for the same reason.
 					return Promise.all(items.map(function (item) { return contentHashOf(item.text); })).then(function (hashes) {
 					var adrs = items.map(function (item, index) {
 						var parsed = parseAdr(item);
-						parsed.contentHash = hashes[index];
+						parsed.contentHash = item.exact === true ? hashes[index] : null;
 						return parsed;
 					}).sort(byAdrId);
 					var specs = both[1].filter(Boolean).map(parseSpec);

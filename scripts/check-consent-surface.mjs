@@ -292,9 +292,10 @@ claim(
 // approval or a rejection — that the window shows that question, the record's own text and
 // both labels, that the outcome names the artifact, and that NO composer message is composed
 // in any of it, so a panel ratification never becomes a chat message. That, plus the whole
-// render calling nothing but `list` and `read` on the file surface, is the enforcement for
-// ADR 0014's and 0018's panel laws; this file holds the cross-artifact half, which no
-// single-bundle test can see.
+// render calling nothing but `list`, the paged `read` and the whole-file `readAll` on the file
+// surface — and the real-corpus requirement that the waiting set the panel derives EQUAL the
+// set `ratificationQueue` reports — is the enforcement for ADR 0014's and 0018's panel laws;
+// this file holds the cross-artifact half, which no single-bundle test can see.
 
 // 4c. The question's presentation is claimed by a wire literal that CANNOT be imported: the
 //     ratchet is a Node plugin and the client half is a hand-written browser closure with no

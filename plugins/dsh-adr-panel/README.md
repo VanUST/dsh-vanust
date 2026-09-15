@@ -52,7 +52,8 @@ reader can re-check rather than trust.
 | `shell.overlay` is a **list** slot, scope `root`, click-through until an entry opts into pointer events | catalog entry in `@deepseek-ai/dsh-cordis-client-runner/lib/client.js:3948-3990`; slot tree in `deepseek-harness/docs/subsystems/slots.md` |
 | A registration's `inject: () => ({ … })` members become component props, and `hooks: { panel: source }` becomes a `usePanel(selector)` hook from a bare `getSnapshot`/`subscribe` source | `docs/subsystems/slots.md` ("Developer-provided injection"); shipped example `@deepseek-ai/dsh-session-log-export/lib/client.js:279-286` (`hooks: { sessionLogDownload: controller.store }`) |
 | `RemoteResult<T>` is `{ ok: true, value } | { ok: false, error }` | `@deepseek-ai/dsh-typert-protocol/lib/types/types.d.ts:65-71` |
-| File catalogues: `ctx.remote.workspaceFiles.list(sessionId, path, signal)` and `.read(sessionId, path, range, signal)`, both answering `RemoteResult` | Host signatures `@deepseek-ai/dsh-api-workspace-files/lib/types/index.d.ts:82,125`; client-side `result.ok` handling in `@deepseek-ai/dsh-client-ui-sidebar-files/lib/client.js:52`; the Remote is injected as **`remote`** in `@deepseek-ai/dsh-api-workspace-files/lib/client.js:447-451` |
+| File catalogues: `ctx.remote.workspaceFiles.list(sessionId, path, signal)`, `.read(sessionId, path, range, signal)` and `.readAll(sessionId, path, signal)`, all answering `RemoteResult` | Host signatures `@deepseek-ai/dsh-api-workspace-files/lib/types/index.d.ts:82,125`; client-side `result.ok` handling in `@deepseek-ai/dsh-client-ui-sidebar-files/lib/client.js:52`; the Remote is injected as **`remote`** in `@deepseek-ai/dsh-api-workspace-files/lib/client.js:447-451`; `readAll` is called by the harness's own browser plugin as `ctx.remote.workspaceFiles.readAll(file.sessionId, file.path, signal)` in `@deepseek-ai/dsh-client-ui-sidebar-documentpreview/lib/client.js:26941` |
+| `read` returns ONE PAGE of lines and rebuilds the text by joining them with `\n`, so a file whose last line ends in a newline comes back WITHOUT it; `readAll` returns the file's exact bytes as base64 | `@deepseek-ai/dsh-api-workspace-files/lib/index.js:182-226` (`cutPage`: `lines.join("\n")`, and the final line is pushed only when it is non-empty), `:399-411` (`read`), `:443-464` (`readAll`, base64 of `fs.readByteRange`), `:526-534` (the page defaults). Measured in-process through the real `WorkspaceFiles` service: `docs/adrs/0014-…adr.md` is 8946 bytes on disk and 8945 bytes from `read`, so its paged text hashes to `sha256:4c386eb7…` while the ratification that binds it records `sha256:307b2c20…` |
 | `conversation.composer` is a **chain** slot. Its owner passes `{ sessionId, session, pendingInteraction }` as owner props, and the chain renders the **first** entry whose `select(ownerProps)` returns a non-null value; a selector that throws is *"treated as declined"*. **Order is ASCENDING `priority`: lower tries first, ties keep registration order.** The entry that owns every question claims ALL pending questions at the default `priority: 0`, so a claim at 0 or above is never reached — which is why this panel registers at **-1**; the approval entry is at `1` and works only because a pending approval is not a pending question, so the owner declines it first | owner `@deepseek-ai/dsh-client-ui-conversation/lib/client.js:14932-14937`; election `@deepseek-ai/dsh-client-ui-renderer/lib/client.js:824-844`; the ordering's own comment, the sort, and the chain return in `@deepseek-ai/dsh-client-ui-slots/src/index.ts` (`ChainSelect` doc, `register`'s `next.sort(...)`, `entriesOfSlot`), duplicated in the installed bundle at `@deepseek-ai/dsh-web-frontend/dist/assets/index-DuF6ti6g.js` (`p.sort(...(m,g)=>(m.options.priority??0)-(g.options.priority??0))`); owner `@deepseek-ai/dsh-client-ui-user-questions/lib/client.js:873-878`; second claimant `@deepseek-ai/dsh-client-ui-approval/lib/client.js:265-272` |
 | A question may carry `intent: { kind, approve }`, and a presentation is allowed to claim it only when it can send **every** answer the question allows. The harness renders `plan-review` itself and falls back to a generic card for everything else; the generic card always offers a free-text answer, and the shipped `PlanReviewPanel` claims a question with two buttons anyway, so a two-label presentation is the sanctioned shape for a binary question | `@deepseek-ai/dsh-client-ui-user-questions/lib/client.js:38-56` (`planReviewOf`), `:246-330` (`PlanReviewPanel`, two buttons only), `:660-722` (the generic card's free-text row) |
 | A host plugin serves a browser by registering an HTTP route: `ctx.webServer.register({ kind, path, handler })`, a duplicate path throws, and the server awaits an async handler | `@deepseek-ai/dsh-host-webserver/lib/index.js:176` (`register`), `:228` (the awaited handler); shipped example `@deepseek-ai/dsh-host-open-in-app/lib/index.js:1324-1454` |
@@ -64,8 +65,15 @@ reader can re-check rather than trust.
 | The context publishes an index global through the webserver's injection table: `web.on('webserver/index-inject', (table) => table.push({ kind: 'global', name, value }))` | `@deepseek-ai/dsh-host-webserver/lib/index.js:74-93` (the row renderer) and `:349-353` (`collectIndexInjections`); the same subscription in `@deepseek-ai/dsh-client-connection/lib/index.js:760-766` |
 
 The paths in the file-catalogue row are the only data reads the plugin performs in the
-browser; the browser half writes nothing. The host half writes nothing either — the
-approval and the transcript are written by the ratchet inside the `ratchetConsent` call.
+browser; the browser half writes nothing. A record's text is taken from **`readAll`**, the
+whole-file read, because a consent is a claim about an exact text and the paged text is a
+reconstruction that drops a final newline: hashing it made a ratified record whose last
+line ends in a plain LF hash to a value no ratification recorded, so the decision was
+displayed as `awaiting a human` while the ratchet had it in force. A record the whole-file
+read cannot serve is left with NO content hash — so it can never be reported as in force on
+the strength of a text nobody approved — and the window reports that its consent could not
+be verified instead of silently listing it as unpaid. The host half writes nothing either —
+the approval and the transcript are written by the ratchet inside the `ratchetConsent` call.
 `scripts/check-consent-surface.mjs` fails when the route, the service name, the capability
 header or the capability global stops being the same value on both halves, when any
 registered tool names one of them, or when the provided consent service stops refusing the
@@ -124,10 +132,18 @@ measures what the bundle does with them, not whether the running shell supplies 
   `$DSH_HOME/.credentials.yaml` could forge that cookie, which is the same hand-written
   approval the deployment's rule 12 already names as forgeable.
 
-- That `list`/`read` return the `RemoteResult` wrapper at runtime. The `.d.ts`
-  declares the unwrapped value; the client file browser checks `.ok`, so the wrapper
-  is used here. If the runtime instead returns the bare value, the panel shows a
-  visible load failure rather than crashing.
+- That `list`/`read`/`readAll` return the `RemoteResult` wrapper at runtime. The `.d.ts`
+  declares the unwrapped value; the client file browser and the harness's own document
+  preview check `.ok`, so the wrapper is used here. If the runtime instead returns the bare
+  value, the panel shows a visible load failure rather than crashing.
+- **That `readAll` is on the browser-side Remote at all** is a reading, not a browser
+  measurement: it is one of the namespace's generated Remote descriptors
+  (`@deepseek-ai/dsh-api-workspace-files/lib/typert.remote-client.js:202-237`) and the
+  harness's own client plugin calls it through the same `ctx.remote` object this plugin
+  reads (`@deepseek-ai/dsh-client-ui-sidebar-documentpreview/lib/client.js:26941`). No
+  browser was opened. Where it is absent the panel falls back to the paged read, gives the
+  record no content hash, and says in the window that a ratification it carries could not
+  be verified — a visible degradation, never a silent wrong state.
 - Theme variables (`--dsw-*`) are used with literal fallbacks. `scripts/test-adr-panel.mjs`
   resolves every colour the bundle renders — every toned pill AND every toned button (the
   row's **Approve**, the window's **Approve**, the pointer's **Open the ADRs panel**) —
@@ -138,14 +154,16 @@ measures what the bundle does with them, not whether the running shell supplies 
   no pair to compare. What is still not verified is the theme's own contrast: the check
   refuses a collapse, not a low-contrast palette, and whether the shell's tints read well
   is the shell's decision, not this panel's.
-- That the running shell's origin exposes `crypto.subtle` (Web Crypto). The panel derives
-  each decision's in-force state the way the ratchet does, and a ratification counts only
-  while the recorded content hash still matches the file, which it computes with
-  `crypto.subtle.digest`. The panel runs on the harness's localhost origin, where Web
-  Crypto is available; on a non-secure origin `contentHashOf` returns `null` and a
-  consented record reads as not in force rather than being trusted unverified. The
-  offline test runs in Node, where `crypto.subtle` exists, so the fallback itself is not
-  exercised.
+- That the running shell's origin exposes `crypto.subtle` (Web Crypto) and `atob` plus
+  `TextDecoder`. The panel derives each decision's in-force state the way the ratchet does,
+  and a ratification counts only while the recorded content hash still matches the file,
+  which it computes with `crypto.subtle.digest` over the whole-file text `readAll` returned
+  (base64-decoded by `atob`/`TextDecoder`). The panel runs on the harness's localhost
+  origin, where Web Crypto is available; on a non-secure origin `contentHashOf` returns
+  `null` and a consented record reads as not in force rather than being trusted
+  unverified, and a `readAll` payload that cannot be decoded takes the same path with a
+  reported reason. The offline test runs in Node, where `crypto.subtle`, `atob` and
+  `TextDecoder` exist, so the fallbacks themselves are not exercised.
 
 ## Fallbacks and deliberate omissions
 

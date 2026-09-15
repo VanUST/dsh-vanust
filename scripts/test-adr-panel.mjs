@@ -226,12 +226,26 @@ claim('the factory exports an apply', typeof bundle.apply === 'function', `apply
 
 // ── a fake workspace file API over the kit's real corpus ────────────────────
 //
-// The surface deliberately exposes ONLY the two reads the panel is allowed to make, and
-// records every call. A panel that writes anything would have to invent a method name, and
-// `scripts/check-consent-surface.mjs` is where the claim that it does not is enforced
-// against the bundle: here the point is that the whole render is watched, so "it reads and
-// does nothing else" is measured rather than asserted from the source text.
+// The surface exposes the three reads the panel is allowed to make — the directory listing,
+// the paged text read and the whole-file byte read — and records every call. A panel that
+// writes anything would have to invent a method name, and `scripts/check-consent-surface.mjs`
+// is where the claim that it does not is enforced against the bundle: here the point is that
+// the whole render is watched, so "it reads and does nothing else" is measured rather than
+// asserted from the source text.
+//
+// THE PAGED READ IS NOT THE FILE'S TEXT, and this stub reproduces that rather than hiding it.
+// The harness's `@deepseek-ai/dsh-api-workspace-files` `read` returns ONE PAGE of lines,
+// rebuilt by joining them with `\n`, so a file whose last line ends in a newline comes back
+// without it: measured against the harness's own service, a 8946-byte record came back as
+// 8945 bytes and hashed to a value no ratification recorded. A stub that returned the whole
+// file here would make this test blind to exactly the defect it exists to catch — a decision
+// a human ratified displayed as `awaiting a human` — so `read` truncates and `readAll`
+// carries the exact bytes, which is what the two reads really do.
 const fileCalls = []
+/** The text the harness's paged read returns for one file's text: its lines joined by `\n`. */
+const pageOf = (text) => (text.endsWith('\n') ? text.slice(0, -1) : text)
+/** A successful RemoteResult carrying one file's whole bytes, as `readAll` answers. */
+const wholeFileResult = (absolute) => ({ ok: true, value: { data: readFileSync(absolute).toString('base64'), eof: true } })
 const fileSurface = {
   list(_sessionId, directory) {
     fileCalls.push('list')
@@ -250,7 +264,17 @@ const fileSurface = {
     try {
       const absolute = join(KIT, relativePath)
       if (!statSync(absolute).isFile()) throw new Error('not a file')
-      return Promise.resolve({ ok: true, value: { text: readFileSync(absolute, 'utf8'), eof: true } })
+      return Promise.resolve({ ok: true, value: { text: pageOf(readFileSync(absolute, 'utf8')), eof: true } })
+    } catch (error) {
+      return Promise.resolve({ ok: false, error: { message: String(error.message) } })
+    }
+  },
+  readAll(_sessionId, relativePath) {
+    fileCalls.push('readAll')
+    try {
+      const absolute = join(KIT, relativePath)
+      if (!statSync(absolute).isFile()) throw new Error('not a file')
+      return Promise.resolve(wholeFileResult(absolute))
     } catch (error) {
       return Promise.resolve({ ok: false, error: { message: String(error.message) } })
     }
@@ -258,8 +282,8 @@ const fileSurface = {
 }
 
 // A Proxy, not the bare object: the claim under test is "the whole render calls nothing
-// but list and read", and against a stub that defines only those two an extra call is a
-// TypeError the bundle swallows — so `stat`, `readAll` or `write` would execute and never
+// but the three reads above", and against a stub that defines only those an extra call is a
+// TypeError the bundle swallows — so `stat`, `readBytes` or `write` would execute and never
 // appear in the record. Every unlisted member is now reachable, records itself, and is
 // reported, which is what makes the claim about the CALLS rather than about the stub.
 const fileApi = new Proxy(fileSurface, {
@@ -1457,8 +1481,8 @@ claim(
 // the half of the consent surface that a bundle cannot be trusted to state about itself.
 const distinctFileCalls = [...new Set(fileCalls)].sort()
 claim(
-  'the whole render lists and reads, and calls nothing else',
-  distinctFileCalls.length > 0 && distinctFileCalls.every((name) => name === 'list' || name === 'read'),
+  'the whole render lists, reads a page and reads whole files, and calls nothing else',
+  distinctFileCalls.length > 0 && distinctFileCalls.every((name) => name === 'list' || name === 'read' || name === 'readAll'),
   `calls=${JSON.stringify(distinctFileCalls)} of ${fileCalls.length}`,
 )
 
@@ -1559,9 +1583,38 @@ const fixture = (name, { zones, defaultAgentAuthority, adrs, expect, expectProbl
   return { name, files, expect, expectProblem, expectRatify }
 }
 
-/** Applies the bundle to a fresh context over a fixture's fake workspace files. */
-function applyFresh(files) {
+/**
+ * Applies the bundle to a fresh context over one workspace-files api.
+ *
+ * Extracted from `applyFresh` so the SAME panel can also be driven over the kit's real
+ * corpus through the real transport shape, which is where the ratchet's own answer is
+ * available to compare against.
+ *
+ * @returns the fresh slot registry the bundle populated.
+ */
+function applyOverApi(api) {
   const freshRegistry = {}
+  const ctx = {
+    remote: { workspaceFiles: api },
+    effect(fn) { fn() },
+    slots: {
+      inject(_parent, fn) { fn() },
+      register(config, Component) { freshRegistry[config.name] = { config, Component }; return () => {} },
+    },
+  }
+  bundle.apply(ctx)
+  return freshRegistry
+}
+
+/**
+ * Applies the bundle to a fresh context over a fixture's fake workspace files.
+ *
+ * The two reads mirror the harness's: `read` answers with the page a line-joined
+ * reconstruction produces, `readAll` with the file's exact bytes. A fixture built by
+ * `fixtureAdr` ends in a newline, so the two texts differ by that byte — which is the
+ * difference a content hash is sensitive to.
+ */
+function applyFresh(files) {
   const api = {
     list(_sessionId, directory) {
       const prefix = `${String(directory).replace(/\/+$/, '')}/`
@@ -1575,19 +1628,17 @@ function applyFresh(files) {
       if (!Object.prototype.hasOwnProperty.call(files, key)) {
         return Promise.resolve({ ok: false, error: { message: `no fixture file ${key}` } })
       }
-      return Promise.resolve({ ok: true, value: { text: files[key], eof: true } })
+      return Promise.resolve({ ok: true, value: { text: pageOf(files[key]), eof: true } })
+    },
+    readAll(_sessionId, relativePath) {
+      const key = String(relativePath).replace(/^\.\//, '')
+      if (!Object.prototype.hasOwnProperty.call(files, key)) {
+        return Promise.resolve({ ok: false, error: { message: `no fixture file ${key}` } })
+      }
+      return Promise.resolve({ ok: true, value: { data: Buffer.from(files[key], 'utf8').toString('base64'), eof: true } })
     },
   }
-  const ctx = {
-    remote: { workspaceFiles: api },
-    effect(fn) { fn() },
-    slots: {
-      inject(_parent, fn) { fn() },
-      register(config, Component) { freshRegistry[config.name] = { config, Component }; return () => {} },
-    },
-  }
-  bundle.apply(ctx)
-  return freshRegistry
+  return applyOverApi(api)
 }
 
 /** Runs the PANEL's own `loadPanel` over a fixture and indexes its decisions by id. */
@@ -1764,6 +1815,45 @@ await claimAgrees(
     },
     expect: { '0001': 'in-force' },
   }),
+)
+
+// ── the panel agrees with the ratchet over the kit's OWN corpus ─────────────
+//
+// The fixtures above are this test's own construction; the corpus is not, and a fixture can
+// only fail the way its author imagined. So the SAME panel is driven over the kit's real
+// `docs/adrs` through the real transport shape — a paged `read` that rebuilds a file's text
+// from its lines and therefore drops a final newline, and a `readAll` that returns the exact
+// bytes — and the set of decisions it shows as waiting is required to EQUAL the set the
+// ratchet's own queue reports, read from `ratificationQueue`, which is the function
+// `ratchet pending` calls. That equality is the requirement; the fixture cases are examples
+// of it. It is the assertion that fails the moment a content hash stops being computed over
+// the file's own bytes, which is the defect that made seven decisions in force read as
+// `awaiting a human` while the ratchet reported seven waiting.
+const { ratificationQueue } = await import(pathToFileURL(join(KIT, 'plugins', 'ratchet', 'ratchet-ratify.mjs')).href)
+const realQueue = ratificationQueue(KIT)
+claim(
+  'the ratchet derives a queue over the kit’s own corpus',
+  realQueue.ok === true && realQueue.pending.length > 0,
+  `ok=${String(realQueue.ok)} pending=${realQueue.pending.length} problems=${JSON.stringify(realQueue.problems.map((entry) => entry.code))}`,
+)
+const realRegistry = applyOverApi(fileApi)
+const realMembers = realRegistry['shell.overlay'].config.inject()
+realMembers.hooks.panel.set({ open: true, sessionId: 'stub-session' })
+const realPanel = await realMembers.load(undefined)
+const panelWaiting = realPanel.decisions
+  .filter((decision) => decision.state !== null && decision.state !== undefined && decision.state.kind === 'pending')
+  .map((decision) => decision.id)
+  .sort()
+const ratchetWaiting = realQueue.pending.map((entry) => entry.id).sort()
+claim(
+  'the panel derives exactly the waiting set the ratchet reports over the kit’s own corpus',
+  JSON.stringify(panelWaiting) === JSON.stringify(ratchetWaiting),
+  `panel=${JSON.stringify(panelWaiting)} ratchet=${JSON.stringify(ratchetWaiting)}`,
+)
+claim(
+  'and every decision it derived that from was read byte-exactly, not from a page',
+  realPanel.decisions.length > 0 && !realPanel.failures.some((line) => /cannot be verified/.test(line)),
+  `decisions=${realPanel.decisions.length} failures=${JSON.stringify(realPanel.failures)}`,
 )
 
 // ── report ──────────────────────────────────────────────────────────────────
