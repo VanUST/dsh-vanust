@@ -123,7 +123,7 @@
     },
     {
       "id": "the-panel-records-no-consent",
-      "statement": "The ADR panel writes no file and composes no answer: every button it renders sends one of the labels the ratchet itself put in the question, through the one question channel.",
+      "statement": "The ADR panel writes no file and composes no answer: every button it renders sends one of the labels the ratchet itself put on the question it was given, through the ratchet's own consent operation and never as a consent path of the panel's own.",
       "statedIn": "docs/adrs/0018-the-question-says-where-it-is-shown.adr.md",
       "enforcedBy": {
         "command": "adr-panel-render"
@@ -162,6 +162,12 @@
       "path": "scripts/probe-dsh-api.mjs"
     },
     {
+      "id": "panel-consent-probe",
+      "command": "node scripts/probe-dsh-api.mjs --adr-panel-consent",
+      "purpose": "the ADR panel's consent route end to end over real HTTP against the real webserver and the real browser fence: the capability reaches the page through the harness index injection, an unauthenticated or uncapability call is refused without writing, the ratchet's own question comes back, a hand-composed payload, a foreign quiz, a humanOnly zone, a replayed quiz and a stale text each mint nothing, and the stub human's own label writes the approval ADR and its transcript",
+      "path": "scripts/probe-dsh-api.mjs"
+    },
+    {
       "id": "consent-surface",
       "command": "node scripts/check-consent-surface.mjs",
       "purpose": "the consent surface: no shell mint, no tool argument that accepts an answer, blocked decisions reported with their reason, and retired decisions not queued",
@@ -182,7 +188,7 @@
     {
       "id": "adr-panel-render",
       "command": "node scripts/test-adr-panel.mjs",
-      "purpose": "the ADR panel's browser bundle rendered for real: the shipped client.js is loaded through a stub module loader and driven over the kit's own corpus, asserting the UX contract \u2014 three reader-facing sections, states filled and provenance outlined, the awaiting-a-human state in the warn tone, the decided-in chip taking the tone of the record it names, and every toned pill's text resolving through the installed theme to a colour other than its own fill",
+      "purpose": "the ADR panel's browser bundle rendered for real: the shipped client.js is loaded through a stub module loader and driven over the kit's own corpus, asserting the UX contract \u2014 three reader-facing sections, states filled and provenance outlined, the awaiting-a-human state in the warn tone, the decided-in chip taking the tone of the record it names, and every toned pill's text resolving through the installed theme to a colour other than its own fill \u2014 and then driven through its CONSENT PATH against a stub host: a row's Approve and Decline ask the route for the ratchet's own question, render it with the record's own text and both labels, post back the ratchet's own label paired with that same question, show the outcome, and compose no composer message in any scenario",
       "path": "scripts/test-adr-panel.mjs"
     },
     {

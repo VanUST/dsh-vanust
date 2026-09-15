@@ -10,6 +10,12 @@
  * `ratchet-compiler.mjs`, `ratchet-verifier.mjs`, `ratchet-state.mjs`,
  * `ratchet-ratify.mjs` and `ratchet-ops.mjs`, none of which import the harness.
  *
+ * It also PROVIDES one service, `ratchetConsent` (`ratchet-consent.mjs`), for the one
+ * caller that is not an agent: the ADR panel's host half, which reaches it from an HTTP
+ * route behind the browser trust fence. The service is a value, not a tool, and it
+ * exposes no operation a tool or a command argument could reach — a surface that could
+ * accept a composed answer would be the second consent path this whole design refuses.
+ *
  * That split is not tidiness. It is what lets the gate be run by a shell and by a
  * test through the SAME code path the model calls, so "the gate fails when it
  * should" is a fact about the gate rather than a claim about a tool declaration.
@@ -31,6 +37,7 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { resolve } from 'node:path'
 import { MANIFEST_PATH, PROBLEM_CODES } from './ratchet-schema.mjs'
+import { CONSENT_SERVICE, createConsentService } from './ratchet-consent.mjs'
 import { REVIEW_JOBS } from './ratchet-dynamic.mjs'
 import { registerGuard } from './ratchet-guard.mjs'
 import {
@@ -144,6 +151,26 @@ export function apply(ctx) {
   // effect: it is a different extension point (`tools.guard`), governs calls to
   // other plugins' tools, and must survive a failure to register any single tool.
   registerGuard(ctx, (exec) => rootFor(exec).root)
+
+  // The consent service: the seam a NON-AGENT surface reaches the ratchet's own
+  // question through. It is provided, never registered as a tool, so nothing an agent
+  // can call reaches it — an agent-facing operation that accepted an answer is exactly
+  // the second consent path the deployment refuses. `ctx.provide` throws when the name
+  // is already registered in this scope (a second ratchet row, or a reload that has not
+  // disposed the previous fiber), so the failure is reported on stderr and the tools are
+  // still registered rather than the whole plugin failing.
+  //
+  // Its consents record their own channel (`adr-panel`) rather than the harness seam's,
+  // and the channel is the SERVICE's, not an argument: a caller cannot ask to be recorded
+  // as having come through the user-questions seam, because it did not.
+  ctx.effect(() => {
+    try {
+      return ctx.provide(CONSENT_SERVICE, createConsentService())
+    } catch (error) {
+      process.stderr.write(`ratchet: cannot provide ${CONSENT_SERVICE}: ${String(error)}\n`)
+      return undefined
+    }
+  }, `ratchet: provide ${CONSENT_SERVICE}`)
 
   ctx.effect(() => {
     const disposers = []

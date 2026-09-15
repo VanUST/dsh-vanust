@@ -302,6 +302,38 @@ if (registry['shell.overlay'] === undefined) {
   process.exit(1)
 }
 
+// ── a stub host for the consent route ───────────────────────────────────────
+//
+// The panel reaches its host half over the page's own origin, so driving the real component
+// needs three globals: the page origin, the capability the host publishes into the index, and
+// a `fetch` that answers the route. The stub records every request, which is what makes the
+// transport claims below measurements of what the bundle SENT rather than readings of its
+// source. What the HOST does with those requests — the ratchet's refusals and the write — is
+// the probe's measurement against the real modules; here the stub stands in for it and
+// answers deterministically.
+let consentHostHandler = null
+const consentCalls = []
+globalThis.location = { origin: 'http://stub.invalid' }
+globalThis.__DSH_ADR_PANEL_CONSENT__ = { route: '/adr-panel/consent', token: 'stub-capability-token' }
+globalThis.fetch = (url, init) => {
+  const headers = init === undefined || init.headers === undefined ? {} : init.headers
+  const call = {
+    url: String(url),
+    method: init === undefined || init.method === undefined ? 'GET' : init.method,
+    headers,
+    body: init === undefined || init.body === undefined || init.body === null ? null : JSON.parse(init.body),
+  }
+  consentCalls.push(call)
+  const answer = consentHostHandler === null ? { status: 500, body: { ok: false, message: 'the stub host has no handler for this request' } } : consentHostHandler(call)
+  // `null` from a handler means "never answer", and a promise means "answer when I say so":
+  // both are how the in-flight phase is held on screen long enough to read what it renders.
+  if (answer === null) return new Promise(() => {})
+  if (typeof answer.then === 'function') {
+    return answer.then((settled) => ({ status: settled.status, json: () => Promise.resolve(settled.body) }))
+  }
+  return Promise.resolve({ status: answer.status, json: () => Promise.resolve(answer.body) })
+}
+
 /** A pill is the node carrying `chipStyle`: a fully rounded chip with that padding. */
 const isPillNode = (node) => node.tag === 'span' && node.style !== undefined && node.style.borderRadius === 999 && node.style.padding === '1px 6px'
 
@@ -1100,20 +1132,30 @@ claim(
 )
 
 
-// ── the row's buttons answer the ratchet's question directly ────────────────
+// ── a row's Approve and Decline record through the host route ───────────────
 //
-// The requirement, in the operator's words: "Buttons in ADR should approve/decline adr
-// directly, without intermediate chat". Two halves, each tested on its own, because getting
-// either wrong produces the thing that was rejected — a click that does nothing, or a quiz the
-// human is sent away to answer.
+// The requirement, in the operator's words: "clicking Approve or Decline in the panel must
+// record the decision silently — no chat message, no agent in the loop". The bundle's half
+// of that is measured here by driving the REAL component against a stub host: what it asks
+// for, what it renders, what it sends back, and that it never touches the composer.
 //
-// The REAL `requestRatify` runs here. An earlier version of this test replaced it with a spy,
-// and that stub is what let three mutations through: it never asked, never recorded, and never
-// reached the file surface.
+// The stub host answers with a quiz built by the ratchet's own `buildQuiz`, so the labels
+// the row sends are the ratchet's labels rather than this file's idea of them, and the quiz
+// it echoes back is deep-compared with the object it was given. The host's own behaviour —
+// refusing a composed payload, the stale check, the actual write — is the probe's
+// measurement against the real modules and a real HTTP server, not this stub's.
 
-const asked = []
 const overlayForRows = registry['shell.overlay'].config.inject()
-panelStore.set({ ask: function (adrId) { asked.push(adrId) }, ratify: null, request: null })
+panelStore.set({ ratify: null })
+// The composer is the one surface a panel ratification must NOT use any more. This spy is
+// wired to the only prop that could carry a composer message — the Session-header action's
+// `inputActions` — and the whole flow below runs with it in place, so "no chat message is
+// composed" is measured from the render rather than read from the source.
+const composerCalls = []
+const inputActionsSpy = {
+  setDraft(text) { composerCalls.push(['setDraft', String(text)]) },
+  submit() { composerCalls.push(['submit']) },
+}
 
 /** Renders the window over the SYNTHETIC corpus and returns its buttons. */
 const renderRows = async (tag) => {
@@ -1131,193 +1173,233 @@ const renderRows = async (tag) => {
   return nodes.filter((node) => node.tag === 'button')
 }
 
-const rowButtons = await renderRows('ratify-row')
-const rowLabels = [...new Set(rowButtons.map((node) => node.text))]
+/** Renders the window once more after an asynchronous click has had time to travel. */
+const settleRender = (tag) =>
+  flush(
+    React.createElement(
+      registry['shell.overlay'].Component,
+      Object.assign({}, overlayForRows, {
+        usePanel: (selector) => selector(panelStore.getSnapshot()),
+        load: () => Promise.resolve(synthetic),
+      }),
+    ),
+    // The SAME prefix as the render that was clicked: the stub renderer keys component
+    // instances by their path, so a different prefix is a fresh instance with fresh state —
+    // which would measure a component that had never been clicked.
+    tag,
+  )
+
+/** The ratchet's own question for one synthetic record, built by the ratchet's builder. */
+const rowQuiz = (id) =>
+  buildQuiz(
+    [
+      {
+        id,
+        title: 'a decision awaiting a human',
+        laws: [{ id: 'zone-a.one', op: 'upsert' }],
+        text: `---\nid: ${id}\n---\n\n## Decision\n\nsynthetic\n`,
+      },
+    ],
+    { attempt: 1 },
+  )
+
+/** One ask result, as the host route would return it: the quiz and nothing written. */
+const askBody = (adrId, built) => ({ ok: false, needsAnswer: true, attempt: 1, quiz: built, pending: [{ id: adrId }], blocked: [], problems: [] })
+
+const idleButtons = await renderRows('consent-row-idle')
+const idleLabels = [...new Set(idleButtons.map((node) => node.text))]
 claim(
   'a ratifiable decision offers Approve and Decline on its own row',
-  rowLabels.includes('Approve') && rowLabels.includes('Decline'),
-  JSON.stringify(rowLabels),
+  idleLabels.includes('Approve') && idleLabels.includes('Decline'),
+  JSON.stringify(idleLabels),
 )
 claim(
   'and no row asks the human to go and answer a quiz somewhere else',
-  !rowLabels.includes('Ratify…'),
-  JSON.stringify(rowLabels),
+  !idleLabels.includes('Ratify…'),
+  JSON.stringify(idleLabels),
 )
 
-// Approve: the click must record (record, decision) AND make the ratchet ask.
-const rowApprove = rowButtons.find((node) => node.text === 'Approve')
+// ── the approve click, end to end against the stub host ─────────────────────
+const approveQuiz = rowQuiz('0017')
+const approveLabelOf = approveQuiz.roles['ratify-0017'].approveLabel
+const declineLabelOf = approveQuiz.roles['ratify-0017'].rejectLabel
+const callsFrom = (from) => consentCalls.slice(from)
+consentHostHandler = () => ({ status: 200, body: askBody('0017', approveQuiz) })
+
+const beforeApprove = consentCalls.length
+const approveRowButtons = await renderRows('consent-row-approve')
+const rowApprove = approveRowButtons.find((node) => node.text === 'Approve')
 if (rowApprove !== undefined) rowApprove.props.onClick()
-const afterApprove = panelStore.getSnapshot().request
+await new Promise((resolveTick) => setTimeout(resolveTick, 20))
+await settleRender('consent-row-approve')
+const approveCalls = callsFrom(beforeApprove)
 claim(
-  'the Approve click records the record, the decision and when it happened',
-  afterApprove !== null && afterApprove !== undefined &&
-    typeof afterApprove.adrId === 'string' && afterApprove.adrId !== '' &&
-    afterApprove.decision === 'approve' && typeof afterApprove.at === 'number',
-  JSON.stringify(afterApprove),
+  "an Approve click asks the host route for the ratchet's own question about THAT record",
+  approveCalls.length >= 1 &&
+    approveCalls[0].method === 'GET' &&
+    approveCalls[0].url.includes('/adr-panel/consent') &&
+    approveCalls[0].url.includes('id=0017') &&
+    approveCalls[0].url.includes('session=') &&
+    approveCalls[0].headers['x-adr-panel-consent'] === globalThis.__DSH_ADR_PANEL_CONSENT__.token,
+  JSON.stringify(approveCalls[0] === undefined ? null : { url: approveCalls[0].url, method: approveCalls[0].method, headers: approveCalls[0].headers }),
 )
 claim(
-  'and it makes the ratchet ask about that same record',
-  asked.length === 1 && asked[0] === afterApprove.adrId,
-  JSON.stringify(asked),
+  "the panel sends the ratchet's own approve label, paired with the question it came from",
+  approveCalls.length === 2 &&
+    approveCalls[1].method === 'POST' &&
+    approveCalls[1].body !== null &&
+    approveCalls[1].body.adrId === '0017' &&
+    approveCalls[1].body.label === approveLabelOf &&
+    typeof approveCalls[1].body.session === 'string' &&
+    JSON.stringify(approveCalls[1].body.quiz) === JSON.stringify(approveQuiz),
+  JSON.stringify(approveCalls[1] === undefined ? null : { adrId: approveCalls[1].body === null ? null : approveCalls[1].body.adrId, label: approveCalls[1].body === null ? null : approveCalls[1].body.label, quizMatches: approveCalls[1].body !== null && JSON.stringify(approveCalls[1].body.quiz) === JSON.stringify(approveQuiz) }),
+)
+// What that request MEANS to the ratchet, measured with the ratchet's own reader: the label
+// the panel sent must derive as an approval rather than as an unreadable answer.
+const rowApproveDerived = deriveDecisions(approveQuiz, { answers: [{ id: 'ratify-0017', selected: [approveCalls[1].body.label] }] })
+claim(
+  "the ratchet reads the row's approve click as an approval, not an unreadable answer",
+  rowApproveDerived.decisions.length === 1 && rowApproveDerived.decisions[0].decision === 'approved' && rowApproveDerived.unreadable.length === 0,
+  JSON.stringify(rowApproveDerived),
 )
 
-// Decline: the other button routes the OTHER decision, which a test that only clicked Approve
-// could not tell.
-panelStore.set({ request: null })
-const declineButtons = await renderRows('ratify-row-decline')
-const rowDecline = declineButtons.find((node) => node.text === 'Decline')
+// Decline routes the OTHER label, which a test that only clicked Approve could not tell.
+consentHostHandler = () => ({ status: 200, body: askBody('0017', approveQuiz) })
+const beforeDecline = consentCalls.length
+const declineRowButtons = await renderRows('consent-row-decline')
+const rowDecline = declineRowButtons.find((node) => node.text === 'Decline')
 if (rowDecline !== undefined) rowDecline.props.onClick()
-const afterDecline = panelStore.getSnapshot().request
+await new Promise((resolveTick) => setTimeout(resolveTick, 20))
+await settleRender('consent-row-decline')
+const declineCalls = callsFrom(beforeDecline)
 claim(
-  'the Decline click records a decline for that record, and asks for it',
-  afterDecline !== null && afterDecline !== undefined &&
-    afterDecline.decision === 'decline' && afterDecline.adrId === asked[1] && asked.length === 2,
-  `request=${JSON.stringify(afterDecline)} asked=${JSON.stringify(asked)}`,
+  "a Decline click sends the ratchet's own reject label with the same question",
+  declineCalls.length === 2 &&
+    declineCalls[1].body !== null &&
+    declineCalls[1].body.label === declineLabelOf &&
+    declineCalls[1].body.adrId === '0017' &&
+    JSON.stringify(declineCalls[1].body.quiz) === JSON.stringify(approveQuiz),
+  JSON.stringify(declineCalls[1] === undefined ? null : { label: declineCalls[1].body === null ? null : declineCalls[1].body.label, expected: declineLabelOf }),
+)
+const rowDeclineDerived = deriveDecisions(approveQuiz, { answers: [{ id: 'ratify-0017', selected: [declineCalls[1].body.label] }] })
+claim(
+  "the ratchet reads the row's decline click as a rejection",
+  rowDeclineDerived.decisions.length === 1 && rowDeclineDerived.decisions[0].decision === 'rejected' && rowDeclineDerived.unreadable.length === 0,
+  JSON.stringify(rowDeclineDerived),
 )
 
-// ── the claiming entry, which is the only thing that can answer ─────────────
-const composerRegistrationForRow = registry['conversation.composer']
-const settleMembers = composerRegistrationForRow.config.inject()
-/** One fresh interaction, so the once-only guard does not carry between cases. */
-const freshPending = (answers) => ({
-  questions: quiz.questions,
-  answer(batch) {
-    answers.push(batch)
-    return Promise.resolve()
-  },
-  cancel() {
-    return Promise.resolve()
-  },
-})
-const targetId = ratifyQuestion.intent.targetId
-let clearCount = 0
-
-/**
- * Renders the claiming entry with one recorded request and reports what it settled.
- *
- * The request lives in a store this test OWNS and `clearRequest` actually empties it, so
- * "the entry consumed the answer" is measured against the store, not against a counter: an
- * entry that sends the answer and leaves the request armed can pass a counter check while
- * still being ready to answer the NEXT question about the same record. Two renders are
- * driven, because a consumed request must be gone on the render after the one that consumed
- * it — which is what makes deleting the success-path `clearRequest()` fail here.
- * @param expectCleared - whether the entry must also have consumed the request.
- */
-const settleCase = async (name, request, expectedLabel, expectedDecision, expectCleared = false) => {
-  const answers = []
-  const clearsBefore = clearCount
-  const requestStore = { value: request === undefined ? null : request }
-  const element = React.createElement(
-    composerRegistrationForRow.Component,
-    Object.assign({}, settleMembers, {
-      matched: freshPending(answers),
-      publishRatify: () => {},
-      clearRequest: () => { clearCount += 1; requestStore.value = null },
-      openPanel: () => {},
-      usePanel: (selector) => selector({ request: requestStore.value }),
-    }),
-  )
-  await flush(element, name)
-  await flush(element, `${name}:second-render`)
-  const derived = answers.length === 0 ? null : deriveDecisions(quiz, answers[0])
-  const settledOk =
-    expectedLabel === null
-      ? answers.length === 0
-      : JSON.stringify(answers[0]) === JSON.stringify({ answers: [{ id: ratifyQuestion.id, selected: [expectedLabel] }] }) &&
-        derived !== null &&
-        derived.decisions.length === 1 &&
-        derived.decisions[0].decision === expectedDecision &&
-        derived.unreadable.length === 0
-  const clearedOk = expectCleared ? clearCount === clearsBefore + 1 && requestStore.value === null : true
-  claim(name, settledOk && clearedOk, `answers=${JSON.stringify(answers)} cleared=${clearCount - clearsBefore} lingering=${JSON.stringify(requestStore.value)} derived=${derived === null ? 'none' : JSON.stringify(derived.decisions)}`)
+// ── the row shows the question, the record text, the labels and the outcome ──
+//
+// Nothing may be recorded invisibly. While the answer is in flight the ratchet's own
+// question is on screen — its header, its text, the record's own bytes and BOTH labels —
+// and afterwards the outcome says what was written, or why nothing was.
+const questionQuiz = rowQuiz('0017')
+const questionHeader = questionQuiz.questions[0].header
+const questionText = questionQuiz.questions[0].question
+const questionDetail = questionQuiz.questions[0].detail
+// The first render's settle is held open until this promise is released, so the recording
+// phase is on screen to be read; releasing it then completes with a written approval.
+let releaseSettle = null
+consentHostHandler = (call) => {
+  if (call.method === 'GET') return { status: 200, body: askBody('0017', questionQuiz) }
+  return new Promise((resolve) => {
+    releaseSettle = () => resolve({ status: 200, body: { ok: true, ratified: ['0017'], rejected: [], unreadable: [], wrote: ['docs/ratchet/sources/2026-09-16-ratification-0017.md', 'docs/adrs/0029-ratify-adr-0017.adr.md'], approval: { id: '0029', path: 'docs/adrs/0029-ratify-adr-0017.adr.md', title: 'Ratify ADR 0017' }, transcript: { path: 'docs/ratchet/sources/2026-09-16-ratification-0017.md' }, problems: [] } })
+  })
 }
-const fresh = () => Date.now()
-
-await settleCase(
-  "a click on Approve answers the question with the ratchet's own approve label",
-  { adrId: targetId, decision: 'approve', at: fresh() },
-  approveLabel,
-  'approved',
-  true,
+const shownButtons = await renderRows('consent-row-shown')
+const shownApprove = shownButtons.find((node) => node.text === 'Approve')
+if (shownApprove !== undefined) shownApprove.props.onClick()
+await new Promise((resolveTick) => setTimeout(resolveTick, 20))
+await settleRender('consent-row-shown')
+const recordingTexts = nodes.map((node) => node.text)
+claim(
+  "the row puts the ratchet's question, the record's own text and both of its labels on screen",
+  recordingTexts.includes(questionText) &&
+    recordingTexts.includes(questionDetail) &&
+    recordingTexts.includes(questionHeader) &&
+    [approveLabelOf, declineLabelOf].every((label) => recordingTexts.includes(label)),
+  JSON.stringify(recordingTexts.filter((text) => text === questionText || text === approveLabelOf || text === declineLabelOf || text === questionHeader)),
 )
-await settleCase(
-  "a click on Decline answers it with the ratchet's own reject label",
-  { adrId: targetId, decision: 'decline', at: fresh() },
-  declineLabel,
-  'rejected',
-  true,
-)
-
-// The record the click named, matched EXACTLY. A prefix, a suffix or stray whitespace is a
-// different record, and answering it would consent to a decision nobody clicked on.
-await settleCase(
-  'a request naming a different record does not answer this question',
-  { adrId: '0000-not-the-target', decision: 'approve', at: fresh() },
-  null,
-  null,
-)
-await settleCase(
-  "a request whose id is only a PREFIX of this question's does not answer it",
-  { adrId: targetId.slice(0, 1), decision: 'approve', at: fresh() },
-  null,
-  null,
-)
-await settleCase(
-  'a request whose id carries an extra character does not answer it',
-  { adrId: `${targetId}X`, decision: 'approve', at: fresh() },
-  null,
-  null,
-)
-await settleCase(
-  'a request whose id differs by whitespace does not answer it',
-  { adrId: ` ${targetId}`, decision: 'approve', at: fresh() },
-  null,
-  null,
+if (releaseSettle !== null) releaseSettle()
+await new Promise((resolveTick) => setTimeout(resolveTick, 20))
+await settleRender('consent-row-shown')
+const doneTexts = nodes.map((node) => node.text)
+claim(
+  'and the outcome names the approval and its transcript, so nothing is recorded invisibly',
+  doneTexts.some((text) => typeof text === 'string' && text.includes('Approved') && text.includes('docs/adrs/0029-ratify-adr-0017.adr.md') && text.includes('2026-09-16-ratification-0017.md')),
+  JSON.stringify(doneTexts.filter((text) => typeof text === 'string' && text.includes('Approved'))),
 )
 
-// A click that outlived its ask. The record can be edited between the click and the question, so
-// an armed answer must expire rather than consent to text the human never saw.
-await settleCase(
-  'a click older than the request lifetime does not answer a later question, and is discarded',
-  { adrId: targetId, decision: 'approve', at: fresh() - 10 * 60 * 1000 },
-  null,
-  null,
-  true,
-)
-await settleCase(
-  'a request with no timestamp is not trusted either',
-  { adrId: targetId, decision: 'approve' },
-  null,
-  null,
-  true,
-)
-await settleCase(
-  "with no click recorded, the panel does not answer on the human's behalf",
-  null,
-  null,
-  null,
+// A decision the ratchet has no question for must be REPORTED and must send no answer: the
+// click cannot silently turn into a confirmation of something that did not happen.
+const refuseCalls = []
+consentHostHandler = (call) => {
+  refuseCalls.push(call)
+  return { status: 200, body: { ok: false, nothingToRatify: true, message: 'ADR 0017 is not waiting for a human', problems: [], pending: [], blocked: [] } }
+}
+const refuseButtons = await renderRows('consent-row-refuse')
+const refuseApprove = refuseButtons.find((node) => node.text === 'Approve')
+if (refuseApprove !== undefined) refuseApprove.props.onClick()
+await new Promise((resolveTick) => setTimeout(resolveTick, 20))
+await settleRender('consent-row-refuse')
+claim(
+  'a decision the ratchet has no question for is reported, and no answer is sent',
+  refuseCalls.length === 1 &&
+    refuseCalls[0].method === 'GET' &&
+    nodes.map((node) => node.text).some((text) => typeof text === 'string' && text.includes('not waiting for a human')),
+  JSON.stringify(refuseCalls.map((call) => call.method)),
 )
 
-// One question, one answer. The harness THROWS on a second settlement, and a re-render or a
-// re-mount is how a second one happens.
+// With no capability — the host half absent, or a page this process did not serve — the row
+// names the CLI command instead of offering a button, and fetches nothing at all.
+const savedBridge = globalThis.__DSH_ADR_PANEL_CONSENT__
+delete globalThis.__DSH_ADR_PANEL_CONSENT__
+const unavailableCalls = consentCalls.length
+const unavailableButtons = await renderRows('consent-row-unavailable')
+const unavailableTexts = nodes.map((node) => node.text)
+claim(
+  'with no capability the row names the CLI command instead of offering a button',
+  !unavailableButtons.some((node) => node.text === 'Approve' || node.text === 'Decline') &&
+    unavailableTexts.some((text) => typeof text === 'string' && text.includes('ratchet_ratify')),
+  JSON.stringify(unavailableButtons.map((node) => node.text)),
+)
+claim(
+  'and it fetches nothing at all in that state',
+  consentCalls.length === unavailableCalls,
+  `${consentCalls.length - unavailableCalls} unexpected request(s)`,
+)
+globalThis.__DSH_ADR_PANEL_CONSENT__ = savedBridge
+
+// ── the composer is not part of a panel ratification any more ───────────────
+//
+// The whole reason this change exists: a click in the panel used to compose `/ratify <id>`
+// into the Session, and the human waited for an agent to run the tool. The spy carries the
+// only prop a composer message could travel through, and it is checked after every scenario
+// above rather than after one.
+claim(
+  'no panel ratification composes a composer message, in any scenario driven above',
+  composerCalls.length === 0,
+  JSON.stringify(composerCalls),
+)
+// And the trigger itself, rendered the way the Session header renders it, must not use the
+// composer either: it opens the window and does nothing else.
 {
-  const answers = []
-  const element = React.createElement(
-    composerRegistrationForRow.Component,
-    Object.assign({}, settleMembers, {
-      matched: freshPending(answers),
-      publishRatify: () => {},
-      clearRequest: () => {},
-      openPanel: () => {},
-      usePanel: () => ({ adrId: targetId, decision: 'approve', at: fresh() }),
-    }),
+  const trigger = registry['conversation.session.header.actions']
+  const triggerMembers = trigger.config.inject()
+  await flush(
+    React.createElement(trigger.Component, Object.assign({}, triggerMembers, {
+      usePanel: (selector) => selector(panelStore.getSnapshot()),
+      sessionId: 'stub-session',
+      inputActions: inputActionsSpy,
+    })),
+    'consent-row-trigger',
   )
-  await flush(element, 'settle-once-a')
-  await flush(element, 'settle-once-b')
+  const triggerButton = nodes.filter((node) => node.tag === 'button').find((node) => node.text === 'ADRs')
+  if (triggerButton !== undefined) triggerButton.props.onClick()
   claim(
-    'the same question is answered once, however many renders it takes',
-    answers.length === 1,
-    `answers=${answers.length}`,
+    'the Session-header trigger holds no composer capability and submits nothing',
+    composerCalls.length === 0 && triggerMembers.publishAsk === undefined,
+    `calls=${JSON.stringify(composerCalls)} publishAsk=${typeof triggerMembers.publishAsk}`,
   )
 }
 

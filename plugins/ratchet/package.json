@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-ratchet",
-  "version": "0.2.38",
+  "version": "0.2.40",
   "description": "Ratchet: a local architecture compiler for DSH projects. Compiles architecture decision records into enforced specs, verifies code against them deterministically, reports every problem with a stable code, and puts a proposed decision to a human as a question whose answer is recorded against the exact text that was approved.",
   "type": "module",
   "main": "ratchet-tools.mjs",
@@ -17,6 +17,7 @@
     "./guard": "./ratchet-guard.mjs",
     "./ingest": "./ratchet-ingest.mjs",
     "./ratify": "./ratchet-ratify.mjs",
+    "./consent": "./ratchet-consent.mjs",
     "./dynamic": "./ratchet-dynamic.mjs",
     "./bootstrap": "./ratchet-bootstrap.mjs",
     "./falsify": "./ratchet-falsify.mjs",
@@ -31,6 +32,7 @@
     "ratchet-contradiction.mjs",
     "ratchet-ingest.mjs",
     "ratchet-ratify.mjs",
+    "ratchet-consent.mjs",
     "ratchet-dynamic.mjs",
     "ratchet-bootstrap.mjs",
     "ratchet-falsify.mjs",

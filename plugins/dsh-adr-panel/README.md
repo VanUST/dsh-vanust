@@ -2,32 +2,39 @@
 
 A standalone Web-UI plugin for DeepSeek Harness. It adds a **button to the Session
 header** that opens a **frame-wide overlay** listing the project's decision records
-(`docs/adrs/*.adr.md`) and spec documents (`docs/specs/*.spec.md`), and a **Ratify…**
-affordance that submits the ratchet's own `/ratify <id>` command for a proposed,
-agent-authored decision.
+(`docs/adrs/*.adr.md`) and spec documents (`docs/specs/*.spec.md`), and **Approve** and
+**Decline** on a proposed, agent-authored decision that waits for a human.
 
-It never records a consent. A panel that minted one would be a second consent path,
-and the deployment's whole consent model rests on there being exactly one. The
-affordance only asks the ratchet to put its own question; every button the panel
-renders afterwards sends one of the labels **the ratchet itself** put in that
-question, so the human's click is the consent and the panel is only the surface.
+A click records the decision silently: no chat message, no model turn, no agent in the
+loop. The host half serves one route, `/adr-panel/consent`; the panel asks it for the
+ratchet's own question about that decision, renders the question in the row — the
+ratchet's header and text, the record's own bytes, both labels it put on the question —
+and posts back the label belonging to the button that was pressed, together with that
+same question. The route hands both to the ratchet's own `ratify` operation, which writes
+the approval ADR and its transcript.
 
-It is also the only surface that asks. A ratification question carries the ratchet's
-`ratify-decision` presentation intent, the panel claims the `conversation.composer`
-seat for it, and the Conversation therefore gets a **pointer** — the decision's name
-and a button that opens the window — never the question, its record text or its
-answer labels. A decision an agent proposed is answered in the decision window, not
-as a chat quiz. A **grilling session** is the one exception: its question declares no
-panel intent, nothing claims it, and the harness's own card asks it in the
-Conversation, where the human is already talking and the question is expected to
-block. That fall-through is also the safety net — with this bundle absent, nothing
-claims the seat and the question is still asked.
+It never records a consent of its own. A panel that minted one would be a second consent
+path, and the deployment's whole consent model rests on there being exactly one. The
+panel builds no question and interprets no answer: the question is the ratchet's, every
+label it sends is one the ratchet put on that question, and the only artifact is the one
+the ratchet writes.
+
+It is also the only surface that answers a question the ratchet asks **through the
+composer**. A ratification question carries the ratchet's `ratify-decision` presentation
+intent, the panel claims the `conversation.composer` seat for it, and the Conversation
+therefore gets a **pointer** — the decision's name and a button that opens the window —
+never the question, its record text or its answer labels. A decision an agent proposed is
+answered in the decision window, not as a chat quiz. A **grilling session** is the one
+exception: its question declares no panel intent, nothing claims it, and the harness's own
+card asks it in the Conversation, where the human is already talking and the question is
+expected to block. That fall-through is also the safety net — with this bundle absent,
+nothing claims the seat and the question is still asked.
 
 ## Files
 
 | File | Role |
 |---|---|
-| `index.js` | Host half: an empty `apply()`, so the Loader has a row while the browser half ships through `./client`. |
+| `index.js` | Host half: registers the consent route on `webServer`, guards it with `connection.requestRejection` and a per-activation capability, and calls the ratchet's `ratchetConsent` service. It builds no question and writes no file. |
 | `client.js` | The hand-written browser bundle (`window.__ModuleLoader__.load`), no build step. |
 | `package.json` | `main: index.js`, `exports` for `.` and `./client`, and `dsh.client = { platform: "web", inject: [...] }`. |
 
@@ -39,23 +46,30 @@ reader can re-check rather than trust.
 | What | Where it was learned |
 |---|---|
 | Bundle shape: `window.__ModuleLoader__.load({ id, factory: (require) => { var module = { exports: {} }; var exports = module.exports; … return module.exports } })` | `@deepseek-ai/dsh-client-ui-brand-official/lib/client.js` (whole file) |
-| Host half is a no-op `apply()` export | `@deepseek-ai/dsh-client-ui-brand-official/lib/index.js` |
 | `dsh.client = { platform: "web", inject: [<dep package ids>] }` | `@deepseek-ai/dsh-client-ui-brand-official/package.json` |
 | Registration idiom: `ctx.effect(() => ctx.slots.inject(key, () => ctx.slots.register({ name, id, order, inject }, Component)))` | `@deepseek-ai/dsh-client-ui-sidebar-documentpreview/lib/client.js:1361`; `@deepseek-ai/dsh-session-log-export/lib/client.js:264-286` |
-| `conversation.session.header.actions` is a **list** slot, scope `session`, whose standard props include **`sessionId`** and **`inputActions`** | catalog entry in `@deepseek-ai/dsh-cordis-client-runner/lib/client.js:3102-3144` |
+| `conversation.session.header.actions` is a **list** slot, scope `session`, whose standard props include **`sessionId`** | catalog entry in `@deepseek-ai/dsh-cordis-client-runner/lib/client.js:3102-3144` |
 | `shell.overlay` is a **list** slot, scope `root`, click-through until an entry opts into pointer events | catalog entry in `@deepseek-ai/dsh-cordis-client-runner/lib/client.js:3948-3990`; slot tree in `deepseek-harness/docs/subsystems/slots.md` |
 | A registration's `inject: () => ({ … })` members become component props, and `hooks: { panel: source }` becomes a `usePanel(selector)` hook from a bare `getSnapshot`/`subscribe` source | `docs/subsystems/slots.md` ("Developer-provided injection"); shipped example `@deepseek-ai/dsh-session-log-export/lib/client.js:279-286` (`hooks: { sessionLogDownload: controller.store }`) |
 | `RemoteResult<T>` is `{ ok: true, value } | { ok: false, error }` | `@deepseek-ai/dsh-typert-protocol/lib/types/types.d.ts:65-71` |
 | File catalogues: `ctx.remote.workspaceFiles.list(sessionId, path, signal)` and `.read(sessionId, path, range, signal)`, both answering `RemoteResult` | Host signatures `@deepseek-ai/dsh-api-workspace-files/lib/types/index.d.ts:82,125`; client-side `result.ok` handling in `@deepseek-ai/dsh-client-ui-sidebar-files/lib/client.js:52`; the Remote is injected as **`remote`** in `@deepseek-ai/dsh-api-workspace-files/lib/client.js:447-451` |
-| Message submit: `inputActions.setDraft(text)` followed by `inputActions.submit()` | interface `@deepseek-ai/dsh-client-ui-conversation/lib/types/client/contract/input.d.ts:210-221`; `setDraft` uses a **discrete** (synchronous) Lexical update at `.../lib/client.js:12758`, and `submit()` reads that editor at `.../lib/client.js:12845` |
 | `conversation.composer` is a **chain** slot. Its owner passes `{ sessionId, session, pendingInteraction }` as owner props, and the chain renders the **first** entry whose `select(ownerProps)` returns a non-null value; a selector that throws is *"treated as declined"*. **Order is ASCENDING `priority`: lower tries first, ties keep registration order.** The entry that owns every question claims ALL pending questions at the default `priority: 0`, so a claim at 0 or above is never reached — which is why this panel registers at **-1**; the approval entry is at `1` and works only because a pending approval is not a pending question, so the owner declines it first | owner `@deepseek-ai/dsh-client-ui-conversation/lib/client.js:14932-14937`; election `@deepseek-ai/dsh-client-ui-renderer/lib/client.js:824-844`; the ordering's own comment, the sort, and the chain return in `@deepseek-ai/dsh-client-ui-slots/src/index.ts` (`ChainSelect` doc, `register`'s `next.sort(...)`, `entriesOfSlot`), duplicated in the installed bundle at `@deepseek-ai/dsh-web-frontend/dist/assets/index-DuF6ti6g.js` (`p.sort(...(m,g)=>(m.options.priority??0)-(g.options.priority??0))`); owner `@deepseek-ai/dsh-client-ui-user-questions/lib/client.js:873-878`; second claimant `@deepseek-ai/dsh-client-ui-approval/lib/client.js:265-272` |
 | A question may carry `intent: { kind, approve }`, and a presentation is allowed to claim it only when it can send **every** answer the question allows. The harness renders `plan-review` itself and falls back to a generic card for everything else; the generic card always offers a free-text answer, and the shipped `PlanReviewPanel` claims a question with two buttons anyway, so a two-label presentation is the sanctioned shape for a binary question | `@deepseek-ai/dsh-client-ui-user-questions/lib/client.js:38-56` (`planReviewOf`), `:246-330` (`PlanReviewPanel`, two buttons only), `:660-722` (the generic card's free-text row) |
+| A host plugin serves a browser by registering an HTTP route: `ctx.webServer.register({ kind, path, handler })`, a duplicate path throws, and the server awaits an async handler | `@deepseek-ai/dsh-host-webserver/lib/index.js:176` (`register`), `:228` (the awaited handler); shipped example `@deepseek-ai/dsh-host-open-in-app/lib/index.js:1324-1454` |
+| The browser reaches such a route with an ordinary same-origin `fetch` on a path both halves declare as a constant | `@deepseek-ai/dsh-client-ui-open-in-app/lib/client.js:22-27` (the inlined route constants and `hostBase()`) |
+| Every route should ask the connection service for a rejection first: `connection.requestRejection(request)` answers 403 for an untrusted authority, then 401 unless the request carries the signed, `HttpOnly`, `SameSite=Strict`, authority-bound browser cookie | `@deepseek-ai/dsh-client-connection/lib/index.js:553` (`requestRejection`), `:280-320` and `:431-441` (the cookie); the same call in `@deepseek-ai/dsh-host-open-in-app/lib/index.js:1317-1323` |
+| A plugin can provide a service and read one without injecting it: `ctx.provide(name, value)` returns a disposer, `ctx.get(name)` reads an implementation | `@deepseek-ai/cordis/src/reflect.ts:277-305` (`provide`), `:233` (`get`) |
+| A plugin that calls `ctx.inject(['webServer'], cb)` and never gets the service stays inert rather than failing the boot | `@deepseek-ai/dsh-client-connection/lib/index.js:758` does exactly this; `@deepseek-ai/dsh-app-boot/lib/index.js` builds its `did not activate` list from loader rows only |
+| A Session id resolves to a workspace through the live registry, then persistence: `sessions.get(id)?.header` or `sessionPersistence.stat(id).header` | `@deepseek-ai/dsh-api-workspace-files/lib/index.js:372-389` |
+| The context publishes an index global through the webserver's injection table: `web.on('webserver/index-inject', (table) => table.push({ kind: 'global', name, value }))` | `@deepseek-ai/dsh-host-webserver/lib/index.js:74-93` (the row renderer) and `:349-353` (`collectIndexInjections`); the same subscription in `@deepseek-ai/dsh-client-connection/lib/index.js:760-766` |
 
-The paths in the last two data rows are the only data reads the plugin performs; it
-writes no file and calls no mutating method. The composer-seat rows are the only
-place it adds a surface another plugin must lose a seat to: the ratchet's own
-intent is what the claim is keyed on, and `scripts/check-consent-surface.mjs` fails
-when the literal the panel matches stops equalling the one the ratchet sends.
+The paths in the file-catalogue row are the only data reads the plugin performs in the
+browser; the browser half writes nothing. The host half writes nothing either — the
+approval and the transcript are written by the ratchet inside the `ratchetConsent` call.
+`scripts/check-consent-surface.mjs` fails when the route, the service name, the capability
+header or the capability global stops being the same value on both halves, when any
+registered tool names one of them, or when the provided consent service stops refusing the
+payloads it must refuse.
 
 ## What is NOT verified without a browser
 
@@ -92,6 +106,24 @@ measures what the bundle does with them, not whether the running shell supplies 
   renders the seat's winner. Without a harness checkout the election check is a `[SKIP]`
   naming the reason, never a silent pass; the always-on half is that the declared priority
   is negative.
+- **The consent route's two ends are measured; the wire between a browser and it is not.**
+  `node scripts/probe-dsh-api.mjs --adr-panel-consent` mounts the real
+  `@deepseek-ai/dsh-host-webserver`, the real `@deepseek-ai/dsh-client-connection`, this
+  host half and the ratchet, drives the route over real HTTP on loopback, mints a browser
+  session through the production `authorizeIndex`, reads the capability out of the harness's
+  index-injection table, and requires the fence, the capability, the refusals and the
+  written approval (15/15, `adr panel consent route ok`). `scripts/test-adr-panel.mjs`
+  executes the shipped bundle against a stub host and requires what it sends and renders.
+  No browser was opened, so the page carrying the capability global and a real click
+  round-tripping through the shell remain readings rather than measurements.
+- **The capability's secrecy rests on there being no file.** The token is minted per
+  activation with `randomBytes`, held in the plugin's memory, published only as an index
+  global, and never written or logged — so no tool of an agent can read it. The route is
+  additionally behind the harness's signed browser cookie. The residual gap is stated in
+  ADR 0034 and its reasoning source: an agent whose tools can read
+  `$DSH_HOME/.credentials.yaml` could forge that cookie, which is the same hand-written
+  approval the deployment's rule 12 already names as forgeable.
+
 - That `list`/`read` return the `RemoteResult` wrapper at runtime. The `.d.ts`
   declares the unwrapped value; the client file browser checks `.ok`, so the wrapper
   is used here. If the runtime instead returns the bare value, the panel shows a
@@ -123,10 +155,12 @@ measures what the bundle does with them, not whether the running shell supplies 
   component API.
 - **No locale service.** Strings are English literals; registering a `locale`
   namespace is the house style but was left out to keep this first version small.
-- **Ask-the-agent falls back to a command.** When no live Session composer is
-  mounted, the affordance renders the exact commands instead of a button:
-  ask the agent to call `ratchet_ratify`, or list what waits with
-  `node plugins/ratchet/ratchet-cli.mjs pending --root .`.
+- **An unreachable consent route falls back to a command.** When the host half published
+  no capability — it is not mounted, this page did not come from it, or there is no web
+  server — the row renders the exact commands instead of Approve and Decline: ask the
+  agent to call `ratchet_ratify`, or list what waits with
+  `node plugins/ratchet/ratchet-cli.mjs pending --root .`. Nothing is fetched in that
+  state, which the offline test asserts.
 - **The seat claim is a suppression, so its failure mode is asymmetric.** The panel
   claims the composer seat in order to stop the harness asking an agent's decision in
   the Conversation. If the claim is never reached — a future harness that reorders or

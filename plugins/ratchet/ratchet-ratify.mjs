@@ -41,14 +41,29 @@ import { existingAdrIds, nextAdrId, slugFor } from './ratchet-ingest.mjs'
 import { writeArtifact, STATE_PATHS } from './ratchet-state.mjs'
 
 /**
- * The channel every ratification this module mints records.
+ * The channel every ratification the RATCHET'S OWN question seam mints records.
  *
- * One value, because one channel is implemented: the decision is put to the human
- * as a question through the harness user-questions seam. The value is written into
- * the approval so a future channel is a new value rather than a reinterpretation
- * of this one.
+ * One value per surface, because a consent's evidence should name how it was obtained:
+ * this one is written when the decision is put to the human as a question through the
+ * harness user-questions seam. A surface that puts the same question to a human without
+ * that seam records {@link RATIFY_CHANNEL_PANEL} instead — the question, the derivation
+ * and the hash binding are identical, and the difference a reader needs is which surface
+ * carried it. The value is written into the approval so a future channel is a new value
+ * rather than a reinterpretation of this one.
  */
 export const RATIFY_CHANNEL = 'user-question'
+
+/**
+ * The channel the ADR panel's consent route records.
+ *
+ * The panel asks the ratchet for its own question, renders it in the decision window and
+ * sends back the label the human selected — the same `ratify` operation, without the
+ * harness user-questions seam in between. Recording `user-question` for it would put a
+ * false statement in a durable record: it would say the harness delivered a question the
+ * panel delivered. Both values are in `RATIFICATION_CHANNELS`, and the approval's
+ * `Decision` section names the surface the question actually travelled.
+ */
+export const RATIFY_CHANNEL_PANEL = 'adr-panel'
 
 /** The label that means "put it into force". Exact match, never a prefix. */
 export const RATIFY_APPROVE = 'Approve'
@@ -465,7 +480,10 @@ export function renderTranscript({ project, at, askedBy, channel, quiz, answer, 
  *
  * @param options - `{ id, at, askedBy, channel, approved, transcriptPath,
  *   transcriptHash, project, decisionsDir }`. `approved` is the queue entries being
- *   put into force; an empty list is refused by the caller, not here.
+ *   put into force; an empty list is refused by the caller, not here. `channel` is one
+ *   of `RATIFICATION_CHANNELS` — `user-question` for a question the harness delivered,
+ *   `adr-panel` for one the ADR panel's decision window rendered — and it selects both
+ *   the recorded value and the sentence that names the surface.
  * @returns `{ filename, path, text, title }`.
  */
 export function renderApprovalAdr({
@@ -541,7 +559,13 @@ export function renderApprovalAdr({
     '',
     '## Decision',
     '',
-    `A human was asked, through the harness user-questions channel, whether ${plural ? 'these records' : 'this record'} should enter force,`,
+    // The sentence names the surface that actually carried the question, because the
+    // `channel` value above is read by a reviewer who wants to know how a consent was
+    // obtained — and the two implemented channels are not the same act, even though the
+    // question, the derivation and the hash binding are identical.
+    channel === RATIFY_CHANNEL_PANEL
+      ? `A human was asked, in the ADR panel's decision window, whether ${plural ? 'these records' : 'this record'} should enter force,`
+      : `A human was asked, through the harness user-questions channel, whether ${plural ? 'these records' : 'this record'} should enter force,`,
     `and selected **${RATIFY_APPROVE}** for ${plural ? 'each' : 'it'}. ${ids.map((entry) => `ADR ${entry}`).join(' and ')} ${plural ? 'are' : 'is'} ratified at the content hashes recorded in`,
     'the frontmatter above and now contributes law.',
     '',

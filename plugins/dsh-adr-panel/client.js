@@ -4,20 +4,36 @@
  *   overlay showing a project's decision corpus and its compiled specs as a
  *   readable, cross-linked view. It is a VIEWER: the ratchet CLI (`ratchet verify`)
  *   remains the authority on what is enforced, and every state it displays is read
- *   from the corpus files. It offers exactly one action and writes nothing: it ASKS
- *   the ratchet to put a decision that still needs a human to the human, and then
- *   PRESENTS the ratchet's own question as that question's two labelled answers — in
- *   the panel window, and in the composer seat it claims — so the human's click is
- *   the consent the ratchet records and the panel never mints one.
+ *   from the corpus files.
+ *
+ *   It offers exactly one action, and it takes it through the HOST half's consent
+ *   route rather than through the Conversation. Approving or declining a decision makes
+ *   the panel ask the ratchet for its own question about that decision's exact text,
+ *   render that question — the record's own bytes and the two labels the ratchet put on
+ *   it — and send back the label the human selected, paired with the question it came
+ *   from. The host hands both to the ratchet's own `ratify` operation, which writes the
+ *   approval ADR and its transcript. No chat message is composed, no model turn happens
+ *   and no agent is in the loop: the human's click IS the consent. The panel never mints
+ *   one and never composes an answer — every label it sends is one the ratchet's own
+ *   question offered.
  *
  * INPUTS
  *   Loaded by the Web client's module loader as `@cc/dsh-adr-panel/client`. The three
  *   registrations receive the standard slot props of their scope — the Session-header
- *   action seat supplies `sessionId` and `inputActions`; the frame-wide overlay seat
- *   supplies only root-scope props; the composer seat supplies `pendingInteraction`,
- *   the Session's effective interaction awaiting the user — plus the members returned
- *   by each registration's `inject` factory. Decision and spec text is read through
+ *   action seat supplies `sessionId`; the frame-wide overlay seat supplies only
+ *   root-scope props; the composer seat supplies `pendingInteraction`, the Session's
+ *   effective interaction awaiting the user — plus the members returned by each
+ *   registration's `inject` factory. Decision and spec text is read through
  *   `ctx.remote.workspaceFiles.list/read`, addressed by the Session id.
+ *
+ *   THE CONSENT ROUTE IS LEARNED AT MOUNT TIME, from the index global the host half
+ *   writes: `globalThis.__DSH_ADR_PANEL_CONSENT__` carries the route path and this
+ *   activation's capability token. The token is minted in the host process's memory,
+ *   never written to a file and never logged, so no tool can read it; without the global
+ *   the row falls back to naming the CLI command instead of offering a button. The
+ *   request is an ordinary same-origin `fetch`, which carries the harness's
+ *   browser-session cookie, and the host refuses anything that fails that fence or the
+ *   token.
  *
  *   PROJECT-AGNOSTIC: the node that renders is discovered from the project itself, not
  *   hardcoded. `.dsh/project.json` is read once per load for `ratchet.decisionsDir`,
@@ -61,28 +77,31 @@
  *   authorship or make the question answerable. A
  *   human-authored proposed decision is never offered: its authorship already carries
  *   the authority, so it shows `not in force` and awaits its author's activation, not a
- *   question. A ratifiable decision's row carries **Approve** and **Decline**, and a click
- *   routes it in one step: the row records which decision and which answer the human chose
- *   and submits the ratchet's own `/ratify <id>` command, which runs host-side without a
- *   model turn and puts the ratchet's question to the human through the ONE question
- *   channel; the composer entry claims that question and answers it with the label the
- *   RATCHET offered for the decision the click named. So the human's click is the consent,
- *   the ratchet asked the question it is paired with, and no quiz is shown anywhere — which
- *   is the difference between answering a question and being sent to answer one. When no
- *   Session-scoped submitter is mounted the row prints the command instead.
+ *   question. A ratifiable decision's row carries **Approve** and **Decline**, and one
+ *   click records the decision: the panel asks the host route for the ratchet's own
+ *   question, renders it in the row — the question, the record's own file text and both
+ *   of the labels the ratchet put on it — and sends the label belonging to the button
+ *   the human pressed, together with that same question. The host passes both to the
+ *   ratchet, whose `ratify` writes the approval ADR plus its transcript; the row then
+ *   shows what was written, or the ratchet's own reason for refusing. A decline writes
+ *   nothing, by the ratchet's own rule, and the row says so. So the human's click is the
+ *   consent, the ratchet asked the question it is paired with, and no message is
+ *   submitted to the composer at all. When the route is unreachable — no host half
+ *   mounted, no capability global, no bound Session — the row prints the CLI command
+ *   instead of offering a button.
  *
  *   The composer entry claims the seat only for a question whose intent is the ratchet's
  *   `ratify-decision`, whose answers are exactly the two options that intent names, and
  *   which names the record it is about (`intent.targetId`) — a question whose record the
  *   panel cannot identify is never answered on the human's behalf. It renders a POINTER
- *   there, or `Recording your answer…` while a click is being honoured, and never the
- *   question, its detail or either answer label, so an agent's decision never becomes a
- *   quiz in the Conversation. A question that arrives with no click behind it — an agent
- *   called `ratchet_ratify`, say — is shown in this window with its two labels, so it is
- *   never unanswerable. A question without that intent, which is what a grilling session
- *   asks, is not claimed at all and is answered in the Conversation. The panel cannot mint
- *   a consent: every button sends one of the labels the ratchet itself put in the question,
- *   and a consent record is not a decision and is never offered for ratification.
+ *   there and never the question, its detail or either answer label, so an agent's
+ *   decision never becomes a quiz in the Conversation. A question that arrives with no
+ *   click behind it — an agent called `ratchet_ratify`, say — is shown in this window
+ *   with its two labels, so it is never unanswerable. A question without that intent,
+ *   which is what a grilling session asks, is not claimed at all and is answered in the
+ *   Conversation. The panel cannot mint a consent: every button sends one of the labels
+ *   the ratchet itself put in the question, and a consent record is not a decision and
+ *   is never offered for ratification.
  *
  *   COLOUR: one `tone(kind)` helper maps a semantic kind onto the shell's state and
  *   label theme tokens (`var(--token, fallback)`, so any theme works and a missing token
@@ -129,24 +148,36 @@
  *   ADR panel, decisions, consents, specs, law cards, check histogram, slots,
  *   shell.overlay, session header, conversation.composer, composer seat claim,
  *   presentation intent, workspace files, remote, ratification, approve, decline,
- *   not now, read-only, viewer
+ *   consent route, capability token, not now, read-only, viewer
  *
  * BEHAVIOUR ON EDGE CASES
  *   - `ctx.remote.workspaceFiles` absent: the window still renders and shows that
  *     the file API is unreachable; the header button is unaffected.
- *   - No `inputActions` (no live Session composer): the row's Approve and Decline render
- *     the CLI command instead of the two buttons.
- *   - A click whose question never arrives (the channel is unreachable, or the ratchet
- *     refused the id): the row says so and the CLI fallback stays; nothing is recorded.
+ *   - The consent route unreachable — no host half mounted, no capability global, or no
+ *     Session bound: the row names the CLI command instead of the two buttons, and
+ *     nothing is sent anywhere.
+ *   - A decision the ratchet's queue does not list — already in force, retired, a zone
+ *     that is `humanOnly` or undeclared, or an id that is not a decision at all: the ask
+ *     returns the ratchet's own message, the row shows it, and nothing is written. The
+ *     ratchet is the authority on what may be ratified; the panel's own `canOfferRatify`
+ *     is only what it renders from the corpus.
+ *   - A question the panel cannot reduce to two labelled answers (`ratifyQuestionOf`
+ *     returns `null` for the returned quiz): the row says it cannot put the question, and
+ *     no label is sent.
+ *   - The round trip's outcome is always shown: an approval names the approval id, its
+ *     file and the transcript; a decline says the decision stays proposed and that
+ *     nothing was written; a refusal shows the ratchet's own problem codes and messages;
+ *     a transport failure shows the failure's message. No outcome leaves the row silent.
+ *   - A record edited between the ask and the answer: the ratchet refuses with
+ *     `RATIFICATION_STALE` and writes nothing, which is what binds the consent to the
+ *     text the human was shown rather than to whatever is on disk when the answer lands.
+ *   - A second click while a round trip is in flight: the buttons are disabled, because
+ *     two answers to one question would settle it twice.
  *   - A question naming a record no click asked about: it is NOT answered, and this window
  *     offers it with both labels instead, so the panel never answers for the human.
- *   - The same interaction is never settled twice: the decision is recorded against the
- *     interaction, because the harness throws when one pending question is settled twice
- *     and a render can run an effect more than once.
- *   - A click whose ask produced no question expires (`REQUEST_TTL_MS`) instead of staying
- *     armed: the record can be edited between the click and a later question, and an armed
- *     answer would then consent to text the human never saw. A request with no timestamp is
- *     not trusted either.
+ *   - The same pending interaction is never settled twice: the decision is recorded
+ *     against the interaction, because the harness throws when one pending question is
+ *     settled twice and a render can run an effect more than once.
  *   - A request names its record EXACTLY. A prefix, a suffix or stray whitespace is a
  *     different record and answers nothing.
  *   - A pending question that is not the ratchet's, or is the ratchet's but not a
@@ -168,8 +199,6 @@
  *   - A click on an answer that the harness refuses to settle (the question settled in
  *     another surface, or its transport ended): the failure's message is shown and the
  *     buttons re-enable; the click never throws out of the handler.
- *   - A second click while a settlement is in flight: disabled, because the harness rejects
- *     a second settlement of the same pending question.
  *   - A directory or a single file that cannot be read: reported as a line, and the
  *     rest of the list still renders.
  *   - Frontmatter or a spec that does not parse: the record is listed with whatever
@@ -183,7 +212,8 @@
  *   - A section with nothing to show: a clean line naming the resolved directory, never
  *     a crash, and the header summary omits its zero count.
  *   - Window closed during a load: the AbortController cancels the reads and no state
- *     is written after unmount.
+ *     is written after unmount. A consent round trip already in flight is not cancelled;
+ *     the ratchet either records it or not, and the row's next render reflects that.
  *   - No `.dsh/project.json`, an unparseable one, or one without
  *     `ratchet.decisionsDir`/`ratchet.specsDir`: the documented defaults are used, and an
  *     unparseable manifest is a non-fatal note rather than a failed load.
@@ -213,7 +243,7 @@ window.__ModuleLoader__.load({
 		 * are equal again after a release and the constant is one ahead only in the working
 		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.18";
+		const PANEL_VERSION = "0.1.20";
 		/** The manifest a ratchet project declares its directories and name in. */
 		const MANIFEST_PATH = ".dsh/project.json";
 		/** Directories used when the manifest is absent, unparseable, or silent. */
@@ -231,8 +261,17 @@ window.__ModuleLoader__.load({
 		 * one. The safe middle: an agent's own `active` is not force.
 		 */
 		const DEFAULT_AGENT_AUTHORITY = "proposeOnly";
-		/** The one channel a ratification can have been obtained through. */
-		const RATIFICATION_CHANNELS = ["user-question"];
+		/**
+		 * The channels a ratification can have been obtained through.
+		 *
+		 * Duplicated from the ratchet's `RATIFICATION_CHANNELS` for the same reason as
+		 * `RATIFY_INTENT_KIND`: this bundle cannot import the ratchet's module. Both values
+		 * are real, and the panel must know BOTH, because a consent it recorded itself
+		 * carries `adr-panel` — a list missing it would make the panel report its own
+		 * approval as unproven and keep offering the decision for ratification.
+		 * `scripts/check-consent-surface.mjs` fails when the two lists stop being equal.
+		 */
+		const RATIFICATION_CHANNELS = ["user-question", "adr-panel"];
 		/** The recorded form of a content hash, e.g. `sha256:<64 lowercase hex>`. */
 		const CONTENT_HASH_PATTERN = /^sha256:[0-9a-f]{64}$/;
 		/**
@@ -254,28 +293,47 @@ window.__ModuleLoader__.load({
 		 * stop being equal, which is the only thing that keeps the copies honest.
 		 */
 		const RATIFY_INTENT_KIND = "ratify-decision";
+		/**
+		 * The host half's consent route, and the two names its capability travels under.
+		 *
+		 * The path is a literal for the same reason as `RATIFY_INTENT_KIND`: the host half
+		 * is a Node module and this is a browser closure, so the value exists twice and
+		 * `scripts/check-consent-surface.mjs` fails when the copies stop being equal. The
+		 * ROUTE ITSELF is not what authorizes a request, though — the token is — and the
+		 * route is only read from the global below, so a bundle whose literal drifted
+		 * cannot call a host that moved: it finds no capability and falls back to naming
+		 * the CLI command.
+		 *
+		 * `CONSENT_GLOBAL` is the index global the host half writes:
+		 * `{ route, token }`, with a token minted in the host process's memory per
+		 * activation, never written to a file and never logged. That is what makes the
+		 * route unreachable by an agent rather than merely unofficial: there is no file,
+		 * no tool result and no CLI argument that carries it, and the host additionally
+		 * refuses any request that fails the harness's browser-session fence.
+		 */
+		const CONSENT_ROUTE = "/adr-panel/consent";
+		const CONSENT_HEADER = "x-adr-panel-consent";
+		const CONSENT_GLOBAL = "__DSH_ADR_PANEL_CONSENT__";
+		/** The page origin the route is fetched from; the corpus and the route share it. */
+		const CONSENT_ORIGIN_FALLBACK = "http://dsh.internal";
 
 		//#region panel store
 		/**
 		 * The panel's shared view state. It is not harness state: it holds only
-		 * whether the window is open, which Session it was opened from, the submitter
-		 * the Session-header entry publishes for the overlay to call, and the pending
+		 * whether the window is open, which Session it was opened from, and the pending
 		 * ratification question the composer entry claims.
 		 *
-		 * `ratify` and `request` are the two cross-seat values, and both are crossings on
-		 * purpose. The ratification question is published by the harness as a
-		 * Session-scoped pending interaction, and only the composer seat receives it as a
-		 * slot prop; the overlay is a different seat and cannot read that prop, so the
-		 * entry that receives it hands the interaction here. `request` crosses the other
-		 * way: the row is in the overlay and the thing that can answer is in the composer
-		 * seat, so the row records which decision and which answer the human clicked, and
-		 * the claiming entry settles the ratchet's question with that answer the moment it
-		 * exists — which is what makes the row's buttons direct instead of a prompt to go
-		 * and answer a quiz somewhere else.
+		 * `ratify` is a crossing on purpose: the ratification question is published by the
+		 * harness as a Session-scoped pending interaction, and only the composer seat
+		 * receives it as a slot prop. The overlay is a different seat and cannot read that
+		 * prop, so the entry that receives it hands the interaction here and the window
+		 * renders it with the ratchet's own two labels. A row's Approve or Decline does NOT
+		 * travel this way: it goes to the host route directly, which is what removes the
+		 * chat message from the flow.
 		 * @returns a bare getSnapshot/subscribe source the renderer binds into a hook.
 		 */
 		function createPanelStore() {
-			var state = { open: false, sessionId: null, ask: null, ratify: null, request: null };
+			var state = { open: false, sessionId: null, ratify: null };
 			var listeners = new Set();
 			return {
 				getSnapshot: function () {
@@ -302,27 +360,186 @@ window.__ModuleLoader__.load({
 		//#endregion
 
 		/**
-		 * The interactions this entry has already answered on a row's behalf.
+		 * The interactions the composer entry has already settled while claiming the seat.
 		 *
 		 * A render can run an effect more than once (a strict-mode double invoke, a
 		 * re-mount), and the harness THROWS when one pending question is settled twice, so
 		 * the decision is recorded against the interaction itself rather than against a
-		 * render. A WeakSet holds the interaction without keeping it alive.
+		 * render. A WeakSet holds the interaction without keeping it alive. It is used only
+		 * by the window's own answer buttons for a question the ratchet asked through ANOTHER
+		 * path (an agent calling `ratchet_ratify`); the row's Approve and Decline do not
+		 * settle an interaction at all.
 		 */
 		const autoSettled = new WeakSet();
 
+		//#region consent route
 		/**
-		 * How long a recorded click may stay armed waiting for the ratchet's question.
+		 * The capability the host half published into this page, or `null`.
 		 *
-		 * A click records an answer and then asks, and the question arrives asynchronously. If it
-		 * never arrives — the channel is down, the id is refused, the ask is lost — the recorded
-		 * answer must NOT stay armed: the same record can be edited in between, and a later
-		 * question about the NEW text would then be answered by a click the human made about the
-		 * old one. The consent the ratchet records is bound to the text its question showed, so a
-		 * click that outlived its ask is a click about a text that may no longer exist. Two
-		 * minutes is far longer than a local round trip and far shorter than a session.
+		 * The host half writes an index global carrying the route path and a token it
+		 * minted in the host process's memory for this activation. The token is the
+		 * authorization, not the path: it is in no file and in no tool result, so an agent
+		 * cannot obtain it, and the host refuses a request without it. A page whose host
+		 * half is absent, older, or composed without a web server simply has no global, and
+		 * the row falls back to naming the CLI command rather than offering a button that
+		 * could not work.
+		 *
+		 * @returns `{ route, token }` when both are non-empty strings, otherwise `null`.
 		 */
-		const REQUEST_TTL_MS = 120000;
+		function consentEndpoint() {
+			if (typeof globalThis === "undefined") return null;
+			var bridge = globalThis[CONSENT_GLOBAL];
+			if (bridge === null || typeof bridge !== "object") return null;
+			if (typeof bridge.route !== "string" || bridge.route === "") return null;
+			if (typeof bridge.token !== "string" || bridge.token === "") return null;
+			return { route: bridge.route, token: bridge.token };
+		}
+		/**
+		 * The page origin the consent route is reached on.
+		 *
+		 * The corpus and the route are served by the same host, so the panel fetches its own
+		 * origin. A shell that loads the client over `file://` reports the origin `null`,
+		 * which is not fetchable; the fallback is a name that resolves nowhere and produces
+		 * a transport failure the row reports, rather than a silent success.
+		 * @returns The origin string.
+		 */
+		function consentOrigin() {
+			var origin = typeof globalThis !== "undefined" && globalThis.location !== undefined && globalThis.location !== null ? globalThis.location.origin : undefined;
+			return typeof origin === "string" && origin !== "" && origin !== "null" ? origin : CONSENT_ORIGIN_FALLBACK;
+		}
+		/**
+		 * Performs one consent request and reads its JSON body.
+		 *
+		 * The capability header is what authorizes the call; the browser adds its
+		 * browser-session cookie itself, and the host checks both. A body that is not JSON
+		 * is reported as such rather than thrown, because a refusal is exactly what the
+		 * caller must render.
+		 *
+		 * @param path - Route path plus query string.
+		 * @param init - A `fetch` init.
+		 * @returns A promise of `{ status, body }`; the body is `null` when it did not parse.
+		 */
+		function consentRequest(path, init) {
+			var doFetch = typeof globalThis !== "undefined" ? globalThis.fetch : undefined;
+			if (typeof doFetch !== "function") {
+				return Promise.reject(new Error("this browser has no fetch, so the ADR panel cannot reach its host route"));
+			}
+			return doFetch(consentOrigin() + path, init).then(function (response) {
+				return response.json().then(
+					function (body) { return { status: response.status, body: body }; },
+					function () { return { status: response.status, body: null }; }
+				);
+			});
+		}
+		/**
+		 * PURPOSE
+		 *   Ask the host for the ratchet's own question about one decision. It writes
+		 *   nothing: the question exists, and the human has not answered yet.
+		 *
+		 * INPUTS
+		 *   adrId — the decision id the human pressed a button on (a non-empty string).
+		 *   sessionId — the Session the window was opened from; the host resolves the
+		 *   project root from it and refuses an unknown Session.
+		 *
+		 * OUTPUTS
+		 *   A promise of `{ ok, quiz, pending, blocked, problems, message, error }` — the
+		 *   ratchet's own result, plus `error` when the transport or the host refused.
+		 *   `quiz` is present exactly when there is a question to render. A transport
+		 *   failure resolves to `{ ok: false, error }` rather than rejecting, so a click
+		 *   never throws and the row always has something to show.
+		 *
+		 * KEYWORDS
+		 *   consent route, ask, ratification question, capability token, no write
+		 */
+		function askConsent(adrId, sessionId) {
+			var endpoint = consentEndpoint();
+			if (endpoint === null) return Promise.resolve({ ok: false, error: "unreachable" });
+			if (typeof adrId !== "string" || adrId === "") return Promise.resolve({ ok: false, error: "no-decision" });
+			if (typeof sessionId !== "string" || sessionId === "") return Promise.resolve({ ok: false, error: "no-session" });
+			var init = { method: "GET", headers: {} };
+			init.headers[CONSENT_HEADER] = endpoint.token;
+			return consentRequest(endpoint.route + "?session=" + encodeURIComponent(sessionId) + "&id=" + encodeURIComponent(adrId), init).then(
+				function (answer) {
+					if (answer.status !== 200 || answer.body === null) {
+						return { ok: false, error: "refused", status: answer.status, message: answer.body === null ? "the host answered with no readable body" : answer.body.message };
+					}
+					return answer.body;
+				},
+				function (error) { return { ok: false, error: describeError(error) }; }
+			);
+		}
+		/**
+		 * PURPOSE
+		 *   Hand the host the label the human selected, paired with the question it came
+		 *   from, and return the ratchet's verdict. The label must be one the question
+		 *   itself offered; this function never invents one.
+		 *
+		 * INPUTS
+		 *   adrId — the decision id (a non-empty string).
+		 *   label — the exact string the question offered for the button the human pressed.
+		 *   quiz — the question object `askConsent` returned, UNCHANGED. It is sent back so
+		 *   the ratchet can rebuild its own question and refuse an answer that is not paired
+		 *   with one it built; without it the host refuses and mints nothing.
+		 *   sessionId — the Session the window was opened from.
+		 *
+		 * OUTPUTS
+		 *   A promise of the ratchet's own result plus `error` on a transport or host
+		 *   refusal: `{ ok, ratified, rejected, unreadable, approval, transcript, wrote,
+		 *   problems, error }`. Never rejects.
+		 *
+		 * KEYWORDS
+		 *   consent route, settle, label, paired quiz, approval, transcript
+		 */
+		function settleConsent(adrId, label, quiz, sessionId) {
+			var endpoint = consentEndpoint();
+			if (endpoint === null) return Promise.resolve({ ok: false, error: "unreachable" });
+			if (typeof adrId !== "string" || adrId === "") return Promise.resolve({ ok: false, error: "no-decision" });
+			if (typeof label !== "string" || label === "") return Promise.resolve({ ok: false, error: "no-label" });
+			if (typeof sessionId !== "string" || sessionId === "") return Promise.resolve({ ok: false, error: "no-session" });
+			var init = {
+				method: "POST",
+				headers: {},
+				body: JSON.stringify({
+					session: sessionId,
+					adrId: adrId,
+					label: label,
+					// The question travels back byte for byte, because the ratchet refuses an
+					// answer that is not paired with the question it built. `null` when there is
+					// none is deliberate: it is the payload that must mint nothing.
+					quiz: quiz === undefined ? null : quiz
+				})
+			};
+			init.headers[CONSENT_HEADER] = endpoint.token;
+			init.headers["content-type"] = "application/json";
+			return consentRequest(endpoint.route, init).then(
+				function (answer) {
+					if (answer.status !== 200 || answer.body === null) {
+						return { ok: false, error: "refused", status: answer.status, message: answer.body === null ? "the host answered with no readable body" : answer.body.message };
+					}
+					return answer.body;
+				},
+				function (error) { return { ok: false, error: describeError(error) }; }
+			);
+		}
+		/**
+		 * Reduces a question the host returned to the same claim shape the composer seat
+		 * uses for a pending interaction.
+		 *
+		 * The ratchet builds one question type and the panel renders it from one predicate:
+		 * a quiz from the route is structurally the interaction's `questions` plus an
+		 * `answer` function, and the predicate reads only the questions. Going through
+		 * `ratifyQuestionOf` is what keeps the two paths from drifting — the labels the row
+		 * sends are the same two labels the seat would have offered, and a question the
+		 * panel cannot answer completely is refused in both places for the same reason.
+		 *
+		 * @param quiz - The `quiz` from an ask result, or any value.
+		 * @returns A claim value, or `null` when the question is not one the panel may put.
+		 */
+		function claimOfQuiz(quiz) {
+			if (quiz === null || typeof quiz !== "object") return null;
+			return ratifyQuestionOf({ questions: quiz.questions, answer: function () {} });
+		}
+		//#endregion
 
 		//#region ratification question
 		/**
@@ -346,6 +563,12 @@ window.__ModuleLoader__.load({
 		 *   record's row: without it the panel cannot tell which record a question is
 		 *   about, and a presentation that cannot tell must not answer at all. Its own
 		 *   question id is the ratchet's private naming, not a contract to parse.
+		 *
+		 *   It is also applied to a quiz the host route returned, wrapped as
+		 *   `{ questions, answer: noop }` by `claimOfQuiz`. The ratchet builds one question
+		 *   type and the panel reads it with one predicate, so the labels a row's Approve
+		 *   and Decline send are the labels the composer seat would have offered, and a
+		 *   question this predicate refuses is refused on both paths.
 		 *
 		 * OUTPUTS
 		 *   `{ pending, id, targetId, header, question, detail, approve, decline }`, or
@@ -2152,8 +2375,6 @@ window.__ModuleLoader__.load({
 		 *   entry it is the pending interaction. `props.publishRatify` — the injected
 		 *   callback that mirrors the interaction into the panel store for the window.
 		 *   `props.openPanel` and `props.sessionId` — forwarded to `RatifyPointer`.
-		 *   `props.usePanel` — the store hook the registration binds, read for the request
-		 *   a row recorded. `props.clearRequest` — the injected callback that consumes it.
 		 *
 		 * OUTPUTS
 		 *   The `RatifyPointer` card for a claimable question, or `null` for anything else
@@ -2165,6 +2386,11 @@ window.__ModuleLoader__.load({
 		 *   that is no longer claimable. It publishes `null` — never the raw match — for a
 		 *   question it declines, so the store can only ever hold a claimable interaction.
 		 *
+		 *   It settles NOTHING. A question the ratchet asked through another path is
+		 *   answered by the window's own buttons, against the pending interaction they were
+		 *   given; a decision a human approves in the panel never arrives here at all,
+		 *   because that click goes to the host consent route instead of the composer.
+		 *
 		 * KEYWORDS
 		 *   composer seat, chain claim, ratification, overlay hand-off, publish, unmount,
 		 *   suppression, fall-through
@@ -2172,9 +2398,6 @@ window.__ModuleLoader__.load({
 		function RatifyComposer(props) {
 			var matched = props.matched;
 			var publishRatify = props.publishRatify;
-			var usePanel = props.usePanel;
-			var clearRequest = props.clearRequest;
-			var request = typeof usePanel === "function" ? usePanel(function (snapshot) { return snapshot.request; }) : null;
 			var claim = ratifyQuestionOf(matched);
 			React.useEffect(function () {
 				if (typeof publishRatify !== "function") return undefined;
@@ -2188,51 +2411,21 @@ window.__ModuleLoader__.load({
 					publishRatify(null);
 				};
 			}, [matched, publishRatify]);
-			// The row's click, honoured. It is the human's answer — the label sent is the
-			// one the RATCHET put on this question, chosen by which button the human pressed
-			// — so it travels the one consent channel exactly as the chat quiz's answer
-			// does, and no part of the panel composes it. A question for a different record
-			// is never settled by a click on this one.
-			React.useEffect(function () {
-				if (claim === null || request === null || request === undefined) return undefined;
-				if (request.adrId !== claim.targetId) return undefined;
-				// A recorded click is an answer about the text the human was looking at. If the ask
-				// produced no question — the channel is down, the id was refused, the ask was lost —
-				// the answer must not stay armed, because the record can be edited in the meantime
-				// and the NEXT question about it would then be answered by a click the human made
-				// about the OLD text. The ratchet binds a consent to the text its question showed;
-				// a click that outlived its ask is a click about a text that may no longer exist,
-				// which is exactly what `RATIFICATION_STALE` exists to refuse.
-				if (typeof request.at !== "number" || Date.now() - request.at > REQUEST_TTL_MS) {
-					if (typeof clearRequest === "function") clearRequest();
-					return undefined;
-				}
-				if (autoSettled.has(matched)) return undefined;
-				autoSettled.add(matched);
-				var label = request.decision === "approve" ? claim.approve.label : claim.decline.label;
-				try {
-					var settled = claim.pending.answer({ answers: [{ id: claim.id, selected: [label] }] });
-					if (settled !== null && typeof settled === "object" && typeof settled.then === "function") {
-						settled.then(function () {}, function () {});
-					}
-				} catch (error) {
-					// The row reports that nothing settled; the question stays for the window.
-				}
-				if (typeof clearRequest === "function") clearRequest();
-				return undefined;
-			}, [matched, request]);
 			if (claim === null) return null;
 			return React.createElement(RatifyPointer, {
 				claim: claim,
 				openPanel: props.openPanel,
 				sessionId: props.sessionId,
-				settling: request !== null && request !== undefined && request.adrId === claim.targetId
+				settling: false
 			});
 		}
 
 		/**
-		 * The Session-header action. It opens and closes the window and publishes the
-		 * submitter the overlay calls: the only place with a live composer.
+		 * The Session-header action. It opens and closes the window.
+		 *
+		 * It composes nothing and submits nothing: the window's Approve and Decline reach
+		 * the host's consent route directly, so there is no composer message to publish and
+		 * no `inputActions` to hold. The button is the whole entry.
 		 * @returns the header button.
 		 */
 		function AdrPanelTrigger(props) {
@@ -2241,30 +2434,7 @@ window.__ModuleLoader__.load({
 			});
 			var openPanel = props.openPanel;
 			var closePanel = props.closePanel;
-			var publishAsk = props.publishAsk;
-			var inputActions = props.inputActions;
 			var sessionId = props.sessionId;
-			React.useEffect(function () {
-				if (inputActions === undefined || inputActions === null || typeof inputActions.setDraft !== "function" || typeof inputActions.submit !== "function") {
-					publishAsk(null);
-					return undefined;
-				}
-				publishAsk(function (adrId) {
-					try {
-						// The ratchet's own command, not a sentence to the model. A command is
-						// executed host-side without a model turn, and its handler holds the
-						// session's agent, so the ratchet puts its question to the human
-						// directly. The answer is still the human's; nothing here composes one.
-						inputActions.setDraft("/ratify " + adrId);
-						inputActions.submit();
-					} catch (error) {
-						if (typeof console !== "undefined" && console.error) console.error("[adr-panel] could not submit the ratify request", error);
-					}
-				});
-				return function () {
-					publishAsk(null);
-				};
-			}, [inputActions, publishAsk]);
 			return React.createElement("button", {
 				type: "button",
 				title: "Decisions and specs",
@@ -2278,9 +2448,236 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
+		 * PURPOSE
+		 *   The consent surface a ratifiable decision's row carries: Approve and Decline,
+		 *   the ratchet's own question about this record, and the outcome of the answer.
+		 *
+		 *   One click does all of it. The panel asks the host consent route for the
+		 *   ratchet's question about THIS record, renders that question in the row — its
+		 *   header, its text, the record's own file text and both labels the ratchet put on
+		 *   it — and sends back the label belonging to the button the human pressed,
+		 *   together with the question it came from. The host passes both to the ratchet,
+		 *   whose `ratify` writes the approval ADR and its transcript. Nothing is composed
+		 *   here: the two labels are the question's own, read through `ratifyQuestionOf`,
+		 *   and no message is submitted to the composer.
+		 *
+		 * INPUTS
+		 *   props.adr — the parsed decision record. props.ask — `askConsent(id, sessionId)`,
+		 *   or `null` when the route is unreachable. props.settle —
+		 *   `settleConsent(id, label, quiz, sessionId)`, or `null` likewise.
+		 *   props.sessionId — the Session the window was opened from. props.canAsk — whether
+		 *   both are usable in this render. props.onRecorded — called after an approval is
+		 *   written, so the window re-reads the corpus that just changed.
+		 *
+		 * OUTPUTS
+		 *   In the idle phase: the two buttons, or — when the route is unreachable — the CLI
+		 *   command in their place. While asking: a muted line saying the ratchet is being
+		 *   asked. While recording: the ratchet's question with the record's own text and
+		 *   both labels, the chosen one marked as being sent. On completion: the outcome —
+		 *   an approval's id, file and transcript, a decline that wrote nothing, or the
+		 *   ratchet's own refusal with its problem codes. The outcome is never silent.
+		 *
+		 *   Edge cases: a click when `ask`/`settle` is null reports the route as
+		 *   unreachable and sends nothing; a quiz the panel cannot reduce to two labelled
+		 *   answers (`claimOfQuiz` returns `null`) reports that the question cannot be put
+		 *   and sends no label; a promise rejection is rendered as a message, never thrown
+		 *   out of the handler; a second click while a round trip is in flight is refused by
+		 *   the phase guard rather than settling one question twice.
+		 *
+		 * KEYWORDS
+		 *   consent route, approve, decline, ratification question, record text, labels,
+		 *   outcome, no chat message, no composed answer
+		 */
+		function ConsentAction(props) {
+			var adr = props.adr;
+			var ask = props.ask;
+			var settle = props.settle;
+			var sessionId = props.sessionId;
+			var canAsk = props.canAsk === true && typeof ask === "function" && typeof settle === "function";
+			var onRecorded = props.onRecorded;
+			var phaseState = React.useState(null);
+			var phase = phaseState[0];
+			var setPhase = phaseState[1];
+			var colours = tone(adr.state.kind);
+
+			/** Reads the outcome out of one settle result, so the row can render it. */
+			var finish = function (decision, result, quiz) {
+				setPhase({ kind: "done", decision: decision, result: result, quiz: quiz });
+				if (decision === "approve" && result !== null && result !== undefined && result.ok === true && typeof onRecorded === "function") {
+					// The corpus changed: an approval ADR exists now. Re-reading it is how the
+					// row's state, the Consents section and the in-force law set catch up.
+					onRecorded();
+				}
+			};
+			/** One click, end to end: ask the ratchet, show its question, send its label. */
+			var decide = function (decision) {
+				if (phase !== null) return;
+				if (!canAsk) {
+					finish(decision, { ok: false, error: "unreachable" }, null);
+					return;
+				}
+				setPhase({ kind: "asking", decision: decision });
+				ask(adr.id, sessionId).then(
+					function (asked) {
+						var claim = claimOfQuiz(asked === null || asked === undefined ? null : asked.quiz);
+						if (claim === null) {
+							finish(decision, Object.assign({ ok: false, error: "no-question" }, asked === null || asked === undefined ? {} : asked), null);
+							return;
+						}
+						var label = decision === "decline" ? claim.decline.label : claim.approve.label;
+						setPhase({ kind: "recording", decision: decision, claim: claim, label: label });
+						settle(adr.id, label, asked.quiz, sessionId).then(
+							function (result) { finish(decision, result, asked.quiz); },
+							function (error) { finish(decision, { ok: false, error: describeError(error) }, asked.quiz); }
+						);
+					},
+					function (error) { finish(decision, { ok: false, error: describeError(error) }, null); }
+				);
+			};
+
+			var children = [
+				React.createElement("div", { key: "note", style: ctaNoteStyle() },
+					"Your click is the consent: the panel asks the ratchet for its own question about this decision, shows it here, and answers it with the ratchet's own label. Nothing is sent to the conversation.")
+			];
+			if (phase === null) {
+				children.unshift(
+					React.createElement("div", { key: "buttons", style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 6 } },
+						canAsk ? React.createElement("button", {
+							type: "button",
+							style: Object.assign({}, primaryButtonStyle(colours), { marginTop: 0 }),
+							onClick: function () { decide("approve"); }
+						}, "Approve") : null,
+						canAsk ? React.createElement("button", {
+							type: "button",
+							style: smallButtonStyle(),
+							onClick: function () { decide("decline"); }
+						}, "Decline") : null,
+						canAsk ? null : React.createElement("span", { style: mutedStyle() },
+							"The panel's host route is unreachable from this window, so it cannot record an approval. Run from a session: ask the agent to call ",
+							mono("ratchet_ratify"),
+							" (or list what waits with ",
+							mono("node plugins/ratchet/ratchet-cli.mjs pending --root ."),
+							")."))
+				);
+			}
+			if (phase !== null && phase.kind === "asking") {
+				children.push(React.createElement("div", { key: "asking", style: mutedStyle() }, "Asking the ratchet for its question about this decision…"));
+			}
+			if (phase !== null && phase.kind === "recording") {
+				children.push(React.createElement(RatifyRouteCard, { key: "question", claim: phase.claim, decision: phase.decision, label: phase.label }));
+				children.push(React.createElement("div", { key: "sending", style: mutedStyle() }, "Recording your answer: sending the ratchet's own " + phase.label + " label."));
+			}
+			if (phase !== null && phase.kind === "done") {
+				children.push(React.createElement(ConsentOutcome, { key: "outcome", decision: phase.decision, result: phase.result }));
+			}
+			return React.createElement("div", { style: cardStyle() }, children);
+		}
+
+		/**
+		 * PURPOSE
+		 *   Renders the ratchet's own question, exactly as the ratchet built it: its
+		 *   header, its text, the record's own file text and the two labels it offered. It
+		 *   is the same presentation the window gives a question the ratchet asked through
+		 *   the composer seat, minus the settlement, because a row's click has already
+		 *   chosen the label that is being sent.
+		 *
+		 * INPUTS
+		 *   props.claim — a value from `claimOfQuiz`. props.decision — `"approve"` or
+		 *   `"decline"`. props.label — the label being sent.
+		 *
+		 * OUTPUTS
+		 *   The question card. Both labels render as buttons, disabled: the answer is
+		 *   already travelling, and one question is answered once. The chosen one carries the
+		 *   primary style so the human can see which of the ratchet's labels their click
+		 *   selected.
+		 *
+		 * KEYWORDS
+		 *   question card, record text, labels, disabled while recording
+		 */
+		function RatifyRouteCard(props) {
+			var claim = props.claim;
+			var sending = props.decision === "decline" ? claim.decline.label : claim.approve.label;
+			var colours = tone("pending");
+			return React.createElement("div", { style: Object.assign({}, cardStyle(), { borderColor: colours.border }) },
+				claim.header === "" ? null : React.createElement("div", { style: { fontSize: 11, opacity: 0.7, marginBottom: 4 } }, claim.header),
+				React.createElement("div", { style: { fontSize: 13, fontWeight: 600, lineHeight: "18px" } }, claim.question),
+				React.createElement("pre", { style: preStyle() }, claim.detail),
+				React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 } },
+					[claim.approve, claim.decline].map(function (option) {
+						return React.createElement("button", {
+							key: option.label,
+							type: "button",
+							disabled: true,
+							style: Object.assign({}, option.label === sending ? primaryButtonStyle(colours) : smallButtonStyle(), { marginTop: 0, opacity: 0.7 })
+						}, option.label);
+					})));
+		}
+
+		/**
+		 * PURPOSE
+		 *   Renders what the ratchet did with the human's answer. It is the only thing that
+		 *   tells the human whether a consent exists, so every outcome has a sentence: an
+		 *   approval names the record written and the transcript, a decline says nothing was
+		 *   written, and a refusal or a transport failure names its reason.
+		 *
+		 * INPUTS
+		 *   props.decision — `"approve"` or `"decline"`. props.result — the host's response
+		 *   object, or a `{ ok: false, error }` value from a transport failure.
+		 *
+		 * OUTPUTS
+		 *   A muted line for a success and a warn line for anything else. It never renders
+		 *   nothing, and it never claims a consent the result does not carry: `ok === true`
+		 *   AND a written approval is what makes the approval sentence appear.
+		 *
+		 * KEYWORDS
+		 *   outcome, approval written, declined, refusal, problem codes
+		 */
+		function ConsentOutcome(props) {
+			var result = props.result === null || props.result === undefined ? {} : props.result;
+			var decision = props.decision;
+			var problemCodes = Array.isArray(result.problems) ? result.problems.map(function (entry) { return entry !== null && typeof entry === "object" && typeof entry.code === "string" ? entry.code : null; }).filter(function (code) { return code !== null; }) : [];
+			var approved = result.ok === true && Array.isArray(result.ratified) && result.ratified.length > 0;
+			if (approved) {
+				var files = [];
+				if (Array.isArray(result.wrote)) files = result.wrote.slice();
+				var approvalText = result.approval !== null && result.approval !== undefined ? "Approval ADR " + result.approval.id + " (" + result.approval.path + ")" : "the approval ADR";
+				var transcriptText = result.transcript !== null && result.transcript !== undefined ? " and its transcript (" + result.transcript.path + ")" : "";
+				return React.createElement("div", { style: mutedStyle() },
+					"Approved: " + approvalText + transcriptText + " written. ",
+					"Recompile and re-verify to see the law set this changed.",
+					files.length === 0 ? null : React.createElement("div", null, mono(files.join(", "))));
+			}
+			if (Array.isArray(result.rejected) && result.rejected.length > 0) {
+				return React.createElement("div", { style: mutedStyle() },
+					"Declined: the ratchet recorded no consent for " + result.rejected.join(", ") + ", so nothing was written and " + (result.rejected.length === 1 ? "the decision stays" : "the decisions stay") + " proposed.");
+			}
+			if (result.error === "unreachable") {
+				return React.createElement("div", { style: warnStyle() }, "Nothing was recorded: this window could not reach the panel's host route, so the ratchet was never asked.");
+			}
+			if (result.error === "no-question") {
+				return React.createElement("div", { style: warnStyle() },
+					"Nothing was recorded: the ratchet has no question to put for this decision. ",
+					typeof result.message === "string" && result.message !== "" ? result.message : "It is not waiting for a human.");
+			}
+			if (result.error === "refused" || typeof result.error === "string") {
+				return React.createElement("div", { style: warnStyle() },
+					"Nothing was recorded: ",
+					typeof result.message === "string" && result.message !== "" ? result.message : String(result.error),
+					problemCodes.length === 0 ? null : " (" + problemCodes.join(", ") + ")");
+			}
+			return React.createElement("div", { style: warnStyle() },
+				"Nothing was recorded",
+				problemCodes.length === 0 ? "." : ": the ratchet refused with " + problemCodes.join(", ") + ".",
+				decision === "decline" ? " The decision stays proposed." : null);
+		}
+
+		/**
 		 * One decision record: identification, derived state, a summary, and — when
 		 * expanded — metadata, the laws it decided, and the four body sections. Only a
-		 * proposed, agent-authored, not-yet-approved decision gets the ratify affordance.
+		 * proposed, agent-authored, not-yet-approved decision gets the ratify affordance,
+		 * and that affordance is `ConsentAction`: two buttons whose click records the
+		 * decision through the panel's host consent route, rendering the ratchet's own
+		 * question and its labels, with no message submitted to the composer.
 		 * @param props.decisionStates map of decision id to state kind, threaded to the
 		 *   `decided in` chip of every law card this row renders.
 		 * @returns the card.
@@ -2295,10 +2692,10 @@ window.__ModuleLoader__.load({
 			var recordIds = props.recordIds;
 			var onSelectAdr = props.onSelectAdr;
 			var canAsk = props.canAsk;
-			var requestRatify = props.requestRatify;
-			var outcome = React.useState(null);
-			var result = outcome[0];
-			var setResult = outcome[1];
+			var ask = props.ask;
+			var settle = props.settle;
+			var sessionId = props.sessionId;
+			var onRecorded = props.onRecorded;
 			var colours = tone(adr.state.kind);
 			var awaiting = adr.state.kind === "pending";
 			var children = [
@@ -2321,31 +2718,15 @@ window.__ModuleLoader__.load({
 				adr.error === null ? null : React.createElement("div", { key: "err", style: warnStyle() }, "frontmatter: " + adr.error)
 			];
 			if (adr.canRatify === true) {
-				var decide = function (decision) {
-					if (typeof requestRatify !== "function") {
-						setResult("unavailable");
-						return;
-					}
-					try {
-						setResult(requestRatify(adr.id, decision) === true ? decision : "unavailable");
-					} catch (error) {
-						setResult("unavailable");
-					}
-				};
 				children.push(React.createElement("div", { key: "ask", style: { marginTop: 8 } },
-					canAsk ? React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" } },
-						React.createElement("button", { type: "button", style: Object.assign({}, primaryButtonStyle(colours), { marginTop: 0 }), onClick: function () { decide("approve"); } }, "Approve"),
-						React.createElement("button", { type: "button", style: smallButtonStyle(), onClick: function () { decide("decline"); } }, "Decline")) : null,
-					React.createElement("div", { key: "note", style: ctaNoteStyle() }, "Your click is the consent: the ratchet asks its own question about this decision and this answers it with the ratchet's own label, exactly as the chat quiz would. No quiz appears — there is nothing to go and answer."),
-					result === "approve" ? React.createElement("div", { style: mutedStyle() }, "Approving… the ratchet's question is being answered with its own approve label.") : null,
-					result === "decline" ? React.createElement("div", { style: mutedStyle() }, "Declining… the ratchet's question is being answered with its own reject label.") : null,
-					(!canAsk || result === "unavailable") ? React.createElement("div", { style: mutedStyle() },
-						canAsk ? "The composer refused the request. " : "No live Session composer is reachable from this window, so it cannot submit a message. ",
-						"Run from a session: ask the agent to call ",
-						mono("ratchet_ratify"),
-						" (or list what waits with ",
-						mono("node plugins/ratchet/ratchet-cli.mjs pending --root ."),
-						").") : null));
+					React.createElement(ConsentAction, {
+						adr: adr,
+						ask: ask,
+						settle: settle,
+						sessionId: sessionId,
+						canAsk: canAsk,
+						onRecorded: onRecorded
+					})));
 			}
 			if (expanded) {
 				children.push(React.createElement("div", { key: "details", style: detailsStyle() },
@@ -2549,7 +2930,8 @@ window.__ModuleLoader__.load({
 				return snapshot;
 			});
 			var closePanel = props.closePanel;
-			var requestRatify = props.requestRatify;
+			var ask = props.ask;
+			var settle = props.settle;
 			var load = props.load;
 			var emptyView = { status: "idle", decisions: [], consents: [], specs: [], relations: { approvedBy: {}, supersededBy: {} }, lawsByDecision: {}, decisionIds: {}, recordIds: {}, dirs: { decisionsDir: DEFAULT_DECISIONS_DIR, specsDir: DEFAULT_SPECS_DIR }, projectName: "this project", notes: [], failures: [] };
 			var view = React.useState(emptyView);
@@ -2590,15 +2972,6 @@ window.__ModuleLoader__.load({
 					if (controller !== null) controller.abort();
 				};
 			}, [state.open, state.sessionId, seq[0]]);
-			// A recorded answer changes the corpus (an Approval ADR is written), so the window
-			// re-reads itself shortly after a click. Timed rather than awaited because the
-			// settlement happens in the composer seat, in another subtree, and the panel has no
-			// result to subscribe to; the Reload button remains for anything slower.
-			React.useEffect(function () {
-				if (state.request === null || state.request === undefined) return undefined;
-				var timer = setTimeout(function () { bump(seq[0] + 1); }, 2500);
-				return function () { clearTimeout(timer); };
-			}, [state.request]);
 			React.useEffect(function () {
 				if (!state.open) return undefined;
 				function onKey(event) {
@@ -2610,7 +2983,17 @@ window.__ModuleLoader__.load({
 				};
 			}, [state.open, closePanel]);
 			if (!state.open) return null;
-			var canAsk = typeof state.ask === "function";
+			// The consent route is reachable only when the host half published its capability
+			// into this page AND the window is bound to a Session. Both halves are checked at
+			// render time rather than cached, because a page can be opened before the host
+			// route exists and a window can be opened with no Session at all.
+			var canAsk = consentEndpoint() !== null && typeof state.sessionId === "string" && state.sessionId !== "";
+			// A recorded answer changes the corpus (an Approval ADR is written), and the row
+			// that recorded it knows when: it calls this, so the window re-reads the files that
+			// just changed rather than waiting on a timer.
+			var onRecorded = function () {
+				bump(seq[0] + 1);
+			};
 			// The ratification question the composer entry claimed and mirrored here. It is
 			// re-derived rather than trusted: the store is a plain value bag, and the overlay
 			// must apply the same claim test the seat did before it offers a button.
@@ -2685,7 +3068,10 @@ window.__ModuleLoader__.load({
 										recordIds: current.recordIds,
 										onSelectAdr: onSelectAdr,
 										canAsk: canAsk,
-										requestRatify: requestRatify
+										ask: ask,
+										settle: settle,
+										sessionId: state.sessionId,
+										onRecorded: onRecorded
 									});
 								}))),
 						React.createElement("div", null,
@@ -2749,14 +3135,6 @@ window.__ModuleLoader__.load({
 			const openPanel = function (sessionId) {
 				store.set({ open: true, sessionId: typeof sessionId === "string" && sessionId !== "" ? sessionId : null });
 			};
-			/**
-			 * Consumes the recorded answer once the claiming entry has sent it, so a later
-			 * question about the same record is not answered by a stale click.
-			 * @returns Nothing.
-			 */
-			const clearRequest = function () {
-				store.set({ request: null });
-			};
 			ctx.effect(function () {
 				return ctx.slots.inject("conversation.session.header.actions", function () {
 					return ctx.slots.register({
@@ -2769,9 +3147,6 @@ window.__ModuleLoader__.load({
 								openPanel: openPanel,
 								closePanel: function () {
 									store.set({ open: false });
-								},
-								publishAsk: function (submitter) {
-									store.set({ ask: typeof submitter === "function" ? submitter : null });
 								}
 							};
 						}
@@ -2791,45 +3166,16 @@ window.__ModuleLoader__.load({
 								closePanel: function () {
 									store.set({ open: false });
 								},
-								askAgent: function (adrId) {
-									var submitter = store.getSnapshot().ask;
-									if (typeof submitter !== "function") return false;
-									try {
-										submitter(adrId);
-										return true;
-									} catch (error) {
-										return false;
-									}
-								},
 								/**
-								 * The row's click, end to end: record which decision and which answer the
-								 * human chose, then make the ratchet ASK, so the answer is the answer to
-								 * a question the ratchet put. Both halves are needed and neither is
-								 * optional: the ask is what makes the click a consent this ratchet can
-								 * pair, and the recorded decision is what lets the claiming entry send
-								 * the label the ratchet offered rather than one the panel invented.
+								 * The row's two halves, injected as they are so the test that drives
+								 * this bundle can substitute a transport: `ask` obtains the ratchet's
+								 * question from the host route, `settle` returns the human's selected
+								 * label to it paired with that question. Neither composes an answer —
+								 * the label comes from the question itself, through
+								 * `ratifyQuestionOf`.
 								 */
-								requestRatify: function (adrId, decision) {
-									if (typeof adrId !== "string" || adrId === "") return false;
-									var submitter = store.getSnapshot().ask;
-									if (typeof submitter !== "function") return false;
-									store.set({
-										request: {
-											adrId: adrId,
-											decision: decision === "decline" ? "decline" : "approve",
-											// When the click happened, so a question that arrives much later
-											// cannot be answered by it. See REQUEST_TTL_MS.
-											at: Date.now()
-										}
-									});
-									try {
-										submitter(adrId);
-										return true;
-									} catch (error) {
-										store.set({ request: null });
-										return false;
-									}
-								},
+								ask: askConsent,
+								settle: settleConsent,
 								load: function (signal) {
 									return loadPanel(ctx, store.getSnapshot().sessionId, signal);
 								}
@@ -2867,7 +3213,6 @@ window.__ModuleLoader__.load({
 							return {
 								hooks: { panel: store },
 								publishRatify: publishRatify,
-								clearRequest: clearRequest,
 								openPanel: openPanel
 							};
 						}

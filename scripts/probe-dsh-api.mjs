@@ -30,6 +30,15 @@
  *                     project through the user-questions channel, with a stub
  *                     answerer standing in for the human. No model turn beyond the
  *                     one that calls the probe tool.
+ *   --adr-panel-consent
+ *                     Drive the ADR panel's consent route over real HTTP: mount the
+ *                     panel's host half, the ratchet, `dsh-host-webserver` and
+ *                     `dsh-client-connection`, then fetch the route on loopback as a
+ *                     browser would and post the label the ratchet's own question
+ *                     offered. Asserts the browser fence, the per-activation
+ *                     capability, the refusals (no quiz, foreign quiz, human-only
+ *                     zone, replayed quiz, stale text) and the approval it writes.
+ *                     No model turn beyond the one that calls the probe tool.
  *   --kit-rules       Boot no harness and make no model call. Construct the real
  *                     `systemPrompt` service over a scratch home, apply the
  *                     shipped `kit-rules` plugin, assemble and render the
@@ -156,6 +165,21 @@ const REVIEW_PROBE_ENTRY = pathToFileURL(join(PROBE_PLUGIN, 'review-probe.mjs'))
  */
 const RATIFY_PROBE_ENTRY = pathToFileURL(join(PROBE_PLUGIN, 'ratify-probe.mjs')).href
 
+/**
+ * Entry of the ADR panel's consent-route probe.
+ *
+ * The route is a browser-facing HTTP handler, so driving it needs the real transport:
+ * this mode also mounts `@deepseek-ai/dsh-host-webserver` and
+ * `@deepseek-ai/dsh-client-connection` (both named by their installed absolute entries,
+ * because the scratch profile installs no such package) beside the panel's host half and
+ * the ratchet. The probe then fetches the route over `127.0.0.1`, which is what makes the
+ * browser fence, the capability header and the write measurable rather than assumed.
+ */
+const PANEL_CONSENT_PROBE_ENTRY = pathToFileURL(join(PROBE_PLUGIN, 'panel-consent-probe.mjs')).href
+
+/** The ADR panel's host half: the plugin whose route this mode drives. */
+const PANEL_HOST_ENTRY = pathToFileURL(join(KIT, 'plugins', 'dsh-adr-panel', 'index.js')).href
+
 /** Probe tool names whose invocation proves the corresponding API works. */
 const PROBE_TOOLS = [
   'zzprobe_env',
@@ -171,7 +195,7 @@ const PROBE_TOOLS = [
  * Kept out of `PROBE_TOOLS` because their assertions must not run — and must not
  * be reported as failures — when the row that registers them was not mounted.
  */
-const OPTIONAL_PROBE_TOOLS = ['zzprobe_judge', 'zzprobe_ratchet_review', 'zzprobe_ratchet_ratify']
+const OPTIONAL_PROBE_TOOLS = ['zzprobe_judge', 'zzprobe_ratchet_review', 'zzprobe_ratchet_ratify', 'zzprobe_adr_panel_consent']
 /**
  * Task given to the scratch run when the judge probe is mounted.
  *
@@ -208,6 +232,18 @@ const RATCHET_RATIFY_TASK = [
   'arguments, then reply with the single word DONE. Do not summarise the result.',
 ].join('\n')
 
+/**
+ * Task for the ADR panel consent-route mode.
+ *
+ * One call, and no model turn beyond it: the "human" in this mode is the probe's own HTTP
+ * client posting the label the ratchet's question offered, so nothing is asked of the model
+ * except to invoke the tool once.
+ */
+const PANEL_CONSENT_TASK = [
+  'You are probing a harness API. Call the tool `zzprobe_adr_panel_consent` exactly once with no',
+  'arguments, then reply with the single word DONE. Do not summarise the result.',
+].join('\n')
+
 /** Default task: one call per probe tool, then a short acknowledgement. */
 const DEFAULT_TASK = [
   'You are probing a harness API. Do exactly this and nothing else:',
@@ -229,6 +265,7 @@ function parseArgs(argv) {
     ratchet: false,
     ratchetReview: false,
     ratchetRatify: false,
+    adrPanelConsent: false,
     kitRules: false,
     bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-headless'],
   }
@@ -240,6 +277,7 @@ function parseArgs(argv) {
     else if (flag === '--ratchet') options.ratchet = true
     else if (flag === '--ratchet-review') options.ratchetReview = true
     else if (flag === '--ratchet-ratify') options.ratchetRatify = true
+    else if (flag === '--adr-panel-consent') options.adrPanelConsent = true
     else if (flag === '--kit-rules') options.kitRules = true
     else if (flag === '--task') options.task = argv[++index] ?? ''
     else if (flag === '--profile') options.profile = argv[++index] ?? ''
@@ -289,9 +327,11 @@ function credentialsSource() {
  * @param bundles - Bundle names the scratch profile composes.
  * @param probeJudge - Whether to mount the judge-spawning row.
  * @param ratchet - Whether to mount the kit's ratchet plugin.
+ * @param adrPanelConsent - Whether to mount the ADR panel's consent route, its ratchet and
+ *   the real HTTP transport (webserver + connection) the route is driven over.
  * @returns Absolute path of the scratch workspace the run is opened on.
  */
-function buildHome(home, profile, credentials, bundles, probeJudge, ratchet, ratchetReview, ratchetRatify) {
+function buildHome(home, profile, credentials, bundles, probeJudge, ratchet, ratchetReview, ratchetRatify, adrPanelConsent) {
   const workspace = join(home, 'workspace')
   mkdirSync(workspace, { recursive: true })
   copyFileSync(credentials, join(home, '.credentials.yaml'))
@@ -299,6 +339,24 @@ function buildHome(home, profile, credentials, bundles, probeJudge, ratchet, rat
     join(home, 'settings.yaml'),
     ['agent-default-model:', '  provider: deepseek-official', '  model: deepseek-flash', ''].join('\n'),
   )
+  // The consent-route mode needs three harness packages by ABSOLUTE entry: the scratch
+  // profile installs none of them, and a bare package name would resolve nowhere. They are
+  // named by the harness root rather than by a hardcoded `lib/index.js`, so an upgrade that
+  // moves an entry point is reported rather than silently unloadable.
+  const harnessRoot = adrPanelConsent ? harnessPackageRoot() : null
+  const transportRows = harnessRoot === null
+    ? []
+    : [
+        '    - id: probe-webserver',
+        `      name: ${JSON.stringify(packageEntry(harnessRoot, '@deepseek-ai/dsh-host-webserver'))}`,
+        '      config:',
+        "        host: '127.0.0.1'",
+        '        port: 0',
+        '    - id: probe-connection',
+        `      name: ${JSON.stringify(packageEntry(harnessRoot, '@deepseek-ai/dsh-client-connection'))}`,
+        '    - id: adr-panel',
+        `      name: ${JSON.stringify(PANEL_HOST_ENTRY)}`,
+      ]
   writeFileSync(
     join(home, 'cordis.patch.yml'),
     [
@@ -311,13 +369,14 @@ function buildHome(home, profile, credentials, bundles, probeJudge, ratchet, rat
       ...(probeJudge
         ? ['    - id: api-probe-judge', `      name: ${JSON.stringify(JUDGE_ENTRY)}`]
         : []),
-      ...(ratchet ? ['    - id: ratchet', `      name: ${JSON.stringify(RATCHET_ENTRY)}`] : []),
+      ...(ratchet || adrPanelConsent ? ['    - id: ratchet', `      name: ${JSON.stringify(RATCHET_ENTRY)}`] : []),
       ...(ratchetReview
         ? ['    - id: api-probe-ratchet-review', `      name: ${JSON.stringify(REVIEW_PROBE_ENTRY)}`]
         : []),
       ...(ratchetRatify
         ? ['    - id: api-probe-ratchet-ratify', `      name: ${JSON.stringify(RATIFY_PROBE_ENTRY)}`]
         : []),
+      ...(adrPanelConsent ? [...transportRows, '    - id: api-probe-adr-panel-consent', `      name: ${JSON.stringify(PANEL_CONSENT_PROBE_ENTRY)}`] : []),
       '',
     ].join('\n'),
   )
@@ -745,6 +804,7 @@ const workspace = buildHome(
   options.ratchet,
   options.ratchetReview,
   options.ratchetRatify,
+  options.adrPanelConsent,
 )
 
 const { command, prefixArgs } = launcher()
@@ -755,7 +815,9 @@ const task = options.probeJudge
     ? RATCHET_REVIEW_TASK
     : options.ratchetRatify
       ? RATCHET_RATIFY_TASK
-      : options.task
+      : options.adrPanelConsent
+        ? PANEL_CONSENT_TASK
+        : options.task
 const run = spawnSync(command, [...prefixArgs, '--profile', options.profile, task], {
   cwd: workspace,
   env: { ...process.env, DSH_HOME: home, DSH_TELEMETRY_DISABLED: '1' },
@@ -889,6 +951,141 @@ if (options.probeJudge) {
     typeof payload?.reviewElapsedMs === 'number' && typeof payload?.ingestElapsedMs === 'number',
     `review=${String(payload?.reviewElapsedMs)}ms ingest=${String(payload?.ingestElapsedMs)}ms ` +
       `ingestPromptBytes=${String(ingested?.promptBytes)}`,
+  )
+} else if (options.adrPanelConsent) {
+  // The ADR panel's consent route, end to end over real HTTP. Every claim here is about the
+  // ROUTE rather than about the operation behind it: that the capability reaches the page
+  // through the harness's own index injection, that the browser fence and the capability are
+  // both required, that the ratchet's question comes back to the caller, that the answer must
+  // carry that question, and that the approval and transcript on disk are the ratchet's.
+  const payload = observed.zzprobe_adr_panel_consent?.payload ?? null
+  const cases = payload?.cases ?? {}
+  const approved = cases.approved ?? {}
+  const wrote = (name) => {
+    const entry = cases[name]?.wrote ?? {}
+    return `${String(entry.decisions)}d/${String(entry.sources)}s`
+  }
+
+  check(
+    'adr_panel_consent.tool_dispatched',
+    'the consent-route probe was registered and reached in a live profile',
+    payload !== null,
+    payload === null ? 'no tool/result record for zzprobe_adr_panel_consent' : 'dispatched',
+  )
+  check(
+    'adr_panel_consent.capability_reaches_the_page',
+    'the panel host half publishes the route and its per-activation capability through the harness index-injection table, and the probe obtained them the way the browser does',
+    typeof payload?.route === 'string' && payload.route.startsWith('/') && payload?.capabilityBytes >= 32 && payload?.browserSessionMinted === true,
+    `route=${String(payload?.route)} capabilityBytes=${String(payload?.capabilityBytes)} browserSessionMinted=${String(payload?.browserSessionMinted)}`,
+  )
+  check(
+    'adr_panel_consent.session_resolves_the_project',
+    'the route resolved the project root from the SESSION id, not from the server directory',
+    typeof payload?.sessionResolved === 'string' && payload.sessionResolved === payload?.workspace,
+    `sessionCwd=${String(payload?.sessionResolved)} workspace=${String(payload?.workspace)}`,
+  )
+  check(
+    'adr_panel_consent.browser_fence_refuses_an_unauthenticated_caller',
+    'a loopback request with no browser session is answered 401 and writes nothing',
+    cases.unauthenticated_ask?.status === 401 && cases.unauthenticated_ask?.wrote?.decisions === 0 && cases.unauthenticated_ask?.wrote?.sources === 0,
+    `status=${String(cases.unauthenticated_ask?.status)} wrote=${wrote('unauthenticated_ask')}`,
+  )
+  check(
+    'adr_panel_consent.capability_is_required',
+    'a caller with a browser session but no capability — or a tampered one — is refused before the ratchet is reached',
+    cases.ask_without_capability?.status === 403 && cases.ask_with_wrong_capability?.status === 403,
+    `without=${String(cases.ask_without_capability?.status)} tampered=${String(cases.ask_with_wrong_capability?.status)}`,
+  )
+  check(
+    'adr_panel_consent.ask_returns_the_ratchets_own_question',
+    'the route answers with the question the ratchet builds: the record\'s own text as the detail, and the two labels it offered',
+    cases.ask?.status === 200 &&
+      cases.ask?.needsAnswer === true &&
+      cases.ask?.detailHasFrontmatter === true &&
+      cases.ask?.detailBytes > 200 &&
+      JSON.stringify(cases.ask?.labels) === JSON.stringify(['Approve', 'Reject']) &&
+      cases.ask?.approveLabel === 'Approve' &&
+      typeof cases.ask?.frozenHash === 'string',
+    JSON.stringify(cases.ask),
+  )
+  check(
+    'adr_panel_consent.composed_answer_mints_nothing',
+    'a hand-composed payload — the approve label with no quiz behind it — is refused and writes no file',
+    cases.composed_answer_without_quiz?.status === 200 &&
+      cases.composed_answer_without_quiz?.result?.ok === false &&
+      (cases.composed_answer_without_quiz?.result?.problems ?? []).some((entry) => entry.code === 'RATIFICATION_UNPROVEN') &&
+      cases.composed_answer_without_quiz?.wrote?.decisions === 0 &&
+      cases.composed_answer_without_quiz?.wrote?.sources === 0,
+    JSON.stringify(cases.composed_answer_without_quiz),
+  )
+  check(
+    'adr_panel_consent.foreign_quiz_mints_nothing',
+    'a quiz the ratchet did not build is refused, and writes no file',
+    cases.foreign_quiz?.result?.ok === false &&
+      (cases.foreign_quiz?.result?.problems ?? []).some((entry) => entry.code === 'RATIFICATION_UNPROVEN') &&
+      cases.foreign_quiz?.wrote?.decisions === 0 &&
+      cases.foreign_quiz?.wrote?.sources === 0,
+    JSON.stringify(cases.foreign_quiz),
+  )
+  check(
+    'adr_panel_consent.human_only_zone_mints_nothing',
+    'a record whose zone reserves its paths to a human cannot be recorded through the route',
+    cases.blocked_zone?.result?.ok === false &&
+      (cases.blocked_zone?.result?.ratified ?? []).length === 0 &&
+      cases.blocked_zone?.wrote?.decisions === 0 &&
+      cases.blocked_zone?.wrote?.sources === 0,
+    JSON.stringify(cases.blocked_zone?.result),
+  )
+  check(
+    'adr_panel_consent.stub_human_records_a_real_approval',
+    'the label the ratchet offered, posted with the question it came from, writes the approval ADR and its transcript',
+    approved.status === 200 &&
+      JSON.stringify(approved.result?.ratified) === JSON.stringify(['0001']) &&
+      approved.wrote?.decisions === 1 &&
+      approved.wrote?.sources === 1 &&
+      typeof approved.result?.approval?.path === 'string' &&
+      typeof approved.result?.transcript?.path === 'string',
+    JSON.stringify({ status: approved.status, result: approved.result, wrote: approved.wrote }),
+  )
+  check(
+    'adr_panel_consent.the_consent_names_the_surface_that_carried_it',
+    'the approval and its transcript record the panel channel, not the harness user-questions seam the answer did not travel',
+    approved.approvalChannel === 'adr-panel' && approved.transcriptChannel === 'adr-panel',
+    `approval=${JSON.stringify(approved.approvalChannel)} transcript=${JSON.stringify(approved.transcriptChannel)}`,
+  )
+  check(
+    'adr_panel_consent.consent_takes_effect',
+    'the ratified decision is law afterwards, its law naming the approval that put it there, and the corpus parses clean',
+    (payload?.lawsInForce ?? []).some((law) => law.id === 'api.request-budget' && law.approvedBy === approved.result?.approval?.id) &&
+      (payload?.compileProblemCodes ?? []).length === 0,
+    `laws=${JSON.stringify(payload?.lawsInForce)} problems=${JSON.stringify(payload?.compileProblemCodes)}`,
+  )
+  check(
+    'adr_panel_consent.replayed_quiz_mints_nothing',
+    'the same answer sent twice writes nothing the second time, because the record is no longer waiting',
+    cases.replayed?.result?.ok === false &&
+      (cases.replayed?.result?.ratified ?? []).length === 0 &&
+      cases.replayed?.wrote?.decisions === 0 &&
+      cases.replayed?.wrote?.sources === 0,
+    JSON.stringify(cases.replayed),
+  )
+  check(
+    'adr_panel_consent.stale_text_mints_nothing',
+    'an answer about a record edited while the question was open is refused with the stale code and writes nothing',
+    cases.stale_text?.result?.ok === false &&
+      (cases.stale_text?.result?.problems ?? []).some((entry) => entry.code === 'RATIFICATION_STALE') &&
+      cases.stale_text?.wrote?.decisions === 0 &&
+      cases.stale_text?.wrote?.sources === 0,
+    JSON.stringify(cases.stale_text),
+  )
+  check(
+    'adr_panel_consent.decline_writes_nothing',
+    'the ratchet\'s own reject label is recorded as a decline and writes no file',
+    (cases.declined?.result?.rejected ?? []).includes('0003') &&
+      (cases.declined?.result?.ratified ?? []).length === 0 &&
+      cases.declined?.wrote?.decisions === 0 &&
+      cases.declined?.wrote?.sources === 0,
+    JSON.stringify(cases.declined?.result),
   )
 } else if (options.ratchetRatify) {
   // The consent seam, end to end. The claims under test are the ones no unit test
@@ -1127,7 +1324,7 @@ if (subagentCallable !== undefined) {
 // two tools — reporting them as failures would blame the probe for its own
 // configuration.
 const badResult = observed.zzprobe_output_bad
-if (!options.probeJudge && !options.ratchet && !options.ratchetReview && !options.ratchetRatify) {
+if (!options.probeJudge && !options.ratchet && !options.ratchetReview && !options.ratchetRatify && !options.adrPanelConsent) {
   check(
     'output_schema.violation_is_rejected',
     'a tool whose value violates its declared output schema fails instead of succeeding',
@@ -1236,6 +1433,12 @@ if (options.json) {
     `\n  ${passed.length}/${checks.length} facts confirmed by execution\n` +
       (options.out ? `  evidence written to ${resolve(options.out)}\n` : ''),
   )
+  // A mode-specific marker, printed only when EVERY check in the mode passed. A law's
+  // `outputContains` can then assert this line, which a partially failing run never prints —
+  // an assertion on a check id or on "N/N" would also match a line reporting a failure.
+  if (options.adrPanelConsent && passed.length === checks.length) {
+    process.stdout.write('  adr panel consent route ok\n')
+  }
   if (passed.length !== checks.length) {
     process.stdout.write('\n--- stderr tail ---\n')
     process.stdout.write(bundle.stderrTail)

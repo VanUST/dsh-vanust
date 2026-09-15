@@ -165,12 +165,19 @@ export const ADR_TYPES = Object.freeze(['adr', 'approval'])
  * How a ratification was obtained.
  *
  * A closed vocabulary rather than a free-text field, for the same reason the
- * problem codes are closed: a reader branches on the value, and `user-question`
- * names one specific, checkable thing — the decision was put to the human as a
- * question whose answer the ratchet derives itself. A channel nobody has
- * implemented is not a channel, so this list grows by implementing one.
+ * problem codes are closed: a reader branches on the value, and each entry names one
+ * specific, checkable thing — that the decision was put to the human as a question
+ * whose answer the ratchet derives itself, and WHICH surface carried that question.
+ * A channel nobody has implemented is not a channel, so this list grows by
+ * implementing one — and a surface that puts the ratchet's own question to a human
+ * without the harness user-questions seam is exactly such an implementation, which
+ * is why the panel's route records its own value rather than claiming the seam's.
+ *
+ * The values are duplicated in `plugins/dsh-adr-panel/client.js`, which cannot import
+ * this module; `scripts/check-consent-surface.mjs` fails when the two lists stop being
+ * equal, because a value the reader does not know is a consent it treats as unproven.
  */
-export const RATIFICATION_CHANNELS = Object.freeze(['user-question'])
+export const RATIFICATION_CHANNELS = Object.freeze(['user-question', 'adr-panel'])
 
 /** The recorded form of a content hash, e.g. `sha256:<64 hex>`. */
 export const CONTENT_HASH_PATTERN = /^sha256:[0-9a-f]{64}$/

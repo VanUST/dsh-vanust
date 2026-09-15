@@ -253,6 +253,113 @@ Two of the three consequences are now exercised, and the third is not:
 
 ---
 
+### 2.7 A host plugin serves a browser route, and the panel's consent route is driven over real HTTP
+
+The ADR panel used to record an Approve by submitting `/ratify <id>` into the Session
+composer — a chat message, and therefore a model turn and an agent. The replacement is a
+host-side route the browser half calls directly, and four harness facts decide whether that
+is possible. All four were measured before the route was written, and the route itself is
+now measured end to end.
+
+**How a host half serves a browser (measured by reading the shipped implementation and by
+the probe below).** `@deepseek-ai/dsh-host-webserver` provides `webServer`; a plugin
+registers `{ kind: 'exact'|'prefix', path, handler }` and gets a disposer, a duplicate path
+throws, and the server `await`s an async handler so the handler owns the response
+(`dsh-host-webserver/lib/index.js:176`, `:228`). The shipped worked example is
+`@deepseek-ai/dsh-host-open-in-app`, whose host half registers three routes and whose
+browser half fetches a literal path on the page's own origin — which is how the client learns
+the URL it needs: the path is a constant written on both sides, and the browser reaches it
+with an ordinary same-origin `fetch` carrying the harness's browser-session cookie.
+
+**The fence in front of a route (measured).** `connection.requestRejection(request)`
+(`dsh-client-connection/lib/index.js:553`) answers 403 for an untrusted authority, then 401
+unless the request carries the signed, `HttpOnly`, `SameSite=Strict`, authority-bound
+browser cookie (`lib/index.js:280-320`, `:431-441`). `dsh-host-open-in-app` puts every route
+behind it; so does the panel's.
+
+**A plugin can provide a service, and can ask for a carrier without failing a boot
+(measured).** `ctx.provide(name, value)` registers a service owned by the calling fiber and
+returns a disposer (`@deepseek-ai/cordis/src/reflect.ts:277-305`); `ctx.get(name)` reads one
+without declaring it (`reflect.ts:233`). A plugin that calls
+`ctx.inject(['webServer'], (web) => …)` and never gets the service leaves a PENDING child
+fiber, and the loader's `did not activate` list is built from the loader's own rows
+(`dsh-app-boot/lib/index.js`), so a browser-facing plugin mounted without a web server is
+inert rather than a failed boot. The panel's host half therefore declares no hard injection —
+the same choice `dsh-client-connection` itself makes.
+
+**A browser plugin cannot invoke a registered tool (measured).** This was the human's first
+choice, so it was falsified rather than assumed:
+
+| Fact | Evidence |
+|---|---|
+| `@deepseek-ai/dsh-tools` is not browser-loadable | its manifest declares no `dsh.client` row and no `./client` export (`node -e "…require('<harness>/dsh-tools/package.json')…"` → exports `[".", "./invariant", "./types", "./presentation", "./src/*", "./package.json"]`, `dsh: null`) |
+| No shipped browser bundle invokes a tool | `Select-String -Path "<harness>/node_modules/@deepseek-ai/dsh-client-ui-*/lib/client.js" -Pattern 'tools\.invoke\|tools\.call\|invokeTool\|callTool' -List` → no match |
+| 55 installed packages declare a client half, none of them a tool runtime | the same scan over every `package.json` with a `dsh.client` row |
+
+So a browser half that wants something host-side must own a host half and expose it. A route
+is not a detour around a simpler tool call; it is the only mechanism the harness offers.
+
+**The route, measured end to end (2026-09-15).**
+
+```
+node scripts/probe-dsh-api.mjs --adr-panel-consent     # 16/16 facts confirmed, exit 0
+```
+
+mounts the panel's host half, `@cc/dsh-ratchet`, `@deepseek-ai/dsh-host-webserver` (port 0)
+and `@deepseek-ai/dsh-client-connection`, then drives the route over real HTTP on loopback.
+The probe mints a browser session through the production `authorizeIndex` and reads the
+panel's capability out of the harness's own index-injection table, which is exactly how the
+browser receives it.
+
+| Fact | Evidence from the run |
+|---|---|
+| The capability reaches a page through the harness's index injection, not through a file | `capability_reaches_the_page`: `route=/adr-panel/consent capabilityBytes=43 browserSessionMinted=true` |
+| The project root comes from the Session id on the wire, never from the server directory | `session_resolves_the_project`: `sessionCwd=<scratch>/workspace workspace=<scratch>/workspace` |
+| An unauthenticated loopback request is refused and writes nothing | `browser_fence_refuses_an_unauthenticated_caller`: `status=401 wrote=0d/0s` |
+| A browser session without the capability — or with a tampered one — is refused before the ratchet | `capability_is_required`: `without=403 tampered=403` |
+| The route returns the question the ratchet builds, with the record's own text as its detail | `ask_returns_the_ratchets_own_question`: `detailBytes=822 detailHasFrontmatter=true labels=["Approve","Reject"] frozenHash=sha256:4154ab…` |
+| A label with no quiz behind it mints nothing | `composed_answer_mints_nothing`: `codes=["RATIFICATION_UNPROVEN"] wrote=0d/0s` |
+| A quiz the ratchet did not build mints nothing | `foreign_quiz_mints_nothing`: `codes=["RATIFICATION_UNPROVEN"] wrote=0d/0s` |
+| A record whose zone reserves its paths to a human mints nothing | `human_only_zone_mints_nothing`: `codes=["ADR_FIELD_INVALID"] wrote=0d/0s` |
+| The stub human's own label writes the approval ADR and its transcript | `stub_human_records_a_real_approval`: `ratified=["0001"] wrote=[…ratification-0001.md, …0004-ratify-adr-0001.adr.md]` |
+| The written consent names the surface that carried the question | `the_consent_names_the_surface_that_carried_it`: `approval="adr-panel" transcript="adr-panel"` |
+| The consent takes effect | `consent_takes_effect`: `laws=[{id:"api.request-budget", approvedBy:"0004"}] problems=[]` |
+| The same answer sent twice mints once | `replayed_quiz_mints_nothing`: `wrote=0d/0s` |
+| A record edited while the question was open is refused | `stale_text_mints_nothing`: `codes=["RATIFICATION_STALE"] wrote=0d/0s` |
+| The ratchet's own reject label declines and writes nothing | `decline_writes_nothing`: `rejected=["0003"] wrote=0d/0s` |
+
+**A consent names the surface that carried it.** The ratification channel is a closed
+vocabulary (`ratchet-schema.mjs` `RATIFICATION_CHANNELS`, whose documentation says "a channel
+nobody has implemented is not a channel, so this list grows by implementing one"). The panel's
+route puts the ratchet's own question to a human WITHOUT the harness user-questions seam, so
+it records its own value, `adr-panel`, rather than the seam's `user-question` — the probe reads
+both the approval's frontmatter and its transcript and requires `adr-panel`. Both values are
+also duplicated in the panel bundle, because a consent whose channel the reader does not know
+is a consent it treats as unproven; `scripts/check-consent-surface.mjs` fails when the two
+lists stop being equal. This is also the one place where an in-force law is NOT satisfied as
+written: `shipped-plugins.consent-travels-the-human-channel` (ADR 0007) names the
+user-questions channel, and ADR 0034 records that it does not edit that ratified record and
+leaves the amendment to a human.
+
+**The panel's own half is measured without a browser.**
+`node scripts/test-adr-panel.mjs` executes the shipped `client.js` through a stub module
+loader with a stub host transport and requires that a row's Approve asks the route for the
+ratchet's question, renders it with the record's own text and both of its labels, posts the
+ratchet's own approve label paired with that same question, and composes **no** composer
+message in any scenario.
+`node scripts/check-consent-surface.mjs` asserts the panel, its host half and the ratchet
+agree on the route, the service, the header and the capability global; that no registered
+tool names any of them; and that the provided consent service refuses a label with no quiz, a
+foreign quiz, a `humanOnly` zone, a replay and a stale text while writing an approval for the
+real question's own label.
+
+**What is still a reading, not a measurement.** The transport between a real browser and
+this route: both ends are measured, the wire is not. And the capability global reaching a
+real page render: the probe reads the injection table the renderer consumes, but no browser
+was opened. The reasoning source listed by ADR 0034 says both, plainly.
+
+---
+
 ## 3. Where declarations and behaviour diverge
 
 Five findings. Each is a trap a reasonable implementer would walk into, which is
@@ -474,6 +581,10 @@ node scripts/probe-dsh-api.mjs --ratchet-review --out reports/ratchet/api-discov
 # 10/10: the ratification quiz against a stub answerer — no model turn, ~4 s
 node scripts/probe-dsh-api.mjs --ratchet-ratify --out reports/ratchet/api-discovery-ratify.json
 
+# 16/16: the ADR panel's consent route over real HTTP, against the real webserver and the
+# real browser fence, with a stub human posting the label the ratchet's question offered
+node scripts/probe-dsh-api.mjs --adr-panel-consent --out reports/ratchet/api-discovery-panel-consent.json
+
 # 3/3: boots the kit's @cc/dsh-ratchet plugin and confirms its tools register
 node scripts/probe-dsh-api.mjs --ratchet
 
@@ -493,7 +604,10 @@ not confirmed, so it can gate a kit change.
 flash model and take 3–120 s depending on how long the driving model deliberates
 before calling the tool. `--ratchet-ratify` costs no model turn beyond the one that
 calls the probe tool: its questions are answered in-process by the stub answerer, and
-the whole run takes about 4 s.
+the whole run takes about 4 s. `--adr-panel-consent` costs the same one model turn and
+about the same time: the "human" is the probe's own HTTP client, and the harness's real
+webserver and browser fence are mounted for the run. It prints `adr panel consent route
+ok` only when every check in the mode passed, which is the marker a law's check asserts.
 
 ## Appendix — environment
 

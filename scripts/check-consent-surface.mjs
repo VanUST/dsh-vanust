@@ -1,7 +1,7 @@
 /**
  * PURPOSE
  *   Enforce the consent SURFACE: the claims about human ratification that live in the
- *   tool and CLI shape rather than in a single function.
+ *   tool, CLI, service and route shape rather than in a single function.
  *
  *   A law whose check is `outputContains: '"blocked"'` on a JSON payload verifies
  *   nothing, because that key is always present — a mutant that stopped reporting
@@ -9,6 +9,16 @@
  *   enforcement point that fails when the behaviour disappears: it builds the
  *   situations the claims are about and requires the observed behaviour, printing
  *   `consent surface ok` only when every one holds.
+ *
+ *   The route the ADR panel records through is the newest part of that surface, and it
+ *   is the part most able to widen it. Three claims hold it: the panel bundle and its
+ *   host half and the ratchet agree on the route, the service name, the header and the
+ *   capability global; NO tool exposes any of them; and the service the route reaches —
+ *   driven here through the very object `ratchet-tools.mjs` provides — refuses a label
+ *   with no quiz, refuses a quiz the ratchet did not build, refuses a record whose zone
+ *   reserves its paths to a human, refuses a replayed quiz, refuses an answer about a
+ *   record edited since the question was asked, and writes an approval ONLY for the
+ *   approve label of the question it built.
  *
  * INPUTS
  *   None. Fixtures are written under the system temp directory, and nothing outside
@@ -21,7 +31,8 @@
  *   asserts on the marker rather than on the exit code alone.
  *
  * KEYWORDS
- *   ratification, consent, enforcement point, cli surface, tool schema, gate
+ *   ratification, consent, enforcement point, cli surface, tool schema, consent service,
+ *   host route, capability token, gate
  *
  * BEHAVIOUR ON EDGE CASES
  *   - A fixture that cannot be written is a failure, not a skip: the claims are about
@@ -29,7 +40,14 @@
  *   - The tool-surface claim covers EVERY tool the plugin registers, read from the
  *     plugin's own registrations rather than from a list in this file, so a tool added
  *     later is inspected without an edit here. The one exception it encodes is a
- *     boolean `ratify` trigger, which asks for the question and carries no answer.
+ *     boolean `ratify` trigger, which asks for the question and carries no answer. The
+ *     route/header/global scan is whole-surface for the same reason.
+ *   - The value driven as "the consent service" is the one `apply` PROVIDED, captured
+ *     from a fake context — not a fresh import of the module. A service that stopped
+ *     being provided (the panel's route would then refuse every request) fails here.
+ *   - A service that is absent from the fake context is reported as the missing
+ *     provision rather than throwing a `TypeError` out of this script: the claim is
+ *     about the surface, and a crash would report nothing about it.
  *   - No network, no harness, no credentials and no model: everything here is the
  *     plugin's own code plus the CLI, so it runs in any checkout.
  */
@@ -198,10 +216,15 @@ claim(
 
 // 4. No argument of the tool accepts an answer.
 const registered = new Map()
+const provided = new Map()
 tools.apply({
   effect: (fn) => fn(),
   on: () => () => {},
   get: () => undefined,
+  // The consent service is PROVIDED, not registered as a tool: this records the value so the
+  // claims below can drive the very object the panel's host route reaches with `ctx.get`.
+  provide: (serviceName, value) => (provided.set(serviceName, value), () => {}),
+  logger: () => ({ info: () => {}, warn: () => {} }),
   tools: { register: (definition) => (registered.set(definition.name, definition), () => {}), guard: () => () => {}, schemas: () => [] },
 })
 const schema = registered.get('ratchet_ratify')?.parameters ?? {}
@@ -262,13 +285,16 @@ claim(
 
 // The panel's OTHER consent properties are enforced behaviourally, and by executing the
 // shipped bundle rather than reading it: `scripts/test-adr-panel.mjs` drives the panel
-// through a stub loader and a recording workspace-file surface, and requires that the seat
-// renders no answer of its own, that the window's buttons carry the labels the ratchet put
-// in the question, that each click's batch is read back by the ratchet's own
-// `deriveDecisions` as an approval or a rejection, and that the whole render calls nothing
-// but `list` and `read` — so there is no write path for a consent to travel. That is the
-// enforcement for ADR 0014's first two laws; this file holds the cross-artifact half, which
-// no single-bundle test can see.
+// through a stub loader, a recording workspace-file surface and a stub host for the consent
+// route, and requires that the seat renders no answer of its own, that a row's Approve and
+// Decline ask the host for the ratchet's question and send back one of the labels that
+// question put on its options — read back by the ratchet's own `deriveDecisions` as an
+// approval or a rejection — that the window shows that question, the record's own text and
+// both labels, that the outcome names the artifact, and that NO composer message is composed
+// in any of it, so a panel ratification never becomes a chat message. That, plus the whole
+// render calling nothing but `list` and `read` on the file surface, is the enforcement for
+// ADR 0014's and 0018's panel laws; this file holds the cross-artifact half, which no
+// single-bundle test can see.
 
 // 4c. The question's presentation is claimed by a wire literal that CANNOT be imported: the
 //     ratchet is a Node plugin and the client half is a hand-written browser closure with no
@@ -309,6 +335,273 @@ claim(
 )
 
 for (const root of [blockedRoot, terminalRoot, pendingRoot]) rmSync(root, { recursive: true, force: true })
+
+// 7. The panel's consent route is a TRANSPORT, not a second consent path. Three claims make
+//    that true, and each is asserted against the shipped artifacts rather than described:
+//
+//    (a) the route and the service are the values the two halves agree on, so what the panel
+//        calls is what the ratchet provides;
+//    (b) no tool exposes either — the whole registered surface is scanned, not two names;
+//    (c) the service itself refuses a composed payload and mints an approval only for the
+//        label of a question it built, which is the property that lets a UI be an entry to
+//        the one consent channel instead of a second one.
+const ratchetConsent = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-consent.mjs`)
+const panelHost = await import(`file:///${join(KIT, 'plugins', 'dsh-adr-panel', 'index.js').replace(/\\/g, '/')}`)
+const panelBundle = readFileSync(join(KIT, 'plugins', 'dsh-adr-panel', 'client.js'), 'utf8')
+// Anchored to the start of a line so a COMMENTED-OUT copy cannot satisfy it, and tolerant of
+// spacing and quote style so a formatting-only change is not a failure.
+const bundleLiteral = (name) => {
+  const match = new RegExp(`(?:^|\\n)[ \\t]*const ${name}\\s*=\\s*["']([^"']+)["']`).exec(panelBundle)
+  return match === null ? null : match[1]
+}
+claim(
+  'the panel and its host agree on the route, the service, the header and the capability global',
+  bundleLiteral('CONSENT_ROUTE') === panelHost.CONSENT_ROUTE &&
+    bundleLiteral('CONSENT_HEADER') === panelHost.CONSENT_HEADER &&
+    bundleLiteral('CONSENT_GLOBAL') === panelHost.CONSENT_GLOBAL &&
+    panelHost.CONSENT_SERVICE === ratchetConsent.CONSENT_SERVICE &&
+    panelHost.CONSENT_ROUTE.startsWith('/'),
+  `bundle=${JSON.stringify({ route: bundleLiteral('CONSENT_ROUTE'), header: bundleLiteral('CONSENT_HEADER'), global: bundleLiteral('CONSENT_GLOBAL') })} host=${JSON.stringify({ route: panelHost.CONSENT_ROUTE, service: panelHost.CONSENT_SERVICE })} ratchet=${ratchetConsent.CONSENT_SERVICE}`,
+)
+
+// The ratification channel is a second duplicated vocabulary, and the one whose drift is
+// silent in the worst way: a panel whose list lacks the channel its own route records reads
+// its own approval as unproven and keeps offering the decision for ratification. So the
+// bundle's list is compared with the ratchet's, and the channel the service mints under is
+// required to be one of them.
+const { RATIFICATION_CHANNELS } = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-schema.mjs`)
+const bundleChannels = /(?:^|\n)[ \t]*const RATIFICATION_CHANNELS\s*=\s*\[([^\]]*)\]/.exec(panelBundle)
+const bundleChannelList = bundleChannels === null ? null : bundleChannels[1].split(',').map((entry) => entry.trim().replace(/^["']|["']$/g, '')).filter((entry) => entry !== '')
+claim(
+  'the panel knows every channel a ratification can have been obtained through',
+  bundleChannelList !== null &&
+    JSON.stringify(bundleChannelList) === JSON.stringify([...RATIFICATION_CHANNELS]) &&
+    RATIFICATION_CHANNELS.includes(ratchetConsent.CONSENT_CHANNEL),
+  `bundle=${JSON.stringify(bundleChannelList)} ratchet=${JSON.stringify([...RATIFICATION_CHANNELS])} consentChannel=${ratchetConsent.CONSENT_CHANNEL}`,
+)
+
+// (b) The route must be unreachable through the tool surface. The scan is the whole registry,
+//     so a tool added later is inspected without an edit here, and it looks at the description
+//     and every parameter name as well as the tool's own name.
+const ROUTE_NEEDLES = [panelHost.CONSENT_ROUTE, panelHost.CONSENT_SERVICE, panelHost.CONSENT_HEADER, panelHost.CONSENT_GLOBAL]
+const routeOffenders = []
+for (const [toolName, definition] of registered) {
+  const haystack = `${toolName}\n${definition?.description ?? ''}\n${JSON.stringify(definition?.parameters ?? {})}`
+  for (const needle of ROUTE_NEEDLES) {
+    if (haystack.includes(needle)) routeOffenders.push(`${toolName} exposes ${needle}`)
+  }
+}
+claim(
+  'no tool exposes the consent route, its service, its header or its capability',
+  routeOffenders.length === 0 && registered.size >= 3,
+  `tools=${registered.size} offenders=${JSON.stringify(routeOffenders)}`,
+)
+
+// (c) Drive the service the panel reaches. Every case below is the production operation: the
+//     quiz comes from the ratchet's own `ask`, and the answer is the label that question put
+//     on its option. A case that writes asserts the FILE COUNT, because a return value is a
+//     claim and a written approval is the artifact.
+const consentService = provided.get(ratchetConsent.CONSENT_SERVICE)
+claim(
+  'the ratchet provides the consent service the route reaches, with the three operations',
+  provided.has(ratchetConsent.CONSENT_SERVICE) &&
+    typeof consentService?.ask === 'function' &&
+    typeof consentService?.settle === 'function' &&
+    typeof consentService?.rootFor === 'function',
+  `provided=${JSON.stringify([...provided.keys()])} keys=${JSON.stringify(consentService === undefined ? null : Object.keys(consentService))}`,
+)
+
+const serviceRoot = fixture('service', {
+  zones: [
+    { id: 'api', paths: ['src/api/**'], agentAuthority: 'proposeOnly' },
+    { id: 'auth', paths: ['src/auth/**'], agentAuthority: 'humanOnly' },
+  ],
+  adrs: {
+    '0001-waiting.adr.md': adr({ id: '0001', status: 'proposed', authority: 'agent', zone: 'api', laws: [{ id: 'api.one', statement: 'One.' }] }),
+    '0002-blocked.adr.md': adr({ id: '0002', status: 'proposed', authority: 'agent', zone: 'auth', laws: [{ id: 'auth.one', statement: 'One.' }] }),
+  },
+})
+const decisionCount = (root) => readdirSync(join(root, 'docs', 'adrs')).length
+const sourceCount = (root) => readdirSync(join(root, 'docs', 'ratchet', 'sources')).length
+const prepared = consentService.ask({ root: serviceRoot, ids: ['0001'], at: '2026-09-16T00:00:00Z' })
+claim(
+  'asking the service prepares the ratchet\'s question and writes nothing',
+  prepared.needsAnswer === true &&
+    Array.isArray(prepared.quiz?.questions) &&
+    prepared.quiz.questions.length === 1 &&
+    prepared.quiz.roles['ratify-0001'].adrId === '0001' &&
+    prepared.quiz.questions[0].detail.startsWith('---') &&
+    decisionCount(serviceRoot) === 2 &&
+    sourceCount(serviceRoot) === 0,
+  `needsAnswer=${String(prepared.needsAnswer)} questions=${prepared.quiz?.questions?.length} files=${decisionCount(serviceRoot)}`,
+)
+const approveLabel = prepared.quiz.roles['ratify-0001'].approveLabel
+
+// The composed payload: a label with no question behind it. This is the failure the whole
+// route exists to make impossible, and it is refused by the ratchet, not by the panel.
+const unpaired = consentService.settle({ root: serviceRoot, adrId: '0001', label: approveLabel, quiz: null, at: '2026-09-16T00:00:00Z' })
+claim(
+  'a label with no quiz behind it mints nothing',
+  unpaired.ok === false &&
+    unpaired.unanswered === true &&
+    (unpaired.problems ?? []).some((entry) => entry.code === 'RATIFICATION_UNPROVEN') &&
+    decisionCount(serviceRoot) === 2 &&
+    sourceCount(serviceRoot) === 0,
+  `codes=${JSON.stringify((unpaired.problems ?? []).map((entry) => entry.code))} files=${decisionCount(serviceRoot)}`,
+)
+
+// A quiz that is not the one this ratchet builds — an empty roles map is how a caller-composed
+// quiz with nothing in it used to mint a real approval.
+const foreign = consentService.settle({
+  root: serviceRoot,
+  adrId: '0001',
+  label: approveLabel,
+  quiz: { attempt: 1, questions: prepared.quiz.questions, roles: {}, frozen: [] },
+  at: '2026-09-16T00:00:00Z',
+})
+claim(
+  'a quiz the ratchet did not build mints nothing',
+  foreign.ok === false &&
+    (foreign.problems ?? []).some((entry) => entry.code === 'RATIFICATION_UNPROVEN') &&
+    decisionCount(serviceRoot) === 2,
+  `codes=${JSON.stringify((foreign.problems ?? []).map((entry) => entry.code))} files=${decisionCount(serviceRoot)}`,
+)
+
+// A record whose zone reserves its paths to a human: the ratchet never queued it, so a
+// question about it cannot be asked and nothing is written however the label reads.
+const blockedConsent = consentService.settle({
+  root: serviceRoot,
+  adrId: '0002',
+  label: approveLabel,
+  quiz: prepared.quiz,
+  at: '2026-09-16T00:00:00Z',
+})
+claim(
+  'a record whose zone forbids agent-held force mints nothing',
+  blockedConsent.ok === false &&
+    (blockedConsent.ratified ?? []).length === 0 &&
+    /waiting for a human/.test(blockedConsent.message ?? '') &&
+    decisionCount(serviceRoot) === 2 &&
+    sourceCount(serviceRoot) === 0,
+  `ratified=${JSON.stringify(blockedConsent.ratified ?? null)} message=${JSON.stringify(blockedConsent.message ?? null)}`,
+)
+
+// The real thing: the ratchet's own question, answered with the ratchet's own approve label.
+const settled = consentService.settle({
+  root: serviceRoot,
+  adrId: '0001',
+  label: approveLabel,
+  quiz: prepared.quiz,
+  askedBy: 'check-consent-surface',
+  at: '2026-09-16T00:00:00Z',
+})
+claim(
+  'the ratchet\'s own question, answered with its own label, writes the approval and its transcript',
+  // `ok` is deliberately not asserted: the fixture's law declares no check, and the compile
+  // that follows the write reports `LAW_UNCHECKED` for it. What this claim is about is that
+  // the consent was recorded, so it asserts the ratification and the two artifacts.
+  JSON.stringify(settled.ratified) === JSON.stringify(['0001']) &&
+    Array.isArray(settled.wrote) &&
+    settled.wrote.length === 2 &&
+    typeof settled.approval?.path === 'string' &&
+    typeof settled.transcript?.path === 'string' &&
+    decisionCount(serviceRoot) === 3 &&
+    sourceCount(serviceRoot) === 1,
+  `ratified=${JSON.stringify(settled.ratified ?? null)} wrote=${JSON.stringify(settled.wrote ?? null)} files=${decisionCount(serviceRoot)}/${sourceCount(serviceRoot)} codes=${JSON.stringify((settled.problems ?? []).map((entry) => entry.code))}`,
+)
+
+// The channel the approval records is the SURFACE that carried the answer, not the harness
+// seam's. A route-minted consent that said `user-question` would be a false statement in a
+// durable record — and it would be indistinguishable from one the harness delivered.
+const approvalText = readFileSync(join(serviceRoot, settled.approval.path), 'utf8')
+const transcriptText = readFileSync(join(serviceRoot, settled.transcript.path), 'utf8')
+claim(
+  'a consent recorded through the route names the route as its channel, in the approval and the transcript',
+  new RegExp(`^  channel: ${ratchetConsent.CONSENT_CHANNEL}$`, 'm').test(approvalText) &&
+    new RegExp(`^- channel: ${ratchetConsent.CONSENT_CHANNEL}$`, 'm').test(transcriptText) &&
+    RATIFICATION_CHANNELS.includes(ratchetConsent.CONSENT_CHANNEL),
+  `channel=${ratchetConsent.CONSENT_CHANNEL} approval=${JSON.stringify(/^  channel: (.*)$/m.exec(approvalText)?.[1] ?? null)} transcript=${JSON.stringify(/^- channel: (.*)$/m.exec(transcriptText)?.[1] ?? null)}`,
+)
+
+// The same call again: the record is no longer waiting, so a replayed quiz mints nothing.
+const replayed = consentService.settle({
+  root: serviceRoot,
+  adrId: '0001',
+  label: approveLabel,
+  quiz: prepared.quiz,
+  at: '2026-09-16T00:00:00Z',
+})
+claim(
+  'a replayed quiz mints nothing, because the record is no longer waiting',
+  replayed.ok === false &&
+    (replayed.ratified ?? []).length === 0 &&
+    decisionCount(serviceRoot) === 3 &&
+    sourceCount(serviceRoot) === 1,
+  `ratified=${JSON.stringify(replayed.ratified ?? null)} files=${decisionCount(serviceRoot)}`,
+)
+
+// A decline is a real answer and still writes nothing — by the ratchet's own rule, not the
+// panel's, which is what makes the UI's confirm step honest.
+const declineRoot = fixture('service-decline', {
+  zones: [{ id: 'api', paths: ['src/api/**'], agentAuthority: 'proposeOnly' }],
+  adrs: { '0001-waiting.adr.md': adr({ id: '0001', status: 'proposed', authority: 'agent', zone: 'api', laws: [] }) },
+})
+const declineQuiz = consentService.ask({ root: declineRoot, ids: ['0001'], at: '2026-09-16T00:00:00Z' }).quiz
+const declined = consentService.settle({
+  root: declineRoot,
+  adrId: '0001',
+  label: declineQuiz.roles['ratify-0001'].rejectLabel,
+  quiz: declineQuiz,
+  at: '2026-09-16T00:00:00Z',
+})
+claim(
+  'the ratchet\'s own reject label records a decline and writes nothing',
+  declined.ok === false &&
+    JSON.stringify(declined.rejected) === JSON.stringify(['0001']) &&
+    (declined.ratified ?? []).length === 0 &&
+    decisionCount(declineRoot) === 1,
+  `rejected=${JSON.stringify(declined.rejected ?? null)} files=${decisionCount(declineRoot)}`,
+)
+
+// A record edited while the question was open: the answer is about text that is no longer
+// there, so it is refused and nothing is written. This is the content-hash binding, and it is
+// what the stale case exists for.
+const staleRoot = fixture('service-stale', {
+  zones: [{ id: 'api', paths: ['src/api/**'], agentAuthority: 'proposeOnly' }],
+  adrs: { '0001-waiting.adr.md': adr({ id: '0001', status: 'proposed', authority: 'agent', zone: 'api', laws: [] }) },
+})
+const staleQuiz = consentService.ask({ root: staleRoot, ids: ['0001'], at: '2026-09-16T00:00:00Z' }).quiz
+writeFileSync(
+  join(staleRoot, 'docs', 'adrs', '0001-waiting.adr.md'),
+  `${readFileSync(join(staleRoot, 'docs', 'adrs', '0001-waiting.adr.md'), 'utf8')}\n<!-- edited while the question was open -->\n`,
+)
+const stale = consentService.settle({
+  root: staleRoot,
+  adrId: '0001',
+  label: staleQuiz.roles['ratify-0001'].approveLabel,
+  quiz: staleQuiz,
+  at: '2026-09-16T00:00:00Z',
+})
+claim(
+  'an answer about a record edited since the question was asked mints nothing',
+  stale.ok === false &&
+    (stale.problems ?? []).some((entry) => entry.code === 'RATIFICATION_STALE') &&
+    decisionCount(staleRoot) === 1 &&
+    sourceCount(staleRoot) === 0,
+  `codes=${JSON.stringify((stale.problems ?? []).map((entry) => entry.code))} files=${decisionCount(staleRoot)}`,
+)
+// And the same question, answered after the edit, is refused too: consent covers the text the
+// human was SHOWN, so a fresh question has to be asked about the new text.
+const staleAgain = consentService.ask({ root: staleRoot, ids: ['0001'], at: '2026-09-16T00:00:01Z' })
+claim(
+  'a stale refusal leaves the decision waiting, so it can be asked again',
+  staleAgain.needsAnswer === true &&
+    typeof staleAgain.quiz.frozen?.[0]?.contentHash === 'string' &&
+    staleAgain.quiz.frozen[0].contentHash.length > 0,
+  `needsAnswer=${String(staleAgain.needsAnswer)} frozen=${JSON.stringify(staleAgain.quiz?.frozen ?? null)}`,
+)
+
+for (const root of [serviceRoot, declineRoot, staleRoot]) rmSync(root, { recursive: true, force: true })
 
 // 6. The authority table is what makes the surface a surface. A zone that reserves a
 //    path to humans is the only reason `proposeOnly` and `humanOnly` mean anything, and

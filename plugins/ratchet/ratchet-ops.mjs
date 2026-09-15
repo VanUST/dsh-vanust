@@ -1624,7 +1624,7 @@ function quizRejection(supplied, expected) {
  *   minted, and a differently shaped re-ask is returned with what actually arrived.
  *
  * @param options - `{ root, answer, quiz, attempt, previous, ids, askedBy, at, write,
- *   present }`.
+ *   present, channel }`.
  *   `answer` is the harness answer object (`{ answers: [{ id, selected, custom? }] }`)
  *   or `null` to prepare the quiz. **`quiz` is required to mint and must be the question this
  *   ratchet builds** for the records now waiting: it is the exact quiz the human answered, and
@@ -1640,6 +1640,10 @@ function quizRejection(supplied, expected) {
  *   asks to be rendered by the ADR panel (`'panel'`, the default) or by the harness's
  *   own card (`'chat'`); it reaches the re-ask too, because a re-ask shown somewhere
  *   other than the question it repeats is a question the human has to find twice.
+ *   `channel` is the surface that CARRIED the answer and is recorded in the approval and
+ *   its transcript: `user-question` (the default) for a question the harness delivered,
+ *   `adr-panel` for one the ADR panel's decision window rendered. It is provenance only —
+ *   the quiz pairing, the derivation and the hash binding are the same on both.
  * @returns The canonical ratification result. `reask` is present only on attempt 1
  *   with unreadable answers: there is no third attempt, because a machine that keeps
  *   rephrasing a question is one that has decided the answer for itself.
@@ -1655,6 +1659,7 @@ export function ratify({
   at = null,
   write = true,
   present = 'panel',
+  channel = RATIFY_CHANNEL,
 } = {}) {
   const queue = ratificationQueue(root)
   if (!queue.ok) {
@@ -1884,7 +1889,7 @@ export function ratify({
     project: config.project,
     at: timestamp,
     askedBy,
-    channel: RATIFY_CHANNEL,
+    channel,
     quiz,
     answer,
     decisions: derived.decisions,
@@ -1898,7 +1903,7 @@ export function ratify({
     id: approvalId,
     at: timestamp,
     askedBy,
-    channel: RATIFY_CHANNEL,
+    channel,
     approved: approvedEntries,
     transcriptPath,
     transcriptHash: hashSource(transcriptText),
