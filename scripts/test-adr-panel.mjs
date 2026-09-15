@@ -897,6 +897,46 @@ claim(
   JSON.stringify(openCalls),
 )
 
+// Attributes carry text a browser displays and `collectText` cannot see: an
+// `<input type="submit" value="Approve">` has no children, so a text-only guard would call it
+// empty. The labels are therefore checked in the props too.
+const propLeak = []
+for (const node of seatNodes) {
+  for (const key of ['value', 'defaultValue', 'aria-label', 'title', 'placeholder', 'alt']) {
+    const value = node.props === undefined ? undefined : node.props[key]
+    if (typeof value === 'string' && [approveLabel, declineLabel].some((label) => value.includes(label))) {
+      propLeak.push(`${key}=${JSON.stringify(value)}`)
+    }
+  }
+}
+claim(
+  'no attribute the seat renders carries an answer label a browser would show',
+  propLeak.length === 0,
+  propLeak.length === 0 ? `checked ${seatNodes.length} nodes` : propLeak.join(' | '),
+)
+
+// And the decisive one, independent of tags, text and attributes: NO handler in the seat can
+// settle the question. A hidden answer path — an `onClick` on the pointer's own container, an
+// `<a>` whose label is assembled at render time, an element whose role a text guard cannot see
+// — is caught here because the interaction itself reports whether it was settled, which is the
+// only thing that actually matters. The pointer's own opener may run; it must not answer.
+const answersBefore = answerCalls.length
+const cancelsBefore = cancellations.length
+for (const node of seatNodes) {
+  const onClick = node.props === undefined ? undefined : node.props.onClick
+  if (typeof onClick !== 'function') continue
+  try {
+    onClick({ preventDefault() {}, stopPropagation() {} })
+  } catch {
+    // A handler that throws changed no state; the assertion below is about settlement.
+  }
+}
+claim(
+  'no handler in the seat can settle the ratification question',
+  answerCalls.length === answersBefore && cancellations.length === cancelsBefore,
+  `answers=${answerCalls.length - answersBefore} cancels=${cancellations.length - cancelsBefore} over ${seatNodes.filter((node) => typeof node.props?.onClick === 'function').length} handler(s)`,
+)
+
 // ── the window is the only place the question is put ────────────────────────
 const overlayMembers = registry['shell.overlay'].config.inject()
 const panelStore = overlayMembers.hooks.panel
