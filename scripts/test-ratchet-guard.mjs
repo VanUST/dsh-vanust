@@ -7,6 +7,8 @@ import { tmpdir } from 'node:os'
 const PLUGIN = resolve(import.meta.dirname, '..', 'plugins', 'ratchet')
 const guardModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-guard.mjs`)
 const schema = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-schema.mjs`)
+const compilerModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-compiler.mjs`)
+const contradictionModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-contradiction.mjs`)
 
 const SOURCE_TEXT = '# Grilling session\n\nWe agreed sessions must move to Redis.\n'
 const SOURCE_PATH = 'docs/ratchet/sources/sessions.md'
@@ -581,5 +583,78 @@ test('guard: a zone naming a directory governs that directory', () => {
   assert.ok(
     call(guard, 'write', { file_path: 'src/api/handler.ts' }).startsWith('DENIED:'),
     'a path with no wildcard names a directory, so its subtree is governed',
+  )
+})
+
+test('guard: a judge-classified contradiction stops the work, and follows the text it judged', () => {
+  // The semantic tier had no enforcement point: a judge could classify a change as contradicting a
+  // decision in meaning, and the change went in anyway because no written check could see it. The
+  // guard refuses it now, quoting the judge's own reasoning, and a block bound to a PROPOSED record
+  // retires by itself when that record is edited — the same property the mechanical tier has.
+  const root = project('judged-contradiction')
+  // The zone does NOT require a record, on purpose: the judged-contradiction rule is the price of
+  // enabling the ratchet, not of opting a zone into the record rule.
+  setZonePolicy(root, 'api', { requiresDecisionRecord: false })
+  writeAdr(root, {
+    status: 'active',
+    authority: 'human',
+    zone: 'api',
+    id: '0001',
+    lawId: 'api.sessions.redis',
+    statement: 'Session storage must use Redis.',
+  })
+  writeAdr(root, {
+    status: 'proposed',
+    authority: 'agent',
+    zone: 'api',
+    id: '0002',
+    lawId: 'api.sessions.redis',
+    statement: 'Session storage must use Redis.',
+  })
+
+  const guard = guardModule.createGuard({ root })
+  assert.equal(call(guard, 'write', { file_path: 'src/api/handler.ts' }), 'ALLOWED', 'nothing has been judged yet')
+
+  const manifest = compilerModule.readManifest(root)
+  const corpus = compilerModule.readAdrCorpus(root, manifest.config)
+  const proposal = corpus.records.find((record) => record.id === '0002')
+  contradictionModule.recordContradiction(root, {
+    target: { kind: 'proposal', id: '0002', hash: proposal.contentHash },
+    job: 'review_proposal',
+    findings: [
+      {
+        severity: 'error',
+        kind: 'semantic_violation',
+        lawId: 'api.sessions.redis',
+        sourceAdr: '0001',
+        explanation: 'a file-backed adapter satisfies the letter of the law and inverts what it was for',
+        suggestedAction: 'keep the Redis adapter',
+      },
+    ],
+  })
+
+  const denied = guard({ name: 'write', arguments: { file_path: 'src/api/handler.ts' } })
+  assert.equal(typeof denied, 'string', 'the write is refused')
+  assert.match(denied, /CONTRADICTING/)
+  assert.match(denied, /api\.sessions\.redis/, "the denial names the law")
+  assert.match(denied, /inverts what it was for/, "and carries the judge's own reasoning")
+  assert.match(denied, /keep the Redis adapter/, 'and the judge\'s suggestion')
+  assert.match(denied, /ratchet_ratify/, 'and a route out that involves a human')
+  // A path outside every blocked zone is untouched by the block.
+  assert.equal(call(guard, 'write', { file_path: 'src/loose/util.ts' }), 'ALLOWED')
+
+  // Editing the proposal moves the hash the finding was bound to, so the block retires by itself.
+  writeAdr(root, {
+    status: 'proposed',
+    authority: 'agent',
+    zone: 'api',
+    id: '0002',
+    lawId: 'api.sessions.redis',
+    statement: 'Session storage must use Nginx.',
+  })
+  assert.equal(
+    call(guard, 'write', { file_path: 'src/api/handler.ts' }),
+    'ALLOWED',
+    'the block follows the text the judge read, so editing it lifts the refusal',
   )
 })

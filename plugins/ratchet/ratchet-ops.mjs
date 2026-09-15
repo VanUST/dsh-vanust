@@ -36,6 +36,7 @@ import {
 import { DEFAULT_COMMAND_TIMEOUT_MS, codeHashFor, configHashFor, listFiles, verifyProject } from './ratchet-verifier.mjs'
 import * as state from './ratchet-state.mjs'
 import * as dynamic from './ratchet-dynamic.mjs'
+import * as contradictionModule from './ratchet-contradiction.mjs'
 import * as ingestModule from './ratchet-ingest.mjs'
 import {
   STATE_PATHS,
@@ -755,6 +756,12 @@ function contextFor(root) {
     config: manifest.config,
     project: compiled.report.project,
     problems: compiled.problems,
+    // The records and the bundle, because a judge's verdict has to be bound to the corpus it was
+    // about: a block is retired by the record's own content hash moving, which needs the record.
+    records: corpus.records,
+    activeRecords,
+    proposedRecords,
+    bundle: compiled.bundle,
   }
 }
 
@@ -956,6 +963,46 @@ export async function review({
   })
   const problems = [...extra, ...validation.problems]
 
+  // The judge's semantic verdict becomes a FACT here, not advice. A finding that this change
+  // contradicts a decision in meaning is recorded, so the write guard can refuse the work and hand
+  // this reasoning back to whoever proposed it; and the review itself DECLINES. An independent
+  // judge's clean verdict retires the entry for the material it judged, which is how a
+  // material-targeted block is cleared. Everything else a judge may say stays advice.
+  const target = contradictionModule.contradictionTarget({
+    proposal,
+    change,
+    source,
+    records: context.records,
+  })
+  const blocking = contradictionModule.blockingFindings(validation.findings)
+  const independentJudge = judgeIdentity.kind === 'subagent'
+  let declined = null
+  if (record && blocking.length > 0) {
+    contradictionModule.recordContradiction(root, { target, findings: blocking, job })
+    declined = {
+      findings: blocking,
+      zones: [
+        ...contradictionModule.blockedZones([{ entry: { target, findings: blocking } }], {
+          active: context.activeRecords,
+          proposed: context.proposedRecords,
+          laws: context.bundle?.laws ?? [],
+        }),
+      ],
+    }
+    appendLedger(root, 'ratchet.review.declined', {
+      job,
+      findings: blocking.length,
+      zones: declined.zones.length,
+      target: contradictionModule.contradictionKey(target),
+    })
+  } else if (record && independentJudge) {
+    // Only an INDEPENDENT clean verdict retires a block. A self-submitted verdict may report a
+    // contradiction but may not clear one, or an agent could lift its own block by answering its
+    // own question — the same distinction the consent model draws between an answer and one a
+    // caller composed.
+    contradictionModule.clearContradiction(root, target)
+  }
+
   const report = dynamic.buildReviewReport({
     job,
     judge: judgeIdentity,
@@ -978,14 +1025,23 @@ export async function review({
   }
 
   return {
-    // `ok` describes the JUDGE's verdict, never a gate. `exitCodeForReview`
-    // returns 0 unconditionally for the same reason.
-    ok: validation.ok && problems.length === 0,
+    // `ok` describes the JUDGE's verdict. On a blocking contradiction it also describes the
+    // REVIEW's answer, because that verdict is what the guard now enforces: the change is
+    // declined, not merely annotated.
+    ok: declined === null && validation.ok && problems.length === 0,
     stage: 'review',
     job,
     kind: 'verdict',
-    advisory: true,
-    gate: false,
+    advisory: declined === null,
+    gate: declined !== null,
+    declined: declined !== null,
+    ...(declined === null ? {} : { blocking: declined }),
+    ...(declined === null
+      ? {}
+      : {
+          nextStep:
+            'change the change so it stops contradicting the law in force, then review it again: an independent clean verdict retires this block, and a proposal-bound block retires by itself when the record is edited. A human can also decide the question, which is what ratchet_ratify is for — do not edit .dsh/ratchet/contradiction.json, which is machine-written state',
+        }),
     degraded: false,
     verdictSource: parsed.source,
     judge: report.judge,
@@ -1963,7 +2019,7 @@ export async function ratifyInteractively({
  * @param options - `{ root, job, verdict, record }`.
  * @returns The canonical review result.
  */
-export function submitReview({ root, job, verdict, record = true } = {}) {
+export function submitReview({ root, job, verdict, record = true, change = null, proposal = null, source = null } = {}) {
   const context = contextFor(root)
   const validation = dynamic.acceptSelfReview(verdict, {
     lawIds: context.lawIds,
@@ -1988,12 +2044,29 @@ export function submitReview({ root, job, verdict, record = true } = {}) {
     })
   }
 
+  // A self-review may RAISE a block — an honest self-assessment that the change contradicts a
+  // decision should stop the work — but it may never CLEAR one. Clearing takes an independent
+  // judge or an edit to the record the finding is bound to, because otherwise an agent could lift
+  // its own block by submitting the verdict it wrote itself.
+  const blocking = contradictionModule.blockingFindings(validation.findings)
+  // A block has to be bound to something whose change can retire it. A self-review that names
+  // neither a proposal nor the material it judged still DECLINES — the finding is reported — but it
+  // records nothing, because a block on unnamed material is a block nobody can clear.
+  const judgedSomething = proposal !== null || change !== null || source !== null
+  if (record && blocking.length > 0 && judgedSomething) {
+    const target = contradictionModule.contradictionTarget({ proposal, change, source, records: context.records })
+    contradictionModule.recordContradiction(root, { target, findings: blocking, job: report.job })
+  }
+
   return {
-    ok: validation.ok && validation.problems.length === 0,
+    ok: blocking.length === 0 && validation.ok && validation.problems.length === 0,
     stage: 'review',
     job: report.job,
     advisory: true,
-    gate: false,
+    gate: blocking.length > 0,
+    declined: blocking.length > 0,
+    ...(blocking.length === 0 ? {} : { blocking: { findings: blocking } }),
+    selfReview: true,
     judge: report.judge,
     findings: validation.findings,
     insufficientReasoning: validation.insufficientReasoning,

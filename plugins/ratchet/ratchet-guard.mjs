@@ -30,6 +30,12 @@
  *    obviously write are allowed: guessing that a shell command mutates a file would
  *    refuse work the guard cannot actually see, and a false denial is worse than a
  *    missed one for a rule whose violator is already visible in the diff.
+ * 6. **A judge's contradiction is checked first, and is not gated on the zone rule.** The block a
+ *    judge creates is enforced before the inert answer and before `requiresDecisionRecord`, because
+ *    a zone's record rule is opt-in per zone while a judge reporting that a change contradicts a
+ *    decision is the price of enabling the ratchet at all. It is resolved through the same
+ *    `zoneFor` the zone rule uses, so a path the zone table does not cover cannot dodge it.
+ *
  * 5. **A proposal is enough, and a contradiction is not.** The rule exists to make an
  *    agent write down what it is doing, not to make it wait: a PROPOSED agent decision
  *    naming a zone licenses the write while contributing nothing to law, so an agent can
@@ -48,6 +54,7 @@ import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { MANIFEST_PATH, zoneFor } from './ratchet-schema.mjs'
 import { compileLaws, readAdrCorpus, readManifest, resolveActiveSet } from './ratchet-compiler.mjs'
+import { CONTRADICTION_PATH, blockedZones, standingContradictions } from './ratchet-contradiction.mjs'
 
 /**
  * Tool names whose arguments name a path they are about to change.
@@ -123,6 +130,48 @@ export function governanceOf(path, config) {
 }
 
 /**
+ * The denial a standing judge-classified contradiction produces.
+ *
+ * It carries the judge's OWN reasoning rather than a summary of it. The point of the block is that
+ * whoever proposed the change reads WHY it was declined, and a guard that says "a judge disagreed"
+ * without saying what about is one that gets worked around. It also names both routes out, because
+ * a refusal with no route out is a bug report waiting to be filed: change the change, or put the
+ * question to a human.
+ *
+ * @param path - The repository-relative path the call named.
+ * @param zone - The zone it falls in.
+ * @param contradiction - `{ entries, zones }` from `loadDecisionState`.
+ * @returns The denial text.
+ */
+function contradictingDenial(path, zone, contradiction) {
+  const lines = [
+    `the ratchet refuses this write: ${path} is in zone "${zone.id}", where a judge classified a change as CONTRADICTING a decision in force.`,
+    '',
+  ]
+  for (const { entry } of contradiction.entries) {
+    for (const finding of entry.findings) {
+      const source = finding.sourceAdr === undefined || finding.sourceAdr === null ? '' : ` (${finding.sourceAdr})`
+      lines.push(`  - ${finding.lawId}${source}: ${finding.explanation}`)
+      if (finding.suggestedAction !== undefined) lines.push(`      suggested: ${finding.suggestedAction}`)
+    }
+  }
+  lines.push(
+    '',
+    'A semantic contradiction: the code can satisfy every written check and still invert what the',
+    'decision was for. Autonomy ends here.',
+    '',
+    'Change the change so it stops contradicting that decision, then review it again — an',
+    'independent clean verdict retires this block, and a block bound to a proposed record retires by',
+    'itself when the record is edited. Or ask a human: this is a question the ratchet exists to put',
+    'to them, and ratchet_ratify is how it is put.',
+    '',
+    'Nothing was written. .dsh/ratchet/contradiction.json is machine-written state: editing it by',
+    'hand does not settle the question, it hides it.',
+  )
+  return lines.join('\n')
+}
+
+/**
  * Reads a project's decision state once and answers governance questions from it.
  *
  * The cache is keyed on the decisions directory's entries — each name with its size and
@@ -172,13 +221,33 @@ export function loadDecisionState(root) {
     return { inert: true, reason: 'the project has no enabled ratchet section' }
   }
   const config = manifest.config
-  const governedZones = (config.zones ?? []).filter((zone) => zone.requiresDecisionRecord === true)
-  if (governedZones.length === 0) {
-    return { inert: true, reason: 'no zone declares requiresDecisionRecord' }
-  }
 
   const corpus = readAdrCorpus(root, config)
   const resolved = resolveActiveSet(corpus.records, config)
+
+  // The judged-contradiction block, computed BEFORE the zone rule is consulted. A zone's
+  // `requiresDecisionRecord` is opt-in per zone; a judge reporting that a change contradicts a
+  // decision is the price of enabling the ratchet at all, so this answer is not gated on it —
+  // otherwise a project could enable the ratchet, have a judge decline a change, and be told
+  // nothing because every zone happened to leave the record rule off.
+  const compiledForContradiction = compileLaws(resolved.active, config)
+  const standing = standingContradictions(root, { resolved })
+  const contradiction =
+    standing.length === 0
+      ? null
+      : {
+          entries: standing,
+          zones: blockedZones(standing, {
+            active: resolved.active,
+            proposed: resolved.proposed,
+            laws: compiledForContradiction.bundle.laws,
+          }),
+        }
+
+  const governedZones = (config.zones ?? []).filter((zone) => zone.requiresDecisionRecord === true)
+  if (governedZones.length === 0) {
+    return { inert: true, reason: 'no zone declares requiresDecisionRecord', config, contradiction }
+  }
 
   // (1) Only decisions IN FORCE satisfy the requirement outright. A proposal is intent,
   // not law: it never compiles, so it can never be what a check enforces.
@@ -195,7 +264,7 @@ export function loadDecisionState(root) {
   for (const record of resolved.active) {
     for (const zone of record.zones ?? []) zonesWithRecords.add(zone)
   }
-  const compiled = compileLaws(resolved.active, config)
+  const compiled = compiledForContradiction
   const inForceLaws = new Map(
     compiled.bundle.laws.map((law) => [law.id, { statement: law.statement, sourceAdr: law.sourceAdr }]),
   )
@@ -251,6 +320,7 @@ export function loadDecisionState(root) {
     conflictsByZone,
     problems: corpus.problems,
     decisionsDir: config.decisionsDir,
+    contradiction,
   }
 }
 
@@ -379,11 +449,28 @@ export function createGuard({ root }) {
    * invisible to a running session — a stale allow where the operator had just asked for a
    * denial, and a stale denial where they had just lifted one.
    */
+  /**
+   * A cheap signature of one machine-written file, or `'absent'`.
+   *
+   * The judged-contradiction record is part of the state this guard answers from, and it lives
+   * OUTSIDE the decisions directory — so a cache keyed only on the corpus would not notice a judge
+   * recording a contradiction, and a block would not take effect until something unrelated changed
+   * the corpus. A block that only works after an unrelated edit is not a block.
+   */
+  const fileSignature = (relativePath) => {
+    try {
+      const stats = statSync(join(root, relativePath), { bigint: true })
+      return `${stats.size}:${stats.mtimeNs}:${stats.ctimeNs}`
+    } catch {
+      return 'absent'
+    }
+  }
+
   const stateNow = () => {
     const manifest = readManifest(root)
     const decisionsDir = manifest.config?.decisionsDir ?? 'docs/adrs'
     const policy = manifest.config === null || manifest.config === undefined ? 'none' : JSON.stringify(manifest.config)
-    const signature = `${policy}|${decisionsDir}:${signatureOf(decisionsDir)}`
+    const signature = `${policy}|${decisionsDir}:${signatureOf(decisionsDir)}|${CONTRADICTION_PATH}:${fileSignature(CONTRADICTION_PATH)}`
     if (cache !== null && cachedSignature === signature) return cache
     cache = loadDecisionState(root)
     cachedSignature = signature
@@ -401,10 +488,21 @@ export function createGuard({ root }) {
       }
 
       const state = stateNow()
-      if (state.inert === true) return undefined
-
       const path = changedPath(exec, root)
       if (path === null) return undefined
+
+      // A judge's contradiction is checked FIRST, before the inert answer and before the zone
+      // rule, and it is resolved by the same `zoneFor` that places a file — so a path the zone
+      // table does not cover cannot dodge it.
+      const contradiction = state.contradiction
+      if (contradiction !== null && contradiction !== undefined && contradiction.zones.size > 0) {
+        const judgedZone = zoneFor(path, state.config?.zones ?? [])
+        if (judgedZone !== null && contradiction.zones.has(judgedZone.id)) {
+          return contradictingDenial(path, judgedZone, contradiction)
+        }
+      }
+
+      if (state.inert === true) return undefined
 
       const governance = governanceOf(path, state.config)
       if (governance.governed !== true) return undefined

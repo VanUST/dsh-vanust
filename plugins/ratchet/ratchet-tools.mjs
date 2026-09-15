@@ -744,7 +744,15 @@ export function apply(ctx) {
               })
             }
             return Promise.resolve(
-              submitReview({ root: resolved.root, job, verdict: args.verdict, record: true }),
+              submitReview({
+                root: resolved.root,
+                job,
+                verdict: args.verdict,
+                record: true,
+                change: args.change ?? null,
+                proposal: args.proposal ?? null,
+                source: args.source ?? null,
+              }),
             )
           }
 

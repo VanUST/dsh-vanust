@@ -348,11 +348,7 @@ report a pass. The gate is the CLI above; the tools are for an agent mid-session
   about must not answer it. A question with no click behind it is still offered in the window, so
   nothing is unanswerable, and a request naming another record — or no request — is asserted NOT to
   settle anything.
-- **Four decisions await a human:** `0017` (a proposal licenses the work, a contradiction stops it), `0018` (a question
-  says where it is shown) and `0019` (the panel's consent laws are enforced by executing the
-  bundle). None is in force, none is blocking, and each is a record
-  a human can ratify from the panel the previous cycle shipped — which is the flow ADR 0017
-  describes, applied to ADR 0017 itself.
+- **One decision awaits a human:** `0024` (a judge's semantic contradiction is a gate, not advice). `0015`, `0017`, `0018` and `0019` were ratified by a human through the question channel (approvals `0020`–`0023`), which put seven more laws in force; the per-record state is `ratchet status`, which reads the compiled bundle.
 - **This machine's live profile is converged** on `main` (ratchet 0.2.27, kit-rules 0.1.1,
   dsh-context 0.1.3, model-gate 0.1.5-rc.1, adr-panel 0.1.13). The panel's client bundle is
   revision-addressed, so a `dsh web` that was already running keeps serving the bundle it

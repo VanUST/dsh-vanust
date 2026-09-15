@@ -10,6 +10,7 @@ const CLI = join(PLUGIN, 'ratchet-cli.mjs')
 
 const schema = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-schema.mjs`)
 const compiler = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-compiler.mjs`)
+const contradictionModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-contradiction.mjs`)
 const verifier = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-verifier.mjs`)
 const ops = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-ops.mjs`)
 const dynamic = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-dynamic.mjs`)
@@ -2292,10 +2293,20 @@ test('dynamic: a review job is answered by an injected judge and the verdict com
     },
   })
   assert.equal(result.degraded, false)
-  assert.equal(result.gate, false)
+  // A judge that classifies the change as contradicting a decision in force DECLINES it. This
+  // assertion used to read `gate === false`: the review was advice, so a contradiction nobody
+  // could see in a check was recorded and ignored, which is the drift the gate exists to stop.
+  assert.equal(result.gate, true)
+  assert.equal(result.declined, true)
+  assert.equal(result.ok, false)
+  assert.equal(result.blocking.findings.length, 1)
   assert.equal(result.findings.length, 1)
   assert.equal(result.findings[0].lawId, 'auth.session-storage.redis')
   assert.equal(result.verdictSource, 'structured')
+  // ...and it was recorded, so the write guard can refuse the work rather than only annotate it.
+  const recorded = contradictionModule.readContradictions(root)
+  assert.equal(Object.keys(recorded).length, 1)
+  assert.equal(Object.values(recorded)[0].findings[0].lawId, 'auth.session-storage.redis')
   assert.ok(seen.prompt.includes('session-file-store'), 'the change reached the judge')
   assert.deepEqual(seen.schema, dynamic.VERDICT_SCHEMA)
   assert.ok(result.adrIds.includes('0001'))
@@ -6004,4 +6015,87 @@ test('schema: zoneFor and the compiler decide membership with one predicate', ()
     assert.equal(byZone, byCompiler, `zoneFor and pathIsGoverned disagree for ${JSON.stringify(zonePath)} vs ${file}`)
     assert.equal(byZone, expected, `${JSON.stringify(zonePath)} should ${expected ? '' : 'not '}cover ${file}`)
   }
+})
+
+test('dynamic: a clean independent verdict retires a recorded contradiction', async () => {
+  // The block has to be clearable by the loop it prescribes: change the change, review it again.
+  // Only an INDEPENDENT verdict clears — see the self-review case below.
+  const root = reviewableProject('dyn-clear')
+  const judgeSaying = (verdict) => async () => ({ structured: verdict, output: '', stopReason: 'completed' })
+  const blocking = {
+    ok: false,
+    findings: [{ severity: 'error', kind: 'semantic_violation', lawId: 'auth.session-storage.redis', explanation: 'a file-backed adapter contradicts the Redis decision' }],
+  }
+  const first = await ops.review({ root, job: 'review_change', change: 'the same change', spawnJudge: judgeSaying(blocking) })
+  assert.equal(first.declined, true)
+  assert.equal(Object.keys(contradictionModule.readContradictions(root)).length, 1)
+
+  const second = await ops.review({ root, job: 'review_change', change: 'the same change', spawnJudge: judgeSaying({ ok: true, findings: [] }) })
+  assert.equal(second.declined, false)
+  assert.equal(
+    Object.keys(contradictionModule.readContradictions(root)).length,
+    0,
+    'an independent clean verdict on the same material retires the block',
+  )
+})
+
+test('dynamic: a verdict with nothing blocking does not record anything', async () => {
+  // Only the kinds that mean "this contradicts a decision in meaning" block. A note, a record whose
+  // prose disagrees with its own laws, or an ask for more reasoning must not refuse work nobody has
+  // shown to be wrong.
+  const root = reviewableProject('dyn-nonblocking')
+  const advisory = {
+    ok: true,
+    findings: [
+      { severity: 'warning', kind: 'semantic_violation', lawId: 'auth.session-storage.redis', explanation: 'a warning is not a block' },
+      { severity: 'error', kind: 'prose_law_mismatch', lawId: 'auth.session-storage.redis', explanation: 'the record disagreeing with itself is not this change contradicting law' },
+      { severity: 'error', kind: 'insufficient_reasoning', explanation: 'no law named' },
+      { severity: 'error', kind: 'semantic_violation', lawId: 'no.such.law', explanation: 'a law nobody declares cannot place a block' },
+    ],
+  }
+  const result = await ops.review({
+    root,
+    job: 'review_change',
+    change: 'a change',
+    spawnJudge: async () => ({ structured: advisory, output: '', stopReason: 'completed' }),
+  })
+  assert.equal(result.declined, false)
+  assert.equal(Object.keys(contradictionModule.readContradictions(root)).length, 0)
+})
+
+test('dynamic: a self-review may raise a block but may not clear one', () => {
+  // An agent that could lift its own block by submitting the verdict it wrote itself would have a
+  // gate it controls. It may still REPORT a contradiction it sees in its own work.
+  const root = reviewableProject('dyn-self-block')
+  const blocking = {
+    ok: false,
+    findings: [{ severity: 'error', kind: 'intent_violation', lawId: 'auth.session-storage.redis', explanation: 'inverts the decision' }],
+  }
+  const raised = ops.submitReview({ root, job: 'review_change', change: 'a change', verdict: blocking })
+  assert.equal(raised.declined, true)
+  assert.equal(Object.keys(contradictionModule.readContradictions(root)).length, 1, 'a self-review may raise a block')
+
+  // ...and a clean self-review of the same material leaves it standing.
+  const cleared = ops.submitReview({ root, job: 'review_change', change: 'a change', verdict: { ok: true, findings: [] } })
+  assert.equal(cleared.declined, false)
+  assert.equal(
+    Object.keys(contradictionModule.readContradictions(root)).length,
+    1,
+    'but it may not clear one, or the gate would answer to the agent it gates',
+  )
+})
+
+test('dynamic: a self-review that names nothing records no un-clearable block', () => {
+  const root = reviewableProject('dyn-self-untargeted')
+  const blocking = {
+    ok: false,
+    findings: [{ severity: 'error', kind: 'intent_violation', lawId: 'auth.session-storage.redis', explanation: 'inverts the decision' }],
+  }
+  const result = ops.submitReview({ root, job: 'review_change', verdict: blocking })
+  assert.equal(result.declined, true, 'the finding is still reported')
+  assert.equal(
+    Object.keys(contradictionModule.readContradictions(root)).length,
+    0,
+    'a block on material nobody named is a block nobody can clear, so none is recorded',
+  )
 })
