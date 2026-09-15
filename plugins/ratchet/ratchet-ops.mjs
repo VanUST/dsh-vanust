@@ -335,7 +335,7 @@ export function status(root) {
     )
   }
 
-  const rendered = compiled.bundle === null ? { files: {} } : renderSpecs(compiled.bundle)
+  const rendered = compiled.bundle === null ? { files: {} } : renderSpecs(compiled.bundle, manifest.config?.specsDir)
   const tracksSpecs = state.tracksSpecDocuments(root, manifest.config?.specsDir, manifest.config?.specsRequired)
   const drift = detectSpecDrift(root, rendered.files)
   problems.push(...specDriftProblems(reportedSpecDrift(tracksSpecs, drift)))
@@ -452,7 +452,11 @@ export function bootstrap({ root = null, mode = 'preview', name = undefined, mai
  */
 export function compile({ root, write = false } = {}) {
   const compiled = compileProject(root)
-  const rendered = compiled.bundle === null ? { files: {}, specHash: null } : renderSpecs(compiled.bundle)
+  // Read once, before the first use: the spec path comes from the manifest, and this function used
+  // to read it further down. Naming `manifest` before it existed was a ReferenceError waiting for
+  // the first project whose bundle compiled.
+  const manifest = readManifest(root)
+  const rendered = compiled.bundle === null ? { files: {}, specHash: null } : renderSpecs(compiled.bundle, manifest.config?.specsDir)
 
   // BEFORE persisting: persisting appends this run's law set to the ledger, and this
   // check is a comparison against the previous one. Running it after would compare the
@@ -482,7 +486,7 @@ export function compile({ root, write = false } = {}) {
     }
   }
 
-  const config = readManifest(root).config
+  const config = manifest.config
   const tracksSpecs = state.tracksSpecDocuments(root, config?.specsDir, config?.specsRequired)
   const drift = detectSpecDrift(root, rendered.files)
   const problems = [
@@ -580,7 +584,7 @@ export async function verify({ root, runCommand = null } = {}) {
   // code are a reason this verification is not trustworthy, not a separate
   // advisory a caller may ignore. Missing documents are only a problem once the
   // project tracks them — see `tracksSpecDocuments`.
-  const rendered = renderSpecs(compiled.bundle)
+  const rendered = renderSpecs(compiled.bundle, manifest.config?.specsDir)
   const tracksSpecs = state.tracksSpecDocuments(root, manifest.config?.specsDir, manifest.config?.specsRequired)
   const drift = detectSpecDrift(root, rendered.files)
   // Also BEFORE persisting, for the same reason as in `compile`: the persisted verify

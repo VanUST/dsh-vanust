@@ -6157,3 +6157,36 @@ test('dynamic: a finding against a PROPOSED record binds to that record and reti
     'bound to the RECORD, so the block follows that record rather than the material',
   )
 })
+
+test('compiler: a generated spec goes where the manifest says, not to a hardcoded default', async () => {
+  // `renderSpecs` hardcoded `docs/specs` while every READER — `tracksSpecDocuments`,
+  // `detectSpecDrift`, the guard — resolved `config.specsDir`. A project that declared any other
+  // directory therefore had its compile write to one place, its verify look in another, and NO WAY
+  // TO BECOME GREEN: verify reported the document missing and prescribed a compile, and the compile
+  // wrote to the same wrong directory again. The kit never saw it because its own `specsDir` is the
+  // default. Found by driving the ratchet against a foreign project with its own layout.
+  const root = makeProject({
+    name: 'custom-specs-dir',
+    extraManifest: { specsDir: 'generated-specs' },
+    files: { 'src/auth/session.ts': 'x\n' },
+    adrs: {
+      '0001-a.adr.md': adrText({
+        id: '0001',
+        zones: ['auth'],
+        laws: [{ id: 'auth.x', statement: 'X holds.', checks: [{ type: 'required_text', paths: ['src/auth/**'], pattern: 'x' }] }],
+      }),
+    },
+  })
+
+  const compile = ops.compile({ root, write: true })
+  assert.equal(compile.ok, true, JSON.stringify(compile.problems?.map((entry) => entry.code)))
+  assert.ok(existsSync(join(root, 'generated-specs', 'auth.spec.md')), 'the document is where the manifest says')
+  assert.equal(existsSync(join(root, 'docs', 'specs')), false, 'and nothing was written to the default')
+
+  const verified = await ops.verify({ root })
+  assert.equal(
+    verified.ok,
+    true,
+    `a project with its own specs directory must verify green: ${JSON.stringify(verified.problems?.map((entry) => entry.code))}`,
+  )
+})

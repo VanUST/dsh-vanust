@@ -985,7 +985,7 @@ export function bundleHash(bundle) {
  * @returns `{ files, specHash }` where `files` maps a repository-relative path to
  *   its full text.
  */
-export function renderSpecs(bundle) {
+export function renderSpecs(bundle, specsDir = 'docs/specs') {
   const specHash = bundleHash(bundle)
   const byZone = new Map()
   for (const law of bundle.laws) {
@@ -1031,7 +1031,12 @@ export function renderSpecs(bundle) {
           '',
         ]),
     ].join('\n')
-    files[`docs/specs/${zone.replace(/[^A-Za-z0-9_-]+/g, '-')}.spec.md`] = body
+    // The MANIFEST's specs directory. It used to be hardcoded to `docs/specs` while every READER
+    // — `tracksSpecDocuments`, `detectSpecDrift`, the guard — resolved `config.specsDir`, so a
+    // project that declared any other directory had its compile write to `docs/specs`, its verify
+    // report every spec as MISSING, and no way to become green: the failure was blamed on the
+    // project, and re-running the compile it prescribed wrote to the same wrong place again.
+    files[`${String(specsDir).replace(/\/+$/, '')}/${zone.replace(/[^A-Za-z0-9_-]+/g, '-')}.spec.md`] = body
   }
   return { files, specHash }
 }
