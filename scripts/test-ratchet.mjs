@@ -1753,6 +1753,20 @@ test('state: a verification that evaluated zero checks does not count as verifie
   assert.ok(after.problems.some((entry) => entry.code === 'VERIFY_NOT_RUN'))
 })
 
+test('state: an explicit specsRequired false opts out of tracking even with documents on disk', () => {
+  const root = makeProject({ name: 'specs-opt-out' })
+  mkdirSync(join(root, 'docs', 'specs'), { recursive: true })
+  writeFileSync(join(root, 'docs', 'specs', 'zone.spec.md'), '# Spec\n')
+
+  assert.equal(
+    state.tracksSpecDocuments(root, 'docs/specs', undefined),
+    true,
+    'a generated document on disk is tracked when the manifest says nothing',
+  )
+  assert.equal(state.tracksSpecDocuments(root, 'docs/specs', false), false, 'the explicit opt-out is honoured')
+  assert.equal(state.tracksSpecDocuments(root, 'docs/specs', true), true, 'the explicit opt-in is honoured')
+})
+
 test('state: the ledger is append-only and survives an unreadable line', () => {
   const root = makeProject({ name: 'ledger', adrs: {} })
   state.appendLedger(root, 'ratchet.test.one', { a: 1 })
@@ -4716,6 +4730,110 @@ test('ratify: a rejected answer writes nothing and leaves the record proposed', 
   assert.deepEqual(result.wrote, [])
   assert.equal(readdirSync(join(root, 'docs', 'adrs')).filter((name) => name.endsWith('.adr.md')).length, 1)
   assert.deepEqual(compile(root).laws, [])
+})
+
+// ---------------------------------------------------------------------------
+// the /ratify command: the same operation, reached without a model turn
+// ---------------------------------------------------------------------------
+
+/**
+ * Applies the tool adapter against a fake cordis context and returns the command.
+ *
+ * The fake is deliberately minimal: the adapter must work with `tools.register`,
+ * `tools.guard`, `effect` and `get`, and the test supplies exactly those, so the
+ * command cannot come to depend on a service the fake does not model.
+ *
+ * @param ask - The question channel's `ask`, or `null` for a deployment without one.
+ * @returns `{ command, commands }` — the registered `/ratify` definition, or undefined.
+ */
+function commandHarness({ ask = null } = {}) {
+  const commands = []
+  const questions = ask === null ? undefined : { ask }
+  const ctx = {
+    tools: { register: () => () => {}, guard: () => () => {} },
+    effect: (fn) => fn(),
+    get: (name) =>
+      name === 'commands'
+        ? {
+            register: (definition) => {
+              commands.push(definition)
+              return () => {}
+            },
+          }
+        : name === 'userQuestions'
+          ? questions
+          : undefined,
+  }
+  tools.apply(ctx)
+  return { command: commands.find((entry) => entry.name === 'ratify'), commands }
+}
+
+/** One command invocation for a session rooted at `root`. */
+function invocationFor(root, rawInput, id = 'session-command') {
+  return { agent: { id, session: { header: { cwd: root } } }, rawInput }
+}
+
+test('command: /ratify puts the ratchet question to the human and mints the same consent', async () => {
+  const { root } = ratifiableProject('command-approve')
+  const asked = []
+  const { command } = commandHarness({
+    ask: async ({ agent, questions }) => {
+      asked.push({ agent, questions })
+      return { answers: questions.map((question) => ({ id: question.id, selected: ['Approve'] })) }
+    },
+  })
+  assert.ok(command !== undefined, 'the /ratify command is registered')
+
+  const result = await command.handler(invocationFor(root, '0011'))
+  assert.equal(result.kind, 'success', result.text)
+  assert.match(result.text, /Ratified 0011/u)
+  assert.equal(asked.length, 1, 'the question reached the human channel, not the model')
+  assert.deepEqual(compile(root).laws, ['api.x'])
+})
+
+test('command: a rejected /ratify answer writes nothing and reports the decision, not a failure', async () => {
+  const { root } = ratifiableProject('command-reject')
+  const { command } = commandHarness({
+    ask: async ({ questions }) => ({
+      answers: questions.map((question) => ({ id: question.id, selected: ['Reject'] })),
+    }),
+  })
+
+  const result = await command.handler(invocationFor(root, '0011'))
+  assert.equal(result.kind, 'success', result.text)
+  assert.match(result.text, /Not ratified/u)
+  assert.deepEqual(compile(root).laws, [], 'a rejection puts nothing into force')
+})
+
+test('command: /ratify without a question channel reports an error and mints nothing', async () => {
+  const { root } = ratifiableProject('command-no-channel')
+  const { command } = commandHarness({ ask: null })
+
+  const result = await command.handler(invocationFor(root, '0011'))
+  assert.equal(result.kind, 'error', result.text)
+  assert.match(result.text, /Nothing was ratified/u)
+  assert.deepEqual(compile(root).laws, [], 'a command that cannot ask must not mint')
+})
+
+test('command: /ratify refuses a decision a humanOnly zone reserves, without asking', async () => {
+  const target = adrText({ id: '0011', status: 'proposed', authority: 'agent', zones: ['auth'], laws: [] })
+  const root = makeProject({
+    name: 'command-blocked',
+    adrs: { '0011-agent.adr.md': target },
+    zones: [{ id: 'auth', paths: ['src/auth/**'], agentAuthority: 'humanOnly' }],
+  })
+  const asked = []
+  const { command } = commandHarness({
+    ask: async ({ questions }) => {
+      asked.push(questions)
+      return { answers: questions.map((question) => ({ id: question.id, selected: ['Approve'] })) }
+    },
+  })
+
+  const result = await command.handler(invocationFor(root, '0011'))
+  assert.equal(result.kind, 'error', result.text)
+  assert.equal(asked.length, 0, 'an impossible question is never put to a human')
+  assert.deepEqual(compile(root).laws, [], 'consent cannot transfer authorship')
 })
 
 test('ratify: an unreadable answer mints nothing and returns a differently shaped re-ask', () => {

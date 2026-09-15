@@ -73,9 +73,10 @@ const STARTER_ADR = [
  * Builds the manifest and directory skeleton a project needs to use the ratchet.
  *
  * @param options - `{ name, languages, zones, decisionsDir, sourcesDir, specsDir,
- *   reportsDir, stateDir, defaultAgentAuthority, mainPaths }`. `name` defaults to
- *   `'unnamed-project'` and `languages` to an empty list, because a manifest may
- *   legitimately declare neither.
+ *   reportsDir, stateDir, defaultAgentAuthority, mainPaths, specsRequired }`. `name`
+ *   defaults to `'unnamed-project'` and `languages` to an empty list, because a
+ *   manifest may legitimately declare neither. `specsRequired` defaults to `true`, so a
+ *   new project tracks the generated law cards; pass `false` only to opt out.
  * @returns `{ manifestText, manifest, files }` where `files` is
  *   `{ path, kind, text? }[]` with `kind` either `'directory'` or `'file'`.
  */
@@ -103,6 +104,12 @@ export function bootstrapPreview(options = {}) {
       reportsDir,
       stateDir,
       defaultAgentAuthority: options.defaultAgentAuthority ?? 'proposeOnly',
+      // Specs are ON by default. A compiled law card a reader can diff is the point of
+      // tracking them, and a project that starts with tracking off never notices the
+      // documents are missing: the laws exist in `.dsh/ratchet/specs.json` and nowhere a
+      // reviewer reads. A caller that needs the old behaviour passes `specsRequired: false`,
+      // which the compiler honours as an explicit opt-out.
+      specsRequired: options.specsRequired ?? true,
       zones: options.zones ?? [
         {
           id: 'main',

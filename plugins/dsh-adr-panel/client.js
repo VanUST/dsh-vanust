@@ -40,10 +40,12 @@
  *   record rather than read from this record's frontmatter is rendered dashed/italic.
  *   The ratify affordance appears ONLY for a decision that is
  *   `type !== "approval"`, frontmatter `status === "proposed"`,
- *   `author.authority === "agent"`, and named by no consent's `approves`; it submits a
- *   user message asking the agent to run `ratchet_ratify`, and when no Session-scoped
- *   submitter is mounted it prints the command instead. It cannot mint a consent: a
- *   consent record is not a decision and is never offered for ratification.
+ *   `author.authority === "agent"`, and named by no consent's `approves`; it submits the
+ *   ratchet's own `/ratify <id>` command, which runs host-side without a model turn and
+ *   puts the ratchet's question to the human through the question channel, and when no
+ *   Session-scoped submitter is mounted it prints the command instead. It cannot mint a
+ *   consent: the answer is the human's, and a consent record is not a decision and is
+ *   never offered for ratification.
  *
  *   COLOUR: one `tone(kind)` helper maps a semantic kind onto the shell's state and
  *   label theme tokens (`var(--token, fallback)`, so any theme works and a missing token
@@ -1372,7 +1374,11 @@ window.__ModuleLoader__.load({
 				}
 				publishAsk(function (adrId) {
 					try {
-						inputActions.setDraft("Please run ratchet_ratify for ADR " + adrId + " and put the decision to me as a question. Do not record a consent on my behalf.");
+						// The ratchet's own command, not a sentence to the model. A command is
+						// executed host-side without a model turn, and its handler holds the
+						// session's agent, so the ratchet puts its question to the human
+						// directly. The answer is still the human's; nothing here composes one.
+						inputActions.setDraft("/ratify " + adrId);
 						inputActions.submit();
 					} catch (error) {
 						if (typeof console !== "undefined" && console.error) console.error("[adr-panel] could not submit the ratify request", error);

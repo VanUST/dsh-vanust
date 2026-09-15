@@ -94,6 +94,20 @@ export const USER_QUESTIONS_SERVICE = 'userQuestions'
  */
 export const AGENTS_SERVICE = 'agents'
 
+/**
+ * The service name the slash-command registry registers under.
+ *
+ * Read for one capability: registering `/ratify`, the same operation as the
+ * `ratchet_ratify` tool, reached without the model. A command handler runs host-side
+ * and receives `invocation.agent`, so it can put the ratchet's own question to the
+ * human directly — which a browser half cannot, because the question seam is
+ * Agent-scoped. Reached through `ctx.get` at apply time rather than through `inject`,
+ * for the same reason as the other optional services: a composition that mounts no
+ * command registry must still compile and verify. `@deepseek-ai/dsh-base` mounts it,
+ * so it is present in every profile this deployment ships.
+ */
+export const COMMANDS_SERVICE = 'commands'
+
 export { PROBLEM_CODES }
 
 /**
@@ -231,6 +245,54 @@ export function apply(ctx) {
           return { kind: 'ok', answer }
         } catch (error) {
           return { kind: 'unavailable', reason: String(error) }
+        }
+      }
+    }
+
+    /**
+     * Runs `/ratify [<adr-id> …]` for the session that invoked it.
+     *
+     * The same operation as the `ratchet_ratify` tool, and deliberately the same code
+     * path: it builds the quiz with `ratifyInteractively`, asks it through the single
+     * question channel `humanChannel` reaches, and returns the canonical result. The
+     * only thing a command adds is that it is reached without a model turn, because a
+     * command handler is host-side and already holds the session's agent.
+     *
+     * A handler that throws is a handler whose failure the registry reports as
+     * `kind: 'error'`; this one catches its own failures so the message names what
+     * happened rather than the exception's shape.
+     *
+     * @param invocation - The command invocation: `agent`, `rawInput`, `signal`.
+     * @returns A `CommandResult` — `success` when a decision was ratified or the
+     *   human declined deliberately, `error` when there was nothing to ask, the
+     *   channel was unreachable, or the answer could not be read. A command that
+     *   cannot put its question never reports success.
+     */
+    const ratifyFromCommand = async (invocation) => {
+      const exec = { agent: invocation?.agent, signal: invocation?.signal }
+      const { root, found } = rootFor(exec)
+      if (root === null || !found) {
+        return {
+          kind: 'error',
+          text:
+            root === null
+              ? 'the /ratify command has no session workspace, so there is no project to ratify in'
+              : `no ${MANIFEST_PATH} was found above the session workspace, so this project declares no decisions to ratify`,
+        }
+      }
+
+      try {
+        const result = await ratifyInteractively({
+          root,
+          ids: parseRatifyIds(invocation?.rawInput),
+          askedBy: askedByFor(exec),
+          askHuman: humanChannel(exec),
+        })
+        return { kind: ratifyOutcomeKind(result), text: renderRatifyOutcome(result) }
+      } catch (error) {
+        return {
+          kind: 'error',
+          text: `the ratification did not settle: ${String(error)}. Nothing was written for a call that threw, so no consent was minted.`,
         }
       }
     }
@@ -712,6 +774,33 @@ export function apply(ctx) {
       }),
     )
 
+    // The `/ratify` command. It is the second ENTRY to the one consent channel, never a
+    // second channel: the question is still the ratchet's and the answer is still derived
+    // from the labels the human selected, so no argument here accepts an answer. Its value
+    // over the tool is that a command is executed host-side without a model turn, so a UI
+    // affordance that submits `/ratify <id>` reaches the human directly.
+    //
+    // Registered on the same effect as the tools, because it is the same adapter and the
+    // same disposal contract: a hot reload replaces both registrations rather than
+    // stacking a second command. The registration is caught separately, so a registry that
+    // rejects the command cannot take the tools down with it.
+    const commands = ctx.get(COMMANDS_SERVICE)
+    if (commands !== null && commands !== undefined && typeof commands.register === 'function') {
+      try {
+        disposers.push(
+          commands.register({
+            name: 'ratify',
+            description:
+              'Put a proposed decision to the human as a question and record the answer; no argument accepts an answer, so the human answers the ratchet',
+            input: { hint: '[<adr-id> …]' },
+            handler: (invocation) => ratifyFromCommand(invocation),
+          }),
+        )
+      } catch (error) {
+        process.stderr.write(`ratchet: cannot register the /ratify command: ${String(error)}\n`)
+      }
+    }
+
     return () => {
       for (const dispose of disposers) dispose()
     }
@@ -736,6 +825,95 @@ function askedByFor(exec) {
   // The harness already brands agent ids with a `session-` prefix, so prepending the
   // word produced `session session-<id>` in a durable record.
   return id.startsWith('session') ? id : `session ${id}`
+}
+
+/**
+ * Parses the decision ids a `/ratify` invocation names.
+ *
+ * @param rawInput - The command's raw argument text, or any value.
+ * @returns The ids named, or `null` when none were named — which the ratification
+ *   operation reads as "every decision waiting for a human". Whitespace and commas
+ *   both separate, so both `/ratify 0005 0007` and `/ratify 0005,0007` work. A
+ *   non-string input yields `null` rather than throwing, because a command line is
+ *   caller-supplied text.
+ */
+function parseRatifyIds(rawInput) {
+  if (typeof rawInput !== 'string') return null
+  const ids = rawInput
+    .split(/[\s,]+/u)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+  return ids.length === 0 ? null : ids
+}
+
+/**
+ * Reads the decision ids out of one field of a ratification result.
+ *
+ * @param entries - The result field: a list of id strings, of entries carrying an
+ *   `id`, or any other value.
+ * @returns The ids found, in order. Anything that carries no id is dropped, so a
+ *   shape change in the operation renders as a shorter list rather than as
+ *   `[object Object]` in a message a human reads.
+ */
+function ratifyIdsOf(entries) {
+  if (!Array.isArray(entries)) return []
+  return entries
+    .map((entry) => (typeof entry === 'string' ? entry : entry?.id))
+    .filter((id) => typeof id === 'string' && id.length > 0)
+}
+
+/**
+ * Classifies a ratification result for the command registry.
+ *
+ * @param result - The canonical ratification result.
+ * @returns `'success'` when a decision was ratified or the human declined
+ *   deliberately — both are the command doing its job — and `'error'` for every
+ *   outcome where the question was never put, could not be reached, or could not be
+ *   read. A command must not report success for a consent it did not obtain.
+ */
+function ratifyOutcomeKind(result) {
+  if (ratifyIdsOf(result?.ratified).length > 0) return 'success'
+  if (ratifyIdsOf(result?.rejected).length > 0) return 'success'
+  if (result?.nothingToRatify === true) return 'success'
+  return 'error'
+}
+
+/**
+ * Renders one ratification result as the text a command returns.
+ *
+ * @param result - The canonical ratification result.
+ * @returns A single self-contained sentence (or two) naming what happened and
+ *   whether anything was written. Never empty, so a command never settles with no
+ *   explanation for the human who clicked it.
+ */
+function renderRatifyOutcome(result) {
+  const ratified = ratifyIdsOf(result?.ratified)
+  if (ratified.length > 0) {
+    return `Ratified ${ratified.join(', ')}. The approval ADR and its transcript are written; compile and verify to see the new law set.`
+  }
+  if (result?.nothingToRatify === true) {
+    return typeof result.message === 'string' && result.message.length > 0
+      ? result.message
+      : 'No decision is waiting for a human, so nothing was ratified.'
+  }
+  if (result?.askFailed === true) {
+    return `Nothing was ratified: ${result.reason ?? 'the ratchet could not reach the human question channel'}. The question was never put to anyone.`
+  }
+  const rejected = ratifyIdsOf(result?.rejected)
+  if (rejected.length > 0) {
+    return `Not ratified: the human declined ${rejected.join(', ')}. Nothing was written, and the decisions stay proposed.`
+  }
+  const unreadable = ratifyIdsOf(result?.unreadable)
+  if (unreadable.length > 0) {
+    return `Nothing was ratified: the answer could not be read as approval or rejection for ${unreadable.join(', ')}.`
+  }
+  if (result?.needsAnswer === true) {
+    return 'No decision is waiting for a human in this project, so no question was asked and nothing was written.'
+  }
+  const total = result?.summary?.total
+  return typeof total === 'number' && total > 0
+    ? `Nothing was ratified: ${String(total)} problem(s) stopped the operation.`
+    : 'Nothing was ratified.'
 }
 
 /**

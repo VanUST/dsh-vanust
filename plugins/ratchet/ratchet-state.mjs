@@ -528,6 +528,11 @@ export function verificationEvents(report, specHash) {
  */
 export function tracksSpecDocuments(root, specsDir, explicit = undefined) {
   if (explicit === true) return true
+  // An explicit `false` is an opt-out. Before this branch, `false` fell through to the
+  // directory scan, so a project that turned tracking off while its generated documents
+  // were on disk was tracked anyway — the setting said one thing and the behaviour did
+  // another, which is the class of defect this project exists to remove.
+  if (explicit === false) return false
   const directory = join(root, specsDir ?? 'docs/specs')
   if (!existsSync(directory)) return false
   try {
