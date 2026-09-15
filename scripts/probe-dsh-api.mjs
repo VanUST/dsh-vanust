@@ -30,17 +30,27 @@
  *                     project through the user-questions channel, with a stub
  *                     answerer standing in for the human. No model turn beyond the
  *                     one that calls the probe tool.
+ *   --kit-rules       Boot no harness and make no model call. Construct the real
+ *                     `systemPrompt` service over a scratch home, apply the
+ *                     shipped `kit-rules` plugin, assemble and render the
+ *                     system prompt, and assert the home rules file reached it.
+ *                     This is the behavioural half of instruction routing: a
+ *                     provider that stops contributing the rules is a failure
+ *                     here, where a static read of the plugin source is not.
  *   Environment: DSH_BIN overrides the launcher; DSH_CREDENTIALS overrides the
  *   source credential file. The live profile is never read or written: the probe
  *   builds its own home under the system temp directory, copies in credentials
- *   only, and mounts the probe plugin through the home-level patch layer.
+ *   only, and mounts the probe plugin through the home-level patch layer. Under
+ *   `--kit-rules` no credentials are needed and none are read.
  *
  * OUTPUTS
  *   Exit 0 when every asserted fact holds, 1 otherwise (including a failed boot).
- *   Prints a human report, or one JSON object with `--json`. Evidence is read
- *   from the session log the harness wrote, not from the model's prose: a model
- *   that summarises or truncates a tool result must not be able to change what
- *   the probe reports. Never prints credential material.
+ *   Under `--kit-rules` the exit is 0 only when the assembled prompt carries the
+ *   rules content, and prints `kit-rules prompt ok` as the marker a shell gate
+ *   greps for. Prints a human report, or one JSON object with `--json`. Evidence
+ *   is read from the session log the harness wrote, not from the model's prose: a
+ *   model that summarises or truncates a tool result must not be able to change
+ *   what the probe reports. Never prints credential material.
  *
  * KEYWORDS
  *   api discovery, fetch-api-first, probe, dsh headless, scratch profile,
@@ -59,10 +69,16 @@
  *     the API works.
  *   - Session log unreadable or absent while the run exited 0: reported as a
  *     failure with the reason, never as "no violations found".
+ *   - `--kit-rules` with no installed harness carrying `dsh-system-prompt` and
+ *     `cordis`: exits 1 naming what it looked for, before any assembly. A probe
+ *     that silently skipped would be mistaken for a pass.
+ *   - `--kit-rules` when the rules content reaches the prompt only because it was
+ *     already there: the negative control (a second home with a different file)
+ *     fails if the first home's marker survives into the second assembly.
  */
 
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -213,6 +229,7 @@ function parseArgs(argv) {
     ratchet: false,
     ratchetReview: false,
     ratchetRatify: false,
+    kitRules: false,
     bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-headless'],
   }
   for (let index = 0; index < argv.length; index += 1) {
@@ -223,6 +240,7 @@ function parseArgs(argv) {
     else if (flag === '--ratchet') options.ratchet = true
     else if (flag === '--ratchet-review') options.ratchetReview = true
     else if (flag === '--ratchet-ratify') options.ratchetRatify = true
+    else if (flag === '--kit-rules') options.kitRules = true
     else if (flag === '--task') options.task = argv[++index] ?? ''
     else if (flag === '--profile') options.profile = argv[++index] ?? ''
     else if (flag === '--out') options.out = argv[++index] ?? ''
@@ -355,6 +373,228 @@ function launcher() {
 }
 
 /**
+ * Locate an installed harness package tree the kit-rules prompt probe imports from.
+ *
+ * The probe runs from `scripts/`, where a bare `@deepseek-ai/…` import does not
+ * resolve: the harness packages live in the profile store or inside the global
+ * `dsh` package, not beside this script. A dynamic import of an absolute file URL
+ * is used instead, and the packages' own transitive imports resolve relative to
+ * where they live. The probe junction `probes/api-probe/node_modules` is tried
+ * first because `dev-link.mjs` maintains it for exactly this kind of tooling, then
+ * the deployment's profile stores, then the global install layouts.
+ *
+ * @returns Absolute `node_modules` directory carrying both
+ *   `@deepseek-ai/dsh-system-prompt` and `@deepseek-ai/cordis`, or `null` when
+ *   none is installed. Never throws: an unreadable profiles directory is simply
+ *   one candidate that does not match.
+ */
+function harnessPackageRoot() {
+  const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
+  const roots = [
+    join(KIT, 'probes', 'api-probe', 'node_modules'),
+    join(home, 'profiles', 'node_modules'),
+    join(dirname(process.execPath), 'node_modules', '@deepseek-ai', 'dsh', 'node_modules'),
+    join(dirname(process.execPath), '..', 'lib', 'node_modules', '@deepseek-ai', 'dsh', 'node_modules'),
+    '/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules',
+    '/usr/lib/node_modules/@deepseek-ai/dsh/node_modules',
+  ]
+  if (process.env.APPDATA !== undefined) {
+    roots.push(join(process.env.APPDATA, 'npm', 'node_modules', '@deepseek-ai', 'dsh', 'node_modules'))
+  }
+  // Every profile's own store, because a machine can install the harness into a
+  // profile whose shared packages are not hoisted to the profiles root.
+  try {
+    for (const entry of readdirSync(join(home, 'profiles'), { withFileTypes: true })) {
+      if (entry.isDirectory() && entry.name !== 'node_modules') {
+        roots.push(join(home, 'profiles', entry.name, 'node_modules'))
+      }
+    }
+  } catch {
+    // No profiles directory: one candidate fewer, not a failure.
+  }
+  const carries = (root) =>
+    existsSync(join(root, '@deepseek-ai', 'dsh-system-prompt', 'package.json')) &&
+    existsSync(join(root, '@deepseek-ai', 'cordis', 'package.json'))
+  return roots.find(carries) ?? null
+}
+
+/**
+ * Resolve a package's entry module to a `file:` URL through its manifest.
+ *
+ * Reading `exports["."]`/`main` rather than hardcoding `lib/index.js` keeps the
+ * probe working when a harness upgrade moves a package's entry point, which is
+ * the kind of churn this kit is upgraded across.
+ *
+ * @param root - Absolute `node_modules` directory holding the package.
+ * @param packageName - The package's name, e.g. `@deepseek-ai/cordis`.
+ * @returns The entry module as a `file:` URL string.
+ * @throws When the package directory or its manifest cannot be read, or the
+ *   manifest names no entry. The caller is a probe whose whole point is to fail
+ *   loudly when the harness layout is not what it expects.
+ */
+function packageEntry(root, packageName) {
+  const directory = join(root, ...packageName.split('/'))
+  const manifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'))
+  const exported = manifest.exports?.['.'] ?? manifest.exports
+  const entry =
+    typeof exported === 'string'
+      ? exported
+      : (exported?.default ?? exported?.import ?? manifest.main ?? 'index.js')
+  return pathToFileURL(join(directory, entry)).href
+}
+
+/**
+ * Prove behaviourally that kit-rules contributes `$DSH_HOME/AGENTS.md` to an
+ * assembled system prompt.
+ *
+ * A static read of the plugin source cannot tell a provider that contributes the
+ * rules from one that returns `''`: the empty string is a valid contribution, it
+ * passes every grep, and the assembled prompt silently carries no mandatory
+ * rules at all. This probe constructs the harness's real `systemPrompt` service,
+ * applies the plugin to it, assembles, and renders exactly as the agent loop
+ * does, so the assertion is about the prompt the model would receive.
+ *
+ * It uses two scratch homes in one run. The first carries the kit's real
+ * `rules/AGENTS.md` plus a per-run nonce, and must appear in the assembled
+ * prompt together with the plugin's binding framing. The second carries a
+ * different file, and must appear instead of the first: that negative control
+ * fails the probe if the first marker survives, so a contribution that ignores
+ * `DSH_HOME` or a prompt assembled from a stale cache cannot pass.
+ *
+ * @returns `0` when every assertion holds, `1` otherwise. Never throws: a
+ *   missing harness install and an assembly failure are both reported as a
+ *   failure with the reason, never as a pass.
+ */
+async function runKitRulesProbe() {
+  const root = harnessPackageRoot()
+  if (root === null) {
+    process.stderr.write(
+      'probe-dsh-api --kit-rules: no installed harness carrying ' +
+        '@deepseek-ai/dsh-system-prompt and @deepseek-ai/cordis; ' +
+        'looked under $DSH_HOME/profiles, the probe junction and the global installs. ' +
+        'Run node scripts/dev-link.mjs once the harness is installed.\n',
+    )
+    return 1
+  }
+  const pluginPath = join(KIT, 'plugins', 'kit-rules', 'kit-rules.mjs')
+  const rulesPath = join(KIT, 'rules', 'AGENTS.md')
+  let Context
+  let SystemPrompt
+  let renderPrompt
+  let plugin
+  let rules
+  try {
+    ;({ Context } = await import(packageEntry(root, '@deepseek-ai/cordis')))
+    ;({ SystemPrompt, renderPrompt } = await import(packageEntry(root, '@deepseek-ai/dsh-system-prompt')))
+    plugin = await import(pathToFileURL(pluginPath).href)
+    rules = readFileSync(rulesPath, 'utf8')
+  } catch (error) {
+    process.stderr.write(
+      `probe-dsh-api --kit-rules: cannot load the harness or the plugin under test: ${String(error)}\n`,
+    )
+    return 1
+  }
+
+  const checks = []
+  const check = (id, claim, pass, note) => {
+    checks.push({ id, claim, pass: Boolean(pass), note })
+    process.stdout.write(`  [${pass ? 'PASS' : 'FAIL'}] ${id}\n         ${note}\n`)
+  }
+  const nonceA = `ZZ_KITRULES_A_${Date.now()}_${Math.random().toString(36).slice(2)}`
+  const nonceB = `ZZ_KITRULES_B_${Date.now()}_${Math.random().toString(36).slice(2)}`
+  const deployedMarker = rules.split('\n')[0].trim()
+  const homes = []
+  const previousHome = process.env.DSH_HOME
+
+  let promptA = ''
+  let assembledA = null
+  let promptB = ''
+  let assembledB = null
+  let assemblyProblem = null
+  try {
+    const homeA = mkdtempSync(join(tmpdir(), 'kitrules-a-'))
+    const homeB = mkdtempSync(join(tmpdir(), 'kitrules-b-'))
+    homes.push(homeA, homeB)
+    writeFileSync(join(homeA, 'AGENTS.md'), `${rules}\n\n<!-- ${nonceA} -->\n`)
+    writeFileSync(join(homeB, 'AGENTS.md'), `# Other rules\n${nonceB}\n`)
+
+    process.env.DSH_HOME = homeA
+    const ctxA = new Context()
+    new SystemPrompt(ctxA, {})
+    plugin.apply(ctxA)
+    assembledA = await ctxA.systemPrompt.assemble()
+    promptA = renderPrompt(assembledA)
+
+    process.env.DSH_HOME = homeB
+    const ctxB = new Context()
+    new SystemPrompt(ctxB, {})
+    plugin.apply(ctxB)
+    assembledB = await ctxB.systemPrompt.assemble()
+    promptB = renderPrompt(assembledB)
+  } catch (error) {
+    assemblyProblem = String(error?.stack ?? error)
+  } finally {
+    if (previousHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previousHome
+    for (const home of homes) rmSync(home, { recursive: true, force: true })
+  }
+
+  if (assemblyProblem !== null) {
+    check('kit_rules.prompt_assembles', 'the system prompt assembles without throwing', false, assemblyProblem.slice(-1200))
+  } else {
+    const sectionA = assembledA.sections.find((section) => section.name === 'kit:rules')
+    const sectionB = assembledB.sections.find((section) => section.name === 'kit:rules')
+    check(
+      'kit_rules.section_is_registered',
+      'kit-rules registers a kit:rules section on the assembled prompt',
+      sectionA !== undefined,
+      sectionA === undefined ? `sections: ${JSON.stringify(assembledA.sections.map((s) => s.name))}` : `kit:rules present (${sectionA.text.length} chars)`,
+    )
+    check(
+      'kit_rules.provider_contributes_the_rules_file',
+      'the rules file current at assembly time reaches the assembled prompt',
+      promptA.includes(nonceA),
+      promptA.includes(nonceA)
+        ? 'the per-run marker from $DSH_HOME/AGENTS.md is in the rendered prompt'
+        : `the marker is ABSENT from a ${promptA.length}-char prompt: the provider contributed nothing`,
+    )
+    check(
+      'kit_rules.provider_renders_the_binding_framing',
+      'the prompt frames the contribution as mandatory rules, not as guidance',
+      promptA.includes('MANDATORY OPERATING RULES'),
+      promptA.includes('MANDATORY OPERATING RULES') ? 'binding framing present' : 'the binding framing line is absent',
+    )
+    check(
+      'kit_rules.provider_contributes_the_deployed_rules_content',
+      "the kit's own rules/AGENTS.md content reaches the prompt",
+      promptA.includes(deployedMarker),
+      promptA.includes(deployedMarker) ? `deployed marker ${JSON.stringify(deployedMarker)} present` : `deployed marker ${JSON.stringify(deployedMarker)} absent`,
+    )
+    check(
+      'kit_rules.provider_rereads_the_current_home',
+      'a second assembly reads its own home, so the contribution is not a constant or a stale cache',
+      promptB.includes(nonceB) &&
+        !promptB.includes(nonceA) &&
+        sectionB !== undefined &&
+        !sectionB.text.includes(nonceA),
+      `second home marker present=${String(promptB.includes(nonceB))} first home marker leaked=${String(promptB.includes(nonceA))}`,
+    )
+  }
+
+  const passed = checks.filter((entry) => entry.pass)
+  process.stdout.write(
+    `\nprobe-dsh-api: kit-rules prompt assembly (behavioural) root=${root}\n` +
+      `  ${passed.length}/${checks.length} facts confirmed by assembly\n`,
+  )
+  if (passed.length !== checks.length) {
+    process.stderr.write('kit-rules prompt FAILED\n')
+    return 1
+  }
+  process.stdout.write('kit-rules prompt ok\n')
+  return 0
+}
+
+/**
  * Read every tool call and tool result out of a session log.
  *
  * The session log is the harness's own durable record, so it is the right
@@ -476,6 +716,14 @@ function sessionDirs(home) {
 }
 
 const options = parseArgs(process.argv.slice(2))
+
+// The kit-rules prompt probe boots no harness and makes no model call, so it must
+// run before the credential check that the booting probes need. It is a complete
+// command in its own right: `node scripts/probe-dsh-api.mjs --kit-rules`.
+if (options.kitRules) {
+  process.exit(await runKitRulesProbe())
+}
+
 const credentials = credentialsSource()
 if (credentials === null) {
   process.stderr.write(

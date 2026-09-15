@@ -1563,6 +1563,48 @@ export function ratifications(root) {
 }
 
 /**
+ * Checks that a supplied quiz is the question this ratchet asked, and why if not.
+ *
+ * Compares what makes a consent answerable: which records are being asked about, the two labels
+ * each question offered, and that every one of them was FROZEN with a content hash — the hash is
+ * what lets the stale-text check refuse a record edited while the question was open. The hash
+ * VALUES are deliberately not compared: a record changed while the question was open must still
+ * reach `RATIFICATION_STALE`, which is a statement about the tabulated answer, not a foreign quiz.
+ * Prose, headers and option descriptions are ignored, because a client or the harness may
+ * reformat them without changing the question, and a question's identity is not its wording.
+ *
+ * @param supplied - The quiz a caller handed to `ratify`.
+ * @param expected - The quiz {@link buildQuiz} produces for the records waiting now.
+ * @returns `null` when the supplied quiz is acceptable, or a reason string.
+ */
+function quizRejection(supplied, expected) {
+  if (supplied === null || typeof supplied !== 'object') return 'the supplied quiz is not an object'
+  if ((supplied.attempt ?? null) !== (expected?.attempt ?? null)) {
+    return `the supplied quiz is attempt ${JSON.stringify(supplied.attempt ?? null)} and this answer is attempt ${JSON.stringify(expected?.attempt)}`
+  }
+  const roles = (quiz) => Object.values(quiz?.roles ?? {})
+  const targets = (quiz) => roles(quiz).map((role) => role?.adrId ?? null).sort()
+  if (JSON.stringify(targets(supplied)) !== JSON.stringify(targets(expected))) {
+    return 'the supplied quiz asks about different records than the ones now waiting'
+  }
+  const labels = (quiz) =>
+    roles(quiz)
+      .map((role) => [role?.adrId ?? null, role?.approveLabel ?? null, role?.rejectLabel ?? null])
+      .sort()
+  if (JSON.stringify(labels(supplied)) !== JSON.stringify(labels(expected))) {
+    return 'the supplied quiz offers labels this ratchet did not'
+  }
+  const frozen = new Map((supplied.frozen ?? []).map((entry) => [entry?.id, entry]))
+  for (const id of targets(expected)) {
+    const entry = frozen.get(id)
+    if (entry === undefined || typeof entry.contentHash !== 'string' || entry.contentHash.length === 0) {
+      return `the supplied quiz froze no content hash for ADR ${id}, so there is no text its answer could cover`
+    }
+  }
+  return null
+}
+
+/**
  * Puts pending decisions to a human and records the consent that follows.
  *
  * One call is one attempt, deliberately: the operation is a function of a root and
@@ -1584,12 +1626,14 @@ export function ratifications(root) {
  * @param options - `{ root, answer, quiz, attempt, previous, ids, askedBy, at, write,
  *   present }`.
  *   `answer` is the harness answer object (`{ answers: [{ id, selected, custom? }] }`)
- *   or `null` to prepare the quiz. **`quiz` is required to mint**: it is the exact
- *   quiz the human answered, and passing it is what lets this function bind each
- *   consent to the text that was SHOWN and refuse an answer that answers no question.
- *   An `answer` without a `quiz` is refused, because nothing then distinguishes a
- *   human's answer from a string a caller typed. `attempt` is 1 for the first
- *   question and 2 for the one re-ask, which asks differently and carries `previous`.
+ *   or `null` to prepare the quiz. **`quiz` is required to mint and must be the question this
+ *   ratchet builds** for the records now waiting: it is the exact quiz the human answered, and
+ *   requiring it to match is what lets this function bind each consent to the text that was SHOWN
+ *   and refuse an answer that answers no question. A quiz whose frozen hashes, labels or targets
+ *   differ from the rebuilt one is refused as `RATIFICATION_UNPROVEN`. An `answer` without a `quiz`
+ *   is refused too, because nothing then distinguishes a human's answer from a string a caller
+ *   typed. `attempt` is 1 for the first question and 2 for the one re-ask, which asks differently
+ *   and carries `previous`.
  *   `ids` narrows the quiz to named decisions; ids that are not pending are reported
  *   rather than ignored. `askedBy` names who asked the human, and is recorded in the
  *   approval. `present` is forwarded to `buildQuiz` and decides whether the question
@@ -1660,12 +1704,45 @@ export function ratify({
     }
   }
 
-  const quiz =
-    answeredQuiz !== null && answeredQuiz !== undefined
-      ? answeredQuiz
-      : attempt === 2
-        ? buildQuiz(targets, { attempt: 2, previous, present })
-        : buildQuiz(targets, { attempt: 1, present })
+  const expectedQuiz =
+    attempt === 2 ? buildQuiz(targets, { attempt: 2, previous, present }) : buildQuiz(targets, { attempt: 1, present })
+
+  // The quiz a caller hands back must BE the question this ratchet asks for the records waiting
+  // now. `ratify` used to accept any object with a `roles` map, and a `frozen` entry whose
+  // `contentHash` was null skipped the stale-text check entirely — so a caller-composed quiz with
+  // an empty frozen list minted a real approval with no question ever asked. Rebuilding the quiz
+  // and requiring the supplied one to match binds the consent to the ratchet's own question: its
+  // targets, the two labels it offered, and a frozen hash for every one of them. What remains is
+  // the gap the consent model already states plainly — a caller who writes that exact question by
+  // hand is writing a consent file — but a question the ratchet never built mints nothing.
+  const quizRejected = answeredQuiz === null || answeredQuiz === undefined ? null : quizRejection(answeredQuiz, expectedQuiz)
+  if (quizRejected !== null) {
+    const problems = [
+      ...unknownProblems,
+      problem(
+        'RATIFICATION_UNPROVEN',
+        `the quiz supplied with this answer is not the question this ratchet asks for the records now waiting (${quizRejected}), so the answer is about a question nobody asked and nothing is ratified`,
+        null,
+        {},
+      ),
+    ]
+    appendLedger(root, 'ratchet.ratify.foreign-quiz', { pending: targets.length })
+    return {
+      ok: false,
+      stage: 'ratify',
+      project: config.project,
+      needsAnswer: true,
+      attempt,
+      pending: targets.map((entry) => ({ id: entry.id, title: entry.title, path: entry.path, contentHash: entry.contentHash })),
+      quiz: expectedQuiz,
+      problems,
+      summary: summariseProblems(problems),
+      nextStep:
+        'ask the human the question this ratchet builds (the `quiz` field) and pass their answer back with that same object',
+    }
+  }
+
+  const quiz = answeredQuiz ?? expectedQuiz
 
   // An answer with no quiz is not a consent, it is a string. Without the quiz there
   // is nothing to check the answer against — no question it answers, no offered text

@@ -54,7 +54,7 @@
       "statement": "The deployment's mandatory rules come from $DSH_HOME/AGENTS.md via kit-rules; no repository instruction file reaches the prompt.",
       "statedIn": "AGENTS.md",
       "enforcedBy": {
-        "command": "instruction-routing"
+        "command": "kit-rules-prompt"
       }
     },
     {
@@ -152,7 +152,7 @@
     {
       "id": "portability",
       "command": "node scripts/check-portability.mjs",
-      "purpose": "platform assumptions in shipped source; modules missing from a plugin's files list; and every packed file matching the source it was packed from, so a stale tarball cannot ship old bytes",
+      "purpose": "platform assumptions in shipped source; modules missing from a plugin's files list; every packed file matching the source it was packed from, so a stale tarball cannot ship old bytes; and a repack of an existing version carrying a new version, so pnpm cannot serve the old bytes from the lockfile",
       "path": "scripts/check-portability.mjs"
     },
     {
@@ -172,6 +172,12 @@
       "command": "node scripts/check-instruction-routing.mjs",
       "purpose": "instruction routing: the harness workspace-instruction loader is disabled by row id, kit-rules is mounted in its place, it reads only the home rules file, and the installers ship that file",
       "path": "scripts/check-instruction-routing.mjs"
+    },
+    {
+      "id": "kit-rules-prompt",
+      "command": "node scripts/probe-dsh-api.mjs --kit-rules",
+      "purpose": "the rules reach an assembled prompt: the shipped kit-rules plugin, applied to the real prompt service, contributes the home AGENTS.md to the rendered prompt, and a second home contributes only its own marker",
+      "path": "scripts/probe-dsh-api.mjs"
     },
     {
       "id": "adr-panel-render",

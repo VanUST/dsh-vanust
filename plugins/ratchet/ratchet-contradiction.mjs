@@ -25,9 +25,11 @@
  *   the reasoning, a conflict between two laws that is the corpus's problem rather than the
  *   change's — is advisory and blocks nothing.
  *
- *   `readContradictions(root)` — the recorded map, or `{}` when nothing is recorded or the file
- *   is unreadable (an unreadable record is not a block: a guard that refuses work because its own
- *   state file is corrupt is a guard that gets switched off).
+ *   `readContradictions(root)` — the recorded map, folded from the append-only ledger when it
+ *   holds any contradiction event, and from the JSON cache otherwise. `{}` when neither holds one
+ *   (an unreadable record is not a block: a guard that refuses work because its own state file is
+ *   corrupt is a guard that gets switched off). Because the ledger wins once it has an event,
+ *   deleting or hand-editing the JSON file does not lift a block.
  *
  *   `standingContradictions(root, { resolved })` — the entries that still stand. An entry bound to
  *   a PROPOSED record stops standing the moment that record is edited (its content hash moves),
@@ -38,9 +40,10 @@
  *   because there is no other artifact whose change could clear it.
  *
  *   `blockedZones(entries, { active, proposed, laws })` — the zone ids a standing entry blocks:
- *   the zones of the records that put each contradicted law in force, plus the zones a rejected
- *   proposal itself named. A finding that names a law nobody declares blocks nothing, because the
- *   guard cannot place it and a refusal it cannot explain is worse than none.
+ *   the zones the contradicted law is bound to, which the compiler unions across every record that
+ *   declares it, plus the zones a rejected proposal itself named. A finding that names a law nobody
+ *   declares blocks nothing, because the guard cannot place it and a refusal it cannot explain is
+ *   worse than none.
  *
  *   Every output is a plain value; nothing here throws on malformed input.
  *
@@ -51,6 +54,8 @@
  * BEHAVIOUR ON EDGE CASES
  *   - No recorded file, an unreadable one, or JSON that is not an object of entries: `{}` — never
  *     a throw and never a block.
+ *   - A ledger whose contradiction events were deleted falls back to the JSON cache, so removing
+ *     BOTH is the residual hole in a file-based record; removing one of the two is not.
  *   - A finding with no `lawId`, a `severity` other than `error`, or a kind outside the blocking
  *     vocabulary: not blocking.
  *   - An entry whose findings no longer name a law in force: dropped by `blockedZones` rather than
@@ -63,9 +68,22 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { hashSource } from './ratchet-schema.mjs'
+import { appendLedger, readLedger } from './ratchet-state.mjs'
 
 /** Where a recorded verdict lives. Machine-written, and inside the ratchet's own state dir. */
 export const CONTRADICTION_PATH = '.dsh/ratchet/contradiction.json'
+
+/**
+ * The ledger events that make a block durable.
+ *
+ * The JSON file above is a cache a person can edit or delete; the ledger is append-only. A block
+ * recorded only in the file was lifted by `rm .dsh/ratchet/contradiction.json` — the guard then saw
+ * no contradiction and allowed the work the judge had just refused. Each record and each clear is
+ * therefore also an event here, and `readContradictions` folds the ledger when it holds any, so
+ * deleting the file changes nothing while the ledger survives.
+ */
+export const CONTRADICTION_RECORDED = 'ratchet.contradiction.recorded'
+export const CONTRADICTION_CLEARED = 'ratchet.contradiction.cleared'
 
 /**
  * The finding kinds that mean "this change contradicts a decision in meaning".
@@ -124,8 +142,8 @@ export function contradictionKey(target) {
   return `${target.kind}:${target.id}`
 }
 
-/** The recorded map, or `{}` when nothing is recorded or the file cannot be read as one. */
-export function readContradictions(root) {
+/** The file's own map, or `{}` when nothing is there or it cannot be read as one. */
+function fileContradictions(root) {
   const path = join(root, CONTRADICTION_PATH)
   if (!existsSync(path)) return {}
   try {
@@ -135,6 +153,35 @@ export function readContradictions(root) {
   } catch {
     return {}
   }
+}
+
+/**
+ * The recorded map, folded from the append-only ledger when it holds any contradiction event.
+ *
+ * The ledger is the authority once it has one event, because the JSON file is a cache a person can
+ * edit or delete and the ledger is not rewritten. A ledger with no such event (a project recorded
+ * before the events existed, or a file a human wrote) falls back to the file, so nothing that
+ * worked before stops working. A malformed event is skipped rather than throwing.
+ *
+ * @param root - Project root.
+ * @returns A map of contradiction key to entry.
+ */
+export function readContradictions(root) {
+  const ledger = readLedger(root)
+  const events = (ledger.events ?? []).filter(
+    (entry) =>
+      entry !== null &&
+      typeof entry === 'object' &&
+      (entry.event === CONTRADICTION_RECORDED || entry.event === CONTRADICTION_CLEARED),
+  )
+  if (events.length === 0) return fileContradictions(root)
+  const entries = {}
+  for (const event of events) {
+    if (typeof event.key !== 'string') continue
+    if (event.event === CONTRADICTION_CLEARED) delete entries[event.key]
+    else if (event.entry !== null && typeof event.entry === 'object') entries[event.key] = event.entry
+  }
+  return entries
 }
 
 /** Writes the map, or removes the file when it is empty. */
@@ -177,6 +224,9 @@ export function recordContradiction(root, { target, findings, job = null, at = n
   }
   entries[key] = entry
   writeContradictions(root, entries)
+  // The durable copy. A later `clearContradiction` appends a `cleared` event; until then deleting
+  // or hand-editing the JSON file does not lift the block, because the fold reads this.
+  appendLedger(root, CONTRADICTION_RECORDED, { key, at: entry.at, entry })
   return entry
 }
 
@@ -187,6 +237,9 @@ export function clearContradiction(root, target) {
   if (entries[key] === undefined) return false
   delete entries[key]
   writeContradictions(root, entries)
+  // The clear is itself a fact, and the ledger keeps it: folding a `recorded` event with no
+  // matching `cleared` is exactly how a deleted JSON file used to become silent again.
+  appendLedger(root, CONTRADICTION_CLEARED, { key })
   return true
 }
 
@@ -234,9 +287,9 @@ export function blockedZones(entries, { active = [], proposed = [], laws = [] } 
   for (const record of [...(active ?? []), ...(proposed ?? [])]) {
     if (record !== null && typeof record === 'object' && typeof record.id === 'string') zonesByRecord.set(record.id, record.zones ?? [])
   }
-  const sourceByLaw = new Map()
+  const lawById = new Map()
   for (const law of laws ?? []) {
-    if (law !== null && typeof law === 'object' && typeof law.id === 'string') sourceByLaw.set(law.id, law.sourceAdr)
+    if (law !== null && typeof law === 'object' && typeof law.id === 'string') lawById.set(law.id, law)
   }
   const zones = new Set()
   for (const { entry } of Array.isArray(entries) ? entries : []) {
@@ -247,9 +300,13 @@ export function blockedZones(entries, { active = [], proposed = [], laws = [] } 
     const findings = entry !== null && typeof entry === 'object' && Array.isArray(entry.findings) ? entry.findings : []
     for (const finding of findings) {
       if (finding === null || typeof finding !== 'object') continue
-      const source = sourceByLaw.get(finding.lawId)
-      if (source === undefined) continue
-      for (const zone of zonesByRecord.get(source) ?? []) zones.add(zone)
+      const law = lawById.get(finding.lawId)
+      if (law === undefined) continue
+      // The law's OWN zones, which the compiler unions across every record that declares it. Using
+      // the source record's zones blocked only the first declarer: a law in force in two zones left
+      // the second unguarded. A caller whose law objects carry no `zones` still gets the record's.
+      const bound = Array.isArray(law.zones) && law.zones.length > 0 ? law.zones : zonesByRecord.get(law.sourceAdr) ?? []
+      for (const zone of bound) zones.add(zone)
     }
     if (entry !== null && typeof entry === 'object' && entry.target !== null && typeof entry.target === 'object' && entry.target.kind === 'proposal') {
       for (const zone of zonesByRecord.get(entry.target.id) ?? []) zones.add(zone)

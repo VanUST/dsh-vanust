@@ -348,15 +348,14 @@ report a pass. The gate is the CLI above; the tools are for an agent mid-session
   about must not answer it. A question with no click behind it is still offered in the window, so
   nothing is unanswerable, and a request naming another record — or no request — is asserted NOT to
   settle anything.
-- **One decision awaits a human:** `0024` (a judge's semantic contradiction is a gate, not advice). `0015`, `0017`, `0018` and `0019` were ratified by a human through the question channel (approvals `0020`–`0023`), which put seven more laws in force; the per-record state is `ratchet status`, which reads the compiled bundle.
-- **This machine's live profile is converged** on `main` (ratchet 0.2.27, kit-rules 0.1.1,
-  dsh-context 0.1.3, model-gate 0.1.5-rc.1, adr-panel 0.1.13). The panel's client bundle is
+- **Two decisions await a human:** `0026` (every path the ratchet writes comes from the manifest) and `0027` (every enforcement point the review falsified can now fail for the reason it names). `0015`, `0017`, `0018`, `0019` and `0024` were ratified by a human through the question channel (approvals `0020`–`0023`, `0025`), which put laws in force; the per-record state is `ratchet status`, which reads the compiled bundle.
+- **This machine's live profile is converged** on `main` (ratchet 0.2.38, kit-rules 0.1.1,
+  dsh-context 0.1.3, model-gate 0.1.5-rc.1, adr-panel 0.1.18). The panel's client bundle is
   revision-addressed, so a `dsh web` that was already running keeps serving the bundle it
   loaded until it is restarted; the header chip naming the panel version is how that is
-  detected. The shipped artifacts last changed at `49e1f61`; this brief is documentation and
-  is not installed by `kit-update.mjs`, so it stays out of the convergence comparison —
-  which is by file hash, never by git state. A reviewer on another machine gets that state
-  with `./install.sh` or `node scripts/kit-update.mjs --apply`.
+  detected. This brief is documentation and is not installed by `kit-update.mjs`, so it stays
+  out of the convergence comparison — which is by file hash, never by git state. A reviewer on
+  another machine gets that state with `./install.sh` or `node scripts/kit-update.mjs --apply`.
 
 ### Findings from the independent review dispatch (2026-09-15)
 
@@ -395,46 +394,69 @@ Fixed in this cycle, each with the counterexample it answers:
   added to `ratchet_verify`, the check now prints `[FAIL] ... offenders=["ratchet_verify.answers"]`
   and exits 1, where before it printed `consent surface ok`.
 
-Open, each with the reproduction the reviewer gave:
+All of the above were then resolved in a second pass, recorded as the proposed decision **ADR
+0027** with the reasoning source `docs/ratchet/sources/2026-09-15-the-checks-could-not-fail.md`.
+Each resolution names the command that now fails without it; each was replayed against a reverted
+copy by the worker that made it.
 
-- **A supersession un-mints a ratified consent with the gate green** (HIGH).
-  `ratchet-compiler.mjs` lets any record self-active under `activeIfNoConflict` retire its
-  `supersedes` targets, while `LAW_REMOVE_UNAUTHORISED` guards only `op: remove`. An
-  agent record naming a ratified record in `supersedes` leaves `ok: true`, no problem, and
-  the ratified law gone; `ratchet compile` prints `0 law(s), no problems`, while the
-  equivalent `op: remove` is refused. This is the same rule the code states in a comment
-  two lines above the guard ("Consent is not durable if the next record can undo it").
-- **`ops.ratify()` trusts a caller-authored quiz.** When `offeredBy()` returns null the
-  answer's hash is never checked against a question the ratchet asked, so a hand-written
-  `quiz` object plus a typed answer mints an approval. Not reachable from the shipped tool
-  or CLI today, but it falsifies the claim at the function contract.
-- **The panel re-implements the host's force model** and disagrees with it on five inputs:
-  an invalid-consent approval (host pending + `RATIFICATION_UNPROVEN`, panel "in force"),
-  an agent record active in a `proposeOnly` zone, an omitted `defaultAgentAuthority`,
-  non-empty inline flow lists, and a withdrawn superseder. `test-adr-panel.mjs` and
-  `check-consent-surface.mjs` are both green, because the only corpus either renders is
-  this kit's own, on which the two models agree.
-- **`validateZones` and `zoneFor` disagree on `**`**: `['**' humanOnly, 'src/auth/**'
-  activeIfNoConflict]` passes with no `ZONE_OVERLAP` while `zoneFor('src/auth/login.ts')`
-  answers `auth`. Relatedly, spec filenames are not injective — zones `auth.v1` and
-  `auth-v1` map to one file and one zone's laws are dropped without a problem.
-- **Machine-written state is trusted.** Hand-editing `.dsh/ratchet/state.json` makes
-  `status` report verified-clean while `verify` exits 1, and deleting
-  `.dsh/ratchet/contradiction.json` lifts a judge's block (the guard goes from DENIED to
-  ALLOWED) even though the tool output says not to edit it.
-- **The gate's kit-rules guarantee is a static token check.** Making the provider return
-  `''` (rules never reach the prompt) leaves `check-instruction-routing`,
-  `check-portability` and `ratchet verify` green; no probe inspects an assembled prompt.
-- **`tarballs-are-built-artifacts`' version clause cannot fail** for the check it cites
-  (`check-portability.mjs` compares bytes against source, not the version string), so a
-  hand `pnpm pack` at an unchanged version passes.
-- Earlier in the dispatch, still open: a law in force in two zones blocks only the first
-  record's zone; the contradiction branch ignores `governanceOf` exemptions, so a judged
-  contradiction in `docs/adrs`/`sources` deadlocks the documented edit-to-clear route;
-  `paths: ["src/auth/"]` parses clean and governs nothing; the guard's `zoneFor` and
-  `pathIsGoverned` drift; the panel's request-consumption test is blind to a deleted
-  `clearRequest()`; the panel's button colours are never measured although its README
-  claims every colour is.
+Resolved in the second pass:
+
+- **A supersession could un-mint a ratified consent with the gate green.** A record now retires
+  another through `supersedes:` only if it could have removed that record's laws — a human-authored
+  or human-ratified superseder may; an agent-authored, unratified one may not retire a human-authored
+  record or one whose force came from a ratification, and the refusal reports
+  `LAW_REMOVE_UNAUTHORISED` while the target's laws stay in force. Enforcement:
+  `node --test scripts/test-ratchet.mjs` (reverting the authority test fails it).
+- **`ops.ratify()` trusted a caller-authored quiz.** The supplied quiz must be the question the
+  ratchet builds — the same targets, the same two labels, and a frozen content hash for each — so a
+  `frozen: []` quiz mints nothing as `RATIFICATION_UNPROVEN`, while a record edited after the question
+  was asked is still answered by `RATIFICATION_STALE`. Enforcement: the same suite (reverting the
+  check to `null` mints the approval and fails it).
+- **The panel re-implemented the host's force model.** It now derives force rule-by-rule as
+  `resolveActiveSet` does — zone-policy defaulting, `zonesForRecord`, `readRatification`, a
+  hash-verified consent map, authorised superseders, inline flow lists, and the ratify queue — and a
+  fixture runs both the panel's `loadPanel` and the ratchet's own parser over each divergence and
+  demands agreement. Enforcement: `node scripts/test-adr-panel.mjs` (each of the five reverts fails
+  it).
+- **`validateZones` and `zoneFor` disagreed on `**`, and spec filenames were not injective.** Zone
+  overlap is now decided by one conservative predicate, `globsMayOverlap`, which sees a whole-repo
+  `**` and a mid-path wildcard; a zone id is restricted to `[A-Za-z0-9_-]`, so the generated spec
+  filename is injective by construction and `auth.v1` is refused with `ZONE_INVALID`. A zone path
+  with a trailing slash now governs its subtree. Enforcement: `node --test scripts/test-ratchet.mjs`.
+- **A law declared by two records in two zones governed only the first.** The compiled law is bound to
+  the union of the zones both declared, and a contradiction against it blocks every one of them.
+  Enforcement: the same suite (removing the union loop fails it).
+- **Machine-written state was trusted.** The judge's contradiction and the verification verdict are
+  now read from the append-only ledger and only fall back to the JSON caches, so deleting
+  `contradiction.json` no longer lifts a block and a hand-edited `state.json` no longer certifies a
+  tree. The review infrastructure is exempt from a standing contradiction, so the documented
+  edit-to-clear route is no longer deadlocked. Enforcement: `node --test scripts/test-ratchet-guard.mjs`
+  and `node --test scripts/test-ratchet.mjs` (file-only and cache-first reverts fail them).
+- **The gate's kit-rules guarantee was a static grep.** `node scripts/probe-dsh-api.mjs --kit-rules`
+  applies the shipped plugin to the real prompt service, assembles and renders a prompt, and requires
+  the home rules to be present and a second home's marker absent; `scripts/verify-upgrade.sh` runs it,
+  and the `.dsh/project.json` rule now names that command. With the provider returning `''` the old
+  static check still passed and this one exits 1.
+- **`tarballs-are-built-artifacts`' version clause could not fail.** `check-portability.mjs` gained
+  `tarball:version-bumped`: a tarball whose bytes differ from the copy committed at HEAD under the same
+  version fails, and the check is skipped rather than passed when git or that copy is unavailable.
+- Earlier in the dispatch, also closed: the `paths: ["src/auth/"]` zone that governed nothing (the
+  trailing-slash fix); the panel's request-consumption test (it now drives two renders and requires the
+  request store to be gone, so deleting the success-path `clearRequest()` fails); and the panel's
+  button colours (the colour check measures the Approve/Decline and pointer buttons, and asserts it
+  measured one). The guard's `zoneFor`/`pathIsGoverned` drift had already been closed by the earlier
+  round, which made both call `zonePathCovers`.
+
+Residual gaps, stated rather than papered over:
+
+- The append-only record is not authenticated. Deleting **both** the ledger and the JSON cache, or
+  writing an exact consent file by hand, is indistinguishable from the real thing; this is the same
+  forge-a-file gap hard rule 12 already states for approvals, now stated for blocks and verdicts too.
+- The panel's agreement with the host is verified off-browser against the real parser and the real
+  bundle; the live GUI effect of the new derivation was not exercised without restarting the server.
+- `scripts/probe-dsh-api.mjs --kit-rules` proves the rules reach an assembled prompt; it does not
+  prove the model obeyed them, which no offline check can.
+
 
 Two findings were **refuted by measurement** and are recorded so they are not re-raised:
 the corpus is not red at HEAD (`ratchet verify` exits 0 and the ADR 0024 source hash

@@ -52,7 +52,8 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
@@ -604,6 +605,76 @@ for (const dir of ['plugins/ratchet', 'plugins/dsh-context', 'plugins/kit-rules'
     problems.length === 0
       ? `${compared} packed file(s) match the source tree byte for byte`
       : problems.slice(0, 6).join(' | '),
+  )
+
+  // ── a repack of an existing version must have changed the version ──────────
+  // The rule's other clause: a tarball whose bytes move must carry a new version, because pnpm
+  // resolves a `file:` dependency by path string and an unchanged filename is served from the
+  // profile lockfile, so the new bytes never land. `tarball:matches-source` above cannot see this:
+  // it compares the tarball with the SOURCE, and a hand `pnpm pack` at an unchanged version matches
+  // it perfectly. This compares the tarball with the copy COMMITTED at HEAD, so it is a fact about
+  // the change in flight rather than about the tree; with no git or no committed copy there is
+  // nothing to compare, and the check reports a skip instead of a pass.
+  const versionProblems = []
+  let versionCompared = 0
+  let versionSkipped = 0
+  const packedVersion = (entries) => {
+    const manifest = entries.get('package/package.json')
+    if (manifest === undefined) return null
+    try {
+      const parsed = JSON.parse(manifest.toString('utf8'))
+      return typeof parsed.version === 'string' ? parsed.version : null
+    } catch {
+      return null
+    }
+  }
+  for (const row of inventory?.plugins ?? []) {
+    if (typeof row.source !== 'string' || typeof row.tarballPrefix !== 'string') continue
+    const versions = readdirSync(pluginDir).filter(
+      (name) => name.startsWith(`${row.tarballPrefix}-`) && name.endsWith('.tgz'),
+    )
+    if (versions.length !== 1) continue
+    const currentPath = join(pluginDir, versions[0])
+    const currentEntries = readTarball(currentPath)
+    if (currentEntries === null) continue
+    const currentVersion = packedVersion(currentEntries)
+    if (currentVersion === null) continue
+    let headBytes = null
+    try {
+      headBytes = execFileSync('git', ['-C', KIT, 'show', `HEAD:plugins/${versions[0]}`], {
+        encoding: 'buffer',
+        maxBuffer: 64 * 1024 * 1024,
+      })
+    } catch {
+      versionSkipped += 1
+      continue
+    }
+    const scratch = join(tmpdir(), `dsh-kit-head-${versions[0]}`)
+    let headVersion = null
+    try {
+      writeFileSync(scratch, headBytes)
+      const headEntries = readTarball(scratch)
+      headVersion = headEntries === null ? null : packedVersion(headEntries)
+    } finally {
+      rmSync(scratch, { force: true })
+    }
+    if (headVersion === null) {
+      versionSkipped += 1
+      continue
+    }
+    versionCompared += 1
+    if (currentVersion === headVersion && !readFileSync(currentPath).equals(headBytes)) {
+      versionProblems.push(
+        `${row.id}: ${versions[0]} changed but its version stayed ${currentVersion}; a packer that does not bump the version leaves the new bytes uninstalled, because pnpm serves the old ones from the lockfile`,
+      )
+    }
+  }
+  check(
+    'tarball:version-bumped',
+    versionProblems.length === 0,
+    versionProblems.length === 0
+      ? `${versionCompared} repacked tarball(s) carry a new version${versionSkipped === 0 ? '' : `; ${versionSkipped} not committed at HEAD`}`
+      : versionProblems.join(' | '),
   )
 }
 

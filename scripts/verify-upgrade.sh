@@ -98,6 +98,16 @@ if command -v node >/dev/null 2>&1; then
     "node '${KIT_DIR}/scripts/check-consent-surface.mjs' | grep -q 'consent surface ok'"
   probe "instruction routing (only the home rules reach the prompt)" \
     "node '${KIT_DIR}/scripts/check-instruction-routing.mjs' | grep -q 'instruction routing ok'"
+  # The static line above reads files: a kit-rules provider that stopped
+  # contributing the rules — it returned '' — still passed every static check and
+  # the model silently received no mandatory rules. This is the behavioural half
+  # of the same rule: it builds the real systemPrompt service over a scratch home,
+  # applies the shipped kit-rules plugin, assembles and renders the prompt, and
+  # requires the home rules file to be in it. A second home is the negative
+  # control, so a constant or cached contribution fails too. No credentials, no
+  # harness boot and no model call.
+  probe "kit-rules contributes the home rules to an assembled prompt" \
+    "node '${KIT_DIR}/scripts/probe-dsh-api.mjs' --kit-rules"
   # The panel's browser half never executes under the harness, so a React mistake in
   # it ships silently and is only found by reloading a tab. This renders the real
   # bundle over the real corpus and asserts the UX contract — states filled,

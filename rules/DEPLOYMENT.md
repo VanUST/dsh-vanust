@@ -81,6 +81,7 @@ repository, so a fresh clone links it once:
 node "$KIT/scripts/dev-link.mjs"                    # once per clone; install.sh does it
 node --test "$KIT/scripts/test-ratchet.mjs"         # the ratchet's full suite
 node "$KIT/scripts/check-portability.mjs"           # platform assumptions + packaging
+node "$KIT/scripts/probe-dsh-api.mjs" --kit-rules    # the rules reach an assembled prompt (behavioral)
 node "$KIT/plugins/ratchet/ratchet-cli.mjs" verify --root "$KIT"   # the kit's own gate
 node "$KIT/plugins/ratchet/ratchet-cli.mjs" falsify --root "$KIT"  # break the gate, require it to fail
 ```

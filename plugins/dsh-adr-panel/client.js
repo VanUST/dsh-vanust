@@ -36,18 +36,29 @@
  *   closed and never mutates a
  *   file. Two record kinds are rendered separately: Decisions (`type !== "approval"`)
  *   and Consents (`type === "approval"`). There is exactly ONE force state: a record
- *   whose frontmatter says `active` and a proposed record a consent put into force both
- *   read `in force`, and HOW it entered force is a separate provenance pill — `ratified
- *   by <ids>` (a link to the consent, success tone), `agent-activated` (in force on an
+ *   whose frontmatter says `active` and is permitted by its zones, and a record a PROVEN
+ *   human consent put into force, both read `in force`. The panel derives that state the
+ *   way the ratchet's `resolveActiveSet` does rather than from the frontmatter alone: a
+ *   consent counts only when the approval is human-authored, its `ratification` block is
+ *   well formed, it covers the record, and its recorded content hash still matches the
+ *   file; an agent's `active` is force only under zones that resolve to
+ *   `activeIfNoConflict`; a record declaring no zone is judged under the manifest's
+ *   `defaultAgentAuthority` (or `proposeOnly` when that is absent), never treated as
+ *   unrestricted; a `humanOnly` zone refuses even a ratified agent record; and a
+ *   superseder retires a target only when it is itself in force and is human-authored or
+ *   ratified. HOW a record entered force is a separate provenance pill — `ratified by
+ *   <id>` (a link to the consent, success tone), `agent-activated` (in force on an
  *   agent's say-so, warn tone because no human has seen it) or `human-authored`
  *   (business tone). `awaiting a human`, `superseded by <id>`, `rejected` and
  *   `withdrawn` are states with no provenance pill. A state computed from another
  *   record rather than read from this record's frontmatter is rendered dashed/italic.
  *   The ratify affordance appears ONLY for a decision that is
- *   `type !== "approval"`, frontmatter `status === "proposed"`, **agent-authored**,
- *   named by no consent's `approves`, and **not blocked** — blocked meaning it names a
- *   zone the manifest does not declare, or an agent record in a zone the manifest
- *   reserves to a human (`humanOnly`), where a consent cannot transfer authorship. A
+ *   `type !== "approval"`, **agent-authored**, **not in force** (a `proposed` record, or
+ *   an `active` one its zone refuses — the compiler's excluded set), named by no proven
+ *   consent, **not retired by an in-force superseder**, and **not
+ *   blocked** — blocked meaning the zone policy that governs it resolves to `humanOnly`,
+ *   or it names a zone the manifest does not declare, where a consent cannot transfer
+ *   authorship or make the question answerable. A
  *   human-authored proposed decision is never offered: its authorship already carries
  *   the authority, so it shows `not in force` and awaits its author's activation, not a
  *   question. A ratifiable decision's row carries **Approve** and **Decline**, and a click
@@ -197,14 +208,33 @@ window.__ModuleLoader__.load({
 		 * A browser keeps its revision-addressed client bundle until the page reloads, so
 		 * an installed update can be invisible while the previous bundle stays live. This
 		 * constant is the only way to tell a stale bundle from a bug: bump it with every
-		 * change to this file, and keep it equal to the package's version.
+		 * change to this file, one patch above the package's current version. The repack
+		 * step (`scripts/pack-plugin.mjs`) then bumps `package.json` to match, so the two
+		 * are equal again after a release and the constant is one ahead only in the working
+		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.17";
+		const PANEL_VERSION = "0.1.18";
 		/** The manifest a ratchet project declares its directories and name in. */
 		const MANIFEST_PATH = ".dsh/project.json";
 		/** Directories used when the manifest is absent, unparseable, or silent. */
 		const DEFAULT_DECISIONS_DIR = "docs/adrs";
 		const DEFAULT_SPECS_DIR = "docs/specs";
+		/**
+		 * The three agent-authority policies the ratchet accepts, duplicated here because
+		 * this browser closure cannot import the ratchet's own list. An unrecognised value
+		 * is treated as no declaration at all, which is what the ratchet's manifest parser
+		 * does when it drops a zone that declares one.
+		 */
+		const AGENT_AUTHORITY_POLICIES = ["humanOnly", "proposeOnly", "activeIfNoConflict"];
+		/**
+		 * The policy the ratchet applies when neither the zone nor the manifest declares
+		 * one. The safe middle: an agent's own `active` is not force.
+		 */
+		const DEFAULT_AGENT_AUTHORITY = "proposeOnly";
+		/** The one channel a ratification can have been obtained through. */
+		const RATIFICATION_CHANNELS = ["user-question"];
+		/** The recorded form of a content hash, e.g. `sha256:<64 lowercase hex>`. */
+		const CONTENT_HASH_PATTERN = /^sha256:[0-9a-f]{64}$/;
 		/**
 		 * The `intent.kind` the ratchet puts on its ratification questions.
 		 *
@@ -394,8 +424,15 @@ window.__ModuleLoader__.load({
 			return null;
 		}
 		/**
-		 * Read one YAML-style list: `key: []`, a one-line inline value, or a block of
-		 * `- item` lines. Only the flat shapes this corpus uses are understood.
+		 * Read one YAML-style list: `key: []`, an inline FLOW sequence `[a, b]`, or a block
+		 * of `- item` lines. Only the flat shapes this corpus uses are understood.
+		 *
+		 * A flow sequence is split into its entries rather than returned as one string,
+		 * because the ratchet's own frontmatter reader (`scalar`) treats `[a, b]` as the
+		 * array `[a, b]`. Returning the literal `"[a, b]"` made the panel read a different
+		 * record than the host: an inline `zones: [zone-a]` resolved to one unknown zone
+		 * instead of the declared one, and an inline `approves: [0001]` named no record.
+		 *
 		 * @returns an array of scalar strings; `[]` when the block is empty or absent.
 		 */
 		function listValues(lines, key) {
@@ -405,6 +442,13 @@ window.__ModuleLoader__.load({
 				if (match === null) continue;
 				var inline = unquote(match[1]);
 				if (inline === "[]") return [];
+				if (inline.charAt(0) === "[" && inline.charAt(inline.length - 1) === "]") {
+					var inner = inline.slice(1, -1).trim();
+					if (inner === "") return [];
+					return inner.split(",").map(function (entry) {
+						return unquote(entry);
+					});
+				}
 				if (inline !== "") return [inline];
 				var out = [];
 				for (var j = i + 1; j < lines.length; j += 1) {
@@ -546,15 +590,132 @@ window.__ModuleLoader__.load({
 			return String(value == null ? "" : value).replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
 		}
 		/**
+		 * PURPOSE
+		 *   Compute the sha256 of a record's text in exactly the form the ratchet's
+		 *   `hashSource` records, so a ratification's `contentHash` can be compared with
+		 *   the text now in the file. Without this the panel could only check that a block
+		 *   exists, and would report "in force" for a consent the record has since been
+		 *   edited out from under — which is the stale-consent case the host refuses.
+		 *
+		 * INPUTS
+		 *   text - The record text as the file API returned it (already normalised by
+		 *     `readDirectory`). Any non-string is treated as the empty string.
+		 *
+		 * OUTPUTS
+		 *   A promise for `sha256:<64 lowercase hex>`, or `null` when the platform exposes
+		 *   no `crypto.subtle` or no `TextEncoder`, and on any digest failure. A hash that
+		 *   cannot be computed proves nothing, and the caller treats `null` as no consent.
+		 *
+		 * KEYWORDS
+		 *   content hash, sha256, webcrypto, ratification, stale consent, approval
+		 */
+		function contentHashOf(text) {
+			try {
+				if (typeof TextEncoder !== "function") return Promise.resolve(null);
+				if (typeof crypto === "undefined" || crypto === null || crypto.subtle === undefined || typeof crypto.subtle.digest !== "function") {
+					return Promise.resolve(null);
+				}
+				var bytes = new TextEncoder().encode(normaliseText(text));
+				return crypto.subtle.digest("SHA-256", bytes).then(function (buffer) {
+					var view = new Uint8Array(buffer);
+					var hex = "";
+					for (var i = 0; i < view.length; i += 1) {
+						var part = view[i].toString(16);
+						hex += part.length === 1 ? "0" + part : part;
+					}
+					return "sha256:" + hex;
+				}, function () {
+					return null;
+				});
+			} catch (error) {
+				return Promise.resolve(null);
+			}
+		}
+		/**
+		 * PURPOSE
+		 *   Read and validate an approval record's `ratification` block, mirroring the
+		 *   ratchet's own `readRatification`: the channel, the moment, who asked, and one
+		 *   content hash per approved record. An approval with no block, or one whose shape
+		 *   is malformed, proves nothing, and the force model must see it as proving
+		 *   nothing rather than trust the `approves` list on its own.
+		 *
+		 * INPUTS
+		 *   lines - the record's frontmatter lines, as split by `splitFrontmatter`.
+		 *
+		 * OUTPUTS
+		 *   `{ channel, at, askedBy, targets: [{ id, contentHash }] }` when the block is
+		 *   present and well formed, or `null` in every other case: absent, an empty
+		 *   mapping, a channel outside `RATIFICATION_CHANNELS`, a missing/blank `at` or
+		 *   `askedBy`, an empty `targets` list, a target without an id, a duplicated id, a
+		 *   content hash that is not `sha256:<64 hex>`, or any line inside the block that
+		 *   this strict reader cannot place. The caller decides whether the target it
+		 *   cares about is covered; a block that covers other records is still well formed.
+		 *
+		 * KEYWORDS
+		 *   ratification, content hash, consent validity, approval, unproven, frontmatter
+		 */
+		function parseRatification(lines) {
+			var start = -1;
+			for (var i = 0; i < lines.length; i += 1) {
+				if (/^ratification:[ \t]*$/.test(lines[i])) { start = i; break; }
+				if (/^ratification:[ \t]*\S/.test(lines[i])) return null;
+			}
+			if (start === -1) return null;
+			var channel = null;
+			var at = null;
+			var askedBy = null;
+			var targets = [];
+			var current = null;
+			var inTargets = false;
+			for (var j = start + 1; j < lines.length; j += 1) {
+				var line = lines[j];
+				if (/^[^\s]/.test(line)) break;
+				if (/^[ \t]*(#.*)?$/.test(line)) continue;
+				if (/^[ \t]+targets:[ \t]*$/.test(line)) { inTargets = true; current = null; continue; }
+				if (inTargets) {
+					var idMatch = line.match(/^[ \t]+-[ \t]*id:[ \t]*(.*)$/);
+					if (idMatch !== null) {
+						current = { id: unquote(idMatch[1]), contentHash: null };
+						targets.push(current);
+						continue;
+					}
+					var hashMatch = line.match(/^[ \t]+contentHash:[ \t]*(.*)$/);
+					if (hashMatch !== null && current !== null) { current.contentHash = unquote(hashMatch[1]); continue; }
+					return null;
+				}
+				var field = line.match(/^[ \t]+([A-Za-z_][A-Za-z0-9_]*):[ \t]*(.*)$/);
+				if (field === null) return null;
+				if (field[1] === "channel") channel = unquote(field[2]);
+				else if (field[1] === "at") at = unquote(field[2]);
+				else if (field[1] === "askedBy") askedBy = unquote(field[2]);
+			}
+			if (channel === null || RATIFICATION_CHANNELS.indexOf(channel) === -1) return null;
+			if (at === null || at.trim() === "" || askedBy === null || askedBy.trim() === "") return null;
+			if (targets.length === 0) return null;
+			var seen = Object.create(null);
+			for (var k = 0; k < targets.length; k += 1) {
+				var target = targets[k];
+				if (typeof target.id !== "string" || target.id.trim() === "") return null;
+				if (seen[target.id] === true) return null;
+				seen[target.id] = true;
+				if (typeof target.contentHash !== "string" || !CONTENT_HASH_PATTERN.test(target.contentHash)) return null;
+			}
+			return { channel: channel, at: at, askedBy: askedBy, targets: targets };
+		}
+		/**
 		 * Parse one ADR file into the fields the panel shows. Every field that does not
 		 * parse stays null (or []) and is rendered as `unknown`; nothing is invented.
 		 * @param item - `{ name, path, text }` read from `docs/adrs`.
 		 * @returns the parsed record; `error` carries a reason when the file failed.
+		 *   `ratification` is the validated block for an approval record and null
+		 *   otherwise; `contentHash` is filled by the caller once the file's sha256 is
+		 *   computed, so it is null here.
 		 */
 		function parseAdr(item) {
 			var record = {
 				id: null, title: item.name, type: null, status: null, authority: null, authorName: null,
-				created: null, sourcePath: null, sourceHash: null, ratificationAt: null, zones: [], supersedes: [],
+				created: null, sourcePath: null, sourceHash: null, ratificationAt: null, ratification: null,
+				contentHash: null, zones: [], supersedes: [],
 				approves: [], laws: [], body: "", sections: [], path: item.path, error: null
 			};
 			try {
@@ -574,6 +735,7 @@ window.__ModuleLoader__.load({
 				record.sourcePath = nestedScalar(lines, "source", "path");
 				record.sourceHash = nestedScalar(lines, "source", "hash");
 				record.ratificationAt = nestedScalar(lines, "ratification", "at");
+				record.ratification = record.type === "approval" ? parseRatification(lines) : null;
 				record.zones = listValues(lines, "zones");
 				record.supersedes = listValues(lines, "supersedes");
 				record.approves = listValues(lines, "approves");
@@ -673,36 +835,200 @@ window.__ModuleLoader__.load({
 
 		//#region derived state and cross-references
 		/**
-		 * Build the whole-corpus relation maps a viewer needs.
+		 * PURPOSE
+		 *   Resolve the manifest's zone policy the way the ratchet's own manifest parser
+		 *   does, so every authority judgement the panel makes uses the same default and
+		 *   the same per-zone override the host would apply. The force model cannot be
+		 *   re-derived from a zone id alone: a zone that omits `agentAuthority` inherits
+		 *   the manifest default, and a record that declares no zone is governed by that
+		 *   default under the synthetic id `(unzoned)`.
 		 *
-		 * `approvedBy` maps an approved decision id to the approval ids that name it in
-		 * `approves`; `supersededBy` maps a superseded id to the record ids that name it
-		 * in `supersedes`. Both are read from the files, never inferred from a status
-		 * field: a consent record IS how a decision enters force, and a status field an
-		 * agent can write is exactly what the gate exists to check.
+		 * INPUTS
+		 *   manifest - the parsed `.dsh/project.json`, or null when there is none.
 		 *
-		 * @param adrs - every parsed record.
-		 * @returns `{ approvedBy, supersededBy }`, each a plain object of arrays.
+		 * OUTPUTS
+		 *   `{ zones, defaultAuthority }`. `zones` is a null-prototype map from a declared
+		 *   zone id to its resolved `agentAuthority`; a zone the manifest does not declare
+		 *   is absent, and a zone whose `agentAuthority` is present but not one of
+		 *   `AGENT_AUTHORITY_POLICIES` is dropped (the ratchet drops it too, with a
+		 *   ZONE_INVALID problem, and then treats the zone as undeclared). `defaultAuthority`
+		 *   is the manifest's `ratchet.defaultAgentAuthority` when it is a valid policy and
+		 *   `DEFAULT_AGENT_AUTHORITY` otherwise, which is the ratchet's own constant default
+		 *   rather than "no authority at all". Never throws on a null or malformed manifest.
+		 *
+		 * KEYWORDS
+		 *   manifest, zone, agentAuthority, defaultAgentAuthority, proposeOnly, humanOnly,
+		 *   activeIfNoConflict, policy resolution, force model
 		 */
-		function buildRelations(adrs) {
+		function resolveZonePolicy(manifest) {
+			var ratchet = manifest !== null && typeof manifest === "object" ? manifest.ratchet : null;
+			var section = ratchet !== null && typeof ratchet === "object" ? ratchet : {};
+			var declaredDefault = section.defaultAgentAuthority;
+			var defaultAuthority = typeof declaredDefault === "string" && AGENT_AUTHORITY_POLICIES.indexOf(declaredDefault) !== -1 ? declaredDefault : DEFAULT_AGENT_AUTHORITY;
+			var zones = Object.create(null);
+			var list = Array.isArray(section.zones) ? section.zones : [];
+			for (var i = 0; i < list.length; i += 1) {
+				var zone = list[i];
+				if (zone === null || typeof zone !== "object") continue;
+				if (typeof zone.id !== "string" || zone.id === "") continue;
+				if (zone.agentAuthority !== undefined && AGENT_AUTHORITY_POLICIES.indexOf(zone.agentAuthority) === -1) continue;
+				zones[zone.id] = zone.agentAuthority === undefined ? defaultAuthority : zone.agentAuthority;
+			}
+			return { zones: zones, defaultAuthority: defaultAuthority };
+		}
+		/**
+		 * PURPOSE
+		 *   Resolve the zones whose policy governs one record, mirroring the ratchet's
+		 *   `zonesForRecord`: a record declaring no zone is governed by the manifest default
+		 *   under the synthetic id `(unzoned)`; a declared zone the manifest carries is
+		 *   governed by its own resolved policy; a declared zone it does not carry is
+		 *   governed by the default and marked `missing`, so an unknown zone narrows rather
+		 *   than widens authority.
+		 *
+		 * INPUTS
+		 *   record - a parsed record (only `zones` is read).
+		 *   zonePolicy - `{ zones, defaultAuthority }` from {@link resolveZonePolicy}; null
+		 *     is treated as an empty policy with the constant default.
+		 *
+		 * OUTPUTS
+		 *   An array of `{ id, authority, missing? }`, never empty. `missing` is present and
+		 *   true only for a declared zone the manifest does not carry.
+		 *
+		 * KEYWORDS
+		 *   zone resolution, unzoned, missing zone, authority, force model
+		 */
+		function governingZones(record, zonePolicy) {
+			var defaultAuthority = zonePolicy === undefined || zonePolicy === null || typeof zonePolicy.defaultAuthority !== "string" ? DEFAULT_AGENT_AUTHORITY : zonePolicy.defaultAuthority;
+			var declared = Array.isArray(record.zones) ? record.zones : [];
+			if (declared.length === 0) return [{ id: "(unzoned)", authority: defaultAuthority }];
+			var known = zonePolicy !== undefined && zonePolicy !== null && zonePolicy.zones !== undefined && zonePolicy.zones !== null ? zonePolicy.zones : Object.create(null);
+			return declared.map(function (zoneId) {
+				var authority = known[zoneId];
+				return authority === undefined
+					? { id: zoneId, authority: defaultAuthority, missing: true }
+					: { id: zoneId, authority: authority };
+			});
+		}
+		/**
+		 * PURPOSE
+		 *   Decide whether a record's own `status: active` may put it into force without a
+		 *   consent, mirroring the ratchet's `selfActivationPermitted`: a human-authored
+		 *   record may, and an agent-authored one may only when every zone it names
+		 *   declares `activeIfNoConflict`.
+		 *
+		 * INPUTS
+		 *   record - a parsed record.
+		 *   zonePolicy - `{ zones, defaultAuthority }`.
+		 *
+		 * OUTPUTS
+		 *   `true` when the record may self-activate, `false` otherwise. A record naming no
+		 *   zone is judged under the manifest default, so it cannot escape regulation by
+		 *   staying unzoned.
+		 *
+		 * KEYWORDS
+		 *   self activation, activeIfNoConflict, zone authority, force model
+		 */
+		function selfActivationPermitted(record, zonePolicy) {
+			if (record.authority !== "agent") return true;
+			return governingZones(record, zonePolicy).every(function (zone) {
+				return zone.authority === "activeIfNoConflict";
+			});
+		}
+		/** @returns the ratification target entry for `id`, or null when the block omits it. */
+		function consentTarget(ratification, id) {
+			for (var i = 0; i < ratification.targets.length; i += 1) {
+				if (ratification.targets[i].id === id) return ratification.targets[i];
+			}
+			return null;
+		}
+		/**
+		 * PURPOSE
+		 *   Build the whole-corpus relation maps a viewer needs: which records a VALID human
+		 *   consent puts into force, and which records an in-force superseder retires. Both
+		 *   are read from the files, never inferred from a status field, because a status
+		 *   field an agent can write is exactly what the gate exists to check.
+		 *
+		 * INPUTS
+		 *   adrs - every parsed record. Each carries `ratification` (the validated block, or
+		 *     null) and `contentHash` (the file's sha256, or null when it could not be
+		 *     computed).
+		 *   zonePolicy - `{ zones, defaultAuthority }`, needed because supersession and
+		 *     consent refusal both turn on a record's zone authority.
+		 *
+		 * OUTPUTS
+		 *   `{ approvedBy, supersededBy }`, both null-prototype maps of arrays.
+		 *   `approvedBy` maps a decision id to the ids of the approvals that PROVE a consent
+		 *   for it: the approval is human-authored, its ratification block is well formed and
+		 *   covers the decision, and the recorded content hash still equals the file's hash.
+		 *   An approval missing any of those proves nothing and is absent, which is what makes
+		 *   this the consent map rather than a list of `approves` claims.
+		 *   `supersededBy` maps a retired id to the id of the in-force record that retires it,
+		 *   and is empty for a superseder that is withdrawn, refused by its zone, or not
+		 *   authorised to retire that target (mirroring LAW_REMOVE_UNAUTHORISED). A record
+		 *   with a null id can neither approve nor supersede.
+		 *
+		 * KEYWORDS
+		 *   relations, consent map, content hash, staleness, supersession, in force,
+		 *   ratification, LAW_REMOVE_UNAUTHORISED
+		 */
+		function buildRelations(adrs, zonePolicy) {
 			// PROTOTYPE-LESS maps. A record id or an approved/superseded id is read from a file, so it
 			// can be `constructor`, `__proto__` or any other Object member: a plain `{}` then answers
 			// an inherited function where the code expects an array, and the guards `!== undefined`
 			// and `.length` both pass before `.join`/`.push` throws. ONE such id made the whole
 			// corpus vanish behind "the panel could not load". A null-prototype object has no
 			// inherited members to collide with.
+			var byId = Object.create(null);
+			for (var b = 0; b < adrs.length; b += 1) {
+				if (adrs[b].id !== null && adrs[b].id !== "") byId[adrs[b].id] = adrs[b];
+			}
 			var approvedBy = Object.create(null);
-			var supersededBy = Object.create(null);
+			var consentOf = Object.create(null);
 			for (var i = 0; i < adrs.length; i += 1) {
-				var record = adrs[i];
-				var name = record.id === null ? record.path : record.id;
-				for (var a = 0; a < record.approves.length; a += 1) {
-					if (approvedBy[record.approves[a]] === undefined) approvedBy[record.approves[a]] = [];
-					approvedBy[record.approves[a]].push(name);
+				var approval = adrs[i];
+				if (approval.type !== "approval") continue;
+				if (approval.authority !== "human") continue;
+				if (approval.ratification === null) continue;
+				if (approval.id === null || approval.id === "") continue;
+				for (var a = 0; a < approval.approves.length; a += 1) {
+					var approved = approval.approves[a];
+					var target = byId[approved];
+					if (target === undefined) continue;
+					var entry = consentTarget(approval.ratification, approved);
+					if (entry === null) continue;
+					if (entry.contentHash !== target.contentHash) continue;
+					if (approvedBy[approved] === undefined) approvedBy[approved] = [];
+					approvedBy[approved].push(approval.id);
+					consentOf[approved] = approval.id;
 				}
-				for (var s = 0; s < record.supersedes.length; s += 1) {
-					if (supersededBy[record.supersedes[s]] === undefined) supersededBy[record.supersedes[s]] = [];
-					supersededBy[record.supersedes[s]].push(name);
+			}
+			// Consent does not transfer authorship: an agent record in a humanOnly zone is refused
+			// even when ratified, and it cannot then retire anything (the ratchet's `refusedConsent`).
+			var refusedConsent = Object.create(null);
+			for (var r = 0; r < adrs.length; r += 1) {
+				var ratified = adrs[r];
+				if (ratified.id === null || ratified.id === "" || consentOf[ratified.id] === undefined) continue;
+				if (ratified.authority !== "agent") continue;
+				if (governingZones(ratified, zonePolicy).some(function (zone) { return zone.authority === "humanOnly"; })) refusedConsent[ratified.id] = true;
+			}
+			var candidates = [];
+			for (var c = 0; c < adrs.length; c += 1) {
+				var superseder = adrs[c];
+				if (superseder.type === "approval") continue;
+				var hasConsent = superseder.id !== null && superseder.id !== "" && consentOf[superseder.id] !== undefined && refusedConsent[superseder.id] !== true;
+				if (hasConsent || (superseder.status === "active" && selfActivationPermitted(superseder, zonePolicy))) candidates.push(superseder);
+			}
+			var supersededBy = Object.create(null);
+			for (var s = 0; s < candidates.length; s += 1) {
+				var retiring = candidates[s];
+				for (var t = 0; t < retiring.supersedes.length; t += 1) {
+					var targetId = retiring.supersedes[t];
+					if (supersededBy[targetId] !== undefined) continue;
+					var targetRecord = byId[targetId];
+					// A supersession must meet the same authority bar as an explicit law removal.
+					var authorised = retiring.authority === "human" || (retiring.id !== null && consentOf[retiring.id] !== undefined);
+					if (!authorised && targetRecord !== undefined && (targetRecord.authority === "human" || consentOf[targetRecord.id] !== undefined)) continue;
+					supersededBy[targetId] = [retiring.id];
 				}
 			}
 			return { approvedBy: approvedBy, supersededBy: supersededBy };
@@ -711,24 +1037,33 @@ window.__ModuleLoader__.load({
 		 * The state a decision is displayed with, in fixed precedence, and the separate
 		 * provenance of its force.
 		 *
-		 * There is exactly ONE force state. `status: active` and a proposed record put into
-		 * force by a consent are both `in force`; they differ only in provenance, which is
-		 * a second pill: `ratified by <ids>` (a human consented), `agent-activated` (in
-		 * force on an agent's say-so, rendered as attention rather than failure) or
-		 * `human-authored`. A proposed record no consent names is `awaiting a human` and
-		 * carries no provenance pill. Supersession, rejection and withdrawal are states
-		 * with no provenance, because how they entered force is no longer the question.
+		 * There is exactly ONE force state. A record whose own `status: active` is permitted
+		 * by its zones and a record put into force by a valid human consent are both `in
+		 * force`; they differ only in provenance, which is a second pill: `ratified by
+		 * <id>` (a human consented), `agent-activated` (in force on an agent's say-so,
+		 * rendered as attention rather than failure) or `human-authored`. A proposed record
+		 * no valid consent names is `awaiting a human` and carries no provenance pill.
+		 * Supersession, rejection and withdrawal are states with no provenance.
+		 *
+		 * This mirrors the host's `resolveActiveSet` rule for rule rather than reading the
+		 * frontmatter alone: a consent counts only when the approval that carries it is
+		 * human-authored, proves its ratification, and still matches the record's hash; an
+		 * agent's `active` is force only in a zone whose resolved authority permits it; a
+		 * record declaring no zone is judged under the manifest default (never treated as
+		 * unrestricted); and a consent that a `humanOnly` zone refuses is not force.
 		 *
 		 * @param record - a parsed decision.
-		 * @param relations - `{ approvedBy, supersededBy }`.
+		 * @param relations - `{ approvedBy, supersededBy }`, where `approvedBy` holds only
+		 *   PROVEN consents.
+		 * @param zonePolicy - `{ zones, defaultAuthority }` from {@link resolveZonePolicy}.
 		 * @returns `{ state, provenance }`. `state` is `{ text, kind, derived }`, where
 		 *   `derived` marks a value computed from another record rather than read from this
 		 *   one's frontmatter. `provenance` is `{ text, kind, link }` or null, where `link`
-		 *   names the consent records a `ratified by` pill may select.
+		 *   names the consent record a `ratified by` pill may select.
 		 */
-		function displayedState(record, relations, zonePolicies) {
+		function displayedState(record, relations, zonePolicy) {
 			var approvals = record.id === null ? undefined : relations.approvedBy[record.id];
-			var ratified = approvals !== undefined && approvals.length > 0;
+			var consent = approvals !== undefined && approvals.length > 0 ? approvals[0] : null;
 			var superseded = record.id === null ? undefined : relations.supersededBy[record.id];
 			if (superseded !== undefined && superseded.length > 0) {
 				return { state: { text: "superseded by " + superseded.join(", "), kind: "superseded", derived: true }, provenance: null };
@@ -736,14 +1071,36 @@ window.__ModuleLoader__.load({
 			if (record.status === "rejected" || record.status === "withdrawn") {
 				return { state: { text: record.status, kind: stateKindOfStatus(record.status), derived: false }, provenance: null };
 			}
-			if (record.status === "proposed" && !ratified) {
+			var zones = governingZones(record, zonePolicy);
+			var humanOnly = record.authority === "agent" && zones.some(function (zone) { return zone.authority === "humanOnly"; });
+			// Consent does not transfer authorship: a humanOnly zone refuses a ratified agent
+			// record exactly as it refuses an unratified one, so the consent is not force there.
+			var effectiveConsent = humanOnly ? null : consent;
+			var selfAuthorised = record.status === "active";
+			if (record.authority === "agent") {
+				// An agent's `active` is not force in a proposeOnly zone (until ratified) and is
+				// never force in a humanOnly zone. A human-authored record self-activates.
+				var proposeOnly = record.status === "active" && consent === null && zones.some(function (zone) { return zone.authority === "proposeOnly"; });
+				if (humanOnly || proposeOnly) selfAuthorised = false;
+			}
+			if (selfAuthorised || effectiveConsent !== null) {
+				var provenance = null;
+				if (effectiveConsent !== null) provenance = { text: "ratified by " + effectiveConsent, kind: "ratified", link: [effectiveConsent] };
+				else if (record.authority === "human") provenance = { text: "human-authored", kind: "human", link: null };
+				else if (record.authority === "agent") provenance = { text: "agent-activated", kind: "pending", link: null };
+				return {
+					state: { text: "in force", kind: "in-force", derived: !(record.status === "active") },
+					provenance: provenance
+				};
+			}
+			if (record.status === "proposed") {
 				// Only an AGENT's decision needs approval. A human-authored record carries its
 				// own authority, so it is not "awaiting a human" — it awaits its author's own
 				// activation, and labelling it as a call to consent contradicted the author
 				// chip beside it. A blocked agent record is named as blocked rather than
 				// offered, because the ratchet would refuse the question.
 				if (record.authority === "agent") {
-					var blocked = blockedReason(record, zonePolicies);
+					var blocked = blockedReason(record, zonePolicy);
 					if (blocked !== null) {
 						return { state: { text: "blocked \u2014 " + blocked, kind: "neutral", derived: false }, provenance: null };
 					}
@@ -751,131 +1108,88 @@ window.__ModuleLoader__.load({
 				}
 				return { state: { text: "not in force", kind: "neutral", derived: false }, provenance: null };
 			}
-			// An agent's `status: active` is NOT force by itself. The ratchet refuses it in a zone
-			// whose `agentAuthority` is `humanOnly` (it can never enter force, even ratified) and
-			// leaves it out in a `proposeOnly` zone until a human ratifies; the compiler reports it
-			// as excluded. Reading the frontmatter alone made the panel say "in force" for exactly
-			// the records the ratchet excludes — and hid a decision the ratchet would offer.
-			var refusedZone = record.status === "active" && !ratified ? agentActivationRefused(record, zonePolicies) : null;
-			if (refusedZone !== null) {
-				var why = blockedReason(record, zonePolicies);
-				return why === null
-					? { state: { text: "not in force \u2014 zone \"" + refusedZone + "\" needs a human ratification", kind: "pending", derived: false }, provenance: null }
-					: { state: { text: "blocked \u2014 " + why, kind: "neutral", derived: false }, provenance: null };
-			}
-			var activeInFrontmatter = record.status === "active";
-			if (!activeInFrontmatter && !ratified) {
-				var unknown = record.status === null || record.status === "" ? "unknown" : record.status;
-				return { state: { text: unknown, kind: stateKindOfStatus(unknown), derived: false }, provenance: null };
-			}
-			var provenance = null;
-			if (ratified) provenance = { text: "ratified by " + approvals.join(", "), kind: "ratified", link: approvals };
-			else if (record.authority === "human") provenance = { text: "human-authored", kind: "human", link: null };
-			else if (record.authority === "agent") provenance = { text: "agent-activated", kind: "pending", link: null };
-			return {
-				state: { text: "in force", kind: "in-force", derived: !activeInFrontmatter },
-				provenance: provenance
-			};
-		}
-		/**
-		 * Why the ratchet could not put this decision to a human, or null.
-		 *
-		 * Mirrors `ratificationQueue` in the ratchet: a record is blocked when it names a
-		 * zone the manifest does not declare, or when it is agent-authored and any zone it
-		 * declares reserves its paths to a human. Only an agent-authored record is ever
-		 * blocked, because authorship already carries the authority a consent would grant.
-		 *
-		 * @param record - a parsed record.
-		 * @param zonePolicies - the manifest's zone id to `agentAuthority` map.
-		 * @returns a one-line reason, or null when the record is not blocked.
-		 */
-		function agentActivationRefused(record, zonePolicies) {
-			if (record.authority !== "agent") return null;
-			var declared = Array.isArray(record.zones) ? record.zones : [];
-			for (var index = 0; index < declared.length; index += 1) {
-				var policy = zonePolicies[declared[index]];
-				if (policy === undefined || policy === "proposeOnly" || policy === "humanOnly") return declared[index];
-			}
-			return null;
-		}
-		/**
-		 * Whether the manifest denies an agent's own record force in any zone it names.
-		 *
-		 * The ratchet refuses an agent-authored record that declares itself `active` in a zone whose
-		 * `agentAuthority` is `humanOnly` (it can never enter force, even ratified) and leaves it out
-		 * in a `proposeOnly` zone until a human ratifies. Reading the frontmatter's `active` as force
-		 * without this made the panel report "in force" for exactly the records the ratchet excludes.
-		 *
-		 * @param record - a parsed record.
-		 * @param zonePolicies - the manifest's zone id to `agentAuthority` map.
-		 * @returns the first zone whose policy refuses an agent's activation, or null.
-		 */
-		function agentActivationRefused(record, zonePolicies) {
-			if (record.authority !== "agent") return null;
-			var declared = Array.isArray(record.zones) ? record.zones : [];
-			for (var index = 0; index < declared.length; index += 1) {
-				var policy = zonePolicies[declared[index]];
-				if (policy === undefined || policy === "proposeOnly" || policy === "humanOnly") return declared[index];
-			}
-			return null;
-		}
-		/**
-		 * Why the ratchet could not put this decision to a human, or null.
-		 *
-		 * Mirrors `ratificationQueue` in the ratchet: a record is blocked when it names a
-		 * zone the manifest does not declare, or when it is agent-authored and any zone it
-		 * declares reserves its paths to a human. Only an agent-authored record is ever
-		 * blocked, because authorship already carries the authority a consent would grant.
-		 *
-		 * @param record - a parsed record.
-		 * @param zonePolicies - the manifest's zone id to `agentAuthority` map.
-		 * @returns a one-line reason, or null when the record is not blocked.
-		 */
-		function blockedReason(record, zonePolicies) {
-			var declared = Array.isArray(record.zones) ? record.zones : [];
-			var index = 0;
-			for (index = 0; index < declared.length; index += 1) {
-				if (zonePolicies[declared[index]] === undefined) {
-					return "zone \"" + declared[index] + "\" is not declared in the manifest";
+			if (record.status === "active") {
+				// Only an agent record reaches here: a human-authored `active` always self-activates.
+				var why = blockedReason(record, zonePolicy);
+				if (why !== null) {
+					return { state: { text: "blocked \u2014 " + why, kind: "neutral", derived: false }, provenance: null };
 				}
+				var refusedZone = zones.filter(function (zone) { return zone.authority === "proposeOnly"; })[0];
+				return { state: { text: "not in force \u2014 zone \"" + (refusedZone === undefined ? "(unzoned)" : refusedZone.id) + "\" needs a human ratification", kind: "pending", derived: false }, provenance: null };
 			}
+			var unknown = record.status === null || record.status === "" ? "unknown" : record.status;
+			return { state: { text: unknown, kind: stateKindOfStatus(unknown), derived: false }, provenance: null };
+		}
+		/**
+		 * PURPOSE
+		 *   Why the ratchet could not put this decision to a human, or null. Mirrors the
+		 *   ratchet's `ratificationQueue`: a zone that reserves its paths to a human is
+		 *   checked first (a ratified agent record is still agent-authored), then a zone the
+		 *   manifest does not declare. Only an agent-authored record is ever blocked,
+		 *   because authorship already carries the authority a consent would grant.
+		 *
+		 * INPUTS
+		 *   record - a parsed record.
+		 *   zonePolicy - `{ zones, defaultAuthority }` from {@link resolveZonePolicy}.
+		 *
+		 * OUTPUTS
+		 *   A one-line reason, or null when the record is not blocked. A record that
+		 *   declares no zone is judged under the manifest default, so an unzoned agent
+		 *   record in a `humanOnly` default project is blocked under `(unzoned)`.
+		 *
+		 * KEYWORDS
+		 *   ratification queue, blocked, humanOnly, missing zone, unzoned, consent
+		 */
+		function blockedReason(record, zonePolicy) {
 			if (record.authority !== "agent") return null;
-			for (index = 0; index < declared.length; index += 1) {
-				if (zonePolicies[declared[index]] === "humanOnly") {
-					return "zone \"" + declared[index] + "\" reserves its paths to a human, so this needs a human author";
-				}
+			var zones = governingZones(record, zonePolicy);
+			var humanOnly = zones.filter(function (zone) { return zone.authority === "humanOnly"; });
+			if (humanOnly.length > 0) {
+				return "zone \"" + humanOnly[0].id + "\" reserves its paths to a human, so this needs a human author";
+			}
+			var undeclared = zones.filter(function (zone) { return zone.missing === true; });
+			if (undeclared.length > 0) {
+				return "zone \"" + undeclared[0].id + "\" is not declared in the manifest";
 			}
 			return null;
 		}
 		/**
 		 * Whether the ratify affordance may be offered for a record.
 		 *
-		 * ONLY AN AGENT'S PROPOSED DECISION IS OFFERED. A human-authored record already
-		 * carries its own authority, so asking a human to approve it proposes a consent to
-		 * the person who wrote the decision — the contradiction of an "awaiting a human"
-		 * state beside a human author chip. Such a record awaits activation by its author
-		 * instead. Among agent decisions, one the ratchet would refuse is not offered
-		 * either: a BLOCKED record (an undeclared zone, or a zone reserved to humans) could
-		 * not enter force on a "yes", so the affordance is withheld and the state names the
-		 * reason.
+		 * ONLY AN AGENT'S DECISION THAT IS NOT IN FORCE IS OFFERED, which is what the
+		 * ratchet's queue lists: a `proposed` record, or an `active` one its zone refuses
+		 * (the compiler's `excluded`, which a human "yes" may turn into force). A
+		 * human-authored record already carries its own authority, so asking a human to
+		 * approve it proposes a consent to the person who wrote the decision — the
+		 * contradiction of an "awaiting a human" state beside a human author chip. Such a
+		 * record awaits activation by its author instead. Among agent decisions, one the
+		 * ratchet would refuse is not offered either: a BLOCKED record (a zone that resolves
+		 * to `humanOnly`, or a zone the manifest does not declare) could not enter force on
+		 * a "yes", so the affordance is withheld and the state names the reason. A record an
+		 * in-force superseder retired is not offered either, because the ratchet's queue
+		 * never lists one: ratifying it would resurrect a retired decision.
 		 *
 		 * The condition is the ratchet's own, read from the manifest, so the panel cannot
 		 * offer an action the ratchet would reject or hide one it would accept.
 		 *
 		 * @param record - a parsed record.
 		 * @param relations - `{ approvedBy, supersededBy }`.
-		 * @param zonePolicies - the manifest's zone id to `agentAuthority` map, empty when
-		 *   there is no manifest.
+		 * @param zonePolicy - `{ zones, defaultAuthority }` from {@link resolveZonePolicy}.
 		 * @returns true only when the record is an agent's decision the ratchet can put to
 		 *   the human.
 		 */
-		function canOfferRatify(record, relations, zonePolicies) {
+		function canOfferRatify(record, relations, zonePolicy) {
 			if (record.type === "approval") return false;
-			if (record.status !== "proposed") return false;
 			if (record.authority !== "agent") return false;
+			if (record.status !== "proposed" && record.status !== "active") return false;
 			var approvals = record.id === null ? undefined : relations.approvedBy[record.id];
 			if (approvals !== undefined && approvals.length > 0) return false;
-			return blockedReason(record, zonePolicies) === null;
+			var superseded = record.id === null ? undefined : relations.supersededBy[record.id];
+			if (superseded !== undefined && superseded.length > 0) return false;
+			if (blockedReason(record, zonePolicy) !== null) return false;
+			// An agent's `active` is already force where its zones permit it; only the excluded
+			// case — an active record a `proposeOnly` zone withholds — is still offered.
+			return !(record.status === "active" && selfActivationPermitted(record, zonePolicy));
 		}
 		/**
 		 * Index the compiled laws by the decision that decided them, so the decision view
@@ -979,29 +1293,6 @@ window.__ModuleLoader__.load({
 			};
 		}
 		/**
-		 * The zone policies the panel judges a record's authority against.
-		 *
-		 * The panel reads the manifest for the same reason it reads the directories: an
-		 * affordance must follow the project's declaration rather than a hardcoded rule.
-		 * The map is what lets the ratify affordance agree with the ratchet's queue about
-		 * which decisions a human can actually consent to.
-		 * @returns `{ [zoneId]: agentAuthority }`, empty when the manifest is absent,
-		 *   silent, or declares no zones.
-		 */
-		function zonePoliciesOf(manifest) {
-			var ratchet = manifest !== null && typeof manifest === "object" ? manifest.ratchet : null;
-			var section = ratchet !== null && typeof ratchet === "object" ? ratchet : {};
-			var zones = Array.isArray(section.zones) ? section.zones : [];
-			var policies = {};
-			for (var i = 0; i < zones.length; i += 1) {
-				var zone = zones[i];
-				if (zone !== null && typeof zone === "object" && typeof zone.id === "string" && zone.id !== "") {
-					policies[zone.id] = typeof zone.agentAuthority === "string" ? zone.agentAuthority : "";
-				}
-			}
-			return policies;
-		}
-		/**
 		 * The project's own name: the manifest's `name`, else the first spec's `Project:`
 		 * line, else a neutral placeholder. Never a hardcoded repository name.
 		 * @returns a non-empty display string.
@@ -1100,14 +1391,23 @@ window.__ModuleLoader__.load({
 			return readManifest(files, sessionId, signal).then(function (manifestResult) {
 				if (manifestResult.note !== null) notes.push(manifestResult.note);
 				var dirs = resolveDirs(manifestResult.manifest);
-				var zonePolicies = zonePoliciesOf(manifestResult.manifest);
+				var zonePolicy = resolveZonePolicy(manifestResult.manifest);
 				return Promise.all([
 					readDirectory(files, sessionId, dirs.decisionsDir, ".adr.md", signal, failures),
 					readDirectory(files, sessionId, dirs.specsDir, ".spec.md", signal, failures)
 				]).then(function (both) {
-					var adrs = both[0].filter(Boolean).map(parseAdr).sort(byAdrId);
+					var items = both[0].filter(Boolean);
+					// Every record's sha256 is computed once, before the relations are built, so a
+					// ratification can be matched against the text now in the file. A digest that
+					// cannot be computed is null, which proves no consent for that target.
+					return Promise.all(items.map(function (item) { return contentHashOf(item.text); })).then(function (hashes) {
+					var adrs = items.map(function (item, index) {
+						var parsed = parseAdr(item);
+						parsed.contentHash = hashes[index];
+						return parsed;
+					}).sort(byAdrId);
 					var specs = both[1].filter(Boolean).map(parseSpec);
-					var relations = buildRelations(adrs);
+					var relations = buildRelations(adrs, zonePolicy);
 					var decisions = [];
 					var consents = [];
 					var decisionIds = {};
@@ -1119,10 +1419,10 @@ window.__ModuleLoader__.load({
 							consents.push(record);
 							continue;
 						}
-						var force = displayedState(record, relations, zonePolicies);
+						var force = displayedState(record, relations, zonePolicy);
 						record.state = force.state;
 						record.provenance = force.provenance;
-						record.canRatify = canOfferRatify(record, relations, zonePolicies);
+						record.canRatify = canOfferRatify(record, relations, zonePolicy);
 						record.summary = decisionSummary(record);
 						decisions.push(record);
 						if (record.id !== null && record.id !== "") decisionIds[record.id] = true;
@@ -1143,6 +1443,7 @@ window.__ModuleLoader__.load({
 						notes: notes,
 						failures: failures
 					};
+					});
 				});
 			}, function (error) {
 				return emptyPanel(["the panel could not load: " + describeError(error)], notes);

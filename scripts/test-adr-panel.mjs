@@ -13,14 +13,15 @@
  *   UX contract states. A synthetic corpus then exercises the states the real
  *   corpus does not contain (a superseded decision, an unknown `decided in` id).
  *
- *   It also checks the pills' COLOUR, not just the token each one names. A pill can
- *   cite the right theme variable and still be unreadable, because what matters is
- *   the value that variable resolves to: the theme's dark variant maps both
- *   `state-error-primary` and `state-error-secondary` to the same solid red, so a
- *   pill whose background used `-secondary` was filled with exactly its own text
- *   colour and its label vanished. Where the shell's theme bundle can be found,
- *   every rendered pill's foreground and background are resolved through it in both
- *   variants and required to differ by a minimum contrast ratio.
+ *   It also checks the COLOUR of every toned control, not just the token each one
+ *   names. A control can cite the right theme variable and still be unreadable, because
+ *   what matters is the value that variable resolves to: the theme's dark variant maps
+ *   both `state-error-primary` and `state-error-secondary` to the same solid red, so a
+ *   pill whose background used `-secondary` was filled with exactly its own text colour
+ *   and its label vanished. Where the shell's theme bundle can be found, every toned
+ *   pill's AND every toned button's foreground and background are resolved through it in
+ *   both variants and required to differ by a minimum contrast ratio. A plain,
+ *   transparent button is not measured, because it inherits its colour.
  *
  * INPUTS
  *   None. The kit root is derived from this script's location, and every file read
@@ -47,7 +48,7 @@
  *   - The real corpus is read as it is: if a directory is absent the render shows a
  *     failure line and the structural assertions still run, because the layout, not
  *     the data, is what this test is about.
- *   - No installed theme, or a pill whose colour cannot be resolved to a concrete
+ *   - No installed theme, or a toned control whose colour cannot be resolved to a concrete
  *     value, is reported as skipped or unresolved rather than counted as contrast
  *     it never measured.
  */
@@ -304,8 +305,30 @@ if (registry['shell.overlay'] === undefined) {
 /** A pill is the node carrying `chipStyle`: a fully rounded chip with that padding. */
 const isPillNode = (node) => node.tag === 'span' && node.style !== undefined && node.style.borderRadius === 999 && node.style.padding === '1px 6px'
 
-/** Every pill rendered so far, across all scenarios, for the colour check. */
-const renderedPills = []
+/**
+ * Every colour-carrying control rendered so far, across all scenarios, for the colour
+ * check: a toned pill AND a toned button. The buttons are the gap this list closes —
+ * Approve and the pointer's Open button are painted with the same `tone` helper the
+ * pills use, and the README claims every colour the bundle renders is resolved through
+ * the shell theme, so a button whose fill equals its own label must fail here too.
+ */
+const renderedControls = []
+
+/** Records the pills and the toned buttons in the current render. */
+function collectControls() {
+  for (const node of nodes) {
+    if (isPillNode(node)) {
+      renderedControls.push({ kind: 'pill', text: node.text, style: node.style })
+      continue
+    }
+    if (node.tag !== 'button' || node.style === undefined) continue
+    // A plain button is transparent and inherits its colour, so it has no pair to
+    // measure; a toned button carries the tone helper's fill and text colour.
+    if (typeof node.style.background !== 'string' || node.style.background === 'transparent' || node.style.background === '') continue
+    if (typeof node.style.color !== 'string' || node.style.color === 'inherit' || node.style.color === '') continue
+    renderedControls.push({ kind: 'button', text: node.text, style: node.style })
+  }
+}
 
 /** Renders the overlay from one inject face and returns the recorded nodes. */
 async function renderOverlay(prefix, overrideLoad) {
@@ -322,7 +345,7 @@ async function renderOverlay(prefix, overrideLoad) {
     await flush(root, prefix)
     await new Promise((resolveTick) => setTimeout(resolveTick, 30))
     await flush(root, prefix)
-    for (const node of nodes) if (isPillNode(node)) renderedPills.push({ text: node.text, style: node.style })
+    collectControls()
     return { ok: true }
   } catch (error) {
     return { ok: false, error: String(error) }
@@ -340,13 +363,27 @@ claim(
   JSON.stringify(headings),
 )
 // The header chip is the only way a reader tells a stale client bundle from a bug, so
-// it must name the version the package actually declares — a hand-maintained constant
-// next to a versioned manifest drifts silently otherwise.
+// it must name the bundle's own declared `PANEL_VERSION`, and that constant must not lag
+// the package's version. Equality is deliberately NOT asserted: a source change bumps
+// `PANEL_VERSION` one patch ahead of `package.json` and the repack step catches the
+// manifest up, so demanding equality would fail exactly in the window this test runs in.
 const packageVersion = JSON.parse(readFileSync(join(KIT, 'plugins', 'dsh-adr-panel', 'package.json'), 'utf8')).version
+const declaredPanelVersion = /const PANEL_VERSION = "([^"]+)"/.exec(readFileSync(CLIENT, 'utf8'))?.[1] ?? null
 claim(
-  'the window header names the bundle version the package declares',
-  texts.includes(`adr-panel ${packageVersion}`),
-  `package=${packageVersion}; header chips=${JSON.stringify(texts.filter((text) => /^adr-panel /.test(text)))}`,
+  'the window header names the bundle version the bundle declares',
+  declaredPanelVersion !== null && texts.includes(`adr-panel ${declaredPanelVersion}`),
+  `declared=${declaredPanelVersion}; header chips=${JSON.stringify(texts.filter((text) => /^adr-panel /.test(text)))}`,
+)
+const versionParts = (value) => String(value).split('.').map(Number)
+const declaredVersion = versionParts(declaredPanelVersion)
+const packagedVersion = versionParts(packageVersion)
+const versionAtLeast = (a, b) =>
+  a.length === 3 && b.length === 3 && a.every(Number.isFinite) && b.every(Number.isFinite) &&
+  (a[0] > b[0] || (a[0] === b[0] && (a[1] > b[1] || (a[1] === b[1] && a[2] >= b[2]))))
+claim(
+  'the declared bundle version is never behind the package version',
+  versionAtLeast(declaredVersion, packagedVersion),
+  `package=${packageVersion} declared=${declaredPanelVersion}`,
 )
 claim(
   'no glob pattern leaks into the chrome',
@@ -606,10 +643,22 @@ function contrastRatio(a, b) {
  */
 const MINIMUM_CONTRAST = 1.5
 
-const themeFile = findTheme()
-if (themeFile === null) {
-  process.stdout.write('  [SKIP] every pill is legible against its own fill — no installed shell theme to resolve against\n')
-} else {
+/**
+ * Resolves every colour-carrying control rendered so far — pills AND toned buttons —
+ * through the installed theme, in both variants, and requires each one's text to
+ * contrast with its own fill. Called after every render rather than where the helper
+ * lives, because the window's Approve button and the pointer's Open button are rendered
+ * later than the overlay.
+ *
+ * A missing theme is a `[SKIP]` line, never a pass: the check with nothing to resolve is
+ * not a check that held.
+ */
+function checkColours() {
+  const themeFile = findTheme()
+  if (themeFile === null) {
+    process.stdout.write('  [SKIP] every toned control is legible against its own fill — no installed shell theme to resolve against\n')
+    return
+  }
   const themeSource = readFileSync(themeFile, 'utf8')
   const variants = { light: themeVariant(themeSource, 'body'), dark: themeVariant(themeSource, 'body[data-ds-dark-theme]') }
   const unresolved = []
@@ -619,35 +668,41 @@ if (themeFile === null) {
     if (vars === null) continue
     const surface = parseColour(resolveToken(vars.get('--dsw-specific-menu'), vars))
     if (surface === null) continue
-    for (const pill of renderedPills) {
+    for (const control of renderedControls) {
       // A plain chip sets neither: it inherits the surrounding text colour on the card,
       // so there is no pair to compare and claiming one would be measuring nothing.
-      if (pill.style.color === undefined && pill.style.background === undefined) {
-        inherited.push(`${variant}:${pill.text}`)
+      if (control.style.color === undefined && control.style.background === undefined) {
+        inherited.push(`${variant}:${control.text}`)
         continue
       }
-      const foreground = parseColour(resolveToken(pill.style.color, vars))
-      const background = parseColour(resolveToken(pill.style.background, vars))
+      const foreground = parseColour(resolveToken(control.style.color, vars))
+      const background = parseColour(resolveToken(control.style.background, vars))
       if (foreground === null || background === null) {
-        unresolved.push(`${variant}:${pill.text}`)
+        unresolved.push(`${variant}:${control.kind}:${control.text}`)
         continue
       }
-      measured.push({ variant, text: pill.text, ratio: contrastRatio(foreground, over(background, surface)) })
+      measured.push({ variant, kind: control.kind, text: control.text, ratio: contrastRatio(foreground, over(background, surface)) })
     }
   }
   const worst = measured.reduce((low, entry) => (low === null || entry.ratio < low.ratio ? entry : low), null)
   const failing = measured.filter((entry) => entry.ratio < MINIMUM_CONTRAST)
+  const named = (entry) => `${entry.variant} ${entry.kind} "${entry.text}" ${entry.ratio.toFixed(2)}`
   claim(
-    `no pill is filled with its own text colour (contrast >= ${MINIMUM_CONTRAST})`,
+    `no toned control is filled with its own text colour (contrast >= ${MINIMUM_CONTRAST})`,
     measured.length > 0 && failing.length === 0,
     failing.length > 0
-      ? failing.map((entry) => `${entry.variant} "${entry.text}" ${entry.ratio.toFixed(2)}`).join(' | ')
-      : `worst ${worst === null ? 'n/a' : `${worst.variant} "${worst.text}" ${worst.ratio.toFixed(2)}`} of ${measured.length} toned pill(s), ${inherited.length} plain chip(s) inherit their colour`,
+      ? failing.map(named).join(' | ')
+      : `worst ${worst === null ? 'n/a' : named(worst)} of ${measured.length} toned control(s), ${inherited.length} plain chip(s) inherit their colour`,
   )
   claim(
-    'every toned pill colour resolved through the theme',
+    'every toned control colour resolved through the theme',
     unresolved.length === 0,
     `${unresolved.length} unresolvable: ${unresolved.slice(0, 6).join(', ')}`,
+  )
+  claim(
+    'the colour check measured at least one button, not only pills',
+    measured.some((entry) => entry.kind === 'button'),
+    JSON.stringify(measured.reduce((counts, entry) => Object.assign(counts, { [entry.kind]: (counts[entry.kind] ?? 0) + 1 }), {})),
   )
 }
 
@@ -856,6 +911,7 @@ const composerElement = React.createElement(composerRegistration.Component, {
   sessionId: 'stub-session',
 })
 await flush(composerElement, 'ratify-seat')
+collectControls()
 const seatNodes = nodes.slice()
 const seatTexts = seatNodes.map((node) => node.text)
 const seatButtons = seatNodes.filter((node) => node.tag === 'button')
@@ -975,6 +1031,7 @@ async function renderWindow(prefix) {
       Object.assign({}, overlayMembers, { usePanel: (selector) => selector(panelStore.getSnapshot()) }),
     )
     await flush(root, prefix)
+    collectControls()
     return { ok: true }
   } catch (error) {
     return { ok: false, error: String(error) }
@@ -1070,6 +1127,7 @@ const renderRows = async (tag) => {
     ),
     tag,
   )
+  collectControls()
   return nodes.filter((node) => node.tag === 'button')
 }
 
@@ -1136,24 +1194,31 @@ let clearCount = 0
 
 /**
  * Renders the claiming entry with one recorded request and reports what it settled.
+ *
+ * The request lives in a store this test OWNS and `clearRequest` actually empties it, so
+ * "the entry consumed the answer" is measured against the store, not against a counter: an
+ * entry that sends the answer and leaves the request armed can pass a counter check while
+ * still being ready to answer the NEXT question about the same record. Two renders are
+ * driven, because a consumed request must be gone on the render after the one that consumed
+ * it — which is what makes deleting the success-path `clearRequest()` fail here.
  * @param expectCleared - whether the entry must also have consumed the request.
  */
 const settleCase = async (name, request, expectedLabel, expectedDecision, expectCleared = false) => {
   const answers = []
   const clearsBefore = clearCount
-  await flush(
-    React.createElement(
-      composerRegistrationForRow.Component,
-      Object.assign({}, settleMembers, {
-        matched: freshPending(answers),
-        publishRatify: () => {},
-        clearRequest: () => { clearCount += 1 },
-        openPanel: () => {},
-        usePanel: () => request,
-      }),
-    ),
-    name,
+  const requestStore = { value: request === undefined ? null : request }
+  const element = React.createElement(
+    composerRegistrationForRow.Component,
+    Object.assign({}, settleMembers, {
+      matched: freshPending(answers),
+      publishRatify: () => {},
+      clearRequest: () => { clearCount += 1; requestStore.value = null },
+      openPanel: () => {},
+      usePanel: (selector) => selector({ request: requestStore.value }),
+    }),
   )
+  await flush(element, name)
+  await flush(element, `${name}:second-render`)
   const derived = answers.length === 0 ? null : deriveDecisions(quiz, answers[0])
   const settledOk =
     expectedLabel === null
@@ -1163,8 +1228,8 @@ const settleCase = async (name, request, expectedLabel, expectedDecision, expect
         derived.decisions.length === 1 &&
         derived.decisions[0].decision === expectedDecision &&
         derived.unreadable.length === 0
-  const clearedOk = expectCleared ? clearCount === clearsBefore + 1 : true
-  claim(name, settledOk && clearedOk, `answers=${JSON.stringify(answers)} cleared=${clearCount - clearsBefore} derived=${derived === null ? 'none' : JSON.stringify(derived.decisions)}`)
+  const clearedOk = expectCleared ? clearCount === clearsBefore + 1 && requestStore.value === null : true
+  claim(name, settledOk && clearedOk, `answers=${JSON.stringify(answers)} cleared=${clearCount - clearsBefore} lingering=${JSON.stringify(requestStore.value)} derived=${derived === null ? 'none' : JSON.stringify(derived.decisions)}`)
 }
 const fresh = () => Date.now()
 
@@ -1173,12 +1238,14 @@ await settleCase(
   { adrId: targetId, decision: 'approve', at: fresh() },
   approveLabel,
   'approved',
+  true,
 )
 await settleCase(
   "a click on Decline answers it with the ratchet's own reject label",
   { adrId: targetId, decision: 'decline', at: fresh() },
   declineLabel,
   'rejected',
+  true,
 )
 
 // The record the click named, matched EXACTLY. A prefix, a suffix or stray whitespace is a
@@ -1273,6 +1340,20 @@ claim(
   ratifyQuestion.intent !== undefined && ratifyQuestion.intent.kind === RATIFY_INTENT_KIND,
   JSON.stringify(ratifyQuestion.intent),
 )
+// The re-ask is a different question shape — its labels name the decision and its
+// question id is `ratify-again-<id>` — and `buildQuiz` builds it with a non-empty
+// `previous` list. The panel claims by the intent and the labels, not by the id, so it
+// must claim this shape too; a claim that only matched attempt 1 would drop the human's
+// second chance on the floor.
+const reaskQuiz = buildQuiz(
+  [{ id: '0015', title: 'A decision that waits for a human', laws: [], text: '---\nid: 0015\n---\n' }],
+  { attempt: 2, previous: [{ id: '0015', reason: 'the answer was free text' }] },
+)
+claim(
+  "the panel also claims the ratchet's re-ask shape (a non-empty `previous` list)",
+  select({ pendingInteraction: { questions: reaskQuiz.questions, answer() {} } }) !== null,
+  JSON.stringify(reaskQuiz.questions[0].intent),
+)
 
 // A question the seat does not claim must clear the window rather than leave a stale one.
 await flush(
@@ -1299,7 +1380,314 @@ claim(
   `calls=${JSON.stringify(distinctFileCalls)} of ${fileCalls.length}`,
 )
 
+// ── the panel's force model agrees with the ratchet's ───────────────────────
+//
+// `client.js` derives each record's in-force state from the ADR files, while the ratchet
+// derives it in `resolveActiveSet`. Two derivations of one shared fact drift, and a viewer
+// that says "in force" for a record the gate excludes is worse than no viewer. These
+// fixtures build a corpus, run BOTH derivations over it, and require them to agree record
+// by record. Each of the first five is one divergence an independent review measured; the
+// sixth is the stale-hash consent that shares the consent map's rule.
+const { parseAdr, parseRatchetConfig, hashSource } = await import(
+  pathToFileURL(join(KIT, 'plugins', 'ratchet', 'ratchet-schema.mjs')).href
+)
+const { resolveActiveSet } = await import(pathToFileURL(join(KIT, 'plugins', 'ratchet', 'ratchet-compiler.mjs')).href)
+
+/** A YAML list in block form by default, or an inline flow sequence when `flow`. */
+const yamlList = (key, values, flow = false) => {
+  if (flow) return [`${key}: [${values.map((value) => JSON.stringify(value)).join(', ')}]`]
+  if (values.length === 0) return [`${key}: []`]
+  return [`${key}:`, ...values.map((value) => `  - ${JSON.stringify(value)}`)]
+}
+
+/** The lines of a well-formed ratification block for the given targets. */
+const ratificationLines = (targets, { channel = 'user-question' } = {}) => [
+  'ratification:',
+  `  channel: ${channel}`,
+  "  at: '2026-09-15T00:00:00.000Z'",
+  '  askedBy: fixture-session',
+  '  targets:',
+  ...targets.flatMap((target) => [
+    `    - id: ${JSON.stringify(target.id)}`,
+    `      contentHash: ${target.contentHash}`,
+  ]),
+]
+
+/** One ADR file body, with the frontmatter shape the ratchet's parser requires. */
+const fixtureAdr = (id, options = {}) => {
+  const lines = [
+    '---',
+    `id: ${JSON.stringify(id)}`,
+    `title: ${options.title ?? `fixture ${id}`}`,
+    `type: ${options.type ?? 'adr'}`,
+    `status: ${options.status ?? 'proposed'}`,
+    'author:',
+    `  authority: ${options.authority ?? 'agent'}`,
+    '  name: fixture-author',
+    'created: 2026-09-15',
+    'source:',
+    '  kind: file',
+    '  path: docs/ratchet/sources/fixture.md',
+    `  hash: sha256:${'0'.repeat(64)}`,
+    ...yamlList('zones', options.zones ?? [], options.flowZones === true),
+    ...yamlList('supersedes', options.supersedes ?? []),
+    ...yamlList('approves', options.approves ?? []),
+    'laws: []',
+    ...(options.ratification === undefined || options.ratification === null ? [] : ratificationLines(options.ratification)),
+    '---',
+    '',
+    '## Context',
+    'fixture',
+    '',
+    options.body ?? 'fixture body',
+    '',
+  ]
+  return lines.join('\n')
+}
+
+/** A manifest with one `enabled` ratchet section. */
+const fixtureManifest = (zones, defaultAgentAuthority = undefined) =>
+  JSON.stringify(
+    {
+      manifestVersion: 2,
+      name: 'fixture-project',
+      languages: [{ id: 'javascript', extensions: ['.mjs'], roots: ['src'] }],
+      rules: [],
+      verification: [],
+      scopes: [],
+      ratchet: {
+        enabled: true,
+        decisionsDir: 'docs/adrs',
+        ...(defaultAgentAuthority === undefined ? {} : { defaultAgentAuthority }),
+        zones,
+      },
+    },
+    null,
+    2,
+  )
+
+const ZONE_ACTIVE = [{ id: 'z', paths: ['src/**'], agentAuthority: 'activeIfNoConflict' }]
+const ZONE_DEFAULTED = [{ id: 'z', paths: ['src/**'] }]
+const fileNameOf = (id) => `docs/adrs/${id}-fixture-${id}.adr.md`
+
+/** A fixture: a manifest plus its files, with the host state each record must settle in. */
+const fixture = (name, { zones, defaultAgentAuthority, adrs, expect, expectProblem, expectRatify }) => {
+  const files = { '.dsh/project.json': fixtureManifest(zones, defaultAgentAuthority) }
+  for (const [id, options] of Object.entries(adrs)) files[fileNameOf(id)] = fixtureAdr(id, options)
+  return { name, files, expect, expectProblem, expectRatify }
+}
+
+/** Applies the bundle to a fresh context over a fixture's fake workspace files. */
+function applyFresh(files) {
+  const freshRegistry = {}
+  const api = {
+    list(_sessionId, directory) {
+      const prefix = `${String(directory).replace(/\/+$/, '')}/`
+      const entries = Object.keys(files)
+        .filter((path) => path.startsWith(prefix) && !path.slice(prefix.length).includes('/'))
+        .map((path) => ({ name: path.slice(prefix.length), type: 'file' }))
+      return Promise.resolve({ ok: true, value: { path: directory, entries, truncated: false } })
+    },
+    read(_sessionId, relativePath) {
+      const key = String(relativePath).replace(/^\.\//, '')
+      if (!Object.prototype.hasOwnProperty.call(files, key)) {
+        return Promise.resolve({ ok: false, error: { message: `no fixture file ${key}` } })
+      }
+      return Promise.resolve({ ok: true, value: { text: files[key], eof: true } })
+    },
+  }
+  const ctx = {
+    remote: { workspaceFiles: api },
+    effect(fn) { fn() },
+    slots: {
+      inject(_parent, fn) { fn() },
+      register(config, Component) { freshRegistry[config.name] = { config, Component }; return () => {} },
+    },
+  }
+  bundle.apply(ctx)
+  return freshRegistry
+}
+
+/** Runs the PANEL's own `loadPanel` over a fixture and indexes its decisions by id. */
+async function panelDecisions(files) {
+  const freshRegistry = applyFresh(files)
+  const members = freshRegistry['shell.overlay'].config.inject()
+  members.hooks.panel.set({ open: true, sessionId: 'fixture-session' })
+  const result = await members.load(undefined)
+  const byId = {}
+  for (const decision of result.decisions) byId[decision.id] = decision
+  return byId
+}
+
+/** Runs the RATCHET's own derivation over a fixture. */
+function hostView(files, manifestText) {
+  const { config } = parseRatchetConfig(manifestText)
+  const records = []
+  const problems = []
+  for (const [path, text] of Object.entries(files)) {
+    if (!path.endsWith('.adr.md')) continue
+    const filename = path.split('/').pop()
+    const parsed = parseAdr({ filename, source: text, decisionsDir: 'docs/adrs' })
+    if (parsed.record !== null) records.push(parsed.record)
+    problems.push(...parsed.problems)
+  }
+  const resolved = resolveActiveSet(records, config)
+  const byId = {}
+  for (const record of records) byId[record.id] = record
+  return { resolved, byId, problems: [...problems, ...resolved.problems] }
+}
+
+/** The host's classification of one non-approval record, in the same vocabulary. */
+function hostLabel(record) {
+  if (record.supersededBy !== null && record.supersededBy !== undefined) return 'superseded'
+  if (record.inForce === true) return 'in-force'
+  if (record.status === 'proposed') return 'proposed'
+  if (record.status === 'active') return 'excluded'
+  return 'terminal'
+}
+
+/** Requires the panel's decision states and the host's to agree for one fixture. */
+async function claimAgrees(caseFile) {
+  const panel = await panelDecisions(caseFile.files)
+  const manifestText = caseFile.files['.dsh/project.json']
+  const host = hostView(caseFile.files, manifestText)
+  const problems = new Set(host.problems.map((entry) => entry.code))
+  const disagreements = []
+  for (const [id, expected] of Object.entries(caseFile.expect)) {
+    const record = host.byId[id]
+    const actualHost = record === undefined ? 'missing' : hostLabel(record)
+    if (actualHost !== expected) disagreements.push(`${id}: host is ${actualHost}, fixture expected ${expected}`)
+    const decision = panel[id]
+    if (decision === undefined) {
+      disagreements.push(`${id}: the panel rendered no decision`)
+      continue
+    }
+    const panelInForce = decision.state.kind === 'in-force'
+    const panelSuperseded = /^superseded by /.test(decision.state.text)
+    if (expected === 'in-force') {
+      if (!panelInForce || panelSuperseded) disagreements.push(`${id}: host in force, panel ${JSON.stringify(decision.state)}`)
+    } else {
+      if (panelInForce) disagreements.push(`${id}: host ${expected}, panel ${JSON.stringify(decision.state)}`)
+      if (expected === 'superseded' ? !panelSuperseded : panelSuperseded) disagreements.push(`${id}: supersession disagrees, panel ${JSON.stringify(decision.state)}`)
+    }
+  }
+  if (caseFile.expectProblem !== undefined && !problems.has(caseFile.expectProblem)) {
+    disagreements.push(`the ratchet reported no ${caseFile.expectProblem} (codes: ${[...problems].join(', ')})`)
+  }
+  for (const [id, expected] of Object.entries(caseFile.expectRatify ?? {})) {
+    const decision = panel[id]
+    if (decision === undefined) {
+      disagreements.push(`${id}: the panel rendered no decision, so its ratify affordance cannot be read`)
+      continue
+    }
+    if (Boolean(decision.canRatify) !== expected) {
+      disagreements.push(`${id}: the ratchet would ${expected ? 'offer' : 'not offer'} ratification, panel canRatify=${Boolean(decision.canRatify)} (state ${JSON.stringify(decision.state)})`)
+    }
+  }
+  claim(
+    `the panel agrees with the ratchet's force model: ${caseFile.name}`,
+    disagreements.length === 0,
+    disagreements.length === 0 ? `checked ${Object.keys(caseFile.expect).join(', ')}` : disagreements.join(' | '),
+  )
+}
+
+await claimAgrees(
+  fixture('an approval whose ratification block is missing proves nothing', {
+    zones: ZONE_ACTIVE,
+    defaultAgentAuthority: 'activeIfNoConflict',
+    adrs: {
+      '0001': { status: 'proposed', zones: ['z'] },
+      '0002': { type: 'approval', status: 'active', authority: 'human', approves: ['0001'], ratification: null },
+    },
+    expect: { '0001': 'proposed' },
+    expectProblem: 'RATIFICATION_UNPROVEN',
+    expectRatify: { '0001': true },
+  }),
+)
+await claimAgrees(
+  fixture('a ratification whose recorded hash is stale proves nothing', {
+    zones: ZONE_ACTIVE,
+    defaultAgentAuthority: 'activeIfNoConflict',
+    adrs: {
+      '0001': { status: 'proposed', zones: ['z'] },
+      '0002': { type: 'approval', status: 'active', authority: 'human', approves: ['0001'], ratification: [{ id: '0001', contentHash: `sha256:${'f'.repeat(64)}` }] },
+    },
+    expect: { '0001': 'proposed' },
+    expectProblem: 'RATIFICATION_STALE',
+    expectRatify: { '0001': true },
+  }),
+)
+await claimAgrees(
+  fixture('a zone that omits agentAuthority inherits the proposeOnly default', {
+    zones: ZONE_DEFAULTED,
+    defaultAgentAuthority: 'proposeOnly',
+    adrs: { '0001': { status: 'active', zones: ['z'] } },
+    expect: { '0001': 'excluded' },
+    expectRatify: { '0001': true },
+  }),
+)
+await claimAgrees(
+  fixture('an unzoned record is governed by the constant proposeOnly default', {
+    zones: [],
+    defaultAgentAuthority: undefined,
+    adrs: { '0001': { status: 'active', zones: [] } },
+    expect: { '0001': 'excluded' },
+    expectRatify: { '0001': true },
+  }),
+)
+await claimAgrees(
+  fixture('an inline flow `zones` list names its zone', {
+    zones: ZONE_ACTIVE,
+    defaultAgentAuthority: 'proposeOnly',
+    adrs: { '0001': { status: 'active', zones: ['z'], flowZones: true } },
+    expect: { '0001': 'in-force' },
+  }),
+)
+await claimAgrees(
+  fixture('a withdrawn superseder retires nothing', {
+    zones: ZONE_ACTIVE,
+    defaultAgentAuthority: 'activeIfNoConflict',
+    adrs: {
+      '0001': { status: 'active', zones: ['z'] },
+      '0002': { status: 'withdrawn', zones: ['z'], supersedes: ['0001'] },
+    },
+    expect: { '0001': 'in-force', '0002': 'terminal' },
+  }),
+)
+await claimAgrees(
+  fixture('an unauthorised agent superseder does not retire a human decision', {
+    zones: ZONE_ACTIVE,
+    defaultAgentAuthority: 'activeIfNoConflict',
+    adrs: {
+      '0001': { status: 'active', authority: 'human', zones: ['z'] },
+      '0002': { status: 'active', authority: 'agent', zones: ['z'], supersedes: ['0001'] },
+    },
+    expect: { '0001': 'in-force', '0002': 'in-force' },
+    expectProblem: 'LAW_REMOVE_UNAUTHORISED',
+  }),
+)
+await claimAgrees(
+  fixture('a valid ratification of unchanged text is honoured', {
+    zones: ZONE_ACTIVE,
+    defaultAgentAuthority: 'activeIfNoConflict',
+    adrs: {
+      '0001': { status: 'proposed', zones: ['z'] },
+      '0002': {
+        type: 'approval',
+        status: 'active',
+        authority: 'human',
+        approves: ['0001'],
+        ratification: [{ id: '0001', contentHash: hashSource(fixtureAdr('0001', { status: 'proposed', zones: ['z'] })) }],
+      },
+    },
+    expect: { '0001': 'in-force' },
+  }),
+)
+
 // ── report ──────────────────────────────────────────────────────────────────
+// The colour check runs here, after every render, so it measures the pills AND the
+// toned buttons the later scenarios produced rather than only the overlay's pills.
+checkColours()
 for (const entry of claims) {
   process.stdout.write(`  [${entry.ok ? 'PASS' : 'FAIL'}] ${entry.name}${entry.ok ? '' : ` — ${entry.detail}`}\n`)
 }

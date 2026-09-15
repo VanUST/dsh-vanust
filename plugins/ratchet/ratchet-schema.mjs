@@ -1704,6 +1704,20 @@ export function parseRatchetConfig(manifestText, manifestHash = null) {
           continue
         }
         seen.add(zoneId)
+        // The id must be usable as a filename component. `compile` names each zone's generated
+        // spec `<id>.spec.md` after replacing every character outside this set, so `auth.v1` and
+        // `auth-v1` compiled to ONE file and the second zone's laws were silently dropped from it.
+        // Restricting the id is the injective fix: every accepted id already equals its own slug.
+        if (!/^[A-Za-z0-9_-]+$/.test(zoneId)) {
+          problems.push(
+            problem(
+              'ZONE_INVALID',
+              `zone id ${JSON.stringify(zoneId)} contains characters outside [A-Za-z0-9_-]; the id names the zone in reports and compiles to a spec filename, and any other character would let two ids collide on one file and drop a zone's laws`,
+              zoneId,
+            ),
+          )
+          continue
+        }
         if (!Array.isArray(zone.paths) || zone.paths.length === 0) {
           problems.push(
             problem(
@@ -1850,11 +1864,49 @@ function literalRunLength(glob) {
  */
 export function zonePathCovers(glob, path) {
   if (glob === null || glob === undefined || path === null || path === undefined) return false
-  const raw = String(glob).replace(/^\.\//, '')
+  // A trailing slash is decoration, not a different path: `src/auth/` and `src/auth` name the same
+  // directory. It used to fall through the no-wildcard branch as the literal string `src/auth/`,
+  // which matched neither `src/auth` nor `src/auth/x.ts`, so a zone declared that way governed
+  // nothing at all while parsing clean.
+  const raw = String(glob).replace(/^\.\//, '').replace(/\/+$/, '')
   if (raw === '**' || raw === '*') return true
   if (!/[*?]/.test(raw)) return path === raw || path.startsWith(`${raw}/`)
   if (raw.endsWith('/**') && path === raw.slice(0, -3)) return true
   return globToRegExp(raw).test(path)
+}
+
+/**
+ * Whether two declared zone globs can cover a common path.
+ *
+ * `validateZones` refuses two zones that overlap with different agent authority, since which one
+ * governs a file would then depend on resolution rules rather than on the manifest. The test has to
+ * be conservative: reporting an overlap that does not exist is a project the author can fix by
+ * narrowing a path, while missing one is a file whose authority is decided by accident. It compares
+ * segment by segment and returns `true` the moment either side can match anything the other cannot
+ * rule out — a `**`, a wildcard segment, or one path running out first (a directory covers its
+ * subtree). Two concrete segments that differ prove disjointness, which is the only `false`.
+ *
+ * @param left - One declared zone path.
+ * @param right - Another.
+ * @returns `true` when the two may cover the same repository-relative path.
+ */
+export function globsMayOverlap(left, right) {
+  const split = (value) =>
+    String(value)
+      .replace(/^\.\//, '')
+      .replace(/\/+$/, '')
+      .split('/')
+  const a = split(left)
+  const b = split(right)
+  const limit = Math.min(a.length, b.length)
+  for (let index = 0; index < limit; index += 1) {
+    const leftSegment = a[index]
+    const rightSegment = b[index]
+    if (leftSegment === '**' || rightSegment === '**') return true
+    if (/[*?]/.test(leftSegment) || /[*?]/.test(rightSegment)) return true
+    if (leftSegment !== rightSegment) return false
+  }
+  return true
 }
 
 /**

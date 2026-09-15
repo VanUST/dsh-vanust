@@ -16,7 +16,7 @@
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { AUTHORITIES, CHECK_TARGET_FIELDS, MANIFEST_PATH, PROBLEM_CODES, RATCHET_DIR_DEFAULT, hashSource, normaliseText, parseAdr, parseRatchetConfig, problem, zonePathCovers } from './ratchet-schema.mjs'
+import { AUTHORITIES, CHECK_TARGET_FIELDS, MANIFEST_PATH, PROBLEM_CODES, RATCHET_DIR_DEFAULT, globsMayOverlap, hashSource, normaliseText, parseAdr, parseRatchetConfig, problem, zonePathCovers } from './ratchet-schema.mjs'
 
 /** Report title embedded in every bundle, so a consumer can reject a foreign file. */
 export const COMPILE_REPORT_KIND = 'ratchet/compile-report'
@@ -367,7 +367,34 @@ export function resolveActiveSet(records, config) {
   )
   for (const record of candidateSuperseders) {
     for (const target of record.supersedes) {
-      if (!supersededBy.has(target)) supersededBy.set(target, record.id)
+      if (supersededBy.has(target)) continue
+      const targetRecord = byId.get(target)
+      // Consent is not durable if a supersession can do what an `op: remove` may not: retire a
+      // whole record, and every law it contributed, in one line. The law loop below refuses an
+      // agent-authored, unratified record that removes a law whose force came from a human
+      // ratification. A supersession retires the record that DECLARES such laws, so it must meet
+      // the same bar; a human-authored record is protected too, because retiring a person's
+      // decision wholesale is a stronger act than removing one of its laws.
+      const authorized = record.authority === 'human' || consents.has(record.id)
+      if (
+        !authorized &&
+        targetRecord !== undefined &&
+        (targetRecord.authority === 'human' || consents.has(targetRecord.id))
+      ) {
+        const consent = consents.get(targetRecord.id)
+        problems.push(
+          problem(
+            'LAW_REMOVE_UNAUTHORISED',
+            `${record.path} supersedes ${targetRecord.path}, whose force came from ${
+              consent === undefined ? 'a human-authored decision' : `a human ratification (${consent.approvalId})`
+            }; a ratification is not undone by an agent-authored record, however the zone that record sits in is governed. Ask a human to ratify the supersession, or retire the laws one by one with an explicit op: remove`,
+            target,
+            { path: record.path, supersedes: targetRecord.path },
+          ),
+        )
+        continue
+      }
+      supersededBy.set(target, record.id)
     }
   }
 
@@ -777,6 +804,13 @@ export function compileLaws(active, config) {
               'two active ADRs declare the same law id and statement with different checks or different enforcement gaps; whether the two are compatible is a question about intent',
           })
         }
+        // The same law id declared by two records is ONE law, and it is bound to the union of the
+        // zones both records named. Only the first record's zones used to survive, so a contradicted
+        // law in force in two zones blocked only the first record's zone and a write in the second
+        // went through — while the law's own statement claims to govern both.
+        for (const zoneId of record.zones ?? []) {
+          if (!existing.zones.includes(zoneId)) existing.zones.push(zoneId)
+        }
         continue
       }
 
@@ -843,12 +877,10 @@ export function validateZones(config) {
     for (let right = left + 1; right < zones.length; right += 1) {
       for (const a of zones[left].paths) {
         for (const b of zones[right].paths) {
-          const prefixA = a.replace(/\/\*\*$/, '')
-          const prefixB = b.replace(/\/\*\*$/, '')
-          const overlaps =
-            prefixA === prefixB ||
-            prefixA.startsWith(`${prefixB}/`) ||
-            prefixB.startsWith(`${prefixA}/`)
+          // The one overlap test that sees every shape a declaration can take: the old prefix
+          // comparison missed a whole-repository `**` (which covers everything) and a mid-path
+          // wildcard such as `**/auth/**`. `globsMayOverlap` is deliberately conservative.
+          const overlaps = globsMayOverlap(a, b)
           if (overlaps && zones[left].agentAuthority !== zones[right].agentAuthority) {
             problems.push(
               problem(
@@ -1036,6 +1068,8 @@ export function renderSpecs(bundle, specsDir = 'docs/specs') {
     // project that declared any other directory had its compile write to `docs/specs`, its verify
     // report every spec as MISSING, and no way to become green: the failure was blamed on the
     // project, and re-running the compile it prescribed wrote to the same wrong place again.
+    // The name is injective because a zone id is restricted to [A-Za-z0-9_-] at parse time: the
+    // replacement is then the identity, so two zones cannot share one file and drop a zone's laws.
     files[`${String(specsDir).replace(/\/+$/, '')}/${zone.replace(/[^A-Za-z0-9_-]+/g, '-')}.spec.md`] = body
   }
   return { files, specHash }

@@ -389,6 +389,27 @@ export function readPersistedLawIds(root) {
 }
 
 /**
+ * The most recent verification the append-only ledger records, or `null`.
+ *
+ * The ledger writes one `ratchet.verify.finish` event per run, carrying the same `at`,
+ * `checksEvaluated`, `specHash`, `codeHash` and `configHash` the state cache holds. Reading the
+ * verdict here rather than from the mutable cache is what stops a hand-edited `state.json` from
+ * certifying a tree the last run did not judge.
+ *
+ * @param root - Absolute project root.
+ * @returns The event object, or `null` when the ledger holds none or cannot be read.
+ */
+function lastRecordedVerification(root) {
+  const ledger = readLedger(root)
+  const events = Array.isArray(ledger.events) ? ledger.events : []
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]
+    if (event !== null && typeof event === 'object' && event.event === 'ratchet.verify.finish') return event
+  }
+  return null
+}
+
+/**
  * Reports what the recorded verification actually covered.
  *
  * A recorded run counts as verified only when it judged the CURRENT laws, evaluated
@@ -415,15 +436,24 @@ export function readPersistedLawIds(root) {
  * @returns `{ ran, stale, reason, recorded? }`. `ran` is true only for a complete
  *   evaluation of the current laws over the current code.
  */
-export function verificationStatus(root, currentSpecHash, expectedChecks = null, currentCodeHash = null, currentConfigHash = null) {
-  const state = readState(root)
-  if (state.missing === true) {
-    return { ran: false, stale: false, reason: `no ${STATE_PATHS.state} exists, so no verification has been recorded` }
+export function verificationStatus(root, currentSpecHash, expectedChecks = null, currentCodeHash = null, currentConfigHash = null) {  const state = readState(root)
+  // The verdict is read from the APPEND-ONLY ledger first. `.dsh/ratchet/state.json` is a mutable
+  // cache, and a hand-edit of it made `status` report a verified-clean project while `verify` on
+  // the same tree exited 1. The ledger records every verification as it happens and is never
+  // rewritten, so it is the copy to trust; the state file is the fallback for a project whose
+  // history predates the event.
+  const fromLedger = lastRecordedVerification(root)
+  if (fromLedger === null && state.missing === true) {
+    return {
+      ran: false,
+      stale: false,
+      reason: `no ${STATE_PATHS.state} exists and ${STATE_PATHS.ledger} records no verification, so no verification has been recorded`,
+    }
   }
-  if (state.error !== undefined) {
+  if (fromLedger === null && state.error !== undefined) {
     return { ran: false, stale: false, reason: `${STATE_PATHS.state} could not be read: ${state.error}` }
   }
-  const recorded = state.value?.lastVerify ?? null
+  const recorded = fromLedger ?? state.value?.lastVerify ?? null
   if (recorded === null) {
     return { ran: false, stale: false, reason: `${STATE_PATHS.state} records no verification` }
   }

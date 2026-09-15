@@ -97,12 +97,23 @@ measures what the bundle does with them, not whether the running shell supplies 
   is used here. If the runtime instead returns the bare value, the panel shows a
   visible load failure rather than crashing.
 - Theme variables (`--dsw-*`) are used with literal fallbacks. `scripts/test-adr-panel.mjs`
-  resolves every colour the bundle renders through the installed theme, in both its light
-  and dark variants, and requires each toned pill's text to differ from its own fill
-  (this is what caught the error pill being filled with `state-error-secondary`, which in
-  the dark theme is the same red as its text). What is still not verified is the theme's
-  own contrast: the check refuses a collapse, not a low-contrast palette, and whether the
-  shell's tints read well is the shell's decision, not this panel's.
+  resolves every colour the bundle renders — every toned pill AND every toned button (the
+  row's **Approve**, the window's **Approve**, the pointer's **Open the ADRs panel**) —
+  through the installed theme, in both its light and dark variants, and requires each
+  one's text to differ from its own fill (this is what caught the error pill being filled
+  with `state-error-secondary`, which in the dark theme is the same red as its text). A
+  plain, transparent button is not measured, because it inherits its colour and there is
+  no pair to compare. What is still not verified is the theme's own contrast: the check
+  refuses a collapse, not a low-contrast palette, and whether the shell's tints read well
+  is the shell's decision, not this panel's.
+- That the running shell's origin exposes `crypto.subtle` (Web Crypto). The panel derives
+  each decision's in-force state the way the ratchet does, and a ratification counts only
+  while the recorded content hash still matches the file, which it computes with
+  `crypto.subtle.digest`. The panel runs on the harness's localhost origin, where Web
+  Crypto is available; on a non-secure origin `contentHashOf` returns `null` and a
+  consented record reads as not in force rather than being trusted unverified. The
+  offline test runs in Node, where `crypto.subtle` exists, so the fallback itself is not
+  exercised.
 
 ## Fallbacks and deliberate omissions
 

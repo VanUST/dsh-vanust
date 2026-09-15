@@ -4364,6 +4364,7 @@ test('FALSIFICATION: the instruction-routing rule has an enforcement point that 
   // names exist, and the installers/updater carry the procedure.
   const parts = [
     'scripts/check-instruction-routing.mjs',
+    'scripts/probe-dsh-api.mjs',
     'scripts/kit-update.mjs',
     'scripts/dev-link.mjs',
     'scripts/test-ratchet.mjs',
@@ -6290,4 +6291,356 @@ test('schema: a directory field cannot escape the project root', () => {
       `${field} = ${value} must be refused`,
     )
   }
+})
+
+// ---------------------------------------------------------------------------
+// Regression pins for the just-landed fixes: consent durability, zone identity
+// and overlap, a law bound to several zones, the quiz shape, and ledger authority
+// ---------------------------------------------------------------------------
+
+test('compiler: an agent supersession may not retire a human-authored or human-ratified decision', () => {
+  // Counterexample: one `supersedes:` line in an agent-authored active record retired a
+  // human's decision AND a decision a human had ratified, because supersession was decided
+  // before the authority rule — the same act an `op: remove` refuses. The bundle emptied
+  // with no problem naming the cause, so a consent was un-minted by a file an agent writes.
+  const ratifiedTarget = adrText({
+    id: '0011',
+    status: 'proposed',
+    authority: 'agent',
+    zones: ['api'],
+    laws: [{ id: 'api.x', statement: 'Agent law.', checks: [] }],
+  })
+  const zones = [
+    { id: 'auth', paths: ['src/auth/**'], agentAuthority: 'humanOnly' },
+    { id: 'api', paths: ['src/api/**'], agentAuthority: 'proposeOnly' },
+    { id: 'tests', paths: ['tests/**'], agentAuthority: 'activeIfNoConflict' },
+  ]
+  const refused = makeProject({
+    name: 'supersede-consent-refused',
+    zones,
+    adrs: {
+      '0001-human.adr.md': adrText({ id: '0001', zones: ['auth'], laws: [{ id: 'auth.human', statement: 'Human law.', checks: [] }] }),
+      '0011-agent.adr.md': ratifiedTarget,
+      '0012-approve.adr.md': approvalText({ id: '0012', approved: [{ id: '0011', text: ratifiedTarget }] }),
+      '0021-agent-supersede-human.adr.md': adrText({
+        id: '0021',
+        status: 'active',
+        authority: 'agent',
+        zones: ['tests'],
+        supersedes: ['0001'],
+        laws: [{ id: 'tests.a', statement: 'Replacement one.', checks: [] }],
+      }),
+      '0022-agent-supersede-ratified.adr.md': adrText({
+        id: '0022',
+        status: 'active',
+        authority: 'agent',
+        zones: ['tests'],
+        supersedes: ['0011'],
+        laws: [{ id: 'tests.b', statement: 'Replacement two.', checks: [] }],
+      }),
+    },
+  })
+  const blocked = compile(refused)
+  const unauthorised = blocked.problems.filter((entry) => entry.code === 'LAW_REMOVE_UNAUTHORISED')
+  assert.equal(unauthorised.length, 2, `each protected target must be reported, got ${JSON.stringify(blocked.codes)}`)
+  assert.ok(blocked.laws.includes('auth.human'), 'the human-authored decision stays in force')
+  assert.ok(blocked.laws.includes('api.x'), 'and so does the one a human ratified')
+
+  // Control: a human-authored superseder retires the human target.
+  const byHuman = makeProject({
+    name: 'supersede-consent-human',
+    zones,
+    adrs: {
+      '0001-human.adr.md': adrText({ id: '0001', zones: ['auth'], laws: [{ id: 'auth.human', statement: 'Human law.', checks: [] }] }),
+      '0031-human-supersede.adr.md': adrText({
+        id: '0031',
+        status: 'active',
+        authority: 'human',
+        zones: ['tests'],
+        supersedes: ['0001'],
+        laws: [{ id: 'tests.c', statement: 'Human replacement.', checks: [] }],
+      }),
+    },
+  })
+  const humanResult = compile(byHuman)
+  assert.ok(!humanResult.laws.includes('auth.human'), 'a human may retire a human decision')
+  assert.ok(humanResult.laws.includes('tests.c'))
+
+  // Control: a human-RATIFIED superseder retires the human target too.
+  const ratifiedSuperseder = adrText({
+    id: '0041',
+    status: 'proposed',
+    authority: 'agent',
+    zones: ['api'],
+    supersedes: ['0001'],
+    laws: [{ id: 'api.y', statement: 'Ratified replacement.', checks: [] }],
+  })
+  const byRatified = makeProject({
+    name: 'supersede-consent-ratified',
+    zones,
+    adrs: {
+      '0001-human.adr.md': adrText({ id: '0001', zones: ['auth'], laws: [{ id: 'auth.human', statement: 'Human law.', checks: [] }] }),
+      '0041-agent-supersede.adr.md': ratifiedSuperseder,
+      '0042-approve.adr.md': approvalText({ id: '0042', approved: [{ id: '0041', text: ratifiedSuperseder }] }),
+    },
+  })
+  const ratifiedResult = compile(byRatified)
+  assert.ok(!ratifiedResult.laws.includes('auth.human'), 'a human consent authorises the supersession it ratifies')
+  assert.ok(ratifiedResult.laws.includes('api.y'))
+})
+
+test('schema: a zone id outside [A-Za-z0-9_-] is ZONE_INVALID because it names a spec file', () => {
+  // Counterexample: `auth.v1` and `auth-v1` both slug to `auth-v1.spec.md`, so one generated
+  // spec file silently replaced the other and a zone's laws vanished from it. Every accepted id
+  // equals its own slug now, and `auth.v1` is refused rather than compiled to a colliding file.
+  const dotted = makeProject({
+    name: 'zone-dotted-id',
+    zones: [{ id: 'auth.v1', paths: ['src/auth/**'], agentAuthority: 'humanOnly' }],
+    adrs: {
+      '0001-a.adr.md': adrText({ id: '0001', zones: ['auth.v1'], laws: [{ id: 'auth.x', statement: 'X.', checks: [] }] }),
+    },
+  })
+  const dottedResult = compile(dotted)
+  assert.ok(
+    dottedResult.codes.includes('ZONE_INVALID'),
+    `a dotted zone id must be refused, got ${JSON.stringify(dottedResult.codes)}`,
+  )
+
+  // Control: the slug it would have collided with is accepted.
+  const dashed = makeProject({
+    name: 'zone-dashed-id',
+    zones: [{ id: 'auth-v1', paths: ['src/auth/**'], agentAuthority: 'humanOnly' }],
+    adrs: {
+      '0001-a.adr.md': adrText({ id: '0001', zones: ['auth-v1'], laws: [{ id: 'auth.x', statement: 'X.', checks: [] }] }),
+    },
+  })
+  const dashedResult = compile(dashed)
+  assert.ok(!dashedResult.codes.includes('ZONE_INVALID'), `auth-v1 is accepted, got ${JSON.stringify(dashedResult.codes)}`)
+  assert.deepEqual(dashedResult.laws, ['auth.x'])
+})
+
+test('compiler: zone overlap detection sees a whole-repo ** and a mid-path wildcard', () => {
+  // Counterexample: the old prefix comparison reduced `**` to `**` and `src/auth/**` to
+  // `src/auth`, neither a prefix of the other — and `src/**` versus `**/auth/**` likewise —
+  // so two zones with different authority overlapped and the manifest parsed clean.
+  const overlapping = [
+    { name: 'zone-overlap-whole', paths: [['**'], ['src/auth/**']] },
+    { name: 'zone-overlap-mid', paths: [['src/**'], ['**/auth/**']] },
+  ]
+  for (const { name, paths } of overlapping) {
+    const root = makeProject({
+      name,
+      zones: [
+        { id: 'a', paths: paths[0], agentAuthority: 'proposeOnly' },
+        { id: 'b', paths: paths[1], agentAuthority: 'humanOnly' },
+      ],
+      adrs: { '0001-a.adr.md': adrText({ id: '0001', zones: ['a'], laws: [{ id: 'a.x', statement: 'X.', checks: [] }] }) },
+    })
+    assert.ok(
+      compile(root).codes.includes('ZONE_OVERLAP'),
+      `${name}: ${JSON.stringify(paths)} must be reported as an overlap`,
+    )
+  }
+
+  // Control: genuinely disjoint paths report nothing.
+  const disjoint = makeProject({
+    name: 'zone-disjoint',
+    zones: [
+      { id: 'a', paths: ['src/a/**'], agentAuthority: 'proposeOnly' },
+      { id: 'b', paths: ['lib/b/**'], agentAuthority: 'humanOnly' },
+    ],
+    adrs: { '0001-a.adr.md': adrText({ id: '0001', zones: ['a'], laws: [{ id: 'a.x', statement: 'X.', checks: [] }] }) },
+  })
+  assert.ok(
+    !compile(disjoint).codes.includes('ZONE_OVERLAP'),
+    'src/a/** and lib/b/** cannot cover a common path',
+  )
+})
+
+test('schema: a zone path with a trailing slash governs its subtree', async () => {
+  // Counterexample: `src/auth/` fell through the no-wildcard branch as the literal string
+  // `src/auth/`, which matched neither `src/auth` nor `src/auth/x.ts`, so the zone governed
+  // NOTHING while the manifest parsed clean — and a law whose target was there compiled anyway.
+  assert.equal(schema.zonePathCovers('src/auth/', 'src/auth/x.ts'), true, 'the slash is decoration')
+
+  const root = makeProject({
+    name: 'zone-trailing-slash',
+    zones: [{ id: 'auth', paths: ['src/auth/'], agentAuthority: 'humanOnly', requiresDecisionRecord: true }],
+    files: { 'src/auth/x.ts': 'redis\n' },
+    adrs: {
+      '0001-a.adr.md': adrText({
+        id: '0001',
+        zones: ['auth'],
+        laws: [
+          {
+            id: 'auth.redis',
+            statement: 'Use redis.',
+            checks: [{ type: 'required_text', paths: ['src/auth/x.ts'], pattern: 'redis' }],
+          },
+        ],
+      }),
+    },
+  })
+  const manifestRead = compiler.readManifest(root)
+  assert.deepEqual(manifestRead.problems, [], 'the trailing slash is a legal zone path')
+  assert.equal(schema.zoneFor('src/auth/x.ts', manifestRead.config.zones)?.id, 'auth', 'the file is placed in the zone')
+
+  const compiled = compiler.compileProject(root)
+  assert.equal(
+    compiled.ok,
+    true,
+    `the law's target there must be covered: ${JSON.stringify(compiled.problems.map((entry) => entry.code))}`,
+  )
+  const verified = await verifier.verifyProject({
+    root,
+    bundle: compiled.bundle,
+    config: manifestRead.config,
+    manifest: manifestRead.config,
+    runCommand: null,
+  })
+  assert.deepEqual(verified.problems, [], `the target must verify: ${JSON.stringify(verified.problems.map((entry) => entry.code))}`)
+})
+
+test('compiler: a law declared by two active records in two zones is ONE law bound to both', () => {
+  // Counterexample: only the first record's zones survived the merge, so a contradicted law
+  // in force in two zones blocked only one of them — a write in the second went through while
+  // the law's own statement claimed to govern both.
+  const root = makeProject({
+    name: 'law-bound-to-two-zones',
+    zones: [
+      { id: 'auth', paths: ['src/auth/**'], agentAuthority: 'humanOnly' },
+      { id: 'api', paths: ['src/api/**'], agentAuthority: 'humanOnly' },
+    ],
+    adrs: {
+      '0001-a.adr.md': adrText({ id: '0001', zones: ['auth'], laws: [{ id: 'shared.law', statement: 'One rule.', checks: [] }] }),
+      '0002-b.adr.md': adrText({ id: '0002', zones: ['api'], laws: [{ id: 'shared.law', statement: 'One rule.', checks: [] }] }),
+    },
+  })
+  const compiled = compiler.compileProject(root)
+  assert.equal(compiled.ok, true, `codes=${JSON.stringify(compiled.problems.map((entry) => entry.code))}`)
+  const law = compiled.bundle.laws.find((entry) => entry.id === 'shared.law')
+  assert.ok(law !== undefined, 'the shared law is compiled once')
+  assert.deepEqual([...law.zones].sort(), ['api', 'auth'], 'the merge unions the zones both records named')
+
+  const zones = contradictionModule.blockedZones(
+    [{ entry: { findings: [{ severity: 'error', kind: 'semantic_violation', lawId: 'shared.law', explanation: 'x' }] } }],
+    { active: [], proposed: [], laws: compiled.bundle.laws },
+  )
+  assert.deepEqual([...zones].sort(), ['api', 'auth'], 'a finding against it blocks BOTH zones, not the first declarer')
+})
+
+test('ratify: a caller-composed quiz is refused, while an answer to the real quiz is read as stale', () => {
+  // Counterexample: `ratify` accepted any object with a `roles` map and a `frozen` entry whose
+  // content hash was null skipped the stale check, so a caller-composed quiz with an empty
+  // frozen list minted a real approval with no question ever asked. The supplied quiz must now
+  // match the one this ratchet builds — its targets, its labels, and a frozen hash per record.
+  // The complete composition FIRST (`questions: []`), so a revert that removed only the shape
+  // check reaches the WRITE — it mints an approval — instead of crashing later while rendering
+  // the transcript of a quiz that has none. It must mint nothing, and no approval file may appear.
+  const complete = ratifiableProject('foreign-quiz-complete')
+  const refusedComplete = ops.ratify({
+    root: complete.root,
+    answer: { answers: [{ id: 'ratify-0011', selected: ['Approve'] }] },
+    quiz: {
+      attempt: 1,
+      questions: [],
+      roles: { 'ratify-0011': { adrId: '0011', approveLabel: 'Approve', rejectLabel: 'Reject' } },
+      frozen: [],
+    },
+    at: '2026-09-14T09:00:00Z',
+  })
+  assert.equal(refusedComplete.ok, false, 'a complete caller-composed quiz mints nothing either')
+  assert.ok(
+    refusedComplete.problems.some((entry) => entry.code === 'RATIFICATION_UNPROVEN'),
+    `expected RATIFICATION_UNPROVEN for the complete quiz, got ${JSON.stringify(refusedComplete.problems.map((entry) => entry.code))}`,
+  )
+  assert.equal(readdirSync(join(complete.root, 'docs', 'adrs')).length, 1, 'and no approval file was written')
+
+  // And the exact composition the finding was reproduced with, which lacks `questions` entirely.
+  const composed = ratifiableProject('foreign-quiz')
+  const refused = ops.ratify({
+    root: composed.root,
+    answer: { answers: [{ id: 'ratify-0011', selected: ['Approve'] }] },
+    quiz: { roles: { 'ratify-0011': { adrId: '0011', approveLabel: 'Approve', rejectLabel: 'Reject' } }, frozen: [] },
+    at: '2026-09-14T09:00:00Z',
+  })
+  assert.equal(refused.ok, false, 'a question the ratchet never built mints nothing')
+  assert.ok(
+    refused.problems.some((entry) => entry.code === 'RATIFICATION_UNPROVEN'),
+    `expected RATIFICATION_UNPROVEN, got ${JSON.stringify(refused.problems.map((entry) => entry.code))}`,
+  )
+  assert.equal(readdirSync(join(composed.root, 'docs', 'adrs')).length, 1, 'no approval file was written')
+
+  // Control A: the quiz buildQuiz produces does mint, and the law enters force.
+  const genuine = ratifiableProject('genuine-quiz')
+  const prepared = ops.ratify({ root: genuine.root })
+  const minted = ops.ratify({
+    root: genuine.root,
+    answer: answerWith(prepared.quiz, ['Approve']),
+    quiz: prepared.quiz,
+    at: '2026-09-14T09:00:00Z',
+  })
+  assert.deepEqual(minted.ratified, ['0011'], `the real quiz mints, got ${JSON.stringify(minted.problems.map((entry) => entry.code))}`)
+  assert.deepEqual(compile(genuine.root).laws, ['api.x'], 'and the law is in force')
+
+  // Control B: the record edited while the question was open, answered with the ORIGINAL quiz,
+  // is answered by the STALE check — not by the foreign-quiz shape check.
+  const edited = ratifiableProject('stale-not-foreign')
+  const open = ops.ratify({ root: edited.root })
+  const path = join(edited.root, 'docs', 'adrs', '0011-agent.adr.md')
+  writeFileSync(path, readFileSync(path, 'utf8').replace('Agent law.', 'A law the human never read.'))
+  const stale = ops.ratify({
+    root: edited.root,
+    answer: answerWith(open.quiz, ['Approve']),
+    quiz: open.quiz,
+    at: '2026-09-14T09:00:00Z',
+  })
+  assert.ok(
+    stale.problems.some((entry) => entry.code === 'RATIFICATION_STALE'),
+    `expected RATIFICATION_STALE, got ${JSON.stringify(stale.problems.map((entry) => entry.code))}`,
+  )
+  assert.ok(
+    !stale.problems.some((entry) => entry.code === 'RATIFICATION_UNPROVEN'),
+    'the original quiz is this ratchet\'s own question, so the stale check answers, not the shape check',
+  )
+})
+
+test('state: verificationStatus reads the append-only ledger, not the editable state cache', async () => {
+  // Counterexample: `state.json` is mutable, and a hand-edit of `lastVerify` made `status`
+  // report a verified-clean project while `verify` on the same tree exited 1. The ledger is
+  // append-only, so its `ratchet.verify.finish` event is the authority; the cache is the
+  // fallback only for a history that predates the event.
+  const root = makeProject({
+    name: 'verify-ledger-authority',
+    files: { 'src/auth/session.ts': 'redis\n' },
+    adrs: {
+      '0001-a.adr.md': adrText({
+        id: '0001',
+        sourceHash: schema.hashSource(SOURCE_TEXT),
+        zones: ['auth'],
+        laws: [
+          {
+            id: 'a.one',
+            statement: 'One.',
+            checks: [{ type: 'required_text', paths: ['src/auth/**'], pattern: 'redis' }],
+          },
+        ],
+      }),
+    },
+  })
+  const verified = await ops.verify({ root })
+  assert.equal(verified.ok, true, `codes=${JSON.stringify(verified.problems.map((entry) => entry.code))}`)
+  const finish = state.readLedger(root).events.filter((event) => event.event === 'ratchet.verify.finish').at(-1)
+  assert.ok(finish !== undefined, 'the run recorded a verify.finish event')
+
+  // Hand-edit the cache to claim a different, false verdict.
+  const cachePath = join(root, state.STATE_PATHS.state)
+  const cache = JSON.parse(readFileSync(cachePath, 'utf8'))
+  cache.lastVerify = { ...cache.lastVerify, specHash: `sha256:${'0'.repeat(64)}`, checksEvaluated: 0, ok: false }
+  writeFileSync(cachePath, `${JSON.stringify(cache, null, 2)}\n`)
+
+  const after = ops.status(root)
+  assert.equal(after.verified.ran, true, 'the ledger verdict is the authority, not the edited cache')
+  assert.equal(after.verified.last.specHash, finish.specHash, 'and the reported verdict is the one the ledger recorded')
+  assert.notEqual(after.verified.last.specHash, cache.lastVerify.specHash, 'the false hash in the cache is ignored')
 })

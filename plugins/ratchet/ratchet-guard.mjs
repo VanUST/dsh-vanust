@@ -55,6 +55,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:pat
 import { MANIFEST_PATH, zoneFor } from './ratchet-schema.mjs'
 import { compileLaws, readAdrCorpus, readManifest, resolveActiveSet } from './ratchet-compiler.mjs'
 import { CONTRADICTION_PATH, blockedZones, standingContradictions } from './ratchet-contradiction.mjs'
+import { STATE_PATHS } from './ratchet-state.mjs'
 
 /**
  * Tool names whose arguments name a path they are about to change.
@@ -94,7 +95,7 @@ const PATH_ARGUMENTS = Object.freeze(['file_path', 'path', 'filePath', 'filename
  * @returns `{ governed, reason }`. `reason` is a short phrase for the allow
  *   decision, so the guard's behaviour is explainable rather than merely permissive.
  */
-export function governanceOf(path, config) {
+export function reviewInfrastructureExemption(path, config) {
   // `./docs/adrs` and `docs/adrs` are the same directory, and only the decoder knew: a `./`-prefixed
   // `decisionsDir` defeated the exemption below, so the guard refused the very ADR write that
   // satisfies the rule — with a denial that both prescribed creating the record and ended by saying
@@ -107,25 +108,38 @@ export function governanceOf(path, config) {
   const reportsDir = cleanDir(config?.reportsDir, 'reports/ratchet')
   const specsDir = cleanDir(config?.specsDir, 'docs/specs')
 
-  if (path === MANIFEST_PATH) return { governed: false, reason: 'the manifest itself is how a project opts in' }
+  if (path === MANIFEST_PATH) return 'the manifest itself is how a project opts in'
   if (path.startsWith(`${decisionsDir}/`) || path === decisionsDir) {
-    return { governed: false, reason: 'the decisions directory is where the record is written' }
+    return 'the decisions directory is where the record is written'
   }
   if (path.startsWith(`${sourcesDir}/`) || path === sourcesDir) {
-    return { governed: false, reason: 'the sources directory holds the reasoning a record cites' }
+    return 'the sources directory holds the reasoning a record cites'
   }
   if (path.startsWith(`${stateDir}/`) || path === stateDir) {
-    return { governed: false, reason: 'ratchet state is machine-written' }
+    return 'ratchet state is machine-written'
   }
   if (path.startsWith(`${reportsDir}/`) || path === reportsDir) {
-    return { governed: false, reason: 'ratchet reports are machine-written' }
+    return 'ratchet reports are machine-written'
   }
   if (path.startsWith(`${specsDir}/`) || path === specsDir) {
-    return { governed: false, reason: 'generated spec documents are produced by compile' }
+    return 'generated spec documents are produced by compile'
   }
   if (path.startsWith('.dsh/')) {
-    return { governed: false, reason: 'harness configuration is not architecture' }
+    return 'harness configuration is not architecture'
   }
+  return null
+}
+
+/**
+ * Places a path under the manifest's policy.
+ *
+ * @param path - Repository-relative path.
+ * @param config - Parsed ratchet config.
+ * @returns `{ governed, reason, zone? }`.
+ */
+export function governanceOf(path, config) {
+  const exempt = reviewInfrastructureExemption(path, config)
+  if (exempt !== null) return { governed: false, reason: exempt }
 
   const zone = zoneFor(path, config?.zones ?? [])
   if (zone === null) return { governed: false, reason: 'the path belongs to no declared zone' }
@@ -495,7 +509,7 @@ export function createGuard({ root }) {
     const manifest = readManifest(root)
     const decisionsDir = manifest.config?.decisionsDir ?? 'docs/adrs'
     const policy = manifest.config === null || manifest.config === undefined ? 'none' : JSON.stringify(manifest.config)
-    const signature = `${policy}|${decisionsDir}:${signatureOf(decisionsDir)}|${CONTRADICTION_PATH}:${fileSignature(CONTRADICTION_PATH)}`
+    const signature = `${policy}|${decisionsDir}:${signatureOf(decisionsDir)}|${CONTRADICTION_PATH}:${fileSignature(CONTRADICTION_PATH)}|${STATE_PATHS.ledger}:${fileSignature(STATE_PATHS.ledger)}`
     if (cache !== null && cachedSignature === signature) return cache
     cache = loadDecisionState(root)
     cachedSignature = signature
@@ -518,9 +532,17 @@ export function createGuard({ root }) {
 
       // A judge's contradiction is checked FIRST, before the inert answer and before the zone
       // rule, and it is resolved by the same `zoneFor` that places a file — so a path the zone
-      // table does not cover cannot dodge it.
+      // table does not cover cannot dodge it. The review infrastructure is exempt, though: the
+      // record, its cited source, the manifest and the machine-written state are where the
+      // documented way OUT of a block lives (edit the proposal, or ask a human). Refusing them
+      // deadlocked the loop — a block whose only cure is an edit the guard will not let through.
       const contradiction = state.contradiction
-      if (contradiction !== null && contradiction !== undefined && contradiction.zones.size > 0) {
+      if (
+        contradiction !== null &&
+        contradiction !== undefined &&
+        contradiction.zones.size > 0 &&
+        reviewInfrastructureExemption(path, state.config) === null
+      ) {
         const judgedZone = zoneFor(path, state.config?.zones ?? [])
         if (judgedZone !== null && contradiction.zones.has(judgedZone.id)) {
           try {

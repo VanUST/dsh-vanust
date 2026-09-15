@@ -726,3 +726,108 @@ test('guard: a malformed contradiction record never throws and never lifts a sta
     )
   }
 })
+
+test('guard: a judge-classified contradiction leaves the way out writable', () => {
+  // Counterexample: the contradiction check runs FIRST and resolves a path by `zoneFor`, so a
+  // zone broad enough to cover the decisions or sources directory refused the very record that
+  // could resolve the block. The documented ways out — edit the proposal, or ask a human — were
+  // deadlocked: the block's only cure was an edit the guard would not let through.
+  const root = project('judged-exit')
+  setZonePolicy(root, 'api', { requiresDecisionRecord: false, paths: ['src/api/**', 'docs/**'] })
+  writeAdr(root, {
+    status: 'active',
+    authority: 'human',
+    zone: 'api',
+    id: '0001',
+    lawId: 'api.sessions.redis',
+    statement: 'Session storage must use Redis.',
+  })
+  writeAdr(root, {
+    status: 'proposed',
+    authority: 'agent',
+    zone: 'api',
+    id: '0002',
+    lawId: 'api.sessions.redis',
+    statement: 'Session storage must use Redis.',
+  })
+  const manifest = compilerModule.readManifest(root)
+  const corpus = compilerModule.readAdrCorpus(root, manifest.config)
+  const proposal = corpus.records.find((record) => record.id === '0002')
+  contradictionModule.recordContradiction(root, {
+    target: { kind: 'proposal', id: '0002', hash: proposal.contentHash },
+    job: 'review_proposal',
+    findings: [
+      {
+        severity: 'error',
+        kind: 'semantic_violation',
+        lawId: 'api.sessions.redis',
+        sourceAdr: '0001',
+        explanation: 'a file-backed adapter inverts the decision',
+        suggestedAction: 'keep the Redis adapter',
+      },
+    ],
+  })
+
+  const guard = guardModule.createGuard({ root })
+  assert.ok(
+    call(guard, 'write', { file_path: 'src/api/handler.ts' }).startsWith('DENIED:'),
+    'the governed zone itself is still refused',
+  )
+  assert.equal(call(guard, 'write', { file_path: 'docs/adrs/0002-edited.adr.md' }), 'ALLOWED', 'the record is where the cure is written')
+  assert.equal(call(guard, 'write', { file_path: 'docs/ratchet/sources/x.md' }), 'ALLOWED', 'and so is the reasoning it cites')
+})
+
+test('guard: deleting the contradiction JSON does not lift the block, but clearing it does', () => {
+  // Counterexample: the JSON file was the only record, so `rm .dsh/ratchet/contradiction.json`
+  // lifted a block a judge had just recorded. The ledger event is the durable copy now; only the
+  // ratchet's own clear retires it.
+  const root = project('contradiction-ledger')
+  setZonePolicy(root, 'api', { requiresDecisionRecord: false })
+  writeAdr(root, {
+    status: 'active',
+    authority: 'human',
+    zone: 'api',
+    id: '0001',
+    lawId: 'api.sessions.redis',
+    statement: 'Session storage must use Redis.',
+  })
+  writeAdr(root, {
+    status: 'proposed',
+    authority: 'agent',
+    zone: 'api',
+    id: '0002',
+    lawId: 'api.sessions.redis',
+    statement: 'Session storage must use Redis.',
+  })
+  const manifest = compilerModule.readManifest(root)
+  const corpus = compilerModule.readAdrCorpus(root, manifest.config)
+  const proposal = corpus.records.find((record) => record.id === '0002')
+  const target = { kind: 'proposal', id: '0002', hash: proposal.contentHash }
+  contradictionModule.recordContradiction(root, {
+    target,
+    job: 'review_proposal',
+    findings: [
+      {
+        severity: 'error',
+        kind: 'semantic_violation',
+        lawId: 'api.sessions.redis',
+        sourceAdr: '0001',
+        explanation: 'a file-backed adapter inverts the decision',
+      },
+    ],
+  })
+
+  const guard = guardModule.createGuard({ root })
+  assert.ok(call(guard, 'write', { file_path: 'src/api/handler.ts' }).startsWith('DENIED:'), 'the block stands as recorded')
+
+  // Deleting the cache must not lift it: the ledger still folds to the recorded entry.
+  rmSync(join(root, '.dsh', 'ratchet', 'contradiction.json'), { force: true })
+  assert.ok(
+    call(guard, 'write', { file_path: 'src/api/handler.ts' }).startsWith('DENIED:'),
+    'the block survives deleting the JSON cache',
+  )
+
+  // Clearing it through the ratchet appends a `cleared` event and is the only thing that lifts it.
+  assert.equal(contradictionModule.clearContradiction(root, target), true, 'the clear is recorded')
+  assert.equal(call(guard, 'write', { file_path: 'src/api/handler.ts' }), 'ALLOWED', 'and the guard sees it')
+})
