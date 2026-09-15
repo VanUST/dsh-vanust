@@ -1,22 +1,22 @@
 {
   "version": 1,
   "lastVerify": {
-    "at": "2026-09-15T12:04:19.905Z",
+    "at": "2026-09-15T12:15:45.113Z",
     "ok": true,
     "specHash": "sha256:52cfe0d2c12c2d82878d2fa8b1ff8e8d0a75b31f3e07b2b208d091cf01fc4be0",
-    "codeHash": "sha256:a0a4d8ab3fb1e8216bce3b7d5d6c07602e80020e795dc01054f2d39b20156eb3",
+    "codeHash": "sha256:328325ede4afae661a5f3eac4312066895174f23edd708215a4c2c2b4ef59cc4",
     "configHash": "sha256:ada8d4a5edf4c1ec563caad6d2b239cbe26704963d6449811d55f3ef9b5874f7",
-    "toolVersion": "0.2.27",
-    "vcsRevision": "cbdfb015261c",
+    "toolVersion": "0.2.28",
+    "vcsRevision": "43c5b21ef5d7",
     "errors": 0,
     "filesWalked": 125,
     "checksEvaluated": 24
   },
   "lastGoodVerify": {
-    "at": "2026-09-15T12:04:19.905Z",
+    "at": "2026-09-15T12:15:45.113Z",
     "specHash": "sha256:52cfe0d2c12c2d82878d2fa8b1ff8e8d0a75b31f3e07b2b208d091cf01fc4be0",
-    "codeHash": "sha256:a0a4d8ab3fb1e8216bce3b7d5d6c07602e80020e795dc01054f2d39b20156eb3",
+    "codeHash": "sha256:328325ede4afae661a5f3eac4312066895174f23edd708215a4c2c2b4ef59cc4",
     "configHash": "sha256:ada8d4a5edf4c1ec563caad6d2b239cbe26704963d6449811d55f3ef9b5874f7"
   },
-  "toolVersion": "0.2.27"
+  "toolVersion": "0.2.28"
 }

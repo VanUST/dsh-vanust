@@ -187,26 +187,42 @@ allows** — "an intent changes the layout, never which answers are reachable"
 (`dsh-client-ui-user-questions/lib/client.js`, `planReviewOf`). A ratify question is a
 binary single choice over one record, so two buttons express every answer it has.
 
-**Read, not yet measured (the presenting half).** A client plugin can claim the composer
-seat, and there is a shipped precedent, but this is a source reading with citations and not
-an executed fact:
+**Measured by execution (the presenting half, 2026-09-15).** The composer seat's election
+runs off-browser, because the harness checkout carries the pure slot core as TypeScript with
+no runtime dependencies and Node 24 strips types by default:
 
-- the seat is a **chain**: `dsh-client-ui-conversation/lib/client.js:14932` renders
-  `conversation.composer` with `renderSlotChain`;
-- the election is the first entry whose `select()` returns non-null
-  (`dsh-client-ui-renderer/lib/client.js:828-849`, a throwing selector counts as declining);
-- `dsh-client-ui-user-questions/lib/client.js:874-879` owns the seat today with a `select`
-  over its own `PendingQuestion` and no `priority`;
-- `dsh-client-ui-approval/lib/client.js:265-282` is a **second claimant of the same seat**,
-  at `priority: 1`, with its own `select` and its own pending-interaction domain — which is
-  the pattern the panel would follow.
+```
+node -e "const {SlotCore}=await import(process.env.HOME+'/deepseek-harness/packages/client/ui-slots/src/index.ts'); \
+  const c=new SlotCore(); c.record('conversation.composer').spec={kind:'chain',scope:'root'}; \
+  c.register({name:'conversation.composer',priority:0,select:o=>o.pendingInteraction??null,registrant:'owner'},null); \
+  c.register({name:'conversation.composer',priority:1,select:()=>'claim',registrant:'claimant'},null); \
+  console.log(c.entriesOfSlot('conversation.composer').map(e=>e.registrant+'@'+(e.options.priority??0)).join(' -> '))"
+# owner@0 -> claimant@1
+```
 
-Three consequences are what still need running, and they are the implementation's first
-task: that a third-party bundle's `select` is reached at all, that claiming the seat
-suppresses the generic flow rather than duplicating it, and that the claimed interaction
-exposes an `answer` the panel can call with the same batch shape the generic flow sends.
-The panel must also recognise the question **structurally** (`questions[0].intent`) because
-`PendingQuestion` is not exported and a third-party bundle cannot use `instanceof`.
+| Fact | Evidence |
+|---|---|
+| Order is **ASCENDING `priority`; lower tries first; ties keep registration order** | `.../packages/client/ui-slots/src/index.ts`, the `ChainSelect` doc and `register`'s `next.sort(spec.kind === 'list' ? … : (a, b) => (a.options.priority ?? 0) - (b.options.priority ?? 0))`; `entriesOfSlot` returns that order for a chain (`if (kind === 'chain') return rec.entries`). The identical comparator is in the INSTALLED bundle: `dsh-web-frontend/dist/assets/index-DuF6ti6g.js`, `p.sort(…(m,g)=>(m.options.priority??0)-(g.options.priority??0))` |
+| A claim at a priority the owner also occupies, or above it, is **never reached** | the run above: the owner at 0 is tried before the claimant at 1 |
+| The owner claims EVERY pending question, so any other claimant must sort BELOW it | `dsh-client-ui-user-questions/lib/client.js:873-878`: `select: ({pendingInteraction}) => pendingInteraction instanceof PendingQuestion ? pendingInteraction : null`, registering no priority (so 0) |
+| `dsh-client-ui-approval` at `priority: 1` works **only because it is disjoint** | its `select` matches `PendingApproval`, which is not a `PendingQuestion`, so the owner declines it first (`dsh-client-ui-approval/lib/client.js:265-282`) |
+
+**This measurement corrected the design.** The panel first registered at `priority: 1` — the
+approval entry's value — on a reading that said the chain tried entries "in registration
+order". Driving the real core showed `user-questions@0` elected over `adr-panel@1` for a
+ratify question, so the claim was dead code and the chat quiz the change existed to replace
+would still have rendered, with every structural assertion still passing. The panel now
+registers at **-1**, and `scripts/test-adr-panel.mjs` pins both directions: the panel is
+elected for the ratchet's real question, the owner is elected for a question the panel
+declines, and a claim at 1 is measured to lose. That check needs a harness checkout for the
+core source and is a `[SKIP]` naming the reason without one; the always-on half is that the
+declared priority is negative.
+
+The remaining consequence that still needs a browser: that the claimed interaction's
+`answer` round-trips through the live Remote to the waiting host. The batch shape is
+measured (`{ answers: [{ id, selected: [label] }] }`), the ratchet's reader is measured, and
+the panel's click is measured against a real pending object; what no off-browser run
+exercises is the transport between them.
 
 **Settled afterwards (2026-09-15), by a decision rather than by the probe.** The panel
 does NOT put the question in the Conversation. An agent's decision is answered in the

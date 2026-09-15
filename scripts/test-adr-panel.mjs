@@ -231,7 +231,7 @@ claim('the factory exports an apply', typeof bundle.apply === 'function', `apply
 // against the bundle: here the point is that the whole render is watched, so "it reads and
 // does nothing else" is measured rather than asserted from the source text.
 const fileCalls = []
-const fileApi = {
+const fileSurface = {
   list(_sessionId, directory) {
     fileCalls.push('list')
     try {
@@ -255,6 +255,21 @@ const fileApi = {
     }
   },
 }
+
+// A Proxy, not the bare object: the claim under test is "the whole render calls nothing
+// but list and read", and against a stub that defines only those two an extra call is a
+// TypeError the bundle swallows — so `stat`, `readAll` or `write` would execute and never
+// appear in the record. Every unlisted member is now reachable, records itself, and is
+// reported, which is what makes the claim about the CALLS rather than about the stub.
+const fileApi = new Proxy(fileSurface, {
+  get(target, prop) {
+    if (typeof prop === 'symbol' || prop in target) return target[prop]
+    return () => {
+      fileCalls.push(String(prop))
+      return Promise.resolve({ ok: false, error: { message: `the panel reached an unexposed workspace-files method: ${String(prop)}` } })
+    }
+  },
+})
 
 // ── apply the bundle and capture its registrations ──────────────────────────
 const registry = {}
@@ -644,10 +659,17 @@ const { buildQuiz, deriveDecisions, RATIFY_INTENT_KIND } = ratifySource
 
 const composerRegistration = registry['conversation.composer']
 claim(
-  'apply claims the composer seat, ahead of the generic question card',
+  'apply claims the composer seat BELOW the entry that claims every question',
   composerRegistration !== undefined &&
     typeof composerRegistration.config.select === 'function' &&
-    composerRegistration.config.priority > 0,
+    // The chain is tried in ASCENDING priority, lower first, and the entry that owns the
+    // seat claims every pending question at the default 0. So a claim at 0 or above is
+    // never reached: it parses, its `select` is correct, and it is dead code. That is not
+    // hypothetical — this assertion read `> 0` while the bundle registered at 1, and
+    // driving the real SlotCore showed `user-questions@0` elected over `adr-panel@1` for a
+    // ratify question, so the chat quiz the operator had asked to replace was still the
+    // thing that rendered.
+    composerRegistration.config.priority < 0,
   composerRegistration === undefined
     ? 'no registration'
     : JSON.stringify({ priority: composerRegistration.config.priority, select: typeof composerRegistration.config.select }),
@@ -669,6 +691,11 @@ const quiz = buildQuiz(
   { attempt: 1 },
 )
 const ratifyQuestion = quiz.questions[0]
+// Never `options[0]`/`options[1]`: the panel keys approve on `intent.approve`, so the
+// ratchet is free to order the two options either way and a test that assumed the order
+// would fail on a behaviour-preserving change while passing on a real defect.
+const approveLabel = ratifyQuestion.intent.approve
+const declineLabel = ratifyQuestion.options.find((option) => option.label !== approveLabel).label
 const answerCalls = []
 const cancellations = []
 const pendingRatify = {
@@ -707,7 +734,7 @@ const refused = [
   ['a lost detail', { pendingInteraction: { ...pendingRatify, questions: variantQuestions().map(({ detail, ...rest }) => rest) } }],
   ['a multi-select', { pendingInteraction: { ...pendingRatify, questions: variantQuestions().map((item) => ({ ...item, multiSelect: true })) } }],
   ['a third option', { pendingInteraction: { ...pendingRatify, questions: variantQuestions().map((item) => ({ ...item, options: [...item.options, { label: 'Maybe', description: '' }] })) } }],
-  ['a renamed approve label', { pendingInteraction: { ...pendingRatify, questions: variantQuestions().map((item) => ({ ...item, options: [{ label: 'Yes please', description: '' }, item.options[1]] })) } }],
+  ['a renamed approve label', { pendingInteraction: { ...pendingRatify, questions: variantQuestions().map((item) => ({ ...item, options: item.options.map((option) => ({ ...option, label: option.label === item.intent.approve ? 'Yes please' : option.label })) })) } }],
   ['no callable answer', { pendingInteraction: { questions: variantQuestions() } }],
 ]
 const wronglyAccepted = refused.filter(([, props]) => select(props) !== null).map(([name]) => name)
@@ -721,6 +748,89 @@ claim(
   refused.length >= 9,
   `${refused.length} shapes`,
 )
+
+// ── the seat is actually won, driven through the real slot core ─────────────
+//
+// The assertion above is an inequality against a constant, and an inequality is not an
+// election: it is a claim about a rule the kit does not own. Where the harness's slot core
+// can be found, the real thing runs — the panel's own captured `priority` and `select`
+// against a synthetic entry that claims every question the way the seat's owner does — and
+// the winner is read off the real `entriesOfSlot` order. Without the checkout this is a
+// `[SKIP]` with the reason, never a silent pass.
+function findSlotCore() {
+  const candidates = [
+    process.env.HARNESS_DIR === undefined ? null : join(process.env.HARNESS_DIR, 'packages', 'client', 'ui-slots', 'src', 'index.ts'),
+    join(homedir(), 'deepseek-harness', 'packages', 'client', 'ui-slots', 'src', 'index.ts'),
+  ].filter((entry) => entry !== null)
+  return candidates.find((entry) => existsSync(entry)) ?? null
+}
+
+const slotCoreSource = findSlotCore()
+if (slotCoreSource === null) {
+  process.stdout.write(
+    '  [SKIP] the panel wins the composer seat in a real election — no ui-slots source found; set HARNESS_DIR to a harness checkout\n',
+  )
+} else {
+  try {
+    const { SlotCore } = await import(pathToFileURL(slotCoreSource).href)
+    const ownerEntry = (owner) => (owner.pendingInteraction === undefined ? null : owner.pendingInteraction)
+    const race = (panelPriority) => {
+      const core = new SlotCore()
+      core.record('conversation.composer').spec = { kind: 'chain', scope: 'root' }
+      // The seat's owner, as it really registers: no priority (so 0), claims everything.
+      core.register({ name: 'conversation.composer', priority: 0, select: ownerEntry, registrant: 'owner-entry' }, null)
+      core.register(
+        {
+          name: 'conversation.composer',
+          priority: panelPriority,
+          select: composerRegistration.config.select,
+          registrant: 'adr-panel',
+        },
+        null,
+      )
+      return core.entriesOfSlot('conversation.composer')
+    }
+    const elect = (entries, ownerProps) => {
+      for (const entry of entries) {
+        let matched
+        try {
+          matched = entry.select(ownerProps)
+        } catch {
+          continue
+        }
+        if (matched !== null) return entry.registrant
+      }
+      return null
+    }
+    // The two interaction kinds the seat carries for these entries: the ratchet's real
+    // question, and one the panel must decline so the owner keeps the seat.
+    const withRatify = { sessionId: 's', session: {}, pendingInteraction: pendingRatify }
+    const withForeign = { sessionId: 's', session: {}, pendingInteraction: { questions: [{ id: 'q' }], answer() {} } }
+
+    const asShipped = elect(race(composerRegistration.config.priority), withRatify)
+    claim(
+      'the panel wins a real chain election for the ratchet\'s question',
+      asShipped === 'adr-panel',
+      `elected=${String(asShipped)} at priority ${composerRegistration.config.priority}`,
+    )
+    // The counterfactual, measured: the priority this bundle used to declare loses the seat
+    // to the entry that claims every question. If this ever stops being true the ordering
+    // rule has changed and the comment above the registration needs rewriting.
+    const atOne = elect(race(1), withRatify)
+    claim(
+      'a claim at priority 1 loses the seat to the entry that claims every question',
+      atOne === 'owner-entry',
+      `elected=${String(atOne)}`,
+    )
+    claim(
+      'the panel declines a question it does not recognise, leaving the seat to the owner',
+      elect(race(composerRegistration.config.priority), withForeign) === 'owner-entry',
+      `elected=${String(elect(race(composerRegistration.config.priority), withForeign))}`,
+    )
+  } catch (error) {
+    process.stdout.write(`  [SKIP] the panel wins the composer seat in a real election — could not drive ${slotCoreSource}: ${String(error)}\n`)
+  }
+}
 
 // ── the seat renders a pointer, never the question ──────────────────────────
 //
@@ -742,18 +852,36 @@ const seatNodes = nodes.slice()
 const seatTexts = seatNodes.map((node) => node.text)
 const seatButtons = seatNodes.filter((node) => node.tag === 'button')
 
+// Everything the question owns must be absent — as a SUBSTRING, on ANY host element, and
+// for a PREFIX of the record text as well as the whole of it. Stated that way because a
+// breaker defeated the earlier version, which matched whole strings on `<button>` nodes
+// only: rendering `claim.approve.label` into a plain `div`, or into an `<a onClick>` that
+// called `pending.answer(...)`, passed every assertion while putting the answer — and the
+// ability to send it — back into the Conversation. The seat is forbidden the answer, so the
+// check has to be about the answer's presence anywhere, not about the tag it arrived in.
+const forbiddenHere = [
+  ['an answer label', [approveLabel, declineLabel]],
+  ['the question', [ratifyQuestion.question]],
+  ['the record text', [ratifyQuestion.detail, ratifyQuestion.detail.slice(0, 24)]],
+]
+const leaked = []
+for (const [what, needles] of forbiddenHere) {
+  for (const needle of needles) {
+    if (typeof needle !== 'string' || needle === '') continue
+    const hit = seatNodes.find((node) => typeof node.text === 'string' && node.text.includes(needle))
+    if (hit !== undefined) leaked.push(`${what} as <${hit.tag}> ${JSON.stringify(needle.slice(0, 32))}`)
+  }
+}
 claim(
-  'the seat does not put the question or its record text in the Conversation',
-  !seatTexts.includes(ratifyQuestion.question) &&
-    !seatTexts.some((text) => text.includes(ratifyQuestion.question)) &&
-    !seatTexts.some((text) => text.includes(ratifyQuestion.detail)),
-  JSON.stringify(seatTexts.filter((text) => text !== '').slice(0, 5)),
+  'the seat puts nothing the question owns in the Conversation',
+  leaked.length === 0,
+  leaked.length === 0
+    ? `checked ${forbiddenHere.reduce((total, [, needles]) => total + needles.length, 0)} strings across ${seatNodes.length} nodes`
+    : leaked.join(' | '),
 )
 claim(
-  'the seat offers no answer button at all',
-  [ratifyQuestion.options[0].label, ratifyQuestion.options[1].label].every(
-    (label) => !seatButtons.some((node) => node.text === label),
-  ),
+  'the only action the seat offers is the pointer into the panel',
+  seatButtons.length > 0 && seatButtons.every((node) => node.text === 'Open the ADRs panel'),
   JSON.stringify(seatButtons.map((node) => node.text)),
 )
 const openButton = seatButtons.find((node) => node.text === 'Open the ADRs panel')
@@ -799,17 +927,17 @@ claim(
   approveWindow.ok &&
     nodes.map((node) => node.text).includes(ratifyQuestion.question) &&
     nodes.map((node) => node.text).includes(ratifyQuestion.detail) &&
-    [ratifyQuestion.options[0].label, ratifyQuestion.options[1].label].every((label) =>
+    [approveLabel, declineLabel].every((label) =>
       approveButtons.some((node) => node.text === label),
     ),
   approveWindow.ok ? JSON.stringify(approveButtons.map((node) => node.text)) : approveWindow.error,
 )
-const windowApprove = approveButtons.find((node) => node.text === ratifyQuestion.options[0].label)
+const windowApprove = approveButtons.find((node) => node.text === approveLabel)
 if (windowApprove !== undefined) windowApprove.props.onClick()
 claim(
   'a click in the window sends that option\'s own label as the whole answer batch',
   JSON.stringify(answerCalls) ===
-    JSON.stringify([{ answers: [{ id: ratifyQuestion.id, selected: [ratifyQuestion.options[0].label] }] }]),
+    JSON.stringify([{ answers: [{ id: ratifyQuestion.id, selected: [approveLabel] }] }]),
   JSON.stringify(answerCalls),
 )
 const approveDerived = deriveDecisions(quiz, answerCalls[0])
@@ -823,15 +951,16 @@ claim(
 
 const declineWindow = await renderWindow('ratify-decline')
 const windowDecline = declineWindow.ok
-  ? nodes.filter((node) => node.tag === 'button').find((node) => node.text === ratifyQuestion.options[1].label)
+  ? nodes.filter((node) => node.tag === 'button').find((node) => node.text === declineLabel)
   : undefined
 if (windowDecline !== undefined) windowDecline.props.onClick()
 claim(
-  'a decline click in the window sends the rejection label',
-  answerCalls.length === 2 &&
-    answerCalls[1].answers.length === 1 &&
-    answerCalls[1].answers[0].id === ratifyQuestion.id &&
-    answerCalls[1].answers[0].selected[0] === ratifyQuestion.options[1].label,
+  'a decline click in the window sends the rejection label as the whole batch, with no extra key',
+  JSON.stringify(answerCalls) ===
+    JSON.stringify([
+      { answers: [{ id: ratifyQuestion.id, selected: [approveLabel] }] },
+      { answers: [{ id: ratifyQuestion.id, selected: [declineLabel] }] },
+    ]),
   JSON.stringify(answerCalls),
 )
 const declineDerived = deriveDecisions(quiz, answerCalls[1])

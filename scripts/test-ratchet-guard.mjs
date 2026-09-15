@@ -353,3 +353,70 @@ test('governanceOf: the exempt paths are exempt for stated reasons', () => {
   assert.equal(governed.governed, true)
   assert.equal(governed.zone.id, 'auth')
 })
+
+/** Rewrites the manifest's zone policy, the way an operator editing `.dsh/project.json` would. */
+function setZonePolicy(root, zoneId, patch) {
+  const path = join(root, '.dsh', 'project.json')
+  const manifest = JSON.parse(readFileSync(path, 'utf8'))
+  const zone = manifest.ratchet.zones.find((entry) => entry.id === zoneId)
+  Object.assign(zone, patch)
+  writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`)
+}
+
+test('guard: a law retired by an in-force removal is not law in force', () => {
+  // The guard's law set must be the COMPILER's set. It began as a local loop over the
+  // active records that skipped `op: remove` and knew nothing about the rule that an agent
+  // record may not retire a human-ratified law, so it disagreed with `compileLaws` exactly
+  // where a second implementation does: a law the corpus had RETIRED was still treated as in
+  // force, and a proposal that redeclared it was refused for contradicting a law that no
+  // longer existed. A breaker found this by compiling the same fixture and getting zero
+  // laws while the guard reported a contradiction.
+  const root = project('retired-law')
+  writeAdr(root, { status: 'active', authority: 'human', zone: 'api', id: '0001', lawId: 'api.sessions.redis', statement: 'Session storage must use Redis.' })
+  writeAdr(root, { status: 'active', authority: 'human', zone: 'api', id: '0002', lawId: 'api.sessions.redis', op: 'remove' })
+  writeAdr(root, { status: 'proposed', authority: 'agent', zone: 'api', id: '0003', lawId: 'api.sessions.redis', statement: 'Session storage must use Postgres.' })
+  const guard = guardModule.createGuard({ root })
+  assert.equal(
+    call(guard, 'write', { file_path: 'src/api/handler.ts' }),
+    'ALLOWED',
+    'the proposal redeclares a law the corpus retired, so it contradicts nothing in force',
+  )
+})
+
+test('guard: the cache notices a manifest change, in both directions', () => {
+  // The answer depends on the zones table, so a cache keyed on the decisions directory
+  // alone served a stale allow after the operator asked for a denial, and a stale denial
+  // after they lifted one — until something unrelated touched the corpus.
+  const root = project('manifest-cache')
+  const guard = guardModule.createGuard({ root })
+  assert.ok(
+    call(guard, 'write', { file_path: 'src/api/handler.ts' }).startsWith('DENIED:'),
+    'the fixture governs api, and nothing names it yet',
+  )
+
+  // Lifting the policy: the stale-DENIAL direction.
+  setZonePolicy(root, 'api', { requiresDecisionRecord: false })
+  assert.equal(call(guard, 'write', { file_path: 'src/api/handler.ts' }), 'ALLOWED', 'lifting it is seen without a restart')
+
+  // And imposing it: the stale-ALLOW direction.
+  setZonePolicy(root, 'api', { requiresDecisionRecord: true })
+  assert.ok(call(guard, 'write', { file_path: 'src/api/handler.ts' }).startsWith('DENIED:'), 'and so is imposing it')
+
+  setZonePolicy(root, 'api', { requiresDecisionRecord: false })
+  assert.equal(call(guard, 'write', { file_path: 'src/api/handler.ts' }), 'ALLOWED', 'and lifting it again')
+})
+
+test('guard: every writer the harness can mount is governed, not only the names on the list', () => {
+  // `str_replace_editor` is a real writer in this harness with a `path` argument, and it was
+  // absent from the list, so a governed zone was open to it. A name-based allow-list is a
+  // rule for the names somebody thought to write down; the omission was invisible because the
+  // tool is opt-in and not mounted in every profile.
+  const root = project('other-writers')
+  const guard = guardModule.createGuard({ root })
+  for (const name of ['str_replace_editor', 'write', 'edit', 'multi_edit', 'notebook_edit']) {
+    assert.ok(
+      call(guard, name, { file_path: 'src/auth/session.ts' }).startsWith('DENIED:'),
+      `${name} must be governed`,
+    )
+  }
+})

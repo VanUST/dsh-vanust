@@ -47,7 +47,7 @@
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import { MANIFEST_PATH, zoneFor } from './ratchet-schema.mjs'
-import { readAdrCorpus, readManifest, resolveActiveSet } from './ratchet-compiler.mjs'
+import { compileLaws, readAdrCorpus, readManifest, resolveActiveSet } from './ratchet-compiler.mjs'
 
 /**
  * Tool names whose arguments name a path they are about to change.
@@ -55,8 +55,14 @@ import { readAdrCorpus, readManifest, resolveActiveSet } from './ratchet-compile
  * `read` is deliberately absent: reading a file in a regulated zone without a
  * decision record is legitimate reconnaissance, and refusing it would make the
  * guard the thing that prevents a contributor from learning what to write.
+ *
+ * `str_replace_editor` is present because it is a real writer in this harness (its
+ * client half is what the deliverables plugin reads to find a produced file) and its
+ * argument is `path`. It is opt-in and not mounted in every profile, which is exactly
+ * why the omission was easy to miss: a name-based allow-list only governs the tools
+ * somebody thought to list, so an unlisted writer is a rule that silently allows.
  */
-export const WRITE_TOOLS = Object.freeze(['write', 'edit', 'notebook_edit', 'multi_edit'])
+export const WRITE_TOOLS = Object.freeze(['write', 'edit', 'notebook_edit', 'multi_edit', 'str_replace_editor'])
 
 /** Argument keys, in priority order, that carry the target path. */
 const PATH_ARGUMENTS = Object.freeze(['file_path', 'path', 'filePath', 'filename', 'notebook_path'])
@@ -165,15 +171,23 @@ export function loadDecisionState(root) {
 
   // (1) Only decisions IN FORCE satisfy the requirement outright. A proposal is intent,
   // not law: it never compiles, so it can never be what a check enforces.
+  //
+  // The law set comes from the COMPILER, not from a second reading of the records. This
+  // started as a local loop over `resolved.active` that skipped `op: remove` and did not
+  // know about the removal-authority rule, and it disagreed with `compileLaws` in exactly
+  // the way a duplicate implementation does: a law an in-force record had RETIRED was still
+  // treated as in force here, so a proposal that redeclared it was refused as a
+  // contradiction — a guard denying work over a law the corpus no longer contains. Asking
+  // the compiler cannot drift from it, and the compiler already resolves removals, a
+  // removal an agent record is not allowed to make, and a law two active records contest.
   const zonesWithRecords = new Set()
-  const inForceLaws = new Map()
   for (const record of resolved.active) {
     for (const zone of record.zones ?? []) zonesWithRecords.add(zone)
-    for (const law of record.laws ?? []) {
-      if (law.op === 'remove') continue
-      inForceLaws.set(law.id, { statement: law.statement, sourceAdr: record.id })
-    }
   }
+  const compiled = compileLaws(resolved.active, config)
+  const inForceLaws = new Map(
+    compiled.bundle.laws.map((law) => [law.id, { statement: law.statement, sourceAdr: law.sourceAdr }]),
+  )
 
   // (2) and (3), from the records a human has not decided yet.
   const licenceByZone = new Map()
@@ -297,11 +311,22 @@ export function createGuard({ root }) {
     }
   }
 
-  /** Returns the decision state, re-reading it when the corpus has changed. */
+  /**
+   * Returns the decision state, re-reading it when the manifest or the corpus changed.
+   *
+   * The manifest's contribution to the key is its PARSED CONFIG, not a `stat`: the guard's
+   * answer depends on the zones table and `defaultAgentAuthority`, and `stateNow` already
+   * parsed the file, so stringifying what it read is exact where a size-plus-mtime is a
+   * guess about clock resolution. Keying on the decisions directory alone meant flipping a
+   * zone's `requiresDecisionRecord`, or its `agentAuthority`, or the manifest default, was
+   * invisible to a running session — a stale allow where the operator had just asked for a
+   * denial, and a stale denial where they had just lifted one.
+   */
   const stateNow = () => {
     const manifest = readManifest(root)
     const decisionsDir = manifest.config?.decisionsDir ?? 'docs/adrs'
-    const signature = `${decisionsDir}:${signatureOf(decisionsDir)}`
+    const policy = manifest.config === null || manifest.config === undefined ? 'none' : JSON.stringify(manifest.config)
+    const signature = `${policy}|${decisionsDir}:${signatureOf(decisionsDir)}`
     if (cache !== null && cachedSignature === signature) return cache
     cache = loadDecisionState(root)
     cachedSignature = signature

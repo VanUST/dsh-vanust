@@ -228,6 +228,16 @@ claim(
   `parameters=${JSON.stringify(ingestParameters)} ratify=${JSON.stringify(ingestSchema.properties?.ratify?.type)}`,
 )
 
+// The panel's OTHER consent properties are enforced behaviourally, and by executing the
+// shipped bundle rather than reading it: `scripts/test-adr-panel.mjs` drives the panel
+// through a stub loader and a recording workspace-file surface, and requires that the seat
+// renders no answer of its own, that the window's buttons carry the labels the ratchet put
+// in the question, that each click's batch is read back by the ratchet's own
+// `deriveDecisions` as an approval or a rejection, and that the whole render calls nothing
+// but `list` and `read` — so there is no write path for a consent to travel. That is the
+// enforcement for ADR 0014's first two laws; this file holds the cross-artifact half, which
+// no single-bundle test can see.
+
 // 4c. The question's presentation is claimed by a wire literal that CANNOT be imported: the
 //     ratchet is a Node plugin and the client half is a hand-written browser closure with no
 //     module graph, so `ratify-decision` exists twice. Two copies of one value is drift no
@@ -237,7 +247,10 @@ claim(
 //     ratchet builds, and against the source the browser actually loads.
 const ratifyModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-ratify.mjs`)
 const panelSource = readFileSync(join(KIT, 'plugins', 'dsh-adr-panel', 'client.js'), 'utf8')
-const panelLiteral = /const RATIFY_INTENT_KIND = "([^"]+)"/.exec(panelSource)
+// Anchored to the start of a line so a COMMENTED-OUT copy cannot satisfy it, and tolerant
+// of spacing and quote style so a formatting-only change is not a failure: this check is
+// about the value the bundle compares, not about how the declaration is laid out.
+const panelLiteral = /(?:^|\n)[ \t]*const RATIFY_INTENT_KIND\s*=\s*["']([^"']+)["']/.exec(panelSource)
 const panelQuiz = ratifyModule.buildQuiz([{ id: '0001', title: 't', text: 'body', laws: [] }], { attempt: 1 })
 const chatQuiz = ratifyModule.buildQuiz([{ id: '0001', title: 't', text: 'body', laws: [] }], { attempt: 1, present: 'chat' })
 claim(

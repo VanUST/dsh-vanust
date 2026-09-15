@@ -10,7 +10,7 @@ created: "2026-09-15T00:00:00Z"
 source:
   kind: file
   path: docs/ratchet/sources/2026-09-15-the-question-says-where-it-is-shown.md
-  hash: sha256:7196febc599a549eb5674392ff5d21834f1db732bd585e44327fdcc2a52e60e9
+  hash: sha256:2fced9a90e8e41a3a2dae38b503ef7aff9e06c0f86cfe266b46bb368b5e3c5a8
 zones:
   - shipped-plugins
 supersedes: []

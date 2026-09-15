@@ -147,6 +147,11 @@ this brief does not enumerate them because they change no shipped artifact:
 The cycle this brief accompanies changed three things, and each moved a claim from prose
 to a command:
 
+19b. **A defect in the fix above, found by driving the real slot core.** The composer claim
+    was registered at `priority: 1`, which the chain tries AFTER the entry that claims every
+    question, so the claim never ran — the panel rendered nothing and the harness's chat quiz
+    still asked. Fixed to `-1` and pinned by a real election in the panel test; see §6.
+
 20. **The panel stopped presenting the question in the chat.** The ratify affordance is
     now a **Ratify…** trigger, and the panel claims the Conversation's
     `conversation.composer` chain seat in order to SUPPRESS the harness's own question
@@ -282,12 +287,47 @@ report a pass. The gate is the CLI above; the tools are for an agent mid-session
   guard reads, and therefore does not stop a write. Closing it means somewhere to record the
   judge's answer, a staleness rule for that record, and a rule for who may clear it; the
   first is the piece that does not exist.
-- **Whether the running shell elects the panel's composer entry is read, not measured.**
-  The chain's election (`first entry whose select returns non-null`, in registration order)
-  and a shipped second claimant of the same seat were read from the harness and the bundled
-  host; the panel's own `select` is exercised against the ratchet's real question. Nobody has
-  opened a browser and watched the seat be claimed, so the panel README keeps that item on its
-  "not verified" list.
+- **Whether the running shell elects the panel's composer entry is now MEASURED, and it was
+  measured wrong the first time.** The harness checkout carries the slot core as pure
+  TypeScript with no runtime dependencies, so Node 24 strips the types and the election runs
+  off-browser. The first implementation registered the panel's claim at `priority: 1` — the
+  approval entry's value — on a reading that said the chain tried entries in registration
+  order. The core sorts them ASCENDING by priority with lower first (`ui-slots/src/index.ts`,
+  `register`'s `next.sort(...)`, confirmed identical in the installed bundle), and the entry
+  that owns the seat claims every pending question at 0, so `user-questions@0` was elected
+  over `adr-panel@1`: the claim was dead code and the chat quiz the change existed to remove
+  would still have rendered, with every structural assertion still passing. At `priority: -1`
+  a jsdom run against the REAL renderer shows the panel elected and the owner's `select`
+  never called — suppression, as intended. `scripts/test-adr-panel.mjs` now drives the real
+  `SlotCore` (skipped with a reason when no checkout is present), pins both the win and the
+  counterfactual, and the always-on half requires the declared priority to be negative. The
+  full reproduction and the ordering table are in `docs/RATCHET-API-FACTS.md` §2.6.
+- **Two guards of this kit's own were falsified by an independent breaker, and fixed.** The
+  guard's in-force law set was a second implementation of the compiler's: it skipped
+  `op: remove` and knew nothing of the rule that an agent record may not retire a
+  human-ratified law, so a proposed record that redeclared a RETIRED law was refused for
+  contradicting a law the corpus no longer contained. It now reads `compileLaws(...)`'
+  bundle, which is the same set the verifier enforces. Separately, the decision-state cache
+  keyed on the decisions directory and not on the manifest, so an operator's edit to a
+  zone's `requiresDecisionRecord` was invisible to a running session — a stale allow after
+  they asked for a denial, a stale denial after they lifted one; the key now carries the
+  parsed config. A third, latent gap: `str_replace_editor` is a real writer in this harness
+  and was not in the guarded tool list. Each is covered by a test that was re-run against a
+  reverted copy to prove it fails without the fix.
+- **The panel's checks were falsified too, and hardened.** A breaker showed the seat could
+  render an answer label as a plain `div`, or as an `<a onClick>` that called
+  `pending.answer(...)` — putting the answer back into the Conversation — and both scripts
+  still passed, because the guard matched whole strings on `<button>` nodes only. It also
+  showed a 30-character prefix of the record text slipped through, that an extra
+  workspace-file call was invisible to a recording stub that defined only `list`/`read`, and
+  that the intent literal was matched by a regex a commented-out copy could satisfy. Each
+  was fixed and each fix replayed against the breaker's own mutation to confirm it now fails:
+  the leak check forbids the labels, the question and a record-text prefix on ANY host
+  element, the file surface is a `Proxy` that records unlisted members, and the literal regex
+  is anchored so a comment cannot satisfy it while tolerating formatting. Two crash-not-report
+  cases remain (a mutation that breaks `buildQuiz` makes the scripts exit 1 with a
+  `TypeError` instead of the `FAILED` marker); the gate still fails, so only the diagnosis is
+  poorer, and it is recorded as a limit rather than fixed by restructuring both scripts.
 - **Three decisions await a human:** `0015` (the grill session consents through the question
   channel), `0017` (a proposal licenses the work, a contradiction stops it) and `0018` (a
   question says where it is shown). None is in force, none is blocking, and each is a record

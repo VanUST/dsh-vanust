@@ -70,3 +70,29 @@ that the caller's presentation reaches both the first question and the re-ask.
 
 Not measured: that the running shell elects the panel's composer entry. That remains a
 source reading with a shipped precedent, recorded as such in the panel README.
+
+## What driving the real slot core found (2026-09-15)
+
+The seat's ordering was read off the minified browser bundle and recorded as "the entries are
+tried in registration order". That was wrong, and it made the panel's claim dead code.
+`packages/client/ui-slots/src/index.ts` keeps a chain's entries sorted ASCENDING by `priority`
+with lower trying first (`register`'s `next.sort(spec.kind === 'list' ? … : (a, b) =>
+(a.options.priority ?? 0) - (b.options.priority ?? 0))`), and the entry that owns the seat
+claims every pending question at the default 0. The panel registered at `priority: 1`, so
+`user-questions@0` was elected for a ratify question and the panel's `select` was never
+called: the chat quiz the operator had asked to replace would still have rendered, while every
+structural assertion still passed.
+
+The core is pure TypeScript with no runtime dependencies, so Node 24 strips the types and the
+election runs off-browser; a jsdom run against the real renderer confirmed it end to end — at
+`-1` the panel wins and the owner's `select` is never called, at `1` the panel is never
+consulted. The panel now registers at `-1` with the reason in a comment, the panel test drives
+the real `SlotCore` and pins both the win and the counterfactual, and the always-on assertion
+is that the declared priority is negative.
+
+Two more falsifications, of the checks rather than the code, are recorded in `REVIEW.md` §6:
+the seat could render an answer label as a plain `div` or as an `<a onClick>` that answered the
+question, and both scripts passed because the guard inspected only `<button>` nodes and matched
+whole strings. The leak check now forbids the labels, the question and a record-text prefix on
+any host element, the file surface records unlisted members through a `Proxy`, and the
+decline click's batch is compared exactly.

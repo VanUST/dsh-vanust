@@ -178,7 +178,7 @@ window.__ModuleLoader__.load({
 		 * constant is the only way to tell a stale bundle from a bug: bump it with every
 		 * change to this file, and keep it equal to the package's version.
 		 */
-		const PANEL_VERSION = "0.1.13";
+		const PANEL_VERSION = "0.1.14";
 		/** The manifest a ratchet project declares its directories and name in. */
 		const MANIFEST_PATH = ".dsh/project.json";
 		/** Directories used when the manifest is absent, unparseable, or silent. */
@@ -2327,16 +2327,22 @@ window.__ModuleLoader__.load({
 					return ctx.slots.register({
 						name: "conversation.composer",
 						id: "cc-adr-panel",
-						// The seat is a chain: the entries are tried in registration order and the
-						// first whose `select` returns a value wins, so a claim has to sort ahead
-						// of the entry that owns every question. That entry registers no priority
-						// at all; the approval entry uses 1 and claims only an approval. Claiming
-						// here SUPPRESSES the harness's question card for this question, which is
-						// the point: an agent's decision is answered in the decision panel, and the
-						// Conversation gets a pointer rather than a quiz. A question the ratchet
-						// sends without the panel intent — a grilling session's — is not claimed,
-						// so it is asked, and blocks, in the Conversation where the grill is.
-						priority: 1,
+						// The seat is a chain: the core keeps its entries sorted by ASCENDING
+						// `priority` (lower tries first, ties keep registration order) and the first
+						// entry whose `select` returns a value is elected. The entry that owns the
+						// seat claims EVERY pending question at the default priority 0, so a claim
+						// registered at 0 or above is never reached at all — it would look like a
+						// working claim and be dead code, which is exactly what `priority: 1` here
+						// was until the real SlotCore was driven: `user-questions@0` was elected over
+						// `adr-panel@1` for a ratify question. The priority is therefore NEGATIVE, so
+						// this entry is asked first and passes every question it does not recognise
+						// on to the owner. Claiming here SUPPRESSES the harness's question card for
+						// this question, which is the point: an agent's decision is answered in the
+						// decision panel, and the Conversation gets a pointer rather than a quiz. A
+						// question the ratchet sends without the panel intent — a grilling
+						// session's — is not claimed, so it is asked, and blocks, in the
+						// Conversation where the grill is.
+						priority: -1,
 						select: function (ownerProps) {
 							var interaction = ownerProps === undefined || ownerProps === null ? null : ownerProps.pendingInteraction;
 							return ratifyQuestionOf(interaction) === null ? null : interaction;

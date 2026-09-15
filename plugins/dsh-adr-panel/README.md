@@ -48,7 +48,7 @@ reader can re-check rather than trust.
 | `RemoteResult<T>` is `{ ok: true, value } | { ok: false, error }` | `@deepseek-ai/dsh-typert-protocol/lib/types/types.d.ts:65-71` |
 | File catalogues: `ctx.remote.workspaceFiles.list(sessionId, path, signal)` and `.read(sessionId, path, range, signal)`, both answering `RemoteResult` | Host signatures `@deepseek-ai/dsh-api-workspace-files/lib/types/index.d.ts:82,125`; client-side `result.ok` handling in `@deepseek-ai/dsh-client-ui-sidebar-files/lib/client.js:52`; the Remote is injected as **`remote`** in `@deepseek-ai/dsh-api-workspace-files/lib/client.js:447-451` |
 | Message submit: `inputActions.setDraft(text)` followed by `inputActions.submit()` | interface `@deepseek-ai/dsh-client-ui-conversation/lib/types/client/contract/input.d.ts:210-221`; `setDraft` uses a **discrete** (synchronous) Lexical update at `.../lib/client.js:12758`, and `submit()` reads that editor at `.../lib/client.js:12845` |
-| `conversation.composer` is a **chain** slot. Its owner passes `{ sessionId, session, pendingInteraction }` as owner props, and the chain renders the **first** entry whose `select(ownerProps)` returns a non-null value; a selector that throws is *"treated as declined"*. The entry that owns every question registers **no** `priority`; the approval entry claims the same seat with `priority: 1`. For a chain entry an explicit `priority` is kept verbatim (for every other slot kind the runner overwrites it with a page-local rank), and the bundled host's `entriesOfSlot` returns a chain's entries in registration order | `@deepseek-ai/dsh-client-ui-conversation/lib/client.js:14932-14937`; election `@deepseek-ai/dsh-client-ui-renderer/lib/client.js:824-844`; owner `@deepseek-ai/dsh-client-ui-user-questions/lib/client.js:873-878`; second claimant `@deepseek-ai/dsh-client-ui-approval/lib/client.js:265-272`; priority handling `@deepseek-ai/dsh-cordis-client-runner/lib/client.js:267-270`; `entriesOfSlot` in the bundled host `@deepseek-ai/dsh-web-frontend/dist/assets/index-DuF6ti6g.js` |
+| `conversation.composer` is a **chain** slot. Its owner passes `{ sessionId, session, pendingInteraction }` as owner props, and the chain renders the **first** entry whose `select(ownerProps)` returns a non-null value; a selector that throws is *"treated as declined"*. **Order is ASCENDING `priority`: lower tries first, ties keep registration order.** The entry that owns every question claims ALL pending questions at the default `priority: 0`, so a claim at 0 or above is never reached — which is why this panel registers at **-1**; the approval entry is at `1` and works only because a pending approval is not a pending question, so the owner declines it first | owner `@deepseek-ai/dsh-client-ui-conversation/lib/client.js:14932-14937`; election `@deepseek-ai/dsh-client-ui-renderer/lib/client.js:824-844`; the ordering's own comment, the sort, and the chain return in `@deepseek-ai/dsh-client-ui-slots/src/index.ts` (`ChainSelect` doc, `register`'s `next.sort(...)`, `entriesOfSlot`), duplicated in the installed bundle at `@deepseek-ai/dsh-web-frontend/dist/assets/index-DuF6ti6g.js` (`p.sort(...(m,g)=>(m.options.priority??0)-(g.options.priority??0))`); owner `@deepseek-ai/dsh-client-ui-user-questions/lib/client.js:873-878`; second claimant `@deepseek-ai/dsh-client-ui-approval/lib/client.js:265-272` |
 | A question may carry `intent: { kind, approve }`, and a presentation is allowed to claim it only when it can send **every** answer the question allows. The harness renders `plan-review` itself and falls back to a generic card for everything else; the generic card always offers a free-text answer, and the shipped `PlanReviewPanel` claims a question with two buttons anyway, so a two-label presentation is the sanctioned shape for a binary question | `@deepseek-ai/dsh-client-ui-user-questions/lib/client.js:38-56` (`planReviewOf`), `:246-330` (`PlanReviewPanel`, two buttons only), `:660-722` (the generic card's free-text row) |
 
 The paths in the last two data rows are the only data reads the plugin performs; it
@@ -78,14 +78,20 @@ measures what the bundle does with them, not whether the running shell supplies 
 - That the renderer derives a `usePanel` hook from `hooks: { panel: … }` with the
   selector signature used here. It follows the documented `hooks: { status }` →
   `useStatus` rule and a shipped example, but was not run.
-- That the running shell elects the panel's `conversation.composer` entry. The
-  election is READ, not measured: the chain renders the first entry whose `select`
-  returns non-null, in registration order, and a shipped second claimant sits in the
-  same seat with the same idiom. `scripts/test-adr-panel.mjs` exercises the bundle's
-  own `select` against the ratchet's real question and every shape it must refuse, and
-  `scripts/check-consent-surface.mjs` pins the intent literal both sides use — but
-  neither drives the harness's chain, so "the panel wins the seat in a browser" stays
-  a reading with a precedent until someone opens one.
+- That the running shell elects the panel's `conversation.composer` entry **for the
+  question it claims**. The election itself is now MEASURED off-browser: the harness
+  checkout's slot core is pure TypeScript with no runtime dependencies, Node 24 strips
+  the types, and `scripts/test-adr-panel.mjs` drives the real `SlotCore` — the panel's own
+  registered `priority` and `select` against a synthetic entry that claims every question
+  the way the seat's owner does — and requires the panel to win for the ratchet's real
+  question, the owner to win for one the panel declines, and a claim at `priority: 1` to
+  lose. That last one is the counterfactual: it is what the bundle used to declare, and it
+  is how this plugin's first implementation shipped a dead claim that still passed every
+  structural assertion. What remains unmeasured is only the live transport: that clicking
+  the window's button round-trips over the Remote to the waiting host, and that a browser
+  renders the seat's winner. Without a harness checkout the election check is a `[SKIP]`
+  naming the reason, never a silent pass; the always-on half is that the declared priority
+  is negative.
 - That `list`/`read` return the `RemoteResult` wrapper at runtime. The `.d.ts`
   declares the unwrapped value; the client file browser checks `.ok`, so the wrapper
   is used here. If the runtime instead returns the bare value, the panel shows a

@@ -100,3 +100,31 @@ The ADR is proposed. The laws it declares enter force only through a ratificatio
 is the same route every other `shipped-plugins` decision here took — and the same route
 the operator described for this very change: the agent proposes, a human later approves or
 changes the record, and it becomes law then.
+
+## What an independent breaker found afterwards (2026-09-15)
+
+The guard change above was handed to a breaker with one named claim — that the guard returns
+the correct verdict for every input. It falsified two things, both now fixed and both covered
+by a test re-run against a reverted copy to prove the test fails without the fix.
+
+**The law set was a second implementation of the compiler's.** `loadDecisionState` built its
+in-force law map from a local loop over the active records that skipped `op: remove` and knew
+nothing about the rule that an agent record may not retire a human-ratified law. Fixture: an
+active human ADR declaring law `k`, a second active human ADR removing `k`, and a proposed
+agent ADR redeclaring `k` with a different statement. `compileLaws` reports zero laws;
+the guard refused the write for contradicting "law in force". The guard now reads
+`compileLaws(resolved.active, config).bundle.laws`, so it cannot drift from the compiler —
+the whole class of divergence disappears with the duplicate implementation.
+
+**The decision-state cache did not key on the manifest.** It hashed the decisions directory
+only, and re-read the manifest just to find `decisionsDir`. So an operator editing a zone's
+`requiresDecisionRecord`, its `agentAuthority`, or `defaultAgentAuthority` got the previous
+answer until something unrelated touched the corpus: a stale allow after asking for a denial,
+a stale denial after lifting one. The cache key now carries the parsed config, which is exact
+because `stateNow` had already parsed the file.
+
+A third, latent gap was reported as out of scope and fixed anyway: `str_replace_editor` is a
+real writer in this harness with a `path` argument, and it was absent from `WRITE_TOOLS`, so a
+governed zone was open to it. A name-based allow-list only governs the names somebody wrote
+down; a tool that is opt-in and not mounted in every profile is exactly the one whose omission
+goes unnoticed.
