@@ -50,11 +50,11 @@ export const PROMPT_VERSION = 1
  * whichever question happened to be written last.
  */
 export const REVIEW_JOBS = Object.freeze({
-  /** A raw source was ingested; does the proposed ADR follow from it? */
+  /** A raw source was ingested; does the proposed ADR follow from it, and does it fight a law in force? */
   review_proposal: {
     id: 'review_proposal',
     asks:
-      'Does the proposed decision follow from the reasoning in its source, and is the law payload consistent with the prose?',
+      'Does the proposed decision follow from the reasoning in its source, and is the law payload consistent with the prose? And does it CONTRADICT a law already in force in the stable material — a removal of one, the same law id under a different statement, or a check that cannot hold alongside one? Name each law it contradicts: an agent may work ahead of a ratification, but not against what a human already ratified, and only a reader can see the contradictions the guard cannot.',
     needs: ['source', 'proposal'],
   },
   /** A code change was made; does it respect the laws and their intent? */

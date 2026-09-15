@@ -1,6 +1,6 @@
 /**
- * Ratchet guard: refuse a write into a regulated zone that has no decision behind
- * it.
+ * Ratchet guard: refuse a write into a regulated zone that has no decision behind it,
+ * or one whose only decision contradicts law a human already ratified.
  *
  * This is the piece that makes `requiresDecisionRecord` an actual rule rather than
  * a parsed manifest field nobody reads. The design's Part 17 says an architectural
@@ -30,11 +30,21 @@
  *    obviously write are allowed: guessing that a shell command mutates a file would
  *    refuse work the guard cannot actually see, and a false denial is worse than a
  *    missed one for a rule whose violator is already visible in the diff.
+ * 5. **A proposal is enough, and a contradiction is not.** The rule exists to make an
+ *    agent write down what it is doing, not to make it wait: a PROPOSED agent decision
+ *    naming a zone licenses the write while contributing nothing to law, so an agent can
+ *    work for an hour and a human can ratify, change or decline the record afterwards.
+ *    The one thing that stops is a proposal that contradicts law ALREADY IN FORCE —
+ *    a removal, or the same law id with a different statement — because that is a
+ *    decision the agent is not entitled to make. Only the decidable form of a
+ *    contradiction can be caught here (the guard runs before every write and asks no
+ *    model); a contradiction only a reader can see stays with `ratchet_compile` and
+ *    `ratchet_review`, and is reported as such rather than pretended.
  *
  * The cost is bounded by a cache keyed on the corpus's own hashes, so a session
  * making many edits inside one zone reads the decisions once.
  */
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, statSync } from 'node:fs'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import { MANIFEST_PATH, zoneFor } from './ratchet-schema.mjs'
 import { readAdrCorpus, readManifest, resolveActiveSet } from './ratchet-compiler.mjs'
@@ -98,15 +108,46 @@ export function governanceOf(path, config) {
 /**
  * Reads a project's decision state once and answers governance questions from it.
  *
- * The cache is keyed on the decisions directory's own modification time and entry
- * count, because those change when a record is added, removed or replaced — which
- * is exactly when a cached answer would be wrong. Hashing every ADR would be more
- * precise and costs a full read per write; an mtime plus a count is enough to
- * notice every change that matters here.
+ * The cache is keyed on the decisions directory's entries — each name with its size and
+ * modification time — because that changes whenever a record is added, removed or
+ * rewritten in place, which is exactly when a cached answer would be wrong. Hashing every
+ * ADR would be more precise and costs a full read per write; the entry listing is enough
+ * to notice every change that matters here, and it is the listing rather than the
+ * directory's own mtime because editing a file does not touch its directory.
+ *
+ * Three answers, in precedence order, and the order is the whole policy:
+ *
+ * 1. **A proposed record contradicts a law in force.** Writes are refused. An agent
+ *    may work ahead of a human's ratification, but not against what a human already
+ *    ratified: a contradiction is the one place autonomy has to stop and ask, and it
+ *    is the only case here that refuses anything. The check is deliberately the
+ *    DECIDABLE part — a proposed record that removes a law in force, or redeclares one
+ *    with a different statement — because a guard runs before every write and cannot
+ *    ask a model. A contradiction only a reader can see is out of its reach, and
+ *    `ratchet_compile` and `ratchet_review` are where that is surfaced. This answer is
+ *    checked FIRST and applies even to a zone a decision already covers: the point is to
+ *    ask a human before working against what they ratified, and an in-force decision in
+ *    the same zone does not make the contradiction go away.
+ * 2. **A decision in force covers the zone.** Writes are allowed; this is what the
+ *    rule asked for and it settles the question.
+ * 3. **A proposed record names the zone.** Writes are allowed, and NOTHING about the
+ *    proposal is law: `compileLaws` is fed `resolved.active` only, so a proposal adds
+ *    no law, no spec and no check. This is the autonomy the rule exists for — an agent
+ *    proposes, keeps working, and a human later ratifies, changes or declines it — and
+ *    it is why a proposal is enough to satisfy the rule while contributing nothing.
+ *
+ * A `humanOnly` zone is deliberately excluded from (3): an agent's proposal can never
+ * become law there (the compiler refuses it even when ratified), so letting a proposal
+ * license a write would let an agent govern a zone the manifest reserves to humans by
+ * writing a file the ratchet then refuses to activate. Only a decision IN FORCE opens
+ * such a zone, which a human reaches by writing a human-authored record.
  *
  * @param root - Absolute project root.
- * @returns `{ config, zonesWithRecords, problems, decisionsDir }` or `{ inert }`
- *   when the project has not opted in.
+ * @returns `{ config, governedZones, zonesWithRecords, licenceByZone, conflictsByZone,
+ *   problems, decisionsDir }` or `{ inert }` when the project has not opted in.
+ *   `licenceByZone` maps a zone id to the proposed record that licensed it;
+ *   `conflictsByZone` maps a zone id to the contradictions found, each
+ *   `{ adrId, path, lawId, why }`.
  */
 export function loadDecisionState(root) {
   const manifest = readManifest(root)
@@ -121,14 +162,71 @@ export function loadDecisionState(root) {
 
   const corpus = readAdrCorpus(root, config)
   const resolved = resolveActiveSet(corpus.records, config)
-  // Only decisions IN FORCE satisfy the requirement. A proposal is intent, not law:
-  // accepting it would let an agent write the ADR and then proceed unilaterally,
-  // which is the override the whole authority model exists to prevent.
+
+  // (1) Only decisions IN FORCE satisfy the requirement outright. A proposal is intent,
+  // not law: it never compiles, so it can never be what a check enforces.
   const zonesWithRecords = new Set()
+  const inForceLaws = new Map()
   for (const record of resolved.active) {
     for (const zone of record.zones ?? []) zonesWithRecords.add(zone)
+    for (const law of record.laws ?? []) {
+      if (law.op === 'remove') continue
+      inForceLaws.set(law.id, { statement: law.statement, sourceAdr: record.id })
+    }
   }
-  return { config, governedZones, zonesWithRecords, problems: corpus.problems, decisionsDir: config.decisionsDir }
+
+  // (2) and (3), from the records a human has not decided yet.
+  const licenceByZone = new Map()
+  const conflictsByZone = new Map()
+  const authorityByZone = new Map((config.zones ?? []).map((zone) => [zone.id, zone.agentAuthority ?? config.defaultAgentAuthority]))
+  for (const record of resolved.proposed) {
+    const conflicts = []
+    for (const law of record.laws ?? []) {
+      const existing = inForceLaws.get(law.id)
+      if (existing === undefined) continue
+      if (law.op === 'remove') {
+        conflicts.push({
+          adrId: record.id,
+          path: record.path,
+          lawId: law.id,
+          why: `it removes law "${law.id}", which ${existing.sourceAdr} put in force`,
+        })
+      } else if (existing.statement !== law.statement) {
+        conflicts.push({
+          adrId: record.id,
+          path: record.path,
+          lawId: law.id,
+          why: `it redeclares law "${law.id}" as ${JSON.stringify(law.statement)}, where ${existing.sourceAdr} put ${JSON.stringify(existing.statement)} in force`,
+        })
+      }
+    }
+    const zones = record.zones ?? []
+    if (conflicts.length > 0) {
+      // A proposal that contradicts law in force stops writes in the zones it names,
+      // whether or not those zones are already governed: the point is to ask a human
+      // before working against what they ratified, and that is true either way. A
+      // conflict with no zone is not this guard's business — the compiler reports it.
+      for (const zoneId of zones) {
+        const existing = conflictsByZone.get(zoneId) ?? []
+        conflictsByZone.set(zoneId, existing.concat(conflicts))
+      }
+      continue
+    }
+    for (const zoneId of zones) {
+      if (authorityByZone.get(zoneId) === 'humanOnly') continue
+      if (!licenceByZone.has(zoneId)) licenceByZone.set(zoneId, { adrId: record.id, path: record.path })
+    }
+  }
+
+  return {
+    config,
+    governedZones,
+    zonesWithRecords,
+    licenceByZone,
+    conflictsByZone,
+    problems: corpus.problems,
+    decisionsDir: config.decisionsDir,
+  }
 }
 
 /**
@@ -169,13 +267,31 @@ export function createGuard({ root }) {
   let cache = null
   let cachedSignature = null
 
-  /** A cheap signature of the decisions directory: entry count plus mtime. */
+  /**
+   * A cheap signature of the decisions directory: every entry's name, size and mtime.
+   *
+   * The DIRECTORY's own mtime is not enough, and believing it was a defect this file
+   * shipped for a while: rewriting an existing record in place does not touch the
+   * directory, so an agent that EDITED a proposal to remove a contradiction it had
+   * introduced went on being refused until something unrelated altered the directory or
+   * the session restarted. Reading the entries costs one `readdir` per write and is the
+   * difference between "the corpus changed" being observed and being assumed.
+   */
   const signatureOf = (decisionsDir) => {
     const directory = join(root, decisionsDir)
     if (!existsSync(directory)) return 'absent'
     try {
-      const stats = statSync(directory)
-      return `${stats.mtimeMs}`
+      return readdirSync(directory)
+        .sort()
+        .map((name) => {
+          try {
+            const stats = statSync(join(directory, name))
+            return `${name}:${stats.size}:${stats.mtimeMs}`
+          } catch {
+            return `${name}:unreadable`
+          }
+        })
+        .join('|')
     } catch {
       return 'unreadable'
     }
@@ -207,13 +323,33 @@ export function createGuard({ root }) {
       if (governance.governed !== true) return undefined
 
       const zone = governance.zone
+      // A contradiction comes first, before the in-force and proposal answers, because an
+      // in-force decision in the same zone does not make the contradiction go away.
+      const conflicts = state.conflictsByZone.get(zone.id)
+      if (conflicts !== undefined && conflicts.length > 0) {
+        return [
+          `the ratchet refuses this write: a decision that is PROPOSED — not in force — contradicts law that is in force in zone "${zone.id}".`,
+          ``,
+          ...conflicts.map((entry) => `  - ${entry.adrId} (${entry.path}): ${entry.why}`),
+          ``,
+          `An agent may work ahead of a ratification, but not against what a human already ratified.`,
+          `Autonomy stops here: resolve the contradiction before writing more in this zone —`,
+          `  - edit or withdraw the proposal so it no longer contradicts the law in force, or`,
+          `  - ask a human to ratify it, which is a decision this guard cannot make for them.`,
+          ``,
+          `Nothing was written. Once the proposal stops contradicting law in force, this denial`,
+          `disappears on its own: the contradiction is recomputed from the corpus on every write.`,
+        ].join('\n')
+      }
       if (state.zonesWithRecords.has(zone.id)) return undefined
+      const licence = state.licenceByZone.get(zone.id)
+      if (licence !== undefined) return undefined
 
       // The denial has to be actionable: which zone, which path, and the smallest
       // thing that satisfies the rule.
       return [
         `the ratchet refuses this write: ${path} is in zone "${zone.id}", which the project manifest declares`,
-        `requiresDecisionRecord, and no active ADR names that zone.`,
+        `requiresDecisionRecord, and no ADR — in force or proposed — names that zone.`,
         ``,
         `Create an ADR under ${state.decisionsDir}/ (the manifest declares that directory) with:`,
         `  - zones: [${zone.id}]`,
@@ -223,6 +359,11 @@ export function createGuard({ root }) {
         `  - author.authority, and status: active only if a human wrote it — an agent`,
         `    decision in a zone with agentAuthority proposeOnly must stay proposed until`,
         `    a human approval ADR names it.`,
+        ``,
+        `A PROPOSED record is enough to write here, and it adds no law: the ratchet compiles`,
+        `only decisions in force, so an agent can propose, keep working, and let a human`,
+        `ratify, change or decline the proposal later. What it may NOT do is contradict law`,
+        `already in force, in this zone or in that record's other zones.`,
         ``,
         `Then call ratchet_compile to confirm it compiles. Writes inside the decisions`,
         `and sources directories are never refused, so the record can be created.`,

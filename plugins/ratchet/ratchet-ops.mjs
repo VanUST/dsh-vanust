@@ -1516,7 +1516,8 @@ export function ratifications(root) {
  * - **unreadable** — the answer matched none of the offered options; nothing is
  *   minted, and a differently shaped re-ask is returned with what actually arrived.
  *
- * @param options - `{ root, answer, quiz, attempt, previous, ids, askedBy, at, write }`.
+ * @param options - `{ root, answer, quiz, attempt, previous, ids, askedBy, at, write,
+ *   present }`.
  *   `answer` is the harness answer object (`{ answers: [{ id, selected, custom? }] }`)
  *   or `null` to prepare the quiz. **`quiz` is required to mint**: it is the exact
  *   quiz the human answered, and passing it is what lets this function bind each
@@ -1526,7 +1527,10 @@ export function ratifications(root) {
  *   question and 2 for the one re-ask, which asks differently and carries `previous`.
  *   `ids` narrows the quiz to named decisions; ids that are not pending are reported
  *   rather than ignored. `askedBy` names who asked the human, and is recorded in the
- *   approval.
+ *   approval. `present` is forwarded to `buildQuiz` and decides whether the question
+ *   asks to be rendered by the ADR panel (`'panel'`, the default) or by the harness's
+ *   own card (`'chat'`); it reaches the re-ask too, because a re-ask shown somewhere
+ *   other than the question it repeats is a question the human has to find twice.
  * @returns The canonical ratification result. `reask` is present only on attempt 1
  *   with unreadable answers: there is no third attempt, because a machine that keeps
  *   rephrasing a question is one that has decided the answer for itself.
@@ -1541,6 +1545,7 @@ export function ratify({
   askedBy = 'unattributed',
   at = null,
   write = true,
+  present = 'panel',
 } = {}) {
   const queue = ratificationQueue(root)
   if (!queue.ok) {
@@ -1594,8 +1599,8 @@ export function ratify({
     answeredQuiz !== null && answeredQuiz !== undefined
       ? answeredQuiz
       : attempt === 2
-        ? buildQuiz(targets, { attempt: 2, previous })
-        : buildQuiz(targets, { attempt: 1 })
+        ? buildQuiz(targets, { attempt: 2, previous, present })
+        : buildQuiz(targets, { attempt: 1, present })
 
   // An answer with no quiz is not a consent, it is a string. Without the quiz there
   // is nothing to check the answer against — no question it answers, no offered text
@@ -1681,7 +1686,7 @@ export function ratify({
   // human to keep answering a machine until it gets the answer it expected.
   const reask =
     attempt === 1 && unreadableEntries.length > 0
-      ? buildQuiz(unreadableEntries, { attempt: 2, previous: derived.unreadable })
+      ? buildQuiz(unreadableEntries, { attempt: 2, previous: derived.unreadable, present })
       : null
   const unreadableProblems =
     derived.unreadable.length === 0
@@ -1861,9 +1866,11 @@ export function ratify({
  * that keeps rephrasing a question until it gets the answer it expected has stopped
  * asking and started insisting.
  *
- * @param options - `{ root, ids, askedBy, at, write, askHuman }`. `askHuman` is
+ * @param options - `{ root, ids, askedBy, at, write, present, askHuman }`. `askHuman` is
  *   `(quiz) => Promise<{ kind: 'ok', answer } | { kind: 'unavailable', reason }>`
- *   or `null`, in which case the quiz is prepared and returned unanswered.
+ *   or `null`, in which case the quiz is prepared and returned unanswered. `present`
+ *   is forwarded to `ratify` for both the first question and the re-ask, so the whole
+ *   sequence is shown in the one place the caller chose.
  * @returns A promise for the canonical ratification result, with `asked` describing
  *   how many questions were put to the human and how many attempts that took.
  */
@@ -1873,9 +1880,10 @@ export async function ratifyInteractively({
   askedBy = 'unattributed',
   at = null,
   write = true,
+  present = 'panel',
   askHuman = null,
 } = {}) {
-  const prepared = ratify({ root, ids, askedBy, at, write })
+  const prepared = ratify({ root, ids, askedBy, at, write, present })
   if (prepared.needsAnswer !== true) return prepared
 
   if (askHuman === null) {
@@ -1920,7 +1928,7 @@ export async function ratifyInteractively({
   }
   asked.answers.push(first.answer)
 
-  let result = ratify({ root, answer: first.answer, quiz: prepared.quiz, ids, askedBy, at, write })
+  let result = ratify({ root, answer: first.answer, quiz: prepared.quiz, ids, askedBy, at, write, present })
   if (result.reask !== null && result.reask !== undefined && result.reask.questions.length > 0) {
     const second = await ask(result.reask)
     asked.attempts += 1

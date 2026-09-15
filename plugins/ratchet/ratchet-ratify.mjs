@@ -204,10 +204,25 @@ export function ratificationQueue(root) {
  * (`Approve ADR 0001`) so a label that does not belong to the question is visible
  * rather than silently mapped.
  *
+ * WHERE THE QUESTION IS SHOWN is part of the question, not a property of the caller
+ * that a presentation could look up: `present` decides whether the batch declares the
+ * `ratify-decision` presentation intent. `'panel'` declares it, and a client that
+ * claims that intent renders the question itself instead of the harness's own card.
+ * `'chat'` declares nothing, so the harness renders the question in the Conversation —
+ * and that is the whole difference between an agent's proposal, which is put to a human
+ * in the decision viewer it belongs to, and a grilling session, where the agent is
+ * talking to the human anyway and the question must block that conversation until it is
+ * answered. A question that declared the intent and was shown in neither place would be
+ * unanswerable; making the choice explicit is what keeps a presentation from silently
+ * swallowing a question no surface then offers.
+ *
  * @param entries - Queue entries to ask about; an empty list yields a quiz with no
  *   questions, which callers must treat as "nothing to ask".
- * @param options - `{ attempt }` (1 or 2) and, for attempt 2, `previous`: the
- *   unreadable results from attempt 1, whose `reason` and `raw` are shown.
+ * @param options - `{ attempt, previous, present }`. `attempt` is 1 or 2; for attempt
+ *   2, `previous` carries the unreadable results from attempt 1, whose `reason` and
+ *   `raw` are shown. `present` is `'panel'` (the default) or `'chat'`; an unrecognised
+ *   value is treated as `'chat'`, because a presentation that is not explicitly the
+ *   panel's is one the panel must not claim on the ratchet's behalf.
  * @returns `{ attempt, questions, roles, frozen }`. `questions` is exactly the
  *   payload the harness user-questions seam accepts — plain data, no private
  *   fields, because anything else would have to survive the wire. `roles` maps each
@@ -217,7 +232,8 @@ export function ratificationQueue(root) {
  *   consent can be bound to the text the human was SHOWN rather than to whatever
  *   the file says when the answer arrives.
  */
-export function buildQuiz(entries, { attempt = 1, previous = [] } = {}) {
+export function buildQuiz(entries, { attempt = 1, previous = [], present = 'panel' } = {}) {
+  const forPanel = present === 'panel'
   const questions = []
   const roles = {}
   const frozen = []
@@ -234,8 +250,10 @@ export function buildQuiz(entries, { attempt = 1, previous = [] } = {}) {
       // buttons can express every answer this question allows — one approve label, one
       // other option, single choice — which is the condition the harness puts on a
       // presentation claiming a question, and the condition the ADR panel must re-check
-      // before it claims one.
-      intent: { kind: RATIFY_INTENT_KIND, approve: approveLabel },
+      // before it claims one. It is attached ONLY for the panel: the harness's own card is
+      // the presentation that offers a free-text answer, and a grilling session needs that
+      // card rather than a surface the human has to leave the conversation to find.
+      ...(forPanel ? { intent: { kind: RATIFY_INTENT_KIND, approve: approveLabel } } : {}),
       question:
         attempt === 1
           ? `Put "${entry.title ?? entry.id}" into force as law?`

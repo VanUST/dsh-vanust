@@ -208,6 +208,33 @@ exposes an `answer` the panel can call with the same batch shape the generic flo
 The panel must also recognise the question **structurally** (`questions[0].intent`) because
 `PendingQuestion` is not exported and a third-party bundle cannot use `instanceof`.
 
+**Settled afterwards (2026-09-15), by a decision rather than by the probe.** The panel
+does NOT put the question in the Conversation. An agent's decision is answered in the
+decision window, so the composer claim renders a **pointer** — the decision's name and a
+button that opens the window — and the question's text, record text and answer labels
+appear only in the panel. The seat is claimed in order to **suppress** the harness's card,
+not to replace it with a second one. A **grilling session** is the one exception, and the
+ratchet now says which case a question is in: `buildQuiz(entries, { present })` attaches
+`intent: { kind: 'ratify-decision', … }` only for `'panel'` (the default), so the grill
+entry (`ratchet_ingest_source` with `ratify: true`) declares no intent, nothing claims it,
+and the harness's own card asks — and blocks — in the Conversation, which is what a grill
+is for. An unrecognised `present` is treated as the Conversation's, because a value that
+does not say "panel" is one no client may claim on the ratchet's behalf.
+
+Two of the three consequences are now exercised, and the third is not:
+
+- **Measured**: the panel's `select` accepts the ratchet's real question and refuses every
+  shape it cannot answer completely, and the batch each button sends is read back by the
+  ratchet's own `deriveDecisions` as `approved` / `rejected` rather than `unreadable` —
+  `node scripts/test-adr-panel.mjs`, which imports `buildQuiz`/`deriveDecisions` and drives
+  the shipped bundle through a stub loader. The seat renders no button carrying either
+  answer label, so the Conversation cannot answer the question; the window renders both.
+- **Measured**: the intent literal is one value with two copies (a Node plugin and a
+  browser closure that cannot import each other), and `scripts/check-consent-surface.mjs`
+  fails when they stop being equal.
+- **Still a reading**: that the running shell elects the panel's entry. See the panel
+  README's "What is NOT verified without a browser".
+
 ---
 
 ## 3. Where declarations and behaviour diverge

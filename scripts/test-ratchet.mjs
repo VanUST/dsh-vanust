@@ -5379,6 +5379,44 @@ test('ratify: preparing a quiz reports no consent-shaped problem', () => {
   assert.deepEqual(prepared.summary.byCode, {})
 })
 
+test('ratify: the caller\'s presentation reaches the question and the re-ask', () => {
+  // Where a question is answered is part of the question, and it is forwarded rather than
+  // decided twice: the grill entry knows it is a conversation and asks for the harness's own
+  // card, every other entry asks for the panel's. A re-ask shown somewhere else than the
+  // question it repeats would make the human find the same decision in two places.
+  const { root } = ratifiableProject('ratify-presentation')
+
+  const panel = ops.ratify({ root })
+  assert.equal(panel.needsAnswer, true)
+  assert.equal(panel.quiz.questions[0].intent.kind, 'ratify-decision', 'the panel is the default')
+
+  const chat = ops.ratify({ root, present: 'chat' })
+  assert.equal(chat.needsAnswer, true)
+  assert.equal(chat.quiz.questions[0].intent, undefined, 'the grill asks for the Conversation card')
+
+  // Everything except the presentation is the same question, so the answer means the same
+  // thing in either place.
+  assert.deepEqual(chat.quiz.roles, panel.quiz.roles, 'the same labels mean the same decision')
+  assert.deepEqual(chat.quiz.frozen, panel.quiz.frozen, 'and the same text is bound to a yes')
+
+  const answeredChat = ops.ratify({ root, answer: answerWith(chat.quiz, []), quiz: chat.quiz, present: 'chat', at: '2026-09-14T09:00:00Z' })
+  assert.ok(answeredChat.reask !== null && answeredChat.reask !== undefined, 'an unreadable answer is re-asked')
+  assert.equal(answeredChat.reask.questions[0].intent, undefined, 'the re-ask is shown where the first question was')
+
+  const answeredPanel = ops.ratify({ root, answer: answerWith(panel.quiz, []), quiz: panel.quiz, present: 'panel', at: '2026-09-14T09:00:00Z' })
+  assert.ok(answeredPanel.reask !== null && answeredPanel.reask !== undefined)
+  assert.equal(answeredPanel.reask.questions[0].intent.kind, 'ratify-decision', 'and the panel keeps its own presentation')
+
+  // Neither unreadable answer minted anything.
+  assert.deepEqual(answeredChat.ratified, [])
+  assert.deepEqual(answeredPanel.ratified, [])
+
+  // An unrecognised presentation is NOT the panel's: a value that does not say "panel" is one
+  // no client may claim on the ratchet's behalf, so it falls back to the Conversation card.
+  const elsewhere = ops.ratify({ root, present: 'somewhere-else' })
+  assert.equal(elsewhere.quiz.questions[0].intent, undefined)
+})
+
 test('compiler: a record the zone refuses cannot retire the decision it supersedes', () => {
   // Supersession was decided from the raw consent, before the humanOnly refusal, so a
   // ratified agent record in a zone reserved to humans still retired the human

@@ -139,6 +139,43 @@ this brief does not enumerate them because they change no shipped artifact:
     `forbidden_text_glob` spec chips were solid blocks with invisible labels. The fill
     is now the shell's own `interactive-bg-hover-danger`, and the render test resolves
     every toned pill through the installed theme and refuses that collapse; panel `0.1.7`.
+19. `cbdfb01` — the ratification question declares a presentation intent
+    (`RATIFY_INTENT_KIND = "ratify-decision"`), pinned by a test and measured end to end
+    by the probe; ADR 0014 ratified by a human as `0016`; `docs/RATCHET-API-FACTS.md` §2.6
+    records the asking half as executed and the presenting half as a source reading.
+
+The cycle this brief accompanies changed three things, and each moved a claim from prose
+to a command:
+
+20. **The panel stopped presenting the question in the chat.** The ratify affordance is
+    now a **Ratify…** trigger, and the panel claims the Conversation's
+    `conversation.composer` chain seat in order to SUPPRESS the harness's own question
+    card. What it renders in that seat is a pointer — the decision's name and a way into
+    the window — and the question, its record text and both answer labels appear only in
+    the panel window, whose buttons carry the ratchet's own labels. The ratchet's
+    `buildQuiz` gained a `present` option so a grilling session, the one case the operator
+    exempted, declares no intent and keeps the blocking Conversation quiz. Panel `0.1.13`,
+    ratchet `0.2.27`; ADR 0018. `scripts/test-adr-panel.mjs` now imports the ratchet's real
+    `buildQuiz`/`deriveDecisions` and drives the shipped bundle: the seat renders no answer
+    button, the window renders both, and each click's batch is read back as `approved` or
+    `rejected`. `scripts/check-consent-surface.mjs` fails when the panel's copy of the
+    intent literal stops equalling the ratchet's.
+21. **`requiresDecisionRecord` no longer blocks an agent's proposal.** A proposed decision
+    naming a zone licenses the writes it describes while contributing nothing to law —
+    `compileLaws` still sees only the in-force set — with two boundaries: it never licenses
+    a zone the manifest reserves to `humanOnly`, and it never licenses work that contradicts
+    a law in force (a removal, or the same id under a different statement), which is the one
+    place autonomy stops. ADR 0017. The same work found a defect in the guard's own cache:
+    it keyed on the decisions DIRECTORY's mtime, so rewriting a record in place — including
+    the edit that removes a contradiction — never invalidated it, and the documented cure
+    did not cure. The signature is now the entry listing, and
+    `scripts/test-ratchet-guard.mjs` fails if an in-place edit stops being noticed.
+22. **The kit's own corpus demonstrated the rule it had just decided.** The guard change
+    ships as ADR 0017 and the presentation change as ADR 0018, both `status: proposed` in
+    the `shipped-plugins` zone, so they are law candidates rather than law: the compile
+    reports the same 26 laws before and after their addition, which is the mechanism
+    "its decisions do not become specs" describes. `docs/RATCHET-API-FACTS.md` §2.6,
+    the panel README and `AGENTS.md`'s counts were corrected in the same change.
 
 Notable decisions that are **not** each an ADR:
 
@@ -237,8 +274,27 @@ report a pass. The gate is the CLI above; the tools are for an agent mid-session
 - **The harness is a release candidate** (0.1.5-rc.1). `COMPAT.md` is the watchlist of the
   twelve upstream touchpoints, with the grep that detects each; upgrades must go through
   `scripts/verify-upgrade.sh` before a live profile is touched.
-- **This machine's live profile is converged** on `main` (ratchet 0.2.8, kit-rules 0.1.1,
-  dsh-context 0.1.3, model-gate 0.1.5-rc.1, adr-panel 0.1.7). The panel's client bundle is
+- **The judge's half of the contradiction rule is asked, not enforced.** ADR 0017's law
+  says so rather than implying otherwise: the guard catches the DECIDABLE contradictions
+  (a removal of law in force, or the same law id under a different statement) because it
+  runs before every write and asks no model, and `review_proposal`'s question now asks a
+  judge for the rest — but a judge's answer is advisory, is not persisted into anything the
+  guard reads, and therefore does not stop a write. Closing it means somewhere to record the
+  judge's answer, a staleness rule for that record, and a rule for who may clear it; the
+  first is the piece that does not exist.
+- **Whether the running shell elects the panel's composer entry is read, not measured.**
+  The chain's election (`first entry whose select returns non-null`, in registration order)
+  and a shipped second claimant of the same seat were read from the harness and the bundled
+  host; the panel's own `select` is exercised against the ratchet's real question. Nobody has
+  opened a browser and watched the seat be claimed, so the panel README keeps that item on its
+  "not verified" list.
+- **Three decisions await a human:** `0015` (the grill session consents through the question
+  channel), `0017` (a proposal licenses the work, a contradiction stops it) and `0018` (a
+  question says where it is shown). None is in force, none is blocking, and each is a record
+  a human can ratify from the panel the previous cycle shipped — which is the flow ADR 0017
+  describes, applied to ADR 0017 itself.
+- **This machine's live profile is converged** on `main` (ratchet 0.2.27, kit-rules 0.1.1,
+  dsh-context 0.1.3, model-gate 0.1.5-rc.1, adr-panel 0.1.13). The panel's client bundle is
   revision-addressed, so a `dsh web` that was already running keeps serving the bundle it
   loaded until it is restarted; the header chip naming the panel version is how that is
   detected. The shipped artifacts last changed at `49e1f61`; this brief is documentation and

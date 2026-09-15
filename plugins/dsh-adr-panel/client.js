@@ -4,15 +4,19 @@
  *   overlay showing a project's decision corpus and its compiled specs as a
  *   readable, cross-linked view. It is a VIEWER: the ratchet CLI (`ratchet verify`)
  *   remains the authority on what is enforced, and every state it displays is read
- *   from the corpus files. The one action it offers is read-only: it ASKS the agent
- *   to run `ratchet_ratify` for a decision that still needs a human.
+ *   from the corpus files. It offers exactly one action and writes nothing: it ASKS
+ *   the ratchet to put a decision that still needs a human to the human, and then
+ *   PRESENTS the ratchet's own question as that question's two labelled answers — in
+ *   the panel window, and in the composer seat it claims — so the human's click is
+ *   the consent the ratchet records and the panel never mints one.
  *
  * INPUTS
- *   Loaded by the Web client's module loader as `@cc/dsh-adr-panel/client`. The two
+ *   Loaded by the Web client's module loader as `@cc/dsh-adr-panel/client`. The three
  *   registrations receive the standard slot props of their scope — the Session-header
  *   action seat supplies `sessionId` and `inputActions`; the frame-wide overlay seat
- *   supplies only root-scope props — plus the members returned by each registration's
- *   `inject` factory. Decision and spec text is read through
+ *   supplies only root-scope props; the composer seat supplies `pendingInteraction`,
+ *   the Session's effective interaction awaiting the user — plus the members returned
+ *   by each registration's `inject` factory. Decision and spec text is read through
  *   `ctx.remote.workspaceFiles.list/read`, addressed by the Session id.
  *
  *   PROJECT-AGNOSTIC: the node that renders is discovered from the project itself, not
@@ -27,8 +31,9 @@
  *   version a stale bundle and a bug look identical.
  *
  * OUTPUTS
- *   One contribution to `conversation.session.header.actions` and one to
- *   `shell.overlay`. The overlay renders nothing while closed and never mutates a
+ *   One contribution to each of `conversation.session.header.actions`,
+ *   `shell.overlay` and `conversation.composer`. The overlay renders nothing while
+ *   closed and never mutates a
  *   file. Two record kinds are rendered separately: Decisions (`type !== "approval"`)
  *   and Consents (`type === "approval"`). There is exactly ONE force state: a record
  *   whose frontmatter says `active` and a proposed record a consent put into force both
@@ -48,7 +53,16 @@
  *   question. The affordance submits the ratchet's own `/ratify <id>` command, which
  *   runs host-side without a model turn and puts the ratchet's question to the human
  *   through the question channel, and when no Session-scoped submitter is mounted it
- *   prints the command instead. It cannot mint a consent: the answer is the human's, and
+ *   prints the command instead. The question that follows is presented HERE, in this
+ *   window, and nowhere else: the composer entry claims the seat only for a question
+ *   whose intent is the ratchet's `ratify-decision` and whose answers are exactly the
+ *   two options that intent names, and it renders a POINTER there — the decision's name
+ *   and a button that opens this window — never the question, its detail or either
+ *   answer label, so an agent's decision never becomes a quiz in the Conversation. The
+ *   window renders the question's own text with the two labels as buttons. A question
+ *   without that intent, which is what a grilling session asks, is not claimed at all
+ *   and is answered in the Conversation. It cannot mint a consent: every button sends
+ *   one of the labels the ratchet itself put in the question, and
  *   a consent record is not a decision and is never offered for ratification.
  *
  *   COLOUR: one `tone(kind)` helper maps a semantic kind onto the shell's state and
@@ -94,14 +108,36 @@
  *
  * KEYWORDS
  *   ADR panel, decisions, consents, specs, law cards, check histogram, slots,
- *   shell.overlay, session header, workspace files, remote, ratification, ask the
- *   agent, read-only, viewer
+ *   shell.overlay, session header, conversation.composer, composer seat claim,
+ *   presentation intent, workspace files, remote, ratification, approve, decline,
+ *   not now, read-only, viewer
  *
  * BEHAVIOUR ON EDGE CASES
  *   - `ctx.remote.workspaceFiles` absent: the window still renders and shows that
  *     the file API is unreachable; the header button is unaffected.
  *   - No `inputActions` (no live Session composer): the ratify affordance renders the
  *     CLI command instead of a submit button.
+ *   - A pending question that is not the ratchet's, or is the ratchet's but not a
+ *     claimable shape (several questions, no detail, multi-select, not exactly two
+ *     labelled options, no option carrying the intent's approve label, no callable
+ *     `answer`), or is a grilling session's question, which carries no panel intent:
+ *     the composer seat falls through to the harness's own question card, so the human
+ *     still gets a presentation that can send every answer — including free text, which
+ *     the ratchet reports unreadable and re-asks. That fall-through is also the fallback
+ *     when this bundle is not loaded at all, so a claim can never make a question
+ *     unanswerable.
+ *   - The panel window closed while a ratification question is open: the Conversation
+ *     keeps the pointer, whose button reopens the window on the same interaction, so the
+ *     question is stranded neither in a closed window nor in a chat card.
+ *   - The panel window not open when a question arrives, or opened after it: the window
+ *     renders from the mirrored interaction, so it shows the question whatever the order.
+ *     It is re-tested with `ratifyQuestionOf` before a button is offered, and the window
+ *     never renders the question in the Conversation at all.
+ *   - A click on an answer that the harness refuses to settle (the question settled in
+ *     another surface, or its transport ended): the failure's message is shown and the
+ *     buttons re-enable; the click never throws out of the handler.
+ *   - A second click while a settlement is in flight: disabled, because the harness rejects
+ *     a second settlement of the same pending question.
  *   - A directory or a single file that cannot be read: reported as a line, and the
  *     rest of the list still renders.
  *   - Frontmatter or a spec that does not parse: the record is listed with whatever
@@ -142,22 +178,51 @@ window.__ModuleLoader__.load({
 		 * constant is the only way to tell a stale bundle from a bug: bump it with every
 		 * change to this file, and keep it equal to the package's version.
 		 */
-		const PANEL_VERSION = "0.1.12";
+		const PANEL_VERSION = "0.1.13";
 		/** The manifest a ratchet project declares its directories and name in. */
 		const MANIFEST_PATH = ".dsh/project.json";
 		/** Directories used when the manifest is absent, unparseable, or silent. */
 		const DEFAULT_DECISIONS_DIR = "docs/adrs";
 		const DEFAULT_SPECS_DIR = "docs/specs";
+		/**
+		 * The `intent.kind` the ratchet puts on its ratification questions.
+		 *
+		 * A question may carry `intent: { kind, approve }` to say how it wants to be
+		 * presented. The harness renders a kind it knows itself, and a presentation that
+		 * claims the composer seat may recognise any kind at all: the seat is a chain, the
+		 * first registered entry whose `select` returns a value wins, and the entries are
+		 * tried in registration order. The value may not be swapped for a structural
+		 * guess: two buttons can express the two answers this intent declares, and an
+		 * intent the panel does not recognise must fall through to the harness's own
+		 * question card, which is the only presentation that offers a free-text answer.
+		 *
+		 * The literal is DUPLICATED, deliberately, and cannot be imported: the ratchet is
+		 * a Node plugin and this file is a hand-written browser closure with no module
+		 * graph, so `RATIFY_INTENT_KIND` in the ratchet source and this constant are two
+		 * copies of one wire value. `scripts/check-consent-surface.mjs` fails when they
+		 * stop being equal, which is the only thing that keeps the copies honest.
+		 */
+		const RATIFY_INTENT_KIND = "ratify-decision";
 
 		//#region panel store
 		/**
 		 * The panel's shared view state. It is not harness state: it holds only
-		 * whether the window is open, which Session it was opened from, and the
-		 * submitter the Session-header entry publishes for the overlay to call.
+		 * whether the window is open, which Session it was opened from, the submitter
+		 * the Session-header entry publishes for the overlay to call, and the pending
+		 * ratification question the composer entry claims.
+		 *
+		 * `ratify` is the ONE cross-seat value in this store, and it is a crossing on
+		 * purpose: the ratification question is published by the harness as a
+		 * Session-scoped pending interaction, and only the composer seat receives it as a
+		 * slot prop. The overlay is a different seat and cannot read that prop, so the
+		 * entry that does receive it hands the interaction here and the overlay renders
+		 * the same two buttons from this one value. Both surfaces settle the SAME
+		 * interaction, so a click in either one is one answer; the second surface stops
+		 * rendering when the first settles, because the interaction is gone.
 		 * @returns a bare getSnapshot/subscribe source the renderer binds into a hook.
 		 */
 		function createPanelStore() {
-			var state = { open: false, sessionId: null, ask: null };
+			var state = { open: false, sessionId: null, ask: null, ratify: null };
 			var listeners = new Set();
 			return {
 				getSnapshot: function () {
@@ -179,6 +244,72 @@ window.__ModuleLoader__.load({
 						}
 					});
 				}
+			};
+		}
+		//#endregion
+
+		//#region ratification question
+		/**
+		 * PURPOSE
+		 *   Decide whether a pending interaction is the ratchet's ratification question,
+		 *   and reduce it to the two labelled answers the panel is allowed to offer. It
+		 *   is the gate that keeps a claimed question honest: the panel may take over the
+		 *   composer seat only for a question it can answer COMPLETELY, because a
+		 *   presentation that claims a question and then cannot send one of its answers
+		 *   has silently removed an option the human was owed.
+		 *
+		 * INPUTS
+		 *   interaction — the `pendingInteraction` slot prop, or any value. Read
+		 *   structurally: `questions` (array of exactly one), `questions[0].intent.kind`
+		 *   (`ratify-decision`), `questions[0].detail` (present), `questions[0].multiSelect`
+		 *   (not `true`), `questions[0].options` (exactly two, each with a string `label`,
+		 *   one of them equal to `intent.approve`), and `answer` (a function).
+		 *
+		 * OUTPUTS
+		 *   `{ pending, id, header, question, detail, approve, decline }`, or `null` when
+		 *   the value is not a claimable ratification question — `null`/`undefined`, an
+		 *   array of zero or several questions, a missing or foreign `intent`, an absent
+		 *   detail, a multi-select, a number of options other than two, a non-string
+		 *   label, no option carrying `intent.approve`, or no callable `answer`. A
+		 *   question with free text reachable is still claimable: free text is not an
+		 *   answer this ratchet can read (it is reported unreadable and re-asked), so the
+		 *   two declared options are every answer that changes anything, and `Not now`
+		 *   keeps the exit the harness's own plan-review card keeps.
+		 *
+		 * KEYWORDS
+		 *   ratification, presentation intent, composer seat, chain select, claim guard,
+		 *   binary choice, approve, decline, fallthrough
+		 */
+		function ratifyQuestionOf(interaction) {
+			if (interaction === null || typeof interaction !== "object") return null;
+			if (typeof interaction.answer !== "function") return null;
+			var questions = interaction.questions;
+			if (!Array.isArray(questions) || questions.length !== 1) return null;
+			var question = questions[0];
+			if (question === null || typeof question !== "object") return null;
+			var intent = question.intent;
+			if (intent === null || typeof intent !== "object" || intent.kind !== RATIFY_INTENT_KIND) return null;
+			if (question.detail === undefined || question.detail === null) return null;
+			if (question.multiSelect === true) return null;
+			var options = Array.isArray(question.options) ? question.options : [];
+			if (options.length !== 2) return null;
+			var approve = null;
+			var decline = null;
+			for (var index = 0; index < options.length; index += 1) {
+				var option = options[index];
+				if (option === null || typeof option !== "object" || typeof option.label !== "string") return null;
+				if (option.label === intent.approve) approve = option;
+				else decline = option;
+			}
+			if (approve === null || decline === null) return null;
+			return {
+				pending: interaction,
+				id: question.id,
+				header: typeof question.header === "string" ? question.header : "",
+				question: typeof question.question === "string" ? question.question : "",
+				detail: question.detail,
+				approve: approve,
+				decline: decline
 			};
 		}
 		//#endregion
@@ -1433,6 +1564,211 @@ window.__ModuleLoader__.load({
 
 		//#region components
 		/**
+		 * PURPOSE
+		 *   Put one claimed ratification question to the human as two labelled buttons,
+		 *   and send exactly the answer the human clicked. It is the consent surface: the
+		 *   click settles the ratchet's own pending question, so the answer travels the
+		 *   harness question channel and the ratchet records the consent from that answer
+		 *   alone. This component never writes a record, never composes an answer, and
+		 *   never names a label the question did not offer.
+		 *
+		 * INPUTS
+		 *   props.claim — a value from `ratifyQuestionOf`: `{ pending, id, header,
+		 *   question, detail, approve, decline }`. Only ever a non-null claim; a caller
+		 *   renders nothing for a declined one.
+		 *
+		 * OUTPUTS
+		 *   The question's own header, text and file text, the approve and decline buttons
+		 *   carrying the option labels the ratchet sent, a `Not now` button that rejects
+		 *   the question unanswered, and — after a failed settlement — the failure's
+		 *   message. On a successful settlement it renders nothing further: the pending
+		 *   interaction is gone, so React unmounts it. A thrown or rejected `answer`/`cancel`
+		 *   is caught and shown; it is never allowed to escape a click handler.
+		 *
+		 *   Edge cases: a missing `header` renders no eyebrow rather than an empty line; a
+		 *   non-string `detail` is rendered through `String` by `pre`; a second click while
+		 *   a settlement is in flight is disabled by the `busy` state, because the harness
+		 *   rejects a second settlement of the same pending question.
+		 *
+		 * KEYWORDS
+		 *   ratification, consent, question channel, approve, decline, two buttons,
+		 *   pending interaction, settlement, busy guard
+		 */
+		function RatifyAnswer(props) {
+			var claim = props.claim;
+			var busyState = React.useState(false);
+			var busy = busyState[0];
+			var setBusy = busyState[1];
+			var errorState = React.useState(null);
+			var error = errorState[0];
+			var setError = errorState[1];
+			/** Reports a settlement failure without letting it escape the click. */
+			var fail = function (cause) {
+				setBusy(false);
+				setError(describeError(cause));
+			};
+			/** Watches a settlement the harness returns, so a rejection is a message. */
+			var watch = function (settled) {
+				if (settled !== null && typeof settled === "object" && typeof settled.then === "function") {
+					settled.then(function () {
+						// The interaction is gone; the parent unmounts this surface.
+					}, fail);
+				}
+			};
+			/** Sends the option's OWN label, so the consent names the answer that was shown. */
+			var send = function (label) {
+				setBusy(true);
+				setError(null);
+				try {
+					watch(claim.pending.answer({ answers: [{ id: claim.id, selected: [label] }] }));
+				} catch (cause) {
+					fail(cause);
+				}
+			};
+			/** Leaves the question unanswered; nothing is minted and the ratchet may re-ask. */
+			var dismiss = function () {
+				setBusy(true);
+				setError(null);
+				try {
+					watch(claim.pending.cancel());
+				} catch (cause) {
+					fail(cause);
+				}
+			};
+			var colours = tone("pending");
+			return React.createElement("div", { style: Object.assign({}, cardStyle(), { borderColor: colours.border }) },
+				claim.header === "" ? null : React.createElement("div", { style: { fontSize: 11, opacity: 0.7, marginBottom: 4 } }, claim.header),
+				React.createElement("div", { style: { fontSize: 13, fontWeight: 600, lineHeight: "18px" } }, claim.question),
+				React.createElement("pre", { style: preStyle() }, claim.detail),
+				React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 } },
+					React.createElement("button", {
+						type: "button",
+						disabled: busy,
+						style: Object.assign({}, primaryButtonStyle(colours), { marginTop: 0 }),
+						onClick: function () { send(claim.approve.label); }
+					}, claim.approve.label),
+					React.createElement("button", {
+						type: "button",
+						disabled: busy,
+						style: smallButtonStyle(),
+						onClick: function () { send(claim.decline.label); }
+					}, claim.decline.label),
+					React.createElement("button", {
+						type: "button",
+						disabled: busy,
+						style: smallButtonStyle(),
+						onClick: dismiss
+					}, "Not now")),
+				claim.approve.description === undefined || claim.approve.description === "" ? null
+					: React.createElement("div", { style: ctaNoteStyle() }, claim.approve.description),
+				React.createElement("div", { style: ctaNoteStyle() }, "Your click is the consent. Nothing is written until you choose one of the two answers."),
+				error === null ? null : React.createElement("div", { style: warnStyle() }, "The answer did not settle: " + error));
+		}
+
+		/**
+		 * PURPOSE
+		 *   Point the human at the ratification question without putting the question in
+		 *   the Conversation. An agent's decision is answered in the decision panel, and the
+		 *   Conversation must not grow a second, quiz-shaped copy of it: the pointer names
+		 *   the decision and opens the panel, and deliberately does NOT render the question,
+		 *   its detail, or either answer label. The one exception is a grilling session,
+		 *   whose question declares no panel intent and is therefore never claimed by this
+		 *   entry at all.
+		 *
+		 * INPUTS
+		 *   props.claim — a value from `ratifyQuestionOf`, used only for its `header` (which
+		 *   names the decision). `props.openPanel` — the injected opener, taking the
+		 *   Session id. `props.sessionId` — the composer seat's Session identity.
+		 *
+		 * OUTPUTS
+		 *   A card naming the decision, a sentence saying where the question is, and one
+		 *   button that opens the panel. Returns the same card when `openPanel` is missing,
+		 *   because a pointer with a dead button still tells the human where to look; the
+		 *   click is a no-op rather than an error either way.
+		 *
+		 * KEYWORDS
+		 *   pointer, not a quiz, decision panel, open panel, no answer surface,
+		 *   conversation suppression
+		 */
+		function RatifyPointer(props) {
+			var claim = props.claim;
+			var openPanel = props.openPanel;
+			var sessionId = props.sessionId;
+			return React.createElement("div", { style: Object.assign({}, cardStyle(), { borderColor: tone("pending").border }) },
+				claim.header === "" ? null : React.createElement("div", { style: { fontSize: 11, opacity: 0.7, marginBottom: 4 } }, claim.header),
+				React.createElement("div", { style: { fontSize: 13, fontWeight: 600, lineHeight: "18px" } }, "A decision is waiting for your ratification."),
+				React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 } },
+					React.createElement("button", {
+						type: "button",
+						style: Object.assign({}, primaryButtonStyle(tone("pending")), { marginTop: 0 }),
+						onClick: function () {
+							if (typeof openPanel === "function") openPanel(sessionId);
+						}
+					}, "Open the ADRs panel")),
+				React.createElement("div", { style: ctaNoteStyle() }, "The question and its two answers are in the ADRs panel. Nothing is recorded until you answer it there."));
+		}
+
+		/**
+		 * PURPOSE
+		 *   The panel's claim on the composer seat: while the ratchet's ratification
+		 *   question is pending, this entry takes the seat so the Conversation shows a
+		 *   pointer instead of the harness's question card, and hands the question to the
+		 *   panel window where it is actually answered. Taking the seat is what SUPPRESSES
+		 *   the generic card: the seat is a chain, and an entry that claims it is the only
+		 *   presentation the Session renders.
+		 *
+		 *   The seat is claimed only for a question `ratifyQuestionOf` accepts in full — an
+		 *   unrecognised question, and in particular a grilling session's question, which
+		 *   declares no panel intent, falls through to the harness's own presentation. That
+		 *   fall-through is the safety net as well as the grill's intended path: if this
+		 *   bundle is not loaded, nothing claims the seat and the harness asks in the
+		 *   Conversation, so the question is never unanswerable.
+		 *
+		 * INPUTS
+		 *   props.matched — the chain's elected value, which `select` returned; for this
+		 *   entry it is the pending interaction. `props.publishRatify` — the injected
+		 *   callback that mirrors the interaction into the panel store for the window.
+		 *   `props.openPanel` and `props.sessionId` — forwarded to `RatifyPointer`.
+		 *
+		 * OUTPUTS
+		 *   The `RatifyPointer` card for a claimable question, or `null` for anything else
+		 *   (including `matched` being absent, which happens when the chain passes no
+		 *   `pendingInteraction`). The effect publishes the raw INTERACTION on mount and
+		 *   `null` on unmount, so the window's section appears with the question and leaves
+		 *   with it; it publishes the interaction rather than a derived claim so the window
+		 *   can re-apply `ratifyQuestionOf` itself and cannot be shown a surface for a value
+		 *   that is no longer claimable. It publishes `null` — never the raw match — for a
+		 *   question it declines, so the store can only ever hold a claimable interaction.
+		 *
+		 * KEYWORDS
+		 *   composer seat, chain claim, ratification, overlay hand-off, publish, unmount,
+		 *   suppression, fall-through
+		 */
+		function RatifyComposer(props) {
+			var matched = props.matched;
+			var publishRatify = props.publishRatify;
+			var claim = ratifyQuestionOf(matched);
+			React.useEffect(function () {
+				if (typeof publishRatify !== "function") return undefined;
+				// `matched` is the pending interaction itself and keeps its identity while the
+				// question is open, so this effect runs once per question rather than once per
+				// render. The interaction — not a derived claim — is what is published: the
+				// overlay re-tests it with `ratifyQuestionOf` before offering a button, so a
+				// value that stopped being claimable stops being presented.
+				publishRatify(ratifyQuestionOf(matched) === null ? null : matched);
+				return function () {
+					publishRatify(null);
+				};
+			}, [matched, publishRatify]);
+			if (claim === null) return null;
+			return React.createElement(RatifyPointer, {
+				claim: claim,
+				openPanel: props.openPanel,
+				sessionId: props.sessionId
+			});
+		}
+
+		/**
 		 * The Session-header action. It opens and closes the window and publishes the
 		 * submitter the overlay calls: the only place with a live composer.
 		 * @returns the header button.
@@ -1530,9 +1866,9 @@ window.__ModuleLoader__.load({
 						} catch (error) {
 							setResult("unavailable");
 						}
-					} }, "Ask the agent to ratify") : null,
-					React.createElement("div", { key: "note", style: ctaNoteStyle() }, "This asks the agent to put the decision to you as a question. It does not record a consent; only your answer does."),
-					result === "submitted" ? React.createElement("div", { style: mutedStyle() }, "Asked. Answer the agent's ratification question when it arrives.") : null,
+					} }, "Ratify…") : null,
+					React.createElement("div", { key: "note", style: ctaNoteStyle() }, "This asks the ratchet to put the decision to you as a question. Answer it here: the approve and reject buttons appear in this window, and they carry the ratchet's own labels. It does not record a consent by itself; only your click on one of those answers does."),
+					result === "submitted" ? React.createElement("div", { style: mutedStyle() }, "Asked. Answer the ratification question above — it is in this window while it is open, and in the Session composer while it is closed.") : null,
 					(!canAsk || result === "unavailable") ? React.createElement("div", { style: mutedStyle() },
 						canAsk ? "The composer refused the request. " : "No live Session composer is reachable from this window, so it cannot submit a message. ",
 						"Run from a session: ask the agent to call ",
@@ -1796,6 +2132,10 @@ window.__ModuleLoader__.load({
 			}, [state.open, closePanel]);
 			if (!state.open) return null;
 			var canAsk = typeof state.ask === "function";
+			// The ratification question the composer entry claimed and mirrored here. It is
+			// re-derived rather than trusted: the store is a plain value bag, and the overlay
+			// must apply the same claim test the seat did before it offers a button.
+			var pendingRatify = ratifyQuestionOf(state.ratify);
 			var loading = current.status === "loading";
 			var awaitingCount = 0;
 			var decisionStates = {};
@@ -1847,6 +2187,9 @@ window.__ModuleLoader__.load({
 							}))
 							: null,
 						React.createElement(Legend, null),
+						pendingRatify === null ? null : React.createElement("div", null,
+							React.createElement(sectionHeading, { title: "Awaiting your answer", sourceDir: current.dirs.decisionsDir }),
+							React.createElement(RatifyAnswer, { claim: pendingRatify })),
 						React.createElement("div", null,
 							React.createElement(sectionHeading, { title: "Decisions", sourceDir: current.dirs.decisionsDir }),
 							current.decisions.length === 0
@@ -1899,12 +2242,34 @@ window.__ModuleLoader__.load({
 		const inject = ["slots", "remote", "remote.workspaceFiles"];
 
 		/**
-		 * Mount the header trigger and the frame-wide window.
+		 * Mount the header trigger, the frame-wide window, and the composer-seat claim.
 		 * @param ctx - client root context carrying `slots` and `remote`.
-		 * @returns Nothing; both registrations live inside `ctx.effect` scopes.
+		 * @returns Nothing; all three registrations live inside `ctx.effect` scopes.
 		 */
 		function apply(ctx) {
 			const store = createPanelStore();
+			/**
+			 * Mirrors the claimed ratification question into the panel store for the
+			 * overlay. Defined once, outside every `inject` factory, so the component's
+			 * effect dependency on it is stable and the hand-off fires once per question
+			 * rather than once per render.
+			 * @param claim - A value from `ratifyQuestionOf`, or `null` to clear it.
+			 * @returns Nothing.
+			 */
+			const publishRatify = function (claim) {
+				store.set({ ratify: claim === undefined ? null : claim });
+			};
+			/**
+			 * Opens the window on one Session. Hoisted for the same reason as
+			 * `publishRatify`: it is a stable identity, and three registrations need it.
+			 * @param sessionId - The Session the window should read; anything that is not a
+			 *   non-empty string opens it unbound, which is the viewer's own "no Session"
+			 *   state rather than a crash.
+			 * @returns Nothing.
+			 */
+			const openPanel = function (sessionId) {
+				store.set({ open: true, sessionId: typeof sessionId === "string" && sessionId !== "" ? sessionId : null });
+			};
 			ctx.effect(function () {
 				return ctx.slots.inject("conversation.session.header.actions", function () {
 					return ctx.slots.register({
@@ -1914,9 +2279,7 @@ window.__ModuleLoader__.load({
 						inject: function () {
 							return {
 								hooks: { panel: store },
-								openPanel: function (sessionId) {
-									store.set({ open: true, sessionId: typeof sessionId === "string" && sessionId !== "" ? sessionId : null });
-								},
+								openPanel: openPanel,
 								closePanel: function () {
 									store.set({ open: false });
 								},
@@ -1957,6 +2320,31 @@ window.__ModuleLoader__.load({
 							};
 						}
 					}, AdrPanelOverlay);
+				});
+			});
+			ctx.effect(function () {
+				return ctx.slots.inject("conversation.composer", function () {
+					return ctx.slots.register({
+						name: "conversation.composer",
+						id: "cc-adr-panel",
+						// The seat is a chain: the entries are tried in registration order and the
+						// first whose `select` returns a value wins, so a claim has to sort ahead
+						// of the entry that owns every question. That entry registers no priority
+						// at all; the approval entry uses 1 and claims only an approval. Claiming
+						// here SUPPRESSES the harness's question card for this question, which is
+						// the point: an agent's decision is answered in the decision panel, and the
+						// Conversation gets a pointer rather than a quiz. A question the ratchet
+						// sends without the panel intent — a grilling session's — is not claimed,
+						// so it is asked, and blocks, in the Conversation where the grill is.
+						priority: 1,
+						select: function (ownerProps) {
+							var interaction = ownerProps === undefined || ownerProps === null ? null : ownerProps.pendingInteraction;
+							return ratifyQuestionOf(interaction) === null ? null : interaction;
+						},
+						inject: function () {
+							return { publishRatify: publishRatify, openPanel: openPanel };
+						}
+					}, RatifyComposer);
 				});
 			});
 		}

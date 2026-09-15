@@ -1,0 +1,102 @@
+# An agent's proposal is enough to work and not enough to become law
+
+Date: 2026-09-15. Operator decision, taken in a session working on the ADR panel.
+Scope: `plugins/ratchet/ratchet-guard.mjs` — the `tools/pre-execute` guard that makes
+`requiresDecisionRecord` an enforced rule.
+
+This file is the reasoning behind ADR 0017. It records the decision, the state the code
+was in, and why the alternative was rejected.
+
+## The problem, in the operator's words
+
+> Agent proposed adr's should not be blocking (waiting for approval and blocking the
+> workflow). Agent is allowed to implement outside the specs if that does not contradicts
+> them (verified via ratchet), but its decisions do not become specs. This is crucial for
+> autonomy. Agent can work for hour, and later dev comes and approves/changes agent adr's
+> which then become laws in specs. But autonomy ends where agent proposes contradiction to
+> the existing specs.
+
+## What the code did instead
+
+`loadDecisionState` built the set of zones that satisfy `requiresDecisionRecord` from
+`resolved.active` only, with this comment on the line above it:
+
+> Only decisions IN FORCE satisfy the requirement. A proposal is intent, not law:
+> accepting it would let an agent write the ADR and then proceed unilaterally, which is
+> the override the whole authority model exists to prevent.
+
+So in a zone that declared `requiresDecisionRecord: true` and `agentAuthority:
+proposeOnly`, an agent could write the decision record and then be refused every write
+into the zone it named, until a human ratified. The record itself was cheap; the work it
+described could not start. For a session that runs for an hour, that is the difference
+between an agent that proposes and continues and an agent that proposes and waits.
+
+Two facts made the reversal smaller than it looks:
+
+- **A proposal already contributed nothing.** `compileLaws(resolved.active, config)` is
+  called with the in-force set alone, so a proposed record adds no law, no check and no
+  generated spec. "Its decisions do not become specs" was already true, mechanically, and
+  remains true after this change — the guard's licence is not a force state.
+- **Nothing detected a contradiction.** Compiling only the in-force set meant a proposal
+  that contradicted a law already in force produced no signal at all until a human
+  ratified it. "Autonomy ends where an agent proposes contradiction to the existing
+  specs" had no enforcement point, so it was prose.
+
+## The decision
+
+A **proposed** decision naming a zone satisfies that zone's `requiresDecisionRecord`, with
+two boundaries:
+
+1. **Never in a `humanOnly` zone.** The compiler refuses an agent-authored record there
+   even when a human ratifies it (`ADR_AGENT_ACTIVE_IN_HUMAN_ONLY_ZONE`), so a proposal
+   could never become law there. Letting it license a write would let an agent govern a
+   zone the manifest reserved to humans by writing a file the ratchet then declines to
+   activate — the override the old comment was right about, in the one place it applies.
+2. **Never while it contradicts law in force.** A proposal that removes a law in force,
+   or redeclares one under a different statement, refuses writes into the zones it names —
+   including zones a decision already covers, because the point is to ask a human before
+   working against what they ratified, and an existing decision does not make the
+   contradiction go away.
+
+The contradiction check is the **decidable** subset only. The guard runs before every
+write and asks no model, so it cannot classify a contradiction that only a reader can see.
+That residue is where the judge belongs, and `review_proposal`'s question was extended to
+ask it explicitly. **That half is asked, not enforced**: a judge's answer is advisory and
+is not persisted into anything the guard reads, so a semantic contradiction does not stop
+a write today. This is recorded here rather than presented as done.
+
+## Why the denial is recomputed rather than recorded
+
+The first design kept a conflict file and cleared it when the proposal changed. Recomputing
+the contradiction from the corpus on every write removes the state, removes the staleness
+rule, and makes the stop self-clearing: editing a proposal so it no longer contradicts law
+in force lifts the denial with no other action. A recorded conflict would also have needed
+a rule for who may clear it, and that rule would have been the ratchet deciding a question
+it exists to put to a human.
+
+## The defect this work found on the way
+
+The guard's decision-state cache was keyed on the decisions directory's own `mtime`, on the
+reasoning that a record being "added, removed or replaced" moves it. Rewriting a file in
+place does not touch its directory. So an agent that EDITED a proposal to remove the
+contradiction it had just introduced stayed refused until something unrelated altered the
+directory or the session restarted — a denial that the documented cure did not cure. The
+signature is now the directory's entry listing, each name with its size and `mtime`, and
+the guard suite fails if the in-place edit stops being noticed.
+
+## Rejected alternative
+
+**Require ratification for a governed zone, but let the agent keep writing elsewhere.**
+Rejected because it is the same block with a narrower boundary: the zones an agent most
+needs to change are the ones a decision already describes, so this would leave the rule
+enforced exactly where it costs the most autonomy and useless exactly where it would
+matter. The chosen rule lets the work proceed everywhere it does not fight a ratified
+decision, which is what "implement outside the specs if that does not contradict them"
+asks for.
+
+## What a human still has to decide
+
+The ADR is proposed. The laws it declares enter force only through a ratification, which
+is the same route every other `shipped-plugins` decision here took — and the same route
+the operator described for this very change: the agent proposes, a human later approves or
+changes the record, and it becomes law then.

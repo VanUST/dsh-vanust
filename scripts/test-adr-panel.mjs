@@ -140,7 +140,7 @@ function walk(element, path) {
     walk(output, `${path}>${element.key === null ? 'k' : element.key}`)
     return
   }
-  nodes.push({ tag: type, style: element.props.style, text: collectText(element) })
+  nodes.push({ tag: type, style: element.props.style, text: collectText(element), props: element.props })
   element.children.forEach((child, index) => walk(child, `${path}.${index}`))
 }
 
@@ -224,8 +224,16 @@ const bundle = loaded.factory((specifier) => {
 claim('the factory exports an apply', typeof bundle.apply === 'function', `apply=${typeof bundle.apply}`)
 
 // ── a fake workspace file API over the kit's real corpus ────────────────────
+//
+// The surface deliberately exposes ONLY the two reads the panel is allowed to make, and
+// records every call. A panel that writes anything would have to invent a method name, and
+// `scripts/check-consent-surface.mjs` is where the claim that it does not is enforced
+// against the bundle: here the point is that the whole render is watched, so "it reads and
+// does nothing else" is measured rather than asserted from the source text.
+const fileCalls = []
 const fileApi = {
   list(_sessionId, directory) {
+    fileCalls.push('list')
     try {
       const entries = readdirSync(join(KIT, directory), { withFileTypes: true }).map((entry) => ({
         name: entry.name,
@@ -237,6 +245,7 @@ const fileApi = {
     }
   },
   read(_sessionId, relativePath) {
+    fileCalls.push('read')
     try {
       const absolute = join(KIT, relativePath)
       if (!statSync(absolute).isFile()) throw new Error('not a file')
@@ -619,6 +628,274 @@ if (themeFile === null) {
     `${unresolved.length} unresolvable: ${unresolved.slice(0, 6).join(', ')}`,
   )
 }
+
+// ── the ratification claim: the composer seat and its two answers ───────────
+//
+// The panel presents the ratchet's own question, so the strongest test available is the
+// real question: `buildQuiz` is imported from the ratchet and its output is fed to the
+// bundle's own claim predicate. Nothing here restates the question's shape, so drift in
+// either half — a renamed intent kind, a third option, a lost approve label — fails this
+// test rather than shipping a claim that quietly eats an answer the human was owed. The
+// answers the panel sends are then run back through the ratchet's own `deriveDecisions`,
+// which is what makes "same effect as the chat quiz" a measurement instead of a hope.
+
+const ratifySource = await import(pathToFileURL(join(KIT, 'plugins', 'ratchet', 'ratchet-ratify.mjs')).href)
+const { buildQuiz, deriveDecisions, RATIFY_INTENT_KIND } = ratifySource
+
+const composerRegistration = registry['conversation.composer']
+claim(
+  'apply claims the composer seat, ahead of the generic question card',
+  composerRegistration !== undefined &&
+    typeof composerRegistration.config.select === 'function' &&
+    composerRegistration.config.priority > 0,
+  composerRegistration === undefined
+    ? 'no registration'
+    : JSON.stringify({ priority: composerRegistration.config.priority, select: typeof composerRegistration.config.select }),
+)
+if (composerRegistration === undefined) {
+  process.stderr.write(`adr panel render FAILED\n  the composer seat is not claimed, so nothing below can be measured\n`)
+  process.exit(1)
+}
+
+const quiz = buildQuiz(
+  [
+    {
+      id: '0015',
+      title: 'A decision that waits for a human',
+      laws: [{ id: 'kit-tooling.a-proposed-decision', op: 'add' }],
+      text: '---\nid: 0015\n---\n\n## Reasoning\n\nbecause the measurement said so.\n',
+    },
+  ],
+  { attempt: 1 },
+)
+const ratifyQuestion = quiz.questions[0]
+const answerCalls = []
+const cancellations = []
+const pendingRatify = {
+  questions: quiz.questions,
+  answer(batch) {
+    answerCalls.push(batch)
+    return Promise.resolve()
+  },
+  cancel() {
+    cancellations.push(true)
+    return Promise.resolve()
+  },
+}
+/** A deep copy of the real question list, so a variant never edits the shared one. */
+const variantQuestions = () => JSON.parse(JSON.stringify(quiz.questions))
+
+const select = composerRegistration.config.select
+claim(
+  'the claim takes the ratchet\'s own question',
+  select({ pendingInteraction: pendingRatify }) === pendingRatify,
+  JSON.stringify(ratifyQuestion.intent),
+)
+claim(
+  'the intent kind the panel matches is the one the ratchet sends',
+  ratifyQuestion.intent.kind === RATIFY_INTENT_KIND,
+  `ratchet=${RATIFY_INTENT_KIND} question=${JSON.stringify(ratifyQuestion.intent)}`,
+)
+
+// Every shape this predicate must refuse, each built from the real question so a variant
+// can only differ in the one property it is named for.
+const refused = [
+  ['no interaction at all', {}],
+  ['a null interaction', { pendingInteraction: null }],
+  ['a foreign intent kind', { pendingInteraction: { ...pendingRatify, questions: variantQuestions().map((item) => ({ ...item, intent: { ...item.intent, kind: 'something-else' } })) } }],
+  ['two questions in one batch', { pendingInteraction: { ...pendingRatify, questions: [...variantQuestions(), ...variantQuestions()] } }],
+  ['a lost detail', { pendingInteraction: { ...pendingRatify, questions: variantQuestions().map(({ detail, ...rest }) => rest) } }],
+  ['a multi-select', { pendingInteraction: { ...pendingRatify, questions: variantQuestions().map((item) => ({ ...item, multiSelect: true })) } }],
+  ['a third option', { pendingInteraction: { ...pendingRatify, questions: variantQuestions().map((item) => ({ ...item, options: [...item.options, { label: 'Maybe', description: '' }] })) } }],
+  ['a renamed approve label', { pendingInteraction: { ...pendingRatify, questions: variantQuestions().map((item) => ({ ...item, options: [{ label: 'Yes please', description: '' }, item.options[1]] })) } }],
+  ['no callable answer', { pendingInteraction: { questions: variantQuestions() } }],
+]
+const wronglyAccepted = refused.filter(([, props]) => select(props) !== null).map(([name]) => name)
+claim(
+  'the claim refuses every question it cannot answer completely',
+  wronglyAccepted.length === 0,
+  wronglyAccepted.length === 0 ? `refused ${refused.length} shapes` : `accepted: ${wronglyAccepted.join(', ')}`,
+)
+claim(
+  'the refusal table is not empty, so the assertion above measured something',
+  refused.length >= 9,
+  `${refused.length} shapes`,
+)
+
+// ── the seat renders a pointer, never the question ──────────────────────────
+//
+// The requirement this pins: an agent's decision is answered in the ADR panel, so the
+// Conversation must not grow a quiz. The seat claims the question in order to SUPPRESS
+// the harness's own card, and what it renders there is a pointer — the decision's name
+// and a way into the panel. The question's text, its record text and its answer labels
+// must not appear in the Conversation at all.
+const composerMembers = composerRegistration.config.inject()
+const openCalls = []
+const composerElement = React.createElement(composerRegistration.Component, {
+  matched: pendingRatify,
+  publishRatify: composerMembers.publishRatify,
+  openPanel: (sessionId) => openCalls.push(sessionId),
+  sessionId: 'stub-session',
+})
+await flush(composerElement, 'ratify-seat')
+const seatNodes = nodes.slice()
+const seatTexts = seatNodes.map((node) => node.text)
+const seatButtons = seatNodes.filter((node) => node.tag === 'button')
+
+claim(
+  'the seat does not put the question or its record text in the Conversation',
+  !seatTexts.includes(ratifyQuestion.question) &&
+    !seatTexts.some((text) => text.includes(ratifyQuestion.question)) &&
+    !seatTexts.some((text) => text.includes(ratifyQuestion.detail)),
+  JSON.stringify(seatTexts.filter((text) => text !== '').slice(0, 5)),
+)
+claim(
+  'the seat offers no answer button at all',
+  [ratifyQuestion.options[0].label, ratifyQuestion.options[1].label].every(
+    (label) => !seatButtons.some((node) => node.text === label),
+  ),
+  JSON.stringify(seatButtons.map((node) => node.text)),
+)
+const openButton = seatButtons.find((node) => node.text === 'Open the ADRs panel')
+claim(
+  'the seat names the decision and points at the panel',
+  openButton !== undefined && seatTexts.includes(ratifyQuestion.header),
+  JSON.stringify(seatTexts.filter((text) => text !== '')),
+)
+if (openButton !== undefined) openButton.props.onClick()
+claim(
+  'the pointer opens the window on its Session',
+  openCalls.length === 1 && openCalls[0] === 'stub-session',
+  JSON.stringify(openCalls),
+)
+
+// ── the window is the only place the question is put ────────────────────────
+const overlayMembers = registry['shell.overlay'].config.inject()
+const panelStore = overlayMembers.hooks.panel
+claim(
+  'the seat hands the claimed question to the panel window',
+  panelStore.getSnapshot().ratify === pendingRatify,
+  panelStore.getSnapshot().ratify === null ? 'null' : 'an interaction',
+)
+
+/** Renders the window against the shared store, on its own hook path. */
+async function renderWindow(prefix) {
+  try {
+    const root = React.createElement(
+      registry['shell.overlay'].Component,
+      Object.assign({}, overlayMembers, { usePanel: (selector) => selector(panelStore.getSnapshot()) }),
+    )
+    await flush(root, prefix)
+    return { ok: true }
+  } catch (error) {
+    return { ok: false, error: String(error) }
+  }
+}
+
+const approveWindow = await renderWindow('ratify-approve')
+const approveButtons = nodes.filter((node) => node.tag === 'button')
+claim(
+  'the window puts the question, its record text and both of its own labels',
+  approveWindow.ok &&
+    nodes.map((node) => node.text).includes(ratifyQuestion.question) &&
+    nodes.map((node) => node.text).includes(ratifyQuestion.detail) &&
+    [ratifyQuestion.options[0].label, ratifyQuestion.options[1].label].every((label) =>
+      approveButtons.some((node) => node.text === label),
+    ),
+  approveWindow.ok ? JSON.stringify(approveButtons.map((node) => node.text)) : approveWindow.error,
+)
+const windowApprove = approveButtons.find((node) => node.text === ratifyQuestion.options[0].label)
+if (windowApprove !== undefined) windowApprove.props.onClick()
+claim(
+  'a click in the window sends that option\'s own label as the whole answer batch',
+  JSON.stringify(answerCalls) ===
+    JSON.stringify([{ answers: [{ id: ratifyQuestion.id, selected: [ratifyQuestion.options[0].label] }] }]),
+  JSON.stringify(answerCalls),
+)
+const approveDerived = deriveDecisions(quiz, answerCalls[0])
+claim(
+  'the ratchet reads the window\'s approve click as an approval, not an unreadable answer',
+  approveDerived.decisions.length === 1 &&
+    approveDerived.decisions[0].decision === 'approved' &&
+    approveDerived.unreadable.length === 0,
+  JSON.stringify(approveDerived),
+)
+
+const declineWindow = await renderWindow('ratify-decline')
+const windowDecline = declineWindow.ok
+  ? nodes.filter((node) => node.tag === 'button').find((node) => node.text === ratifyQuestion.options[1].label)
+  : undefined
+if (windowDecline !== undefined) windowDecline.props.onClick()
+claim(
+  'a decline click in the window sends the rejection label',
+  answerCalls.length === 2 &&
+    answerCalls[1].answers.length === 1 &&
+    answerCalls[1].answers[0].id === ratifyQuestion.id &&
+    answerCalls[1].answers[0].selected[0] === ratifyQuestion.options[1].label,
+  JSON.stringify(answerCalls),
+)
+const declineDerived = deriveDecisions(quiz, answerCalls[1])
+claim(
+  'the ratchet reads the window\'s decline click as a rejection',
+  declineDerived.decisions.length === 1 &&
+    declineDerived.decisions[0].decision === 'rejected' &&
+    declineDerived.unreadable.length === 0,
+  JSON.stringify(declineDerived),
+)
+
+const notNowWindow = await renderWindow('ratify-notnow')
+const notNow = notNowWindow.ok ? nodes.filter((node) => node.tag === 'button').find((node) => node.text === 'Not now') : undefined
+if (notNow !== undefined) notNow.props.onClick()
+claim(
+  'Not now leaves the question unanswered instead of answering it',
+  cancellations.length === 1 && answerCalls.length === 2,
+  `cancels=${cancellations.length} answers=${answerCalls.length}`,
+)
+
+// ── a grilling session keeps the Conversation quiz ──────────────────────────
+// The one exception, and the reason the ratchet has to say where a question is shown:
+// a grill's question declares no panel intent, so nothing claims the seat, the harness
+// renders its own card, and the question blocks the conversation until it is answered.
+const chatQuiz = buildQuiz(
+  [{ id: '0015', title: 'A grilling-session decision', laws: [], text: '---\nid: 0015\n---\n' }],
+  { attempt: 1, present: 'chat' },
+)
+claim(
+  'a grilling session\'s question carries no panel intent, so the seat leaves it alone',
+  chatQuiz.questions[0].intent === undefined &&
+    select({ pendingInteraction: { questions: chatQuiz.questions, answer() {} } }) === null,
+  JSON.stringify(chatQuiz.questions[0].intent),
+)
+claim(
+  'a panel question always carries the intent the seat matches',
+  ratifyQuestion.intent !== undefined && ratifyQuestion.intent.kind === RATIFY_INTENT_KIND,
+  JSON.stringify(ratifyQuestion.intent),
+)
+
+// A question the seat does not claim must clear the window rather than leave a stale one.
+await flush(
+  React.createElement(composerRegistration.Component, {
+    matched: { questions: [{ id: 'other', question: 'x', options: [{ label: 'a', description: '' }] }], answer() {} },
+    publishRatify: composerMembers.publishRatify,
+  }),
+  'ratify-other',
+)
+claim(
+  'a question the seat declines clears the window\'s ratification section',
+  panelStore.getSnapshot().ratify === null,
+  JSON.stringify(panelStore.getSnapshot().ratify),
+)
+// ── the panel reads and does nothing else ───────────────────────────────────
+// Every render above ran against a file surface that exposes only `list` and `read`, and
+// every call was recorded. So this is a measurement of the whole plugin, not a reading of
+// its source: there is no write path for the panel to record a consent through, which is
+// the half of the consent surface that a bundle cannot be trusted to state about itself.
+const distinctFileCalls = [...new Set(fileCalls)].sort()
+claim(
+  'the whole render lists and reads, and calls nothing else',
+  distinctFileCalls.length > 0 && distinctFileCalls.every((name) => name === 'list' || name === 'read'),
+  `calls=${JSON.stringify(distinctFileCalls)} of ${fileCalls.length}`,
+)
 
 // ── report ──────────────────────────────────────────────────────────────────
 for (const entry of claims) {

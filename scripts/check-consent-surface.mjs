@@ -228,6 +228,27 @@ claim(
   `parameters=${JSON.stringify(ingestParameters)} ratify=${JSON.stringify(ingestSchema.properties?.ratify?.type)}`,
 )
 
+// 4c. The question's presentation is claimed by a wire literal that CANNOT be imported: the
+//     ratchet is a Node plugin and the client half is a hand-written browser closure with no
+//     module graph, so `ratify-decision` exists twice. Two copies of one value is drift no
+//     compiler sees, and the failure is silent in the worst way — the panel stops claiming
+//     the question, so a decision an agent proposed is asked as a chat quiz again, and every
+//     other check still passes. So the equality is asserted against the real question the
+//     ratchet builds, and against the source the browser actually loads.
+const ratifyModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-ratify.mjs`)
+const panelSource = readFileSync(join(KIT, 'plugins', 'dsh-adr-panel', 'client.js'), 'utf8')
+const panelLiteral = /const RATIFY_INTENT_KIND = "([^"]+)"/.exec(panelSource)
+const panelQuiz = ratifyModule.buildQuiz([{ id: '0001', title: 't', text: 'body', laws: [] }], { attempt: 1 })
+const chatQuiz = ratifyModule.buildQuiz([{ id: '0001', title: 't', text: 'body', laws: [] }], { attempt: 1, present: 'chat' })
+claim(
+  'the panel matches the intent the ratchet sends, and a grill gets no intent to claim',
+  panelLiteral !== null &&
+    panelLiteral[1] === ratifyModule.RATIFY_INTENT_KIND &&
+    panelQuiz.questions[0].intent.kind === ratifyModule.RATIFY_INTENT_KIND &&
+    chatQuiz.questions[0].intent === undefined,
+  `panel=${panelLiteral === null ? 'not declared' : panelLiteral[1]} ratchet=${ratifyModule.RATIFY_INTENT_KIND} grill=${JSON.stringify(chatQuiz.questions[0].intent)}`,
+)
+
 // 5. And an answer without the quiz it answers is refused, writing nothing.
 const composed = ops.ratify({
   root: pendingRoot,

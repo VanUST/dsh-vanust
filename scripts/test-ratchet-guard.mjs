@@ -12,8 +12,10 @@ const SOURCE_TEXT = '# Grilling session\n\nWe agreed sessions must move to Redis
 const SOURCE_PATH = 'docs/ratchet/sources/sessions.md'
 
 /**
- * Writes a project whose manifest declares two zones: `auth` requires a decision
- * record and `loose` does not.
+ * Writes a project whose manifest declares three zones: `auth` requires a decision
+ * record and reserves itself to humans, `api` requires one and lets an agent's proposal
+ * satisfy it, and `loose` requires nothing. The two governed zones differ only in
+ * `agentAuthority`, which is the whole difference the guard's proposal rule turns on.
  */
 function project(name, { withRecord = false, status = 'active', authority = 'human' } = {}) {
   const root = join(tmpdir(), `ratchet-guard-${name}-${Math.random().toString(36).slice(2, 8)}`)
@@ -22,8 +24,10 @@ function project(name, { withRecord = false, status = 'active', authority = 'hum
   mkdirSync(join(root, 'docs', 'adrs'), { recursive: true })
   mkdirSync(join(root, 'docs', 'ratchet', 'sources'), { recursive: true })
   mkdirSync(join(root, 'src', 'auth'), { recursive: true })
+  mkdirSync(join(root, 'src', 'api'), { recursive: true })
   mkdirSync(join(root, 'src', 'loose'), { recursive: true })
   writeFileSync(join(root, 'src', 'auth', 'session.ts'), 'export const x = 1\n')
+  writeFileSync(join(root, 'src', 'api', 'handler.ts'), 'export const z = 3\n')
   writeFileSync(join(root, 'src', 'loose', 'util.ts'), 'export const y = 2\n')
   writeFileSync(join(root, SOURCE_PATH), SOURCE_TEXT)
   writeFileSync(
@@ -41,6 +45,7 @@ function project(name, { withRecord = false, status = 'active', authority = 'hum
           defaultAgentAuthority: 'proposeOnly',
           zones: [
             { id: 'auth', paths: ['src/auth/**'], agentAuthority: 'humanOnly', requiresDecisionRecord: true },
+            { id: 'api', paths: ['src/api/**'], agentAuthority: 'proposeOnly', requiresDecisionRecord: true },
             { id: 'loose', paths: ['src/loose/**'], agentAuthority: 'activeIfNoConflict', requiresDecisionRecord: false },
           ],
         },
@@ -53,13 +58,22 @@ function project(name, { withRecord = false, status = 'active', authority = 'hum
   return root
 }
 
-/** Writes an ADR naming zone `auth`, with a correct source hash. */
-function writeAdr(root, { status = 'active', authority = 'human', zone = 'auth' } = {}) {
+/** Writes one ADR, with a correct source hash, at a name derived from its id. */
+function writeAdr(root, {
+  status = 'active',
+  authority = 'human',
+  zone = 'auth',
+  id = '0001',
+  lawId = 'auth.sessions.redis',
+  statement = 'Session storage must use Redis.',
+  op = 'upsert',
+  supersedes = '[]',
+} = {}) {
   writeFileSync(
-    join(root, 'docs', 'adrs', '0001-sessions-use-redis.adr.md'),
+    join(root, 'docs', 'adrs', `${id}-sessions-use-redis.adr.md`),
     [
       '---',
-      'id: "0001"',
+      `id: "${id}"`,
       'title: Sessions use Redis',
       'type: adr',
       `status: ${status}`,
@@ -72,12 +86,12 @@ function writeAdr(root, { status = 'active', authority = 'human', zone = 'auth' 
       `  hash: ${schema.hashSource(readFileSync(join(root, SOURCE_PATH), 'utf8'))}`,
       'zones:',
       `  - ${zone}`,
-      'supersedes: []',
+      `supersedes: ${supersedes}`,
       'approves: []',
       'laws:',
-      '  - op: upsert',
-      '    id: auth.sessions.redis',
-      '    statement: Session storage must use Redis.',
+      `  - op: ${op}`,
+      `    id: ${lawId}`,
+      `    statement: ${statement}`,
       '    checks: []',
       '---',
       '',
@@ -139,13 +153,89 @@ test('guard: writing the record unblocks the write, without restarting anything'
   assert.equal(call(guard, 'write', { file_path: 'src/auth/session.ts' }), 'ALLOWED')
 })
 
-test('guard: a PROPOSED record does not satisfy the requirement', () => {
-  // A proposal is intent, not law. Accepting it would let an agent write the ADR and
-  // then proceed unilaterally, which is the override the authority model prevents.
-  const root = project('proposed-only')
-  writeAdr(root, { status: 'proposed', authority: 'agent' })
+test('guard: a PROPOSED agent record licenses the write while adding no law', () => {
+  // The autonomy rule. An agent writes the record, keeps working, and a human ratifies,
+  // changes or declines it later — so a proposal has to satisfy `requiresDecisionRecord`
+  // WITHOUT becoming law. The two halves are asserted separately: the write is allowed, and
+  // the state still distinguishes a licence from a decision in force.
+  const root = project('proposed-licence')
   const guard = guardModule.createGuard({ root })
-  assert.ok(call(guard, 'write', { file_path: 'src/auth/session.ts' }).startsWith('DENIED:'))
+  assert.ok(call(guard, 'write', { file_path: 'src/api/handler.ts' }).startsWith('DENIED:'), 'nothing is behind the write yet')
+
+  writeAdr(root, { status: 'proposed', authority: 'agent', zone: 'api', lawId: 'api.sessions.redis' })
+  assert.equal(call(guard, 'write', { file_path: 'src/api/handler.ts' }), 'ALLOWED')
+
+  const state = guardModule.loadDecisionState(root)
+  assert.equal(state.zonesWithRecords.has('api'), false, 'a proposal is not a decision in force')
+  assert.deepEqual(state.licenceByZone.get('api'), { adrId: '0001', path: 'docs/adrs/0001-sessions-use-redis.adr.md' })
+  assert.equal(state.conflictsByZone.size, 0, 'and it contradicts nothing')
+
+  // A human's own activation still works, and is a different state.
+  writeAdr(root, { status: 'active', authority: 'human', zone: 'api', lawId: 'api.sessions.redis' })
+  assert.equal(guardModule.loadDecisionState(root).zonesWithRecords.has('api'), true)
+})
+
+test('guard: a PROPOSED record cannot license a zone the manifest reserves to humans', () => {
+  // `humanOnly` is the reservation the whole authority model rests on, and an agent's
+  // proposal can never become law there — the compiler refuses it even when ratified — so
+  // letting it license a write would let an agent govern the zone by writing a file the
+  // ratchet then declines to activate.
+  const root = project('proposed-human-only')
+  writeAdr(root, { status: 'proposed', authority: 'agent', zone: 'auth' })
+  const guard = guardModule.createGuard({ root })
+  const outcome = call(guard, 'write', { file_path: 'src/auth/session.ts' })
+  assert.ok(outcome.startsWith('DENIED:'), outcome)
+  assert.equal(guardModule.loadDecisionState(root).licenceByZone.has('auth'), false)
+})
+
+test('guard: a proposal that contradicts law in force stops writes until it is edited', () => {
+  // The one place autonomy ends. An agent may work ahead of a ratification, but not
+  // against what a human already ratified — and the stop must lift on its own when the
+  // proposal stops contradicting, with no state to clear and no restart.
+  const root = project('contradiction')
+  writeAdr(root, {
+    status: 'active',
+    authority: 'human',
+    zone: 'api',
+    id: '0001',
+    lawId: 'api.sessions.redis',
+    statement: 'Session storage must use Redis.',
+  })
+  const guard = guardModule.createGuard({ root })
+  assert.equal(call(guard, 'write', { file_path: 'src/api/handler.ts' }), 'ALLOWED', 'an in-force decision governs the zone')
+
+  writeAdr(root, {
+    status: 'proposed',
+    authority: 'agent',
+    zone: 'api',
+    id: '0002',
+    lawId: 'api.sessions.redis',
+    statement: 'Session storage must use Postgres.',
+  })
+  const denied = guard({ name: 'write', arguments: { file_path: 'src/api/handler.ts' } })
+  assert.equal(typeof denied, 'string', 'the write is refused')
+  assert.match(denied, /contradicts/)
+  assert.match(denied, /0002/, 'the denial names the proposal that contradicts')
+
+  writeAdr(root, {
+    status: 'proposed',
+    authority: 'agent',
+    zone: 'api',
+    id: '0002',
+    lawId: 'api.sessions.redis',
+    statement: 'Session storage must use Redis.',
+  })
+  assert.equal(call(guard, 'write', { file_path: 'src/api/handler.ts' }), 'ALLOWED', 'the denial lifts by itself')
+})
+
+test('guard: a proposal that removes law in force stops writes too', () => {
+  const root = project('removal-contradiction')
+  writeAdr(root, { status: 'active', authority: 'human', zone: 'api', id: '0001', lawId: 'api.sessions.redis' })
+  writeAdr(root, { status: 'proposed', authority: 'agent', zone: 'api', id: '0002', lawId: 'api.sessions.redis', op: 'remove' })
+  const guard = guardModule.createGuard({ root })
+  const outcome = guard({ name: 'write', arguments: { file_path: 'src/api/handler.ts' } })
+  assert.equal(typeof outcome, 'string', 'the write is refused')
+  assert.match(outcome, /removes/)
 })
 
 test('guard: a record naming a DIFFERENT zone does not satisfy this one', () => {

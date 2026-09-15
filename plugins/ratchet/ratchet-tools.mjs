@@ -305,6 +305,9 @@ export function apply(ctx) {
      * source, and asks the ratchet to record the decision — and the human consents in
      * the same flow, through the one question channel. It is a third ENTRY, never a
      * third channel: the quiz is the ratchet's own and no argument accepts an answer.
+     * It is also the ONE entry whose question is rendered in the Conversation rather
+     * than in the decision panel, because a grill is a conversation the human is already
+     * having and the question blocks it until it is answered.
      *
      * It FAILS CLOSED. A record that was not written is not ratified, because there is
      * nothing on disk to consent to and the approval would bind a text only the caller
@@ -335,6 +338,13 @@ export function apply(ctx) {
         ids: [id],
         askedBy: askedByFor(exec),
         askHuman: humanChannel(exec),
+        // A grilling session is the one entry whose question belongs in the Conversation:
+        // the agent is talking to the human there, the human is expected to answer before
+        // the session moves on, and making them leave the conversation to find the decision
+        // panel is the wrong trade. Every other entry asks with the panel's presentation
+        // intent, so the panel renders the question itself and the Conversation carries a
+        // pointer to it instead of a second copy.
+        present: 'chat',
       })
       return {
         ...ingested,
@@ -613,7 +623,12 @@ export function apply(ctx) {
           'The consent is bound to a content hash of the text the human was shown, so editing an approved record — ' +
           'or editing it while the question is open — voids it until it is ratified again. There is deliberately NO ' +
           'argument that accepts an answer you composed: a consent this ratchet cannot check against a question it ' +
-          'asked is a consent it cannot tell from a sentence an agent typed. It is not the only way a file can ' +
+          'asked is a consent it cannot tell from a sentence an agent typed. The question does not appear as a chat ' +
+          'quiz: it declares the ADR panel\'s presentation intent, so a client that has the panel puts the question in ' +
+          'the decision window and the Conversation carries only a pointer to it — and if no client claims it, the ' +
+          'harness\'s own card asks it in the Conversation, so it is never unanswerable. The one exception is a ' +
+          'grilling session, which asks for the Conversation on purpose because the human is already talking there. ' +
+          'It is not the only way a file can ' +
           'reach the corpus: a record whose frontmatter says `authority: human` self-activates, and a hand-written ' +
           'approval that reproduces the ratification block correctly is indistinguishable from this one — nothing ' +
           'in a file-based mechanism can tell them apart, so a human reading the diff is the check. If the human ' +

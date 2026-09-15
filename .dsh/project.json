@@ -104,6 +104,30 @@
       "enforcedBy": {
         "command": "gate-invariants"
       }
+    },
+    {
+      "id": "agent-proposals-are-not-blocking",
+      "statement": "A proposed decision naming a zone satisfies that zone's requiresDecisionRecord and adds no law, so an agent works ahead of a ratification; it never licenses a humanOnly zone and it never licenses work that contradicts a law in force.",
+      "statedIn": "docs/adrs/0017-agent-proposals-are-not-blocking.adr.md",
+      "enforcedBy": {
+        "command": "guard-tests"
+      }
+    },
+    {
+      "id": "a-question-says-where-it-is-shown",
+      "statement": "Where a ratification question is shown is part of the question: only a grilling session asks it in the Conversation, and every other entry asks for the decision panel, which is a suppression whose absence leaves the harness's own card asking the question rather than leaving it unanswerable.",
+      "statedIn": "docs/adrs/0018-the-question-says-where-it-is-shown.adr.md",
+      "enforcedBy": {
+        "command": "consent-surface"
+      }
+    },
+    {
+      "id": "the-panel-records-no-consent",
+      "statement": "The ADR panel writes no file and composes no answer: every button it renders sends one of the labels the ratchet itself put in the question, through the one question channel.",
+      "statedIn": "docs/adrs/0018-the-question-says-where-it-is-shown.adr.md",
+      "enforcedBy": {
+        "command": "adr-panel-render"
+      }
     }
   ],
   "verification": [
