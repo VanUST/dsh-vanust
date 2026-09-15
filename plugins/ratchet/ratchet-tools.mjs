@@ -701,7 +701,11 @@ export function apply(ctx) {
           'Ask an INDEPENDENT judge agent whether something respects the project\'s decisions in meaning ' +
           'rather than in letter — the questions no static check can decide. Use it for a proposed ' +
           'decision, a code change, a conflict the compiler flagged, or to explain a violation. This is ' +
-          'ADVISORY ONLY: it never changes whether work is done, and `ratchet_verify` remains the gate. ' +
+          'ADVISORY for everything except a CONTRADICTION: a finding that the change contradicts a decision in ' +
+          'force in meaning — an error of kind semantic_violation or intent_violation naming a law — is recorded ' +
+          'and the review DECLINES, and the write guard refuses writes in the zones that law governs until the ' +
+          'change is fixed, the judged record is edited, or a human decides. Everything else it reports never ' +
+          'changes whether work is done, and `ratchet_verify` remains the gate. ' +
           'Pass `verdict` instead of a job to file your own answer when no judge could be spawned. ' +
           'Findings that cite a law or ADR which does not exist are reported as unusable rather than ' +
           'passed on.',

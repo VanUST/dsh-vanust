@@ -148,12 +148,31 @@ function contradictingDenial(path, zone, contradiction) {
     `the ratchet refuses this write: ${path} is in zone "${zone.id}", where a judge classified a change as CONTRADICTING a decision in force.`,
     '',
   ]
+  // `findings` comes from a file and can be anything, and this loop is the OTHER place it is read:
+  // `blockedZones` was hardened first and the denial still threw here, which the guard's catch-all
+  // turned into an ALLOW — a corrupt record bypassing the very block it recorded. A malformed
+  // finding is skipped and said so; the refusal still happens.
+  let unreadable = false
   for (const { entry } of contradiction.entries) {
-    for (const finding of entry.findings) {
+    const findings = entry !== null && typeof entry === 'object' && Array.isArray(entry.findings) ? entry.findings : null
+    if (findings === null) {
+      unreadable = true
+      continue
+    }
+    for (const finding of findings) {
+      if (finding === null || typeof finding !== 'object') {
+        unreadable = true
+        continue
+      }
       const source = finding.sourceAdr === undefined || finding.sourceAdr === null ? '' : ` (${finding.sourceAdr})`
       lines.push(`  - ${finding.lawId}${source}: ${finding.explanation}`)
       if (finding.suggestedAction !== undefined) lines.push(`      suggested: ${finding.suggestedAction}`)
     }
+  }
+  if (unreadable) {
+    lines.push(
+      '  - (a recorded finding in .dsh/ratchet/contradiction.json could not be read; the entry still blocks this zone)',
+    )
   }
   lines.push(
     '',
@@ -498,7 +517,19 @@ export function createGuard({ root }) {
       if (contradiction !== null && contradiction !== undefined && contradiction.zones.size > 0) {
         const judgedZone = zoneFor(path, state.config?.zones ?? [])
         if (judgedZone !== null && contradiction.zones.has(judgedZone.id)) {
-          return contradictingDenial(path, judgedZone, contradiction)
+          try {
+            return contradictingDenial(path, judgedZone, contradiction)
+          } catch (error) {
+            // FAIL CLOSED. This branch exists because a judge recorded a contradiction, so a
+            // failure to render the refusal must refuse anyway: the surrounding catch-all returns
+            // `undefined`, which would let corrupt state lift the block it recorded.
+            return [
+              `the ratchet refuses this write: ${path} is in zone "${judgedZone.id}", where a judge recorded a contradiction that could not be rendered (${String(error)}).`,
+              '',
+              'Change the change so it stops contradicting the decision, then review it again, or ask a',
+              'human to decide the question. Nothing was written.',
+            ].join('\n')
+          }
         }
       }
 

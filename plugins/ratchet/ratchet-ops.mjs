@@ -969,6 +969,7 @@ export async function review({
   // judge's clean verdict retires the entry for the material it judged, which is how a
   // material-targeted block is cleared. Everything else a judge may say stays advice.
   const target = contradictionModule.contradictionTarget({
+    job,
     proposal,
     change,
     source,
@@ -2053,8 +2054,8 @@ export function submitReview({ root, job, verdict, record = true, change = null,
   // neither a proposal nor the material it judged still DECLINES — the finding is reported — but it
   // records nothing, because a block on unnamed material is a block nobody can clear.
   const judgedSomething = proposal !== null || change !== null || source !== null
-  if (record && blocking.length > 0 && judgedSomething) {
-    const target = contradictionModule.contradictionTarget({ proposal, change, source, records: context.records })
+  if (record && blocking.length > 0) {
+    const target = contradictionModule.contradictionTarget({ job: report.job, proposal, change, source, records: context.records })
     contradictionModule.recordContradiction(root, { target, findings: blocking, job: report.job })
   }
 
@@ -2062,10 +2063,18 @@ export function submitReview({ root, job, verdict, record = true, change = null,
     ok: blocking.length === 0 && validation.ok && validation.problems.length === 0,
     stage: 'review',
     job: report.job,
-    advisory: true,
+    // A self-review that reports a contradiction is a GATE, not advice — the same as an
+    // independent one. Its `advisory` flag says so, and it carries the same route out.
+    advisory: blocking.length === 0,
     gate: blocking.length > 0,
     declined: blocking.length > 0,
-    ...(blocking.length === 0 ? {} : { blocking: { findings: blocking } }),
+    ...(blocking.length === 0
+      ? {}
+      : {
+          blocking: { findings: blocking },
+          nextStep:
+            'change the change so it stops contradicting the law in force, then review it again: an independent clean verdict retires this block, and it also retires when the contradicted record is edited, ratified or withdrawn. A human can decide the question instead — do not edit .dsh/ratchet/contradiction.json, which is machine-written state',
+        }),
     selfReview: true,
     judge: report.judge,
     findings: validation.findings,

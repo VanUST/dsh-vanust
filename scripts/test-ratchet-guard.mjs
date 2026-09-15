@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
+import { dirname } from 'node:path'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -657,4 +658,71 @@ test('guard: a judge-classified contradiction stops the work, and follows the te
     'ALLOWED',
     'the block follows the text the judge read, so editing it lifts the refusal',
   )
+})
+
+test('guard: a malformed contradiction record never throws and never lifts a standing block', () => {
+  // `findings` is read from a FILE, so it can be anything. `?? []` does not guard a non-iterable and
+  // iterating it threw — and the guard's catch-all turned that throw into an ALLOW, so corrupting
+  // the record BYPASSED the block it recorded. The block is mapped from the target's record as well
+  // as from the findings, so a malformed findings list still refuses the zone it was about.
+  const root = project('malformed-contradiction')
+  setZonePolicy(root, 'api', { requiresDecisionRecord: false })
+  writeAdr(root, {
+    status: 'active',
+    authority: 'human',
+    zone: 'api',
+    id: '0001',
+    lawId: 'api.sessions.redis',
+    statement: 'Session storage must use Redis.',
+  })
+  writeAdr(root, {
+    status: 'proposed',
+    authority: 'agent',
+    zone: 'api',
+    id: '0002',
+    lawId: 'api.sessions.redis',
+    statement: 'Session storage must use Redis.',
+  })
+  const manifest = compilerModule.readManifest(root)
+  const corpus = compilerModule.readAdrCorpus(root, manifest.config)
+  const proposal = corpus.records.find((record) => record.id === '0002')
+
+  const guard = guardModule.createGuard({ root })
+  const wellFormed = {
+    version: 1,
+    entries: {
+      'proposal:0002': {
+        target: { kind: 'proposal', id: '0002', hash: proposal.contentHash },
+        findings: [{ severity: 'error', kind: 'semantic_violation', lawId: 'api.sessions.redis', explanation: 'inverts the decision' }],
+      },
+    },
+  }
+  const path = join(root, '.dsh', 'ratchet', 'contradiction.json')
+  mkdirSync(dirname(path), { recursive: true })
+  const write = (entries) => writeFileSync(path, `${JSON.stringify({ version: 1, entries }, null, 2)}\n`)
+
+  write(wellFormed.entries)
+  assert.ok(call(guard, 'write', { file_path: 'src/api/handler.ts' }).startsWith('DENIED:'), 'a well-formed block denies')
+
+  // An intact TARGET is what places the block; the findings only name the laws. So a record whose
+  // findings are unreadable must still refuse the zone its target names, and one whose target is
+  // gone has nothing left to place — which is an ALLOW, and the only honest answer.
+  const malformed = [
+    { entries: { 'proposal:0002': { target: { kind: 'proposal', id: '0002', hash: proposal.contentHash }, findings: 5 } }, refuses: true },
+    { entries: { 'proposal:0002': { target: { kind: 'proposal', id: '0002', hash: proposal.contentHash }, findings: { a: 1 } } }, refuses: true },
+    { entries: { 'proposal:0002': { target: { kind: 'proposal', id: '0002', hash: proposal.contentHash }, findings: [null] } }, refuses: true },
+    { entries: { 'proposal:0002': { target: { kind: 'proposal', id: '0002', hash: proposal.contentHash }, findings: 'x' } }, refuses: true },
+    { entries: { 'proposal:0002': { target: null, findings: [null] } }, refuses: false },
+    { entries: { 'proposal:0002': null }, refuses: false },
+  ]
+  for (const { entries, refuses } of malformed) {
+    write(entries)
+    assert.doesNotThrow(() => guardModule.loadDecisionState(root), `loadDecisionState threw for ${JSON.stringify(entries)}`)
+    const verdict = call(guard, 'write', { file_path: 'src/api/handler.ts' })
+    assert.equal(
+      verdict.startsWith('DENIED:'),
+      refuses,
+      `corrupt record ${JSON.stringify(entries)} should ${refuses ? 'refuse' : 'not refuse'} — got ${verdict}`,
+    )
+  }
 })

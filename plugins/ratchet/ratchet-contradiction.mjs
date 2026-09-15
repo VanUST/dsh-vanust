@@ -60,9 +60,9 @@
  *   - Clearing the last entry removes the file, so an absent file and an empty one mean the same
  *     thing.
  */
-import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { hashSource } from './ratchet-schema.mjs'
 
 /** Where a recorded verdict lives. Machine-written, and inside the ratchet's own state dir. */
 export const CONTRADICTION_PATH = '.dsh/ratchet/contradiction.json'
@@ -95,19 +95,28 @@ export function blockingFindings(findings) {
 /**
  * What the judge judged, so a later corpus can say whether the finding still applies.
  *
- * A proposal that matches a proposed record in the corpus is identified by THAT RECORD, which is
- * what makes the block self-clearing: the record's content hash is the text the judge read, and
- * editing the record moves the hash and retires the finding. Anything else is identified by a hash
- * of the material itself.
+ * A proposal whose text matches a proposed record is identified by THAT RECORD, which is what makes
+ * the block self-clearing: the record's content hash is the text the judge read, so editing the
+ * record moves the hash and retires the finding.
+ *
+ * The match is by `contentHash`, computed with the same `hashSource` the corpus uses. It used to
+ * compare a `text` field — which a corpus record does not carry — so the match was dead code and
+ * every block silently became a material one, which is a block the prescribed loop can never retire.
+ *
+ * Anything else is identified by the REVIEW JOB, not by a hash of the material. That is deliberate:
+ * keyed on the material, the block cannot be retired by doing what the refusal says, because the
+ * agent changes the text, reviews the NEW text, and writes a different key while the old entry
+ * stands for ever. Keyed on the job, the next independent review of that job replaces the entry —
+ * blocking again if it is still wrong, clearing it if it is not.
  */
-export function contradictionTarget({ proposal = null, change = null, source = null, records = [] } = {}) {
+export function contradictionTarget({ job = null, proposal = null, change = null, source = null, records = [] } = {}) {
   const material = proposal ?? change ?? source ?? ''
-  const text = String(material).trim()
+  const wanted = hashSource(String(material))
   const match = (Array.isArray(records) ? records : []).find(
-    (record) => record !== null && typeof record === 'object' && record.status === 'proposed' && typeof record.text === 'string' && record.text.trim() === text,
+    (record) => record !== null && typeof record === 'object' && record.status === 'proposed' && record.contentHash === wanted,
   )
   if (match !== undefined) return { kind: 'proposal', id: match.id, hash: match.contentHash ?? null }
-  return { kind: 'material', id: createHash('sha256').update(String(material)).digest('hex').slice(0, 32), hash: null }
+  return { kind: 'review', id: typeof job === 'string' && job !== '' ? job : 'review_change', hash: null }
 }
 
 /** The key one target is stored under. */
@@ -198,6 +207,9 @@ export function standingContradictions(root, { resolved = null } = {}) {
       if (record === undefined) continue
       if (target.hash !== null && record.contentHash !== target.hash) continue
     }
+    // A job-scoped entry stands until a later independent review of that job replaces it. There is
+    // no artifact whose change could retire it, which is why the review job — the stream the agent
+    // is iterating — is its identity.
     standing.push({ key, entry })
   }
   return standing
@@ -222,13 +234,19 @@ export function blockedZones(entries, { active = [], proposed = [], laws = [] } 
     if (law !== null && typeof law === 'object' && typeof law.id === 'string') sourceByLaw.set(law.id, law.sourceAdr)
   }
   const zones = new Set()
-  for (const { entry } of entries ?? []) {
-    for (const finding of entry?.findings ?? []) {
+  for (const { entry } of Array.isArray(entries) ? entries : []) {
+    // `findings` is read from a FILE, so it can be anything: a number, an object, a list with a
+    // null in it. `?? []` does not guard a non-iterable, and iterating it threw — which the guard's
+    // catch-all turned into an ALLOW, so a corrupt record BYPASSED the very block it recorded. A
+    // malformed finding is skipped; the well-formed ones around it still block.
+    const findings = entry !== null && typeof entry === 'object' && Array.isArray(entry.findings) ? entry.findings : []
+    for (const finding of findings) {
+      if (finding === null || typeof finding !== 'object') continue
       const source = sourceByLaw.get(finding.lawId)
       if (source === undefined) continue
       for (const zone of zonesByRecord.get(source) ?? []) zones.add(zone)
     }
-    if (entry?.target?.kind === 'proposal') {
+    if (entry !== null && typeof entry === 'object' && entry.target !== null && typeof entry.target === 'object' && entry.target.kind === 'proposal') {
       for (const zone of zonesByRecord.get(entry.target.id) ?? []) zones.add(zone)
     }
   }

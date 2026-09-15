@@ -6085,17 +6085,75 @@ test('dynamic: a self-review may raise a block but may not clear one', () => {
   )
 })
 
-test('dynamic: a self-review that names nothing records no un-clearable block', () => {
+test('dynamic: a self-review that names nothing records a block a later review can retire', () => {
+  // A block has to be bound to something whose change can retire it. Unnamed material is bound to
+  // the REVIEW JOB, which is the stream the agent is iterating, so the next independent review of
+  // that job clears it — unlike a material-hash binding, which the prescribed loop could never
+  // retire because changing the text writes a different key.
   const root = reviewableProject('dyn-self-untargeted')
   const blocking = {
     ok: false,
     findings: [{ severity: 'error', kind: 'intent_violation', lawId: 'auth.session-storage.redis', explanation: 'inverts the decision' }],
   }
   const result = ops.submitReview({ root, job: 'review_change', verdict: blocking })
-  assert.equal(result.declined, true, 'the finding is still reported')
-  assert.equal(
-    Object.keys(contradictionModule.readContradictions(root)).length,
-    0,
-    'a block on material nobody named is a block nobody can clear, so none is recorded',
+  assert.equal(result.declined, true, 'the finding is reported')
+  assert.equal(result.advisory, false, 'a self-review that reports a contradiction is a gate too')
+  assert.equal(typeof result.nextStep, 'string', 'and it names the route out')
+  assert.deepEqual(Object.keys(contradictionModule.readContradictions(root)), ['review:review_change'])
+})
+
+test('dynamic: an independent clean review retires a job-scoped block', async () => {
+  // The prescribed loop: the review declines, the agent changes the change, the review runs again.
+  // If the block were keyed on the material hash, the second review would write a different key and
+  // the first block would stand for ever — a refusal nobody can obey their way out of.
+  const root = reviewableProject('dyn-job-clear')
+  const judgeSaying = (verdict) => async () => ({ structured: verdict, output: '', stopReason: 'completed' })
+  const blocking = {
+    ok: false,
+    findings: [{ severity: 'error', kind: 'semantic_violation', lawId: 'auth.session-storage.redis', explanation: 'contradicts' }],
+  }
+  const first = await ops.review({ root, job: 'review_change', change: 'the first change', spawnJudge: judgeSaying(blocking) })
+  assert.equal(first.declined, true)
+  assert.deepEqual(Object.keys(contradictionModule.readContradictions(root)), ['review:review_change'])
+
+  const second = await ops.review({ root, job: 'review_change', change: 'the changed change', spawnJudge: judgeSaying({ ok: true, findings: [] }) })
+  assert.equal(second.declined, false)
+  assert.deepEqual(
+    Object.keys(contradictionModule.readContradictions(root)),
+    [],
+    'reviewing the CHANGED material retires the block, which is what the refusal asked for',
+  )
+})
+
+test('dynamic: a finding against a PROPOSED record binds to that record and retires when it changes', async () => {
+  // The match is by content hash, because a corpus record carries the hash of its file text and not
+  // the text itself. Matching a `text` field was dead code, so every block became a material one.
+  const root = reviewableProject('dyn-proposal-binding')
+  const manifest = compiler.readManifest(root)
+  const corpus = compiler.readAdrCorpus(root, manifest.config)
+  const judged = corpus.records.find((record) => record.id === '0009')
+  assert.ok(judged !== undefined, 'the fixture proposes 0009')
+  const fileText = readFileSync(join(root, 'docs', 'adrs', '0009-proposed.adr.md'), 'utf8')
+  assert.equal(schema.hashSource(fileText), judged.contentHash, 'the record hash is the hash of its own file text')
+
+  const result = await ops.review({
+    root,
+    job: 'review_proposal',
+    proposal: fileText,
+    source: SOURCE_TEXT,
+    spawnJudge: async () => ({
+      structured: {
+        ok: false,
+        findings: [{ severity: 'error', kind: 'semantic_violation', lawId: 'auth.session-storage.redis', sourceAdr: '0001', explanation: 'contradicts' }],
+      },
+      output: '',
+      stopReason: 'completed',
+    }),
+  })
+  assert.equal(result.declined, true)
+  assert.deepEqual(
+    Object.keys(contradictionModule.readContradictions(root)),
+    ['proposal:0009'],
+    'bound to the RECORD, so the block follows that record rather than the material',
   )
 })

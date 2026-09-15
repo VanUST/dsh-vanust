@@ -72,3 +72,40 @@ The block is a written state file (`.dsh/ratchet/contradiction.json`). An agent 
 hand hides the question rather than settling it — the same honest limit the kit already records for
 a hand-written approval, and for the same reason: nothing in a file-based mechanism can tell who
 wrote a file.
+
+## What an independent breaker found, and what it cost to be wrong (2026-09-15)
+
+The breaker falsified four things. Two were real defects in the mechanism, and the first of them made
+the property the design leans on false in practice.
+
+**The proposal binding never matched anything.** `contradictionTarget` compared a `text` field on the
+corpus record. `parseAdr` does not produce one — it produces `contentHash`, the hash of the file text
+— so the match was dead code and EVERY finding became a material-keyed one. Material-keyed blocks
+cannot be retired by the loop the refusal prescribes: the agent changes the text, the review runs on
+the NEW text, a different key is written, and the old entry stands for ever. Ratifying or withdrawing
+the judged record did not retire it either. The very failure the module's own doc calls out — a block
+nobody can clear — was what shipped. The match is now on `contentHash` against `hashSource(material)`,
+which the breaker's own fixture (`schema.hashSource(fileText) === record.contentHash`) confirms.
+
+**The material binding is gone, replaced by the review JOB.** Even with the match fixed, a change that
+matches no record had no artifact whose edit could retire its block. It is now keyed `review:<job>`:
+the next independent review of that job replaces the entry — blocking again if it is still wrong,
+clearing it if it is not. That is the stream the agent is iterating, and it is what makes "change the
+change, then review it again" a route out rather than a sentence.
+
+**A malformed record bypassed its own block.** `for (const finding of entry.findings ?? [])` does not
+guard a non-iterable or a null element, so a record whose `findings` was a number threw — and the
+guard's catch-all turns a throw into an ALLOW. Corrupting the state file therefore LIFTED the block it
+recorded. `blockedZones` was hardened for it; the denial builder iterates the same field and still
+threw, so the bypass survived that first fix and surfaced again. Both are defensive now, a malformed
+finding is skipped and the refusal says so, and the contradiction branch fails CLOSED: a failure to
+render the refusal refuses anyway, with a message saying the record could not be read.
+
+**A self-submitted blocking verdict still reported `advisory: true`** and carried no `nextStep`, so
+the path an agent takes when it reports a contradiction in its own work described itself as advice.
+It is a gate there too.
+
+The lesson is the one this kit keeps re-learning: the claim was enforced by tests that HAND-BUILT the
+state the code was supposed to produce — `test-ratchet-guard.mjs` wrote a proposal target by hand, so
+it never touched the function that could not produce one — and a check that constructs its own
+premise cannot find the premise missing.

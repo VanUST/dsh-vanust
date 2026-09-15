@@ -10,7 +10,7 @@ created: "2026-09-15T00:00:00Z"
 source:
   kind: file
   path: docs/ratchet/sources/2026-09-15-a-judged-contradiction-blocks.md
-  hash: sha256:66f039bbbc9de9c56ee007550b9beec457cd0ac43a18e8162f875fd2006068dc
+  hash: sha256:033ebcf3c1a315eed63f816bfe5af41f7f0df3c3d201843a440fa54e593cfce8
 zones:
   - shipped-plugins
 supersedes: []
