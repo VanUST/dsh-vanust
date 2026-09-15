@@ -44,8 +44,8 @@
  * The cost is bounded by a cache keyed on the corpus's own hashes, so a session
  * making many edits inside one zone reads the decisions once.
  */
-import { existsSync, readdirSync, statSync } from 'node:fs'
-import { isAbsolute, join, relative, resolve } from 'node:path'
+import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs'
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { MANIFEST_PATH, zoneFor } from './ratchet-schema.mjs'
 import { compileLaws, readAdrCorpus, readManifest, resolveActiveSet } from './ratchet-compiler.mjs'
 
@@ -63,6 +63,17 @@ import { compileLaws, readAdrCorpus, readManifest, resolveActiveSet } from './ra
  * somebody thought to list, so an unlisted writer is a rule that silently allows.
  */
 export const WRITE_TOOLS = Object.freeze(['write', 'edit', 'notebook_edit', 'multi_edit', 'str_replace_editor'])
+
+/**
+ * One tool on that list writes only for SOME of its commands.
+ *
+ * `str_replace_editor` is `view` to read a file and `create` / `str_replace` / `insert` /
+ * `undo_edit` to change one. Governing the name alone refused a read, which is the one thing
+ * decision 4 above says must never be refused — reconnaissance is how a contributor learns
+ * what to write. An UNKNOWN or missing command is still treated as a write: the safe reading
+ * of a command nobody recognises is that it might change the file.
+ */
+export const READ_ONLY_EDITOR_COMMANDS = Object.freeze(['view'])
 
 /** Argument keys, in priority order, that carry the target path. */
 const PATH_ARGUMENTS = Object.freeze(['file_path', 'path', 'filePath', 'filename', 'notebook_path'])
@@ -259,13 +270,52 @@ export function changedPath(exec, root) {
     const value = args[key]
     if (typeof value !== 'string' || value.length === 0) continue
     const absolute = isAbsolute(value) ? resolve(value) : resolve(root, value)
-    const relativePath = relative(root, absolute).split('\\').join('/')
+    const lexical = relative(root, absolute).split('\\').join('/')
     // A path outside the project is not this guard's business: an agent writing to
     // a temporary directory or another checkout is not changing this architecture.
-    if (relativePath.startsWith('..') || isAbsolute(relativePath)) return null
-    return relativePath
+    if (lexical.startsWith('..') || isAbsolute(lexical)) return null
+    // ...and neither is one that only PRETENDS to be inside it. A symlink is how a governed
+    // zone is reached from a path that reads as ungoverned: `staging/link` pointing at
+    // `src/auth` made `staging/link/session.ts` an ALLOW while the write landed in
+    // `src/auth/session.ts`, because the guard compared strings and never asked the zone.
+    return resolvedInside(absolute, root)
   }
   return null
+}
+
+/**
+ * Resolves a path through symlinks and returns it relative to the project, or `null` when it
+ * leaves the project or cannot be resolved.
+ *
+ * The deepest EXISTING ancestor is resolved and the rest is re-appended, because a write
+ * creates its target and the target therefore usually does not exist yet — resolving the whole
+ * path would fail on exactly the calls this guard has to judge. A path whose real location is
+ * outside the project returns `null`, which the guard reads as "not its business", the same
+ * answer a lexically-outside path gets.
+ *
+ * @param absolute - The resolved-but-not-real path the call named.
+ * @param root - Absolute project root.
+ * @returns Repository-relative path with forward slashes, or `null`.
+ */
+function resolvedInside(absolute, root) {
+  try {
+    const realRoot = realpathSync(root)
+    let head = absolute
+    const tail = []
+    while (!existsSync(head)) {
+      const parent = dirname(head)
+      if (parent === head) return null
+      tail.unshift(basename(head))
+      head = parent
+    }
+    const realHead = realpathSync(head)
+    const real = tail.length === 0 ? realHead : join(realHead, ...tail)
+    const relativePath = relative(realRoot, real).split('\\').join('/')
+    if (relativePath.startsWith('..') || isAbsolute(relativePath)) return null
+    return relativePath
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -282,7 +332,7 @@ export function createGuard({ root }) {
   let cachedSignature = null
 
   /**
-   * A cheap signature of the decisions directory: every entry's name, size and mtime.
+   * A cheap signature of the decisions directory: name, size, mtime and ctime per entry.
    *
    * The DIRECTORY's own mtime is not enough, and believing it was a defect this file
    * shipped for a while: rewriting an existing record in place does not touch the
@@ -299,8 +349,14 @@ export function createGuard({ root }) {
         .sort()
         .map((name) => {
           try {
-            const stats = statSync(join(directory, name))
-            return `${name}:${stats.size}:${stats.mtimeMs}`
+            // Nanosecond mtime for resolution, and `ctimeNs` because it is the one field a
+            // writer cannot set: a rewrite that restores the mtime to its old value — how a
+            // same-size edit hides — still moves the inode's change time. Milliseconds of
+            // mtime alone were measured missing 30 stale ALLOWs and 29 stale DENYs across 400
+            // same-size rewrites, and a deterministic fixture that forced the mtime back made
+            // a contradicting proposal invisible.
+            const stats = statSync(join(directory, name), { bigint: true })
+            return `${name}:${stats.size}:${stats.mtimeNs}:${stats.ctimeNs}:${stats.ino}`
           } catch {
             return `${name}:unreadable`
           }
@@ -337,6 +393,11 @@ export function createGuard({ root }) {
     try {
       const name = exec?.name
       if (typeof name !== 'string' || !WRITE_TOOLS.includes(name)) return undefined
+      // A tool that writes only for some of its commands is read for the others, and a read is
+      // reconnaissance rather than a change — see `READ_ONLY_EDITOR_COMMANDS`.
+      if (name === 'str_replace_editor' && READ_ONLY_EDITOR_COMMANDS.includes(exec?.arguments?.command)) {
+        return undefined
+      }
 
       const state = stateNow()
       if (state.inert === true) return undefined

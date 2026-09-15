@@ -128,3 +128,40 @@ real writer in this harness with a `path` argument, and it was absent from `WRIT
 governed zone was open to it. A name-based allow-list only governs the names somebody wrote
 down; a tool that is opt-in and not mounted in every profile is exactly the one whose omission
 goes unnoticed.
+
+## The four findings a second breaker made against the FIXED guard (2026-09-15)
+
+**Zone membership was a prefix test while file selection used the project's glob matcher.** The
+manifest accepted a zone path and then the guard ignored it: `paths: ["**"]` governed NOTHING
+(the whole point of the zone), a wildcard in the middle of a path (`src/*/api/**`) matched no
+file, and a wildcard inside a segment (`src/api/*.ts`) matched none either — while a trailing
+single-star zone (`src/api/*`) DENIED a deeper path that glob does not cover. The matcher
+therefore moved into `ratchet-schema.mjs`, the lowest module, where `zoneFor` and the
+verifier's file selection can share it, and the verifier re-exports it so existing callers
+keep working. Ranking is now the length of the literal run before the first wildcard, so
+`src/auth/**` still beats `src/**`; a whole-repository zone has no literal run and ranks below
+every named one — ranking it `-1` as well left it never winning, which is the same "declared
+but governs nothing" failure in a new place, and the test caught it.
+
+**A symlink made a governed zone reachable from a path that read as ungoverned.** `changedPath`
+compared strings, so `staging/link` pointing at `src/auth` turned a write to
+`staging/link/session.ts` into an ALLOW while the bypassed filesystem wrote through the link to
+`src/auth/session.ts`. The path is now resolved — the deepest EXISTING ancestor through
+`realpathSync`, with the tail re-appended, because a write creates its target and the target
+usually does not exist yet — and a real location outside the project is "not the guard's
+business", the same answer a lexically-outside path gets.
+
+**A same-size rewrite with a restored mtime was invisible to the cache.** The key was
+`name:size:mtimeMs`; a fixture that forced the mtime back made a proposal that contradicted law
+in force stay allowed, and without any manipulation 400 same-size rewrites produced 30 stale
+ALLOWs and 29 stale DENYs on this host. The key now carries `mtimeNs` for resolution and
+`ctimeNs` because it is the one field a writer cannot set: restoring the mtime still moves the
+inode's change time.
+
+**A read through `str_replace_editor` was refused.** Governing the tool NAME denied
+`{command: "view"}`, which is the one thing the guard's own decision 4 says must never be
+refused. `view` is exempt; an unrecognised or missing command is still treated as a write,
+because the safe reading of a command nobody recognises is that it might change the file.
+
+Each fix has a test taken from the counterexample that motivated it, and each was re-run against
+a copy with the fix reverted to confirm the test fails without it.

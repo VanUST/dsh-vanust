@@ -26,7 +26,12 @@
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
-import { PROBLEM_CODES, normaliseText, problem, zoneFor } from './ratchet-schema.mjs'
+import { PROBLEM_CODES, globToRegExp, normaliseText, problem, zoneFor } from './ratchet-schema.mjs'
+
+// The glob matcher lives in `ratchet-schema.mjs`, the lowest module, because zone placement
+// and file selection must agree and the compiler and the guard cannot import this file. It
+// is re-exported here so the callers that already reach it through the verifier keep working.
+export { globToRegExp }
 import { bundleHash } from './ratchet-compiler.mjs'
 
 /** Report title embedded in every verification report. */
@@ -95,45 +100,6 @@ export function listFiles(root, start = '') {
   const base = start.length === 0 ? root : join(root, start)
   if (existsSync(base)) walk(base, start)
   return found.sort()
-}
-
-/**
- * Converts a glob into a regular expression over repository-relative paths.
- *
- * Supports the subset the law format needs: `**` for any depth, `*` within one
- * segment, and `?` for one character. Anything else is treated literally, so a
- * pattern containing regex metacharacters cannot silently become a different
- * pattern than the author wrote.
- *
- * @param glob - Repository-relative glob.
- * @returns A regular expression anchored at both ends.
- */
-export function globToRegExp(glob) {
-  let source = ''
-  for (let index = 0; index < glob.length; index += 1) {
-    const character = glob[index]
-    if (character === '*') {
-      if (glob[index + 1] === '*') {
-        // `**/` matches zero or more segments; a bare `**` matches anything.
-        if (glob[index + 2] === '/') {
-          source += '(?:[^/]+/)*'
-          index += 2
-        } else {
-          source += '.*'
-          index += 1
-        }
-      } else {
-        source += '[^/]*'
-      }
-      continue
-    }
-    if (character === '?') {
-      source += '[^/]'
-      continue
-    }
-    source += character.replace(/[.+^${}()|[\]\\]/g, '\\$&')
-  }
-  return new RegExp(`^${source}$`)
 }
 
 /**

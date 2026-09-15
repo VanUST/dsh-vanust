@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -419,4 +419,120 @@ test('guard: every writer the harness can mount is governed, not only the names 
       `${name} must be governed`,
     )
   }
+})
+
+/** Rewrites one zone's `paths`, the way an operator editing `.dsh/project.json` would. */
+function setZonePaths(root, zoneId, paths) {
+  const path = join(root, '.dsh', 'project.json')
+  const manifest = JSON.parse(readFileSync(path, 'utf8'))
+  manifest.ratchet.zones.find((entry) => entry.id === zoneId).paths = paths
+  writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`)
+}
+
+test('guard: a zone that claims the whole repository governs the whole repository', () => {
+  // A breaker falsified this: `paths: ["**"]` parsed with no problem and then governed
+  // NOTHING, because zone membership was a directory-prefix test while file selection used the
+  // project's glob matcher. The manifest accepted a declaration the guard ignored.
+  const root = project('whole-repo')
+  setZonePaths(root, 'api', ['**'])
+  const guard = guardModule.createGuard({ root })
+  mkdirSync(join(root, 'docs', 'inner'), { recursive: true })
+  assert.ok(
+    call(guard, 'write', { file_path: 'docs/inner/x.md' }).startsWith('DENIED:'),
+    'a path no other zone names is still governed by a whole-repository zone',
+  )
+})
+
+test('guard: a zone path is the glob it is written as, not a prefix of it', () => {
+  const root = project('zone-globs')
+
+  // A wildcard in the middle used to match nothing at all.
+  setZonePaths(root, 'api', ['src/*/api/**'])
+  const guard = guardModule.createGuard({ root })
+  assert.ok(
+    call(guard, 'write', { file_path: 'src/deep/api/x.ts' }).startsWith('DENIED:'),
+    'a wildcard between two segments is honoured',
+  )
+  assert.equal(
+    call(guard, 'write', { file_path: 'src/api/handler.ts' }),
+    'ALLOWED',
+    'and it is one segment, not a prefix that swallows a sibling path',
+  )
+
+  // A trailing single star is one segment deep, and used to deny deeper paths it does not cover.
+  setZonePaths(root, 'api', ['src/api/*'])
+  mkdirSync(join(root, 'src', 'api', 'deep'), { recursive: true })
+  assert.ok(call(guard, 'write', { file_path: 'src/api/handler.ts' }).startsWith('DENIED:'), 'one segment is covered')
+  assert.equal(
+    call(guard, 'write', { file_path: 'src/api/deep/x.ts' }),
+    'ALLOWED',
+    'a deeper path is outside a single-star zone',
+  )
+})
+
+test('guard: a write through a symlink into a governed zone is governed', () => {
+  // The guard compared strings, so a link made a governed zone reachable from a path that read
+  // as ungoverned. The harness filesystem writes THROUGH a symlink to its target.
+  const root = project('symlink')
+  mkdirSync(join(root, 'staging'), { recursive: true })
+  symlinkSync(join(root, 'src', 'auth'), join(root, 'staging', 'link'))
+  const guard = guardModule.createGuard({ root })
+  assert.ok(call(guard, 'write', { file_path: 'src/auth/session.ts' }).startsWith('DENIED:'), 'the zone itself is governed')
+  assert.ok(
+    call(guard, 'write', { file_path: 'staging/link/session.ts' }).startsWith('DENIED:'),
+    'and so is the same file reached through a link',
+  )
+})
+
+test('guard: a rewrite that keeps a record size and mtime is still noticed', () => {
+  // The cache key was name:size:mtimeMs, so a same-size rewrite whose mtime was restored was
+  // invisible and a proposal that contradicted law in force stayed allowed. `ctimeNs` is the
+  // field a writer cannot set, which is why the key carries it.
+  const root = project('cache-forge')
+  const proposal = join(root, 'docs', 'adrs', '0002-sessions-use-redis.adr.md')
+  writeAdr(root, { status: 'active', authority: 'human', zone: 'api', id: '0001', lawId: 'api.sessions.redis', statement: 'Session storage must use Redis.' })
+  writeAdr(root, { status: 'proposed', authority: 'agent', zone: 'api', id: '0002', lawId: 'api.sessions.redis', statement: 'Session storage must use Redis.' })
+
+  const guard = guardModule.createGuard({ root })
+  assert.equal(call(guard, 'write', { file_path: 'src/api/handler.ts' }), 'ALLOWED', 'an agreeing proposal contradicts nothing')
+
+  // A FIXED timestamp, set twice, so the two revisions really do share a size and an
+  // mtime to the millisecond — which is what the old key compared.
+  const stamp = new Date('2026-09-15T00:00:00Z')
+  utimesSync(proposal, stamp, stamp)
+  const before = statSync(proposal)
+
+  // Same byte length ('Redis.' -> 'Nginx.'), same timestamp.
+  writeAdr(root, { status: 'proposed', authority: 'agent', zone: 'api', id: '0002', lawId: 'api.sessions.redis', statement: 'Session storage must use Nginx.' })
+  utimesSync(proposal, stamp, stamp)
+  const after = statSync(proposal)
+  assert.equal(after.size, before.size, 'the fixture really is a same-size rewrite')
+  assert.equal(after.mtimeMs, before.mtimeMs, 'and the mtime really was restored')
+
+  assert.ok(
+    call(guard, 'write', { file_path: 'src/api/handler.ts' }).startsWith('DENIED:'),
+    'the contradicting proposal is seen despite the restored mtime',
+  )
+})
+
+test('guard: reading through an editor tool is reconnaissance, not a write', () => {
+  // Governing the tool NAME refused `str_replace_editor {command: "view"}`, which is the read
+  // decision 4 says must never be refused.
+  const root = project('editor-view')
+  const guard = guardModule.createGuard({ root })
+  assert.equal(
+    call(guard, 'str_replace_editor', { command: 'view', path: 'src/auth/session.ts' }),
+    'ALLOWED',
+    'a view is a read',
+  )
+  for (const command of ['create', 'str_replace', 'insert']) {
+    assert.ok(
+      call(guard, 'str_replace_editor', { command, path: 'src/auth/session.ts' }).startsWith('DENIED:'),
+      `${command} changes the file and is governed`,
+    )
+  }
+  assert.ok(
+    call(guard, 'str_replace_editor', { path: 'src/auth/session.ts' }).startsWith('DENIED:'),
+    'an unrecognised command is treated as a write, not as a read',
+  )
 })

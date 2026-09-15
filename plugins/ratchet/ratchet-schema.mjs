@@ -1729,18 +1729,91 @@ export function parseRatchetConfig(manifestText, manifestHash = null) {
  * @param zones - Parsed zone list.
  * @returns The matching zone, or `null`.
  */
+/**
+ * Converts a glob into a regular expression over repository-relative paths.
+ *
+ * Supports the subset the law format needs: `**` for any depth, `*` within one
+ * segment, and `?` for one character. Anything else is treated literally, so a
+ * pattern containing regex metacharacters cannot silently become a different
+ * pattern than the author wrote.
+ *
+ * It lives here, in the lowest module, because TWO things place a path: a law's file
+ * selection in the verifier, and ZONE MEMBERSHIP, which the verifier, the compiler and the
+ * write guard all ask about through `zoneFor`. They used to disagree — zone membership was a
+ * directory-prefix test while file selection used this matcher — and the disagreement was
+ * silent in both directions: a zone declaring a wildcard in the MIDDLE of its path, or a
+ * wildcard inside a segment, was accepted by the manifest and then governed NOTHING, while a
+ * trailing single-star zone denied files it does not cover. One matcher, imported by
+ * everything that needs the answer.
+ *
+ * @param glob - Repository-relative glob.
+ * @returns A regular expression anchored at both ends.
+ */
+export function globToRegExp(glob) {
+  let source = ''
+  for (let index = 0; index < glob.length; index += 1) {
+    const character = glob[index]
+    if (character === '*') {
+      if (glob[index + 1] === '*') {
+        // `**/` matches zero or more segments; a bare `**` matches anything.
+        if (glob[index + 2] === '/') {
+          source += '(?:[^/]+/)*'
+          index += 2
+        } else {
+          source += '.*'
+          index += 1
+        }
+      } else {
+        source += '[^/]*'
+      }
+      continue
+    }
+    if (character === '?') {
+      source += '[^/]'
+      continue
+    }
+    source += character.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+  }
+  return new RegExp(`^${source}$`)
+}
+
+/**
+ * The length of the literal run before a glob's first wildcard.
+ *
+ * Used only to rank zones, so one declared as `src/auth/**` wins over one declared as
+ * `src/**` for the same file. Counting the literal run rather than the prefix is what makes
+ * the ranking work for a glob that is not a directory prefix.
+ *
+ * @param glob - Repository-relative glob.
+ * @returns The number of leading characters that are not `*` or `?`.
+ */
+function literalRunLength(glob) {
+  const first = glob.search(/[*?]/)
+  return first === -1 ? glob.length : first
+}
+
 export function zoneFor(path, zones) {
   let best = null
   let bestLength = -1
   for (const zone of zones ?? []) {
-    for (const glob of zone.paths) {
-      const prefix = glob.replace(/\/\*\*$/, '').replace(/\/\*$/, '')
-      const isPrefixMatch = path === prefix || path.startsWith(`${prefix}/`)
-      const isExact = !glob.includes('*') && path === glob
-      if (!isPrefixMatch && !isExact) continue
-      if (prefix.length > bestLength) {
+    for (const glob of zone.paths ?? []) {
+      const raw = String(glob).replace(/^\.\//, '')
+      // A zone that claims the whole repository. `globToRegExp('*')` is one segment and
+      // would not match a nested path, and `**` is spelled as "anything" on purpose, so
+      // both are read as the whole repository rather than run through the matcher.
+      const isWholeRepo = raw === '**' || raw === '*'
+      // A glob ending in `/**` also names its own directory: `plugins/**` governs
+      // `plugins` as well as what is under it.
+      const isOwnDirectory = raw.endsWith('/**') && path === raw.slice(0, -3)
+      if (!isWholeRepo && !isOwnDirectory && !globToRegExp(raw).test(path)) continue
+      // Ranked by the length of the literal run that precedes the first wildcard. A
+      // whole-repository zone has none, so it ranks BELOW every named zone and ABOVE the
+      // -1 sentinel — ranking it -1 as well left it never winning, which is the same
+      // "declared but governs nothing" failure the matcher was changed to remove.
+      const literal = isWholeRepo ? 0 : literalRunLength(raw)
+      if (literal > bestLength) {
         best = zone
-        bestLength = prefix.length
+        bestLength = literal
       }
     }
   }

@@ -484,6 +484,32 @@ test('schema: zoneFor gives the longest matching zone precedence', () => {
   assert.equal(schema.zoneFor('docs/readme.md', zones), null)
 })
 
+test('schema: zoneFor places a path by the glob a zone declares, not by a prefix of it', () => {
+  // Zone membership and law file selection used to disagree: membership stripped a trailing star
+  // and compared directory prefixes. So a zone declaring a wildcard in the MIDDLE, or a wildcard
+  // inside a segment, was accepted by the manifest and then governed NOTHING, while a trailing
+  // single-star zone denied files it does not cover.
+  const deep = [{ id: 'deep', paths: ['src/*/api/**'], agentAuthority: 'proposeOnly' }]
+  assert.equal(schema.zoneFor('src/deep/api/x.ts', deep).id, 'deep', 'a wildcard between segments matches')
+  assert.equal(schema.zoneFor('src/api/x.ts', deep), null, 'and one star is one segment, not a prefix')
+
+  const single = [{ id: 'single', paths: ['src/api/*'], agentAuthority: 'proposeOnly' }]
+  assert.equal(schema.zoneFor('src/api/x.ts', single).id, 'single')
+  assert.equal(schema.zoneFor('src/api/deep/x.ts', single), null, 'a deeper path is outside a single star')
+
+  const whole = [{ id: 'all', paths: ['**'], agentAuthority: 'proposeOnly' }]
+  assert.equal(schema.zoneFor('anything/at/all.ts', whole).id, 'all', 'a bare ** is the whole repository')
+  assert.equal(schema.zoneFor('top.ts', whole).id, 'all')
+
+  const star = [{ id: 'star', paths: ['*'], agentAuthority: 'proposeOnly' }]
+  assert.equal(schema.zoneFor('a/b.ts', star).id, 'star', 'a bare * is read as the whole repository too')
+
+  // The most specific declaration still wins, and a whole-repository zone loses to a named one.
+  const nested = [{ id: 'all', paths: ['**'], agentAuthority: 'proposeOnly' }, { id: 'auth', paths: ['src/auth/**'], agentAuthority: 'humanOnly' }]
+  assert.equal(schema.zoneFor('src/auth/session.ts', nested).id, 'auth')
+  assert.equal(schema.zoneFor('src/other/x.ts', nested).id, 'all')
+})
+
 test('schema: zoneFor does not treat a sibling prefix as containment', () => {
   const zones = [{ id: 'sim', paths: ['packages/sim/**'], agentAuthority: 'proposeOnly' }]
   assert.equal(schema.zoneFor('packages/sim-city/x.ts', zones), null)
