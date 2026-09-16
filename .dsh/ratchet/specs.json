@@ -11,7 +11,7 @@
       "authority": "agent",
       "sourceAdr": "0032",
       "sourcePath": "docs/adrs/0032-duplicate-decisions.adr.md",
-      "approvedBy": "0039",
+      "approvedBy": "0052",
       "checks": [
         {
           "type": "command",
@@ -31,7 +31,7 @@
       "authority": "agent",
       "sourceAdr": "0032",
       "sourcePath": "docs/adrs/0032-duplicate-decisions.adr.md",
-      "approvedBy": "0039",
+      "approvedBy": "0052",
       "checks": [
         {
           "type": "command",
@@ -57,7 +57,7 @@
       "authority": "agent",
       "sourceAdr": "0032",
       "sourcePath": "docs/adrs/0032-duplicate-decisions.adr.md",
-      "approvedBy": "0039",
+      "approvedBy": "0052",
       "checks": [
         {
           "type": "command",
@@ -83,7 +83,7 @@
       "authority": "agent",
       "sourceAdr": "0032",
       "sourcePath": "docs/adrs/0032-duplicate-decisions.adr.md",
-      "approvedBy": "0039",
+      "approvedBy": "0052",
       "checks": [
         {
           "type": "command",
@@ -103,7 +103,7 @@
       "authority": "agent",
       "sourceAdr": "0033",
       "sourcePath": "docs/adrs/0033-batch-extraction.adr.md",
-      "approvedBy": "0040",
+      "approvedBy": "0051",
       "checks": [
         {
           "type": "command",
@@ -129,7 +129,7 @@
       "authority": "agent",
       "sourceAdr": "0033",
       "sourcePath": "docs/adrs/0033-batch-extraction.adr.md",
-      "approvedBy": "0040",
+      "approvedBy": "0051",
       "checks": [
         {
           "type": "command",
@@ -149,7 +149,7 @@
       "authority": "agent",
       "sourceAdr": "0033",
       "sourcePath": "docs/adrs/0033-batch-extraction.adr.md",
-      "approvedBy": "0040",
+      "approvedBy": "0051",
       "checks": [
         {
           "type": "command",
@@ -169,7 +169,7 @@
       "authority": "agent",
       "sourceAdr": "0033",
       "sourcePath": "docs/adrs/0033-batch-extraction.adr.md",
-      "approvedBy": "0040",
+      "approvedBy": "0051",
       "checks": [
         {
           "type": "command",
@@ -297,7 +297,7 @@
       "authority": "agent",
       "sourceAdr": "0031",
       "sourcePath": "docs/adrs/0031-a-decision-is-resolved-under-the-removal-authority.adr.md",
-      "approvedBy": "0038",
+      "approvedBy": "0053",
       "checks": [
         {
           "type": "command",
@@ -309,26 +309,35 @@
       "unenforced": null
     },
     {
-      "id": "lifecycle.a-resolution-is-an-ordinary-record-with-a-resolves-list",
-      "statement": "A resolution is an ordinary decision record that removes the losing laws, supersedes the losing record and names both sides in a `resolves` list, so the corpus can audit which conflict was settled and by what.",
+      "id": "lifecycle.a-resolution-takes-force-away-in-exactly-one-of-two-ways",
+      "statement": "A resolution is an ordinary decision record that names both sides of the conflict it settles in a `resolves` list and takes away force in exactly ONE of two ways — `op: remove` for a named law while the record that declares it keeps governing, or `supersedes` for a whole record, which then carries a terminal status; a record that asks for both is refused as `RESOLUTION_AMBIGUOUS`, because supersession already takes every law the record declares out of force and a record emptied law by law is still in force.",
       "zones": [
         "shipped-plugins"
       ],
       "authority": "agent",
-      "sourceAdr": "0031",
-      "sourcePath": "docs/adrs/0031-a-decision-is-resolved-under-the-removal-authority.adr.md",
-      "approvedBy": "0038",
+      "sourceAdr": "0045",
+      "sourcePath": "docs/adrs/0045-a-resolution-takes-force-away-one-way.adr.md",
+      "approvedBy": "0046",
       "checks": [
         {
           "type": "command",
           "run": "node --test scripts/test-ratchet.mjs",
-          "expects": "resolves is refused unless it names exactly two distinct ADR ids, so naming one side only cannot settle anything",
+          "expects": "the surgical form removes one law and leaves the rest of the losing record governing, and the same resolution with supersedes added is refused with the code RESOLUTION_AMBIGUOUS",
+          "timeoutMs": 300000,
+          "outputContains": "a resolution removes a named law or supersedes a whole record, never both"
+        },
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "the resolves list carries exactly two distinct ADR ids, so naming one side only cannot settle anything",
+          "timeoutMs": 300000,
           "outputContains": "the field carries exactly two distinct ADR ids"
         },
         {
           "type": "command",
           "run": "node --test scripts/test-ratchet.mjs",
-          "expects": "a resolution naming a record that does not exist, or one that is neither in force nor leaving it, is refused by the corpus audit",
+          "expects": "a resolution naming a record that is neither in force nor leaving it is refused by the corpus audit",
+          "timeoutMs": 300000,
           "outputContains": "a resolution naming a record that is neither in force nor leaving it"
         }
       ],
@@ -343,7 +352,7 @@
       "authority": "agent",
       "sourceAdr": "0031",
       "sourcePath": "docs/adrs/0031-a-decision-is-resolved-under-the-removal-authority.adr.md",
-      "approvedBy": "0038",
+      "approvedBy": "0053",
       "checks": [
         {
           "type": "command",
@@ -369,13 +378,41 @@
       "authority": "agent",
       "sourceAdr": "0031",
       "sourcePath": "docs/adrs/0031-a-decision-is-resolved-under-the-removal-authority.adr.md",
-      "approvedBy": "0038",
+      "approvedBy": "0053",
       "checks": [
         {
           "type": "command",
           "run": "node --test scripts/test-ratchet.mjs",
           "expects": "a resolution that takes the challenged law out of force makes the zone writable again with no clearing gesture, and withdrawing the resolution puts the block back",
           "outputContains": "a resolution that takes the challenged law out of force lifts the standing block"
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "review.a-law-bound-finding-quotes-the-law-it-judges",
+      "statement": "A judge's finding that names a law must quote that law as it is in force — its statement verbatim, or the hash of the law set the judge read — and the ratchet compares the quote against the compiled law before the finding is forwarded, so a quote that does not match the in-force law is reported unusable and blocks nothing, a law-bound finding that carries no quote at all is unusable, and a finding that names no law is unaffected.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0044",
+      "sourcePath": "docs/adrs/0044-a-law-bound-finding-must-quote-the-law-it-judges.adr.md",
+      "approvedBy": "0047",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "a correct quotation is accepted, a quote of a statement the law no longer carries is dropped as unusable, a law-bound finding with no quote is dropped, and a finding binding no law is unaffected",
+          "timeoutMs": 300000,
+          "outputContains": "a finding that quotes the law it names is checked against it"
+        },
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "the hash of the law set is accepted in place of the statement as a law-bound finding's quotation",
+          "timeoutMs": 300000,
+          "outputContains": "a bundle hash is an acceptable quotation for a law-bound finding"
         }
       ],
       "unenforced": null
@@ -389,7 +426,7 @@
       "authority": "agent",
       "sourceAdr": "0027",
       "sourcePath": "docs/adrs/0027-every-enforcement-point-the-review-falsified-can-fail.adr.md",
-      "approvedBy": "0037",
+      "approvedBy": "0054",
       "checks": [
         {
           "type": "command",
@@ -401,57 +438,42 @@
       "unenforced": null
     },
     {
-      "id": "shipped-plugins.a-consent-names-the-surface-that-carried-it",
-      "statement": "A ratification records, in its approval and its transcript, the channel that actually carried the question to the human, so a consent obtained through the harness user-questions seam records user-question and one obtained through the ADR panel's decision window records adr-panel, and both values are in the ratchet's closed channel vocabulary and in the panel's copy of it.",
+      "id": "shipped-plugins.a-consent-question-carries-the-record-and-records-its-channel",
+      "statement": "A ratification question the ratchet prepares carries the record's own text and is answered by selecting one of the labels the question itself put on its options rather than by interpreting free text; a consent the ratchet records names in its approval and its transcript the channel that carried it, and the panel knows every channel a ratification can have been obtained through.",
       "zones": [
-        "shipped-plugins",
-        "kit-tooling"
+        "shipped-plugins"
       ],
       "authority": "agent",
-      "sourceAdr": "0034",
-      "sourcePath": "docs/adrs/0034-the-panel-records-through-a-host-route.adr.md",
-      "approvedBy": "0041",
+      "sourceAdr": "0043",
+      "sourcePath": "docs/adrs/0043-a-laws-check-must-be-hermetic.adr.md",
+      "approvedBy": "0048",
       "checks": [
         {
           "type": "command",
           "run": "node scripts/check-consent-surface.mjs",
-          "expects": "the panel knows every channel the ratchet accepts, and an approval the consent service writes for the route names adr-panel in its frontmatter and in its transcript",
+          "expects": "asking the service prepares the ratchet's own question carrying the record's own text and writes nothing, the question's own label writes the approval and its transcript, and the recorded channel is one the panel's copy of the vocabulary holds",
           "timeoutMs": 180000,
           "outputContains": "consent surface ok"
-        },
-        {
-          "type": "command",
-          "run": "node scripts/probe-dsh-api.mjs --adr-panel-consent",
-          "expects": "the approval the route writes over real HTTP records the panel channel, not the harness seam's",
-          "timeoutMs": 600000,
-          "outputContains": "adr panel consent route ok"
         }
       ],
       "unenforced": null
     },
     {
-      "id": "shipped-plugins.a-consent-travels-a-channel-it-records",
-      "statement": "A ratification question reaches the human through one of the ratchet's closed vocabulary of channels, carrying the record's own text, and its answer is derived from a selected label rather than interpreted; the approval and its transcript both record the channel that actually carried it, so a consent obtained in a Session names user-question and one obtained in the panel's decision window names adr-panel.",
+      "id": "shipped-plugins.a-consent-records-the-surface-that-carried-it",
+      "statement": "A consent recorded through the service the panel's route reaches names, in its approval frontmatter and in its transcript, the channel that carried the question, and that channel value is one the ratchet's closed channel vocabulary and the panel's copy of it both hold; the value recorded is the route's own channel, not the harness seam's.",
       "zones": [
         "shipped-plugins"
       ],
       "authority": "agent",
-      "sourceAdr": "0035",
-      "sourcePath": "docs/adrs/0035-a-consent-travels-a-channel-it-records.adr.md",
-      "approvedBy": "0042",
+      "sourceAdr": "0043",
+      "sourcePath": "docs/adrs/0043-a-laws-check-must-be-hermetic.adr.md",
+      "approvedBy": "0048",
       "checks": [
         {
           "type": "command",
-          "run": "node scripts/probe-dsh-api.mjs --adr-panel-consent",
-          "expects": "the panel consent route asks, refuses a composed or foreign or replayed answer, and mints on the question's own label",
-          "timeoutMs": 300000,
-          "outputContains": "adr panel consent route ok"
-        },
-        {
-          "type": "command",
           "run": "node scripts/check-consent-surface.mjs",
-          "expects": "the ratchet's channel vocabulary and the panel's copy of it are equal, and a consent through the route names the route",
-          "timeoutMs": 120000,
+          "expects": "an approval the consent service writes for the route names the route channel in its frontmatter and in its transcript, and the panel knows every channel the ratchet accepts",
+          "timeoutMs": 180000,
           "outputContains": "consent surface ok"
         }
       ],
@@ -486,7 +508,7 @@
       "authority": "agent",
       "sourceAdr": "0026",
       "sourcePath": "docs/adrs/0026-the-generated-spec-goes-where-the-manifest-says.adr.md",
-      "approvedBy": "0036",
+      "approvedBy": "0055",
       "checks": [
         {
           "type": "command",
@@ -552,7 +574,7 @@
       "authority": "agent",
       "sourceAdr": "0027",
       "sourcePath": "docs/adrs/0027-every-enforcement-point-the-review-falsified-can-fail.adr.md",
-      "approvedBy": "0037",
+      "approvedBy": "0054",
       "checks": [
         {
           "type": "command",
@@ -638,7 +660,7 @@
       "authority": "agent",
       "sourceAdr": "0027",
       "sourcePath": "docs/adrs/0027-every-enforcement-point-the-review-falsified-can-fail.adr.md",
-      "approvedBy": "0037",
+      "approvedBy": "0054",
       "checks": [
         {
           "type": "command",
@@ -678,7 +700,7 @@
       "authority": "agent",
       "sourceAdr": "0027",
       "sourcePath": "docs/adrs/0027-every-enforcement-point-the-review-falsified-can-fail.adr.md",
-      "approvedBy": "0037",
+      "approvedBy": "0054",
       "checks": [
         {
           "type": "command",
@@ -698,7 +720,7 @@
       "authority": "agent",
       "sourceAdr": "0027",
       "sourcePath": "docs/adrs/0027-every-enforcement-point-the-review-falsified-can-fail.adr.md",
-      "approvedBy": "0037",
+      "approvedBy": "0054",
       "checks": [
         {
           "type": "command",
@@ -917,6 +939,27 @@
       "unenforced": null
     },
     {
+      "id": "shipped-plugins.no-tool-surface-exposes-the-consent-route",
+      "statement": "Nothing on the ratchet's registered tool surface names the consent route, its service, its header or its capability global, no tool argument accepts a caller-composed answer, the CLI has no mint verb and inventing its flags mints nothing, and the panel and its host agree on the route, the service, the header and the capability value.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0043",
+      "sourcePath": "docs/adrs/0043-a-laws-check-must-be-hermetic.adr.md",
+      "approvedBy": "0048",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node scripts/check-consent-surface.mjs",
+          "expects": "no registered tool exposes the route, its service, its header or its capability; no argument accepts an answer; the CLI has no mint verb; the panel and its host agree on all four values",
+          "timeoutMs": 180000,
+          "outputContains": "consent surface ok"
+        }
+      ],
+      "unenforced": null
+    },
+    {
       "id": "shipped-plugins.problem-codes-are-declared",
       "statement": "Every problem the ratchet emits carries a code from the closed vocabulary in ratchet-schema.mjs; a code invented at a call site is a defect.",
       "zones": [
@@ -1025,7 +1068,7 @@
       "authority": "agent",
       "sourceAdr": "0027",
       "sourcePath": "docs/adrs/0027-every-enforcement-point-the-review-falsified-can-fail.adr.md",
-      "approvedBy": "0037",
+      "approvedBy": "0054",
       "checks": [
         {
           "type": "command",
@@ -1063,57 +1106,20 @@
       "unenforced": null
     },
     {
-      "id": "shipped-plugins.the-consent-route-is-not-a-second-consent-path",
-      "statement": "The ADR panel's consent route builds no question and interprets no answer, it calls the ratchet's own ratify operation for both halves, and that operation writes an approval only for the approve label of a question it built for the records waiting now, refusing a hand-composed payload with no quiz, a quiz it did not build, an answer about a record edited since the question was asked, a replayed quiz and a record its zones do not let a consent put into force.",
+      "id": "shipped-plugins.the-consent-service-is-not-a-second-consent-path",
+      "statement": "The ratchet provides one consent service the panel's route reaches, whose operations build no question and interpret no answer — ask prepares the ratchet's own question about the decisions waiting now, and settle pairs a selected label with that same question and writes an approval only for its approve label — refusing a label with no quiz behind it, a quiz the ratchet did not build, an answer about a record edited since the question was asked, a replayed quiz, and a record whose zone does not let a consent put it into force.",
       "zones": [
-        "shipped-plugins",
-        "kit-tooling"
+        "shipped-plugins"
       ],
       "authority": "agent",
-      "sourceAdr": "0034",
-      "sourcePath": "docs/adrs/0034-the-panel-records-through-a-host-route.adr.md",
-      "approvedBy": "0041",
+      "sourceAdr": "0043",
+      "sourcePath": "docs/adrs/0043-a-laws-check-must-be-hermetic.adr.md",
+      "approvedBy": "0048",
       "checks": [
         {
           "type": "command",
-          "run": "node scripts/probe-dsh-api.mjs --adr-panel-consent",
-          "expects": "the route driven over real HTTP with a stub human writes the approval and its transcript, and every refusal mints nothing",
-          "timeoutMs": 600000,
-          "outputContains": "adr panel consent route ok"
-        },
-        {
-          "type": "command",
           "run": "node scripts/check-consent-surface.mjs",
-          "expects": "the service the route reaches refuses a label with no quiz, a foreign quiz, a human-only zone, a replay and a stale text",
-          "timeoutMs": 180000,
-          "outputContains": "consent surface ok"
-        }
-      ],
-      "unenforced": null
-    },
-    {
-      "id": "shipped-plugins.the-consent-route-is-unreachable-by-an-agent",
-      "statement": "No tool, CLI verb or command argument exposes the consent route, and every request to it must pass the harness browser trust fence and carry a capability minted per plugin activation, held in memory and delivered only through the index document this process served, so the token is written to no file and to no log and nothing an agent can call obtains it.",
-      "zones": [
-        "shipped-plugins",
-        "kit-tooling"
-      ],
-      "authority": "agent",
-      "sourceAdr": "0034",
-      "sourcePath": "docs/adrs/0034-the-panel-records-through-a-host-route.adr.md",
-      "approvedBy": "0041",
-      "checks": [
-        {
-          "type": "command",
-          "run": "node scripts/probe-dsh-api.mjs --adr-panel-consent",
-          "expects": "an unauthenticated loopback request is refused without writing, and a browser session with a missing or tampered capability is refused before the ratchet is reached",
-          "timeoutMs": 600000,
-          "outputContains": "adr panel consent route ok"
-        },
-        {
-          "type": "command",
-          "run": "node scripts/check-consent-surface.mjs",
-          "expects": "no registered tool names the route, its service, its header or its capability global",
+          "expects": "the provided consent service prepares the ratchet's own question, mints for its own approve label, and refuses a label with no quiz, a foreign quiz, a human-only zone, a replay and a stale text",
           "timeoutMs": 180000,
           "outputContains": "consent surface ok"
         }
@@ -1152,7 +1158,7 @@
       "authority": "agent",
       "sourceAdr": "0034",
       "sourcePath": "docs/adrs/0034-the-panel-records-through-a-host-route.adr.md",
-      "approvedBy": "0041",
+      "approvedBy": "0050",
       "checks": [
         {
           "type": "command",
@@ -1186,28 +1192,28 @@
       "unenforced": "Same phase as the law above, and enforceable by the same script extension, which must assert that the panel bundle calls no write and that the host action mints nothing without an answered question. Its mechanical half already holds and is asserted today — the bundle reads through `workspaceFiles.list`/`read` and writes nothing — by `node scripts/test-adr-panel.mjs`, which prints `adr panel render ok`."
     },
     {
-      "id": "shipped-plugins.the-panel-window-is-a-surface-of-one-consent-operation",
-      "statement": "The panel's decision window is a second SURFACE for the ratchet's single consent operation and never a second consent path: the route builds no question and interprets no answer, both halves call the ratchet's own ratify operation, and an answer mints only when the human selects the approve label of the question the ratchet built for the records waiting at that moment.",
+      "id": "shipped-plugins.the-panel-window-drives-the-one-consent-operation",
+      "statement": "The panel's decision window is a second surface for the ratchet's single consent operation and never a second consent path — a ratifiable row asks the host route for the ratchet's own question about that record, renders it with the record's own text and both of its own labels, and sends back the label it was shown paired with that same question, which the ratchet reads as an approval or a rejection; a decision the ratchet has no question for is reported and no answer is sent; with no capability the row names the CLI command and fetches nothing; and no panel ratification composes a composer message.",
       "zones": [
         "shipped-plugins"
       ],
       "authority": "agent",
-      "sourceAdr": "0035",
-      "sourcePath": "docs/adrs/0035-a-consent-travels-a-channel-it-records.adr.md",
-      "approvedBy": "0042",
+      "sourceAdr": "0043",
+      "sourcePath": "docs/adrs/0043-a-laws-check-must-be-hermetic.adr.md",
+      "approvedBy": "0048",
       "checks": [
         {
           "type": "command",
-          "run": "node scripts/probe-dsh-api.mjs --adr-panel-consent",
-          "expects": "a hand-composed payload, a foreign quiz, a replayed quiz, a stale text and a human-only zone each write nothing",
-          "timeoutMs": 300000,
-          "outputContains": "adr panel consent route ok"
+          "run": "node scripts/test-adr-panel.mjs",
+          "expects": "the shipped bundle asks the route for the ratchet's own question, shows the record's own text and both labels, sends back the label paired with that question, reports a no-question decision, falls back to the CLI with no capability, and composes no composer message",
+          "timeoutMs": 180000,
+          "outputContains": "adr panel render ok"
         },
         {
           "type": "command",
           "run": "node scripts/check-consent-surface.mjs",
-          "expects": "no tool names the consent route, its service, its header or its capability global",
-          "timeoutMs": 120000,
+          "expects": "the service the route reaches mints only for its own approve label and refuses a label with no quiz, a foreign quiz, a human-only zone, a replay and a stale text",
+          "timeoutMs": 180000,
           "outputContains": "consent surface ok"
         }
       ],
@@ -1222,7 +1228,7 @@
       "authority": "agent",
       "sourceAdr": "0035",
       "sourcePath": "docs/adrs/0035-a-consent-travels-a-channel-it-records.adr.md",
-      "approvedBy": "0042",
+      "approvedBy": "0049",
       "checks": [
         {
           "type": "command",
@@ -1230,27 +1236,6 @@
           "expects": "the shipped bundle records a decision through the route and submits no composer message",
           "timeoutMs": 300000,
           "outputContains": "adr panel render ok"
-        }
-      ],
-      "unenforced": null
-    },
-    {
-      "id": "shipped-plugins.the-question-seam-is-measured-by-the-probe",
-      "statement": "The ratification question's path to a human is measured end to end against a live profile rather than assumed — the question reaches a real human channel with the live root agent, its presentation intent survives the wire, the answers are derived from the labels, an unreadable answer is re-asked in a different shape, and the approval puts the decision into force — because the panel presenting that question is only trustworthy if the thing being presented is.",
-      "zones": [
-        "shipped-plugins"
-      ],
-      "authority": "agent",
-      "sourceAdr": "0019",
-      "sourcePath": "docs/adrs/0019-the-panels-consent-laws-are-enforced-behaviourally.adr.md",
-      "approvedBy": "0023",
-      "checks": [
-        {
-          "type": "command",
-          "run": "node scripts/probe-dsh-api.mjs --ratchet-ratify",
-          "expects": "the ratification quiz runs end to end and the approval lands",
-          "timeoutMs": 600000,
-          "outputContains": "10/10 facts confirmed by execution"
         }
       ],
       "unenforced": null
@@ -1268,6 +1253,34 @@
       "approvedBy": "0016",
       "checks": [],
       "unenforced": "Nothing has been measured yet; this record decides the requirement rather than claiming the result, which would be the assumption the whole feature rests on. It becomes enforceable when a probe in `scripts/probe-dsh-api.mjs` reports the seam's reachability from the chosen host and the measured fact is recorded in `docs/RATCHET-API-FACTS.md` with its reproduction."
+    },
+    {
+      "id": "shipped-plugins.the-questions-intent-and-answer-are-measured-hermetically",
+      "statement": "The ratification question's shape is measured rather than assumed by executing the shipped panel bundle and comparing it with the ratchet's own question — the panel matches the presentation intent the ratchet sends and gets no intent to claim for a grilling session, it claims the ratchet's re-ask shape, and the answer the ratchet reads is the label the question itself offered, with an approve click read as an approval and a decline click as a rejection.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0043",
+      "sourcePath": "docs/adrs/0043-a-laws-check-must-be-hermetic.adr.md",
+      "approvedBy": "0048",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node scripts/test-adr-panel.mjs",
+          "expects": "the intent the panel matches is the one the ratchet sends, a grill gets none, the re-ask shape is claimed, and an approve or decline click is read as an approval or a rejection",
+          "timeoutMs": 180000,
+          "outputContains": "adr panel render ok"
+        },
+        {
+          "type": "command",
+          "run": "node scripts/check-consent-surface.mjs",
+          "expects": "the panel's intent literal equals the ratchet's own question intent, and a chat presentation carries no intent to claim",
+          "timeoutMs": 180000,
+          "outputContains": "consent surface ok"
+        }
+      ],
+      "unenforced": null
     },
     {
       "id": "shipped-plugins.tools-use-defineTool",
@@ -1339,7 +1352,7 @@
       "authority": "agent",
       "sourceAdr": "0027",
       "sourcePath": "docs/adrs/0027-every-enforcement-point-the-review-falsified-can-fail.adr.md",
-      "approvedBy": "0037",
+      "approvedBy": "0054",
       "checks": [
         {
           "type": "command",

@@ -7,15 +7,15 @@ artifact wins — and the commands below are how to check.
 
 Read this file, then `AGENTS.md` (the artifact table), then run the gate.
 
-## 1. The gate is currently RED, on purpose, pending a human ratification
+## 1. The gate is GREEN, and every law check is hermetic (resolved 2026-09-16)
 
-Measured on 2026-09-15:
+Measured on 2026-09-16:
 
 | Command | State |
 |---|---|
-| `ratchet compile --root .` | OK — 39 records, 22 active, 0 proposed, 62 laws |
-| `ratchet verify --root .` | **RED — 6 × `CODE_COMMAND_FAILED`** |
-| `node --test scripts/test-ratchet.mjs` | OK (329) |
+| `ratchet compile --root .` | OK — 52 records, 25 active, 0 proposed, 63 laws |
+| `ratchet verify --root .` | OK — 63 laws, 75 checks evaluated, 0 pending, 0 problems |
+| `node --test scripts/test-ratchet.mjs` | OK (331) |
 | `node --test scripts/test-ratchet-guard.mjs` | OK |
 | `scripts/check-duplicate-decisions.mjs` | OK |
 | `scripts/check-consent-surface.mjs` | OK |
@@ -23,43 +23,34 @@ Measured on 2026-09-15:
 | `scripts/check-instruction-routing.mjs` | OK |
 | `scripts/check-portability.mjs` | OK (17/17) |
 | `scripts/test-adr-panel.mjs` | OK |
+| `scripts/verify-upgrade.sh` | GATE PASS |
 
-The six failures are all one cause: six laws bind two **end-to-end probes**, and the probes fail when
-the verifier's command runner starts them while passing when a human runs them in a shell:
+The red state that stood here was six laws bound to two **end-to-end probes**
+(`probe-dsh-api.mjs --adr-panel-consent`, `probe-dsh-api.mjs --ratchet-ratify`) that pass
+standalone (16/16 and 10/10, both exit 0) but failed when the verifier's command runner started
+them. On this machine the failure does not reproduce; the structural defect is real regardless, and
+the settled decision was applied:
 
-- `node scripts/probe-dsh-api.mjs --adr-panel-consent` — **16/16, exit 0 standalone**; fails under the runner.
-- `node scripts/probe-dsh-api.mjs --ratchet-ratify` — **10/10, exit 0 standalone**; fails under the runner.
+> **A law's check must be hermetic.** Probes that need a live webserver, a port or a nested process
+> are release-gate evidence (`scripts/verify-upgrade.sh`), not law checks.
 
-The precise runner-level cause (timeout, environment, a nested process, a port) has **not** been
-measured. The decision taken in response is settled and is what the next agent must implement:
+**Amendment 0043** removed the six probe-bound laws from the ratified records 0019, 0034 and 0035 and
+restated them under new ids bound only to `scripts/test-adr-panel.mjs` and
+`scripts/check-consent-surface.mjs`. The human ratified it through the ADR window (approval 0048);
+regenerating the law cards (`ratchet compile --write`) made the gate green. No law in force binds a
+probe — `ratchet verify --root .` is the proof.
 
-> **A law's check must be hermetic.** Probes that need a live webserver, a port or a nested process are
-> release-gate evidence (`scripts/verify-upgrade.sh`), not law checks.
+## 2. The two written-down rules are now law (resolved 2026-09-16)
 
-The laws that violate this are in **ratified** records (ADR 0034 approved by 0041, ADR 0035 approved by
-0042), so re-binding them **cannot be an edit** — that voids the consent (`RATIFICATION_STALE`). It
-ships as an amendment: `op: remove` for each of the six law ids plus the restated laws under new ids,
-bound to hermetic commands (`scripts/test-adr-panel.mjs`, which executes the shipped bundle against a
-stub host; `scripts/check-consent-surface.mjs`, which drives the consent service directly). The
-compiler forbids a remove and an upsert of one law id in one record, which is why the restatement takes
-new ids.
-
-**Until a human ratifies that amendment the gate stays red.** Do not "fix" it by editing a ratified
-record, by declaring the probes hermetic, or by deleting a check.
-
-## 2. Work that is written down but NOT enforced in the corpus
-
-Both are enforced today by tests and by the validator, but are **not laws**, because encoding them
-needs a record in `shipped-plugins` — a human decision:
+Both were enforced by tests and by the validator but were **not laws**. They are now in force:
 
 1. **A law-bound finding must quote the law it judges** (the in-force statement or its spec hash). A
-   mismatched quote invalidates itself; a missing quote is unusable. This rule exists because a judge
-   error quoted a *superseded* statement, named a law in force, and the guard then refused every write
-   under `plugins/**` — including the fix. Reconstructing the truth by hand was the only way out.
+   mismatched quote invalidates itself; a missing quote is unusable. — **ADR 0044**, ratified by the
+   human (approval 0047).
 2. **A resolution takes away force one of two ways, never both**: `op: remove` for a named law while
    its record keeps governing, or `supersedes` for a whole record, which then carries a terminal
-   status. ADR 0031 (ratified by 0038) still states both in one breath; the correction must ship as an
-   amendment, not as an edit.
+   status. A record asking for both is refused as `RESOLUTION_AMBIGUOUS`. — **ADR 0045**, an
+   amendment to ADR 0031, ratified by the human (approval 0046).
 
 ## 3. Decisions taken in a design session and NOT started
 
@@ -74,8 +65,10 @@ needs a record in `shipped-plugins` — a human decision:
    consents waiting, contradictions with their drafted resolutions, duplicates with their drafted
    merges, stale detection, a red gate.
 4. **A stale specification is reported with a drafted withdrawal note and never blocks the gate.**
-5. **`scripts/verify-upgrade.sh` runs `ratchet verify` and `falsify`** (the release gate already runs
-   and passes `verify`; `falsify` is not wired in).
+
+The fifth decision, **`scripts/verify-upgrade.sh` runs `ratchet verify` and `falsify`**, landed
+2026-09-16: the release gate now runs both, and it treats a documented, self-describing `[SKIP]` as
+the skip it is while still failing on a `[FAIL]`, an unknown skip, or a missing success marker.
 
 ## 4. Known limitations of the mechanisms themselves
 
@@ -95,12 +88,12 @@ needs a record in `shipped-plugins` — a human decision:
 - **The consent residual gap, unchanged:** a hand-written approval reproducing the ratification block,
   or one word of frontmatter (`authority: human`), is indistinguishable from a genuine one. Never
   forge either; see hard rule 12.
-- **`verify-upgrade.sh` treats a `[SKIP]` as a failure.** Without a harness checkout
-  (`HARNESS_DIR`/`~/deepseek-harness`), `test-adr-panel.mjs` prints two `[SKIP]` lines while exiting 0,
-  and the release gate fails on them. Environmental, unproven here.
-- **The kit's own zone coverage is unaudited.** In a sibling project we found 26 of 197 tracked paths
-  owned by no zone and made coverage a rule with a failing command. Whether the kit has the same
-  silent gap has not been measured.
+- **The kit's zone coverage is measured, and the rule is a governance call.** 92 of 174 tracked paths
+  are owned by no zone: `docs/` 78, the 10 root-level meta files, `.dsh/` 4. They are not ungoverned —
+  they fall to `ratchet.defaultAgentAuthority`, which is `proposeOnly` — but they are not explicitly
+  zoned. A failing coverage command needs a decision: introduce a `docs` zone (and with what
+  authority), or state an exemption list for the generated and meta paths. That is a human call, not
+  an agent one.
 
 ## 5. Platform facts that explain surprising behaviour
 
@@ -118,8 +111,9 @@ needs a record in `shipped-plugins` — a human decision:
 
 ## 6. What to do first, in order
 
-1. Ask the human to ratify the amendment in §1 so the gate is green.
-2. Commit the approvals, their transcripts and the regenerated law cards together — a ratification is
-   only meaningful as a pair with its approval.
+1. ~~Ask the human to ratify the amendment in §1 so the gate is green.~~ Done (ADR 0043, ratified by
+   approval 0048); §2 done too (0044 by 0047, 0045 by 0046).
+2. ~~Commit the approvals, their transcripts and the regenerated law cards together.~~ Done.
 3. Then §3.1: make the window read the ratchet's state instead of deriving it.
-4. Then §3.2–§3.5 in the order they are listed.
+4. Then §3.2–§3.4 in the order they are listed.
+5. Then §4's zone-coverage decision, which needs a human call.
