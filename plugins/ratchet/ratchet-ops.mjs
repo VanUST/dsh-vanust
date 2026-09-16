@@ -23,7 +23,7 @@ import { execFile as execFileCallback } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { promisify } from 'node:util'
 import { dirname, join, resolve } from 'node:path'
-import { MANIFEST_PATH, PROBLEM_CODES, UNUSABLE_PROBLEM_CODES, budgetProblem, hashSource, normaliseText, parseAdr, problem } from './ratchet-schema.mjs'
+import { MANIFEST_PATH, PROBLEM_CODES, UNUSABLE_PROBLEM_CODES, budgetProblem, hashSource, normaliseText, parseAdr, problem, workBudgetRead } from './ratchet-schema.mjs'
 import {
   compileProject,
   comparePersistedBundle,
@@ -252,7 +252,7 @@ export function findRoot(start) {
  */
 export function status(root, options = {}) {
   const budget = options.budget ?? null
-  const manifest = readManifest(root)
+  const manifest = readManifest(root, budget)
   const compiled = compileProject(root, { budget })
 
   const persistedBundle = readSpecBundle(root)
@@ -367,7 +367,7 @@ export function status(root, options = {}) {
 
   const rendered = compiled.bundle === null ? { files: {} } : renderSpecs(compiled.bundle, manifest.config?.specsDir)
   const tracksSpecs = state.tracksSpecDocuments(root, manifest.config?.specsDir, manifest.config?.specsRequired)
-  const drift = detectSpecDrift(root, rendered.files)
+  const drift = detectSpecDrift(root, rendered.files, manifest.config?.specsDir ?? null, budget)
   problems.push(...specDriftProblems(reportedSpecDrift(tracksSpecs, drift)))
 
   return {
@@ -491,7 +491,7 @@ export function compile({ root, write = false, budget = null } = {}) {
   // Read once, before the first use: the spec path comes from the manifest, and this function used
   // to read it further down. Naming `manifest` before it existed was a ReferenceError waiting for
   // the first project whose bundle compiled.
-  const manifest = readManifest(root)
+  const manifest = readManifest(root, budget)
   const rendered = compiled.bundle === null ? { files: {}, specHash: null } : renderSpecs(compiled.bundle, manifest.config?.specsDir)
 
   // BEFORE persisting: persisting appends this run's law set to the ledger, and this
@@ -524,7 +524,7 @@ export function compile({ root, write = false, budget = null } = {}) {
 
   const config = manifest.config
   const tracksSpecs = state.tracksSpecDocuments(root, config?.specsDir, config?.specsRequired)
-  const drift = detectSpecDrift(root, rendered.files)
+  const drift = detectSpecDrift(root, rendered.files, config?.specsDir ?? null, budget)
   const problems = [
     ...compiled.problems,
     ...removalProblems,
@@ -683,7 +683,7 @@ export async function verify({ root, runCommand = null, budget = null } = {}) {
     }
   }
 
-  const manifest = readManifest(root)
+  const manifest = readManifest(root, budget)
   const verified = await verifyProject({
     root,
     bundle: compiled.bundle,
@@ -703,7 +703,7 @@ export async function verify({ root, runCommand = null, budget = null } = {}) {
   // project tracks them — see `tracksSpecDocuments`.
   const rendered = renderSpecs(compiled.bundle, manifest.config?.specsDir)
   const tracksSpecs = state.tracksSpecDocuments(root, manifest.config?.specsDir, manifest.config?.specsRequired)
-  const drift = detectSpecDrift(root, rendered.files)
+  const drift = detectSpecDrift(root, rendered.files, manifest.config?.specsDir ?? null, budget)
   // Also BEFORE persisting, for the same reason as in `compile`: the persisted verify
   // appends the law set this run observed, so the comparison has to happen first.
   const removalProblems = lawRemovalProblems(root, compiled)
@@ -1372,8 +1372,9 @@ export async function ingest({
   write = false,
   authorName = 'ratchet-ingest',
   now = null,
+  budget = null,
 } = {}) {
-  const manifest = readManifest(root)
+  const manifest = readManifest(root, budget)
   if (manifest.config === null || manifest.config.enabled !== true) {
     const problems = manifest.config === null
       ? manifest.problems
@@ -1382,9 +1383,18 @@ export async function ingest({
   }
   const config = manifest.config
 
-  const source = ingestModule.readSource(root, sourcePath)
+  const source = ingestModule.readSource(root, sourcePath, budget)
   if (source.error !== undefined) {
-    const problems = [problem('ADR_SOURCE_MISSING', source.error, null, { path: sourcePath })]
+    const problems = [
+      source.notRegular === undefined
+        ? problem('ADR_SOURCE_MISSING', source.error, null, { path: sourcePath })
+        : problem(
+            'CODE_FILE_NOT_REGULAR',
+            `${sourcePath} was not opened because it is a ${source.notRegular.kind}, not a regular file, so there is no reasoning to ingest`,
+            null,
+            { path: sourcePath, kind: source.notRegular.kind },
+          ),
+    ]
     return { ok: false, stage: 'ingest', problems, summary: summariseProblems(problems) }
   }
 
@@ -1663,8 +1673,9 @@ export async function ingestBatch({
   write = false,
   authorName = 'ratchet-ingest',
   now = null,
+  budget = null,
 } = {}) {
-  const manifest = readManifest(root)
+  const manifest = readManifest(root, budget)
   if (manifest.config === null || manifest.config.enabled !== true) {
     const problems = manifest.config === null
       ? manifest.problems
@@ -1673,9 +1684,18 @@ export async function ingestBatch({
   }
   const config = manifest.config
 
-  const source = ingestModule.readSource(root, sourcePath)
+  const source = ingestModule.readSource(root, sourcePath, budget)
   if (source.error !== undefined) {
-    const problems = [problem('ADR_SOURCE_MISSING', source.error, null, { path: sourcePath })]
+    const problems = [
+      source.notRegular === undefined
+        ? problem('ADR_SOURCE_MISSING', source.error, null, { path: sourcePath })
+        : problem(
+            'CODE_FILE_NOT_REGULAR',
+            `${sourcePath} was not opened because it is a ${source.notRegular.kind}, not a regular file, so there is no reasoning to ingest`,
+            null,
+            { path: sourcePath, kind: source.notRegular.kind },
+          ),
+    ]
     return { ok: false, stage: 'ingest-batch', problems, summary: summariseProblems(problems) }
   }
 
@@ -1977,8 +1997,9 @@ export async function ingestAuto({
   spawnJudge = null,
   authorName = 'ratchet-ingest',
   now = null,
+  budget = null,
 } = {}) {
-  const manifest = readManifest(root)
+  const manifest = readManifest(root, budget)
   if (manifest.config === null || manifest.config.enabled !== true) {
     const problems = manifest.config === null
       ? manifest.problems
@@ -1987,9 +2008,18 @@ export async function ingestAuto({
   }
   const config = manifest.config
 
-  const source = ingestModule.readSource(root, sourcePath)
+  const source = ingestModule.readSource(root, sourcePath, budget)
   if (source.error !== undefined) {
-    const problems = [problem('ADR_SOURCE_MISSING', source.error, null, { path: sourcePath })]
+    const problems = [
+      source.notRegular === undefined
+        ? problem('ADR_SOURCE_MISSING', source.error, null, { path: sourcePath })
+        : problem(
+            'CODE_FILE_NOT_REGULAR',
+            `${sourcePath} was not opened because it is a ${source.notRegular.kind}, not a regular file, so there is no reasoning to ingest`,
+            null,
+            { path: sourcePath, kind: source.notRegular.kind },
+          ),
+    ]
     return { ok: false, stage: 'ingest-auto', problems, summary: summariseProblems(problems) }
   }
 
@@ -2553,23 +2583,29 @@ function writtenSpecDigests(root) {
  * an ordinary outcome, and letting it escape would turn a recorded consent into an
  * exception at the caller after the approval ADR is already on disk.
  *
+ * The regeneration is bounded by the same work budget the rest of the operation carries, and
+ * it reads each card through `workBudgetRead`, so a card that is not a regular file is refused
+ * rather than opened: a `readFileSync` on a FIFO would hang the consent click.
+ *
  * @param root - Absolute project root.
  * @param compiled - The compile result for the law set now in force; its `bundle`
  *   is the source of the documents. A compile with no bundle (`bundle: null`)
  *   writes nothing, because there are no laws to render.
+ * @param budget - A work-budget tracker (see `createWorkBudget`), or `null`/`undefined` for
+ *   an unbounded read of regular files.
  * @returns `{ written, paths, skipped, problems }`. `written` lists the paths this
  *   call actually rewrote, `paths` every document the bundle renders, `skipped` the
  *   documents left alone because the ledger does not attribute their bytes to the
  *   ratchet, and `problems` is empty on success and carries one
  *   `ARTIFACT_WRITE_FAILED` when the write failed.
  */
-function regenerateSpecs(root, compiled) {
+function regenerateSpecs(root, compiled, budget = null) {
   if (compiled?.bundle === null || compiled?.bundle === undefined) {
     return { written: [], paths: [], skipped: [], problems: [] }
   }
-  const manifest = readManifest(root)
+  const manifest = readManifest(root, budget)
   const rendered = renderSpecs(compiled.bundle, manifest.config?.specsDir)
-  const drift = detectSpecDrift(root, rendered.files)
+  const drift = detectSpecDrift(root, rendered.files, manifest.config?.specsDir ?? null, budget)
   const ours = writtenSpecDigests(root)
   const stale = new Set([...(drift.missing ?? []), ...(drift.stale ?? []).map((entry) => entry.path)])
   const toWrite = {}
@@ -2578,12 +2614,8 @@ function regenerateSpecs(root, compiled) {
     if (!stale.has(path)) continue
     const absolute = join(root, path)
     if (existsSync(absolute)) {
-      let current = null
-      try {
-        current = hashSource(readFileSync(absolute, 'utf8'))
-      } catch {
-        current = null
-      }
+      const read = workBudgetRead(budget, root, path)
+      const current = read.text === undefined ? null : hashSource(read.text)
       if (current === null || !ours.has(current)) {
         skipped.push(path)
         continue
@@ -2595,16 +2627,10 @@ function regenerateSpecs(root, compiled) {
     return { written: [], paths: Object.keys(rendered.files), skipped, problems: [] }
   }
   try {
-    const result = writeSpecDocuments(root, toWrite)
-    // The digests of what was just written, recorded so the NEXT law set can tell
-    // these bytes apart from a person's. One entry per document, not per run, and the
-    // event is one line: this is the smallest record that makes the guard above true.
-    appendLedger(root, 'ratchet.ratify.specs-regenerated', {
-      written: result.written.length,
-      paths: result.written,
-      skipped,
-      specDigests: result.written.map((path) => hashSource(toWrite[path])),
-    })
+    // `writeSpecDocuments` writes the documents and records the digest of each in the
+    // ledger, under this operation's own event name, so the NEXT law set can tell these
+    // bytes apart from a person's.
+    const result = writeSpecDocuments(root, toWrite, { event: 'ratchet.ratify.specs-regenerated', fields: { skipped } })
     return { written: result.written, paths: Object.keys(rendered.files), skipped, problems: [] }
   } catch (error) {
     return {
@@ -2663,6 +2689,10 @@ function regenerateSpecs(root, compiled) {
  *   its transcript: `user-question` (the default) for a question the harness delivered,
  *   `adr-panel` for one the ADR panel's decision window rendered. It is provenance only —
  *   the quiz pairing, the derivation and the hash binding are the same on both.
+ *   `budget` is a work-budget tracker (see `createWorkBudget`), or `null` for the CLI. This is
+ *   the CONSENT path — the panel's click reaches it — so the in-process callers supply one and
+ *   a corpus too large to read fails closed instead of blocking the event loop through the
+ *   queue, the compile that follows and the regeneration of the invalidated law cards.
  * @returns The canonical ratification result. `reask` is present only on attempt 1
  *   with unreadable answers: there is no third attempt, because a machine that keeps
  *   rephrasing a question is one that has decided the answer for itself.
@@ -2679,8 +2709,9 @@ export function ratify({
   write = true,
   present = 'panel',
   channel = RATIFY_CHANNEL,
+  budget = null,
 } = {}) {
-  const queue = ratificationQueue(root)
+  const queue = ratificationQueue(root, budget)
   if (!queue.ok) {
     appendLedger(root, 'ratchet.ratify.blocked', {
       stage: 'queue',
@@ -2994,10 +3025,10 @@ export function ratify({
   // The compile after the write is the proof the consent took effect: it reports
   // the law set that the approval just changed, and any problem the new record
   // introduced, rather than asserting that the ratification worked.
-  const after = compileProject(root)
+  const after = compileProject(root, { budget })
   // ...and the generated law cards are regenerated from that same bundle, in the same
   // operation. See `regenerateSpecs` for why this is not left to the caller.
-  const specs = regenerateSpecs(root, after)
+  const specs = regenerateSpecs(root, after, budget)
   appendLedger(root, 'ratchet.ratify.mint', {
     approval: approvalId,
     ratified: approvedEntries.map((entry) => entry.id),
@@ -3052,11 +3083,12 @@ export function ratify({
  * that keeps rephrasing a question until it gets the answer it expected has stopped
  * asking and started insisting.
  *
- * @param options - `{ root, ids, askedBy, at, write, present, askHuman }`. `askHuman` is
+ * @param options - `{ root, ids, askedBy, at, write, present, askHuman, budget }`. `askHuman` is
  *   `(quiz) => Promise<{ kind: 'ok', answer } | { kind: 'unavailable', reason }>`
  *   or `null`, in which case the quiz is prepared and returned unanswered. `present`
  *   is forwarded to `ratify` for both the first question and the re-ask, so the whole
- *   sequence is shown in the one place the caller chose.
+ *   sequence is shown in the one place the caller chose. `budget` is forwarded to every
+ *   `ratify` call so the in-process consent path stays bounded across the whole sequence.
  * @returns A promise for the canonical ratification result, with `asked` describing
  *   how many questions were put to the human and how many attempts that took.
  */
@@ -3068,8 +3100,9 @@ export async function ratifyInteractively({
   write = true,
   present = 'panel',
   askHuman = null,
+  budget = null,
 } = {}) {
-  const prepared = ratify({ root, ids, askedBy, at, write, present })
+  const prepared = ratify({ root, ids, askedBy, at, write, present, budget })
   if (prepared.needsAnswer !== true) return prepared
 
   if (askHuman === null) {
@@ -3114,7 +3147,7 @@ export async function ratifyInteractively({
   }
   asked.answers.push(first.answer)
 
-  let result = ratify({ root, answer: first.answer, quiz: prepared.quiz, ids, askedBy, at, write, present })
+  let result = ratify({ root, answer: first.answer, quiz: prepared.quiz, ids, askedBy, at, write, present, budget })
   if (result.reask !== null && result.reask !== undefined && result.reask.questions.length > 0) {
     const second = await ask(result.reask)
     asked.attempts += 1
@@ -3131,6 +3164,7 @@ export async function ratifyInteractively({
         askedBy,
         at,
         write,
+        budget,
       })
     }
   }

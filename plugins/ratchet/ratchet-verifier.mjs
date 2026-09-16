@@ -55,9 +55,12 @@ export const DEFAULT_COMMAND_TIMEOUT_MS = 300_000
  * economy, never a licence to skip an explicit existence claim: the
  * `required_file`, `forbidden_file` and `required_file_in_list` checks resolve the path they
  * name with `pathOnDisk`, which asks the filesystem and ignores this set, so a file inside
- * one of these directories is still seen by the law that names it. The `*_glob` kinds match
- * against the walk, so a glob does not see inside these directories; a law that must see
- * such a path names it explicitly.
+ * one of these directories is still seen by the law that names it. A `required_glob` or
+ * `forbidden_glob` whose literal scope NAMES one of these directories is likewise honoured:
+ * the walk starts AT that literal directory (see {@link globFilesFor}), so `weights/**` sees
+ * `weights/model.bin` while a bare `**&#47;*.bin` still skips it. A glob that reaches one of these
+ * names only through a wildcard does not see inside it; a law that must see such a path
+ * names it explicitly.
  */
 const NEVER_WALK = new Set([
   '.git',
@@ -76,6 +79,20 @@ const NEVER_WALK = new Set([
   '.dsh',
   'reports',
 ])
+
+/**
+ * Reports whether a path segment is one the recursive walk never descends into.
+ *
+ * Exported because the glob kinds must decide whether a check's own literal scope names a
+ * skipped directory; keeping the membership test beside the set is what stops a second copy
+ * of the list from drifting.
+ *
+ * @param name - One path segment.
+ * @returns `true` when {@link NEVER_WALK} contains the segment.
+ */
+export function isNeverWalkDirectoryName(name) {
+  return NEVER_WALK.has(name)
+}
 
 /**
  * Walks a root and returns the repository-relative paths of up to `maxFiles` files, in a
@@ -129,6 +146,13 @@ function walkProjectFiles(root, start, { maxFiles, budget }) {
         }
         found.push(relativePath)
       }
+      // A SYMLINK is neither `isDirectory()` nor `isFile()` on the Dirent, so it contributes
+      // nothing to the walk: a symlinked directory is never descended (no cycle and no escape
+      // from the root through a link) and a symlinked file is never listed by a glob. That is
+      // deliberate. The literal path kinds do not use this walk — `pathOnDisk` stats the path
+      // they name, and `statSync` follows a symlink — so `required_file`/`forbidden_file` DO
+      // see a symlink to an existing target, which is the asymmetry a law relies on when it
+      // names one file exactly and expects the filesystem's answer.
     }
   }
   const base = start.length === 0 ? root : join(root, start)
@@ -167,6 +191,41 @@ export function listFiles(root, start = '', budget = null) {
 export function matchFiles(files, glob) {
   const expression = globToRegExp(glob)
   return files.filter((file) => expression.test(file))
+}
+
+/**
+ * PURPOSE
+ *   Select the files a glob check is about, honouring a check scope that NAMES a directory the
+ *   recursive walk skips, so `forbidden_glob: weights/**` sees `weights/model.bin` instead of
+ *   reporting the law satisfied (a false green) while `required_glob` reports a file that
+ *   exists as missing.
+ *
+ * INPUTS
+ *   files - the whole-project walk, already budgeted (array of repository-relative paths).
+ *   glob - the check's pattern (string).
+ *   walkScope - `(startRelativeDir) => string[]`, a memoised scoped walk that starts AT the
+ *     named directory and carries the same work budget, or `null`/`undefined` when no scoped
+ *     walk is available (a direct `verifyLaw` call), in which case the whole-project list is
+ *     the only source.
+ *
+ * OUTPUTS
+ *   Matching paths. When the glob's literal prefix begins with a {@link NEVER_WALK} name and a
+ *   scoped walk is supplied, the match is against that scoped walk; every other glob matches
+ *   against `files`. A glob whose literal prefix does not exist yields no matches, which is
+ *   the correct answer for both required and forbidden: nothing there is forbidden and a
+ *   required file is genuinely absent.
+ *
+ * KEYWORDS
+ *   glob check, never walk, explicit scope, false green, symlink, budget
+ */
+export function globFilesFor(files, glob, walkScope = null) {
+  const prefixSegments = literalGlobPrefix(glob)
+  const first = prefixSegments[0]
+  if (first !== undefined && isNeverWalkDirectoryName(first) && walkScope !== null && walkScope !== undefined) {
+    const scoped = walkScope(prefixSegments.join('/'))
+    if (Array.isArray(scoped)) return matchFiles(scoped, glob)
+  }
+  return matchFiles(files, glob)
 }
 
 /**
@@ -335,7 +394,17 @@ export function codeHashFor(root, files, options = {}) {
       hash.update(`\u0000large:${size}`)
     } else {
       const read = readProjectFile(root, path)
-      hash.update(read.error === undefined ? read.text : `\u0000unreadable:${read.error}`)
+      // A path that cannot be read still contributes a deterministic marker: the error text, or
+      // the kind when it is not a regular file. `read.text` is undefined in those cases, and
+      // hashing undefined would throw — a hash that dies on an odd tree is worse than one that
+      // marks it.
+      hash.update(
+        read.text !== undefined
+          ? read.text
+          : read.notRegular !== undefined
+            ? `\u0000unreadable:${read.notRegular.kind}`
+            : `\u0000unreadable:${read.error ?? 'unknown'}`,
+      )
       if (size !== null) total += size
     }
     hash.update('\u0000')
@@ -386,9 +455,11 @@ export function configHashFor(config) {
  * @param path - Repository-relative path.
  * @param budget - A work-budget tracker (see `createWorkBudget`), or `null`/`undefined` for an
  *   unbounded read (the CLI path), in which case the whole file is read exactly as before.
- * @returns `{ text }` | `{ error }` | `{ over }`; never throws, because a check that cannot
- *   read a file must report that rather than abort the whole verification. `over` is a work
- *   budget refusal and the caller must REPORT it, never treat it as a pass.
+ * @returns `{ text }` | `{ error }` | `{ over }` | `{ notRegular }`; never throws, because a
+ *   check that cannot read a file must report that rather than abort the whole verification.
+ *   `over` is a work budget refusal and `notRegular` a path that is not a regular file (a FIFO,
+ *   device, socket or directory, which is never opened); the caller must REPORT both, never
+ *   treat either as a pass.
  */
 export function readProjectFile(root, path, budget = null) {
   return workBudgetRead(budget, root, path)
@@ -435,6 +506,17 @@ export function readDeclaredDependencies(root, files, manifest, budget = null) {
 
   const addPackageJson = (path) => {
     const read = readProjectFile(root, path, budget)
+    if (read.notRegular !== undefined) {
+      problems.push(
+        problem(
+          'CODE_FILE_NOT_REGULAR',
+          `${path} was not opened because it is a ${read.notRegular.kind}, not a regular file, so the dependencies it declares were NOT examined`,
+          path,
+          { path, kind: read.notRegular.kind },
+        ),
+      )
+      return
+    }
     if (read.over !== undefined) {
       problems.push(
         problem(
@@ -478,6 +560,17 @@ export function readDeclaredDependencies(root, files, manifest, budget = null) {
   for (const path of files) {
     if (!pythonManifestPatterns.some((pattern) => pattern.test(path))) continue
     const read = readProjectFile(root, path, budget)
+    if (read.notRegular !== undefined) {
+      problems.push(
+        problem(
+          'CODE_FILE_NOT_REGULAR',
+          `${path} was not opened because it is a ${read.notRegular.kind}, not a regular file, so the dependencies it declares were NOT examined`,
+          path,
+          { path, kind: read.notRegular.kind },
+        ),
+      )
+      continue
+    }
     if (read.over !== undefined) {
       problems.push(
         problem(
@@ -595,6 +688,13 @@ export function selectFiles(files, patterns) {
  */
 export function readListAt(root, path, keys, budget = null) {
   const read = readProjectFile(root, path, budget)
+  if (read.notRegular !== undefined) {
+    return {
+      list: null,
+      error: `${path} is a ${read.notRegular.kind}, not a regular file, so it was not opened`,
+      notRegular: read.notRegular,
+    }
+  }
   if (read.over !== undefined) {
     return {
       list: null,
@@ -653,16 +753,18 @@ function pathOnDisk(root, relativePath) {
 /**
  * Evaluates one law against the project.
  *
- * @param options - `{ root, law, files, dependencies, config, runCommand, budget }`.
+ * @param options - `{ root, law, files, dependencies, config, runCommand, budget, walkScope }`.
  *   `runCommand` is an injected `(run, options) => Promise<{ code, stdout, stderr }>`
  *   or `null`. A `command` check with no runner reports that it was NOT evaluated
  *   instead of passing, because a check nobody ran is not a check. `budget` is a
  *   work-budget tracker (see `createWorkBudget`); without one every read is unbounded,
- *   which is the CLI path.
+ *   which is the CLI path. `walkScope` is an optional `(startDir) => string[]` used by the
+ *   glob kinds to walk an explicitly named directory the whole-project walk skips; `null`
+ *   falls back to the whole-project list.
  * @returns `{ problems, checked, pending }` where `checked` counts the checks that
  *   were actually evaluated and `pending` counts those that could not be.
  */
-export async function verifyLaw({ root, law, files, dependencies, config, runCommand = null, budget = null }) {
+export async function verifyLaw({ root, law, files, dependencies, config, runCommand = null, budget = null, walkScope = null }) {
   const problems = []
   const pending = []
   let checked = 0
@@ -698,6 +800,19 @@ export async function verifyLaw({ root, law, files, dependencies, config, runCom
         { path: over.path },
       )
     }
+  }
+  /**
+   * Reports a path that is not a regular file as a problem instead of opening it.
+   *
+   * A FIFO with no writer blocks `readFileSync` forever, so "the check was not evaluated
+   * over this path" is the only honest answer; reading it would hang the whole process.
+   */
+  const reportNotRegular = (entry) => {
+    fail(
+      'CODE_FILE_NOT_REGULAR',
+      `law "${law.id}" did not open ${entry.path} because it is a ${entry.kind}, not a regular file, so this check was NOT evaluated over it (decided in ${law.sourceAdr})`,
+      { path: entry.path, kind: entry.kind },
+    )
   }
   /** Runs a check pattern, refusing one that can backtrack catastrophically. */
   const compileCheckPattern = (pattern, flags) => {
@@ -765,7 +880,10 @@ export async function verifyLaw({ root, law, files, dependencies, config, runCom
       }
       case 'required_glob': {
         checked += 1
-        const matched = matchFiles(files, check.pattern)
+        // `globFilesFor`, not `matchFiles(files, …)`: a glob whose literal scope names a
+        // walk-skipped directory is honoured by walking that scope, so `weights/**` sees the
+        // file the whole-project walk skipped and a required file is not reported missing.
+        const matched = globFilesFor(files, check.pattern, walkScope)
         if (matched.length === 0) {
           fail(
             'CODE_REQUIRED_GLOB_MISSING',
@@ -777,7 +895,7 @@ export async function verifyLaw({ root, law, files, dependencies, config, runCom
       }
       case 'forbidden_glob': {
         checked += 1
-        const matched = matchFiles(files, check.pattern)
+        const matched = globFilesFor(files, check.pattern, walkScope)
         if (matched.length > 0) {
           fail(
             'CODE_FORBIDDEN_GLOB_PRESENT',
@@ -811,6 +929,10 @@ export async function verifyLaw({ root, law, files, dependencies, config, runCom
         const hits = []
         for (const path of scope) {
           const read = readProjectFile(root, path, budget)
+          if (read.notRegular !== undefined) {
+            reportNotRegular(read.notRegular)
+            continue
+          }
           if (read.over !== undefined) {
             reportOverBudget(read.over)
             continue
@@ -848,6 +970,10 @@ export async function verifyLaw({ root, law, files, dependencies, config, runCom
         const hits = []
         for (const path of scope) {
           const read = readProjectFile(root, path, budget)
+          if (read.notRegular !== undefined) {
+            reportNotRegular(read.notRegular)
+            continue
+          }
           if (read.over !== undefined) {
             reportOverBudget(read.over)
             continue
@@ -986,6 +1112,10 @@ export async function verifyLaw({ root, law, files, dependencies, config, runCom
         const hits = []
         for (const path of scope) {
           const read = readProjectFile(root, path, budget)
+          if (read.notRegular !== undefined) {
+            reportNotRegular(read.notRegular)
+            continue
+          }
           if (read.over !== undefined) {
             reportOverBudget(read.over)
             continue
@@ -1043,8 +1173,12 @@ export async function verifyLaw({ root, law, files, dependencies, config, runCom
           break
         }
         const keys = Array.isArray(check.keys) ? check.keys : []
-        const { list, error, over } = readListAt(root, check.list, keys, budget)
+        const { list, error, over, notRegular } = readListAt(root, check.list, keys, budget)
         if (list === null) {
+          if (notRegular !== undefined) {
+            reportNotRegular(notRegular)
+            break
+          }
           if (over !== undefined) {
             reportOverBudget(over)
             break
@@ -1264,6 +1398,16 @@ export async function verifyProject({ root, bundle, config, manifest = null, fil
   const started = Date.now()
   const problems = []
   const fileList = files ?? listFiles(root, '', budget)
+  // One scoped walk per named directory, memoised for this verification. A glob whose literal
+  // scope names a NEVER_WALK directory (`weights/**`) is matched against a walk that STARTS at
+  // that directory, which is how an explicit check scope reaches a path the whole-project walk
+  // deliberately skips. The walk still carries the work budget, so the explicit scope widens
+  // WHAT is seen, never HOW MUCH may be read.
+  const scopedWalks = new Map()
+  const walkScope = (start) => {
+    if (!scopedWalks.has(start)) scopedWalks.set(start, listFiles(root, start, budget))
+    return scopedWalks.get(start)
+  }
   const dependencies = readDeclaredDependencies(root, fileList, manifest, budget)
   problems.push(...dependencies.problems)
 
@@ -1274,7 +1418,7 @@ export async function verifyProject({ root, bundle, config, manifest = null, fil
   const pending = []
   const lawResults = []
   for (const law of bundle?.laws ?? []) {
-    const result = await verifyLaw({ root, law, files: fileList, dependencies, config, runCommand: runOnce, budget })
+    const result = await verifyLaw({ root, law, files: fileList, dependencies, config, runCommand: runOnce, budget, walkScope })
     checksEvaluated += result.checked
     pending.push(...result.pending.map((entry) => ({ lawId: law.id, ...entry })))
     problems.push(...result.problems)

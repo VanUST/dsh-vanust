@@ -340,6 +340,7 @@ export function apply(ctx) {
           ids: parseRatifyIds(invocation?.rawInput),
           askedBy: askedByFor(exec),
           askHuman: humanChannel(exec),
+          budget: createWorkBudget(),
         })
         return { kind: ratifyOutcomeKind(result), text: renderRatifyOutcome(result) }
       } catch (error) {
@@ -397,6 +398,7 @@ export function apply(ctx) {
         // intent, so the panel renders the question itself and the Conversation carries a
         // pointer to it instead of a second copy.
         present: 'chat',
+        budget: createWorkBudget(),
       })
       return {
         ...ingested,
@@ -771,7 +773,7 @@ export function apply(ctx) {
           // with a literal answer. This adapter contributes only the channel — and
           // when there is none, the operation reports that rather than accepting an
           // answer from the model instead of the human.
-          return ratifyInteractively({ root, ids, askedBy, askHuman: humanChannel(exec) })
+          return ratifyInteractively({ root, ids, askedBy, askHuman: humanChannel(exec), budget: createWorkBudget() })
         },
       }),
     )
@@ -935,6 +937,7 @@ export function apply(ctx) {
             write: args.write === true,
             submitted: args.ingest ?? null,
             spawnJudge: judgeSpawner(exec),
+            budget: createWorkBudget(),
           })
           if (args.ratify !== true) return ingested
           return ratifyIngested(ingested, { root: resolved.root, exec })
@@ -1007,6 +1010,7 @@ export function apply(ctx) {
             write: args.write === true,
             submitted: args.ingest ?? null,
             spawnJudge: judgeSpawner(exec),
+            budget: createWorkBudget(),
           })
         },
       }),
@@ -1080,6 +1084,7 @@ export function apply(ctx) {
             write: args.write === true,
             submitted: args.ingest ?? null,
             spawnJudge: judgeSpawner(exec),
+            budget: createWorkBudget(),
           })
         },
       }),

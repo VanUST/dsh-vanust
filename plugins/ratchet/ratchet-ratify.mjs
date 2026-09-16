@@ -33,9 +33,9 @@
  * and hands the answer back — which is what keeps this logic testable with a
  * literal object instead of a live session.
  */
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { MANIFEST_PATH, UNUSABLE_PROBLEM_CODES, hashSource, normaliseText, problem } from './ratchet-schema.mjs'
+import { MANIFEST_PATH, UNUSABLE_PROBLEM_CODES, hashSource, problem, workBudgetRead } from './ratchet-schema.mjs'
 import { auditedResolutions, compileLaws, decidableContradictions, readAdrCorpus, readManifest, resolveActiveSet, zonesForRecord } from './ratchet-compiler.mjs'
 import { existingAdrIds, nextAdrId, slugFor } from './ratchet-ingest.mjs'
 import { writeArtifact, STATE_PATHS } from './ratchet-state.mjs'
@@ -214,14 +214,17 @@ function contradictionBlockReason(record, conflicts, records) {
  * contradiction block existed.
  *
  * @param root - Absolute project root.
+ * @param budget - A work-budget tracker (see `createWorkBudget`), or `null`/`undefined` for
+ *   an unbounded read of regular files. The in-process consent path supplies one, so a huge
+ *   corpus exhausts the budget and reports it rather than blocking the panel's click.
  * @returns `{ ok, config, pending, blocked, problems }`. `pending` entries carry
  *   the record's full text and its current content hash, so a caller can show a
  *   human exactly what a "yes" would cover. `blocked` entries carry the same
  *   fields plus `reason`. A project with no usable manifest returns `ok: false`
  *   with the manifest's own problems rather than an empty queue.
  */
-export function ratificationQueue(root) {
-  const manifest = readManifest(root)
+export function ratificationQueue(root, budget = null) {
+  const manifest = readManifest(root, budget)
   const config = manifest.config
   if (config === null) {
     return { ok: false, config: null, pending: [], blocked: [], problems: manifest.problems }
@@ -241,7 +244,7 @@ export function ratificationQueue(root) {
     }
   }
 
-  const corpus = readAdrCorpus(root, config)
+  const corpus = readAdrCorpus(root, config, budget)
   const resolved = resolveActiveSet(corpus.records, config)
   // A corpus the ratchet cannot read is not a queue with nothing in it. Reporting
   // `ok` for one made `ratchet pending` print OK and exit 0 on a tree whose decisions
@@ -274,11 +277,11 @@ export function ratificationQueue(root) {
     const humanOnly = zones.filter((zone) => zone.agentAuthority === 'humanOnly')
     let text = null
     let readError = null
-    try {
-      text = normaliseText(readFileSync(join(root, record.path), 'utf8'))
-    } catch (error) {
-      readError = String(error)
-    }
+    const recordRead = workBudgetRead(budget, root, record.path)
+    if (recordRead.text !== undefined) text = recordRead.text
+    else if (recordRead.notRegular !== undefined) readError = `it is a ${recordRead.notRegular.kind}, not a regular file`
+    else if (recordRead.over !== undefined) readError = 'the in-process work budget refused the read'
+    else if (recordRead.error !== undefined) readError = recordRead.error
 
     const entry = {
       id: record.id,
@@ -758,12 +761,9 @@ export function writeRatification(root, { transcriptPath, transcriptText, approv
   const targets = [transcriptPath, approvalPath]
   const existing = []
   for (const path of targets) {
-    try {
-      readFileSync(join(root, path))
-      existing.push(path)
-    } catch {
-      // Absent is the expected case: a ratification never rewrites history.
-    }
+    // `existsSync`, not a read: this is only an existence claim, and a read would open the
+    // path (a FIFO would block) while also treating an unreadable-but-present file as absent.
+    if (existsSync(join(root, path))) existing.push(path)
   }
   if (existing.length > 0) {
     return {

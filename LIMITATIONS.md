@@ -13,7 +13,7 @@ Measured on 2026-09-16:
 
 | Command | State |
 |---|---|
-| `ratchet compile --root .` | OK — 53 records, 25 active, 1 proposed (ADR 0056), 63 laws |
+| `ratchet compile --root .` | OK — 54 records, 26 active, 0 proposed, 63 laws |
 | `ratchet verify --root .` | OK — 63 laws, 75 checks evaluated, 0 pending, 0 problems |
 | `node --test scripts/test-ratchet.mjs` | OK (354) |
 | `node --test scripts/test-ratchet-guard.mjs` | OK |
@@ -71,18 +71,16 @@ Both were enforced by tests and by the validator but were **not laws**. They are
    consents waiting, contradictions with their drafted resolutions, duplicates with their drafted
    merges, stale detection, a red gate.
 4. ~~**A stale specification is reported with a drafted withdrawal note and never blocks the gate.**~~
-   **LANDED (2026-09-16), awaiting ratification as ADR 0056.** Only the hash-behind kind
+   **LANDED (2026-09-16) and RATIFIED as ADR 0056 (approval 0057).** Only the hash-behind kind
    (`stale`) is advisory: it is reported in `compile`/`verify`/`status` `specDrift.stale` with the
    withdrawal note the ratchet drafts at `reports/ratchet/drafts/`, and it does NOT enter the
    blocking `problems`. A hand-edited (`drifted`), missing, or orphaned document still blocks.
-   The narrowed rule is restated under the new id
-   `shipped-plugins.spec-stale-is-advisory-others-still-block`, bound to
-   `node scripts/check-gate-invariants.mjs`; the in-force law
-   `shipped-plugins.specs-cannot-drift-silently` (ADR 0012) remains in force until the human
-   ratifies ADR 0056, which `op: remove`s it. The withdrawal note is written by the RATCHET's own
-   drafting pass (`ratchet-drafts.mjs`), invoked by `ratchet compile` and read-only by the ADR
-   panel's view — never by an agent, and never applied (the ratchet does not delete or regenerate
-   the document).
+   The narrowed rule is in force as
+   `shipped-plugins.spec-stale-is-advisory-others-still-block`; the old law
+   `shipped-plugins.specs-cannot-drift-silently` (ADR 0012) left force with the consent. The
+   withdrawal note is written by the RATCHET's own drafting pass (`ratchet-drafts.mjs`), invoked by
+   `ratchet compile` and read-only by the ADR panel's view — never by an agent, and never applied
+   (the ratchet does not delete or regenerate the document).
 
 The fifth decision, **`scripts/verify-upgrade.sh` runs `ratchet verify` and `falsify`**, landed
 2026-09-16: the release gate now runs both, and it treats a documented, self-describing `[SKIP]` as
@@ -160,10 +158,58 @@ Both were operator reports, both reproduced, both falsified by reverting the fix
 - **The write guard is real.** A recorded contradiction blocks writes in the zones that law governs,
   including the fix; the record files themselves are never refused. A `humanOnly` zone can never be
   held by an agent, and `proposeOnly` needs a human ratification.
-- **Ratifying invalidates the generated law cards.** `ratify` now regenerates the documents it wrote
-  itself and never overwrites a hand-edited one. The sequence is still: ratify → verify.
+- **Ratifying regenerates the generated law cards it invalidates.** `ratify` rewrites only the
+  documents the ratchet itself wrote and never overwrites a hand-edited one. The writer that records
+  those documents (`writeSpecDocuments`) also records each one's digest in the ledger, so a card
+  produced by an ordinary `ratchet compile --write` is recognised as the ratchet's own and brought in
+  step by the next ratification. The sequence is still ratify → verify, with no manual
+  `compile --write` step. (Ratchet 0.2.57.)
 
-## 6. What to do first, in order
+## 6. Four defects found and fixed (2026-09-16, ratchet 0.2.57)
+
+Each was reproduced on this machine, fixed, covered by a test, and falsified by reverting the fix in a
+scratch copy of the plugin and watching the covering test fail.
+
+1. **A ratification did not regenerate the law cards it invalidated, so `ratchet compile --write` was
+   a manual step.** ADR 0056 was ratified through the panel and the ledger recorded `specsRegenerated:
+   0` while the law set had moved. The mint did compile the post-ratification corpus; the cause was the
+   regeneration's own not-overwriting guard, which consulted a ledger of digests that the ordinary
+   `compile --write` writer never wrote — so every pre-existing card looked like a person's and was
+   skipped. `writeSpecDocuments` now records the digest of every document it writes, at the one choke
+   point both `compile --write` and the mint use; the hand-edited-card guard is unchanged.
+2. **Four in-process paths bypassed the work budget.** `readManifest` read the manifest whole;
+   `detectSpecDrift` read every generated card whole; `ops.ratify` recompiled with an unbudgeted
+   `compileProject` on the consent (panel-click) path; and a FIFO or device node at any project-file
+   path blocked `readFileSync` forever (an ingest-source FIFO hung `timeout 8`, exit 124). The manifest,
+   the drift reads and the ratify queue/compile/regeneration now carry the operation's tracker;
+   `workBudgetRead` `stat`s before it opens and refuses a non-regular file with `CODE_FILE_NOT_REGULAR`
+   at both call shapes (budgeted and CLI), so an unbounded read never means "allowed to hang". The
+   ingest source read is refused the same way and reported instead of opened.
+3. **The glob check kinds were blind to `NEVER_WALK`.** `required_glob`/`forbidden_glob` tested
+   membership in `listFiles()`, which skips every name in `NEVER_WALK`, so `forbidden_glob: bin/**`
+   reported the law satisfied while `bin/tool` existed. A glob whose literal prefix begins with a
+   skipped name is now matched against a walk that STARTS at that named directory, carrying the same
+   work budget, so the explicit scope widens WHAT is seen and not how much may be read. The literal
+   file kinds already asked the filesystem; `statSync` follows a symlink, so a forbidden symlink to an
+   existing target is found and a required one is not reported missing.
+
+Residual limits of this work, stated plainly:
+
+- **A glob reaches `NEVER_WALK` only when its literal prefix names the directory.** `**/*.bin` still
+  does not see `bin/x.bin`; the law must name the scope (`bin/**`). This is the deliberate line: the
+  whole-project walk stays cheap and a check's own scope is honoured.
+- **The recursive walk does not follow symlinks** (neither a symlinked directory nor a symlinked file
+  is listed), so a glob never descends through a link and cannot loop or leave the repository. The
+  literal `required_file`/`forbidden_file` kinds do follow one, because they ask the filesystem about
+  one named path. A directory symlink inside a glob scope is therefore not followed; name the path
+  with a literal file check if it must be seen.
+- **The ledger read is unbudgeted.** `readLedger` (used by the ratify regeneration and `status`) still
+  reads `.dsh/ratchet/ledger.jsonl` whole. The file is machine-written and small in normal use, but it
+  is the one remaining project-file read on the consent path that a pathological history could grow.
+- **`contextFor`/`review` and the guard's reads remain unbudgeted.** They are not on the panel-click
+  path and were outside the four gaps; a review spawns a judge and is not a synchronous gate.
+
+## 7. What to do first, in order
 
 1. ~~Ask the human to ratify the amendment in §1 so the gate is green.~~ Done (ADR 0043, ratified by
    approval 0048); §2 done too (0044 by 0047, 0045 by 0046).

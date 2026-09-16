@@ -68,6 +68,7 @@
  */
 import { ratify, findRoot } from './ratchet-ops.mjs'
 import { RATIFY_CHANNEL_PANEL } from './ratchet-ratify.mjs'
+import { createWorkBudget } from './ratchet-schema.mjs'
 
 /**
  * The cordis service name the panel's host half reaches with `ctx.get`.
@@ -132,8 +133,8 @@ function questionIdFor(quiz, adrId) {
  * KEYWORDS
  *   ratification, prepare, quiz, question, no write, queue
  */
-export function askConsent({ root, ids = null, at = null } = {}) {
-  return ratify({ root, ids, at })
+export function askConsent({ root, ids = null, at = null, budget = null } = {}) {
+  return ratify({ root, ids, at, budget })
 }
 
 /**
@@ -167,6 +168,7 @@ export function settleConsent({
   at = null,
   write = true,
   channel = CONSENT_CHANNEL,
+  budget = null,
 } = {}) {
   const questionId = questionIdFor(quiz, adrId)
   const selected = typeof label === 'string' && label.length > 0 ? [label] : []
@@ -184,6 +186,7 @@ export function settleConsent({
     at,
     write,
     channel,
+    budget,
   })
 }
 
@@ -221,15 +224,23 @@ export function consentRootFor(start) {
  *   inside the ratchet.
  *
  * INPUTS
- *   None.
+ *   None. The factory itself supplies the conservative in-process work budget: this service
+ *   is the panel's click path, so it runs on the harness event loop and must fail closed on a
+ *   corpus too large to read rather than block the click. The exported `askConsent` and
+ *   `settleConsent` keep their `budget` parameter so a test can drive them with its own
+ *   tracker or none.
  *
  * OUTPUTS
- *   `{ ask, settle, rootFor }` — the two operations plus root resolution, each a
- *   function with the contracts above. Never null.
+ *   `{ ask, settle, rootFor }` — the two operations, each providing a fresh work budget per
+ *   call, plus root resolution. Never null.
  *
  * KEYWORDS
- *   cordis service, provide, host seam, adr panel
+ *   cordis service, provide, host seam, adr panel, work budget
  */
 export function createConsentService() {
-  return { ask: askConsent, settle: settleConsent, rootFor: consentRootFor }
+  return {
+    ask: (options = {}) => askConsent({ ...options, budget: options.budget ?? createWorkBudget() }),
+    settle: (options = {}) => settleConsent({ ...options, budget: options.budget ?? createWorkBudget() }),
+    rootFor: consentRootFor,
+  }
 }

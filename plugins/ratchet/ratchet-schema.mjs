@@ -139,53 +139,75 @@ export function recordBudgetStop(budget, entry) {
 /**
  * Reads one project file under a work budget.
  *
- * The budget is checked BEFORE the read, from `stat`, so a file above the per-file cap is
- * never opened. Three outcomes, never an exception:
+ * The path is `stat`ed BEFORE it is opened, so neither an oversized file nor a path that is
+ * not a regular file is ever handed to `readFileSync`. That ordering is load-bearing: a FIFO
+ * with no writer blocks `readFileSync` forever, so a size check made after the open would
+ * never run. A directory, a device node, a socket and a FIFO are therefore refused and
+ * reported, never opened.
+ *
+ * Four outcomes, never an exception:
  *   - `{ text }` the file was read and normalised;
- *   - `{ error }` the file could not be stat'ed or read (the caller's own problem);
+ *   - `{ error }` the path could not be stat'ed or (once known regular) read, which is the
+ *     caller's own problem to phrase;
  *   - `{ over }` the read was refused by the budget, and `over.code` is `CODE_FILE_TOO_LARGE`
- *     for a single file above the cap or `WORK_BUDGET_EXCEEDED` for the operation's total.
+ *     for a single file above the cap or `WORK_BUDGET_EXCEEDED` for the operation's total;
+ *   - `{ notRegular }` the path exists but is not a regular file, and `notRegular.kind` names
+ *     what it is. The refusal is recorded on the tracker as well, so the operation's summary
+ *     says no verdict was reached.
  *
  * @param budget - A {@link createWorkBudget} tracker, or `null`/`undefined` for an unbounded
- *   read (the CLI path), which reproduces the old whole-file read exactly.
+ *   read (the CLI path), which reproduces the old whole-file read for a REGULAR file. The
+ *   regular-file guard applies at both call shapes: a FIFO blocks a CLI just as it blocks the
+ *   event loop, and "unbounded" must not mean "allowed to hang".
  * @param root - Absolute project root.
  * @param relativePath - Repository-relative path.
- * @returns `{ text }` | `{ error }` | `{ over }`. Never throws.
+ * @returns `{ text }` | `{ error }` | `{ over }` | `{ notRegular }`. Never throws.
  */
 export function workBudgetRead(budget, root, relativePath) {
   const absolute = join(root, relativePath)
-  if (budget === null || budget === undefined) {
-    try {
-      return { text: normaliseText(readFileSync(absolute, 'utf8')) }
-    } catch (error) {
-      return { error: String(error) }
-    }
-  }
-  let size
+  let stats
   try {
-    size = statSync(absolute).size
+    stats = statSync(absolute)
   } catch (error) {
     return { error: String(error) }
   }
-  if (size > budget.limits.maxFileBytes) {
-    recordBudgetStop(budget, { code: 'CODE_FILE_TOO_LARGE', path: relativePath, size, limit: budget.limits.maxFileBytes, kind: 'file' })
-    return { over: { code: 'CODE_FILE_TOO_LARGE', path: relativePath, size, limit: budget.limits.maxFileBytes } }
+  if (!stats.isFile()) {
+    const kind = stats.isDirectory()
+      ? 'directory'
+      : stats.isFIFO()
+        ? 'fifo'
+        : stats.isSocket()
+          ? 'socket'
+          : stats.isCharacterDevice()
+            ? 'character device'
+            : stats.isBlockDevice()
+              ? 'block device'
+              : 'non-regular file'
+    recordBudgetStop(budget, { code: 'CODE_FILE_NOT_REGULAR', path: relativePath, kind })
+    return { notRegular: { code: 'CODE_FILE_NOT_REGULAR', path: relativePath, kind } }
   }
-  if (budget.filesRead >= budget.limits.maxFiles || budget.bytesRead + size > budget.limits.maxTotalBytes) {
-    recordBudgetStop(budget, {
-      code: 'WORK_BUDGET_EXCEEDED',
-      path: relativePath,
-      size,
-      kind: 'operation',
-    })
-    return {
-      over: {
+  const size = stats.size
+  if (budget !== null && budget !== undefined) {
+    if (size > budget.limits.maxFileBytes) {
+      recordBudgetStop(budget, { code: 'CODE_FILE_TOO_LARGE', path: relativePath, size, limit: budget.limits.maxFileBytes, kind: 'file' })
+      return { over: { code: 'CODE_FILE_TOO_LARGE', path: relativePath, size, limit: budget.limits.maxFileBytes } }
+    }
+    if (budget.filesRead >= budget.limits.maxFiles || budget.bytesRead + size > budget.limits.maxTotalBytes) {
+      recordBudgetStop(budget, {
         code: 'WORK_BUDGET_EXCEEDED',
         path: relativePath,
         size,
-        filesRead: budget.filesRead,
-        bytesRead: budget.bytesRead,
-      },
+        kind: 'operation',
+      })
+      return {
+        over: {
+          code: 'WORK_BUDGET_EXCEEDED',
+          path: relativePath,
+          size,
+          filesRead: budget.filesRead,
+          bytesRead: budget.bytesRead,
+        },
+      }
     }
   }
   let text
@@ -194,8 +216,10 @@ export function workBudgetRead(budget, root, relativePath) {
   } catch (error) {
     return { error: String(error) }
   }
-  budget.filesRead += 1
-  budget.bytesRead += size
+  if (budget !== null && budget !== undefined) {
+    budget.filesRead += 1
+    budget.bytesRead += size
+  }
   return { text }
 }
 
@@ -212,9 +236,10 @@ export function budgetProblem(budget) {
   budget.summaryEmitted = true
   const codes = new Set(budget.exceeded.map((entry) => entry.code))
   const tooLarge = codes.has('CODE_FILE_TOO_LARGE')
+  const notRegular = codes.has('CODE_FILE_NOT_REGULAR')
   return problem(
     'WORK_BUDGET_EXCEEDED',
-    `this operation exceeded the in-process work budget after reading ${budget.filesRead} file(s) and ${budget.bytesRead} byte(s) (limits: ${budget.limits.maxFiles} files, ${budget.limits.maxFileBytes} bytes per file, ${budget.limits.maxTotalBytes} bytes total), so it did not evaluate the whole tree and produced NO verdict: too large to check in-process, run the CLI (node plugins/ratchet/ratchet-cli.mjs) which has no budget${budget.exceeded[0] === undefined ? '' : `; first stop at ${budget.exceeded[0].path}`}${tooLarge ? ' (single files above the per-file cap are reported as CODE_FILE_TOO_LARGE)' : ''}`,
+    `this operation exceeded the in-process work budget after reading ${budget.filesRead} file(s) and ${budget.bytesRead} byte(s) (limits: ${budget.limits.maxFiles} files, ${budget.limits.maxFileBytes} bytes per file, ${budget.limits.maxTotalBytes} bytes total), so it did not evaluate the whole tree and produced NO verdict: too large to check in-process, run the CLI (node plugins/ratchet/ratchet-cli.mjs) which has no budget${budget.exceeded[0] === undefined ? '' : `; first stop at ${budget.exceeded[0].path}`}${tooLarge ? ' (single files above the per-file cap are reported as CODE_FILE_TOO_LARGE)' : ''}${notRegular ? ' (a path that is not a regular file was refused and never opened, reported as CODE_FILE_NOT_REGULAR)' : ''}`,
     null,
     { exceeded: budget.exceededCount, filesRead: budget.filesRead, bytesRead: budget.bytesRead, limits: budget.limits },
   )
@@ -285,6 +310,11 @@ export const PROBLEM_CODES = Object.freeze({
   // evaluated is reported, never read and never passed — and the reader is told to run the
   // CLI, which has its own process and may spend what it likes.
   CODE_FILE_TOO_LARGE: 'a file is larger than the in-process read bound, so a check could not read it',
+  // A path that exists but is not a regular file: a FIFO, a device node, a socket or a
+  // directory where a file was expected. `readFileSync` on a FIFO with no writer blocks
+  // forever — a synchronous hang on the harness event loop, not a slow read — so the read
+  // is refused BEFORE it is opened and the refusal is reported rather than thrown.
+  CODE_FILE_NOT_REGULAR: 'a path that must be read is not a regular file, so it was not opened',
   WORK_BUDGET_EXCEEDED: 'an operation exceeded the in-process work budget, so it produced no verdict',
   // A `pattern` that can backtrack catastrophically hangs the event loop on a few bytes of
   // input, so it is refused as a problem instead of executed. The check is a documented
@@ -1794,6 +1824,17 @@ export function parseAdr({ filename, source, root = null, decisionsDir = RATCHET
         // the per-file cap is reported as ADR_TOO_LARGE and never opened; the record still
         // parses, so the problem is about the evidence rather than about the decision's shape.
         const read = workBudgetRead(budget, root, sourcePath)
+        if (read.notRegular !== undefined) {
+          sourceStatus = 'not-regular'
+          problems.push(
+            problem(
+              'CODE_FILE_NOT_REGULAR',
+              `${path} declares its reasoning source at ${sourcePath}, which exists but is a ${read.notRegular.kind}, not a regular file, so its hash was NOT checked: a reasoning source is a file, and opening a FIFO or device would block the operation`,
+              id,
+              { path, sourcePath, kind: read.notRegular.kind },
+            ),
+          )
+        }
         if (read.over !== undefined) {
           sourceStatus = 'too-large'
           problems.push(

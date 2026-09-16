@@ -31,9 +31,9 @@
  * The module never imports the harness and never spawns anything: the judge is
  * injected, exactly as it is for review.
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { CHECK_FIELD_KINDS, MIN_UNENFORCED_LENGTH, PROBLEM_CODES, UNIVERSAL_CHECK_FIELDS, hashSource, normaliseText, problem, validateLawChecks } from './ratchet-schema.mjs'
+import { CHECK_FIELD_KINDS, MIN_UNENFORCED_LENGTH, PROBLEM_CODES, UNIVERSAL_CHECK_FIELDS, hashSource, normaliseText, problem, validateLawChecks, workBudgetRead } from './ratchet-schema.mjs'
 
 /**
  * The output contract for ingestion.
@@ -857,21 +857,33 @@ function renderChecks(checks) {
 /**
  * Reads the source a decision is being ingested from.
  *
+ * The read is bounded and refuses a path that is not a regular file. Both matter on the
+ * in-process path: a source above the per-file cap is reported rather than read, and a FIFO
+ * at the source path would block `readFileSync` forever — the operation would hang rather
+ * than answer. The refusal is reported through `error`, which every caller already handles.
+ *
  * @param root - Absolute project root.
  * @param sourcePath - Repository-relative path.
- * @returns `{ text, hash, absolute }` or `{ error }`.
+ * @param budget - A work-budget tracker (see `createWorkBudget`), or `null`/`undefined` for
+ *   an unbounded read of a regular file.
+ * @returns `{ text, hash, absolute }` or `{ error, notRegular? }`.
  */
-export function readSource(root, sourcePath) {
+export function readSource(root, sourcePath, budget = null) {
   const absolute = join(root, sourcePath)
   if (!existsSync(absolute)) {
     return { error: `no source file at ${sourcePath}; the reasoning a decision cites must exist before the decision does` }
   }
-  try {
-    const text = readFileSync(absolute, 'utf8')
-    return { text: normaliseText(text), hash: hashSource(text), absolute }
-  } catch (error) {
-    return { error: `cannot read ${sourcePath}: ${String(error)}` }
+  const read = workBudgetRead(budget, root, sourcePath)
+  if (read.notRegular !== undefined) {
+    return { error: `cannot read ${sourcePath}: it is a ${read.notRegular.kind}, not a regular file`, notRegular: read.notRegular }
   }
+  if (read.over !== undefined) {
+    return { error: `cannot read ${sourcePath}: ${read.over.code === 'CODE_FILE_TOO_LARGE' ? `it is ${read.over.size} bytes, above the ${read.over.limit}-byte in-process read bound` : 'the operation exhausted its in-process work budget'}`, over: read.over }
+  }
+  if (read.error !== undefined) {
+    return { error: `cannot read ${sourcePath}: ${read.error}` }
+  }
+  return { text: read.text, hash: hashSource(read.text), absolute }
 }
 
 /**

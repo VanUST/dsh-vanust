@@ -23,9 +23,9 @@
  * than no report, because a reader cannot tell the difference between "the gate
  * failed" and "the gate was interrupted".
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { normaliseText } from './ratchet-schema.mjs'
+import { hashSource, normaliseText, workBudgetRead } from './ratchet-schema.mjs'
 
 /** Report and state file locations, relative to the project root. */
 export const STATE_PATHS = Object.freeze({
@@ -83,9 +83,13 @@ export function writeArtifact(root, path, text) {
 export function readJsonArtifact(root, path) {
   const absolute = join(root, path)
   if (!existsSync(absolute)) return { missing: true }
+  // A regular-file guard, not a budget: an artifact read is unbounded, but a FIFO or device
+  // node at the path would block `readFileSync` forever, so it is refused and reported.
+  const read = workBudgetRead(null, root, path)
+  if (read.notRegular !== undefined) return { error: `${path} is a ${read.notRegular.kind}, not a regular file` }
+  if (read.text === undefined) return { error: read.error ?? `${path} could not be read (${read.over?.code ?? 'unknown reason'})` }
   try {
-    const text = normaliseText(readFileSync(absolute, 'utf8'))
-    return { value: JSON.parse(text), text }
+    return { value: JSON.parse(read.text), text: read.text }
   } catch (error) {
     return { error: String(error) }
   }
@@ -169,12 +173,14 @@ export function appendLedger(root, event, fields = {}) {
 export function readLedger(root) {
   const absolute = join(root, STATE_PATHS.ledger)
   if (!existsSync(absolute)) return { events: [], skipped: 0, missing: true }
-  let text
-  try {
-    text = normaliseText(readFileSync(absolute, 'utf8'))
-  } catch (error) {
-    return { events: [], skipped: 0, error: String(error) }
+  // A regular-file guard: the ledger read is unbounded by design (it is a machine-written
+  // history), but a FIFO or device node at the path must be reported rather than opened.
+  const read = workBudgetRead(null, root, STATE_PATHS.ledger)
+  if (read.notRegular !== undefined) {
+    return { events: [], skipped: 0, error: `${STATE_PATHS.ledger} is a ${read.notRegular.kind}, not a regular file` }
   }
+  if (read.text === undefined) return { events: [], skipped: 0, error: read.error ?? `${STATE_PATHS.ledger} could not be read (${read.over?.code ?? 'unknown reason'})` }
+  const text = read.text
   const events = []
   let skipped = 0
   for (const line of text.split('\n')) {
@@ -199,16 +205,38 @@ export function readLedger(root) {
  * a compile that exited 1 because a generated document was stale used to be recorded as
  * `ok: true` with no problems, because the report was written before drift was measured.
  *
+ * This is the ONE writer both `compile --write` and the ratifying operation use, and it is
+ * also where the digest of every document it wrote is recorded. That recording is what makes
+ * `writtenSpecDigests` able to tell a document the ratchet generated from one a person has
+ * since edited: a document written by an ordinary `compile --write` used to leave no digest in
+ * the ledger, so the ratifying operation treated every card that pre-existed its own first
+ * mint as foreign and refused to regenerate it — the reason a ratification recorded
+ * `specsRegenerated: 0` while the law set had moved. Recording here, at the single choke point,
+ * fixes that for every caller rather than teaching each caller to record.
+ *
  * @param root - Absolute project root.
  * @param specFiles - Map of repository-relative path to generated text.
- * @returns `{ written }` — the paths written, in the order given.
+ * @param options - `{ event, fields }`. `event` overrides the ledger event name (the ratifying
+ *   operation uses its own name); `fields` are merged into the event. Both are optional.
+ * @returns `{ written, specDigests }` — the paths written, in the order given, and the digest
+ *   of each. Writing nothing appends no ledger event.
  */
-export function writeSpecDocuments(root, specFiles) {
+export function writeSpecDocuments(root, specFiles, options = {}) {
   const written = []
+  const specDigests = []
   for (const [path, text] of Object.entries(specFiles ?? {})) {
     written.push(writeArtifact(root, path, text).path)
+    specDigests.push(hashSource(text))
   }
-  return { written }
+  if (written.length > 0) {
+    appendLedger(root, options.event ?? 'ratchet.specs.write', {
+      written: written.length,
+      paths: written,
+      specDigests,
+      ...(options.fields ?? {}),
+    })
+  }
+  return { written, specDigests }
 }
 
 /**
@@ -340,12 +368,11 @@ export function persistVerify(root, { report, evaluatedSpecHash, toolVersion = n
  * @returns A sorted copy of the recorded ids, or `null` when the ledger holds none.
  */
 export function readRecordedLawIds(root) {
-  let text
-  try {
-    text = readFileSync(join(root, STATE_PATHS.ledger), 'utf8')
-  } catch {
-    return null
-  }
+  // A regular-file guard for the same reason as `readLedger`: a FIFO at the ledger path must
+  // be reported as no history rather than opened and blocked on.
+  const read = workBudgetRead(null, root, STATE_PATHS.ledger)
+  if (read.text === undefined) return null
+  const text = read.text
   const lines = text.split('\n')
   for (let index = lines.length - 1; index >= 0; index -= 1) {
     if (lines[index].trim() === '') continue
@@ -625,12 +652,22 @@ export function recordedSpecHash(text) {
  *                  it describes laws that no longer exist.
  *   - `missing`  — the project tracks spec documents and one has gone.
  *
+ * Every document read goes through the shared work budget, so on the in-process path a card
+ * above the per-file cap is reported rather than read; the regular-file guard applies at both
+ * call shapes, because a FIFO at a card's path blocks `readFileSync` forever. A document that
+ * could not be read is reported as `drifted` — the one classification that means "do not
+ * regenerate this silently" — while the operation's own budget summary carries the reason.
+ *
  * @param root - Absolute project root.
  * @param specFiles - Map of repository-relative path to the text the bundle would
  *   generate now.
- * @returns `{ drifted, stale, missing }`, each an array of path records.
+ * @param specsDir - The manifest's generated-document directory, or `null` to infer it
+ *   from `specFiles`.
+ * @param budget - A work-budget tracker (see `createWorkBudget`), or `null`/`undefined`
+ *   for an unbounded read of regular files.
+ * @returns `{ drifted, stale, missing, orphaned }`, each an array of path records.
  */
-export function detectSpecDrift(root, specFiles, specsDir = null) {
+export function detectSpecDrift(root, specFiles, specsDir = null, budget = null) {
   const drifted = []
   const stale = []
   const missing = []
@@ -641,13 +678,20 @@ export function detectSpecDrift(root, specFiles, specsDir = null) {
       missing.push(path)
       continue
     }
-    let actual
-    try {
-      actual = normaliseText(readFileSync(absolute, 'utf8'))
-    } catch (error) {
-      drifted.push({ path, reason: `could not be read: ${String(error)}` })
+    const read = workBudgetRead(budget, root, path)
+    if (read.notRegular !== undefined) {
+      drifted.push({ path, reason: `is a ${read.notRegular.kind}, not a regular file, so it was not read` })
       continue
     }
+    if (read.over !== undefined) {
+      drifted.push({ path, reason: `was not read: ${read.over.code === 'CODE_FILE_TOO_LARGE' ? `it is ${read.over.size} bytes, above the ${read.over.limit}-byte in-process read bound` : 'the operation exhausted its in-process work budget'}` })
+      continue
+    }
+    if (read.error !== undefined) {
+      drifted.push({ path, reason: `could not be read: ${read.error}` })
+      continue
+    }
+    const actual = read.text
     if (actual === normaliseText(expected)) continue
 
     // The content differs. Either somebody edited the file, or it was generated
@@ -681,14 +725,10 @@ export function detectSpecDrift(root, specFiles, specsDir = null) {
       if (!entry.endsWith('.spec.md')) continue
       const path = `${directory}/${entry}`
       if (expectedPaths.has(path)) continue
-      let text
-      try {
-        text = normaliseText(readFileSync(join(root, path), 'utf8'))
-      } catch {
-        continue
-      }
-      const recorded = recordedSpecHash(text)
-      if (recorded === null && !text.includes('GENERATED BY ratchet compile')) continue
+      const read = workBudgetRead(budget, root, path)
+      if (read.text === undefined) continue
+      const recorded = recordedSpecHash(read.text)
+      if (recorded === null && !read.text.includes('GENERATED BY ratchet compile')) continue
       orphaned.push({ path, recorded })
     }
   }

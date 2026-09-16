@@ -50,7 +50,7 @@ const KIT = resolve(fileURLToPath(import.meta.url), '..', '..')
 const PLUGIN_DIR = join(KIT, 'plugins', 'ratchet').replace(/\\/g, '/')
 
 const { compileProject, readAdrCorpus } = await import(`file:///${PLUGIN_DIR}/ratchet-compiler.mjs`)
-const { createWorkBudget } = await import(`file:///${PLUGIN_DIR}/ratchet-schema.mjs`)
+const { createWorkBudget, workBudgetRead } = await import(`file:///${PLUGIN_DIR}/ratchet-schema.mjs`)
 const { compile, verify } = await import(`file:///${PLUGIN_DIR}/ratchet-ops.mjs`)
 const { verifyProject, codeHashFor, listFiles } = await import(`file:///${PLUGIN_DIR}/ratchet-verifier.mjs`)
 const { ratificationQueue, buildQuiz, deriveDecisions, offeredBy } = await import(
@@ -1043,6 +1043,72 @@ claim(
     'a law targeting a path outside its declared zones is refused, in any field, and one inside them is accepted',
     parts.every((part) => part.endsWith('=true')),
     parts.join(' '),
+  )
+}
+
+// 20. A glob check whose literal scope NAMES a walk-skipped directory must see inside it.
+//     The `*_glob` kinds matched against the whole-project walk, which skips `weights`,
+//     `node_modules`, `bin`, … — so `forbidden_glob: weights/**` reported the law SATISFIED
+//     while `weights/model.bin` existed (a false green), and `required_glob` reported a file
+//     that was there as missing. The literal file kinds were fixed to ask the filesystem; the
+//     glob kinds now walk the explicit scope, carrying the same work budget so the scope
+//     widens WHAT is seen and never how much may be read.
+{
+  const neverWalkZones = [
+    { id: 'auth', paths: ['bin/**', 'weights/**', 'data/**'], agentAuthority: 'activeIfNoConflict', requiresDecisionRecord: false },
+  ]
+  const forbiddenSkipped = await verdict(
+    'glob-never-walk-forbidden',
+    { laws: law({ checks: [{ type: 'forbidden_glob', pattern: 'bin/**' }] }) },
+    { zones: neverWalkZones, files: { 'bin/tool': 'binary\n' } },
+  )
+  const requiredSkipped = await verdict(
+    'glob-never-walk-required',
+    { laws: law({ checks: [{ type: 'required_glob', pattern: 'bin/**' }] }) },
+    { zones: neverWalkZones, files: { 'bin/tool': 'binary\n' } },
+  )
+  // The brief's spelling, kept because it must behave correctly whether or not the name is in
+  // NEVER_WALK (`weights` is not in this repo's list after the 542bcd3 regression).
+  const forbiddenWeights = await verdict(
+    'glob-never-walk-weights',
+    { laws: law({ checks: [{ type: 'forbidden_glob', pattern: 'weights/**' }] }) },
+    { zones: neverWalkZones, files: { 'weights/model.bin': 'binary\n' } },
+  )
+  // The control: a path outside every skip rule behaves the same way, so the fix is the
+  // explicit scope and not a special case for one directory name.
+  const controlPresent = await verdict(
+    'glob-never-walk-control-present',
+    { laws: law({ checks: [{ type: 'forbidden_glob', pattern: 'data/**' }] }) },
+    { zones: neverWalkZones, files: { 'data/model.bin': 'binary\n' } },
+  )
+  const controlMissing = await verdict(
+    'glob-never-walk-control',
+    { laws: law({ checks: [{ type: 'required_glob', pattern: 'data/**' }] }) },
+    { zones: neverWalkZones, files: {} },
+  )
+  claim(
+    'a glob that explicitly names a walk-skipped directory sees the file there, and a control outside the skip rule still reports presence and absence',
+    forbiddenSkipped.codes.includes('CODE_FORBIDDEN_GLOB_PRESENT') &&
+      !requiredSkipped.codes.includes('CODE_REQUIRED_GLOB_MISSING') &&
+      forbiddenWeights.codes.includes('CODE_FORBIDDEN_GLOB_PRESENT') &&
+      controlPresent.codes.includes('CODE_FORBIDDEN_GLOB_PRESENT') &&
+      controlMissing.codes.includes('CODE_REQUIRED_GLOB_MISSING'),
+    `forbidden=${JSON.stringify(forbiddenSkipped.codes)} required=${JSON.stringify(requiredSkipped.codes)} weights=${JSON.stringify(forbiddenWeights.codes)} control-present=${JSON.stringify(controlPresent.codes)} control-missing=${JSON.stringify(controlMissing.codes)}`,
+  )
+}
+
+// 21. A path that is not a regular file is refused before it is opened. A FIFO with no writer
+//     blocks `readFileSync` forever, so the size check must come from `stat` BEFORE the open
+//     and every non-regular kind must be reported rather than read. The invariant is asserted
+//     here with a directory (portable) and the FIFO itself is driven in `test-ratchet.mjs`
+//     inside a child process with a timeout, where a regression fails instead of hanging.
+{
+  const guardRoot = project('non-regular-read', { laws: law({ checks: [] }) }, { files: {} })
+  const directoryRead = workBudgetRead(null, guardRoot, '.dsh')
+  claim(
+    'a project read refuses a path that is not a regular file instead of opening it',
+    directoryRead.text === undefined && directoryRead.notRegular !== undefined && directoryRead.notRegular.kind === 'directory',
+    JSON.stringify(directoryRead),
   )
 }
 

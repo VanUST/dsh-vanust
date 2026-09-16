@@ -14,7 +14,7 @@
  * silently drop one. It records `DYNAMIC_REVIEW_REQUIRED`, which is the input to
  * the agentic layer. The deterministic layer decides only what it can prove.
  */
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { AUTHORITIES, CHECK_TARGET_FIELDS, MANIFEST_PATH, PROBLEM_CODES, RATCHET_DIR_DEFAULT, TERMINAL_ADR_STATUSES, budgetProblem, globsMayOverlap, hashSource, normaliseText, parseAdr, parseRatchetConfig, problem, workBudgetRead, zonePathCovers } from './ratchet-schema.mjs'
 
@@ -27,12 +27,19 @@ export const SPEC_BUNDLE_VERSION = 1
 /**
  * Reads the project manifest from disk.
  *
+ * The read is routed through the shared work budget, so on the in-process tool path a
+ * manifest above the per-file cap — or one whose path is not a regular file — is reported
+ * rather than read; without a budget (the CLI) the regular-file guard still applies, because
+ * a FIFO at `.dsh/project.json` blocks `readFileSync` forever in any process.
+ *
  * @param root - Absolute project root.
+ * @param budget - A work-budget tracker (see `createWorkBudget`), or `null`/`undefined` for
+ *   an unbounded read of a regular file.
  * @returns `{ config, text, problems }`. `config` is `null` when the manifest is
  *   missing or unusable; `text` is the raw manifest text (also `null`), kept so
  *   callers can hash exactly the bytes they read.
  */
-export function readManifest(root) {
+export function readManifest(root, budget = null) {
   const path = join(root, MANIFEST_PATH)
   if (!existsSync(path)) {
     return {
@@ -46,18 +53,45 @@ export function readManifest(root) {
       ],
     }
   }
-  let text
-  try {
-    text = readFileSync(path, 'utf8')
-  } catch (error) {
+  const read = workBudgetRead(budget, root, MANIFEST_PATH)
+  if (read.notRegular !== undefined) {
     return {
       config: null,
       text: null,
       problems: [
-        problem('MANIFEST_INVALID', `${MANIFEST_PATH} exists but could not be read: ${String(error)}`),
+        problem(
+          'CODE_FILE_NOT_REGULAR',
+          `${MANIFEST_PATH} exists but is a ${read.notRegular.kind}, not a regular file, so it was not opened: the ratchet cannot read its configuration from a path that would block or stream`,
+          null,
+          { path: MANIFEST_PATH, kind: read.notRegular.kind },
+        ),
       ],
     }
   }
+  if (read.over !== undefined) {
+    return {
+      config: null,
+      text: null,
+      problems: [
+        problem(
+          read.over.code === 'CODE_FILE_TOO_LARGE' ? 'CODE_FILE_TOO_LARGE' : 'WORK_BUDGET_EXCEEDED',
+          `${MANIFEST_PATH} was not read because ${read.over.code === 'CODE_FILE_TOO_LARGE' ? `it is ${read.over.size} bytes, above the ${read.over.limit}-byte in-process read bound for a single file` : 'the operation exhausted its in-process work budget'}, so the ratchet has no configuration this run: run the CLI (node plugins/ratchet/ratchet-cli.mjs) which reads a regular file without a cap`,
+          null,
+          { path: MANIFEST_PATH, ...read.over },
+        ),
+      ],
+    }
+  }
+  if (read.error !== undefined) {
+    return {
+      config: null,
+      text: null,
+      problems: [
+        problem('MANIFEST_INVALID', `${MANIFEST_PATH} exists but could not be read: ${read.error}`),
+      ],
+    }
+  }
+  const text = read.text
   const parsed = parseRatchetConfig(normaliseText(text), hashSource(text))
   return { config: parsed.config, text, problems: parsed.problems }
 }
@@ -141,6 +175,17 @@ export function readAdrCorpus(root, config, budget = null) {
     if (!filename.endsWith('.md')) continue
     const relative = `${decisionsDir}/${filename}`
     const read = workBudgetRead(budget, root, relative)
+    if (read.notRegular !== undefined) {
+      problems.push(
+        problem(
+          'CODE_FILE_NOT_REGULAR',
+          `${relative} was not opened because it is a ${read.notRegular.kind}, not a regular file: a record must be a file the ratchet can read, and opening a FIFO or device would block the operation`,
+          filename,
+          { path: relative, kind: read.notRegular.kind },
+        ),
+      )
+      continue
+    }
     if (read.over !== undefined) {
       problems.push(
         problem(
@@ -1241,7 +1286,7 @@ export function validateZones(config) {
  */
 export function compileProject(root, options = {}) {
   const budget = options.budget ?? null
-  const manifest = readManifest(root)
+  const manifest = readManifest(root, budget)
   const problems = [...manifest.problems]
   const report = {
     kind: COMPILE_REPORT_KIND,
