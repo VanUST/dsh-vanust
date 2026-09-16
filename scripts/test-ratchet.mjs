@@ -8299,6 +8299,29 @@ test('needsHuman: every entry carries the drafted path/id or says why no draft e
   assert.ok(view.records.some((record) => record.draft === true && record.draftKey !== null), 'the draft is in the corpus with its identity')
 })
 
+test('decisions: a draftless need states WHY without repeating its own action', () => {
+  // The red-gate card printed "no drafted fix exists …" twice — once as the action and once as
+  // the draftReason — so the card showed one sentence for a fact, a reason and an instruction.
+  // A draftless entry's reason must add information rather than echo the action.
+  const root = makeProject({
+    name: 'red-gate-reason',
+    adrs: { '0001-a.adr.md': adrText({ id: '0001', laws: [{ id: 'x.one', statement: 'One.', checks: [] }] }) },
+    files: {},
+  })
+  mkdirSync(join(root, 'reports', 'ratchet'), { recursive: true })
+  writeFileSync(
+    join(root, 'reports', 'ratchet', 'verify-report.json'),
+    JSON.stringify({ problems: [{ code: 'X', message: 'y' }] }),
+  )
+  const view = decisionsModule.deriveDecisions({ root })
+  const red = view.needsHuman.find((entry) => entry.kind === 'red-gate')
+  assert.ok(red !== undefined, 'the red gate is reported from the persisted report')
+  assert.equal(red.draft, null)
+  assert.ok(typeof red.action === 'string' && red.action.length > 0, 'the action is an instruction')
+  assert.ok(typeof red.draftReason === 'string' && red.draftReason.length > 0, 'a draftless entry says why')
+  assert.notEqual(red.draftReason, red.action, 'the draft reason must not repeat the action')
+})
+
 test('duplicates: one statement under two law ids fails the deterministic command', () => {
   const root = makeProject({
     name: 'duplicate-statement',

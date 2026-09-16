@@ -356,7 +356,7 @@ function redGateNeed(root, currentSpecHash) {
       title: `the last recorded verification found ${count} problem${count === 1 ? '' : 's'}`,
       path: reportPath,
       reason: `${reportPath} records ${count} problem${count === 1 ? '' : 's'} from the last verification`,
-      action: `no drafted fix exists \u2014 read ${reportPath}, fix what it names, and re-run "ratchet verify"`,
+      action: `read ${reportPath}, fix what it names, and re-run "ratchet verify"`,
     }
   }
   const state = readState(root)
@@ -369,7 +369,7 @@ function redGateNeed(root, currentSpecHash) {
       title: 'the last recorded verification was not green',
       path: STATE_PATHS.state,
       reason: `${STATE_PATHS.state} records the last verification at ${typeof last.at === 'string' ? last.at : '(an unknown time)'} as not ok${errors === null ? '' : ` (${errors} problem${errors === 1 ? '' : 's'})`}`,
-      action: `no drafted fix exists \u2014 fix what ${reportPath} names and re-run "ratchet verify"`,
+      action: `fix what ${reportPath} names and re-run "ratchet verify"`,
     }
   }
   const status = verificationStatus(root, currentSpecHash)
@@ -380,7 +380,7 @@ function redGateNeed(root, currentSpecHash) {
       title: 'the last recorded verification does not cover the current laws',
       path: STATE_PATHS.state,
       reason: status.reason,
-      action: 'no drafted fix exists \u2014 re-run "ratchet verify" against the current laws and the current code',
+      action: 're-run "ratchet verify" against the current laws and the current code',
     }
   }
   return null
@@ -571,17 +571,22 @@ function buildNeedsHuman(root, records, queue, drift, currentSpecHash, drafted) 
       reason: entry.reason,
       action:
         note === null
-          ? `no drafted correction exists \u2014 ${entry.fix}`
+          ? `${entry.fix}`
           : `a withdrawal note is drafted at ${note.notePath}; the ratchet wrote it and will NOT apply it \u2014 ${entry.fix}, or delete the document if its laws were removed deliberately`,
       draft: note === null ? null : { id: null, path: note.notePath },
-      draftReason: note === null ? `no drafted correction exists \u2014 ${entry.fix}` : null,
+      draftReason:
+        note === null
+          ? 'no drafted correction exists \u2014 the ratchet found no withdrawal note on disk for this document; run "ratchet compile" so it drafts one'
+          : null,
     })
   }
 
   // (5) The red gate, read from the persisted artifacts.
   const red = redGateNeed(root, currentSpecHash)
   if (red !== null) {
-    needs.push({ ...red, draft: null, draftReason: 'no drafted fix exists \u2014 read the named report, fix what it names, and re-run "ratchet verify"' })
+    // The action is the instruction; this says WHY no record can be drafted for it, so the
+    // card does not print the same "no drafted fix exists" sentence twice.
+    needs.push({ ...red, draft: null, draftReason: 'no drafted fix exists \u2014 a red verification is a fact about the report and the code, not a decision the ratchet can draft a record for' })
   }
 
   return needs
