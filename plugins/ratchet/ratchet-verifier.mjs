@@ -69,6 +69,30 @@ const NEVER_WALK = new Set([
   'Temp',
   '.dsh',
   'reports',
+  // Host caches and dependency trees that are never a project's own source but can be enormous.
+  // Without these a walk of a machine-learning or data project descends into a conda env, a CUDA
+  // toolkit or a model cache and reads tens of GiB. The LIST is defence in depth only: the bound
+  // that makes the in-process path safe is `CODE_HASH_MAX_*` in `codeHashFor`, because no list can
+  // name every heavy directory a project might keep.
+  '.cache',
+  '.conda',
+  '.huggingface',
+  'hf_home',
+  'site-packages',
+  'conda-meta',
+  'envs',
+  'weights',
+  'checkpoints',
+  '.mypy_cache',
+  '.pytest_cache',
+  '.ruff_cache',
+  '.tox',
+  '.gradle',
+  '.m2',
+  '.cargo',
+  '.next',
+  '.nuxt',
+  '.turbo',
 ])
 
 /**
@@ -179,13 +203,70 @@ export function globsProvablyDisjoint(left, right) {
  * @returns A `sha256:<hex>` string. Unreadable files contribute their error text
  *   rather than aborting the hash, so the value stays comparable across runs.
  */
-export function codeHashFor(root, files) {
+/**
+ * The largest file the code hash reads in full, in bytes. A file above this contributes its
+ * path and size instead of its content.
+ *
+ * The bound exists because the hash runs on whichever thread called it, and `ratchet_verify`
+ * and `ratchet_status` run **in the harness process, on its single event loop**. Hashing every
+ * file in full froze the whole session: a 43 GiB tree with a CUDA toolkit and a model cache in
+ * it took about 70 seconds of synchronous reads in which no other request was served, and two
+ * GUI windows died together. Source files are far below this; model weights, datasets and
+ * package caches are far above it, and none of them is the code a verdict is about.
+ */
+export const CODE_HASH_MAX_FILE_BYTES = 2 * 1024 * 1024
+
+/**
+ * The most content one code hash reads in total, in bytes.
+ *
+ * A project's own source is normally a few MiB; a repository that exceeds 64 MiB of it is
+ * either generated or not source at all. Past the budget each remaining file contributes its
+ * path and size, so the hash stays deterministic and cheap rather than reading the whole tree.
+ * The value is a hard ceiling on the synchronous read, which is what keeps the event loop
+ * responsive; the CLI could raise it, but the in-process tools must never block on a tree.
+ */
+export const CODE_HASH_MAX_TOTAL_BYTES = 64 * 1024 * 1024
+
+/**
+ * Hashes the walked tree into the code identity a verdict is bound to.
+ *
+ * The hash is bounded: a file above {@link CODE_HASH_MAX_FILE_BYTES}, or any file once the run
+ * has read {@link CODE_HASH_MAX_TOTAL_BYTES}, contributes `path` plus its size rather than its
+ * content. A path whose size cannot be read contributes its error text, as before. The bound is
+ * deterministic for a given tree, so a verdict still goes stale when the code moves; what it
+ * gives up is noticing a content change in a multi-megabyte file that keeps its size, which is
+ * the right trade for a file that large and is stated here rather than discovered as a freeze.
+ *
+ * @param root - Absolute project root.
+ * @param files - Repository-relative paths to hash (the walked list).
+ * @param options - `{ maxFileBytes, maxTotalBytes }` override the two bounds.
+ * @returns A `sha256:<hex>` string.
+ */
+export function codeHashFor(root, files, options = {}) {
+  const maxFileBytes = Number.isFinite(options.maxFileBytes) ? options.maxFileBytes : CODE_HASH_MAX_FILE_BYTES
+  const maxTotalBytes = Number.isFinite(options.maxTotalBytes) ? options.maxTotalBytes : CODE_HASH_MAX_TOTAL_BYTES
   const hash = createHash('sha256')
+  let total = 0
   for (const path of [...files].sort()) {
-    const read = readProjectFile(root, path)
     hash.update(path)
     hash.update('\u0000')
-    hash.update(read.error === undefined ? read.text : `\u0000unreadable:${read.error}`)
+    let size = null
+    try {
+      const stats = statSync(join(root, path))
+      if (stats.isFile()) size = stats.size
+    } catch {
+      size = null
+    }
+    if (size !== null && (size > maxFileBytes || total + size > maxTotalBytes)) {
+      // Content-free but deterministic: the path is already in the hash, and the size moves
+      // when the file is replaced. The alternative — reading it — is the freeze this bound
+      // exists to prevent.
+      hash.update(`\u0000large:${size}`)
+    } else {
+      const read = readProjectFile(root, path)
+      hash.update(read.error === undefined ? read.text : `\u0000unreadable:${read.error}`)
+      if (size !== null) total += size
+    }
     hash.update('\u0000')
   }
   return `sha256:${hash.digest('hex')}`

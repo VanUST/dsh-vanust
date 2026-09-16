@@ -6,8 +6,9 @@
  *   remains the authority on what is enforced, and every state it displays is derived
  *   by the ratchet itself, over the host half's read-only state route, and rendered
  *   unchanged. The panel owns no derivation: force, consent matching and the ratify
- *   queue are the ratchet's `ratchetDecisions` service, and a page that cannot reach it
- *   says the state is unavailable rather than reading the corpus itself.
+ *   queue are the ratchet's `ratchetDecisions` service, whose `needsHuman` set is
+ *   rendered as the window's entry point, and a page that cannot reach it says the
+ *   state is unavailable rather than reading the corpus itself.
  *
  *   It offers exactly one action, and it takes it through the HOST half's consent
  *   route rather than through the Conversation. Approving or declining a decision makes
@@ -59,7 +60,12 @@
  *   `shell.overlay` and `conversation.composer`. The overlay renders nothing while
  *   closed and never mutates a
  *   file. Two record kinds are rendered separately: Decisions (`type !== "approval"`)
- *   and Consents (`type === "approval"`). There is exactly ONE force state, and the
+ *   and Consents (`type === "approval"`). The window leads with a **Needs a human**
+ *   section built from the ratchet's own `needsHuman` set — the one entry point for
+ *   consents waiting, contradictions, duplicates, stale specs and a red gate — and
+ *   shows a clear empty state when that set is empty, never hiding the section. Each
+ *   entry renders the ratchet's `reason` and `action` unchanged, and offers a way into
+ *   the record it concerns through the row selection the record list already uses. There is exactly ONE force state, and the
  *   RATCHET computes it: the view model carries each record's `state` and `provenance`
  *   from the same `resolveActiveSet` derivation the gate uses, so a consent, a zone's
  *   authority and a supersession are never re-judged here. The panel renders
@@ -241,7 +247,7 @@ window.__ModuleLoader__.load({
 		 * are equal again after a release and the constant is one ahead only in the working
 		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.24";
+		const PANEL_VERSION = "0.1.26";
 		/** Directories used when the host view reports none. */
 		const DEFAULT_DECISIONS_DIR = "docs/adrs";
 		const DEFAULT_SPECS_DIR = "docs/specs";
@@ -913,6 +919,7 @@ window.__ModuleLoader__.load({
 				lawsByDecision: {},
 				decisionIds: {},
 				recordIds: {},
+				needsHuman: [],
 				dirs: { decisionsDir: DEFAULT_DECISIONS_DIR, specsDir: DEFAULT_SPECS_DIR },
 				projectName: "this project",
 				notes: notes === undefined ? [] : notes,
@@ -998,9 +1005,30 @@ window.__ModuleLoader__.load({
 				state: record.state,
 				provenance: record.provenance,
 				canRatify: record.canRatify === true,
+				blockedReason: typeof record.blockedReason === "string" && record.blockedReason !== "" ? record.blockedReason : null,
 				body: body,
 				sections: bodySections(body),
 				error: null
+			};
+		}
+		/**
+		 * Adapter from one entry of the ratchet's `needsHuman` set to the shape the
+		 * renderer consumes. Every field — the kind, the id, the title, the path, the
+		 * reason and the action — is copied unchanged; this maps no rule and chooses no
+		 * finding. A missing field renders empty rather than being inferred.
+		 *
+		 * @param entry - one element of the view model's `needsHuman`.
+		 * @returns the renderer's needs-human shape. Never throws.
+		 */
+		function adaptNeed(entry) {
+			if (entry === null || entry === undefined || typeof entry !== "object") return null;
+			return {
+				kind: typeof entry.kind === "string" ? entry.kind : "unknown",
+				id: entry.id === null || entry.id === undefined ? "" : String(entry.id),
+				title: typeof entry.title === "string" ? entry.title : "",
+				path: typeof entry.path === "string" && entry.path !== "" ? entry.path : null,
+				reason: typeof entry.reason === "string" ? entry.reason : "",
+				action: typeof entry.action === "string" ? entry.action : ""
 			};
 		}
 		/**
@@ -1009,10 +1037,11 @@ window.__ModuleLoader__.load({
 		 * The directories, the project name and every force fact come from the host's
 		 * answer, so the panel works in any ratchet project and owns no rule. A route that
 		 * cannot be reached is a `failures` line that says the state is unavailable; the
-		 * window never reads the corpus itself.
+		 * window never reads the corpus itself. The `needsHuman` set is the ratchet's own,
+		 * passed through unchanged.
 		 *
 		 * @returns a promise for
-		 *   `{ decisions, consents, specs, relations, lawsByDecision, decisionIds, recordIds, dirs, projectName, notes, failures }`;
+		 *   `{ decisions, consents, specs, relations, lawsByDecision, decisionIds, recordIds, needsHuman, dirs, projectName, notes, failures }`;
 		 *   never rejects.
 		 */
 		function loadPanel(ctx, sessionId, signal) {
@@ -1058,6 +1087,7 @@ window.__ModuleLoader__.load({
 						lawsByDecision: lawsByDecision(specs),
 						decisionIds: decisionIds,
 						recordIds: recordIds,
+						needsHuman: (Array.isArray(view.needsHuman) ? view.needsHuman : []).map(adaptNeed).filter(function (entry) { return entry !== null; }),
 						dirs: {
 							decisionsDir: typeof project.decisionsDir === "string" && project.decisionsDir !== "" ? project.decisionsDir : DEFAULT_DECISIONS_DIR,
 							specsDir: typeof project.specsDir === "string" && project.specsDir !== "" ? project.specsDir : DEFAULT_SPECS_DIR
@@ -1468,6 +1498,94 @@ window.__ModuleLoader__.load({
 			return React.createElement("div", { style: { margin: "4px 0 8px" } },
 				React.createElement("h3", { style: Object.assign({}, sectionHeadingStyle(), { margin: 0 }) }, props.title),
 				sourceDir === null || sourceDir === undefined || sourceDir === "" ? null : React.createElement("div", { style: mutedInlineStyle() }, sourceDir));
+		}
+		/**
+		 * PURPOSE
+		 *   Choose the tone a needs-human entry's kind pill is drawn in. It is a table over
+		 *   the ratchet's own `kind`, never a re-judged severity: a consent takes the
+		 *   business tone, a duplicate the warn tone, a contradiction and a red gate the
+		 *   error tone, and a stale spec the muted tone.
+		 *
+		 * INPUTS
+		 *   need - one adapted needs-human entry (`{ kind }`), or anything.
+		 *
+		 * OUTPUTS
+		 *   A tone kind understood by {@link tone}; an unknown kind is `neutral`. Never
+		 *   throws.
+		 *
+		 * KEYWORDS
+		 *   needs a human, tone, kind, presentation only
+		 */
+		function needsKind(need) {
+			var kind = need === null || need === undefined ? "" : String(need.kind);
+			if (kind === "consent") return "consent";
+			if (kind === "duplicate") return "pending";
+			if (kind === "stale-spec") return "superseded";
+			if (kind === "contradiction" || kind === "red-gate") return "rejected";
+			return "neutral";
+		}
+		/**
+		 * PURPOSE
+		 *   Find the rendered record a needs-human entry concerns, so the entry can offer
+		 *   the window's existing row selection as its way in. The lookup tries the entry's
+		 *   id and then its path against the records the ratchet returned; it decides no
+		 *   force and invents no record.
+		 *
+		 * INPUTS
+		 *   need - one adapted needs-human entry, or anything.
+		 *   decisions - the rendered decisions.
+		 *   consents - the rendered consent records.
+		 *
+		 * OUTPUTS
+		 *   The matching record, or null when the entry concerns no record in the corpus (a
+		 *   spec document and a verification report are the two such kinds). Never throws.
+		 *
+		 * KEYWORDS
+		 *   needs a human, record lookup, row selection, entry point
+		 */
+		function findConcernedRecord(need, decisions, consents) {
+			if (need === null || need === undefined || typeof need !== "object") return null;
+			var all = (Array.isArray(decisions) ? decisions : []).concat(Array.isArray(consents) ? consents : []);
+			for (var i = 0; i < all.length; i += 1) {
+				if (need.id !== "" && all[i].id === need.id) return all[i];
+			}
+			if (need.path !== null) {
+				for (var j = 0; j < all.length; j += 1) {
+					if (all[j].path === need.path) return all[j];
+				}
+			}
+			return null;
+		}
+		/**
+		 * PURPOSE
+		 *   Render one entry of the ratchet's `needsHuman` set as a card: the kind and the
+		 *   thing it names, the ratchet's own `reason` and `action` unchanged, and — when
+		 *   the entry concerns a record in the corpus — a button that selects that record's
+		 *   row. It decides nothing; every word it shows came from the ratchet.
+		 *
+		 * INPUTS
+		 *   props.need - one adapted needs-human entry.
+		 *   props.decisions - the rendered decisions.
+		 *   props.consents - the rendered consent records.
+		 *   props.onSelectAdr - selects/expands a record by id.
+		 *
+		 * OUTPUTS
+		 *   The card element. Never throws.
+		 *
+		 * KEYWORDS
+		 *   needs a human, entry, reason, action, row selection
+		 */
+		function NeedsHumanCard(props) {
+			var need = props.need;
+			var record = findConcernedRecord(need, props.decisions, props.consents);
+			return React.createElement("div", { style: cardStyle() },
+				React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap" } },
+					pill(need.kind + " " + need.id, needsKind(need)),
+					need.title === "" ? null : React.createElement("span", { style: { fontSize: 12, fontWeight: 600 } }, need.title),
+					need.path === null ? null : React.createElement("span", { style: mutedInlineStyle() }, need.path)),
+				need.reason === "" ? null : React.createElement("div", { style: { fontSize: 12, marginTop: 4, lineHeight: "18px" } }, need.reason),
+				need.action === "" ? null : React.createElement("div", { style: ctaNoteStyle() }, need.action),
+				record === null ? null : React.createElement("button", { type: "button", style: smallButtonStyle(), onClick: function () { props.onSelectAdr(record.id); } }, "Open " + record.id));
 		}
 		//#endregion
 
@@ -2035,7 +2153,13 @@ window.__ModuleLoader__.load({
 		function ConsentOutcome(props) {
 			var result = props.result === null || props.result === undefined ? {} : props.result;
 			var decision = props.decision;
-			var problemCodes = Array.isArray(result.problems) ? result.problems.map(function (entry) { return entry !== null && typeof entry === "object" && typeof entry.code === "string" ? entry.code : null; }).filter(function (code) { return code !== null; }) : [];
+			var problemEntries = Array.isArray(result.problems) ? result.problems.filter(function (entry) { return entry !== null && typeof entry === "object"; }) : [];
+			var problemCodes = problemEntries.map(function (entry) { return typeof entry.code === "string" ? entry.code : null; }).filter(function (code) { return code !== null; });
+			// The ratchet's own words, not only its codes: a refusal that shows a code alone sends
+			// the reader to the CLI for the reason the window exists to give them. One line per
+			// problem, the code first when it has one.
+			var problemLines = problemEntries.map(function (entry) { return (typeof entry.code === "string" ? entry.code + ": " : "") + (typeof entry.message === "string" ? entry.message : ""); }).filter(function (line) { return line !== ""; });
+			var problemsBlock = problemLines.length === 0 ? null : React.createElement("ul", { style: { margin: "6px 0 0 18px", padding: 0 } }, problemLines.map(function (line, index) { return React.createElement("li", { key: index, style: { marginBottom: 2 } }, line); }));
 			var approved = result.ok === true && Array.isArray(result.ratified) && result.ratified.length > 0;
 			if (approved) {
 				var files = [];
@@ -2057,18 +2181,22 @@ window.__ModuleLoader__.load({
 			if (result.error === "no-question") {
 				return React.createElement("div", { style: warnStyle() },
 					"Nothing was recorded: the ratchet has no question to put for this decision. ",
-					typeof result.message === "string" && result.message !== "" ? result.message : "It is not waiting for a human.");
+					typeof result.message === "string" && result.message !== "" ? result.message : "It is not waiting for a human.",
+					problemsBlock);
 			}
 			if (result.error === "refused" || typeof result.error === "string") {
 				return React.createElement("div", { style: warnStyle() },
 					"Nothing was recorded: ",
 					typeof result.message === "string" && result.message !== "" ? result.message : String(result.error),
-					problemCodes.length === 0 ? null : " (" + problemCodes.join(", ") + ")");
+					problemCodes.length === 0 ? null : " (" + problemCodes.join(", ") + ")",
+					problemsBlock);
 			}
 			return React.createElement("div", { style: warnStyle() },
 				"Nothing was recorded",
 				problemCodes.length === 0 ? "." : ": the ratchet refused with " + problemCodes.join(", ") + ".",
-				decision === "decline" ? " The decision stays proposed." : null);
+				decision === "decline" ? " The decision stays proposed." : null,
+				problemsBlock,
+				typeof result.nextStep === "string" && result.nextStep !== "" ? React.createElement("div", { style: { marginTop: 4 } }, result.nextStep) : null);
 		}
 
 		/**
@@ -2115,7 +2243,11 @@ window.__ModuleLoader__.load({
 					adr.type === null || adr.type === "" || adr.type === "adr" ? null : pill(adr.type, "neutral"),
 					React.createElement("span", { style: disclosureStyle() }, expanded ? "▾" : "▸")),
 				adr.summary === "" ? null : React.createElement("div", { key: "summary", style: summaryStyle() }, adr.summary),
-				adr.error === null ? null : React.createElement("div", { key: "err", style: warnStyle() }, "frontmatter: " + adr.error)
+				adr.error === null ? null : React.createElement("div", { key: "err", style: warnStyle() }, "frontmatter: " + adr.error),
+				// The ratchet's own `blockedReason` when this record cannot be ratified — the law it
+				// contradicts and the resolution that would settle it. It is shown where the action
+				// would be, so a blocked decision says WHY in the window instead of only a state pill.
+				adr.blockedReason === null || adr.blockedReason === undefined ? null : React.createElement("div", { key: "blocked", style: warnStyle() }, adr.blockedReason)
 			];
 			if (adr.canRatify === true) {
 				children.push(React.createElement("div", { key: "ask", style: { marginTop: 8 } },
@@ -2333,7 +2465,7 @@ window.__ModuleLoader__.load({
 			var ask = props.ask;
 			var settle = props.settle;
 			var load = props.load;
-			var emptyView = { status: "idle", decisions: [], consents: [], specs: [], relations: { approvedBy: {}, supersededBy: {} }, lawsByDecision: {}, decisionIds: {}, recordIds: {}, dirs: { decisionsDir: DEFAULT_DECISIONS_DIR, specsDir: DEFAULT_SPECS_DIR }, projectName: "this project", notes: [], failures: [] };
+			var emptyView = { status: "idle", decisions: [], consents: [], specs: [], relations: { approvedBy: {}, supersededBy: {} }, lawsByDecision: {}, decisionIds: {}, recordIds: {}, needsHuman: [], dirs: { decisionsDir: DEFAULT_DECISIONS_DIR, specsDir: DEFAULT_SPECS_DIR }, projectName: "this project", notes: [], failures: [] };
 			var view = React.useState(emptyView);
 			var current = view[0];
 			var setView = view[1];
@@ -2358,6 +2490,7 @@ window.__ModuleLoader__.load({
 						lawsByDecision: result.lawsByDecision === undefined ? {} : result.lawsByDecision,
 						decisionIds: result.decisionIds === undefined ? {} : result.decisionIds,
 						recordIds: result.recordIds === undefined ? {} : result.recordIds,
+						needsHuman: result.needsHuman === undefined ? [] : result.needsHuman,
 						dirs: result.dirs === undefined ? emptyView.dirs : result.dirs,
 						projectName: result.projectName === undefined ? "this project" : result.projectName,
 						notes: result.notes === undefined ? [] : result.notes,
@@ -2448,6 +2581,19 @@ window.__ModuleLoader__.load({
 								return React.createElement("div", { key: String(index) }, note);
 							}))
 							: null,
+						React.createElement("div", null,
+							React.createElement(sectionHeading, { title: "Needs a human" }),
+							current.needsHuman.length === 0
+								? React.createElement("p", { style: mutedStyle() }, "Nothing needs a human: no decision waits for consent, no contradiction or duplicate is open, no spec has drifted, and the last recorded verification is green.")
+								: React.createElement("div", { style: { display: "grid", gap: 8 } }, current.needsHuman.map(function (need, index) {
+									return React.createElement(NeedsHumanCard, {
+										key: String(index),
+										need: need,
+										decisions: current.decisions,
+										consents: current.consents,
+										onSelectAdr: onSelectAdr
+									});
+								}))),
 						React.createElement(Legend, null),
 						pendingRatify === null ? null : React.createElement("div", null,
 							React.createElement(sectionHeading, { title: "Awaiting your answer", sourceDir: current.dirs.decisionsDir }),

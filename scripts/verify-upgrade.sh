@@ -183,6 +183,12 @@ if command -v node >/dev/null 2>&1; then
   # (`ratchet_review --job review_duplicates`) spawns a judge and never reaches this exit code.
   probe "duplicate decisions (decidable duplicates fail, merges and one source do not)" \
     "node '${KIT_DIR}/scripts/check-duplicate-decisions.mjs' --root '${KIT_DIR}' | grep -q 'duplicate decisions ok'"
+  # Zone coverage: every tracked path is placed by a zone or named in the manifest's explicit
+  # exception list. It fails with ZONE_COVERAGE_GAP on a tracked file nobody placed, so a new
+  # file cannot fall silently to the default authority; without a work tree it exits 2, which
+  # this probe treats as a failure because "nothing was checked" is not "nothing is wrong".
+  probe "zone coverage (every tracked path is zoned or explicitly excepted)" \
+    "node '${KIT_DIR}/scripts/check-zone-coverage.mjs' --root '${KIT_DIR}' | grep -q 'zone coverage ok'"
   probe "instruction routing (only the home rules reach the prompt)" \
     "node '${KIT_DIR}/scripts/check-instruction-routing.mjs' | grep -q 'instruction routing ok'"
   # The static line above reads files: a kit-rules provider that stopped

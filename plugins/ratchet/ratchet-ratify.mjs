@@ -36,7 +36,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { MANIFEST_PATH, UNUSABLE_PROBLEM_CODES, hashSource, normaliseText, problem } from './ratchet-schema.mjs'
-import { readAdrCorpus, readManifest, resolveActiveSet, zonesForRecord } from './ratchet-compiler.mjs'
+import { auditedResolutions, compileLaws, decidableContradictions, readAdrCorpus, readManifest, resolveActiveSet, zonesForRecord } from './ratchet-compiler.mjs'
 import { existingAdrIds, nextAdrId, slugFor } from './ratchet-ingest.mjs'
 import { writeArtifact, STATE_PATHS } from './ratchet-state.mjs'
 
@@ -96,6 +96,85 @@ export const RATIFY_INTENT_KIND = 'ratify-decision'
 export const RATIFY_TRANSCRIPT_DIR = 'docs/ratchet/sources'
 
 /**
+ * The proposed resolution, if one exists, that would retire the named laws for the named
+ * holders on behalf of the record that is blocked.
+ *
+ * A conflict-free block is only useful if it says how to lift itself. When a resolution has
+ * already been drafted — `ratchet_deduplicate` writes one as an ordinary `proposed` record whose
+ * `resolves` list names both sides and whose `op: remove` targets the losing law — that draft is
+ * the thing to ratify, and naming it is more useful than telling a human to write a second one.
+ * The search is deliberately exact: the candidate must be proposed, must name the blocked record
+ * and a holder, and must retire one of the named laws (or supersede a holder). A candidate that
+ * does not is somebody else's record, and naming it would send the reader to the wrong file.
+ *
+ * @param record - The not-in-force record whose laws conflict.
+ * @param holders - The record ids that put the conflicting laws in force.
+ * @param laws - The conflicting law ids.
+ * @param records - Every parsed record in the corpus.
+ * @returns The candidate's id, or `null` when no proposed resolution matches.
+ */
+function findDraftedResolution(record, holders, laws, records) {
+  const holderSet = new Set(holders)
+  const lawSet = new Set(laws)
+  for (const candidate of Array.isArray(records) ? records : []) {
+    if (candidate === null || typeof candidate !== 'object') continue
+    if (candidate.id === record.id || candidate.status !== 'proposed') continue
+    const resolves = Array.isArray(candidate.resolves) ? candidate.resolves : []
+    if (!resolves.includes(record.id)) continue
+    if (![...holderSet].some((holder) => resolves.includes(holder))) continue
+    const removes = (candidate.laws ?? []).some((law) => law !== null && typeof law === 'object' && law.op === 'remove' && lawSet.has(law.id))
+    const supersedes = Array.isArray(candidate.supersedes) && [...holderSet].some((holder) => candidate.supersedes.includes(holder))
+    if (removes || supersedes) return candidate.id
+  }
+  return null
+}
+
+/**
+ * The blocked reason for a not-in-force record whose own laws contradict law in force.
+ *
+ * It answers the three questions a refusal must answer: WHAT contradicts (the record's own
+ * removals and re-declarations), WHICH law and WHO holds it in force, and WHAT FIX lifts the
+ * block. The fix is stated as the shape a record takes rather than as a command, because the
+ * resolution is itself a decision a human ratifies: an ordinary record with
+ * `resolves: [holder, this record]` and `op: remove` for the conflicting law, or one that
+ * supersedes the holder. When a draft already exists it is named; otherwise the reason points at
+ * `ratchet_deduplicate`, which is the tool that drafts one.
+ *
+ * @param record - The blocked record.
+ * @param conflicts - Its conflicts from `decidableContradictions`, each with `lawId`, `op` and
+ *   `inForceBy`.
+ * @param records - Every parsed record in the corpus, for the draft search.
+ * @returns The reason string. Never null; an empty `conflicts` array yields a generic sentence
+ *   rather than throwing (callers only call it when there is at least one conflict).
+ */
+function contradictionBlockReason(record, conflicts, records) {
+  const laws = [...new Set((conflicts ?? []).map((conflict) => conflict.lawId))]
+  const holders = [...new Set((conflicts ?? []).map((conflict) => conflict.inForceBy).filter((id) => typeof id === 'string' && id.length > 0))]
+  const names = laws.map((law) => `"${law}"`).join(', ')
+  const holderText = holders.length === 0 ? 'a record the corpus does not name' : holders.map((id) => `ADR ${id}`).join(', ')
+  const removes = (conflicts ?? []).filter((conflict) => conflict.op === 'remove')
+  const redeclares = (conflicts ?? []).filter((conflict) => conflict.op !== 'remove')
+  const what = [
+    ...(removes.length === 0 ? [] : [`removes ${removes.map((conflict) => `"${conflict.lawId}"`).join(', ')}`]),
+    ...(redeclares.length === 0 ? [] : [`redeclares ${redeclares.map((conflict) => `"${conflict.lawId}"`).join(', ')} with a different statement`]),
+  ].join(' and ')
+  const draft = findDraftedResolution(record, holders, laws, records)
+  const pointer =
+    draft === null
+      ? '`ratchet_deduplicate` drafts such a resolution when the conflict is a duplicate; otherwise write one by hand and ratify it first'
+      : `ADR ${draft} already proposes exactly that resolution, so ratify it first`
+  const shape =
+    holders.length === 0
+      ? `an ordinary record that declares \`resolves: [<the record holding ${laws[0]}>, "${record.id}"]\` and \`laws: [{ op: remove, id: ${laws[0]} }]\`, or one that supersedes that holder`
+      : `an ordinary record that declares \`resolves: ["${holders[0]}", "${record.id}"]\` and \`laws: [{ op: remove, id: ${laws[0]} }]\`, or one that supersedes ADR ${holders[0]}`
+  return [
+    `ADR ${record.id} contradicts law in force and cannot be ratified: it ${what}.`,
+    `The conflicting law is ${names}, put in force by ${holderText}.`,
+    `A proposed decision may not take away or rewrite what a human already put in force, so the block lifts only when a resolution takes the conflicting law out of force first — ${shape}; ${pointer}.`,
+  ].join(' ')
+}
+
+/**
  * Lists the decisions that are waiting for a human, and why the others cannot be.
  *
  * A decision is waiting when it is not in force: `proposed` (nobody has decided
@@ -104,6 +183,13 @@ export const RATIFY_TRANSCRIPT_DIR = 'docs/ratchet/sources'
  * `humanOnly` zone, where consent does not transfer authorship — because putting an
  * impossible question to a human wastes the one act this whole mechanism depends
  * on.
+ *
+ * A record is ALSO blocked, not offered, when its own laws contradict law in force:
+ * `decidableContradictions` reports a record that removes or rewrites an in-force law without
+ * being a resolution the compiler accepted, and `contradictionBlockReason` states the resolution
+ * that would take the conflicting law out of force. Ratifying such a record would take away what
+ * a human already put in force, which is exactly what a ratification cannot do — so the queue
+ * refuses it and names the fix instead of putting an impossible question to the human.
  *
  * @param root - Absolute project root.
  * @returns `{ ok, config, pending, blocked, problems }`. `pending` entries carry
@@ -142,6 +228,17 @@ export function ratificationQueue(root) {
   const excluded = new Set(resolved.excluded)
   const pending = []
   const blocked = []
+
+  // The one fact the queue and the write guard must agree on: what is law, and which records the
+  // compiler accepted as a resolution. A proposed record whose own laws remove or rewrite a law
+  // in force cannot be ratified until a resolution takes that law out of force, and it is blocked
+  // with the fix rather than put to a human (`decidableContradictions`, `auditedResolutions`).
+  const inForce = compileLaws(resolved.active, config)
+  const resolutions = auditedResolutions(corpus.records, {
+    active: resolved.active,
+    removedByDecision: inForce.removedByDecision,
+    problems: corpus.problems,
+  })
 
   for (const record of [...resolved.proposed, ...resolved.excluded]) {
     // Only an AGENT's decision needs approval. A human-authored record carries its own
@@ -201,6 +298,11 @@ export function ratificationQueue(root) {
     }
     if (text === null) {
       blocked.push({ ...entry, reason: `the record file could not be read: ${readError}` })
+      continue
+    }
+    const conflicts = decidableContradictions(record, inForce.bundle.laws, { resolutions })
+    if (conflicts.length > 0) {
+      blocked.push({ ...entry, reason: contradictionBlockReason(record, conflicts, corpus.records) })
       continue
     }
     pending.push(entry)

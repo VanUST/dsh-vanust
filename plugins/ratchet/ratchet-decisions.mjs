@@ -47,14 +47,25 @@
  *     - `specs` — the generated spec documents from `renderSpecs`:
  *       `[{ path, name, text, specHash }]`, one per zone.
  *     - `drift` — the `detectSpecDrift` result for those documents.
+ *     - `needsHuman` — the ONE derived set of things a human must settle, each
+ *       `{ kind, id, title, path, reason, action }` with `kind` one of `consent`,
+ *       `contradiction`, `duplicate`, `stale-spec`, `red-gate`. Every entry is the
+ *       ratchet's own fact, copied or shaped, never a second rule: consents from
+ *       `ratificationQueue.pending`, contradictions from the guard's decidable
+ *       `loadDecisionState().conflictsByZone`, duplicates from `findDuplicates` and
+ *       the draft `draftResolutions` makes, stale specs from `detectSpecDrift`, and
+ *       the red gate from the persisted verify report/state read with `readJsonArtifact`
+ *       and `readState`. When a finding has no draft behind it, `action` says so rather
+ *       than naming one that does not exist.
  *     - `problems` — every problem the manifest, the corpus and the queue reported,
  *       so a caller can show why a project is not green.
  *   A null/empty `root` returns `{ ok:false, root, records:[], queue:{...empty}, specs:[],
- *   drift:{...empty}, problems:[MANIFEST_MISSING-like] }` and never throws.
+ *   drift:{...empty}, needsHuman:[], problems:[MANIFEST_MISSING-like] }` and never throws.
  *
  * KEYWORDS
  *   decisions service, cordis service, host route, ADR panel, view model, in force,
- *   consent match, ratify queue, spec documents, one source of truth
+ *   consent match, ratify queue, spec documents, one source of truth, needs a human,
+ *   contradiction, duplicate, stale spec, red gate
  *
  * BEHAVIOUR ON EDGE CASES
  *   - `root` not a string, or empty: an unusable view with the reason, no read.
@@ -72,7 +83,9 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { compileProject, readAdrCorpus, readManifest, renderSpecs, resolveActiveSet, zonesForRecord } from './ratchet-compiler.mjs'
 import { ratificationQueue } from './ratchet-ratify.mjs'
-import { detectSpecDrift } from './ratchet-state.mjs'
+import { detectSpecDrift, readJsonArtifact, readState, STATE_PATHS, verificationStatus } from './ratchet-state.mjs'
+import { draftResolutions } from './ratchet-dedupe.mjs'
+import { loadDecisionState } from './ratchet-guard.mjs'
 import { findRoot } from './ratchet-ops.mjs'
 
 /**
@@ -217,10 +230,290 @@ function dedupeProblems(problems) {
 
 /**
  * PURPOSE
+ *   Find a corpus record's display title by id, so a needs-human entry names the thing
+ *   it concerns without this module inventing a title. A record the corpus does not
+ *   contain contributes its id, and an empty id contributes null.
+ *
+ * INPUTS
+ *   records - the view model's per-record list (`{ id, title, path }`), or anything.
+ *   id - a record id, or null/undefined.
+ *
+ * OUTPUTS
+ *   The record's `title` when the record is present and titled, else the id when it is
+ *   a non-empty string, else null. Never throws; a non-array `records` yields the id.
+ *
+ * KEYWORDS
+ *   needs a human, title, record lookup, view model
+ */
+function titleOf(records, id) {
+  if (typeof id !== 'string' || id.length === 0) return null
+  const list = Array.isArray(records) ? records : []
+  const record = list.find((entry) => entry !== null && typeof entry === 'object' && entry.id === id)
+  if (record !== undefined && typeof record.title === 'string' && record.title.length > 0) return record.title
+  return id
+}
+
+/**
+ * PURPOSE
+ *   Find a corpus record's repository-relative path by id, so a needs-human entry can
+ *   point the window at the record's own row. The lookup is display-only: no force is
+ *   decided here.
+ *
+ * INPUTS
+ *   records - the view model's per-record list (`{ id, path }`), or anything.
+ *   id - a record id, or null/undefined.
+ *
+ * OUTPUTS
+ *   The record's `path` when present and non-empty, else null. Never throws.
+ *
+ * KEYWORDS
+ *   needs a human, path, record lookup, view model
+ */
+function pathOf(records, id) {
+  if (typeof id !== 'string' || id.length === 0) return null
+  const list = Array.isArray(records) ? records : []
+  const record = list.find((entry) => entry !== null && typeof entry === 'object' && entry.id === id)
+  return record !== undefined && typeof record.path === 'string' && record.path.length > 0 ? record.path : null
+}
+
+/**
+ * PURPOSE
+ *   Read the RED-GATE fact from the persisted verification artifacts, never by running
+ *   verify again. A recorded verdict that found problems, or one that no longer covers
+ *   the current laws, is a gate a human must look at; a project that has never recorded
+ *   a verification is not reported as red, because "never run" is not "failed".
+ *
+ * INPUTS
+ *   root - an absolute project root (string).
+ *   currentSpecHash - the hash `compileProject` just computed, or null.
+ *
+ * OUTPUTS
+ *   One `{ kind:'red-gate', id:'verify', title, path, reason, action }` entry, or null
+ *   when the persisted report and state record no red verdict and the recorded run
+ *   still covers the current laws. Never throws; an unreadable or missing artifact is
+ *   treated as no recorded verdict.
+ *
+ * KEYWORDS
+ *   red gate, verify report, verify state, verification status, artifact fact
+ */
+function redGateNeed(root, currentSpecHash) {
+  const reportPath = STATE_PATHS.verifyReport
+  const report = readJsonArtifact(root, reportPath)
+  const reportProblems =
+    report.value !== undefined && report.value !== null && Array.isArray(report.value.problems) ? report.value.problems : null
+  if (reportProblems !== null && reportProblems.length > 0) {
+    const count = reportProblems.length
+    return {
+      kind: 'red-gate',
+      id: 'verify',
+      title: `the last recorded verification found ${count} problem${count === 1 ? '' : 's'}`,
+      path: reportPath,
+      reason: `${reportPath} records ${count} problem${count === 1 ? '' : 's'} from the last verification`,
+      action: `no drafted fix exists \u2014 read ${reportPath}, fix what it names, and re-run "ratchet verify"`,
+    }
+  }
+  const state = readState(root)
+  const last = state.value !== undefined && state.value !== null && typeof state.value === 'object' ? state.value.lastVerify : null
+  if (last !== null && last !== undefined && last.ok === false) {
+    const errors = typeof last.errors === 'number' ? last.errors : null
+    return {
+      kind: 'red-gate',
+      id: 'verify',
+      title: 'the last recorded verification was not green',
+      path: STATE_PATHS.state,
+      reason: `${STATE_PATHS.state} records the last verification at ${typeof last.at === 'string' ? last.at : '(an unknown time)'} as not ok${errors === null ? '' : ` (${errors} problem${errors === 1 ? '' : 's'})`}`,
+      action: `no drafted fix exists \u2014 fix what ${reportPath} names and re-run "ratchet verify"`,
+    }
+  }
+  const status = verificationStatus(root, currentSpecHash)
+  if (status.stale === true) {
+    return {
+      kind: 'red-gate',
+      id: 'verify',
+      title: 'the last recorded verification does not cover the current laws',
+      path: STATE_PATHS.state,
+      reason: status.reason,
+      action: 'no drafted fix exists \u2014 re-run "ratchet verify" against the current laws and the current code',
+    }
+  }
+  return null
+}
+
+/**
+ * PURPOSE
+ *   Derive the ONE set of things a human must settle from the ratchet's own facts, so
+ *   the ADR window has a single entry point instead of five separate silences. Every
+ *   entry is copied or shaped from a function that already holds the rule; this module
+ *   invents no finding, and when a finding has no draft behind it the `action` says so
+ *   rather than naming one that does not exist.
+ *
+ * INPUTS
+ *   root - an absolute project root (string).
+ *   records - the view model's per-record list, for titles and paths.
+ *   queue - the `ratificationQueue` result (`pending`, `blocked`).
+ *   drift - the `detectSpecDrift` result (`drifted`, `stale`, `missing`, `orphaned`).
+ *   currentSpecHash - the compiled bundle's hash, or null, for the red-gate fact.
+ *
+ * OUTPUTS
+ *   An array, ordered consents, contradictions, duplicates, stale specs, red gate.
+ *   Each entry is `{ kind, id, title, path, reason, action }`, `kind` one of the five
+ *   names. An empty project yields `[]`. Never throws: a guard, drafter or artifact
+ *   read that fails contributes no entry rather than an exception.
+ *
+ * KEYWORDS
+ *   needs a human, consent, contradiction, duplicate, stale spec, red gate, entry point
+ */
+function buildNeedsHuman(root, records, queue, drift, currentSpecHash) {
+  const needs = []
+
+  // (1) A consent WAITING to be answered, from the ratchet's own queue. A blocked
+  // decision is deliberately absent: it is not waiting for anyone — see the queue's
+  // own `blocked` reason.
+  for (const entry of queue.pending ?? []) {
+    needs.push({
+      kind: 'consent',
+      id: entry.id,
+      title: entry.title ?? titleOf(records, entry.id) ?? entry.id,
+      path: entry.path ?? pathOf(records, entry.id),
+      reason: 'the ratchet\u2019s ratification queue lists this decision as waiting for a human: a "yes" settles it',
+      action: 'use Approve or Decline in its row below',
+    })
+  }
+
+  // (2) A contradiction between a proposal and law in force, from the guard's own
+  // DECIDABLE computation. The conflict appears once per zone the record names, so
+  // identical record+law pairs are collapsed. The FIX is the ratify queue's own blocked
+  // reason for the same record — the sentence `contradictionBlockReason` builds, which
+  // already names any resolution a draft proposes — reused whole rather than paraphrased.
+  // A record the queue blocked for another reason (a humanOnly zone, say) is not given
+  // that reason, so its action says plainly that a resolution is needed and none is drafted.
+  let guardState = null
+  try {
+    guardState = loadDecisionState(root)
+  } catch {
+    guardState = null
+  }
+  const conflictsByZone = guardState !== null && guardState.conflictsByZone instanceof Map ? guardState.conflictsByZone : new Map()
+  const blockedReasons = new Map(
+    (Array.isArray(records) ? records : []).map((record) => [
+      record?.id,
+      typeof record?.blockedReason === 'string' ? record.blockedReason : null,
+    ]),
+  )
+  const seenConflicts = new Set()
+  for (const conflicts of conflictsByZone.values()) {
+    for (const conflict of conflicts ?? []) {
+      const key = `${conflict?.adrId}\n${conflict?.lawId}`
+      if (seenConflicts.has(key)) continue
+      seenConflicts.add(key)
+      const blockedReason = blockedReasons.get(conflict.adrId) ?? null
+      const ratchetFix =
+        blockedReason !== null && blockedReason.startsWith(`ADR ${conflict.adrId} contradicts law in force`) ? blockedReason : null
+      needs.push({
+        kind: 'contradiction',
+        id: conflict.adrId,
+        title: titleOf(records, conflict.adrId) ?? conflict.adrId,
+        path: conflict.path ?? pathOf(records, conflict.adrId),
+        reason: conflict.why,
+        action:
+          ratchetFix ??
+          `no drafted resolution exists \u2014 a resolution that withdraws law "${conflict.lawId}" is needed before this record can be ratified`,
+      })
+    }
+  }
+
+  // (3) A duplicate the deterministic rules find, with the resolution the SAME drafting
+  // half produces: `draftResolutions({ write:false })` is the gate's own drafter, so the
+  // entry and the command cannot disagree about what the merge is.
+  let dedupe = null
+  try {
+    dedupe = draftResolutions(root, { write: false })
+  } catch {
+    dedupe = null
+  }
+  if (dedupe !== null && dedupe.unusable !== true) {
+    for (const draft of dedupe.drafts ?? []) {
+      const duplicate = draft.duplicate ?? {}
+      needs.push({
+        kind: 'duplicate',
+        id: draft.id,
+        title: draft.title ?? `drafted resolution for ${draft.withdraws}`,
+        path: pathOf(records, draft.withdraws) ?? (typeof draft.path === 'string' ? draft.path : null),
+        reason: duplicate.message ?? `the corpus holds a duplicate (${duplicate.code ?? 'duplicate'})`,
+        action: `ratify or decline the drafted resolution "${draft.title}" at ${draft.path}: it withdraws law "${draft.removes}" from ADR ${draft.withdraws} and keeps ADR ${draft.keeps}; the draft is a proposal and is not in force`,
+      })
+    }
+    for (const undraftable of dedupe.undraftable ?? []) {
+      const duplicate = undraftable.duplicate ?? {}
+      const first = Array.isArray(duplicate.records) ? duplicate.records[0] ?? null : null
+      needs.push({
+        kind: 'duplicate',
+        id: first ?? duplicate.key ?? 'duplicate',
+        title: first === null ? 'a duplicate the ratchet cannot draft' : titleOf(records, first) ?? first,
+        path: pathOf(records, first),
+        reason: duplicate.message ?? 'the ratchet reports a duplicate it cannot draft',
+        action: `no drafted resolution exists \u2014 ${undraftable.reason}`,
+      })
+    }
+  }
+
+  // (4) A stale specification, from `detectSpecDrift` over the documents the current
+  // bundle renders. The three non-orphaned kinds are fixed the same way; an orphan is
+  // the one that is withdrawn instead. Nothing drafts a correction in either case.
+  const specFixes = {
+    drifted: 'regenerate the document with "ratchet compile --write"',
+    stale: 'regenerate the document with "ratchet compile --write"',
+    missing: 'regenerate the document with "ratchet compile --write"',
+    orphaned: 'delete the orphaned document, or regenerate the corpus that produced it',
+  }
+  const specEntries = [
+    ...(drift.drifted ?? []).map((entry) => ({
+      path: typeof entry === 'string' ? entry : entry?.path,
+      reason: `detectSpecDrift reports the generated document as drifted: ${typeof entry === 'object' && entry !== null && typeof entry.reason === 'string' ? entry.reason : 'content differs from the generated text'}`,
+      fix: specFixes.drifted,
+    })),
+    ...(drift.stale ?? []).map((entry) => ({
+      path: entry?.path,
+      reason: `detectSpecDrift reports the generated document as stale: it records spec ${entry?.recorded} and the current laws hash to ${entry?.wanted}`,
+      fix: specFixes.stale,
+    })),
+    ...(drift.missing ?? []).map((path) => ({
+      path,
+      reason: 'detectSpecDrift reports the generated document as missing: the project tracks generated spec documents and this one is gone',
+      fix: specFixes.missing,
+    })),
+    ...(drift.orphaned ?? []).map((entry) => ({
+      path: entry?.path,
+      reason: 'detectSpecDrift reports the generated document as orphaned: the current bundle no longer renders a document at this path',
+      fix: specFixes.orphaned,
+    })),
+  ]
+  for (const entry of specEntries) {
+    if (typeof entry.path !== 'string' || entry.path.length === 0) continue
+    needs.push({
+      kind: 'stale-spec',
+      id: entry.path,
+      title: `spec ${entry.path.split('/').pop()}`,
+      path: entry.path,
+      reason: entry.reason,
+      action: `no drafted correction exists \u2014 ${entry.fix}`,
+    })
+  }
+
+  // (5) The red gate, read from the persisted artifacts.
+  const red = redGateNeed(root, currentSpecHash)
+  if (red !== null) needs.push(red)
+
+  return needs
+}
+
+/**
+ * PURPOSE
  *   Build the complete view model the ADR panel window renders, from the ratchet's own
  *   functions. It is a composition of facts, never a second implementation: every force
  *   fact comes from `resolveActiveSet`, every queue fact from `ratificationQueue`, every
- *   spec fact from `compileProject`/`renderSpecs`/`detectSpecDrift`.
+ *   spec fact from `compileProject`/`renderSpecs`/`detectSpecDrift`, and the
+ *   needs-a-human set from `buildNeedsHuman`.
  *
  * INPUTS
  *   options — `{ root }` as described in this module's header.
@@ -242,6 +535,7 @@ export function deriveDecisions({ root } = {}) {
     queue: { ok: false, config: null, pending: [], blocked: [], problems: [] },
     specs: [],
     drift: { drifted: [], stale: [], missing: [], orphaned: [] },
+    needsHuman: [],
     problems: [],
   }
   if (typeof root !== 'string' || root.length === 0) {
@@ -334,6 +628,7 @@ export function deriveDecisions({ root } = {}) {
     queue,
     specs,
     drift,
+    needsHuman: buildNeedsHuman(root, viewRecords, queue, drift, compiled.report?.specHash ?? null),
     problems: dedupeProblems([...problems, ...(queue.problems ?? [])]),
   }
 }

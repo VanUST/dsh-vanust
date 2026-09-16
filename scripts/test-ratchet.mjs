@@ -4459,6 +4459,7 @@ test('FALSIFICATION: the instruction-routing rule has an enforcement point that 
     'scripts/dev-link.mjs',
     'scripts/test-ratchet.mjs',
     'scripts/check-portability.mjs',
+    'scripts/check-zone-coverage.mjs',
     'profile/cordis.patch.yml',
     'plugins/inventory.json',
     'plugins/kit-rules/kit-rules.mjs',
@@ -5289,6 +5290,248 @@ test('ratify: the queue reports what waits for a human and what cannot be ratifi
   assert.deepEqual(blocked.pending, [])
   assert.equal(blocked.blocked.length, 1)
   assert.match(blocked.blocked[0].reason, /humanOnly/)
+})
+
+test('ratify: a proposed record that removes law in force is blocked, and a ratify attempt mints nothing', () => {
+  // A proposed decision may work ahead of a ratification, but it may not take away what a
+  // human already put in force. The one decidable form of that — a record that removes an
+  // in-force law — is blocked rather than put to a human, and the block names the resolution
+  // that would lift it. The guard refuses writes for the same fact through the same
+  // `decidableContradictions`, so the two cannot disagree about one record.
+  const root = makeProject({
+    name: 'ratify-contradiction-remove',
+    zones: [{ id: 'tests', paths: ['tests/**'], agentAuthority: 'proposeOnly', requiresDecisionRecord: false }],
+    adrs: {
+      '0001-holder.adr.md': adrText({
+        id: '0001',
+        authority: 'human',
+        zones: ['tests'],
+        laws: [{ id: 'tests.one', statement: 'One.', checks: [] }],
+      }),
+      '0002-remover.adr.md': adrText({
+        id: '0002',
+        status: 'proposed',
+        authority: 'agent',
+        zones: ['tests'],
+        laws: [{ op: 'remove', id: 'tests.one' }],
+      }),
+    },
+  })
+
+  const queue = ops.ratifications(root)
+  assert.deepEqual(queue.pending, [], 'a record that takes away law in force is not offered to a human')
+  assert.deepEqual(queue.blocked.map((entry) => entry.id), ['0002'])
+  const reason = queue.blocked[0].reason
+  assert.match(reason, /contradicts law in force/, `reason must say what it is: ${reason}`)
+  assert.match(reason, /"tests\.one"/, 'reason names the conflicting law')
+  assert.match(reason, /ADR 0001/, 'reason names the record that holds it in force')
+  assert.match(reason, /resolves:/, 'reason names the resolution shape')
+  assert.match(reason, /op: remove/, 'reason names the op the resolution takes')
+  assert.match(reason, /ratchet_deduplicate/, 'with no draft on disk, the reason points at the drafter')
+
+  const before = readdirSync(join(root, 'docs', 'adrs')).length
+  const attempt = ops.ratify({ root, ids: ['0002'] })
+  assert.equal(attempt.ok, false, 'ratifying a blocked record is refused')
+  assert.ok(
+    attempt.problems.some((entry) => entry.code === 'ADR_FIELD_INVALID' && /contradicts law in force/.test(entry.message)),
+    `the refusal repeats the block and its resolution: ${JSON.stringify(attempt.problems.map((entry) => entry.message))}`,
+  )
+  assert.equal(readdirSync(join(root, 'docs', 'adrs')).length, before, 'the blocked record mints nothing')
+  assert.equal(ops.ratifications(root).pending.length, 0, 'and it is still not waiting')
+})
+
+test('ratify: the blocked reason names a drafted resolution when one exists', () => {
+  // The reason must be actionable. A `resolves` record that the compiler's own
+  // `validateResolutions` accepts is a RESOLUTION, so its `op: remove` is the fix rather than a
+  // second contradiction: it is offered for ratification and named in the blocked record's
+  // reason. A bogus `resolves` the compiler refuses buys no exemption, which the companion
+  // test below pins.
+  const root = makeProject({
+    name: 'ratify-contradiction-draft',
+    zones: [{ id: 'tests', paths: ['tests/**'], agentAuthority: 'proposeOnly', requiresDecisionRecord: false }],
+    adrs: {
+      '0001-holder.adr.md': adrText({
+        id: '0001',
+        authority: 'human',
+        zones: ['tests'],
+        laws: [{ id: 'tests.one', statement: 'One.', checks: [] }],
+      }),
+      '0002-rival.adr.md': adrText({
+        id: '0002',
+        status: 'proposed',
+        authority: 'agent',
+        zones: ['tests'],
+        laws: [{ id: 'tests.one', statement: 'Different.', checks: [] }],
+      }),
+      '0003-draft.adr.md': adrText({
+        id: '0003',
+        status: 'proposed',
+        authority: 'agent',
+        zones: ['tests'],
+        resolves: ['0001', '0002'],
+        laws: [{ op: 'remove', id: 'tests.one' }],
+      }),
+    },
+  })
+
+  const queue = ops.ratifications(root)
+  assert.deepEqual(queue.blocked.map((entry) => entry.id), ['0002'])
+  assert.match(queue.blocked[0].reason, /contradicts law in force/)
+  assert.match(queue.blocked[0].reason, /ADR 0003/, 'the reason names the drafted resolution')
+  assert.deepEqual(queue.pending.map((entry) => entry.id), ['0003'], 'and the audited resolution is offered, not blocked')
+
+  // A `resolves` list the compiler refuses is not an exemption: the record is still a removal of
+  // law in force, and the block stands.
+  const bogus = makeProject({
+    name: 'ratify-contradiction-bogus-draft',
+    zones: [{ id: 'tests', paths: ['tests/**'], agentAuthority: 'proposeOnly', requiresDecisionRecord: false }],
+    adrs: {
+      '0001-holder.adr.md': adrText({
+        id: '0001',
+        authority: 'human',
+        zones: ['tests'],
+        laws: [{ id: 'tests.one', statement: 'One.', checks: [] }],
+      }),
+      '0002-bogus.adr.md': adrText({
+        id: '0002',
+        status: 'proposed',
+        authority: 'agent',
+        zones: ['tests'],
+        resolves: ['0001', '0099'],
+        laws: [{ op: 'remove', id: 'tests.one' }],
+      }),
+    },
+  })
+  const bogusQueue = ops.ratifications(bogus)
+  assert.deepEqual(bogusQueue.pending, [], 'a bogus resolves does not make the removal ratifiable')
+  assert.deepEqual(bogusQueue.blocked.map((entry) => entry.id), ['0002'])
+  assert.ok(
+    compile(bogus).codes.includes('ADR_RESOLVES_DANGLING'),
+    `the compiler refuses the bogus resolves: ${JSON.stringify(compile(bogus).codes)}`,
+  )
+
+  // A `resolves` list whose FORM the schema refuses — here three ids — is the same story even
+  // when every id it names exists, so the audit's rejection is not only about dangling targets.
+  const formBogus = makeProject({
+    name: 'ratify-contradiction-form-bogus',
+    zones: [{ id: 'tests', paths: ['tests/**'], agentAuthority: 'proposeOnly', requiresDecisionRecord: false }],
+    adrs: {
+      '0001-holder.adr.md': adrText({
+        id: '0001',
+        authority: 'human',
+        zones: ['tests'],
+        laws: [{ id: 'tests.one', statement: 'One.', checks: [] }],
+      }),
+      '0002-other.adr.md': adrText({
+        id: '0002',
+        authority: 'human',
+        zones: ['tests'],
+        laws: [{ id: 'tests.two', statement: 'Two.', checks: [] }],
+      }),
+      '0003-three.adr.md': adrText({
+        id: '0003',
+        status: 'proposed',
+        authority: 'agent',
+        zones: ['tests'],
+        resolves: ['0001', '0002', '0003'],
+        laws: [{ op: 'remove', id: 'tests.one' }],
+      }),
+    },
+  })
+  const formQueue = ops.ratifications(formBogus)
+  assert.deepEqual(formQueue.pending, [], 'a three-sided resolves is not a resolution')
+  assert.deepEqual(formQueue.blocked.map((entry) => entry.id), ['0003'])
+  assert.ok(
+    compile(formBogus).codes.includes('ADR_RESOLVES_INVALID'),
+    `the schema refuses the three-sided resolves: ${JSON.stringify(compile(formBogus).codes)}`,
+  )
+})
+
+test('ratify: a record that redeclares law in force is blocked until a resolution retires it', () => {
+  // The end-to-end claim of §3.2: the block is real, the fix is a resolution that takes the
+  // conflicting record out of force, and once it is in force the block lifts by itself and the
+  // record ratifies. Superseding the holder is the shape that retires the law without the
+  // process-order hazard a bare `op: remove` would leave behind.
+  const root = makeProject({
+    name: 'ratify-contradiction-resolution',
+    zones: [{ id: 'tests', paths: ['tests/**'], agentAuthority: 'proposeOnly', requiresDecisionRecord: false }],
+    adrs: {
+      '0001-holder.adr.md': adrText({
+        id: '0001',
+        authority: 'human',
+        zones: ['tests'],
+        laws: [{ id: 'tests.one', statement: 'One.', checks: [] }],
+      }),
+      '0002-rival.adr.md': adrText({
+        id: '0002',
+        status: 'proposed',
+        authority: 'agent',
+        zones: ['tests'],
+        laws: [{ id: 'tests.one', statement: 'Different.', checks: [] }],
+      }),
+      '0003-other.adr.md': adrText({
+        id: '0003',
+        authority: 'human',
+        zones: ['tests'],
+        laws: [{ id: 'tests.two', statement: 'Two.', checks: [] }],
+      }),
+    },
+  })
+
+  const blockedQueue = ops.ratifications(root)
+  assert.deepEqual(blockedQueue.pending, [])
+  assert.deepEqual(blockedQueue.blocked.map((entry) => entry.id), ['0002'])
+  assert.match(blockedQueue.blocked[0].reason, /redeclares "tests\.one"/, blockedQueue.blocked[0].reason)
+  assert.match(blockedQueue.blocked[0].reason, /ADR 0001/, 'the holder is named')
+
+  // The resolution supersedes the holder. It is offered for ratification — a resolution is the
+  // fix, not a second record that contradicts law in force — while the rival stays blocked.
+  writeFileSync(
+    join(root, 'docs', 'adrs', '0004-resolution.adr.md'),
+    adrText({
+      id: '0004',
+      status: 'proposed',
+      authority: 'agent',
+      zones: ['tests'],
+      supersedes: ['0001'],
+      resolves: ['0001', '0003'],
+      laws: [],
+    }),
+  )
+  const withResolution = ops.ratifications(root)
+  assert.deepEqual(withResolution.pending.map((entry) => entry.id), ['0004'], 'the resolution is offered, not blocked')
+  assert.deepEqual(withResolution.blocked.map((entry) => entry.id), ['0002'], 'the rival stays blocked while it is only proposed')
+
+  const prepared = ops.ratify({ root, ids: ['0004'] })
+  const minted = ops.ratify({
+    root,
+    ids: ['0004'],
+    answer: answerWith(prepared.quiz, ['Approve']),
+    quiz: prepared.quiz,
+    at: '2026-09-14T10:00:00Z',
+  })
+  assert.deepEqual(minted.ratified, ['0004'], `the resolution ratifies: ${JSON.stringify(minted.problems.map((entry) => entry.code))}`)
+
+  // The retired holder has to say so; that is the retirement rule, not this one.
+  const holderPath = join(root, 'docs', 'adrs', '0001-holder.adr.md')
+  writeFileSync(holderPath, readFileSync(holderPath, 'utf8').replace(/^status: active$/m, 'status: superseded'))
+
+  const lifted = ops.ratifications(root)
+  assert.deepEqual(lifted.blocked, [], 'retiring the conflicting law lifts the block with no state to clear')
+  assert.deepEqual(lifted.pending.map((entry) => entry.id), ['0002'])
+
+  const after = ops.ratify({ root, ids: ['0002'] })
+  const ratified = ops.ratify({
+    root,
+    ids: ['0002'],
+    answer: answerWith(after.quiz, ['Approve']),
+    quiz: after.quiz,
+    at: '2026-09-14T11:00:00Z',
+  })
+  assert.deepEqual(ratified.ratified, ['0002'])
+  const compiled = compile(root)
+  assert.ok(compiled.laws.includes('tests.one'), 'the surviving decision now declares the law')
+  assert.deepEqual(compiled.codes, [], `the corpus compiles clean, got ${JSON.stringify(compiled.codes)}`)
 })
 
 test('ratify: asking about an id that is not waiting is reported, not ignored', () => {

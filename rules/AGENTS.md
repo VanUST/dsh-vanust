@@ -18,6 +18,65 @@ file IS the procedure for this work, and it is installed on every machine this d
 touches. `USERGUIDE.md` in the kit repository is a human's copy of the same material and
 is not required reading.
 
+## 0a. Using this kit, and how a project is organised against the ratchet
+
+The kit repository is the source of truth for this deployment; `$DSH_HOME` is the live
+profile projected from it. Before changing the kit, read its `LIMITATIONS.md` (the current
+state, what is red and why, and the limits of the mechanisms), then `AGENTS.md` (the
+artifact table and the hard rules). `context_rules` answers which rules a project claims
+and the command that fails when each is broken; `context_specs` lists the work orders in
+flight.
+
+Operating the deployment: `node <kit>/scripts/kit-update.mjs --check --fetch --json`
+reports drift and `--apply` converges the machine (profile files, tarballs, rules, pinned
+harness). `node <kit>/scripts/dev-link.mjs` is the one-time link the kit's own gate needs.
+`bash <kit>/scripts/verify-upgrade.sh` is the release gate — never touch a live profile
+without a PASS, and never upgrade the harness outside it.
+
+A project is organised against the ratchet like this:
+
+- `.dsh/project.json` — the project's self-declaration: `languages`; `verification` (each
+  command with an `id`, the `path` it covers and its purpose); `rules` (each naming an
+  `enforcedBy.command` that is one of those ids); `scopes` (the resolvers a work order may
+  cite); and `ratchet`: `enabled`, `decisionsDir`, `sourcesDir`, `specsDir`, the `zones`
+  table, `defaultAgentAuthority`, `mainPaths`, `specsRequired`. The state and report
+  directories are fixed, not configurable.
+- `docs/adrs/NNNN-slug.adr.md` — one decision. Frontmatter: `id`, `title`, `type` (`adr`
+  or `approval`), `status`, `author` (`authority: human` or `agent`), `zones`,
+  `supersedes`/`approves`/`resolves`, `source` (a path plus the sha256 of the reasoning),
+  and `laws` — each an `op: upsert` or `op: remove`, a `statement`, and either `checks`
+  (command, required_text, forbidden_text, required_file, forbidden_file, required_glob,
+  forbidden_glob, dependency, path_boundary) or an `unenforced` note saying why nothing can
+  check it. A law may be bound to several zones.
+- `docs/ratchet/sources/` — the reasoning a record cites, content-hashed. A source a
+  RATIFIED record cites is append-only: new reasoning needs its own source and an
+  amendment, never an edit.
+- `docs/specs/` — the generated law cards. Never hand-edit one; regenerate with
+  `ratchet compile --write`.
+- `.dsh/ratchet/` — machine-written state (`specs.json`, `state.json`, `ledger.jsonl`,
+  `contradiction.json`); `reports/ratchet/` — the compile, verify and review reports. The
+  ledger is append-only and is where a verdict and a judge's block are read from.
+
+Zones carry the authority: `humanOnly` (only a human-authored record puts law in force
+there), `proposeOnly` (a human must ratify), `activeIfNoConflict` (an agent record may
+self-activate). `requiresDecisionRecord: true` makes the write guard refuse a write in that
+zone until a record — in force or proposed — names it. A zone id is a filename
+(`[A-Za-z0-9_-]`), and one shared matcher decides membership.
+
+The lifecycle: an agent writes a `status: proposed` record, runs `ratchet compile` and
+`ratchet verify`, and a human puts it in force by answering the ratchet's own question
+(`ratchet_ratify`, or Approve/Decline in the ADR window). A ratified record and the source
+it cites are frozen — editing either voids the consent (`RATIFICATION_STALE`) and the law
+leaves force; a change ships as an amendment that removes the old law id and restates it
+under a new one. `op: remove` retires a law, `supersedes` retires a record, and `resolves`
+names the records a resolution settles. Only a human may set `authority: human` or answer
+a ratification question: never write either yourself, and never hand-write an approval.
+
+The commands are `ratchet compile [--write]`, `verify`, `status`, `pending`, `falsify` and
+`bootstrap`, plus the `ratchet_*` tools. A rule is real only where a command fails: every
+law's check must be hermetic (no live webserver, port or nested process — those belong in
+`verify-upgrade.sh`), and `ratchet falsify` proves a check can fail.
+
 ## 1. Log-Driven Development (LDD)
 Logs are the absolute source of truth for the system's state. You must rely exclusively on log outputs to determine task completion, identify bugs, and validate optimizations.
 After each code change - don't forget to change the docs.

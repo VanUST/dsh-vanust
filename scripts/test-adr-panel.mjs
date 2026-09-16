@@ -358,8 +358,13 @@ claim('the overlay renders over the real corpus', first.ok, first.ok ? undefined
 const texts = nodes.map((node) => node.text)
 const headings = nodes.filter((node) => node.tag === 'h3').map((node) => node.text)
 claim(
+  'the needs-a-human section leads the window',
+  headings[0] === 'Needs a human',
+  JSON.stringify(headings),
+)
+claim(
   'the section headings are the reader-facing three',
-  JSON.stringify(headings) === JSON.stringify(['Decisions', 'Consents', 'Specs']),
+  JSON.stringify(headings.filter((title) => title !== 'Needs a human')) === JSON.stringify(['Decisions', 'Consents', 'Specs']),
   JSON.stringify(headings),
 )
 // The header chip is the only way a reader tells a stale client bundle from a bug, so
@@ -1301,20 +1306,26 @@ claim(
 // A decision the ratchet has no question for must be REPORTED and must send no answer: the
 // click cannot silently turn into a confirmation of something that did not happen.
 const refuseCalls = []
+// The ratchet's refusal carries a problem with the code AND the message; the window must show
+// the message, not only that something was refused, or the reader is sent to the CLI for the
+// reason the window exists to give them.
+const refuseProblemText = 'the record contradicts law "api.one" held by ADR 0001; a resolution is needed'
 consentHostHandler = (call) => {
   refuseCalls.push(call)
-  return { status: 200, body: { ok: false, nothingToRatify: true, message: 'ADR 0017 is not waiting for a human', problems: [], pending: [], blocked: [] } }
+  return { status: 200, body: { ok: false, nothingToRatify: true, message: 'ADR 0017 is not waiting for a human', problems: [{ code: 'RATIFICATION_UNPROVEN', message: refuseProblemText }], pending: [], blocked: [] } }
 }
 const refuseButtons = await renderRows('consent-row-refuse')
 const refuseApprove = refuseButtons.find((node) => node.text === 'Approve')
 if (refuseApprove !== undefined) refuseApprove.props.onClick()
 await new Promise((resolveTick) => setTimeout(resolveTick, 20))
 await settleRender('consent-row-refuse')
+const refuseTexts = nodes.map((node) => node.text)
 claim(
-  'a decision the ratchet has no question for is reported, and no answer is sent',
+  'a decision the ratchet has no question for is reported, with the ratchet\'s own reason, and no answer is sent',
   refuseCalls.length === 1 &&
     refuseCalls[0].method === 'GET' &&
-    nodes.map((node) => node.text).some((text) => typeof text === 'string' && text.includes('not waiting for a human')),
+    refuseTexts.some((text) => typeof text === 'string' && text.includes('not waiting for a human')) &&
+    refuseTexts.some((text) => typeof text === 'string' && text.includes(refuseProblemText)),
   JSON.stringify(refuseCalls.map((call) => call.method)),
 )
 
@@ -1474,6 +1485,7 @@ const ratificationLines = (targets, { channel = 'user-question' } = {}) => [
 
 /** One ADR file body, with the frontmatter shape the ratchet's parser requires. */
 const fixtureAdr = (id, options = {}) => {
+  const laws = options.laws ?? []
   const lines = [
     '---',
     `id: ${JSON.stringify(id)}`,
@@ -1486,19 +1498,31 @@ const fixtureAdr = (id, options = {}) => {
     'created: 2026-09-15',
     'source:',
     '  kind: file',
-    '  path: docs/ratchet/sources/fixture.md',
-    `  hash: sha256:${'0'.repeat(64)}`,
+    `  path: ${options.sourcePath ?? 'docs/ratchet/sources/fixture.md'}`,
+    `  hash: ${options.sourceHash ?? `sha256:${'0'.repeat(64)}`}`,
     ...yamlList('zones', options.zones ?? [], options.flowZones === true),
     ...yamlList('supersedes', options.supersedes ?? []),
     ...yamlList('approves', options.approves ?? []),
-    'laws: []',
+    ...(laws.length === 0
+      ? ['laws: []']
+      : [
+          'laws:',
+          ...laws.flatMap((law) => ['  - op: upsert', `    id: ${law.id}`, `    statement: ${law.statement}`, '    checks: []']),
+        ]),
     ...(options.ratification === undefined || options.ratification === null ? [] : ratificationLines(options.ratification)),
     '---',
     '',
     '## Context',
     'fixture',
     '',
+    '## Decision',
     options.body ?? 'fixture body',
+    '',
+    '## Reasoning',
+    'a fixture decides a fixture',
+    '',
+    '## Consequences',
+    'nothing outside the fixture changes',
     '',
   ]
   return lines.join('\n')
@@ -1883,6 +1907,115 @@ claim(
   stateCalls > 0,
   `stateCalls=${stateCalls}`,
 )
+
+// ── the "Needs a human" entry point ─────────────────────────────────────────
+//
+// LIMITATIONS §3.3: the ratchet derives ONE set of things a human must settle and the
+// window shows it as the developer's entry point. This measures the RENDERED set against
+// the ratchet's OWN `needsHuman` — the service is run over the materialised fixture, and
+// the panel is rendered over the same files through the state route whose stub calls the
+// real `deriveDecisions`. Nothing here is an object the test invented: if a derivation
+// stops producing a kind, the service's set shrinks and this claim fails.
+const NEEDS_KINDS = ['consent', 'contradiction', 'duplicate', 'stale-spec', 'red-gate']
+const isNeedsPill = (node) => isPillNode(node) && /^(consent|contradiction|duplicate|stale-spec|red-gate) /.test(node.text)
+
+// A fixture with one of each kind. 0001 is a human decision in force whose law is the
+// contradiction's target and the duplicate's keeper; 0002 is a proposal waiting for a
+// human; 0003 redeclares 0001's law id with a different statement (the guard's decidable
+// contradiction) and is itself waiting; 0004 is a later record declaring the same law
+// STATEMENT under a different id (the duplicate rule); the generated spec for the one law
+// in force is absent (drift `missing`); and a persisted verify report records a problem
+// (the red gate). Every source file exists and is hashed, so `draftResolutions` drafts.
+const needsZone = [{ id: 'z', paths: ['src/**'], agentAuthority: 'proposeOnly', requiresDecisionRecord: true }]
+const needsSources = {}
+const needsFiles = { '.dsh/project.json': fixtureManifest(needsZone, 'proposeOnly') }
+for (const id of ['0001', '0002', '0003', '0004']) {
+  const text = `# reasoning for ${id}\n`
+  const sourcePath = `docs/ratchet/sources/${id}.md`
+  needsSources[id] = { sourcePath, sourceHash: hashSource(text) }
+  needsFiles[sourcePath] = text
+}
+needsFiles['docs/adrs/0001-fixture-0001.adr.md'] = fixtureAdr('0001', { status: 'active', authority: 'human', zones: ['z'], laws: [{ id: 'law.shared', statement: 'Alpha' }], ...needsSources['0001'] })
+needsFiles['docs/adrs/0002-fixture-0002.adr.md'] = fixtureAdr('0002', { status: 'proposed', authority: 'agent', zones: ['z'], laws: [{ id: 'law.other', statement: 'Beta' }], ...needsSources['0002'] })
+needsFiles['docs/adrs/0003-fixture-0003.adr.md'] = fixtureAdr('0003', { status: 'proposed', authority: 'agent', zones: ['z'], laws: [{ id: 'law.shared', statement: 'Gamma' }], ...needsSources['0003'] })
+needsFiles['docs/adrs/0004-fixture-0004.adr.md'] = fixtureAdr('0004', { status: 'active', authority: 'agent', zones: ['z'], laws: [{ id: 'law.dup', statement: 'Alpha' }], ...needsSources['0004'] })
+needsFiles['reports/ratchet/verify-report.json'] = `${JSON.stringify({ generatedAt: '2026-09-15T00:00:00.000Z', problems: [{ code: 'FIXTURE_RED', severity: 'error', lawId: 'law.shared', message: 'the fixture records a red gate' }] }, null, 2)}\n`
+{
+  const needsRoot = materialise(needsFiles)
+  const previousRoot = stateRoot
+  stateRoot = needsRoot
+  try {
+    const serviceNeeds = stateModule.deriveDecisions({ root: needsRoot }).needsHuman
+    const rendered = await renderOverlay('needs')
+    claim('the overlay renders the needs-a-human fixture', rendered.ok, rendered.ok ? undefined : rendered.error)
+    const renderedNeeds = nodes.filter(isNeedsPill).map((node) => node.text).sort()
+    const serviceKeys = serviceNeeds.map((entry) => `${entry.kind} ${entry.id}`).sort()
+    claim(
+      "the rendered \"Needs a human\" set equals the ratchet's own needsHuman",
+      serviceKeys.length > 0 && JSON.stringify(renderedNeeds) === JSON.stringify(serviceKeys),
+      `rendered=${JSON.stringify(renderedNeeds)} service=${JSON.stringify(serviceKeys)}`,
+    )
+    const kinds = [...new Set(serviceNeeds.map((entry) => entry.kind))].sort()
+    claim(
+      'the fixture exercises every needs-human kind',
+      JSON.stringify(kinds) === JSON.stringify([...NEEDS_KINDS].sort()),
+      JSON.stringify(kinds),
+    )
+    const unrendered = []
+    for (const entry of serviceNeeds) {
+      if (!nodes.some((node) => node.text === entry.reason)) unrendered.push(`reason of ${entry.kind} ${entry.id}`)
+      if (!nodes.some((node) => node.text === entry.action)) unrendered.push(`action of ${entry.kind} ${entry.id}`)
+    }
+    claim(
+      "every needs-human entry renders the ratchet's own reason and action",
+      unrendered.length === 0,
+      unrendered.join(' | '),
+    )
+    const loaded = await panelOverFiles(needsFiles)
+    claim(
+      "the panel passes the ratchet's needsHuman set through unchanged",
+      JSON.stringify(loaded.needsHuman) === JSON.stringify(serviceNeeds),
+      `panel=${JSON.stringify(loaded.needsHuman)} service=${JSON.stringify(serviceNeeds)}`,
+    )
+  } finally {
+    stateRoot = previousRoot
+    rmSync(needsRoot, { recursive: true, force: true })
+  }
+}
+
+// The empty state is a real state, and it must be SHOWN: a corpus with nothing waiting,
+// nothing contradicting, nothing duplicated, no drift and no recorded red verdict renders
+// the section's own empty line, never a hidden section. The ratchet's own set is the
+// requirement, so the claim is that it is empty AND the window says so.
+{
+  const emptyZone = [{ id: 'z', paths: ['src/**'], agentAuthority: 'activeIfNoConflict', requiresDecisionRecord: true }]
+  const emptyText = '# reasoning\n'
+  const emptyFiles = {
+    '.dsh/project.json': fixtureManifest(emptyZone, 'activeIfNoConflict'),
+    'docs/ratchet/sources/0001.md': emptyText,
+    'docs/adrs/0001-fixture-0001.adr.md': fixtureAdr('0001', { status: 'active', authority: 'human', zones: ['z'], sourcePath: 'docs/ratchet/sources/0001.md', sourceHash: hashSource(emptyText) }),
+  }
+  const emptyRoot = materialise(emptyFiles)
+  const previousRoot = stateRoot
+  stateRoot = emptyRoot
+  try {
+    const serviceEmpty = stateModule.deriveDecisions({ root: emptyRoot }).needsHuman
+    claim('the ratchet reports nothing needs a human on a settled corpus', Array.isArray(serviceEmpty) && serviceEmpty.length === 0, JSON.stringify(serviceEmpty))
+    const rendered = await renderOverlay('needs-empty')
+    claim('the overlay renders the empty needs-a-human fixture', rendered.ok, rendered.ok ? undefined : rendered.error)
+    const emptyStateShown = nodes.some((node) => typeof node.text === 'string' && /^Nothing needs a human/.test(node.text))
+    const needsPills = nodes.filter(isNeedsPill).length
+    const sectionPresent = nodes.some((node) => node.tag === 'h3' && node.text === 'Needs a human')
+    claim(
+      'an empty needs-a-human set is a clear empty state, not a hidden section',
+      sectionPresent && emptyStateShown && needsPills === 0,
+      `heading=${sectionPresent} emptyState=${emptyStateShown} pills=${needsPills}`,
+    )
+  } finally {
+    stateRoot = previousRoot
+    rmSync(emptyRoot, { recursive: true, force: true })
+  }
+}
 
 // ── an unreachable state route is SAID, not worked around ───────────────────
 // The window must never fall back to a derivation of its own. With the state capability

@@ -71,6 +71,9 @@ Both were enforced by tests and by the validator but were **not laws**. They are
    consents waiting, contradictions with their drafted resolutions, duplicates with their drafted
    merges, stale detection, a red gate.
 4. **A stale specification is reported with a drafted withdrawal note and never blocks the gate.**
+   Decided 2026-09-16: only the hash-behind kind becomes advisory — a hand-edited, missing or
+   orphaned document still blocks — which needs an amendment to ADR 0012 (its law is in force as
+   `shipped-plugins.specs-cannot-drift-silently`). Not yet landed.
 
 The fifth decision, **`scripts/verify-upgrade.sh` runs `ratchet verify` and `falsify`**, landed
 2026-09-16: the release gate now runs both, and it treats a documented, self-describing `[SKIP]` as
@@ -98,12 +101,15 @@ the skip it is while still failing on a `[FAIL]`, an unknown skip, or a missing 
 - **The consent residual gap, unchanged:** a hand-written approval reproducing the ratification block,
   or one word of frontmatter (`authority: human`), is indistinguishable from a genuine one. Never
   forge either; see hard rule 12.
-- **The kit's zone coverage is measured, and the rule is a governance call.** 92 of 174 tracked paths
-  are owned by no zone: `docs/` 78, the 10 root-level meta files, `.dsh/` 4. They are not ungoverned —
-  they fall to `ratchet.defaultAgentAuthority`, which is `proposeOnly` — but they are not explicitly
-  zoned. A failing coverage command needs a decision: introduce a `docs` zone (and with what
-  authority), or state an exemption list for the generated and meta paths. That is a human call, not
-  an agent one.
+- **The kit's zone coverage is now a rule with a failing command, and its exceptions are explicit.**
+  122 of 205 tracked paths are owned by no zone: `docs/`, the root meta files, `.dsh/`, `.reasonix/`.
+  They are not code and are already governed by a rule of their own — the write guard exempts the
+  ratchet's record, source and state directories, and reports are generated — so they are named
+  explicitly in `.dsh/project.json`'s `zoneCoverage.exceptions` instead of being left to fall to the
+  default authority unnamed. `scripts/check-zone-coverage.mjs` fails with `ZONE_COVERAGE_GAP` on any
+  tracked path that is neither zoned nor excepted, so a NEW file outside every zone fails until it is
+  placed. It uses the same `zonePathCovers` matcher as the guard, and exits 2 when the work tree
+  cannot be read rather than reporting a pass.
 
 ## 5. Platform facts that explain surprising behaviour
 
@@ -128,4 +134,5 @@ the skip it is while still failing on a `[FAIL]`, an unknown skip, or a missing 
    panel 0.1.24): the `ratchetDecisions` service and the `/adr-panel/state` route; the panel's
    derivation deleted.
 4. Then §3.2–§3.4 in the order they are listed.
-5. Then §4's zone-coverage decision, which needs a human call.
+5. §4's zone-coverage rule is landed: `scripts/check-zone-coverage.mjs` plus the manifest's explicit
+   `zoneCoverage.exceptions`, wired into `verify-upgrade.sh`.

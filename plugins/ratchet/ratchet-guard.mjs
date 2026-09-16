@@ -53,7 +53,7 @@
 import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { MANIFEST_PATH, zoneFor } from './ratchet-schema.mjs'
-import { compileLaws, readAdrCorpus, readManifest, resolveActiveSet } from './ratchet-compiler.mjs'
+import { auditedResolutions, compileLaws, decidableContradictions, readAdrCorpus, readManifest, resolveActiveSet } from './ratchet-compiler.mjs'
 import { CONTRADICTION_PATH, blockedZones, standingContradictions } from './ratchet-contradiction.mjs'
 import { STATE_PATHS } from './ratchet-state.mjs'
 
@@ -304,35 +304,24 @@ export function loadDecisionState(root) {
     for (const zone of record.zones ?? []) zonesWithRecords.add(zone)
   }
   const compiled = compiledForContradiction
-  const inForceLaws = new Map(
-    compiled.bundle.laws.map((law) => [law.id, { statement: law.statement, sourceAdr: law.sourceAdr }]),
-  )
+  // The ids whose `resolves` list the compiler accepted. Only those records may have an `op:
+  // remove` treated as a resolution rather than a contradiction; a bogus `resolves` the compiler
+  // refuses buys no exemption (`auditedResolutions`).
+  const resolutions = auditedResolutions(corpus.records, {
+    active: resolved.active,
+    removedByDecision: compiled.removedByDecision,
+    problems: corpus.problems,
+  })
 
   // (2) and (3), from the records a human has not decided yet.
   const licenceByZone = new Map()
   const conflictsByZone = new Map()
   const authorityByZone = new Map((config.zones ?? []).map((zone) => [zone.id, zone.agentAuthority ?? config.defaultAgentAuthority]))
   for (const record of resolved.proposed) {
-    const conflicts = []
-    for (const law of record.laws ?? []) {
-      const existing = inForceLaws.get(law.id)
-      if (existing === undefined) continue
-      if (law.op === 'remove') {
-        conflicts.push({
-          adrId: record.id,
-          path: record.path,
-          lawId: law.id,
-          why: `it removes law "${law.id}", which ${existing.sourceAdr} put in force`,
-        })
-      } else if (existing.statement !== law.statement) {
-        conflicts.push({
-          adrId: record.id,
-          path: record.path,
-          lawId: law.id,
-          why: `it redeclares law "${law.id}" as ${JSON.stringify(law.statement)}, where ${existing.sourceAdr} put ${JSON.stringify(existing.statement)} in force`,
-        })
-      }
-    }
+    // The one decidable contradiction, computed by the compiler and shared with the
+    // ratification queue. Reading it here rather than comparing laws again is what keeps the
+    // guard's refusal and the queue's blocked reason from disagreeing about the same record.
+    const conflicts = decidableContradictions(record, compiled.bundle.laws, { resolutions })
     const zones = record.zones ?? []
     if (conflicts.length > 0) {
       // A proposal that contradicts law in force stops writes in the zones it names,

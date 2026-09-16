@@ -488,6 +488,32 @@ const after = codeHashFor(hashRoot, listFiles(hashRoot))
 claim('the code hash is stable over an unchanged tree', before === stable, `${before} / ${stable}`)
 claim('the code hash changes when a file changes', before !== after, `${before} / ${after}`)
 
+// 10b. The code hash is BOUNDED. It runs on the event loop of whatever process called it, and
+//      `ratchet_verify` and `ratchet_status` run IN the harness process: hashing every file in
+//      full froze the whole session on a 43 GiB tree (about 70 s of synchronous reads, two GUI
+//      windows dead). A file above the cap contributes its path and size, not its bytes, so the
+//      hash stays cheap and deterministic; a small-file change still moves it.
+{
+  const boundedRoot = project(
+    'code-hash-bounded',
+    { laws: law({ checks: [{ type: 'required_file', path: 'src/small.ts' }] }) },
+    { files: { 'src/small.ts': 'export const a = 1\n' } },
+  )
+  const bigPath = join(boundedRoot, 'src', 'big.bin')
+  writeFileSync(bigPath, Buffer.alloc(3 * 1024 * 1024, 1))
+  const bigBefore = codeHashFor(boundedRoot, listFiles(boundedRoot))
+  writeFileSync(bigPath, Buffer.alloc(3 * 1024 * 1024, 2))
+  const bigAfter = codeHashFor(boundedRoot, listFiles(boundedRoot))
+  writeFileSync(join(boundedRoot, 'src', 'small.ts'), 'export const a = 2\n')
+  const smallAfter = codeHashFor(boundedRoot, listFiles(boundedRoot))
+  claim(
+    'the code hash does not read a file above its cap',
+    bigBefore === bigAfter,
+    `a same-size change to the large file moved the hash: ${bigBefore} / ${bigAfter}`,
+  )
+  claim('the code hash still moves when a small file changes', bigAfter !== smallAfter, 'a small-file change was missed')
+}
+
 // 11. A ratification is a claim about a TEXT, not a title. A ratified record is in
 //     force only while its file still hashes to what the approval recorded, and
 //     editing it voids the consent instead of inheriting it. This is the behavioural

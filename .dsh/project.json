@@ -128,6 +128,14 @@
       "enforcedBy": {
         "command": "adr-panel-render"
       }
+    },
+    {
+      "id": "zones-cover-the-tree",
+      "statement": "Every tracked path belongs to a declared zone or to an explicitly declared exception, so no file is governed by the manifest default authority by accident.",
+      "statedIn": "AGENTS.md",
+      "enforcedBy": {
+        "command": "zone-coverage"
+      }
     }
   ],
   "verification": [
@@ -214,6 +222,12 @@
       "command": "node scripts/falsify-kit-gate.mjs",
       "purpose": "the breaker at release-gate scope: break one kit invariant at a time and require the real gate to fail, six cases, each verified to have broken something first",
       "path": "scripts/falsify-kit-gate.mjs"
+    },
+    {
+      "id": "zone-coverage",
+      "command": "node scripts/check-zone-coverage.mjs --root .",
+      "purpose": "zone coverage: every tracked path belongs to a declared zone or an explicitly declared exception; an unplaced path fails with ZONE_COVERAGE_GAP, and a missing work tree is unusable rather than a pass",
+      "path": "scripts/check-zone-coverage.mjs"
     }
   ],
   "scopes": [
@@ -242,6 +256,25 @@
       "root": "profile"
     }
   ],
+  "zoneCoverage": {
+    "note": "Paths that are not code and are already governed by a rule of their own: the ratchet record, source and state directories (the write guard exempts them and the ratchet owns them), the documentation and decision corpus, generated reports, tool metadata, and the repository root meta files. They are listed explicitly so a NEW tracked path outside every zone fails until it is zoned or placed here with a reason.",
+    "exceptions": [
+      ".dsh/**",
+      ".reasonix/**",
+      "docs/**",
+      "reports/**",
+      ".gitattributes",
+      ".gitignore",
+      "AGENTS.md",
+      "COMPAT.md",
+      "LICENSE",
+      "LIMITATIONS.md",
+      "NOTICE",
+      "README.md",
+      "REVIEW.md",
+      "USERGUIDE.md"
+    ]
+  },
   "ratchet": {
     "enabled": true,
     "decisionsDir": "docs/adrs",

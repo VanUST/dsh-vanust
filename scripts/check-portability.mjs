@@ -108,11 +108,11 @@ const CHECKS = [
     pattern: /^\s*(?:const|let|var|[A-Za-z_$][\w$]*\s*=)?\s*[^/*]*execFileSync\(\s*['"](npm|pnpm|bash|sh|git)['"]/,
     why: 'a bare binary name is not resolvable by execFileSync; resolve the CLI entry instead',
     paths: ['plugins/ratchet', 'scripts'],
-    // Exempt because this checker's own `git check-attr` call is a deliberate
-    // exception: git is a prerequisite for having a checkout at all, so it cannot
-    // be "unavailable on Linux" the way npm is unresolvable on Windows.
-    allow: ['scripts/check-portability.mjs'],
-    allowReason: 'git is required to have a checkout; unlike npm it is on PATH everywhere the kit runs',
+    // Exempt because these two spawns are deliberate: git is a prerequisite for having a checkout
+    // at all, so it cannot be "unavailable on Linux" the way npm is unresolvable on Windows.
+    allow: ['scripts/check-portability.mjs', 'scripts/check-zone-coverage.mjs'],
+    allowReason:
+      'git is required to have a checkout, and check-zone-coverage.mjs reads the tracked set from it; unlike npm it is on PATH everywhere the kit runs, and without it that command exits UNUSABLE rather than reporting a pass',
   },
   {
     id: 'no-crlf-in-sources',

@@ -865,6 +865,88 @@ export function compileLaws(active, config) {
 }
 
 /**
+ * The DECIDABLE contradictions between one record NOT in force and the law in force.
+ *
+ * This is the single computation the write guard (`ratchet-guard.mjs`) and the ratification
+ * queue (`ratchet-ratify.mjs`) both use to answer "does this not-in-force record take away or
+ * rewrite what is already law?". It lives beside `compileLaws`, because it is a comparison
+ * against the COMPILED law set: a second reading of `op: remove` or of a record's law
+ * statements would drift from what "in force" means, so callers must pass
+ * `compileLaws(resolved.active, config).bundle.laws`.
+ *
+ * Two shapes are decidable from the files alone, and both are reported:
+ *
+ *   1. the record removes a law in force (`op: remove`);
+ *   2. the record redeclares a law in force with a DIFFERENT statement.
+ *
+ * A record that declares `resolves` is a RESOLUTION, and its `op: remove` is the mechanism such a
+ * record exists for rather than a contradiction: treating its own retirement as a contradiction
+ * would block the very fix a refusal names. The exemption is NOT taken on the record's word. It
+ * requires BOTH that `auditedResolutions` accepted the record — the compiler's own
+ * `validateResolutions` reported no problem for it, so a bogus `resolves` the compiler already
+ * refuses buys nothing — AND that the `resolves` list names the record that holds the law being
+ * removed, which is the shape a resolution must have. A record with no accepted resolution, or
+ * one whose list names neither side of the law it removes, is still reported. Upserts are always
+ * compared, so a resolution cannot quietly redeclare an in-force law under cover of a settlement.
+ *
+ * Nothing here judges MEANING. A change that satisfies the written law while inverting what the
+ * decision was for is a judge's finding (`ratchet_review`), and is deliberately not pretended
+ * to be caught here.
+ *
+ * @param record - One record as `resolveActiveSet(...).proposed` returns it. A null, a
+ *   non-object or a record with no laws yields `[]`.
+ * @param inForceLaws - The compiled bundle's `laws`, each `{ id, statement, sourceAdr }`. A
+ *   null, a non-array or a malformed entry contributes no in-force law.
+ * @param options.resolutions - The `Set` of record ids `auditedResolutions` accepted. An omitted
+ *   or non-Set value exempts nothing, so a caller that has not run the audit gets the block
+ *   rather than the exemption.
+ * @returns An array of conflicts, in the record's law order. Each is
+ *   `{ adrId, path, lawId, op, inForceBy, why }`: `adrId`/`path` name the not-in-force record,
+ *   `inForceBy` the record that put the law in force (or null when the compiled law names
+ *   none), and `why` the sentence a denial or a blocked reason prints. `[]` means the record
+ *   contradicts no law in force. Never null and never throws.
+ */
+export function decidableContradictions(record, inForceLaws, { resolutions = null } = {}) {
+  if (record === null || typeof record !== 'object') return []
+  const byId = new Map()
+  for (const law of Array.isArray(inForceLaws) ? inForceLaws : []) {
+    if (law !== null && typeof law === 'object' && typeof law.id === 'string') byId.set(law.id, law)
+  }
+  const audited = resolutions instanceof Set && resolutions.has(record.id)
+  const resolves = Array.isArray(record.resolves) ? record.resolves : []
+  const conflicts = []
+  for (const law of record.laws ?? []) {
+    if (law === null || typeof law !== 'object') continue
+    const existing = byId.get(law.id)
+    if (existing === undefined) continue
+    if (law.op === 'remove') {
+      // An audited resolution that names the holder of the law it removes: the sanctioned
+      // retirement. Anything else is a record taking a law away, and is reported.
+      const namesHolder = typeof existing.sourceAdr === 'string' && resolves.includes(existing.sourceAdr)
+      if (audited && namesHolder) continue
+      conflicts.push({
+        adrId: record.id,
+        path: record.path,
+        lawId: law.id,
+        op: 'remove',
+        inForceBy: existing.sourceAdr ?? null,
+        why: `it removes law "${law.id}", which ${existing.sourceAdr} put in force`,
+      })
+    } else if (existing.statement !== law.statement) {
+      conflicts.push({
+        adrId: record.id,
+        path: record.path,
+        lawId: law.id,
+        op: 'upsert',
+        inForceBy: existing.sourceAdr ?? null,
+        why: `it redeclares law "${law.id}" as ${JSON.stringify(law.statement)}, where ${existing.sourceAdr} put ${JSON.stringify(existing.statement)} in force`,
+      })
+    }
+  }
+  return conflicts
+}
+
+/**
  * Audits every `resolves` list against the corpus.
  *
  * A resolution is an ordinary record that settles a conflict by removing the losing laws
@@ -958,6 +1040,55 @@ export function validateResolutions(records, { active = [], removedByDecision = 
     }
   }
   return problems
+}
+
+/**
+ * The record ids whose `resolves` list the compiler's own audit accepted.
+ *
+ * This is the gate `decidableContradictions` requires before it will exempt a record's `op:
+ * remove` as a resolution. Its whole job is to make a bogus `resolves` worthless, so it rejects
+ * on BOTH halves of the compiler's judgement: the FORM (`ADR_RESOLVES_INVALID`, reported by
+ * `parseAdr` and passed in as `problems` — a list with one, three or repeated ids is not a
+ * resolution whatever its laws say) and the CORPUS question (`validateResolutions`: a dangling
+ * id, or a side that neither holds force nor is leaving it). A list either audit refuses does
+ * not enter the returned set, so the record's removal is reported as the contradiction it is. A
+ * caller that skips this and passes no set gets no exemption at all, which is the fail-closed
+ * direction.
+ *
+ * `validateRetirement` is deliberately not consulted: it judges whether a RETIRED record says so
+ * in its frontmatter, which is a fact about force and terminal status, not about whether a
+ * `resolves` list means anything — and a terminal record never reaches the proposed set this
+ * exemption exists for.
+ *
+ * Only records that actually declare a `resolves` list enter the set, so a removal-shaped record
+ * that names nothing has no path to the exemption.
+ *
+ * @param records - Parsed ADR records, as `readAdrCorpus` returns them.
+ * @param options - `{ active, removedByDecision, problems }`: the first two exactly what
+ *   `validateResolutions` audits with, and `problems` the corpus's own problems from
+ *   `readAdrCorpus`, whose `ADR_RESOLVES_INVALID` entries reject the record they name.
+ * @returns A `Set` of record id strings. Empty for a corpus with no accepted resolution; never
+ *   null and never throws for a malformed corpus, because both audits report rather than throw.
+ */
+export function auditedResolutions(records, { active = [], removedByDecision = [], problems = [] } = {}) {
+  const rejected = new Set(
+    validateResolutions(records, { active, removedByDecision })
+      .map((entry) => entry.subject)
+      .filter((id) => typeof id === 'string'),
+  )
+  for (const entry of Array.isArray(problems) ? problems : []) {
+    if (entry !== null && typeof entry === 'object' && entry.code === 'ADR_RESOLVES_INVALID' && typeof entry.subject === 'string') {
+      rejected.add(entry.subject)
+    }
+  }
+  const accepted = new Set()
+  for (const record of Array.isArray(records) ? records : []) {
+    if (record === null || typeof record !== 'object') continue
+    if (!Array.isArray(record.resolves) || record.resolves.length === 0) continue
+    if (typeof record.id !== 'string' || rejected.has(record.id)) continue
+    accepted.add(record.id)
+  }
+  return accepted
 }
 
 /**

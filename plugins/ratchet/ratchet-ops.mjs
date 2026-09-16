@@ -2576,14 +2576,27 @@ export function ratify({
   const wanted = Array.isArray(ids) && ids.length > 0 ? ids.map((id) => String(id)) : null
   const unknown = wanted === null ? [] : wanted.filter((id) => !queue.pending.some((entry) => entry.id === id))
   const targets = wanted === null ? queue.pending : queue.pending.filter((entry) => wanted.includes(entry.id))
-  const unknownProblems = unknown.map((id) =>
-    problem(
+  // A blocked id names why it is blocked, not merely that it is not waiting: the queue's reason
+  // carries the resolution that lifts the block, and a refusal that did not repeat it would send
+  // the caller to `pending` to rediscover what this call already knew.
+  const blockedById = new Map((queue.blocked ?? []).map((entry) => [entry.id, entry]))
+  const unknownProblems = unknown.map((id) => {
+    const blockedEntry = blockedById.get(id)
+    if (blockedEntry !== undefined) {
+      return problem(
+        'ADR_FIELD_INVALID',
+        `ratification was asked for ADR ${id}, which is blocked and cannot be ratified: ${blockedEntry.reason}`,
+        id,
+        { id, blocked: true },
+      )
+    }
+    return problem(
       'ADR_FIELD_INVALID',
       `ratification was asked for ADR ${id}, which is not waiting for a human: it is either already in force, or not a decision this project declares. Ask ratchet_ratify with no ids to see the queue`,
       id,
       { id },
-    ),
-  )
+    )
+  })
 
   if (targets.length === 0) {
     appendLedger(root, 'ratchet.ratify.nothing', { blocked: queue.blocked.length, unknown: unknown.length })

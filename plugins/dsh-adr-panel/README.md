@@ -25,6 +25,16 @@ answer, computes no hash and matches no consent: every force fact is the ratchet
 label it sends is one the ratchet put on that question, and the only artifact is the one
 the ratchet writes.
 
+The window opens on the ratchet's single **Needs a human** set, rendered above the record
+list. It is the developer's entry point: the consents waiting in the ratify queue, the
+decidable contradictions between a proposal and law in force, the duplicates with the
+resolution the deduplicator drafted, drifted or missing spec documents, and a red gate read
+from the persisted verification report — each with the ratchet's own reason and action, and
+a way into the record it concerns through the row selection the list already uses. The
+ratchet derives every entry from its own functions; the panel copies the set unchanged and
+never grows a finding of its own. When the set is empty the section still renders, with a
+plain statement that nothing needs a human, rather than disappearing.
+
 It is also the only surface that answers a question the ratchet asks **through the
 composer**. A ratification question carries the ratchet's `ratify-decision` presentation
 intent, the panel claims the `conversation.composer` seat for it, and the Conversation
@@ -41,7 +51,7 @@ nothing claims the seat and the question is still asked.
 | File | Role |
 |---|---|
 | `index.js` | Host half: registers the read-only `/adr-panel/state` route and the `/adr-panel/consent` route on `webServer`, guards both with `connection.requestRejection` and a per-activation capability, calls the ratchet's `ratchetDecisions` service for the view model and its `ratchetConsent` service for an answer. It derives no state, builds no question and writes no file. |
-| `client.js` | The hand-written browser bundle (`window.__ModuleLoader__.load`), no build step. It fetches the state route and renders the ratchet's view; it derives no force. |
+| `client.js` | The hand-written browser bundle (`window.__ModuleLoader__.load`), no build step. It fetches the state route and renders the ratchet's view — including the `needsHuman` set as the window's leading section; it derives no force. |
 | `package.json` | `main: index.js`, `exports` for `.` and `./client`, and `dsh.client = { platform: "web", inject: [...] }`. |
 
 ## Contracts it relies on
