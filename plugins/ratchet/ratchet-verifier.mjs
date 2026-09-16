@@ -78,24 +78,29 @@ const NEVER_WALK = new Set([
 ])
 
 /**
- * Lists every file under a root, skipping {@link NEVER_WALK} directories.
+ * Walks a root and returns the repository-relative paths of up to `maxFiles` files, in a
+ * deterministic order.
  *
- * The walk carries the work budget: on the in-process path a tree that names more files than
- * the budget allows stops being walked, the stop is recorded on the tracker, and the caller's
- * result says so rather than reading a partial list as the whole tree. The CLI passes no
- * budget and walks everything.
+ * PURPOSE / INPUTS / OUTPUTS / KEYWORDS are on the two public wrappers below; this is the
+ * one walk both of them use, so a change to the exclusion list or the traversal order
+ * cannot make the file list a verification reads disagree with the list a code hash reads.
+ * The directory entries are sorted BY NAME before descending, because `readdirSync` makes
+ * no ordering promise: when `maxFiles` stops the walk early, an unsorted traversal selects
+ * a different subset of a tree larger than the cap on each run — which is how a `verify`
+ * and a later `status` came to compute different code hashes on an unchanged tree.
  *
  * @param root - Absolute project root.
- * @param start - Repository-relative directory to start from (default: the root).
- * @param budget - A work-budget tracker (see `createWorkBudget`), or `null`/`undefined` for an
- *   unbounded walk. A budget whose `maxFiles` is Infinity is effectively unbounded.
- * @returns Sorted repository-relative paths with forward slashes. Unreadable
- *   directories are skipped silently here and reported by the check that asked,
- *   because this walker cannot know which check cared.
+ * @param start - Repository-relative directory to start from (empty for the root).
+ * @param options - `{ maxFiles, budget }`. `maxFiles` caps how many files are collected; a
+ *   value that is not a finite number is treated as `Infinity`. `budget` is a work-budget
+ *   tracker whose stop is recorded when the cap truncates the walk, or `null` when the
+ *   truncation is deliberate (the code hash) and not a failure.
+ * @returns Sorted repository-relative paths with forward slashes. An absent or unreadable
+ *   directory contributes nothing rather than throwing.
  */
-export function listFiles(root, start = '', budget = null) {
+function walkProjectFiles(root, start, { maxFiles, budget }) {
   const found = []
-  const maxFiles = budget?.limits?.maxFiles ?? Infinity
+  const cap = Number.isFinite(maxFiles) ? maxFiles : Infinity
   let stopped = false
   const walk = (absolute, prefix) => {
     if (stopped) return
@@ -105,6 +110,7 @@ export function listFiles(root, start = '', budget = null) {
     } catch {
       return
     }
+    entries.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))
     for (const entry of entries) {
       if (stopped) return
       if (NEVER_WALK.has(entry.name)) continue
@@ -112,7 +118,7 @@ export function listFiles(root, start = '', budget = null) {
       const relativePath = prefix.length === 0 ? entry.name : `${prefix}/${entry.name}`
       if (entry.isDirectory()) walk(full, relativePath)
       else if (entry.isFile()) {
-        if (found.length >= maxFiles) {
+        if (found.length >= cap) {
           // The walk itself is a syscall per directory and per entry, so a budget that only
           // bounded file READS left the loop blocking on the enumeration. Stopping here makes
           // the file list incomplete, and an incomplete list is not a verdict: the tracker
@@ -128,6 +134,27 @@ export function listFiles(root, start = '', budget = null) {
   const base = start.length === 0 ? root : join(root, start)
   if (existsSync(base)) walk(base, start)
   return found.sort()
+}
+
+/**
+ * Lists every file under a root, skipping {@link NEVER_WALK} directories.
+ *
+ * The walk carries the work budget: on the in-process path a tree that names more files than
+ * the budget allows stops being walked, the stop is recorded on the tracker, and the caller's
+ * result says so rather than reading a partial list as the whole tree. The CLI passes no
+ * budget and walks everything. The traversal is deterministic (see {@link walkProjectFiles}),
+ * so an early stop selects the same subset on every run.
+ *
+ * @param root - Absolute project root.
+ * @param start - Repository-relative directory to start from (default: the root).
+ * @param budget - A work-budget tracker (see `createWorkBudget`), or `null`/`undefined` for an
+ *   unbounded walk. A budget whose `maxFiles` is Infinity is effectively unbounded.
+ * @returns Sorted repository-relative paths with forward slashes. Unreadable
+ *   directories are skipped silently here and reported by the check that asked,
+ *   because this walker cannot know which check cared.
+ */
+export function listFiles(root, start = '', budget = null) {
+  return walkProjectFiles(root, start, { maxFiles: budget?.limits?.maxFiles ?? Infinity, budget })
 }
 
 /**
@@ -200,6 +227,28 @@ export function globsProvablyDisjoint(left, right) {
  * {@link WORK_LIMITS}.maxFiles so the in-process tool path and the hash agree on one number.
  */
 export const CODE_HASH_MAX_FILES = WORK_LIMITS.maxFiles
+
+/**
+ * The file list a code hash is computed over, identical for a given tree however the hash
+ * was reached.
+ *
+ * This is the single definition of "the code a verdict is about at the file-walk level". A
+ * verification and a later `status` must judge the same tree identity, or `status` reports
+ * `VERIFY_NOT_RUN` on a tree nobody edited — which is exactly what happened when the CLI
+ * walked unbounded and hashed the first `maxFiles` of a globally sorted list while the
+ * budgeted in-process path stopped the walk at the same count in `readdirSync` order and
+ * hashed a DIFFERENT subset, so two hashes of one unchanged tree disagreed. The list is
+ * capped at {@link CODE_HASH_MAX_FILES} and the walk is deterministic, so both paths select
+ * the same files; the cap is deliberately NOT a work-budget stop, because a bounded identity
+ * is not a partial verification.
+ *
+ * @param root - Absolute project root.
+ * @returns Sorted repository-relative paths, at most {@link CODE_HASH_MAX_FILES} of them.
+ *   Never throws; a missing root yields `[]`.
+ */
+export function codeHashFilesFor(root) {
+  return walkProjectFiles(root, '', { maxFiles: CODE_HASH_MAX_FILES, budget: null })
+}
 
 /**
  * The largest file the code hash reads in full, in bytes. A file above this contributes its
@@ -1339,8 +1388,12 @@ export async function verifyProject({ root, bundle, config, manifest = null, fil
     root,
     specHash: bundle === null ? null : bundleHash(bundle),
     // The tree this verdict applies to. Without it the record answers only "which
-    // laws did you judge", and `status` kept calling an edited tree verified.
-    codeHash: codeHashFor(root, fileList, budget === null || budget === undefined ? {} : budget.limits),
+    // laws did you judge", and `status` kept calling an edited tree verified. The list is
+    // `codeHashFilesFor`, which is budget-INDEPENDENT, so a CLI verify and a later in-process
+    // status compute the same identity for an unchanged tree instead of disagreeing about a
+    // subset; an explicitly supplied `files` list is honoured for callers that drive the
+    // verifier directly.
+    codeHash: codeHashFor(root, files ?? codeHashFilesFor(root), budget === null || budget === undefined ? {} : budget.limits),
     // And the authority table it was judged under — see `configHashFor`.
     configHash: configHashFor(config),
     generatedAt: new Date().toISOString(),

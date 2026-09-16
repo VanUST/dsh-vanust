@@ -184,6 +184,20 @@ function contradictionBlockReason(record, conflicts, records) {
  * impossible question to a human wastes the one act this whole mechanism depends
  * on.
  *
+ * A HUMAN-authored record that is `proposed` is offered too. Authorship is not the
+ * same act as activation: a person can write a decision and leave it proposed — a
+ * draft, a decision recorded before the zone that receives it is ready — and the
+ * window then showed it as `not in force` with no way to make it one. The only act
+ * that puts a record into force through the ratchet is a recorded consent, and a
+ * consent must come from a human, so the record is put to the human as the same
+ * question every other not-in-force record gets. Approving it writes the human's own
+ * approval and its transcript; nothing about this path is an agent mint. The record
+ * keeps its own author authority, and the compiler already activates a human-authored
+ * record from the consent alone (`resolveActiveSet`: `selfAuthorised || effectiveConsent`),
+ * so no zone rule is relaxed. A human-authored record that is terminal (rejected,
+ * withdrawn, superseded) is still not offered, because a "yes" must not put a
+ * retired decision back into law.
+ *
  * A record is ALSO blocked, not offered, when its own laws contradict law in force:
  * `decidableContradictions` reports a record that removes or rewrites an in-force law without
  * being a resolution the compiler accepted, and `contradictionBlockReason` states the resolution
@@ -249,12 +263,13 @@ export function ratificationQueue(root) {
   })
 
   for (const record of [...resolved.proposed, ...resolved.excluded]) {
-    // Only an AGENT's decision needs approval. A human-authored record carries its own
-    // authority: it enters force when its author declares it active, so offering it as a
-    // question would ask the author to approve the decision they wrote. It is neither
-    // pending nor blocked — it is simply not in force yet, and the author's own edit is
-    // the act that changes that.
-    if (record.authority !== 'agent') continue
+    // Every not-in-force record that is not terminal is offered, whatever its author. A
+    // human-authored record is not queued because an agent may activate it — an agent never
+    // may — but because the human's own recorded consent is the one act that does. Refusing
+    // to offer it left a `status: proposed`, `authority: human` record permanently "not in
+    // force" with no affordance in the window, which is the dead end this branch removes.
+    // The zone checks below are what keep the offer honest: an agent record in a `humanOnly`
+    // zone is still blocked, because consent cannot transfer authorship.
     const zones = zonesForRecord(record, config)
     const humanOnly = zones.filter((zone) => zone.agentAuthority === 'humanOnly')
     let text = null

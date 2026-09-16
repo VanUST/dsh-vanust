@@ -673,6 +673,7 @@ for (const root of [serviceRoot, declineRoot, staleRoot]) rmSync(root, { recursi
       '0002-blocked.adr.md': adr({ id: '0002', status: 'proposed', authority: 'agent', zone: 'auth', laws: [{ id: 'auth.one', statement: 'One.' }] }),
       '0003-withdrawn.adr.md': adr({ id: '0003', status: 'withdrawn', authority: 'agent', zone: 'api', laws: [] }),
       '0004-in-force.adr.md': adr({ id: '0004', status: 'active', authority: 'human', zone: 'api', laws: [{ id: 'api.in-force', statement: 'A law in force.' }] }),
+      '0005-human-waiting.adr.md': adr({ id: '0005', status: 'proposed', authority: 'human', zone: 'api', laws: [{ id: 'api.human', statement: 'A human draft.' }] }),
     },
   })
   const view = await decisionsService.view({ root: viewRoot })
@@ -692,6 +693,17 @@ for (const root of [serviceRoot, declineRoot, staleRoot]) rmSync(root, { recursi
       view.specs.length >= 1 &&
       Array.isArray(view.problems),
     `ok=${String(view.ok)} specs=${view.specs.length} pending=${JSON.stringify(view.queue.pending.map((entry) => entry.id))} states=${JSON.stringify([...byId.values()].map((record) => [record.id, record.state?.kind, record.canRatify]))}`,
+  )
+  // The dead end this pins: a human-authored `proposed` record is OFFERED the same question,
+  // not left inert. The state route's own service must report it as a waiter with the ratify
+  // action; the consent service below drives the same queue.
+  claim(
+    'a human-authored proposed record is offered the ratify action, not left not-in-force',
+    byId.get('0005')?.canRatify === true &&
+      byId.get('0005')?.state?.kind === 'pending' &&
+      byId.get('0005')?.state?.text === 'awaiting a human' &&
+      queue.pending.some((entry) => entry.id === '0005' && entry.authority === 'human'),
+    `canRatify=${String(byId.get('0005')?.canRatify)} state=${JSON.stringify(byId.get('0005')?.state ?? null)} pending=${JSON.stringify(queue.pending.map((entry) => entry.id))}`,
   )
   claim(
     'and the decisions service resolves a project root the same way',

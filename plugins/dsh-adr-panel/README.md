@@ -3,7 +3,11 @@
 A standalone Web-UI plugin for DeepSeek Harness. It adds a **button to the Session
 header** that opens a **frame-wide overlay** listing the project's decision records
 (`docs/adrs/*.adr.md`) and spec documents (`docs/specs/*.spec.md`), and **Approve** and
-**Decline** on a proposed, agent-authored decision that waits for a human.
+**Decline** on a decision the ratchet's queue lists as waiting for a human — agent- or
+human-authored. Authorship is not what the queue keys on: a human-authored record that is
+still `proposed` is put into force by the human's own recorded consent, so it is offered
+the same question as an agent's proposal instead of reading as `not in force` with no
+action.
 
 A click records the decision silently: no chat message, no model turn, no agent in the
 loop. The host half serves two routes: `GET /adr-panel/state` returns the ratchet's view

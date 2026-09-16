@@ -250,7 +250,7 @@ window.__ModuleLoader__.load({
 		 * are equal again after a release and the constant is one ahead only in the working
 		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.28";
+		const PANEL_VERSION = "0.1.29";
 		/** Directories used when the host view reports none. */
 		const DEFAULT_DECISIONS_DIR = "docs/adrs";
 		const DEFAULT_SPECS_DIR = "docs/specs";
@@ -2256,8 +2256,11 @@ window.__ModuleLoader__.load({
 		/**
 		 * One decision record: identification, derived state, a summary, and — when
 		 * expanded — metadata, the laws it decided, and the four body sections. Only a
-		 * proposed, agent-authored, not-yet-approved decision gets the ratify affordance,
-		 * and that affordance is `ConsentAction`: two buttons whose click records the
+		 * not-in-force decision the ratchet's queue lists as waiting gets the ratify
+		 * affordance — agent- or human-authored; authorship is not what the queue keys on,
+		 * because a human-authored proposed record is put into force by the human's own
+		 * recorded consent, not by the file saying `authority: human`. That affordance is
+		 * `ConsentAction`: two buttons whose click records the
 		 * decision through the panel's host consent route, rendering the ratchet's own
 		 * question and its labels, with no message submitted to the composer.
 		 * @param props.decisionStates map of decision id to state kind, threaded to the

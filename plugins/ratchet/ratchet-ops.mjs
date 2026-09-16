@@ -34,7 +34,7 @@ import {
   resolveActiveSet,
   specDriftProblems,
 } from './ratchet-compiler.mjs'
-import { DEFAULT_COMMAND_TIMEOUT_MS, codeHashFor, configHashFor, listFiles, verifyProject } from './ratchet-verifier.mjs'
+import { DEFAULT_COMMAND_TIMEOUT_MS, codeHashFilesFor, codeHashFor, configHashFor, verifyProject } from './ratchet-verifier.mjs'
 import * as state from './ratchet-state.mjs'
 import * as dynamic from './ratchet-dynamic.mjs'
 import * as contradictionModule from './ratchet-contradiction.mjs'
@@ -277,13 +277,16 @@ export function status(root, options = {}) {
       : compiled.bundle.laws.reduce((total, law) => total + (Array.isArray(law.checks) ? law.checks.length : 0), 0)
   // The code hash is what ties a recorded verdict to the tree it judged. It costs one
   // walk of the project — the same walk every verification performs — and without it
-  // a status can be green over code the gate has since rejected.
-  const walked = listFiles(root, '', budget)
+  // a status can be green over code the gate has since rejected. The list comes from
+  // `codeHashFilesFor`, the budget-independent definition `verifyProject` also uses, so
+  // both compute one tree identity and `status` cannot report VERIFY_NOT_RUN on a tree
+  // nobody edited because the two walked it differently.
+  const codeFiles = codeHashFilesFor(root)
   const verification = verificationStatus(
     root,
     compiled.report.specHash,
     checksExpected,
-    codeHashFor(root, walked, budget === null ? {} : budget.limits),
+    codeHashFor(root, codeFiles, budget === null ? {} : budget.limits),
     configHashFor(manifest.config),
   )
 

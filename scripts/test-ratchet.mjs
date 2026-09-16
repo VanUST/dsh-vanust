@@ -5042,20 +5042,62 @@ test('ratify: a rejected answer writes nothing and leaves the record proposed', 
   assert.deepEqual(compile(root).laws, [])
 })
 
-test('ratify: a human-authored proposed decision is not waiting for approval', () => {
-  // Only an agent's decision needs a consent. A human-authored record carries its own
-  // authority, so it is neither pending nor blocked: its author activates it. Offering
-  // it would ask the author to approve the decision they wrote.
+test('ratify: a human-authored proposed decision is offered a question, and the human\'s own approval puts it in force', () => {
+  // The dead end this pins: a `status: proposed`, `authority: human` record rendered as
+  // "not in force" with no action at all, because the queue skipped everything not
+  // agent-authored. Authorship is not activation — only a recorded human consent is — so
+  // the human-authored record is offered the SAME question as an agent's proposal, and
+  // approving it writes the human's own approval and transcript. Reverting the queue to
+  // skip non-agent records makes this test fail at the first assertion: the record is
+  // neither queued nor actionable.
   const root = makeProject({
-    name: 'human-authored-pending',
+    name: 'human-authored-waiting',
     zones: [{ id: 'api', paths: ['src/api/**'], agentAuthority: 'proposeOnly' }],
     adrs: {
-      '0001-human.adr.md': adrText({ id: '0001', status: 'proposed', authority: 'human', zones: ['api'], laws: [] }),
+      '0001-human.adr.md': adrText({
+        id: '0001',
+        status: 'proposed',
+        authority: 'human',
+        zones: ['api'],
+        laws: [{ id: 'api.human', statement: 'A human law.', checks: [] }],
+      }),
+      '0002-agent.adr.md': adrText({ id: '0002', status: 'proposed', authority: 'agent', zones: ['api'], laws: [] }),
     },
   })
+
   const queue = ops.ratifications(root)
-  assert.deepEqual(queue.pending.map((entry) => entry.id), [], 'a human-authored record is not queued for a question')
-  assert.deepEqual(queue.blocked.map((entry) => entry.id), [], 'and it is not blocked either; it awaits its author')
+  assert.deepEqual(
+    queue.pending.map((entry) => entry.id).sort(),
+    ['0001', '0002'],
+    'both authors are waiting for the same human question',
+  )
+  assert.deepEqual(queue.blocked, [], 'neither is blocked')
+
+  // The human-authored record is actionable: the ratchet builds its question.
+  const prepared = ops.ratify({ root, ids: ['0001'] })
+  assert.equal(prepared.needsAnswer, true, 'the registered human-authored proposal is put to the human')
+  assert.deepEqual(prepared.quiz.questions.map((question) => question.id), ['ratify-0001'])
+
+  const result = ops.ratify({
+    root,
+    ids: ['0001'],
+    answer: answerWith(prepared.quiz, ['Approve']),
+    quiz: prepared.quiz,
+    askedBy: 'human-authored-test',
+    at: '2026-09-16T00:00:00Z',
+  })
+  assert.deepEqual(result.ratified, ['0001'], `expected the record ratified, got ${JSON.stringify(result.problems.map((entry) => entry.code))}`)
+  assert.equal(result.wrote.length, 2, 'the approval ADR and its transcript were written')
+  assert.ok(existsSync(join(root, result.transcript.path)), 'the transcript cited by the approval exists')
+  const approval = readFileSync(join(root, result.approval.path), 'utf8')
+  assert.match(approval, /^type: approval$/m, 'the artifact is an approval ADR')
+  assert.match(approval, /^  authority: human$/m, 'the approval is authored by the human, not the agent')
+  assert.match(approval, /^  - "0001"$/m, 'the approval names the record it covers')
+
+  const after = ops.ratifications(root)
+  assert.deepEqual(after.pending.map((entry) => entry.id), ['0002'], 'the human record left the queue; the agent-authored one behaves exactly as before')
+  assert.deepEqual(after.blocked, [])
+  assert.ok(compile(root).laws.includes('api.human'), 'the human-authored record now contributes law')
 })
 
 // ---------------------------------------------------------------------------
@@ -5825,10 +5867,68 @@ test('BREAKER: status stops reporting a verified project once the code changes',
   assert.equal(ops.status(root).verified.ran, true)
 })
 
+test('BREAKER: verify and status compute ONE code hash on an unchanged tree, above the file cap', async () => {
+  // The reported defect: `verify` recorded the tree as one hash and a later `status`
+  // computed another, so `status` reported VERIFY_NOT_RUN with no edit in between. On a tree
+  // larger than the code-hash file cap the two walked differently: the unbounded CLI walk
+  // hashed the first `maxFiles` of a globally sorted list, while the budgeted in-process walk
+  // stopped at the same count in `readdirSync` order and hashed a DIFFERENT subset. The code
+  // hash is now computed over `codeHashFilesFor`, a deterministic, budget-independent list.
+  const cap = schema.WORK_LIMITS.maxFiles
+  const files = {}
+  for (let index = 0; index <= cap; index += 1) {
+    files[`src/data/f${String(index).padStart(5, '0')}.ts`] = `export const v = ${index}\n`
+  }
+  const root = makeProject({
+    name: 'code-hash-one-identity',
+    zones: [{ id: 'data', paths: ['src/data/**'], agentAuthority: 'activeIfNoConflict' }],
+    adrs: {
+      '0001-a.adr.md': adrText({
+        id: '0001',
+        zones: ['data'],
+        laws: [{ id: 'data.one', statement: 'One.', checks: [{ type: 'required_file', path: 'src/data/f00000.ts' }] }],
+      }),
+    },
+    files,
+  })
+
+  const unbounded = verifier.listFiles(root, '', null)
+  assert.ok(unbounded.length > cap, `the fixture must exceed the cap: ${unbounded.length} vs ${cap}`)
+  const hashFiles = verifier.codeHashFilesFor(root)
+  assert.equal(hashFiles.length, cap, 'the code hash list is capped')
+  assert.deepEqual(hashFiles, verifier.listFiles(root, '', schema.createWorkBudget()), 'the budgeted walk and the code-hash list select the same files')
+  assert.deepEqual(verifier.codeHashFilesFor(root), hashFiles, 'and the selection is stable across calls')
+
+  const inProcessVerify = await ops.verify({ root })
+  assert.equal(inProcessVerify.ok, true, 'the fixture verifies clean')
+  const cliStatus = ops.status(root)
+  assert.equal(cliStatus.verified.ran, true, 'an unbudgeted status agrees with the verify that just ran')
+  assert.equal(cliStatus.verified.last.codeHash, inProcessVerify.codeHash)
+  assert.equal(
+    cliStatus.verified.last.codeHash,
+    verifier.codeHashFor(root, verifier.codeHashFilesFor(root), {}),
+    'the recorded hash is exactly what the deterministic list computes',
+  )
+
+  const toolStatus = ops.status(root, { budget: schema.createWorkBudget() })
+  assert.equal(toolStatus.verified.ran, true, 'a budgeted in-process status recomputes the SAME identity, so it reports verified rather than VERIFY_NOT_RUN')
+  assert.equal(toolStatus.problems.some((entry) => entry.code === 'VERIFY_NOT_RUN'), false)
+
+  const toolVerify = await ops.verify({ root, budget: schema.createWorkBudget() })
+  assert.equal(toolVerify.stage, 'budget', 'the in-process verify fails closed above the budget and records no verdict')
+
+  // A FRESH process too: the CLI recomputes the same hash from the same tree.
+  const cli = spawnSync(process.execPath, [CLI, 'verify', '--root', root, '--json'], { encoding: 'utf8' })
+  assert.equal(cli.status, 0, `the CLI verify exited ${cli.status}: ${cli.stderr}`)
+  assert.equal(JSON.parse(cli.stdout).codeHash, inProcessVerify.codeHash, 'the CLI hashes the same tree to the same value')
+  const freshStatus = spawnSync(process.execPath, [CLI, 'status', '--root', root, '--json'], { encoding: 'utf8' })
+  assert.equal(freshStatus.status, 0, `the CLI status exited ${freshStatus.status}: ${freshStatus.stderr}`)
+  assert.equal(JSON.parse(freshStatus.stdout).verified.ran, true, 'and a fresh status process agrees, with no edit between the runs')
+})
+
 // ---------------------------------------------------------------------------
 // FALSIFICATION: a consent this ratchet cannot check is not a consent
 // ---------------------------------------------------------------------------
-
 test('FALSIFICATION: the ratchet_ratify tool has no argument that accepts a caller-composed answer', { skip: HARNESS_SKIP }, () => {
   // The claim under test: a consent can only come from an answer to a question this
   // ratchet asked. The first version of this tool took an `answers` object, which

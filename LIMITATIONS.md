@@ -15,7 +15,7 @@ Measured on 2026-09-16:
 |---|---|
 | `ratchet compile --root .` | OK — 53 records, 25 active, 1 proposed (ADR 0056), 63 laws |
 | `ratchet verify --root .` | OK — 63 laws, 75 checks evaluated, 0 pending, 0 problems |
-| `node --test scripts/test-ratchet.mjs` | OK (341) |
+| `node --test scripts/test-ratchet.mjs` | OK (354) |
 | `node --test scripts/test-ratchet-guard.mjs` | OK |
 | `scripts/check-duplicate-decisions.mjs` | OK |
 | `scripts/check-consent-surface.mjs` | OK |
@@ -89,7 +89,6 @@ The fifth decision, **`scripts/verify-upgrade.sh` runs `ratchet verify` and `fal
 the skip it is while still failing on a `[FAIL]`, an unknown skip, or a missing success marker.
 
 ## 4. Known limitations of the mechanisms themselves
-
 - **Semantic duplicates are advisory only.** A duplicate that only meaning reveals is a judge report;
   the deterministic command cannot see it, and nothing forces anyone to answer it.
 - **A re-ingestion that renames every law id escapes duplicate detection.** The deterministic rule
@@ -119,6 +118,36 @@ the skip it is while still failing on a `[FAIL]`, an unknown skip, or a missing 
   tracked path that is neither zoned nor excepted, so a NEW file outside every zone fails until it is
   placed. It uses the same `zonePathCovers` matcher as the guard, and exits 2 when the work tree
   cannot be read rather than reporting a pass.
+
+## 4b. Two defects found and fixed (2026-09-16)
+
+Both were operator reports, both reproduced, both falsified by reverting the fix.
+
+1. **A `status: proposed`, `authority: human` record was a dead end in the ADR window.** The
+   ratification queue skipped every record that was not `authority: agent` — the comment read
+   "its author carries its own authority and activates it" — so a human-authored proposal rendered
+   as "not in force" with a `human` pill and no action at all, and the window offered no other
+   affordance. Authorship is not activation: the one act that puts a record into force through the
+   ratchet is a recorded human consent, so the queue now offers a human-authored `proposed` record
+   the same question it offers an agent's. Approving it writes the human's own approval ADR and its
+   transcript (`resolveActiveSet` already activates a record from `effectiveConsent` alone), and the
+   window renders the same Approve/Decline on its row. A terminal (rejected/withdrawn/superseded)
+   record is still not offered. Nothing about this widens authority: an agent record in a `humanOnly`
+   zone is still blocked, an agent still cannot mint, and `scripts/check-consent-surface.mjs` fails if
+   the consent path widens. Pinned by tests in `scripts/test-ratchet.mjs`,
+   `scripts/test-adr-panel.mjs` and `scripts/check-consent-surface.mjs`; reverting the queue's
+   `authority !== 'agent'` skip fails them.
+2. **`ratchet verify` and `ratchet status` could compute different code hashes on an unchanged tree.**
+   Above the code-hash file cap (`WORK_LIMITS.maxFiles`, 5000) the two paths selected different files:
+   `verifyProject` hashed the first 5000 of the walk it had already done, while `status` walked again
+   and, on the budgeted path, stopped at the same count in `readdirSync` order — so a CLI verdict and
+   an in-process `status` disagreed and `status` reported `VERIFY_NOT_RUN` with no edit in between.
+   The walk is now deterministic (directory entries sorted by name) and both callers compute the
+   identity over one budget-independent list, `codeHashFilesFor(root)`, which is exactly the first
+   `CODE_HASH_MAX_FILES` files of a deterministic traversal. `ratchet verify`, `ratchet status`, the
+   budgeted tools and a fresh CLI process all recompute the same hash for the tree they judged; the
+   file-count cap is deliberately not a work-budget stop, because a bounded identity is not a partial
+   verification.
 
 ## 5. Platform facts that explain surprising behaviour
 

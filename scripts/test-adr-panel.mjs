@@ -1889,6 +1889,38 @@ const pendingFixture = fixture('a decision waiting for a human', {
   }
 }
 
+// ── a human-authored proposal is offered the action, not left inert ─────────
+//
+// The reported bug: a `status: proposed`, `authority: human` record rendered as "not in
+// force" with NO affordance at all, because the queue skipped anything not agent-authored.
+// The ratchet now offers it the same question — authorship is not activation, the recorded
+// consent is — so the window must render the SAME Approve and Decline on its row. The payload
+// is the REAL derivation over a materialised fixture, not an object this file assembled.
+const humanFixture = fixture('a human-authored record still waiting to be activated', {
+  zones: ZONE_ACTIVE,
+  defaultAgentAuthority: 'activeIfNoConflict',
+  adrs: { '0001': { status: 'proposed', authority: 'human', zones: ['z'], title: 'a human draft' } },
+  expect: { '0001': 'proposed' },
+  expectRatify: { '0001': true },
+})
+await claimAgrees(humanFixture)
+{
+  const humanLoaded = await panelOverFiles(humanFixture.files)
+  const humanDecision = humanLoaded.decisions.find((decision) => decision.id === '0001') ?? null
+  claim(
+    'the ratchet offers a human-authored proposed record as a waiter',
+    humanDecision !== null && humanDecision.canRatify === true && humanDecision.state.kind === 'pending',
+    JSON.stringify(humanDecision === null ? null : { canRatify: humanDecision.canRatify, state: humanDecision.state }),
+  )
+  await renderOverlay('human-authored-row', () => Promise.resolve(humanLoaded))
+  const humanRowButtons = [...new Set(nodes.filter((node) => node.tag === 'button').map((node) => node.text))]
+  claim(
+    'the window renders Approve and Decline on a human-authored proposed record, so the human can act',
+    humanRowButtons.includes('Approve') && humanRowButtons.includes('Decline'),
+    JSON.stringify(humanRowButtons),
+  )
+}
+
 const realQueue = ratificationQueue(KIT)
 claim(
   'the ratchet reads the kit’s own corpus into a queue without a problem',

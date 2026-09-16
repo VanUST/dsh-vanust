@@ -170,8 +170,11 @@ function stateKindOfStatus(status) {
  *   a record whose own status is not active). A superseded record leads; a terminal
  *   rejected/withdrawn record next; an in-force record shows its provenance; a record
  *   the queue reports blocked names the reason; a record that waits shows the waiting
- *   state; a human-authored proposed record is `not in force` because its authorship
- *   already carries the authority a question would ask it to grant. Never throws; a
+ *   state; a record that is neither in the queue nor blocked — a terminal one, or any
+ *   record when the queue could not be read — falls through to its status label or
+ *   `unknown`. A human-authored proposed record is NOT special-cased: it is in the
+ *   queue like every other not-in-force record, so it renders as `awaiting a human`
+ *   and carries the ratify action. Never throws; a
  *   record missing a field falls through to the status label or `unknown`.
  *
  * KEYWORDS
@@ -215,8 +218,10 @@ function displayedState(record, blockedReason) {
     return { state: { text: 'awaiting a human', kind: 'pending', derived: false }, provenance: null }
   }
   if (record.status === 'proposed') {
-    // Only an agent record is in the queue; a human-authored proposed record carries its
-    // own authority and awaits its author's activation, not a consent.
+    // Reachable only when the queue could not be read, or the record is blocked for a
+    // reason this row does not carry: a proposed record that can be ratified comes from
+    // the branch above, human-authored ones included. Authorship is not activation; the
+    // consent is, which is why the human-authored case is no longer a dead end here.
     return { state: { text: 'not in force', kind: 'neutral', derived: false }, provenance: null }
   }
   const unknown = record.status === null || record.status === '' ? 'unknown' : record.status
