@@ -54,11 +54,17 @@ Both were enforced by tests and by the validator but were **not laws**. They are
 
 ## 3. Decisions taken in a design session and NOT started
 
-1. **The ratchet owns the derivation of a decision's state; the panel window reads it.** Today the
-   window re-derives force, consent matching and the queue — a second implementation of one truth. It
-   drifted twice in one day: it read `status: proposed` as "unpaid" for records in force by approval,
-   and it hashed a record from the paged read that is one byte short, so seven ratified decisions read
-   as awaiting a human. Both were found by a human looking at the product, not by a command.
+1. ~~**The ratchet owns the derivation of a decision's state; the panel window reads it.**~~ **LANDED
+   (2026-09-16).** The ratchet now provides a `ratchetDecisions` cordis service whose one operation
+   derives the whole view model from the ratchet's own functions (`compileProject`, `readManifest`,
+   `resolveActiveSet`, `compileLaws`, `ratificationQueue`, `renderSpecs`, `detectSpecDrift`), and the
+   panel's host half serves it at `/adr-panel/state` behind the same browser trust fence and a
+   per-activation capability as `/adr-panel/consent`. The window renders that view and its derivation
+   is deleted (`resolveZonePolicy`, `governingZones`, `parseRatification`, `contentHashOf`,
+   `buildRelations`, `displayedState`, `canOfferRatify`, the ADR text hashing). A route the window
+   cannot reach is reported as state unavailable; the window never falls back to reading the corpus.
+   The two drifts that motivated it — `status: proposed` read as "unpaid", and a hash taken from the
+   paged read that is one byte short — cannot recur, because the panel no longer computes either.
 2. **A record that contradicts law in force cannot be ratified until a resolution retires the
    conflicting law.** The ratify path must refuse and name the resolution needed.
 3. **One derived "needs a human" set, shown in the ADR window** as the developer's entry point:
@@ -81,8 +87,12 @@ the skip it is while still failing on a `[FAIL]`, an unknown skip, or a missing 
   a live root agent, so a red gate on it could not be cleared by any shell command. What is
   deterministic is the *staleness* fact: `compile`/`verify`/`status` report whether a review has read
   the current law set.
-- **The panel is still a second implementation** (§3.1) and its agreement with the ratchet is pinned by
-  a test rather than by construction.
+- **The panel and the ratchet share one derivation now, and the panel's copy is gone** (§3.1). The
+  agreement is no longer pinned by a comparison of two implementations: the panel renders the
+  ratchet's `ratchetDecisions` view, so a change to `resolveActiveSet` moves the window with no panel
+  edit. The tests still pin that the rendered waiting set equals `ratificationQueue`'s, and the
+  surface check pins the four state values (service, route, header, capability) across the ratchet,
+  the host and the browser bundle.
 - **A card that is both stale and hand-edited is reported as stale**, never as edited. The file is
   never silently overwritten; the cause named can be the wrong one.
 - **The consent residual gap, unchanged:** a hand-written approval reproducing the ratification block,
@@ -114,6 +124,8 @@ the skip it is while still failing on a `[FAIL]`, an unknown skip, or a missing 
 1. ~~Ask the human to ratify the amendment in §1 so the gate is green.~~ Done (ADR 0043, ratified by
    approval 0048); §2 done too (0044 by 0047, 0045 by 0046).
 2. ~~Commit the approvals, their transcripts and the regenerated law cards together.~~ Done.
-3. Then §3.1: make the window read the ratchet's state instead of deriving it.
+3. ~~§3.1: make the window read the ratchet's state instead of deriving it.~~ Done (ratchet 0.2.47,
+   panel 0.1.24): the `ratchetDecisions` service and the `/adr-panel/state` route; the panel's
+   derivation deleted.
 4. Then §3.2–§3.4 in the order they are listed.
 5. Then §4's zone-coverage decision, which needs a human call.

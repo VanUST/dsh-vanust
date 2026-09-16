@@ -1,22 +1,24 @@
 /**
  * PURPOSE
- *   Host half of the ADR panel plugin. It serves the ONE route the panel window needs
- *   in order to record a human's Approve or Decline without a chat message and without
- *   an agent in the loop: `GET` builds the ratchet's own ratification question for one
- *   decision, `POST` hands the human's selected label back with that same question and
- *   lets the ratchet write the approval and its transcript.
+ *   Host half of the ADR panel plugin. It serves the routes the panel window needs:
+ *   `GET /adr-panel/state` is the window's ONE data path — the ratchet's own view model
+ *   of a project's decisions, consents, compiled laws and spec hash — and
+ *   `GET`/`POST /adr-panel/consent` records a human's Approve or Decline without a chat
+ *   message and without an agent in the loop.
  *
- *   It is a thin adapter on purpose. It constructs no question, interprets no answer and
- *   writes no file. Both operations are the ratchet's, reached through the cordis
- *   service `ratchetConsent` (`@cc/dsh-ratchet`), which calls the same `ratify`
- *   operation the `ratchet_ratify` tool and the `/ratify` command call. Everything this
- *   file owns is the transport and the fence in front of it.
+ *   It is a thin adapter on purpose. It derives no decision state: the state route calls
+ *   the ratchet's `ratchetDecisions` service, which is the one implementation of force,
+ *   consent matching and the ratify queue. It constructs no question, interprets no
+ *   answer and writes no file: the consent route calls the ratchet's `ratchetConsent`
+ *   service, which calls the same `ratify` operation the `ratchet_ratify` tool and the
+ *   `/ratify` command call. Everything this file owns is the transport and the fence in
+ *   front of it.
  *
  * INPUTS
  *   Composed by the harness as a cordis plugin: `apply(ctx)` receives the root context.
  *   It requires no configuration. At request time it needs two services, reachable with
  *   `ctx.get` and never injected as a hard dependency:
- *     - `webServer` — the HTTP carrier the route is registered on. Without it this
+ *     - `webServer` — the HTTP carrier the routes are registered on. Without it this
  *       plugin contributes nothing and the boot is unaffected, because a browser-facing
  *       plugin mounted in a composition with no web server has nothing to serve.
  *     - `connection` — the harness's browser trust fence (`requestRejection`). Its
@@ -24,14 +26,17 @@
  *       not act on one.
  *     - `ratchetConsent` — the ratchet's consent service. Its absence is a refusal with
  *       a named reason, never a fallback that mints something itself.
+ *     - `ratchetDecisions` — the ratchet's decisions service. Its absence is a refusal
+ *       naming it, never a fallback that derives a second view.
  *
- *   The route is `<CONSENT_ROUTE>`:
- *     GET  ?session=<session-id>&id=<adr-id>      → the ratchet's question, nothing written
- *     POST { session, adrId, label, quiz }        → the ratchet's verdict and artifact
- *   Both carry the capability header {@link CONSENT_HEADER}.
+ *   The routes are `<CONSENT_ROUTE>` and `<STATE_ROUTE>`:
+ *     GET  <STATE_ROUTE>?session=<session-id>    → the ratchet's whole view model
+ *     GET  <CONSENT_ROUTE>?session=<id>&id=<adr-id> → the ratchet's question, nothing written
+ *     POST <CONSENT_ROUTE> { session, adrId, label, quiz } → the ratchet's verdict and artifact
+ *   Each carries its own capability header ({@link CONSENT_HEADER}, {@link STATE_HEADER}).
  *
  * OUTPUTS
- *   Registers exactly one HTTP route and one index-injection row, both inside
+ *   Registers exactly two HTTP routes and one index-injection row, all inside
  *   `ctx.effect` scopes so a reload replaces them rather than colliding. It never
  *   throws out of a handler: every failure is a status code and a JSON body naming what
  *   was refused. It writes no file of its own — the approval and transcript are written
@@ -43,24 +48,28 @@
  *       ratchet's own verdict, so a refusal (`RATIFICATION_UNPROVEN`, nothing waiting,
  *       unreadable answer) arrives as 200 with `ok:false` and its `problems`, which is
  *       not the same thing as the request being malformed.
+ *     - 200 `<view model>` — the ratchet's complete decision view.
  *     - 400 `bad-request` — malformed query, body, media type or a missing field.
  *     - 401/403 — the browser trust fence, or a missing/wrong capability header.
  *     - 404 `unknown-session` / `no-project` — the Session is unknown, or no
  *       `.dsh/project.json` was found at or above its workspace.
- *     - 503 `consent-unavailable` — no `ratchetConsent` service is mounted, so no
- *       question can be built and no consent can be recorded.
+ *     - 405 — a method the route does not accept (state is GET only).
+ *     - 503 `consent-unavailable` / `state-unavailable` — the named service is not
+ *       mounted, so no question can be built and no consent recorded, or no view derived.
  *
  * KEYWORDS
  *   host route, webServer, browser trust fence, capability token, index injection,
- *   ratification transport, consent service, adr panel, no composed answer
+ *   ratification transport, consent service, decisions service, view model, adr panel,
+ *   no composed answer, one source of truth
  *
  * BEHAVIOUR ON EDGE CASES
  *   - No `webServer` service ever appears: the plugin activates and does nothing, so a
  *     composition without a browser is unaffected.
  *   - No `connection` service: every request is refused with 503 and nothing is written.
- *     Failing closed is the only safe direction — the fence is what makes the route
+ *     Failing closed is the only safe direction — the fence is what makes the routes
  *     unreachable by a non-browser caller.
- *   - No `ratchetConsent` service: 503 with the service name, and nothing is written.
+ *   - No `ratchetConsent`/`ratchetDecisions` service: 503 with the service name, and
+ *     nothing is written or derived.
  *   - Session id missing, empty, or naming no session the harness knows: 400/404, and
  *     the project root is never guessed from the server's launch directory.
  *   - The Session's workspace has no `.dsh/project.json` at or above it: 404 naming the
@@ -73,6 +82,8 @@
  *     written. This route deliberately does not re-implement any part of that check.
  *   - A wrong or missing capability header: 403 before the ratchet is reached, so a
  *     caller that has not been served this process's index cannot even build a question.
+ *   - The state route's service throws: 500 `state-failed`, and the window says state is
+ *     unavailable rather than falling back to a local derivation.
  *   - Two requests at once: each is independent. The ratchet's own queue is what makes a
  *     replayed answer mint nothing, not a lock here.
  */
@@ -116,6 +127,37 @@ export const CONSENT_HEADER = 'x-adr-panel-consent'
  * than hopeful: there is nothing on disk for a tool to read.
  */
 export const CONSENT_GLOBAL = '__DSH_ADR_PANEL_CONSENT__'
+
+/**
+ * The route the window reads a project's whole decision state from.
+ *
+ * A second route rather than a parameter on the consent one: the consent route accepts a
+ * POST that can write a durable record, while this route is read-only by construction. A
+ * literal for the same reason as {@link CONSENT_ROUTE}, and asserted equal to the
+ * bundle's copy by `scripts/check-consent-surface.mjs`.
+ */
+export const STATE_ROUTE = '/adr-panel/state'
+
+/**
+ * The name of the cordis service the ratchet provides for the decision view.
+ *
+ * Duplicated from `@cc/dsh-ratchet`'s `DECISIONS_SERVICE` for the same reason as
+ * {@link CONSENT_SERVICE}, and asserted equal by the same check.
+ */
+export const STATE_SERVICE = 'ratchetDecisions'
+
+/** The header the browser half sends the state capability token in. */
+export const STATE_HEADER = 'x-adr-panel-state'
+
+/**
+ * The global the browser half reads the state route and its token from.
+ *
+ * A separate global from {@link CONSENT_GLOBAL} on purpose: it makes the read-only
+ * surface and the consent surface separately observable, so the surface check can assert
+ * the panel, the host and the ratchet agree on all four values of each. The token is the
+ * same per-activation secret, published only through the served index.
+ */
+export const STATE_GLOBAL = '__DSH_ADR_PANEL_STATE__'
 
 /** One request body is a question and two short strings; anything larger is hostile. */
 const MAX_BODY_BYTES = 256 * 1024
@@ -243,6 +285,97 @@ async function sessionWorkspace(ctx, sessionId) {
 }
 
 /**
+ * Builds the browser-fence gate shared by both routes.
+ *
+ * The order of the gates is the design: the browser fence first (a request that is not
+ * from an authenticated browser of this host never reaches the ratchet), then the
+ * capability token (a request that was not served this process's index never reads a
+ * decision and never builds a question). Each refusal names itself, and none of them
+ * writes anything.
+ *
+ * @param ctx - The plugin context.
+ * @param token - This activation's capability token.
+ * @param header - The capability header this route requires.
+ * @param label - A short noun for the log line and the refusal, e.g. `consent`.
+ * @param log - A `{ info, warn }` sink; never given the token.
+ * @returns A `(req, res) => boolean` that returns true when it refused and ended the response.
+ */
+function createFence(ctx, token, header, label, log) {
+  return function fenced(req, res) {
+    const connection = ctx.get('connection')
+    if (connection === undefined || connection === null || typeof connection.requestRejection !== 'function') {
+      // No fence, no route. An unauthenticated loopback caller and a browser are
+      // indistinguishable without it, so the safe answer is to refuse rather than to
+      // serve a decision surface to whoever is on the machine.
+      log.warn(`refused ${label}: the connection service is not available to authenticate a browser`)
+      sendRefusal(res, 503, 'consent-unavailable', 'the ADR panel cannot authenticate a browser in this composition, so no decision can be served or recorded through it')
+      return true
+    }
+    const rejection = connection.requestRejection(req)
+    if (rejection !== undefined) {
+      log.warn(`refused ${label} by the browser trust fence with ${String(rejection)}`)
+      res.statusCode = rejection
+      res.end(rejection === 401 ? 'unauthorized' : 'forbidden')
+      return true
+    }
+    if (!tokenMatches(req.headers?.[header], token)) {
+      log.warn(`refused ${label}: no capability token, or a wrong one`)
+      sendRefusal(res, 403, 'forbidden', `this route acts only for the ADR panel this process served: the ${header} header must carry the token from ${CONSENT_GLOBAL}`)
+      return true
+    }
+    return false
+  }
+}
+
+/**
+ * Resolves one Session's workspace to a project root, through a named ratchet service.
+ *
+ * The Session is the ONLY source of the project root. `process.cwd()` is where the
+ * server was launched, which is a home or application directory rather than the project
+ * a human is looking at, and answering about that project would be the worst possible
+ * failure for a consent or a state surface.
+ *
+ * @param ctx - The plugin context.
+ * @param sessionId - The Session id from the request.
+ * @param requirement - `{ serviceName, valid(service), unavailable }` describing the one
+ *   service this route needs and the refusal message when it is not mounted.
+ * @returns `{ service, root }`, or `{ refusal: { status, code, message } }`. Never throws.
+ */
+async function resolveProject(ctx, sessionId, requirement) {
+  const service = ctx.get(requirement.serviceName)
+  if (service === undefined || service === null || !requirement.valid(service)) {
+    return {
+      refusal: {
+        status: 503,
+        code: requirement.code,
+        message: requirement.unavailable,
+      },
+    }
+  }
+  if (typeof sessionId !== 'string' || sessionId.length === 0) {
+    return { refusal: { status: 400, code: 'bad-request', message: 'a session id is required: the project root comes from the Session, never from the server directory' } }
+  }
+  const workspace = await sessionWorkspace(ctx, sessionId)
+  if (workspace === null) {
+    return { refusal: { status: 404, code: 'unknown-session', message: `no directory is known for Session "${sessionId}"` } }
+  }
+  if (typeof service.rootFor !== 'function') {
+    return {
+      refusal: {
+        status: 503,
+        code: requirement.code,
+        message: `the ${requirement.serviceName} service exposes no root resolver, so the project root cannot be resolved from the Session`,
+      },
+    }
+  }
+  const root = service.rootFor(workspace.cwd)
+  if (root === null || root === undefined) {
+    return { refusal: { status: 404, code: 'no-project', message: `Session "${sessionId}" is at "${workspace.cwd}", which has no .dsh/project.json at or above it` } }
+  }
+  return { service, root }
+}
+
+/**
  * Builds the handler for the one consent route.
  *
  * The order of the gates is the design: the browser fence first (a request that is not
@@ -257,67 +390,12 @@ async function sessionWorkspace(ctx, sessionId) {
  * @returns An async `(req, res)` handler that never throws.
  */
 function createConsentHandler(ctx, token, log) {
-  /**
-   * Applies the browser trust fence.
-   *
-   * @param req - The Node request.
-   * @param res - The Node response.
-   * @returns true when the request was refused and the response ended.
-   */
-  const fenced = (req, res) => {
-    const connection = ctx.get('connection')
-    if (connection === undefined || connection === null || typeof connection.requestRejection !== 'function') {
-      // No fence, no route. An unauthenticated loopback caller and a browser are
-      // indistinguishable without it, so the safe answer is to refuse rather than to
-      // serve a consent surface to whoever is on the machine.
-      log.warn('refused: the connection service is not available to authenticate a browser')
-      sendRefusal(res, 503, 'consent-unavailable', 'the ADR panel cannot authenticate a browser in this composition, so no consent can be recorded through it')
-      return true
-    }
-    const rejection = connection.requestRejection(req)
-    if (rejection !== undefined) {
-      log.warn(`refused by the browser trust fence with ${String(rejection)}`)
-      res.statusCode = rejection
-      res.end(rejection === 401 ? 'unauthorized' : 'forbidden')
-      return true
-    }
-    if (!tokenMatches(req.headers?.[CONSENT_HEADER], token)) {
-      log.warn('refused: no capability token, or a wrong one')
-      sendRefusal(res, 403, 'forbidden', `this route acts only for the ADR panel this process served: the ${CONSENT_HEADER} header must carry the token from ${CONSENT_GLOBAL}`)
-      return true
-    }
-    return false
-  }
-
-  /**
-   * Resolves the ratchet service and the project root for one request.
-   *
-   * @param sessionId - The Session id from the request.
-   * @returns `{ service, root }`, or `{ refusal: { status, code, message } }`.
-   */
-  const locate = async (sessionId) => {
-    const service = ctx.get(CONSENT_SERVICE)
-    if (service === undefined || service === null || typeof service.ask !== 'function' || typeof service.settle !== 'function') {
-      return {
-        refusal: {
-          status: 503,
-          code: 'consent-unavailable',
-          message: `no ${CONSENT_SERVICE} service is mounted, so the ratchet cannot be asked anything: mount @cc/dsh-ratchet beside this plugin`,
-        },
-      }
-    }
-    if (typeof sessionId !== 'string' || sessionId.length === 0) {
-      return { refusal: { status: 400, code: 'bad-request', message: 'a session id is required: the project root comes from the Session, never from the server directory' } }
-    }
-    const workspace = await sessionWorkspace(ctx, sessionId)
-    if (workspace === null) {
-      return { refusal: { status: 404, code: 'unknown-session', message: `no directory is known for Session "${sessionId}"` } }
-    }
-    const root = service.rootFor(workspace.cwd)
-    if (root === null || root === undefined) {
-      return { refusal: { status: 404, code: 'no-project', message: `Session "${sessionId}" is at "${workspace.cwd}", which has no .dsh/project.json at or above it` } }
-    }
-    return { service, root }
+  const fenced = createFence(ctx, token, CONSENT_HEADER, 'consent', log)
+  const consentRequirement = {
+    serviceName: CONSENT_SERVICE,
+    code: 'consent-unavailable',
+    valid: (service) => typeof service.ask === 'function' && typeof service.settle === 'function',
+    unavailable: `no ${CONSENT_SERVICE} service is mounted, so the ratchet cannot be asked anything: mount @cc/dsh-ratchet beside this plugin`,
   }
 
   /**
@@ -335,7 +413,7 @@ function createConsentHandler(ctx, token, log) {
       sendRefusal(res, 400, 'bad-request', 'the query string could not be read')
       return
     }
-    const located = await locate(query.get('session'))
+    const located = await resolveProject(ctx, query.get("session"), consentRequirement)
     if (located.refusal !== undefined) {
       sendRefusal(res, located.refusal.status, located.refusal.code, located.refusal.message)
       return
@@ -403,7 +481,7 @@ function createConsentHandler(ctx, token, log) {
       sendRefusal(res, 400, 'bad-request', 'the body must carry the selected option label in "label"')
       return
     }
-    const located = await locate(session)
+    const located = await resolveProject(ctx, session, consentRequirement)
     if (located.refusal !== undefined) {
       sendRefusal(res, located.refusal.status, located.refusal.code, located.refusal.message)
       return
@@ -468,10 +546,81 @@ function createConsentHandler(ctx, token, log) {
 }
 
 /**
- * Registers the consent route and publishes the capability token to the browser.
+ * Builds the handler for the one READ-ONLY state route.
+ *
+ * It is the browser half's single data path: the window renders what the ratchet's
+ * `ratchetDecisions` service derived and derives nothing itself. The route answers GET
+ * only — there is no method here that could write — and every failure is a status code
+ * and a JSON body naming what was refused. The gates are the consent route's: the
+ * browser trust fence, then this route's own capability header, then the Session's
+ * project, then the service. A window that cannot reach it is told so; it must never
+ * fall back to reading the corpus itself, because a second derivation of one truth is the
+ * defect this route exists to remove.
+ *
+ * @param ctx - The plugin context.
+ * @param token - This activation's capability token.
+ * @param log - A `{ info, warn }` sink; never given the token.
+ * @returns An async `(req, res)` handler that never throws.
+ */
+function createStateHandler(ctx, token, log) {
+  const fenced = createFence(ctx, token, STATE_HEADER, 'state', log)
+  const stateRequirement = {
+    serviceName: STATE_SERVICE,
+    code: 'state-unavailable',
+    valid: (service) => typeof service.view === 'function',
+    unavailable: `no ${STATE_SERVICE} service is mounted, so the ratchet cannot derive a decision view: mount @cc/dsh-ratchet beside this plugin`,
+  }
+
+  return async function handleState(req, res) {
+    try {
+      if (fenced(req, res)) return
+      if (String(req.method ?? '').toUpperCase() !== 'GET') {
+        res.statusCode = 405
+        res.setHeader('allow', 'GET')
+        res.end()
+        return
+      }
+      let query
+      try {
+        query = new URL(String(req.url), 'http://localhost').searchParams
+      } catch {
+        sendRefusal(res, 400, 'bad-request', 'the query string could not be read')
+        return
+      }
+      const located = await resolveProject(ctx, query.get('session'), stateRequirement)
+      if (located.refusal !== undefined) {
+        sendRefusal(res, located.refusal.status, located.refusal.code, located.refusal.message)
+        return
+      }
+      let view
+      try {
+        view = located.service.view({ root: located.root })
+      } catch (error) {
+        log.warn(`the ratchet's view threw: ${String(error)}`)
+        sendRefusal(res, 500, 'state-failed', `the ratchet could not derive the decision view: ${String(error)}`)
+        return
+      }
+      log.info(
+        `state root=${located.root} records=${Array.isArray(view?.records) ? view.records.length : 0} waiting=${Array.isArray(view?.queue?.pending) ? view.queue.pending.length : 0} blocked=${Array.isArray(view?.queue?.blocked) ? view.queue.blocked.length : 0}`,
+      )
+      sendJson(res, 200, view)
+    } catch (error) {
+      log.warn(`the state route threw: ${String(error)}`)
+      try {
+        if (!res.headersSent) sendRefusal(res, 500, 'internal-error', `the ADR panel could not answer: ${String(error)}`)
+        else res.end()
+      } catch {
+        // The socket is already gone; there is nothing left to report to.
+      }
+    }
+  }
+}
+
+/**
+ * Registers the consent route, the state route and the capability token they share.
  *
  * @param ctx - The root plugin context.
- * @returns Nothing. Both registrations live inside `ctx.effect` scopes, so a reload
+ * @returns Nothing. Every registration lives inside a `ctx.effect` scope, so a reload
  *   disposes them instead of colliding with the duplicate-route rule.
  */
 export function apply(ctx) {
@@ -509,8 +658,9 @@ export function apply(ctx) {
       () =>
         web.on('webserver/index-inject', (table) => {
           table.push({ kind: 'global', name: CONSENT_GLOBAL, value: { route: CONSENT_ROUTE, token } })
+          table.push({ kind: 'global', name: STATE_GLOBAL, value: { route: STATE_ROUTE, token } })
         }),
-      'adr-panel: publish the consent capability',
+      'adr-panel: publish the consent and state capabilities',
     )
     web.effect(
       () =>
@@ -521,6 +671,16 @@ export function apply(ctx) {
         }),
       `adr-panel: GET/POST ${CONSENT_ROUTE}`,
     )
+    web.effect(
+      () =>
+        web.webServer.register({
+          kind: 'exact',
+          path: STATE_ROUTE,
+          handler: createStateHandler(ctx, token, log),
+        }),
+      `adr-panel: GET ${STATE_ROUTE}`,
+    )
     log.info(`consent route registered at ${CONSENT_ROUTE}`)
+    log.info(`state route registered at ${STATE_ROUTE}`)
   })
 }

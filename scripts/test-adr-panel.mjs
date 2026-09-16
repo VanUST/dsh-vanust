@@ -53,7 +53,7 @@
  *     it never measured.
  */
 
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { delimiter, dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -224,82 +224,58 @@ const bundle = loaded.factory((specifier) => {
 })
 claim('the factory exports an apply', typeof bundle.apply === 'function', `apply=${typeof bundle.apply}`)
 
-// ── a fake workspace file API over the kit's real corpus ────────────────────
+// ── the host routes: a stub state route computed by the REAL ratchet ────────
 //
-// The surface exposes the three reads the panel is allowed to make — the directory listing,
-// the paged text read and the whole-file byte read — and records every call. A panel that
-// writes anything would have to invent a method name, and `scripts/check-consent-surface.mjs`
-// is where the claim that it does not is enforced against the bundle: here the point is that
-// the whole render is watched, so "it reads and does nothing else" is measured rather than
-// asserted from the source text.
+// The panel no longer reads the corpus itself. It fetches the ratchet's view model from
+// the host state route, and the ratchet — not this test — derives every force fact. So
+// the stub here does not hand the panel a hand-made object it could learn to agree with:
+// it runs the SAME `deriveDecisions` the host route calls, over a materialised corpus,
+// and returns its output. That is what makes "the panel renders the ratchet's
+// derivation" a measurement: a change to `resolveActiveSet` changes this payload, and
+// the panel has no rule of its own to disagree with it.
 //
-// THE PAGED READ IS NOT THE FILE'S TEXT, and this stub reproduces that rather than hiding it.
-// The harness's `@deepseek-ai/dsh-api-workspace-files` `read` returns ONE PAGE of lines,
-// rebuilt by joining them with `\n`, so a file whose last line ends in a newline comes back
-// without it: measured against the harness's own service, a 8946-byte record came back as
-// 8945 bytes and hashed to a value no ratification recorded. A stub that returned the whole
-// file here would make this test blind to exactly the defect it exists to catch — a decision
-// a human ratified displayed as `awaiting a human` — so `read` truncates and `readAll`
-// carries the exact bytes, which is what the two reads really do.
-const fileCalls = []
-/** The text the harness's paged read returns for one file's text: its lines joined by `\n`. */
-const pageOf = (text) => (text.endsWith('\n') ? text.slice(0, -1) : text)
-/** A successful RemoteResult carrying one file's whole bytes, as `readAll` answers. */
-const wholeFileResult = (absolute) => ({ ok: true, value: { data: readFileSync(absolute).toString('base64'), eof: true } })
-const fileSurface = {
-  list(_sessionId, directory) {
-    fileCalls.push('list')
-    try {
-      const entries = readdirSync(join(KIT, directory), { withFileTypes: true }).map((entry) => ({
-        name: entry.name,
-        type: entry.isFile() ? 'file' : 'dir',
-      }))
-      return Promise.resolve({ ok: true, value: { path: directory, entries, truncated: false } })
-    } catch (error) {
-      return Promise.resolve({ ok: false, error: { message: String(error.message) } })
-    }
-  },
-  read(_sessionId, relativePath) {
-    fileCalls.push('read')
-    try {
-      const absolute = join(KIT, relativePath)
-      if (!statSync(absolute).isFile()) throw new Error('not a file')
-      return Promise.resolve({ ok: true, value: { text: pageOf(readFileSync(absolute, 'utf8')), eof: true } })
-    } catch (error) {
-      return Promise.resolve({ ok: false, error: { message: String(error.message) } })
-    }
-  },
-  readAll(_sessionId, relativePath) {
-    fileCalls.push('readAll')
-    try {
-      const absolute = join(KIT, relativePath)
-      if (!statSync(absolute).isFile()) throw new Error('not a file')
-      return Promise.resolve(wholeFileResult(absolute))
-    } catch (error) {
-      return Promise.resolve({ ok: false, error: { message: String(error.message) } })
-    }
-  },
-}
+// The consent route stays a deterministic stub, because what the HOST does with a
+// consent request — the ratchet's refusals and the write — is the probe's measurement
+// against the real modules; here the transport claims are about what the bundle SENT.
+const stateModule = await import(pathToFileURL(join(KIT, 'plugins', 'ratchet', 'ratchet-decisions.mjs')).href)
+/** The root the state stub derives over; a fixture run points it at the fixture. */
+let stateRoot = KIT
+/** How many state requests the whole test issued, so "the panel used the route" is measured. */
+let stateCalls = 0
+const stateView = () => stateModule.deriveDecisions({ root: stateRoot })
 
-// A Proxy, not the bare object: the claim under test is "the whole render calls nothing
-// but the three reads above", and against a stub that defines only those an extra call is a
-// TypeError the bundle swallows — so `stat`, `readBytes` or `write` would execute and never
-// appear in the record. Every unlisted member is now reachable, records itself, and is
-// reported, which is what makes the claim about the CALLS rather than about the stub.
-const fileApi = new Proxy(fileSurface, {
-  get(target, prop) {
-    if (typeof prop === 'symbol' || prop in target) return target[prop]
-    return () => {
-      fileCalls.push(String(prop))
-      return Promise.resolve({ ok: false, error: { message: `the panel reached an unexposed workspace-files method: ${String(prop)}` } })
-    }
-  },
-})
+let consentHostHandler = null
+const consentCalls = []
+globalThis.location = { origin: 'http://stub.invalid' }
+globalThis.__DSH_ADR_PANEL_CONSENT__ = { route: '/adr-panel/consent', token: 'stub-capability-token' }
+globalThis.__DSH_ADR_PANEL_STATE__ = { route: '/adr-panel/state', token: 'stub-capability-token' }
+globalThis.fetch = (url, init) => {
+  const target = String(url)
+  const headers = init === undefined || init.headers === undefined ? {} : init.headers
+  const call = {
+    url: target,
+    method: init === undefined || init.method === undefined ? 'GET' : init.method,
+    headers,
+    body: init === undefined || init.body === undefined || init.body === null ? null : JSON.parse(init.body),
+  }
+  consentCalls.push(call)
+  if (target.includes('/adr-panel/state')) {
+    stateCalls += 1
+    return Promise.resolve({ status: 200, json: () => Promise.resolve(stateView()) })
+  }
+  const answer = consentHostHandler === null ? { status: 500, body: { ok: false, message: 'the stub host has no handler for this request' } } : consentHostHandler(call)
+  // `null` from a handler means "never answer", and a promise means "answer when I say so":
+  // both are how the in-flight phase is held on screen long enough to read what it renders.
+  if (answer === null) return new Promise(() => {})
+  if (typeof answer.then === 'function') {
+    return answer.then((settled) => ({ status: settled.status, json: () => Promise.resolve(settled.body) }))
+  }
+  return Promise.resolve({ status: answer.status, json: () => Promise.resolve(answer.body) })
+}
 
 // ── apply the bundle and capture its registrations ──────────────────────────
 const registry = {}
 const context = {
-  remote: { workspaceFiles: fileApi },
   effect(fn) { fn() },
   slots: {
     inject(_parent, fn) { fn() },
@@ -324,38 +300,6 @@ claim('apply registers the overlay', registry['shell.overlay'] !== undefined, Ob
 if (registry['shell.overlay'] === undefined) {
   process.stderr.write(`adr panel render FAILED\n  ${failures.join('\n  ')}\n`)
   process.exit(1)
-}
-
-// ── a stub host for the consent route ───────────────────────────────────────
-//
-// The panel reaches its host half over the page's own origin, so driving the real component
-// needs three globals: the page origin, the capability the host publishes into the index, and
-// a `fetch` that answers the route. The stub records every request, which is what makes the
-// transport claims below measurements of what the bundle SENT rather than readings of its
-// source. What the HOST does with those requests — the ratchet's refusals and the write — is
-// the probe's measurement against the real modules; here the stub stands in for it and
-// answers deterministically.
-let consentHostHandler = null
-const consentCalls = []
-globalThis.location = { origin: 'http://stub.invalid' }
-globalThis.__DSH_ADR_PANEL_CONSENT__ = { route: '/adr-panel/consent', token: 'stub-capability-token' }
-globalThis.fetch = (url, init) => {
-  const headers = init === undefined || init.headers === undefined ? {} : init.headers
-  const call = {
-    url: String(url),
-    method: init === undefined || init.method === undefined ? 'GET' : init.method,
-    headers,
-    body: init === undefined || init.body === undefined || init.body === null ? null : JSON.parse(init.body),
-  }
-  consentCalls.push(call)
-  const answer = consentHostHandler === null ? { status: 500, body: { ok: false, message: 'the stub host has no handler for this request' } } : consentHostHandler(call)
-  // `null` from a handler means "never answer", and a promise means "answer when I say so":
-  // both are how the in-flight phase is held on screen long enough to read what it renders.
-  if (answer === null) return new Promise(() => {})
-  if (typeof answer.then === 'function') {
-    return answer.then((settled) => ({ status: settled.status, json: () => Promise.resolve(settled.body) }))
-  }
-  return Promise.resolve({ status: answer.status, json: () => Promise.resolve(answer.body) })
 }
 
 /** A pill is the node carrying `chipStyle`: a fully rounded chip with that padding. */
@@ -1474,26 +1418,35 @@ claim(
   panelStore.getSnapshot().ratify === null,
   JSON.stringify(panelStore.getSnapshot().ratify),
 )
-// ── the panel reads and does nothing else ───────────────────────────────────
-// Every render above ran against a file surface that exposes only `list` and `read`, and
-// every call was recorded. So this is a measurement of the whole plugin, not a reading of
-// its source: there is no write path for the panel to record a consent through, which is
-// the half of the consent surface that a bundle cannot be trusted to state about itself.
-const distinctFileCalls = [...new Set(fileCalls)].sort()
+// ── the panel reads and writes nothing of its own ───────────────────────────
+// Every render above went through the recorded fetch stub, and this is a whole-plugin
+// measurement, not a reading of the source: the only URLs the bundle ever requested are
+// its host half's two routes, the state route is GET-only, and no request carries a body
+// except the consent POST. The claim that no agent tool can reach either route is the
+// cross-artifact half, enforced in `scripts/check-consent-surface.mjs`.
+const requestedUrls = [...new Set(consentCalls.map((call) => call.url.replace(/[?].*$/, '')))].sort()
+const stateRequests = consentCalls.filter((call) => call.url.includes('/adr-panel/state'))
+const stateNonGet = stateRequests.filter((call) => call.method !== 'GET')
+const offRoute = consentCalls.filter((call) => !call.url.includes('/adr-panel/state') && !call.url.includes('/adr-panel/consent'))
 claim(
-  'the whole render lists, reads a page and reads whole files, and calls nothing else',
-  distinctFileCalls.length > 0 && distinctFileCalls.every((name) => name === 'list' || name === 'read' || name === 'readAll'),
-  `calls=${JSON.stringify(distinctFileCalls)} of ${fileCalls.length}`,
+  'the whole render requests only the state route (GET) and the consent route',
+  requestedUrls.length > 0 &&
+    offRoute.length === 0 &&
+    stateRequests.length > 0 &&
+    stateNonGet.length === 0,
+  `urls=${JSON.stringify(requestedUrls)} offRoute=${offRoute.length} stateRequests=${stateRequests.length} stateNonGet=${stateNonGet.length}`,
 )
 
-// ── the panel's force model agrees with the ratchet's ───────────────────────
+// ── the panel's rendered state agrees with the ratchet's ────────────────────
 //
-// `client.js` derives each record's in-force state from the ADR files, while the ratchet
-// derives it in `resolveActiveSet`. Two derivations of one shared fact drift, and a viewer
-// that says "in force" for a record the gate excludes is worse than no viewer. These
-// fixtures build a corpus, run BOTH derivations over it, and require them to agree record
-// by record. Each of the first five is one divergence an independent review measured; the
-// sixth is the stale-hash consent that shares the consent map's rule.
+// The panel owns no force model any more: it fetches the ratchet's view model and renders
+// it. These fixtures nevertheless run BOTH sides over one corpus and require them to
+// agree record by record — the panel through the state route, whose stub calls the real
+// `deriveDecisions`, and the host classification through the ratchet's own
+// `resolveActiveSet` directly. If a future edit reintroduced a different rule on either
+// side, the two would disagree here. Each of the first five is one divergence an
+// independent review once measured; the sixth is the stale-hash consent that shares the
+// consent map's rule.
 const { parseAdr, parseRatchetConfig, hashSource } = await import(
   pathToFileURL(join(KIT, 'plugins', 'ratchet', 'ratchet-schema.mjs')).href
 )
@@ -1584,18 +1537,17 @@ const fixture = (name, { zones, defaultAgentAuthority, adrs, expect, expectProbl
 }
 
 /**
- * Applies the bundle to a fresh context over one workspace-files api.
+ * Applies the bundle to a fresh context.
  *
- * Extracted from `applyFresh` so the SAME panel can also be driven over the kit's real
- * corpus through the real transport shape, which is where the ratchet's own answer is
- * available to compare against.
+ * The panel reads its data over `fetch` from the host state route, so a fresh
+ * registration is all a fixture run needs; the state stub is global and the caller
+ * points it at the root the run is about.
  *
  * @returns the fresh slot registry the bundle populated.
  */
-function applyOverApi(api) {
+function applyFresh() {
   const freshRegistry = {}
   const ctx = {
-    remote: { workspaceFiles: api },
     effect(fn) { fn() },
     slots: {
       inject(_parent, fn) { fn() },
@@ -1607,55 +1559,26 @@ function applyOverApi(api) {
 }
 
 /**
- * Builds the fake workspace-files api a fixture's files are read through.
- *
- * The two reads mirror the harness's: `read` answers with the page a line-joined
- * reconstruction produces, `readAll` with the file's exact bytes. A fixture built by
- * `fixtureAdr` ends in a newline, so the two texts differ by that byte — which is the
- * difference a content hash is sensitive to.
+ * Materialises a fixture, points the state stub at it, and runs the PANEL's own `load`,
+ * which fetches the REAL ratchet's view model over that root. The root is removed and the
+ * previous stub root restored whatever happens, so one fixture cannot leak into the next.
  *
  * @param files - Repository-relative path to file text.
- * @returns The api object `ctx.remote.workspaceFiles` carries. A path the fixture does
- *   not hold answers `ok: false` rather than an empty file, so a missing record is
- *   reported as unreadable instead of as an empty record.
+ * @returns the panel's loaded result, exactly as the overlay would receive it.
  */
-function apiOverFiles(files) {
-  return {
-    list(_sessionId, directory) {
-      const prefix = `${String(directory).replace(/\/+$/, '')}/`
-      const entries = Object.keys(files)
-        .filter((path) => path.startsWith(prefix) && !path.slice(prefix.length).includes('/'))
-        .map((path) => ({ name: path.slice(prefix.length), type: 'file' }))
-      return Promise.resolve({ ok: true, value: { path: directory, entries, truncated: false } })
-    },
-    read(_sessionId, relativePath) {
-      const key = String(relativePath).replace(/^\.\//, '')
-      if (!Object.prototype.hasOwnProperty.call(files, key)) {
-        return Promise.resolve({ ok: false, error: { message: `no fixture file ${key}` } })
-      }
-      return Promise.resolve({ ok: true, value: { text: pageOf(files[key]), eof: true } })
-    },
-    readAll(_sessionId, relativePath) {
-      const key = String(relativePath).replace(/^\.\//, '')
-      if (!Object.prototype.hasOwnProperty.call(files, key)) {
-        return Promise.resolve({ ok: false, error: { message: `no fixture file ${key}` } })
-      }
-      return Promise.resolve({ ok: true, value: { data: Buffer.from(files[key], 'utf8').toString('base64'), eof: true } })
-    },
-  }
-}
-
-/** Applies the bundle to a fresh context over a fixture's fake workspace files. */
-function applyFresh(files) {
-  return applyOverApi(apiOverFiles(files))
-}
-
-/** Runs the PANEL's own `loadPanel` over a set of fixture files, through the real transport shape. */
 async function panelOverFiles(files) {
-  const freshRegistry = applyFresh(files)
-  const members = freshRegistry['shell.overlay'].config.inject()
-  members.hooks.panel.set({ open: true, sessionId: 'fixture-session' })
-  return members.load(undefined)
+  const root = materialise(files)
+  const previous = stateRoot
+  stateRoot = root
+  try {
+    const freshRegistry = applyFresh()
+    const members = freshRegistry['shell.overlay'].config.inject()
+    members.hooks.panel.set({ open: true, sessionId: 'fixture-session' })
+    return await members.load(undefined)
+  } finally {
+    stateRoot = previous
+    rmSync(root, { recursive: true, force: true })
+  }
 }
 
 /** Runs the PANEL's own `loadPanel` over a fixture and indexes its decisions by id. */
@@ -1870,12 +1793,18 @@ function materialise(files) {
   return root
 }
 
-/** Reads the panel's overlay over the kit's real corpus, through the real transport shape. */
+/** Reads the panel's overlay over the kit's real corpus, through the state route. */
 async function panelOverRealCorpus() {
-  const freshRegistry = applyOverApi(fileApi)
-  const members = freshRegistry['shell.overlay'].config.inject()
-  members.hooks.panel.set({ open: true, sessionId: 'stub-session' })
-  return members.load(undefined)
+  const previous = stateRoot
+  stateRoot = KIT
+  try {
+    const freshRegistry = applyFresh()
+    const members = freshRegistry['shell.overlay'].config.inject()
+    members.hooks.panel.set({ open: true, sessionId: 'stub-session' })
+    return await members.load(undefined)
+  } finally {
+    stateRoot = previous
+  }
 }
 
 // A corpus with NOTHING waiting and a corpus with EVERYTHING waiting are two different
@@ -1945,10 +1874,37 @@ claim(
   `panel=${JSON.stringify(panelWaiting)} ratchet=${JSON.stringify(ratchetWaiting)}`,
 )
 claim(
-  'and every decision it derived that from was read byte-exactly, not from a page',
-  realPanel.decisions.length > 0 && !realPanel.failures.some((line) => /cannot be verified/.test(line)),
+  'and the state it rendered came through the state route, without a failure',
+  realPanel.decisions.length > 0 && realPanel.failures.length === 0,
   `decisions=${realPanel.decisions.length} failures=${JSON.stringify(realPanel.failures)}`,
 )
+claim(
+  'the panel reached the state route rather than reading the corpus itself',
+  stateCalls > 0,
+  `stateCalls=${stateCalls}`,
+)
+
+// ── an unreachable state route is SAID, not worked around ───────────────────
+// The window must never fall back to a derivation of its own. With the state capability
+// absent it reports the state as unavailable, and it fetches nothing.
+{
+  const savedStateBridge = globalThis.__DSH_ADR_PANEL_STATE__
+  delete globalThis.__DSH_ADR_PANEL_STATE__
+  const before = consentCalls.length
+  const unavailablePanel = await panelOverFiles(pendingFixture.files)
+  claim(
+    'an unreachable state route is reported as unavailable, and nothing is derived',
+    unavailablePanel.decisions.length === 0 &&
+      unavailablePanel.failures.some((line) => /state route is not available/.test(line)),
+    `decisions=${unavailablePanel.decisions.length} failures=${JSON.stringify(unavailablePanel.failures)}`,
+  )
+  claim(
+    'and no request was made without the state capability',
+    consentCalls.length === before,
+    `${consentCalls.length - before} unexpected request(s)`,
+  )
+  globalThis.__DSH_ADR_PANEL_STATE__ = savedStateBridge
+}
 
 // ── report ──────────────────────────────────────────────────────────────────
 // The colour check runs here, after every render, so it measures the pills AND the

@@ -393,13 +393,20 @@ would have produced), so some ratified records read `in force` while their LF-en
 siblings did not. That asymmetry is why the fix is "hash the file's bytes", not "add a
 newline back".
 
+**Where it matters now.** The fact stands, and it is why the panel stopped reading the
+corpus: a consent is a claim about a file's exact bytes, the paged read is a different
+text, and no browser-side reader can be trusted to reproduce the ratchet's hash. Since
+2026-09-16 the panel fetches the ratchet's `ratchetDecisions` view over
+`/adr-panel/state` and renders the `contentHash` the ratchet computed host-side with
+`readFileSync`; the window has no hash of its own and no read path at all.
+
 **Reproduction.** `@deepseek-ai/dsh-api-workspace-files/lib/index.js:182-226` is the
-behaviour; `scripts/test-adr-panel.mjs` reproduces the same transport shape (`pageOf`, and
-a `readAll` carrying base64 bytes), drives the shipped panel over the kit's real
-`docs/adrs` through it, and requires the waiting set it derives to EQUAL the set
-`ratificationQueue` — the function `ratchet pending` calls — reports. Run
-`node scripts/test-adr-panel.mjs`: reverting the panel's hash to the paged text makes that
-claim fail with the 14-record set above.
+behaviour; `scripts/test-adr-panel.mjs` stubs the state route with the payload the REAL
+`ratchetDecisions` service derives over a materialised corpus, drives the shipped panel
+over it, and requires the waiting set it renders to EQUAL the set `ratificationQueue` —
+the function `ratchet pending` calls — reports. Run `node scripts/test-adr-panel.mjs`.
+The historical defect (14 read as awaiting a human while the ratchet queued 7) is why the
+derivation is not the panel's.
 
 ---
 

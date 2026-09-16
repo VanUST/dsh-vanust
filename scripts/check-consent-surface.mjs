@@ -10,15 +10,17 @@
  *   situations the claims are about and requires the observed behaviour, printing
  *   `consent surface ok` only when every one holds.
  *
- *   The route the ADR panel records through is the newest part of that surface, and it
- *   is the part most able to widen it. Three claims hold it: the panel bundle and its
- *   host half and the ratchet agree on the route, the service name, the header and the
- *   capability global; NO tool exposes any of them; and the service the route reaches —
- *   driven here through the very object `ratchet-tools.mjs` provides — refuses a label
- *   with no quiz, refuses a quiz the ratchet did not build, refuses a record whose zone
- *   reserves its paths to a human, refuses a replayed quiz, refuses an answer about a
- *   record edited since the question was asked, and writes an approval ONLY for the
- *   approve label of the question it built.
+ *   The routes the ADR panel serves are the newest part of that surface, and they are the
+ *   part most able to widen it. Four claims hold them: the panel bundle and its host half
+ *   and the ratchet agree on the consent service, route, header and capability global AND
+ *   on the state service, route, header and capability global; NO tool exposes any of
+ *   those eight values; the decisions service the state route reaches returns the
+ *   ratchet's own derivation (so the window has nothing to re-derive); and the consent
+ *   service the consent route reaches — driven here through the very object
+ *   `ratchet-tools.mjs` provides — refuses a label with no quiz, refuses a quiz the
+ *   ratchet did not build, refuses a record whose zone reserves its paths to a human,
+ *   refuses a replayed quiz, refuses an answer about a record edited since the question
+ *   was asked, and writes an approval ONLY for the approve label of the question it built.
  *
  * INPUTS
  *   None. Fixtures are written under the system temp directory, and nothing outside
@@ -116,12 +118,12 @@ function adr({ id, status, authority, zone, supersedes = [], laws = [] }) {
     `  - ${zone}`,
     ...(supersedes.length === 0 ? ['supersedes: []'] : ['supersedes:', ...supersedes.map((entry) => `  - "${entry}"`)]),
     'approves: []',
-    laws.length === 0
-      ? 'laws: []'
+    ...(laws.length === 0
+      ? ['laws: []']
       : [
           'laws:',
           ...laws.flatMap((law) => ['  - op: upsert', `    id: ${law.id}`, `    statement: ${law.statement}`, '    checks: []']),
-        ],
+        ]),
     '---',
     '',
     '## Context',
@@ -347,6 +349,7 @@ for (const root of [blockedRoot, terminalRoot, pendingRoot]) rmSync(root, { recu
 //        label of a question it built, which is the property that lets a UI be an entry to
 //        the one consent channel instead of a second one.
 const ratchetConsent = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-consent.mjs`)
+const ratchetDecisions = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-decisions.mjs`)
 const panelHost = await import(`file:///${join(KIT, 'plugins', 'dsh-adr-panel', 'index.js').replace(/\\/g, '/')}`)
 const panelBundle = readFileSync(join(KIT, 'plugins', 'dsh-adr-panel', 'client.js'), 'utf8')
 // Anchored to the start of a line so a COMMENTED-OUT copy cannot satisfy it, and tolerant of
@@ -363,6 +366,22 @@ claim(
     panelHost.CONSENT_SERVICE === ratchetConsent.CONSENT_SERVICE &&
     panelHost.CONSENT_ROUTE.startsWith('/'),
   `bundle=${JSON.stringify({ route: bundleLiteral('CONSENT_ROUTE'), header: bundleLiteral('CONSENT_HEADER'), global: bundleLiteral('CONSENT_GLOBAL') })} host=${JSON.stringify({ route: panelHost.CONSENT_ROUTE, service: panelHost.CONSENT_SERVICE })} ratchet=${ratchetConsent.CONSENT_SERVICE}`,
+)
+
+// The STATE surface is the same kind of cross-artifact contract as consent, and the same
+// four values exist twice: a cordis service name in the ratchet and the host, and a route,
+// a header and a capability global in the host and the browser bundle. The panel must not
+// re-derive the state, so this equality is what keeps the one route it calls the one the
+// ratchet serves. Asserted against the shipped artifacts, not described.
+claim(
+  'the panel and its host agree on the state route, the service, the header and the capability global',
+  bundleLiteral('STATE_ROUTE') === panelHost.STATE_ROUTE &&
+    bundleLiteral('STATE_HEADER') === panelHost.STATE_HEADER &&
+    bundleLiteral('STATE_GLOBAL') === panelHost.STATE_GLOBAL &&
+    panelHost.STATE_SERVICE === ratchetDecisions.DECISIONS_SERVICE &&
+    panelHost.STATE_ROUTE.startsWith('/') &&
+    bundleLiteral('STATE_ROUTE') !== bundleLiteral('CONSENT_ROUTE'),
+  `bundle=${JSON.stringify({ route: bundleLiteral('STATE_ROUTE'), header: bundleLiteral('STATE_HEADER'), global: bundleLiteral('STATE_GLOBAL') })} host=${JSON.stringify({ route: panelHost.STATE_ROUTE, service: panelHost.STATE_SERVICE })} ratchet=${ratchetDecisions.DECISIONS_SERVICE}`,
 )
 
 // The ratification channel is a second duplicated vocabulary, and the one whose drift is
@@ -384,7 +403,7 @@ claim(
 // (b) The route must be unreachable through the tool surface. The scan is the whole registry,
 //     so a tool added later is inspected without an edit here, and it looks at the description
 //     and every parameter name as well as the tool's own name.
-const ROUTE_NEEDLES = [panelHost.CONSENT_ROUTE, panelHost.CONSENT_SERVICE, panelHost.CONSENT_HEADER, panelHost.CONSENT_GLOBAL]
+const ROUTE_NEEDLES = [panelHost.CONSENT_ROUTE, panelHost.CONSENT_SERVICE, panelHost.CONSENT_HEADER, panelHost.CONSENT_GLOBAL, panelHost.STATE_ROUTE, panelHost.STATE_SERVICE, panelHost.STATE_HEADER, panelHost.STATE_GLOBAL]
 const routeOffenders = []
 for (const [toolName, definition] of registered) {
   const haystack = `${toolName}\n${definition?.description ?? ''}\n${JSON.stringify(definition?.parameters ?? {})}`
@@ -393,7 +412,7 @@ for (const [toolName, definition] of registered) {
   }
 }
 claim(
-  'no tool exposes the consent route, its service, its header or its capability',
+  'no tool exposes the consent or state route, its service, its header or its capability',
   routeOffenders.length === 0 && registered.size >= 3,
   `tools=${registered.size} offenders=${JSON.stringify(routeOffenders)}`,
 )
@@ -410,6 +429,18 @@ claim(
     typeof consentService?.settle === 'function' &&
     typeof consentService?.rootFor === 'function',
   `provided=${JSON.stringify([...provided.keys()])} keys=${JSON.stringify(consentService === undefined ? null : Object.keys(consentService))}`,
+)
+
+// The decisions service the state route reaches. It exposes a `view` operation and a root
+// resolver, and driving it over the live fixture is what makes "the panel renders the
+// ratchet's derivation" a claim about the shipped service rather than about a stub.
+const decisionsService = provided.get(ratchetDecisions.DECISIONS_SERVICE)
+claim(
+  'the ratchet provides the decisions service the state route reaches, with view and rootFor',
+  provided.has(ratchetDecisions.DECISIONS_SERVICE) &&
+    typeof decisionsService?.view === 'function' &&
+    typeof decisionsService?.rootFor === 'function',
+  `provided=${JSON.stringify([...provided.keys()])} keys=${JSON.stringify(decisionsService === undefined ? null : Object.keys(decisionsService))}`,
 )
 
 const serviceRoot = fixture('service', {
@@ -603,6 +634,49 @@ claim(
 )
 
 for (const root of [serviceRoot, declineRoot, staleRoot]) rmSync(root, { recursive: true, force: true })
+
+// 5b. Drive the decisions service the state route reaches: it must return the ratchet's
+//     OWN derivation, so the panel has nothing to re-derive. The fixture carries one
+//     waiting, one blocked and one withdrawn record, which the service must classify
+//     exactly as the ratchet's `ratifications`/`resolveActiveSet` do.
+{
+  const viewRoot = fixture('state-view', {
+    zones: [
+      { id: 'api', paths: ['src/api/**'], agentAuthority: 'proposeOnly' },
+      { id: 'auth', paths: ['src/auth/**'], agentAuthority: 'humanOnly' },
+    ],
+    adrs: {
+      '0001-waiting.adr.md': adr({ id: '0001', status: 'proposed', authority: 'agent', zone: 'api', laws: [{ id: 'api.one', statement: 'One.' }] }),
+      '0002-blocked.adr.md': adr({ id: '0002', status: 'proposed', authority: 'agent', zone: 'auth', laws: [{ id: 'auth.one', statement: 'One.' }] }),
+      '0003-withdrawn.adr.md': adr({ id: '0003', status: 'withdrawn', authority: 'agent', zone: 'api', laws: [] }),
+      '0004-in-force.adr.md': adr({ id: '0004', status: 'active', authority: 'human', zone: 'api', laws: [{ id: 'api.in-force', statement: 'A law in force.' }] }),
+    },
+  })
+  const view = decisionsService.view({ root: viewRoot })
+  const byId = new Map(view.records.map((record) => [record.id, record]))
+  const queue = ops.ratifications(viewRoot)
+  claim(
+    'the decisions service returns the ratchet\'s own queue and per-record state',
+    view.ok === true &&
+      JSON.stringify(view.queue.pending.map((entry) => entry.id).sort()) === JSON.stringify(queue.pending.map((entry) => entry.id).sort()) &&
+      byId.get('0001')?.state?.kind === 'pending' &&
+      byId.get('0001')?.canRatify === true &&
+      byId.get('0002')?.state?.kind === 'neutral' &&
+      /humanOnly/.test(byId.get('0002')?.blockedReason ?? '') &&
+      byId.get('0002')?.canRatify === false &&
+      byId.get('0003')?.state?.text === 'withdrawn' &&
+      byId.get('0003')?.canRatify === false &&
+      view.specs.length >= 1 &&
+      Array.isArray(view.problems),
+    `ok=${String(view.ok)} specs=${view.specs.length} pending=${JSON.stringify(view.queue.pending.map((entry) => entry.id))} states=${JSON.stringify([...byId.values()].map((record) => [record.id, record.state?.kind, record.canRatify]))}`,
+  )
+  claim(
+    'and the decisions service resolves a project root the same way',
+    decisionsService.rootFor(viewRoot) === viewRoot && decisionsService.rootFor(null) === null,
+    `rootFor=${String(decisionsService.rootFor(viewRoot))} null=${String(decisionsService.rootFor(null))}`,
+  )
+  rmSync(viewRoot, { recursive: true, force: true })
+}
 
 // 6. The authority table is what makes the surface a surface. A zone that reserves a
 //    path to humans is the only reason `proposeOnly` and `humanOnly` mean anything, and

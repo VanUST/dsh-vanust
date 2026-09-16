@@ -10,11 +10,16 @@
  * `ratchet-compiler.mjs`, `ratchet-verifier.mjs`, `ratchet-state.mjs`,
  * `ratchet-ratify.mjs` and `ratchet-ops.mjs`, none of which import the harness.
  *
- * It also PROVIDES one service, `ratchetConsent` (`ratchet-consent.mjs`), for the one
- * caller that is not an agent: the ADR panel's host half, which reaches it from an HTTP
- * route behind the browser trust fence. The service is a value, not a tool, and it
- * exposes no operation a tool or a command argument could reach — a surface that could
- * accept a composed answer would be the second consent path this whole design refuses.
+ * It also PROVIDES two services for the one caller that is not an agent: the ADR panel's
+ * host half, which reaches them from HTTP routes behind the browser trust fence.
+ * `ratchetConsent` (`ratchet-consent.mjs`) builds the ratchet's own ratification question
+ * and records a human's answer; `ratchetDecisions` (`ratchet-decisions.mjs`) derives the
+ * complete view model a window renders — every record's force, consent match and queue
+ * membership, plus the compiled spec documents — from the ratchet's own functions, so no
+ * non-agent surface re-implements a rule. Both are values, not tools, and neither exposes
+ * an operation a tool or a command argument could reach — a surface that could accept a
+ * composed answer would be the second consent path this whole design refuses, and a
+ * surface that re-derived force would be the second truth this design removes.
  *
  * That split is not tidiness. It is what lets the gate be run by a shell and by a
  * test through the SAME code path the model calls, so "the gate fails when it
@@ -38,6 +43,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { resolve } from 'node:path'
 import { MANIFEST_PATH, PROBLEM_CODES } from './ratchet-schema.mjs'
 import { CONSENT_SERVICE, createConsentService } from './ratchet-consent.mjs'
+import { DECISIONS_SERVICE, createDecisionsService } from './ratchet-decisions.mjs'
 import { REVIEW_JOBS } from './ratchet-dynamic.mjs'
 import { registerGuard } from './ratchet-guard.mjs'
 import {
@@ -174,6 +180,22 @@ export function apply(ctx) {
       return undefined
     }
   }, `ratchet: provide ${CONSENT_SERVICE}`)
+
+  // The decisions service: the seam a NON-AGENT surface reads a project's whole decision
+  // state through. Like the consent service it is provided, never registered as a tool,
+  // so nothing an agent can call reaches it — and, more importantly, there is exactly ONE
+  // derivation of force, consent matching and the ratify queue, which is this ratchet's.
+  // A UI that re-derived those would be a second implementation of one truth, and it
+  // would drift. `ctx.provide` throws when the name is already registered in this scope,
+  // so the failure is reported on stderr and the tools are still registered.
+  ctx.effect(() => {
+    try {
+      return ctx.provide(DECISIONS_SERVICE, createDecisionsService())
+    } catch (error) {
+      process.stderr.write(`ratchet: cannot provide ${DECISIONS_SERVICE}: ${String(error)}\n`)
+      return undefined
+    }
+  }, `ratchet: provide ${DECISIONS_SERVICE}`)
 
   ctx.effect(() => {
     const disposers = []

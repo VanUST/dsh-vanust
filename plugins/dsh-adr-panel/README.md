@@ -6,16 +6,22 @@ header** that opens a **frame-wide overlay** listing the project's decision reco
 **Decline** on a proposed, agent-authored decision that waits for a human.
 
 A click records the decision silently: no chat message, no model turn, no agent in the
-loop. The host half serves one route, `/adr-panel/consent`; the panel asks it for the
-ratchet's own question about that decision, renders the question in the row — the
-ratchet's header and text, the record's own bytes, both labels it put on the question —
-and posts back the label belonging to the button that was pressed, together with that
-same question. The route hands both to the ratchet's own `ratify` operation, which writes
-the approval ADR and its transcript.
+loop. The host half serves two routes: `GET /adr-panel/state` returns the ratchet's whole
+view model (every record's force, its provenance, the ratify queue and the compiled spec
+documents), and the panel RENDERS it unchanged — it derives nothing itself. Approval and
+decline use the second route, `/adr-panel/consent`; the panel asks it for the ratchet's own
+question about that decision, renders the question in the row — the ratchet's header and
+text, the record's own bytes, both labels it put on the question — and posts back the label
+belonging to the button that was pressed, together with that same question. The route hands
+both to the ratchet's own `ratify` operation, which writes the approval ADR and its
+transcript.
 
-It never records a consent of its own. A panel that minted one would be a second consent
-path, and the deployment's whole consent model rests on there being exactly one. The
-panel builds no question and interprets no answer: the question is the ratchet's, every
+It never derives a decision's state and never records a consent of its own. A panel that
+re-derived force would be a second implementation of one truth — the defect that read
+`status: proposed` as "unpaid" and hashed a record from a paged read one byte short — and a
+panel that minted a consent would be a second consent path; the deployment's whole model
+rests on there being exactly one of each. The panel builds no question, interprets no
+answer, computes no hash and matches no consent: every force fact is the ratchet's, every
 label it sends is one the ratchet put on that question, and the only artifact is the one
 the ratchet writes.
 
@@ -34,8 +40,8 @@ nothing claims the seat and the question is still asked.
 
 | File | Role |
 |---|---|
-| `index.js` | Host half: registers the consent route on `webServer`, guards it with `connection.requestRejection` and a per-activation capability, and calls the ratchet's `ratchetConsent` service. It builds no question and writes no file. |
-| `client.js` | The hand-written browser bundle (`window.__ModuleLoader__.load`), no build step. |
+| `index.js` | Host half: registers the read-only `/adr-panel/state` route and the `/adr-panel/consent` route on `webServer`, guards both with `connection.requestRejection` and a per-activation capability, calls the ratchet's `ratchetDecisions` service for the view model and its `ratchetConsent` service for an answer. It derives no state, builds no question and writes no file. |
+| `client.js` | The hand-written browser bundle (`window.__ModuleLoader__.load`), no build step. It fetches the state route and renders the ratchet's view; it derives no force. |
 | `package.json` | `main: index.js`, `exports` for `.` and `./client`, and `dsh.client = { platform: "web", inject: [...] }`. |
 
 ## Contracts it relies on
@@ -51,9 +57,22 @@ reader can re-check rather than trust.
 | `conversation.session.header.actions` is a **list** slot, scope `session`, whose standard props include **`sessionId`** | catalog entry in `@deepseek-ai/dsh-cordis-client-runner/lib/client.js:3102-3144` |
 | `shell.overlay` is a **list** slot, scope `root`, click-through until an entry opts into pointer events | catalog entry in `@deepseek-ai/dsh-cordis-client-runner/lib/client.js:3948-3990`; slot tree in `deepseek-harness/docs/subsystems/slots.md` |
 | A registration's `inject: () => ({ … })` members become component props, and `hooks: { panel: source }` becomes a `usePanel(selector)` hook from a bare `getSnapshot`/`subscribe` source | `docs/subsystems/slots.md` ("Developer-provided injection"); shipped example `@deepseek-ai/dsh-session-log-export/lib/client.js:279-286` (`hooks: { sessionLogDownload: controller.store }`) |
-| `RemoteResult<T>` is `{ ok: true, value } | { ok: false, error }` | `@deepseek-ai/dsh-typert-protocol/lib/types/types.d.ts:65-71` |
-| File catalogues: `ctx.remote.workspaceFiles.list(sessionId, path, signal)`, `.read(sessionId, path, range, signal)` and `.readAll(sessionId, path, signal)`, all answering `RemoteResult` | Host signatures `@deepseek-ai/dsh-api-workspace-files/lib/types/index.d.ts:82,125`; client-side `result.ok` handling in `@deepseek-ai/dsh-client-ui-sidebar-files/lib/client.js:52`; the Remote is injected as **`remote`** in `@deepseek-ai/dsh-api-workspace-files/lib/client.js:447-451`; `readAll` is called by the harness's own browser plugin as `ctx.remote.workspaceFiles.readAll(file.sessionId, file.path, signal)` in `@deepseek-ai/dsh-client-ui-sidebar-documentpreview/lib/client.js:26941` |
-| `read` returns ONE PAGE of lines and rebuilds the text by joining them with `\n`, so a file whose last line ends in a newline comes back WITHOUT it; `readAll` returns the file's exact bytes as base64 | `@deepseek-ai/dsh-api-workspace-files/lib/index.js:182-226` (`cutPage`: `lines.join("\n")`, and the final line is pushed only when it is non-empty), `:399-411` (`read`), `:443-464` (`readAll`, base64 of `fs.readByteRange`), `:526-534` (the page defaults). Measured in-process through the real `WorkspaceFiles` service: `docs/adrs/0014-…adr.md` is 8946 bytes on disk and 8945 bytes from `read`, so its paged text hashes to `sha256:4c386eb7…` while the ratification that binds it records `sha256:307b2c20…` |
+| A route answers JSON over the same origin; the browser reaches it with an ordinary `fetch` carrying the capability header | this plugin's own `index.js` routes and `client.js` `consentRequest`; the host signature and the browser-session fence rows above |
+
+The panel reads NO file: the ratchet's host-side `ratchetDecisions` service reads the
+corpus, derives every force fact with its own functions (`compileProject`,
+`readManifest`, `resolveActiveSet`, `compileLaws`, `ratificationQueue`, `renderSpecs`,
+`detectSpecDrift`) and serves the resulting view model at `/adr-panel/state`. The browser
+half renders that view and derives nothing: the old `resolveZonePolicy`, `governingZones`,
+`parseRatification`, `contentHashOf`, `buildRelations`, `displayedState` and
+`canOfferRatify` are deleted, so a change to the ratchet's derivation moves the window
+with no panel edit. A route it cannot reach is reported as **state unavailable**; the panel
+never falls back to reading the corpus. The host half writes nothing either — the approval
+and the transcript are written by the ratchet inside the `ratchetConsent` call.
+`scripts/check-consent-surface.mjs` fails when either service name, route, capability
+header or capability global stops being the same value across the ratchet, this host half
+and the bundle, when any registered tool names one of them, or when the provided services
+stop behaving as required.
 | `conversation.composer` is a **chain** slot. Its owner passes `{ sessionId, session, pendingInteraction }` as owner props, and the chain renders the **first** entry whose `select(ownerProps)` returns a non-null value; a selector that throws is *"treated as declined"*. **Order is ASCENDING `priority`: lower tries first, ties keep registration order.** The entry that owns every question claims ALL pending questions at the default `priority: 0`, so a claim at 0 or above is never reached — which is why this panel registers at **-1**; the approval entry is at `1` and works only because a pending approval is not a pending question, so the owner declines it first | owner `@deepseek-ai/dsh-client-ui-conversation/lib/client.js:14932-14937`; election `@deepseek-ai/dsh-client-ui-renderer/lib/client.js:824-844`; the ordering's own comment, the sort, and the chain return in `@deepseek-ai/dsh-client-ui-slots/src/index.ts` (`ChainSelect` doc, `register`'s `next.sort(...)`, `entriesOfSlot`), duplicated in the installed bundle at `@deepseek-ai/dsh-web-frontend/dist/assets/index-DuF6ti6g.js` (`p.sort(...(m,g)=>(m.options.priority??0)-(g.options.priority??0))`); owner `@deepseek-ai/dsh-client-ui-user-questions/lib/client.js:873-878`; second claimant `@deepseek-ai/dsh-client-ui-approval/lib/client.js:265-272` |
 | A question may carry `intent: { kind, approve }`, and a presentation is allowed to claim it only when it can send **every** answer the question allows. The harness renders `plan-review` itself and falls back to a generic card for everything else; the generic card always offers a free-text answer, and the shipped `PlanReviewPanel` claims a question with two buttons anyway, so a two-label presentation is the sanctioned shape for a binary question | `@deepseek-ai/dsh-client-ui-user-questions/lib/client.js:38-56` (`planReviewOf`), `:246-330` (`PlanReviewPanel`, two buttons only), `:660-722` (the generic card's free-text row) |
 | A host plugin serves a browser by registering an HTTP route: `ctx.webServer.register({ kind, path, handler })`, a duplicate path throws, and the server awaits an async handler | `@deepseek-ai/dsh-host-webserver/lib/index.js:176` (`register`), `:228` (the awaited handler); shipped example `@deepseek-ai/dsh-host-open-in-app/lib/index.js:1324-1454` |
@@ -91,10 +110,12 @@ measures what the bundle does with them, not whether the running shell supplies 
 - That the module loader resolves `require("react")` for a dynamically installed
   tarball plugin. The shipped bundles use `require("react/jsx-runtime")`; `react`
   itself should resolve, but it was not exercised in a browser.
-- That injecting only `remote` is sufficient, and that `ctx.remote.workspaceFiles`
-  is present at call time. The shipped `dsh-api-workspace-files` also injects
-  `"remote.workspaceFiles"` explicitly; this plugin reads it off `ctx.remote` and
-  degrades to a visible error line if absent.
+- That the state route is reachable from a real browser page. The offline test drives
+  `loadPanel` against a stub state route whose payload is computed by the REAL
+  `ratchetDecisions` service, so what the bundle does with an answer is measured; that a
+  running shell serves the route and that `fetch` carries the browser cookie is a reading.
+  Where the route is unreachable the window says so and shows no decisions — a visible
+  degradation, never a fallback derivation.
 - That the registration `inject` factory for a `session` slot receives `sessionId`.
   The plugin avoids depending on it by using the standard `sessionId` prop instead.
 - That the renderer derives a `usePanel` hook from `hooks: { panel: … }` with the
@@ -132,18 +153,6 @@ measures what the bundle does with them, not whether the running shell supplies 
   `$DSH_HOME/.credentials.yaml` could forge that cookie, which is the same hand-written
   approval the deployment's rule 12 already names as forgeable.
 
-- That `list`/`read`/`readAll` return the `RemoteResult` wrapper at runtime. The `.d.ts`
-  declares the unwrapped value; the client file browser and the harness's own document
-  preview check `.ok`, so the wrapper is used here. If the runtime instead returns the bare
-  value, the panel shows a visible load failure rather than crashing.
-- **That `readAll` is on the browser-side Remote at all** is a reading, not a browser
-  measurement: it is one of the namespace's generated Remote descriptors
-  (`@deepseek-ai/dsh-api-workspace-files/lib/typert.remote-client.js:202-237`) and the
-  harness's own client plugin calls it through the same `ctx.remote` object this plugin
-  reads (`@deepseek-ai/dsh-client-ui-sidebar-documentpreview/lib/client.js:26941`). No
-  browser was opened. Where it is absent the panel falls back to the paged read, gives the
-  record no content hash, and says in the window that a ratification it carries could not
-  be verified — a visible degradation, never a silent wrong state.
 - Theme variables (`--dsw-*`) are used with literal fallbacks. `scripts/test-adr-panel.mjs`
   resolves every colour the bundle renders — every toned pill AND every toned button (the
   row's **Approve**, the window's **Approve**, the pointer's **Open the ADRs panel**) —
@@ -154,16 +163,9 @@ measures what the bundle does with them, not whether the running shell supplies 
   no pair to compare. What is still not verified is the theme's own contrast: the check
   refuses a collapse, not a low-contrast palette, and whether the shell's tints read well
   is the shell's decision, not this panel's.
-- That the running shell's origin exposes `crypto.subtle` (Web Crypto) and `atob` plus
-  `TextDecoder`. The panel derives each decision's in-force state the way the ratchet does,
-  and a ratification counts only while the recorded content hash still matches the file,
-  which it computes with `crypto.subtle.digest` over the whole-file text `readAll` returned
-  (base64-decoded by `atob`/`TextDecoder`). The panel runs on the harness's localhost
-  origin, where Web Crypto is available; on a non-secure origin `contentHashOf` returns
-  `null` and a consented record reads as not in force rather than being trusted
-  unverified, and a `readAll` payload that cannot be decoded takes the same path with a
-  reported reason. The offline test runs in Node, where `crypto.subtle`, `atob` and
-  `TextDecoder` exist, so the fallbacks themselves are not exercised.
+- The panel no longer needs `crypto.subtle`, `atob` or `TextDecoder`: it computes no hash,
+  so a non-secure origin cannot make a consented record read as not in force. The content
+  hashes it displays are the ratchet's, computed host-side over the file's own bytes.
 
 ## Fallbacks and deliberate omissions
 
@@ -186,6 +188,6 @@ measures what the bundle does with them, not whether the running shell supplies 
   instead. That is a UX regression rather than a hang: an unclaimed question is still a
   question with an answer surface, which is why the claim is a suppression and not the
   only route to the human.
-- **Graceful failure is by design.** A missing `ctx.remote.workspaceFiles`, an
-  unreadable directory or file, and malformed frontmatter all render as text inside
-  the window; the header button and the rest of the shell are unaffected.
+- **Graceful failure is by design.** An unreachable state route, a project whose view
+  reports problems, and a spec document whose generated text does not parse all render as
+  text inside the window; the header button and the rest of the shell are unaffected.
