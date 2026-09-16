@@ -12,9 +12,10 @@ action.
 A click records the decision silently: no chat message, no model turn, no agent in the
 loop. The host half serves two routes: `GET /adr-panel/state` returns the ratchet's view
 model (every record's force, its provenance, the ratify queue and the compiled spec
-documents), capped by the ratchet to a record count and a byte budget with a `truncated`
-member naming anything it dropped, and derived off the event loop so a large corpus cannot
-stall the harness; the panel RENDERS it unchanged — it derives nothing itself. Approval and
+documents), capped by the ratchet to record, spec and needs-a-human counts and a byte
+budget with a `truncated` member naming anything it dropped, and derived off the event
+loop so a large corpus cannot stall the harness; the panel RENDERS it unchanged — it
+derives nothing itself. Approval and
 decline use the second route, `/adr-panel/consent`; the panel asks it for the ratchet's own
 question about that decision, renders the question in the row — the ratchet's header and
 text, the record's own bytes, both labels it put on the question — and posts back the label
@@ -45,6 +46,20 @@ drafted fix. Each entry gives a way into the record it concerns through the row 
 list already uses. The ratchet derives every entry from its own functions; the panel copies
 the set unchanged and never grows a finding of its own. When the set is empty the section
 still renders, with a plain statement that nothing needs a human, rather than disappearing.
+
+The set is **grouped by kind**, because the finding is a batch but the act changes tone. A
+`consent`, a `contradiction` and a `duplicate` each need one distinct decision, so each
+stays an individual card with the ratchet's reason and action. Everything else is one
+collapsible batch card — `Stale specs · 7` — whose header always states the batch name, its
+count and what the batch is, and whose default-collapsed body expands to each document with
+its path, a one-line reason, the drafted note path and the ratchet's full action. The order
+is fixed: consents, contradictions, duplicates, the grouped batches, then the red-gate fact.
+A full `sha256:<64 hex>` in any rendered reason, action, problem line or spec header is
+**shortened for display only** — twelve hex characters and an ellipsis — with the full value
+kept in the element's `title`, so what is abbreviated is never what is lost; no rule, hash
+or artifact changes. When the host's `needsHuman` cap cut the set, the section states the
+shown and total counts and every kind that lost an entry, and a cut batch's header says
+`shown of total`, so a partial to-do list reads as partial rather than complete.
 
 It is also the only surface that answers a question the ratchet asks **through the
 composer**. A ratification question carries the ratchet's `ratify-decision` presentation

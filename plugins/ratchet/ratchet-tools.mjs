@@ -45,6 +45,7 @@ import { MANIFEST_PATH, PROBLEM_CODES, createWorkBudget } from './ratchet-schema
 import { CONSENT_SERVICE, createConsentService } from './ratchet-consent.mjs'
 import { DECISIONS_SERVICE, createDecisionsService } from './ratchet-decisions.mjs'
 import { REVIEW_JOBS } from './ratchet-dynamic.mjs'
+import { createJudgePool } from './ratchet-judge.mjs'
 import { registerGuard } from './ratchet-guard.mjs'
 import {
   bootstrap,
@@ -409,43 +410,49 @@ export function apply(ctx) {
     }
 
     /**
-     * Builds the judge spawner a review or an ingestion runs on.
+     * The per-session judge pool. ONE durable judge child per calling parent serves every
+     * review and ingestion in that session, instead of a fresh `spawn` run per job that is
+     * disposed in `finally`. The pool owns serialization, recreation of a dead or stale
+     * judge, and turn-scoped cancellation; the lifecycle contract is documented in
+     * `ratchet-judge.mjs`.
      *
      * Reached opportunistically through `ctx.get`, never through `inject` (see
-     * SUBAGENTS_SERVICE). One closure for every caller, because a second copy is a
-     * second place for the disposal contract to be forgotten — and `dispose()` is
-     * mandatory: the run does not reach quiescence without it, so skipping it on the
-     * cancellation path leaks the work being cancelled.
+     * SUBAGENTS_SERVICE): a composition without the subagents runtime must still compile and
+     * verify, so availability is decided per call by `judgeSpawner`, which returns `null`
+     * exactly as it did before.
+     */
+    const judgePool = createJudgePool({
+      runtimeOf: () => ctx.get(SUBAGENTS_SERVICE),
+      agentsOf: () => ctx.get(AGENTS_SERVICE),
+      log: (event) => {
+        // Bounded lifecycle logging only: one line per create/recreate/release, never one per
+        // turn, so a long session cannot flood the log. `ctx.logger` is optional in a base
+        // composition, so the fallback is silent.
+        try {
+          ctx.logger?.info?.(`ratchet.judge ${JSON.stringify(event)}`)
+        } catch {
+          /* logging is diagnostics */
+        }
+      },
+    })
+
+    /**
+     * Builds the judge call a review or an ingestion runs on.
      *
-     * @param exec - Tool-execution context; its agent is the judge's parent, which
-     *   `start` requires, and its signal lets a cancelled tool call cancel the judge.
-     * @returns An async `(prompt, outputSchema)` returning the judge's result, or
-     *   `null` when this call cannot spawn one.
+     * @param exec - Tool-execution context; its agent is the judge's parent and its signal
+     *   lets a cancelled tool call cancel ONLY that call's turn (the shared judge survives).
+     * @returns An async `(prompt, outputSchema, staticPrompt)` returning the judge's result,
+     *   or `null` when this call cannot reach a judge. `staticPrompt` is the byte prefix of
+     *   `prompt` that does not change between calls; the pool delivers it once, when the
+     *   judge child is created, and sends only the material after it on later calls. It is
+     *   optional: when absent (or not a prefix) the full prompt is sent every call.
      */
     const judgeSpawner = (exec) => {
       const runtime = ctx.get(SUBAGENTS_SERVICE)
       const agent = exec?.agent
       if (runtime === undefined || agent === undefined) return null
-      return async (prompt, outputSchema) => {
-        const run = await runtime.start('spawn', {
-          label: 'ratchet-judge',
-          prompt: [{ type: 'text', text: prompt }],
-          parent: agent,
-          signal: exec.signal,
-          outputSchema,
-        })
-        try {
-          const result = await run.result
-          return {
-            structured: result.structured ?? null,
-            output: textOf(result.output),
-            stopReason: result.stopReason,
-            diagnostic: result.diagnostic ?? null,
-          }
-        } finally {
-          await run.dispose()
-        }
-      }
+      return (prompt, outputSchema, staticPrompt) =>
+        judgePool.judge({ parent: agent, signal: exec.signal, prompt, outputSchema, staticPrompt })
     }
 
     /**
@@ -1271,21 +1278,4 @@ function renderRatifyOutcome(result) {
   return typeof total === 'number' && total > 0
     ? `Nothing was ratified: ${String(total)} problem(s) stopped the operation.`
     : 'Nothing was ratified.'
-}
-
-/**
- * Concatenates the text blocks of a subagent result's output.
- *
- * A child asked for a schema answers through `structured` and may return empty
- * text, while a child that ignored the schema answers in text. Both are read, so
- * neither shape is mistaken for an empty verdict.
- *
- * @param content - Content blocks, or any value.
- * @returns The joined text, or an empty string.
- */
-function textOf(content) {
-  return (Array.isArray(content) ? content : [])
-    .filter((block) => block?.type === 'text' && typeof block.text === 'string')
-    .map((block) => block.text)
-    .join('\n')
 }

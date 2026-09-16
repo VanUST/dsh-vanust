@@ -28,8 +28,8 @@
  *   and is ASYNC: it caches the derived view under a cheap corpus signature and, on a
  *   miss, derives it on a worker thread, so neither the IO of parsing a large corpus nor
  *   the serialisation of a large view runs on the event loop that serves the harness. It
- *   also CAPS the view it returns (record count and serialised bytes) and marks what it
- *   dropped, instead of shipping an unbounded object.
+ *   also CAPS the view it returns (record count, spec count, needs-a-human count and
+ *   serialised bytes) and marks what it dropped, instead of shipping an unbounded object.
  *
  * INPUTS
  *   `deriveDecisions({ root })` — `root` is an absolute project root (string). Any other
@@ -72,11 +72,14 @@
  *     - `problems` — every problem the manifest, the corpus and the queue reported,
  *       so a caller can show why a project is not green.
  *     - `truncated` — null when the whole view was returned, otherwise the cap's own
- *       record: `{ records, specs, texts, specTexts, byteLimit }`, where `records` and
- *       `specs` are `{ shown, total }` when a count was cut, and `texts`/`specTexts` are
- *       `{ dropped, total }` when a body had to be dropped to stay under `byteLimit`.
- *       It is the view's own statement that what arrived is not the whole corpus, so a
- *       renderer can say so rather than presenting a partial list as complete.
+ *       record: `{ records, specs, needsHuman, texts, specTexts, byteLimit }`, where
+ *       `records` and `specs` are `{ shown, total }` when a count was cut, `needsHuman`
+ *       is `{ shown, total, kinds }` when the needs-a-human set itself was cut (`kinds`
+ *       lists every kind that lost an entry, as `{ kind, shown, total }`, so a kind
+ *       cannot vanish silently), and `texts`/`specTexts` are `{ dropped, total }` when a
+ *       body had to be dropped to stay under `byteLimit`. It is the view's own statement
+ *       that what arrived is not the whole corpus, so a renderer can say so rather than
+ *       presenting a partial list as complete.
  *   A null/empty `root` returns `{ ok:false, root, records:[], queue:{...empty}, specs:[],
  *   drift:{...empty}, needsHuman:[], problems:[MANIFEST_MISSING-like], truncated:null }` and
  *   never throws.
@@ -102,8 +105,11 @@
  *   - The corpus changes between two calls: the signature moves, so the cache is not
  *     consulted and the view is derived again. A signature that cannot be read (a
  *     directory that is absent) still yields a stable value rather than a throw.
- *   - A corpus larger than {@link MAX_STATE_RECORDS} or a view larger than
- *     {@link MAX_STATE_BYTES}: the view is cut and `truncated` names what was cut.
+ *   - A corpus larger than {@link MAX_STATE_RECORDS}, a needs-a-human set larger than
+ *     {@link MAX_STATE_NEEDS} (or one kind larger than
+ *     {@link MAX_STATE_NEEDS_PER_KIND}), or a view larger than {@link MAX_STATE_BYTES}:
+ *     the view is cut and `truncated` names what was cut, including every kind that
+ *     lost an entry.
  *   - A worker that cannot be created, throws, or exits before answering: the service's
  *     promise rejects with a sentence naming the failure, which the caller reports; it
  *     never falls back to a blocking derivation, because the property the worker exists
@@ -710,6 +716,22 @@ export const MAX_STATE_RECORDS = 500
 export const MAX_STATE_SPECS = 64
 
 /**
+ * The most needs-a-human entries one state response carries in total. The set is a
+ * human's to-do list, and a homogeneous batch — most often one `stale-spec` entry per
+ * generated document — can be hundreds long; without a ceiling it would dominate both
+ * the response and the window that renders it.
+ */
+export const MAX_STATE_NEEDS = 200
+
+/**
+ * The most needs-a-human entries of any ONE kind that a state response carries. It bounds
+ * a single dominant batch so the decision-shaped kinds (`consent`, `contradiction`,
+ * `duplicate`) that each need a distinct human act are not pushed out by stale specs. A
+ * kind cut this way is named in `truncated.needsHuman.kinds`, never dropped silently.
+ */
+export const MAX_STATE_NEEDS_PER_KIND = 50
+
+/**
  * The byte ceiling for one serialised state response. When the document exceeds it, the
  * cap drops record bodies, then spec bodies, then the queue's copies, newest-last, until
  * the estimate fits, and records exactly what it dropped under `truncated`.
@@ -855,6 +877,57 @@ function stripViewTexts(view) {
 
 /**
  * PURPOSE
+ *   Cut the needs-a-human set down to the per-kind and total ceilings, keeping the
+ *   ratchet's own order and naming every kind that lost an entry. It exists so a single
+ *   dominant batch (stale generated specs) cannot fill the state response or the window,
+ *   while the decision-shaped kinds that each need a distinct human act survive it.
+ *
+ * INPUTS
+ *   allNeeds - the view model's `needsHuman` array, or anything.
+ *
+ * OUTPUTS
+ *   `{ needs, cut }`. `needs` is the kept prefix: the input when nothing had to be cut,
+ *   otherwise at most {@link MAX_STATE_NEEDS} entries, with at most
+ *   {@link MAX_STATE_NEEDS_PER_KIND} of any one kind. `cut` is null when nothing was cut,
+ *   otherwise `{ shown, total, kinds }` where `kinds` lists every kind that lost an entry
+ *   as `{ kind, shown, total }` — so a kind reduced to zero is still stated. An entry that
+ *   is not an object, or carries no string `kind`, is treated as the kind `unknown`. Never
+ *   mutates its input and never throws.
+ *
+ * KEYWORDS
+ *   needs a human, response cap, per-kind ceiling, stale spec batch, truncation, no silent
+ *   drop
+ */
+function capNeedsHuman(allNeeds) {
+  const list = Array.isArray(allNeeds) ? allNeeds : []
+  const kindOf = (entry) =>
+    entry !== null && typeof entry === 'object' && typeof entry.kind === 'string' && entry.kind.length > 0 ? entry.kind : 'unknown'
+  const totals = new Map()
+  for (const entry of list) {
+    const kind = kindOf(entry)
+    totals.set(kind, (totals.get(kind) ?? 0) + 1)
+  }
+  const shownByKind = new Map()
+  const kept = []
+  for (const entry of list) {
+    if (kept.length >= MAX_STATE_NEEDS) break
+    const kind = kindOf(entry)
+    const shown = shownByKind.get(kind) ?? 0
+    if (shown >= MAX_STATE_NEEDS_PER_KIND) continue
+    shownByKind.set(kind, shown + 1)
+    kept.push(entry)
+  }
+  if (kept.length === list.length) return { needs: list, cut: null }
+  const kinds = []
+  for (const [kind, total] of totals) {
+    const shown = shownByKind.get(kind) ?? 0
+    if (shown < total) kinds.push({ kind, shown, total })
+  }
+  return { needs: kept, cut: { shown: kept.length, total: list.length, kinds } }
+}
+
+/**
+ * PURPOSE
  *   Cap a derived view to what one HTTP response may carry: a record ceiling, a spec
  *   ceiling and a byte ceiling, with a `truncated` record naming every cut. It exists so
  *   a read-only display route can answer a generated project of thousands of records
@@ -866,20 +939,22 @@ function stripViewTexts(view) {
  *
  * OUTPUTS
  *   A new object of the same shape with `truncated` null when nothing was cut, otherwise
- *   `{ records, specs, texts, specTexts, queueTexts, byteLimit }` where each element is
- *   null or an object naming what was cut (`records`/`specs`: `{ shown, total }`;
+ *   `{ records, specs, needsHuman, texts, specTexts, queueTexts, byteLimit }` where each
+ *   element is null or an object naming what was cut (`records`/`specs`: `{ shown, total }`;
+ *   `needsHuman`: `{ shown, total, kinds }` with every cut kind as `{ kind, shown, total }`;
  *   `texts`/`specTexts`/`queueTexts`: `{ dropped, total }`). A non-object input is
  *   returned unchanged. Record bodies are kept before spec bodies, and spec bodies before
  *   the queue's copies, so the most reader-facing text survives the budget. Never throws.
  *
  * KEYWORDS
- *   response cap, truncation, byte budget, record ceiling, spec ceiling, partial view
+ *   response cap, truncation, byte budget, record ceiling, spec ceiling, needs-a-human
+ *   ceiling, partial view
  */
 export function capDecisionsView(view) {
   if (view === null || typeof view !== 'object') return view
   const allRecords = Array.isArray(view.records) ? view.records : []
   const allSpecs = Array.isArray(view.specs) ? view.specs : []
-  const truncated = { records: null, specs: null, texts: null, specTexts: null, queueTexts: null, byteLimit: MAX_STATE_BYTES }
+  const truncated = { records: null, specs: null, needsHuman: null, texts: null, specTexts: null, queueTexts: null, byteLimit: MAX_STATE_BYTES }
   let records = allRecords
   let specs = allSpecs
   if (allRecords.length > MAX_STATE_RECORDS) {
@@ -890,8 +965,10 @@ export function capDecisionsView(view) {
     truncated.specs = { shown: MAX_STATE_SPECS, total: allSpecs.length }
     specs = allSpecs.slice(0, MAX_STATE_SPECS)
   }
-  const shaped = { ...view, records, specs }
-  const candidate = { ...shaped, truncated: truncated.records !== null || truncated.specs !== null ? truncated : null }
+  const needsCap = capNeedsHuman(view.needsHuman)
+  truncated.needsHuman = needsCap.cut
+  const shaped = { ...view, records, specs, needsHuman: needsCap.needs }
+  const candidate = { ...shaped, truncated: truncated.records !== null || truncated.specs !== null || truncated.needsHuman !== null ? truncated : null }
   if (JSON.stringify(candidate).length <= MAX_STATE_BYTES) return candidate
 
   // Halve the shape until its text-free skeleton fits, then spend what is left on the

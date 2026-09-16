@@ -36,8 +36,9 @@
  *   ratchet's `ratchetDecisions` service is the only thing that derives what it returns.
  *   A missing global is reported as state unavailable, never worked around. The answer is
  *   CAPPED by the host, and when it is, the view carries a `truncated` member naming what
- *   was cut; the window turns that member into a visible note, so a partial answer is
- *   stated rather than rendered as the whole corpus.
+ *   was cut; the window turns the corpus-wide cuts into a visible note and the
+ *   `needsHuman` cut into a visible line inside the Needs-a-human section, so a partial
+ *   answer is stated rather than rendered as the whole corpus.
  *
  *   THE CONSENT ROUTE IS LEARNED AT MOUNT TIME, from the index global the host half
  *   writes: `globalThis.__DSH_ADR_PANEL_CONSENT__` carries the route path and the same
@@ -66,9 +67,23 @@
  *   and Consents (`type === "approval"`). The window leads with a **Needs a human**
  *   section built from the ratchet's own `needsHuman` set — the one entry point for
  *   consents waiting, contradictions, duplicates, stale specs and a red gate — and
- *   shows a clear empty state when that set is empty, never hiding the section. Each
- *   entry renders the ratchet's `reason` and `action` unchanged, and offers a way into
- *   the record it concerns through the row selection the record list already uses. There is exactly ONE force state, and the
+ *   shows a clear empty state when that set is empty, never hiding the section.
+ *
+ *   THE SECTION IS GROUPED BY KIND, because seven stale specs are seven copies of one
+ *   shape while a consent, a contradiction and a duplicate are each a distinct act. The
+ *   decision-shaped kinds (`consent`, `contradiction`, `duplicate`) stay individual
+ *   cards with the ratchet's own `reason` and `action`; every other kind is one
+ *   collapsible batch card — `Stale specs · 7` — whose header always states the batch
+ *   name, its count and what the batch is, and whose default-collapsed body expands to
+ *   each document with its path, a one-line reason, the drafted note path and the
+ *   ratchet's full action. The order is fixed: consents, contradictions, duplicates, the
+ *   grouped batches, then the red-gate fact, which is one card. Hash values inside a
+ *   reason are shortened for display and the full text stays in the element's `title`, so
+ *   what is shortened is never what is hidden. When the host's own `needsHuman` cap cut
+ *   the set, the section states the shown and total counts and every kind that lost an
+ *   entry, so a truncated batch reads as partial rather than complete. Every entry still
+ *   offers a way into the record it concerns through the row selection the record list
+ *   already uses. The panel copies the set unchanged and never grows a finding of its own.
  *   RATCHET computes it: the view model carries each record's `state` and `provenance`
  *   from the same `resolveActiveSet` derivation the gate uses, so a consent, a zone's
  *   authority and a supersession are never re-judged here. The panel renders
@@ -230,6 +245,14 @@
  *     so, because a parse gap must not render as an unlabelled segment.
  *   - A check whose parsed type is empty: its type pill renders `unknown` in the neutral
  *     tone, so a check row can never be a detail with no label.
+ *   - A needs-human kind the window has never seen: it is grouped under its own name with
+ *     hyphens turned into spaces and its entries are reachable by expanding it, so a new
+ *     kind is shown rather than dropped.
+ *   - A needs-human set the host's cap cut: the section says the shown and total counts and
+ *     names every kind that lost an entry, and a cut batch's header reads `shown of total`.
+ *   - A reason, action, problem line or spec header carrying a full `sha256:<64 hex>`: it
+ *     renders shortened (twelve hex and an ellipsis) with the full value in the element's
+ *     `title`, so nothing is hidden and no visible node shows a raw 64-hex value.
  */
 window.__ModuleLoader__.load({
 	id: "@cc/dsh-adr-panel",
@@ -250,7 +273,7 @@ window.__ModuleLoader__.load({
 		 * are equal again after a release and the constant is one ahead only in the working
 		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.29";
+		const PANEL_VERSION = "0.1.30";
 		/** Directories used when the host view reports none. */
 		const DEFAULT_DECISIONS_DIR = "docs/adrs";
 		const DEFAULT_SPECS_DIR = "docs/specs";
@@ -892,13 +915,33 @@ window.__ModuleLoader__.load({
 			var value = String(text == null ? "" : text);
 			return value.length <= limit ? value : value.slice(0, limit - 1) + "…";
 		}
-		/** @returns a hash shortened for display, e.g. `sha256:9a3f9532…`. */
+		/**
+		 * Shorten one hash for display, e.g. `sha256:9a3f9532a1b4…`.
+		 *
+		 * It is presentation only and never feeds a rule: the caller keeps the full value in
+		 * a `title`/`aria-label`, so what is shortened is never what is lost. Twelve hex
+		 * characters are shown (rather than eight) because a "recorded vs current" pair must
+		 * stay distinguishable to the eye while both stay short, and because the spec section
+		 * has always abbreviated this way.
+		 *
+		 * @param hash - the hash text, or anything.
+		 * @returns The shortened display form; a value too short to shorten is returned as
+		 *   written (or `unknown` when empty). Never throws.
+		 */
 		function shortHash(hash) {
 			var value = String(hash == null ? "" : hash);
 			if (value.length <= 20) return value === "" ? "unknown" : value;
 			var parts = value.indexOf(":") === -1 ? [value] : [value.slice(0, value.indexOf(":") + 1), value.slice(value.indexOf(":") + 1)];
-			if (parts.length === 1) return parts[0].slice(0, 8) + "…";
-			return parts[0] + parts[1].slice(0, 8) + "…";
+			if (parts.length === 1) return parts[0].slice(0, 12) + "…";
+			return parts[0] + parts[1].slice(0, 12) + "…";
+		}
+		/**
+		 * Whether a text carries at least one full `sha256:<64 hex>` hash.
+		 * @param text - any value.
+		 * @returns true when a 64-hex hash is present. Never throws.
+		 */
+		function hasFullHash(text) {
+			return /sha256:[0-9a-fA-F]{64}/.test(String(text == null ? "" : text));
 		}
 		/** @returns the date part of an ISO timestamp, or the value as written when it does not parse. */
 		function recordedDate(value) {
@@ -923,6 +966,7 @@ window.__ModuleLoader__.load({
 				decisionIds: {},
 				recordIds: {},
 				needsHuman: [],
+				needsHumanTruncated: null,
 				dirs: { decisionsDir: DEFAULT_DECISIONS_DIR, specsDir: DEFAULT_SPECS_DIR },
 				projectName: "this project",
 				notes: notes === undefined ? [] : notes,
@@ -1105,6 +1149,13 @@ window.__ModuleLoader__.load({
 					// instead of rendering a partial list as the whole corpus.
 					var truncation = truncationNote(view.truncated);
 					if (truncation !== null) notes.push(truncation);
+					// The needs-a-human set has its own ceiling, and its cut is stated inside the
+					// section it belongs to rather than among the corpus-wide notes. The raw record
+					// is carried through for that; `truncationNote` above covers the record, spec,
+					// text and queue cuts.
+					var needsHumanTruncated = view.truncated !== null && view.truncated !== undefined && typeof view.truncated === "object" && view.truncated.needsHuman !== null && view.truncated.needsHuman !== undefined && typeof view.truncated.needsHuman === "object"
+						? view.truncated.needsHuman
+						: null;
 					var specs = (Array.isArray(view.specs) ? view.specs : []).map(parseSpec);
 					var records = (Array.isArray(view.records) ? view.records : []).map(adaptRecord).sort(byAdrId);
 					var decisions = [];
@@ -1137,6 +1188,7 @@ window.__ModuleLoader__.load({
 						decisionIds: decisionIds,
 						recordIds: recordIds,
 						needsHuman: (Array.isArray(view.needsHuman) ? view.needsHuman : []).map(adaptNeed).filter(function (entry) { return entry !== null; }),
+						needsHumanTruncated: needsHumanTruncated,
 						dirs: {
 							decisionsDir: typeof project.decisionsDir === "string" && project.decisionsDir !== "" ? project.decisionsDir : DEFAULT_DECISIONS_DIR,
 							specsDir: typeof project.specsDir === "string" && project.specsDir !== "" ? project.specsDir : DEFAULT_SPECS_DIR
@@ -1242,6 +1294,25 @@ window.__ModuleLoader__.load({
 		}
 		function smallButtonStyle() {
 			return { appearance: "none", border: "1px solid var(--dsw-alias-border-l2, rgba(128,128,128,0.35))", background: "transparent", color: "inherit", borderRadius: 6, padding: "3px 9px", fontSize: 12, cursor: "pointer" };
+		}
+		/**
+		 * The header button of a collapsible needs-human group: a full-width transparent
+		 * button, so it is a control rather than a status surface and is never measured as a
+		 * toned fill. Its transparent background is deliberate and unchanged from
+		 * {@link smallButtonStyle}, which is what keeps it out of the colour contrast check.
+		 * @returns the style object.
+		 */
+		function groupToggleStyle() {
+			var base = smallButtonStyle();
+			base.display = "flex";
+			base.alignItems = "baseline";
+			base.gap = 8;
+			base.width = "100%";
+			base.textAlign = "left";
+			base.padding = "6px 8px";
+			base.fontSize = 12;
+			base.fontWeight = 600;
+			return base;
 		}
 		function primaryButtonStyle(colours) {
 			var base = { appearance: "none", border: "1px solid var(--dsw-alias-border-l2, rgba(128,128,128,0.45))", background: "var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,0.2))", color: "inherit", borderRadius: 6, padding: "4px 10px", fontSize: 12, cursor: "pointer", marginTop: 8 };
@@ -1475,9 +1546,22 @@ window.__ModuleLoader__.load({
 		//#endregion
 
 		//#region small element helpers
-		/** @returns a chip element, optionally clickable and restyled. */
-		function chip(text, style, onClick) {
+		/**
+		 * A chip element, optionally clickable, restyled and carrying a `title`.
+		 *
+		 * The `title` argument is how a shortened hash chip keeps its FULL value in the DOM:
+		 * only the visible text is abbreviated, so a reader can still reach the whole hash
+		 * and a test can find it. It is presentation only.
+		 *
+		 * @param text - the visible text (already shortened by the caller when it is a hash).
+		 * @param style - optional style overrides.
+		 * @param onClick - optional click handler; the chip becomes a button role when set.
+		 * @param title - optional full text for the `title` attribute.
+		 * @returns the chip element.
+		 */
+		function chip(text, style, onClick, title) {
 			var props = { style: Object.assign({}, chipStyle(), style || {}) };
+			if (typeof title === "string" && title !== "") props.title = title;
 			if (typeof onClick === "function") {
 				props.onClick = onClick;
 				props.role = "button";
@@ -1635,11 +1719,318 @@ window.__ModuleLoader__.load({
 					pill(need.kind + " " + need.id, needsKind(need)),
 					need.title === "" ? null : React.createElement("span", { style: { fontSize: 12, fontWeight: 600 } }, need.title),
 					need.path === null ? null : React.createElement("span", { style: mutedInlineStyle() }, need.path)),
-				need.reason === "" ? null : React.createElement("div", { style: { fontSize: 12, marginTop: 4, lineHeight: "18px" } }, need.reason),
+				need.reason === "" ? null : React.createElement(HashedText, { style: { fontSize: 12, marginTop: 4, lineHeight: "18px" }, text: need.reason }),
 				drafted === null ? null : React.createElement("div", { style: mutedInlineStyle() }, "drafted: " + drafted),
-				need.draftReason === null || need.draftReason === undefined ? null : React.createElement("div", { style: mutedInlineStyle() }, need.draftReason),
-				need.action === "" ? null : React.createElement("div", { style: ctaNoteStyle() }, need.action),
+				need.draftReason === null || need.draftReason === undefined ? null : React.createElement(HashedText, { style: mutedInlineStyle(), text: need.draftReason }),
+				need.action === "" ? null : React.createElement(HashedText, { style: ctaNoteStyle(), text: need.action }),
 				record === null ? null : React.createElement("button", { type: "button", style: smallButtonStyle(), onClick: function () { props.onSelectAdr(record.id); } }, "Open " + record.id));
+		}
+		/**
+		 * PURPOSE
+		 *   Render a piece of the ratchet's own text with any full `sha256:<64 hex>` value
+		 *   shortened for display, keeping the FULL value in the element's `title` so nothing
+		 *   is hidden and a test can still find it. It is presentation only: the hash the
+		 *   ratchet computed, and every rule that rests on it, is untouched.
+		 *
+		 * INPUTS
+		 *   props.text - the ratchet's text (a reason, an action, a problem line).
+		 *   props.style - the style for the wrapper; optional.
+		 *
+		 * OUTPUTS
+		 *   A `div` whose visible text has every full hash shortened and whose `title` carries
+		 *   the full text when a full hash is present. A text without a full hash renders
+		 *   unchanged and gets no `title`. Never throws.
+		 *
+		 * KEYWORDS
+		 *   display only, hash, short display, title, not hidden, needs a human, problem line
+		 */
+		function HashedText(props) {
+			var full = String(props.text == null ? "" : props.text);
+			var nodeProps = { style: props.style };
+			if (hasFullHash(full)) nodeProps.title = full;
+			return React.createElement("div", nodeProps, shortenHashes(full));
+		}
+		/**
+		 * The kinds that are a DISTINCT human act and are therefore always drawn as their own
+		 * card, in this order. A consent, a contradiction and a duplicate each name one thing
+		 * to settle, so folding them into a batch would hide a decision behind a count.
+		 */
+		const DECISION_NEED_KINDS = ["consent", "contradiction", "duplicate"];
+		/**
+		 * The kinds rendered as one individual fact card after the grouped batches, because
+		 * each is a standing condition rather than a batch of documents. The red gate is
+		 * today the only one.
+		 */
+		const FACT_NEED_KINDS = ["red-gate"];
+		/**
+		 * The reader-facing name of a grouped batch kind. The map exists so the common batch
+		 * reads as `Stale specs` rather than `stale-spec`; a kind not in it falls back to its
+		 * own string with hyphens turned into spaces, so an unrecognised kind is still named.
+		 */
+		const NEED_GROUP_LABELS = { "stale-spec": "Stale specs", "red-gate": "Red gate" };
+		/**
+		 * PURPOSE
+		 *   Partition the ratchet's `needsHuman` set into the three presentations the section
+		 *   uses: individual decision cards, grouped batches and individual facts. It orders
+		 *   the presentation — consents, contradictions, duplicates, then the grouped batches,
+		 *   then the facts — and decides no finding; every entry comes from the ratchet.
+		 *
+		 * INPUTS
+		 *   needs - the adapted `needsHuman` array, or anything.
+		 *
+		 * OUTPUTS
+		 *   `{ cards, groups, facts }`. `cards` is the decision-shaped entries ordered consent,
+		 *   contradiction, duplicate (stable within a kind); `groups` is one `{ kind, entries }`
+		 *   per non-decision kind in first-seen order; `facts` is the fact-kind entries. A
+		 *   non-array input yields three empty arrays. Never throws and never mutates.
+		 *
+		 * KEYWORDS
+		 *   needs a human, grouping, decision card, batch, red gate, presentation only
+		 */
+		function partitionNeedsHuman(needs) {
+			var list = Array.isArray(needs) ? needs : [];
+			var cards = [];
+			var groups = [];
+			var facts = [];
+			var groupAt = {};
+			for (var i = 0; i < list.length; i += 1) {
+				var need = list[i];
+				var kind = need === null || need === undefined || need.kind === undefined ? "unknown" : String(need.kind);
+				if (DECISION_NEED_KINDS.indexOf(kind) !== -1) {
+					cards.push(need);
+					continue;
+				}
+				if (FACT_NEED_KINDS.indexOf(kind) !== -1) {
+					facts.push(need);
+					continue;
+				}
+				if (groupAt[kind] === undefined) {
+					groupAt[kind] = groups.length;
+					groups.push({ kind: kind, entries: [] });
+				}
+				groups[groupAt[kind]].entries.push(need);
+			}
+			cards.sort(function (a, b) { return DECISION_NEED_KINDS.indexOf(a.kind) - DECISION_NEED_KINDS.indexOf(b.kind); });
+			return { cards: cards, groups: groups, facts: facts };
+		}
+		/**
+		 * PURPOSE
+		 *   Shorten the hash values inside a ratchet sentence for display, so the two long
+		 *   `sha256:` values in a stale-spec reason do not dominate a row. It is presentation
+		 *   only: the full text stays available as the element's `title`.
+		 *
+		 * INPUTS
+		 *   text - any value; non-strings become the empty string.
+		 *
+		 * OUTPUTS
+		 *   The text with every `sha256:<hex>` run replaced by its shortened display form.
+		 *   Never throws.
+		 *
+		 * KEYWORDS
+		 *   needs a human, stale spec, hash, short display, presentation only
+		 */
+		function shortenHashes(text) {
+			return String(text == null ? "" : text).replace(/sha256:[0-9a-fA-F]+/g, function (match) { return shortHash(match); });
+		}
+		/**
+		 * PURPOSE
+		 *   The one-line statement of what a collapsed group is, for the common batch kinds.
+		 *   It is fixed presentation copy, never a re-derived finding: the count beside it and
+		 *   every entry it hides are the ratchet's.
+		 *
+		 * INPUTS
+		 *   kind - the group's kind string.
+		 *
+		 * OUTPUTS
+		 *   A sentence for `stale-spec`, otherwise the empty string. Never throws.
+		 *
+		 * KEYWORDS
+		 *   needs a human, group header, collapsed fact, stale spec, presentation only
+		 */
+		function needsGroupFact(kind) {
+			if (kind === "stale-spec") return "generated spec documents no longer match the compiled bundle";
+			return "";
+		}
+		/**
+		 * PURPOSE
+		 *   The count a group header shows. When the ratchet's cap cut this kind the header
+		 *   says `shown of total` rather than only the entries that survived, so a truncated
+		 *   batch is visibly partial instead of reading as complete.
+		 *
+		 * INPUTS
+		 *   group - one `{ kind, entries }` from {@link partitionNeedsHuman}.
+		 *   truncated - the view model's `truncated.needsHuman`, or anything.
+		 *
+		 * OUTPUTS
+		 *   A string: `<shown> of <total>` when this kind was cut, otherwise `<count>`. Never
+		 *   throws.
+		 *
+		 * KEYWORDS
+		 *   needs a human, group header, count, truncation, partial batch
+		 */
+		function needsGroupCount(group, truncated) {
+			var shown = group.entries.length;
+			if (truncated !== null && truncated !== undefined && typeof truncated === "object" && Array.isArray(truncated.kinds)) {
+				for (var i = 0; i < truncated.kinds.length; i += 1) {
+					var cut = truncated.kinds[i];
+					if (cut !== null && cut !== undefined && cut.kind === group.kind) {
+						return cut.shown + " of " + cut.total;
+					}
+				}
+			}
+			return String(shown);
+		}
+		/**
+		 * PURPOSE
+		 *   Turn the ratchet's `truncated.needsHuman` record into the one sentence the section
+		 *   shows, naming the total, the shown count and every kind that lost an entry. It
+		 *   exists so a cut set is STATED in the section it belongs to rather than rendered as
+		 *   the whole to-do list.
+		 *
+		 * INPUTS
+		 *   truncated - the view model's `truncated.needsHuman`, or anything.
+		 *
+		 * OUTPUTS
+		 *   A non-empty sentence, or null when the member is absent or names no cut. Never
+		 *   throws.
+		 *
+		 * KEYWORDS
+		 *   needs a human, truncation, section notice, no silent drop
+		 */
+		function needsTruncationNote(truncated) {
+			if (truncated === null || truncated === undefined || typeof truncated !== "object") return null;
+			if (truncated.shown === undefined || truncated.total === undefined) return null;
+			var text = "the needs-a-human set was cut to stay within the host's response cap: " + truncated.shown + " of " + truncated.total + " entries are shown";
+			var cuts = [];
+			if (Array.isArray(truncated.kinds)) {
+				for (var i = 0; i < truncated.kinds.length; i += 1) {
+					var cut = truncated.kinds[i];
+					if (cut !== null && cut !== undefined && typeof cut.kind === "string") cuts.push(cut.kind + " " + cut.shown + " of " + cut.total);
+				}
+			}
+			if (cuts.length > 0) text += " (" + cuts.join(", ") + ")";
+			return text + ".";
+		}
+		/**
+		 * PURPOSE
+		 *   One entry inside an expanded batch: the document it names and a one-line reason,
+		 *   with the drafted note path and the ratchet's full action on the entry. The full
+		 *   reason stays in the element's `title`, so shortening what is drawn never hides it.
+		 *
+		 * INPUTS
+		 *   props.need - one adapted needs-human entry.
+		 *
+		 * OUTPUTS
+		 *   The compact row element. Never throws.
+		 *
+		 * KEYWORDS
+		 *   needs a human, batch entry, stale spec, drafted note, action
+		 */
+		function NeedsHumanGroupEntry(props) {
+			var need = props.need;
+			var drafted = need.draft === null || need.draft === undefined
+				? null
+				: (need.draft.id === null || need.draft.id === "" ? "" : need.draft.id + " ") + (need.draft.path === null ? "" : need.draft.path);
+			return React.createElement("div", { style: { padding: "6px 8px 6px 18px", borderTop: "1px solid var(--dsw-alias-border-l2, rgba(128,128,128,0.18))" } },
+				React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap" } },
+					pill(need.kind + " " + need.id, needsKind(need)),
+					need.title === "" ? null : React.createElement("span", { style: { fontSize: 12, fontWeight: 600 } }, need.title),
+					need.path === null || need.path === need.id ? null : React.createElement("span", { style: mutedInlineStyle() }, need.path)),
+				need.reason === "" ? null : React.createElement(HashedText, { style: { fontSize: 12, marginTop: 2, lineHeight: "18px" }, text: need.reason }),
+				drafted === null ? null : React.createElement("div", { style: mutedInlineStyle(), title: "drafted: " + drafted }, "drafted: " + drafted),
+				need.draftReason === null || need.draftReason === undefined ? null : React.createElement(HashedText, { style: mutedInlineStyle(), text: need.draftReason }),
+				need.action === "" ? null : React.createElement(HashedText, { style: ctaNoteStyle(), text: need.action }));
+		}
+		/**
+		 * PURPOSE
+		 *   One homogeneous needs-human batch as a single collapsible card: a header that
+		 *   always states the batch name, its count and what it is, and — once expanded — the
+		 *   batch's entries. It exists so a corpus with seven stale specs is one header rather
+		 *   than seven tall cards, while every entry stays reachable and none is hidden without
+		 *   the header saying so.
+		 *
+		 * INPUTS
+		 *   props.group - one `{ kind, entries }` from {@link partitionNeedsHuman}.
+		 *   props.truncated - the ratchet's `truncated.needsHuman`, or anything.
+		 *
+		 * OUTPUTS
+		 *   The group element. Collapsed by default; a header button toggles it. Never throws.
+		 *
+		 * KEYWORDS
+		 *   needs a human, group, collapse, expand, count, stale specs
+		 */
+		function NeedsHumanGroup(props) {
+			var group = props.group;
+			var expandedState = React.useState(false);
+			var expanded = expandedState[0];
+			var setExpanded = expandedState[1];
+			var label = NEED_GROUP_LABELS[group.kind] === undefined ? String(group.kind).replace(/-/g, " ").replace(/^./, function (c) { return c.toUpperCase(); }) : NEED_GROUP_LABELS[group.kind];
+			var header = label + " · " + needsGroupCount(group, props.truncated);
+			var fact = needsGroupFact(group.kind);
+			var toggle = groupToggleStyle();
+			return React.createElement("div", { style: cardStyle() },
+				React.createElement("button", {
+					type: "button",
+					style: toggle,
+					"aria-expanded": expanded ? "true" : "false",
+					onClick: function () { setExpanded(!expanded); }
+				},
+					React.createElement("span", null, (expanded ? "▾ " : "▸ ") + header),
+					React.createElement("span", { style: { marginLeft: "auto", fontWeight: 400 } }, expanded ? "hide" : "show")),
+				fact === "" ? null : React.createElement("div", { style: mutedInlineStyle() }, fact),
+				expanded
+					? React.createElement("div", { style: { marginTop: 4 } }, group.entries.map(function (need, index) {
+						return React.createElement(NeedsHumanGroupEntry, { key: String(index), need: need });
+					}))
+					: null);
+		}
+		/**
+		 * PURPOSE
+		 *   The whole **Needs a human** section: the decision-shaped cards first, then the
+		 *   grouped batches, then the fact cards, with the ratchet's own truncation statement
+		 *   when it cut the set. It is the one entry point for everything a human must settle,
+		 *   and it renders the ratchet's set unchanged and in the ratchet's order.
+		 *
+		 * INPUTS
+		 *   props.needs - the adapted `needsHuman` array.
+		 *   props.decisions - the rendered decisions, for the record lookup.
+		 *   props.consents - the rendered consent records, for the record lookup.
+		 *   props.onSelectAdr - selects/expands a record by id.
+		 *   props.truncated - the ratchet's `truncated.needsHuman`, or anything.
+		 *
+		 * OUTPUTS
+		 *   The section element. An empty set renders the visible empty line, never a hidden
+		 *   section. Never throws.
+		 *
+		 * KEYWORDS
+		 *   needs a human, section, entry point, grouped batches, empty state, truncation
+		 */
+		function NeedsHumanSection(props) {
+			var needs = Array.isArray(props.needs) ? props.needs : [];
+			var truncation = needsTruncationNote(props.truncated);
+			var body;
+			if (needs.length === 0) {
+				body = truncation === null
+					? React.createElement("p", { style: mutedStyle() }, "Nothing needs a human: no decision waits for consent, no contradiction or duplicate is open, no spec has drifted, and the last recorded verification is green.")
+					: React.createElement("p", { style: mutedStyle() }, "Nothing needs a human in the part of the set that was returned, but " + truncation);
+			} else {
+				var parts = partitionNeedsHuman(needs);
+				var children = [];
+				if (truncation !== null) children.push(React.createElement("p", { key: "truncated", style: warnStyle() }, truncation));
+				parts.cards.forEach(function (need, index) {
+					children.push(React.createElement(NeedsHumanCard, { key: "card" + index, need: need, decisions: props.decisions, consents: props.consents, onSelectAdr: props.onSelectAdr }));
+				});
+				parts.groups.forEach(function (group, index) {
+					children.push(React.createElement(NeedsHumanGroup, { key: "group" + index, group: group, truncated: props.truncated }));
+				});
+				parts.facts.forEach(function (need, index) {
+					children.push(React.createElement(NeedsHumanCard, { key: "fact" + index, need: need, decisions: props.decisions, consents: props.consents, onSelectAdr: props.onSelectAdr }));
+				});
+				body = React.createElement("div", { style: { display: "grid", gap: 8 } }, children);
+			}
+			return React.createElement("div", null,
+				React.createElement(sectionHeading, { title: "Needs a human" }),
+				body);
 		}
 		//#endregion
 
@@ -2422,7 +2813,7 @@ window.__ModuleLoader__.load({
 				React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" } },
 					React.createElement("span", { style: { fontWeight: 700 } }, spec.zone === null ? spec.name : spec.zone),
 					spec.project === null ? null : chip("project: " + spec.project),
-					chip(shortHash(spec.hash)),
+					chip(shortHash(spec.hash), null, null, spec.hash),
 					chip(spec.counts.laws + " law" + (spec.counts.laws === 1 ? "" : "s")),
 					chip(spec.counts.checks + " check" + (spec.counts.checks === 1 ? "" : "s"))),
 				spec.eof === false ? React.createElement("div", { style: warnStyle() }, "Only the first page was read, so this spec may be incomplete.") : null,
@@ -2522,7 +2913,7 @@ window.__ModuleLoader__.load({
 			var ask = props.ask;
 			var settle = props.settle;
 			var load = props.load;
-			var emptyView = { status: "idle", decisions: [], consents: [], specs: [], relations: { approvedBy: {}, supersededBy: {} }, lawsByDecision: {}, decisionIds: {}, recordIds: {}, needsHuman: [], dirs: { decisionsDir: DEFAULT_DECISIONS_DIR, specsDir: DEFAULT_SPECS_DIR }, projectName: "this project", notes: [], failures: [] };
+			var emptyView = { status: "idle", decisions: [], consents: [], specs: [], relations: { approvedBy: {}, supersededBy: {} }, lawsByDecision: {}, decisionIds: {}, recordIds: {}, needsHuman: [], needsHumanTruncated: null, dirs: { decisionsDir: DEFAULT_DECISIONS_DIR, specsDir: DEFAULT_SPECS_DIR }, projectName: "this project", notes: [], failures: [] };
 			var view = React.useState(emptyView);
 			var current = view[0];
 			var setView = view[1];
@@ -2548,6 +2939,7 @@ window.__ModuleLoader__.load({
 						decisionIds: result.decisionIds === undefined ? {} : result.decisionIds,
 						recordIds: result.recordIds === undefined ? {} : result.recordIds,
 						needsHuman: result.needsHuman === undefined ? [] : result.needsHuman,
+						needsHumanTruncated: result.needsHumanTruncated === undefined ? null : result.needsHumanTruncated,
 						dirs: result.dirs === undefined ? emptyView.dirs : result.dirs,
 						projectName: result.projectName === undefined ? "this project" : result.projectName,
 						notes: result.notes === undefined ? [] : result.notes,
@@ -2635,22 +3027,16 @@ window.__ModuleLoader__.load({
 						React.createElement(FailuresBlock, { failures: current.failures }),
 						current.notes !== undefined && current.notes.length > 0
 							? React.createElement("div", { style: warnStyle() }, current.notes.map(function (note, index) {
-								return React.createElement("div", { key: String(index) }, note);
+								return React.createElement(HashedText, { key: String(index), text: note });
 							}))
 							: null,
-						React.createElement("div", null,
-							React.createElement(sectionHeading, { title: "Needs a human" }),
-							current.needsHuman.length === 0
-								? React.createElement("p", { style: mutedStyle() }, "Nothing needs a human: no decision waits for consent, no contradiction or duplicate is open, no spec has drifted, and the last recorded verification is green.")
-								: React.createElement("div", { style: { display: "grid", gap: 8 } }, current.needsHuman.map(function (need, index) {
-									return React.createElement(NeedsHumanCard, {
-										key: String(index),
-										need: need,
-										decisions: current.decisions,
-										consents: current.consents,
-										onSelectAdr: onSelectAdr
-									});
-								}))),
+						React.createElement(NeedsHumanSection, {
+							needs: current.needsHuman,
+							truncated: current.needsHumanTruncated,
+							decisions: current.decisions,
+							consents: current.consents,
+							onSelectAdr: onSelectAdr
+						}),
 						React.createElement(Legend, null),
 						pendingRatify === null ? null : React.createElement("div", null,
 							React.createElement(sectionHeading, { title: "Awaiting your answer", sourceDir: current.dirs.decisionsDir }),

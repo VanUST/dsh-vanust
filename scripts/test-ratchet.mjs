@@ -23,6 +23,7 @@ const falsifyModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratche
 const ingestModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-ingest.mjs`)
 const draftsModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-drafts.mjs`)
 const decisionsModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-decisions.mjs`)
+const judgeModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-judge.mjs`)
 
 // The harness adapter is loaded LAZILY and by hand, because it is the one module here
 // that imports a package the repository does not carry: `@deepseek-ai/dsh-tools`. A
@@ -1495,59 +1496,233 @@ function ambiguousProject(name) {
   })
 }
 
-/** A subagent runtime stub that records every spawn and answers a clean verdict. */
-function stubRuntime(spawned) {
-  return {
-    async start(provider, options) {
-      spawned.push({ provider, options })
-      return {
-        result: Promise.resolve({ structured: { ok: true, findings: [] }, output: [], stopReason: 'completed' }),
-        dispose: async () => {},
-      }
+/**
+ * A fake subagents + agents harness for the judge pool.
+ *
+ * It records `startContinuable` (child creation), `sendMessage` (per-call follow-ups),
+ * `interrupt` and `drainContinuableChildren`, and exposes a synthetic child whose
+ * `whenIdle()` appends this turn's answer to a session log. It is deliberately a FAKE of
+ * the durable-child seam: the real API facts (startContinuable returns `{childId}`, a
+ * continuable child carries no output schema, output is read from the child session) are
+ * measured from the installed harness and recorded in `probes/api-probe/judge-reuse-probe.mjs`.
+ *
+ * @param options - `{ verdict, failFirstSend, turnEnd }`.
+ * @returns `{ services, spawned, sent, interrupted, released, children, control, maxActive }`.
+ *   `control.gate` is an optional promise every turn awaits before finishing, so a test can
+ *   hold a turn open and cancel or observe it.
+ */
+function stubJudgeHarness({ verdict = { ok: true, findings: [] }, failFirstSend = false, turnEnd = 'completed' } = {}) {
+  const spawned = []
+  const sent = []
+  const interrupted = []
+  const released = []
+  const children = new Map()
+  const control = { gate: null }
+  let nextId = 1
+  let sendAttempts = 0
+  let active = 0
+  let maxActive = 0
+
+  const makeChild = (id) => {
+    const events = []
+    let seq = 0
+    const child = {
+      id,
+      status: 'idle',
+      pending: [],
+      session: { get seq() { return seq }, snapshotEvents: (from = 0) => events.slice(from) },
+      async whenIdle() {
+        active -= 1
+        if (control.gate !== null) await control.gate
+        events.push({ type: 'assistant/message', data: { message: { content: [{ type: 'text', text: JSON.stringify(verdict) }] } } })
+        events.push({ type: 'turn/end', data: { reason: { kind: turnEnd } } })
+        seq = events.length
+      },
+    }
+    return child
+  }
+
+  const subagents = {
+    async startContinuable(spec) {
+      const childId = `judge-${nextId}`
+      nextId += 1
+      spawned.push({ provider: spec.provider, label: spec.label, options: spec.request, spec })
+      children.set(childId, makeChild(childId))
+      active += 1
+      maxActive = Math.max(maxActive, active)
+      return { childId, messageId: `${childId}-m0` }
+    },
+    async sendMessage(_parent, childId, content) {
+      sendAttempts += 1
+      if (failFirstSend && sendAttempts === 1) throw new Error('stub: the judge send failed')
+      const child = children.get(childId)
+      if (child === undefined) throw new Error(`stub: no judge child ${String(childId)}`)
+      sent.push({ childId, text: content[0].text })
+      child.pending.push(content[0])
+      active += 1
+      maxActive = Math.max(maxActive, active)
+      return `${childId}-m${child.pending.length}`
+    },
+    interrupt(childId, authority) {
+      interrupted.push({ childId, authority })
+    },
+    async drainContinuableChildren(_parent, ids) {
+      released.push(...ids)
     },
   }
+  const agents = { roots: () => [], get: (id) => children.get(id) }
+  return { services: { subagents, agents }, spawned, sent, interrupted, released, children, control, get maxActive() { return maxActive } }
 }
+
+/** The static/call split a real review prompt has, for the judge-pool tests. */
+const JUDGE_STATIC = '# Project\n\nName: fixture\n'
+const judgePrompt = (material) => `${JUDGE_STATIC}\n# Question\n\n${material}`
+const signalOf = () => new AbortController().signal
+
+/**
+ * The pool under test over the fake harness.
+ */
+function stubJudgePool(options = {}) {
+  const harness = stubJudgeHarness(options)
+  const pool = judgeModule.createJudgePool({
+    runtimeOf: () => harness.services.subagents,
+    agentsOf: () => harness.services.agents,
+  })
+  return { harness, pool }
+}
+
+test('judge: two consecutive calls create ONE judge and each gets only its own material', async () => {
+  const { harness, pool } = stubJudgePool()
+  const parent = { id: 'parent-one' }
+
+  const first = await pool.judge({ parent, signal: signalOf(), prompt: judgePrompt('first material'), staticPrompt: JUDGE_STATIC })
+  const second = await pool.judge({ parent, signal: signalOf(), prompt: judgePrompt('second material'), staticPrompt: JUDGE_STATIC })
+
+  assert.equal(harness.spawned.length, 1, `two calls must create one judge, got ${harness.spawned.length}`)
+  assert.equal(first.created, true)
+  assert.equal(first.reused, false)
+  assert.equal(second.created, false)
+  assert.equal(second.reused, true)
+  // The first call's material was the creation prompt; the second travelled as a follow-up.
+  assert.match(String(harness.spawned[0].options.prompt[0].text), /first material/)
+  assert.equal(harness.sent.length, 1, 'only the second call sends a follow-up')
+  assert.match(harness.sent[0].text, /second material/)
+  assert.doesNotMatch(harness.sent[0].text, /^# Project/, 'the static prefix is not resent')
+  assert.equal(harness.released.length, 0, 'a finished call must not dispose the shared judge')
+})
+
+test('judge: two concurrent calls are serialized onto the one judge, never interleaved', async () => {
+  const { harness, pool } = stubJudgePool()
+  const parent = { id: 'parent-concurrent' }
+  const gate = Promise.withResolvers()
+  harness.control.gate = gate.promise
+
+  const first = pool.judge({ parent, signal: signalOf(), prompt: judgePrompt('concurrent A'), staticPrompt: JUDGE_STATIC })
+  const second = pool.judge({ parent, signal: signalOf(), prompt: judgePrompt('concurrent B'), staticPrompt: JUDGE_STATIC })
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.equal(harness.maxActive, 1, 'a second turn must not open while the first is running')
+  gate.resolve()
+  const [a, b] = await Promise.all([first, second])
+
+  assert.equal(harness.spawned.length, 1, 'concurrent calls share one judge')
+  assert.equal(a.created, true)
+  assert.equal(b.reused, true)
+  assert.equal(harness.maxActive, 1, 'turns never interleave')
+  assert.match(harness.sent[0].text, /concurrent B/, 'B ran only after A finished')
+})
+
+test('judge: a dead judge is recreated once and the call still answers', async () => {
+  const { harness, pool } = stubJudgePool({ failFirstSend: true })
+  const parent = { id: 'parent-dead' }
+
+  const first = await pool.judge({ parent, signal: signalOf(), prompt: judgePrompt('warm up'), staticPrompt: JUDGE_STATIC })
+  assert.equal(first.created, true)
+  assert.equal(harness.spawned.length, 1)
+
+  // The follow-up send fails once: the pool must release the dead child and create one fresh.
+  const second = await pool.judge({ parent, signal: signalOf(), prompt: judgePrompt('after failure'), staticPrompt: JUDGE_STATIC })
+  assert.equal(harness.spawned.length, 2, 'a dead judge is recreated exactly once')
+  assert.equal(second.created, true)
+  assert.ok(harness.released.includes('judge-1'), 'the dead child is released before the replacement')
+})
+
+test('judge: a cancelled call interrupts only its own turn and keeps the shared judge', async () => {
+  const { harness, pool } = stubJudgePool()
+  const parent = { id: 'parent-cancel' }
+
+  await pool.judge({ parent, signal: signalOf(), prompt: judgePrompt('warm up'), staticPrompt: JUDGE_STATIC })
+  assert.equal(harness.spawned.length, 1)
+
+  const gate = Promise.withResolvers()
+  harness.control.gate = gate.promise
+  const controller = new AbortController()
+  const pending = pool.judge({ parent, signal: controller.signal, prompt: judgePrompt('cancelled work'), staticPrompt: JUDGE_STATIC })
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  controller.abort()
+  gate.resolve()
+  await assert.rejects(pending, /cancelled/)
+
+  assert.equal(harness.interrupted.length, 1, 'the cancelled turn is interrupted')
+  assert.equal(harness.interrupted[0].childId, 'judge-1')
+  assert.equal(harness.released.length, 0, 'the shared judge is NOT disposed by a cancelled call')
+
+  // A later call keeps using the same child.
+  harness.control.gate = null
+  const next = await pool.judge({ parent, signal: signalOf(), prompt: judgePrompt('later work'), staticPrompt: JUDGE_STATIC })
+  assert.equal(harness.spawned.length, 1, 'the judge survived the cancellation')
+  assert.equal(next.reused, true)
+})
+
+test('judge: a changed static prefix recreates the judge rather than serving stale orientation', async () => {
+  const { harness, pool } = stubJudgePool()
+  const parent = { id: 'parent-stale' }
+  await pool.judge({ parent, signal: signalOf(), prompt: `# Project\n\nv1\n\n# Question\n\nq1`, staticPrompt: '# Project\n\nv1\n' })
+  const second = await pool.judge({ parent, signal: signalOf(), prompt: `# Project\n\nv2\n\n# Question\n\nq2`, staticPrompt: '# Project\n\nv2\n' })
+  assert.equal(harness.spawned.length, 2, 'a changed static context is not cached as if it were current')
+  assert.equal(second.created, true)
+  assert.ok(harness.released.includes('judge-1'))
+})
 
 test('compile: a judgement the compiler asked for is made, not merely recorded', { skip: HARNESS_SKIP }, async () => {
   const root = ambiguousProject('compile-trigger')
   const compiled = compile(root)
   assert.ok(compiled.report.reviewRequired.length > 0, 'the fixture must be one the compiler cannot decide')
 
-  const spawned = []
+  const harness = stubJudgeHarness()
   const agent = { id: 'agent-root', session: { header: { cwd: root } } }
-  const definitions = mountPlugin({ subagents: stubRuntime(spawned), agents: { roots: () => [agent] } })
+  const definitions = mountPlugin({ ...harness.services, agents: { ...harness.services.agents, roots: () => [agent] } })
   const result = await definitions.get('ratchet_compile').execute({}, { agent })
 
   assert.equal(result.dynamicReview.ran, true, `expected the review to run: ${JSON.stringify(result.dynamicReview)}`)
-  assert.equal(spawned.length, 1, 'exactly one judge, for one marked question')
-  assert.match(String(spawned[0].options.prompt[0].text), /auth\.shared/, 'the judge is asked about the corpus that raised the question')
+  assert.equal(harness.spawned.length, 1, 'exactly one judge, for one marked question')
+  assert.match(String(harness.spawned[0].options.prompt[0].text), /auth\.shared/, 'the judge is asked about the corpus that raised the question')
   assert.equal(result.dynamicReview.advisory, true)
   assert.equal(result.dynamicReview.gate, false, 'a review never becomes the gate')
 })
 
 test('compile: a judge cannot start a review of its own, and says so', { skip: HARNESS_SKIP }, async () => {
   const root = ambiguousProject('compile-trigger-child')
-  const spawned = []
   // The same runtime, but the registry does not list this caller as a root вЂ” which
   // is exactly what a spawned judge looks like from inside its own tool call.
   const agent = { id: 'agent-child', session: { header: { cwd: root } } }
-  const definitions = mountPlugin({ subagents: stubRuntime(spawned), agents: { roots: () => [] } })
+  const harness = stubJudgeHarness()
+  const definitions = mountPlugin({ ...harness.services, agents: { ...harness.services.agents, roots: () => [] } })
   const result = await definitions.get('ratchet_compile').execute({}, { agent })
 
   assert.equal(result.dynamicReview.ran, false)
   assert.match(result.dynamicReview.reason, /root/)
-  assert.equal(spawned.length, 0, 'no judge was spawned from inside a judge')
+  assert.equal(harness.spawned.length, 0, 'no judge was spawned from inside a judge')
 })
 
 test('compile: the trigger is skippable, and a composition with no judge reports that', { skip: HARNESS_SKIP }, async () => {
   const root = ambiguousProject('compile-trigger-off')
-  const spawned = []
   const agent = { id: 'agent-root', session: { header: { cwd: root } } }
 
-  const off = mountPlugin({ subagents: stubRuntime(spawned), agents: { roots: () => [agent] } })
+  const offHarness = stubJudgeHarness()
+  const off = mountPlugin({ ...offHarness.services, agents: { ...offHarness.services.agents, roots: () => [agent] } })
   const offResult = await off.get('ratchet_compile').execute({ review: false }, { agent })
   assert.equal(offResult.dynamicReview, undefined, 'review: false keeps the compile purely static')
-  assert.equal(spawned.length, 0)
+  assert.equal(offHarness.spawned.length, 0)
 
   const noJudge = mountPlugin({ agents: { roots: () => [agent] } })
   const noJudgeResult = await noJudge.get('ratchet_compile').execute({}, { agent })
@@ -1559,10 +1734,30 @@ test('compile: the trigger is skippable, and a composition with no judge reports
     adrs: { '0001-a.adr.md': adrText({ id: '0001', zones: ['auth'], laws: [{ id: 'auth.one', statement: 'One.', checks: [] }] }) },
   })
   const cleanAgent = { id: 'agent-root', session: { header: { cwd: clean } } }
-  const cleanDefs = mountPlugin({ subagents: stubRuntime(spawned), agents: { roots: () => [cleanAgent] } })
+  const cleanHarness = stubJudgeHarness()
+  const cleanDefs = mountPlugin({ ...cleanHarness.services, agents: { ...cleanHarness.services.agents, roots: () => [cleanAgent] } })
   const cleanResult = await cleanDefs.get('ratchet_compile').execute({}, { cleanAgent })
   assert.equal(cleanResult.dynamicReview, undefined, 'a corpus with nothing to judge pays no judge')
-  assert.equal(spawned.length, 0)
+  assert.equal(cleanHarness.spawned.length, 0)
+})
+
+test('review tool: two reviews in one session reuse ONE judge and each sends its own change', { skip: HARNESS_SKIP }, async () => {
+  const root = reviewableProject('judge-reuse-review')
+  const harness = stubJudgeHarness()
+  const agent = { id: 'agent-root', session: { header: { cwd: root } } }
+  const definitions = mountPlugin({ ...harness.services, agents: { ...harness.services.agents, roots: () => [agent] } })
+  const reviewTool = definitions.get('ratchet_review')
+
+  const first = await reviewTool.execute({ job: 'review_change', change: 'switch session storage to files' }, { agent })
+  const second = await reviewTool.execute({ job: 'review_change', change: 'switch session storage to sqlite' }, { agent })
+
+  assert.equal(first.stage, 'review', `first review ran: ${JSON.stringify(first.problems ?? [])}`)
+  assert.equal(second.stage, 'review', `second review ran: ${JSON.stringify(second.problems ?? [])}`)
+  assert.equal(harness.spawned.length, 1, 'one session must pay for one judge, not one per review')
+  assert.match(String(harness.spawned[0].options.prompt[0].text), /files/, 'the first change is the creation task')
+  assert.equal(harness.sent.length, 1, 'the second review is a follow-up turn')
+  assert.match(harness.sent[0].text, /sqlite/, 'the second change travels as call material')
+  assert.doesNotMatch(harness.sent[0].text, /^# Material/m, 'the static corpus prefix is delivered once')
 })
 
 // ---------------------------------------------------------------------------

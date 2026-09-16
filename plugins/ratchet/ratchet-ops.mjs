@@ -1034,6 +1034,31 @@ function lawHashesOf(bundle) {
 }
 
 /**
+ * Extracts the static prefix of a rendered judge prompt, for the shared judge.
+ *
+ * The judge pool delivers a prompt's static prefix once, when the child is created, and
+ * sends only the remainder on later calls. The prefix has to be an exact byte prefix of the
+ * rendered prompt, so it is found by its section marker (the point where call-specific
+ * material starts) rather than regenerated — a second rendering would drift from the first.
+ *
+ * It is deliberately forgiving: when no marker is present the whole prompt is returned, so
+ * the caller sends the full prompt every call and no text is ever dropped because a prompt
+ * builder changed shape. That degrades to "no prefix caching", never to a truncated task.
+ *
+ * @param prompt - A fully rendered judge prompt.
+ * @param markers - Section markers that begin the per-call material, in preference order.
+ * @returns A prefix of `prompt` (possibly all of it).
+ */
+function staticPrefixOf(prompt, markers) {
+  const text = String(prompt ?? '')
+  for (const marker of markers) {
+    const at = text.indexOf(marker)
+    if (at > 0) return text.slice(0, at)
+  }
+  return text
+}
+
+/**
  * Runs one advisory review, spawning a judge when a spawner is supplied.
  *
  * The judge is INJECTED rather than reached for. This module never imports the
@@ -1044,8 +1069,10 @@ function lawHashesOf(bundle) {
  *
  * @param options - `{ root, job, change, proposal, source, conflict, violation,
  *   question, spawnJudge, record }`. `spawnJudge` is
- *   `(prompt, schema) => Promise<{ structured, output, stopReason, diagnostic }>`
- *   or `null` for the degraded path. `record` writes the report when true.
+ *   `(prompt, schema, staticPrompt?) => Promise<{ structured, output, stopReason, diagnostic }>`
+ *   or `null` for the degraded path. `staticPrompt` is the prompt's unchanged prefix; a
+ *   reused judge receives it once and only the remainder afterwards, and a one-shot spawner
+ *   ignores it. `record` writes the report when true.
  * @returns The canonical review result. Always resolves; never gates.
  */
 export async function review({
@@ -1144,7 +1171,10 @@ export async function review({
   let judgeResult
   let judgeError = null
   try {
-    judgeResult = await spawnJudge(prompt, outputSchema)
+    // The corpus material before `# Question` does not change between reviews of the same
+    // project state, so a reused judge child reads it once; only the question and the change
+    // travel as call-specific material.
+    judgeResult = await spawnJudge(prompt, outputSchema, staticPrefixOf(prompt, ['\n# Question']))
   } catch (error) {
     judgeError = String(error)
   }
@@ -1449,7 +1479,7 @@ export async function ingest({
     }
   } else {
     try {
-      judgeResult = await spawnJudge(prompt, ingestModule.INGEST_SCHEMA)
+      judgeResult = await spawnJudge(prompt, ingestModule.INGEST_SCHEMA, staticPrefixOf(prompt, ['\nExisting ADR ids']))
     } catch (error) {
       judgeError = String(error)
     }
@@ -1743,7 +1773,7 @@ export async function ingestBatch({
     judgeIdentity = { kind: 'caller', reason: 'the caller supplied the result; the ratchet spawned no judge' }
   } else {
     try {
-      judgeResult = await spawnJudge(prompt, ingestModule.BATCH_INGEST_SCHEMA)
+      judgeResult = await spawnJudge(prompt, ingestModule.BATCH_INGEST_SCHEMA, staticPrefixOf(prompt, ['\nExisting ADR ids']))
     } catch (error) {
       judgeError = String(error)
     }
@@ -2055,7 +2085,10 @@ export async function ingestAuto({
       judgeIdentity = { kind: 'caller', reason: 'the caller supplied the result; the ratchet spawned no judge' }
     } else if (spawnJudge !== null) {
       try {
-        const judged = await spawnJudge(prompt, ingestModule.BATCH_INGEST_SCHEMA)
+        // Each auto-ingest chunk draws on the same project header, so a batch of chunks
+        // reuses one judge and pays for the orientation once; only the ids, source and
+        // format travel per chunk.
+        const judged = await spawnJudge(prompt, ingestModule.BATCH_INGEST_SCHEMA, staticPrefixOf(prompt, ['\nExisting ADR ids']))
         const parsed = judged === null || judged === undefined
           ? { verdict: null, problem: 'the judge produced no result' }
           : dynamic.parseVerdict(judged.structured ?? null, judged.output ?? null)

@@ -361,6 +361,39 @@ async function renderOverlay(prefix, overrideLoad) {
 const first = await renderOverlay('root')
 claim('the overlay renders over the real corpus', first.ok, first.ok ? undefined : first.error)
 
+/**
+ * Renders the overlay over the current state root and expands every collapsed
+ * needs-a-human batch, so the grouped rendering's entries are all in the recorded tree.
+ * The group header is a control, so a test that never clicks it would measure the
+ * collapsed header alone — this is what makes "expanding reveals each entry" a
+ * measurement rather than a reading. The root is re-flushed at the same prefix, because
+ * the stub renderer keys component state by path and a fresh prefix would be a component
+ * that had never been clicked.
+ *
+ * @param prefix - the render prefix; pass the same one if re-flushing.
+ * @returns `{ ok }` or `{ ok: false, error }`, exactly like {@link renderOverlay}.
+ */
+async function renderOverlayExpanded(prefix) {
+  const overlay = registry['shell.overlay']
+  const members = overlay.config.inject()
+  const store = members.hooks.panel
+  store.set({ open: true, sessionId: 'stub-session' })
+  const props = Object.assign({}, members, { usePanel: (selector) => selector(store.getSnapshot()) })
+  try {
+    const root = React.createElement(overlay.Component, props)
+    await flush(root, prefix)
+    await new Promise((resolveTick) => setTimeout(resolveTick, 30))
+    await flush(root, prefix)
+    const headers = nodes.filter((node) => node.tag === 'button' && node.props !== undefined && node.props['aria-expanded'] === 'false')
+    for (const header of headers) header.props.onClick()
+    await flush(root, prefix)
+    collectControls()
+    return { ok: true, root }
+  } catch (error) {
+    return { ok: false, error: String(error) }
+  }
+}
+
 const texts = nodes.map((node) => node.text)
 const headings = nodes.filter((node) => node.tag === 'h3').map((node) => node.text)
 claim(
@@ -1984,7 +2017,10 @@ needsFiles['reports/ratchet/verify-report.json'] = `${JSON.stringify({ generated
   stateRoot = needsRoot
   try {
     const serviceNeeds = stateModule.deriveDecisions({ root: needsRoot }).needsHuman
-    const rendered = await renderOverlay('needs')
+    // The batches start collapsed, so the render is expanded first: the equality claim is
+    // about every entry being REPRESENTED, and an unexpanded batch would measure the
+    // header alone.
+    const rendered = await renderOverlayExpanded('needs')
     claim('the overlay renders the needs-a-human fixture', rendered.ok, rendered.ok ? undefined : rendered.error)
     const renderedNeeds = nodes.filter(isNeedsPill).map((node) => node.text).sort()
     const serviceKeys = serviceNeeds.map((entry) => `${entry.kind} ${entry.id}`).sort()
@@ -1999,10 +2035,15 @@ needsFiles['reports/ratchet/verify-report.json'] = `${JSON.stringify({ generated
       JSON.stringify(kinds) === JSON.stringify([...NEEDS_KINDS].sort()),
       JSON.stringify(kinds),
     )
+    // A reason or action may carry a full hash that the window SHORTENS for display, so
+    // the full text is looked for in the node's own `title` as well as its visible text.
+    // Either way the ratchet's own words are in the DOM; short display never means lost.
+    const shownFullText = (value) =>
+      nodes.some((node) => node.text === value || (node.props !== undefined && typeof node.props.title === 'string' && node.props.title === value))
     const unrendered = []
     for (const entry of serviceNeeds) {
-      if (!nodes.some((node) => node.text === entry.reason)) unrendered.push(`reason of ${entry.kind} ${entry.id}`)
-      if (!nodes.some((node) => node.text === entry.action)) unrendered.push(`action of ${entry.kind} ${entry.id}`)
+      if (!shownFullText(entry.reason)) unrendered.push(`reason of ${entry.kind} ${entry.id}`)
+      if (!shownFullText(entry.action)) unrendered.push(`action of ${entry.kind} ${entry.id}`)
     }
     claim(
       "every needs-human entry renders the ratchet's own reason and action",
@@ -2018,6 +2059,85 @@ needsFiles['reports/ratchet/verify-report.json'] = `${JSON.stringify({ generated
   } finally {
     stateRoot = previousRoot
     rmSync(needsRoot, { recursive: true, force: true })
+  }
+}
+
+// ── a homogeneous batch is ONE group, not one card per document ─────────────
+//
+// Seven stale specs used to render as five-plus near-identical tall cards, each repeating
+// the same reason, note path and action. This measures the grouped rendering over a REAL
+// four-zone fixture: each generated document is written to disk with a different recorded
+// `spec-hash`, so all four are genuinely `stale` — not hand-edited `drifted` — and every
+// reason carries the full "recorded vs current" hash pair this test also shortens.
+const groupZones = ['a', 'b', 'c', 'd'].map((id) => ({ id, paths: [`src/${id}/**`], agentAuthority: 'activeIfNoConflict', requiresDecisionRecord: false }))
+const groupFiles = { '.dsh/project.json': fixtureManifest(groupZones, 'activeIfNoConflict') }
+for (const [index, id] of ['0001', '0002', '0003', '0004'].entries()) {
+  const zone = groupZones[index].id
+  const text = `# reasoning for ${id}\n`
+  groupFiles[`docs/ratchet/sources/${id}.md`] = text
+  groupFiles[`docs/adrs/${id}-fixture-${id}.adr.md`] = fixtureAdr(id, {
+    status: 'active',
+    authority: 'human',
+    zones: [zone],
+    laws: [{ id: `${zone}.law`, statement: `Law for ${zone}` }],
+    sourcePath: `docs/ratchet/sources/${id}.md`,
+    sourceHash: hashSource(text),
+  })
+}
+{
+  // Derive the freshly generated documents once so their real text (and hash) is known,
+  // then write each to disk with a DIFFERENT recorded hash: the drift detector classifies
+  // exactly that as `stale`.
+  const probeRoot = materialise(groupFiles)
+  const probe = stateModule.deriveDecisions({ root: probeRoot })
+  rmSync(probeRoot, { recursive: true, force: true })
+  probe.specs.forEach((spec, index) => {
+    groupFiles[spec.path] = spec.text.replace(/(<!--\s*spec-hash:\s*sha256:)[0-9a-f]{64}/, `$1${String(index + 1).repeat(64)}`)
+  })
+}
+{
+  const groupRoot = materialise(groupFiles)
+  const previousRoot = stateRoot
+  stateRoot = groupRoot
+  try {
+    const serviceNeeds = stateModule.deriveDecisions({ root: groupRoot }).needsHuman
+    const staleNeeds = serviceNeeds.filter((entry) => entry.kind === 'stale-spec')
+    claim('the stale fixture derives four stale generated specs', staleNeeds.length === 4, JSON.stringify(serviceNeeds.map((entry) => `${entry.kind} ${entry.id}`)))
+    const rendered = await renderOverlayExpanded('stale-group')
+    claim('the overlay renders the stale-spec fixture', rendered.ok, rendered.ok ? undefined : rendered.error)
+    const groupHeaders = nodes.filter((node) => node.tag === 'button' && typeof node.text === 'string' && node.text.includes('Stale specs · '))
+    claim(
+      'a homogeneous stale-spec batch renders ONE group whose header counts them',
+      staleNeeds.length >= 4 && groupHeaders.length === 1 && groupHeaders[0].text.includes('Stale specs · ' + staleNeeds.length),
+      `headers=${JSON.stringify(groupHeaders.map((node) => node.text))}`,
+    )
+    const missingPath = staleNeeds.filter((entry) => !nodes.some((node) => typeof node.text === 'string' && node.text.includes(entry.path)))
+    const missingAction = staleNeeds.filter((entry) => !nodes.some((node) => node.text === entry.action))
+    claim(
+      'expanding the group reveals every stale document path and action',
+      missingPath.length === 0 && missingAction.length === 0,
+      `pathsMissing=${missingPath.length} actionsMissing=${missingAction.length}`,
+    )
+    // Display-only hash shortening: the visible reason abbreviates BOTH hashes, the FULL
+    // reason is still in the DOM as the element's `title`, and no node anywhere in this
+    // render shows a raw 64-hex value.
+    const firstStale = staleNeeds[0]
+    const abbreviated = String(firstStale.reason).replace(/sha256:[0-9a-fA-F]{64}/g, (match) => match.slice(0, 19) + '…')
+    const fullInDom = nodes.some((node) => node.props !== undefined && node.props.title === firstStale.reason)
+    claim(
+      'a hash-bearing reason renders abbreviated with the full text kept in the DOM',
+      firstStale.reason !== abbreviated && nodes.some((node) => node.text === abbreviated) && fullInDom,
+      `abbreviated=${JSON.stringify(abbreviated)} fullInDom=${String(fullInDom)}`,
+    )
+    const rawHashNodes = nodes.filter((node) => typeof node.text === 'string' && /sha256:[0-9a-fA-F]{64}/.test(node.text))
+    claim(
+      'no raw 64-hex hash appears in any rendered node text',
+      rawHashNodes.length === 0,
+      rawHashNodes.map((node) => node.text).join(' | '),
+    )
+  } finally {
+    stateRoot = previousRoot
+    rmSync(groupRoot, { recursive: true, force: true })
   }
 }
 
@@ -2082,7 +2202,64 @@ needsFiles['reports/ratchet/verify-report.json'] = `${JSON.stringify({ generated
   }
 }
 
-// ── an unreachable state route is SAID, not worked around ───────────────────
+// The record/spec ceiling is not the only one: a homogeneous batch of needs-a-human
+// entries has its own per-kind and total ceiling, and a cut kind is named so it cannot
+// vanish silently. Measured on the service's own cap, not on a hand-made shape.
+{
+  const baseView = { ok: true, project: {}, specHash: null, records: [], queue: {}, specs: [], drift: {}, problems: [], needsHuman: [], truncated: null }
+  const manyNeeds = { ...baseView, needsHuman: Array.from({ length: 60 }, (_, index) => ({ kind: 'stale-spec', id: `docs/specs/s${index}.spec.md`, reason: 'r', action: 'a' })) }
+  const capped = stateModule.capDecisionsView(manyNeeds)
+  const cut = capped.truncated === null ? null : capped.truncated.needsHuman
+  claim(
+    'the state cap bounds a homogeneous needs-a-human batch and names the cut kind',
+    capped.needsHuman.length < 60 &&
+      capped.needsHuman.length === stateModule.MAX_STATE_NEEDS_PER_KIND &&
+      cut !== null &&
+      cut.total === 60 &&
+      cut.shown === capped.needsHuman.length &&
+      Array.isArray(cut.kinds) &&
+      cut.kinds.some((entry) => entry.kind === 'stale-spec' && entry.shown < entry.total),
+    `kept=${capped.needsHuman.length} cut=${JSON.stringify(cut)}`,
+  )
+}
+
+// A needs-a-human set the host cut is stated in the SECTION it belongs to — the shown and
+// total counts and every kind that lost an entry — never drawn as the whole to-do list.
+{
+  const full = stateModule.deriveDecisions({ root: stateRoot })
+  const syntheticNeeds = Array.from({ length: 3 }, (_, index) => ({
+    kind: 'stale-spec',
+    id: `docs/specs/s${index}.spec.md`,
+    title: `spec s${index}.spec.md`,
+    path: `docs/specs/s${index}.spec.md`,
+    reason: `detectSpecDrift reports the generated document as stale: it records spec sha256:${String(index + 1).repeat(64)} and the current laws hash to sha256:${'c'.repeat(64)}`,
+    action: 'regenerate the document with "ratchet compile --write"',
+    draft: { id: null, path: `reports/ratchet/drafts/stalewithdraw-${index}.md` },
+    draftReason: null,
+  }))
+  stateViewOverride = {
+    ...full,
+    needsHuman: syntheticNeeds,
+    truncated: { records: null, specs: null, needsHuman: { shown: 3, total: 9, kinds: [{ kind: 'stale-spec', shown: 3, total: 9 }] }, texts: null, specTexts: null, queueTexts: null, byteLimit: 1500000 },
+  }
+  try {
+    const rendered = await renderOverlayExpanded('truncated-needs')
+    const line = nodes.find((node) => typeof node.text === 'string' && /needs-a-human set was cut/.test(node.text))
+    const header = nodes.find((node) => node.tag === 'button' && typeof node.text === 'string' && node.text.includes('Stale specs · '))
+    claim(
+      'a truncated needs-a-human set is stated in its section, counting the cut kind',
+      rendered.ok &&
+        line !== undefined &&
+        /3 of 9/.test(line.text) &&
+        /stale-spec 3 of 9/.test(line.text) &&
+        header !== undefined &&
+        header.text.includes('Stale specs · 3 of 9'),
+      `line=${line === undefined ? 'none' : JSON.stringify(line.text)} header=${header === undefined ? 'none' : JSON.stringify(header.text)}`,
+    )
+  } finally {
+    stateViewOverride = null
+  }
+}
 // The window must never fall back to a derivation of its own. With the state capability
 // absent it reports the state as unavailable, and it fetches nothing.
 {
