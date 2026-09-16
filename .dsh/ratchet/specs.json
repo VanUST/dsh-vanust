@@ -1020,21 +1020,22 @@
       "unenforced": null
     },
     {
-      "id": "shipped-plugins.specs-cannot-drift-silently",
-      "statement": "A generated spec document that no longer matches the decision it was compiled from, or that is missing while the project tracks generated specs, is reported by verify, and so is a compile that persists a bundle without regenerating the document, so a green verify cannot coexist with a stale human-readable view of the laws.",
+      "id": "shipped-plugins.spec-stale-is-advisory-others-still-block",
+      "statement": "A generated spec document that is unedited but was written from an older law set is reported as an advisory drift fact with the withdrawal note the RATCHET drafts for it, and does not enter the blocking problem list, so a regeneration is asked for rather than a green gate withheld; a document that was hand-edited after it was written, or is missing while the project tracks generated specs, or is orphaned because no decision in force generates it any more, is still reported as a blocking problem.",
       "zones": [
         "shipped-plugins"
       ],
       "authority": "agent",
-      "sourceAdr": "0012",
-      "sourcePath": "docs/adrs/0012-a-green-gate-means-a-current-corpus.adr.md",
-      "approvedBy": "0013",
+      "sourceAdr": "0056",
+      "sourcePath": "docs/adrs/0056-a-stale-spec-is-advisory.adr.md",
+      "approvedBy": "0057",
       "checks": [
         {
           "type": "command",
           "run": "node scripts/check-gate-invariants.mjs",
-          "expects": "a stale, missing or unwritten generated spec is reported, and a rebuilt corpus verifies clean",
-          "timeoutMs": 120000
+          "expects": "a stale generated spec is reported with a drafted withdrawal note and does not block, while an edited, missing or orphaned one still does",
+          "timeoutMs": 180000,
+          "outputContains": "gate invariants ok"
         }
       ],
       "unenforced": null
