@@ -23,12 +23,21 @@
  *   tone from `inForce`, `approvedBy`, `supersededBy`, `status` and the queue's own
  *   blocked reason.
  *
+ *   `deriveDecisions` computes the view SYNCHRONOUSLY and is the pure composition of
+ *   the ratchet's facts; `createDecisionsService().view` is the host-facing operation
+ *   and is ASYNC: it caches the derived view under a cheap corpus signature and, on a
+ *   miss, derives it on a worker thread, so neither the IO of parsing a large corpus nor
+ *   the serialisation of a large view runs on the event loop that serves the harness. It
+ *   also CAPS the view it returns (record count and serialised bytes) and marks what it
+ *   dropped, instead of shipping an unbounded object.
+ *
  * INPUTS
- *   `derive({ root })` — `root` is an absolute project root (string). Any other value
- *   yields an empty, unusable view rather than an exception.
+ *   `deriveDecisions({ root })` — `root` is an absolute project root (string). Any other
+ *   value yields an empty, unusable view rather than an exception.
+ *   `createDecisionsService().view({ root })` — the same `root`, returning a Promise.
  *
  * OUTPUTS
- *   `derive` returns a plain JSON-serializable object:
+ *   `deriveDecisions` returns a plain JSON-serializable object:
  *     - `ok` — true when the project's manifest is usable and readable.
  *     - `root` — the root the view was derived for.
  *     - `project` — `{ name, decisionsDir, specsDir }`, resolved from the manifest with
@@ -48,19 +57,29 @@
  *       `[{ path, name, text, specHash }]`, one per zone.
  *     - `drift` — the `detectSpecDrift` result for those documents.
  *     - `needsHuman` — the ONE derived set of things a human must settle, each
- *       `{ kind, id, title, path, reason, action }` with `kind` one of `consent`,
- *       `contradiction`, `duplicate`, `stale-spec`, `red-gate`. Every entry is the
+ *       `{ kind, id, title, path, reason, action, draft, draftReason }` with `kind` one of
+ *       `consent`, `contradiction`, `duplicate`, `stale-spec`, `red-gate`. Every entry is the
  *       ratchet's own fact, copied or shaped, never a second rule: consents from
- *       `ratificationQueue.pending`, contradictions from the guard's decidable
- *       `loadDecisionState().conflictsByZone`, duplicates from `findDuplicates` and
- *       the draft `draftResolutions` makes, stale specs from `detectSpecDrift`, and
- *       the red gate from the persisted verify report/state read with `readJsonArtifact`
- *       and `readState`. When a finding has no draft behind it, `action` says so rather
- *       than naming one that does not exist.
+ *       `ratificationQueue.pending`, and contradictions, duplicates and stale specs from the
+ *       ONE drafting pass `draftNeedsHuman(root, { write:false })` runs — the same pass
+ *       `ratchet compile` invokes to place the drafts. `draft` is the drafted id and path (or
+ *       null) and `draftReason` says why no draft exists when there is none, so the window can
+ *       send the human straight to the draft. The red gate comes from the persisted verify
+ *       report/state read with `readJsonArtifact` and `readState`. When a finding has no draft
+ *       behind it, `action` says so rather than naming one that does not exist.
+ *     - `drafting` — the same `draftNeedsHuman` result, shaped for display: the duplicate and
+ *       contradiction drafts (written or computed) and the stale notes, with their ids and paths.
  *     - `problems` — every problem the manifest, the corpus and the queue reported,
  *       so a caller can show why a project is not green.
+ *     - `truncated` — null when the whole view was returned, otherwise the cap's own
+ *       record: `{ records, specs, texts, specTexts, byteLimit }`, where `records` and
+ *       `specs` are `{ shown, total }` when a count was cut, and `texts`/`specTexts` are
+ *       `{ dropped, total }` when a body had to be dropped to stay under `byteLimit`.
+ *       It is the view's own statement that what arrived is not the whole corpus, so a
+ *       renderer can say so rather than presenting a partial list as complete.
  *   A null/empty `root` returns `{ ok:false, root, records:[], queue:{...empty}, specs:[],
- *   drift:{...empty}, needsHuman:[], problems:[MANIFEST_MISSING-like] }` and never throws.
+ *   drift:{...empty}, needsHuman:[], problems:[MANIFEST_MISSING-like], truncated:null }` and
+ *   never throws.
  *
  * KEYWORDS
  *   decisions service, cordis service, host route, ADR panel, view model, in force,
@@ -78,15 +97,28 @@
  *     still listed with the facts the compiler derived.
  *   - The bundle does not compile: `specs` is empty and `specHash` is null, but the
  *     per-record force facts are still returned because `resolveActiveSet` runs.
+ *   - The service's `view` is called with a `root` that is not a non-empty string: it
+ *     resolves synchronously, with no worker spawned, to the same unusable view.
+ *   - The corpus changes between two calls: the signature moves, so the cache is not
+ *     consulted and the view is derived again. A signature that cannot be read (a
+ *     directory that is absent) still yields a stable value rather than a throw.
+ *   - A corpus larger than {@link MAX_STATE_RECORDS} or a view larger than
+ *     {@link MAX_STATE_BYTES}: the view is cut and `truncated` names what was cut.
+ *   - A worker that cannot be created, throws, or exits before answering: the service's
+ *     promise rejects with a sentence naming the failure, which the caller reports; it
+ *     never falls back to a blocking derivation, because the property the worker exists
+ *     for is that the event loop stays free.
  */
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { createHash } from 'node:crypto'
+import { Worker } from 'node:worker_threads'
 import { compileProject, readAdrCorpus, readManifest, renderSpecs, resolveActiveSet, zonesForRecord } from './ratchet-compiler.mjs'
 import { ratificationQueue } from './ratchet-ratify.mjs'
 import { detectSpecDrift, readJsonArtifact, readState, STATE_PATHS, verificationStatus } from './ratchet-state.mjs'
-import { draftResolutions } from './ratchet-dedupe.mjs'
-import { loadDecisionState } from './ratchet-guard.mjs'
+import { draftNeedsHuman } from './ratchet-drafts.mjs'
 import { findRoot } from './ratchet-ops.mjs'
+import { MANIFEST_PATH } from './ratchet-schema.mjs'
 
 /**
  * The cordis service name the panel's host half reaches with `ctx.get`.
@@ -353,22 +385,32 @@ function redGateNeed(root, currentSpecHash) {
  *   queue - the `ratificationQueue` result (`pending`, `blocked`).
  *   drift - the `detectSpecDrift` result (`drifted`, `stale`, `missing`, `orphaned`).
  *   currentSpecHash - the compiled bundle's hash, or null, for the red-gate fact.
+ *   drafted - the `draftNeedsHuman(root, { write:false })` result, whose detections and
+ *     drafts the contradiction, duplicate and stale entries are built from. The one fact that
+ *     is NOT in it — a consent — comes from the queue above.
  *
  * OUTPUTS
  *   An array, ordered consents, contradictions, duplicates, stale specs, red gate.
- *   Each entry is `{ kind, id, title, path, reason, action }`, `kind` one of the five
- *   names. An empty project yields `[]`. Never throws: a guard, drafter or artifact
+ *   Each entry is `{ kind, id, title, path, reason, action, draft, draftReason }`, `kind` one
+ *   of the five names. `draft` is `{ id, path }` when the ratchet drafted a settlement for the
+ *   issue and null otherwise; `draftReason` says why no draft exists when it does not (null
+ *   when one does). An empty project yields `[]`. Never throws: a guard, drafter or artifact
  *   read that fails contributes no entry rather than an exception.
  *
  * KEYWORDS
- *   needs a human, consent, contradiction, duplicate, stale spec, red gate, entry point
+ *   needs a human, consent, contradiction, duplicate, stale spec, red gate, entry point,
+ *   drafted path, draft identity
  */
-function buildNeedsHuman(root, records, queue, drift, currentSpecHash) {
+function buildNeedsHuman(root, records, queue, drift, currentSpecHash, drafted) {
   const needs = []
+  const asDraft = (value) =>
+    value === null || value === undefined || typeof value !== 'object'
+      ? null
+      : { id: value.id === undefined ? null : value.id, path: value.path === undefined ? null : value.path }
 
   // (1) A consent WAITING to be answered, from the ratchet's own queue. A blocked
   // decision is deliberately absent: it is not waiting for anyone — see the queue's
-  // own `blocked` reason.
+  // own `blocked` reason. Nothing is drafted for a consent: the human's answer IS the act.
   for (const entry of queue.pending ?? []) {
     needs.push({
       kind: 'consent',
@@ -377,62 +419,38 @@ function buildNeedsHuman(root, records, queue, drift, currentSpecHash) {
       path: entry.path ?? pathOf(records, entry.id),
       reason: 'the ratchet\u2019s ratification queue lists this decision as waiting for a human: a "yes" settles it',
       action: 'use Approve or Decline in its row below',
+      draft: null,
+      draftReason: 'a consent is put to a human as a question; nothing is drafted for it',
     })
   }
 
-  // (2) A contradiction between a proposal and law in force, from the guard's own
-  // DECIDABLE computation. The conflict appears once per zone the record names, so
-  // identical record+law pairs are collapsed. The FIX is the ratify queue's own blocked
-  // reason for the same record — the sentence `contradictionBlockReason` builds, which
-  // already names any resolution a draft proposes — reused whole rather than paraphrased.
-  // A record the queue blocked for another reason (a humanOnly zone, say) is not given
-  // that reason, so its action says plainly that a resolution is needed and none is drafted.
-  let guardState = null
-  try {
-    guardState = loadDecisionState(root)
-  } catch {
-    guardState = null
-  }
-  const conflictsByZone = guardState !== null && guardState.conflictsByZone instanceof Map ? guardState.conflictsByZone : new Map()
-  const blockedReasons = new Map(
-    (Array.isArray(records) ? records : []).map((record) => [
-      record?.id,
-      typeof record?.blockedReason === 'string' ? record.blockedReason : null,
-    ]),
-  )
-  const seenConflicts = new Set()
-  for (const conflicts of conflictsByZone.values()) {
-    for (const conflict of conflicts ?? []) {
-      const key = `${conflict?.adrId}\n${conflict?.lawId}`
-      if (seenConflicts.has(key)) continue
-      seenConflicts.add(key)
-      const blockedReason = blockedReasons.get(conflict.adrId) ?? null
-      const ratchetFix =
-        blockedReason !== null && blockedReason.startsWith(`ADR ${conflict.adrId} contradicts law in force`) ? blockedReason : null
-      needs.push({
-        kind: 'contradiction',
-        id: conflict.adrId,
-        title: titleOf(records, conflict.adrId) ?? conflict.adrId,
-        path: conflict.path ?? pathOf(records, conflict.adrId),
-        reason: conflict.why,
-        action:
-          ratchetFix ??
-          `no drafted resolution exists \u2014 a resolution that withdraws law "${conflict.lawId}" is needed before this record can be ratified`,
-      })
-    }
+  // (2) A contradiction between a proposal and law in force, from the ratchet's OWN drafting
+  // pass (`draftNeedsHuman`), which computes it with the compiler's `decidableContradictions`
+  // and `auditedResolutions`. Each need carries the drafted resolution's id and path when the
+  // ratchet produced one, and says why when it could not.
+  for (const need of drafted?.contradictions?.needs ?? []) {
+    const draft = asDraft(need.draft)
+    needs.push({
+      kind: 'contradiction',
+      id: need.offenderId,
+      title: titleOf(records, need.offenderId) ?? need.offenderId,
+      path: pathOf(records, need.offenderId) ?? null,
+      reason: need.why ?? need.reason ?? 'the compiler reports a decidable contradiction with law in force',
+      action:
+        draft !== null
+          ? `ratify or decline the drafted resolution at ${draft.path}: it names resolves ["${need.holderId}", "${need.offenderId}"] and takes the conflicting law out of force; the draft is a proposal and is not in force`
+          : `no drafted resolution exists \u2014 ${need.draftReason ?? need.reason ?? 'the ratchet could not draft one for this conflict'}`,
+      draft,
+      draftReason: draft === null ? need.draftReason ?? need.reason ?? null : null,
+    })
   }
 
-  // (3) A duplicate the deterministic rules find, with the resolution the SAME drafting
-  // half produces: `draftResolutions({ write:false })` is the gate's own drafter, so the
-  // entry and the command cannot disagree about what the merge is.
-  let dedupe = null
-  try {
-    dedupe = draftResolutions(root, { write: false })
-  } catch {
-    dedupe = null
-  }
-  if (dedupe !== null && dedupe.unusable !== true) {
-    for (const draft of dedupe.drafts ?? []) {
+  // (3) A duplicate the deterministic rules find, with the resolution the SAME drafting pass
+  // produced. A duplicate already drafted is reported too, pointing at the draft on disk, so
+  // the second run's silence does not read as "nothing to do".
+  const duplicates = drafted?.duplicates ?? null
+  if (duplicates !== null && duplicates !== undefined) {
+    for (const draft of [...(duplicates.drafts ?? []), ...(duplicates.alreadyDrafted ?? [])]) {
       const duplicate = draft.duplicate ?? {}
       needs.push({
         kind: 'duplicate',
@@ -441,9 +459,11 @@ function buildNeedsHuman(root, records, queue, drift, currentSpecHash) {
         path: pathOf(records, draft.withdraws) ?? (typeof draft.path === 'string' ? draft.path : null),
         reason: duplicate.message ?? `the corpus holds a duplicate (${duplicate.code ?? 'duplicate'})`,
         action: `ratify or decline the drafted resolution "${draft.title}" at ${draft.path}: it withdraws law "${draft.removes}" from ADR ${draft.withdraws} and keeps ADR ${draft.keeps}; the draft is a proposal and is not in force`,
+        draft: asDraft(draft),
+        draftReason: null,
       })
     }
-    for (const undraftable of dedupe.undraftable ?? []) {
+    for (const undraftable of duplicates.undraftable ?? []) {
       const duplicate = undraftable.duplicate ?? {}
       const first = Array.isArray(duplicate.records) ? duplicate.records[0] ?? null : null
       needs.push({
@@ -453,13 +473,16 @@ function buildNeedsHuman(root, records, queue, drift, currentSpecHash) {
         path: pathOf(records, first),
         reason: duplicate.message ?? 'the ratchet reports a duplicate it cannot draft',
         action: `no drafted resolution exists \u2014 ${undraftable.reason}`,
+        draft: null,
+        draftReason: undraftable.reason ?? null,
       })
     }
   }
 
-  // (4) A stale specification, from `detectSpecDrift` over the documents the current
-  // bundle renders. The three non-orphaned kinds are fixed the same way; an orphan is
-  // the one that is withdrawn instead. Nothing drafts a correction in either case.
+  // (4) A generated specification that no longer matches. A STALE one is advisory and carries
+  // the withdrawal note the ratchet drafted for it; a hand-edited, missing or orphaned one still
+  // blocks the gate and has no note.
+  const notesByPath = new Map((drafted?.staleNotes ?? []).map((note) => [note.path, note]))
   const specFixes = {
     drifted: 'regenerate the document with "ratchet compile --write"',
     stale: 'regenerate the document with "ratchet compile --write"',
@@ -476,6 +499,7 @@ function buildNeedsHuman(root, records, queue, drift, currentSpecHash) {
       path: entry?.path,
       reason: `detectSpecDrift reports the generated document as stale: it records spec ${entry?.recorded} and the current laws hash to ${entry?.wanted}`,
       fix: specFixes.stale,
+      stale: true,
     })),
     ...(drift.missing ?? []).map((path) => ({
       path,
@@ -490,19 +514,27 @@ function buildNeedsHuman(root, records, queue, drift, currentSpecHash) {
   ]
   for (const entry of specEntries) {
     if (typeof entry.path !== 'string' || entry.path.length === 0) continue
+    const note = entry.stale === true ? notesByPath.get(entry.path) ?? null : null
     needs.push({
       kind: 'stale-spec',
       id: entry.path,
       title: `spec ${entry.path.split('/').pop()}`,
       path: entry.path,
       reason: entry.reason,
-      action: `no drafted correction exists \u2014 ${entry.fix}`,
+      action:
+        note === null
+          ? `no drafted correction exists \u2014 ${entry.fix}`
+          : `a withdrawal note is drafted at ${note.notePath}; the ratchet wrote it and will NOT apply it \u2014 ${entry.fix}, or delete the document if its laws were removed deliberately`,
+      draft: note === null ? null : { id: null, path: note.notePath },
+      draftReason: note === null ? `no drafted correction exists \u2014 ${entry.fix}` : null,
     })
   }
 
   // (5) The red gate, read from the persisted artifacts.
   const red = redGateNeed(root, currentSpecHash)
-  if (red !== null) needs.push(red)
+  if (red !== null) {
+    needs.push({ ...red, draft: null, draftReason: 'no drafted fix exists \u2014 read the named report, fix what it names, and re-run "ratchet verify"' })
+  }
 
   return needs
 }
@@ -537,6 +569,7 @@ export function deriveDecisions({ root } = {}) {
     drift: { drifted: [], stale: [], missing: [], orphaned: [] },
     needsHuman: [],
     problems: [],
+    truncated: null,
   }
   if (typeof root !== 'string' || root.length === 0) {
     empty.problems = [{ code: 'ROOT_INVALID', message: 'the decisions service needs an absolute project root' }]
@@ -615,6 +648,16 @@ export function deriveDecisions({ root } = {}) {
 
   const projectName = config?.project ?? compiled.bundle?.project ?? 'this project'
 
+  // The ratchet's own detection and drafting pass, run READ-ONLY: the window must not mutate
+  // the project, so this computes the same drafts `ratchet compile` would write and reports
+  // their paths. `ratchet compile` is what actually places them on disk.
+  let drafted = null
+  try {
+    drafted = draftNeedsHuman(root, { write: false })
+  } catch {
+    drafted = null
+  }
+
   return {
     ok: config !== null && config.enabled === true,
     root,
@@ -628,9 +671,334 @@ export function deriveDecisions({ root } = {}) {
     queue,
     specs,
     drift,
-    needsHuman: buildNeedsHuman(root, viewRecords, queue, drift, compiled.report?.specHash ?? null),
+    drafting: drafted === null
+      ? { ok: false, unusable: true, duplicates: { drafts: [], alreadyDrafted: [], undraftable: [], scanned: null }, contradictions: { drafts: [], alreadyDrafted: [], undraftable: [], needs: [] }, staleNotes: [], problems: [] }
+      : {
+          ok: drafted.ok,
+          unusable: drafted.unusable,
+          duplicates: drafted.duplicates,
+          contradictions: drafted.contradictions,
+          staleNotes: drafted.staleNotes.map((note) => ({ path: note.path, notePath: note.notePath, recorded: note.recorded, wanted: note.wanted })),
+          problems: drafted.problems,
+        },
+    needsHuman: buildNeedsHuman(root, viewRecords, queue, drift, compiled.report?.specHash ?? null, drafted),
     problems: dedupeProblems([...problems, ...(queue.problems ?? [])]),
+    // The derivation itself never truncates; the service's cap is what may cut the view,
+    // and it records its cuts here. Present and null keeps the shape uniform.
+    truncated: null,
   }
+}
+
+/**
+ * The most records one state response carries. A corpus larger than this is truncated and
+ * the view says so. It exists because the panel's own corpus is tens of records while a
+ * generated project can hold thousands, and a response that grew without bound would be a
+ * memory and latency fact about a read-only display route.
+ */
+export const MAX_STATE_RECORDS = 500
+
+/**
+ * The most generated spec documents one state response carries. A spec document is a whole
+ * law card rather than a line, so this ceiling is lower than the record one and its
+ * truncation is reported separately.
+ */
+export const MAX_STATE_SPECS = 64
+
+/**
+ * The byte ceiling for one serialised state response. When the document exceeds it, the
+ * cap drops record bodies, then spec bodies, then the queue's copies, newest-last, until
+ * the estimate fits, and records exactly what it dropped under `truncated`.
+ */
+export const MAX_STATE_BYTES = 1_500_000
+
+/**
+ * How many project roots one decisions service remembers a derived view for. A service is
+ * a process-lifetime singleton and its caller resolves a root from a Session workspace, so
+ * this is the ceiling that keeps a long-lived server from accumulating one view per project
+ * it has ever been asked about. The oldest entry is dropped when a new root arrives.
+ */
+const CACHE_LIMIT = 8
+
+/**
+ * PURPOSE
+ *   Hash the manifest file's own bytes, so a corpus signature notices an edit to the
+ *   project declaration (a renamed decisions directory, a changed zone table) even when
+ *   no record file changed.
+ *
+ * INPUTS
+ *   root - an absolute project root (string).
+ *
+ * OUTPUTS
+ *   The sha256 hex digest of `<root>/.dsh/project.json`, or the literal `no-manifest`
+ *   when the file cannot be read. Never throws.
+ *
+ * KEYWORDS
+ *   corpus signature, manifest hash, cache invalidation, sha256
+ */
+function manifestDigest(root) {
+  try {
+    return createHash('sha256').update(readFileSync(join(root, MANIFEST_PATH))).digest('hex')
+  } catch {
+    return 'no-manifest'
+  }
+}
+
+/**
+ * PURPOSE
+ *   Render a directory's entry signature: one row per entry carrying its name, size and
+ *   modification time, sorted so the value depends on the set and not on readdir order.
+ *   It is the cheap way to notice a record added, removed, renamed, resized or rewritten
+ *   without parsing any of them.
+ *
+ * INPUTS
+ *   root - an absolute project root (string).
+ *   relativeDir - a repository-relative directory path (string).
+ *
+ * OUTPUTS
+ *   A stable string. An absent or unreadable directory yields `<relativeDir>:-absent`
+ *   rather than throwing. Subdirectories are recorded by name only and are not walked;
+ *   the ratchet's record and source directories are flat by construction.
+ *
+ * KEYWORDS
+ *   corpus signature, directory entries, mtime, cache invalidation
+ */
+function directoryEntrySignature(root, relativeDir) {
+  const dir = join(root, relativeDir)
+  let entries
+  try {
+    entries = readdirSync(dir, { withFileTypes: true })
+  } catch {
+    return `${relativeDir}:-absent`
+  }
+  const rows = []
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      rows.push(`${entry.name}/`)
+      continue
+    }
+    try {
+      const stat = statSync(join(dir, entry.name))
+      rows.push(`${entry.name}:${stat.size}:${stat.mtimeMs}`)
+    } catch {
+      rows.push(`${entry.name}:unreadable`)
+    }
+  }
+  rows.sort()
+  return `${relativeDir}:${rows.join(',')}`
+}
+
+/**
+ * PURPOSE
+ *   Compute the cheap signature the decisions service keys its cache by: the manifest's
+ *   own bytes plus the entry signatures of the decisions, sources and ratchet-state
+ *   directories. It is deliberately cheaper than deriving the view (a handful of stats
+ *   instead of parsing and hashing every record) and deliberately complete for the view's
+ *   inputs, so a corpus that changed in any way the view can see cannot be served from a
+ *   cache keyed by this value.
+ *
+ * INPUTS
+ *   root - an absolute project root (string).
+ *
+ * OUTPUTS
+ *   A stable string. A non-string or empty root yields `invalid-root`; a missing manifest
+ *   or directory contributes its own stable marker rather than throwing. Never throws.
+ *
+ * KEYWORDS
+ *   corpus signature, cache key, cache invalidation, manifest hash, directory entries
+ */
+export function decisionsSignature(root) {
+  if (typeof root !== 'string' || root.length === 0) return 'invalid-root'
+  const config = readManifest(root).config
+  const decisionsDir = config?.decisionsDir ?? 'docs/adrs'
+  const sourcesDir = config?.sourcesDir ?? 'docs/ratchet/sources'
+  return [
+    `manifest:${manifestDigest(root)}`,
+    directoryEntrySignature(root, decisionsDir),
+    directoryEntrySignature(root, sourcesDir),
+    directoryEntrySignature(root, '.dsh/ratchet'),
+  ].join('|')
+}
+
+/**
+ * PURPOSE
+ *   Produce a copy of a view with every body text set to null, keeping the shape. It is
+ *   the skeleton the byte cap measures before it decides how much text the response can
+ *   afford.
+ *
+ * INPUTS
+ *   view - the view model, or anything.
+ *
+ * OUTPUTS
+ *   An object with `records[].text`, `specs[].text` and the queue entries' `text` nulled.
+ *   A non-object input is returned unchanged. Never mutates its input and never throws.
+ *
+ * KEYWORDS
+ *   byte cap, skeleton, response size, view model
+ */
+function stripViewTexts(view) {
+  if (view === null || typeof view !== 'object') return view
+  const queue = view.queue !== null && typeof view.queue === 'object' ? view.queue : {}
+  const stripList = (entries) =>
+    Array.isArray(entries) ? entries.map((entry) => (entry !== null && typeof entry === 'object' ? { ...entry, text: null } : entry)) : []
+  return {
+    ...view,
+    records: Array.isArray(view.records) ? view.records.map((record) => (record !== null && typeof record === 'object' ? { ...record, text: null } : record)) : [],
+    specs: Array.isArray(view.specs) ? view.specs.map((spec) => (spec !== null && typeof spec === 'object' ? { ...spec, text: null } : spec)) : [],
+    queue: { ...queue, pending: stripList(queue.pending), blocked: stripList(queue.blocked) },
+  }
+}
+
+/**
+ * PURPOSE
+ *   Cap a derived view to what one HTTP response may carry: a record ceiling, a spec
+ *   ceiling and a byte ceiling, with a `truncated` record naming every cut. It exists so
+ *   a read-only display route can answer a generated project of thousands of records
+ *   without serialising an unbounded object, and so the renderer can SAY that what it
+ *   has is partial rather than presenting a cut list as the whole corpus.
+ *
+ * INPUTS
+ *   view - the view model described in this module's header, or anything.
+ *
+ * OUTPUTS
+ *   A new object of the same shape with `truncated` null when nothing was cut, otherwise
+ *   `{ records, specs, texts, specTexts, queueTexts, byteLimit }` where each element is
+ *   null or an object naming what was cut (`records`/`specs`: `{ shown, total }`;
+ *   `texts`/`specTexts`/`queueTexts`: `{ dropped, total }`). A non-object input is
+ *   returned unchanged. Record bodies are kept before spec bodies, and spec bodies before
+ *   the queue's copies, so the most reader-facing text survives the budget. Never throws.
+ *
+ * KEYWORDS
+ *   response cap, truncation, byte budget, record ceiling, spec ceiling, partial view
+ */
+export function capDecisionsView(view) {
+  if (view === null || typeof view !== 'object') return view
+  const allRecords = Array.isArray(view.records) ? view.records : []
+  const allSpecs = Array.isArray(view.specs) ? view.specs : []
+  const truncated = { records: null, specs: null, texts: null, specTexts: null, queueTexts: null, byteLimit: MAX_STATE_BYTES }
+  let records = allRecords
+  let specs = allSpecs
+  if (allRecords.length > MAX_STATE_RECORDS) {
+    truncated.records = { shown: MAX_STATE_RECORDS, total: allRecords.length }
+    records = allRecords.slice(0, MAX_STATE_RECORDS)
+  }
+  if (allSpecs.length > MAX_STATE_SPECS) {
+    truncated.specs = { shown: MAX_STATE_SPECS, total: allSpecs.length }
+    specs = allSpecs.slice(0, MAX_STATE_SPECS)
+  }
+  const shaped = { ...view, records, specs }
+  const candidate = { ...shaped, truncated: truncated.records !== null || truncated.specs !== null ? truncated : null }
+  if (JSON.stringify(candidate).length <= MAX_STATE_BYTES) return candidate
+
+  // Halve the shape until its text-free skeleton fits, then spend what is left on the
+  // bodies in priority order. The guard bounds the loop if a pathological metadata block
+  // keeps the skeleton above the ceiling however few records remain. The reserve covers
+  // the `truncated` record's own bytes, which grow as bodies are dropped and are therefore
+  // not in the skeleton measured here.
+  const TRUNCATED_RESERVE = 1024
+  const cutInHalf = (list) => (list.length <= 1 ? [] : list.slice(0, Math.floor(list.length / 2)))
+  let skeleton = JSON.stringify({ ...stripViewTexts(shaped), truncated: null })
+  let guard = 0
+  while (skeleton.length > MAX_STATE_BYTES && (records.length > 0 || specs.length > 0) && guard < 64) {
+    guard += 1
+    if (records.length >= specs.length) records = cutInHalf(records)
+    else specs = cutInHalf(specs)
+    if (records !== allRecords) truncated.records = { shown: records.length, total: allRecords.length }
+    if (specs !== allSpecs) truncated.specs = { shown: specs.length, total: allSpecs.length }
+    skeleton = JSON.stringify({ ...stripViewTexts({ ...shaped, records, specs }), truncated: null })
+  }
+  let budget = MAX_STATE_BYTES - skeleton.length - TRUNCATED_RESERVE
+  let droppedTexts = 0
+  const keptRecords = records.map((record) => {
+    if (record === null || typeof record !== 'object' || typeof record.text !== 'string') return record
+    const cost = JSON.stringify(record.text).length
+    if (cost <= budget) {
+      budget -= cost
+      return record
+    }
+    droppedTexts += 1
+    return { ...record, text: null }
+  })
+  let droppedSpecTexts = 0
+  const keptSpecs = specs.map((spec) => {
+    if (spec === null || typeof spec !== 'object' || typeof spec.text !== 'string') return spec
+    const cost = JSON.stringify(spec.text).length
+    if (cost <= budget) {
+      budget -= cost
+      return spec
+    }
+    droppedSpecTexts += 1
+    return { ...spec, text: null }
+  })
+  const queue = shaped.queue !== null && typeof shaped.queue === 'object' ? shaped.queue : {}
+  let droppedQueueTexts = 0
+  const capQueue = (entries) =>
+    Array.isArray(entries)
+      ? entries.map((entry) => {
+          if (entry === null || typeof entry !== 'object' || typeof entry.text !== 'string') return entry
+          const cost = JSON.stringify(entry.text).length
+          if (cost <= budget) {
+            budget -= cost
+            return entry
+          }
+          droppedQueueTexts += 1
+          return { ...entry, text: null }
+        })
+      : []
+  const keptQueue = { ...queue, pending: capQueue(queue.pending), blocked: capQueue(queue.blocked) }
+  if (droppedTexts > 0) truncated.texts = { dropped: droppedTexts, total: records.length }
+  if (droppedSpecTexts > 0) truncated.specTexts = { dropped: droppedSpecTexts, total: specs.length }
+  if (droppedQueueTexts > 0) truncated.queueTexts = { dropped: droppedQueueTexts, total: (queue.pending?.length ?? 0) + (queue.blocked?.length ?? 0) }
+  return { ...shaped, records: keptRecords, specs: keptSpecs, queue: keptQueue, truncated }
+}
+
+/**
+ * PURPOSE
+ *   Derive the view on a worker thread and resolve with its CAPPED result, so parsing a
+ *   large corpus and serialising a large view never run on the event loop that serves the
+ *   harness. It is the cache-miss half of the service's `view`, and the reason a state
+ *   request stays answerable while another project's corpus is being read.
+ *
+ * INPUTS
+ *   options - `{ root }`. Any `root` value is forwarded unchanged; the worker's own
+ *     `deriveDecisions` turns an unusable one into the empty view.
+ *
+ * OUTPUTS
+ *   A Promise resolving to the capped view model. It rejects with an Error naming the
+ *   failure when the worker cannot be created, reports an error, or exits before
+ *   answering — never with a partial view, and never by falling back to a blocking
+ *   derivation here.
+ *
+ * KEYWORDS
+ *   worker thread, off the event loop, derive asynchronously, response cap, decisions service
+ */
+export function deriveDecisionsAsync({ root } = {}) {
+  return new Promise((resolve, reject) => {
+    let worker
+    try {
+      worker = new Worker(new URL('./ratchet-decisions-worker.mjs', import.meta.url), { workerData: { root } })
+    } catch (error) {
+      reject(error instanceof Error ? error : new Error(String(error)))
+      return
+    }
+    let settled = false
+    const finish = (settle, value) => {
+      if (settled) return
+      settled = true
+      worker.terminate().catch(() => {})
+      settle(value)
+    }
+    worker.once('message', (message) => {
+      if (message !== null && typeof message === 'object' && message.ok === true) finish(resolve, message.view)
+      else {
+        const detail = message !== null && typeof message === 'object' && typeof message.error === 'string' ? message.error : 'the decisions worker returned no usable view'
+        finish(reject, new Error(detail))
+      }
+    })
+    worker.once('error', (error) => finish(reject, error instanceof Error ? error : new Error(String(error))))
+    worker.once('exit', (code) => {
+      if (!settled) finish(reject, new Error(`the decisions worker exited with code ${String(code)} before returning a view`))
+    })
+  })
 }
 
 /**
@@ -666,19 +1034,40 @@ export function decisionsRootFor(start) {
  *   reaches one stable shape with `ctx.get` and this module keeps every force fact
  *   inside the ratchet.
  *
+ *   `view` is ASYNC and memoises its result. On every call it computes
+ *   {@link decisionsSignature} for the root; when the stored signature is equal it
+ *   returns the cached view without touching the corpus, and otherwise it derives a new
+ *   one on a worker thread through {@link deriveDecisionsAsync} and stores it under the
+ *   signature it observed before the derivation. A corpus edit moves the signature, so
+ *   the next call re-derives rather than serving the old view — that is the whole
+ *   invalidation rule, and it needs no watcher. At most {@link CACHE_LIMIT} roots are
+ *   remembered, so a long-lived process that is asked about many projects does not grow
+ *   without bound.
+ *
  * INPUTS
  *   None.
  *
  * OUTPUTS
- *   `{ view, rootFor }` — `view({ root })` returns the view model above; `rootFor(start)`
+ *   `{ view, rootFor }` — `view({ root })` returns a Promise of the view model above
+ *   (synchronously resolved to the empty view for an unusable root); `rootFor(start)`
  *   resolves a project root. Never null.
  *
  * KEYWORDS
- *   cordis service, provide, host seam, adr panel, view model
+ *   cordis service, provide, host seam, adr panel, view model, cache, worker thread
  */
 export function createDecisionsService() {
+  const cache = new Map()
   return {
-    view: ({ root } = {}) => deriveDecisions({ root }),
+    view: async ({ root } = {}) => {
+      if (typeof root !== 'string' || root.length === 0) return deriveDecisions({ root })
+      const signature = decisionsSignature(root)
+      const cached = cache.get(root)
+      if (cached !== undefined && cached.signature === signature) return cached.view
+      const view = await deriveDecisionsAsync({ root })
+      if (cache.size >= CACHE_LIMIT && !cache.has(root)) cache.delete(cache.keys().next().value)
+      cache.set(root, { signature, view })
+      return view
+    },
     rootFor: decisionsRootFor,
   }
 }

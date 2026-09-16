@@ -23,7 +23,7 @@ import { execFile as execFileCallback } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { promisify } from 'node:util'
 import { dirname, join, resolve } from 'node:path'
-import { MANIFEST_PATH, PROBLEM_CODES, UNUSABLE_PROBLEM_CODES, hashSource, normaliseText, parseAdr, problem } from './ratchet-schema.mjs'
+import { MANIFEST_PATH, PROBLEM_CODES, UNUSABLE_PROBLEM_CODES, budgetProblem, hashSource, normaliseText, parseAdr, problem } from './ratchet-schema.mjs'
 import {
   compileProject,
   comparePersistedBundle,
@@ -39,6 +39,7 @@ import * as state from './ratchet-state.mjs'
 import * as dynamic from './ratchet-dynamic.mjs'
 import * as contradictionModule from './ratchet-contradiction.mjs'
 import * as dedupeModule from './ratchet-dedupe.mjs'
+import { draftNeedsHuman, staleNotePath } from './ratchet-drafts.mjs'
 import * as ingestModule from './ratchet-ingest.mjs'
 import {
   STATE_PATHS,
@@ -241,12 +242,18 @@ export function findRoot(start) {
  * Reports the ratchet state of a project without changing it.
  *
  * @param root - Absolute project root.
+ * @param options - `{ budget }`. `budget` is a work-budget tracker (see
+ *   `createWorkBudget`); the tool surface supplies one so the walk, the ADR reads and the code
+ *   hash are bounded on the harness event loop, while the CLI supplies none and stays
+ *   unbounded. An exhausted budget adds a `WORK_BUDGET_EXCEEDED` problem, so a status over a
+ *   tree that could not be fully read never reads as clean.
  * @returns The canonical status result. Always resolves: a project with no
  *   manifest is a status, not an error.
  */
-export function status(root) {
+export function status(root, options = {}) {
+  const budget = options.budget ?? null
   const manifest = readManifest(root)
-  const compiled = compileProject(root)
+  const compiled = compileProject(root, { budget })
 
   const persistedBundle = readSpecBundle(root)
   const persistedValue =
@@ -271,12 +278,12 @@ export function status(root) {
   // The code hash is what ties a recorded verdict to the tree it judged. It costs one
   // walk of the project — the same walk every verification performs — and without it
   // a status can be green over code the gate has since rejected.
-  const walked = listFiles(root)
+  const walked = listFiles(root, '', budget)
   const verification = verificationStatus(
     root,
     compiled.report.specHash,
     checksExpected,
-    codeHashFor(root, walked),
+    codeHashFor(root, walked, budget === null ? {} : budget.limits),
     configHashFor(manifest.config),
   )
 
@@ -285,6 +292,11 @@ export function status(root) {
   // currently in force" are different facts, and collapsing them is how a project
   // reports itself verified while nothing has checked it.
   const problems = [...compiled.problems, ...comparison.problems]
+  // The compile already took the budget summary if it exhausted the budget reading ADRs. This
+  // covers a stop in the walk or the code hash instead, and `budgetProblem` emits at most one
+  // summary per tracker, so the two calls cannot double-report.
+  const statusBudgetSummary = budgetProblem(budget)
+  if (statusBudgetSummary !== null) problems.push(statusBudgetSummary)
   // The ledger is the audit trail, and its reader counts lines it cannot parse rather
   // than throwing — but nothing surfaced that count, and `readLedger` had no production
   // caller at all. A history with silent gaps is worse than one that says it has gaps:
@@ -370,6 +382,10 @@ export function status(root) {
       drifted: drift.drifted.map((entry) => entry.path),
       stale: drift.stale.map((entry) => entry.path),
       missing: tracksSpecs ? drift.missing : [],
+      // A stale document is advisory; its drafted withdrawal note's path is reported here so a
+      // reader can act on it. `status` is read-only, so it names the note the drafting pass
+      // would write without writing it.
+      notes: drift.stale.map((entry) => ({ path: entry.path, notePath: staleNotePath(manifest.config, entry.path) })),
     },
     tracksSpecDocuments: tracksSpecs,
     reviewRequired: compiled.report.reviewRequired,
@@ -461,13 +477,14 @@ export function bootstrap({ root = null, mode = 'preview', name = undefined, mai
 /**
  * Compiles the corpus into laws and records the result.
  *
- * @param options - `{ root, write }`. `write` also emits the generated spec
+ * @param options - `{ root, write, budget }`. `write` also emits the generated spec
  *   documents; the report and the spec bundle are recorded either way, because a
- *   report that exists only on success cannot record a failure.
+ *   report that exists only on success cannot record a failure. `budget` is a work-budget
+ *   tracker (see `createWorkBudget`); the tool surface supplies one, the CLI none.
  * @returns The canonical compile result.
  */
-export function compile({ root, write = false } = {}) {
-  const compiled = compileProject(root)
+export function compile({ root, write = false, budget = null } = {}) {
+  const compiled = compileProject(root, { budget })
   // Read once, before the first use: the spec path comes from the manifest, and this function used
   // to read it further down. Naming `manifest` before it existed was a ReferenceError waiting for
   // the first project whose bundle compiled.
@@ -511,6 +528,46 @@ export function compile({ root, write = false } = {}) {
     ...specDriftProblems(reportedSpecDrift(tracksSpecs, drift)),
     ...writeProblems,
   ]
+  // Idempotent: the compile took the summary if it exhausted the budget, and this covers a
+  // budget spent outside `compileProject` (nothing currently is, but the contract is that the
+  // operation's budget is reported by the operation, not by whichever helper happened to stop).
+  const compileBudgetSummary = budgetProblem(budget)
+  if (compileBudgetSummary !== null) problems.push(compileBudgetSummary)
+
+  // The ratchet's OWN automatic drafting pass, run here rather than from a tool an agent has to
+  // remember to call: it detects the decidable duplicates, the decidable contradictions and the
+  // stale generated documents, and puts a `proposed` resolution — or, for a stale document, a
+  // withdrawal NOTE — in front of a human. It writes no force and no approval, it is idempotent
+  // (a draft carries `draft: true` and a `draftKey`), and a failure in it is a draft problem
+  // carried in the result, never a gate: an advisory cannot make the compile red.
+  //
+  // The pass re-reads the whole corpus through paths that carry no budget, so on the in-process
+  // path it is SKIPPED once the compile has exhausted its budget: reading a corpus the compile
+  // just refused to read unbounded would defeat the budget entirely. The skip is reported, not
+  // silent — the drafting result is advisory, and an advisory nobody could compute is a fact the
+  // caller must see rather than an empty list they read as "nothing to draft".
+  const budgetExhausted = budget !== null && budget !== undefined && budget.exceededCount > 0
+  const drafting = budgetExhausted
+    ? {
+        duplicates: { drafts: [], alreadyDrafted: [], undraftable: [] },
+        contradictions: { drafts: [], alreadyDrafted: [], undraftable: [] },
+        staleNotes: [],
+        problems: [
+          problem(
+            'WORK_BUDGET_EXCEEDED',
+            'the automatic drafting pass was skipped because this compile exhausted the in-process work budget, so the corpus could not be read again in full: run the CLI (node plugins/ratchet/ratchet-cli.mjs compile) to draft over the whole corpus',
+            null,
+            { skipped: 'drafting', exceeded: budget.exceededCount },
+          ),
+        ],
+      }
+    : draftNeedsHuman(root, { write: true })
+  const draftedStaleNotes = drafting.staleNotes.map((note) => ({
+    path: note.path,
+    notePath: note.notePath,
+    written: note.written,
+    existed: note.existed,
+  }))
 
   // Persisted AFTER the drift is known, and with the FULL problem list. It used to be
   // persisted before, holding only the compile and removal problems, so a compile that
@@ -541,9 +598,37 @@ export function compile({ root, write = false } = {}) {
       drifted: drift.drifted.map((entry) => entry.path),
       stale: drift.stale.map((entry) => entry.path),
       missing: tracksSpecs ? drift.missing : [],
+      // A stale document is advisory and carries the withdrawal note the ratchet drafted for
+      // it. The other three kinds are blocking problems above and carry no note.
+      notes: draftedStaleNotes,
     },
     tracksSpecDocuments: tracksSpecs,
     wrote: [...specWrite.written, ...persisted.written],
+    // What the automatic pass drafted, so the CLI can report it and a test can assert it
+    // without reading the project. Nothing here is force.
+    drafting: {
+      duplicates: {
+        drafted: drafting.duplicates.drafts.map((draft) => ({ id: draft.id, path: draft.path, title: draft.title, written: draft.written })),
+        alreadyDrafted: drafting.duplicates.alreadyDrafted.map((draft) => ({ id: draft.id, path: draft.path, title: draft.title })),
+        undraftable: drafting.duplicates.undraftable.map((entry) => ({ reason: entry.reason })),
+      },
+      contradictions: {
+        drafted: drafting.contradictions.drafts.map((draft) => ({
+          id: draft.id,
+          path: draft.path,
+          title: draft.title,
+          written: draft.written,
+          offenderId: draft.offenderId,
+          holderId: draft.holderId,
+          lawIds: draft.lawIds,
+          strategy: draft.strategy,
+        })),
+        alreadyDrafted: drafting.contradictions.alreadyDrafted.map((draft) => ({ id: draft.id, path: draft.path, offenderId: draft.offenderId, holderId: draft.holderId })),
+        undraftable: drafting.contradictions.undraftable.map((entry) => ({ offenderId: entry.offenderId, holderId: entry.holderId, reason: entry.reason })),
+      },
+      staleNotes: draftedStaleNotes,
+      problems: drafting.problems,
+    },
     // A deterministic fact, reported and never a gate: whether any corpus review has recorded
     // the law set this compile produced. `status` is where it is a problem, the way
     // `VERIFY_NOT_RUN` is; here it is a field the CLI prints, so the operation that changed
@@ -560,13 +645,17 @@ export function compile({ root, write = false } = {}) {
 /**
  * Verifies the codebase against the laws currently in force.
  *
- * @param options - `{ root }`.
+ * @param options - `{ root, runCommand, budget }`. `budget` is a work-budget tracker (see
+ *   `createWorkBudget`); the tool surface supplies one so the walk, the ADR reads and every
+ *   text check are bounded on the harness event loop, while the CLI supplies none and stays
+ *   unbounded. When the budget is exhausted the verification returns a `WORK_BUDGET_EXCEEDED`
+ *   problem, `stage: 'budget'`, and no verdict — it is not a clean run over part of the tree.
  * @returns The canonical verify result. A corpus that does not compile blocks the
  *   verification rather than proceeding against a stale bundle, and says so with
  *   `stage: 'compile'` so a caller can tell which stage refused.
  */
-export async function verify({ root, runCommand = null } = {}) {
-  const compiled = compileProject(root)
+export async function verify({ root, runCommand = null, budget = null } = {}) {
+  const compiled = compileProject(root, { budget })
   if (!compiled.ok) {
     // The blocking problems themselves, not only how many there were. A count left the
     // cause in terminal output that scrolls away, while the ledger — the one artifact
@@ -602,6 +691,7 @@ export async function verify({ root, runCommand = null } = {}) {
     // and runs nothing — which is what makes it safe to call from a tool that an
     // agent invokes mid-edit.
     runCommand: runCommand ?? null,
+    budget,
   })
 
   // Spec drift is folded into the gate: laws that were hand-edited underneath the
@@ -619,6 +709,23 @@ export async function verify({ root, runCommand = null } = {}) {
     ...removalProblems,
     ...specDriftProblems(reportedSpecDrift(tracksSpecs, drift)),
   ]
+  if (budget !== null && budget !== undefined && budget.exceededCount > 0) {
+    // Fail closed and produce NO verdict. A run that exhausted the budget read only part of
+    // the tree, so recording it as this project's current verification would let a later
+    // `status` answer "verified" from a partial read. The specific files are already in
+    // `problems` (`CODE_FILE_TOO_LARGE` / `WORK_BUDGET_EXCEEDED`); this returns at the budget
+    // stage instead of persisting, and the tool's caller is told to run the CLI.
+    return {
+      ok: false,
+      stage: 'budget',
+      project: compiled.report.project,
+      specHash: compiled.report.specHash,
+      reason:
+        'the in-process work budget was exhausted, so this verification read only part of the tree and produced no verdict; run the CLI (node plugins/ratchet/ratchet-cli.mjs verify) which has no budget',
+      problems,
+      summary: summariseProblems(problems),
+    }
+  }
   const report = {
     ...verified.report,
     problems,
@@ -695,6 +802,9 @@ export async function verify({ root, runCommand = null } = {}) {
       drifted: drift.drifted.map((entry) => entry.path),
       stale: drift.stale.map((entry) => entry.path),
       missing: tracksSpecs ? drift.missing : [],
+      // Stale documents are advisory and carry the drafted withdrawal note's path; the other
+      // three drift kinds remain blocking problems in `problems`.
+      notes: drift.stale.map((entry) => ({ path: entry.path, notePath: staleNotePath(manifest.config, entry.path) })),
     },
     reports: { verify: STATE_PATHS.verifyReport, state: STATE_PATHS.state, ledger: STATE_PATHS.ledger },
     wrote: persisted.written,
@@ -2068,6 +2178,7 @@ export function deduplicate({ root, write = false, createdAt = null } = {}) {
       scanned: drafted.scanned ?? null,
       duplicates: [],
       drafts: [],
+      alreadyDrafted: [],
       undraftable: [],
       written: [],
       problems,
@@ -2076,8 +2187,9 @@ export function deduplicate({ root, write = false, createdAt = null } = {}) {
   }
   const written = drafted.drafts.map((draft) => draft.written).filter((path) => path !== null && path !== undefined)
   appendLedger(root, 'ratchet.dedupe.draft', {
-    duplicates: drafted.drafts.length + drafted.undraftable.length,
+    duplicates: drafted.drafts.length + drafted.alreadyDrafted.length + drafted.undraftable.length,
     drafted: drafted.drafts.length,
+    alreadyDrafted: drafted.alreadyDrafted.length,
     undraftable: drafted.undraftable.length,
     written: written.length,
   })
@@ -2086,7 +2198,7 @@ export function deduplicate({ root, write = false, createdAt = null } = {}) {
     stage: 'deduplicate',
     advisory: true,
     scanned: drafted.scanned,
-    duplicates: drafted.drafts.map((draft) => draft.duplicate),
+    duplicates: [...drafted.drafts, ...drafted.alreadyDrafted].map((draft) => draft.duplicate),
     drafts: drafted.drafts.map((draft) => ({
       id: draft.id,
       title: draft.title,
@@ -2099,16 +2211,25 @@ export function deduplicate({ root, write = false, createdAt = null } = {}) {
       written: draft.written,
       duplicate: draft.duplicate.code,
     })),
+    alreadyDrafted: drafted.alreadyDrafted.map((draft) => ({
+      id: draft.id,
+      title: draft.title,
+      path: draft.path,
+      status: draft.status,
+      duplicate: draft.duplicate.code,
+    })),
     undraftable: drafted.undraftable,
     written,
     problems,
     summary: summariseProblems(problems),
     nextStep:
-      drafted.drafts.length === 0 && drafted.undraftable.length === 0
+      drafted.drafts.length === 0 && drafted.alreadyDrafted.length === 0 && drafted.undraftable.length === 0
         ? 'the corpus holds no decidable duplicate: the deterministic rules examined it and found nothing to settle'
-        : drafted.drafts.length === 0
+        : drafted.drafts.length === 0 && drafted.alreadyDrafted.length === 0
           ? 'every duplicate found needs a human-authored record rather than a draft; each reason is under "undraftable"'
-          : `ratify the drafted resolution${drafted.drafts.length === 1 ? '' : 's'} to settle ${drafted.drafts.length === 1 ? 'the duplicate' : 'the duplicates'}: nothing is in force until a human consents, and deleting a draft is how it is declined`,
+          : drafted.alreadyDrafted.length > 0
+            ? `${drafted.alreadyDrafted.length} duplicate${drafted.alreadyDrafted.length === 1 ? '' : 's'} already ha${drafted.alreadyDrafted.length === 1 ? 's' : 've'} a drafted resolution on disk, which this run did not touch: ratify or decline ${drafted.alreadyDrafted.length === 1 ? 'it' : 'them'}, and deleting a draft is how it is declined`
+            : `ratify the drafted resolution${drafted.drafts.length === 1 ? '' : 's'} to settle ${drafted.drafts.length === 1 ? 'the duplicate' : 'the duplicates'}: nothing is in force until a human consents, and deleting a draft is how it is declined`,
   }
 }
 

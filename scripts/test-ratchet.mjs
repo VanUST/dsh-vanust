@@ -19,6 +19,8 @@ const ratifyModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet
 const ratchetBootstrap = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-bootstrap.mjs`)
 const falsifyModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-falsify.mjs`)
 const ingestModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-ingest.mjs`)
+const draftsModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-drafts.mjs`)
+const decisionsModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-decisions.mjs`)
 
 // The harness adapter is loaded LAZILY and by hand, because it is the one module here
 // that imports a package the repository does not carry: `@deepseek-ai/dsh-tools`. A
@@ -952,7 +954,7 @@ async function verifyOneLaw(name, checks, { files = {}, zones = null, manifest =
  * bundle from an older ratchet, or a later one, will be handed. Building the bundle here
  * tests the verifier's own logic instead of the compiler's refusal.
  */
-async function verifyRawLaws(name, checks, { files = {}, zones = null } = {}) {
+async function verifyRawLaws(name, checks, { files = {}, zones = null, budget = null } = {}) {
   const root = makeProject({
     name,
     files,
@@ -977,6 +979,7 @@ async function verifyRawLaws(name, checks, { files = {}, zones = null } = {}) {
     config: manifestRead.config,
     manifest: manifestRead.config,
     runCommand: null,
+    budget,
   })
   return { root, report: verified.report, problems: verified.problems, codes: verified.problems.map((entry) => entry.code) }
 }
@@ -1734,7 +1737,12 @@ test('state: changing a law makes the previous verification stale', async () => 
   assert.equal(after.verified.ran, false)
   assert.equal(after.verified.stale, true)
   assert.ok(after.problems.some((entry) => entry.code === 'VERIFY_NOT_RUN'))
-  assert.ok(after.problems.some((entry) => entry.code === 'SPEC_OUT_OF_DATE'))
+  // The document is now behind the laws, which is the ADVISORY kind: it is reported in
+  // `specDrift.stale` with a drafted withdrawal note and does NOT block the status. ADR 0056
+  // narrowed the spec-drift law to exactly this.
+  assert.ok(after.specDrift.stale.includes('docs/specs/auth.spec.md'))
+  assert.ok(after.specDrift.notes.some((note) => note.path === 'docs/specs/auth.spec.md' && typeof note.notePath === 'string'))
+  assert.ok(!after.problems.some((entry) => entry.code === 'SPEC_OUT_OF_DATE'), 'a stale document is advisory, not a blocking problem')
 })
 
 test('gate: a tampered persisted bundle cannot inject a law into verify', async () => {
@@ -5008,10 +5016,17 @@ test('ratify: the regeneration does NOT overwrite a hand-edited law card', () =>
     'the hand edit is still there, so the ratification did not destroy the evidence of it',
   )
   return ops.verify({ root }).then((verified) => {
-    const aboutTheCard = verified.problems.filter((entry) => String(entry.subject ?? '').includes('api.spec.md') || String(entry.message).includes('api.spec.md'))
+    // The card is reported as the STALE kind — it is behind the laws and was also edited, and
+    // the deterministic check can see the first — so it is advisory with a drafted withdrawal
+    // note rather than a blocking problem. What a reader depends on is that it is REPORTED,
+    // which is the claim here; the edit surviving is asserted above.
     assert.ok(
-      aboutTheCard.length > 0,
-      `verify must still report the card it did not touch, got ${JSON.stringify(verified.problems.map((entry) => entry.code))}`,
+      verified.specDrift.stale.includes('docs/specs/api.spec.md'),
+      `verify must still report the card it did not touch, got stale=${JSON.stringify(verified.specDrift.stale)}`,
+    )
+    assert.ok(
+      verified.specDrift.notes.some((note) => note.path === 'docs/specs/api.spec.md' && typeof note.notePath === 'string'),
+      'and it carries the drafted withdrawal note for that card',
     )
   })
 })
@@ -7560,6 +7575,194 @@ test('dedupe: the deterministic command loads no judge, and drafting loads no ju
   assert.doesNotMatch(opsSource, /export function deduplicate[\s\S]{0,2000}?spawnJudge/, 'and the operation takes no judge argument')
 })
 
+// ---------------------------------------------------------------------------
+// The ratchet's OWN automatic drafting pass (deliverable: drafting is invoked by
+// the ratchet, never by an agent calling a tool).
+// ---------------------------------------------------------------------------
+
+test('drafting: compile itself drafts a duplicate resolution, idempotently and without an agent call', () => {
+  // The human's direction: the ratchet detects the issue and flags it for a human, and no
+  // agent has to remember to call `ratchet_deduplicate`. Removing the `draftNeedsHuman` call
+  // from `compile` makes this test fail, which is the counterexample that pins the mechanism.
+  const root = makeProject({
+    name: 'auto-draft-duplicate',
+    zones: [{ id: 'auth', paths: ['src/auth/**'], agentAuthority: 'activeIfNoConflict', requiresDecisionRecord: false }],
+    adrs: {
+      '0001-a.adr.md': adrText({ id: '0001', zones: ['auth'], laws: [{ id: 'auth.one', statement: 'Sessions must use Redis.', checks: [] }] }),
+      '0002-b.adr.md': adrText({ id: '0002', zones: ['auth'], laws: [{ id: 'auth.two', statement: 'Sessions must use Redis.', checks: [] }] }),
+    },
+  })
+  const before = readdirSync(join(root, 'docs', 'adrs')).length
+  const compiled = ops.compile({ root })
+  assert.equal(compiled.drafting.duplicates.drafted.length, 1, 'compile drafted the duplicate resolution on its own')
+  const draft = compiled.drafting.duplicates.drafted[0]
+  assert.ok(existsSync(join(root, draft.path)), 'the draft is a real file a human can Approve or Decline')
+  assert.equal(readdirSync(join(root, 'docs', 'adrs')).length, before + 1)
+  const text = readFileSync(join(root, draft.path), 'utf8')
+  assert.match(text, /^draft: true$/m, 'the draft carries the machine-draft marker')
+  assert.match(text, /^draftKey: "duplicate:[0-9a-f]{16}"$/m, 'and the deterministic identity the next pass reads back')
+
+  // A second pass is idempotent: no second draft, and the existing one is reported.
+  const again = ops.compile({ root })
+  assert.equal(again.drafting.duplicates.drafted.length, 0, 'a second compile adds no second draft')
+  assert.equal(again.drafting.duplicates.alreadyDrafted.length, 1)
+  assert.equal(again.drafting.duplicates.alreadyDrafted[0].id, draft.id, 'and names the draft already on disk')
+  assert.equal(readdirSync(join(root, 'docs', 'adrs')).length, before + 1)
+
+  // A draft a human edited is never overwritten.
+  writeFileSync(join(root, draft.path), `${readFileSync(join(root, draft.path), 'utf8')}\n<!-- edited by a human -->\n`)
+  ops.compile({ root })
+  assert.ok(
+    readFileSync(join(root, draft.path), 'utf8').includes('edited by a human'),
+    'the human edit survives the next automatic pass',
+  )
+})
+
+test('drafting: compile itself drafts a contradiction resolution, and the audit accepts it', () => {
+  const root = makeProject({
+    name: 'auto-draft-contradiction',
+    zones: [{ id: 'tests', paths: ['tests/**'], agentAuthority: 'activeIfNoConflict', requiresDecisionRecord: false }],
+    adrs: {
+      '0001-holder.adr.md': adrText({
+        id: '0001',
+        authority: 'human',
+        zones: ['tests'],
+        laws: [{ id: 'tests.one', statement: 'One.', checks: [] }],
+      }),
+      '0002-rival.adr.md': adrText({
+        id: '0002',
+        status: 'proposed',
+        authority: 'agent',
+        zones: ['tests'],
+        laws: [{ id: 'tests.one', statement: 'Different.', checks: [] }],
+      }),
+    },
+  })
+  const result = ops.compile({ root })
+  assert.equal(result.drafting.contradictions.drafted.length, 1, 'compile detected the decidable contradiction and drafted a resolution')
+  const draft = result.drafting.contradictions.drafted[0]
+  assert.equal(draft.offenderId, '0002')
+  assert.equal(draft.holderId, '0001')
+  assert.equal(draft.strategy, 'remove', 'a redeclaration is settled by the surgical removal of the in-force law')
+  const text = readFileSync(join(root, draft.path), 'utf8')
+  assert.match(text, /^resolves:$/m)
+  assert.match(text, /- "0001"/)
+  assert.match(text, /- "0002"/)
+  assert.match(text, /- op: remove/)
+  assert.match(text, /id: tests\.one/)
+  const parsed = schema.parseAdr({ filename: draft.path.split('/').pop(), source: text, root })
+  assert.deepEqual(parsed.problems, [], `the drafted resolution must parse clean: ${JSON.stringify(parsed.problems.map((entry) => entry.code))}`)
+  // The compiler's own audit accepts it, so the drafted resolution is not itself a contradiction.
+  assert.deepEqual(compiler.compileProject(root).problems.map((entry) => entry.code), [])
+  // And it is an ordinary proposed record: the ratify queue offers it, so the human can approve it.
+  const queue = ops.ratifications(root)
+  assert.ok(queue.pending.some((entry) => entry.id === draft.id), 'the drafted resolution is a proposed record a human can approve')
+
+  // Idempotent on the contradiction too.
+  const again = ops.compile({ root })
+  assert.equal(again.drafting.contradictions.drafted.length, 0)
+  assert.equal(again.drafting.contradictions.alreadyDrafted.length, 1)
+})
+
+test('drafting: a pure-removal contradiction is settled by supersession, which the audit accepts', () => {
+  // The removal arm of the one-way shape cannot be audited against a record that only REMOVES
+  // law in force, because neither named side is leaving force (`ADR_RESOLVES_OUTSIDE_FORCE`).
+  // The draft therefore retires the offending proposal instead, which the audit accepts.
+  const root = makeProject({
+    name: 'auto-draft-removal',
+    zones: [{ id: 'tests', paths: ['tests/**'], agentAuthority: 'activeIfNoConflict', requiresDecisionRecord: false }],
+    adrs: {
+      '0001-holder.adr.md': adrText({
+        id: '0001',
+        authority: 'human',
+        zones: ['tests'],
+        laws: [{ id: 'tests.one', statement: 'One.', checks: [] }],
+      }),
+      '0002-remover.adr.md': adrText({
+        id: '0002',
+        status: 'proposed',
+        authority: 'agent',
+        zones: ['tests'],
+        laws: [{ op: 'remove', id: 'tests.one' }],
+      }),
+    },
+  })
+  const result = ops.compile({ root })
+  assert.equal(result.drafting.contradictions.drafted.length, 1)
+  const draft = result.drafting.contradictions.drafted[0]
+  assert.equal(draft.strategy, 'supersede')
+  const text = readFileSync(join(root, draft.path), 'utf8')
+  assert.match(text, /^supersedes:$/m)
+  assert.match(text, /- "0002"/)
+  assert.match(text, /^laws: \[\]$/m, 'the supersede arm removes no law, so the law in force stays')
+  assert.deepEqual(compiler.compileProject(root).problems.map((entry) => entry.code), [], 'the supersession-shaped resolution compiles clean')
+})
+
+test('spec drift: a stale document is advisory with a drafted withdrawal note, and a missing one still blocks', async () => {
+  const root = makeProject({
+    name: 'stale-advisory',
+    files: { 'src/auth/x.ts': 'redis\n' },
+    extraManifest: { specsRequired: true },
+    adrs: {
+      '0001-a.adr.md': adrText({
+        id: '0001',
+        sourceHash: schema.hashSource(SOURCE_TEXT),
+        zones: ['auth'],
+        laws: [{ id: 'a.one', statement: 'One.', checks: [{ type: 'required_text', paths: ['src/auth/**'], pattern: 'redis' }] }],
+      }),
+    },
+  })
+  await ops.compile({ root, write: true })
+  const adrPath = join(root, 'docs', 'adrs', '0001-a.adr.md')
+  writeFileSync(
+    adrPath,
+    readFileSync(adrPath, 'utf8').replace('statement: One.', 'statement: One, amended.'),
+  )
+  // The document is unedited and merely behind the laws: reported in `specDrift.stale` with a
+  // drafted note, and NOT a blocking problem.
+  const stale = ops.compile({ root, write: false })
+  assert.ok(stale.specDrift.stale.includes('docs/specs/auth.spec.md'), 'the stale document is reported')
+  const note = stale.specDrift.notes.find((entry) => entry.path === 'docs/specs/auth.spec.md')
+  assert.ok(note !== undefined && typeof note.notePath === 'string', 'and it carries the drafted withdrawal note path')
+  assert.ok(existsSync(join(root, note.notePath)), 'the ratchet wrote the withdrawal note')
+  assert.ok(readFileSync(join(root, note.notePath), 'utf8').includes('written by the RATCHET itself'), 'the note says the ratchet wrote it, not an agent')
+  assert.ok(!stale.problems.some((entry) => entry.code === 'SPEC_OUT_OF_DATE'), 'a stale document is advisory, not blocking')
+  // Deleting a tracked document is the `missing` kind, which still blocks.
+  rmSync(join(root, 'docs', 'specs', 'auth.spec.md'), { force: true })
+  const missing = ops.compile({ root, write: false })
+  assert.ok(missing.problems.some((entry) => entry.code === 'SPEC_OUT_OF_DATE'), 'a missing tracked document still blocks')
+})
+
+test('needsHuman: every entry carries the drafted path/id or says why no draft exists', () => {
+  const root = makeProject({
+    name: 'needs-draft-contract',
+    zones: [{ id: 'auth', paths: ['src/auth/**'], agentAuthority: 'activeIfNoConflict', requiresDecisionRecord: false }],
+    adrs: {
+      '0001-a.adr.md': adrText({ id: '0001', zones: ['auth'], laws: [{ id: 'auth.one', statement: 'Sessions must use Redis.', checks: [] }] }),
+      '0002-b.adr.md': adrText({ id: '0002', zones: ['auth'], laws: [{ id: 'auth.two', statement: 'Sessions must use Redis.', checks: [] }] }),
+    },
+  })
+  // Compile writes the draft; the read-only view then reports it as already drafted.
+  ops.compile({ root })
+  const view = decisionsModule.deriveDecisions({ root })
+  const duplicates = view.needsHuman.filter((entry) => entry.kind === 'duplicate')
+  assert.ok(duplicates.length > 0, 'the view reports the duplicate')
+  const withDraft = duplicates.find((entry) => entry.draft !== null)
+  assert.ok(withDraft !== undefined, 'the entry carries the drafted resolution')
+  assert.equal(typeof withDraft.draft.id, 'string')
+  assert.ok(typeof withDraft.draft.path === 'string' && withDraft.draft.path.length > 0)
+  assert.equal(withDraft.draftReason, null)
+  for (const entry of view.needsHuman) {
+    assert.ok(Object.prototype.hasOwnProperty.call(entry, 'draft'), `every entry carries a draft field: ${entry.kind}`)
+    assert.ok(Object.prototype.hasOwnProperty.call(entry, 'draftReason'), `every entry carries a draftReason field: ${entry.kind}`)
+    if (entry.draft === null) {
+      assert.ok(typeof entry.draftReason === 'string' && entry.draftReason.length > 0, `a draftless entry says why: ${entry.kind}`)
+    }
+  }
+  // The drafted resolution is a normal proposed record: parseable, and in the corpus.
+  assert.ok(view.records.some((record) => record.draft === true && record.draftKey !== null), 'the draft is in the corpus with its identity')
+})
+
 test('duplicates: one statement under two law ids fails the deterministic command', () => {
   const root = makeProject({
     name: 'duplicate-statement',
@@ -7971,4 +8174,363 @@ test('batch: the degraded path returns the prompt, the cap and the source hash',
   assert.match(result.prompt, /verbatim/)
   assert.match(result.submitHint, /ratchet_ingest_batch/)
   assert.equal(result.sourceHash, schema.hashSource(SOURCE_TEXT))
+})
+
+test('verifier: an explicit file check sees a path the walk skips, and never goes green wrongly', async () => {
+  // The walk skips directories that are never a project's own source (`node_modules`, `bin`,
+  // `weights`, …). Reading file-check membership from that walk made `forbidden_file` on a
+  // skipped name report SATISFIED while the file exists (a false green) and `required_file`
+  // report a file that exists as missing (a false red). These checks promise an existence
+  // claim, so they resolve the path they name against the filesystem. The revert counterexample
+  // is the NEVER_WALK expansion this repo briefly carried: restoring it makes the first two
+  // assertions fail.
+  const ASSET_ZONES = [{ id: 'assets', paths: ['weights/**', 'data/**'], agentAuthority: 'activeIfNoConflict', requiresDecisionRecord: false }]
+  const forbidden = makeProject({
+    name: 'file-check-forbidden-skipped',
+    zones: ASSET_ZONES,
+    files: { 'weights/model.bin': 'binary\n' },
+    adrs: {
+      '0001-a.adr.md': adrText({
+        id: '0001',
+        sourceHash: schema.hashSource(SOURCE_TEXT),
+        zones: ['assets'],
+        laws: [{ id: 'a.forbidden', statement: 'No model weights.', checks: [{ type: 'forbidden_file', path: 'weights/model.bin' }] }],
+      }),
+    },
+  })
+  const forbiddenResult = await ops.verify({ root: forbidden })
+  assert.ok(
+    forbiddenResult.problems.some((entry) => entry.code === 'CODE_FORBIDDEN_FILE_PRESENT'),
+    `a forbidden file under a walk-skipped name must be seen, got ${JSON.stringify(forbiddenResult.problems.map((entry) => entry.code))}`,
+  )
+
+  const required = makeProject({
+    name: 'file-check-required-skipped',
+    zones: ASSET_ZONES,
+    files: { 'weights/model.bin': 'binary\n' },
+    adrs: {
+      '0001-a.adr.md': adrText({
+        id: '0001',
+        sourceHash: schema.hashSource(SOURCE_TEXT),
+        zones: ['assets'],
+        laws: [{ id: 'a.required', statement: 'Weights ship.', checks: [{ type: 'required_file', path: 'weights/model.bin' }] }],
+      }),
+    },
+  })
+  const requiredResult = await ops.verify({ root: required })
+  assert.ok(
+    !requiredResult.problems.some((entry) => entry.code === 'CODE_REQUIRED_FILE_MISSING'),
+    `a required file under a walk-skipped name exists and must not be reported missing, got ${JSON.stringify(requiredResult.problems.map((entry) => entry.code))}`,
+  )
+
+  // The control: a path outside every skip rule behaves exactly the same, so the fix did not
+  // special-case one spelling.
+  const control = makeProject({
+    name: 'file-check-control',
+    zones: ASSET_ZONES,
+    files: { 'data/model.bin': 'binary\n' },
+    adrs: {
+      '0001-a.adr.md': adrText({
+        id: '0001',
+        sourceHash: schema.hashSource(SOURCE_TEXT),
+        zones: ['assets'],
+        laws: [
+          { id: 'a.forbidden', statement: 'No model weights.', checks: [{ type: 'forbidden_file', path: 'data/model.bin' }] },
+          { id: 'a.missing', statement: 'Absent.', checks: [{ type: 'required_file', path: 'data/absent.bin' }] },
+        ],
+      }),
+    },
+  })
+  const controlResult = await ops.verify({ root: control })
+  const controlCodes = controlResult.problems.map((entry) => entry.code)
+  assert.ok(controlCodes.includes('CODE_FORBIDDEN_FILE_PRESENT'), `the control forbidden file is seen: ${JSON.stringify(controlCodes)}`)
+  assert.ok(controlCodes.includes('CODE_REQUIRED_FILE_MISSING'), `a genuinely absent file is still reported: ${JSON.stringify(controlCodes)}`)
+})
+
+test('ratify: an amendment that removes law in force is offered to the human, not deadlocked', () => {
+  // The lifecycle's own shape: a record that removes an in-force law and restates the decision
+  // under a new law id. The consent a removal requires IS the question, so the queue offers it;
+  // a record that only removes law in force without restating it is still refused. This is what
+  // makes ADR 0043/0045-shaped amendments ratifiable under the queue's contradiction block.
+  const amendment = () =>
+    makeProject({
+      name: 'ratify-amendment-offered',
+      zones: [{ id: 'tests', paths: ['tests/**'], agentAuthority: 'proposeOnly', requiresDecisionRecord: false }],
+      adrs: {
+        '0001-holder.adr.md': adrText({
+          id: '0001',
+          status: 'active',
+          authority: 'human',
+          zones: ['tests'],
+          laws: [{ id: 'tests.one', statement: 'One.', checks: [] }],
+        }),
+        '0002-amendment.adr.md': adrText({
+          id: '0002',
+          status: 'proposed',
+          authority: 'agent',
+          zones: ['tests'],
+          laws: [
+            { op: 'remove', id: 'tests.one' },
+            { id: 'tests.one-narrowed', statement: 'One, narrowed.', checks: [] },
+          ],
+        }),
+      },
+    })
+  const root = amendment()
+  const queue = ops.ratifications(root)
+  assert.deepEqual(queue.blocked, [], 'an amendment is not refused by the queue')
+  assert.deepEqual(queue.pending.map((entry) => entry.id), ['0002'], 'it is offered to the human')
+
+  // The write guard is unchanged: the amendment's removal is still a decidable contradiction
+  // for the guard, which is why the queue offering it is a change to the QUEUE and not the rule.
+  const manifest = compiler.readManifest(root)
+  const corpus = compiler.readAdrCorpus(root, manifest.config)
+  const resolved = compiler.resolveActiveSet(corpus.records, manifest.config)
+  const compiled = compiler.compileLaws(resolved.active, manifest.config)
+  const resolutions = compiler.auditedResolutions(corpus.records, {
+    active: resolved.active,
+    removedByDecision: compiled.removedByDecision,
+    problems: corpus.problems,
+  })
+  const conflicted = compiler.decidableContradictions(
+    resolved.proposed.find((record) => record.id === '0002'),
+    compiled.bundle.laws,
+    { resolutions },
+  )
+  assert.ok(conflicted.length > 0, 'the guard still sees the removal as a contradiction')
+
+  // A pure removal, with nothing restated, is still refused.
+  const pure = makeProject({
+    name: 'ratify-pure-removal-refused',
+    zones: [{ id: 'tests', paths: ['tests/**'], agentAuthority: 'proposeOnly', requiresDecisionRecord: false }],
+    adrs: {
+      '0001-holder.adr.md': adrText({ id: '0001', status: 'active', authority: 'human', zones: ['tests'], laws: [{ id: 'tests.one', statement: 'One.', checks: [] }] }),
+      '0002-remover.adr.md': adrText({ id: '0002', status: 'proposed', authority: 'agent', zones: ['tests'], laws: [{ op: 'remove', id: 'tests.one' }] }),
+    },
+  })
+  assert.deepEqual(ops.ratifications(pure).pending, [], 'a bare removal is not offered')
+  assert.deepEqual(ops.ratifications(pure).blocked.map((entry) => entry.id), ['0002'])
+})
+
+// ---------------------------------------------------------------------------
+// the in-process work budget: bound the event loop, fail closed, report it
+//
+// The tool surface (`ratchet_status`, `ratchet_compile`, `ratchet_verify`) runs IN the
+// harness process, on its single event loop, and a synchronous read or a catastrophic
+// regex freezes every session in that process. Each test below pins one of the measured
+// findings: the defect it reproduces and the behaviour that must hold instead.
+// ---------------------------------------------------------------------------
+
+const BUDGET_LIMITS = { maxFiles: 100, maxFileBytes: 100, maxTotalBytes: 100_000 }
+
+test('verifier: the code hash bounds the number of files it stat/reads', () => {
+  // Finding 1: `codeHashFor` stat'ed and read every file, so 50,000 empty files cost ~7.5 s
+  // even though none held a byte. Content past the FILE-COUNT cap is contributed as path only,
+  // and a path-only contribution is deterministic but content-blind by design.
+  const root = makeProject({
+    name: 'hash-file-count',
+    adrs: {},
+    files: { 'src/a.ts': 'A\n', 'src/b.ts': 'B\n', 'src/c.ts': 'C\n' },
+  })
+  const files = ['src/a.ts', 'src/b.ts', 'src/c.ts']
+  const before = verifier.codeHashFor(root, files, { maxFiles: 2, maxFileBytes: 1024, maxTotalBytes: 1024 * 1024 })
+  writeFileSync(join(root, 'src', 'c.ts'), 'C-changed\n')
+  const afterTail = verifier.codeHashFor(root, files, { maxFiles: 2, maxFileBytes: 1024, maxTotalBytes: 1024 * 1024 })
+  assert.equal(afterTail, before, 'a file past the count cap was read as content, so the syscall bound is not real')
+  writeFileSync(join(root, 'src', 'a.ts'), 'A-changed\n')
+  const afterHead = verifier.codeHashFor(root, files, { maxFiles: 2, maxFileBytes: 1024, maxTotalBytes: 1024 * 1024 })
+  assert.notEqual(afterHead, before, 'a file within the count cap must still move the hash')
+})
+
+test('verifier: a small file always moves the code hash, even after the total byte budget is spent', () => {
+  // Finding 1's second half: charging the total budget in sorted order made every later file
+  // content-blind, so once 64 MiB had been read a 29-byte file's edit stopped moving the hash.
+  // A file at or below the small-file threshold is now ALWAYS read from its content.
+  const root = makeProject({
+    name: 'hash-small-after-budget',
+    adrs: {},
+    files: { 'src/a-fill.ts': 'x'.repeat(1000), 'src/z-small.ts': 'tiny' },
+  })
+  const files = ['src/a-fill.ts', 'src/z-small.ts']
+  const options = { maxFiles: 100, maxFileBytes: 10_000, maxTotalBytes: 1000 }
+  const before = verifier.codeHashFor(root, files, options)
+  writeFileSync(join(root, 'src', 'z-small.ts'), 'TINY')
+  const after = verifier.codeHashFor(root, files, options)
+  assert.notEqual(
+    before,
+    after,
+    'a 4-byte file went content-blind once the total byte budget was spent; its same-size edit stopped moving the hash',
+  )
+})
+
+test('verifier: an oversized file is REPORTED as CODE_FILE_TOO_LARGE, never read', async () => {
+  // Finding 2: a `forbidden_text` law over twelve 500 MB files blocked the loop for 15,101 ms
+  // because `readProjectFile` read each whole. A file above the per-file cap is now a reported
+  // problem, and the operation fails closed rather than passing over a file nobody read.
+  const result = await verifyRawLaws(
+    'text-too-large',
+    [{ type: 'forbidden_text', paths: ['src/auth/**'], pattern: 'TODO' }],
+    {
+      files: { 'src/auth/big.ts': 'x'.repeat(5000) },
+      budget: schema.createWorkBudget(BUDGET_LIMITS),
+    },
+  )
+  assert.ok(result.codes.includes('CODE_FILE_TOO_LARGE'), JSON.stringify(result.codes))
+  assert.ok(result.codes.includes('WORK_BUDGET_EXCEEDED'), JSON.stringify(result.codes))
+})
+
+test('verifier: selectFiles is linear in the number of files', () => {
+  // Finding 3: `selected.includes(file)` in a loop was O(n^2) — 20k files 2.6 s, 40k 21 s,
+  // 80k 102 s, which was most of a 147-second verify. The bound is generous against a linear
+  // pass and far below the old quadratic cost, so a reintroduced scan fails here.
+  const files = []
+  for (let index = 0; index < 40_000; index += 1) files.push(`src/auth/f${index}.ts`)
+  const started = Date.now()
+  const selected = verifier.selectFiles(files, ['src/auth/**'])
+  const elapsed = Date.now() - started
+  assert.equal(selected.length, 40_000)
+  assert.ok(elapsed < 5000, `selectFiles took ${elapsed}ms over 40000 files (the quadratic loop took ~21s)`)
+})
+
+test('compiler: a catastrophic regex is refused as REGEX_UNSAFE where the corpus is compiled', () => {
+  // Finding 4: `(a+)+$` over a 29-byte file blocked 34,654 ms. The pattern is refused where the
+  // decision is compiled, so a corpus carrying it never reaches the verifier at all.
+  const root = makeProject({
+    name: 'regex-unsafe-compile',
+    adrs: {
+      '0001-a.adr.md': adrText({
+        id: '0001',
+        zones: ['auth'],
+        laws: [{ id: 'a.one', statement: 'One.', checks: [{ type: 'forbidden_text', paths: ['src/auth/**'], pattern: '(a+)+$' }] }],
+      }),
+    },
+  })
+  const result = compile(root)
+  assert.ok(result.codes.includes('REGEX_UNSAFE'), JSON.stringify(result.codes))
+})
+
+test('verifier: a catastrophic regex is refused as REGEX_UNSAFE instead of executed', async () => {
+  // The same refusal on the verifier path, because a bundle from another ratchet can carry a
+  // pattern the compiler here never saw. The bound is the point: the match must not run.
+  const started = Date.now()
+  const result = await verifyRawLaws(
+    'regex-unsafe-verify',
+    [{ type: 'forbidden_text', paths: ['src/auth/**'], pattern: '(a+)+$' }],
+    { files: { 'src/auth/x.ts': `${'a'.repeat(28)}b` } },
+  )
+  const elapsed = Date.now() - started
+  assert.ok(result.codes.includes('REGEX_UNSAFE'), JSON.stringify(result.codes))
+  assert.ok(elapsed < 5000, `an unsafe pattern was executed and cost ${elapsed}ms`)
+})
+
+test('compiler: an oversized ADR is reported as ADR_TOO_LARGE, not read', () => {
+  // Finding 5: `compile`/`status` read every ADR whole; a 500 MB record blocked ~3 s.
+  const root = makeProject({
+    name: 'adr-too-large',
+    adrs: {
+      '0001-a.adr.md': adrText({ id: '0001', zones: ['auth'], laws: [{ id: 'a.one', statement: 'One.', checks: [] }] }),
+    },
+  })
+  const budget = schema.createWorkBudget({ maxFiles: 100, maxFileBytes: 100, maxTotalBytes: 1_000_000 })
+  const result = compiler.compileProject(root, { budget })
+  assert.ok(result.problems.some((entry) => entry.code === 'ADR_TOO_LARGE'), JSON.stringify(result.problems.map((entry) => entry.code)))
+  assert.ok(result.problems.some((entry) => entry.code === 'WORK_BUDGET_EXCEEDED'))
+  assert.equal(result.ok, false)
+})
+
+test('compiler: an oversized cited source is reported as ADR_TOO_LARGE, not read', () => {
+  // The other half of finding 5: the source a record cites is hashed whole, and a 500 MB source
+  // blocked the loop too. The record still parses; the problem is about its evidence.
+  const root = makeProject({
+    name: 'source-too-large',
+    adrs: {
+      '0001-a.adr.md': adrText({ id: '0001', zones: ['auth'], laws: [{ id: 'a.one', statement: 'One.', checks: [] }] }),
+    },
+  })
+  writeFileSync(join(root, SOURCE_PATH), 'y'.repeat(3000))
+  const budget = schema.createWorkBudget({ maxFiles: 100, maxFileBytes: 2000, maxTotalBytes: 100_000 })
+  const result = compiler.compileProject(root, { budget })
+  assert.ok(result.problems.some((entry) => entry.code === 'ADR_TOO_LARGE' && entry.path !== undefined), JSON.stringify(result.problems.map((entry) => entry.code)))
+  assert.equal(result.ok, false)
+})
+
+test('verifier: an oversized dependency manifest is reported, not read', () => {
+  // Finding 6: `readDeclaredDependencies` read every package.json whole; a 300 MB manifest
+  // blocked 1.3 s. The cap makes it a problem, and the names it declares are NOT harvested.
+  const root = makeProject({
+    name: 'dep-too-large',
+    adrs: {},
+    files: { 'package.json': `${JSON.stringify({ dependencies: { redis: '^1' } })}${' '.repeat(3000)}` },
+  })
+  const files = verifier.listFiles(root)
+  const budget = schema.createWorkBudget({ maxFiles: 100, maxFileBytes: 100, maxTotalBytes: 1_000_000 })
+  const result = verifier.readDeclaredDependencies(root, files, null, budget)
+  assert.ok(result.problems.some((entry) => entry.code === 'CODE_FILE_TOO_LARGE'), JSON.stringify(result.problems.map((entry) => entry.code)))
+  assert.equal(result.names.has('redis'), false, 'an oversized manifest must not have been read')
+})
+
+test('verifier: listFiles stops at the budget and records the stop', () => {
+  // Part of finding 7: the walk itself is a syscall per directory and entry, so a budget that
+  // only bounded reads still left the loop enumerating a huge tree.
+  const files = {}
+  for (let index = 0; index < 20; index += 1) files[`src/auth/f${index}.ts`] = 'x'
+  const root = makeProject({ name: 'walk-budget', adrs: {}, files })
+  const budget = schema.createWorkBudget({ maxFiles: 5, maxFileBytes: 1000, maxTotalBytes: 10_000 })
+  const walked = verifier.listFiles(root, '', budget)
+  assert.ok(walked.length <= 6, `the walk returned ${walked.length} files past a 5-file budget`)
+  assert.ok(budget.exceededCount > 0, 'the walk did not record the stop it made')
+})
+
+test('ops: an exhausted work budget fails closed with WORK_BUDGET_EXCEEDED and no verdict', async () => {
+  // Finding 7: the tool path must carry a conservative budget, and ops must return a problem
+  // and NO verdict when it is exceeded. The oversized file is above the per-file cap, so the
+  // verification may not persist a partial read as this project's current verdict.
+  const root = makeProject({
+    name: 'ops-budget',
+    files: { 'src/auth/big.ts': 'x'.repeat(20_000) },
+    adrs: {
+      '0001-a.adr.md': adrText({
+        id: '0001',
+        zones: ['auth'],
+        laws: [{ id: 'auth.check', statement: 'Enforced.', checks: [{ type: 'forbidden_text', paths: ['src/auth/**'], pattern: 'TODO' }] }],
+      }),
+    },
+  })
+  const budget = schema.createWorkBudget({ maxFiles: 100, maxFileBytes: 5000, maxTotalBytes: 100_000 })
+  const result = await ops.verify({ root, budget })
+  assert.equal(result.ok, false)
+  assert.equal(result.stage, 'budget')
+  assert.ok(result.problems.some((entry) => entry.code === 'WORK_BUDGET_EXCEEDED'), JSON.stringify(result.problems.map((entry) => entry.code)))
+  assert.ok(result.problems.some((entry) => entry.code === 'CODE_FILE_TOO_LARGE'))
+  assert.equal(
+    existsSync(join(root, 'reports', 'ratchet', 'verify-report.json')),
+    false,
+    'a budget-exhausted verification must not persist a verdict about part of the tree',
+  )
+})
+
+test('tool: ratchet_verify passes the in-process work budget and returns no verdict', { skip: HARNESS_SKIP }, async () => {
+  // The enforcement point for finding 7 on the surface an agent actually calls: the tool must
+  // pass `createWorkBudget()` into ops, and an oversized file must produce a reported problem
+  // rather than a 3 MiB synchronous read on the harness event loop.
+  const root = makeProject({
+    name: 'tool-budget',
+    files: { 'src/auth/big.ts': 'x'.repeat(3 * 1024 * 1024) },
+    adrs: {
+      '0001-a.adr.md': adrText({
+        id: '0001',
+        zones: ['auth'],
+        laws: [{ id: 'auth.check', statement: 'Enforced.', checks: [{ type: 'forbidden_text', paths: ['src/auth/**'], pattern: 'TODO' }] }],
+      }),
+    },
+  })
+  const registered = toolHarness()
+  const tool = registered.get('ratchet_verify')
+  assert.ok(tool !== undefined, 'the verify tool is registered')
+  const result = await tool.execute({ root }, { agent: { id: 'session-tool-budget', session: { header: { cwd: root } } } })
+  assert.equal(result.ok, false)
+  assert.equal(result.stage, 'budget')
+  assert.ok(result.problems.some((entry) => entry.code === 'WORK_BUDGET_EXCEEDED'), JSON.stringify(result.problems?.map((entry) => entry.code)))
+  assert.ok(result.problems.some((entry) => entry.code === 'CODE_FILE_TOO_LARGE'))
+  assert.equal(existsSync(join(root, 'reports', 'ratchet', 'verify-report.json')), false)
 })

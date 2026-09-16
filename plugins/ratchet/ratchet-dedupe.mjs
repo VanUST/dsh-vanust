@@ -45,14 +45,17 @@
  *   `{ code, key, message, records, lawIds }`. Empty `duplicates` means the corpus holds no
  *   duplicate THIS module can decide — not that it holds none at all.
  *
- *   `draftResolutions` returns `{ ok, drafts, undraftable, problems }`. Each draft is
- *   `{ duplicate, id, filename, path, text, removes, keeps, status }` ready to be written;
- *   each undraftable finding carries `{ duplicate, reason }` and is reported rather than
- *   guessed at. A corpus that cannot be read yields `{ ok: false, unusable: true, problems }`.
+ *   `draftResolutions` returns `{ ok, drafts, alreadyDrafted, undraftable, problems }`. Each
+ *   draft is `{ duplicate, id, filename, path, text, removes, keeps, status, draftKey }` ready
+ *   to be written; a duplicate whose key a record already carries under `draftKey` is reported
+ *   under `alreadyDrafted` as `{ duplicate, id, path, title, draftKey }` and NOT drafted again,
+ *   which is what makes a second run idempotent; each undraftable finding carries
+ *   `{ duplicate, reason }` and is reported rather than guessed at. A corpus that cannot be
+ *   read yields `{ ok: false, unusable: true, problems }`.
  *
  * KEYWORDS
  *   duplicate, deduplication, resolution, merge, draft, advisory, deterministic, proposed,
- *   ledger, judge-free, corpus
+ *   ledger, judge-free, corpus, idempotent, draftKey
  *
  * BEHAVIOUR ON EDGE CASES
  *   - No records, or records with no law: `duplicates` is empty and nothing is drafted.
@@ -68,6 +71,7 @@
  *     not a mapping and a `resolves` list that is not a list each contribute nothing.
  */
 import { compileProject, readAdrCorpus, readManifest, zonesForRecord } from './ratchet-compiler.mjs'
+import { createHash } from 'node:crypto'
 import { MANIFEST_PATH, TERMINAL_ADR_STATUSES } from './ratchet-schema.mjs'
 import { existingAdrIds, nextAdrId, readSource, writeIngested } from './ratchet-ingest.mjs'
 
@@ -227,6 +231,23 @@ export function chooseLoser(duplicate, byId, config) {
 }
 
 /**
+ * The stable identity of one duplicate finding, used as a draft's `draftKey`.
+ *
+ * Deterministic and collision-resistant enough for the one thing it decides — whether a
+ * draft for THIS finding already exists — because the full finding key (a law statement or a
+ * source hash) can carry newlines and quotes that a frontmatter scalar cannot. The hash is
+ * over the code and the key, so two findings that differ in either are different drafts and
+ * the same finding is the same draft however the corpus is re-read.
+ *
+ * @param duplicate - One entry from {@link findDuplicates}.
+ * @returns A token of the form `duplicate:<16 hex>`; never null and never throws.
+ */
+export function duplicateDraftKey(duplicate) {
+  const identity = `${duplicate?.code ?? 'duplicate'}\n${duplicate?.key ?? ''}`
+  return `duplicate:${createHash('sha256').update(identity).digest('hex').slice(0, 16)}`
+}
+
+/**
  * Renders the resolution that settles one duplicate, as a proposal.
  *
  * The record is ordinary in every respect — an ADR with a source, a Reasoning section and a
@@ -237,10 +258,11 @@ export function chooseLoser(duplicate, byId, config) {
  * and why, so a human ratifying it reads the decision rather than a machine's diff.
  *
  * @param options - `{ id, duplicate, loser, winner, lawId, sourcePath, sourceHash, createdAt,
- *   decisionsDir }`.
+ *   draftKey, decisionsDir }`. `draftKey` is the stable identity written into the frontmatter
+ *   so the ratchet can tell "this issue already has a draft" from "this issue has none".
  * @returns `{ filename, path, text, title }`, the same shape `renderAdr` produces.
  */
-export function renderResolution({ id, duplicate, loser, winner, lawId, sourcePath, sourceHash, createdAt, decisionsDir = 'docs/adrs' }) {
+export function renderResolution({ id, duplicate, loser, winner, lawId, sourcePath, sourceHash, createdAt, draftKey = null, decisionsDir = 'docs/adrs' }) {
   const title = `Settle duplicate: keep ${winner.id}, withdraw ${lawId}`
   const filename = `${id}-${slug(title)}.adr.md`
   const zones = [...new Set(loser.zones ?? [])]
@@ -261,6 +283,10 @@ export function renderResolution({ id, duplicate, loser, winner, lawId, sourcePa
     '  kind: file',
     `  path: ${sourcePath}`,
     `  hash: ${sourceHash}`,
+    // The machine-draft identity. Present only on a record the ratchet produced, and read
+    // back by `parseAdr` so the drafting pass can skip an issue it has already drafted.
+    'draft: true',
+    ...(draftKey === null ? [] : [`draftKey: "${draftKey}"`]),
     // A block sequence needs at least one item, and `zones:\n  []` is an indent nothing
     // understands: the parser read the draft as declaring no zones at all. An empty list is
     // written in flow form on the key's own line instead, and a resolution with no zone is a
@@ -362,30 +388,61 @@ export function draftResolutions(root, { write = false, createdAt = null } = {})
             message: `${MANIFEST_PATH} does not declare ratchet.enabled, so there is no corpus to deduplicate`,
           },
         ]
-    return { ok: false, unusable: true, drafts: [], undraftable: [], problems, scanned: null }
+    return { ok: false, unusable: true, drafts: [], alreadyDrafted: [], undraftable: [], problems, scanned: null }
   }
   const config = manifest.config
   const corpus = readAdrCorpus(root, config)
   if (corpus.records.length === 0 || corpus.problems.length > 0) {
-    return { ok: false, unusable: true, drafts: [], undraftable: [], problems: corpus.problems, scanned: null }
+    return { ok: false, unusable: true, drafts: [], alreadyDrafted: [], undraftable: [], problems: corpus.problems, scanned: null }
   }
 
   // What is actually in force, from the compiler, so a law a ratified resolution already
   // withdrew is not reported as a duplicate for ever.
   const compiled = compileProject(root)
   const { scanned, duplicates } = findDuplicates(corpus.records, { removedLawIds: compiled.removedByDecision ?? [] })
+  // A draft already on disk is found by its own `draftKey`, which every machine-produced
+  // record carries. The read is from the PARSED corpus rather than from the filenames,
+  // because the marker survives a human edit and a ratification: a draft somebody corrected
+  // or approved is still the draft for that issue, and writing a second one over it would
+  // overwrite a decision somebody already made.
+  const draftedByKey = new Map(
+    corpus.records
+      .filter((record) => record !== null && typeof record === 'object' && record.draft === true && typeof record.draftKey === 'string')
+      .map((record) => [record.draftKey, record]),
+  )
   if (duplicates.length === 0) {
-    return { ok: true, drafts: [], undraftable: [], problems: [], scanned }
+    return { ok: true, drafts: [], alreadyDrafted: [], undraftable: [], problems: [], scanned }
   }
 
   const byId = new Map(corpus.records.map((record) => [record.id, record]))
   const existing = existingAdrIds(root, config.decisionsDir)
   const ids = [...existing.ids]
   const drafts = []
+  const alreadyDrafted = []
   const undraftable = []
   const problems = []
 
   for (const duplicate of duplicates) {
+    const draftKey = duplicateDraftKey(duplicate)
+    const existingDraft = draftedByKey.get(draftKey)
+    if (existingDraft !== undefined) {
+      const removes = (existingDraft.laws ?? [])
+        .filter((law) => law !== null && typeof law === 'object' && law.op === 'remove' && typeof law.id === 'string')
+        .map((law) => law.id)
+      const resolves = Array.isArray(existingDraft.resolves) ? existingDraft.resolves : []
+      alreadyDrafted.push({
+        duplicate,
+        id: existingDraft.id,
+        path: existingDraft.path,
+        title: existingDraft.title,
+        draftKey,
+        status: existingDraft.status,
+        removes,
+        keeps: resolves[1] ?? null,
+        withdraws: resolves[0] ?? [...new Set(duplicate.records ?? [])].sort()[1] ?? null,
+      })
+      continue
+    }
     const choice = chooseLoser(duplicate, byId, config)
     if (choice.reason !== undefined) {
       undraftable.push({ duplicate, reason: choice.reason })
@@ -414,6 +471,7 @@ export function draftResolutions(root, { write = false, createdAt = null } = {})
       sourcePath: citedPath,
       sourceHash: cited.hash,
       createdAt: createdAt ?? new Date().toISOString(),
+      draftKey,
       decisionsDir: config.decisionsDir,
     })
     const draft = {
@@ -427,6 +485,7 @@ export function draftResolutions(root, { write = false, createdAt = null } = {})
       removes: choice.lawId,
       keeps: choice.winner.id,
       withdraws: choice.loser.id,
+      draftKey,
       written: null,
     }
     if (write) {
@@ -438,8 +497,11 @@ export function draftResolutions(root, { write = false, createdAt = null } = {})
       }
       draft.written = outcome.written
     }
+    // The newly written draft claims its key for the rest of this run too: two findings that
+    // somehow hash to one key must not both be written from one pass.
+    draftedByKey.set(draftKey, { id, path: rendered.path, title: rendered.title, status: 'proposed', draft: true, draftKey })
     drafts.push(draft)
   }
 
-  return { ok: problems.length === 0, drafts, undraftable, problems, scanned }
+  return { ok: problems.length === 0, drafts, alreadyDrafted, undraftable, problems, scanned }
 }

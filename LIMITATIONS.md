@@ -13,9 +13,9 @@ Measured on 2026-09-16:
 
 | Command | State |
 |---|---|
-| `ratchet compile --root .` | OK — 52 records, 25 active, 0 proposed, 63 laws |
+| `ratchet compile --root .` | OK — 53 records, 25 active, 1 proposed (ADR 0056), 63 laws |
 | `ratchet verify --root .` | OK — 63 laws, 75 checks evaluated, 0 pending, 0 problems |
-| `node --test scripts/test-ratchet.mjs` | OK (331) |
+| `node --test scripts/test-ratchet.mjs` | OK (341) |
 | `node --test scripts/test-ratchet-guard.mjs` | OK |
 | `scripts/check-duplicate-decisions.mjs` | OK |
 | `scripts/check-consent-surface.mjs` | OK |
@@ -70,10 +70,19 @@ Both were enforced by tests and by the validator but were **not laws**. They are
 3. **One derived "needs a human" set, shown in the ADR window** as the developer's entry point:
    consents waiting, contradictions with their drafted resolutions, duplicates with their drafted
    merges, stale detection, a red gate.
-4. **A stale specification is reported with a drafted withdrawal note and never blocks the gate.**
-   Decided 2026-09-16: only the hash-behind kind becomes advisory — a hand-edited, missing or
-   orphaned document still blocks — which needs an amendment to ADR 0012 (its law is in force as
-   `shipped-plugins.specs-cannot-drift-silently`). Not yet landed.
+4. ~~**A stale specification is reported with a drafted withdrawal note and never blocks the gate.**~~
+   **LANDED (2026-09-16), awaiting ratification as ADR 0056.** Only the hash-behind kind
+   (`stale`) is advisory: it is reported in `compile`/`verify`/`status` `specDrift.stale` with the
+   withdrawal note the ratchet drafts at `reports/ratchet/drafts/`, and it does NOT enter the
+   blocking `problems`. A hand-edited (`drifted`), missing, or orphaned document still blocks.
+   The narrowed rule is restated under the new id
+   `shipped-plugins.spec-stale-is-advisory-others-still-block`, bound to
+   `node scripts/check-gate-invariants.mjs`; the in-force law
+   `shipped-plugins.specs-cannot-drift-silently` (ADR 0012) remains in force until the human
+   ratifies ADR 0056, which `op: remove`s it. The withdrawal note is written by the RATCHET's own
+   drafting pass (`ratchet-drafts.mjs`), invoked by `ratchet compile` and read-only by the ADR
+   panel's view — never by an agent, and never applied (the ratchet does not delete or regenerate
+   the document).
 
 The fifth decision, **`scripts/verify-upgrade.sh` runs `ratchet verify` and `falsify`**, landed
 2026-09-16: the release gate now runs both, and it treats a documented, self-describing `[SKIP]` as

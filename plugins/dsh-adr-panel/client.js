@@ -34,7 +34,10 @@
  *   writes: `globalThis.__DSH_ADR_PANEL_STATE__` carries the read-only route path and
  *   this activation's capability token. It is the panel's ONLY data path, and the
  *   ratchet's `ratchetDecisions` service is the only thing that derives what it returns.
- *   A missing global is reported as state unavailable, never worked around.
+ *   A missing global is reported as state unavailable, never worked around. The answer is
+ *   CAPPED by the host, and when it is, the view carries a `truncated` member naming what
+ *   was cut; the window turns that member into a visible note, so a partial answer is
+ *   stated rather than rendered as the whole corpus.
  *
  *   THE CONSENT ROUTE IS LEARNED AT MOUNT TIME, from the index global the host half
  *   writes: `globalThis.__DSH_ADR_PANEL_CONSENT__` carries the route path and the same
@@ -247,7 +250,7 @@ window.__ModuleLoader__.load({
 		 * are equal again after a release and the constant is one ahead only in the working
 		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.26";
+		const PANEL_VERSION = "0.1.28";
 		/** Directories used when the host view reports none. */
 		const DEFAULT_DECISIONS_DIR = "docs/adrs";
 		const DEFAULT_SPECS_DIR = "docs/specs";
@@ -968,6 +971,42 @@ window.__ModuleLoader__.load({
 			);
 		}
 		/**
+		 * PURPOSE
+		 *   Turn the ratchet's own truncation record into the one sentence the window shows,
+		 *   so a capped answer is STATED rather than silently rendered as the whole corpus.
+		 *   The ratchet caps what it sends (record count and response bytes); this function
+		 *   adds no cap of its own and interprets none of the numbers beyond naming them.
+		 * INPUTS
+		 *   truncated — the view model's `truncated` member, or any value.
+		 * OUTPUTS
+		 *   A non-empty sentence naming every cut the record reports, or null when the
+		 *   member is absent or names no cut. Never throws.
+		 * KEYWORDS
+		 *   truncation, response cap, partial view, notice
+		 */
+		function truncationNote(truncated) {
+			if (truncated === null || truncated === undefined || typeof truncated !== "object") return null;
+			var parts = [];
+			var records = truncated.records;
+			if (records !== null && records !== undefined && typeof records === "object") {
+				parts.push("only " + records.shown + " of " + records.total + " decisions are shown");
+			}
+			var specs = truncated.specs;
+			if (specs !== null && specs !== undefined && typeof specs === "object") {
+				parts.push("only " + specs.shown + " of " + specs.total + " spec documents are shown");
+			}
+			var texts = truncated.texts;
+			if (texts !== null && texts !== undefined && typeof texts === "object") {
+				parts.push(texts.dropped + " decision bodies were omitted");
+			}
+			var specTexts = truncated.specTexts;
+			if (specTexts !== null && specTexts !== undefined && typeof specTexts === "object") {
+				parts.push(specTexts.dropped + " spec bodies were omitted");
+			}
+			if (parts.length === 0) return null;
+			return "The state answer was truncated to stay within the host's response cap: " + parts.join("; ") + ".";
+		}
+		/**
 		 * Adapter from one record of the ratchet's view model to the shape the renderer
 		 * consumes. Every force fact — `state`, `provenance`, `canRatify`, `contentHash`,
 		 * `approvedBy`, `supersededBy` — is copied unchanged from the ratchet's own
@@ -1014,21 +1053,27 @@ window.__ModuleLoader__.load({
 		/**
 		 * Adapter from one entry of the ratchet's `needsHuman` set to the shape the
 		 * renderer consumes. Every field — the kind, the id, the title, the path, the
-		 * reason and the action — is copied unchanged; this maps no rule and chooses no
-		 * finding. A missing field renders empty rather than being inferred.
+		 * reason, the action, the drafted id/path and the reason no draft exists — is
+		 * copied unchanged; this maps no rule and chooses no finding. A missing field
+		 * renders empty rather than being inferred.
 		 *
 		 * @param entry - one element of the view model's `needsHuman`.
 		 * @returns the renderer's needs-human shape. Never throws.
 		 */
 		function adaptNeed(entry) {
 			if (entry === null || entry === undefined || typeof entry !== "object") return null;
+			var draft = entry.draft !== null && entry.draft !== undefined && typeof entry.draft === "object"
+				? { id: entry.draft.id === undefined ? null : entry.draft.id, path: entry.draft.path === undefined ? null : entry.draft.path }
+				: null;
 			return {
 				kind: typeof entry.kind === "string" ? entry.kind : "unknown",
 				id: entry.id === null || entry.id === undefined ? "" : String(entry.id),
 				title: typeof entry.title === "string" ? entry.title : "",
 				path: typeof entry.path === "string" && entry.path !== "" ? entry.path : null,
 				reason: typeof entry.reason === "string" ? entry.reason : "",
-				action: typeof entry.action === "string" ? entry.action : ""
+				action: typeof entry.action === "string" ? entry.action : "",
+				draft: draft,
+				draftReason: typeof entry.draftReason === "string" ? entry.draftReason : null
 			};
 		}
 		/**
@@ -1056,6 +1101,10 @@ window.__ModuleLoader__.load({
 								return code + (typeof entry.message === "string" ? entry.message : JSON.stringify(entry));
 							})
 						: [];
+					// The host caps what it sends; when it cut something, the window says so
+					// instead of rendering a partial list as the whole corpus.
+					var truncation = truncationNote(view.truncated);
+					if (truncation !== null) notes.push(truncation);
 					var specs = (Array.isArray(view.specs) ? view.specs : []).map(parseSpec);
 					var records = (Array.isArray(view.records) ? view.records : []).map(adaptRecord).sort(byAdrId);
 					var decisions = [];
@@ -1578,12 +1627,17 @@ window.__ModuleLoader__.load({
 		function NeedsHumanCard(props) {
 			var need = props.need;
 			var record = findConcernedRecord(need, props.decisions, props.consents);
+			var drafted = need.draft === null || need.draft === undefined
+				? null
+				: (need.draft.id === null || need.draft.id === "" ? "" : need.draft.id + " ") + (need.draft.path === null ? "" : need.draft.path);
 			return React.createElement("div", { style: cardStyle() },
 				React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap" } },
 					pill(need.kind + " " + need.id, needsKind(need)),
 					need.title === "" ? null : React.createElement("span", { style: { fontSize: 12, fontWeight: 600 } }, need.title),
 					need.path === null ? null : React.createElement("span", { style: mutedInlineStyle() }, need.path)),
 				need.reason === "" ? null : React.createElement("div", { style: { fontSize: 12, marginTop: 4, lineHeight: "18px" } }, need.reason),
+				drafted === null ? null : React.createElement("div", { style: mutedInlineStyle() }, "drafted: " + drafted),
+				need.draftReason === null || need.draftReason === undefined ? null : React.createElement("div", { style: mutedInlineStyle() }, need.draftReason),
 				need.action === "" ? null : React.createElement("div", { style: ctaNoteStyle() }, need.action),
 				record === null ? null : React.createElement("button", { type: "button", style: smallButtonStyle(), onClick: function () { props.onSelectAdr(record.id); } }, "Open " + record.id));
 		}

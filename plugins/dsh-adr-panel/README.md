@@ -6,15 +6,18 @@ header** that opens a **frame-wide overlay** listing the project's decision reco
 **Decline** on a proposed, agent-authored decision that waits for a human.
 
 A click records the decision silently: no chat message, no model turn, no agent in the
-loop. The host half serves two routes: `GET /adr-panel/state` returns the ratchet's whole
-view model (every record's force, its provenance, the ratify queue and the compiled spec
-documents), and the panel RENDERS it unchanged — it derives nothing itself. Approval and
+loop. The host half serves two routes: `GET /adr-panel/state` returns the ratchet's view
+model (every record's force, its provenance, the ratify queue and the compiled spec
+documents), capped by the ratchet to a record count and a byte budget with a `truncated`
+member naming anything it dropped, and derived off the event loop so a large corpus cannot
+stall the harness; the panel RENDERS it unchanged — it derives nothing itself. Approval and
 decline use the second route, `/adr-panel/consent`; the panel asks it for the ratchet's own
 question about that decision, renders the question in the row — the ratchet's header and
 text, the record's own bytes, both labels it put on the question — and posts back the label
 belonging to the button that was pressed, together with that same question. The route hands
 both to the ratchet's own `ratify` operation, which writes the approval ADR and its
-transcript.
+transcript. A `POST` body that does not complete within the route's deadline is refused
+`408` and its socket destroyed, so an unfinished write cannot pin the route.
 
 It never derives a decision's state and never records a consent of its own. A panel that
 re-derived force would be a second implementation of one truth — the defect that read
@@ -28,12 +31,16 @@ the ratchet writes.
 The window opens on the ratchet's single **Needs a human** set, rendered above the record
 list. It is the developer's entry point: the consents waiting in the ratify queue, the
 decidable contradictions between a proposal and law in force, the duplicates with the
-resolution the deduplicator drafted, drifted or missing spec documents, and a red gate read
-from the persisted verification report — each with the ratchet's own reason and action, and
-a way into the record it concerns through the row selection the list already uses. The
-ratchet derives every entry from its own functions; the panel copies the set unchanged and
-never grows a finding of its own. When the set is empty the section still renders, with a
-plain statement that nothing needs a human, rather than disappearing.
+resolution the drafting pass wrote, a **stale** generated spec document together with the
+withdrawal note the ratchet drafted for it, and a red gate read from the persisted
+verification report. Each entry carries the ratchet's own reason and action and, when the
+ratchet drafted a settlement, its `draft` (`{ id, path }`) — rendered as the drafted record
+or note — or a `draftReason` saying why none could be produced. A hand-edited, missing or
+orphaned spec document is a blocking problem, not an advisory note, and so is not shown as a
+drafted fix. Each entry gives a way into the record it concerns through the row selection the
+list already uses. The ratchet derives every entry from its own functions; the panel copies
+the set unchanged and never grows a finding of its own. When the set is empty the section
+still renders, with a plain statement that nothing needs a human, rather than disappearing.
 
 It is also the only surface that answers a question the ratchet asks **through the
 composer**. A ratification question carries the ratchet's `ratify-decision` presentation
@@ -50,7 +57,7 @@ nothing claims the seat and the question is still asked.
 
 | File | Role |
 |---|---|
-| `index.js` | Host half: registers the read-only `/adr-panel/state` route and the `/adr-panel/consent` route on `webServer`, guards both with `connection.requestRejection` and a per-activation capability, calls the ratchet's `ratchetDecisions` service for the view model and its `ratchetConsent` service for an answer. It derives no state, builds no question and writes no file. |
+| `index.js` | Host half: registers the read-only `/adr-panel/state` route and the `/adr-panel/consent` route on `webServer`, guards both with `connection.requestRejection` and a per-activation capability, calls the ratchet's `ratchetDecisions` service for the view model and its `ratchetConsent` service for an answer, and bounds a `POST` body with a read deadline. It derives no state, builds no question and writes no artifact; a consent `GET` writes only the ratchet's audit ledger line. |
 | `client.js` | The hand-written browser bundle (`window.__ModuleLoader__.load`), no build step. It fetches the state route and renders the ratchet's view — including the `needsHuman` set as the window's leading section; it derives no force. |
 | `package.json` | `main: index.js`, `exports` for `.` and `./client`, and `dsh.client = { platform: "web", inject: [...] }`. |
 
@@ -77,12 +84,15 @@ half renders that view and derives nothing: the old `resolveZonePolicy`, `govern
 `parseRatification`, `contentHashOf`, `buildRelations`, `displayedState` and
 `canOfferRatify` are deleted, so a change to the ratchet's derivation moves the window
 with no panel edit. A route it cannot reach is reported as **state unavailable**; the panel
-never falls back to reading the corpus. The host half writes nothing either — the approval
-and the transcript are written by the ratchet inside the `ratchetConsent` call.
-`scripts/check-consent-surface.mjs` fails when either service name, route, capability
-header or capability global stops being the same value across the ratchet, this host half
-and the bundle, when any registered tool names one of them, or when the provided services
-stop behaving as required.
+never falls back to reading the corpus. The host half writes no artifact of its own. A `GET`
+on the consent route has exactly one durable effect: the ratchet's `ratify` prepare path
+appends one audit event to `.dsh/ratchet/ledger.jsonl` — it writes no approval ADR and no
+transcript, and it does not touch the corpus. A `POST` that approves writes the approval and
+the transcript, by the ratchet inside the `ratchetConsent` call. `scripts/check-consent-surface.mjs`
+fails when either service name, route, capability header or capability global stops being the
+same value across the ratchet, this host half and the bundle, when any registered tool names
+one of them, or when the provided services stop behaving as required — including the exact
+ledger/approval distinction above.
 | `conversation.composer` is a **chain** slot. Its owner passes `{ sessionId, session, pendingInteraction }` as owner props, and the chain renders the **first** entry whose `select(ownerProps)` returns a non-null value; a selector that throws is *"treated as declined"*. **Order is ASCENDING `priority`: lower tries first, ties keep registration order.** The entry that owns every question claims ALL pending questions at the default `priority: 0`, so a claim at 0 or above is never reached — which is why this panel registers at **-1**; the approval entry is at `1` and works only because a pending approval is not a pending question, so the owner declines it first | owner `@deepseek-ai/dsh-client-ui-conversation/lib/client.js:14932-14937`; election `@deepseek-ai/dsh-client-ui-renderer/lib/client.js:824-844`; the ordering's own comment, the sort, and the chain return in `@deepseek-ai/dsh-client-ui-slots/src/index.ts` (`ChainSelect` doc, `register`'s `next.sort(...)`, `entriesOfSlot`), duplicated in the installed bundle at `@deepseek-ai/dsh-web-frontend/dist/assets/index-DuF6ti6g.js` (`p.sort(...(m,g)=>(m.options.priority??0)-(g.options.priority??0))`); owner `@deepseek-ai/dsh-client-ui-user-questions/lib/client.js:873-878`; second claimant `@deepseek-ai/dsh-client-ui-approval/lib/client.js:265-272` |
 | A question may carry `intent: { kind, approve }`, and a presentation is allowed to claim it only when it can send **every** answer the question allows. The harness renders `plan-review` itself and falls back to a generic card for everything else; the generic card always offers a free-text answer, and the shipped `PlanReviewPanel` claims a question with two buttons anyway, so a two-label presentation is the sanctioned shape for a binary question | `@deepseek-ai/dsh-client-ui-user-questions/lib/client.js:38-56` (`planReviewOf`), `:246-330` (`PlanReviewPanel`, two buttons only), `:660-722` (the generic card's free-text row) |
 | A host plugin serves a browser by registering an HTTP route: `ctx.webServer.register({ kind, path, handler })`, a duplicate path throws, and the server awaits an async handler | `@deepseek-ai/dsh-host-webserver/lib/index.js:176` (`register`), `:228` (the awaited handler); shipped example `@deepseek-ai/dsh-host-open-in-app/lib/index.js:1324-1454` |
@@ -101,8 +111,9 @@ line ends in a plain LF hash to a value no ratification recorded, so the decisio
 displayed as `awaiting a human` while the ratchet had it in force. A record the whole-file
 read cannot serve is left with NO content hash — so it can never be reported as in force on
 the strength of a text nobody approved — and the window reports that its consent could not
-be verified instead of silently listing it as unpaid. The host half writes nothing either —
-the approval and the transcript are written by the ratchet inside the `ratchetConsent` call.
+be verified instead of silently listing it as unpaid. The host half writes no artifact of
+its own: a consent `GET` appends only the ratchet's audit ledger line, and the approval and
+transcript are written by the ratchet inside the `ratchetConsent` call.
 `scripts/check-consent-surface.mjs` fails when the route, the service name, the capability
 header or the capability global stops being the same value on both halves, when any
 registered tool names one of them, or when the provided consent service stops refusing the

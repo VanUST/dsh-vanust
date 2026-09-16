@@ -8,11 +8,13 @@
  *
  *   It is a thin adapter on purpose. It derives no decision state: the state route calls
  *   the ratchet's `ratchetDecisions` service, which is the one implementation of force,
- *   consent matching and the ratify queue. It constructs no question, interprets no
- *   answer and writes no file: the consent route calls the ratchet's `ratchetConsent`
- *   service, which calls the same `ratify` operation the `ratchet_ratify` tool and the
- *   `/ratify` command call. Everything this file owns is the transport and the fence in
- *   front of it.
+ *   consent matching and the ratify queue, and which derives off the event loop and caps
+ *   what it returns. It constructs no question, interprets no answer and writes no
+ *   artifact: the consent route calls the ratchet's `ratchetConsent` service, which calls
+ *   the same `ratify` operation the `ratchet_ratify` tool and the `/ratify` command call.
+ *   A `GET` on that route therefore has exactly one durable effect — `ratify`'s prepare
+ *   path appends one audit event to the ledger — and no approval or transcript. Everything
+ *   this file owns is the transport and the fence in front of it.
  *
  * INPUTS
  *   Composed by the harness as a cordis plugin: `apply(ctx)` receives the root context.
@@ -31,7 +33,8 @@
  *
  *   The routes are `<CONSENT_ROUTE>` and `<STATE_ROUTE>`:
  *     GET  <STATE_ROUTE>?session=<session-id>    → the ratchet's whole view model
- *     GET  <CONSENT_ROUTE>?session=<id>&id=<adr-id> → the ratchet's question, nothing written
+ *     GET  <CONSENT_ROUTE>?session=<id>&id=<adr-id> → the ratchet's question; only the
+ *       ratchet's own audit line is appended (see OUTPUTS), never an approval/transcript
  *     POST <CONSENT_ROUTE> { session, adrId, label, quiz } → the ratchet's verdict and artifact
  *   Each carries its own capability header ({@link CONSENT_HEADER}, {@link STATE_HEADER}).
  *
@@ -39,8 +42,16 @@
  *   Registers exactly two HTTP routes and one index-injection row, all inside
  *   `ctx.effect` scopes so a reload replaces them rather than colliding. It never
  *   throws out of a handler: every failure is a status code and a JSON body naming what
- *   was refused. It writes no file of its own — the approval and transcript are written
- *   by the ratchet inside the `ratchetConsent` call.
+ *   was refused. It writes no artifact of its own. Two durable writes happen under it,
+ *   and neither is this file's:
+ *     - a `GET` consent request asks the ratchet for its question, and the ratchet's
+ *       `ratify` prepare path appends exactly one audit event to
+ *       `.dsh/ratchet/ledger.jsonl`. That is the whole durable effect of a GET: no
+ *       approval ADR and no transcript is written, and the corpus is not touched. The
+ *       route's own claim is therefore "a GET writes an audit line only, never a
+ *       consent artifact", never the older "a GET writes nothing".
+ *     - a `POST` that approves writes the approval ADR and its transcript, through the
+ *       ratchet inside the `ratchetConsent` call.
  *
  *   Responses are `application/json` with `cache-control: no-store`, because every one
  *   of them is a live fact about a project:
@@ -48,12 +59,17 @@
  *       ratchet's own verdict, so a refusal (`RATIFICATION_UNPROVEN`, nothing waiting,
  *       unreadable answer) arrives as 200 with `ok:false` and its `problems`, which is
  *       not the same thing as the request being malformed.
- *     - 200 `<view model>` — the ratchet's complete decision view.
+ *     - 200 `<view model>` — the ratchet's decision view, CAPPED. The view carries a
+ *       `truncated` member that is null when it is whole and otherwise names what the
+ *       cap dropped (record count, spec count, record bodies, spec bodies, queue
+ *       copies), so a partial answer says so rather than reading as the whole corpus.
  *     - 400 `bad-request` — malformed query, body, media type or a missing field.
  *     - 401/403 — the browser trust fence, or a missing/wrong capability header.
  *     - 404 `unknown-session` / `no-project` — the Session is unknown, or no
  *       `.dsh/project.json` was found at or above its workspace.
  *     - 405 — a method the route does not accept (state is GET only).
+ *     - 408 `request-timeout` — a `POST` body that did not arrive within
+ *       {@link BODY_READ_TIMEOUT_MS}; the request is destroyed rather than held open.
  *     - 503 `consent-unavailable` / `state-unavailable` — the named service is not
  *       mounted, so no question can be built and no consent recorded, or no view derived.
  *
@@ -77,13 +93,20 @@
  *     decisions the human is not looking at.
  *   - A request body larger than {@link MAX_BODY_BYTES}: 413, stream drained, nothing
  *     parsed and nothing written.
+ *   - A request body that does not complete within {@link BODY_READ_TIMEOUT_MS}: 408
+ *     `request-timeout` and the request is destroyed, so a partial or never-ending body
+ *     cannot hold the route (and its socket) open until Node's own default.
  *   - A body that is not JSON, or lacks `adrId`/`label`: 400; the ratchet is not called.
- *   - A `quiz` that is absent, foreign, or stale: the ratchet refuses and nothing is
- *     written. This route deliberately does not re-implement any part of that check.
+ *   - A `quiz` that is absent, foreign, or stale: the ratchet refuses, and the only
+ *     durable effect is the audit event `ratify` appends for the attempt. This route
+ *     deliberately does not re-implement any part of that check.
  *   - A wrong or missing capability header: 403 before the ratchet is reached, so a
  *     caller that has not been served this process's index cannot even build a question.
- *   - The state route's service throws: 500 `state-failed`, and the window says state is
- *     unavailable rather than falling back to a local derivation.
+ *   - The state route's service rejects (its worker failed, or the derivation threw):
+ *     500 `state-failed`, and the window says state is unavailable rather than falling
+ *     back to a local derivation.
+ *   - The corpus is larger than the ratchet's cap: the view arrives with `truncated`
+ *     naming what was cut, and the window says so; the route does not grow the response.
  *   - Two requests at once: each is independent. The ratchet's own queue is what makes a
  *     replayed answer mint nothing, not a lock here.
  */
@@ -162,6 +185,17 @@ export const STATE_GLOBAL = '__DSH_ADR_PANEL_STATE__'
 /** One request body is a question and two short strings; anything larger is hostile. */
 const MAX_BODY_BYTES = 256 * 1024
 
+/**
+ * How long a `POST` body may take to arrive before the route gives up on it. A caller that
+ * opens a socket, sends `content-type: application/json` and then sends a partial body (or
+ * nothing) would otherwise hold the request open until Node's own request timeout, which is
+ * minutes. Bounded here so the transport cannot be pinned by an unfinished write.
+ *
+ * Exported because a test drives the real route with a body that never ends: it reads this
+ * value to know how long the refusal may take, rather than hard-coding a second copy.
+ */
+export const BODY_READ_TIMEOUT_MS = 3000
+
 /** The Session registry: where a Session id becomes that Session's workspace. */
 const SESSIONS_SERVICE = 'sessions'
 
@@ -209,24 +243,73 @@ function sendMethodNotAllowed(res) {
 }
 
 /**
- * Collects a bounded request body as UTF-8 text.
+ * Sends 408 for a body that did not arrive, then destroys the request once the refusal
+ * has been flushed.
+ *
+ * The destroy is deferred to the response's own `finish` (and repeated on `close`) rather
+ * than called immediately: destroying the IncomingMessage first would tear down the socket
+ * before the 408 could be written, so the caller would see a reset instead of the reason.
+ * A response object with no event API is destroyed immediately, because there is no flush
+ * to wait for and leaving the socket open is the failure this exists to prevent.
  *
  * @param req - The Node request.
- * @returns `{ text }`, or `{ tooLarge: true }` past the ceiling — in which case the
- *   stream is drained so the socket is reusable and the caller answers 413.
+ * @param res - The Node response.
+ * @returns Nothing.
+ */
+function destroyRequestAfterResponse(req, res) {
+  const destroy = () => {
+    try {
+      req.destroy()
+    } catch {
+      // The socket is already gone; the refusal was already written.
+    }
+  }
+  if (typeof res.once === 'function') {
+    res.once('finish', destroy)
+    res.once('close', destroy)
+    return
+  }
+  destroy()
+}
+
+/**
+ * Collects a bounded request body as UTF-8 text within a deadline.
+ *
+ * @param req - The Node request.
+ * @returns `{ text }`; `{ tooLarge: true }` past {@link MAX_BODY_BYTES}, in which case the
+ *   stream is drained so the socket is reusable and the caller answers 413; or
+ *   `{ timedOut: true }` when the body did not complete within
+ *   {@link BODY_READ_TIMEOUT_MS}. On a timeout the read is abandoned and its eventual
+ *   rejection is observed here, so the caller can answer 408 rather than hang.
  */
 async function readBoundedBody(req) {
   const chunks = []
   let size = 0
-  for await (const chunk of req) {
-    size += chunk.byteLength
-    if (size > MAX_BODY_BYTES) {
-      req.resume()
-      return { tooLarge: true }
+  const read = (async () => {
+    for await (const chunk of req) {
+      size += chunk.byteLength
+      if (size > MAX_BODY_BYTES) {
+        req.resume()
+        return { tooLarge: true }
+      }
+      chunks.push(chunk)
     }
-    chunks.push(chunk)
+    return { text: Buffer.concat(chunks, size).toString('utf8') }
+  })()
+  let timer = null
+  const deadline = new Promise((resolve) => {
+    timer = setTimeout(() => resolve({ timedOut: true }), BODY_READ_TIMEOUT_MS)
+    timer.unref?.()
+  })
+  const result = await Promise.race([read, deadline])
+  if (timer !== null) clearTimeout(timer)
+  if (result.timedOut === true) {
+    // The abandoned read rejects once the caller destroys the request; observing it here
+    // keeps that from surfacing as an unhandled rejection.
+    read.catch(() => {})
+    return { timedOut: true }
   }
-  return { text: Buffer.concat(chunks, size).toString('utf8') }
+  return result
 }
 
 /**
@@ -457,6 +540,14 @@ function createConsentHandler(ctx, token, log) {
       sendRefusal(res, 400, 'bad-request', 'the request body could not be read')
       return
     }
+    if (body.timedOut === true) {
+      // The destroy handler is registered BEFORE the response is written: it runs on the
+      // response's own `finish`, and `res.end` fires that synchronously in a test double,
+      // so registering afterwards would miss it and leave the socket open.
+      destroyRequestAfterResponse(req, res)
+      sendRefusal(res, 408, 'request-timeout', `the request body was not received within ${String(BODY_READ_TIMEOUT_MS)} ms, so the route gave up on it and destroyed the request`)
+      return
+    }
     if (body.tooLarge === true) {
       sendRefusal(res, 413, 'payload-too-large', `the request body exceeds ${String(MAX_BODY_BYTES)} bytes`)
       return
@@ -594,14 +685,17 @@ function createStateHandler(ctx, token, log) {
       }
       let view
       try {
-        view = located.service.view({ root: located.root })
+        // The service is async on purpose: it derives a cache miss on a worker thread and
+        // returns the cached, capped view on a hit, so this `await` is what keeps the
+        // event loop free while a corpus is parsed.
+        view = await located.service.view({ root: located.root })
       } catch (error) {
         log.warn(`the ratchet's view threw: ${String(error)}`)
         sendRefusal(res, 500, 'state-failed', `the ratchet could not derive the decision view: ${String(error)}`)
         return
       }
       log.info(
-        `state root=${located.root} records=${Array.isArray(view?.records) ? view.records.length : 0} waiting=${Array.isArray(view?.queue?.pending) ? view.queue.pending.length : 0} blocked=${Array.isArray(view?.queue?.blocked) ? view.queue.blocked.length : 0}`,
+        `state root=${located.root} records=${Array.isArray(view?.records) ? view.records.length : 0} waiting=${Array.isArray(view?.queue?.pending) ? view.queue.pending.length : 0} blocked=${Array.isArray(view?.queue?.blocked) ? view.queue.blocked.length : 0} truncated=${view?.truncated === null || view?.truncated === undefined ? 'no' : 'yes'}`,
       )
       sendJson(res, 200, view)
     } catch (error) {

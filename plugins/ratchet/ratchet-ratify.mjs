@@ -191,6 +191,14 @@ function contradictionBlockReason(record, conflicts, records) {
  * a human already put in force, which is exactly what a ratification cannot do — so the queue
  * refuses it and names the fix instead of putting an impossible question to the human.
  *
+ * ONE shape is offered rather than refused, and it is the one the lifecycle itself needs: an
+ * AMENDMENT, a proposed record that removes law in force AND restates the decision under a new
+ * law id. The consent a removal requires is exactly the question the queue would put, so the
+ * record is offered; the write guard's law is unchanged and still treats the not-in-force
+ * removal as a contradiction until the human puts it into force. Without this, no amendment
+ * could ever be ratified — which is how ADR 0043 and ADR 0045 entered force before the queue's
+ * contradiction block existed.
+ *
  * @param root - Absolute project root.
  * @returns `{ ok, config, pending, blocked, problems }`. `pending` entries carry
  *   the record's full text and its current content hash, so a caller can show a
@@ -302,8 +310,24 @@ export function ratificationQueue(root) {
     }
     const conflicts = decidableContradictions(record, inForce.bundle.laws, { resolutions })
     if (conflicts.length > 0) {
-      blocked.push({ ...entry, reason: contradictionBlockReason(record, conflicts, corpus.records) })
-      continue
+      // An AMENDMENT — a proposed record that removes law in force AND restates the decision
+      // under a new law id — is EXACTLY a decision a human must be asked about, not one the
+      // queue refuses. Refusing it made every amendment unratifiable, which is not the shape the
+      // lifecycle the corpus already holds (ADR 0043 removed six laws and restated them, ADR 0045
+      // removed one) could have been ratified under. The consent the removal requires is this
+      // question, so the record is offered. The write guard is deliberately NOT changed: its own
+      // law (`…a-contradiction-with-law-in-force-stops-the-work`) still treats the not-in-force
+      // removal as a contradiction until the human puts it into force.
+      const inForceIds = new Set((inForce.bundle?.laws ?? []).map((law) => law.id))
+      const isAmendment =
+        conflicts.some((conflict) => conflict.op === 'remove') &&
+        (record.laws ?? []).some(
+          (law) => law !== null && typeof law === 'object' && law.op !== 'remove' && typeof law.id === 'string' && !inForceIds.has(law.id),
+        )
+      if (!isAmendment) {
+        blocked.push({ ...entry, reason: contradictionBlockReason(record, conflicts, corpus.records) })
+        continue
+      }
     }
     pending.push(entry)
   }

@@ -15,12 +15,17 @@
  *   and the ratchet agree on the consent service, route, header and capability global AND
  *   on the state service, route, header and capability global; NO tool exposes any of
  *   those eight values; the decisions service the state route reaches returns the
- *   ratchet's own derivation (so the window has nothing to re-derive); and the consent
+ *   ratchet's own derivation (so the window has nothing to re-derive), and that derivation
+ *   is CACHED and invalidated by the corpus signature (so a changed corpus is never served
+ *   from a stale view) and CAPPED with a `truncated` record; and the consent
  *   service the consent route reaches — driven here through the very object
  *   `ratchet-tools.mjs` provides — refuses a label with no quiz, refuses a quiz the
  *   ratchet did not build, refuses a record whose zone reserves its paths to a human,
  *   refuses a replayed quiz, refuses an answer about a record edited since the question
  *   was asked, and writes an approval ONLY for the approve label of the question it built.
+ *   A GET's durable effect is asserted as its own distinction: exactly one audit ledger
+ *   event, and no approval and no transcript. The host route's PORT deadline is asserted
+ *   by driving it with a body that never ends: it must answer 408 and destroy the request.
  *
  * INPUTS
  *   None. Fixtures are written under the system temp directory, and nothing outside
@@ -455,17 +460,35 @@ const serviceRoot = fixture('service', {
 })
 const decisionCount = (root) => readdirSync(join(root, 'docs', 'adrs')).length
 const sourceCount = (root) => readdirSync(join(root, 'docs', 'ratchet', 'sources')).length
+// The ledger is the third file surface a consent touches, and the one the old claim
+// ignored: a GET is not read-only, it appends the ratchet's audit event. Reading it back
+// is what lets the check state the EXACT distinction — an audit line yes, an approval or
+// transcript no — instead of repeating "writes nothing" over a file it never counted.
+const ledgerEvents = (root) => {
+  try {
+    return readFileSync(join(root, '.dsh', 'ratchet', 'ledger.jsonl'), 'utf8')
+      .split('\n')
+      .filter((line) => line.trim() !== '')
+      .map((line) => JSON.parse(line))
+  } catch {
+    return []
+  }
+}
+const ledgerBefore = ledgerEvents(serviceRoot).length
 const prepared = consentService.ask({ root: serviceRoot, ids: ['0001'], at: '2026-09-16T00:00:00Z' })
+const ledgerAfter = ledgerEvents(serviceRoot)
 claim(
-  'asking the service prepares the ratchet\'s question and writes nothing',
+  'asking the service prepares the ratchet\'s question and appends only its audit ledger line, never an approval or transcript',
   prepared.needsAnswer === true &&
     Array.isArray(prepared.quiz?.questions) &&
     prepared.quiz.questions.length === 1 &&
     prepared.quiz.roles['ratify-0001'].adrId === '0001' &&
     prepared.quiz.questions[0].detail.startsWith('---') &&
     decisionCount(serviceRoot) === 2 &&
-    sourceCount(serviceRoot) === 0,
-  `needsAnswer=${String(prepared.needsAnswer)} questions=${prepared.quiz?.questions?.length} files=${decisionCount(serviceRoot)}`,
+    sourceCount(serviceRoot) === 0 &&
+    ledgerAfter.length === ledgerBefore + 1 &&
+    ledgerAfter[ledgerAfter.length - 1]?.event === 'ratchet.ratify.prepare',
+  `needsAnswer=${String(prepared.needsAnswer)} questions=${prepared.quiz?.questions?.length} files=${decisionCount(serviceRoot)}/${sourceCount(serviceRoot)} ledger=${ledgerBefore}->${ledgerAfter.length} last=${JSON.stringify(ledgerAfter[ledgerAfter.length - 1]?.event ?? null)}`,
 )
 const approveLabel = prepared.quiz.roles['ratify-0001'].approveLabel
 
@@ -500,7 +523,7 @@ claim(
 )
 
 // A record whose zone reserves its paths to a human: the ratchet never queued it, so a
-// question about it cannot be asked and nothing is written however the label reads.
+// question about it cannot be asked and nothing is minted however the label reads.
 const blockedConsent = consentService.settle({
   root: serviceRoot,
   adrId: '0002',
@@ -572,8 +595,8 @@ claim(
   `ratified=${JSON.stringify(replayed.ratified ?? null)} files=${decisionCount(serviceRoot)}`,
 )
 
-// A decline is a real answer and still writes nothing — by the ratchet's own rule, not the
-// panel's, which is what makes the UI's confirm step honest.
+// A decline is a real answer and still writes no approval or transcript — by the ratchet's
+// own rule, not the panel's, which is what makes the UI's confirm step honest.
 const declineRoot = fixture('service-decline', {
   zones: [{ id: 'api', paths: ['src/api/**'], agentAuthority: 'proposeOnly' }],
   adrs: { '0001-waiting.adr.md': adr({ id: '0001', status: 'proposed', authority: 'agent', zone: 'api', laws: [] }) },
@@ -587,7 +610,7 @@ const declined = consentService.settle({
   at: '2026-09-16T00:00:00Z',
 })
 claim(
-  'the ratchet\'s own reject label records a decline and writes nothing',
+  'the ratchet\'s own reject label records a decline and writes no approval or transcript',
   declined.ok === false &&
     JSON.stringify(declined.rejected) === JSON.stringify(['0001']) &&
     (declined.ratified ?? []).length === 0 &&
@@ -652,7 +675,7 @@ for (const root of [serviceRoot, declineRoot, staleRoot]) rmSync(root, { recursi
       '0004-in-force.adr.md': adr({ id: '0004', status: 'active', authority: 'human', zone: 'api', laws: [{ id: 'api.in-force', statement: 'A law in force.' }] }),
     },
   })
-  const view = decisionsService.view({ root: viewRoot })
+  const view = await decisionsService.view({ root: viewRoot })
   const byId = new Map(view.records.map((record) => [record.id, record]))
   const queue = ops.ratifications(viewRoot)
   claim(
@@ -676,6 +699,192 @@ for (const root of [serviceRoot, declineRoot, staleRoot]) rmSync(root, { recursi
     `rootFor=${String(decisionsService.rootFor(viewRoot))} null=${String(decisionsService.rootFor(null))}`,
   )
   rmSync(viewRoot, { recursive: true, force: true })
+}
+
+// 5c. The decisions service CACHES the derived view, and the cache is keyed by a cheap
+//     corpus signature so a refresh re-serves it while a corpus CHANGE can never be
+//     served from a stale one. The invalidation proof is a real edit: a record added
+//     between two calls must appear in the second answer and the signature must move.
+//     The cap is driven directly, because the property is the SHAPE of what leaves the
+//     service — a bounded answer that says what it dropped — not the size of a fixture.
+{
+  const cacheRoot = fixture('service-cache', {
+    zones: [{ id: 'api', paths: ['src/api/**'], agentAuthority: 'proposeOnly' }],
+    adrs: { '0001-first.adr.md': adr({ id: '0001', status: 'active', authority: 'human', zone: 'api', laws: [] }) },
+  })
+  const first = await decisionsService.view({ root: cacheRoot })
+  const again = await decisionsService.view({ root: cacheRoot })
+  claim(
+    'the decisions service caches a derived view and re-serves it unchanged while the corpus is unchanged',
+    first === again && Array.isArray(first.records) && first.records.some((record) => record.id === '0001'),
+    `sameObject=${String(first === again)} records=${JSON.stringify(first.records?.map((record) => record.id) ?? null)}`,
+  )
+  const signatureBefore = ratchetDecisions.decisionsSignature(cacheRoot)
+  writeFileSync(join(cacheRoot, 'docs', 'adrs', '0002-second.adr.md'), adr({ id: '0002', status: 'active', authority: 'human', zone: 'api', laws: [] }))
+  const signatureAfter = ratchetDecisions.decisionsSignature(cacheRoot)
+  const changed = await decisionsService.view({ root: cacheRoot })
+  claim(
+    'a corpus change moves the signature, so the cache is invalidated and the new record is served',
+    signatureAfter !== signatureBefore && changed !== first && Array.isArray(changed.records) && changed.records.some((record) => record.id === '0002'),
+    `signatureMoved=${String(signatureAfter !== signatureBefore)} records=${JSON.stringify(changed.records?.map((record) => record.id) ?? null)}`,
+  )
+  rmSync(cacheRoot, { recursive: true, force: true })
+}
+
+{
+  const baseView = {
+    ok: true,
+    root: '/tmp/synthetic',
+    project: { name: 'synthetic', decisionsDir: 'docs/adrs', specsDir: 'docs/specs' },
+    specHash: null,
+    records: [],
+    queue: { ok: true, config: null, pending: [], blocked: [], problems: [] },
+    specs: [],
+    drift: { drifted: [], stale: [], missing: [], orphaned: [] },
+    needsHuman: [],
+    problems: [],
+  }
+  const manyRecords = {
+    ...baseView,
+    records: Array.from({ length: ratchetDecisions.MAX_STATE_RECORDS + 25 }, (_, index) => ({ id: String(index), title: `t${index}`, text: 'x'.repeat(120), laws: [], source: null })),
+  }
+  const capped = ratchetDecisions.capDecisionsView(manyRecords)
+  claim(
+    'a view over the record ceiling is cut to it and says so',
+    capped.records.length === ratchetDecisions.MAX_STATE_RECORDS &&
+      capped.truncated?.records?.total === manyRecords.records.length &&
+      capped.truncated?.records?.shown === ratchetDecisions.MAX_STATE_RECORDS,
+    `records=${capped.records.length} truncated=${JSON.stringify(capped.truncated?.records ?? null)}`,
+  )
+  const fatRecords = {
+    ...baseView,
+    records: Array.from({ length: 4 }, (_, index) => ({ id: String(index), title: `t${index}`, text: 'y'.repeat(1_200_000), laws: [], source: null })),
+  }
+  const byteCapped = ratchetDecisions.capDecisionsView(fatRecords)
+  const bytes = JSON.stringify(byteCapped).length
+  claim(
+    'a view over the byte ceiling drops bodies until it fits, and names what it dropped',
+    bytes <= ratchetDecisions.MAX_STATE_BYTES &&
+      (byteCapped.truncated?.texts?.dropped ?? 0) >= 1 &&
+      byteCapped.records.length === fatRecords.records.length,
+    `bytes=${bytes} limit=${ratchetDecisions.MAX_STATE_BYTES} dropped=${JSON.stringify(byteCapped.truncated?.texts ?? null)}`,
+  )
+}
+
+// 5d. The ROUTE half of the same distinction and the transport bound. The consent route
+//     is driven through the very handler `apply` registers — not a factory this file
+//     re-implemented — so a GET's durable effect is measured on the shipped route (one
+//     audit ledger event, no approval, no transcript) and a POST body that never ends is
+//     required to be refused with 408 and its request destroyed, within the route's own
+//     declared deadline.
+{
+  const routeRoot = fixture('service-route', {
+    zones: [{ id: 'api', paths: ['src/api/**'], agentAuthority: 'proposeOnly' }],
+    adrs: { '0001-waiting.adr.md': adr({ id: '0001', status: 'proposed', authority: 'agent', zone: 'api', laws: [{ id: 'api.one', statement: 'One.' }] }) },
+  })
+  const captured = new Map()
+  let injectCb = null
+  const routeWeb = {
+    effect: (fn) => fn(),
+    on: (event, cb) => {
+      if (event === 'webserver/index-inject') injectCb = cb
+      return () => {}
+    },
+    webServer: {
+      register: ({ path, handler }) => {
+        captured.set(path, handler)
+        return () => {}
+      },
+    },
+  }
+  const routeCtx = {
+    logger: () => ({ info: () => {}, warn: () => {} }),
+    inject: (_deps, cb) => cb(routeWeb),
+    get: (serviceName) => {
+      if (serviceName === 'connection') return { requestRejection: () => undefined }
+      if (serviceName === 'sessions') return { get: (id) => (id === 'route-session' ? { header: { cwd: routeRoot } } : undefined) }
+      if (serviceName === ratchetConsent.CONSENT_SERVICE) return consentService
+      if (serviceName === ratchetDecisions.DECISIONS_SERVICE) return decisionsService
+      return undefined
+    },
+  }
+  panelHost.apply(routeCtx)
+  const table = []
+  injectCb(table)
+  const token = table.find((row) => row.name === panelHost.CONSENT_GLOBAL)?.value?.token
+  const consentHandler = captured.get(panelHost.CONSENT_ROUTE)
+  const mockRes = () => {
+    const finishListeners = []
+    return {
+      statusCode: 0,
+      headersSent: false,
+      body: null,
+      setHeader(key, value) {
+        this.headers = this.headers ?? {}
+        this.headers[key] = value
+      },
+      end(body) {
+        this.body = body
+        this.headersSent = true
+        for (const fn of finishListeners) fn()
+      },
+      once(event, fn) {
+        if (event === 'finish' || event === 'close') finishListeners.push(fn)
+      },
+    }
+  }
+
+  const ledgerBefore = ledgerEvents(routeRoot).length
+  const getRes = mockRes()
+  await consentHandler(
+    { url: `${panelHost.CONSENT_ROUTE}?session=route-session&id=0001`, method: 'GET', headers: { [panelHost.CONSENT_HEADER]: token } },
+    getRes,
+  )
+  const ledgerAfter = ledgerEvents(routeRoot)
+  claim(
+    'the consent ROUTE\'s GET appends one audit ledger line and writes no approval or transcript',
+    getRes.statusCode === 200 &&
+      decisionCount(routeRoot) === 1 &&
+      sourceCount(routeRoot) === 0 &&
+      ledgerAfter.length === ledgerBefore + 1 &&
+      ledgerAfter[ledgerAfter.length - 1]?.event === 'ratchet.ratify.prepare',
+    `status=${getRes.statusCode} files=${decisionCount(routeRoot)}/${sourceCount(routeRoot)} ledger=${ledgerBefore}->${ledgerAfter.length} last=${JSON.stringify(ledgerAfter[ledgerAfter.length - 1]?.event ?? null)}`,
+  )
+
+  const hangingRequest = {
+    method: 'POST',
+    url: `${panelHost.CONSENT_ROUTE}?session=route-session`,
+    headers: { 'content-type': 'application/json', [panelHost.CONSENT_HEADER]: token },
+    destroyed: false,
+    destroy() {
+      this.destroyed = true
+    },
+    async *[Symbol.asyncIterator]() {
+      // A partial body, then silence: the request never becomes complete.
+      yield Buffer.from('{"session":"route-session",')
+      await new Promise(() => {})
+    },
+  }
+  const postRes = mockRes()
+  let guardTimer = null
+  const guard = new Promise((resolve) => {
+    guardTimer = setTimeout(() => resolve('guard'), panelHost.BODY_READ_TIMEOUT_MS + 2000)
+  })
+  const started = Date.now()
+  const outcome = await Promise.race([consentHandler(hangingRequest, postRes).then(() => 'answered'), guard])
+  const elapsed = Date.now() - started
+  if (guardTimer !== null) clearTimeout(guardTimer)
+  const postBody = typeof postRes.body === 'string' ? JSON.parse(postRes.body) : null
+  claim(
+    'a POST whose body never completes is refused 408 within the deadline and the request is destroyed',
+    outcome === 'answered' &&
+      postRes.statusCode === 408 &&
+      postBody?.error === 'request-timeout' &&
+      hangingRequest.destroyed === true &&
+      elapsed < panelHost.BODY_READ_TIMEOUT_MS + 1500,
+    `outcome=${outcome} status=${postRes.statusCode} error=${JSON.stringify(postBody?.error ?? null)} destroyed=${String(hangingRequest.destroyed)} elapsed=${elapsed}ms deadline=${panelHost.BODY_READ_TIMEOUT_MS}ms`,
+  )
+  rmSync(routeRoot, { recursive: true, force: true })
 }
 
 // 6. The authority table is what makes the surface a surface. A zone that reserves a

@@ -41,7 +41,7 @@
  */
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { resolve } from 'node:path'
-import { MANIFEST_PATH, PROBLEM_CODES } from './ratchet-schema.mjs'
+import { MANIFEST_PATH, PROBLEM_CODES, createWorkBudget } from './ratchet-schema.mjs'
 import { CONSENT_SERVICE, createConsentService } from './ratchet-consent.mjs'
 import { DECISIONS_SERVICE, createDecisionsService } from './ratchet-decisions.mjs'
 import { REVIEW_JOBS } from './ratchet-dynamic.mjs'
@@ -491,7 +491,12 @@ export function apply(ctx) {
         },
         output: output(),
         execute(args, exec) {
-          return withRoot(exec, status, args.root)
+          // The in-process path carries a conservative work budget: this tool runs on the
+          // harness's single event loop, so a 500 MB file read or a catastrophic regex would
+          // freeze every session in the process. An exhausted budget is REPORTED
+          // (`WORK_BUDGET_EXCEEDED`, `CODE_FILE_TOO_LARGE`) and returns no verdict; the CLI,
+          // which has its own process, passes no budget and reads everything.
+          return withRoot(exec, (root) => status(root, { budget: createWorkBudget() }), args.root)
         },
       }),
     )
@@ -644,8 +649,14 @@ export function apply(ctx) {
           return withRoot(
             exec,
             async (root) => {
-              const result = compile({ root, write: args.write === true })
-              return reviewWhenRequired(result, root, exec, args.review !== false)
+              // A conservative in-process budget, for the same reason as `ratchet_status`:
+              // compile reads every ADR and the source each one cites, and a 500 MB record
+              // blocked the harness event loop for about three seconds. The CLI passes none.
+              const result = compile({ root, write: args.write === true, budget: createWorkBudget() })
+              // A compile that exhausted the budget did not read the whole corpus, so it must
+              // not send a judge to review a law set it only partly compiled.
+              const budgetExceeded = (result.problems ?? []).some((entry) => entry.code === 'WORK_BUDGET_EXCEEDED')
+              return reviewWhenRequired(result, root, exec, args.review !== false && !budgetExceeded)
             },
             args.root,
           )
@@ -676,7 +687,9 @@ export function apply(ctx) {
         },
         output: output(),
         execute(args, exec) {
-          return withRoot(exec, (root) => verify({ root }), args.root)
+          // Same in-process budget as the compile: a text law over a data directory reads
+          // every file it selects, and a 500 MB one blocked the event loop for 15 seconds.
+          return withRoot(exec, (root) => verify({ root, budget: createWorkBudget() }), args.root)
         },
       }),
     )

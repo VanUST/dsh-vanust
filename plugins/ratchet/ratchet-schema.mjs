@@ -26,7 +26,7 @@
  *    the code that names it.
  */
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 /** Manifest path, relative to the project root. */
@@ -34,6 +34,191 @@ export const MANIFEST_PATH = '.dsh/project.json'
 
 /** Path hash of the manifest, reported in every bundle so a report names its input. */
 export const RATCHET_DIR_DEFAULT = 'docs/adrs'
+
+/**
+ * The work limits the IN-PROCESS tool path may spend on one operation.
+ *
+ * One object, in the module that owns the vocabulary, because every bound has to mean the
+ * same thing wherever it is applied: the code hash's file scan, a text check's reads, an
+ * ADR or its cited source, and a dependency manifest all consult these fields rather than
+ * each carrying a private number that can drift from the others.
+ *
+ * `maxFiles` bounds SYSCALLS as well as bytes: a project with 50,000 empty files cost about
+ * 7.5 seconds because every one was stat'ed and read even though none held a byte. What the
+ * tool surface promises is a bounded event-loop pause, so past this many files (or walk
+ * entries) an operation stops reading content, says so, and fails closed.
+ *
+ * `maxFileBytes` bounds a single read. A law's `forbidden_text` over twelve 500 MB files
+ * blocked the loop for 15 seconds; a file above this is REPORTED, never read.
+ *
+ * `maxTotalBytes` bounds the bytes one operation reads across all files.
+ */
+export const WORK_LIMITS = Object.freeze({
+  maxFiles: 5000,
+  maxFileBytes: 2 * 1024 * 1024,
+  maxTotalBytes: 64 * 1024 * 1024,
+})
+
+/**
+ * No limits. The CLI runs in its own process, so a shell may spend what a CI job can afford;
+ * only the in-process tools must fail closed.
+ */
+export const UNBOUNDED_WORK_LIMITS = Object.freeze({
+  maxFiles: Infinity,
+  maxFileBytes: Infinity,
+  maxTotalBytes: Infinity,
+})
+
+/**
+ * A file at or below this size is ALWAYS hashed from its content, even after a code hash has
+ * read its total byte budget.
+ *
+ * This exists to keep a total-byte cap from making small files content-blind. The first
+ * version charged the budget in sorted order and then contributed `path+size` for every later
+ * file, so once 64 MiB had been read a 29-byte file's edit stopped moving the hash — a wrong
+ * answer about ordinary source produced by a bound meant for caches and datasets. Small files
+ * are the code a verdict is about, so they are never blinded by the total; only files above
+ * this threshold become content-free once the total is spent.
+ */
+export const CODE_HASH_SMALL_FILE_BYTES = 64 * 1024
+
+/**
+ * Creates one work-budget tracker for one operation.
+ *
+ * The tracker is deliberately stateful: an operation passes a single instance through the
+ * compiler, the verifier and the file reads it drives, so `maxTotalBytes` is a budget for the
+ * WHOLE operation rather than a fresh allowance per check. `exceeded` records why it stopped
+ * (capped, so a tree of large files cannot build an unbounded problem list), and
+ * `summaryEmitted` makes the one `WORK_BUDGET_EXCEEDED` summary problem idempotent when
+ * several stages of the same operation consult it.
+ *
+ * @param limits - `{ maxFiles, maxFileBytes, maxTotalBytes }`. Defaults to
+ *   {@link WORK_LIMITS}; `null` means {@link UNBOUNDED_WORK_LIMITS}. A field that is not a
+ *   finite number is treated as no limit for that field rather than as zero.
+ * @returns A fresh tracker: `{ limits, filesRead, bytesRead, exceeded, exceededCount,
+ *   summaryEmitted }`. Never throws, including for `null`.
+ */
+export function createWorkBudget(limits = WORK_LIMITS) {
+  const source = limits === null || limits === undefined ? UNBOUNDED_WORK_LIMITS : limits
+  const limit = (value) => (Number.isFinite(value) && value >= 0 ? value : Infinity)
+  return {
+    limits: {
+      maxFiles: limit(source.maxFiles),
+      maxFileBytes: limit(source.maxFileBytes),
+      maxTotalBytes: limit(source.maxTotalBytes),
+    },
+    filesRead: 0,
+    bytesRead: 0,
+    // Why the budget stopped the operation, in order, capped. Each entry names the code that
+    // describes the specific stop (`CODE_FILE_TOO_LARGE`, `WORK_BUDGET_EXCEEDED`) so the
+    // problem list can carry per-check findings and one summary still covers the operation.
+    exceeded: [],
+    exceededCount: 0,
+    summaryEmitted: false,
+  }
+}
+
+/** The cap on how many individual over-budget stops a tracker remembers. */
+const WORK_BUDGET_EXCEEDED_RECORD_LIMIT = 20
+
+/**
+ * Records one over-budget stop on a tracker.
+ *
+ * @param budget - A {@link createWorkBudget} tracker, or `null` for an unbounded operation.
+ * @param entry - `{ code, path, size, limit }`.
+ * @returns Nothing. A `null` budget records nothing.
+ */
+export function recordBudgetStop(budget, entry) {
+  if (budget === null || budget === undefined) return
+  budget.exceededCount += 1
+  if (budget.exceeded.length < WORK_BUDGET_EXCEEDED_RECORD_LIMIT) {
+    budget.exceeded.push({ code: entry.code ?? 'WORK_BUDGET_EXCEEDED', path: entry.path, size: entry.size, kind: entry.kind })
+  }
+}
+
+/**
+ * Reads one project file under a work budget.
+ *
+ * The budget is checked BEFORE the read, from `stat`, so a file above the per-file cap is
+ * never opened. Three outcomes, never an exception:
+ *   - `{ text }` the file was read and normalised;
+ *   - `{ error }` the file could not be stat'ed or read (the caller's own problem);
+ *   - `{ over }` the read was refused by the budget, and `over.code` is `CODE_FILE_TOO_LARGE`
+ *     for a single file above the cap or `WORK_BUDGET_EXCEEDED` for the operation's total.
+ *
+ * @param budget - A {@link createWorkBudget} tracker, or `null`/`undefined` for an unbounded
+ *   read (the CLI path), which reproduces the old whole-file read exactly.
+ * @param root - Absolute project root.
+ * @param relativePath - Repository-relative path.
+ * @returns `{ text }` | `{ error }` | `{ over }`. Never throws.
+ */
+export function workBudgetRead(budget, root, relativePath) {
+  const absolute = join(root, relativePath)
+  if (budget === null || budget === undefined) {
+    try {
+      return { text: normaliseText(readFileSync(absolute, 'utf8')) }
+    } catch (error) {
+      return { error: String(error) }
+    }
+  }
+  let size
+  try {
+    size = statSync(absolute).size
+  } catch (error) {
+    return { error: String(error) }
+  }
+  if (size > budget.limits.maxFileBytes) {
+    recordBudgetStop(budget, { code: 'CODE_FILE_TOO_LARGE', path: relativePath, size, limit: budget.limits.maxFileBytes, kind: 'file' })
+    return { over: { code: 'CODE_FILE_TOO_LARGE', path: relativePath, size, limit: budget.limits.maxFileBytes } }
+  }
+  if (budget.filesRead >= budget.limits.maxFiles || budget.bytesRead + size > budget.limits.maxTotalBytes) {
+    recordBudgetStop(budget, {
+      code: 'WORK_BUDGET_EXCEEDED',
+      path: relativePath,
+      size,
+      kind: 'operation',
+    })
+    return {
+      over: {
+        code: 'WORK_BUDGET_EXCEEDED',
+        path: relativePath,
+        size,
+        filesRead: budget.filesRead,
+        bytesRead: budget.bytesRead,
+      },
+    }
+  }
+  let text
+  try {
+    text = normaliseText(readFileSync(absolute, 'utf8'))
+  } catch (error) {
+    return { error: String(error) }
+  }
+  budget.filesRead += 1
+  budget.bytesRead += size
+  return { text }
+}
+
+/**
+ * Builds the one summary problem an exhausted work budget produces, at most once per tracker.
+ *
+ * @param budget - A {@link createWorkBudget} tracker, or `null`.
+ * @returns A problem with code `WORK_BUDGET_EXCEEDED`, or `null` when the budget was not
+ *   exceeded or its summary has already been taken. A `null` budget returns `null`.
+ */
+export function budgetProblem(budget) {
+  if (budget === null || budget === undefined || budget.exceededCount === 0) return null
+  if (budget.summaryEmitted === true) return null
+  budget.summaryEmitted = true
+  const codes = new Set(budget.exceeded.map((entry) => entry.code))
+  const tooLarge = codes.has('CODE_FILE_TOO_LARGE')
+  return problem(
+    'WORK_BUDGET_EXCEEDED',
+    `this operation exceeded the in-process work budget after reading ${budget.filesRead} file(s) and ${budget.bytesRead} byte(s) (limits: ${budget.limits.maxFiles} files, ${budget.limits.maxFileBytes} bytes per file, ${budget.limits.maxTotalBytes} bytes total), so it did not evaluate the whole tree and produced NO verdict: too large to check in-process, run the CLI (node plugins/ratchet/ratchet-cli.mjs) which has no budget${budget.exceeded[0] === undefined ? '' : `; first stop at ${budget.exceeded[0].path}`}${tooLarge ? ' (single files above the per-file cap are reported as CODE_FILE_TOO_LARGE)' : ''}`,
+    null,
+    { exceeded: budget.exceededCount, filesRead: budget.filesRead, bytesRead: budget.bytesRead, limits: budget.limits },
+  )
+}
 
 /**
  * Every problem code the Ratchet can emit, with the condition it names.
@@ -93,6 +278,23 @@ export const PROBLEM_CODES = Object.freeze({
   CODE_FORBIDDEN_DEPENDENCY_PRESENT: 'a forbidden dependency is declared',
   CODE_REQUIRED_TEXT_MISSING: 'a required_text check found no match',
   CODE_TEXT_FORBIDDEN_PRESENT: 'a forbidden_text check found a match',
+  // The two budget codes. They exist because the tool surface runs IN the harness process,
+  // on its single event loop: a synchronous read of a 500 MB file, or a regex that backtracks
+  // exponentially, freezes every session in that process. A file that is too large and a
+  // budget an operation has exhausted are therefore RESULTS — a check that could not be
+  // evaluated is reported, never read and never passed — and the reader is told to run the
+  // CLI, which has its own process and may spend what it likes.
+  CODE_FILE_TOO_LARGE: 'a file is larger than the in-process read bound, so a check could not read it',
+  WORK_BUDGET_EXCEEDED: 'an operation exceeded the in-process work budget, so it produced no verdict',
+  // A `pattern` that can backtrack catastrophically hangs the event loop on a few bytes of
+  // input, so it is refused as a problem instead of executed. The check is a documented
+  // star-height heuristic (see `regexUnsafeReason`), not a proof, and it is applied both where
+  // the decision is compiled and where the verifier meets a bundle it did not compile.
+  REGEX_UNSAFE: 'a check pattern can backtrack catastrophically, so it was not executed',
+  REGEX_INVALID: 'a check pattern is not a usable regular expression, so the check was not executed',
+  // An ADR or the reasoning source it cites above the in-process read bound. The corpus cannot
+  // be compiled from a record nobody read, so the record is reported rather than truncated.
+  ADR_TOO_LARGE: 'an ADR or its cited reasoning source is larger than the in-process read bound',
   CODE_COMMAND_FAILED: 'a command check ran and did not exit zero',
   CODE_COMMAND_OUTPUT_MISMATCH: 'a command check ran and its output did not match what the law asserts about it',
   // A selection problem, not a verdict about the code. It used to be reported under
@@ -191,6 +393,10 @@ export const UNUSABLE_PROBLEM_CODES = Object.freeze([
   // problems": nothing durable records what it found, so a caller must not be told
   // "violations" (exit 1) when the truth is "this run left no trace" (exit 2).
   'ARTIFACT_WRITE_FAILED',
+  // A run that exhausted its work budget evaluated only part of the tree, so it produced
+  // no verdict at all. The code is unusable in the same sense as an unreadable corpus:
+  // the answer is "this could not be checked here", not "the project has problems".
+  'WORK_BUDGET_EXCEEDED',
 ])
 
 /** The two authorities, ordered.
@@ -976,6 +1182,17 @@ export function validateLawChecks(law, subject) {
         // in the middle of one verification.
         try {
           new RegExp(check.pattern, typeof check.flags === 'string' ? check.flags : '')
+          const unsafe = regexUnsafeReason(check.pattern)
+          if (unsafe !== null) {
+            problems.push(
+              problem(
+                'REGEX_UNSAFE',
+                `law "${lawId}" check ${check.type} declares pattern ${JSON.stringify(check.pattern)}, which ${unsafe}; the verifier would run it synchronously on the harness event loop, where a catastrophic pattern hangs every session in the process, so it is refused rather than executed`,
+                subject,
+                { lawId },
+              ),
+            )
+          }
         } catch (error) {
           problems.push(
             problem(
@@ -1078,6 +1295,17 @@ export function validateLawChecks(law, subject) {
           // instead of an exception thrown mid-verification on one machine.
           try {
             new RegExp(check.outputMatches)
+            const unsafe = regexUnsafeReason(check.outputMatches)
+            if (unsafe !== null) {
+              problems.push(
+                problem(
+                  'REGEX_UNSAFE',
+                  `law "${lawId}" check command declares outputMatches ${JSON.stringify(check.outputMatches)}, which ${unsafe}; it would be run synchronously on the harness event loop, so it is refused rather than executed`,
+                  subject,
+                  { lawId },
+                ),
+              )
+            }
           } catch (error) {
             problems.push(
               problem(
@@ -1299,15 +1527,17 @@ export function readRatification(data, { path, id, type }) {
  * so the compiler can still reason about the corpus while the verifier fails the
  * gate — the two must not disagree about what exists.
  *
- * @param options - `{ filename, source, root, decisionsDir }`. `root` is the
+ * @param options - `{ filename, source, root, decisionsDir, budget }`. `root` is the
  *   absolute project root, used to resolve the declared source path; pass `null`
  *   to skip the source-existence and hash checks (used by tests that exercise
  *   parsing alone). `decisionsDir` is the manifest-declared directory, used only
- *   to label the problem records, so no path is hardcoded here.
+ *   to label the problem records, so no path is hardcoded here. `budget` is a
+ *   work-budget tracker (see `createWorkBudget`); a source above its per-file cap is
+ *   reported as `ADR_TOO_LARGE` and never read, rather than blocking the event loop.
  * @returns `{ record, problems }`. `record` is `null` when the file declares no
  *   id at all and therefore cannot be identified.
  */
-export function parseAdr({ filename, source, root = null, decisionsDir = RATCHET_DIR_DEFAULT }) {
+export function parseAdr({ filename, source, root = null, decisionsDir = RATCHET_DIR_DEFAULT, budget = null }) {
   const problems = []
   const text = normaliseText(source)
   const path = `${decisionsDir}/${filename}`
@@ -1559,21 +1789,35 @@ export function parseAdr({ filename, source, root = null, decisionsDir = RATCHET
           ),
         )
       } else {
-        let sourceText
-        try {
-          sourceText = readFileSync(absolute, 'utf8')
-        } catch (error) {
+        // Read through the work budget: the source is hashed whole, and on the in-process
+        // path a 500 MB source blocked the event loop for about three seconds. A source above
+        // the per-file cap is reported as ADR_TOO_LARGE and never opened; the record still
+        // parses, so the problem is about the evidence rather than about the decision's shape.
+        const read = workBudgetRead(budget, root, sourcePath)
+        if (read.over !== undefined) {
+          sourceStatus = 'too-large'
+          problems.push(
+            problem(
+              'ADR_TOO_LARGE',
+              `${path} declares its reasoning source at ${sourcePath}, which is ${read.over.size} bytes and above the ${read.over.limit}-byte in-process read bound for a single file, so its hash was NOT checked: too large to check in-process, run the CLI`,
+              id,
+              { path, sourcePath, size: read.over.size, limit: read.over.limit },
+            ),
+          )
+        }
+        if (read.error !== undefined) {
           sourceStatus = 'unreadable'
           problems.push(
             problem(
               'ADR_SOURCE_MISSING',
-              `${path} declares its reasoning source at ${sourcePath}, which exists but could not be read: ${String(error)}`,
+              `${path} declares its reasoning source at ${sourcePath}, which exists but could not be read: ${read.error}`,
               id,
               { path, sourcePath },
             ),
           )
         }
-        if (sourceText !== undefined) {
+        if (read.text !== undefined) {
+          const sourceText = read.text
           sourceActualHash = hashSource(sourceText)
           if (sourceHash === null) {
             // A record may omit the hash, and then the source is unverified but
@@ -1618,6 +1862,15 @@ export function parseAdr({ filename, source, root = null, decisionsDir = RATCHET
       // field is carried on the record rather than looked up so the compiler can audit
       // resolutions without re-reading the frontmatter.
       resolves,
+      // The identity a MACHINE-drafted record carries, so the ratchet's own drafting pass
+      // is idempotent: `draft: true` is the marker and `draftKey` names the issue the draft
+      // settles, which makes "a draft already exists for this issue" decidable from the
+      // parsed corpus without re-reading a file and without treating any draft as force.
+      // A human may edit such a record; the marker and key survive unless they remove them,
+      // and a ratified draft keeps both, which is what stops a second draft being written
+      // over a settlement a human already made.
+      draft: data.draft === true,
+      draftKey: typeof data.draftKey === 'string' && data.draftKey.length > 0 ? data.draftKey : null,
       // The record's own hash, over the same normalised text every other hash in
       // this module uses. A ratification stores the hash it approved, so the
       // compiler can tell "this is the text the human consented to" from "this is
@@ -1934,6 +2187,139 @@ export function globToRegExp(glob) {
     source += character.replace(/[.+^${}()|[\]\\]/g, '\\$&')
   }
   return new RegExp(`^${source}$`)
+}
+
+/**
+ * Reports why a regular expression can backtrack catastrophically, or `null` when it cannot.
+ *
+ * The verifier executes a law's `pattern` with `RegExp.test`/`exec`, synchronously, on the
+ * harness's single event loop. A nested unbounded quantifier — the classic `(a+)+$` — makes
+ * the matcher try exponentially many partitions of the input, and it did so on all 29 bytes
+ * of a file for 34 seconds, freezing every session in the process. JavaScript offers no
+ * interrupt for a synchronous match, so the only in-process defence is not to run a pattern
+ * that can do it.
+ *
+ * The test is the documented **star height** heuristic, computed by a small linear scan of
+ * the pattern: the height of an atom is 1 when an unbounded quantifier (`*`, `+`, `{n,}`)
+ * applies to it, and a quantifier applied to an atom whose height is already 1 makes it 2.
+ * Height 2 or more is refused. A backreference combined with an unbounded quantifier is
+ * refused too, because `(\w+)\1` backtracks super-linearly. Everything the scanner does not
+ * model is treated as safe, so this is a heuristic rather than a proof: it catches the
+ * patterns that hang in practice and it can never itself hang, because it reads the pattern
+ * once and never executes it. A pattern it misses is still bounded by the read budget — the
+ * input is a file the verifier was willing to read — and the residual is stated in the
+ * module's documentation rather than discovered as a freeze.
+ *
+ * @param pattern - A regular-expression source string.
+ * @returns A short reason string when the pattern is unsafe, otherwise `null`. A non-string
+ *   returns `null`; malformed patterns are the schema's problem, not this one.
+ */
+export function regexUnsafeReason(pattern) {
+  if (typeof pattern !== 'string' || pattern.length === 0) return null
+  const length = pattern.length
+  let index = 0
+  let sawUnbounded = false
+  let unsafe = null
+  let backreference = null
+
+  const readQuantifier = () => {
+    const character = pattern[index]
+    if (character === '*' || character === '+') {
+      index += 1
+      return 'unbounded'
+    }
+    if (character === '?') {
+      index += 1
+      return 'bounded'
+    }
+    if (character === '{') {
+      const close = pattern.indexOf('}', index)
+      if (close === -1) return 'none'
+      const body = pattern.slice(index + 1, close)
+      index = close + 1
+      if (/^\d+,$/.test(body)) return 'unbounded'
+      if (/^\d+(,\d+)?$/.test(body)) return 'bounded'
+      return 'none'
+    }
+    return 'none'
+  }
+
+  const parseSequence = (stop) => {
+    let maxHeight = 0
+    while (index < length) {
+      const character = pattern[index]
+      if (character === stop) break
+      if (character === '|') {
+        index += 1
+        continue
+      }
+      const atomHeight = parseAtom()
+      const quantifier = readQuantifier()
+      let height = atomHeight
+      if (quantifier === 'unbounded') {
+        sawUnbounded = true
+        height = atomHeight + 1
+        if (height >= 2 && unsafe === null) {
+          unsafe = `an unbounded quantifier is applied to a subexpression that already contains one (backtracking star height ${height})`
+        }
+      }
+      if (height > maxHeight) maxHeight = height
+    }
+    return maxHeight
+  }
+
+  const parseAtom = () => {
+    const character = pattern[index]
+    if (character === '(') {
+      index += 1
+      if (pattern[index] === '?') {
+        index += 1
+        if (pattern[index] === '<') {
+          if (pattern[index + 1] === '=' || pattern[index + 1] === '!') {
+            index += 2
+          } else {
+            index += 1
+            while (index < length && pattern[index] !== '>') index += 1
+            if (pattern[index] === '>') index += 1
+          }
+        } else {
+          while (index < length && pattern[index] !== ':' && pattern[index] !== '=' && pattern[index] !== '!') index += 1
+          if (pattern[index] === ':' || pattern[index] === '=' || pattern[index] === '!') index += 1
+        }
+      }
+      const inner = parseSequence(')')
+      if (pattern[index] === ')') index += 1
+      return inner
+    }
+    if (character === '[') {
+      index += 1
+      if (pattern[index] === '^') index += 1
+      if (pattern[index] === ']') index += 1
+      while (index < length && pattern[index] !== ']') {
+        if (pattern[index] === '\\') index += 1
+        index += 1
+      }
+      if (pattern[index] === ']') index += 1
+      return 0
+    }
+    if (character === '\\') {
+      index += 1
+      const next = pattern[index]
+      if (/[1-9]/.test(next ?? '')) backreference = 'a backreference'
+      if (next === 'k' && pattern[index + 1] === '<') backreference = 'a named backreference'
+      index += 1
+      return 0
+    }
+    index += 1
+    return 0
+  }
+
+  parseSequence(null)
+  if (unsafe !== null) return unsafe
+  if (backreference !== null && sawUnbounded) {
+    return `${backreference} is combined with an unbounded quantifier, which backtracks super-linearly`
+  }
+  return null
 }
 
 /**

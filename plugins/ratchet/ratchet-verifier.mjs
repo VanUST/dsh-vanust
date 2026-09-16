@@ -24,9 +24,9 @@
  * repository is checked by the same code and the same laws.
  */
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
-import { PROBLEM_CODES, globToRegExp, normaliseText, problem, zoneFor } from './ratchet-schema.mjs'
+import { CODE_HASH_SMALL_FILE_BYTES, PROBLEM_CODES, WORK_LIMITS, budgetProblem, globToRegExp, problem, recordBudgetStop, regexUnsafeReason, workBudgetRead, zoneFor } from './ratchet-schema.mjs'
 
 // The glob matcher lives in `ratchet-schema.mjs`, the lowest module, because zone placement
 // and file selection must agree and the compiler and the guard cannot import this file. It
@@ -51,7 +51,13 @@ export const DEFAULT_COMMAND_TIMEOUT_MS = 300_000
  * A dependency check that reads `node_modules` would report the ecosystem's
  * choices as the project's, and a text check that reads build output would
  * report a stale artifact. The list is deliberately small and universal: it names
- * things that are never a project's own source in any language.
+ * things that are never a project's own source in any language. It is a WALK
+ * economy, never a licence to skip an explicit existence claim: the
+ * `required_file`, `forbidden_file` and `required_file_in_list` checks resolve the path they
+ * name with `pathOnDisk`, which asks the filesystem and ignores this set, so a file inside
+ * one of these directories is still seen by the law that names it. The `*_glob` kinds match
+ * against the walk, so a glob does not see inside these directories; a law that must see
+ * such a path names it explicitly.
  */
 const NEVER_WALK = new Set([
   '.git',
@@ -69,44 +75,30 @@ const NEVER_WALK = new Set([
   'Temp',
   '.dsh',
   'reports',
-  // Host caches and dependency trees that are never a project's own source but can be enormous.
-  // Without these a walk of a machine-learning or data project descends into a conda env, a CUDA
-  // toolkit or a model cache and reads tens of GiB. The LIST is defence in depth only: the bound
-  // that makes the in-process path safe is `CODE_HASH_MAX_*` in `codeHashFor`, because no list can
-  // name every heavy directory a project might keep.
-  '.cache',
-  '.conda',
-  '.huggingface',
-  'hf_home',
-  'site-packages',
-  'conda-meta',
-  'envs',
-  'weights',
-  'checkpoints',
-  '.mypy_cache',
-  '.pytest_cache',
-  '.ruff_cache',
-  '.tox',
-  '.gradle',
-  '.m2',
-  '.cargo',
-  '.next',
-  '.nuxt',
-  '.turbo',
 ])
 
 /**
  * Lists every file under a root, skipping {@link NEVER_WALK} directories.
  *
+ * The walk carries the work budget: on the in-process path a tree that names more files than
+ * the budget allows stops being walked, the stop is recorded on the tracker, and the caller's
+ * result says so rather than reading a partial list as the whole tree. The CLI passes no
+ * budget and walks everything.
+ *
  * @param root - Absolute project root.
  * @param start - Repository-relative directory to start from (default: the root).
+ * @param budget - A work-budget tracker (see `createWorkBudget`), or `null`/`undefined` for an
+ *   unbounded walk. A budget whose `maxFiles` is Infinity is effectively unbounded.
  * @returns Sorted repository-relative paths with forward slashes. Unreadable
  *   directories are skipped silently here and reported by the check that asked,
  *   because this walker cannot know which check cared.
  */
-export function listFiles(root, start = '') {
+export function listFiles(root, start = '', budget = null) {
   const found = []
+  const maxFiles = budget?.limits?.maxFiles ?? Infinity
+  let stopped = false
   const walk = (absolute, prefix) => {
+    if (stopped) return
     let entries
     try {
       entries = readdirSync(absolute, { withFileTypes: true })
@@ -114,11 +106,23 @@ export function listFiles(root, start = '') {
       return
     }
     for (const entry of entries) {
+      if (stopped) return
       if (NEVER_WALK.has(entry.name)) continue
       const full = join(absolute, entry.name)
       const relativePath = prefix.length === 0 ? entry.name : `${prefix}/${entry.name}`
       if (entry.isDirectory()) walk(full, relativePath)
-      else if (entry.isFile()) found.push(relativePath)
+      else if (entry.isFile()) {
+        if (found.length >= maxFiles) {
+          // The walk itself is a syscall per directory and per entry, so a budget that only
+          // bounded file READS left the loop blocking on the enumeration. Stopping here makes
+          // the file list incomplete, and an incomplete list is not a verdict: the tracker
+          // records the stop and the caller fails closed.
+          stopped = true
+          recordBudgetStop(budget, { path: relativePath, kind: 'walk' })
+          return
+        }
+        found.push(relativePath)
+      }
     }
   }
   const base = start.length === 0 ? root : join(root, start)
@@ -186,23 +190,17 @@ export function globsProvablyDisjoint(left, right) {
 }
 
 /**
- * Hashes the code a verification judged, so a later reader can tell whether that
- * verdict still applies.
+ * How many files the code hash will stat and read before it stops reading content.
  *
- * A verification record used to bind only the LAW hash it ran against, which meant
- * `status` reported a verified, clean project after arbitrary edits to the code:
- * the laws had not moved, so nothing in the record changed. Hashing the walked files
- * closes that — the record now names the tree it judged, and a code edit makes the
- * verdict stale exactly as a law edit does.
- *
- * Line endings are normalised before hashing, so a checkout that rewrites CRLF for
- * LF is the same code. Paths are hashed with the content, so a rename is a change.
- *
- * @param root - Absolute project root.
- * @param files - Repository-relative paths to hash (the walked list).
- * @returns A `sha256:<hex>` string. Unreadable files contribute their error text
- *   rather than aborting the hash, so the value stays comparable across runs.
+ * The file COUNT is a syscall bound, not a byte bound. A project with 50,000 empty files
+ * cost about 7.5 seconds even though none of them held a byte, because each was stat'ed and
+ * read; a byte cap cannot bound that. Past this many files each remaining file contributes
+ * its path and an `unscanned` marker, so the hash is still deterministic — a rename, an add
+ * or a removal moves it — while the syscall count is bounded. The value is
+ * {@link WORK_LIMITS}.maxFiles so the in-process tool path and the hash agree on one number.
  */
+export const CODE_HASH_MAX_FILES = WORK_LIMITS.maxFiles
+
 /**
  * The largest file the code hash reads in full, in bytes. A file above this contributes its
  * path and size instead of its content.
@@ -212,44 +210,65 @@ export function globsProvablyDisjoint(left, right) {
  * file in full froze the whole session: a 43 GiB tree with a CUDA toolkit and a model cache in
  * it took about 70 seconds of synchronous reads in which no other request was served, and two
  * GUI windows died together. Source files are far below this; model weights, datasets and
- * package caches are far above it, and none of them is the code a verdict is about.
+ * package caches are far above it, and none of them is the code a verdict is about. The value
+ * is {@link WORK_LIMITS}.maxFileBytes so there is one per-file cap in the system.
  */
-export const CODE_HASH_MAX_FILE_BYTES = 2 * 1024 * 1024
+export const CODE_HASH_MAX_FILE_BYTES = WORK_LIMITS.maxFileBytes
 
 /**
  * The most content one code hash reads in total, in bytes.
  *
  * A project's own source is normally a few MiB; a repository that exceeds 64 MiB of it is
- * either generated or not source at all. Past the budget each remaining file contributes its
- * path and size, so the hash stays deterministic and cheap rather than reading the whole tree.
- * The value is a hard ceiling on the synchronous read, which is what keeps the event loop
- * responsive; the CLI could raise it, but the in-process tools must never block on a tree.
+ * either generated or not source at all. The value is {@link WORK_LIMITS}.maxTotalBytes, one
+ * total-byte limit shared with the check-read path.
+ *
+ * This cap must never make a SMALL file content-blind. The first version charged the budget
+ * in path order and then contributed `path+size` for every later file, so once 64 MiB had
+ * been read a 29-byte file's edit stopped moving the hash — a bound meant for caches silently
+ * answering "unchanged" about source. A file at or below
+ * {@link CODE_HASH_SMALL_FILE_BYTES} is therefore always read from its content; only a file
+ * above that threshold is allowed to become content-free once the total is spent.
  */
-export const CODE_HASH_MAX_TOTAL_BYTES = 64 * 1024 * 1024
+export const CODE_HASH_MAX_TOTAL_BYTES = WORK_LIMITS.maxTotalBytes
 
 /**
  * Hashes the walked tree into the code identity a verdict is bound to.
  *
- * The hash is bounded: a file above {@link CODE_HASH_MAX_FILE_BYTES}, or any file once the run
- * has read {@link CODE_HASH_MAX_TOTAL_BYTES}, contributes `path` plus its size rather than its
- * content. A path whose size cannot be read contributes its error text, as before. The bound is
- * deterministic for a given tree, so a verdict still goes stale when the code moves; what it
- * gives up is noticing a content change in a multi-megabyte file that keeps its size, which is
- * the right trade for a file that large and is stated here rather than discovered as a freeze.
+ * Three bounds, all deterministic for a given tree:
+ *   - a file above `maxFileBytes` contributes `path` plus its size;
+ *   - past `maxFiles` files each remaining file contributes `path` plus an `unscanned`
+ *     marker, so the syscall count is bounded;
+ *   - once `maxTotalBytes` of content has been read, a file ABOVE
+ *     {@link CODE_HASH_SMALL_FILE_BYTES} contributes `path` plus its size, while a file at or
+ *     below it is still read — a small file's content always moves the hash.
+ * A path whose size cannot be read contributes its error text, as before. What the bounds
+ * give up is noticing a content change in a large file that keeps its size, which is the
+ * right trade for a file that large and is stated here rather than discovered as a freeze.
  *
  * @param root - Absolute project root.
  * @param files - Repository-relative paths to hash (the walked list).
- * @param options - `{ maxFileBytes, maxTotalBytes }` override the two bounds.
+ * @param options - `{ maxFiles, maxFileBytes, maxTotalBytes }` override the three bounds. A
+ *   field that is not a finite number falls back to its `CODE_HASH_MAX_*` default.
  * @returns A `sha256:<hex>` string.
  */
 export function codeHashFor(root, files, options = {}) {
+  const maxFiles = Number.isFinite(options.maxFiles) ? options.maxFiles : CODE_HASH_MAX_FILES
   const maxFileBytes = Number.isFinite(options.maxFileBytes) ? options.maxFileBytes : CODE_HASH_MAX_FILE_BYTES
   const maxTotalBytes = Number.isFinite(options.maxTotalBytes) ? options.maxTotalBytes : CODE_HASH_MAX_TOTAL_BYTES
   const hash = createHash('sha256')
   let total = 0
+  let scanned = 0
   for (const path of [...files].sort()) {
     hash.update(path)
     hash.update('\u0000')
+    // The syscall bound: past the count the file is named but never opened. This is the only
+    // branch that does not stat, so the cost of a huge tree is bounded by maxFiles syscalls.
+    if (scanned >= maxFiles) {
+      hash.update('\u0000unscanned')
+      hash.update('\u0000')
+      continue
+    }
+    scanned += 1
     let size = null
     try {
       const stats = statSync(join(root, path))
@@ -257,7 +276,10 @@ export function codeHashFor(root, files, options = {}) {
     } catch {
       size = null
     }
-    if (size !== null && (size > maxFileBytes || total + size > maxTotalBytes)) {
+    const contentBlind =
+      size !== null &&
+      (size > maxFileBytes || (total + size > maxTotalBytes && size > CODE_HASH_SMALL_FILE_BYTES))
+    if (contentBlind) {
       // Content-free but deterministic: the path is already in the hash, and the size moves
       // when the file is replaced. The alternative — reading it — is the freeze this bound
       // exists to prevent.
@@ -309,19 +331,18 @@ export function configHashFor(config) {
 }
 
 /**
- * Reads a file, normalising line endings.
+ * Reads a file, normalising line endings, under a work budget.
  *
  * @param root - Absolute project root.
  * @param path - Repository-relative path.
- * @returns `{ text }` or `{ error }`; never throws, because a check that cannot
- *   read a file must report that rather than abort the whole verification.
+ * @param budget - A work-budget tracker (see `createWorkBudget`), or `null`/`undefined` for an
+ *   unbounded read (the CLI path), in which case the whole file is read exactly as before.
+ * @returns `{ text }` | `{ error }` | `{ over }`; never throws, because a check that cannot
+ *   read a file must report that rather than abort the whole verification. `over` is a work
+ *   budget refusal and the caller must REPORT it, never treat it as a pass.
  */
-export function readProjectFile(root, path) {
-  try {
-    return { text: normaliseText(readFileSync(join(root, path), 'utf8')) }
-  } catch (error) {
-    return { error: String(error) }
-  }
+export function readProjectFile(root, path, budget = null) {
+  return workBudgetRead(budget, root, path)
 }
 
 /**
@@ -352,16 +373,30 @@ export function lineAt(text, offset) {
  * @param root - Absolute project root.
  * @param files - Repository-relative file list.
  * @param manifest - Parsed project manifest, or `null`.
+ * @param budget - A work-budget tracker, or `null`/`undefined` for an unbounded read. A
+ *   manifest above the per-file cap is REPORTED (`CODE_FILE_TOO_LARGE`), never read, so a
+ *   dependency law over a 300 MB `package.json` fails closed instead of blocking the loop.
  * @returns `{ names, manifests, problems }`; `names` is a lowercase set of
  *   dependency names found anywhere, `manifests` lists the files consulted.
  */
-export function readDeclaredDependencies(root, files, manifest) {
+export function readDeclaredDependencies(root, files, manifest, budget = null) {
   const names = new Set()
   const manifests = []
   const problems = []
 
   const addPackageJson = (path) => {
-    const read = readProjectFile(root, path)
+    const read = readProjectFile(root, path, budget)
+    if (read.over !== undefined) {
+      problems.push(
+        problem(
+          read.over.code,
+          `${path} was not read because ${read.over.code === 'CODE_FILE_TOO_LARGE' ? `it is ${read.over.size} bytes, above the ${read.over.limit}-byte in-process read bound` : 'the operation exhausted its in-process work budget'}, so the dependencies it declares were NOT examined: too large to check in-process, run the CLI`,
+          path,
+          { path, ...read.over },
+        ),
+      )
+      return
+    }
     if (read.error !== undefined) {
       problems.push(
         problem('CODE_REQUIRED_DEPENDENCY_MISSING', `${path} could not be read: ${read.error}`, path),
@@ -393,7 +428,18 @@ export function readDeclaredDependencies(root, files, manifest) {
   ]
   for (const path of files) {
     if (!pythonManifestPatterns.some((pattern) => pattern.test(path))) continue
-    const read = readProjectFile(root, path)
+    const read = readProjectFile(root, path, budget)
+    if (read.over !== undefined) {
+      problems.push(
+        problem(
+          read.over.code,
+          `${path} was not read because ${read.over.code === 'CODE_FILE_TOO_LARGE' ? `it is ${read.over.size} bytes, above the ${read.over.limit}-byte in-process read bound` : 'the operation exhausted its in-process work budget'}, so the dependencies it declares were NOT examined: too large to check in-process, run the CLI`,
+          path,
+          { path, ...read.over },
+        ),
+      )
+      continue
+    }
     if (read.error !== undefined) continue
     manifests.push(path)
     for (const line of read.text.split('\n')) {
@@ -459,16 +505,28 @@ function scopeHint(root, paths, files) {
  * @returns Sorted matching paths.
  */
 export function selectFiles(files, patterns) {
-  let selected = []
+  // A Set, not `selected.includes`: membership in an array is a linear scan, so adding N
+  // matches to a growing list cost O(N^2). It was the bulk of a 147-second verify over 80,000
+  // files (20k files 2.6 s, 40k 21 s, 80k 102 s — a clean quadratic). The insertion order is
+  // kept by the array and the set answers "already selected" in constant time.
+  const selected = []
+  const chosen = new Set()
   for (const pattern of patterns ?? []) {
     if (typeof pattern !== 'string' || pattern.length === 0) continue
     if (pattern.startsWith('!')) {
       const excluded = new Set(matchFiles(selected, pattern.slice(1)))
-      selected = selected.filter((file) => !excluded.has(file))
+      if (excluded.size === 0) continue
+      const kept = selected.filter((file) => !excluded.has(file))
+      selected.length = 0
+      selected.push(...kept)
+      chosen.clear()
+      for (const file of kept) chosen.add(file)
       continue
     }
     for (const file of matchFiles(files, pattern)) {
-      if (!selected.includes(file)) selected.push(file)
+      if (chosen.has(file)) continue
+      chosen.add(file)
+      selected.push(file)
     }
   }
   return selected.sort()
@@ -480,11 +538,21 @@ export function selectFiles(files, patterns) {
  * @param root - Absolute project root.
  * @param path - Repository-relative path of the JSON file.
  * @param keys - Key path into the document, e.g. `['files']` or `['ratchet','zones']`.
+ * @param budget - A work-budget tracker, or `null`/`undefined` for an unbounded read. A file
+ *   the budget refuses returns `{ list: null, error }` naming the refusal, so the caller's
+ *   `required_file_in_list` check reports it rather than reading the file anyway.
  * @returns `{ list, error }`; `list` is `null` when the path does not resolve to an
  *   array, and `error` says why.
  */
-export function readListAt(root, path, keys) {
-  const read = readProjectFile(root, path)
+export function readListAt(root, path, keys, budget = null) {
+  const read = readProjectFile(root, path, budget)
+  if (read.over !== undefined) {
+    return {
+      list: null,
+      error: `${path} was not read because ${read.over.code === 'CODE_FILE_TOO_LARGE' ? `it is ${read.over.size} bytes, above the ${read.over.limit}-byte in-process read bound` : 'the operation exhausted its in-process work budget'}`,
+      over: read.over,
+    }
+  }
   if (read.error !== undefined) return { list: null, error: `${path} could not be read: ${read.error}` }
   let value
   try {
@@ -505,21 +573,104 @@ export function readListAt(root, path, keys) {
 }
 
 /**
+ * PURPOSE
+ *   Resolve one LITERAL file path the project declares, by asking the filesystem rather than
+ *   the walk, so a directory the walk skips cannot make a file check green or red wrongly.
+ *
+ * INPUTS
+ *   root - the absolute project root (string).
+ *   relativePath - a repository-relative path (string). A non-string or empty value is
+ *     reported as a missing path rather than throwing.
+ *
+ * OUTPUTS
+ *   `{ exists, kind }` where `kind` is `file`, `directory`, `other` or `missing`. A path that
+ *   cannot be stated (ENOENT, ENOTDIR, EACCES, ELOOP) is `missing`: the check's own failure
+ *   message is the report, and a check kind that throws is a check that never ran. Never
+ *   throws.
+ *
+ * KEYWORDS
+ *   file check, existence, stat, never walk, walk independence, false green
+ */
+function pathOnDisk(root, relativePath) {
+  if (typeof relativePath !== 'string' || relativePath.length === 0) return { exists: false, kind: 'missing' }
+  try {
+    const stat = statSync(join(root, relativePath))
+    return { exists: true, kind: stat.isFile() ? 'file' : stat.isDirectory() ? 'directory' : 'other' }
+  } catch {
+    return { exists: false, kind: 'missing' }
+  }
+}
+
+/**
  * Evaluates one law against the project.
  *
- * @param options - `{ root, law, files, dependencies, config, runCommand }`.
+ * @param options - `{ root, law, files, dependencies, config, runCommand, budget }`.
  *   `runCommand` is an injected `(run, options) => Promise<{ code, stdout, stderr }>`
  *   or `null`. A `command` check with no runner reports that it was NOT evaluated
- *   instead of passing, because a check nobody ran is not a check.
+ *   instead of passing, because a check nobody ran is not a check. `budget` is a
+ *   work-budget tracker (see `createWorkBudget`); without one every read is unbounded,
+ *   which is the CLI path.
  * @returns `{ problems, checked, pending }` where `checked` counts the checks that
  *   were actually evaluated and `pending` counts those that could not be.
  */
-export async function verifyLaw({ root, law, files, dependencies, config, runCommand = null }) {
+export async function verifyLaw({ root, law, files, dependencies, config, runCommand = null, budget = null }) {
   const problems = []
   const pending = []
   let checked = 0
   const fail = (code, message, extra = {}) => {
     problems.push(problem(code, message, law.id, { lawId: law.id, ...extra }))
+  }
+
+  // How many over-budget files one law reports individually before the rest are folded into a
+  // count. A tree of thousands of oversized files must not build a problem list the size of the
+  // tree, but the first ones must be named so a reader can see WHICH files the budget stopped.
+  const OVER_BUDGET_REPORT_LIMIT = 20
+  let overBudgetReported = 0
+  /**
+   * Reports a budget refusal as a problem instead of reading the file.
+   *
+   * A refused read is never a pass: `CODE_FILE_TOO_LARGE` says one file was not read, and
+   * `WORK_BUDGET_EXCEEDED` says the operation's total was spent. Both make the verification
+   * not ok, which is the fail-closed direction, and both tell the reader to run the CLI.
+   */
+  const reportOverBudget = (over) => {
+    if (overBudgetReported >= OVER_BUDGET_REPORT_LIMIT) return
+    overBudgetReported += 1
+    if (over.code === 'CODE_FILE_TOO_LARGE') {
+      fail(
+        'CODE_FILE_TOO_LARGE',
+        `law "${law.id}" could not read ${over.path} because it is ${over.size} bytes, above the ${over.limit}-byte in-process read bound, so this check was NOT evaluated over that file: too large to check in-process, run the CLI (decided in ${law.sourceAdr})`,
+        { path: over.path, size: over.size, limit: over.limit },
+      )
+    } else {
+      fail(
+        'WORK_BUDGET_EXCEEDED',
+        `law "${law.id}" exhausted the in-process work budget at ${over.path} (${over.filesRead ?? '?'} file(s), ${over.bytesRead ?? '?'} byte(s) read), so this check was NOT evaluated over the remaining files: too large to check in-process, run the CLI (decided in ${law.sourceAdr})`,
+        { path: over.path },
+      )
+    }
+  }
+  /** Runs a check pattern, refusing one that can backtrack catastrophically. */
+  const compileCheckPattern = (pattern, flags) => {
+    const unsafe = regexUnsafeReason(pattern)
+    if (unsafe !== null) {
+      fail(
+        'REGEX_UNSAFE',
+        `law "${law.id}" declares the pattern ${JSON.stringify(pattern)}, which ${unsafe}; it was NOT executed because it would run synchronously on the harness event loop and hang every session in the process (decided in ${law.sourceAdr})`,
+        { pattern },
+      )
+      return null
+    }
+    try {
+      return new RegExp(pattern, flags ?? '')
+    } catch (error) {
+      fail(
+        'REGEX_INVALID',
+        `law "${law.id}" declares the pattern ${JSON.stringify(pattern)}, which is not a usable regular expression: ${String(error)} (decided in ${law.sourceAdr})`,
+        { pattern },
+      )
+      return null
+    }
   }
 
   // A check target written `./src/auth/**` or `src/../src/auth/**` names the same path as the
@@ -538,7 +689,12 @@ export async function verifyLaw({ root, law, files, dependencies, config, runCom
     switch (check.type) {
       case 'required_file': {
         checked += 1
-        if (!files.includes(check.path)) {
+        // Asked of the FILESYSTEM, not of the walked list: the walk skips directories that are
+        // never a project's source (`node_modules`, `bin`, `weights`, …), and reading membership
+        // from it made a required file inside one report CODE_REQUIRED_FILE_MISSING even though
+        // it exists — and a forbidden one report green. The explicit path kinds promise an
+        // existence claim, so existence is what they ask about.
+        if (!pathOnDisk(root, check.path).exists) {
           fail(
             'CODE_REQUIRED_FILE_MISSING',
             `law "${law.id}" requires the file ${check.path}, which does not exist (decided in ${law.sourceAdr})`,
@@ -549,7 +705,7 @@ export async function verifyLaw({ root, law, files, dependencies, config, runCom
       }
       case 'forbidden_file': {
         checked += 1
-        if (files.includes(check.path)) {
+        if (pathOnDisk(root, check.path).exists) {
           fail(
             'CODE_FORBIDDEN_FILE_PRESENT',
             `law "${law.id}" forbids the file ${check.path}, which exists (decided in ${law.sourceAdr})`,
@@ -601,14 +757,17 @@ export async function verifyLaw({ root, law, files, dependencies, config, runCom
           )
           break
         }
+        const expression = compileCheckPattern(check.pattern, check.flags)
+        if (expression === null) break
         const hits = []
         for (const path of scope) {
-          const read = readProjectFile(root, path)
+          const read = readProjectFile(root, path, budget)
+          if (read.over !== undefined) {
+            reportOverBudget(read.over)
+            continue
+          }
           if (read.error !== undefined) continue
-          // A fresh matcher per file. `flags` is validated to exclude the stateful
-          // g/y, and this is the belt to that braces: a matcher carrying lastIndex
-          // makes a verdict depend on which file was read first.
-          if (new RegExp(check.pattern, check.flags ?? '').test(read.text)) hits.push(path)
+          if (expression.test(read.text)) hits.push(path)
         }
         if (hits.length === 0) {
           fail(
@@ -635,11 +794,17 @@ export async function verifyLaw({ root, law, files, dependencies, config, runCom
           )
           break
         }
+        const expression = compileCheckPattern(check.pattern, check.flags)
+        if (expression === null) break
         const hits = []
         for (const path of scope) {
-          const read = readProjectFile(root, path)
+          const read = readProjectFile(root, path, budget)
+          if (read.over !== undefined) {
+            reportOverBudget(read.over)
+            continue
+          }
           if (read.error !== undefined) continue
-          const match = new RegExp(check.pattern, check.flags ?? '').exec(read.text)
+          const match = expression.exec(read.text)
           if (match !== null) {
             hits.push({ path, line: lineAt(read.text, match.index), text: match[0].slice(0, 200) })
           }
@@ -767,10 +932,15 @@ export async function verifyLaw({ root, law, files, dependencies, config, runCom
           )
           break
         }
-        const expression = new RegExp(check.pattern, check.flags ?? '')
+        const expression = compileCheckPattern(check.pattern, check.flags)
+        if (expression === null) break
         const hits = []
         for (const path of scope) {
-          const read = readProjectFile(root, path)
+          const read = readProjectFile(root, path, budget)
+          if (read.over !== undefined) {
+            reportOverBudget(read.over)
+            continue
+          }
           if (read.error !== undefined) continue
           const match = expression.exec(read.text)
           if (match !== null) {
@@ -815,7 +985,7 @@ export async function verifyLaw({ root, law, files, dependencies, config, runCom
         // satisfied by a package manifest naming a file that did not exist — while
         // the check's own failure message asserted that it did. Membership in a list
         // is not existence, so existence is checked first.
-        if (!files.includes(check.path)) {
+        if (!pathOnDisk(root, check.path).exists) {
           fail(
             'CODE_REQUIRED_FILE_MISSING',
             `law "${law.id}" holds that ${check.contains} ships, but ${check.path} does not exist in the repository (decided in ${law.sourceAdr})`,
@@ -824,8 +994,12 @@ export async function verifyLaw({ root, law, files, dependencies, config, runCom
           break
         }
         const keys = Array.isArray(check.keys) ? check.keys : []
-        const { list, error } = readListAt(root, check.list, keys)
+        const { list, error, over } = readListAt(root, check.list, keys, budget)
         if (list === null) {
+          if (over !== undefined) {
+            reportOverBudget(over)
+            break
+          }
           fail(
             'CODE_REQUIRED_FILE_MISSING',
             `law "${law.id}" wants to confirm ${check.contains} ships, but ${error} (decided in ${law.sourceAdr})`,
@@ -933,16 +1107,20 @@ export async function verifyLaw({ root, law, files, dependencies, config, runCom
           }
         }
         if (typeof check.outputMatches === 'string') {
+          const unsafe = regexUnsafeReason(check.outputMatches)
           let pattern = null
           try {
-            pattern = new RegExp(check.outputMatches)
+            pattern = unsafe === null ? new RegExp(check.outputMatches) : null
           } catch {
             pattern = null
           }
           // A pattern that cannot be compiled is NOT a pass. The compiler reports it
           // as a malformed check, and a verifier that skipped it here would let a
-          // project that never compiles its corpus verify clean.
-          if (pattern === null) mismatches.push(`the declared pattern ${JSON.stringify(check.outputMatches)} is not a usable regular expression`)
+          // project that never compiles its corpus verify clean. An unsafe pattern is
+          // refused for the same reason and with the same outcome — a mismatch, which
+          // fails the law rather than hanging the event loop.
+          if (unsafe !== null) mismatches.push(`the declared pattern ${JSON.stringify(check.outputMatches)} can backtrack catastrophically (${unsafe}), so it was not executed`)
+          else if (pattern === null) mismatches.push(`the declared pattern ${JSON.stringify(check.outputMatches)} is not a usable regular expression`)
           else if (!streams.some(([, text]) => pattern.test(text))) {
             mismatches.push(
               `its ${stream === 'both' ? 'stdout and stderr do' : `${stream} does`} not match /${check.outputMatches}/`,
@@ -1018,23 +1196,26 @@ function memoizeCommandRunner(runCommand) {
 /**
  * Runs the full static verification of a project against its compiled laws.
  *
- * @param options - `{ root, bundle, config, manifest, files, runCommand }`. `files`
+ * @param options - `{ root, bundle, config, manifest, files, runCommand, budget }`. `files`
  *   may be supplied to avoid re-walking in a caller that already did; otherwise the
  *   project is walked once. `runCommand` is optional: without it, `command` checks
  *   are reported as pending rather than passed, so the verifier stays a pure
  *   filesystem reader unless a caller deliberately opts into running something. A
  *   supplied runner is memoised per distinct command for the duration of this call —
  *   see `memoizeCommandRunner` for why, and for the read-only assumption it rests on.
+ *   `budget` is a work-budget tracker (see `createWorkBudget`); without one every read and
+ *   the walk are unbounded, which is the CLI path. When one is supplied and it is exceeded,
+ *   a `WORK_BUDGET_EXCEEDED` summary problem is added and no clean verdict is possible.
  * @returns `{ ok, report, problems }` where `report.counts` records how many laws
  *   and checks were actually evaluated. A report whose `checksEvaluated` is zero
  *   with `ok: true` is a contradiction, and the gates in this kit assert that it
  *   never happens. `report.pending` names every check that could not be evaluated.
  */
-export async function verifyProject({ root, bundle, config, manifest = null, files = null, runCommand = null }) {
+export async function verifyProject({ root, bundle, config, manifest = null, files = null, runCommand = null, budget = null }) {
   const started = Date.now()
   const problems = []
-  const fileList = files ?? listFiles(root)
-  const dependencies = readDeclaredDependencies(root, fileList, manifest)
+  const fileList = files ?? listFiles(root, '', budget)
+  const dependencies = readDeclaredDependencies(root, fileList, manifest, budget)
   problems.push(...dependencies.problems)
 
   // One process per distinct command, not one per law that names it.
@@ -1044,7 +1225,7 @@ export async function verifyProject({ root, bundle, config, manifest = null, fil
   const pending = []
   const lawResults = []
   for (const law of bundle?.laws ?? []) {
-    const result = await verifyLaw({ root, law, files: fileList, dependencies, config, runCommand: runOnce })
+    const result = await verifyLaw({ root, law, files: fileList, dependencies, config, runCommand: runOnce, budget })
     checksEvaluated += result.checked
     pending.push(...result.pending.map((entry) => ({ lawId: law.id, ...entry })))
     problems.push(...result.problems)
@@ -1146,6 +1327,12 @@ export async function verifyProject({ root, bundle, config, manifest = null, fil
     )
   }
 
+  // The operation's own budget summary, added once, after every check has had its chance to
+  // report the specific file it could not read. A run that exhausted the budget evaluated only
+  // part of the tree, so this makes `ok` false regardless of what the partial reads found.
+  const budgetSummary = budgetProblem(budget)
+  if (budgetSummary !== null) problems.push(budgetSummary)
+
   const report = {
     kind: VERIFY_REPORT_KIND,
     project: config?.project ?? null,
@@ -1153,7 +1340,7 @@ export async function verifyProject({ root, bundle, config, manifest = null, fil
     specHash: bundle === null ? null : bundleHash(bundle),
     // The tree this verdict applies to. Without it the record answers only "which
     // laws did you judge", and `status` kept calling an edited tree verified.
-    codeHash: codeHashFor(root, fileList),
+    codeHash: codeHashFor(root, fileList, budget === null || budget === undefined ? {} : budget.limits),
     // And the authority table it was judged under — see `configHashFor`.
     configHash: configHashFor(config),
     generatedAt: new Date().toISOString(),

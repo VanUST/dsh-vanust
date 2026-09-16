@@ -16,7 +16,7 @@
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { AUTHORITIES, CHECK_TARGET_FIELDS, MANIFEST_PATH, PROBLEM_CODES, RATCHET_DIR_DEFAULT, TERMINAL_ADR_STATUSES, globsMayOverlap, hashSource, normaliseText, parseAdr, parseRatchetConfig, problem, zonePathCovers } from './ratchet-schema.mjs'
+import { AUTHORITIES, CHECK_TARGET_FIELDS, MANIFEST_PATH, PROBLEM_CODES, RATCHET_DIR_DEFAULT, TERMINAL_ADR_STATUSES, budgetProblem, globsMayOverlap, hashSource, normaliseText, parseAdr, parseRatchetConfig, problem, workBudgetRead, zonePathCovers } from './ratchet-schema.mjs'
 
 /** Report title embedded in every bundle, so a consumer can reject a foreign file. */
 export const COMPILE_REPORT_KIND = 'ratchet/compile-report'
@@ -76,10 +76,14 @@ export function readManifest(root) {
  *
  * @param root - Absolute project root.
  * @param config - Parsed ratchet configuration.
+ * @param budget - A work-budget tracker (see `createWorkBudget`), or `null`/`undefined` for an
+ *   unbounded read (the CLI path). An ADR above the per-file cap is reported as
+ *   `ADR_TOO_LARGE` and never opened: a 500 MB record blocked the event loop for about three
+ *   seconds, and a corpus cannot be compiled from a record no one read.
  * @returns `{ records, files, problems, directory }` where `files` lists every
  *   entry examined so a report can name what it looked at.
  */
-export function readAdrCorpus(root, config) {
+export function readAdrCorpus(root, config, budget = null) {
   const decisionsDir = config?.decisionsDir ?? RATCHET_DIR_DEFAULT
   const directory = join(root, decisionsDir)
   const records = []
@@ -135,21 +139,32 @@ export function readAdrCorpus(root, config) {
     // is normal, so it is listed, but a candidate that looks like an ADR and
     // does not parse is a problem the report must carry.
     if (!filename.endsWith('.md')) continue
-    let source
-    try {
-      source = readFileSync(join(directory, filename), 'utf8')
-    } catch (error) {
+    const relative = `${decisionsDir}/${filename}`
+    const read = workBudgetRead(budget, root, relative)
+    if (read.over !== undefined) {
       problems.push(
         problem(
-          'ADR_UNREADABLE',
-          `${decisionsDir}/${filename} could not be read: ${String(error)}`,
+          'ADR_TOO_LARGE',
+          `${relative} was not read because ${read.over.code === 'CODE_FILE_TOO_LARGE' ? `it is ${read.over.size} bytes, above the ${read.over.limit}-byte in-process read bound for a single file` : 'the operation exhausted its in-process work budget'}, so this record was NOT compiled: too large to check in-process, run the CLI`,
           filename,
-          { path: `${decisionsDir}/${filename}` },
+          { path: relative, size: read.over.size, limit: read.over.limit },
         ),
       )
       continue
     }
-    const parsed = parseAdr({ filename, source, root, decisionsDir })
+    if (read.error !== undefined) {
+      problems.push(
+        problem(
+          'ADR_UNREADABLE',
+          `${relative} could not be read: ${read.error}`,
+          filename,
+          { path: relative },
+        ),
+      )
+      continue
+    }
+    const source = read.text
+    const parsed = parseAdr({ filename, source, root, decisionsDir, budget })
     for (const entry of parsed.problems) problems.push(entry)
     if (parsed.record === null) continue
 
@@ -1215,12 +1230,17 @@ export function validateZones(config) {
  * resolves and compiles, and returns everything a report needs. It never writes.
  *
  * @param root - Absolute project root.
+ * @param options - `{ budget }`. `budget` is a work-budget tracker (see
+ *   `createWorkBudget`); without one every ADR and source read is unbounded, which is the CLI
+ *   path. When one is supplied and it is exceeded, a `WORK_BUDGET_EXCEEDED` summary problem is
+ *   added so the compile cannot report a clean corpus it did not fully read.
  * @returns `{ ok, report, bundle, problems }`. `ok` is true only when there are
  *   no error-severity problems. `report` is the structured compile report; it is
  *   always present, because a report that exists only on success cannot record a
  *   failure.
  */
-export function compileProject(root) {
+export function compileProject(root, options = {}) {
+  const budget = options.budget ?? null
   const manifest = readManifest(root)
   const problems = [...manifest.problems]
   const report = {
@@ -1252,7 +1272,7 @@ export function compileProject(root) {
 
   problems.push(...validateZones(manifest.config))
 
-  const corpus = readAdrCorpus(root, manifest.config)
+  const corpus = readAdrCorpus(root, manifest.config, budget)
   report.counts.files = corpus.files.length
   report.counts.records = corpus.records.length
   problems.push(...corpus.problems)
@@ -1277,6 +1297,12 @@ export function compileProject(root) {
   // in force.
   problems.push(...validateResolutions(corpus.records, { active: resolved.active, removedByDecision: compiled.removedByDecision }))
   problems.push(...validateRetirement(corpus.records, compiled.bundle))
+
+  // The operation's own budget summary, once, after every record that could be reported
+  // individually has been. A compile that exhausted the budget read only part of the corpus,
+  // so it cannot return a clean bundle.
+  const budgetSummary = budgetProblem(budget)
+  if (budgetSummary !== null) problems.push(budgetSummary)
 
   report.problems = problems
   report.specHash = bundleHash(compiled.bundle)
@@ -1510,19 +1536,21 @@ export function comparePersistedBundle(persisted, current) {
 }
 
 /**
- * Reports the spec documents that are missing, edited, or out of date.
+ * Reports the spec documents that are missing, edited, or orphaned — the three that remain a
+ * gate.
  *
- * Four distinct situations, four distinct codes: an EDITED document means a human
- * changed generated output; a MISSING one means the project tracks specs and one has
- * gone; a STALE one is unedited but was generated from older laws; and an ORPHANED one
- * is current-looking and simply belongs to no law in force, which is what renaming or
- * removing a zone leaves behind. The stale document is the quietest of the first three
- * — it looks perfect and describes a law that no longer exists — which is why the
- * header stamp exists and why it is read. The orphan is quieter still: nothing in the
- * current bundle names it, so a comparison driven by the bundle never looks at it.
+ * Four distinct situations, four distinct codes; a STALE one is deliberately NOT among them.
+ * A stale document is unedited and merely behind the current laws, so it is reported as an
+ * advisory drift fact carrying a drafted withdrawal note and never blocks the gate: the fix is
+ * a regeneration, and a gate that is red over a document that needs regenerating is a gate
+ * people disable. A DRIFTED document means a human changed generated output; a MISSING one means
+ * the project tracks specs and one has gone; an ORPHANED one is current-looking and belongs to
+ * no law in force. Those three still block, because each is evidence that the human-readable
+ * view is wrong rather than merely old.
  *
  * @param drift - Result of comparing generated text with disk.
- * @returns An array of problems; empty when every produced file matches.
+ * @returns An array of problems; empty when every produced file matches, and empty for a stale
+ *   document, which the caller reports separately with its drafted note.
  */
 export function specDriftProblems(drift) {
   const problems = []
@@ -1533,16 +1561,6 @@ export function specDriftProblems(drift) {
         `the generated spec document ${entry.path} has been edited since it was written (${entry.reason}); generated specs carry a DO NOT EDIT banner, so a hand edit desynchronises the document from the laws the code is checked against`,
         entry.path,
         { path: entry.path },
-      ),
-    )
-  }
-  for (const entry of drift?.stale ?? []) {
-    problems.push(
-      problem(
-        'SPEC_OUT_OF_DATE',
-        `the generated spec document ${entry.path} was written from spec ${entry.recorded} but the laws now hash to ${entry.wanted}; the document is unedited and describes decisions that are no longer in force, so regenerate it`,
-        entry.path,
-        { path: entry.path, recorded: entry.recorded, wanted: entry.wanted },
       ),
     )
   }

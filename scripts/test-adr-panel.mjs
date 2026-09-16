@@ -242,7 +242,13 @@ const stateModule = await import(pathToFileURL(join(KIT, 'plugins', 'ratchet', '
 let stateRoot = KIT
 /** How many state requests the whole test issued, so "the panel used the route" is measured. */
 let stateCalls = 0
-const stateView = () => stateModule.deriveDecisions({ root: stateRoot })
+/**
+ * A state answer to serve instead of a freshly derived one, used by the one claim about a
+ * CAPPED answer. `null` keeps the real derivation, so every other claim still measures the
+ * ratchet's own view rather than a hand-made object.
+ */
+let stateViewOverride = null
+const stateView = () => (stateViewOverride === null ? stateModule.deriveDecisions({ root: stateRoot }) : stateViewOverride)
 
 let consentHostHandler = null
 const consentCalls = []
@@ -2014,6 +2020,33 @@ needsFiles['reports/ratchet/verify-report.json'] = `${JSON.stringify({ generated
   } finally {
     stateRoot = previousRoot
     rmSync(emptyRoot, { recursive: true, force: true })
+  }
+}
+
+// ── a capped answer is STATED, not silently rendered as the whole corpus ────
+// The host caps what it sends and marks the cut with `truncated`; the window must say so
+// rather than draw a partial list as if it were complete. The claim drives a real render
+// whose state answer carries the marker, and requires the sentence in the rendered tree.
+{
+  const full = stateModule.deriveDecisions({ root: stateRoot })
+  stateViewOverride = {
+    ...full,
+    truncated: { records: { shown: 5, total: 52 }, specs: { shown: 1, total: 3 }, texts: { dropped: 4, total: 5 }, specTexts: null, queueTexts: null, byteLimit: 1500000 },
+  }
+  try {
+    const rendered = await renderOverlay('truncated')
+    const note = nodes.find((node) => typeof node.text === 'string' && /truncated to stay within/.test(node.text))
+    claim(
+      'a truncated state answer is stated in the window, not rendered as the whole corpus',
+      rendered.ok &&
+        note !== undefined &&
+        /only 5 of 52 decisions are shown/.test(note.text) &&
+        /only 1 of 3 spec documents/.test(note.text) &&
+        /4 decision bodies were omitted/.test(note.text),
+      `found=${note === undefined ? 'no note' : JSON.stringify(note.text)}`,
+    )
+  } finally {
+    stateViewOverride = null
   }
 }
 

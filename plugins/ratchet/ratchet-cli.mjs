@@ -368,7 +368,7 @@ export async function run(argv) {
             // problems" and need opposite next actions.
             result.unusable === true
               ? 'UNUSABLE'
-              : result.drafts.length === 0 && result.undraftable.length === 0
+              : result.drafts.length === 0 && result.undraftable.length === 0 && (result.alreadyDrafted ?? []).length === 0
                 ? 'CLEAN'
                 : 'DRAFTED'
           : result.ok
@@ -454,6 +454,10 @@ export async function run(argv) {
         process.stdout.write(`  draft ${draft.id}: ${draft.title}\n`)
         process.stdout.write(`    withdraws ${draft.removes} from ADR ${draft.withdraws}; ADR ${draft.keeps} keeps governing\n`)
         process.stdout.write(`    ${draft.written === null ? `not written (${draft.path}; pass --write)` : `written to ${draft.written}`}\n`)
+      }
+      for (const draft of result.alreadyDrafted ?? []) {
+        process.stdout.write(`  already drafted ${draft.id}: ${draft.title}\n`)
+        process.stdout.write(`    ${draft.path}; this run did not touch it — ratify or decline it\n`)
       }
       for (const entry of result.undraftable) {
         process.stdout.write(`  NOT DRAFTED [${entry.duplicate.code}]: ${entry.reason}\n`)

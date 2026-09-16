@@ -50,6 +50,7 @@ const KIT = resolve(fileURLToPath(import.meta.url), '..', '..')
 const PLUGIN_DIR = join(KIT, 'plugins', 'ratchet').replace(/\\/g, '/')
 
 const { compileProject, readAdrCorpus } = await import(`file:///${PLUGIN_DIR}/ratchet-compiler.mjs`)
+const { createWorkBudget } = await import(`file:///${PLUGIN_DIR}/ratchet-schema.mjs`)
 const { compile, verify } = await import(`file:///${PLUGIN_DIR}/ratchet-ops.mjs`)
 const { verifyProject, codeHashFor, listFiles } = await import(`file:///${PLUGIN_DIR}/ratchet-verifier.mjs`)
 const { ratificationQueue, buildQuiz, deriveDecisions, offeredBy } = await import(
@@ -514,6 +515,97 @@ claim('the code hash changes when a file changes', before !== after, `${before} 
   claim('the code hash still moves when a small file changes', bigAfter !== smallAfter, 'a small-file change was missed')
 }
 
+// 10c. The code hash bounds its SYSCALLS by file count as well as bytes. 50,000 empty files cost
+//      ~7.5 s because each was stat'ed and read; a byte cap cannot bound that. Past the count each
+//      file contributes its path only — deterministic, content-blind by design — while a file
+//      within the cap still moves the hash.
+{
+  const countRoot = project(
+    'code-hash-count',
+    { laws: law({ checks: [{ type: 'required_file', path: 'src/a.ts' }] }) },
+    { files: { 'src/a.ts': 'A\n', 'src/b.ts': 'B\n', 'src/c.ts': 'C\n' } },
+  )
+  const countFiles = ['src/a.ts', 'src/b.ts', 'src/c.ts']
+  const countOptions = { maxFiles: 2, maxFileBytes: 1024, maxTotalBytes: 1024 * 1024 }
+  const countBefore = codeHashFor(countRoot, countFiles, countOptions)
+  writeFileSync(join(countRoot, 'src', 'c.ts'), 'C-changed\n')
+  const countTail = codeHashFor(countRoot, countFiles, countOptions)
+  claim(
+    'the code hash does not read past its file-count cap',
+    countBefore === countTail,
+    'a file past the count cap was read as content, so the syscall bound is not real',
+  )
+  writeFileSync(join(countRoot, 'src', 'a.ts'), 'A-changed\n')
+  claim(
+    'the code hash still moves for a file within its count cap',
+    countBefore !== codeHashFor(countRoot, countFiles, countOptions),
+    'a file within the count cap was content-blind',
+  )
+}
+
+// 10d. The total-byte cap must never make a SMALL file content-blind. Charging the budget in
+//      sorted order made every later file contribute `path+size`, so once the budget was spent a
+//      29-byte file's edit stopped moving the hash — a bound meant for caches answering
+//      "unchanged" about source. This is the regression the first bound introduced.
+{
+  const smallRoot = project(
+    'code-hash-small',
+    { laws: law({ checks: [{ type: 'required_file', path: 'src/z.ts' }] }) },
+    { files: { 'src/a-fill.ts': 'x'.repeat(1000), 'src/z.ts': 'tiny' } },
+  )
+  const smallFiles = ['src/a-fill.ts', 'src/z.ts']
+  const smallOptions = { maxFiles: 100, maxFileBytes: 10_000, maxTotalBytes: 1000 }
+  const smallBefore = codeHashFor(smallRoot, smallFiles, smallOptions)
+  writeFileSync(join(smallRoot, 'src', 'z.ts'), 'TINY')
+  claim(
+    'a small file still moves the code hash after the total byte budget is spent',
+    smallBefore !== codeHashFor(smallRoot, smallFiles, smallOptions),
+    'a 4-byte file went content-blind once the total budget was spent',
+  )
+}
+
+// 10e. An oversized file, and a catastrophic regex, are REPORTED rather than read or executed.
+//      Both run synchronously on the harness event loop, so the only safe outcome is a problem
+//      and a failed verification; a pass over a file nobody read is the failure this asserts
+//      against.
+{
+  const budgetRoot = project(
+    'work-budget',
+    { laws: law({ checks: [{ type: 'forbidden_text', paths: ['src/auth/**'], pattern: 'TODO' }] }) },
+    { files: { 'src/auth/big.ts': 'x'.repeat(5000) } },
+  )
+  const budgetCompiled = compileProject(budgetRoot)
+  const budget = createWorkBudget({ maxFiles: 100, maxFileBytes: 100, maxTotalBytes: 100_000 })
+  const budgetVerified = await verifyProject({
+    root: budgetRoot,
+    bundle: budgetCompiled.bundle,
+    config: null,
+    manifest: null,
+    budget,
+  })
+  claim(
+    'an oversized text file is reported as CODE_FILE_TOO_LARGE, not read',
+    budgetVerified.problems.some((entry) => entry.code === 'CODE_FILE_TOO_LARGE'),
+    JSON.stringify(budgetVerified.problems.map((entry) => entry.code)),
+  )
+  claim(
+    'a verification that exhausted the work budget is not ok',
+    budgetVerified.ok === false,
+    'a verification over part of the tree reported success',
+  )
+
+  const regexRoot = project(
+    'regex-unsafe',
+    { laws: law({ checks: [{ type: 'forbidden_text', paths: ['src/auth/**'], pattern: '(a+)+$' }] }) },
+  )
+  const regexCompiled = compileProject(regexRoot)
+  claim(
+    'a catastrophic regex is refused where the corpus is compiled',
+    regexCompiled.problems.some((entry) => entry.code === 'REGEX_UNSAFE'),
+    JSON.stringify(regexCompiled.problems.map((entry) => entry.code)),
+  )
+}
+
 // 11. A ratification is a claim about a TEXT, not a title. A ratified record is in
 //     force only while its file still hashes to what the approval recorded, and
 //     editing it voids the consent instead of inheriting it. This is the behavioural
@@ -725,21 +817,29 @@ claim(
   writeFileSync(manifestPath, `${JSON.stringify({ ...JSON.parse(readFileSync(manifestPath, 'utf8')), ratchet: { ...JSON.parse(readFileSync(manifestPath, 'utf8')).ratchet, specsRequired: true } }, null, 2)}\n`)
   await compile({ root, write: true })
   const clean = await verify({ root })
-  // Edit the decision without regenerating its document: the document now describes a
-  // law that no longer exists, and nothing on disk is marked as changed.
+  // Edit the decision without regenerating its document. The document is UNEDITED and merely
+  // behind the current laws, which is the advisory `stale` kind: ADR 0056 narrowed the law so
+  // this is reported with a drafted withdrawal note and does NOT block the gate.
   const adrPath = join(root, 'docs', 'adrs', '0001-a.adr.md')
   writeFileSync(adrPath, readFileSync(adrPath, 'utf8').replace('statement: One.', 'statement: One, edited.'))
   const afterEdit = await verify({ root })
-  // Put it back and instead delete a document the project tracks.
+  // Put the decision back, regenerate the document so it is CURRENT, and then hand-edit it:
+  // the recorded hash equals the wanted one and the bytes differ, which is the `drifted` kind
+  // that still blocks.
   writeFileSync(adrPath, readFileSync(adrPath, 'utf8').replace('statement: One, edited.', 'statement: One.'))
   await compile({ root, write: true })
   const specFile = join(root, 'docs', 'specs', `${readdirSync(join(root, 'docs', 'specs'))[0]}`)
+  writeFileSync(specFile, `${readFileSync(specFile, 'utf8')}\nhand edit\n`)
+  const afterDrift = await verify({ root })
+  // Regenerate it and instead delete a document the project tracks: `missing` still blocks.
+  await compile({ root, write: true })
   rmSync(specFile, { force: true })
   const afterDelete = await verify({ root })
-  // And the quiet one: a compile that persists the bundle without writing documents.
+  // And the quiet one: a compile that persists the bundle without writing documents leaves the
+  // document behind the laws, which is the same advisory `stale` kind.
+  await compile({ root, write: true })
   writeFileSync(adrPath, readFileSync(adrPath, 'utf8').replace('statement: One.', 'statement: One, edited.'))
-  await compile({ root, write: false })
-  const afterUnwritten = await verify({ root })
+  const afterUnwritten = await compile({ root, write: false })
   // The quietest case, and the one an adversarial pass found: rename the zone, and the
   // document the OLD name generated is orphaned. A comparison driven by the files the
   // current bundle renders never looks at it, so it survived a green verify.
@@ -757,15 +857,20 @@ claim(
   writeFileSync(orphanAdr, readFileSync(orphanAdr, 'utf8').replace('  - auth\n', '  - auth-renamed\n'))
   await compile({ root: orphanRoot, write: true })
   const afterRename = await verify({ root: orphanRoot })
+  // The note the ratchet drafted for the stale document: named by the view's own `notes`.
+  const staleNote = (afterEdit.specDrift.notes ?? []).find((note) => note.path === afterEdit.specDrift.stale[0])
   const parts = [
     `clean-corpus-passes=${clean.problems.length === 0}`,
-    `edited-decision-reported=${afterEdit.problems.some((entry) => entry.code === 'SPEC_OUT_OF_DATE')}`,
-    `deleted-document-reported=${afterDelete.problems.some((entry) => entry.code === 'SPEC_OUT_OF_DATE')}`,
-    `unwritten-compile-reported=${afterUnwritten.problems.some((entry) => entry.code === 'SPEC_OUT_OF_DATE')}`,
-    `orphaned-document-reported=${afterRename.problems.some((entry) => entry.code === 'SPEC_ORPHANED')}`,
+    `stale-is-advisory=${afterEdit.problems.every((entry) => entry.code !== 'SPEC_OUT_OF_DATE')}`,
+    `stale-is-reported=${afterEdit.specDrift.stale.length > 0}`,
+    `stale-has-drafted-note=${staleNote !== undefined && typeof staleNote.notePath === 'string' && staleNote.notePath.length > 0}`,
+    `edited-document-blocks=${afterDrift.problems.some((entry) => entry.code === 'SPEC_HASH_MISMATCH')}`,
+    `deleted-document-blocks=${afterDelete.problems.some((entry) => entry.code === 'SPEC_OUT_OF_DATE')}`,
+    `unwritten-compile-is-advisory=${afterUnwritten.problems.every((entry) => entry.code !== 'SPEC_OUT_OF_DATE') && afterUnwritten.specDrift.stale.length > 0}`,
+    `orphaned-document-blocks=${afterRename.problems.some((entry) => entry.code === 'SPEC_ORPHANED')}`,
   ]
   claim(
-    'a generated spec that is stale, missing, unwritten or orphaned is reported by verify',
+    'a stale generated spec is advisory with a drafted withdrawal note, while an edited, missing or orphaned one still blocks',
     parts.every((part) => part.endsWith('=true')),
     parts.join(' '),
   )
@@ -823,12 +928,12 @@ claim(
 {
   const root = project(
     'law-complete-ledger-gone',
-    { laws: law({ id: 'auth.kept', checks: [{ type: 'required_text', paths: ['src/auth/x.ts'], pattern: 'one' }] }) },
+    { laws: law({ id: 'auth.kept', statement: 'Keeping.', checks: [{ type: 'required_text', paths: ['src/auth/x.ts'], pattern: 'one' }] }) },
     { files: { 'src/auth/x.ts': 'const one = 1\n' } },
   )
   writeFileSync(
     join(root, 'docs', 'adrs', '0002-b.adr.md'),
-    adrText('0002', law({ id: 'auth.retirable', checks: [{ type: 'required_text', paths: ['src/auth/x.ts'], pattern: 'one' }] })),
+    adrText('0002', law({ id: 'auth.retirable', statement: 'Retiring.', checks: [{ type: 'required_text', paths: ['src/auth/x.ts'], pattern: 'one' }] })),
   )
   // A real compile --write is what records the persisted bundle this fallback reads.
   await compile({ root, write: true })

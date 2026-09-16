@@ -26,7 +26,11 @@
  *   `ask` returns the canonical `ratify` result for "no answer yet": `{ ok, needsAnswer,
  *   attempt, pending, blocked, quiz, problems, summary, nextStep }` when at least one
  *   decision waits, and `{ ok, nothingToRatify, message, blocked, problems }` when none
- *   does. Nothing is written by either shape.
+ *   does. It writes no approval and no transcript and does not touch the corpus. Its one
+ *   durable effect is the ratchet's own: `ratify`'s prepare path appends exactly one audit
+ *   event (a `ratchet.ratify.prepare`, or the queue's own refusal event) to
+ *   `.dsh/ratchet/ledger.jsonl`. That is the audit trail, not a consent — the distinction
+ *   a caller and `scripts/check-consent-surface.mjs` both assert.
  *   `settle` returns the canonical `ratify` result for an answer: `ratified` and
  *   `wrote` name what was written, or `rejected` / `unreadable` / `changed` describe an
  *   answer that minted nothing, with `problems` carrying the stable codes. Its approval
@@ -42,8 +46,11 @@
  *   no composed answer, approval, transcript
  *
  * BEHAVIOUR ON EDGE CASES
+ *   Every refusal below mints nothing — no approval ADR and no transcript — but the
+ *   ratchet's `ratify` still appends its own audit event to `.dsh/ratchet/ledger.jsonl`
+ *   for the attempt, which is the audit trail rather than a consent.
  *   - `quiz` null or undefined with a `label`: `ratify` refuses with
- *     `RATIFICATION_UNPROVEN` and writes nothing, because an answer with no question is
+ *     `RATIFICATION_UNPROVEN` and mints nothing, because an answer with no question is
  *     a string a caller typed.
  *   - `quiz` that is not the question the ratchet builds for the records waiting now:
  *     `ratify` refuses with `RATIFICATION_UNPROVEN`; the answer is never interpreted.
@@ -55,8 +62,9 @@
  *     and nothing is minted.
  *   - A quiz answered twice: the second call finds the record no longer waiting, so the
  *     replay mints nothing.
- *   - `write: false`: the approval and transcript texts are returned in the result and
- *     no file is written, which is the dry-run the tests use.
+ *   - `write: false`: the approval and transcript texts are returned in the result and no
+ *     consent artifact is written, which is the dry-run the tests use. The unconditional
+ *     audit ledger event is still appended.
  */
 import { ratify, findRoot } from './ratchet-ops.mjs'
 import { RATIFY_CHANNEL_PANEL } from './ratchet-ratify.mjs'
@@ -110,7 +118,8 @@ function questionIdFor(quiz, adrId) {
 /**
  * PURPOSE
  *   Obtain the ratification question the ratchet would put to a human for one project,
- *   without asking anyone. The caller renders it; nothing is written.
+ *   without asking anyone. The caller renders it; no approval and no transcript is
+ *   written, and the only durable effect is the ratchet's own audit ledger line.
  *
  * INPUTS
  *   options — `{ root, ids, at }` as described in this module's header.
