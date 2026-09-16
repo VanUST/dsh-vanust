@@ -356,6 +356,70 @@ function slug(title) {
 }
 
 /**
+ * Turns a review judge's `semantic_duplicate` findings into the same finding shape
+ * {@link findDuplicates} produces, so the one drafting path can attempt a resolution for each.
+ *
+ * A semantic duplicate is by construction invisible to the file rules: the judge saw two
+ * records state one constraint in different law statements. That means the drafter usually
+ * cannot name the law to withdraw — the verdict names at most one `lawId` and one
+ * `sourceAdr` — and {@link chooseLoser} will report it undraftable with the reason. That is
+ * the honest result: a question no text comparison decides is not silently turned into a
+ * machine removal. The translation still carries whatever the verdict named, so the one case
+ * it CAN draft (the losing record itself declares the named law) becomes a real proposal.
+ *
+ * @param records - Parsed ADR records, as `readAdrCorpus` returns them.
+ * @param findings - The advisory findings a corpus review recorded; only entries with
+ *   `kind: 'semantic_duplicate'` are considered, and a non-array contributes nothing.
+ * @returns An array of duplicate findings shaped like {@link findDuplicates}'s, each carrying
+ *   `semantic: true`. Never throws.
+ */
+export function semanticDuplicateFindings(records, findings) {
+  const list = Array.isArray(records) ? records : []
+  const byId = new Map(
+    list.filter((record) => record !== null && typeof record === 'object' && typeof record.id === 'string').map((record) => [record.id, record]),
+  )
+  const out = []
+  for (const finding of Array.isArray(findings) ? findings : []) {
+    if (finding === null || typeof finding !== 'object' || finding.kind !== 'semantic_duplicate') continue
+    const explanation =
+      typeof finding.explanation === 'string' && finding.explanation.trim().length > 0
+        ? finding.explanation.trim()
+        : 'the review judge reports two decisions state the same constraint in different words'
+    const lawId = typeof finding.lawId === 'string' && finding.lawId.length > 0 ? finding.lawId : null
+    const cited = typeof finding.sourceAdr === 'string' && finding.sourceAdr.length > 0 && byId.has(finding.sourceAdr) ? finding.sourceAdr : null
+    const owners =
+      lawId === null
+        ? []
+        : list
+            .filter((record) =>
+              (record.laws ?? []).some((law) => law !== null && typeof law === 'object' && law.op === 'upsert' && law.id === lawId),
+            )
+            .map((record) => record.id)
+            .sort()
+    const recordsInvolved = [...new Set([...owners, ...(cited === null ? [] : [cited])])].filter((id) => byId.has(id)).sort()
+    // The loser `chooseLoser` will pick is the later id; carry the named law's statement only
+    // when that record declares it, because the drafter matches the statement to find the law.
+    const loser = recordsInvolved.length >= 2 ? byId.get(recordsInvolved[1]) : null
+    const namedLaw =
+      loser === null || lawId === null
+        ? null
+        : (loser.laws ?? []).find((law) => law !== null && typeof law === 'object' && law.op === 'upsert' && law.id === lawId) ?? null
+    out.push({
+      code: 'SEMANTIC_DUPLICATE_JUDGE',
+      // A stable, short identity: the full explanation can carry newlines and quotes a
+      // frontmatter draft key cannot, so only its hash and the records it names travel.
+      key: createHash('sha256').update(`${recordsInvolved.join(',')}|${lawId ?? 'no-law'}|${explanation}`).digest('hex').slice(0, 16),
+      statement: namedLaw !== null && namedLaw !== undefined && typeof namedLaw.statement === 'string' ? namedLaw.statement.trim() : null,
+      message: explanation,
+      records: recordsInvolved,
+      lawIds: lawId === null ? [] : [lawId],
+      semantic: true,
+    })
+  }
+  return out
+}
+
+/**
  * Drafts one proposed resolution per decidable duplicate in a project's corpus.
  *
  * This is the automatic half of deduplication: the check reports, and this turns each report
@@ -368,14 +432,17 @@ function slug(title) {
  * reader would otherwise believe was handled.
  *
  * @param root - Absolute project root.
- * @param options - `{ write, createdAt }`. `write` places each draft under the decisions
- *   directory, refusing to overwrite an existing file; `false` returns the text only.
+ * @param options - `{ write, createdAt, judgeFindings }`. `write` places each draft under the
+ *   decisions directory, refusing to overwrite an existing file; `false` returns the text only.
+ *   `judgeFindings` are the advisory `semantic_duplicate` findings a corpus review recorded,
+ *   translated by {@link semanticDuplicateFindings} and drafted through the SAME path as the
+ *   decidable rules. Default `[]` keeps the tool's own call judge-free.
  * @returns `{ ok, drafts, undraftable, problems, scanned }`. `ok` is true when the corpus was
  *   read and every reporting finding was drafted; `unusable` is set when nothing could be
  *   read. `writeIngested` is not used here because a resolution is a draft a caller may want
  *   to review first — the caller decides with `write`.
  */
-export function draftResolutions(root, { write = false, createdAt = null } = {}) {
+export function draftResolutions(root, { write = false, createdAt = null, judgeFindings = [] } = {}) {
   const manifest = readManifest(root)
   if (manifest.config === null || manifest.config.enabled !== true) {
     const problems = manifest.config === null
@@ -400,6 +467,10 @@ export function draftResolutions(root, { write = false, createdAt = null } = {})
   // withdrew is not reported as a duplicate for ever.
   const compiled = compileProject(root)
   const { scanned, duplicates } = findDuplicates(corpus.records, { removedLawIds: compiled.removedByDecision ?? [] })
+  // The advisory semantic findings join the decidable ones HERE, so both are drafted by the
+  // same loop and both report an undraftable finding with a reason rather than being dropped.
+  const semantic = semanticDuplicateFindings(corpus.records, judgeFindings)
+  const allDuplicates = [...duplicates, ...semantic]
   // A draft already on disk is found by its own `draftKey`, which every machine-produced
   // record carries. The read is from the PARSED corpus rather than from the filenames,
   // because the marker survives a human edit and a ratification: a draft somebody corrected
@@ -410,7 +481,7 @@ export function draftResolutions(root, { write = false, createdAt = null } = {})
       .filter((record) => record !== null && typeof record === 'object' && record.draft === true && typeof record.draftKey === 'string')
       .map((record) => [record.draftKey, record]),
   )
-  if (duplicates.length === 0) {
+  if (allDuplicates.length === 0) {
     return { ok: true, drafts: [], alreadyDrafted: [], undraftable: [], problems: [], scanned }
   }
 
@@ -422,7 +493,7 @@ export function draftResolutions(root, { write = false, createdAt = null } = {})
   const undraftable = []
   const problems = []
 
-  for (const duplicate of duplicates) {
+  for (const duplicate of allDuplicates) {
     const draftKey = duplicateDraftKey(duplicate)
     const existingDraft = draftedByKey.get(draftKey)
     if (existingDraft !== undefined) {

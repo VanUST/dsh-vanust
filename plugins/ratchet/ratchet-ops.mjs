@@ -923,6 +923,17 @@ export const CONTRADICTION_REVIEW_EVENT = 'ratchet.contradiction.reviewed'
 const CORPUS_REVIEW_JOBS = new Set(['review_corpus'])
 
 /**
+ * The jobs whose findings belong to the CORPUS rather than to one change.
+ *
+ * Their advisory findings are persisted (`advisoryFindings`) so the decisions view model can
+ * raise a `duplicate` or `deprecated` need long after the judge ran. `review_duplicates` is
+ * here but deliberately NOT in {@link CORPUS_REVIEW_JOBS}: a duplicates review finding
+ * something does not mean the corpus's contradictoriness has been reviewed, so it must not
+ * clear that staleness.
+ */
+const CORPUS_FINDING_JOBS = new Set(['review_corpus', 'review_duplicates'])
+
+/**
  * Reports whether the corpus's meaning has been reviewed for the law set now in force.
  *
  * The question this answers is deterministic, which is what lets the answer be reported by a
@@ -1213,6 +1224,7 @@ export async function review({
         validation: { ok: agenda.ok, findings: [], problems: agenda.problems },
         lawIds: context.lawIds,
         adrIds: context.adrIds,
+        specHash: context.bundle === null ? null : bundleHash(context.bundle),
       }),
       kind: 'ratchet/grill-agenda',
       agenda: {
@@ -1318,6 +1330,7 @@ export async function review({
     validation,
     lawIds: context.lawIds,
     adrIds: context.adrIds,
+    specHash: context.bundle === null ? null : bundleHash(context.bundle),
   })
   report.problems = [...report.problems, ...problems]
 
@@ -1335,6 +1348,17 @@ export async function review({
     // judge's answer was unusable: "somebody looked and the answer was unusable" and "nobody
     // looked" are different states, and the ledger has to be able to tell them apart.
     if (CORPUS_REVIEW_JOBS.has(job)) recordContradictionReview(root, bundleHash(context.bundle), job)
+    // The findings themselves, keyed by job and bound to the law set the judge read, so a
+    // duplicate or a retirement the judge named reaches a human through the decisions view
+    // model instead of dying with this report file (which the next review overwrites).
+    if (CORPUS_FINDING_JOBS.has(job)) {
+      state.recordAdvisoryFindings(root, {
+        job,
+        specHash: context.bundle === null ? null : bundleHash(context.bundle),
+        findings: report.findings,
+        at: report.generatedAt,
+      })
+    }
   }
 
   return {
@@ -3229,6 +3253,7 @@ export function submitReview({ root, job, verdict, record = true, change = null,
     validation,
     lawIds: context.lawIds,
     adrIds: context.adrIds,
+    specHash: context.bundle === null ? null : bundleHash(context.bundle),
   })
 
   if (record) {
@@ -3239,6 +3264,17 @@ export function submitReview({ root, job, verdict, record = true, change = null,
       verdictOk: report.verdictOk,
       findings: report.findings.length,
     })
+    // A self-review of the corpus persists its findings too, so the degraded path is not a
+    // second-class one: a duplicate or a retirement it names must reach a human exactly as an
+    // independent judge's would.
+    if (CORPUS_FINDING_JOBS.has(report.job)) {
+      state.recordAdvisoryFindings(root, {
+        job: report.job,
+        specHash: context.bundle === null ? null : bundleHash(context.bundle),
+        findings: report.findings,
+        at: report.generatedAt,
+      })
+    }
   }
 
   // A self-review may RAISE a block — an honest self-assessment that the change contradicts a

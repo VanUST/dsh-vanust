@@ -556,6 +556,21 @@ export function apply(ctx) {
      * it — a report that says "somebody should judge this" and no judgement — so a
      * compile now carries the review out itself.
      *
+     * TWO facts trigger the pass, and the second is what makes detection AUTOMATIC rather
+     * than something a developer remembers. The compiler asks for a judgement when it can
+     * prove a question needs one (`reviewRequired`); independently of that, a law set that no
+     * corpus review has read is a law set whose meaning nobody has looked at, and THAT fact is
+     * `result.contradictionReview.stale` — the field `contradictionReviewStatus` computes and
+     * the CLI prints as "contradiction detection: NOT RUN". It is deliberately a field rather
+     * than a problem code, so the trigger reads the field. Reviewing here is what clears the
+     * fact as part of the operation that created it.
+     *
+     * The pass runs TWO corpus jobs on the ONE judge: the corpus review (contradictions plus
+     * the ADVISORY question of which decision should be retired) and the semantic duplicate
+     * review. Both go through the same `spawnJudge`, so the per-session pool reuses one child
+     * for both turns — the point of the pool. No new job is added for the retirement question:
+     * it rides on `review_corpus`.
+     *
      * Three refusals are reported rather than passed over: the caller turned it off,
      * the composition has no judge, or the call did not come from a live root agent.
      * The third is the recursion guard, and it is the reason the result says
@@ -575,13 +590,10 @@ export function apply(ctx) {
      */
     const reviewWhenRequired = async (result, root, exec, enabled) => {
       const questions = Array.isArray(result?.reviewRequired) ? result.reviewRequired : []
-      // Two reasons to run the corpus review, and the second is what makes detection
-      // AUTOMATIC rather than something a developer remembers. The compiler asks for a
-      // judgement when it can prove a question needs one; independently of that, a law set
-      // that no corpus review has read is a law set whose meaning nobody has looked at, and
-      // `CONTRADICTION_DETECTION_STALE` is the deterministic fact the gate reports about it.
-      // Reviewing here is what clears that fact as part of the operation that created it.
-      const stale = (result?.problems ?? []).some((entry) => entry.code === 'CONTRADICTION_DETECTION_STALE')
+      // The real fact: whether any corpus review has recorded the law set this compile
+      // produced. `contradictionReview` is null when nothing compiled, in which case there is
+      // no law set to review and nothing to trigger.
+      const stale = result?.contradictionReview?.stale === true
       if (enabled !== true || (questions.length === 0 && !stale)) return result
 
       const rootCaller = isRootCaller(exec)
@@ -601,7 +613,12 @@ export function apply(ctx) {
       }
 
       const started = Date.now()
-      const outcome = await review({ root, job: 'review_corpus', spawnJudge, record: true })
+      // Two turns on the one pooled judge: the corpus review covers contradictions and the
+      // retirement question, and the duplicate review covers what only meaning reveals. Each
+      // records its findings so the decisions view model can raise `duplicate` and `deprecated`
+      // needs without the judge running again.
+      const corpus = await review({ root, job: 'review_corpus', spawnJudge, record: true })
+      const duplicates = await review({ root, job: 'review_duplicates', spawnJudge, record: true })
       // The review records which law set it read, so the staleness the caller was told about
       // is cleared by this very call. The compile's own verdict is NOT changed: the judge's
       // findings stay advisory, and it is the presence of a recorded review — not what it
@@ -615,13 +632,18 @@ export function apply(ctx) {
         dynamicReview: {
           ran: true,
           elapsedMs: Date.now() - started,
-          advisory: outcome.advisory === true,
-          gate: outcome.gate === true,
-          findings: outcome.findings ?? [],
-          problems: outcome.problems ?? [],
+          advisory: corpus.advisory === true && duplicates.advisory === true,
+          gate: corpus.gate === true || duplicates.gate === true,
+          // Every finding the pass produced, whichever job made it, so a caller reads one list.
+          findings: [...(corpus.findings ?? []), ...(duplicates.findings ?? [])],
+          problems: [...(corpus.problems ?? []), ...(duplicates.problems ?? [])],
+          jobs: {
+            review_corpus: { findings: corpus.findings ?? [], report: corpus.report ?? null },
+            review_duplicates: { findings: duplicates.findings ?? [], report: duplicates.report ?? null },
+          },
           questions,
           stale,
-          report: outcome.report ?? null,
+          report: corpus.report ?? null,
         },
         nextStep:
           'the corpus review is advisory; ratchet_verify is the gate, and it is the compile problems above that a task has to clear',
@@ -637,7 +659,9 @@ export function apply(ctx) {
           'amending an ADR, and before implementing anything a decision governs. It always records its ' +
           'report and the machine-readable spec bundle; pass write: true to also emit the generated spec ' +
           'documents. It reports SPEC_HASH_MISMATCH when a generated document was edited by hand. When the ' +
-          'compiler reports that a question needs judgement it also runs the corpus review and returns its ' +
+          'compiler reports that a question needs judgement, OR the law set it produced has no recorded corpus ' +
+          'review (`contradictionReview.stale`), it also runs the automatic corpus review — contradictions, the ' +
+          'question of which decision should be retired, and the semantic duplicate review — and returns its ' +
           'findings under dynamicReview, which is advisory and never changes the compile verdict.',
         parameters: {
           write: {
@@ -649,8 +673,9 @@ export function apply(ctx) {
           review: {
             type: 'boolean',
             description:
-              'Run the corpus review when the compiler reports that a question needs judgement. Default true; ' +
-              'set false to keep the compile purely static and pay no judge round trip.',
+              'Run the automatic corpus review when the compiler flags a question or the law set has no ' +
+              'recorded review. Default true; set false to keep the compile purely static and pay no judge ' +
+              'round trip.',
           },
         },
         output: output(),

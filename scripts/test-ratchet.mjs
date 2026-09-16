@@ -1729,6 +1729,11 @@ test('compile: the trigger is skippable, and a composition with no judge reports
   assert.equal(noJudgeResult.dynamicReview.ran, false)
   assert.match(noJudgeResult.dynamicReview.reason, /cannot spawn a judge/)
 
+  // A fresh corpus the compiler has no question about is STILL stale — no corpus review has
+  // ever read its law set — and the automatic pass now fires on that fact. Before the trigger
+  // read `contradictionReview.stale`, this case paid no judge and passed for the wrong reason:
+  // the exec object below was keyed `cleanAgent` instead of `agent`, so the project was never
+  // reached at all.
   const clean = makeProject({
     name: 'compile-trigger-clean',
     adrs: { '0001-a.adr.md': adrText({ id: '0001', zones: ['auth'], laws: [{ id: 'auth.one', statement: 'One.', checks: [] }] }) },
@@ -1736,9 +1741,151 @@ test('compile: the trigger is skippable, and a composition with no judge reports
   const cleanAgent = { id: 'agent-root', session: { header: { cwd: clean } } }
   const cleanHarness = stubJudgeHarness()
   const cleanDefs = mountPlugin({ ...cleanHarness.services, agents: { ...cleanHarness.services.agents, roots: () => [cleanAgent] } })
-  const cleanResult = await cleanDefs.get('ratchet_compile').execute({}, { cleanAgent })
-  assert.equal(cleanResult.dynamicReview, undefined, 'a corpus with nothing to judge pays no judge')
-  assert.equal(cleanHarness.spawned.length, 0)
+  const cleanResult = await cleanDefs.get('ratchet_compile').execute({}, { agent: cleanAgent })
+  assert.equal(cleanResult.dynamicReview.ran, true, 'a law set nobody reviewed triggers the automatic pass')
+  assert.equal(cleanResult.dynamicReview.stale, true, 'and the staleness is the fact that triggered it')
+  assert.equal(cleanHarness.spawned.length, 1, 'the pass pays for one judge')
+})
+
+test('compile: a law set no corpus review has read triggers the automatic pass, which clears the staleness', { skip: HARNESS_SKIP }, async () => {
+  // The DEAD TRIGGER this pins: `reviewWhenRequired` used to decide `stale` from a problem
+  // code (`CONTRADICTION_DETECTION_STALE`) that is emitted nowhere, so a compile with an empty
+  // `reviewRequired` and a stale `contradictionReview` spawned no judge at all. A corpus the
+  // compiler has no question about is exactly that case.
+  const root = cleanCorpusProject('compile-stale-trigger')
+  const before = ops.compile({ root })
+  assert.equal(before.reviewRequired.length, 0, 'the compiler has no question of its own')
+  assert.equal(before.contradictionReview.stale, true, 'and no corpus review has read its law set')
+
+  const harness = stubJudgeHarness()
+  const agent = { id: 'agent-root', session: { header: { cwd: root } } }
+  const defs = mountPlugin({ ...harness.services, agents: { ...harness.services.agents, roots: () => [agent] } })
+  const result = await defs.get('ratchet_compile').execute({}, { agent })
+
+  assert.equal(result.dynamicReview.ran, true, `expected the pass to run: ${JSON.stringify(result.dynamicReview)}`)
+  assert.equal(result.dynamicReview.stale, true, 'the staleness is what triggered it')
+  assert.deepEqual(
+    Object.keys(result.dynamicReview.jobs).sort(),
+    ['review_corpus', 'review_duplicates'],
+    'one automatic pass runs both corpus jobs',
+  )
+  // Two judge TURNS on ONE pooled judge: the corpus review creates it, the duplicate review
+  // travels as a follow-up on the same child.
+  assert.equal(harness.spawned.length, 1, 'two turns in one pass pay for one judge')
+  assert.equal(harness.sent.length, 1, 'the second job is a follow-up turn on the same judge')
+
+  // The review recorded the law set it read, so the fact that triggered the pass is cleared
+  // by the very call that created it.
+  const after = ops.compile({ root })
+  assert.equal(after.contradictionReview.stale, false, 'the recorded review clears the staleness')
+  assert.equal(after.contradictionReview.reviewed, true)
+
+  // ...and a later compile over the same law set pays no judge again.
+  const again = stubJudgeHarness()
+  const againDefs = mountPlugin({ ...again.services, agents: { ...again.services.agents, roots: () => [agent] } })
+  const second = await againDefs.get('ratchet_compile').execute({}, { agent })
+  assert.equal(second.dynamicReview, undefined, 'a law set with a recorded review is not reviewed again')
+  assert.equal(again.spawned.length, 0)
+})
+
+test('compile: review:false neither runs the automatic pass nor clears its trigger', { skip: HARNESS_SKIP }, async () => {
+  const root = cleanCorpusProject('compile-stale-off')
+  const harness = stubJudgeHarness()
+  const agent = { id: 'agent-root', session: { header: { cwd: root } } }
+  const defs = mountPlugin({ ...harness.services, agents: { ...harness.services.agents, roots: () => [agent] } })
+
+  const result = await defs.get('ratchet_compile').execute({ review: false }, { agent })
+  assert.equal(result.dynamicReview, undefined, 'review: false keeps the compile purely static')
+  assert.equal(harness.spawned.length, 0)
+  assert.equal(ops.compile({ root }).contradictionReview.stale, true, 'the fact that would have triggered the pass survives')
+})
+
+test('compile: a non-root caller reports the automatic pass unrun and spawns nothing', { skip: HARNESS_SKIP }, async () => {
+  const root = cleanCorpusProject('compile-stale-child')
+  const harness = stubJudgeHarness()
+  const agent = { id: 'agent-child', session: { header: { cwd: root } } }
+  // The same runtime, but the registry does not list this caller as a root — a spawned judge
+  // compiling from inside its own tool call.
+  const defs = mountPlugin({ ...harness.services, agents: { ...harness.services.agents, roots: () => [] } })
+  const result = await defs.get('ratchet_compile').execute({}, { agent })
+
+  assert.equal(result.dynamicReview.ran, false)
+  assert.match(result.dynamicReview.reason, /root/)
+  assert.equal(harness.spawned.length, 0, 'a judge cannot start a review of its own')
+  assert.equal(ops.compile({ root }).contradictionReview.stale, true, 'the trigger survives an unrun pass')
+})
+
+test('review: a semantic duplicate and a deprecated decision reach needsHuman as advisory kinds', { skip: HARNESS_SKIP }, async () => {
+  // Two records state one constraint in different words under different law ids: the
+  // deterministic command sees nothing, and only a judge can. The retirement finding is the
+  // second automatic question the corpus review asks.
+  const root = semanticDuplicateProject('advisory-needs')
+  // Write the generated specs first: a second compile of a project that tracks spec documents
+  // but has never emitted them is `SPEC_OUT_OF_DATE` for a reason unrelated to this test.
+  const before = ops.compile({ root, write: true })
+
+  const duplicateVerdict = {
+    ok: false,
+    findings: [
+      {
+        severity: 'error',
+        kind: 'semantic_duplicate',
+        lawId: 'auth.one',
+        lawQuote: 'Sessions must live in Redis.',
+        sourceAdr: '0002',
+        explanation: 'ADR 0002 restates the constraint ADR 0001 states',
+      },
+    ],
+  }
+  const duplicateReview = await ops.review({ root, job: 'review_duplicates', spawnJudge: async () => ({ structured: duplicateVerdict, output: '', stopReason: 'completed' }) })
+  assert.equal(duplicateReview.declined, false, 'a semantic duplicate is advisory, never a block')
+  assert.equal(duplicateReview.gate, false)
+  const deprecatedVerdict = {
+    ok: false,
+    findings: [
+      { severity: 'warning', kind: 'deprecated_decision', sourceAdr: '0002', explanation: 'ADR 0002 is restated by ADR 0001 and should be retired' },
+    ],
+  }
+  const deprecatedReview = await ops.review({ root, job: 'review_corpus', spawnJudge: async () => ({ structured: deprecatedVerdict, output: '', stopReason: 'completed' }) })
+  assert.equal(deprecatedReview.declined, false, 'a retirement finding is advisory, never a block')
+  assert.equal(deprecatedReview.gate, false)
+
+  const view = decisionsModule.deriveDecisions({ root })
+  const duplicate = view.needsHuman.find((need) => need.kind === 'duplicate')
+  const deprecated = view.needsHuman.find((need) => need.kind === 'deprecated')
+  assert.ok(duplicate, `expected a duplicate need, got ${JSON.stringify(view.needsHuman.map((need) => need.kind))}`)
+  assert.ok(deprecated, `expected a deprecated need, got ${JSON.stringify(view.needsHuman.map((need) => need.kind))}`)
+  assert.equal(deprecated.id, '0002', 'the deprecated need names the decision to retire')
+  assert.match(deprecated.action, /supersedes|op: remove/, 'the action names the retirement shape')
+  assert.equal(deprecated.draft, null, 'a retirement is a human act, so nothing is drafted for it')
+  // The duplicate either produced a draft or says why it could not; both are needs a human acts on.
+  assert.ok(duplicate.draft !== null || (duplicate.draftReason ?? '').length > 0)
+
+  // ADVISORY, never a gate: the compile's own verdict is unchanged by either finding.
+  const after = ops.compile({ root })
+  assert.equal(after.ok, before.ok)
+  assert.deepEqual(after.problems.map((entry) => entry.code), before.problems.map((entry) => entry.code))
+})
+
+test('decisions: the view cap counts a deprecated need like any other kind', () => {
+  const total = decisionsModule.MAX_STATE_NEEDS_PER_KIND + 3
+  const needs = Array.from({ length: total }, (_unused, index) => ({
+    kind: 'deprecated',
+    id: String(index).padStart(4, '0'),
+    title: 'a decision to retire',
+    path: null,
+    reason: 'the review says so',
+    action: 'supersede it',
+    draft: null,
+    draftReason: 'a retirement is a human act',
+  }))
+  const capped = decisionsModule.capDecisionsView({ records: [], specs: [], queue: { pending: [], blocked: [] }, needsHuman: needs, truncated: null })
+  assert.equal(capped.needsHuman.length, decisionsModule.MAX_STATE_NEEDS_PER_KIND, 'the per-kind ceiling applies to deprecated too')
+  const cut = capped.truncated?.needsHuman?.kinds ?? []
+  assert.ok(
+    cut.some((entry) => entry.kind === 'deprecated' && entry.total === total),
+    `a cut deprecated kind is named rather than dropped: ${JSON.stringify(cut)}`,
+  )
 })
 
 test('review tool: two reviews in one session reuse ONE judge and each sends its own change', { skip: HARNESS_SKIP }, async () => {
@@ -2269,6 +2416,55 @@ function reviewableProject(name) {
         authority: 'agent',
         zones: ['auth'],
         laws: [{ id: 'auth.proposed.thing', statement: 'A proposal.', checks: [] }],
+      }),
+    },
+  })
+}
+
+/**
+ * A corpus the compiler has NO question about: one law with no checks, so `reviewRequired` is
+ * empty. It is the fixture that isolates the staleness trigger, because the compiler-flagged
+ * trigger cannot fire on it.
+ */
+function cleanCorpusProject(name) {
+  return makeProject({
+    name,
+    adrs: {
+      '0001-a.adr.md': adrText({
+        id: '0001',
+        sourceHash: schema.hashSource(SOURCE_TEXT),
+        zones: ['auth'],
+        laws: [{ id: 'auth.one', statement: 'One.', checks: [] }],
+      }),
+    },
+  })
+}
+
+/**
+ * Two active decisions that state one constraint in different words under different law ids
+ * and cite different sources: the deterministic duplicate rules see nothing, so only a judge
+ * can report the semantic duplicate. `tests` is an `activeIfNoConflict` zone, so the drafter
+ * is not refused for a `humanOnly` reason and the finding is exercised on its own terms.
+ */
+function semanticDuplicateProject(name) {
+  const other = 'docs/ratchet/sources/2026-09-16-other.md'
+  const otherText = '# Other session\n\nSession state belongs in a Redis store rather than on disk.\n'
+  return makeProject({
+    name,
+    files: { [other]: otherText },
+    adrs: {
+      '0001-a.adr.md': adrText({
+        id: '0001',
+        zones: ['tests'],
+        sourceHash: schema.hashSource(SOURCE_TEXT),
+        laws: [{ id: 'auth.one', statement: 'Sessions must live in Redis.', checks: [] }],
+      }),
+      '0002-b.adr.md': adrText({
+        id: '0002',
+        zones: ['tests'],
+        sourcePath: other,
+        sourceHash: schema.hashSource(otherText),
+        laws: [{ id: 'auth.two', statement: 'Session state belongs in a Redis store rather than on disk.', checks: [] }],
       }),
     },
   })

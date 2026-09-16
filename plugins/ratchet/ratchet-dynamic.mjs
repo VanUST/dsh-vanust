@@ -89,7 +89,11 @@ export const REVIEW_JOBS = Object.freeze({
   review_corpus: {
     id: 'review_corpus',
     asks:
-      'Do any active decisions contradict each other in meaning, even where their laws do not collide textually?',
+      'Do any active decisions contradict each other in meaning, even where their laws do not collide textually? ' +
+      'Also name any active decision that should be RETIRED: either every law it declares has left force and it now ' +
+      'governs nothing, or a newer decision restates or supersedes what it decided so that keeping it is misleading. ' +
+      'Report a retirement as `deprecated_decision` naming the decision in `sourceAdr`, with the reason retirement is ' +
+      'warranted. These two questions are ADVISORY: name what you believe, and say so plainly rather than straining to find something.',
     needs: [],
   },
   /**
@@ -111,6 +115,33 @@ export const REVIEW_JOBS = Object.freeze({
 })
 
 /**
+ * The judgement vocabulary a finding's `kind` must come from.
+ *
+ * It is declared BEFORE {@link VERDICT_SCHEMA} so the schema's closed `kind` enum is built
+ * from the vocabulary itself rather than from a second list that could drift from it.
+ */
+export const FINDING_KINDS = Object.freeze([
+  'semantic_violation',
+  'intent_violation',
+  'insufficient_reasoning',
+  'incompatible_checks',
+  'incoherent_corpus',
+  'prose_law_mismatch',
+  // The advisory duplicate: two records that state one constraint in different words. It is
+  // deliberately NOT in `BLOCKING_FINDING_KINDS` — a duplicate is a question for a human to
+  // settle with a resolution, not a change that contradicts law in force — so a judge's
+  // duplicate finding is reported and never gates.
+  'semantic_duplicate',
+  // A decision that should be retired: every law it declares has left force, or a newer
+  // decision restates what it decided. Like `semantic_duplicate` this is ADVISORY and
+  // deliberately absent from `BLOCKING_FINDING_KINDS`: retiring a decision is a human act,
+  // and a model's belief that one is redundant must never fail a build. It reaches a human
+  // through the decisions view model's `deprecated` need, which names the retirement shape
+  // (`supersedes`, or `op: remove` plus a `resolves` list).
+  'deprecated_decision',
+])
+
+/**
  * The verdict shape a judge must return, as a JSON Schema.
  *
  * Object-rooted with `additionalProperties: false` and an explicit `required`
@@ -129,7 +160,10 @@ export const VERDICT_SCHEMA = Object.freeze({
         additionalProperties: false,
         properties: {
           severity: { type: 'string', enum: ['error', 'warning', 'note'] },
-          kind: { type: 'string' },
+          // Closed on purpose: a judge that invents a kind has produced an answer no
+          // downstream branch can classify, and `validateVerdict` refuses it. Building
+          // the enum from `FINDING_KINDS` keeps the prompt and the validator one list.
+          kind: { type: 'string', enum: [...FINDING_KINDS] },
           lawId: { type: 'string' },
           sourceAdr: { type: 'string' },
           /**
@@ -155,21 +189,6 @@ export const VERDICT_SCHEMA = Object.freeze({
   },
   required: ['ok', 'findings'],
 })
-
-/** The judgement vocabulary a finding's `kind` must come from. */
-export const FINDING_KINDS = Object.freeze([
-  'semantic_violation',
-  'intent_violation',
-  'insufficient_reasoning',
-  'incompatible_checks',
-  'incoherent_corpus',
-  'prose_law_mismatch',
-  // The advisory duplicate: two records that state one constraint in different words. It is
-  // deliberately NOT in `BLOCKING_FINDING_KINDS` — a duplicate is a question for a human to
-  // settle with a resolution, not a change that contradicts law in force — so a judge's
-  // duplicate finding is reported and never gates.
-  'semantic_duplicate',
-])
 
 /**
  * The shape of a grilling agenda: what a human must decide, and why.
@@ -893,12 +912,17 @@ export function buildReviewReport({
   lawIds = [],
   adrIds = [],
   at = null,
+  specHash = null,
 } = {}) {
   return {
     kind: DYNAMIC_REPORT_KIND,
     job,
     promptVersion,
     generatedAt: at ?? new Date().toISOString(),
+    // Which law set the judge read. A finding is only trusted while this still matches the
+    // compiled bundle, which is what stops a stale advisory from resurfacing against laws it
+    // never saw (see `draftNeedsHuman` and `buildNeedsHuman`).
+    specHash,
     judge: judge ?? { kind: 'none', reason: 'no judge was run' },
     advisory: true,
     gate: false,

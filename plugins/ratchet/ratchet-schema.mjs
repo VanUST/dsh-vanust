@@ -333,12 +333,13 @@ export const PROBLEM_CODES = Object.freeze({
   // verdict had been reached when in fact nothing was read.
   CODE_TEXT_SCOPE_EMPTY: 'a text check selected no file, so it was not evaluated and proves nothing',
   VERIFY_NOT_RUN: 'no verification report exists for the current spec hash',
-  // Not a verdict about the corpus, and deliberately not one: it says WHICH law set a
-  // contradiction review has actually read. "The judge found nothing" and "nobody ever
-  // looked" are different states, and without this code they report the same way — which is
-  // how a decision can be written that contradicts one in force and still pass every
-  // deterministic check.
-  CONTRADICTION_DETECTION_STALE: 'no contradiction review has run against the law set now in force',
+  // There was once a `CONTRADICTION_DETECTION_STALE` code here. It was declared and emitted
+  // nowhere, because the fact it named — "no corpus review has run against the law set now in
+  // force" — is deliberately carried as a FIELD (`contradictionReview`) rather than a problem:
+  // a status that is red on the first run of every new project, for a step that needs a model
+  // and a network, is a status people learn to ignore. The automatic review now reads that
+  // field directly (see `reviewWhenRequired` in `ratchet-tools.mjs`), so the code is gone
+  // rather than left as a declaration nothing can emit.
   VERIFY_NOTHING_EVALUATED: 'a verification ran but evaluated no check, so it proves nothing about the code',
   VERIFY_INCOMPLETE: 'a verification left checks unevaluated, so it is not a pass',
   VERIFICATION_FAILED: 'the most recent verification of the current laws reported problems',

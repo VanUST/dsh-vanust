@@ -35,6 +35,13 @@ export const STATE_PATHS = Object.freeze({
   compileReport: 'reports/ratchet/compile-report.json',
   verifyReport: 'reports/ratchet/verify-report.json',
   dynamicReport: 'reports/ratchet/dynamic-review.json',
+  // The ADVISORY findings a corpus review left behind, keyed by job and bound to the law set
+  // each judge read. It is separate from `dynamicReport` because two corpus jobs run in one
+  // automatic pass and the single report file can hold only the last one: a semantic
+  // duplicate the duplicate review found must not be overwritten by the corpus review that
+  // ran beside it. The decisions view model reads this to raise `duplicate` and `deprecated`
+  // needs, and nothing in the gate reads it at all.
+  advisoryFindings: 'reports/ratchet/advisory-findings.json',
 })
 
 /** Bundle format version for the persisted spec bundle. */
@@ -113,6 +120,85 @@ export function readSpecBundle(root) {
  */
 export function readState(root) {
   return readJsonArtifact(root, STATE_PATHS.state)
+}
+
+/**
+ * Reads the advisory findings the corpus reviews recorded, keyed by job.
+ *
+ * This artifact is the bridge from a judge's verdict to a human-facing need: `review` records
+ * each corpus job's findings here bound to the law set the judge read, and the decisions view
+ * model raises `duplicate` and `deprecated` needs from it. It decides nothing — a missing or
+ * unreadable artifact yields no jobs, never a throw — because it carries only ADVISORY facts.
+ *
+ * @param root - Absolute project root.
+ * @returns `{ ok, jobs }`. `jobs` maps a review job id to `{ at, specHash, findings }`. A
+ *   missing artifact is `ok: false` with no error — "nobody reviewed" is a state, not a
+ *   failure — while an artifact present but unreadable is reported with `error`.
+ */
+export function readAdvisoryFindings(root) {
+  const read = readJsonArtifact(root, STATE_PATHS.advisoryFindings)
+  if (read.missing === true) return { ok: false, jobs: {}, error: null }
+  if (read.value === undefined || read.value === null || typeof read.value !== 'object' || Array.isArray(read.value)) {
+    return { ok: false, jobs: {}, error: read.error ?? `${STATE_PATHS.advisoryFindings} holds no advisory-findings object` }
+  }
+  const jobs = read.value.jobs !== null && typeof read.value.jobs === 'object' && !Array.isArray(read.value.jobs) ? read.value.jobs : {}
+  return { ok: true, jobs, error: null }
+}
+
+/**
+ * The advisory findings whose recorded law set is the one now compiled.
+ *
+ * A judge's finding is only meaningful against the corpus it read, so entries whose
+ * `specHash` differs from the current bundle are skipped: the automatic pass will review the
+ * changed law set again and refresh them. An entry recorded before `specHash` was carried has
+ * no hash, so it is skipped too rather than trusted against an unknown law set.
+ *
+ * @param root - Absolute project root.
+ * @param specHash - The compiled bundle's hash, or null.
+ * @returns `{ findings, error }`. `findings` is a flat list, in job insertion order; a
+ *   missing or unreadable artifact yields `[]`. Never throws.
+ */
+export function advisoryFindingsFor(root, specHash) {
+  const read = readAdvisoryFindings(root)
+  const findings = []
+  for (const entry of Object.values(read.jobs ?? {})) {
+    if (entry === null || typeof entry !== 'object') continue
+    if (typeof specHash !== 'string' || specHash.length === 0 || entry.specHash !== specHash) continue
+    for (const finding of Array.isArray(entry.findings) ? entry.findings : []) findings.push(finding)
+  }
+  return { findings, error: read.error }
+}
+
+/**
+ * Records one review job's advisory findings, preserving every other job's.
+ *
+ * A read-modify-write rather than a replace, because the automatic pass runs two corpus jobs
+ * back to back and each must keep the other's findings. The job's own entry is always replaced,
+ * so a later review that found nothing clears what an earlier one found rather than reporting a
+ * fixed issue forever. Writes are reported, never thrown: a failed advisory write must not fail
+ * the review that produced it.
+ *
+ * @param root - Absolute project root.
+ * @param options - `{ job, specHash, findings, at }`. `specHash` is the hash of the law set the
+ *   judge read; a finding whose recorded hash does not match the current bundle is ignored
+ *   downstream. `findings` non-array contributes an empty list.
+ * @returns `{ written, job }` or `{ error }`. Never throws.
+ */
+export function recordAdvisoryFindings(root, { job, specHash = null, findings = [], at = null } = {}) {
+  if (typeof job !== 'string' || job.length === 0) return { error: 'an advisory-findings record needs a job id' }
+  const existing = readAdvisoryFindings(root)
+  const entryAt = at ?? new Date().toISOString()
+  const jobs = {
+    ...existing.jobs,
+    [job]: { at: entryAt, specHash, findings: Array.isArray(findings) ? findings : [] },
+  }
+  const aggregate = { kind: 'ratchet/advisory-findings', generatedAt: entryAt, jobs }
+  try {
+    writeArtifact(root, STATE_PATHS.advisoryFindings, `${JSON.stringify(aggregate, null, 2)}\n`)
+  } catch (error) {
+    return { error: String(error) }
+  }
+  return { written: STATE_PATHS.advisoryFindings, job }
 }
 
 /**

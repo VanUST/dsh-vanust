@@ -50,6 +50,10 @@
  *       is `{ id, path }` or null and `draftReason` says why no draft exists.
  *     - `staleNotes` — one `{ path, notePath, recorded, wanted, text, written, existed }` per
  *       stale generated document.
+ *     - `advisory` — `{ specHash, findings, error }`: the corpus reviews' advisory findings
+ *       whose recorded law set is the one now compiled. Only the `deprecated_decision` entries
+ *       are consumed downstream (as a `deprecated` need); the `semantic_duplicate` entries have
+ *       already been drafted or reported undraftable under `duplicates`.
  *     - `problems` — drafting failures, never the issues themselves.
  *   A non-string or empty `root`, or a project with no enabled ratchet, returns `{ ok:false,
  *   unusable:true, ... }` rather than throwing.
@@ -72,6 +76,7 @@ import { dirname, join } from 'node:path'
 import { createHash } from 'node:crypto'
 import {
   auditedResolutions,
+  bundleHash,
   compileLaws,
   compileProject,
   decidableContradictions,
@@ -82,7 +87,7 @@ import {
   zonesForRecord,
 } from './ratchet-compiler.mjs'
 import { draftResolutions } from './ratchet-dedupe.mjs'
-import { detectSpecDrift } from './ratchet-state.mjs'
+import { advisoryFindingsFor, detectSpecDrift } from './ratchet-state.mjs'
 import { existingAdrIds, nextAdrId, readSource, writeIngested } from './ratchet-ingest.mjs'
 import { hashSource } from './ratchet-schema.mjs'
 
@@ -540,6 +545,7 @@ export function draftNeedsHuman(root, { write = false, createdAt = null } = {}) 
     duplicates: { drafts: [], alreadyDrafted: [], undraftable: [], scanned: null },
     contradictions: { drafts: [], alreadyDrafted: [], undraftable: [], needs: [] },
     staleNotes: [],
+    advisory: { specHash: null, findings: [], error: null },
     problems: [],
   }
   if (typeof root !== 'string' || root.length === 0) {
@@ -552,12 +558,17 @@ export function draftNeedsHuman(root, { write = false, createdAt = null } = {}) 
   }
 
   // Duplicates: the rule and the draft live in `ratchet-dedupe.mjs`, so this call is the whole
-  // of the duplicate half and there is no second copy of the duplicate rule here.
-  const duplicates = draftResolutions(root, { write, createdAt })
+  // of the duplicate half and there is no second copy of the duplicate rule here. The advisory
+  // `semantic_duplicate` findings a corpus review recorded are passed WITH the decidable ones,
+  // so a duplicate only meaning reveals is drafted through the same path when the verdict named
+  // enough to draft it and reported undraftable with the reason when it did not.
+  const compiled = compileProject(root)
+  const specHash = compiled.bundle === null ? null : bundleHash(compiled.bundle)
+  const advisory = advisoryFindingsFor(root, specHash)
+  const duplicates = draftResolutions(root, { write, createdAt, judgeFindings: advisory.findings })
 
   const corpus = readAdrCorpus(root, config)
   const resolved = resolveActiveSet(corpus.records, config)
-  const compiled = compileProject(root)
   const resolutions = auditedResolutions(corpus.records, {
     active: resolved.active,
     removedByDecision: compiled.removedByDecision ?? [],
@@ -586,6 +597,11 @@ export function draftNeedsHuman(root, { write = false, createdAt = null } = {}) 
     },
     contradictions,
     staleNotes,
+    // The advisory corpus findings, bound to the law set they were recorded against. The
+    // decisions view model reads `deprecated_decision` entries from here to raise a
+    // `deprecated` need; the duplicate entries have already become drafts or undraftable
+    // findings above, so the two paths never report one finding twice.
+    advisory: { specHash, findings: advisory.findings, error: advisory.error },
     problems: [...(duplicates.problems ?? []), ...contradictions.problems],
   }
 }

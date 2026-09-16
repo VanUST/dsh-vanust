@@ -87,8 +87,11 @@ The fifth decision, **`scripts/verify-upgrade.sh` runs `ratchet verify` and `fal
 the skip it is while still failing on a `[FAIL]`, an unknown skip, or a missing success marker.
 
 ## 4. Known limitations of the mechanisms themselves
-- **Semantic duplicates are advisory only.** A duplicate that only meaning reveals is a judge report;
-  the deterministic command cannot see it, and nothing forces anyone to answer it.
+- **Semantic duplicates are advisory only, but are now detected automatically.** A duplicate that only
+  meaning reveals is a judge report; the deterministic command cannot see it. The automatic pass that a
+  stale law set triggers runs the semantic duplicate review as well as the corpus review, and the
+  finding reaches the decisions view model as a `duplicate` need — but nothing forces anyone to answer
+  it, and it never fails a build.
 - **A re-ingestion that renames every law id escapes duplicate detection.** The deterministic rule
   reports a shared source only when the records also share a law id, because reading it literally
   would have failed this kit's own corpus and forbidden batch extraction.
@@ -220,3 +223,42 @@ Residual limits of this work, stated plainly:
 4. Then §3.2–§3.4 in the order they are listed.
 5. §4's zone-coverage rule is landed: `scripts/check-zone-coverage.mjs` plus the manifest's explicit
    `zoneCoverage.exceptions`, wired into `verify-upgrade.sh`.
+
+## 8. The automatic corpus review actually fires now (2026-09-17, ratchet 0.2.61)
+
+**The dead trigger, reproduced before the fix.** `plugins/ratchet/ratchet-tools.mjs`'s
+`reviewWhenRequired` decided `stale` from `result.problems.some(e => e.code ===
+'CONTRADICTION_DETECTION_STALE')`, but that code was declared in `ratchet-schema.mjs` and emitted
+NOWHERE. On a scratch project whose compile had `reviewRequired.length === 0` and
+`contradictionReview.stale === true` — a law set no review has ever read — the compile spawned no
+judge and returned `dynamicReview: undefined`. The real fact is the field
+`result.contradictionReview.stale`, computed by `contradictionReviewStatus` and printed by the CLI as
+"contradiction detection: NOT RUN for these laws".
+
+**The fix.**
+1. The trigger reads `result?.contradictionReview?.stale === true`, alongside the existing
+   `reviewRequired` trigger. The never-emitted `CONTRADICTION_DETECTION_STALE` code was REMOVED from
+   the vocabulary rather than left declared for a comment to claim: the fact is deliberately a field,
+   not a problem, because a status that is red on every new project cannot be cleared without a judge.
+2. One automatic pass now runs TWO corpus jobs on the ONE pooled judge: `review_corpus`
+   (contradictions plus the new ADVISORY question of which decision should be retired) and
+   `review_duplicates` (semantic restatements, previously reachable only by an explicit call). No new
+   job was added for the retirement question. Two judge turns in one pass reuse the same judge child.
+3. `review()` and `submitReview()` persist the corpus jobs' findings to
+   `reports/ratchet/advisory-findings.json`, keyed by job and bound to the spec hash the judge read.
+   `draftNeedsHuman` translates `semantic_duplicate` findings into its drafting path, and
+   `ratchetDecisions.deriveDecisions` raises a `duplicate` need (with a drafted resolution id/path or a
+   `draftReason`) and a new `deprecated` need whose `action` names the retirement shape (`supersedes`,
+   or `op: remove` plus a `resolves` list). Both are ADVISORY: only `semantic_violation` /
+   `intent_violation` naming a law can block, so neither changes a compile or verify verdict.
+4. The panel needed no edit: `deprecated` falls into its generic non-decision grouping, renders in the
+   neutral tone, and the per-kind cap counts it like any other kind.
+
+**Residual limits.** The retirement question is a judge report; the ratchet drafts no retirement
+record, because superseding a whole decision is a human act — the `deprecated` need names the shape
+and stops. A semantic duplicate can usually only be reported, not drafted, because the verdict names
+at most one law and one ADR and the losing side's law is not decidable from that; such a finding
+lands as a `duplicate` need with a `draftReason` saying so. `reviewWhenRequired` still refuses to
+spawn from a non-root caller and still honours `review: false`; a composition with no judge reports
+`ran: false` with the reason. A stale tarball (until the next repack) makes `check-portability`
+report `tarball:matches-source` because `package.json` was bumped to 0.2.61 without packing.

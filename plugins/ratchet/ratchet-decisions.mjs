@@ -58,15 +58,19 @@
  *     - `drift` — the `detectSpecDrift` result for those documents.
  *     - `needsHuman` — the ONE derived set of things a human must settle, each
  *       `{ kind, id, title, path, reason, action, draft, draftReason }` with `kind` one of
- *       `consent`, `contradiction`, `duplicate`, `stale-spec`, `red-gate`. Every entry is the
- *       ratchet's own fact, copied or shaped, never a second rule: consents from
- *       `ratificationQueue.pending`, and contradictions, duplicates and stale specs from the
+ *       `consent`, `contradiction`, `duplicate`, `deprecated`, `stale-spec`, `red-gate`. Every
+ *       entry is the ratchet's own fact, copied or shaped, never a second rule: consents from
+ *       `ratificationQueue.pending`; contradictions, duplicates and stale specs from the
  *       ONE drafting pass `draftNeedsHuman(root, { write:false })` runs — the same pass
- *       `ratchet compile` invokes to place the drafts. `draft` is the drafted id and path (or
- *       null) and `draftReason` says why no draft exists when there is none, so the window can
- *       send the human straight to the draft. The red gate comes from the persisted verify
- *       report/state read with `readJsonArtifact` and `readState`. When a finding has no draft
- *       behind it, `action` says so rather than naming one that does not exist.
+ *       `ratchet compile` invokes to place the drafts; and deprecations from that pass's
+ *       `advisory` findings, which a corpus review persisted bound to the law set it read. A
+ *       semantic duplicate (a restatement no text comparison sees) reaches this set through the
+ *       same `duplicate` kind, because `draftNeedsHuman` translates the review's advisory
+ *       `semantic_duplicate` findings into the drafting path. `draft` is the drafted id and
+ *       path (or null) and `draftReason` says why no draft exists when there is none, so the
+ *       window can send the human straight to the draft. The red gate comes from the persisted
+ *       verify report/state read with `readJsonArtifact` and `readState`. When a finding has no
+ *       draft behind it, `action` says so rather than naming one that does not exist.
  *     - `drafting` — the same `draftNeedsHuman` result, shaped for display: the duplicate and
  *       contradiction drafts (written or computed) and the stale notes, with their ids and paths.
  *     - `problems` — every problem the manifest, the corpus and the queue reported,
@@ -401,12 +405,14 @@ function redGateNeed(root, currentSpecHash) {
  *     is NOT in it — a consent — comes from the queue above.
  *
  * OUTPUTS
- *   An array, ordered consents, contradictions, duplicates, stale specs, red gate.
- *   Each entry is `{ kind, id, title, path, reason, action, draft, draftReason }`, `kind` one
- *   of the five names. `draft` is `{ id, path }` when the ratchet drafted a settlement for the
- *   issue and null otherwise; `draftReason` says why no draft exists when it does not (null
- *   when one does). An empty project yields `[]`. Never throws: a guard, drafter or artifact
- *   read that fails contributes no entry rather than an exception.
+ *   An array, ordered consents, contradictions, duplicates, deprecated decisions, stale specs,
+ *   red gate. Each entry is `{ kind, id, title, path, reason, action, draft, draftReason }`,
+ *   `kind` one of the six names. `draft` is `{ id, path }` when the ratchet drafted a
+ *   settlement for the issue and null otherwise; `draftReason` says why no draft exists when
+ *   it does not (null when one does). A deprecated decision never carries a draft: retiring a
+ *   decision is a human act, so its `action` names the retirement shape. An empty project
+ *   yields `[]`. Never throws: a guard, drafter or artifact read that fails contributes no
+ *   entry rather than an exception.
  *
  * KEYWORDS
  *   needs a human, consent, contradiction, duplicate, stale spec, red gate, entry point,
@@ -488,6 +494,37 @@ function buildNeedsHuman(root, records, queue, drift, currentSpecHash, drafted) 
         draftReason: undraftable.reason ?? null,
       })
     }
+  }
+
+  // (3b) A decision the corpus review says should be RETIRED: every law it declares has left
+  // force, or a newer decision restates what it decided. This is the advisory `deprecated`
+  // kind. It is deliberately not a gate — the judge's belief that a decision is redundant is
+  // advice — and the ratchet drafts nothing for it: retiring a decision is a human act, so the
+  // `action` names the retirement shapes the lifecycle already has (`supersedes`, or `op:
+  // remove` plus a `resolves` list). The findings come from the corpus review's persisted
+  // advisory set, bound to the law set it read; a finding about another law set is skipped by
+  // `draftNeedsHuman` before it reaches here.
+  const deprecatedSeen = new Set()
+  for (const finding of drafted?.advisory?.findings ?? []) {
+    if (finding === null || typeof finding !== 'object' || finding.kind !== 'deprecated_decision') continue
+    const adrId = typeof finding.sourceAdr === 'string' && finding.sourceAdr.length > 0 ? finding.sourceAdr : null
+    if (adrId !== null && deprecatedSeen.has(adrId)) continue
+    if (adrId !== null) deprecatedSeen.add(adrId)
+    needs.push({
+      kind: 'deprecated',
+      id: adrId ?? (typeof finding.lawId === 'string' && finding.lawId.length > 0 ? finding.lawId : 'deprecated'),
+      title: adrId === null ? 'a decision the review says should be retired' : titleOf(records, adrId) ?? adrId,
+      path: adrId === null ? null : pathOf(records, adrId),
+      reason: typeof finding.explanation === 'string' && finding.explanation.trim().length > 0
+        ? finding.explanation
+        : 'the corpus review reports this decision should be retired',
+      action:
+        adrId === null
+          ? 'retire the decision the review names: write a record that supersedes it, or that removes its laws with an op: remove and a resolves list; the ratchet drafts no retirement of its own'
+          : `retire ADR ${adrId}: write a new decision carrying \`supersedes: ["${adrId}"]\`, or one that removes each of its laws with an op: remove and a resolves list naming ${adrId}; the ratchet drafts no retirement of its own, because retiring a decision is a human act`,
+      draft: null,
+      draftReason: 'the ratchet drafts nothing for a retirement — the action is the human-authored record that supersedes the decision or removes its laws',
+    })
   }
 
   // (4) A generated specification that no longer matches. A STALE one is advisory and carries
