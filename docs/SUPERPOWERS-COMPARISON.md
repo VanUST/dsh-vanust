@@ -154,9 +154,40 @@ provisional; and that a check whose assertion is a test *name* is not evidence. 
 deterministic half already exists; proposal 1 gives the behavioural half. This is the
 cheapest behavioural improvement in the set.
 
+**4. A test-workflow rule: tests verify product behaviour, not shape.** Superpowers'
+`writing-good-tests` states two principles — every test names the break it catches, and
+every test exercises the real thing — and then names the shapes that violate them: a
+*change detector* (`expect(MAX_RETRIES).toBe(5)`), a *mirror assertion* whose expected
+value is computed by the code under test (`expect(build(x)).toBe(build(x))`), an
+assertion that only proves the mock exists or was called, and tests of constructors,
+getters or constants that validate, normalize, derive or enforce nothing. The kit has
+no rule about tests at all: its own suite is behavioural (`assert.equal(typeof
+result.problems[0].code, 'string')` on a real return value), but nothing stops a test
+that only asserts an export has a method — `assert.equal(typeof bundle.apply,
+'function')`, `'field' in object`, `Object.keys(fixture)`, `toHaveProperty`.
+
+Addition, in two halves:
+
+- **The deterministic half** is a lint, `scripts/check-test-quality.mjs`, bound to a
+  law. It scans the test files (`scripts/test-*.mjs`, `plugins/*/test-*.mjs`) and
+  reports: a structural assertion whose subject is a module or fixture binding whose
+  property is never *called* in the same test; a test whose only assertions are about a
+  mock or fake; a mirror assertion; and a test file that never calls an exported product
+  symbol. It is a heuristic and must say so — an explicit exception list, an `[SKIP]`
+  when a file cannot be parsed, and a finding reported per test with the file and line,
+  never a silent pass. Run it in report mode over the existing suite before it becomes
+  a gate, because turning the kit's own gate red on pre-existing tests is a change the
+  human should see.
+- **The process half** is the drill from proposal 1: the scenario gives the child a
+  failing product and a `claim_complete` tool, and asserts the child ran the suite and
+  saw it fail before writing product code — the tool order is deterministic, so no
+  judge is needed. `ratchet falsify` already supplies the mutation check at gate scope:
+  it mutates a guarantee and requires a command to fail, which is exactly "name the
+  break the test catches" applied to the laws themselves.
+
 ### Tier 2 — the missing execution layer (adds an artifact or a protocol; needs a decision)
 
-**4. A plan artifact with a lint.** Superpowers writes implementation plans to
+**5. A plan artifact with a lint.** Superpowers writes implementation plans to
 `docs/superpowers/plans/YYYY-MM-DD-<topic>.md`: bite-sized 2–5 minute steps, the exact
 file paths and the exact code, the test that proves each step, no placeholders, a
 self-review pass, then a separate plan-document reviewer. The kit's `context_specs`
@@ -170,7 +201,7 @@ collision `context_specs` detects for work orders. A law binds the command. Cost
 more artifact class; benefit: write-scope is decided before the edit and two agents can
 no longer land on the same file.
 
-**5. The brainstorming approval gate, folded into §6/§7.** Superpowers classifies every
+**6. The brainstorming approval gate, folded into §6/§7.** Superpowers classifies every
 request as spike / bounded / architectural, announces the classification so the human
 can override it, and **never implements before an explicit approval** — the artifact
 scales with the task (two sentences in chat for a bounded change), the gate does not.
@@ -181,7 +212,7 @@ has no gate at all. Addition: adopt the three paths and make the approval gate
 universal, using the ADR for the architectural artifact rather than inventing a second
 spec format. Fold into §6, do not add a file.
 
-**6. Systematic debugging as a bug-work rule.** Four phases — root cause, pattern,
+**7. Systematic debugging as a bug-work rule.** Four phases — root cause, pattern,
 hypothesis, implementation — with the Iron Law "no fixes without root cause
 investigation first", a single-hypothesis minimal test, and a hard stop when a third
 fix fails: at that point the architecture is wrong, not the hypothesis. §10's breaker is
@@ -190,7 +221,7 @@ supporting techniques — backward data-flow tracing, defense in depth, conditio
 waiting instead of timeouts). Enforcement is proposal 1 only; say so rather than
 implying a check exists.
 
-**7. A subagent review protocol.** Superpowers dispatches a fresh implementer per
+**8. A subagent review protocol.** Superpowers dispatches a fresh implementer per
 task, reviews each task in two stages (*spec compliance* first, then *code quality*),
 takes findings triaged Important/Minor, runs bounded fix rounds, and finishes with one
 broad whole-branch review. It also fixes the facts the kit relies on: multiple
@@ -201,17 +232,17 @@ against the plan's declared scope before a quality pass, `ratchet_review` as the
 quality judge, and a cap on fix rounds. Enforcement: partially deterministic (a review
 verdict is a machine-readable record), partially proposal 1.
 
-**8. Worktree isolation per workstream.** Superpowers creates a git worktree per
+**9. Worktree isolation per workstream.** Superpowers creates a git worktree per
 branch so concurrent agents cannot touch each other's tree; it is a documented skill
 precisely because parallel agents collide otherwise. This kit already hit that failure
 — two subagents racing on `pack-plugin.mjs` and `package.json`, resolved by serialising
 the repacks — and the mitigation was manual. Addition: either the worktree rule or the
-`check-plan.mjs` overlap refusal from proposal 4. The overlap check is the cheaper half
+`check-plan.mjs` overlap refusal from proposal 5. The overlap check is the cheaper half
 and the one that matches the kit's existing vocabulary.
 
 ### Tier 3 — contribution discipline (borrow nearly verbatim, low cost)
 
-**9. How a change is proposed.** Superpowers' `CLAUDE.md` is a contribution contract an
+**10. How a change is proposed.** Superpowers' `CLAUDE.md` is a contribution contract an
 agent must read before opening a PR, and it is unusually specific because its failure
 costs a human reputation: search the existing attempts first (open *and* closed);
 verify the problem is real before fixing it; one problem per change; no bundled
@@ -223,7 +254,7 @@ Addition: a short "how a change is proposed and landed" section — the diff is 
 the human before it lands, unrelated changes are split, and an agent-authored
 contribution says so.
 
-**10. Voice.** "Your human partner" is deliberate in Superpowers and it changes how the
+**11. Voice.** "Your human partner" is deliberate in Superpowers and it changes how the
 approval gate reads; it is more legible than "the user" for a rule that only works if
 the agent treats the human as a party to the change rather than an input. Minor, and
 optional.
@@ -250,27 +281,57 @@ optional.
 
 ## 5. Recommendation
 
-Do **1, 2 and 3** first. They are cheap, they close gaps the kit itself reports, and 1
+Do **1, 2, 3 and 4** first. They are cheap, they close gaps the kit itself reports, and 1
 is the only way the kit can honestly claim that a prompt rule like §8 or §9 is enforced.
-Add **6 and 7** as rule sections with drill coverage, since they cost only prose and
-their enforcement story is already stated. Hold **4, 5 and 8** for a decision: they add
-an artifact class or a layer and should be ratified rather than slipped in. Take **9**
-as a small edit and **10** only if the wording settles.
+Add **7 and 8** as rule sections with drill coverage, since they cost only prose and
+their enforcement story is already stated. Hold **5, 6 and 9** for a decision: they add
+an artifact class or a layer and should be ratified rather than slipped in. Take **10**
+as a small edit and **11** only if the wording settles.
 
 Two properties must survive whatever is adopted: a drill is a release-gate probe and
 never a law `checks` entry (it needs a model and a port), and every rule that gains a
 table also gains the drill entry that proves the table names a real dodge.
 
-## 6. Grounding (as of this reading)
+## 6. Implementability — the seams this rests on
+
+Every proposal above was checked against a capability the kit has already measured, so
+none of it needs a new harness fact:
+
+- **Spawn a child and read its verdict.** `ctx.subagents.start('spawn', {label,
+  prompt, parent, signal, outputSchema})` runs a real child and returns `output` and
+  `structured`; `run.dispose()` reaches quiescence. Measured 2.4–6.5 s per child and
+  **6/6 facts** under `node scripts/probe-dsh-api.mjs --probe-judge`
+  (`docs/RATCHET-API-FACTS.md` §3.3, §6).
+- **Control the injected rules.** `--kit-rules` already builds two scratch homes, writes
+  an arbitrary `$DSH_HOME/AGENTS.md` into each, applies the shipped plugin and asserts
+  the exact text reaches the assembled prompt by nonce. RED is therefore "the real
+  `rules/AGENTS.md` minus the section under test"; GREEN is the file unchanged. This is
+  the mechanism that makes the drill a *differential* test rather than a mood.
+- **Observe an action deterministically.** The drill's probe plugin registers the tools
+  the rule governs — `delegate(task, model)`, `run_shell(cmd)`, `remote_exec(target,
+  mutation)`, `claim_complete(evidence)` — and each body appends one JSON line to a
+  journal. The verdict is read from the journal, so the assertion is on what the child
+  *did*, not on what it said; the model id, the shell command and the tool order are all
+  deterministic. This is why the drill can cover TDD order and claim discipline without
+  a judge.
+- **Where it runs.** `scripts/verify-upgrade.sh`, which already runs the non-hermetic
+  probes and accepts documented `[SKIP]` lines. Credentials are required and the drill
+  is skipped — never passed — without them.
+- **Its honest limit.** A RED run may fail to elicit the violation, exactly as
+  `ratchet falsify` may report `missed`. That is useful information (the scenario does
+  not tempt the agent, so it proves nothing) and must be reported, not swallowed. A
+  drill is evidence about a prompt under one scenario, not proof of compliance.
+
+## 7. Grounding (as of this reading)
 
 - `context_rules` reports **11 enforced, 2 pending**: `flash-only-models` and
   `pin-the-harness`, each with an unbuilt check named. These are the concrete targets of
   proposal 1.
 - The kit's injected rules are `rules/AGENTS.md` §0–§10; §0a already states the kit's
-  usage and how a project is organised against the ratchet. Proposals 2, 3, 5, 6, 7 and
-  9 are edits to that file, not new files.
+  usage and how a project is organised against the ratchet. Proposals 2, 3, 4, 6, 7, 8
+  and 10 are edits to that file, not new files.
 - Work orders already carry write paths and a completion command via the
-  `context_specs` tool; proposal 4 is the authoring format and lint for what they
+  `context_specs` tool; proposal 5 is the authoring format and lint for what they
   describe.
 - The generated law cards under `docs/specs/` are machine-written; a plan artifact must
   live elsewhere (`docs/plans/`), or `ratchet compile --write` and the plan lint will
