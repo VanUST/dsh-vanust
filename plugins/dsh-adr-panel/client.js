@@ -329,7 +329,7 @@ window.__ModuleLoader__.load({
 		 * are equal again after a release and the constant is one ahead only in the working
 		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.33";
+		const PANEL_VERSION = "0.1.34";
 		/** Directories used when the host view reports none. */
 		const DEFAULT_DECISIONS_DIR = "docs/adrs";
 		const DEFAULT_SPECS_DIR = "docs/specs";
@@ -1285,16 +1285,35 @@ window.__ModuleLoader__.load({
 			var draft = entry.draft !== null && entry.draft !== undefined && typeof entry.draft === "object"
 				? { id: entry.draft.id === undefined ? null : entry.draft.id, path: entry.draft.path === undefined ? null : entry.draft.path }
 				: null;
-			return {
+			var adapted = {
 				kind: typeof entry.kind === "string" ? entry.kind : "unknown",
 				id: entry.id === null || entry.id === undefined ? "" : String(entry.id),
 				title: typeof entry.title === "string" ? entry.title : "",
 				path: typeof entry.path === "string" && entry.path !== "" ? entry.path : null,
 				reason: typeof entry.reason === "string" ? entry.reason : "",
-				action: typeof entry.action === "string" ? entry.action : "",
-				draft: draft,
-				draftReason: typeof entry.draftReason === "string" ? entry.draftReason : null
+				action: typeof entry.action === "string" ? entry.action : ""
 			};
+			// The ratchet's own problem list, copied field by field so a card can name what is
+			// wrong and the decision that governs it. The keys are added ONLY when the ratchet
+			// emitted them, so an entry without them keeps the exact shape the service produced
+			// — this adapter passes the set through, it does not extend it.
+			if (Object.prototype.hasOwnProperty.call(entry, "problems")) {
+				adapted.problems = (Array.isArray(entry.problems) ? entry.problems : []).map(function (problem) {
+					if (problem === null || problem === undefined || typeof problem !== "object") return null;
+					return {
+						code: typeof problem.code === "string" ? problem.code : null,
+						lawId: typeof problem.lawId === "string" ? problem.lawId : null,
+						adrId: typeof problem.adrId === "string" && problem.adrId !== "" ? problem.adrId : null,
+						message: typeof problem.message === "string" ? problem.message : null
+					};
+				}).filter(function (problem) { return problem !== null; });
+				adapted.problemCount = typeof entry.problemCount === "number" ? entry.problemCount : null;
+			}
+			// Added last to keep the key order the service used, so "passes the set through
+			// unchanged" stays a string equality rather than a set comparison.
+			adapted.draft = draft;
+			adapted.draftReason = typeof entry.draftReason === "string" ? entry.draftReason : null;
+			return adapted;
 		}
 		/**
 		 * Load the whole catalogue for one Session from the ratchet's view model.
@@ -2098,12 +2117,24 @@ window.__ModuleLoader__.load({
 			var drafted = need.draft === null || need.draft === undefined
 				? null
 				: (need.draft.id === null || need.draft.id === "" ? "" : need.draft.id + " ") + (need.draft.path === null ? "" : need.draft.path);
+			var problems = Array.isArray(need.problems) ? need.problems : [];
+			var problemRows = problems.map(function (problem, index) {
+				return React.createElement("div", { key: "problem" + index, style: { display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap" } },
+					problem.code === null ? null : pill(problem.code, "neutral"),
+					problem.lawId === null ? null : React.createElement("span", { style: mutedInlineStyle() }, problem.lawId),
+					problem.message === null ? null : React.createElement(HashedText, { style: { fontSize: 12, lineHeight: "18px" }, text: problem.message }),
+					problem.adrId === null ? null : React.createElement("button", { type: "button", style: smallButtonStyle(), onClick: function () { props.onSelectAdr(problem.adrId); } }, "Open " + problem.adrId));
+			});
 			return React.createElement("div", { style: cardStyle() },
 				React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap" } },
 					pill(need.kind + " " + need.id, needsKind(need)),
 					need.title === "" ? null : React.createElement("span", { style: { fontSize: 12, fontWeight: 600 } }, need.title),
 					need.path === null ? null : React.createElement("span", { style: mutedInlineStyle() }, need.path)),
 				need.reason === "" ? null : React.createElement(HashedText, { style: { fontSize: 12, marginTop: 4, lineHeight: "18px" }, text: need.reason }),
+				problemRows.length === 0 ? null : React.createElement("div", { style: { display: "grid", gap: 4, marginTop: 4 } }, problemRows),
+				need.problemCount !== null && need.problemCount !== undefined && need.problemCount > problems.length
+					? React.createElement("div", { style: mutedInlineStyle() }, "showing " + problems.length + " of " + need.problemCount + " problems; the rest are in the report")
+					: null,
 				drafted === null ? null : React.createElement("div", { style: mutedInlineStyle() }, "drafted: " + drafted),
 				need.draftReason === null || need.draftReason === undefined ? null : React.createElement(HashedText, { style: mutedInlineStyle(), text: need.draftReason }),
 				need.action === "" ? null : React.createElement(HashedText, { style: ctaNoteStyle(), text: need.action }),

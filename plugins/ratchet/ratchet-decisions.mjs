@@ -345,13 +345,25 @@ function pathOf(records, id) {
  * KEYWORDS
  *   red gate, verify report, verify state, verification status, artifact fact
  */
-function redGateNeed(root, currentSpecHash) {
+function redGateNeed(root, currentSpecHash, lawDecider) {
   const reportPath = STATE_PATHS.verifyReport
   const report = readJsonArtifact(root, reportPath)
   const reportProblems =
     report.value !== undefined && report.value !== null && Array.isArray(report.value.problems) ? report.value.problems : null
   if (reportProblems !== null && reportProblems.length > 0) {
     const count = reportProblems.length
+    // The count alone told a human the gate was red and nothing else: the card offered no
+    // option and the report path was the only lead. Each problem is carried with the record
+    // that decided its law, so the window can point at what to change instead of at a file.
+    const problems = reportProblems.slice(0, MAX_RED_GATE_PROBLEMS).map((problem) => {
+      const lawId = typeof problem?.lawId === 'string' ? problem.lawId : null
+      return {
+        code: typeof problem?.code === 'string' ? problem.code : null,
+        lawId,
+        adrId: lawId === null || lawDecider === null ? null : lawDecider.get(lawId) ?? null,
+        message: typeof problem?.message === 'string' ? problem.message.slice(0, 400) : null,
+      }
+    })
     return {
       kind: 'red-gate',
       id: 'verify',
@@ -359,6 +371,8 @@ function redGateNeed(root, currentSpecHash) {
       path: reportPath,
       reason: `${reportPath} records ${count} problem${count === 1 ? '' : 's'} from the last verification`,
       action: `read ${reportPath}, fix what it names, and re-run "ratchet verify"`,
+      problems,
+      problemCount: count,
     }
   }
   const state = readState(root)
@@ -420,7 +434,7 @@ function redGateNeed(root, currentSpecHash) {
  *   needs a human, consent, contradiction, duplicate, stale spec, red gate, entry point,
  *   drafted path, draft identity
  */
-function buildNeedsHuman(root, records, queue, drift, currentSpecHash, drafted) {
+function buildNeedsHuman(root, records, queue, drift, currentSpecHash, drafted, lawDecider) {
   const needs = []
   const asDraft = (value) =>
     value === null || value === undefined || typeof value !== 'object'
@@ -603,7 +617,7 @@ function buildNeedsHuman(root, records, queue, drift, currentSpecHash, drafted) 
   }
 
   // (5) The red gate, read from the persisted artifacts.
-  const red = redGateNeed(root, currentSpecHash)
+  const red = redGateNeed(root, currentSpecHash, lawDecider)
   if (red !== null) {
     // The action is the instruction; this says WHY no record can be drafted for it, so the
     // card does not print the same "no drafted fix exists" sentence twice.
@@ -760,7 +774,17 @@ export function deriveDecisions({ root } = {}) {
           staleNotes: drafted.staleNotes.map((note) => ({ path: note.path, notePath: note.notePath, recorded: note.recorded, wanted: note.wanted })),
           problems: drafted.problems,
         },
-    needsHuman: buildNeedsHuman(root, viewRecords, queue, drift, compiled.report?.specHash ?? null, drafted),
+    needsHuman: buildNeedsHuman(
+        root,
+        viewRecords,
+        queue,
+        drift,
+        compiled.report?.specHash ?? null,
+        drafted,
+        // law id -> the record that decided it, so a red-gate problem can name the
+        // decision to open rather than only the report file to read.
+        new Map((compiled.bundle?.laws ?? []).map((law) => [law.id, law.sourceAdr ?? null])),
+      ),
     problems: dedupeProblems([...problems, ...(queue.problems ?? [])]),
     // The derivation itself never truncates; the service's cap is what may cut the view,
     // and it records its cuts here. Present and null keeps the shape uniform.
@@ -798,6 +822,13 @@ export const MAX_STATE_NEEDS = 200
  * kind cut this way is named in `truncated.needsHuman.kinds`, never dropped silently.
  */
 export const MAX_STATE_NEEDS_PER_KIND = 50
+
+/**
+ * The most problems a red-gate need carries into the view model. A verification can
+ * report hundreds; the card needs enough to act on, and the count it also carries says
+ * how many were held back, so a bounded list never reads as the whole report.
+ */
+const MAX_RED_GATE_PROBLEMS = 5
 
 /**
  * The byte ceiling for one serialised state response. When the document exceeds it, the

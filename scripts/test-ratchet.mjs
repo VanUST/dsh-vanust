@@ -8321,7 +8321,7 @@ test('decisions: a draftless need states WHY without repeating its own action', 
   mkdirSync(join(root, 'reports', 'ratchet'), { recursive: true })
   writeFileSync(
     join(root, 'reports', 'ratchet', 'verify-report.json'),
-    JSON.stringify({ problems: [{ code: 'X', message: 'y' }] }),
+    JSON.stringify({ problems: [{ code: 'X', lawId: 'x.one', message: 'y' }] }),
   )
   const view = decisionsModule.deriveDecisions({ root })
   const red = view.needsHuman.find((entry) => entry.kind === 'red-gate')
@@ -8330,6 +8330,11 @@ test('decisions: a draftless need states WHY without repeating its own action', 
   assert.ok(typeof red.action === 'string' && red.action.length > 0, 'the action is an instruction')
   assert.ok(typeof red.draftReason === 'string' && red.draftReason.length > 0, 'a draftless entry says why')
   assert.notEqual(red.draftReason, red.action, 'the draft reason must not repeat the action')
+
+  // The count alone told a human nothing to do. Each problem is carried with the record
+  // that decided its law, so the window can offer the decision instead of only the report.
+  assert.deepEqual(red.problems, [{ code: 'X', lawId: 'x.one', adrId: '0001', message: 'y' }])
+  assert.equal(red.problemCount, 1)
 })
 
 test('duplicates: one statement under two law ids fails the deterministic command', () => {

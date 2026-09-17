@@ -2292,6 +2292,21 @@ needsFiles['reports/ratchet/verify-report.json'] = `${JSON.stringify({ generated
       unrendered.length === 0,
       unrendered.join(' | '),
     )
+    const redNeed = serviceNeeds.find((entry) => entry.kind === 'red-gate')
+    claim(
+      "the red-gate need carries the report's own problems and the record that decided each law",
+      redNeed !== undefined &&
+        Array.isArray(redNeed.problems) &&
+        redNeed.problems.some((problem) => problem.code === 'FIXTURE_RED' && problem.lawId === 'law.shared' && problem.adrId === '0001'),
+      JSON.stringify(redNeed === undefined ? null : redNeed.problems),
+    )
+    claim(
+      'the red-gate card names each problem and offers the decision that governs its law',
+      nodes.some((node) => node.text === 'FIXTURE_RED') &&
+        nodes.some((node) => node.text === 'the fixture records a red gate') &&
+        nodes.some((node) => node.text === 'Open 0001'),
+      JSON.stringify(nodes.filter((node) => /FIXTURE_RED|red gate|Open 0001/.test(node.text)).map((node) => node.text)),
+    )
     const loaded = await panelOverFiles(needsFiles)
     claim(
       "the panel passes the ratchet's needsHuman set through unchanged",

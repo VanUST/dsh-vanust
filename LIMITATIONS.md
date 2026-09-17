@@ -336,3 +336,17 @@ existing strip was anchored at the string's start and the first-sentence extract
 the marker's own period as the sentence end. `plainText` now strips a bullet or ordered
 marker on the line it belongs to, so the false period never exists, and the panel test
 pins the shape (panel 0.1.33).
+
+## 12. A red gate is now actionable in the window (2026-09-17, ratchet 0.2.65, panel 0.1.34)
+
+`compile-and-conquer` showed "Needs a human (1)" with a red-gate card that named only the
+report file: the ratchet's `redGateNeed` read the report's problems, counted them, and threw
+the list away, so the window — which derives nothing — could render a count and a path and no
+way to act. The report's problem was decidable and specific (`CODE_FORBIDDEN_GLOB_PRESENT`:
+ADR 0017's law forbids `docs/decisions/*.md` and ten legacy files still match), and none of it
+reached the screen. The need now carries the problems (capped at five, with the count kept),
+each with its code, its law id and the record that decided that law; the panel renders them and
+offers a button that opens that decision. **The card is still not consentable, by design:** a
+red gate is a fact about the report and the code, not a decision a record can be drafted for,
+so the action remains "fix what it names and re-run `ratchet verify`" — but what it names is
+now on the card.
