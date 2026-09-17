@@ -437,3 +437,22 @@ session's live agent through `AgentRegistry.get(sessionId)` (public; the agent i
 the session id) and spawn one child through the proven `subagents.start('spawn', …)`
 seam, never a composer message. Until that lands, a blocked card still shows its reason
 without a button.
+
+## 16. A decline now carries the human's reason (2026-09-17)
+
+Pressing **Decline** in the ADR panel's decision row no longer sends at once: it puts a
+reason box in the row, and the words travel with the refusal as the `comment` field of the
+same `POST /adr-panel/consent`. `ratify({ …, comment })` (`plugins/ratchet/ratchet-ops.mjs`)
+records the reason — trimmed, capped at 2000 characters — beside the refusal in the
+append-only ledger (`ratchet.ratify.no-consent`, with both `rejected` and `comment`) and
+returns it, so the surface that carried the answer can show it back. The panel does exactly
+that: the outcome repeats the recorded reason. A whitespace-only box is sent as `null`, and
+an approval discards any reason sent with it, so a reason can never become a consent and a
+silent decline stays silent.
+
+**Why it matters and what it does not do.** The reason is the one place a "no" says WHY,
+which is what a later proposal can be drafted against. Recording it is all this change does:
+the ledger keeps it, and no ratchet routine reads it yet. Making the ratchet *produce another
+resolution* from a declined one is the resolver work in §15 — the panel's Resolve control and
+the `/adr-panel/resolve` route — which is still missing, so a declined resolution is recorded
+with its reason and nothing yet re-drafts automatically.

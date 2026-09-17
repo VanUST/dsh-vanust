@@ -150,6 +150,16 @@
  *   mounted, no capability global, no bound Session — the row prints the CLI command
  *   instead of offering a button.
  *
+ *   **A decline carries a commentary.** Pressing Decline puts a reason box in the row
+ *   instead of sending at once; the human types why, or leaves it empty, and confirms.
+ *   The words travel with the refusal and the ratchet records them beside it in the
+ *   append-only ledger — never as an answer, and never read as one — so the next
+ *   proposal is drafted against a reason rather than against silence. An approval has no
+ *   commentary box: there is nothing to explain about a yes, and a reason sent with one
+ *   would be discarded. An empty box is sent as no reason at all, never as an empty
+ *   string, so a silent decline stays silent; the outcome then shows the recorded reason
+ *   back, so the human sees the words the ratchet stored.
+ *
  *   The composer entry claims the seat only for a question whose intent is the ratchet's
  *   `ratify-decision`, whose answers are exactly the two options that intent names, and
  *   which names the record it is about (`intent.targetId`) — a question whose record the
@@ -210,7 +220,8 @@
  *   extraction, list marker, ordered list, bounded render, row cap, show more,
  *   shell.overlay, session header, conversation.composer, composer seat claim,
  *   presentation intent, state route, ratchetDecisions, view model, capability token,
- *   ratification, approve, decline, consent route, not now, read-only, viewer
+ *   ratification, approve, decline, decline reason, commentary, consent route, not now,
+ *   read-only, viewer
  *
  * BEHAVIOUR ON EDGE CASES
  *   - The state route unreachable — no host half mounted, no state capability, no bound
@@ -229,8 +240,12 @@
  *     no label is sent.
  *   - The round trip's outcome is always shown: an approval names the approval id, its
  *     file and the transcript; a decline says the decision stays proposed and that
- *     nothing was written; a refusal shows the ratchet's own problem codes and messages;
- *     a transport failure shows the failure's message. No outcome leaves the row silent.
+ *     nothing was written, and repeats the reason it recorded when there was one; a
+ *     refusal shows the ratchet's own problem codes and messages; a transport failure
+ *     shows the failure's message. No outcome leaves the row silent.
+ *   - A decline the human cancels, or one whose reason is only whitespace: the cancel
+ *     returns to the two buttons and sends nothing, and the whitespace is sent as no
+ *     reason, so neither leaves a half-recorded refusal behind.
  *   - A record edited between the ask and the answer: the ratchet refuses with
  *     `RATIFICATION_STALE` and writes nothing, which is what binds the consent to the
  *     text the human was shown rather than to whatever is on disk when the answer lands.
@@ -329,7 +344,7 @@ window.__ModuleLoader__.load({
 		 * are equal again after a release and the constant is one ahead only in the working
 		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.36";
+		const PANEL_VERSION = "0.1.38";
 		/** Directories used when the host view reports none. */
 		const DEFAULT_DECISIONS_DIR = "docs/adrs";
 		const DEFAULT_SPECS_DIR = "docs/specs";
@@ -601,6 +616,10 @@ window.__ModuleLoader__.load({
 		 *   the ratchet can rebuild its own question and refuse an answer that is not paired
 		 *   with one it built; without it the host refuses and mints nothing.
 		 *   sessionId — the Session the window was opened from.
+		 *   comment — the human's reason for declining, or `null`/an empty string when they
+		 *   gave none. It travels with the answer and is recorded only beside a REFUSAL: the
+		 *   ratchet ignores it for an approval, and this function sends no reason at all when
+		 *   the human typed none, so an empty box is `null` rather than an empty string.
 		 *
 		 * OUTPUTS
 		 *   A promise of the ratchet's own result plus `error` on a transport or host
@@ -608,14 +627,15 @@ window.__ModuleLoader__.load({
 		 *   problems, error }`. Never rejects.
 		 *
 		 * KEYWORDS
-		 *   consent route, settle, label, paired quiz, approval, transcript
+		 *   consent route, settle, label, paired quiz, approval, transcript, decline reason
 		 */
-		function settleConsent(adrId, label, quiz, sessionId) {
+		function settleConsent(adrId, label, quiz, sessionId, comment) {
 			var endpoint = consentEndpoint();
 			if (endpoint === null) return Promise.resolve({ ok: false, error: "unreachable" });
 			if (typeof adrId !== "string" || adrId === "") return Promise.resolve({ ok: false, error: "no-decision" });
 			if (typeof label !== "string" || label === "") return Promise.resolve({ ok: false, error: "no-label" });
 			if (typeof sessionId !== "string" || sessionId === "") return Promise.resolve({ ok: false, error: "no-session" });
+			var reason = typeof comment === "string" && comment.trim() !== "" ? comment : null;
 			var init = {
 				method: "POST",
 				headers: {},
@@ -626,7 +646,11 @@ window.__ModuleLoader__.load({
 					// The question travels back byte for byte, because the ratchet refuses an
 					// answer that is not paired with the question it built. `null` when there is
 					// none is deliberate: it is the payload that must mint nothing.
-					quiz: quiz === undefined ? null : quiz
+					quiz: quiz === undefined ? null : quiz,
+					// The human's own words, sent UNREAD. The panel attaches no meaning to them
+					// and the ratchet records them without letting them answer anything, so a
+					// reason can never become a consent.
+					comment: reason
 				})
 			};
 			init.headers[CONSENT_HEADER] = endpoint.token;
@@ -1515,6 +1539,23 @@ window.__ModuleLoader__.load({
 		}
 		function smallButtonStyle() {
 			return { appearance: "none", border: "1px solid var(--dsw-alias-border-l2, rgba(128,128,128,0.35))", background: "transparent", color: "inherit", borderRadius: 6, padding: "3px 9px", fontSize: 12, cursor: "pointer" };
+		}
+		/**
+		 * The box the decline commentary is typed into: a plain block, so it reads as a
+		 * form and not as one more toned status pill.
+		 * @returns the style object.
+		 */
+		function declineFormStyle() {
+			return { margin: "6px 0", padding: "8px", border: "1px solid var(--dsw-alias-border-l2, rgba(128,128,128,0.35))", borderRadius: 6 };
+		}
+		/**
+		 * The decline reason's textarea: the browser's own control, styled only enough to sit
+		 * in the row (full width, inherited colour and font) and to accept a wrapped
+		 * multi-line reason rather than one clipped line.
+		 * @returns the style object.
+		 */
+		function declineReasonInputStyle() {
+			return { display: "block", width: "100%", boxSizing: "border-box", minHeight: 52, resize: "vertical", background: "transparent", color: "inherit", font: "inherit", fontSize: 12, lineHeight: "18px", padding: "6px 8px", border: "1px solid var(--dsw-alias-border-l2, rgba(128,128,128,0.35))", borderRadius: 6 };
 		}
 		/**
 		 * The header button of a collapsible needs-human group: a full-width transparent
@@ -2945,32 +2986,43 @@ window.__ModuleLoader__.load({
 		 *   here: the two labels are the question's own, read through `ratifyQuestionOf`,
 		 *   and no message is submitted to the composer.
 		 *
+		 *   A decline carries a REASON the human types. Pressing Decline shows a commentary
+		 *   box rather than sending at once, so the reason is written before the refusal is
+		 *   recorded; the ratchet stores it beside the refusal and nothing reads it as an
+		 *   answer. An EMPTY box is sent as no reason at all, never as an empty string, so a
+		 *   silent decline stays silent. An approval has no commentary box: there is nothing
+		 *   to explain about a yes, and a reason sent with one would be discarded anyway.
+		 *
 		 * INPUTS
 		 *   props.adr — the parsed decision record. props.ask — `askConsent(id, sessionId)`,
 		 *   or `null` when the route is unreachable. props.settle —
-		 *   `settleConsent(id, label, quiz, sessionId)`, or `null` likewise.
+		 *   `settleConsent(id, label, quiz, sessionId, comment)`, or `null` likewise.
 		 *   props.sessionId — the Session the window was opened from. props.canAsk — whether
 		 *   both are usable in this render. props.onRecorded — called after an approval is
 		 *   written, so the window re-reads the corpus that just changed.
 		 *
 		 * OUTPUTS
 		 *   In the idle phase: the two buttons, or — when the route is unreachable — the CLI
-		 *   command in their place. While asking: a muted line saying the ratchet is being
-		 *   asked. While recording: the ratchet's question with the record's own text and
-		 *   both labels, the chosen one marked as being sent. On completion: the outcome —
-		 *   an approval's id, file and transcript, a decline that wrote nothing, or the
-		 *   ratchet's own refusal with its problem codes. The outcome is never silent.
+		 *   command in their place. On Decline: the commentary box, its Confirm and a
+		 *   Cancel, and nothing is sent until Confirm. While asking: a muted line saying the
+		 *   ratchet is being asked. While recording: the ratchet's question with the record's
+		 *   own text and both labels, the chosen one marked as being sent. On completion: the
+		 *   outcome — an approval's id, file and transcript, a decline that says it wrote
+		 *   nothing (naming the recorded reason when one was given), or the ratchet's own
+		 *   refusal with its problem codes. The outcome is never silent.
 		 *
 		 *   Edge cases: a click when `ask`/`settle` is null reports the route as
 		 *   unreachable and sends nothing; a quiz the panel cannot reduce to two labelled
 		 *   answers (`claimOfQuiz` returns `null`) reports that the question cannot be put
 		 *   and sends no label; a promise rejection is rendered as a message, never thrown
 		 *   out of the handler; a second click while a round trip is in flight is refused by
-		 *   the phase guard rather than settling one question twice.
+		 *   the phase guard rather than settling one question twice; Cancel from the
+		 *   commentary box returns to the two buttons and sends nothing; a reason of only
+		 *   whitespace is sent as no reason.
 		 *
 		 * KEYWORDS
-		 *   consent route, approve, decline, ratification question, record text, labels,
-		 *   outcome, no chat message, no composed answer
+		 *   consent route, approve, decline, decline reason, commentary, ratification
+		 *   question, record text, labels, outcome, no chat message, no composed answer
 		 */
 		function ConsentAction(props) {
 			var adr = props.adr;
@@ -2982,6 +3034,9 @@ window.__ModuleLoader__.load({
 			var phaseState = React.useState(null);
 			var phase = phaseState[0];
 			var setPhase = phaseState[1];
+			var reasonState = React.useState("");
+			var reason = reasonState[0];
+			var setReason = reasonState[1];
 			var colours = tone(adr.state.kind);
 
 			/** Reads the outcome out of one settle result, so the row can render it. */
@@ -2993,9 +3048,16 @@ window.__ModuleLoader__.load({
 					onRecorded();
 				}
 			};
-			/** One click, end to end: ask the ratchet, show its question, send its label. */
-			var decide = function (decision) {
-				if (phase !== null) return;
+			/**
+			 * One click, end to end: ask the ratchet, show its question, send its label.
+			 *
+			 * `reason` is the human's own words and is attached to a decline only; an
+			 * approval drops it, because the ratchet records no commentary for a yes.
+			 */
+			var decide = function (decision, comment) {
+				// The commentary box is a phase of its own: it may confirm from there, but a
+				// round trip already in flight is never started twice.
+				if (phase !== null && phase.kind !== "declining") return;
 				if (!canAsk) {
 					finish(decision, { ok: false, error: "unreachable" }, null);
 					return;
@@ -3010,7 +3072,7 @@ window.__ModuleLoader__.load({
 						}
 						var label = decision === "decline" ? claim.decline.label : claim.approve.label;
 						setPhase({ kind: "recording", decision: decision, claim: claim, label: label });
-						settle(adr.id, label, asked.quiz, sessionId).then(
+						settle(adr.id, label, asked.quiz, sessionId, decision === "decline" ? comment : null).then(
 							function (result) { finish(decision, result, asked.quiz); },
 							function (error) { finish(decision, { ok: false, error: describeError(error) }, asked.quiz); }
 						);
@@ -3023,6 +3085,32 @@ window.__ModuleLoader__.load({
 				React.createElement("div", { key: "note", style: ctaNoteStyle() },
 					"Your click is the consent: the panel asks the ratchet for its own question about this decision, shows it here, and answers it with the ratchet's own label. Nothing is sent to the conversation.")
 			];
+			if (phase !== null && phase.kind === "declining") {
+				children.push(
+					React.createElement("div", { key: "declining", style: declineFormStyle() },
+						React.createElement("div", { style: { fontSize: 12, fontWeight: 600, marginBottom: 4 } }, "Why are you declining this decision?"),
+						React.createElement("div", { style: mutedStyle() }, "Your reason is recorded with the refusal and read by the next resolution attempt, so it can propose something different. Leave it empty for a silent decline."),
+						React.createElement("textarea", {
+							key: "reason",
+							value: reason,
+							rows: 3,
+							placeholder: "What should change before this can be approved?",
+							"aria-label": "Reason for declining",
+							style: declineReasonInputStyle(),
+							onChange: function (event) { setReason(event !== null && event !== undefined && event.target !== undefined ? String(event.target.value) : ""); }
+						}),
+						React.createElement("div", { key: "confirm", style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 6 } },
+							React.createElement("button", {
+								type: "button",
+								style: Object.assign({}, primaryButtonStyle(colours), { marginTop: 0 }),
+								onClick: function () { decide("decline", reason); }
+							}, "Decline with this reason"),
+							React.createElement("button", {
+								type: "button",
+								style: Object.assign({}, smallButtonStyle(), { marginTop: 0 }),
+								onClick: function () { setPhase(null); }
+							}, "Cancel"))))
+			}
 			if (phase === null) {
 				children.unshift(
 					React.createElement("div", { key: "buttons", style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 6 } },
@@ -3034,7 +3122,7 @@ window.__ModuleLoader__.load({
 						canAsk ? React.createElement("button", {
 							type: "button",
 							style: smallButtonStyle(),
-							onClick: function () { decide("decline"); }
+							onClick: function () { setPhase({ kind: "declining" }); }
 						}, "Decline") : null,
 						canAsk ? null : React.createElement("span", { style: mutedStyle() },
 							"The panel's host route is unreachable from this window, so it cannot record an approval. Run from a session: ask the agent to call ",
@@ -3111,10 +3199,12 @@ window.__ModuleLoader__.load({
 		 * OUTPUTS
 		 *   A muted line for a success and a warn line for anything else. It never renders
 		 *   nothing, and it never claims a consent the result does not carry: `ok === true`
-		 *   AND a written approval is what makes the approval sentence appear.
+		 *   AND a written approval is what makes the approval sentence appear. A decline that
+		 *   recorded a reason shows it back from `result.comment`, so the human can see the
+		 *   words the ratchet stored rather than trusting that they went somewhere.
 		 *
 		 * KEYWORDS
-		 *   outcome, approval written, declined, refusal, problem codes
+		 *   outcome, approval written, declined, decline reason, refusal, problem codes
 		 */
 		function ConsentOutcome(props) {
 			var result = props.result === null || props.result === undefined ? {} : props.result;
@@ -3151,7 +3241,10 @@ window.__ModuleLoader__.load({
 			}
 			if (Array.isArray(result.rejected) && result.rejected.length > 0) {
 				return React.createElement("div", { style: mutedStyle() },
-					"Declined: the ratchet recorded no consent for " + result.rejected.join(", ") + ", so nothing was written and " + (result.rejected.length === 1 ? "the decision stays" : "the decisions stay") + " proposed.");
+					"Declined: the ratchet recorded no consent for " + result.rejected.join(", ") + ", so nothing was written and " + (result.rejected.length === 1 ? "the decision stays" : "the decisions stay") + " proposed.",
+					typeof result.comment === "string" && result.comment !== ""
+						? React.createElement("div", { style: { marginTop: 4 } }, "Recorded reason: ", React.createElement("span", { style: { fontStyle: "italic" } }, result.comment))
+						: null);
 			}
 			if (result.error === "unreachable") {
 				return React.createElement("div", { style: warnStyle() }, "Nothing was recorded: this window could not reach the panel's host route, so the ratchet was never asked.");

@@ -9433,3 +9433,29 @@ test('resolve: an unknown record is a reason, not a crash', () => {
   assert.equal(run.status, 1, `an unknown id is a finding: ${run.stdout}`)
   assert.match(JSON.parse(run.stdout).reason, /9999/)
 })
+
+test('ratify: a declined answer records the human comment, and returns it', () => {
+  // A "no" without a reason is unusable: the reason is what a later proposal is drafted
+  // against, so it is written to the append-only ledger with the decision it refused.
+  const { root } = ratifiableProject('decline-comment')
+  const prepared = ops.ratify({ root, at: '2026-09-17T00:00:00Z' })
+  const result = ops.ratify({
+    root,
+    answer: answerWith(prepared.quiz, ['Reject']),
+    quiz: prepared.quiz,
+    comment: 'the law is wrong because the boundary belongs to the engine zone',
+    at: '2026-09-17T00:01:00Z',
+  })
+  assert.deepEqual(result.ratified, [], 'a decline mints nothing')
+  assert.equal(result.comment, 'the law is wrong because the boundary belongs to the engine zone')
+  const ledger = readFileSync(join(root, '.dsh', 'ratchet', 'ledger.jsonl'), 'utf8')
+  assert.match(ledger, /"event":"ratchet\.ratify\.no-consent"/)
+  assert.match(ledger, /the boundary belongs to the engine zone/)
+})
+
+test('ratify: a decline with no comment records none, rather than an empty string', () => {
+  const { root } = ratifiableProject('decline-nocomment')
+  const prepared = ops.ratify({ root, at: '2026-09-17T00:00:00Z' })
+  const result = ops.ratify({ root, answer: answerWith(prepared.quiz, ['Reject']), quiz: prepared.quiz, comment: '   ' })
+  assert.equal(result.comment, null)
+})

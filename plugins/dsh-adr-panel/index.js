@@ -35,7 +35,9 @@
  *     GET  <STATE_ROUTE>?session=<session-id>    → the ratchet's whole view model
  *     GET  <CONSENT_ROUTE>?session=<id>&id=<adr-id> → the ratchet's question; only the
  *       ratchet's own audit line is appended (see OUTPUTS), never an approval/transcript
- *     POST <CONSENT_ROUTE> { session, adrId, label, quiz } → the ratchet's verdict and artifact
+ *     POST <CONSENT_ROUTE> { session, adrId, label, quiz, comment? } → the ratchet's verdict
+ *       and artifact. `comment` is the human's reason for a DECLINE; the route passes it
+ *       through unread and the ratchet records it only beside a refusal.
  *   Each carries its own capability header ({@link CONSENT_HEADER}, {@link STATE_HEADER}).
  *
  * OUTPUTS
@@ -97,6 +99,9 @@
  *     `request-timeout` and the request is destroyed, so a partial or never-ending body
  *     cannot hold the route (and its socket) open until Node's own default.
  *   - A body that is not JSON, or lacks `adrId`/`label`: 400; the ratchet is not called.
+ *   - A `comment` on an APPROVAL, or one that is not a string: passed through as no reason
+ *     at all. The route attaches no meaning to it, so it can never become a consent; the
+ *     ratchet records a reason only when it refused the answer.
  *   - A `quiz` that is absent, foreign, or stale: the ratchet refuses, and the only
  *     durable effect is the audit event `ratify` appends for the attempt. This route
  *     deliberately does not re-implement any part of that check.
@@ -563,7 +568,7 @@ function createConsentHandler(ctx, token, log) {
       sendRefusal(res, 400, 'bad-request', 'the request body must be a JSON object')
       return
     }
-    const { session, adrId, label, quiz } = parsed
+    const { session, adrId, label, quiz, comment } = parsed
     if (typeof adrId !== 'string' || adrId.length === 0) {
       sendRefusal(res, 400, 'bad-request', 'the body must name the decision in "adrId"')
       return
@@ -588,11 +593,15 @@ function createConsentHandler(ctx, token, log) {
       // records `adr-panel` for every consent it mints, because that is the surface that
       // carried the answer. Letting a caller name it would let a caller claim the harness
       // seam delivered a question the panel did.
+      // `comment` is the human's reason, and it is only meaningful on a decline: the
+      // ratchet ignores it for an approval and records it with the refusal otherwise.
+      // The route carries it through unread — it does not decide what a reason means.
       result = located.service.settle({
         root: located.root,
         adrId,
         label,
         quiz: quiz === undefined ? null : quiz,
+        comment: typeof comment === 'string' ? comment : null,
         ids: [adrId],
         askedBy: `adr-panel ${String(session)}`,
       })

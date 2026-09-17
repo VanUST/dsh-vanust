@@ -1511,17 +1511,40 @@ claim(
   JSON.stringify(rowApproveDerived),
 )
 
-// Decline routes the OTHER label, which a test that only clicked Approve could not tell.
-consentHostHandler = () => ({ status: 200, body: askBody('0017', approveQuiz) })
+// Decline routes the OTHER label, which a test that only clicked Approve could not tell —
+// and it first asks the human WHY, because the reason is the one place a "no" says something
+// a later resolution can act on. Nothing is sent until the human confirms the reason.
+const declineReason = 'the law is broader than the code it governs, so narrow its statement first'
+consentHostHandler = (call) => {
+  if (call.method === 'GET') return { status: 200, body: askBody('0017', approveQuiz) }
+  return { status: 200, body: { ok: false, ratified: [], rejected: ['0017'], unreadable: [], wrote: [], comment: declineReason, problems: [] } }
+}
 const beforeDecline = consentCalls.length
 const declineRowButtons = await renderRows('consent-row-decline')
 const rowDecline = declineRowButtons.find((node) => node.text === 'Decline')
 if (rowDecline !== undefined) rowDecline.props.onClick()
 await new Promise((resolveTick) => setTimeout(resolveTick, 20))
 await settleRender('consent-row-decline')
+const declineFormTexts = nodes.map((node) => node.text)
+const reasonBox = nodes.find((node) => node.tag === 'textarea')
+claim(
+  'a Decline click asks for a reason and sends nothing yet',
+  reasonBox !== undefined &&
+    declineFormTexts.some((text) => typeof text === 'string' && text.includes('Why are you declining')) &&
+    !nodes.some((node) => node.tag === 'button' && node.text === 'Decline with this reason' && node.props.disabled === true) &&
+    consentCalls.length === beforeDecline,
+  JSON.stringify({ box: reasonBox !== undefined, calls: consentCalls.length - beforeDecline }),
+)
+if (reasonBox !== undefined) reasonBox.props.onChange({ target: { value: declineReason } })
+await new Promise((resolveTick) => setTimeout(resolveTick, 20))
+await settleRender('consent-row-decline')
+const confirmDecline = nodes.find((node) => node.tag === 'button' && node.text === 'Decline with this reason')
+if (confirmDecline !== undefined) confirmDecline.props.onClick()
+await new Promise((resolveTick) => setTimeout(resolveTick, 20))
+await settleRender('consent-row-decline')
 const declineCalls = callsFrom(beforeDecline)
 claim(
-  "a Decline click sends the ratchet's own reject label with the same question",
+  "a confirmed Decline sends the ratchet's own reject label with the same question",
   declineCalls.length === 2 &&
     declineCalls[1].body !== null &&
     declineCalls[1].body.label === declineLabelOf &&
@@ -1529,11 +1552,66 @@ claim(
     JSON.stringify(declineCalls[1].body.quiz) === JSON.stringify(approveQuiz),
   JSON.stringify(declineCalls[1] === undefined ? null : { label: declineCalls[1].body === null ? null : declineCalls[1].body.label, expected: declineLabelOf }),
 )
+claim(
+  'and carries the human\'s own reason with the refusal',
+  declineCalls.length === 2 && declineCalls[1].body !== null && declineCalls[1].body.comment === declineReason,
+  JSON.stringify(declineCalls[1] === undefined || declineCalls[1].body === null ? null : declineCalls[1].body.comment),
+)
 const rowDeclineDerived = deriveDecisions(approveQuiz, { answers: [{ id: 'ratify-0017', selected: [declineCalls[1].body.label] }] })
 claim(
   "the ratchet reads the row's decline click as a rejection",
   rowDeclineDerived.decisions.length === 1 && rowDeclineDerived.decisions[0].decision === 'rejected' && rowDeclineDerived.unreadable.length === 0,
   JSON.stringify(rowDeclineDerived),
+)
+claim(
+  'the row shows the recorded reason back, so the human can see the words the ratchet stored',
+  nodes.map((node) => node.text).some((text) => typeof text === 'string' && text.includes(declineReason)),
+  JSON.stringify(nodes.map((node) => node.text).filter((text) => typeof text === 'string' && text.includes('Recorded reason'))),
+)
+
+// Cancelling the commentary box returns to the two buttons and sends nothing: a change of
+// mind must not leave a refusal (or a reason) behind.
+const beforeCancel = consentCalls.length
+const cancelButtons = await renderRows('consent-row-decline-cancel')
+const cancelDecline = cancelButtons.find((node) => node.text === 'Decline')
+if (cancelDecline !== undefined) cancelDecline.props.onClick()
+await new Promise((resolveTick) => setTimeout(resolveTick, 20))
+await settleRender('consent-row-decline-cancel')
+const cancelBox = nodes.find((node) => node.tag === 'textarea')
+if (cancelBox !== undefined) cancelBox.props.onChange({ target: { value: 'a reason I then thought better of' } })
+await new Promise((resolveTick) => setTimeout(resolveTick, 20))
+await settleRender('consent-row-decline-cancel')
+const cancelControl = nodes.find((node) => node.tag === 'button' && node.text === 'Cancel')
+if (cancelControl !== undefined) cancelControl.props.onClick()
+await new Promise((resolveTick) => setTimeout(resolveTick, 20))
+await settleRender('consent-row-decline-cancel')
+claim(
+  'cancelling the commentary box returns to the two buttons and sends nothing',
+  consentCalls.length === beforeCancel && nodes.some((node) => node.tag === 'button' && node.text === 'Decline'),
+  JSON.stringify({ calls: consentCalls.length - beforeCancel, buttons: nodes.filter((node) => node.tag === 'button').map((node) => node.text) }),
+)
+
+// An EMPTY reason is sent as no reason at all, never as an empty string: a silent decline
+// must stay silent rather than record whitespace as if the human had said something.
+const silentReasonCalls = consentCalls.length
+const silentButtons = await renderRows('consent-row-decline-silent')
+const silentDecline = silentButtons.find((node) => node.text === 'Decline')
+if (silentDecline !== undefined) silentDecline.props.onClick()
+await new Promise((resolveTick) => setTimeout(resolveTick, 20))
+await settleRender('consent-row-decline-silent')
+const silentBox = nodes.find((node) => node.tag === 'textarea')
+if (silentBox !== undefined) silentBox.props.onChange({ target: { value: '   ' } })
+await new Promise((resolveTick) => setTimeout(resolveTick, 20))
+await settleRender('consent-row-decline-silent')
+const silentConfirm = nodes.find((node) => node.tag === 'button' && node.text === 'Decline with this reason')
+if (silentConfirm !== undefined) silentConfirm.props.onClick()
+await new Promise((resolveTick) => setTimeout(resolveTick, 20))
+await settleRender('consent-row-decline-silent')
+const silentCalls = callsFrom(silentReasonCalls)
+claim(
+  'a whitespace-only reason is sent as no reason at all',
+  silentCalls.length === 2 && silentCalls[1].body !== null && silentCalls[1].body.comment === null,
+  JSON.stringify(silentCalls[1] === undefined || silentCalls[1].body === null ? null : silentCalls[1].body.comment),
 )
 
 // ── the row shows the question, the record text, the labels and the outcome ──

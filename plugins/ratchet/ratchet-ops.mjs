@@ -2746,6 +2746,13 @@ function regenerateSpecs(root, compiled, budget = null) {
  *   its transcript: `user-question` (the default) for a question the harness delivered,
  *   `adr-panel` for one the ADR panel's decision window rendered. It is provenance only —
  *   the quiz pairing, the derivation and the hash binding are the same on both.
+ *   `comment` is the human's own reason for a DECLINE: a sentence they typed, carried by
+ *   the surface that showed the question. It is recorded — trimmed and bounded — beside
+ *   the refusal in the append-only ledger and returned with the result, and it is the one
+ *   place a "no" says why, so a later proposal can be drafted against it. An approval has
+ *   no such commentary: a reason sent with one is not recorded, because nothing about a
+ *   yes needs explaining. A comment is never read as an answer: the label and the quiz
+ *   decide that, and this parameter cannot make a refusal into a consent.
  *   `budget` is a work-budget tracker (see `createWorkBudget`), or `null` for the CLI. This is
  *   the CONSENT path — the panel's click reaches it — so the in-process callers supply one and
  *   a corpus too large to read fails closed instead of blocking the event loop through the
@@ -2766,6 +2773,7 @@ export function ratify({
   write = true,
   present = 'panel',
   channel = RATIFY_CHANNEL,
+  comment = null,
   budget = null,
 } = {}) {
   const queue = ratificationQueue(root, budget)
@@ -2968,10 +2976,16 @@ export function ratify({
         ]
 
   if (approvedEntries.length === 0) {
+    // The human's reason for a decline is part of the record, not a throwaway: it is the
+    // one place a "no" says WHY, and it is what a later proposal is drafted against. It
+    // is written to the append-only ledger with the decision it refused, trimmed and
+    // bounded, and returned so the surface that carried it can show it back.
+    const declineComment = typeof comment === 'string' && comment.trim().length > 0 ? comment.trim().slice(0, 2000) : null
     appendLedger(root, 'ratchet.ratify.no-consent', {
       attempt,
-      rejected: derived.rejected.length,
+      rejected: derived.rejected.map((entry) => entry.id),
       unreadable: derived.unreadable.length,
+      comment: declineComment,
     })
     const problems = [...unknownProblems, ...unreadableProblems, ...changedProblems]
     return {
@@ -2985,6 +2999,7 @@ export function ratify({
       changed,
       wrote: [],
       reask,
+      comment: declineComment,
       problems,
       summary: summariseProblems(problems),
       nextStep:

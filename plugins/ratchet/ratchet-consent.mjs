@@ -168,6 +168,7 @@ export function settleConsent({
   at = null,
   write = true,
   channel = CONSENT_CHANNEL,
+  comment = null,
   budget = null,
 } = {}) {
   const questionId = questionIdFor(quiz, adrId)
@@ -186,6 +187,7 @@ export function settleConsent({
     at,
     write,
     channel,
+    comment,
     budget,
   })
 }

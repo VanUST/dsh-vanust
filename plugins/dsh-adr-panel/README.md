@@ -33,6 +33,16 @@ both to the ratchet's own `ratify` operation, which writes the approval ADR and 
 transcript. A `POST` body that does not complete within the route's deadline is refused
 `408` and its socket destroyed, so an unfinished write cannot pin the route.
 
+**Decline asks why.** Pressing **Decline** puts a reason box in the row instead of sending
+at once; the human types their reason and confirms, or cancels and sends nothing. The words
+travel with the refusal as the `comment` field of the same `POST /adr-panel/consent`, and
+the ratchet records them — trimmed and bounded — beside the refusal in the append-only
+ledger. A reason is never read as an answer: the label and the question decide that, and an
+approval discards any reason sent with it. A whitespace-only box is sent as `null`, never as
+an empty string, so a silent decline stays silent, and the outcome repeats the recorded
+reason back so the human can see what the ratchet stored. The route passes `comment` through
+unread; it attaches no meaning to it.
+
 It never derives a decision's state and never records a consent of its own. A panel that
 re-derived force would be a second implementation of one truth — the defect that read
 `status: proposed` as "unpaid" and hashed a record from a paged read one byte short — and a
