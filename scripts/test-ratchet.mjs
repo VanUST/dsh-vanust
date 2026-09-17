@@ -9369,3 +9369,62 @@ test('zones: a project whose every referenced zone is declared reports ok and pr
   assert.equal(run.status, 0, `a clean authority table is exit 0: ${run.stdout}${run.stderr}`)
   assert.match(run.stdout, /zones ok/)
 })
+
+// ---------------------------------------------------------------------------
+// the resolve plan: a blocked record becomes pending WITH the steps that unblock it
+// ---------------------------------------------------------------------------
+
+test('resolve: an undeclared zone yields a declare-zone step with the paths inferred from the record laws', () => {
+  const root = makeProject({
+    name: 'resolve-undeclared',
+    zones: [{ id: 'engine', paths: ['packages/engine/**'], agentAuthority: 'activeIfNoConflict' }],
+    adrs: {
+      '0001-art.adr.md': adrText({
+        id: '0001',
+        zones: ['art'],
+        laws: [
+          { id: 'art.projection', statement: 'The camera is a plan view.', checks: [{ type: 'required_text', pattern: 'plan view', paths: ['packages/renderer/**'] }] },
+        ],
+      }),
+    },
+    files: { 'packages/renderer/x.ts': 'plan view' },
+  })
+  const run = cli(['resolve', '0001', '--root', root, '--json'])
+  assert.equal(run.status, 0, `a record with an automatable plan is exit 0: ${run.stdout}${run.stderr}`)
+  const plan = JSON.parse(run.stdout)
+  const step = plan.steps.find((candidate) => candidate.op === 'declare-zone')
+  assert.ok(step !== undefined, `expected a declare-zone step, got ${JSON.stringify(plan.steps)}`)
+  assert.equal(step.zone, 'art')
+  assert.deepEqual(step.paths, ['packages/renderer/**'])
+  assert.equal(step.agentAuthority, 'proposeOnly')
+  assert.equal(plan.humanRequired, false, 'the zone can be declared by an agent; the consent stays a human act')
+})
+
+test('resolve: a humanOnly zone is reported as requiring a human, never as an automatable step', () => {
+  const root = makeProject({
+    name: 'resolve-human',
+    zones: [{ id: 'sim', paths: ['src/sim/**'], agentAuthority: 'humanOnly' }],
+    adrs: {
+      '0001-sim.adr.md': adrText({
+        id: '0001',
+        authority: 'agent',
+        status: 'proposed',
+        zones: ['sim'],
+        laws: [{ id: 'sim.one', statement: 'One.', checks: [{ type: 'required_text', pattern: 'x', paths: ['src/sim/**'] }] }],
+      }),
+    },
+    files: { 'src/sim/x.ts': 'x' },
+  })
+  const run = cli(['resolve', '0001', '--root', root, '--json'])
+  assert.equal(run.status, 0, `the plan is reported whatever it says: ${run.stdout}`)
+  const plan = JSON.parse(run.stdout)
+  assert.equal(plan.humanRequired, true)
+  assert.ok(plan.steps.some((step) => step.op === 'human-authorship-required'))
+})
+
+test('resolve: an unknown record is a reason, not a crash', () => {
+  const root = makeProject({ name: 'resolve-missing', adrs: {} })
+  const run = cli(['resolve', '9999', '--root', root, '--json'])
+  assert.equal(run.status, 1, `an unknown id is a finding: ${run.stdout}`)
+  assert.match(JSON.parse(run.stdout).reason, /9999/)
+})

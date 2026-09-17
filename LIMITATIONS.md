@@ -416,3 +416,24 @@ an undeclared zone, but a hand-authored record bypasses it and is caught at the 
 **Illegitimate reads, stated plainly:** the zone report reads the whole corpus and the
 tracked-path list, so it is bounded by the same work budget as everything else and reports
 an unreadable project as unusable (exit 2) rather than clean.
+
+## 15. A blocked record now has a resolve plan (2026-09-17)
+
+The first half of "everything else is resolved automatically" (ratchet 0.2.69):
+`plugins/ratchet/ratchet-resolve.mjs` derives, with no judgement, what would unblock a
+record — `declare-zone` (with the paths inferred from the positive targets of the
+record's laws), `widen-or-remap-zone` (a law targeting a path its zones do not govern),
+and `human-authorship-required` for a `humanOnly` zone, which no agent may satisfy.
+`ratchet resolve <id>` prints it and reports `humanRequired`. It changes nothing.
+
+**What is deliberately not automated:** `human-authorship-required`. A `humanOnly` zone
+refuses an agent record however a human answers, and the alternative — an agent writing
+`authority: human` — is the one act hard rule 12 forbids. The plan says so instead of
+offering it.
+
+**Still missing (the second half).** The plan is a service the panel does not yet call:
+the `/adr-panel/resolve` route and the UI Resolve control, which would resolve the
+session's live agent through `AgentRegistry.get(sessionId)` (public; the agent id equals
+the session id) and spawn one child through the proven `subagents.start('spawn', …)`
+seam, never a composer message. Until that lands, a blocked card still shows its reason
+without a button.

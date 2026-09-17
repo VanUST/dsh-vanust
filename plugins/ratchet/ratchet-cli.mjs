@@ -57,6 +57,7 @@ import { writeArtifact } from './ratchet-state.mjs'
 import { REVIEW_JOBS } from './ratchet-dynamic.mjs'
 import { falsify, recover } from './ratchet-falsify.mjs'
 import { zoneReport } from './ratchet-zones.mjs'
+import { resolvePlan } from './ratchet-resolve.mjs'
 import {
   EXIT,
   bootstrap,
@@ -90,6 +91,8 @@ Commands:
   deduplicate [--write] draft a PROPOSED resolution for every decidable duplicate
   zones [--write]     report the authority table: undeclared zones, paths matching
                       nothing, laws outside their zones; --write drafts a declaration
+  resolve <id>        print the steps that would unblock one record, and whether any
+                      of them needs a human rather than an agent
   falsify             break one generic invariant at a time and require the gate to fail
   hash <file>         print the sha256 of a decision source file
 
@@ -128,7 +131,7 @@ to re-run until it passes. The static gate is \`verify\`.
  *   first thing that could not be parsed.
  */
 export function parseArgs(argv) {
-  const commands = new Set(['status', 'compile', 'verify', 'check', 'bootstrap', 'pending', 'review', 'ingest', 'deduplicate', 'zones', 'falsify', 'hash', 'help'])
+  const commands = new Set(['status', 'compile', 'verify', 'check', 'bootstrap', 'pending', 'review', 'ingest', 'deduplicate', 'zones', 'resolve', 'falsify', 'hash', 'help'])
   const options = {
     root: null,
     json: false,
@@ -321,6 +324,11 @@ export async function run(argv) {
     })
   } else if (command === 'zones') {
     result = zoneReport(root, { write: options.write })
+  } else if (command === 'resolve') {
+    const id = positionals[0]
+    result = id === undefined
+      ? { ok: false, id: null, steps: [], humanRequired: false, reason: 'resolve needs a record id: ratchet resolve <id>' }
+      : resolvePlan(root, id)
   } else if (command === 'deduplicate') {
     // The drafting half of duplicate detection, and the same split as ingest: it needs no
     // model, so a shell can do all of it. `--write` places the drafts; without it the text
@@ -447,6 +455,17 @@ export async function run(argv) {
       }
       process.stdout.write(
         '  a shell cannot ask you anything, so this command cannot ratify: run the ratification in a session, where the ratchet puts the question to you and records your answer\n',
+      )
+    }
+    if (command === 'resolve') {
+      process.stdout.write(`  ADR ${result.id ?? '(none)'}: ${result.reason === null ? `${result.steps.length} step(s) to unblock it` : result.reason}\n`)
+      for (const step of result.steps ?? []) {
+        process.stdout.write(`  [${step.op}] ${step.detail ?? ''}\n`)
+      }
+      process.stdout.write(
+        result.humanRequired === true
+          ? '  at least one step needs a human: an agent cannot author a record or change a zone authority\n'
+          : '  every step can be carried out by an agent; the consent that puts the record in force is still a human\u2019s\n',
       )
     }
     if (command === 'zones') {
@@ -614,7 +633,7 @@ export async function run(argv) {
   // The zone report is a gate on the AUTHORITY TABLE, not on a record: an undeclared
   // zone referenced by records, or a declared path that matches nothing, is exit 1.
   // A project the ratchet cannot read at all stays exit 2.
-  if (command === 'zones') {
+  if (command === 'zones' || command === 'resolve') {
     if (result.unusable === true) return EXIT.CONFIG
     return result.ok === true ? EXIT.OK : EXIT.PROBLEMS
   }
