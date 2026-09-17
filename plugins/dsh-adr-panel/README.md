@@ -9,6 +9,15 @@ still `proposed` is put into force by the human's own recorded consent, so it is
 the same question as an agent's proposal instead of reading as `not in force` with no
 action.
 
+The window is **four tabbed parts, not one long scroll**: a sticky navigator offers
+`Needs a human (N)`, `Decisions (N)`, `Consents (N)` and `Specs (N)`, each stating its
+count, and exactly one part is drawn at a time. The active tab is component state; until
+it is chosen the window opens on the first non-empty part in that order (so the actionable
+part leads), else Decisions. Each part carries its own heading and a one-line explanation.
+A pending ratification question is drawn above the navigator, because a question waiting
+on the human must not be behind a tab. Every part holds the same data the single scroll
+held; nothing is removed.
+
 A click records the decision silently: no chat message, no model turn, no agent in the
 loop. The host half serves two routes: `GET /adr-panel/state` returns the ratchet's view
 model (every record's force, its provenance, the ratify queue and the compiled spec
@@ -33,19 +42,20 @@ answer, computes no hash and matches no consent: every force fact is the ratchet
 label it sends is one the ratchet put on that question, and the only artifact is the one
 the ratchet writes.
 
-The window opens on the ratchet's single **Needs a human** set, rendered above the record
-list. It is the developer's entry point: the consents waiting in the ratify queue, the
-decidable contradictions between a proposal and law in force, the duplicates with the
-resolution the drafting pass wrote, a **stale** generated spec document together with the
-withdrawal note the ratchet drafted for it, and a red gate read from the persisted
-verification report. Each entry carries the ratchet's own reason and action and, when the
-ratchet drafted a settlement, its `draft` (`{ id, path }`) — rendered as the drafted record
-or note — or a `draftReason` saying why none could be produced. A hand-edited, missing or
-orphaned spec document is a blocking problem, not an advisory note, and so is not shown as a
-drafted fix. Each entry gives a way into the record it concerns through the row selection the
-list already uses. The ratchet derives every entry from its own functions; the panel copies
-the set unchanged and never grows a finding of its own. When the set is empty the section
-still renders, with a plain statement that nothing needs a human, rather than disappearing.
+The **Needs a human** part is the ratchet's single set. It is the developer's entry point:
+the consents waiting in the ratify queue, the decidable contradictions between a proposal
+and law in force, the duplicates with the resolution the drafting pass wrote, a **stale**
+generated spec document together with the withdrawal note the ratchet drafted for it, and a
+red gate read from the persisted verification report. Each entry carries the ratchet's own
+reason and action and, when the ratchet drafted a settlement, its `draft` (`{ id, path }`) —
+rendered as the drafted record or note — or a `draftReason` saying why none could be
+produced. A hand-edited, missing or orphaned spec document is a blocking problem, not an
+advisory note, and so is not shown as a drafted fix. Each entry gives a way into the record
+it concerns through the row selection the list already uses, and that way in switches the
+navigator to Decisions. The ratchet derives every entry from its own functions; the panel
+copies the set unchanged and never grows a finding of its own. When the set is empty the
+part still renders, with a plain statement that nothing needs a human, rather than
+disappearing — its tab still states `Needs a human (0)`.
 
 The set is **grouped by kind**, because the finding is a batch but the act changes tone. A
 `consent`, a `contradiction` and a `duplicate` each need one distinct decision, so each
@@ -60,6 +70,30 @@ kept in the element's `title`, so what is abbreviated is never what is lost; no 
 or artifact changes. When the host's `needsHuman` cap cut the set, the section states the
 shown and total counts and every kind that lost an entry, and a cut batch's header says
 `shown of total`, so a partial to-do list reads as partial rather than complete.
+
+A **decision row's collapsed preview** is one line per fact: the id, the title, the state
+pill, the provenance pill and the author pill, then a single-line summary clipped with an
+ellipsis. The metadata grid, the laws the record decided and the four body sections appear
+only on expand, rendered as headings, paragraphs and lists. The summary is the panel's one
+display derivation here: it strips a leading list or ordered marker and markdown emphasis,
+takes the first sentence that actually contains a letter, tries Decision then Context then
+the body's first paragraph then the title, and caps the result at 140 characters. A Decision
+written as a numbered list beginning `1. **The fiction is adopted…**` therefore reads
+`The fiction is adopted…` — the reported bug where such a row read `1.` is fixed at the
+rendering, not by changing the data.
+
+A **spec law is a compact row too**: collapsed it shows the law id, a clipped statement, one
+toned chip per check kind with its count, and the `decided in` chip; expanded it shows the
+full statement, the authority, every check with its type and target/pattern, and — parsed
+from the generated document's own `- checks: none, and this law says why:` or
+`- not fully covered:` line — the reason nothing enforces the law. The zone grouping, the
+check histogram, the toned chips and the `decided in` tone are unchanged.
+
+No part draws an unbounded list: each section, and each spec's law list, draws at most 50
+rows and then offers a `Show N more` control beside a `Showing X of Y` line. The rows past
+the cap are loaded and revealed by the control, never dropped, and the host's own
+`truncated` fact is stated separately, so a client-side cap and a server-side cap are not
+confused.
 
 It is also the only surface that answers a question the ratchet asks **through the
 composer**. A ratification question carries the ratchet's `ratify-decision` presentation
@@ -77,7 +111,7 @@ nothing claims the seat and the question is still asked.
 | File | Role |
 |---|---|
 | `index.js` | Host half: registers the read-only `/adr-panel/state` route and the `/adr-panel/consent` route on `webServer`, guards both with `connection.requestRejection` and a per-activation capability, calls the ratchet's `ratchetDecisions` service for the view model and its `ratchetConsent` service for an answer, and bounds a `POST` body with a read deadline. It derives no state, builds no question and writes no artifact; a consent `GET` writes only the ratchet's audit ledger line. |
-| `client.js` | The hand-written browser bundle (`window.__ModuleLoader__.load`), no build step. It fetches the state route and renders the ratchet's view — including the `needsHuman` set as the window's leading section; it derives no force. |
+| `client.js` | The hand-written browser bundle (`window.__ModuleLoader__.load`), no build step. It fetches the state route and renders the ratchet's view as four tabbed parts — the `needsHuman` set, the decisions, the consents and the specs — with one part drawn at a time; it derives no force. |
 | `package.json` | `main: index.js`, `exports` for `.` and `./client`, and `dsh.client = { platform: "web", inject: [...] }`. |
 
 ## Contracts it relies on
@@ -142,8 +176,11 @@ payloads it must refuse.
 
 Rendering is no longer on this list: `scripts/test-adr-panel.mjs` executes the shipped
 bundle offline — a stub module loader, a minimal React, `apply` driven with a fake client
-context — and asserts the rendered tree (the three sections, filled states, outlined
-provenance, the state tones, the `decided in` chip). What that cannot reach is the
+context — and asserts the rendered tree (the four section tabs and their counts, switching
+one part at a time, the collapsed one-line decision summary — including a numbered-list
+Decision that must not summarise as `1.` — the compact spec law row with its clipped
+statement and on-expand checks, the 50-row cap with its stated count, filled states,
+outlined provenance, the state tones, the `decided in` chip). What that cannot reach is the
 harness-runtime surface below: it stubs the loader and the injected services, so it
 measures what the bundle does with them, not whether the running shell supplies them.
 

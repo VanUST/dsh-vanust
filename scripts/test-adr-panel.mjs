@@ -352,11 +352,36 @@ async function renderOverlay(prefix, overrideLoad) {
     await new Promise((resolveTick) => setTimeout(resolveTick, 30))
     await flush(root, prefix)
     collectControls()
-    return { ok: true }
+    return { ok: true, root }
   } catch (error) {
     return { ok: false, error: String(error) }
   }
 }
+
+/**
+ * Clicks one of the sticky section tabs and re-renders the SAME window instance at the
+ * same prefix, so the chosen part persists. `nodes` then holds that part's tree. It is
+ * how "switching shows one section" is measured rather than read from the source.
+ *
+ * @param root - the overlay element returned by {@link renderOverlay}.
+ * @param prefix - the render prefix that element was flushed at.
+ * @param key - the `data-adr-panel-section` key to switch to.
+ * @returns True when a matching tab was found and clicked, false otherwise.
+ */
+async function showSection(root, prefix, key) {
+  const tab = nodes.find(
+    (node) => node.tag === 'button' && node.props !== undefined && node.props['data-adr-panel-section'] === key,
+  )
+  if (tab === undefined) return false
+  tab.props.onClick()
+  await flush(root, prefix)
+  collectControls()
+  return true
+}
+
+/** The section tabs currently drawn, in order. */
+const sectionTabsOf = (list) =>
+  list.filter((node) => node.tag === 'button' && node.props !== undefined && node.props['data-adr-panel-section'] !== undefined)
 
 const first = await renderOverlay('root')
 claim('the overlay renders over the real corpus', first.ok, first.ok ? undefined : first.error)
@@ -396,16 +421,56 @@ async function renderOverlayExpanded(prefix) {
 
 const texts = nodes.map((node) => node.text)
 const headings = nodes.filter((node) => node.tag === 'h3').map((node) => node.text)
+
+// ── the section navigator: four parts, one drawn at a time ──────────────────
+// The window used to be one long scroll — Needs a human, then every decision, every
+// consent and every spec stacked in a single column. These claims are about the
+// replacement: a sticky tab per part, each stating its count, and exactly one part's
+// body on screen. Switching is driven through the real click handlers, not read from
+// the source, so a tab that renders but does not switch fails here.
+const firstTabs = sectionTabsOf(nodes)
+const tabKeys = firstTabs.map((node) => node.props['data-adr-panel-section'])
 claim(
-  'the needs-a-human section leads the window',
-  headings[0] === 'Needs a human',
-  JSON.stringify(headings),
+  'the window draws one section tab per part, in order',
+  JSON.stringify(tabKeys) === JSON.stringify(['needs', 'decisions', 'consents', 'specs']),
+  JSON.stringify(firstTabs.map((node) => node.text)),
 )
 claim(
-  'the section headings are the reader-facing three',
-  JSON.stringify(headings.filter((title) => title !== 'Needs a human')) === JSON.stringify(['Decisions', 'Consents', 'Specs']),
+  'every section tab states its count',
+  firstTabs.length === 4 && firstTabs.every((node) => /^(Needs a human|Decisions|Consents|Specs) \((\d+)\)$/.test(node.text)),
+  JSON.stringify(firstTabs.map((node) => node.text)),
+)
+const selectedTab = firstTabs.find((node) => node.props['aria-selected'] === 'true')
+claim(
+  'the window opens on the first non-empty part, which for this corpus is Decisions',
+  selectedTab !== undefined && selectedTab.props['data-adr-panel-section'] === 'decisions',
+  JSON.stringify(firstTabs.map((node) => ({ key: node.props['data-adr-panel-section'], selected: node.props['aria-selected'] }))),
+)
+claim(
+  'exactly one section is drawn at a time',
+  headings.length === 1 && headings[0] === 'Decisions',
   JSON.stringify(headings),
 )
+{
+  const before = nodes.map((node) => node.text)
+  await showSection(first.root, 'root', 'specs')
+  const after = nodes.map((node) => node.text)
+  claim(
+    'switching to a tab replaces the drawn section instead of appending to it',
+    nodes.some((node) => node.tag === 'h3' && node.text === 'Specs') &&
+      !nodes.some((node) => node.tag === 'h3' && node.text === 'Decisions') &&
+      before.length > 0 && after.length > 0,
+    `afterHeadings=${JSON.stringify(nodes.filter((node) => node.tag === 'h3').map((node) => node.text))}`,
+  )
+  claim(
+    'the Specs tab draws the compiled law rows',
+    nodes.some((node) => node.props !== undefined && node.props['data-adr-panel-section'] === 'specs' && node.props['aria-selected'] === 'true') &&
+      nodes.some((node) => node.tag === 'span' && /^decided in /.test(node.text)),
+    JSON.stringify(nodes.filter((node) => node.tag === 'span' && /^decided in /.test(node.text)).map((node) => node.text).slice(0, 4)),
+  )
+  // Back to Decisions for the tone claims below, which read decision-row pills.
+  await showSection(first.root, 'root', 'decisions')
+}
 // The header chip is the only way a reader tells a stale client bundle from a bug, so
 // it must name the bundle's own declared `PANEL_VERSION`, and that constant must not lag
 // the package's version. Equality is deliberately NOT asserted: a source change bumps
@@ -478,6 +543,8 @@ claim(
   texts.find((text) => text === 'human · human' || text === 'agent · agent'),
 )
 
+// The law cards live in the Specs part; the rows are only drawn there.
+await showSection(first.root, 'root', 'specs')
 const decidedIn = nodes.filter((node) => node.tag === 'span' && /^decided in /.test(node.text))
 claim('a law card names its deciding record', decidedIn.length > 0, `chips=${decidedIn.length}`)
 const knownChip = decidedIn.find((node) => node.text === 'decided in 0001')
@@ -486,6 +553,159 @@ claim(
   knownChip !== undefined && /state-success/.test(backgroundOf(knownChip)),
   JSON.stringify(knownChip === undefined ? null : knownChip.style),
 )
+
+// ── a compact law row expands, and a truncated statement is not a wall of prose ──
+// The spec view used to draw every law's full statement and every check at once. A
+// collapsed row now shows a clipped statement, chips for its check KINDS, and the
+// `decided in` chip; the full statement and each check's type/target are on expand.
+// The expected values come from the generated document the ratchet served, read with the
+// same `## law` / `- checks` shape the compiler writes, so the claim is about the ROW and
+// not about a re-implementation of the parser.
+const specDoc = stateModule.deriveDecisions({ root: KIT }).specs[0] ?? null
+const specBlocks = String(specDoc?.text ?? '')
+  .split(/\n## /)
+  .slice(1)
+  .map((block) => ({ lines: block.split('\n'), id: block.split('\n')[0].trim() }))
+const firstBlock = specBlocks[0] ?? null
+const firstLaw = firstBlock === null
+  ? null
+  : {
+      id: firstBlock.id,
+      statement: firstBlock.lines
+        .slice(1)
+        .find((line) => line.trim() !== '' && !/^\s*-/.test(line))
+        ?.trim() ?? '',
+      checks: firstBlock.lines
+        .filter((line) => /^\s+- [A-Za-z0-9_]+:/.test(line))
+        .map((line) => line.replace(/^\s+- [A-Za-z0-9_]+:\s*/, '').trim()),
+    }
+const statementNodes = nodes.filter((node) => node.tag === 'div' && typeof node.props?.title === 'string' && node.props.title === firstLaw?.statement)
+claim(
+  'a collapsed law row shows its statement on one clipped line',
+  firstLaw !== null && statementNodes.length > 0 &&
+    statementNodes.every((node) => node.style.whiteSpace === 'nowrap' && node.style.textOverflow === 'ellipsis') &&
+    statementNodes.every((node) => node.text.length <= 121 && firstLaw.statement.startsWith(node.text.replace(/…$/, ''))),
+  JSON.stringify(statementNodes.map((node) => ({ text: node.text.slice(0, 60), style: node.style }))),
+)
+const lawKindChips = nodes.filter((node) => isPillNode(node) && /^[A-Za-z0-9_]+ × \d+$/.test(node.text))
+claim(
+  'a collapsed law row states its check kinds with counts',
+  lawKindChips.length > 0,
+  JSON.stringify(lawKindChips.map((node) => node.text).slice(0, 8)),
+)
+{
+  const fullStatement = firstLaw?.statement
+  const lawHead = firstLaw === null ? undefined : nodes.find(
+    (node) => node.tag === 'div' && node.props !== undefined && node.props['aria-expanded'] === 'false' &&
+      typeof node.text === 'string' && node.text.includes(String(firstLaw.id)),
+  )
+  if (lawHead !== undefined) lawHead.props.onClick()
+  await flush(first.root, 'root')
+  const expandedStatement = nodes.filter((node) => node.tag === 'div' && node.props?.title === fullStatement)
+  const expandedFull = expandedStatement.find((node) => node.style.whiteSpace !== 'nowrap')
+  const checkRows = firstLaw === null
+    ? []
+    : firstLaw.checks.filter((check) => nodes.some((node) => typeof node.text === 'string' && node.text === String(check)))
+  claim(
+    'expanding a law row reveals the full statement and every check target',
+    lawHead !== undefined && expandedFull !== undefined && checkRows.length === firstLaw.checks.length,
+    `lawHead=${lawHead !== undefined} expandedFull=${expandedFull !== undefined} checks=${checkRows.length}/${firstLaw?.checks.length}`,
+  )
+  const unenforcedBlock = specBlocks.find((block) => block.lines.some((line) => /^- checks: none, and this law says why:/.test(line)))
+  if (unenforcedBlock !== undefined) {
+    const reasonLine = unenforcedBlock.lines.find((line) => /^- checks: none, and this law says why:/.test(line))
+    const reason = reasonLine.replace(/^- checks: none, and this law says why:[ \t]*/, '').trim()
+    const unenforcedHead = nodes.find(
+      (node) => node.tag === 'div' && node.props !== undefined && node.props['aria-expanded'] === 'false' &&
+        typeof node.text === 'string' && node.text.includes(String(unenforcedBlock.id)),
+    )
+    if (unenforcedHead !== undefined) unenforcedHead.props.onClick()
+    await flush(first.root, 'root')
+    claim(
+      'a law with an `unenforced` note states the reason on expand',
+      unenforcedHead !== undefined && reason !== '' &&
+        nodes.some((node) => typeof node.text === 'string' && node.text.includes(reason)),
+      `head=${unenforcedHead !== undefined} reason=${JSON.stringify(reason.slice(0, 60))} found=${JSON.stringify(nodes.filter((node) => typeof node.text === 'string' && /enforces this law/.test(node.text)).map((node) => node.text.slice(0, 60)).slice(0, 2))}`,
+    )
+  }
+}
+
+// ── the `1.` summary bug: a numbered Decision must not become its marker ────
+//
+// The reported bug: a Decision section written as an ordered list begins
+// `1. **The fiction is adopted…**`, and the summary used to split on the marker's own
+// period, so the row rendered the bare text `1.`. The fixture below is that shape, plus
+// the two fallbacks (a Decision that is only a marker, and a Decision that is absent), so
+// the claim is that a summary is never a marker and always the first real sentence.
+{
+  const numberedRecord = (id, text) => ({
+    id,
+    path: `docs/adrs/${id}-fixture.adr.md`,
+    title: `fixture ${id}`,
+    type: 'adr',
+    status: 'active',
+    authority: 'agent',
+    authorName: 'fixture-author',
+    created: '2026-09-15',
+    source: { kind: 'file', path: 'docs/ratchet/sources/fixture.md', hash: `sha256:${'b'.repeat(64)}` },
+    zones: [],
+    supersedes: [],
+    approves: [],
+    laws: [],
+    state: { text: 'in force', kind: 'in-force', derived: false },
+    provenance: null,
+    canRatify: false,
+    text,
+  })
+  stateViewOverride = {
+    ok: true,
+    project: { decisionsDir: 'docs/adrs', specsDir: 'docs/specs', name: 'summary fixture' },
+    specHash: null,
+    records: [
+      numberedRecord('7001', '---\nid: 7001\n---\n\n## Decision\n\n1. **The fiction is adopted as the working model.** It survives contact with the code.\n2. A second numbered point.\n'),
+      numberedRecord('7002', '---\nid: 7002\n---\n\n## Decision\n\n1.\n'),
+      numberedRecord('7003', '---\nid: 7003\n---\n\n## Context\n\nThe context paragraph carries the only prose this record has.\n'),
+    ],
+    queue: {},
+    specs: [],
+    drift: {},
+    problems: [],
+    needsHuman: [],
+    truncated: null,
+  }
+  try {
+    const rendered = await renderOverlay('summary-bug')
+    const summaries = nodes
+      .filter((node) => node.tag === 'div' && node.style !== undefined && node.style.whiteSpace === 'nowrap')
+      .map((node) => node.text)
+    claim(
+      'a numbered Decision yields its real first sentence, not its list marker',
+      rendered.ok && summaries.includes('The fiction is adopted as the working model.'),
+      JSON.stringify(summaries),
+    )
+    claim(
+      'no collapsed row summary is a bare list marker or punctuation',
+      summaries.every((text) => /[A-Za-z0-9]/.test(text) && !/^\d+[.)]$/.test(text) && !/^[.\-*]+$/.test(text)),
+      JSON.stringify(summaries),
+    )
+    claim(
+      'a summary falls back to Context, and a marker-only Decision is skipped entirely',
+      summaries.includes('The context paragraph carries the only prose this record has.') &&
+        summaries.every((text) => text !== '1.'),
+      JSON.stringify(summaries),
+    )
+    // One line: the row clips with nowrap/ellipsis, so a 140-character summary is a
+    // single visual line rather than three wrapped ones.
+    const clipped = nodes.filter((node) => node.tag === 'div' && node.style !== undefined && node.style.whiteSpace === 'nowrap')
+    claim(
+      'every collapsed summary is drawn as one clipped line',
+      clipped.length >= 2 && clipped.every((node) => node.style.overflow === 'hidden' && node.style.textOverflow === 'ellipsis'),
+      JSON.stringify(clipped.map((node) => node.style)),
+    )
+  } finally {
+    stateViewOverride = null
+  }
+}
 
 // ── synthetic corpus: states the real one does not hold ─────────────────────
 const syntheticLaw = (id, decidedIn) => ({ id, authority: 'agent', decidedIn, statement: 'synthetic', checks: [] })
@@ -523,6 +743,8 @@ const synthetic = {
 }
 const second = await renderOverlay('synthetic', () => Promise.resolve(synthetic))
 claim('the overlay renders a synthetic corpus', second.ok, second.ok ? undefined : second.error)
+// The law cards are in the Specs part.
+await showSection(second.root, 'synthetic', 'specs')
 const syntheticChips = nodes.filter((node) => node.tag === 'span' && /^decided in /.test(node.text))
 const supersededChip = syntheticChips.find((node) => node.text === 'decided in 0002')
 const unknownChip = syntheticChips.find((node) => node.text === 'decided in 9999')
@@ -1945,7 +2167,13 @@ await claimAgrees(humanFixture)
     humanDecision !== null && humanDecision.canRatify === true && humanDecision.state.kind === 'pending',
     JSON.stringify(humanDecision === null ? null : { canRatify: humanDecision.canRatify, state: humanDecision.state }),
   )
-  await renderOverlay('human-authored-row', () => Promise.resolve(humanLoaded))
+  const humanRendered = await renderOverlay('human-authored-row', () => Promise.resolve(humanLoaded))
+  // The window opens on Needs a human (the fixture has a waiting consent), and the
+  // "Open 0001" way in must land on the decision's own row — which is also what makes
+  // Approve and Decline reachable from the to-do list.
+  const openButton = nodes.find((node) => node.tag === 'button' && node.text === 'Open 0001')
+  if (openButton !== undefined) openButton.props.onClick()
+  await flush(humanRendered.root, 'human-authored-row')
   const humanRowButtons = [...new Set(nodes.filter((node) => node.tag === 'button').map((node) => node.text))]
   claim(
     'the window renders Approve and Decline on a human-authored proposed record, so the human can act',
@@ -2161,6 +2389,15 @@ for (const [index, id] of ['0001', '0002', '0003', '0004'].entries()) {
     claim('the ratchet reports nothing needs a human on a settled corpus', Array.isArray(serviceEmpty) && serviceEmpty.length === 0, JSON.stringify(serviceEmpty))
     const rendered = await renderOverlay('needs-empty')
     claim('the overlay renders the empty needs-a-human fixture', rendered.ok, rendered.ok ? undefined : rendered.error)
+    // The settled corpus still has a decision, so the window opens on Decisions; the
+    // Needs a human PART is reached through its tab, which must still state its zero.
+    const needsTab = sectionTabsOf(nodes).find((node) => node.props['data-adr-panel-section'] === 'needs')
+    claim(
+      'the empty needs-a-human part is still a tab, stating zero',
+      needsTab !== undefined && needsTab.text === 'Needs a human (0)',
+      JSON.stringify(sectionTabsOf(nodes).map((node) => node.text)),
+    )
+    await showSection(rendered.root, 'needs-empty', 'needs')
     const emptyStateShown = nodes.some((node) => typeof node.text === 'string' && /^Nothing needs a human/.test(node.text))
     const needsPills = nodes.filter(isNeedsPill).length
     const sectionPresent = nodes.some((node) => node.tag === 'h3' && node.text === 'Needs a human')
@@ -2260,6 +2497,78 @@ for (const [index, id] of ['0001', '0002', '0003', '0004'].entries()) {
     stateViewOverride = null
   }
 }
+
+// ── no section draws an unbounded list ──────────────────────────────────────
+//
+// The host caps what it sends at 500 records, which is still a 500-row DOM for a browser.
+// The window draws at most 50 rows per section and offers the rest through a control that
+// states the count, so a bounded list is never mistaken for a short one. Measured on a
+// synthetic 60-record answer, because the kit's own corpus is smaller than the cap.
+const ROW_CAP = 50 // must equal SECTION_ROW_CAP in the bundle
+{
+  const record = (index) => ({
+    id: String(1000 + index),
+    path: `docs/adrs/${1000 + index}-fixture.adr.md`,
+    title: `fixture decision ${index}`,
+    type: 'adr',
+    status: 'active',
+    authority: 'agent',
+    authorName: 'fixture-author',
+    created: '2026-09-15',
+    source: { kind: 'file', path: 'docs/ratchet/sources/fixture.md', hash: `sha256:${'a'.repeat(64)}` },
+    zones: [],
+    supersedes: [],
+    approves: [],
+    laws: [],
+    state: { text: 'in force', kind: 'in-force', derived: false },
+    provenance: null,
+    canRatify: false,
+    text: `---\nid: ${1000 + index}\n---\n\n## Decision\n\nThe fixture decision number ${index} does one thing.\n`,
+  })
+  const manyDecisions = {
+    ok: true,
+    project: { decisionsDir: 'docs/adrs', specsDir: 'docs/specs', name: 'big fixture' },
+    specHash: null,
+    records: Array.from({ length: 60 }, (_, index) => record(index)),
+    queue: {},
+    specs: [],
+    drift: {},
+    problems: [],
+    needsHuman: [],
+    // The host's own cut is present too: the window must state both bounds, not one.
+    truncated: { records: { shown: 60, total: 500 }, specs: null, needsHuman: null, texts: null, specTexts: null, queueTexts: null, byteLimit: 1500000 },
+  }
+  stateViewOverride = manyDecisions
+  try {
+    const rendered = await renderOverlay('bounded')
+    const badges = () => nodes.filter((node) => typeof node.text === 'string' && /^#\d+$/.test(node.text)).length
+    const drawn = badges()
+    const countLine = nodes.find((node) => typeof node.text === 'string' && /^Showing \d+ of \d+$/.test(node.text))
+    const moreButton = nodes.find((node) => node.tag === 'button' && typeof node.text === 'string' && /^Show \d+ more$/.test(node.text))
+    claim(
+      'a section draws at most the cap and states how many of the total it drew',
+      rendered.ok && drawn === ROW_CAP && countLine !== undefined && countLine.text === `Showing ${ROW_CAP} of 60` && moreButton !== undefined,
+      `drawn=${drawn} countLine=${countLine === undefined ? 'none' : JSON.stringify(countLine.text)} more=${moreButton === undefined ? 'none' : JSON.stringify(moreButton.text)}`,
+    )
+    claim(
+      'the host-side truncation is stated too, so two different cuts are not confused',
+      nodes.some((node) => typeof node.text === 'string' && /only 60 of 500 decisions are shown/.test(node.text)),
+      JSON.stringify(nodes.filter((node) => typeof node.text === 'string' && /truncated to stay within/.test(node.text)).map((node) => node.text)),
+    )
+    if (moreButton !== undefined) moreButton.props.onClick()
+    await flush(rendered.root, 'bounded')
+    const afterMore = badges()
+    claim(
+      'the show-more control reveals the next batch rather than dropping the rows',
+      afterMore > drawn && afterMore <= 60,
+      `before=${drawn} after=${afterMore}`,
+    )
+  } finally {
+    stateViewOverride = null
+  }
+}
+
+
 // The window must never fall back to a derivation of its own. With the state capability
 // absent it reports the state as unavailable, and it fetches nothing.
 {

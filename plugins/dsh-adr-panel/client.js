@@ -64,10 +64,25 @@
  *   `shell.overlay` and `conversation.composer`. The overlay renders nothing while
  *   closed and never mutates a
  *   file. Two record kinds are rendered separately: Decisions (`type !== "approval"`)
- *   and Consents (`type === "approval"`). The window leads with a **Needs a human**
- *   section built from the ratchet's own `needsHuman` set — the one entry point for
- *   consents waiting, contradictions, duplicates, stale specs and a red gate — and
- *   shows a clear empty state when that set is empty, never hiding the section.
+ *   and Consents (`type === "approval"`).
+ *
+ *   THE WINDOW IS FOUR PARTS, NOT ONE SCROLL. A sticky section navigator sits at the top
+ *   of the body and offers one tab per part — `Needs a human (N)`, `Decisions (N)`,
+ *   `Consents (N)`, `Specs (N)` — each stating its count, and exactly one part's body is
+ *   drawn at a time. The active part is component state; until a human chooses one it is
+ *   the first non-empty part in that order (so the actionable part leads when it has
+ *   anything in it), falling back to Decisions. Each part carries its own heading and a
+ *   one-line explanation. The four parts still hold everything the old single column
+ *   held; nothing is hidden, only put behind a tab. The ratification question the
+ *   composer seat mirrored is the exception: it is drawn above the navigator whenever it
+ *   is pending, because a question waiting on the human must not be behind a tab.
+ *
+ *   The **Needs a human** part is built from the ratchet's own `needsHuman` set — the one
+ *   entry point for consents waiting, contradictions, duplicates, stale specs and a red
+ *   gate — and shows a clear empty state when that set is empty, never hiding the part.
+ *   The same set arrives grouped as before: decision-shaped kinds stay individual cards
+ *   and every other kind is one collapsible batch, with the same order, the same hash
+ *   shortening, the same stated truncation and the same way into the record it concerns.
  *
  *   THE SECTION IS GROUPED BY KIND, because seven stale specs are seven copies of one
  *   shape while a consent, a contradiction and a duplicate are each a distinct act. The
@@ -83,7 +98,8 @@
  *   the set, the section states the shown and total counts and every kind that lost an
  *   entry, so a truncated batch reads as partial rather than complete. Every entry still
  *   offers a way into the record it concerns through the row selection the record list
- *   already uses. The panel copies the set unchanged and never grows a finding of its own.
+ *   already uses, and that way in also switches the navigator to Decisions so the row is
+ *   actually drawn. The panel copies the set unchanged and never grows a finding of its own.
  *   RATCHET computes it: the view model carries each record's `state` and `provenance`
  *   from the same `resolveActiveSet` derivation the gate uses, so a consent, a zone's
  *   authority and a supersession are never re-judged here. The panel renders
@@ -93,6 +109,31 @@
  *   (business tone). `awaiting a human`, `superseded by <id>`, `rejected` and
  *   `withdrawn` are states with no provenance pill. A state the ratchet computed from
  *   another record is rendered dashed/italic (`state.derived`).
+ *
+ *   A DECISION ROW'S COLLAPSED PREVIEW IS ONE LINE PER FACT: the id, the title, the state
+ *   pill, the provenance pill and the author pill, then a single-line summary clipped with
+ *   an ellipsis. The metadata grid, the laws the record decided and the four body sections
+ *   are drawn only when the row is expanded. The summary is the one derivation the panel
+ *   makes here, and it is display only: `decisionSummary` strips a leading list or ordered
+ *   marker and markdown emphasis, takes the first sentence that actually contains a
+ *   letter, tries Decision then Context then the body's first paragraph then the title,
+ *   and caps the result. A Decision written as a numbered list beginning
+ *   `1. **The fiction is adopted…**` therefore reads `The fiction is adopted…`, never the
+ *   bare marker `1.`.
+ *
+ *   A SPEC LAW IS A COMPACT ROW TOO: collapsed it shows the law id, a clipped statement,
+ *   one toned chip per check KIND with its count, and the `decided in` chip; expanded it
+ *   shows the full statement, the authority, every check with its type and
+ *   target/pattern, and — parsed from the generated document's own `- checks: none, and
+ *   this law says why:` or `- not fully covered:` line — the reason nothing (or not
+ *   everything) enforces the law. The zone grouping, the check histogram, the toned
+ *   check-kind chips, the `decided in` tone and the error/derive tone rules are unchanged.
+ *
+ *   NO PART DRAWS AN UNBOUNDED LIST: each section, and each spec's law list, draws at most
+ *   50 rows and then offers a `Show N more` control beside a `Showing X of Y` line. The
+ *   host's own `truncated` fact is still stated separately, so a capped client list and a
+ *   capped server answer are never confused.
+ *
  *   The ratify affordance appears for a decision whose `canRatify` the view model sets
  *   true — the ratchet's own queue membership — and never for one whose zone policy
  *   could not yield a consent. The panel does not re-derive that membership.
@@ -164,7 +205,9 @@
  *   the same (`human`, never `human · human`).
  *
  * KEYWORDS
- *   ADR panel, decisions, consents, specs, law cards, check histogram, slots,
+ *   ADR panel, decisions, consents, specs, law cards, check histogram, section navigation,
+ *   tabs, sticky nav, one section at a time, collapsed preview, one-line summary, summary
+ *   extraction, list marker, ordered list, bounded render, row cap, show more,
  *   shell.overlay, session header, conversation.composer, composer seat claim,
  *   presentation intent, state route, ratchetDecisions, view model, capability token,
  *   ratification, approve, decline, consent route, not now, read-only, viewer
@@ -253,6 +296,19 @@
  *   - A reason, action, problem line or spec header carrying a full `sha256:<64 hex>`: it
  *     renders shortened (twelve hex and an ellipsis) with the full value in the element's
  *     `title`, so nothing is hidden and no visible node shows a raw 64-hex value.
+ *   - A Decision section written as a numbered list (`1. **…**`): the leading marker and
+ *     the emphasis are stripped before the first sentence is taken, so the summary is the
+ *     first sentence and never the bare marker `1.`. A Decision that is ONLY a marker, or
+ *     that has no letter at all, falls through to Context, then to the first body
+ *     paragraph, then to the title; if every candidate is unreadable the row renders no
+ *     summary line rather than a number or punctuation.
+ *   - A generated law with an `unenforced` note (`- checks: none, and this law says why:`
+ *     or `- not fully covered:`): the reason is parsed and shown in the expanded law row;
+ *     a law whose note cannot be parsed simply renders no note rather than a claim.
+ *   - A corpus larger than 50 rows in one part: the part draws the first 50 and shows a
+ *     `Show N more` control beside `Showing X of Y`; the rows past the cap are loaded and
+ *     revealed by the control, never dropped, and the host's own truncation is stated
+ *     separately.
  */
 window.__ModuleLoader__.load({
 	id: "@cc/dsh-adr-panel",
@@ -273,10 +329,25 @@ window.__ModuleLoader__.load({
 		 * are equal again after a release and the constant is one ahead only in the working
 		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.30";
+		const PANEL_VERSION = "0.1.31";
 		/** Directories used when the host view reports none. */
 		const DEFAULT_DECISIONS_DIR = "docs/adrs";
 		const DEFAULT_SPECS_DIR = "docs/specs";
+		/**
+		 * How many rows one section draws before it offers a "show more" control.
+		 *
+		 * The host already caps what it sends (500 records, 200 needs-a-human entries), and
+		 * a 500-row list is still a 500-row DOM: every row a browser builds is a node, and a
+		 * window that renders the whole capped answer is slow for exactly the corpus that
+		 * most needs the window. This is a CLIENT-side bound on drawing, not on data: the
+		 * rows beyond it are still in the loaded view and are revealed by the control
+		 * together with a stated count, so a bounded list is never mistaken for a short one.
+		 */
+		const SECTION_ROW_CAP = 50;
+		/** The longest one-line decision summary, matching the row that renders it. */
+		const SUMMARY_LIMIT = 140;
+		/** The longest one-line law statement in a collapsed spec row. */
+		const STATEMENT_LIMIT = 120;
 		/**
 		 * The channels a ratification can have been obtained through.
 		 *
@@ -739,6 +810,47 @@ window.__ModuleLoader__.load({
 			var match = value.match(/^([\s\S]*?[.!?])(\s|$)/);
 			return match === null ? value : match[1];
 		}
+		/**
+		 * PURPOSE
+		 *   Strip the markdown that would otherwise be mistaken for prose before a one-line
+		 *   summary is extracted: a leading bullet or ordered-list marker (`1.`, `2)`,
+		 *   `- `, `* `), a leading heading marker, and emphasis or code marks. It exists
+		 *   because a Decision section written as a numbered list begins
+		 *   `1. **The fiction is adopted…**`, and a first-sentence extractor that runs
+		 *   before this strip takes the marker's own period as the sentence end — the
+		 *   summary renders as the bare text `1.`, which is the reported bug.
+		 * INPUTS
+		 *   text — any value; a non-string becomes the empty string.
+		 * OUTPUTS
+		 *   The cleaned text, trimmed. Empty, whitespace-only, or marker-only input yields
+		 *   the empty string. Never throws.
+		 * KEYWORDS
+		 *   summary, markdown, list marker, ordered list, emphasis, extraction, display only
+		 */
+		function stripMarkdownLead(text) {
+			var value = String(text == null ? "" : text);
+			// A marker counts whether or not it is followed by text: a section whose whole
+			// body is `1.` must clean to the empty string so the summary falls through,
+			// rather than leaving a bare number for the first-sentence extractor to return.
+			value = value.replace(/^\s*(?:[-*+]|\d+[.)])(?:\s+|$)/, "");
+			value = value.replace(/^\s*#{1,6}\s+/, "");
+			value = value.replace(/\*\*([^*]+)\*\*/g, "$1");
+			value = value.replace(/__([^_]+)__/g, "$1");
+			value = value.replace(/`([^`]+)`/g, "$1");
+			value = value.replace(/\*([^*]+)\*/g, "$1");
+			return value.trim();
+		}
+		/**
+		 * Whether a text carries at least one LETTER, so a bare number, a bare list marker
+		 * or punctuation alone is not accepted as a readable summary. A Unicode letter is
+		 * accepted in any script (`[^\W\d_]` is a word character that is neither a digit
+		 * nor an underscore), so a non-Latin title is still prose.
+		 * @param text - any value.
+		 * @returns true when a letter is present. Never throws.
+		 */
+		function hasReadableText(text) {
+			return /[^\W\d_]/u.test(String(text == null ? "" : text));
+		}
 		/** @returns the first readable paragraph of a markdown body. */
 		function firstParagraph(body) {
 			var lines = String(body == null ? "" : body).split("\n");
@@ -820,7 +932,7 @@ window.__ModuleLoader__.load({
 					var line = lines[i];
 					var heading = line.match(/^##[ \t]+(.+?)[ \t]*$/);
 					if (heading !== null) {
-						law = { id: heading[1].trim(), statement: "", authority: null, decidedIn: null, approvedBy: null, checks: [] };
+						law = { id: heading[1].trim(), statement: "", authority: null, decidedIn: null, approvedBy: null, checks: [], unenforced: null };
 						spec.laws.push(law);
 						inChecks = false;
 						continue;
@@ -839,6 +951,22 @@ window.__ModuleLoader__.load({
 					var authority = line.match(/^-[ \t]*authority:[ \t]*(.+?)[ \t]*$/);
 					if (authority !== null) {
 						law.authority = authority[1].trim();
+						continue;
+					}
+					// An unenforced law is rendered as `- checks: none, and this law says why:
+					// <reason>` (or `…none, and the law does not say why…` when the record
+					// gave none), and a partly-covered law carries `- not fully covered:
+					// <reason>` after its check list. Both are captured here so the expanded
+					// law row can state why nothing checks it — the reason is a fact the
+					// document already carries, not something this parser decides.
+					var noneChecks = line.match(/^-[ \t]*checks:[ \t]*none(?:[^:]*:)?[ \t]*(.*)$/);
+					if (noneChecks !== null) {
+						law.unenforced = noneChecks[1].replace(/^[,;]\s*/, "").trim() || null;
+						continue;
+					}
+					var notCovered = line.match(/^-[ \t]*not fully covered:[ \t]*(.*)$/);
+					if (notCovered !== null) {
+						law.unenforced = notCovered[1].trim() || null;
 						continue;
 					}
 					if (/^-[ \t]*checks:[ \t]*$/.test(line)) {
@@ -892,12 +1020,35 @@ window.__ModuleLoader__.load({
 			}
 			return map;
 		}
-		/** @returns the one-line summary of a decision: Decision's first sentence, else Context's. */
+		/**
+		 * The one-line summary of a decision, derived only for display.
+		 *
+		 * The candidates are tried in order — the Decision body section, then Context,
+		 * then the body's first paragraph, then the title — and each is stripped of its
+		 * markdown lead and reduced to its first READABLE sentence. A candidate that
+		 * carries no letter or digit after stripping (a section that is only a list
+		 * marker, say `1.`) is skipped rather than returned, so a summary can never be a
+		 * bare number or punctuation; the function returns the empty string only when
+		 * every candidate is unreadable, and the row then renders no summary line at all.
+		 *
+		 * @param record - the adapted decision, carrying `sections`, `body` and `title`.
+		 * @returns A sentence of at most {@link SUMMARY_LIMIT} characters, or `""`.
+		 */
 		function decisionSummary(record) {
 			var section = findSection(record.sections, "Decision") || findSection(record.sections, "Context");
-			var text = section === null ? "" : plainText(section.lines);
-			if (text === "") text = firstParagraph(record.body);
-			return truncate(firstSentence(text), 140);
+			var candidates = [
+				section === null ? "" : plainText(section.lines),
+				firstParagraph(record.body),
+				String(record.title == null ? "" : record.title)
+			];
+			for (var i = 0; i < candidates.length; i += 1) {
+				var cleaned = stripMarkdownLead(candidates[i]);
+				if (!hasReadableText(cleaned)) continue;
+				var sentence = stripMarkdownLead(firstSentence(cleaned));
+				if (!hasReadableText(sentence)) continue;
+				return truncate(sentence, SUMMARY_LIMIT);
+			}
+			return "";
 		}
 		//#endregion
 
@@ -1286,8 +1437,17 @@ window.__ModuleLoader__.load({
 		function mutedStyle() {
 			return { fontSize: 12, opacity: 0.7, margin: "4px 0" };
 		}
+		/**
+		 * The collapsed row's summary line: one line, clipped rather than wrapped.
+		 *
+		 * The row's preview must not grow into a paragraph wall, and a summary forced onto
+		 * one line by a clip keeps every row the same height; the full prose is in the
+		 * expanded body, so nothing is lost, only deferred. `title` carries the untruncated
+		 * summary so the ellipsis is never the only place the text exists.
+		 * @returns the style object.
+		 */
 		function summaryStyle() {
-			return { fontSize: 12, opacity: 0.85, margin: "6px 0 0", lineHeight: "18px" };
+			return { fontSize: 12, opacity: 0.85, margin: "6px 0 0", lineHeight: "18px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
 		}
 		function warnStyle() {
 			return { fontSize: 11, color: "var(--dsw-alias-state-error-primary, #e5735f)", marginTop: 4 };
@@ -1395,6 +1555,57 @@ window.__ModuleLoader__.load({
 		}
 		function ctaNoteStyle() {
 			return { fontSize: 11, color: "var(--dsw-alias-label-tertiary, rgba(160,160,170,0.95))", marginTop: 4, lineHeight: "16px" };
+		}
+		/**
+		 * The section navigator: a sticky row of tabs, one per part of the window.
+		 *
+		 * It sticks to the top of the body's own scroll container, so the four parts stay
+		 * one click away however far a section is scrolled; its background is the window's
+		 * own surface so rows scrolling under it do not show through.
+		 * @returns the style object.
+		 */
+		function sectionNavStyle() {
+			return {
+				position: "sticky",
+				top: 0,
+				zIndex: 3,
+				display: "flex",
+				gap: 6,
+				flexWrap: "wrap",
+				padding: "8px 0",
+				marginBottom: 6,
+				background: "var(--dsw-specific-menu, #1f1f23)",
+				borderBottom: "1px solid var(--dsw-alias-border-l2, rgba(128,128,128,0.25))"
+			};
+		}
+		/**
+		 * One tab of {@link sectionNavStyle}, filled and outlined when it is the active
+		 * part. The active fill uses the business tone's `-tertiary` tint and its primary
+		 * text colour — the same pairing the consent pill uses — so the tab is a control
+		 * whose label cannot be painted in its own fill.
+		 * @param active - whether this tab names the part currently drawn.
+		 * @returns the style object.
+		 */
+		function tabStyle(active) {
+			return {
+				appearance: "none",
+				border: "1px solid " + (active ? "var(--dsw-alias-state-business-primary, #8fb8ff)" : "var(--dsw-alias-border-l2, rgba(128,128,128,0.35))"),
+				background: active ? "var(--dsw-alias-state-business-tertiary, rgba(143,184,255,0.15))" : "transparent",
+				color: active ? "var(--dsw-alias-state-business-primary, #8fb8ff)" : "inherit",
+				borderRadius: 999,
+				padding: "3px 10px",
+				fontSize: 12,
+				fontWeight: active ? 600 : 400,
+				cursor: "pointer"
+			};
+		}
+		/** @returns the muted one-line explanation under a section's heading. */
+		function sectionNoteStyle() {
+			return { fontSize: 12, color: "var(--dsw-alias-label-tertiary, rgba(160,160,170,0.95))", lineHeight: "17px", margin: "0 0 8px" };
+		}
+		/** A compact law row's statement: one clipped line, expanded on demand. */
+		function lawStatementStyle() {
+			return { fontSize: 12, lineHeight: "18px", marginTop: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
 		}
 
 		//#region colour model
@@ -1614,24 +1825,171 @@ window.__ModuleLoader__.load({
 			return n + " " + noun + (n === 1 ? "" : "s");
 		}
 		/**
-		 * A section heading: the human title on top and, on a muted second line, the
-		 * directory the section was read from. The file pattern is deliberately NOT
-		 * shown — it is implementation detail — while the directory is, because that is
-		 * the fact a reader needs in order to go and find the file.
+		 * A section heading: the human title on top, a one-line explanation of what the
+		 * part is, and — on a muted third line — the directory the section was read from.
+		 * The file pattern is deliberately NOT shown — it is implementation detail — while
+		 * the directory is, because that is the fact a reader needs in order to go and
+		 * find the file.
 		 *
 		 * It is a component, so it takes the one props object React passes, not two
 		 * positional arguments.
 		 * @param props.title - the section title.
+		 * @param props.explanation - the one-line explanation; absent renders no line.
 		 * @param props.sourceDir - the resolved directory; a null, empty or absent value
-		 *   renders the title alone.
+		 *   renders no directory line.
 		 * @returns the heading element.
 		 */
 		function sectionHeading(props) {
 			var sourceDir = props.sourceDir;
+			var explanation = props.explanation;
 			return React.createElement("div", { style: { margin: "4px 0 8px" } },
 				React.createElement("h3", { style: Object.assign({}, sectionHeadingStyle(), { margin: 0 }) }, props.title),
+				explanation === null || explanation === undefined || explanation === "" ? null : React.createElement("p", { style: sectionNoteStyle() }, explanation),
 				sourceDir === null || sourceDir === undefined || sourceDir === "" ? null : React.createElement("div", { style: mutedInlineStyle() }, sourceDir));
 		}
+		//#region section navigation
+		/**
+		 * The four parts of the window, in the order the navigator draws their tabs. The
+		 * order is presentation: `needs` is the actionable part, so it leads when it has
+		 * anything in it, and the three browsing parts follow.
+		 */
+		const SECTION_KEYS = ["needs", "decisions", "consents", "specs"];
+		/** The reader-facing name and the one-line explanation of each part. */
+		const SECTION_META = {
+			needs: {
+				label: "Needs a human",
+				explanation: "Everything the ratchet reports as waiting on you — consents to record, contradictions to settle, duplicates to resolve, drifted specs and a red gate."
+			},
+			decisions: {
+				label: "Decisions",
+				explanation: "Every decision record, one compact row each; open a row for its metadata, the laws it decided and its full body."
+			},
+			consents: {
+				label: "Consents",
+				explanation: "Every approval record, naming the decision its recorded consent put into force."
+			},
+			specs: {
+				label: "Specs",
+				explanation: "The compiled law cards, grouped by zone; open a law to read its checks and any reason nothing checks it."
+			}
+		};
+		/**
+		 * The count each tab shows: how many things that part currently holds. It is a
+		 * tally of what was loaded, never a derivation of force; the `needs` count is the
+		 * ratchet's own set and the others are the loaded record/spec arrays.
+		 * @param view - the loaded view (`needsHuman`, `decisions`, `consents`, `specs`).
+		 * @returns `{ needs, decisions, consents, specs }`, each a number.
+		 */
+		function sectionCounts(view) {
+			var list = function (value) { return Array.isArray(value) ? value.length : 0; };
+			return {
+				needs: list(view.needsHuman),
+				decisions: list(view.decisions),
+				consents: list(view.consents),
+				specs: list(view.specs)
+			};
+		}
+		/**
+		 * The part the window opens on when the human has not chosen one: the first
+		 * non-empty part in the navigator's order, which makes the actionable part lead
+		 * when there is anything to act on, and Decisions when there is not. A corpus with
+		 * nothing in any part still opens on Decisions, because that is the part a reader
+		 * checks first when a project surprises them.
+		 * @param view - the loaded view.
+		 * @returns One of {@link SECTION_KEYS}.
+		 */
+		function defaultSection(view) {
+			var counts = sectionCounts(view);
+			for (var i = 0; i < SECTION_KEYS.length; i += 1) {
+				if (counts[SECTION_KEYS[i]] > 0) return SECTION_KEYS[i];
+			}
+			return "decisions";
+		}
+		/**
+		 * PURPOSE
+		 *   The sticky navigator: one tab per part of the window, each carrying its name
+		 *   and its count, with the active part filled. It replaces the single long scroll
+		 *   — the window used to stack Needs a human, every decision, every consent and
+		 *   every spec into one column — by drawing exactly one part at a time. It selects
+		 *   a part and derives nothing: the counts it shows come from {@link sectionCounts}
+		 *   over the view the ratchet returned.
+		 *
+		 * INPUTS
+		 *   props.tabs - an array of `{ key, label, count }`, in draw order.
+		 *   props.active - the key of the part currently drawn.
+		 *   props.onSelect - called with a key when a tab is clicked.
+		 *
+		 * OUTPUTS
+		 *   The navigator element (`role="tablist"`, one `role="tab"` button per part, each
+		 *   carrying `data-adr-panel-section`). An empty tab list renders an empty
+		 *   navigator. Never throws.
+		 *
+		 * KEYWORDS
+		 *   section navigation, tabs, sticky, one part, count, active
+		 */
+		function SectionNav(props) {
+			var tabs = Array.isArray(props.tabs) ? props.tabs : [];
+			var active = props.active;
+			var onSelect = props.onSelect;
+			return React.createElement("div", { style: sectionNavStyle(), role: "tablist", "aria-label": "panel parts" },
+				tabs.map(function (tab) {
+					var selected = tab.key === active;
+					return React.createElement("button", {
+						key: tab.key,
+						type: "button",
+						role: "tab",
+						"aria-selected": selected ? "true" : "false",
+						"data-adr-panel-section": tab.key,
+						style: tabStyle(selected),
+						onClick: function () { onSelect(tab.key); }
+					}, tab.label + " (" + tab.count + ")");
+				}));
+		}
+		/** @returns the four tabs in draw order, over the loaded view. */
+		function sectionTabs(view) {
+			var counts = sectionCounts(view);
+			return SECTION_KEYS.map(function (key) {
+				return { key: key, label: SECTION_META[key].label, count: counts[key] };
+			});
+		}
+		/**
+		 * PURPOSE
+		 *   Bound how many rows a section draws. The host caps what it sends, but its cap
+		 *   is 500 records: a browser that builds a node tree for all of them is slow for
+		 *   exactly the large corpus the window exists to make readable. This draws at most
+		 *   {@link SECTION_ROW_CAP} rows and, when more are loaded, one control that
+		 *   reveals the next batch and states how many of the total are shown. It is a
+		 *   drawing bound only: the rows beyond the first batch are already in the loaded
+		 *   view and no data is discarded.
+		 *
+		 * INPUTS
+		 *   props.rows - an array of already-created row elements.
+		 *
+		 * OUTPUTS
+		 *   A grid holding the first `limit` rows and, when rows remain, a button that
+		 *   raises the limit and a `Showing X of Y` line. An empty array renders an empty
+		 *   grid. Never throws.
+		 *
+		 * KEYWORDS
+		 *   bounded render, row cap, show more, DOM size, large corpus
+		 */
+		function CappedRows(props) {
+			var rows = Array.isArray(props.rows) ? props.rows : [];
+			var limitState = React.useState(SECTION_ROW_CAP);
+			var limit = limitState[0];
+			var setLimit = limitState[1];
+			var shown = rows.slice(0, limit);
+			var remaining = rows.length - shown.length;
+			var more = remaining <= 0 ? null : React.createElement("div", { key: "more", style: { display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" } },
+				React.createElement("button", {
+					type: "button",
+					style: smallButtonStyle(),
+					onClick: function () { setLimit(limit + SECTION_ROW_CAP); }
+				}, "Show " + Math.min(remaining, SECTION_ROW_CAP) + " more"),
+				React.createElement("span", { style: mutedInlineStyle() }, "Showing " + shown.length + " of " + rows.length));
+			return React.createElement("div", { style: { display: "grid", gap: 8 } }, shown.concat(more === null ? [] : [more]));
+		}
+		//#endregion
 		/**
 		 * PURPOSE
 		 *   Choose the tone a needs-human entry's kind pill is drawn in. It is a table over
@@ -2006,7 +2364,12 @@ window.__ModuleLoader__.load({
 		 *   needs a human, section, entry point, grouped batches, empty state, truncation
 		 */
 		function NeedsHumanSection(props) {
-			var needs = Array.isArray(props.needs) ? props.needs : [];
+			var all = Array.isArray(props.needs) ? props.needs : [];
+			// The client-side drawing bound, on top of the host's own cap. The entries past
+			// it are loaded and the line below states how many are held back, so a bounded
+			// section never reads as a short one.
+			var needs = all.slice(0, SECTION_ROW_CAP);
+			var heldBack = all.length - needs.length;
 			var truncation = needsTruncationNote(props.truncated);
 			var body;
 			if (needs.length === 0) {
@@ -2017,6 +2380,7 @@ window.__ModuleLoader__.load({
 				var parts = partitionNeedsHuman(needs);
 				var children = [];
 				if (truncation !== null) children.push(React.createElement("p", { key: "truncated", style: warnStyle() }, truncation));
+				if (heldBack > 0) children.push(React.createElement("p", { key: "heldback", style: mutedStyle() }, "Showing " + needs.length + " of " + all.length + " needs-a-human entries; the rest are loaded and listed by the ratchet but not drawn here."));
 				parts.cards.forEach(function (need, index) {
 					children.push(React.createElement(NeedsHumanCard, { key: "card" + index, need: need, decisions: props.decisions, consents: props.consents, onSelectAdr: props.onSelectAdr }));
 				});
@@ -2029,7 +2393,7 @@ window.__ModuleLoader__.load({
 				body = React.createElement("div", { style: { display: "grid", gap: 8 } }, children);
 			}
 			return React.createElement("div", null,
-				React.createElement(sectionHeading, { title: "Needs a human" }),
+				React.createElement(sectionHeading, { title: SECTION_META.needs.label, explanation: SECTION_META.needs.explanation }),
 				body);
 		}
 		//#endregion
@@ -2105,15 +2469,55 @@ window.__ModuleLoader__.load({
 				blocks);
 		}
 		/**
-		 * One compiled law, as a card.
-		 * @param props.law the compiled law.
-		 * @param props.decisionIds map of decision id to boolean, for link-ability.
-		 * @param props.decisionStates map of decision id to state kind, or undefined
-		 *   when the caller has none. It colours the `decided in` chip so a law whose
-		 *   decision is superseded or awaiting a human does not read as if it were in
-		 *   force. A missing entry (and an absent map) falls back to `neutral`.
-		 * @param props.onSelectAdr callback receiving a decision id.
-		 * @returns the card; the `decided in` chip is clickable only when `linked`.
+		 * The check kinds of one law with their counts, in first-seen order, so a compact
+		 * law row can show `required_text × 2` instead of two full check lines.
+		 * @param law - a parsed law, or anything.
+		 * @returns an array of `{ type, count }`; `unknown` names a check whose type did
+		 *   not parse, so a check never vanishes from the tally. Never throws.
+		 */
+		function lawCheckCounts(law) {
+			var checks = law !== null && law !== undefined && Array.isArray(law.checks) ? law.checks : [];
+			var counts = {};
+			var order = [];
+			for (var i = 0; i < checks.length; i += 1) {
+				var raw = checks[i] === null || checks[i] === undefined ? "" : checks[i].type;
+				var type = raw === null || raw === undefined || raw === "" ? "unknown" : String(raw);
+				if (counts[type] === undefined) {
+					counts[type] = 0;
+					order.push(type);
+				}
+				counts[type] += 1;
+			}
+			return order.map(function (type) { return { type: type, count: counts[type] }; });
+		}
+		/**
+		 * PURPOSE
+		 *   One compiled law as a COMPACT row that expands. Collapsed it draws only the law
+		 *   id, a one-line clipped statement, one toned chip per check kind with its count,
+		 *   and the `decided in` chip; expanded it adds the full statement, the authority,
+		 *   every check with its type and target/pattern, and — when the document carries
+		 *   one — the reason nothing checks the law. It replaces a card that always drew
+		 *   the full statement and every check, which turned a zone with many laws into a
+		 *   wall of prose. The `decided in` chip keeps the tone of the decision it names,
+		 *   so a law whose decision is superseded or awaiting a human does not read as if
+		 *   it were in force.
+		 *
+		 * INPUTS
+		 *   props.law - the parsed law, with `id`, `statement`, `authority`, `decidedIn`,
+		 *     `approvedBy`, `checks` and `unenforced`.
+		 *   props.decisionIds - map of decision id to boolean, for link-ability.
+		 *   props.decisionStates - map of decision id to state kind, or undefined when the
+		 *     caller has none; a missing entry (and an absent map) falls back to `neutral`.
+		 *   props.onSelectAdr - callback receiving a decision id.
+		 *
+		 * OUTPUTS
+		 *   The row element. Collapsed by default; the header toggles it and carries
+		 *   `aria-expanded`. A law with no checks says so in its expanded body. Its
+		 *   `decided in` chip is clickable only when the id is in `decisionIds`. Never
+		 *   throws.
+		 *
+		 * KEYWORDS
+		 *   spec row, law card, compact, collapse, check chips, decided in, unenforced
 		 */
 		function LawCard(props) {
 			var law = props.law;
@@ -2124,24 +2528,53 @@ window.__ModuleLoader__.load({
 			var decidedKind = decisionStates !== undefined && decisionStates !== null && law.decidedIn !== null && decisionStates[law.decidedIn] !== undefined
 				? decisionStates[law.decidedIn]
 				: "neutral";
-			return React.createElement("div", { style: lawCardStyle() },
-				React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap" } },
+			var expandedState = React.useState(false);
+			var expanded = expandedState[0];
+			var setExpanded = expandedState[1];
+			var counts = lawCheckCounts(law);
+			var children = [
+				React.createElement("div", {
+					key: "head",
+					style: rowHeadStyle(),
+					role: "button",
+					tabIndex: 0,
+					"aria-expanded": expanded ? "true" : "false",
+					onClick: function () { setExpanded(!expanded); }
+				},
 					mono(law.id),
-					pill("authority: " + (law.authority === null || law.authority === "" ? "unknown" : law.authority), authorityKind(law.authority)),
+					counts.map(function (entry) {
+						return pill(entry.type + " × " + entry.count, checkKind(entry.type));
+					}),
 					pill(
 						"decided in " + (law.decidedIn === null || law.decidedIn === "" ? "unknown" : law.decidedIn),
 						decidedKind,
 						linked ? linkChipStyle() : null,
 						linked ? function () { onSelectAdr(law.decidedIn); } : null
-					)),
-				law.statement === "" ? null : React.createElement("div", { style: { fontSize: 12, marginTop: 4, lineHeight: "18px" } }, law.statement),
-				law.checks.length === 0
-					? React.createElement("div", { style: mutedStyle() }, "No checks declared.")
-					: React.createElement("div", { style: { marginTop: 4, display: "grid", gap: 2 } }, law.checks.map(function (check, index) {
-						return React.createElement("div", { key: String(index), style: { display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap" } },
-							pill(check.type === null || check.type === undefined || check.type === "" ? "unknown" : check.type, checkKind(check.type)),
-							mono(check.detail));
-					})));
+					),
+					React.createElement("span", { style: disclosureStyle() }, expanded ? "▾" : "▸")),
+				law.statement === ""
+					? null
+					: React.createElement("div", {
+						key: "statement",
+						style: expanded ? paragraphStyle() : lawStatementStyle(),
+						title: law.statement
+					}, expanded ? law.statement : truncate(law.statement, STATEMENT_LIMIT))
+			];
+			if (expanded) {
+				children.push(React.createElement("div", { key: "details", style: detailsStyle() },
+					React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap" } },
+						pill("authority: " + (law.authority === null || law.authority === "" ? "unknown" : law.authority), authorityKind(law.authority)),
+						law.approvedBy === null || law.approvedBy === undefined || law.approvedBy === "" ? null : React.createElement("span", { style: mutedInlineStyle() }, "approved by " + law.approvedBy)),
+					law.checks.length === 0
+						? React.createElement("div", { style: mutedStyle() }, "No checks declared.")
+						: React.createElement("div", { style: { display: "grid", gap: 2 } }, law.checks.map(function (check, index) {
+							return React.createElement("div", { key: String(index), style: { display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap" } },
+								pill(check.type === null || check.type === undefined || check.type === "" ? "unknown" : check.type, checkKind(check.type)),
+								mono(check.detail));
+						})),
+					law.unenforced === null || law.unenforced === undefined || law.unenforced === "" ? null : React.createElement(HashedText, { style: ctaNoteStyle(), text: "Nothing enforces this law: " + law.unenforced })));
+			}
+			return React.createElement("div", { style: lawCardStyle() }, children);
 		}
 		/** @returns the metadata grid for one decision, with the state and author as coloured pills. */
 		function metadataBlock(adr, recordIds, onSelectAdr) {
@@ -2684,13 +3117,12 @@ window.__ModuleLoader__.load({
 					onClick: onToggle
 				},
 					React.createElement("span", { style: badgeStyle() }, "#" + (adr.id === null || adr.id === "" ? "????" : adr.id)),
-					React.createElement("span", { style: { fontWeight: 700 } }, adr.title),
+					React.createElement("span", { style: { fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, title: adr.title }, adr.title),
 					pill(adr.state.text, adr.state.kind, adr.state.derived ? derivedChipStyle() : null),
 					provenancePill(adr.provenance, recordIds, onSelectAdr),
 					authorPill(adr),
-					adr.type === null || adr.type === "" || adr.type === "adr" ? null : pill(adr.type, "neutral"),
 					React.createElement("span", { style: disclosureStyle() }, expanded ? "▾" : "▸")),
-				adr.summary === "" ? null : React.createElement("div", { key: "summary", style: summaryStyle() }, adr.summary),
+				adr.summary === "" ? null : React.createElement("div", { key: "summary", style: summaryStyle(), title: adr.summary }, adr.summary),
 				adr.error === null ? null : React.createElement("div", { key: "err", style: warnStyle() }, "frontmatter: " + adr.error),
 				// The ratchet's own `blockedReason` when this record cannot be ratified — the law it
 				// contradicts and the resolution that would settle it. It is shown where the action
@@ -2832,9 +3264,10 @@ window.__ModuleLoader__.load({
 				histogramComplete ? null : React.createElement("div", { style: warnStyle() }, "The check histogram is incomplete: it counted " + counted + " of the " + spec.counts.checks + " checks this document declares, so at least one check could not be parsed."),
 				spec.laws.length === 0
 					? React.createElement("div", { style: mutedStyle() }, "No law blocks were found in this document.")
-					: React.createElement("div", { style: { marginTop: 6 } }, spec.laws.map(function (law) {
-						return React.createElement(LawCard, { key: law.id, law: law, zone: spec.zone, decisionIds: decisionIds, decisionStates: decisionStates, onSelectAdr: onSelectAdr });
-					})));
+					: React.createElement("div", { style: { marginTop: 6 } },
+						React.createElement(CappedRows, { rows: spec.laws.map(function (law) {
+							return React.createElement(LawCard, { key: law.id, law: law, zone: spec.zone, decisionIds: decisionIds, decisionStates: decisionStates, onSelectAdr: onSelectAdr });
+						}) })));
 		}
 
 		/**
@@ -2920,6 +3353,12 @@ window.__ModuleLoader__.load({
 			var selected = React.useState(null);
 			var expandedId = selected[0];
 			var setExpandedId = selected[1];
+			// The part of the corpus the window draws. `null` means the human has not chosen
+			// one, so the sensible default below applies and re-applies as the view loads;
+			// once a tab is clicked the choice is remembered for the rest of the session.
+			var sectionState = React.useState(null);
+			var chosenSection = sectionState[0];
+			var setChosenSection = sectionState[1];
 			var seq = React.useState(0);
 			var bump = seq[1];
 			React.useEffect(function () {
@@ -3001,10 +3440,69 @@ window.__ModuleLoader__.load({
 			if (current.specs.length > 0) countParts.push(plural(current.specs.length, "spec"));
 			var onSelectAdr = function (adrId) {
 				setExpandedId(adrId);
+				// A row selection always lands on the Decisions part: the laws-decided-here
+				// links, the needs-human "Open <id>" buttons and a consent's `approves` link
+				// all name a decision, and opening it must switch the tab to where its row is.
+				setChosenSection("decisions");
 			};
 			var toggle = function (adrId) {
 				setExpandedId(expandedId === adrId ? null : adrId);
 			};
+			// One part at a time: the four sections are alternatives, not a single scroll.
+			// The nav says what the alternatives are and how much each holds; the body
+			// below draws exactly the active one, with its own header and explanation.
+			var activeSection = chosenSection === null ? defaultSection(current) : chosenSection;
+			var decisionBody = current.decisions.length === 0
+				? React.createElement("p", { style: mutedStyle() }, "No decision files were found in " + current.dirs.decisionsDir + ", or none could be read.")
+				: React.createElement(CappedRows, { rows: current.decisions.map(function (adr) {
+					return React.createElement(DecisionRow, {
+						key: adr.path,
+						adr: adr,
+						expanded: expandedId === adr.id,
+						onToggle: function () { toggle(adr.id); },
+						laws: current.lawsByDecision[adr.id],
+						decisionIds: current.decisionIds,
+						decisionStates: decisionStates,
+						recordIds: current.recordIds,
+						onSelectAdr: onSelectAdr,
+						canAsk: canAsk,
+						ask: ask,
+						settle: settle,
+						sessionId: state.sessionId,
+						onRecorded: onRecorded
+					});
+				}) });
+			var consentBody = current.consents.length === 0
+				? React.createElement("p", { style: mutedStyle() }, "No consent records were found in " + current.dirs.decisionsDir + ".")
+				: React.createElement(CappedRows, { rows: current.consents.map(function (adr) {
+					return React.createElement(ConsentRow, {
+						key: adr.path,
+						adr: adr,
+						expanded: expandedId === adr.id,
+						onToggle: function () { toggle(adr.id); }
+					});
+				}) });
+			var specBody = current.specs.length === 0
+				? React.createElement("p", { style: mutedStyle() }, "No spec files were found in " + current.dirs.specsDir + ", or none could be read.")
+				: React.createElement(CappedRows, { rows: current.specs.map(function (spec) {
+					return React.createElement(SpecView, { key: spec.path, spec: spec, decisionIds: current.decisionIds, decisionStates: decisionStates, onSelectAdr: onSelectAdr });
+				}) });
+			var sectionBody;
+			if (activeSection === "needs") {
+				sectionBody = React.createElement(NeedsHumanSection, {
+					needs: current.needsHuman,
+					truncated: current.needsHumanTruncated,
+					decisions: current.decisions,
+					consents: current.consents,
+					onSelectAdr: onSelectAdr
+				});
+			} else {
+				var meta = SECTION_META[activeSection] === undefined ? SECTION_META.decisions : SECTION_META[activeSection];
+				var sourceDir = activeSection === "specs" ? current.dirs.specsDir : current.dirs.decisionsDir;
+				sectionBody = React.createElement("div", null,
+					React.createElement(sectionHeading, { title: meta.label, explanation: meta.explanation, sourceDir: sourceDir }),
+					activeSection === "consents" ? consentBody : activeSection === "specs" ? specBody : decisionBody);
+			}
 			return React.createElement("div", { style: overlayBackdropStyle(), role: "presentation" },
 				React.createElement("div", { style: overlayWindowStyle(), role: "dialog", "aria-label": "Decisions and specs", onMouseDown: function (event) { event.stopPropagation(); } },
 					React.createElement("div", { style: overlayHeaderStyle() },
@@ -3030,58 +3528,16 @@ window.__ModuleLoader__.load({
 								return React.createElement(HashedText, { key: String(index), text: note });
 							}))
 							: null,
-						React.createElement(NeedsHumanSection, {
-							needs: current.needsHuman,
-							truncated: current.needsHumanTruncated,
-							decisions: current.decisions,
-							consents: current.consents,
-							onSelectAdr: onSelectAdr
-						}),
-						React.createElement(Legend, null),
 						pendingRatify === null ? null : React.createElement("div", null,
 							React.createElement(sectionHeading, { title: "Awaiting your answer", sourceDir: current.dirs.decisionsDir }),
 							React.createElement(RatifyAnswer, { claim: pendingRatify })),
-						React.createElement("div", null,
-							React.createElement(sectionHeading, { title: "Decisions", sourceDir: current.dirs.decisionsDir }),
-							current.decisions.length === 0
-								? React.createElement("p", { style: mutedStyle() }, "No decision files were found in " + current.dirs.decisionsDir + ", or none could be read.")
-								: React.createElement("div", { style: { display: "grid", gap: 8 } }, current.decisions.map(function (adr) {
-									return React.createElement(DecisionRow, {
-										key: adr.path,
-										adr: adr,
-										expanded: expandedId === adr.id,
-										onToggle: function () { toggle(adr.id); },
-										laws: current.lawsByDecision[adr.id],
-										decisionIds: current.decisionIds,
-										decisionStates: decisionStates,
-										recordIds: current.recordIds,
-										onSelectAdr: onSelectAdr,
-										canAsk: canAsk,
-										ask: ask,
-										settle: settle,
-										sessionId: state.sessionId,
-										onRecorded: onRecorded
-									});
-								}))),
-						React.createElement("div", null,
-							React.createElement(sectionHeading, { title: "Consents", sourceDir: current.dirs.decisionsDir }),
-							current.consents.length === 0
-								? React.createElement("p", { style: mutedStyle() }, "No consent records were found in " + current.dirs.decisionsDir + ".")
-								: React.createElement("div", { style: { display: "grid", gap: 8 } }, current.consents.map(function (adr) {
-									return React.createElement(ConsentRow, {
-										key: adr.path,
-										adr: adr,
-										expanded: expandedId === adr.id,
-										onToggle: function () { toggle(adr.id); }
-									});
-								}))),
-						React.createElement("div", null,
-							React.createElement(sectionHeading, { title: "Specs", sourceDir: current.dirs.specsDir }),
-							current.specs.length === 0
-								? React.createElement("p", { style: mutedStyle() }, "No spec files were found in " + current.dirs.specsDir + ", or none could be read.")
-								: React.createElement("div", { style: { display: "grid", gap: 8 } }, current.specs.map(function (spec) {
-									return React.createElement(SpecView, { key: spec.path, spec: spec, decisionIds: current.decisionIds, decisionStates: decisionStates, onSelectAdr: onSelectAdr });
-								}))))));
+						React.createElement(SectionNav, {
+							tabs: sectionTabs(current),
+							active: activeSection,
+							onSelect: setChosenSection
+						}),
+						sectionBody,
+						React.createElement(Legend, null))));
 		}
 		//#endregion
 
