@@ -329,7 +329,7 @@ window.__ModuleLoader__.load({
 		 * are equal again after a release and the constant is one ahead only in the working
 		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.34";
+		const PANEL_VERSION = "0.1.35";
 		/** Directories used when the host view reports none. */
 		const DEFAULT_DECISIONS_DIR = "docs/adrs";
 		const DEFAULT_SPECS_DIR = "docs/specs";
@@ -3090,6 +3090,18 @@ window.__ModuleLoader__.load({
 			var decision = props.decision;
 			var problemEntries = Array.isArray(result.problems) ? result.problems.filter(function (entry) { return entry !== null && typeof entry === "object"; }) : [];
 			var problemCodes = problemEntries.map(function (entry) { return typeof entry.code === "string" ? entry.code : null; }).filter(function (code) { return code !== null; });
+			// The same code can repeat once per problem — a corpus with twelve duplicate ADR ids
+			// refused with "ADR_ID_DUPLICATE" twelve times on one line — so the code line is
+			// counted rather than repeated. The detail stays in the bullet list below it.
+			var summarizeCodes = function (codes) {
+				var counts = {};
+				var order = [];
+				for (var i = 0; i < codes.length; i += 1) {
+					if (counts[codes[i]] === undefined) { counts[codes[i]] = 0; order.push(codes[i]); }
+					counts[codes[i]] += 1;
+				}
+				return order.map(function (code) { return counts[code] === 1 ? code : code + " \u00d7" + counts[code]; }).join(", ");
+			};
 			// The ratchet's own words, not only its codes: a refusal that shows a code alone sends
 			// the reader to the CLI for the reason the window exists to give them. One line per
 			// problem, the code first when it has one.
@@ -3123,12 +3135,12 @@ window.__ModuleLoader__.load({
 				return React.createElement("div", { style: warnStyle() },
 					"Nothing was recorded: ",
 					typeof result.message === "string" && result.message !== "" ? result.message : String(result.error),
-					problemCodes.length === 0 ? null : " (" + problemCodes.join(", ") + ")",
+					problemCodes.length === 0 ? null : " (" + summarizeCodes(problemCodes) + ")",
 					problemsBlock);
 			}
 			return React.createElement("div", { style: warnStyle() },
 				"Nothing was recorded",
-				problemCodes.length === 0 ? "." : ": the ratchet refused with " + problemCodes.join(", ") + ".",
+				problemCodes.length === 0 ? "." : ": the ratchet refused with " + summarizeCodes(problemCodes) + ".",
 				decision === "decline" ? " The decision stays proposed." : null,
 				problemsBlock,
 				typeof result.nextStep === "string" && result.nextStep !== "" ? React.createElement("div", { style: { marginTop: 4 } }, result.nextStep) : null);

@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-adr-panel",
-  "version": "0.1.34",
+  "version": "0.1.35",
   "description": "Web-UI panel for a project's ADR records and spec documents: a Session-header button opening a frame-wide overlay, with Approve and Decline on a proposed decision's row that answer the ratchet's own question directly, instead of minting consent or routing through a chat quiz",
   "type": "module",
   "main": "index.js",
