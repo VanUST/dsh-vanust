@@ -5793,6 +5793,11 @@ test('ratify: the queue reports what waits for a human and what cannot be ratifi
   assert.equal(need.id, '0021')
   assert.match(need.reason, /humanOnly/)
   assert.match(need.action, /consent cannot settle it/)
+  // Blocked is PENDING, not a dead end: the need carries the plan that would unblock the
+  // record, and `humanRequired` marks the step no agent may carry out.
+  assert.ok(Array.isArray(need.steps) && need.steps.length > 0, `a blocked need carries its steps: ${JSON.stringify(need.steps)}`)
+  assert.ok(need.steps.some((step) => step.op === 'human-authorship-required'), 'the humanOnly step is reported')
+  assert.equal(need.humanRequired, true)
 })
 
 test('ratify: a proposed record that removes law in force is blocked, and a ratify attempt mints nothing', () => {

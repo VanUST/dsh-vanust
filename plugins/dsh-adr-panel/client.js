@@ -329,7 +329,7 @@ window.__ModuleLoader__.load({
 		 * are equal again after a release and the constant is one ahead only in the working
 		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.35";
+		const PANEL_VERSION = "0.1.36";
 		/** Directories used when the host view reports none. */
 		const DEFAULT_DECISIONS_DIR = "docs/adrs";
 		const DEFAULT_SPECS_DIR = "docs/specs";
@@ -1313,6 +1313,23 @@ window.__ModuleLoader__.load({
 			// unchanged" stays a string equality rather than a set comparison.
 			adapted.draft = draft;
 			adapted.draftReason = typeof entry.draftReason === "string" ? entry.draftReason : null;
+			// A blocked decision's resolve plan, copied unchanged and added last so the key
+			// order still matches the service's — the adapter passes the set through, it
+			// does not extend it.
+			if (Object.prototype.hasOwnProperty.call(entry, "steps")) {
+				var STEP_KEYS = ["op", "zone", "paths", "agentAuthority", "lawId", "target", "detail"];
+				adapted.steps = (Array.isArray(entry.steps) ? entry.steps : []).map(function (step) {
+					if (step === null || step === undefined || typeof step !== "object") return null;
+					var copy = {};
+					for (var index = 0; index < STEP_KEYS.length; index += 1) {
+						var key = STEP_KEYS[index];
+						if (!Object.prototype.hasOwnProperty.call(step, key)) continue;
+						copy[key] = key === "paths" ? (Array.isArray(step.paths) ? step.paths.slice() : []) : step[key];
+					}
+					return copy;
+				}).filter(function (step) { return step !== null; });
+				adapted.humanRequired = entry.humanRequired === true;
+			}
 			return adapted;
 		}
 		/**
@@ -2118,6 +2135,7 @@ window.__ModuleLoader__.load({
 				? null
 				: (need.draft.id === null || need.draft.id === "" ? "" : need.draft.id + " ") + (need.draft.path === null ? "" : need.draft.path);
 			var problems = Array.isArray(need.problems) ? need.problems : [];
+			var steps = Array.isArray(need.steps) ? need.steps : [];
 			var problemRows = problems.map(function (problem, index) {
 				return React.createElement("div", { key: "problem" + index, style: { display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap" } },
 					problem.code === null ? null : pill(problem.code, "neutral"),
@@ -2135,6 +2153,19 @@ window.__ModuleLoader__.load({
 				need.problemCount !== null && need.problemCount !== undefined && need.problemCount > problems.length
 					? React.createElement("div", { style: mutedInlineStyle() }, "showing " + problems.length + " of " + need.problemCount + " problems; the rest are in the report")
 					: null,
+				// The ratchet's resolve plan. A blocked decision is pending WITH these steps;
+				// the window names them so the row is not a dead end. It offers no button here:
+				// running the plan needs an agent, and that is a separate surface.
+				steps.length === 0 ? null : React.createElement("div", { style: { display: "grid", gap: 4, marginTop: 4 } },
+					React.createElement("div", { style: { fontSize: 12, fontWeight: 600 } }, "To make this ratifiable:"),
+					steps.map(function (step, index) {
+						return React.createElement("div", { key: "step" + index, style: { display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap" } },
+							pill(step.op === null ? "step" : step.op, "neutral"),
+							step.detail === null ? null : React.createElement("span", { style: { fontSize: 12, lineHeight: "18px" } }, step.detail));
+					}),
+					need.humanRequired === true
+						? React.createElement("div", { style: mutedInlineStyle() }, "at least one step needs a human: an agent cannot author a record or change a zone authority")
+						: React.createElement("div", { style: mutedInlineStyle() }, "an agent can carry out every step; the consent that puts it in force is still yours")) ,
 				drafted === null ? null : React.createElement("div", { style: mutedInlineStyle() }, "drafted: " + drafted),
 				need.draftReason === null || need.draftReason === undefined ? null : React.createElement(HashedText, { style: mutedInlineStyle(), text: need.draftReason }),
 				need.action === "" ? null : React.createElement(HashedText, { style: ctaNoteStyle(), text: need.action }),

@@ -126,6 +126,7 @@ import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { Worker } from 'node:worker_threads'
 import { compileProject, readAdrCorpus, readManifest, renderSpecs, resolveActiveSet, zonesForRecord } from './ratchet-compiler.mjs'
+import { resolveStepsFor } from './ratchet-resolve.mjs'
 import { ratificationQueue } from './ratchet-ratify.mjs'
 import { detectSpecDrift, readJsonArtifact, readState, STATE_PATHS, verificationStatus } from './ratchet-state.mjs'
 import { draftNeedsHuman } from './ratchet-drafts.mjs'
@@ -434,7 +435,7 @@ function redGateNeed(root, currentSpecHash, lawDecider) {
  *   needs a human, consent, contradiction, duplicate, stale spec, red gate, entry point,
  *   drafted path, draft identity
  */
-function buildNeedsHuman(root, records, queue, drift, currentSpecHash, drafted, lawDecider) {
+function buildNeedsHuman(root, records, queue, drift, currentSpecHash, drafted, lawDecider, config, problems = []) {
   const needs = []
   const asDraft = (value) =>
     value === null || value === undefined || typeof value !== 'object'
@@ -463,6 +464,12 @@ function buildNeedsHuman(root, records, queue, drift, currentSpecHash, drafted, 
   // human what needs them. The row it names offers no Approve, because `canRatify` is
   // the queue's own membership and it is false here.
   for (const entry of queue.blocked ?? []) {
+    // A blocked record is a PENDING item, not a dead end: it carries the plan that would
+    // unblock it, computed from the same facts the compiler refused it with. `steps` is
+    // empty only when the resolver models no blocker for it, and `humanRequired` is true
+    // only when a step (a humanOnly zone) is one no agent may carry out.
+    const blockedRecord = records.find((candidate) => candidate.id === entry.id) ?? null
+    const plan = blockedRecord === null ? { steps: [], humanRequired: false } : resolveStepsFor(blockedRecord, config, problems)
     needs.push({
       kind: 'blocked',
       id: entry.id,
@@ -473,6 +480,8 @@ function buildNeedsHuman(root, records, queue, drift, currentSpecHash, drafted, 
         'a consent cannot settle it: the record has to be replaced by a human-authored one, or the zone authority has to change',
       draft: null,
       draftReason: 'a consent is refused rather than drafted for; the blocked reason says why',
+      steps: plan.steps,
+      humanRequired: plan.humanRequired,
     })
   }
 
@@ -784,6 +793,8 @@ export function deriveDecisions({ root } = {}) {
         // law id -> the record that decided it, so a red-gate problem can name the
         // decision to open rather than only the report file to read.
         new Map((compiled.bundle?.laws ?? []).map((law) => [law.id, law.sourceAdr ?? null])),
+        config,
+        compiled.problems,
       ),
     problems: dedupeProblems([...problems, ...(queue.problems ?? [])]),
     // The derivation itself never truncates; the service's cap is what may cut the view,
