@@ -252,9 +252,12 @@ const stateView = () => (stateViewOverride === null ? stateModule.deriveDecision
 
 let consentHostHandler = null
 const consentCalls = []
+/** The resolve route's own handler: `null` refuses, so a test must opt in to it. */
+let resolveHostHandler = null
 globalThis.location = { origin: 'http://stub.invalid' }
 globalThis.__DSH_ADR_PANEL_CONSENT__ = { route: '/adr-panel/consent', token: 'stub-capability-token' }
 globalThis.__DSH_ADR_PANEL_STATE__ = { route: '/adr-panel/state', token: 'stub-capability-token' }
+globalThis.__DSH_ADR_PANEL_RESOLVE__ = { route: '/adr-panel/resolve', token: 'stub-capability-token' }
 globalThis.fetch = (url, init) => {
   const target = String(url)
   const headers = init === undefined || init.headers === undefined ? {} : init.headers
@@ -268,6 +271,12 @@ globalThis.fetch = (url, init) => {
   if (target.includes('/adr-panel/state')) {
     stateCalls += 1
     return Promise.resolve({ status: 200, json: () => Promise.resolve(stateView()) })
+  }
+  if (target.includes('/adr-panel/resolve')) {
+    const answer = resolveHostHandler === null ? { status: 503, body: { ok: false, message: 'the stub host has no resolve handler' } } : resolveHostHandler(call)
+    if (answer === null) return new Promise(() => {})
+    if (typeof answer.then === 'function') return answer.then((settled) => ({ status: settled.status, json: () => Promise.resolve(settled.body) }))
+    return Promise.resolve({ status: answer.status, json: () => Promise.resolve(answer.body) })
   }
   const answer = consentHostHandler === null ? { status: 500, body: { ok: false, message: 'the stub host has no handler for this request' } } : consentHostHandler(call)
   // `null` from a handler means "never answer", and a promise means "answer when I say so":
@@ -1614,6 +1623,151 @@ claim(
   JSON.stringify(silentCalls[1] === undefined || silentCalls[1].body === null ? null : silentCalls[1].body.comment),
 )
 
+// ── a blocked card resolves and declines through its own route ──────────────
+//
+// The requirement: a blocked record is a PENDING item, not a dead end — the human can ask
+// for a resolver, or refuse the proposed resolution with a reason, so the next attempt can
+// differ. The plan, its steps and the declined reasons are the ratchet's text, read from
+// the resolve route; this bundle sends one of two `decision` values and nothing else.
+const blockedView = Object.assign({}, synthetic, {
+  needsHuman: [{
+    kind: 'blocked', id: '0017', title: 'a decision awaiting a human', path: 'synthetic/0017.adr.md',
+    reason: 'the zone "zone-a" is undeclared, so this record cannot enter force',
+    action: 'declare the zone, or point the record at one that is declared',
+    draft: null, draftReason: null, steps: [], humanRequired: true,
+  }],
+  needsHumanTruncated: null,
+})
+const resolveCalls = []
+const resolveCallsFrom = (from) => resolveCalls.slice(from)
+/** Renders the blocked card with a fresh component instance (a fresh prefix). */
+const blockedElement = () =>
+  React.createElement(
+    registry['shell.overlay'].Component,
+    Object.assign({}, overlayForRows, {
+      usePanel: (selector) => selector(panelStore.getSnapshot()),
+      load: () => Promise.resolve(blockedView),
+    }),
+  )
+const renderBlocked = async (tag) => {
+  await flush(blockedElement(), tag)
+  // The plan arrives asynchronously, so one more tick and render with the SAME prefix is
+  // what puts the ready phase on screen; a fresh prefix would be a fresh component.
+  await new Promise((resolveTick) => setTimeout(resolveTick, 20))
+  await flush(blockedElement(), tag)
+  collectControls()
+  return nodes
+}
+const planBody = (overrides) => Object.assign({ ok: true, id: '0017', title: 'a decision awaiting a human', path: 'synthetic/0017.adr.md', authority: 'agent', status: 'proposed', zones: ['zone-a'], steps: [{ op: 'declare-zone', zone: 'zone-a', paths: ['src/api/**'], agentAuthority: 'proposeOnly', detail: 'declare zone "zone-a" with src/api/**' }], humanRequired: false, declined: [], reason: null }, overrides)
+
+// The card asks the route for the plan, then a Resolve click starts ONE resolver.
+resolveHostHandler = (call) => {
+  resolveCalls.push(call)
+  if (call.method === 'GET') return { status: 200, body: planBody() }
+  return { status: 200, body: { ok: true, id: '0017', spawned: true, steps: planBody().steps, declined: [] } }
+}
+const beforeResolve = resolveCalls.length
+const resolvedNodes = await renderBlocked('blocked-resolve')
+const resolveButton = resolvedNodes.find((node) => node.tag === 'button' && node.text === 'Resolve')
+claim(
+  'a blocked card reads the ratchet plan from the resolve route and offers Resolve',
+  resolveButton !== undefined &&
+    resolveCallsFrom(beforeResolve).some((call) => call.method === 'GET' && call.url.includes('/adr-panel/resolve') && call.url.includes('id=0017') && call.headers['x-adr-panel-resolve'] === globalThis.__DSH_ADR_PANEL_RESOLVE__.token),
+  JSON.stringify(resolveCallsFrom(beforeResolve).map((call) => ({ method: call.method, url: call.url }))),
+)
+if (resolveButton !== undefined) resolveButton.props.onClick()
+await new Promise((resolveTick) => setTimeout(resolveTick, 20))
+await flush(
+  React.createElement(registry['shell.overlay'].Component, Object.assign({}, overlayForRows, { usePanel: (selector) => selector(panelStore.getSnapshot()), load: () => Promise.resolve(blockedView) })),
+  'blocked-resolve',
+)
+const resolvePosts = resolveCallsFrom(beforeResolve).filter((call) => call.method === 'POST')
+claim(
+  'and the Resolve click posts a resolve request, never a consent',
+  resolvePosts.length === 1 && resolvePosts[0].body !== null && resolvePosts[0].body.decision === 'resolve' && resolvePosts[0].body.adrId === '0017' && resolvePosts[0].body.comment === null,
+  JSON.stringify(resolvePosts[0] === undefined ? null : resolvePosts[0].body),
+)
+claim(
+  'and the outcome says a resolver started rather than claiming a consent',
+  nodes.map((node) => node.text).some((text) => typeof text === 'string' && text.includes('A resolver was started')),
+  JSON.stringify(nodes.map((node) => node.text).filter((text) => typeof text === 'string' && text.includes('resolver'))),
+)
+
+// A plan with a step only a human can carry must NOT offer a working Resolve: a child
+// spawned there could not finish, so the button is disabled and says why.
+resolveHostHandler = (call) => {
+  resolveCalls.push(call)
+  return { status: 200, body: planBody({ humanRequired: true, steps: [{ op: 'human-authorship-required', zone: 'auth', detail: 'zone "auth" is humanOnly' }] }) }
+}
+const humanNodes = await renderBlocked('blocked-human')
+const humanButton = humanNodes.find((node) => node.tag === 'button' && node.text === 'Resolve')
+claim(
+  'a plan that needs a human disables Resolve instead of starting a doomed resolver',
+  humanButton !== undefined && humanButton.props.disabled === true && humanNodes.map((node) => node.text).some((text) => typeof text === 'string' && text.includes('only a human can carry')),
+  JSON.stringify({ disabled: humanButton === undefined ? null : humanButton.props.disabled }),
+)
+
+// The decline asks WHY, records it, and shows the reason back — the same discipline the
+// consent row uses, on the resolution rather than the decision.
+const resolutionReason = 'declaring the zone would let this law govern files it should not; remap it instead'
+resolveHostHandler = (call) => {
+  resolveCalls.push(call)
+  if (call.method === 'GET') return { status: 200, body: planBody() }
+  return { status: 200, body: { ok: true, id: '0017', recorded: true, comment: resolutionReason } }
+}
+const beforeResolutionDecline = resolveCalls.length
+const declineOpenNodes = await renderBlocked('blocked-decline')
+const declineOpen = declineOpenNodes.find((node) => node.tag === 'button' && node.text === 'Decline with a reason')
+if (declineOpen !== undefined) declineOpen.props.onClick()
+await new Promise((resolveTick) => setTimeout(resolveTick, 20))
+await flush(
+  React.createElement(registry['shell.overlay'].Component, Object.assign({}, overlayForRows, { usePanel: (selector) => selector(panelStore.getSnapshot()), load: () => Promise.resolve(blockedView) })),
+  'blocked-decline',
+)
+const resolutionBox = nodes.find((node) => node.tag === 'textarea' && node.props['aria-label'] === 'Reason for declining the resolution')
+claim(
+  'Decline with a reason opens a commentary box and sends nothing yet',
+  resolutionBox !== undefined && resolveCallsFrom(beforeResolutionDecline).filter((call) => call.method === 'POST').length === 0,
+  JSON.stringify({ box: resolutionBox !== undefined, posts: resolveCallsFrom(beforeResolutionDecline).filter((call) => call.method === 'POST').length }),
+)
+if (resolutionBox !== undefined) resolutionBox.props.onChange({ target: { value: resolutionReason } })
+await new Promise((resolveTick) => setTimeout(resolveTick, 20))
+await flush(
+  React.createElement(registry['shell.overlay'].Component, Object.assign({}, overlayForRows, { usePanel: (selector) => selector(panelStore.getSnapshot()), load: () => Promise.resolve(blockedView) })),
+  'blocked-decline',
+)
+const recordRefusal = nodes.find((node) => node.tag === 'button' && node.text === 'Record this refusal')
+if (recordRefusal !== undefined) recordRefusal.props.onClick()
+await new Promise((resolveTick) => setTimeout(resolveTick, 20))
+await flush(
+  React.createElement(registry['shell.overlay'].Component, Object.assign({}, overlayForRows, { usePanel: (selector) => selector(panelStore.getSnapshot()), load: () => Promise.resolve(blockedView) })),
+  'blocked-decline',
+)
+const resolutionPosts = resolveCallsFrom(beforeResolutionDecline).filter((call) => call.method === 'POST')
+claim(
+  'and confirming sends the human\'s own reason as a decline, never as a consent',
+  resolutionPosts.length === 1 && resolutionPosts[0].body !== null && resolutionPosts[0].body.decision === 'decline' && resolutionPosts[0].body.comment === resolutionReason,
+  JSON.stringify(resolutionPosts[0] === undefined ? null : resolutionPosts[0].body),
+)
+claim(
+  'and the outcome repeats the recorded reason back',
+  nodes.map((node) => node.text).some((text) => typeof text === 'string' && text.includes(resolutionReason)),
+  JSON.stringify(nodes.map((node) => node.text).filter((text) => typeof text === 'string' && text.includes('Recorded reason'))),
+)
+
+// A page with no resolve capability must name the CLI command, not offer a button.
+const savedResolveBridge = globalThis.__DSH_ADR_PANEL_RESOLVE__
+delete globalThis.__DSH_ADR_PANEL_RESOLVE__
+const noResolveNodes = await renderBlocked('blocked-no-capability')
+claim(
+  'with no resolve capability the blocked card names the CLI command instead of offering a button',
+  !noResolveNodes.some((node) => node.tag === 'button' && (node.text === 'Resolve' || node.text === 'Decline with a reason')) &&
+    noResolveNodes.some((node) => typeof node.text === 'string' && node.text.includes('ratchet resolve')),
+  JSON.stringify(noResolveNodes.filter((node) => node.tag === 'button').map((node) => node.text)),
+)
+globalThis.__DSH_ADR_PANEL_RESOLVE__ = savedResolveBridge
+resolveHostHandler = null
+
 // ── the row shows the question, the record text, the labels and the outcome ──
 //
 // Nothing may be recorded invisibly. While the answer is in flight the ratchet's own
@@ -1785,19 +1939,23 @@ claim(
 // ── the panel reads and writes nothing of its own ───────────────────────────
 // Every render above went through the recorded fetch stub, and this is a whole-plugin
 // measurement, not a reading of the source: the only URLs the bundle ever requested are
-// its host half's two routes, the state route is GET-only, and no request carries a body
-// except the consent POST. The claim that no agent tool can reach either route is the
-// cross-artifact half, enforced in `scripts/check-consent-surface.mjs`.
+// its host half's three routes, the state route is GET-only, the resolve route is the only
+// one that starts work, and no request carries a body except the consent and resolve
+// POSTs. The claim that no agent tool can reach any route is the cross-artifact half,
+// enforced in `scripts/check-consent-surface.mjs`.
+const ROUTES = ['/adr-panel/state', '/adr-panel/consent', '/adr-panel/resolve']
 const requestedUrls = [...new Set(consentCalls.map((call) => call.url.replace(/[?].*$/, '')))].sort()
 const stateRequests = consentCalls.filter((call) => call.url.includes('/adr-panel/state'))
 const stateNonGet = stateRequests.filter((call) => call.method !== 'GET')
-const offRoute = consentCalls.filter((call) => !call.url.includes('/adr-panel/state') && !call.url.includes('/adr-panel/consent'))
+const offRoute = consentCalls.filter((call) => !ROUTES.some((route) => call.url.includes(route)))
+const resolveNonPost = consentCalls.filter((call) => call.url.includes('/adr-panel/resolve') && call.method === 'GET' && call.body !== null)
 claim(
-  'the whole render requests only the state route (GET) and the consent route',
+  'the whole render requests only the three host routes, and the state route is GET-only',
   requestedUrls.length > 0 &&
     offRoute.length === 0 &&
     stateRequests.length > 0 &&
-    stateNonGet.length === 0,
+    stateNonGet.length === 0 &&
+    resolveNonPost.length === 0,
   `urls=${JSON.stringify(requestedUrls)} offRoute=${offRoute.length} stateRequests=${stateRequests.length} stateNonGet=${stateNonGet.length}`,
 )
 

@@ -302,7 +302,7 @@ is not a detour around a simpler tool call; it is the only mechanism the harness
 **The route, measured end to end (2026-09-15).**
 
 ```
-node scripts/probe-dsh-api.mjs --adr-panel-consent     # 16/16 facts confirmed, exit 0
+node scripts/probe-dsh-api.mjs --adr-panel-consent     # 21/21 facts confirmed, exit 0
 ```
 
 mounts the panel's host half, `@cc/dsh-ratchet`, `@deepseek-ai/dsh-host-webserver` (port 0)
@@ -687,7 +687,7 @@ node scripts/probe-dsh-api.mjs --ratchet-review --out reports/ratchet/api-discov
 # 10/10: the ratification quiz against a stub answerer — no model turn, ~4 s
 node scripts/probe-dsh-api.mjs --ratchet-ratify --out reports/ratchet/api-discovery-ratify.json
 
-# 16/16: the ADR panel's consent route over real HTTP, against the real webserver and the
+# 21/21: the ADR panel's consent and resolve routes over real HTTP, against the real webserver and the
 # real browser fence, with a stub human posting the label the ratchet's question offered
 node scripts/probe-dsh-api.mjs --adr-panel-consent --out reports/ratchet/api-discovery-panel-consent.json
 

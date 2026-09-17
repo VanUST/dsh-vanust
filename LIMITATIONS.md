@@ -431,12 +431,33 @@ refuses an agent record however a human answers, and the alternative — an agen
 `authority: human` — is the one act hard rule 12 forbids. The plan says so instead of
 offering it.
 
-**Still missing (the second half).** The plan is a service the panel does not yet call:
-the `/adr-panel/resolve` route and the UI Resolve control, which would resolve the
-session's live agent through `AgentRegistry.get(sessionId)` (public; the agent id equals
-the session id) and spawn one child through the proven `subagents.start('spawn', …)`
-seam, never a composer message. Until that lands, a blocked card still shows its reason
-without a button.
+**Landed (the second half, ratchet 0.2.70).** The plan now has a service and a route.
+`plugins/ratchet/ratchet-resolve.mjs` also exports `recordResolveDecline`,
+`resolveHistory`, `resolverPrompt` and `createResolveService`, provided as the
+`ratchetResolve` cordis service; `resolvePlan` carries `declined` — the reasons a human
+already gave — read back from the ledger. The panel's host half serves
+`GET`/`POST /adr-panel/resolve`: a GET reads the plan, a POST with `decision: "decline"`
+records a refusal with its reason, and a POST with `decision: "resolve"` resolves the
+session's live agent through `AgentRegistry.get(sessionId)` and starts ONE child through
+`subagents.start('spawn', { parent, prompt })` on the ratchet's own `resolverPrompt`. A
+plan with `humanRequired` starts no child and returns the step instead, and a composition
+with no subagent runtime refuses with a named reason. The resolver prompt marks each step
+`[you]` or `[human only]` and repeats the declined reasons, so a resolution offered after
+a refusal must differ from the one rejected. No composer message is involved, and starting
+a resolver mints no consent: the child writes a `proposed` record and the human approves
+it through the ordinary row.
+
+**Measured live, and what is not.** `scripts/probe-dsh-api.mjs --adr-panel-consent`
+(21/21 now) drives the real route over real HTTP against the real webserver, browser
+fence and ratchet: the capability is required, the plan comes back as the ratchet's own
+(a `humanOnly` record reports `human-authorship-required`), a decline is recorded with the
+human's reason and the reason is read back into the next plan, and a resolve request for a
+record with a step no agent may carry is refused with that step rather than started. What
+is NOT measured live is the one thing that needs a model: an actual
+`subagents.start('spawn', …)` child. The spawn path is designed against the measured
+`subagents`/`agents` API and the panel's Resolve button is driven against a stub host, so
+"a resolver started" is asserted at the transport and at the spawn seam, not observed on a
+live child — the next probe, and until it exists this is the honest boundary.
 
 ## 16. A decline now carries the human's reason (2026-09-17)
 

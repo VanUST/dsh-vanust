@@ -462,6 +462,9 @@ export async function run(argv) {
       for (const step of result.steps ?? []) {
         process.stdout.write(`  [${step.op}] ${step.detail ?? ''}\n`)
       }
+      for (const entry of result.declined ?? []) {
+        process.stdout.write(`  declined${entry.at === null ? '' : ` ${entry.at}`}${entry.comment === null ? ' (no reason given)' : `: ${entry.comment}`}\n`)
+      }
       process.stdout.write(
         result.humanRequired === true
           ? '  at least one step needs a human: an agent cannot author a record or change a zone authority\n'

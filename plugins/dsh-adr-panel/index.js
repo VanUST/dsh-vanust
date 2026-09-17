@@ -2,9 +2,14 @@
  * PURPOSE
  *   Host half of the ADR panel plugin. It serves the routes the panel window needs:
  *   `GET /adr-panel/state` is the window's ONE data path — the ratchet's own view model
- *   of a project's decisions, consents, compiled laws and spec hash — and
- *   `GET`/`POST /adr-panel/consent` records a human's Approve or Decline without a chat
- *   message and without an agent in the loop.
+ *   of a project's decisions, consents, compiled laws and spec hash; `GET`/`POST
+ *   /adr-panel/consent` records a human's Approve or Decline (with an optional reason)
+ *   without a chat message and without an agent in the loop; and `GET`/`POST
+ *   /adr-panel/resolve` reads the ratchet's resolve plan for a blocked record, records a
+ *   human's refusal of a plan with their reason, or starts ONE resolver child on the
+ *   ratchet's own prompt. Only the resolve route starts work, and it starts it through the
+ *   harness's subagent runtime: the child writes a `proposed` record, and the human still
+ *   approves that separately through the consent route.
  *
  *   It is a thin adapter on purpose. It derives no decision state: the state route calls
  *   the ratchet's `ratchetDecisions` service, which is the one implementation of force,
@@ -28,6 +33,13 @@
  *       not act on one.
  *     - `ratchetConsent` — the ratchet's consent service. Its absence is a refusal with
  *       a named reason, never a fallback that mints something itself.
+ *     - `ratchetResolve` — the ratchet's resolve service: the plan for a blocked record,
+ *       its resolver prompt, and the recording of a refusal. Reached only by the resolve
+ *       route, and only when it is mounted.
+ *     - `subagents` and `agents` — the harness's subagent runtime and live-agent registry,
+ *       reached opportunistically by the resolve route and never injected. Either being
+ *       absent is a named refusal, never a silent no-op: the route reports that it cannot
+ *       start a resolver rather than claiming it did.
  *     - `ratchetDecisions` — the ratchet's decisions service. Its absence is a refusal
  *       naming it, never a fallback that derives a second view.
  *
@@ -186,6 +198,53 @@ export const STATE_HEADER = 'x-adr-panel-state'
  * same per-activation secret, published only through the served index.
  */
 export const STATE_GLOBAL = '__DSH_ADR_PANEL_STATE__'
+
+/**
+ * The route the window asks the ratchet to resolve a blocked decision through.
+ *
+ * A third route, separate from the consent route, because it does something the consent
+ * route must never do: it starts work (a resolver child) rather than recording a human's
+ * answer, and it records a human's REFUSAL of a plan rather than a consent. Mixing the two
+ * would make "a request that mints a consent" and "a request that spawns an agent"
+ * indistinguishable at the transport. A literal for the same reason as
+ * {@link CONSENT_ROUTE}, and asserted equal to the bundle's copy by
+ * `scripts/check-consent-surface.mjs`.
+ */
+export const RESOLVE_ROUTE = '/adr-panel/resolve'
+
+/**
+ * The name of the cordis service the ratchet provides for the resolve plan.
+ *
+ * Duplicated from `@cc/dsh-ratchet`'s `RESOLVE_SERVICE` for the same reason as
+ * {@link CONSENT_SERVICE}, and asserted equal by the same check.
+ */
+export const RESOLVE_SERVICE = 'ratchetResolve'
+
+/** The header the browser half sends the resolve capability token in. */
+export const RESOLVE_HEADER = 'x-adr-panel-resolve'
+
+/**
+ * The global the browser half reads the resolve route and its token from.
+ *
+ * A separate global, like {@link STATE_GLOBAL}, so the resolve surface is separately
+ * observable and the surface check can assert the panel, the host and the ratchet agree on
+ * all four values. The token is the same per-activation secret, published only through the
+ * served index.
+ */
+export const RESOLVE_GLOBAL = '__DSH_ADR_PANEL_RESOLVE__'
+
+/** The subagent runtime, reached opportunistically: a composition without it still boots. */
+const SUBAGENTS_SERVICE = 'subagents'
+
+/** The live-agent registry `ctx.agents`; an agent id equals its root Session id. */
+const AGENTS_SERVICE = 'agents'
+
+/**
+ * The subagent provider a resolver child is started on. `@deepseek-ai/dsh-base` mounts the
+ * in-process spawn provider under this name, and a composition that mounts no provider
+ * answers the resolve route with a named refusal rather than pretending to work.
+ */
+const RESOLVE_PROVIDER = 'spawn'
 
 /** One request body is a question and two short strings; anything larger is hostile. */
 const MAX_BODY_BYTES = 256 * 1024
@@ -461,6 +520,222 @@ async function resolveProject(ctx, sessionId, requirement) {
     return { refusal: { status: 404, code: 'no-project', message: `Session "${sessionId}" is at "${workspace.cwd}", which has no .dsh/project.json at or above it` } }
   }
   return { service, root }
+}
+
+/**
+ * Builds the handler for the resolve route.
+ *
+ * Two acts share it, and they are deliberately different HTTP semantics on one route
+ * because they are the same surface asking about the same record:
+ *
+ *   - `GET ?session=<id>&id=<adr>` reads the ratchet's plan for one record — the steps,
+ *     whether any needs a human, and the reasons a human already declined. It writes
+ *     nothing.
+ *   - `POST { session, adrId, decision }` with `decision: "decline"` records the human's
+ *     refusal and its reason; with `decision: "resolve"` starts ONE resolver child, whose
+ *     prompt is the ratchet's own, unless the plan has a step no agent may carry, in which
+ *     case it refuses and returns the plan rather than spawning a child that cannot finish.
+ *
+ * The route mints no consent and answers no question: a resolver child writes a `proposed`
+ * record, and the human still approves it separately through the consent route. That is
+ * the boundary that keeps "everything else is automatic" from becoming "an agent decides".
+ *
+ * @param ctx - The plugin context.
+ * @param token - This activation's capability token.
+ * @param log - A `{ info, warn }` sink; never given the token.
+ * @returns An async `(req, res)` handler that never throws.
+ */
+function createResolveHandler(ctx, token, log) {
+  const fenced = createFence(ctx, token, RESOLVE_HEADER, 'resolve', log)
+  const resolveRequirement = {
+    serviceName: RESOLVE_SERVICE,
+    code: 'resolve-unavailable',
+    valid: (service) => typeof service.plan === 'function' && typeof service.prompt === 'function' && typeof service.decline === 'function' && typeof service.rootFor === 'function',
+    unavailable: `no ${RESOLVE_SERVICE} service is mounted, so the ratchet cannot plan a resolution: mount @cc/dsh-ratchet beside this plugin`,
+  }
+
+  /**
+   * Starts one resolver child on the ratchet's own prompt.
+   *
+   * @param ctx - The plugin context.
+   * @param sessionId - The Session whose live agent is the child's parent.
+   * @param prompt - The ratchet's resolver prompt.
+   * @param adrId - The record id, for the child's label and the log line.
+   * @param log - The log sink.
+   * @returns `{ spawned }` on success or `{ refusal }`; never throws.
+   */
+  const spawnResolver = (ctx, sessionId, prompt, adrId, log) => {
+    const runtime = ctx.get(SUBAGENTS_SERVICE)
+    if (runtime === undefined || runtime === null || typeof runtime.start !== 'function') {
+      return { refusal: { status: 503, code: 'resolve-unavailable', message: `no ${SUBAGENTS_SERVICE} runtime is mounted, so the panel cannot start a resolver: use ratchet_resolve from a session instead` } }
+    }
+    const agents = ctx.get(AGENTS_SERVICE)
+    if (agents === undefined || agents === null || typeof agents.get !== 'function') {
+      return { refusal: { status: 503, code: 'resolve-unavailable', message: `no ${AGENTS_SERVICE} registry is mounted, so the Session cannot be resolved to a live agent to parent the resolver` } }
+    }
+    const parent = agents.get(sessionId)
+    if (parent === undefined || parent === null) {
+      return { refusal: { status: 404, code: 'unknown-session', message: `Session "${sessionId}" has no live agent, so there is nothing to parent a resolver: open the panel from an active Session` } }
+    }
+    let run
+    try {
+      run = runtime.start(RESOLVE_PROVIDER, { parent, prompt, label: `resolve-${adrId}` })
+    } catch (error) {
+      log.warn(`the resolver could not be started: ${String(error)}`)
+      return { refusal: { status: 500, code: 'resolve-failed', message: `the resolver could not be started: ${String(error)}` } }
+    }
+    // The run is deliberately NOT awaited: a resolver is a model turn, and an HTTP
+    // handler that waited for it would hold the socket for minutes. The promise is
+    // kept referenced so the run is not disposed, and a failure is logged rather than
+    // dropped. Nothing about the outcome reaches this route: the child's record is read
+    // back through the state route, like any other proposal.
+    Promise.resolve(run)
+      .then((started) => {
+        log.info(`resolver started for ${adrId}`)
+        const result = started?.result
+        if (result !== undefined && result !== null && typeof result.catch === 'function') {
+          return result.catch((error) => log.warn(`the resolver for ${adrId} failed: ${String(error)}`))
+        }
+        return undefined
+      })
+      .catch((error) => log.warn(`the resolver for ${adrId} could not be started: ${String(error)}`))
+    return { spawned: true }
+  }
+
+  return async function handleResolve(req, res) {
+    try {
+      if (fenced(req, res)) return
+      const method = String(req.method ?? '').toUpperCase()
+      if (method === 'GET') {
+        let query
+        try {
+          query = new URL(String(req.url), 'http://localhost').searchParams
+        } catch {
+          sendRefusal(res, 400, 'bad-request', 'the query string could not be read')
+          return
+        }
+        const located = await resolveProject(ctx, query.get('session'), resolveRequirement)
+        if (located.refusal !== undefined) {
+          sendRefusal(res, located.refusal.status, located.refusal.code, located.refusal.message)
+          return
+        }
+        const adrId = query.get('id')
+        if (typeof adrId !== 'string' || adrId.length === 0) {
+          sendRefusal(res, 400, 'bad-request', 'an "id" query parameter naming the decision is required')
+          return
+        }
+        let plan
+        try {
+          plan = located.service.plan({ root: located.root, id: adrId })
+        } catch (error) {
+          log.warn(`the ratchet's resolve plan threw: ${String(error)}`)
+          sendRefusal(res, 500, 'resolve-failed', `the ratchet could not plan a resolution: ${String(error)}`)
+          return
+        }
+        sendJson(res, 200, { ...plan, root: located.root })
+        return
+      }
+      if (method !== 'POST') {
+        res.statusCode = 405
+        res.setHeader('allow', 'GET, POST')
+        res.end()
+        return
+      }
+      if (String(req.headers?.['content-type'] ?? '').split(';', 1)[0]?.trim().toLowerCase() !== 'application/json') {
+        sendRefusal(res, 415, 'unsupported-media-type', 'content-type must be application/json')
+        return
+      }
+      let body
+      try {
+        body = await readBoundedBody(req)
+      } catch {
+        sendRefusal(res, 400, 'bad-request', 'the request body could not be read')
+        return
+      }
+      if (body.timedOut === true) {
+        destroyRequestAfterResponse(req, res)
+        sendRefusal(res, 408, 'request-timeout', `the request body was not received within ${String(BODY_READ_TIMEOUT_MS)} ms, so the route gave up on it and destroyed the request`)
+        return
+      }
+      if (body.tooLarge === true) {
+        sendRefusal(res, 413, 'payload-too-large', `the request body exceeds ${String(MAX_BODY_BYTES)} bytes`)
+        return
+      }
+      let parsed
+      try {
+        parsed = JSON.parse(body.text)
+      } catch {
+        sendRefusal(res, 400, 'bad-request', 'the request body is not JSON')
+        return
+      }
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        sendRefusal(res, 400, 'bad-request', 'the request body must be a JSON object')
+        return
+      }
+      const { session, adrId, decision, comment } = parsed
+      if (typeof adrId !== 'string' || adrId.length === 0) {
+        sendRefusal(res, 400, 'bad-request', 'the body must name the decision in "adrId"')
+        return
+      }
+      if (decision !== 'resolve' && decision !== 'decline') {
+        sendRefusal(res, 400, 'bad-request', 'the body must say "decision": "resolve" to start a resolver, or "decline" to record a refusal')
+        return
+      }
+      const located = await resolveProject(ctx, session, resolveRequirement)
+      if (located.refusal !== undefined) {
+        sendRefusal(res, located.refusal.status, located.refusal.code, located.refusal.message)
+        return
+      }
+      if (decision === 'decline') {
+        let recorded
+        try {
+          recorded = located.service.decline({ root: located.root, id: adrId, comment: typeof comment === 'string' ? comment : null })
+        } catch (error) {
+          log.warn(`the ratchet's resolve decline threw: ${String(error)}`)
+          sendRefusal(res, 500, 'resolve-failed', `the ratchet could not record the refusal: ${String(error)}`)
+          return
+        }
+        log.info(`resolve declined id=${adrId} recorded=${String(recorded?.recorded === true)}`)
+        sendJson(res, 200, { ...recorded, root: located.root })
+        return
+      }
+      let prompted
+      try {
+        prompted = located.service.prompt({ root: located.root, id: adrId })
+      } catch (error) {
+        log.warn(`the ratchet's resolver prompt threw: ${String(error)}`)
+        sendRefusal(res, 500, 'resolve-failed', `the ratchet could not build a resolver prompt: ${String(error)}`)
+        return
+      }
+      if (prompted === null || prompted === undefined || prompted.ok !== true || typeof prompted.prompt !== 'string') {
+        sendJson(res, 200, { ok: false, id: adrId, plan: prompted === null || prompted === undefined ? null : prompted.plan ?? null, message: prompted === null || prompted === undefined ? 'the ratchet returned no plan' : prompted.reason ?? 'the ratchet returned no plan' })
+        return
+      }
+      const plan = prompted.plan ?? {}
+      if (plan.humanRequired === true) {
+        // A `humanOnly` zone refuses an agent record however a human answers, so a child
+        // spawned here could not finish the work. The route reports the step that needs a
+        // human instead of starting one that is doomed to stop.
+        log.info(`resolve refused id=${adrId}: humanRequired`)
+        sendJson(res, 200, { ok: false, id: adrId, humanRequired: true, steps: plan.steps ?? [], declined: plan.declined ?? [], message: 'this record has a step only a human can carry, so no resolver was started' })
+        return
+      }
+      const started = spawnResolver(ctx, session, prompted.prompt, adrId, log)
+      if (started.refusal !== undefined) {
+        sendRefusal(res, started.refusal.status, started.refusal.code, started.refusal.message)
+        return
+      }
+      sendJson(res, 200, { ok: true, id: adrId, spawned: started.spawned === true, steps: plan.steps ?? [], declined: plan.declined ?? [] })
+    } catch (error) {
+      log.warn(`the resolve route threw: ${String(error)}`)
+      try {
+        if (!res.headersSent) sendRefusal(res, 500, 'internal-error', `the ADR panel could not answer: ${String(error)}`)
+        else res.end()
+      } catch {
+        // The socket is already gone; there is nothing left to report to.
+      }
+    }
+  }
 }
 
 /**
@@ -762,6 +1037,7 @@ export function apply(ctx) {
         web.on('webserver/index-inject', (table) => {
           table.push({ kind: 'global', name: CONSENT_GLOBAL, value: { route: CONSENT_ROUTE, token } })
           table.push({ kind: 'global', name: STATE_GLOBAL, value: { route: STATE_ROUTE, token } })
+          table.push({ kind: 'global', name: RESOLVE_GLOBAL, value: { route: RESOLVE_ROUTE, token } })
         }),
       'adr-panel: publish the consent and state capabilities',
     )
@@ -783,7 +1059,17 @@ export function apply(ctx) {
         }),
       `adr-panel: GET ${STATE_ROUTE}`,
     )
+    web.effect(
+      () =>
+        web.webServer.register({
+          kind: 'exact',
+          path: RESOLVE_ROUTE,
+          handler: createResolveHandler(ctx, token, log),
+        }),
+      `adr-panel: GET/POST ${RESOLVE_ROUTE}`,
+    )
     log.info(`consent route registered at ${CONSENT_ROUTE}`)
     log.info(`state route registered at ${STATE_ROUTE}`)
+    log.info(`resolve route registered at ${RESOLVE_ROUTE}`)
   })
 }

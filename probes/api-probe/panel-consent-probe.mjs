@@ -62,6 +62,12 @@ const CONSENT_GLOBAL = '__DSH_ADR_PANEL_CONSENT__'
 /** The header the panel's bundle sends that capability in. */
 const CONSENT_HEADER = 'x-adr-panel-consent'
 
+/** The global the panel's host half publishes its resolve route and token under. */
+const RESOLVE_GLOBAL = '__DSH_ADR_PANEL_RESOLVE__'
+
+/** The header the panel's bundle sends the resolve capability in. */
+const RESOLVE_HEADER = 'x-adr-panel-resolve'
+
 /** The reasoning each fixture decision cites, so the source hash verifies. */
 const SOURCE_TEXT = [
   '# Grilling session: request budgets',
@@ -540,9 +546,54 @@ export function apply(ctx) {
             wrote: { decisions: decisions() - beforeStale.decisions, sources: sources() - beforeStale.sources },
           }
 
+          // K. The RESOLVE route: the plan for a blocked record, the refusal of a proposed
+          //    resolution with its reason, and — the case that matters most — that a record
+          //    needing a human starts NOTHING. It is the one route in the kit that could start
+          //    work, so what it declines to do is measured as carefully as what it does.
+          const resolveRow = table.find((entry) => entry !== null && typeof entry === 'object' && entry.kind === 'global' && entry.name === RESOLVE_GLOBAL)
+          const resolveToken = resolveRow?.value?.token ?? null
+          const resolveGet = (id, withToken) =>
+            call(`/adr-panel/resolve?session=${encodeURIComponent(String(sessionId))}&id=${encodeURIComponent(id)}`, {
+              method: 'GET',
+              headers: Object.assign({ cookie }, withToken && typeof resolveToken === 'string' ? { [RESOLVE_HEADER]: resolveToken } : {}),
+            })
+          const resolvePost = (payload) =>
+            call('/adr-panel/resolve', {
+              method: 'POST',
+              headers: Object.assign({ 'content-type': 'application/json', cookie }, typeof resolveToken === 'string' ? { [RESOLVE_HEADER]: resolveToken } : {}),
+              body: JSON.stringify(payload),
+            })
+          const plan = await resolveGet('0002', true)
+          cases.resolve_plan = {
+            status: plan.status,
+            ok: plan.body?.ok ?? null,
+            humanRequired: plan.body?.humanRequired ?? null,
+            stepOps: Array.isArray(plan.body?.steps) ? plan.body.steps.map((step) => step.op) : [],
+            declined: plan.body?.declined ?? [],
+          }
+          cases.resolve_without_capability = { status: (await resolveGet('0002', false)).status }
+          const declineReason = 'the zone is right; this record needs a human author, not a new zone'
+          const declined2 = await resolvePost({ session: sessionId, adrId: '0002', decision: 'decline', comment: declineReason })
+          cases.resolve_declined = { status: declined2.status, result: declined2.body }
+          const planAfter = await resolveGet('0002', true)
+          cases.resolve_plan_after_decline = { status: planAfter.status, declined: planAfter.body?.declined ?? [] }
+          const started = await resolvePost({ session: sessionId, adrId: '0002', decision: 'resolve' })
+          cases.resolve_human_required = { status: started.status, result: started.body }
+          let ledger = ''
+          try {
+            ledger = readFileSync(join(fixture, '.dsh', 'ratchet', 'ledger.jsonl'), 'utf8')
+          } catch {
+            ledger = ''
+          }
+          cases.resolve_ledger = {
+            hasDeclineEvent: ledger.includes('ratchet.resolve.declined'),
+            hasReason: ledger.includes(declineReason),
+          }
+
           const compiled = compileProject(fixture)
           return {
             probe: 'adr-panel-consent',
+            resolveRoute: resolveRow?.value?.route ?? null,
             servicePresent: true,
             workspace,
             sessionId: sessionId ?? null,

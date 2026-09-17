@@ -361,6 +361,7 @@ for (const root of [blockedRoot, terminalRoot, pendingRoot]) rmSync(root, { recu
 //        the one consent channel instead of a second one.
 const ratchetConsent = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-consent.mjs`)
 const ratchetDecisions = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-decisions.mjs`)
+const ratchetResolve = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-resolve.mjs`)
 const panelHost = await import(`file:///${join(KIT, 'plugins', 'dsh-adr-panel', 'index.js').replace(/\\/g, '/')}`)
 const panelBundle = readFileSync(join(KIT, 'plugins', 'dsh-adr-panel', 'client.js'), 'utf8')
 // Anchored to the start of a line so a COMMENTED-OUT copy cannot satisfy it, and tolerant of
@@ -395,6 +396,73 @@ claim(
   `bundle=${JSON.stringify({ route: bundleLiteral('STATE_ROUTE'), header: bundleLiteral('STATE_HEADER'), global: bundleLiteral('STATE_GLOBAL') })} host=${JSON.stringify({ route: panelHost.STATE_ROUTE, service: panelHost.STATE_SERVICE })} ratchet=${ratchetDecisions.DECISIONS_SERVICE}`,
 )
 
+// The RESOLVE surface is the same four-value contract again. It is the one route that
+// STARTS work rather than recording an answer, so its equality matters for a second
+// reason: a bundle that called a route the ratchet does not serve would look like a working
+// Resolve button, and a tool that exposed the route or its service would be a second way to
+// start a resolver.
+claim(
+  'the panel and its host agree on the resolve route, the service, the header and the capability global',
+  bundleLiteral('RESOLVE_ROUTE') === panelHost.RESOLVE_ROUTE &&
+    bundleLiteral('RESOLVE_HEADER') === panelHost.RESOLVE_HEADER &&
+    bundleLiteral('RESOLVE_GLOBAL') === panelHost.RESOLVE_GLOBAL &&
+    panelHost.RESOLVE_SERVICE === ratchetResolve.RESOLVE_SERVICE &&
+    panelHost.RESOLVE_ROUTE.startsWith('/') &&
+    bundleLiteral('RESOLVE_ROUTE') !== bundleLiteral('CONSENT_ROUTE') &&
+    bundleLiteral('RESOLVE_ROUTE') !== bundleLiteral('STATE_ROUTE'),
+  `bundle=${JSON.stringify({ route: bundleLiteral('RESOLVE_ROUTE'), header: bundleLiteral('RESOLVE_HEADER'), global: bundleLiteral('RESOLVE_GLOBAL') })} host=${JSON.stringify({ route: panelHost.RESOLVE_ROUTE, service: panelHost.RESOLVE_SERVICE })} ratchet=${ratchetResolve.RESOLVE_SERVICE}`,
+)
+
+// The ratchet provides it, with the operations the route calls and no more. It is a
+// service, never a tool: a tool that accepted a resolve request would be a second surface
+// that starts a resolver, and the panel route is the one the fence and the capability guard.
+const resolveService = provided.get(ratchetResolve.RESOLVE_SERVICE)
+claim(
+  'the ratchet provides the resolve service the route reaches, with plan, prompt, decline, history and rootFor',
+  provided.has(ratchetResolve.RESOLVE_SERVICE) &&
+    typeof resolveService?.plan === 'function' &&
+    typeof resolveService?.prompt === 'function' &&
+    typeof resolveService?.decline === 'function' &&
+    typeof resolveService?.history === 'function' &&
+    typeof resolveService?.rootFor === 'function',
+  `provided=${JSON.stringify([...provided.keys()])} keys=${JSON.stringify(resolveService === undefined ? null : Object.keys(resolveService))}`,
+)
+
+// Drive the resolve service the route reaches. It derives a plan for a blocked record,
+// records a refusal with its reason and reads it back into the next plan, and it mints
+// nothing: the refusal is a ledger line, not a consent.
+const resolveRoot = fixture('resolve-surface', {
+  zones: [{ id: 'engine', paths: ['src/engine/**'], agentAuthority: 'activeIfNoConflict' }],
+  adrs: {
+    '0001-art.adr.md': adr({ id: '0001', status: 'proposed', authority: 'agent', zone: 'art' }),
+  },
+})
+if (resolveService !== undefined) {
+  const before = resolveService.plan({ root: resolveRoot, id: '0001' })
+  claim(
+    'the resolve service reports an undeclared zone as an agent step, and nothing declined yet',
+    before.ok === true &&
+      before.declined.length === 0 &&
+      before.steps.some((step) => step.op === 'declare-zone' && step.zone === 'art') &&
+      before.humanRequired === false,
+    JSON.stringify(before),
+  )
+  const reasoned = resolveService.decline({ root: resolveRoot, id: '0001', comment: 'that zone would govern the wrong files; remap it instead' })
+  const after = resolveService.plan({ root: resolveRoot, id: '0001' })
+  const prompted = resolveService.prompt({ root: resolveRoot, id: '0001' })
+  claim(
+    'and a refusal is recorded with its reason, read back into the plan and carried by the prompt',
+    reasoned.recorded === true &&
+      after.declined.length === 1 &&
+      /remap it instead/.test(after.declined[0].comment) &&
+      prompted.ok === true &&
+      /remap it instead/.test(prompted.prompt) &&
+      /\[you\] declare-zone/.test(prompted.prompt) &&
+      /never write `authority: human`/.test(prompted.prompt),
+    JSON.stringify({ reasoned, declined: after.declined, promptHasReason: prompted.ok === true && /remap it instead/.test(prompted.prompt) }),
+  )
+}
+
 // The ratification channel is a second duplicated vocabulary, and the one whose drift is
 // silent in the worst way: a panel whose list lacks the channel its own route records reads
 // its own approval as unproven and keeps offering the decision for ratification. So the
@@ -414,7 +482,7 @@ claim(
 // (b) The route must be unreachable through the tool surface. The scan is the whole registry,
 //     so a tool added later is inspected without an edit here, and it looks at the description
 //     and every parameter name as well as the tool's own name.
-const ROUTE_NEEDLES = [panelHost.CONSENT_ROUTE, panelHost.CONSENT_SERVICE, panelHost.CONSENT_HEADER, panelHost.CONSENT_GLOBAL, panelHost.STATE_ROUTE, panelHost.STATE_SERVICE, panelHost.STATE_HEADER, panelHost.STATE_GLOBAL]
+const ROUTE_NEEDLES = [panelHost.CONSENT_ROUTE, panelHost.CONSENT_SERVICE, panelHost.CONSENT_HEADER, panelHost.CONSENT_GLOBAL, panelHost.STATE_ROUTE, panelHost.STATE_SERVICE, panelHost.STATE_HEADER, panelHost.STATE_GLOBAL, panelHost.RESOLVE_ROUTE, panelHost.RESOLVE_SERVICE, panelHost.RESOLVE_HEADER, panelHost.RESOLVE_GLOBAL]
 const routeOffenders = []
 for (const [toolName, definition] of registered) {
   const haystack = `${toolName}\n${definition?.description ?? ''}\n${JSON.stringify(definition?.parameters ?? {})}`
@@ -423,7 +491,7 @@ for (const [toolName, definition] of registered) {
   }
 }
 claim(
-  'no tool exposes the consent or state route, its service, its header or its capability',
+  'no tool exposes the consent, state or resolve route, its service, its header or its capability',
   routeOffenders.length === 0 && registered.size >= 3,
   `tools=${registered.size} offenders=${JSON.stringify(routeOffenders)}`,
 )

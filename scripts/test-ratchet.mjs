@@ -24,6 +24,7 @@ const ingestModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet
 const draftsModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-drafts.mjs`)
 const decisionsModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-decisions.mjs`)
 const judgeModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-judge.mjs`)
+const resolveModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-resolve.mjs`)
 
 // The harness adapter is loaded LAZILY and by hand, because it is the one module here
 // that imports a package the repository does not carry: `@deepseek-ai/dsh-tools`. A
@@ -9432,6 +9433,74 @@ test('resolve: an unknown record is a reason, not a crash', () => {
   const run = cli(['resolve', '9999', '--root', root, '--json'])
   assert.equal(run.status, 1, `an unknown id is a finding: ${run.stdout}`)
   assert.match(JSON.parse(run.stdout).reason, /9999/)
+})
+
+test('resolve: a refusal is recorded with its reason and read back into the next plan', () => {
+  // The point of a decline reason: the next resolution attempt must be able to differ.
+  // The reason is appended to the ledger, and the plan for the same record reads it back.
+  const root = makeProject({
+    name: 'resolve-decline',
+    zones: [{ id: 'engine', paths: ['packages/engine/**'], agentAuthority: 'activeIfNoConflict' }],
+    adrs: {
+      '0001-art.adr.md': adrText({
+        id: '0001',
+        zones: ['art'],
+        laws: [{ id: 'art.projection', statement: 'The camera is a plan view.', checks: [{ type: 'required_text', pattern: 'plan view', paths: ['packages/renderer/**'] }] }],
+      }),
+    },
+    files: { 'packages/renderer/x.ts': 'plan view' },
+  })
+  const blank = resolveModule.resolvePlan(root, '0001')
+  assert.deepEqual(blank.declined, [], 'nothing has been declined yet')
+  const recorded = resolveModule.recordResolveDecline(root, { id: '0001', comment: 'declaring "art" would let the law govern the engine; remap it instead', at: '2026-09-17T00:00:00Z' })
+  assert.equal(recorded.ok, true, JSON.stringify(recorded))
+  assert.equal(recorded.recorded, true)
+  const plan = resolveModule.resolvePlan(root, '0001')
+  assert.equal(plan.declined.length, 1, JSON.stringify(plan.declined))
+  assert.match(plan.declined[0].comment, /remap it instead/)
+  // The refusal records nothing INTO force and offers no consent: it is a reason, not an act.
+  assert.equal(plan.humanRequired, false, 'a refusal does not turn an automatable step into a human-only one')
+})
+
+test('resolve: a whitespace-only refusal stores no reason, and the history is capped', () => {
+  const root = makeProject({ name: 'resolve-decline-empty', adrs: {} })
+  const blank = resolveModule.recordResolveDecline(root, { id: '0001', comment: '   ' })
+  assert.equal(blank.comment, null)
+  for (let index = 0; index < 9; index += 1) {
+    resolveModule.recordResolveDecline(root, { id: '0001', comment: `reason ${index}`, at: `2026-09-17T00:0${index}:00Z` })
+  }
+  const history = resolveModule.resolveHistory(root, '0001')
+  assert.equal(history.declines.length, 5, 'a long history is capped rather than flooding a prompt')
+  assert.match(history.declines[0].comment, /reason 8/, 'newest first')
+  assert.equal(resolveModule.resolveHistory(root, '0002').declines.length, 0, 'another record keeps its own history')
+})
+
+test('resolve: the resolver prompt names the steps, the refusal reasons and the human-only line', () => {
+  const plan = {
+    ok: true,
+    id: '0001',
+    title: 'The camera is a plan view',
+    path: 'docs/adrs/0001.adr.md',
+    reason: null,
+    steps: [
+      { op: 'declare-zone', zone: 'art', paths: ['packages/renderer/**'], detail: 'declare zone "art"' },
+      { op: 'human-authorship-required', zone: 'sim', detail: 'zone "sim" is humanOnly' },
+    ],
+    humanRequired: true,
+    declined: [],
+  }
+  const prompt = resolveModule.resolverPrompt(plan, [{ at: null, comment: 'remap it instead' }])
+  assert.match(prompt, /ADR 0001/)
+  assert.match(prompt, /\[you\] declare-zone/)
+  assert.match(prompt, /\[human only\] human-authorship-required/)
+  assert.match(prompt, /ALREADY DECLINED/)
+  assert.match(prompt, /remap it instead/)
+  assert.match(prompt, /never write `authority: human`/)
+  // A step no agent may carry is marked as such, and the prompt never instructs a child to
+  // put anything into force.
+  assert.ok(!/approve|ratify this/i.test(prompt) || /never put a record into force/.test(prompt))
+  assert.equal(resolveModule.stepIsAutomated(plan.steps[0]), true)
+  assert.equal(resolveModule.stepIsAutomated(plan.steps[1]), false)
 })
 
 test('ratify: a declined answer records the human comment, and returns it', () => {

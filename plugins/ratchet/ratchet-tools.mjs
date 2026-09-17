@@ -44,6 +44,7 @@ import { resolve } from 'node:path'
 import { MANIFEST_PATH, PROBLEM_CODES, createWorkBudget } from './ratchet-schema.mjs'
 import { CONSENT_SERVICE, createConsentService } from './ratchet-consent.mjs'
 import { DECISIONS_SERVICE, createDecisionsService } from './ratchet-decisions.mjs'
+import { RESOLVE_SERVICE, createResolveService } from './ratchet-resolve.mjs'
 import { REVIEW_JOBS } from './ratchet-dynamic.mjs'
 import { createJudgePool } from './ratchet-judge.mjs'
 import { registerGuard } from './ratchet-guard.mjs'
@@ -197,6 +198,21 @@ export function apply(ctx) {
       return undefined
     }
   }, `ratchet: provide ${DECISIONS_SERVICE}`)
+
+  // The resolve service: the seam a NON-AGENT surface reaches the ratchet's own resolve
+  // plan, resolver prompt and refusal recording through. Provided, never a tool: a tool
+  // that accepted a resolve request would be a second way to start one, and the plan and
+  // the prompt are the ratchet's text, not the transport's. `ctx.provide` throws when the
+  // name is already registered in this scope, so the failure is reported on stderr and the
+  // tools are still registered.
+  ctx.effect(() => {
+    try {
+      return ctx.provide(RESOLVE_SERVICE, createResolveService())
+    } catch (error) {
+      process.stderr.write(`ratchet: cannot provide ${RESOLVE_SERVICE}: ${String(error)}\n`)
+      return undefined
+    }
+  }, `ratchet: provide ${RESOLVE_SERVICE}`)
 
   ctx.effect(() => {
     const disposers = []

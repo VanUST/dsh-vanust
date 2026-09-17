@@ -160,6 +160,17 @@
  *   string, so a silent decline stays silent; the outcome then shows the recorded reason
  *   back, so the human sees the words the ratchet stored.
  *
+ *   **A blocked record is pending WITH a way to resolve it.** Its card reads the ratchet's
+ *   plan from a third host route, `/adr-panel/resolve`, and draws it: the steps, whether
+ *   any needs a human, and the reasons a human already declined. **Resolve** asks the host
+ *   to start ONE resolver child on the ratchet's own prompt — the panel sends the record id
+ *   and one `decision` value, never a step or a prompt of its own — and **Decline with a
+ *   reason** records why the proposed resolution is wrong, so the next attempt can differ.
+ *   A plan with a step no agent may carry renders Resolve disabled and says so, because a
+ *   child started there could not finish. Starting a resolver mints nothing: the child
+ *   writes a `proposed` record and the human still approves it through the row's own
+ *   Approve. When the route is unreachable the card names the CLI command instead.
+ *
  *   The composer entry claims the seat only for a question whose intent is the ratchet's
  *   `ratify-decision`, whose answers are exactly the two options that intent names, and
  *   which names the record it is about (`intent.targetId`) — a question whose record the
@@ -220,8 +231,8 @@
  *   extraction, list marker, ordered list, bounded render, row cap, show more,
  *   shell.overlay, session header, conversation.composer, composer seat claim,
  *   presentation intent, state route, ratchetDecisions, view model, capability token,
- *   ratification, approve, decline, decline reason, commentary, consent route, not now,
- *   read-only, viewer
+ *   ratification, approve, decline, decline reason, commentary, consent route, resolve
+ *   route, blocked decision, resolver, resolve plan, subagent, not now, read-only, viewer
  *
  * BEHAVIOUR ON EDGE CASES
  *   - The state route unreachable — no host half mounted, no state capability, no bound
@@ -246,6 +257,11 @@
  *   - A decline the human cancels, or one whose reason is only whitespace: the cancel
  *     returns to the two buttons and sends nothing, and the whitespace is sent as no
  *     reason, so neither leaves a half-recorded refusal behind.
+ *   - The resolve route unreachable, or a composition with no subagent runtime: the blocked
+ *     card names the CLI command rather than offering a button that could not work, and a
+ *     plan that needs a human disables Resolve instead of starting a doomed child. A
+ *     refusal the host reports — no live Session, no runtime, a failed start — is rendered
+ *     as its own message, never as a resolver that started.
  *   - A record edited between the ask and the answer: the ratchet refuses with
  *     `RATIFICATION_STALE` and writes nothing, which is what binds the consent to the
  *     text the human was shown rather than to whatever is on disk when the answer lands.
@@ -344,7 +360,7 @@ window.__ModuleLoader__.load({
 		 * are equal again after a release and the constant is one ahead only in the working
 		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.38";
+		const PANEL_VERSION = "0.1.40";
 		/** Directories used when the host view reports none. */
 		const DEFAULT_DECISIONS_DIR = "docs/adrs";
 		const DEFAULT_SPECS_DIR = "docs/specs";
@@ -431,6 +447,21 @@ window.__ModuleLoader__.load({
 		const STATE_ROUTE = "/adr-panel/state";
 		const STATE_HEADER = "x-adr-panel-state";
 		const STATE_GLOBAL = "__DSH_ADR_PANEL_STATE__";
+		/**
+		 * The host half's resolve route, and the two names its capability travels under.
+		 *
+		 * A blocked decision's card reads the ratchet's plan from here and, from it, asks for
+		 * a resolver or records a reason for refusing one. The plan, the steps and the
+		 * resolver prompt are the ratchet's text, never this bundle's: the panel draws what
+		 * the route returns and sends one of two `decision` values. The literals are
+		 * duplicated for the same reason as the other two routes', and
+		 * `scripts/check-consent-surface.mjs` fails when the halves stop agreeing. Starting
+		 * a resolver is the one thing this panel does that is not a consent; it still mints
+		 * nothing, because the child writes a `proposed` record and a human ratifies it.
+		 */
+		const RESOLVE_ROUTE = "/adr-panel/resolve";
+		const RESOLVE_HEADER = "x-adr-panel-resolve";
+		const RESOLVE_GLOBAL = "__DSH_ADR_PANEL_RESOLVE__";
 		/** The page origin the routes are fetched from; the corpus and the routes share it. */
 		const CONSENT_ORIGIN_FALLBACK = "http://dsh.internal";
 
@@ -524,6 +555,24 @@ window.__ModuleLoader__.load({
 		function stateEndpoint() {
 			if (typeof globalThis === "undefined") return null;
 			var bridge = globalThis[STATE_GLOBAL];
+			if (bridge === null || typeof bridge !== "object") return null;
+			if (typeof bridge.route !== "string" || bridge.route === "") return null;
+			if (typeof bridge.token !== "string" || bridge.token === "") return null;
+			return { route: bridge.route, token: bridge.token };
+		}
+		/**
+		 * The resolve route capability the host half published into this page, or `null`.
+		 *
+		 * Same shape and the same per-activation token as the other two routes, a different
+		 * global and route. Without it a blocked card renders its plan read-only and names the
+		 * CLI command instead of offering Resolve or Decline: a card that could not reach the
+		 * route must not look like one that can.
+		 *
+		 * @returns `{ route, token }` when both are non-empty strings, otherwise `null`.
+		 */
+		function resolveEndpoint() {
+			if (typeof globalThis === "undefined") return null;
+			var bridge = globalThis[RESOLVE_GLOBAL];
 			if (bridge === null || typeof bridge !== "object") return null;
 			if (typeof bridge.route !== "string" || bridge.route === "") return null;
 			if (typeof bridge.token !== "string" || bridge.token === "") return null;
@@ -654,6 +703,94 @@ window.__ModuleLoader__.load({
 				})
 			};
 			init.headers[CONSENT_HEADER] = endpoint.token;
+			init.headers["content-type"] = "application/json";
+			return consentRequest(endpoint.route, init).then(
+				function (answer) {
+					if (answer.status !== 200 || answer.body === null) {
+						return { ok: false, error: "refused", status: answer.status, message: answer.body === null ? "the host answered with no readable body" : answer.body.message };
+					}
+					return answer.body;
+				},
+				function (error) { return { ok: false, error: describeError(error) }; }
+			);
+		}
+		/**
+		 * PURPOSE
+		 *   Ask the host for the ratchet's resolve plan for one blocked decision: the steps
+		 *   that would unblock it, whether any needs a human, and the reasons a human already
+		 *   declined a resolution. It starts nothing and writes nothing.
+		 *
+		 * INPUTS
+		 *   adrId — the blocked decision id (a non-empty string).
+		 *   sessionId — the Session the window was opened from.
+		 *
+		 * OUTPUTS
+		 *   A promise of the ratchet's own plan `{ ok, id, title, path, steps, humanRequired,
+		 *   declined, reason }` plus `error` when the transport or the host refused. Never
+		 *   rejects.
+		 *
+		 * KEYWORDS
+		 *   resolve route, plan, steps, human required, declined reasons, read only
+		 */
+		function askPlan(adrId, sessionId) {
+			var endpoint = resolveEndpoint();
+			if (endpoint === null) return Promise.resolve({ ok: false, error: "unreachable" });
+			if (typeof adrId !== "string" || adrId === "") return Promise.resolve({ ok: false, error: "no-decision" });
+			if (typeof sessionId !== "string" || sessionId === "") return Promise.resolve({ ok: false, error: "no-session" });
+			var init = { method: "GET", headers: {} };
+			init.headers[RESOLVE_HEADER] = endpoint.token;
+			return consentRequest(endpoint.route + "?session=" + encodeURIComponent(sessionId) + "&id=" + encodeURIComponent(adrId), init).then(
+				function (answer) {
+					if (answer.status !== 200 || answer.body === null) {
+						return { ok: false, error: "refused", status: answer.status, message: answer.body === null ? "the host answered with no readable body" : answer.body.message };
+					}
+					return answer.body;
+				},
+				function (error) { return { ok: false, error: describeError(error) }; }
+			);
+		}
+		/**
+		 * PURPOSE
+		 *   Send ONE resolve or decline request for a blocked decision to the host route.
+		 *   `resolve` asks for a resolver child; `decline` records a refusal with the human's
+		 *   reason. Neither is a consent: an approval is a separate act through the consent
+		 *   route, and nothing here can mint one.
+		 *
+		 * INPUTS
+		 *   adrId — the blocked decision id (a non-empty string).
+		 *   sessionId — the Session the window was opened from.
+		 *   decision — `"resolve"` or `"decline"`; anything else is refused here, before any
+		 *   request is made, so a typo cannot be sent as one of the two.
+		 *   comment — the human's reason, meaningful only on a decline and sent as `null`
+		 *   when empty, so a silent refusal stays silent.
+		 *
+		 * OUTPUTS
+		 *   A promise of the host's own result plus `error` on a transport or host refusal:
+		 *   `{ ok, spawned, steps, declined, recorded, comment, humanRequired, message,
+		 *   error }`. Never rejects.
+		 *
+		 * KEYWORDS
+		 *   resolve route, start resolver, decline, reason, spawn, no consent
+		 */
+		function requestResolve(adrId, sessionId, decision, comment) {
+			var endpoint = resolveEndpoint();
+			if (endpoint === null) return Promise.resolve({ ok: false, error: "unreachable" });
+			if (typeof adrId !== "string" || adrId === "") return Promise.resolve({ ok: false, error: "no-decision" });
+			if (typeof sessionId !== "string" || sessionId === "") return Promise.resolve({ ok: false, error: "no-session" });
+			if (decision !== "resolve" && decision !== "decline") return Promise.resolve({ ok: false, error: "no-decision-kind" });
+			var reason = typeof comment === "string" && comment.trim() !== "" ? comment : null;
+			var init = {
+				method: "POST",
+				headers: {},
+				body: JSON.stringify({
+					session: sessionId,
+					adrId: adrId,
+					decision: decision,
+					// The human's own words, sent UNREAD and only ever recorded beside a refusal.
+					comment: decision === "decline" ? reason : null
+				})
+			};
+			init.headers[RESOLVE_HEADER] = endpoint.token;
 			init.headers["content-type"] = "application/json";
 			return consentRequest(endpoint.route, init).then(
 				function (answer) {
@@ -2152,6 +2289,147 @@ window.__ModuleLoader__.load({
 		}
 		/**
 		 * PURPOSE
+		 *   The resolve affordance a BLOCKED decision's card carries: the ratchet's own plan,
+		 *   a **Resolve** button that asks the host to start one resolver on the ratchet's
+		 *   prompt, and a **Decline with reason** flow that records why the human rejects the
+		 *   proposed resolution so the next attempt can differ.
+		 *
+		 *   It derives nothing. The steps, whether any needs a human, and the reasons already
+		 *   declined all come from the host's resolve route, which reads them from the
+		 *   ratchet. It never proposes a step of its own, never edits a record, and never
+		 *   mints a consent — a resolver child writes a `proposed` record and the human still
+		 *   approves that through the row's own Approve.
+		 *
+		 * INPUTS
+		 *   props.adrId — the blocked decision id. props.sessionId — the Session the window
+		 *   was opened from. props.ask — `askPlan(id, sessionId)`, or `null` when the route is
+		 *   unreachable. props.request — `requestResolve(id, sessionId, decision, comment)`,
+		 *   or `null` likewise. props.canResolve — whether both are usable in this render.
+		 *   props.onStarted — called after a resolver is started, so the window re-reads the
+		 *   corpus the child will change.
+		 *
+		 * OUTPUTS
+		 *   With no capability: the CLI command, never a button that could not work. Otherwise
+		 *   the plan and the two controls. While declining: the reason box and its Confirm and
+		 *   Cancel. On completion: what happened — a resolver started, a refusal recorded with
+		 *   its reason, or the host's own refusal. It never renders a silent outcome.
+		 *
+		 *   Edge cases: a plan that needs a human renders the Resolve button disabled with the
+		 *   reason, because a child spawned there could not finish; a missing plan is reported
+		 *   rather than assumed; a second click while a request is in flight is refused by the
+		 *   phase guard; a whitespace-only reason is sent as no reason.
+		 *
+		 * KEYWORDS
+		 *   blocked decision, resolve plan, resolver, decline reason, no consent, automatic
+		 *   resolution, subagent
+		 */
+		function ResolveControl(props) {
+			var adrId = props.adrId;
+			var sessionId = props.sessionId;
+			var ask = props.ask;
+			var request = props.request;
+			var canResolve = props.canResolve === true && typeof ask === "function" && typeof request === "function";
+			var phaseState = React.useState({ kind: "idle" });
+			var phase = phaseState[0];
+			var setPhase = phaseState[1];
+			var reasonState = React.useState("");
+			var reason = reasonState[0];
+			var setReason = reasonState[1];
+			React.useEffect(function () {
+				if (!canResolve || typeof adrId !== "string" || adrId === "") return undefined;
+				var alive = true;
+				ask(adrId, sessionId).then(
+					function (plan) {
+						if (alive) setPhase({ kind: "ready", plan: plan });
+					},
+					function (error) {
+						if (alive) setPhase({ kind: "ready", plan: { ok: false, error: describeError(error) } });
+					}
+				);
+				return function () { alive = false; };
+			}, [adrId, canResolve]);
+			if (!canResolve) {
+				return React.createElement("div", { style: mutedInlineStyle() },
+					"The panel's resolve route is unreachable from this window, so it cannot start a resolver. Run from a session: ask the agent to call ",
+					mono("ratchet resolve " + String(adrId)),
+					" and carry out the steps it prints.");
+			}
+			var plan = phase.kind === "ready" || phase.kind === "done" ? phase.plan : null;
+			var blockedByHuman = plan !== null && plan.humanRequired === true;
+			var busy = phase.kind === "asking" || phase.kind === "sending";
+			/** Starts one resolver through the host route. */
+			var start = function () {
+				if (busy) return;
+				setPhase({ kind: "asking" });
+				request(adrId, sessionId, "resolve", null).then(
+					function (result) { setPhase({ kind: "done", plan: plan, decision: "resolve", result: result }); },
+					function (error) { setPhase({ kind: "done", plan: plan, decision: "resolve", result: { ok: false, error: describeError(error) } }); }
+				);
+			};
+			/** Records the human's refusal and its reason. */
+			var decline = function () {
+				if (busy) return;
+				setPhase({ kind: "sending", plan: plan });
+				request(adrId, sessionId, "decline", reason).then(
+					function (result) { setPhase({ kind: "done", plan: plan, decision: "decline", result: result }); },
+					function (error) { setPhase({ kind: "done", plan: plan, decision: "decline", result: { ok: false, error: describeError(error) } }); }
+				);
+			};
+			var children = [];
+			if (phase.kind === "idle" || phase.kind === "asking") {
+				children.push(React.createElement("div", { key: "loading", style: mutedInlineStyle() }, "Reading the ratchet's plan for this record…"));
+			}
+			var declined = plan !== null && Array.isArray(plan.declined) ? plan.declined.filter(function (entry) { return entry !== null && typeof entry.comment === "string" && entry.comment !== ""; }) : [];
+			if (declined.length > 0) {
+				children.push(React.createElement("div", { key: "declined", style: { margin: "4px 0" } },
+					React.createElement("div", { style: { fontSize: 12, fontWeight: 600 } }, "You already declined a resolution here, because:"),
+					declined.map(function (entry, index) {
+						return React.createElement("div", { key: "declined" + index, style: mutedInlineStyle() }, "\u201c" + entry.comment + "\u201d");
+					})));
+			}
+			if (phase.kind === "declining") {
+				children.push(React.createElement("div", { key: "declining", style: declineFormStyle() },
+					React.createElement("div", { style: { fontSize: 12, fontWeight: 600, marginBottom: 4 } }, "Why is this resolution wrong?"),
+					React.createElement("div", { style: mutedStyle() }, "Your reason is recorded with the refusal and read by the next resolution attempt, so it can propose something different."),
+					React.createElement("textarea", {
+						key: "reason",
+						value: reason,
+						rows: 3,
+						placeholder: "What should the resolution do instead?",
+						"aria-label": "Reason for declining the resolution",
+						style: declineReasonInputStyle(),
+						onChange: function (event) { setReason(event !== null && event !== undefined && event.target !== undefined ? String(event.target.value) : ""); }
+					}),
+					React.createElement("div", { key: "confirm", style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 6 } },
+						React.createElement("button", { type: "button", style: Object.assign({}, primaryButtonStyle(tone("pending")), { marginTop: 0 }), onClick: decline }, "Record this refusal"),
+						React.createElement("button", { type: "button", style: Object.assign({}, smallButtonStyle(), { marginTop: 0 }), onClick: function () { setPhase({ kind: "ready", plan: plan }); } }, "Cancel"))));
+			}
+			if (phase.kind === "ready" || phase.kind === "sending") {
+				children.push(React.createElement("div", { key: "buttons", style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 4 } },
+					React.createElement("button", {
+						type: "button",
+						disabled: busy || blockedByHuman,
+						style: Object.assign({}, primaryButtonStyle(tone("pending")), { marginTop: 0, opacity: busy || blockedByHuman ? 0.5 : 1 }),
+						onClick: start
+					}, phase.kind === "sending" ? "Recording…" : "Resolve"),
+					React.createElement("button", {
+						type: "button",
+						disabled: busy,
+						style: Object.assign({}, smallButtonStyle(), { marginTop: 0, opacity: busy ? 0.5 : 1 }),
+						onClick: function () { setPhase({ kind: "declining", plan: plan }); }
+					}, "Decline with a reason")));
+				if (blockedByHuman) {
+					children.push(React.createElement("div", { key: "human", style: mutedInlineStyle() }, "No resolver is started: this record has a step only a human can carry, so an agent would stop part-way."));
+				}
+			}
+			if (phase.kind === "done") {
+				children.push(React.createElement(ConsentOutcome, { key: "outcome", decision: phase.decision, result: phase.result, mode: "resolve" }));
+			}
+			return React.createElement("div", { style: { marginTop: 6 } }, children);
+		}
+
+		/**
+		 * PURPOSE
 		 *   Render one entry of the ratchet's `needsHuman` set as a card: the kind and the
 		 *   thing it names, the ratchet's own `reason` and `action` unchanged, and — when
 		 *   the entry concerns a record in the corpus — a button that selects that record's
@@ -2184,6 +2462,16 @@ window.__ModuleLoader__.load({
 					problem.message === null ? null : React.createElement(HashedText, { style: { fontSize: 12, lineHeight: "18px" }, text: problem.message }),
 					problem.adrId === null ? null : React.createElement("button", { type: "button", style: smallButtonStyle(), onClick: function () { props.onSelectAdr(problem.adrId); } }, "Open " + problem.adrId));
 			});
+			var resolveControl = need.kind !== "blocked" || need.id === ""
+				? null
+				: React.createElement(ResolveControl, {
+					adrId: need.id,
+					sessionId: props.resolve === null || props.resolve === undefined ? null : props.resolve.sessionId,
+					canResolve: props.resolve === null || props.resolve === undefined ? false : props.resolve.can === true,
+					ask: props.resolve === null || props.resolve === undefined ? null : props.resolve.ask,
+					request: props.resolve === null || props.resolve === undefined ? null : props.resolve.request,
+					onStarted: props.resolve === null || props.resolve === undefined ? null : props.resolve.onStarted
+				});
 			return React.createElement("div", { style: cardStyle() },
 				React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap" } },
 					pill(need.kind + " " + need.id, needsKind(need)),
@@ -2210,6 +2498,7 @@ window.__ModuleLoader__.load({
 				drafted === null ? null : React.createElement("div", { style: mutedInlineStyle() }, "drafted: " + drafted),
 				need.draftReason === null || need.draftReason === undefined ? null : React.createElement(HashedText, { style: mutedInlineStyle(), text: need.draftReason }),
 				need.action === "" ? null : React.createElement(HashedText, { style: ctaNoteStyle(), text: need.action }),
+				resolveControl,
 				record === null ? null : React.createElement("button", { type: "button", style: smallButtonStyle(), onClick: function () { props.onSelectAdr(record.id); } }, "Open " + record.id));
 		}
 		/**
@@ -2511,13 +2800,13 @@ window.__ModuleLoader__.load({
 				if (truncation !== null) children.push(React.createElement("p", { key: "truncated", style: warnStyle() }, truncation));
 				if (heldBack > 0) children.push(React.createElement("p", { key: "heldback", style: mutedStyle() }, "Showing " + needs.length + " of " + all.length + " needs-a-human entries; the rest are loaded and listed by the ratchet but not drawn here."));
 				parts.cards.forEach(function (need, index) {
-					children.push(React.createElement(NeedsHumanCard, { key: "card" + index, need: need, decisions: props.decisions, consents: props.consents, onSelectAdr: props.onSelectAdr }));
+					children.push(React.createElement(NeedsHumanCard, { key: "card" + index, need: need, decisions: props.decisions, consents: props.consents, onSelectAdr: props.onSelectAdr, resolve: props.resolve }));
 				});
 				parts.groups.forEach(function (group, index) {
 					children.push(React.createElement(NeedsHumanGroup, { key: "group" + index, group: group, truncated: props.truncated }));
 				});
 				parts.facts.forEach(function (need, index) {
-					children.push(React.createElement(NeedsHumanCard, { key: "fact" + index, need: need, decisions: props.decisions, consents: props.consents, onSelectAdr: props.onSelectAdr }));
+					children.push(React.createElement(NeedsHumanCard, { key: "fact" + index, need: need, decisions: props.decisions, consents: props.consents, onSelectAdr: props.onSelectAdr, resolve: props.resolve }));
 				});
 				body = React.createElement("div", { style: { display: "grid", gap: 8 } }, children);
 			}
@@ -3193,8 +3482,12 @@ window.__ModuleLoader__.load({
 		 *   written, and a refusal or a transport failure names its reason.
 		 *
 		 * INPUTS
-		 *   props.decision — `"approve"` or `"decline"`. props.result — the host's response
-		 *   object, or a `{ ok: false, error }` value from a transport failure.
+		 *   props.decision — `"approve"` or `"decline"` for a consent, `"resolve"` or
+		 *   `"decline"` for the resolve surface. props.result — the host's response object,
+		 *   or a `{ ok: false, error }` value from a transport failure. props.mode — `"resolve"`
+		 *   when the result came from the resolve route, whose vocabulary (a resolver started,
+		 *   a refusal recorded, a step only a human can carry) is not a consent's; absent or
+		 *   anything else renders the consent outcomes below.
 		 *
 		 * OUTPUTS
 		 *   A muted line for a success and a warn line for anything else. It never renders
@@ -3228,6 +3521,38 @@ window.__ModuleLoader__.load({
 			// problem, the code first when it has one.
 			var problemLines = problemEntries.map(function (entry) { return (typeof entry.code === "string" ? entry.code + ": " : "") + (typeof entry.message === "string" ? entry.message : ""); }).filter(function (line) { return line !== ""; });
 			var problemsBlock = problemLines.length === 0 ? null : React.createElement("ul", { style: { margin: "6px 0 0 18px", padding: 0 } }, problemLines.map(function (line, index) { return React.createElement("li", { key: index, style: { marginBottom: 2 } }, line); }));
+			// The resolve surface's own outcomes. They are a different vocabulary from a
+			// consent's — a resolver was started, a refusal was recorded, or the record needs a
+			// human — so they are rendered before the consent branches, which would otherwise
+			// read them as a refusal with no code.
+			if (props.mode === "resolve") {
+				if (result.ok === true && result.spawned === true) {
+					return React.createElement("div", { style: mutedStyle() },
+						"A resolver was started for this record: it is working in this project now, and whatever it proposes is a `proposed` record you still approve here.");
+				}
+				if (result.ok === true && result.recorded === true) {
+					return React.createElement("div", { style: mutedStyle() },
+						"Recorded: the ratchet stored your refusal of this resolution" + (typeof result.comment === "string" && result.comment !== "" ? " and its reason." : "."),
+						typeof result.comment === "string" && result.comment !== ""
+							? React.createElement("div", { style: { marginTop: 4 } }, "Recorded reason: ", React.createElement("span", { style: { fontStyle: "italic" } }, result.comment))
+							: null);
+				}
+				if (result.humanRequired === true) {
+					return React.createElement("div", { style: warnStyle() }, "No resolver was started: " + (typeof result.message === "string" && result.message !== "" ? result.message : "this record has a step only a human can carry."));
+				}
+				if (result.error === "unreachable") {
+					return React.createElement("div", { style: warnStyle() }, "Nothing happened: this window could not reach the panel's resolve route, so the ratchet was never asked.");
+				}
+				if (result.error === "refused" || typeof result.error === "string") {
+					return React.createElement("div", { style: warnStyle() },
+						"Nothing happened: ",
+						typeof result.message === "string" && result.message !== "" ? result.message : String(result.error));
+				}
+				return React.createElement("div", { style: warnStyle() },
+					"Nothing happened",
+					typeof result.message === "string" && result.message !== "" ? ": " + result.message : ".",
+					problemsBlock);
+			}
 			var approved = result.ok === true && Array.isArray(result.ratified) && result.ratified.length > 0;
 			if (approved) {
 				var files = [];
@@ -3602,6 +3927,11 @@ window.__ModuleLoader__.load({
 			// render time rather than cached, because a page can be opened before the host
 			// route exists and a window can be opened with no Session at all.
 			var canAsk = consentEndpoint() !== null && typeof state.sessionId === "string" && state.sessionId !== "";
+			// The resolve capability is separate from the consent one: a page served by an
+			// older host half has the consent global and not this one, and a blocked card must
+			// then fall back to naming the CLI command rather than offer a button that cannot
+			// work.
+			var canResolve = resolveEndpoint() !== null && typeof state.sessionId === "string" && state.sessionId !== "";
 			// A recorded answer changes the corpus (an Approval ADR is written), and the row
 			// that recorded it knows when: it calls this, so the window re-reads the files that
 			// just changed rather than waiting on a timer.
@@ -3687,7 +4017,14 @@ window.__ModuleLoader__.load({
 					truncated: current.needsHumanTruncated,
 					decisions: current.decisions,
 					consents: current.consents,
-					onSelectAdr: onSelectAdr
+					onSelectAdr: onSelectAdr,
+					resolve: {
+						can: canResolve,
+						sessionId: state.sessionId,
+						ask: askPlan,
+						request: requestResolve,
+						onStarted: onRecorded
+					}
 				});
 			} else {
 				var meta = SECTION_META[activeSection] === undefined ? SECTION_META.decisions : SECTION_META[activeSection];

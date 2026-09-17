@@ -1155,6 +1155,50 @@ if (options.probeJudge) {
       cases.declined?.wrote?.sources === 0,
     JSON.stringify(cases.declined?.result),
   )
+  // The RESOLVE route over the same live server. It is the one route in the kit that
+  // could start work, so the claims are about the ratchet's plan, the required
+  // capability, the recorded reason — and that a record needing a human starts NOTHING.
+  check(
+    'adr_panel_resolve.capability_reaches_the_page',
+    'the panel host half publishes the resolve route and a capability through the same index-injection table',
+    typeof payload?.resolveRoute === 'string' && payload.resolveRoute === '/adr-panel/resolve',
+    `route=${String(payload?.resolveRoute)}`,
+  )
+  check(
+    'adr_panel_resolve.plan_is_the_ratchets_own',
+    'the resolve route answers with the ratchet\'s plan for a blocked record: a step needing a human, and no declined reasons yet',
+    cases.resolve_plan?.status === 200 &&
+      cases.resolve_plan?.ok === true &&
+      cases.resolve_plan?.humanRequired === true &&
+      (cases.resolve_plan?.stepOps ?? []).includes('human-authorship-required'),
+    JSON.stringify(cases.resolve_plan),
+  )
+  check(
+    'adr_panel_resolve.capability_is_required',
+    'a caller with a browser session but no resolve capability is refused before the ratchet is reached',
+    cases.resolve_without_capability?.status === 403,
+    `without=${String(cases.resolve_without_capability?.status)}`,
+  )
+  check(
+    'adr_panel_resolve.a_refusal_is_recorded_with_its_reason',
+    'a decline of a proposed resolution is recorded with the human\'s own reason, and the next plan reads it back',
+    cases.resolve_declined?.status === 200 &&
+      cases.resolve_declined?.result?.recorded === true &&
+      cases.resolve_declined?.result?.comment !== null &&
+      (cases.resolve_plan_after_decline?.declined ?? []).length === 1 &&
+      cases.resolve_ledger?.hasDeclineEvent === true &&
+      cases.resolve_ledger?.hasReason === true,
+    JSON.stringify({ declined: cases.resolve_declined, after: cases.resolve_plan_after_decline, ledger: cases.resolve_ledger }),
+  )
+  check(
+    'adr_panel_resolve.a_human_required_record_starts_nothing',
+    'a resolve request for a record with a step no agent may carry is refused with the step, not started',
+    cases.resolve_human_required?.status === 200 &&
+      cases.resolve_human_required?.result?.ok === false &&
+      cases.resolve_human_required?.result?.humanRequired === true &&
+      cases.resolve_human_required?.result?.spawned !== true,
+    JSON.stringify(cases.resolve_human_required),
+  )
 } else if (options.ratchetRatify) {
   // The consent seam, end to end. The claims under test are the ones no unit test
   // can reach: that a plugin reaches the user-questions channel with the live root

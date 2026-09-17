@@ -8,6 +8,17 @@ human-authored. Authorship is not what the queue keys on: a human-authored recor
 still `proposed` is put into force by the human's own recorded consent, so it is offered
 the same question as an agent's proposal instead of reading as `not in force` with no
 action.
+A **blocked** record is a pending item, not a dead end. Its card reads the ratchet's resolve
+plan from a third route, `/adr-panel/resolve`, and draws it — the steps, whether any needs a
+human, and the reasons a human already declined — then offers **Resolve** and **Decline with
+a reason**. Resolve asks the host to start ONE resolver child on the ratchet's own prompt
+(the panel sends the record id and one `decision` value, never a step or a prompt of its
+own); Decline records why the proposed resolution is wrong, so the next attempt can differ.
+A plan with a step no agent may carry renders Resolve disabled and says so, because a child
+started there could not finish, and with no subagent runtime the route refuses with a named
+reason instead of claiming it started one. Starting a resolver mints nothing: the child
+writes a `proposed` record and the human still approves it through the row's own Approve.
+
 
 The window is **four tabbed parts, not one long scroll**: a sticky navigator offers
 `Needs a human (N)`, `Decisions (N)`, `Consents (N)` and `Specs (N)`, each stating its
