@@ -1,6 +1,6 @@
 # AGENTS.md — dsh-kit
 
-Deployment kit for **DeepSeek Harness (dsh)** plus the **five plugins** this
+Deployment kit for **DeepSeek Harness (dsh)** plus the **six plugins** this
 deployment adds beyond upstream, across the user's machines (2× Linux, 1× Windows):
 `@deepseek-ai/dsh-model-gate`, `@cc/dsh-context`, `@cc/dsh-kit-rules`,
 `@cc/dsh-ratchet` and `@cc/dsh-adr-panel`. `plugins/inventory.json` is the single source of truth for that

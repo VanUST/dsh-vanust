@@ -1,0 +1,26 @@
+{
+  "name": "@cc/dsh-presentation",
+  "version": "0.1.2",
+  "description": "One tool that renders a JSON deck spec into a standalone HTML presentation in the workspace; the harness's Sidebar document preview displays it (self-contained CSS and player, five themes, print to PDF).",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./render": "./render.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "plugin-presentation.mjs",
+    "render.mjs",
+    "theme.css",
+    "test-render.mjs",
+    "test-tool.mjs",
+    "README.md"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-tools": "^0.1.5-rc.1"
+  }
+}

@@ -119,3 +119,14 @@
 - insert:
     - id: adr-panel
       name: '@cc/dsh-adr-panel'
+
+# ── presentation: decks the agent renders, shown by the file preview ────────
+# Contributes one tool, `presentation`, which turns a JSON deck spec into a
+# standalone HTML file in the session workspace. There is no client half on
+# purpose: the Sidebar document preview already renders `.html` in a script-
+# enabled sandboxed frame, so the deck is its own viewer, and the very file the
+# user previews is the one they export and print — preview, export and PDF cannot
+# drift apart because they are the same document.
+- insert:
+    - id: presentation
+      name: '@cc/dsh-presentation'

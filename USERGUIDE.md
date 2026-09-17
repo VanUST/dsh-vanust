@@ -1,13 +1,16 @@
 # USERGUIDE.md — setting up and starting the harness on a new machine
 
 This kit installs **DeepSeek Harness (dsh)** on any of your machines (2× Linux,
-1× Windows) plus the **five** plugins this deployment adds beyond upstream:
+1× Windows) plus the **six** plugins this deployment adds beyond upstream:
 **`@deepseek-ai/dsh-model-gate`** (the class-based flash-only cost policy),
 **`@cc/dsh-kit-rules`** (delivers `$DSH_HOME/AGENTS.md` to the model as its
 binding rule section), **`@cc/dsh-context`** (a project's modules, rules and work
 orders as tools), **`@cc/dsh-ratchet`** (architecture decisions compiled into
-checks a command can fail — §3.2) and **`@cc/dsh-adr-panel`** (a Session-header
-window on those decisions, their consents and the generated specs — §3.3).
+checks a command can fail — §3.2), **`@cc/dsh-adr-panel`** (a Session-header
+window on those decisions, their consents and the generated specs — §3.3) and
+**`@cc/dsh-presentation`** (one tool that renders a JSON deck spec into a
+standalone HTML presentation in the workspace, shown by the Sidebar document
+preview).
 `plugins/inventory.json` is the single source of truth for that set and for each
 plugin's provenance; `scripts/check-portability.mjs` fails when a tarball, a
 mounted profile row, a source directory or a packing entry point disagrees with

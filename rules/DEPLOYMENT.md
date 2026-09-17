@@ -12,7 +12,7 @@ unless the `DSH_HOME` environment variable overrides it.
 
 ## 1. What this deployment is
 
-The upstream harness plus five plugins, all pinned and installed from one kit repository:
+The upstream harness plus six plugins, all pinned and installed from one kit repository:
 
 | Piece | What it does |
 |---|---|
@@ -21,6 +21,7 @@ The upstream harness plus five plugins, all pinned and installed from one kit re
 | `@cc/dsh-context` | `context_module`, `context_rules`, `context_specs`, `ratchet_reconcile` — answers about the current project from `.dsh/project.json` |
 | `@cc/dsh-ratchet` | compiles `docs/adrs/*.adr.md` into laws, verifies code against them, and puts proposed decisions to the human as a question |
 | `@cc/dsh-adr-panel` | the web UI's window on those decisions and the spec documents: a session-header button opens an overlay listing the records, and its only ratification affordance asks the agent to run the quiz |
+| `@cc/dsh-presentation` | one tool, `presentation`, that renders a JSON deck spec into a standalone HTML file in the workspace; the Sidebar document preview displays it, so the file the user previews is the file they export and print |
 
 Pinned harness version: **`0.1.5-rc.1`**. Node ≥ 24. The kit is the only source of the
 deployment's files; a machine is a projection of it.

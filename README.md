@@ -1,6 +1,6 @@
 # dsh-kit
 
-Portable setup for **DeepSeek Harness (dsh)** plus the five plugins this
+Portable setup for **DeepSeek Harness (dsh)** plus the six plugins this
 deployment needs beyond upstream, across all your machines (2× Linux, 1× Windows).
 `plugins/inventory.json` is the single source of truth for the set and for each
 plugin's provenance:
@@ -26,6 +26,11 @@ plugin's provenance:
   button opens a frame-wide overlay listing the project's ADR records and spec
   documents, and asks the agent to run the ratification quiz for a proposed decision
   rather than ever minting a consent itself.
+- **`@cc/dsh-presentation`** — one tool that turns a JSON deck spec into a standalone
+  HTML presentation in the session workspace. It ships no client half on purpose: the
+  Sidebar document preview already renders `.html` in a script-enabled sandboxed frame,
+  so the deck is its own viewer and the file the user previews is exactly the file they
+  export and print.
 
 Clone this repo on a new machine, run `./install.sh` (or `install.ps1` on
 Windows), and `dsh web` is up with the same pinned harness version, the same
@@ -40,7 +45,7 @@ node scripts/dev-link.mjs   # only if install.sh warned: links the harness packa
 ```
 
 **What a clone alone gives you, stated exactly.** Everything the deployment
-installs is in the repository: the five plugin tarballs, the canonical profile, the
+installs is in the repository: the six plugin tarballs, the canonical profile, the
 rules file, the pinned version in both installers, and the ratchet's decision
 corpus with its state. Every plugin's source is here too — `plugins/ratchet/`,
 `plugins/kit-rules/` and the reconstructed `plugins/dsh-context/`, plus a read-only
@@ -61,12 +66,14 @@ dsh-kit/
 ├── start.sh / start.ps1       # easy startup: dsh web --port 3080
 ├── scripts/kit-update.mjs     # update path: hash drift check + convergence for an existing machine
 ├── plugins/inventory.json     # the shipped plugin set + each plugin's provenance (the source of truth)
-├── plugins/*.tgz              # plugin tarballs: model-gate, cc-dsh-context, cc-dsh-kit-rules, cc-dsh-ratchet
+├── plugins/*.tgz              # plugin tarballs: model-gate, cc-dsh-context, cc-dsh-kit-rules, cc-dsh-ratchet,
+│                              #                  cc-dsh-adr-panel, cc-dsh-presentation
 ├── plugins/model-gate/        # source snapshot + built lib/ of model-gate (see its SOURCE-NOTICE.md)
 ├── plugins/kit-rules/         # source of the rules plugin; packed into its tarball above
 ├── plugins/ratchet/           # source of @cc/dsh-ratchet (packed into its tarball above)
 ├── plugins/dsh-context/       # reconstructed source of @cc/dsh-context (see its SOURCE-NOTICE.md)
 ├── plugins/dsh-adr-panel/     # source of @cc/dsh-adr-panel (browser-half UI; see its README)
+├── plugins/presentation/      # source of @cc/dsh-presentation (deck tool; no client half by design)
 ├── profile/                   # canonical web profile: package.json (no deps) + cordis.patch.yml
 ├── rules/AGENTS.md            # the deployment's mandatory rules (installed to $DSH_HOME/AGENTS.md)
 ├── scripts/dev-link.mjs       # links the harness packages so the kit's own gate runs from a clone
