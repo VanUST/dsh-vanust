@@ -1,6 +1,6 @@
 ---
 id: "0058"
-title: Rule drills, test quality and claim discipline join the deployment rules
+title: Claim discipline and the rule text join the deployment rules
 type: adr
 status: proposed
 author:
@@ -17,26 +17,6 @@ supersedes: []
 approves: []
 laws:
   - op: upsert
-    id: deployment-rules.tests-verify-behaviour
-    statement: Every test exercises real product behaviour and asserts on its observable result; a test that only proves a class or module has a method or a field, asserts a mock, or computes its expectation with the code under test earns no place.
-    checks:
-      # The marker is printed only when the lint ran over a non-empty test set and
-      # found nothing, so a moved test directory or a partial run cannot satisfy it.
-      - type: command
-        run: node scripts/check-test-quality.mjs --root . --strict
-        expects: no test in the corpus is a shape-only assertion engine
-        timeoutMs: 120000
-        outputContains: check-test-quality: 0 finding(s)
-  - op: upsert
-    id: deployment-rules.rule-drills-target-real-sections
-    statement: Every rule drill names a rule section the injected rules file carries, so the RED run strips the rule under test; a drill that cannot strip anything proves nothing.
-    checks:
-      - type: command
-        run: node scripts/drill-kit-rules.mjs --root .
-        expects: every drill scenario strips a section the rules file carries
-        timeoutMs: 120000
-        outputContains: drill plan ok
-  - op: upsert
     id: deployment-rules.claims-carry-evidence
     statement: A completion claim names the command run in the current turn and the output it produced; a claim resting on an earlier command, or on no command at all, is provisional and says so.
     checks: []
@@ -45,47 +25,46 @@ laws:
 
 ## Context
 
-The kit enforces decisions and governs nothing about how work proceeds. Its injected
-rules include prompt constraints — the model policy, the remote-change permission — that
-**no command could fail when broken**, which §3 of those rules names as an unverified
-claim, and `context_rules` reported exactly two such rules with their unbuilt checks
-recorded. Reading `obra/superpowers` against the kit (`docs/SUPERPOWERS-COMPARISON.md`)
-identified the missing execution half and the mechanism that would give it a failure
-point: pressure-test the rule itself, the way a check is tested.
+The kit enforces decisions and governs nothing about how work proceeds. Its injected rules
+include prompt constraints — the model policy, the remote-change permission — that **no
+command could fail when broken**, which §3 of those rules names as an unverified claim.
+Reading `obra/superpowers` against the kit (`docs/SUPERPOWERS-COMPARISON.md`) identified the
+missing execution half and the mechanism that would give it a failure point: pressure-test
+the rule itself, the way a check is tested.
+
+The two mechanisms that came out of that — the rule drill and the test-quality lint — are
+checks over `scripts/**`, and they are law under **ADR 0059**, bound to `kit-tooling`, where
+this project lets an agent activate its own decision. What remains here is the part that
+genuinely concerns the deployment rules: the TEXT of `rules/AGENTS.md`, plus the one rule
+nothing deterministic can check.
 
 ## Decision
 
-Three rule additions and two hermetic enforcement points:
-
-1. `scripts/drill-kit-rules.mjs` is the differential behavioural test for an injected
-   rule: RED runs the scenario with the injected rules minus the section under test, GREEN
-   with the file unchanged, and the verdict is read from a journal of the agent's actions.
-   It proves a scenario targets a real section (`deployment-rules.rule-drills-target-real-sections`).
-2. `scripts/check-test-quality.mjs` refuses shape-only tests, and its marker is the check
-   for `deployment-rules.tests-verify-behaviour`.
-3. `rules/AGENTS.md` gains §11 (a completion claim carries fresh evidence) and §12 (tests
-   verify behaviour, not shape), and §1, §3, §6, §9 and §10 gain rationalization tables.
-   §11's rule is recorded as `deployment-rules.claims-carry-evidence`, unenforced in the
-   deterministic gate with the reason stated.
+`rules/AGENTS.md` gains §11 (a completion claim carries fresh evidence) and §12 (tests verify
+behaviour, not shape), and §1, §3, §6, §9 and §10 gain rationalization tables naming the
+excuse next to its rebuttal. §11's rule is recorded here as
+`deployment-rules.claims-carry-evidence`, unenforced in the deterministic gate with the
+reason stated.
 
 ## Reasoning
 
-The source states the full argument: the two systems are complements, the drill's live
+The source states the full argument and the evidence for the mechanisms: the drill's live
 result for `flash-only-models` was a RED delegation to `deepseek-v4-pro` against a GREEN
-delegation to `deepseek-flash`, and the other two scenarios honestly report `missed`
-rather than a pass. The test-quality lint was run in report mode first, found one real
-finding in the kit's own corpus, and is clean under `--strict`; it states its own
-heuristic limit.
+delegation to `deepseek-flash`, and the other two scenarios honestly report `missed` rather
+than a pass. The test-quality lint was run in report mode first, found one real finding in
+this corpus, and is clean under `--strict`; it states its own heuristic limit.
+
+The rule text is where the two enforcement points come from, and it is the part a human owns:
+a completion claim is a sentence an agent writes, and no command can read an agent's mind.
 
 ## Consequences
 
-- The model-policy rule now has a demonstration that the injected text changes a
-  decision, and the same instrument can test any rule the drift-free rules file gains.
-- A shape-only test fails the gate instead of passing as coverage. The exemption is an
-  inline `test-quality:allow <reason>`, so an accepted finding carries its reason.
-- The drill's live path is **not** in a law's checks and not yet in `verify-upgrade.sh`,
-  whose skip policy accepts two documented lines; wiring it there is a separate change.
-- **This record is agent-authored and the zone is `humanOnly`.** The ratchet's queue
-  refuses to offer an agent record there, because consent cannot transfer authorship, so
-  this decision waits for a human to author it. That is the configured authority model,
-  and it is why the panel shows it as blocked rather than as an approvable question.
+- §11 and §12 are the rules the two registered checks enforce; the checks themselves are
+  `kit-tooling.tests-verify-behaviour` and `kit-tooling.rule-drills-target-real-sections`
+  (ADR 0059).
+- **This record is agent-authored.** The zone that governs `rules/**` now requires a human
+  *ratification* rather than human authorship (ADR 0060), because authorship is not
+  verifiable while a consent is bound to the text the human was shown. So this record is
+  offered to a human as a question and enters force on their answer.
+- The rationalization tables are prose. The drill is the only instrument that tests whether a
+  rule changes a decision, and only the `flash-only-models` scenario has been shown to.

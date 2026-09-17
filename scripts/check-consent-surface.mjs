@@ -205,6 +205,12 @@ claim(
     /humanOnly/.test(blockedQueue.blocked[0].reason ?? ''),
   `pending=${blockedQueue.pending.length} blocked=${blockedQueue.blocked.length}`,
 )
+const pendingQueue = ops.ratifications(pendingRoot)
+claim(
+  'an agent proposal in a proposeOnly zone is offered to a human rather than blocked',
+  pendingQueue.pending.length === 1 && pendingQueue.blocked.length === 0,
+  `pending=${pendingQueue.pending.length} blocked=${pendingQueue.blocked.length}`,
+)
 const blockedCli = cli(['pending', '--root', blockedRoot])
 claim(
   'and the shell says so too',
@@ -906,12 +912,12 @@ for (const root of [serviceRoot, declineRoot, staleRoot]) rmSync(root, { recursi
 //    the decision to edit it is still a human's.
 {
   const manifestPath = join(KIT, '.dsh', 'project.json')
-  let reserved = false
+  let ratifiable = false
   let detail = 'the manifest is unreadable as JSON'
   try {
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
     const zone = (manifest?.ratchet?.zones ?? []).find((entry) => entry.id === 'deployment-rules')
-    reserved = zone?.agentAuthority === 'humanOnly'
+    ratifiable = zone?.agentAuthority === 'proposeOnly'
     detail =
       zone === undefined
         ? 'the manifest declares no deployment-rules zone'
@@ -919,7 +925,11 @@ for (const root of [serviceRoot, declineRoot, staleRoot]) rmSync(root, { recursi
   } catch (error) {
     detail = `the manifest is unreadable as JSON: ${String(error)}`
   }
-  claim('the authority table still reserves deployment-rules to humans', reserved, detail)
+  // ADR 0060: the reservation is a human RATIFICATION, not human authorship. Authorship is
+  // not verifiable (a frontmatter word), so a `humanOnly` zone was a guarantee nothing could
+  // keep; the table now reports the zone as ratifiable, and the claim above/below shows the
+  // behaviour that goes with it. The `humanOnly` mechanism itself stays covered by fixtures.
+  claim('the authority table reports the rules zone as ratifiable rather than reserved to authorship', ratifiable, detail)
 }
 
 if (failures.length > 0) {

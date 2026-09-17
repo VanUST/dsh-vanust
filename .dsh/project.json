@@ -352,7 +352,7 @@
           "start.sh",
           "start.ps1"
         ],
-        "agentAuthority": "humanOnly",
+        "agentAuthority": "proposeOnly",
         "requiresDecisionRecord": false
       }
     ]

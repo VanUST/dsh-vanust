@@ -350,3 +350,44 @@ offers a button that opens that decision. **The card is still not consentable, b
 red gate is a fact about the report and the code, not a decision a record can be drafted for,
 so the action remains "fix what it names and re-run `ratchet verify`" — but what it names is
 now on the card.
+
+## 13. The rules zone now requires ratification, not authorship (2026-09-17)
+
+**Why.** ADR 0058 was written by an agent and bound to `deployment-rules`, which the manifest
+reserved to humans. The human read it and agreed, and could not put it in force: the ratchet
+refuses an agent-authored record in a `humanOnly` zone, so the queue never offered it — the
+only route was to edit one frontmatter word and then approve text already read. The
+reservation conflates *writing* a decision with *consenting* to it, and only the second is
+verifiable: a consent is bound to the text the human was shown, while authorship is a
+frontmatter word. The kit's own hard rule 12 records the gap — nothing verifies who wrote the
+file — so no command fails when an agent writes `authority: human`. By §3 that made
+`humanOnly` an unenforceable rule, and the check that "pinned" it asserted the manifest's
+value rather than the behaviour. What `humanOnly` genuinely bought — no self-activation —
+`proposeOnly` already provides.
+
+**What landed.**
+1. **ADR 0059** (`active`, `kit-tooling`): the two enforcement laws —
+   `kit-tooling.tests-verify-behaviour` (`check-test-quality.mjs --strict`) and
+   `kit-tooling.rule-drills-target-real-sections` (`drill-kit-rules.mjs` plan mode) — bind to
+   the zone that governs `scripts/**` and enter force by their own declaration. 63 → 65 laws.
+2. **ADR 0058** (`proposed`, `deployment-rules`) now carries only the rules-text decision and
+   `deployment-rules.claims-carry-evidence` (unenforced, with the reason stated).
+3. **ADR 0060** (`proposed`, `shipped-plugins`) removes ADR 0012's
+   `shipped-plugins.the-authority-table-cannot-be-relaxed-silently` and restates it: the zone
+   requires a recorded human RATIFICATION, not human authorship.
+4. `.dsh/project.json`: `deployment-rules.agentAuthority` is `proposeOnly`.
+   `scripts/check-consent-surface.mjs` asserts the new value AND drives a `proposeOnly`
+   fixture to require an agent proposal to be offered rather than blocked; a `humanOnly`
+   fixture still requires an agent record there to be blocked, so the mechanism stays covered.
+
+**State: both 0058 and 0060 are waiting for you** (`ratchet pending`); neither is in force,
+so ADR 0012's old law is still in force and its check still passes. Ratifying 0060 settles it.
+The stronger option, unbuilt: enforce authorship on git provenance rather than a frontmatter
+word.
+
+**A falsify residue found while doing this.** A `ratchet falsify` run left
+`docs/adrs/9002-falsify-unchecked.adr.md` behind, so a `compile --write` generated
+`docs/specs/-unzoned-.spec.md` from it. Removing both surfaced
+`LAW_REMOVED_WITHOUT_DECISION [falsify.unchecked-law]` until the bundle was rewritten — the
+same family as §10: a transient mutation can leave the recorded law set disagreeing with the
+corpus. `ratchet falsify` should clean up the ADR *and* any generated spec document it caused.
