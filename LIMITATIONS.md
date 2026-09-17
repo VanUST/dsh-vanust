@@ -328,3 +328,11 @@ take, and the panel draws it as its own decision card with no Approve. It is ded
 against a `contradiction`/`duplicate` need for the same record, which already carries the
 drafted resolution. The change is shipped and repacked, but the **live profile still runs
 0.2.63/0.1.31 until it is converged and `dsh web` is restarted.**
+
+A second defect surfaced once the window was actually read: ADR 0058's collapsed row
+summarised as `Three rule additions and two hermetic enforcement points: 1.`. Its Decision
+opens with a paragraph and CONTINUES as a numbered list, so the `1.` is mid-string; the
+existing strip was anchored at the string's start and the first-sentence extractor took
+the marker's own period as the sentence end. `plainText` now strips a bullet or ordered
+marker on the line it belongs to, so the false period never exists, and the panel test
+pins the shape (panel 0.1.33).

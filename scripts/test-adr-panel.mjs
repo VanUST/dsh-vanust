@@ -665,6 +665,10 @@ claim(
       numberedRecord('7001', '---\nid: 7001\n---\n\n## Decision\n\n1. **The fiction is adopted as the working model.** It survives contact with the code.\n2. A second numbered point.\n'),
       numberedRecord('7002', '---\nid: 7002\n---\n\n## Decision\n\n1.\n'),
       numberedRecord('7003', '---\nid: 7003\n---\n\n## Context\n\nThe context paragraph carries the only prose this record has.\n'),
+      // The shape that was NOT covered: a lead paragraph, a blank line, then a numbered
+      // list. The marker is mid-string, so a strip anchored at the start cannot see it and
+      // the first-sentence extractor used to end on the marker's own period.
+      numberedRecord('7004', '---\nid: 7004\n---\n\n## Decision\n\nA lead paragraph names the shape:\n\n1. **The first numbered point.** It survives.\n2. A second.\n'),
     ],
     queue: {},
     specs: [],
@@ -692,6 +696,12 @@ claim(
       'a summary falls back to Context, and a marker-only Decision is skipped entirely',
       summaries.includes('The context paragraph carries the only prose this record has.') &&
         summaries.every((text) => text !== '1.'),
+      JSON.stringify(summaries),
+    )
+    claim(
+      'a numbered list after a lead paragraph yields the lead and the first item, never ": 1."',
+      summaries.includes('A lead paragraph names the shape: The first numbered point.') &&
+        summaries.every((text) => !/:\s*\d+[.)]$/.test(text)),
       JSON.stringify(summaries),
     )
     // One line: the row clips with nowrap/ellipsis, so a 140-character summary is a

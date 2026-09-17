@@ -329,7 +329,7 @@ window.__ModuleLoader__.load({
 		 * are equal again after a release and the constant is one ahead only in the working
 		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.32";
+		const PANEL_VERSION = "0.1.33";
 		/** Directories used when the host view reports none. */
 		const DEFAULT_DECISIONS_DIR = "docs/adrs";
 		const DEFAULT_SPECS_DIR = "docs/specs";
@@ -794,11 +794,36 @@ window.__ModuleLoader__.load({
 			}
 			return null;
 		}
-		/** @returns the section's lines flattened into one line of prose. */
+		/**
+		 * PURPOSE
+		 *   Flatten a section's lines into one line of prose for the summary extractor,
+		 *   removing the markdown that would otherwise be read as prose or as punctuation.
+		 *
+		 *   The ordered-list marker matters here rather than only at the string's start: a
+		 *   Decision that opens with a paragraph and CONTINUES as `1. …` flattens to
+		 *   `… points: 1. the first item`, and a first-sentence extractor then takes the
+		 *   marker's own period as the sentence end, so the row renders `…: 1.`. Stripping the
+		 *   marker on the line it belongs to removes the false period rather than teaching the
+		 *   sentence extractor to guess.
+		 *
+		 * INPUTS
+		 *   lines — the section's lines (an array; a non-array becomes the empty list).
+		 * OUTPUTS
+		 *   The readable lines joined by one space, with leading bullet, ordered-list and
+		 *   heading markers and the emphasis/code marks removed. A marker-only line
+		 *   contributes nothing. Never throws.
+		 *
+		 * KEYWORDS
+		 *   summary, markdown, ordered list, marker, flatten, display only
+		 */
 		function plainText(lines) {
 			var out = [];
-			for (var i = 0; i < lines.length; i += 1) {
-				var line = String(lines[i]).replace(/^\s*[-*][ \t]+/, "").replace(/^\s*#{1,6}[ \t]+/, "").trim();
+			var list = Array.isArray(lines) ? lines : [];
+			for (var i = 0; i < list.length; i += 1) {
+				var line = String(list[i])
+					.replace(/^\s*(?:[-*+]|\d+[.)])(?:[ \t]+|$)/, "")
+					.replace(/^\s*#{1,6}[ \t]+/, "")
+					.trim();
 				if (line === "") continue;
 				out.push(line.replace(/\*\*|`/g, ""));
 			}
