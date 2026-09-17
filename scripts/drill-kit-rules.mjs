@@ -299,13 +299,18 @@ export function main(argv) {
       process.stderr.write(`drill-kit-rules: cannot read ${rulesPath}: ${String(error)}\n`)
       return 2
     }
+    let allFound = true
     for (const scenario of scenarios) {
       const stripped = stripSection(rulesText, scenario.ruleSection)
+      if (!stripped.found) allFound = false
       process.stdout.write(
         `${scenario.id}: strips "${scenario.ruleSection}" (${stripped.found ? `${stripped.removed.split('\n').length} lines` : 'NOT FOUND — RED would equal GREEN'})\n`,
       )
     }
-    return scenarios.every((scenario) => stripSection(rulesText, scenario.ruleSection).found) ? 0 : 1
+    // A marker printed only when every scenario strips something, so a law's
+    // `outputContains` cannot be satisfied by a partial plan.
+    if (allFound) process.stdout.write(`drill plan ok (${scenarios.length} scenario(s))\n`)
+    return allFound ? 0 : 1
   }
 
   let rulesText

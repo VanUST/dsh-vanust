@@ -329,7 +329,7 @@ window.__ModuleLoader__.load({
 		 * are equal again after a release and the constant is one ahead only in the working
 		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.31";
+		const PANEL_VERSION = "0.1.32";
 		/** Directories used when the host view reports none. */
 		const DEFAULT_DECISIONS_DIR = "docs/adrs";
 		const DEFAULT_SPECS_DIR = "docs/specs";
@@ -2011,6 +2011,7 @@ window.__ModuleLoader__.load({
 			var kind = need === null || need === undefined ? "" : String(need.kind);
 			if (kind === "consent") return "consent";
 			if (kind === "duplicate") return "pending";
+			if (kind === "blocked") return "pending";
 			if (kind === "stale-spec") return "superseded";
 			if (kind === "contradiction" || kind === "red-gate") return "rejected";
 			return "neutral";
@@ -2113,7 +2114,7 @@ window.__ModuleLoader__.load({
 		 * card, in this order. A consent, a contradiction and a duplicate each name one thing
 		 * to settle, so folding them into a batch would hide a decision behind a count.
 		 */
-		const DECISION_NEED_KINDS = ["consent", "contradiction", "duplicate"];
+		const DECISION_NEED_KINDS = ["consent", "blocked", "contradiction", "duplicate"];
 		/**
 		 * The kinds rendered as one individual fact card after the grouped batches, because
 		 * each is a standing condition rather than a batch of documents. The red gate is

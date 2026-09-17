@@ -5783,6 +5783,16 @@ test('ratify: the queue reports what waits for a human and what cannot be ratifi
   assert.deepEqual(blocked.pending, [])
   assert.equal(blocked.blocked.length, 1)
   assert.match(blocked.blocked[0].reason, /humanOnly/)
+
+  // A blocked decision is not waiting for a consent, but it is still something only
+  // a human can settle, so the ONE needs-a-human set reports it rather than hiding it
+  // from the only place that tells a human what needs them.
+  const view = decisionsModule.deriveDecisions({ root: humanOnly })
+  const need = view.needsHuman.find((entry) => entry.kind === 'blocked')
+  assert.ok(need, `expected a blocked need, got ${JSON.stringify(view.needsHuman.map((entry) => entry.kind))}`)
+  assert.equal(need.id, '0021')
+  assert.match(need.reason, /humanOnly/)
+  assert.match(need.action, /consent cannot settle it/)
 })
 
 test('ratify: a proposed record that removes law in force is blocked, and a ratify attempt mints nothing', () => {

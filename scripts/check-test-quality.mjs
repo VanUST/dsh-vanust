@@ -35,8 +35,8 @@
  *
  * BEHAVIOUR ON EDGE CASES
  *   - Missing `--root`: the current directory is used.
- *   - No test files: exit 0 after printing that none were found, so a moved test
- *     directory is visible rather than a false green.
+ *   - No test files: exit 2, because a lint over an empty test set proves nothing
+ *     and a moved test directory must not read as a pass.
  *   - A line carrying `test-quality:allow <reason>` (on the finding's line or the
  *     line before it) is exempt.
  *   - Heuristic by construction: it matches shapes, not semantics. A finding is a
@@ -237,9 +237,11 @@ export function main(argv) {
     return 2
   }
 
+  // A lint over an empty test set proves nothing, so it is unusable rather than
+  // clean: a moved or misnamed test directory must not read as a pass.
   if (result.files.length === 0) {
-    process.stdout.write(`check-test-quality: no test files found under ${root}\n`)
-    return 0
+    process.stderr.write(`check-test-quality: no test files found under ${root}\n`)
+    return 2
   }
 
   if (json) {

@@ -442,13 +442,13 @@ claim(
 )
 const selectedTab = firstTabs.find((node) => node.props['aria-selected'] === 'true')
 claim(
-  'the window opens on the first non-empty part, which for this corpus is Decisions',
-  selectedTab !== undefined && selectedTab.props['data-adr-panel-section'] === 'decisions',
+  'the window opens on the first non-empty part, which for this corpus is Needs a human',
+  selectedTab !== undefined && selectedTab.props['data-adr-panel-section'] === 'needs',
   JSON.stringify(firstTabs.map((node) => ({ key: node.props['data-adr-panel-section'], selected: node.props['aria-selected'] }))),
 )
 claim(
   'exactly one section is drawn at a time',
-  headings.length === 1 && headings[0] === 'Decisions',
+  headings.length === 1 && headings[0] === 'Needs a human',
   JSON.stringify(headings),
 )
 {
@@ -2215,8 +2215,8 @@ claim(
 // the panel is rendered over the same files through the state route whose stub calls the
 // real `deriveDecisions`. Nothing here is an object the test invented: if a derivation
 // stops producing a kind, the service's set shrinks and this claim fails.
-const NEEDS_KINDS = ['consent', 'contradiction', 'duplicate', 'stale-spec', 'red-gate']
-const isNeedsPill = (node) => isPillNode(node) && /^(consent|contradiction|duplicate|stale-spec|red-gate) /.test(node.text)
+const NEEDS_KINDS = ['consent', 'blocked', 'contradiction', 'duplicate', 'stale-spec', 'red-gate']
+const isNeedsPill = (node) => isPillNode(node) && /^(consent|blocked|contradiction|duplicate|stale-spec|red-gate) /.test(node.text)
 
 // A fixture with one of each kind. 0001 is a human decision in force whose law is the
 // contradiction's target and the duplicate's keeper; 0002 is a proposal waiting for a
@@ -2225,10 +2225,13 @@ const isNeedsPill = (node) => isPillNode(node) && /^(consent|contradiction|dupli
 // STATEMENT under a different id (the duplicate rule); the generated spec for the one law
 // in force is absent (drift `missing`); and a persisted verify report records a problem
 // (the red gate). Every source file exists and is hashed, so `draftResolutions` drafts.
-const needsZone = [{ id: 'z', paths: ['src/**'], agentAuthority: 'proposeOnly', requiresDecisionRecord: true }]
+const needsZone = [
+  { id: 'z', paths: ['src/**'], agentAuthority: 'proposeOnly', requiresDecisionRecord: true },
+  { id: 'h', paths: ['human/**'], agentAuthority: 'humanOnly', requiresDecisionRecord: false },
+]
 const needsSources = {}
 const needsFiles = { '.dsh/project.json': fixtureManifest(needsZone, 'proposeOnly') }
-for (const id of ['0001', '0002', '0003', '0004']) {
+for (const id of ['0001', '0002', '0003', '0004', '0005']) {
   const text = `# reasoning for ${id}\n`
   const sourcePath = `docs/ratchet/sources/${id}.md`
   needsSources[id] = { sourcePath, sourceHash: hashSource(text) }
@@ -2238,6 +2241,7 @@ needsFiles['docs/adrs/0001-fixture-0001.adr.md'] = fixtureAdr('0001', { status: 
 needsFiles['docs/adrs/0002-fixture-0002.adr.md'] = fixtureAdr('0002', { status: 'proposed', authority: 'agent', zones: ['z'], laws: [{ id: 'law.other', statement: 'Beta' }], ...needsSources['0002'] })
 needsFiles['docs/adrs/0003-fixture-0003.adr.md'] = fixtureAdr('0003', { status: 'proposed', authority: 'agent', zones: ['z'], laws: [{ id: 'law.shared', statement: 'Gamma' }], ...needsSources['0003'] })
 needsFiles['docs/adrs/0004-fixture-0004.adr.md'] = fixtureAdr('0004', { status: 'active', authority: 'agent', zones: ['z'], laws: [{ id: 'law.dup', statement: 'Alpha' }], ...needsSources['0004'] })
+needsFiles['docs/adrs/0005-fixture-0005.adr.md'] = fixtureAdr('0005', { status: 'proposed', authority: 'agent', zones: ['h'], laws: [{ id: 'law.h', statement: 'Delta' }], ...needsSources['0005'] })
 needsFiles['reports/ratchet/verify-report.json'] = `${JSON.stringify({ generatedAt: '2026-09-15T00:00:00.000Z', problems: [{ code: 'FIXTURE_RED', severity: 'error', lawId: 'law.shared', message: 'the fixture records a red gate' }] }, null, 2)}\n`
 {
   const needsRoot = materialise(needsFiles)

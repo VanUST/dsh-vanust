@@ -298,3 +298,33 @@ until a human puts them in force, and no law in `docs/adrs/` covers them yet.
 **What remains from the comparison:** a plan artifact with a lint, the universal approval gate,
 systematic debugging, the subagent review protocol, worktree isolation, and contribution
 discipline. They are candidate decisions, not patches.
+
+## 10. A verify concurrent with `falsify` poisons the ledger's law set (2026-09-17)
+
+`scripts/verify-upgrade.sh` runs `ratchet falsify`, which temporarily mutates shipped source
+AND compiles a temporary law (`falsify.unchecked-law`) into the corpus and the persisted
+bundle. A `ratchet verify` run in another shell while that mutation is in place records a
+`ratchet.verify.finish` ledger event whose `lawIds` **include the falsify law**. When the
+mutation is restored, `readRecordedLawIds` still reads that event, so `lawRemovalProblems`
+reports `LAW_REMOVED_WITHOUT_DECISION [falsify.unchecked-law]` — and it can never clear
+itself, because a verify that reports the removal problem appends no `lawIds` of its own, so
+the poisoned entry stays the last recorded set. Observed on this kit and repaired by
+appending one truthful `ratchet.verify.finish` event carrying the restored 63-law set.
+
+**The operational rule that follows: do not run a ratchet command while the release gate is
+in its falsify phase.** The product fix — a verify that judged a law set should record that
+set even when it reports a problem — is unbuilt, and a `falsify`-held lock or an explicit
+"mutating" marker in the ledger would remove the trap rather than document it.
+
+## 11. The ADR window now surfaces a blocked decision (2026-09-17, ratchet 0.2.64, panel 0.1.32)
+
+The decisions view deliberately omitted a queue-blocked record from the needs-a-human set on
+the ground that it is "not waiting for anyone". The effect was that a `humanOnly`-zone
+proposal — the one kind of decision an agent may write but may never activate — was invisible
+in the only place meant to tell a human what needs them; ADR 0058 sat in the blocked list and
+in the Decisions section, with the Needs-a-human tab empty. A blocked record now reaches that
+set as the `blocked` kind, carrying the queue's own reason and the action a consent cannot
+take, and the panel draws it as its own decision card with no Approve. It is deduplicated
+against a `contradiction`/`duplicate` need for the same record, which already carries the
+drafted resolution. The change is shipped and repacked, but the **live profile still runs
+0.2.63/0.1.31 until it is converged and `dsh web` is restarted.**

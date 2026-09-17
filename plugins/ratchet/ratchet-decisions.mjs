@@ -58,7 +58,9 @@
  *     - `drift` — the `detectSpecDrift` result for those documents.
  *     - `needsHuman` — the ONE derived set of things a human must settle, each
  *       `{ kind, id, title, path, reason, action, draft, draftReason }` with `kind` one of
- *       `consent`, `contradiction`, `duplicate`, `deprecated`, `stale-spec`, `red-gate`. Every
+ *       `consent`, `blocked`, `contradiction`, `duplicate`, `deprecated`, `stale-spec`, `red-gate`.
+ *       A `consent` waits to be answered; a `blocked` record cannot be settled by a consent
+ *       (the queue says why) and is reported so a human sees it, not so it can be approved. Every
  *       entry is the ratchet's own fact, copied or shaped, never a second rule: consents from
  *       `ratificationQueue.pending`; contradictions, duplicates and stale specs from the
  *       ONE drafting pass `draftNeedsHuman(root, { write:false })` runs — the same pass
@@ -425,9 +427,8 @@ function buildNeedsHuman(root, records, queue, drift, currentSpecHash, drafted) 
       ? null
       : { id: value.id === undefined ? null : value.id, path: value.path === undefined ? null : value.path }
 
-  // (1) A consent WAITING to be answered, from the ratchet's own queue. A blocked
-  // decision is deliberately absent: it is not waiting for anyone — see the queue's
-  // own `blocked` reason. Nothing is drafted for a consent: the human's answer IS the act.
+  // (1) A consent WAITING to be answered, from the ratchet's own queue. Nothing is
+  // drafted for a consent: the human's answer IS the act.
   for (const entry of queue.pending ?? []) {
     needs.push({
       kind: 'consent',
@@ -438,6 +439,26 @@ function buildNeedsHuman(root, records, queue, drift, currentSpecHash, drafted) 
       action: 'use Approve or Decline in its row below',
       draft: null,
       draftReason: 'a consent is put to a human as a question; nothing is drafted for it',
+    })
+  }
+
+  // (1b) A decision the queue reports as BLOCKED. It is not waiting for a consent —
+  // the reason says why a "yes" would mint nothing — but it is still something only a
+  // human can settle: author the record, or change the zone authority. Leaving it out
+  // made a humanOnly-zone proposal invisible in the one set that is meant to tell a
+  // human what needs them. The row it names offers no Approve, because `canRatify` is
+  // the queue's own membership and it is false here.
+  for (const entry of queue.blocked ?? []) {
+    needs.push({
+      kind: 'blocked',
+      id: entry.id,
+      title: entry.title ?? titleOf(records, entry.id) ?? entry.id,
+      path: entry.path ?? pathOf(records, entry.id),
+      reason: entry.reason ?? 'the ratification queue reports this decision as blocked',
+      action:
+        'a consent cannot settle it: the record has to be replaced by a human-authored one, or the zone authority has to change',
+      draft: null,
+      draftReason: 'a consent is refused rather than drafted for; the blocked reason says why',
     })
   }
 
@@ -589,7 +610,12 @@ function buildNeedsHuman(root, records, queue, drift, currentSpecHash, drafted) 
     needs.push({ ...red, draft: null, draftReason: 'no drafted fix exists \u2014 a red verification is a fact about the report and the code, not a decision the ratchet can draft a record for' })
   }
 
-  return needs
+  // A record blocked by a decidable contradiction or a duplicate is already reported
+  // by that need, which carries the drafted resolution; a second card for the same
+  // record would say less. A block with no other need — the humanOnly-zone case — is
+  // exactly the one this set would otherwise hide, so it is kept.
+  const covered = new Set(needs.filter((need) => need.kind !== 'blocked').map((need) => String(need.id)))
+  return needs.filter((need) => need.kind !== 'blocked' || !covered.has(String(need.id)))
 }
 
 /**
