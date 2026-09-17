@@ -9284,3 +9284,88 @@ test('tool: ratchet_verify passes the in-process work budget and returns no verd
   assert.ok(result.problems.some((entry) => entry.code === 'CODE_FILE_TOO_LARGE'))
   assert.equal(existsSync(join(root, 'reports', 'ratchet', 'verify-report.json')), false)
 })
+
+// ---------------------------------------------------------------------------
+// the zone report: the authority table drifts, and this is what sees it
+// ---------------------------------------------------------------------------
+
+test('zones: a record referencing an undeclared zone is reported, with the paths inferred from its laws', () => {
+  const root = makeProject({
+    name: 'zones-undeclared',
+    zones: [{ id: 'engine', paths: ['packages/engine/**'], agentAuthority: 'activeIfNoConflict' }],
+    adrs: {
+      '0001-art.adr.md': adrText({
+        id: '0001',
+        zones: ['art'],
+        laws: [
+          {
+            id: 'art.projection',
+            statement: 'The camera is a plan view.',
+            checks: [{ type: 'required_text', pattern: 'plan view', paths: ['packages/renderer/**'] }],
+          },
+        ],
+      }),
+    },
+    files: { 'packages/renderer/x.ts': 'plan view' },
+  })
+  const run = cli(['zones', '--root', root, '--json'])
+  assert.equal(run.status, 1, `zones over an undeclared reference must fail the command: ${run.stdout}${run.stderr}`)
+  const report = JSON.parse(run.stdout)
+  const entry = report.undeclared.find((candidate) => candidate.id === 'art')
+  assert.ok(entry !== undefined, `expected an undeclared "art" entry, got ${JSON.stringify(report.undeclared)}`)
+  assert.deepEqual(entry.records, ['0001'])
+  assert.deepEqual(entry.inferredPaths, ['packages/renderer/**'])
+  assert.equal(entry.suggestedAuthority, 'proposeOnly')
+  assert.ok(report.problems.some((problem) => problem.code === 'ZONE_UNDECLARED_REFERENCE'))
+})
+
+test('zones --write drafts the declaration it proposes, and never overwrites an existing draft', () => {
+  const root = makeProject({
+    name: 'zones-draft',
+    zones: [{ id: 'engine', paths: ['packages/engine/**'], agentAuthority: 'activeIfNoConflict' }],
+    adrs: {
+      '0001-art.adr.md': adrText({
+        id: '0001',
+        zones: ['art'],
+        laws: [
+          {
+            id: 'art.projection',
+            statement: 'The camera is a plan view.',
+            checks: [{ type: 'required_text', pattern: 'plan view', paths: ['packages/renderer/**'] }],
+          },
+        ],
+      }),
+    },
+    files: { 'packages/renderer/x.ts': 'plan view' },
+  })
+  const first = cli(['zones', '--root', root, '--write', '--json'])
+  assert.equal(first.status, 1, `drafting still reports the problem: ${first.stdout}`)
+  const draftPath = join(root, 'reports', 'ratchet', 'drafts', 'zone-art.md')
+  assert.ok(existsSync(draftPath), 'the draft was written')
+  const text = readFileSync(draftPath, 'utf8')
+  assert.match(text, /"id": "art"/)
+  assert.match(text, /packages\/renderer\/\*\*/)
+  const second = JSON.parse(cli(['zones', '--root', root, '--write', '--json']).stdout)
+  assert.ok(second.drafts.skipped.some((path) => path.endsWith('zone-art.md')), 'a second run keeps the draft it found')
+  assert.equal(second.drafts.written.length, 0)
+})
+
+test('zones: a project whose every referenced zone is declared reports ok and prints its marker', () => {
+  const root = makeProject({
+    name: 'zones-clean',
+    zones: [{ id: 'auth', paths: ['src/auth/**'], agentAuthority: 'activeIfNoConflict' }],
+    adrs: {
+      '0001-a.adr.md': adrText({
+        id: '0001',
+        zones: ['auth'],
+        laws: [
+          { id: 'auth.one', statement: 'Sessions use Redis.', checks: [{ type: 'required_text', pattern: 'redis', paths: ['src/auth/**'] }] },
+        ],
+      }),
+    },
+    files: { 'src/auth/x.ts': 'redis' },
+  })
+  const run = cli(['zones', '--root', root])
+  assert.equal(run.status, 0, `a clean authority table is exit 0: ${run.stdout}${run.stderr}`)
+  assert.match(run.stdout, /zones ok/)
+})

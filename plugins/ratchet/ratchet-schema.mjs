@@ -295,6 +295,8 @@ export const PROBLEM_CODES = Object.freeze({
   ZONE_INVALID: 'a zone declaration is malformed',
   ZONE_PATH_INVALID: 'a zone glob is not a usable repository-relative pattern',
   ZONE_OVERLAP: 'two zones claim the same path with different authority',
+  ZONE_UNDECLARED_REFERENCE: 'a record declares a zone the manifest does not declare, so no law it declares can be enforced',
+  ZONE_PATH_EMPTY: 'a declared zone path matches no tracked file, so the zone governs nothing',
   CODE_REQUIRED_FILE_MISSING: 'a required_file check found no such file',
   CODE_FORBIDDEN_FILE_PRESENT: 'a forbidden_file check found the file',
   CODE_REQUIRED_GLOB_MISSING: 'a required_glob check matched no file',

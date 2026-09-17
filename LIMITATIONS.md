@@ -391,3 +391,28 @@ word.
 `LAW_REMOVED_WITHOUT_DECISION [falsify.unchecked-law]` until the bundle was rewritten — the
 same family as §10: a transient mutation can leave the recorded law set disagreeing with the
 corpus. `ratchet falsify` should clean up the ADR *and* any generated spec document it caused.
+
+## 14. The authority table is now reported and its repairs drafted (2026-09-17)
+
+A project's records named four zones its manifest did not declare; each resolved to a
+missing zone — no paths, so no law could be enforced; the conservative default policy, so
+no record could self-activate — and the queue refused to offer an inert consent. Six
+records were blocked for one structural reason. The same class recurs on every zone rename,
+path move or new area, and the manifest that decides it is governed by no zone.
+
+`ratchet zones` (ADR 0063) reports it deterministically and exits 1 on
+`ZONE_UNDECLARED_REFERENCE`, `ZONE_PATH_EMPTY`, or the compiler's
+`LAW_PATH_OUTSIDE_DECLARED_ZONE`; `--write` drafts a declaration per undeclared zone under
+`reports/ratchet/drafts/`, with the paths inferred from those records' law targets, and
+applies nothing. Two new problem codes are declared in the vocabulary; the deck of three
+fixture tests lives in `scripts/test-ratchet.mjs` (377 tests, all passing).
+
+**What it does not do yet.** A rename still needs the records retargeted — the report finds
+them, nothing rewrites them; an alias map is the next step. The draft is a file, not a
+proposed record, because the manifest is not an ADR, so a zone change is still not itself a
+ratified decision. And write-time validation remains ingestion's: `ratchet_ingest` refuses
+an undeclared zone, but a hand-authored record bypasses it and is caught at the next run.
+
+**Illegitimate reads, stated plainly:** the zone report reads the whole corpus and the
+tracked-path list, so it is bounded by the same work budget as everything else and reports
+an unreadable project as unusable (exit 2) rather than clean.

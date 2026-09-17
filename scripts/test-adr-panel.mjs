@@ -615,11 +615,15 @@ claim(
   if (unenforcedBlock !== undefined) {
     const reasonLine = unenforcedBlock.lines.find((line) => /^- checks: none, and this law says why:/.test(line))
     const reason = reasonLine.replace(/^- checks: none, and this law says why:[ \t]*/, '').trim()
+    // An unenforced law may be drawn already open — it has no checks to reveal, so a
+    // collapse control is not guaranteed — so the head is any node naming the law, and
+    // the click happens only when it advertises a collapsed state.
     const unenforcedHead = nodes.find(
-      (node) => node.tag === 'div' && node.props !== undefined && node.props['aria-expanded'] === 'false' &&
+      (node) => node.tag === 'div' && node.props !== undefined &&
+        (node.props['aria-expanded'] === 'false' || node.props['aria-expanded'] === 'true') &&
         typeof node.text === 'string' && node.text.includes(String(unenforcedBlock.id)),
     )
-    if (unenforcedHead !== undefined) unenforcedHead.props.onClick()
+    if (unenforcedHead !== undefined && unenforcedHead.props['aria-expanded'] === 'false') unenforcedHead.props.onClick()
     await flush(first.root, 'root')
     claim(
       'a law with an `unenforced` note states the reason on expand',

@@ -56,6 +56,7 @@ import { UNUSABLE_PROBLEM_CODES, hashSource } from './ratchet-schema.mjs'
 import { writeArtifact } from './ratchet-state.mjs'
 import { REVIEW_JOBS } from './ratchet-dynamic.mjs'
 import { falsify, recover } from './ratchet-falsify.mjs'
+import { zoneReport } from './ratchet-zones.mjs'
 import {
   EXIT,
   bootstrap,
@@ -87,6 +88,8 @@ Commands:
   review              build an advisory review prompt or grilling agenda
   ingest <source>     turn a raw source into a PROPOSED ADR (advisory)
   deduplicate [--write] draft a PROPOSED resolution for every decidable duplicate
+  zones [--write]     report the authority table: undeclared zones, paths matching
+                      nothing, laws outside their zones; --write drafts a declaration
   falsify             break one generic invariant at a time and require the gate to fail
   hash <file>         print the sha256 of a decision source file
 
@@ -125,7 +128,7 @@ to re-run until it passes. The static gate is \`verify\`.
  *   first thing that could not be parsed.
  */
 export function parseArgs(argv) {
-  const commands = new Set(['status', 'compile', 'verify', 'check', 'bootstrap', 'pending', 'review', 'ingest', 'deduplicate', 'falsify', 'hash', 'help'])
+  const commands = new Set(['status', 'compile', 'verify', 'check', 'bootstrap', 'pending', 'review', 'ingest', 'deduplicate', 'zones', 'falsify', 'hash', 'help'])
   const options = {
     root: null,
     json: false,
@@ -316,6 +319,8 @@ export async function run(argv) {
       spawnJudge: null,
       write: options.write,
     })
+  } else if (command === 'zones') {
+    result = zoneReport(root, { write: options.write })
   } else if (command === 'deduplicate') {
     // The drafting half of duplicate detection, and the same split as ingest: it needs no
     // model, so a shell can do all of it. `--write` places the drafts; without it the text
@@ -443,6 +448,30 @@ export async function run(argv) {
       process.stdout.write(
         '  a shell cannot ask you anything, so this command cannot ratify: run the ratification in a session, where the ratchet puts the question to you and records your answer\n',
       )
+    }
+    if (command === 'zones') {
+      const summary = result.summary ?? {}
+      process.stdout.write(
+        `  declared: ${summary.declared ?? 0} zone(s), referenced: ${summary.referenced ?? 0}, ` +
+          `undeclared: ${summary.undeclared ?? 0}, unused: ${summary.unused ?? 0}, laws outside their zones: ${summary.lawsOutside ?? 0}\n`,
+      )
+      process.stdout.write(
+        summary.trackedPaths === null || summary.trackedPaths === undefined
+          ? '  path check: NOT RUN — the project could not be walked, so a declared path that matches nothing was not looked for\n'
+          : `  files walked: ${summary.trackedPaths}\n`,
+      )
+      for (const entry of result.undeclared ?? []) {
+        process.stdout.write(`  undeclared zone "${entry.id}" — records ${entry.records.join(', ')}\n`)
+        process.stdout.write(`    inferred paths: ${entry.inferredPaths.length === 0 ? '(none inferable from the laws)' : entry.inferredPaths.join(', ')}\n`)
+      }
+      for (const zone of result.declared ?? []) {
+        for (const glob of zone.emptyPaths ?? []) {
+          process.stdout.write(`  empty path in zone "${zone.id}": ${JSON.stringify(glob)} matches no tracked file\n`)
+        }
+      }
+      for (const draft of result.drafts?.written ?? []) process.stdout.write(`  drafted ${draft}\n`)
+      for (const draft of result.drafts?.skipped ?? []) process.stdout.write(`  kept existing draft ${draft}\n`)
+      if (result.ok === true) process.stdout.write('  zones ok\n')
     }
     if (command === 'deduplicate') {
       if (result.scanned !== null && result.scanned !== undefined) {
@@ -580,6 +609,13 @@ export async function run(argv) {
     if (result.unusable === true) return EXIT.CONFIG
     // `--recover` only repairs; recovered-or-nothing is a success by definition.
     if (options.recover === true) return EXIT.OK
+    return result.ok === true ? EXIT.OK : EXIT.PROBLEMS
+  }
+  // The zone report is a gate on the AUTHORITY TABLE, not on a record: an undeclared
+  // zone referenced by records, or a declared path that matches nothing, is exit 1.
+  // A project the ratchet cannot read at all stays exit 2.
+  if (command === 'zones') {
+    if (result.unusable === true) return EXIT.CONFIG
     return result.ok === true ? EXIT.OK : EXIT.PROBLEMS
   }
   // Deduplication drafts proposals; it never gates. A corpus with a duplicate is the

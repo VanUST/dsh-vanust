@@ -3,6 +3,19 @@
   "project": "dsh-kit",
   "laws": [
     {
+      "id": "deployment-rules.claims-carry-evidence",
+      "statement": "A completion claim names the command run in the current turn and the output it produced; a claim resting on an earlier command, or on no command at all, is provisional and says so.",
+      "zones": [
+        "deployment-rules"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0058",
+      "sourcePath": "docs/adrs/0058-rule-drills-and-test-quality.adr.md",
+      "approvedBy": "0061",
+      "checks": [],
+      "unenforced": "the only behavioural check is the rule drill's live path (scripts/drill-kit-rules.mjs --scenario verification-before-completion --live), which needs a model and credentials and therefore belongs in the release gate; a law's check must be hermetic, so nothing in the deterministic gate can fail when an agent claims completion without evidence"
+    },
+    {
       "id": "duplicates.a-redeclared-law-with-an-identical-statement-merges",
       "statement": "A law declared by two records with an identical statement is not a duplicate and not a conflict, and governs the union of the zones both records named.",
       "zones": [
@@ -326,6 +339,27 @@
           "expects": "the code hash covers file contents and changes when they change",
           "timeoutMs": 120000,
           "outputContains": "gate invariants ok"
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "kit-tooling.zones-are-reported",
+      "statement": "The authority table is reported rather than discovered — a zone referenced by records but not declared, a declared path that matches no tracked file, and a law enforcing outside its record's zones each fail the command, and the marker is printed only when there is nothing to report.",
+      "zones": [
+        "kit-tooling"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0063",
+      "sourcePath": "docs/adrs/0063-the-authority-table-is-reported.adr.md",
+      "approvedBy": null,
+      "checks": [
+        {
+          "type": "command",
+          "run": "node plugins/ratchet/ratchet-cli.mjs zones --root .",
+          "expects": "the authority table reports no undeclared reference, no empty path and no law outside its zones",
+          "timeoutMs": 120000,
+          "outputContains": "zones ok"
         }
       ],
       "unenforced": null
@@ -1129,21 +1163,22 @@
       "unenforced": null
     },
     {
-      "id": "shipped-plugins.the-authority-table-cannot-be-relaxed-silently",
-      "statement": "The manifest's zone table decides which paths a human reserves, so a change to a reservation is visible to the gate rather than silent, and the deployment-rules zone still declares humanOnly authority.",
+      "id": "shipped-plugins.the-authority-table-is-reported-and-ratifiable",
+      "statement": "The manifest's zone table decides which paths a human reserves, so a change to a reservation is visible to the gate rather than silent; the deployment-rules zone requires a recorded human RATIFICATION rather than human authorship, because a consent is bound to the text a human was shown while authorship is not verifiable, and an agent proposal in that zone is offered to a human and cannot activate itself.",
       "zones": [
         "shipped-plugins"
       ],
       "authority": "agent",
-      "sourceAdr": "0012",
-      "sourcePath": "docs/adrs/0012-a-green-gate-means-a-current-corpus.adr.md",
-      "approvedBy": "0013",
+      "sourceAdr": "0060",
+      "sourcePath": "docs/adrs/0060-the-rules-zone-requires-ratification.adr.md",
+      "approvedBy": "0062",
       "checks": [
         {
           "type": "command",
           "run": "node scripts/check-consent-surface.mjs",
-          "expects": "the authority table still reserves deployment-rules to humans",
-          "timeoutMs": 120000
+          "expects": "the authority table reports the rules zone as ratifiable and offers an agent proposal there",
+          "timeoutMs": 120000,
+          "outputContains": "consent surface ok"
         }
       ],
       "unenforced": null
