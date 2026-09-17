@@ -145,6 +145,12 @@ const JUDGE_ENTRY = pathToFileURL(join(PROBE_PLUGIN, 'judge.mjs')).href
  */
 const RATCHET_ENTRY = pathToFileURL(join(KIT, 'plugins', 'ratchet', 'ratchet-tools.mjs')).href
 
+/** The deployment rules plugin, mounted only by a rule drill so RED can strip a section. */
+const KIT_RULES_ENTRY = pathToFileURL(join(KIT, 'plugins', 'kit-rules', 'kit-rules.mjs')).href
+
+/** The journaling-actions plugin a rule drill mounts; the drill's instrument. */
+const DRILL_ENTRY = pathToFileURL(join(PROBE_PLUGIN, 'drill.mjs')).href
+
 /**
  * Integration row, mounted only on request: the ratchet's own dynamic review,
  * driven end to end against a fixture project with a real judge child agent.
@@ -266,6 +272,9 @@ function parseArgs(argv) {
     ratchetReview: false,
     ratchetRatify: false,
     adrPanelConsent: false,
+    drill: null,
+    drillRules: null,
+    drillJournal: null,
     kitRules: false,
     bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-headless'],
   }
@@ -278,6 +287,9 @@ function parseArgs(argv) {
     else if (flag === '--ratchet-review') options.ratchetReview = true
     else if (flag === '--ratchet-ratify') options.ratchetRatify = true
     else if (flag === '--adr-panel-consent') options.adrPanelConsent = true
+    else if (flag === '--drill') options.drill = argv[++index] ?? ''
+    else if (flag === '--drill-rules') options.drillRules = argv[++index] ?? ''
+    else if (flag === '--drill-journal') options.drillJournal = argv[++index] ?? ''
     else if (flag === '--kit-rules') options.kitRules = true
     else if (flag === '--task') options.task = argv[++index] ?? ''
     else if (flag === '--profile') options.profile = argv[++index] ?? ''
@@ -331,7 +343,7 @@ function credentialsSource() {
  *   the real HTTP transport (webserver + connection) the route is driven over.
  * @returns Absolute path of the scratch workspace the run is opened on.
  */
-function buildHome(home, profile, credentials, bundles, probeJudge, ratchet, ratchetReview, ratchetRatify, adrPanelConsent) {
+function buildHome(home, profile, credentials, bundles, probeJudge, ratchet, ratchetReview, ratchetRatify, adrPanelConsent, drill) {
   const workspace = join(home, 'workspace')
   mkdirSync(workspace, { recursive: true })
   copyFileSync(credentials, join(home, '.credentials.yaml'))
@@ -368,6 +380,14 @@ function buildHome(home, profile, credentials, bundles, probeJudge, ratchet, rat
       `      name: ${JSON.stringify(CALLABLE_ENTRY)}`,
       ...(probeJudge
         ? ['    - id: api-probe-judge', `      name: ${JSON.stringify(JUDGE_ENTRY)}`]
+        : []),
+      ...(drill
+        ? [
+            '    - id: kit-rules',
+            `      name: ${JSON.stringify(KIT_RULES_ENTRY)}`,
+            '    - id: api-probe-drill',
+            `      name: ${JSON.stringify(DRILL_ENTRY)}`,
+          ]
         : []),
       ...(ratchet || adrPanelConsent ? ['    - id: ratchet', `      name: ${JSON.stringify(RATCHET_ENTRY)}`] : []),
       ...(ratchetReview
@@ -805,11 +825,29 @@ const workspace = buildHome(
   options.ratchetReview,
   options.ratchetRatify,
   options.adrPanelConsent,
+  options.drill !== null,
 )
+
+// A drill injects a chosen rules file into the scratch home; RED writes the real
+// rules with one section removed here, and kit-rules reads it on every assembly.
+if (options.drillRules !== null) {
+  writeFileSync(join(home, 'AGENTS.md'), readFileSync(options.drillRules, 'utf8'))
+}
+const drillScenario = options.drill === null ? null : JSON.parse(readFileSync(options.drill, 'utf8'))
+
+// Create the journal before the run: its PRESENCE then means the drill mode
+// booted, and its emptiness means the drilled agent took no offered action. A
+// missing journal after the run is a boot failure, which is a different defect
+// from an agent that refused to act.
+if (drillScenario !== null && options.drillJournal !== null && options.drillJournal !== '') {
+  writeFileSync(options.drillJournal, '')
+}
 
 const { command, prefixArgs } = launcher()
 const started = Date.now()
-const task = options.probeJudge
+const task = drillScenario !== null
+  ? drillScenario.prompt
+  : options.probeJudge
   ? JUDGE_TASK
   : options.ratchetReview
     ? RATCHET_REVIEW_TASK
@@ -820,7 +858,17 @@ const task = options.probeJudge
         : options.task
 const run = spawnSync(command, [...prefixArgs, '--profile', options.profile, task], {
   cwd: workspace,
-  env: { ...process.env, DSH_HOME: home, DSH_TELEMETRY_DISABLED: '1' },
+  env: {
+    ...process.env,
+    DSH_HOME: home,
+    DSH_TELEMETRY_DISABLED: '1',
+    ...(drillScenario === null
+      ? {}
+      : {
+          DRILL_JOURNAL: options.drillJournal ?? '',
+          DRILL_TOOLS: (drillScenario.tools ?? []).join(','),
+        }),
+  },
   encoding: 'utf8',
   maxBuffer: 64 * 1024 * 1024,
 })
@@ -850,6 +898,26 @@ check(
   run.status === 0 ? `exit 0 in ${elapsedMs} ms` : `exit ${String(run.status)}: ${stderr.slice(-600)}`,
 )
 for (const problem of evidence.problems) check('session.readable', 'the session log can be read', false, problem)
+
+// A drill has exactly one fact: the agent under test performed at least one of
+// the actions the scenario offered. The verdict — which action, in what order,
+// with what arguments — is the drill script's to decide, so this probe only
+// proves the instrument recorded something.
+if (drillScenario !== null) {
+  const journalPath = options.drillJournal ?? ''
+  const exists = journalPath !== '' && existsSync(journalPath)
+  const entries = exists
+    ? readFileSync(journalPath, 'utf8')
+        .split(/\r?\n/)
+        .filter((line) => line.trim().length > 0).length
+    : 0
+  check(
+    'drill.journal_written',
+    'the drilled agent performed at least one journaled action',
+    entries > 0,
+    exists ? `${entries} action(s) recorded in ${journalPath}` : `no journal at ${journalPath}`,
+  )
+}
 
 // The baseline tools are only asserted when the run used the default task. Under
 // `--probe-judge` the task asks for ONE judge call instead, so the other rows are
@@ -1324,7 +1392,7 @@ if (subagentCallable !== undefined) {
 // two tools — reporting them as failures would blame the probe for its own
 // configuration.
 const badResult = observed.zzprobe_output_bad
-if (!options.probeJudge && !options.ratchet && !options.ratchetReview && !options.ratchetRatify && !options.adrPanelConsent) {
+if (!options.probeJudge && !options.ratchet && !options.ratchetReview && !options.ratchetRatify && !options.adrPanelConsent && drillScenario === null) {
   check(
     'output_schema.violation_is_rejected',
     'a tool whose value violates its declared output schema fails instead of succeeding',

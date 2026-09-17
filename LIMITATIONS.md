@@ -262,3 +262,39 @@ lands as a `duplicate` need with a `draftReason` saying so. `reviewWhenRequired`
 spawn from a non-root caller and still honours `review: false`; a composition with no judge reports
 `ran: false` with the reason. A stale tarball (until the next repack) makes `check-portability`
 report `tarball:matches-source` because `package.json` was bumped to 0.2.61 without packing.
+
+## 9. The execution-methodology additions (2026-09-17, uncommitted at the time of writing)
+
+Superpowers was read against the kit (`docs/SUPERPOWERS-COMPARISON.md`) and the first four
+proposals were landed. **They are not yet ratified as law, and `rules/AGENTS.md` lives in the
+`deployment-rules` zone, whose `agentAuthority` is `humanOnly`:** the edits below are proposed
+until a human puts them in force, and no law in `docs/adrs/` covers them yet.
+
+1. **The rule drill** (`scripts/drill-kit-rules.mjs`, `scripts/test-drill-kit-rules.mjs`,
+   `rules/drills/*.json`, `probes/api-probe/drill.mjs`, and `probe-dsh-api.mjs --drill`). It is
+   the first enforcement point for a prompt rule: `flash-only-models` had none, and the live
+   drill now proves the rule changes a decision. RED (the real rules minus `## 8.`) recorded
+   `zzdrill_delegate({model:'deepseek-v4-pro'})`; GREEN (the file unchanged) recorded
+   `deepseek-flash`. **The measured limit:** a drill is non-hermetic (credentials, a model, ~30 s
+   per variant) and can report `missed` when the pressure scenario does not tempt the agent — the
+   other two scenarios are not yet shown to elicit their violations, so their `pass` is unproven.
+   It is therefore NOT in a law's `checks` and NOT yet in `verify-upgrade.sh`, whose SKIP policy
+   accepts exactly two documented lines; wiring it there is a separate change. `--plan` and
+   `--from-journal` are hermetic and are where the verdict logic is tested.
+2. **Rationalization tables** in `rules/AGENTS.md` §1, §3, §6, §9, §10: the excuse next to its
+   rebuttal. They are prose; the drill is what tests whether they change a decision, and only the
+   §8, §11 and §12 scenarios exist so far.
+3. **§11 Verification Before Completion** and **§12 Tests Verify Behaviour, Not Shape**.
+4. **The test-quality lint** (`scripts/check-test-quality.mjs` + `scripts/test-check-test-quality.mjs`).
+   Report mode first, as agreed: it found exactly one shape assertion in the kit's own suite
+   (`test-adr-panel.mjs:225`, `typeof bundle.apply === 'function'`), which is now exempted inline
+   with a reason, and the suite is clean under `--strict`. **The measured limit:** it is a shape
+   heuristic, not a semantic check — it cannot see a mirror assertion that is not textually
+   identical, a mock that swallows the behaviour under test, or a test that asserts a real value
+   which happens to be constant. Its detections are `SHAPE_TYPEOF`, `SHAPE_MEMBER`, `MIRROR` and
+   `MOCK_ONLY`; the inline `test-quality:allow <reason>` is how a judged finding stops being
+   reported.
+
+**What remains from the comparison:** a plan artifact with a lint, the universal approval gate,
+systematic debugging, the subagent review protocol, worktree isolation, and contribution
+discipline. They are candidate decisions, not patches.

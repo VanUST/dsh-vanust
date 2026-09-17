@@ -222,7 +222,7 @@ const bundle = loaded.factory((specifier) => {
   if (specifier === 'react') return React
   throw new Error(`unexpected require: ${specifier}`)
 })
-claim('the factory exports an apply', typeof bundle.apply === 'function', `apply=${typeof bundle.apply}`)
+claim('the factory exports an apply', typeof bundle.apply === 'function', `apply=${typeof bundle.apply}`) // test-quality:allow the bundle is loaded dynamically, so its export shape is a precondition the driving cases below depend on
 
 // ── the host routes: a stub state route computed by the REAL ratchet ────────
 //

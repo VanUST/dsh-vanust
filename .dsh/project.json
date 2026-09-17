@@ -136,6 +136,22 @@
       "enforcedBy": {
         "command": "zone-coverage"
       }
+    },
+    {
+      "id": "tests-verify-behaviour",
+      "statement": "A test exercises real product behaviour and asserts on its observable result; a test that only proves a class or module has a method or a field, asserts a mock, or computes its expectation with the code under test earns no place.",
+      "statedIn": "AGENTS.md",
+      "enforcedBy": {
+        "command": "test-quality"
+      }
+    },
+    {
+      "id": "drills-name-real-sections",
+      "statement": "Every rule drill names a rule section the injected rules file carries, so the RED run strips the rule under test; a drill that cannot strip anything proves nothing.",
+      "statedIn": "AGENTS.md",
+      "enforcedBy": {
+        "command": "drill-plan"
+      }
     }
   ],
   "verification": [
@@ -228,6 +244,30 @@
       "command": "node scripts/check-zone-coverage.mjs --root .",
       "purpose": "zone coverage: every tracked path belongs to a declared zone or an explicitly declared exception; an unplaced path fails with ZONE_COVERAGE_GAP, and a missing work tree is unusable rather than a pass",
       "path": "scripts/check-zone-coverage.mjs"
+    },
+    {
+      "id": "test-quality",
+      "command": "node scripts/check-test-quality.mjs --root . --strict",
+      "purpose": "the test corpus: no test is an assertion engine - a shape-only check that a class or module has a method or a field, an assertion about a mock, or an expected value computed by the call under test is reported, so a test that cannot fail for the reason the product is wrong does not pass as evidence",
+      "path": "scripts/check-test-quality.mjs"
+    },
+    {
+      "id": "test-quality-tests",
+      "command": "node --test scripts/test-check-test-quality.mjs",
+      "purpose": "the test-quality lint's own verdict, driven over fixtures whose correct answer is known, including the false positives it must not report",
+      "path": "scripts/test-check-test-quality.mjs"
+    },
+    {
+      "id": "drill-plan",
+      "command": "node scripts/drill-kit-rules.mjs --root .",
+      "purpose": "the rule drills are loadable and every scenario names a section the rules file carries, so RED actually strips the rule under test instead of running the same prompt twice",
+      "path": "scripts/drill-kit-rules.mjs"
+    },
+    {
+      "id": "drill-tests",
+      "command": "node --test scripts/test-drill-kit-rules.mjs",
+      "purpose": "the rule drill's verdict logic: a RED run that does not elicit the violation is missed and never a pass, a forbidden action is a violation, and an ordering violation is caught",
+      "path": "scripts/test-drill-kit-rules.mjs"
     }
   ],
   "scopes": [
