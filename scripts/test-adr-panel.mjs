@@ -449,16 +449,29 @@ claim(
   firstTabs.length === 4 && firstTabs.every((node) => /^(Needs a human|Decisions|Consents|Specs) \((\d+)\)$/.test(node.text)),
   JSON.stringify(firstTabs.map((node) => node.text)),
 )
+// The default is DERIVED, not hardcoded: the rule is "the first non-empty part in the
+// tab order", and a claim that named `needs` here passed only while this corpus happened
+// to have a stale generated spec in it. Regenerating the law cards emptied the needs set
+// and turned the assertion red for a reason that was never a defect.
+const SECTION_LABELS = { needs: 'Needs a human', decisions: 'Decisions', consents: 'Consents', specs: 'Specs' }
+const corpusCounts = (() => {
+  const view = stateView()
+  const count = (value) => (Array.isArray(value) ? value.length : 0)
+  return { needs: count(view.needsHuman), decisions: count(view.decisions), consents: count(view.consents), specs: count(view.specs) }
+})()
+const firstNonEmpty = ['needs', 'decisions', 'consents', 'specs'].find((key) => corpusCounts[key] > 0)
 const selectedTab = firstTabs.find((node) => node.props['aria-selected'] === 'true')
 claim(
-  'the window opens on the first non-empty part, which for this corpus is Needs a human',
-  selectedTab !== undefined && selectedTab.props['data-adr-panel-section'] === 'needs',
-  JSON.stringify(firstTabs.map((node) => ({ key: node.props['data-adr-panel-section'], selected: node.props['aria-selected'] }))),
+  'the window opens on the first non-empty part in the tab order',
+  selectedTab !== undefined &&
+    selectedTab.props['data-adr-panel-section'] === firstNonEmpty &&
+    firstTabs.filter((node) => node.props['aria-selected'] === 'true').length === 1,
+  JSON.stringify({ counts: corpusCounts, expected: firstNonEmpty, tabs: firstTabs.map((node) => ({ key: node.props['data-adr-panel-section'], selected: node.props['aria-selected'] })) }),
 )
 claim(
-  'exactly one section is drawn at a time',
-  headings.length === 1 && headings[0] === 'Needs a human',
-  JSON.stringify(headings),
+  'exactly one section is drawn at a time, and it is the selected one',
+  headings.length === 1 && headings[0] === SECTION_LABELS[firstNonEmpty],
+  JSON.stringify({ headings, expected: SECTION_LABELS[firstNonEmpty] }),
 )
 {
   const before = nodes.map((node) => node.text)
