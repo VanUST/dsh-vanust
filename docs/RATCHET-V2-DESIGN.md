@@ -1445,7 +1445,7 @@ cannot be declared safe while the gate is broken.
 
 Two deployment policies live in one plugin because both are session-scoped work-policy facts
 read at seams the harness already owns. This is the contract the code implements; the limits of
-each guarantee are in `LIMITATIONS.md` sections 1-3.
+each guarantee are named per surface below the table, and in the panel plugin's own README.
 
 | Module surface | Contract |
 |---|---|
@@ -1472,3 +1472,52 @@ Measured, not assumed.
 CONTAINED: a listener that throws is logged and the run proceeds, so no listener can veto a
 child. Measured with the same probe, which throws from a `subagent/start` listener and requires
 the run to survive.
+
+---
+
+## Module contract addendum: `ratchet-decisions.mjs` — one derivation, read by the window
+
+The ADR window is the deployment's developer surface, and it drifted from the ratchet twice
+before this contract existed: a record in force through an approval was displayed as awaiting a
+human because `status: proposed` was read as unpaid, and a ratified record was hashed from a
+paged file read one byte short, so seven decisions in force listed as needing a human. Both were
+found by a human looking at the product; no command saw either. The contract is therefore that
+the ratchet owns the derivation and the window only reads it.
+
+| Module surface | Contract |
+|---|---|
+| `deriveDecisions({ root })` | the whole view model, synchronously, as a composition of the ratchet's own functions: `compileProject`, `readManifest`, `readAdrCorpus`, `resolveActiveSet` (per-record `inForce`, `approvedBy`, `supersededBy`), `ratificationQueue` (the same queue `ratchet pending` prints, so `canRatify` is queue membership and not a re-derived predicate), `renderSpecs`, `detectSpecDrift`, `draftNeedsHuman(root, { write: false })`, `contradictionReviewStatus`. `state`/`provenance` are the only fields it selects rather than copies, and they select a label over those facts. A non-string root yields an unusable view, never a throw. |
+| `createDecisionsService().view({ root })` | the host-facing operation the panel's route awaits: the same derivation, run on a worker thread on a cache miss under `decisionsSignature`, so neither the IO of a large corpus nor the serialisation of the answer runs on the event loop serving the harness. A worker that cannot be created rejects with a sentence; it never falls back to a blocking derivation. |
+| `decisionsSignature(root)` | the cheap cache key: the manifest's own bytes plus the entry signatures (name, size, mtime) of the decisions, sources and ratchet-state directories. It is complete for the view's inputs, which is what makes a ledger append invalidate a cached view. |
+| `capDecisionsView(view)` | the response cap: record, spec, per-kind needs, total needs and byte ceilings, with every cut named in `truncated` — including each needs kind that lost an entry, so a kind cannot vanish silently. |
+| `needsHuman` | the ONE derived set a human must settle, each entry the ratchet's own fact: `consent`, `blocked`, `contradiction`, `duplicate`, `deprecated`, `stale-spec`, `red-gate`, `review`. The `review` entry is present exactly when `contradictionReview.stale` is true. |
+| `contradictionReview` | `contradictionReviewStatus(root, specHash)` — `{ reviewed, stale, at, recordedHash, reason }`, or null when nothing compiled. `stale` covers both "never reviewed" and "the recorded review read a different law set", and `reason` distinguishes them. |
+| `MAX_STATE_RECORDS`, `MAX_STATE_SPECS`, `MAX_STATE_NEEDS`, `MAX_STATE_NEEDS_PER_KIND`, `MAX_STATE_BYTES` | the ceilings the cap applies, exported so a caller (and the test) can assert against the same numbers rather than retyping them. |
+
+**What the window may not do, and what proves it does not.** The browser half renders the answer:
+it computes no content hash, builds no consent map, matches no approval and decides no force. The
+equality claim in `scripts/test-adr-panel.mjs` — the set the window shows as waiting equals
+`ratificationQueue.pending` over the kit's own corpus — is over the real service, and the stronger
+claim beside it drives the bundle with a payload that CONTRADICTS the materialised files and
+requires the window to draw the payload. A bundle that re-derived force from the corpus fails that
+one. The one client-side derivation left is a record's collapsed summary line, which is display
+only and is derived from the text the ratchet returned.
+
+**Honest limits, named so they are not mistaken for guarantees.**
+
+- **The bundle is hand-written and unbuilt.** `client.js` is a ~4,700-line closure with no
+  generator; `node --check`, `scripts/test-adr-panel.mjs` and `tarball:matches-source` are its
+  only checks. No build step exists and none may be claimed.
+- **The bundle is not the shell.** The offline test stubs the module loader, the host routes and
+  the React runtime, so it measures what the bundle does with them, never that a running shell
+  supplies them. The browser half's README lists the residue item by item.
+- **"The ratchet owns it" means "the service name resolved to a ratchet".** The host half reaches
+  the derivation with `ctx.get('ratchetDecisions')`; cordis refuses a second registration of one
+  service name, so a collision is loud, but nothing checks that the provider is the build this kit
+  ships.
+- **The corpus-review fact is as strong as the ledger.** `contradictionReviewStatus` reads
+  `.dsh/ratchet/ledger.jsonl` and compares a spec hash; a process that can append a review event
+  can clear the `review` need without a review having run, exactly as a hand-written approval is
+  indistinguishable from a ratified one. Neither is detectable from inside the process that
+  trusts the file.
+

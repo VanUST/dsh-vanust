@@ -45,8 +45,9 @@ held; nothing is removed.
 
 A click records the decision silently: no chat message, no model turn, no agent in the
 loop. The host half serves two routes: `GET /adr-panel/state` returns the ratchet's view
-model (every record's force, its provenance, the ratify queue and the compiled spec
-documents), capped by the ratchet to record, spec and needs-a-human counts and a byte
+model (every record's force, its provenance, the ratify queue, the compiled spec
+documents, and the ratchet's own fact about whether any corpus review has read the laws now
+in force), capped by the ratchet to record, spec and needs-a-human counts and a byte
 budget with a `truncated` member naming anything it dropped, and derived off the event
 loop so a large corpus cannot stall the harness; the panel RENDERS it unchanged — it
 derives nothing itself. Approval and
@@ -94,7 +95,10 @@ the ratchet writes.
 The **Needs a human** part is the ratchet's single set. It is the developer's entry point:
 the consents waiting in the ratify queue, the decidable contradictions between a proposal
 and law in force, the duplicates with the resolution the drafting pass wrote, a **stale**
-generated spec document together with the withdrawal note the ratchet drafted for it, and a
+generated spec document together with the withdrawal note the ratchet drafted for it, the
+fact that **no corpus review has read the laws now in force** (or that the last one read a
+different law set — the ratchet's `contradictionReview` fact, carried as the `review` kind),
+and a
 red gate read from the persisted verification report. Each entry carries the ratchet's own
 reason and action and, when the ratchet drafted a settlement, its `draft` (`{ id, path }`) —
 rendered as the drafted record or note — or a `draftReason` saying why none could be
@@ -117,7 +121,8 @@ stays an individual card with the ratchet's reason and action. Everything else i
 collapsible batch card — `Stale specs · 7` — whose header always states the batch name, its
 count and what the batch is, and whose default-collapsed body expands to each document with
 its path, a one-line reason, the drafted note path and the ratchet's full action. The order
-is fixed: consents, contradictions, duplicates, the grouped batches, then the red-gate fact.
+is fixed: consents, contradictions, duplicates, the grouped batches, then the standing facts
+— the red gate and the corpus-review fact, one card each.
 A full `sha256:<64 hex>` in any rendered reason, action, problem line or spec header is
 **shortened for display only** — twelve hex characters and an ellipsis — with the full value
 kept in the element's `title`, so what is abbreviated is never what is lost; no rule, hash
@@ -165,8 +170,20 @@ nothing claims the seat and the question is still asked.
 | File | Role |
 |---|---|
 | `index.js` | Host half: registers the read-only `/adr-panel/state` route and the `/adr-panel/consent` route on `webServer`, guards both with `connection.requestRejection` and a per-activation capability, calls the ratchet's `ratchetDecisions` service for the view model and its `ratchetConsent` service for an answer, and bounds a `POST` body with a read deadline. It derives no state, builds no question and writes no artifact; a consent `GET` writes only the ratchet's audit ledger line. |
-| `client.js` | The hand-written browser bundle (`window.__ModuleLoader__.load`), no build step. It fetches the state route and renders the ratchet's view as four tabbed parts — the `needsHuman` set, the decisions, the consents and the specs — with one part drawn at a time; it derives no force. It also carries the Session work-mode control, which reads and sets the mode through `@cc/dsh-work-modes`' own `/work-modes/mode` route and draws the mode that route reports. |
+| `client.js` | The hand-written browser bundle (`window.__ModuleLoader__.load`), no build step. It fetches the state route and renders the ratchet's view as four tabbed parts — the `needsHuman` set, the decisions, the consents and the specs — with one part drawn at a time; it derives no force, computes no hash and builds no consent map, and every state fact it draws is copied from the answer. It also carries the Session work-mode control, which reads and sets the mode through `@cc/dsh-work-modes`' own `/work-modes/mode` route and draws the mode that route reports. |
 | `package.json` | `main: index.js`, `exports` for `.` and `./client`, and `dsh.client = { platform: "web", inject: [...] }`. |
+
+**What checks the bundle, and what does not.** `client.js` is a hand-written ~4,700-line
+closure with **no generator and no build step** — do not claim one exists, and do not
+produce the file from a source tree, because there is none. What verifies it is exactly
+three things, and nothing else: `node --check` (it parses), `node scripts/test-adr-panel.mjs`
+(a stub module loader, a minimal React and a stub host execute it and assert the rendered
+tree, the two host routes it drives and the literals it duplicates from other plugins), and
+`node scripts/check-portability.mjs`'s `tarball:matches-source` (the shipped tarball's bytes
+are the checked-in file's bytes). A change to this bundle is therefore a change to a
+multi-thousand-line file that no compiler, type-checker or formatter reviews; the offline
+test is the only thing that can catch a mistake in it, and a mistake it does not assert
+ships.
 
 ## Contracts it relies on
 
@@ -186,12 +203,17 @@ reader can re-check rather than trust.
 The panel reads NO file: the ratchet's host-side `ratchetDecisions` service reads the
 corpus, derives every force fact with its own functions (`compileProject`,
 `readManifest`, `resolveActiveSet`, `compileLaws`, `ratificationQueue`, `renderSpecs`,
-`detectSpecDrift`) and serves the resulting view model at `/adr-panel/state`. The browser
+`detectSpecDrift`, `contradictionReviewStatus` — the last one read from the ratification
+ledger, compared by spec hash, so recording a review clears the fact and any corpus change
+brings it back) and serves the resulting view model at `/adr-panel/state`. The browser
 half renders that view and derives nothing: the old `resolveZonePolicy`, `governingZones`,
 `parseRatification`, `contentHashOf`, `buildRelations`, `displayedState` and
 `canOfferRatify` are deleted, so a change to the ratchet's derivation moves the window
 with no panel edit. A route it cannot reach is reported as **state unavailable**; the panel
-never falls back to reading the corpus. The host half writes no artifact of its own. A `GET`
+never falls back to reading the corpus, and an answer it cannot read — a non-200, an
+unreachable route, a body that names no state — is shown with the route's own message rather
+than rendered as an empty corpus, because a wrong state drawn confidently is the defect this
+replaced. The host half writes no artifact of its own. A `GET`
 on the consent route has exactly one durable effect: the ratchet's `ratify` prepare path
 appends one audit event to `.dsh/ratchet/ledger.jsonl` — it writes no approval ADR and no
 transcript, and it does not touch the corpus. A `POST` that approves writes the approval and
@@ -248,6 +270,23 @@ measures what the bundle does with them, not whether the running shell supplies 
   running shell serves the route and that `fetch` carries the browser cookie is a reading.
   Where the route is unreachable the window says so and shows no decisions — a visible
   degradation, never a fallback derivation.
+- **The service's authority over the files is measured, and its two residual limits are
+  not.** `scripts/test-adr-panel.mjs` drives the bundle with a state answer that says the
+  OPPOSITE of what the materialised corpus derives — a record the files hold in force
+  reported as awaiting a human, a proposed record reported in force, and a third reported
+  with a sentence the files cannot produce — and requires the window to draw the service's
+  version, so a bundle that re-derived force client-side fails there. What that cannot
+  decide: (a) the payload is the ratchet's only as far as the SERVICE NAME is — the host half
+  calls `ctx.get('ratchetDecisions')`, and while cordis refuses a second registration of one
+  service name (`provide` throws `service "x" has been registered at <fiber>`), nothing
+  checks that the provider it reached is the `@cc/dsh-ratchet` build this kit ships, so a
+  modified ratchet tarball or a different plugin that registered the name would be drawn the
+  same way; and (b) the corpus-review fact is a fact about the ledger, and the ledger is a
+  file — anything that can append
+  `{"event":"ratchet.contradiction.reviewed","specHash":…}` to
+  `.dsh/ratchet/ledger.jsonl` can clear the `review` need without a review having run. That
+  is the same class of forgeability as a hand-written approval, which this deployment
+  already names, and neither is detectable from inside the process that trusts the file.
 - That the registration `inject` factory for a `session` slot receives `sessionId`.
   The plugin avoids depending on it by using the standard `sessionId` prop instead.
 - That the renderer derives a `usePanel` hook from `hooks: { panel: … }` with the

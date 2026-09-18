@@ -24,10 +24,12 @@ plugin's provenance:
   a proposed decision entering force only through a recorded human consent.
 - **`@cc/dsh-adr-panel`** — the deployment's own window on that corpus: a session-header
   button opens a frame-wide overlay listing the project's ADR records and spec
-  documents, with Approve and Decline answered through a capability-fenced host route
-  rather than by minting a consent itself, and a control that shows and switches the
-  Session's `@cc/dsh-work-modes` research/implementation mode on that plugin's own route,
-  drawing the mode from the response rather than from the button.
+  documents, rendering the ratchet's own derived state (force, provenance, one
+  "needs a human" set that includes whether any corpus review has read the laws in force)
+  instead of deriving any of it in the browser, with Approve and Decline answered through a
+  capability-fenced host route rather than by minting a consent itself, and a control that
+  shows and switches the Session's `@cc/dsh-work-modes` research/implementation mode on that
+  plugin's own route, drawing the mode from the response rather than from the button.
 - **`@cc/dsh-work-modes`** — two deployment policies on harness seams that can
   actually refuse something: a monotonic guard refusing a third concurrent `subagent`
   child per session (a `workflow` fan-out is deliberately outside it, so it is not a
@@ -166,7 +168,9 @@ review cycle, and every limitation that remains.
   `docs/RATCHET-DESIGN.md` (the superseded brief whose defects motivated the rewrite) and
   `docs/RATCHET-API-FACTS.md` (harness facts measured by `scripts/probe-dsh-api.mjs`).
 - **Enforcement** — `node scripts/check-portability.mjs` (platform + packaging + plugin
-  inventory), `node --test scripts/test-ratchet.mjs`, the gate itself
+  inventory), `node scripts/check-model-gate.mjs` (the canonical composition's flash-only
+  cost policy, read out of the packed plugin rather than retyped),
+  `node --test scripts/test-ratchet.mjs`, the gate itself
   (`node plugins/ratchet/ratchet-cli.mjs verify --root .`), and the breaker
   (`node plugins/ratchet/ratchet-cli.mjs falsify --root .`), which breaks one generic
   invariant at a time and requires the gate to fail. The last three need the one-time

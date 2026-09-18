@@ -45,15 +45,25 @@
  *   the release gate measure the throwaway instance; nothing hermetic can measure a
  *   machine's live composition.
  *
- *   WHY THIS FILE IS NOT LISTED IN THE DEPLOYMENT PROCEDURE'S COMMAND BLOCK, which names
- *   every other check: that block is checked by `check-instruction-routing.mjs`, which
- *   fails when a script the procedure names does not exist, and the test that proves that
- *   claim (`scripts/test-ratchet.mjs`) copies a FIXED list of files into its fixture — so
- *   naming a script there without adding it to that list breaks the test's own
- *   pass-over-an-intact-copy assertion. The enforcement point is this script's `model-gate`
- *   verification entry in `.dsh/project.json`, which is what `context_rules` reads and what
- *   the gate runs; adding it to the procedure means adding
- *   `scripts/check-model-gate.mjs` to that test's `parts` list at the same time.
+ *   WHY THE PROCEDURE NAMES THIS FILE, and what that costs: `rules/DEPLOYMENT.md` §4 lists
+ *   it with the other checks, and `check-instruction-routing.mjs` fails when a script the
+ *   procedure names does not exist. The test that proves that claim copies the procedure's
+ *   own named scripts into its fixture by EXTRACTING them from the procedure, so the
+ *   procedure's growth no longer has to be mirrored by hand in the test — a hand-kept copy
+ *   of the list made a legitimate addition to the procedure look like a broken check.
+ *
+ *   THE CLASS PATTERN'S KNOWN HOLE, stated where the check that measures it lives. The
+ *   pattern admits `deepseek-v4-flash-pro`: it reads `flash` as the class marker and every
+ *   following `-segment` as a qualifier, so an id that puts the pro tier's marker AFTER the
+ *   flash marker passes. Whether such an id bills or routes as the pro tier is NOT decidable
+ *   from anything this repository holds — the installed catalog (`dsh-llm-deepseek`'s
+ *   `DEFAULT_MODELS`) offers exactly `deepseek-flash`, `deepseek-v4-flash`, `deepseek-v4-pro`
+ *   and `deepseek-v4-flash-vision-exp`, declares no tier or price for any of them, and does
+ *   not offer the combination. So the fixtures below PIN the boundary (they assert which
+ *   `-pro`-suffixed forms the shipped pattern admits, so a future change to it cannot move
+ *   that boundary silently) rather than claiming the hole is closed. Closing it means
+ *   changing `FLASH_CLASS_DEFAULT_PATTERN`, which lives in the packed upstream artifact this
+ *   kit does not build — see the report accompanying this change.
  *
  * KEYWORDS
  *   model gate, cost policy, flash-only, allow-list, profile patch, composition, enforcement
@@ -366,15 +376,17 @@ if (patch.missing === true) {
 // pattern is deliberately CLASS-based, and `^deepseek-(v[0-9.]+-)?flash(-[a-z0-9-]+)*$`
 // admits an id whose segments START with `flash` — `deepseek-v4-flash-pro` matches. A
 // fixture list that quietly asserted the opposite would fail on a deliberate design choice;
-// one that quietly omitted the id would hide it. So it is asserted as the pattern's own
-// documented risk, in the open.
+// one that quietly omitted the id would hide it. So the `-pro`-suffixed forms are asserted
+// as the pattern's own measured boundary, in the open, with a control beside them.
 const FIXTURES = [
   { model: 'deepseek-flash', admit: true, why: 'the active Flash id — the whole point of the gate' },
   { model: 'deepseek-v4-flash', admit: true, why: 'the deprecated Flash alias this deployment accepts' },
   { model: 'deepseek-v4-flash-vision-exp', admit: true, why: 'the vision Flash alias, admitted by the class pattern' },
   { model: 'deepseek-v4.1-flash', admit: true, why: 'a re-versioned Flash id needs no policy edit' },
   { model: 'deepseek-v5.1-flash', admit: true, why: 'a future Flash release needs no policy edit' },
-  { model: 'deepseek-v4-flash-pro', admit: true, why: 'DOCUMENTED RISK: the class pattern admits any id with a `flash` first segment and a trailing qualifier, so a pro tier released UNDER a flash-named id would pass; this is the plugin\u2019s stated class-not-version trade-off, not a defect this check can repair' },
+  { model: 'deepseek-v4-flash-pro', admit: true, why: 'FINDING, PINNED: the class pattern admits any id whose first segment after `deepseek-` is a version (or nothing) and whose next is `flash`, so a pro-tier marker placed AFTER the flash marker passes. Whether such an id exists, and whether it would bill as the pro tier, is not decidable from the catalog this kit can read — the installed `dsh-llm-deepseek` catalog offers only deepseek-flash, deepseek-v4-flash, deepseek-v4-pro and deepseek-v4-flash-vision-exp, and carries no tier or price. Asserted here so a change to the pattern cannot move this boundary silently' },
+  { model: 'deepseek-v4-flash-pro-vision', admit: true, why: 'the same hole one qualifier deeper: once the trailing qualifier is free-form, any number of `-segment`s follow, so the boundary is `flash` position, not the presence of `pro`' },
+  { model: 'deepseek-v4-flash-preview', admit: true, why: 'CONTROL for the two above: an ordinary future qualifier must keep being admitted, so a future strictening that bans every unknown suffix fails here rather than passing' },
   { model: 'deepseek-v4-pro', admit: false, why: 'the pro tier is the tier this rule exists to refuse' },
   { model: 'deepseek-pro', admit: false, why: 'an unversioned pro id is refused too' },
   { model: 'deepseek-v4-pro-flash', admit: false, why: 'a pro id ending in `flash` is refused: `pro` is the FIRST segment and the pattern anchors on `deepseek-`' },

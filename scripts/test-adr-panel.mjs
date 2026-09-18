@@ -257,6 +257,11 @@ let stateCalls = 0
  * ratchet's own view rather than a hand-made object.
  */
 let stateViewOverride = null
+/**
+ * A REFUSAL to serve instead of a view, so the claim about a non-200 answer is driven
+ * through the same stub as everything else. `null` serves the derived view.
+ */
+let stateRefusal = null
 const stateView = () => (stateViewOverride === null ? stateModule.deriveDecisions({ root: stateRoot }) : stateViewOverride)
 
 let consentHostHandler = null
@@ -297,6 +302,7 @@ globalThis.fetch = (url, init) => {
   consentCalls.push(call)
   if (target.includes('/adr-panel/state')) {
     stateCalls += 1
+    if (stateRefusal !== null) return Promise.resolve({ status: stateRefusal.status, json: () => Promise.resolve(stateRefusal.body) })
     return Promise.resolve({ status: 200, json: () => Promise.resolve(stateView()) })
   }
   if (target.includes('/adr-panel/resolve')) {
@@ -2659,14 +2665,14 @@ claim(
 
 // ── the "Needs a human" entry point ─────────────────────────────────────────
 //
-// LIMITATIONS §3.3: the ratchet derives ONE set of things a human must settle and the
+// The ratchet derives ONE set of things a human must settle and the window shows it as the
 // window shows it as the developer's entry point. This measures the RENDERED set against
 // the ratchet's OWN `needsHuman` — the service is run over the materialised fixture, and
 // the panel is rendered over the same files through the state route whose stub calls the
 // real `deriveDecisions`. Nothing here is an object the test invented: if a derivation
 // stops producing a kind, the service's set shrinks and this claim fails.
-const NEEDS_KINDS = ['consent', 'blocked', 'contradiction', 'duplicate', 'stale-spec', 'red-gate']
-const isNeedsPill = (node) => isPillNode(node) && /^(consent|blocked|contradiction|duplicate|stale-spec|red-gate) /.test(node.text)
+const NEEDS_KINDS = ['consent', 'blocked', 'contradiction', 'duplicate', 'stale-spec', 'red-gate', 'review']
+const isNeedsPill = (node) => isPillNode(node) && /^(consent|blocked|contradiction|duplicate|stale-spec|red-gate|review) /.test(node.text)
 
 // A fixture with one of each kind. 0001 is a human decision in force whose law is the
 // contradiction's target and the duplicate's keeper; 0002 is a proposal waiting for a
@@ -2906,7 +2912,10 @@ for (const [index, id] of ['0001', '0002', '0003', '0004'].entries()) {
 // The empty state is a real state, and it must be SHOWN: a corpus with nothing waiting,
 // nothing contradicting, nothing duplicated, no drift and no recorded red verdict renders
 // the section's own empty line, never a hidden section. The ratchet's own set is the
-// requirement, so the claim is that it is empty AND the window says so.
+// requirement, so the claim is that it is empty AND the window says so. A corpus is settled
+// only when a corpus review has also READ the laws now in force — the ratchet carries that
+// as `contradictionReview` and reports a `review` need when it is stale — so this fixture
+// records a review at the compiled bundle's own hash rather than asserting the fact away.
 {
   const emptyZone = [{ id: 'z', paths: ['src/**'], agentAuthority: 'activeIfNoConflict', requiresDecisionRecord: true }]
   const emptyText = '# reasoning\n'
@@ -2919,6 +2928,36 @@ for (const [index, id] of ['0001', '0002', '0003', '0004'].entries()) {
   const previousRoot = stateRoot
   stateRoot = emptyRoot
   try {
+    // Before the review is recorded: the ratchet's own fact says no run has read these laws,
+    // and the ONE needs-a-human set carries it. Both branches are asserted, so the claim is
+    // not "the need exists" but "the need tracks the fact".
+    const unreviewed = stateModule.deriveDecisions({ root: emptyRoot })
+    claim(
+      'a corpus no review has read reports the fact and carries it as the one review need',
+      unreviewed.contradictionReview !== null &&
+        unreviewed.contradictionReview.stale === true &&
+        unreviewed.contradictionReview.reviewed === false &&
+        unreviewed.needsHuman.some((need) => need.kind === 'review' && need.id === 'contradiction-review'),
+      JSON.stringify(unreviewed.contradictionReview),
+    )
+    // A review recorded against a DIFFERENT law set is the other stale case: it must stay
+    // stale and say it predates the laws, rather than reading as covered.
+    const ledgerPath = join(emptyRoot, '.dsh', 'ratchet', 'ledger.jsonl')
+    mkdirSync(dirname(ledgerPath), { recursive: true })
+    const reviewLine = (specHash) => `${JSON.stringify({ event: 'ratchet.contradiction.reviewed', at: '2026-09-16T00:00:00.000Z', job: 'review_corpus', specHash, advisory: true })}\n`
+    writeFileSync(ledgerPath, reviewLine('sha256:' + 'f'.repeat(64)))
+    const predating = stateModule.deriveDecisions({ root: emptyRoot })
+    claim(
+      'a review recorded against a different law set stays stale and says it predates them',
+      predating.contradictionReview !== null &&
+        predating.contradictionReview.stale === true &&
+        predating.contradictionReview.reviewed === true &&
+        predating.needsHuman.some((need) => need.kind === 'review'),
+      JSON.stringify(predating.contradictionReview),
+    )
+    // And recorded against the laws now in force, the fact clears — which is what makes the
+    // empty state below an empty state rather than a suppressed finding.
+    writeFileSync(ledgerPath, reviewLine(unreviewed.specHash))
     const serviceEmpty = stateModule.deriveDecisions({ root: emptyRoot }).needsHuman
     claim('the ratchet reports nothing needs a human on a settled corpus', Array.isArray(serviceEmpty) && serviceEmpty.length === 0, JSON.stringify(serviceEmpty))
     const rendered = await renderOverlay('needs-empty')
@@ -3122,6 +3161,158 @@ const ROW_CAP = 50 // must equal SECTION_ROW_CAP in the bundle
     `${consentCalls.length - before} unexpected request(s)`,
   )
   globalThis.__DSH_ADR_PANEL_STATE__ = savedStateBridge
+}
+
+// A REFUSED state answer is not the same as an absent capability: the route exists, was
+// asked, and said no. It must be shown with the route's own words and must derive nothing —
+// a 403 whose body is dropped would leave the window drawing an empty corpus, which reads
+// as "this project has no decisions" rather than as "the state could not be read".
+{
+  stateRefusal = { status: 403, body: { ok: false, error: 'forbidden', message: "the state route requires this process's capability token" } }
+  try {
+    const refused = await panelOverFiles(pendingFixture.files)
+    claim(
+      "a refused state answer is surfaced with the route's own message, and nothing is derived",
+      refused.decisions.length === 0 &&
+        refused.failures.some((line) => line.includes("the state route requires this process's capability token")),
+      `decisions=${refused.decisions.length} failures=${JSON.stringify(refused.failures)}`,
+    )
+  } finally {
+    stateRefusal = null
+  }
+}
+
+// The state read names the Session the window is open on, because the Session is what the
+// host resolves to a project root. A read that named a fixed Session — or none — would show
+// one project's decisions in another project's window.
+{
+  const freshRegistry = applyFresh()
+  const members = freshRegistry['shell.overlay'].config.inject()
+  members.hooks.panel.set({ open: true, sessionId: 'other-session' })
+  const before = consentCalls.length
+  await members.load(undefined)
+  const reads = consentCalls.slice(before).filter((call) => call.url.includes('/adr-panel/state'))
+  claim(
+    'the state read names the Session the window is open on, with the capability this page was served',
+    reads.length >= 1 &&
+      reads[0].url.includes('session=other-session') &&
+      !reads[0].url.includes('session=stub-session') &&
+      reads[0].headers['x-adr-panel-state'] === globalThis.__DSH_ADR_PANEL_STATE__.token,
+    JSON.stringify(reads.map((call) => ({ url: call.url, capability: call.headers['x-adr-panel-state'] }))),
+  )
+}
+
+// ── THE SERVICE IS THE AUTHORITY: a payload the files contradict ─────────────
+//
+// "The ratchet owns the derivation" is only a measurement if the window can be made to
+// disagree with the corpus. So this drives the shipped bundle with a state answer that says
+// the OPPOSITE of what the materialised files derive — a record the files hold in force
+// reported as awaiting a human, a proposed record reported as in force, and a third reported
+// as `superseded by 9999`, a sentence these files cannot produce at all — and requires the
+// window to draw what the SERVICE said. A bundle that re-derived force from the files (the
+// defect this replaces: `status: proposed` read as unpaid, a content hash computed one byte
+// short from a paged read) passes every equality claim above and fails this one. The
+// override is restored in the `finally`.
+const authorityFixture = fixture('the service decides force, not the files', {
+  zones: ZONE_ACTIVE,
+  defaultAgentAuthority: 'activeIfNoConflict',
+  adrs: {
+    '0001': { status: 'active', zones: ['z'], title: 'the files hold this in force' },
+    '0002': { status: 'proposed', zones: ['z'], title: 'the files hold this waiting' },
+    '0003': { status: 'active', zones: ['z'], title: 'the files hold this in force too' },
+  },
+})
+{
+  const authorityRoot = materialise(authorityFixture.files)
+  const filesView = stateModule.deriveDecisions({ root: authorityRoot })
+  const filesState = (id) => (filesView.records.find((record) => record.id === id) ?? {}).state ?? null
+  stateViewOverride = {
+    ...filesView,
+    records: filesView.records.map((record) => {
+      if (record.id === '0001') return { ...record, state: { text: 'awaiting a human', kind: 'pending', derived: true }, canRatify: true, queue: 'waiting' }
+      if (record.id === '0002') return { ...record, state: { text: 'in force', kind: 'in-force', derived: false }, canRatify: false, queue: null }
+      if (record.id === '0003') return { ...record, state: { text: 'superseded by 9999', kind: 'superseded', derived: true }, canRatify: false, queue: null }
+      return record
+    }),
+    needsHuman: [
+      {
+        kind: 'review',
+        id: 'contradiction-review',
+        title: 'a review the files do not imply',
+        path: '.dsh/ratchet/ledger.jsonl',
+        reason: 'THE SERVICE SAYS SO',
+        action: 'act on the service, not on the corpus',
+        draft: null,
+        draftReason: null,
+      },
+    ],
+    contradictionReview: { reviewed: true, stale: true, at: '2026-01-01T00:00:00.000Z', recordedHash: 'sha256:' + '0'.repeat(64), reason: 'THE SERVICE SAYS SO' },
+  }
+  try {
+    claim(
+      'the payload contradicts the files: the corpus itself derives 0001 in force, 0002 waiting and 0003 in force',
+      filesState('0001')?.kind === 'in-force' && filesState('0002')?.kind === 'pending' && filesState('0003')?.kind === 'in-force',
+      JSON.stringify({ '0001': filesState('0001'), '0002': filesState('0002'), '0003': filesState('0003') }),
+    )
+    const loaded = await panelOverFiles(authorityFixture.files)
+    const byId = {}
+    for (const decision of loaded.decisions) byId[decision.id] = decision
+    claim(
+      'a payload that says an in-force record awaits a human is drawn awaiting a human',
+      byId['0001'] !== undefined && byId['0001'].state.kind === 'pending' && byId['0001'].state.text === 'awaiting a human',
+      JSON.stringify(byId['0001'] === undefined ? null : byId['0001'].state),
+    )
+    claim(
+      'a payload that says a proposed record is in force is drawn in force',
+      byId['0002'] !== undefined && byId['0002'].state.kind === 'in-force' && byId['0002'].state.text === 'in force',
+      JSON.stringify(byId['0002'] === undefined ? null : byId['0002'].state),
+    )
+    claim(
+      'every record is drawn from the service, including a sentence the files cannot produce',
+      byId['0003'] !== undefined && byId['0003'].state.text === 'superseded by 9999',
+      JSON.stringify(byId['0003'] === undefined ? null : byId['0003'].state),
+    )
+    claim(
+      "the panel copies the service's review need unchanged, field for field",
+      JSON.stringify(loaded.needsHuman) ===
+        JSON.stringify([
+          {
+            kind: 'review',
+            id: 'contradiction-review',
+            title: 'a review the files do not imply',
+            path: '.dsh/ratchet/ledger.jsonl',
+            reason: 'THE SERVICE SAYS SO',
+            action: 'act on the service, not on the corpus',
+            draft: null,
+            draftReason: null,
+          },
+        ]),
+      `panel=${JSON.stringify(loaded.needsHuman)}`,
+    )
+    // The RENDERED half: the un-constructible sentence must be in the tree, and the review
+    // need must be drawn as its own card, which is what makes this about the window and not
+    // only about the loader.
+    const rendered = await renderOverlay('service-authority')
+    const switched = await showSection(rendered.root, 'service-authority', 'decisions')
+    const drawnSuperseded = nodes.some((node) => node.text === 'superseded by 9999')
+    await showSection(rendered.root, 'service-authority', 'needs')
+    claim(
+      'and the rendered window shows the state and the review fact the service reported',
+      rendered.ok &&
+        switched &&
+        drawnSuperseded &&
+        nodes.some((node) => isNeedsPill(node) && node.text === 'review contradiction-review'),
+      JSON.stringify({
+        ok: rendered.ok,
+        switched,
+        supersededDrawn: drawnSuperseded,
+        needsPills: nodes.filter(isNeedsPill).map((node) => node.text),
+      }),
+    )
+  } finally {
+    stateViewOverride = null
+    rmSync(authorityRoot, { recursive: true, force: true })
+  }
 }
 
 // ── the Session work-mode toggle ────────────────────────────────────────────

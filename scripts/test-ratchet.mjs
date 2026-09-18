@@ -4858,23 +4858,38 @@ test('FALSIFICATION: the instruction-routing rule has an enforcement point that 
   // Every file the check READS, because it is a copy of a real kit tree rather than a
   // stub: the extended check also verifies that the scripts the deployment procedure
   // names exist, and the installers/updater carry the procedure.
+  //
+  // The scripts the procedure NAMES are DERIVED from it rather than listed here. The
+  // check under test extracts every `scripts/<name>.mjs` from `rules/DEPLOYMENT.md` and
+  // requires the file to exist in the tree that check is pointed at — so a hand-kept copy
+  // of that list here turned the procedure's own legitimate growth into a failure of this
+  // test, which is a defect in the test and not a finding about the procedure. Deriving it
+  // keeps the claim honest in both directions: a named script that genuinely does not exist
+  // is not copied, the check then reports it missing against the intact copy, and the
+  // `status === 0` assertion below fails with that script's name in the output.
+  const namedScripts = [
+    ...new Set([...readFileSync(join(KIT_ROOT, 'rules', 'DEPLOYMENT.md'), 'utf8').matchAll(/scripts\/([a-z0-9-]+\.mjs)/g)].map((match) => `scripts/${match[1]}`)),
+  ].filter((relative) => existsSync(join(KIT_ROOT, relative)))
   const parts = [
-    'scripts/check-instruction-routing.mjs',
-    'scripts/probe-dsh-api.mjs',
-    'scripts/kit-update.mjs',
-    'scripts/dev-link.mjs',
-    'scripts/test-ratchet.mjs',
-    'scripts/check-portability.mjs',
-    'scripts/check-zone-coverage.mjs',
-    'profile/cordis.patch.yml',
-    'plugins/inventory.json',
-    'plugins/kit-rules/kit-rules.mjs',
-    'rules/AGENTS.md',
-    'rules/DEPLOYMENT.md',
-    'README.md',
-    'USERGUIDE.md',
-    'install.sh',
-    'install.ps1',
+    ...new Set([
+      'scripts/check-instruction-routing.mjs',
+      'scripts/probe-dsh-api.mjs',
+      'scripts/kit-update.mjs',
+      'scripts/dev-link.mjs',
+      'scripts/test-ratchet.mjs',
+      'scripts/check-portability.mjs',
+      'scripts/check-zone-coverage.mjs',
+      ...namedScripts,
+      'profile/cordis.patch.yml',
+      'plugins/inventory.json',
+      'plugins/kit-rules/kit-rules.mjs',
+      'rules/AGENTS.md',
+      'rules/DEPLOYMENT.md',
+      'README.md',
+      'USERGUIDE.md',
+      'install.sh',
+      'install.ps1',
+    ]),
   ]
   for (const relative of parts) {
     mkdirSync(join(tree, dirname(relative)), { recursive: true })
@@ -4886,6 +4901,21 @@ test('FALSIFICATION: the instruction-routing rule has an enforcement point that 
   const intact = run()
   assert.equal(intact.status, 0, `the check must pass over an intact copy:\n${intact.stdout}${intact.stderr}`)
   assert.match(intact.stdout, /instruction routing ok/)
+
+  // The list above is DERIVED from the procedure, so the derivation must not be what makes
+  // the claim pass. Naming a script that does not exist in the procedure — the exact drift
+  // the claim is for — must still fail the check over the same tree, which is what makes
+  // "every script the procedure names exists" a measurement rather than a tautology.
+  const procedurePath = join(tree, 'rules', 'DEPLOYMENT.md')
+  const procedure = readFileSync(procedurePath, 'utf8')
+  const withGhost = `${procedure}\nnode "$KIT/scripts/check-no-such-script.mjs"\n`
+  writeFileSync(procedurePath, withGhost)
+  const ghosted = run()
+  assert.equal(ghosted.status, 1, `naming a script that does not exist must fail the check:\n${ghosted.stdout}${ghosted.stderr}`)
+  assert.match(ghosted.stderr, /every script the procedure names exists/)
+  assert.match(ghosted.stderr, /check-no-such-script\.mjs/)
+  writeFileSync(procedurePath, procedure)
+  assert.equal(run().status, 0, 'restoring the procedure must restore the pass')
 
   const patchPath = join(tree, 'profile', 'cordis.patch.yml')
   const patch = readFileSync(patchPath, 'utf8')

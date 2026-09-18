@@ -56,9 +56,18 @@
  *     - `specs` — the generated spec documents from `renderSpecs`:
  *       `[{ path, name, text, specHash }]`, one per zone.
  *     - `drift` — the `detectSpecDrift` result for those documents.
+ *     - `contradictionReview` — the ratchet's own fact about whether any corpus review has
+ *       read the law set now in force, from `contradictionReviewStatus`:
+ *       `{ reviewed, stale, at, recordedHash, reason }`, or null when nothing compiled (no
+ *       laws exist to have been reviewed). `stale` is true both when no review was ever
+ *       recorded and when the last one is bound to a different law set; `reason` says which.
+ *       It is carried here because the window must not decide it, and because a green
+ *       deterministic gate says nothing about whether two decisions contradict each other in
+ *       meaning — the one fact that keeps that gap visible.
  *     - `needsHuman` — the ONE derived set of things a human must settle, each
  *       `{ kind, id, title, path, reason, action, draft, draftReason }` with `kind` one of
- *       `consent`, `blocked`, `contradiction`, `duplicate`, `deprecated`, `stale-spec`, `red-gate`.
+ *       `consent`, `blocked`, `contradiction`, `duplicate`, `deprecated`, `stale-spec`,
+ *       `red-gate`, `review`.
  *       A `consent` waits to be answered; a `blocked` record cannot be settled by a consent
  *       (the queue says why) and is reported so a human sees it, not so it can be approved. Every
  *       entry is the ratchet's own fact, copied or shaped, never a second rule: consents from
@@ -71,8 +80,10 @@
  *       `semantic_duplicate` findings into the drafting path. `draft` is the drafted id and
  *       path (or null) and `draftReason` says why no draft exists when there is none, so the
  *       window can send the human straight to the draft. The red gate comes from the persisted
- *       verify report/state read with `readJsonArtifact` and `readState`. When a finding has no
- *       draft behind it, `action` says so rather than naming one that does not exist.
+ *       verify report/state read with `readJsonArtifact` and `readState`; the `review` fact
+ *       comes from `contradictionReview` above, and it is present exactly when that member
+ *       reports `stale`, so the window never has to compare the two itself. When a finding has
+ *       no draft behind it, `action` says so rather than naming one that does not exist.
  *     - `drafting` — the same `draftNeedsHuman` result, shaped for display: the duplicate and
  *       contradiction drafts (written or computed) and the stale notes, with their ids and paths.
  *     - `problems` — every problem the manifest, the corpus and the queue reported,
@@ -87,13 +98,14 @@
  *       that what arrived is not the whole corpus, so a renderer can say so rather than
  *       presenting a partial list as complete.
  *   A null/empty `root` returns `{ ok:false, root, records:[], queue:{...empty}, specs:[],
- *   drift:{...empty}, needsHuman:[], problems:[MANIFEST_MISSING-like], truncated:null }` and
+ *   drift:{...empty}, contradictionReview:null, needsHuman:[],
+ *   problems:[MANIFEST_MISSING-like], truncated:null }` and
  *   never throws.
  *
  * KEYWORDS
  *   decisions service, cordis service, host route, ADR panel, view model, in force,
  *   consent match, ratify queue, spec documents, one source of truth, needs a human,
- *   contradiction, duplicate, stale spec, red gate
+ *   contradiction, duplicate, stale spec, red gate, corpus review staleness
  *
  * BEHAVIOUR ON EDGE CASES
  *   - `root` not a string, or empty: an unusable view with the reason, no read.
@@ -105,7 +117,14 @@
  *   - A record file that cannot be read for display: its `text` is null and it is
  *     still listed with the facts the compiler derived.
  *   - The bundle does not compile: `specs` is empty and `specHash` is null, but the
- *     per-record force facts are still returned because `resolveActiveSet` runs.
+ *     per-record force facts are still returned because `resolveActiveSet` runs. Nothing
+ *     compiled means no law set to review, so `contradictionReview` is null and no
+ *     `review` need is reported.
+ *   - A ledger that cannot be read, or a `contradictionReviewStatus` call that throws: the
+ *     `contradictionReview` member is null and no `review` need is added — a fact about a
+ *     ledger nobody could read is reported as absent rather than invented.
+ *   - No ledger, or a ledger with no review event: `contradictionReview.stale` is true and
+ *     the `review` need appears, because a corpus nobody has looked at is not a checked one.
  *   - The service's `view` is called with a `root` that is not a non-empty string: it
  *     resolves synchronously, with no worker spawned, to the same unusable view.
  *   - The corpus changes between two calls: the signature moves, so the cache is not
@@ -130,7 +149,7 @@ import { resolveStepsFor } from './ratchet-resolve.mjs'
 import { ratificationQueue } from './ratchet-ratify.mjs'
 import { detectSpecDrift, readJsonArtifact, readState, STATE_PATHS, verificationStatus } from './ratchet-state.mjs'
 import { draftNeedsHuman } from './ratchet-drafts.mjs'
-import { findRoot } from './ratchet-ops.mjs'
+import { findRoot, contradictionReviewStatus } from './ratchet-ops.mjs'
 import { MANIFEST_PATH } from './ratchet-schema.mjs'
 
 /**
@@ -440,22 +459,27 @@ function redGateNeed(root, currentSpecHash, lawDecider) {
  *   drafted - the `draftNeedsHuman(root, { write:false })` result, whose detections and
  *     drafts the contradiction, duplicate and stale entries are built from. The one fact that
  *     is NOT in it — a consent — comes from the queue above.
+ *   contradictionReview - the `contradictionReviewStatus` result for the law set compiled
+ *     now, or null. Exactly one entry is built from it, of kind `review`, and only when it
+ *     reports `stale === true`.
  *
  * OUTPUTS
- *   An array, ordered consents, contradictions, duplicates, deprecated decisions, stale specs,
- *   red gate. Each entry is `{ kind, id, title, path, reason, action, draft, draftReason }`,
- *   `kind` one of the six names. `draft` is `{ id, path }` when the ratchet drafted a
+ *   An array, ordered consents, blocked records, contradictions, duplicates, deprecated
+ *   decisions, stale specs, red gate, review. Each entry is
+ *   `{ kind, id, title, path, reason, action, draft, draftReason }`,
+ *   `kind` one of the eight names. `draft` is `{ id, path }` when the ratchet drafted a
  *   settlement for the issue and null otherwise; `draftReason` says why no draft exists when
  *   it does not (null when one does). A deprecated decision never carries a draft: retiring a
- *   decision is a human act, so its `action` names the retirement shape. An empty project
- *   yields `[]`. Never throws: a guard, drafter or artifact read that fails contributes no
- *   entry rather than an exception.
+ *   decision is a human act, so its `action` names the retirement shape. A `review` entry is
+ *   present only when `contradictionReview.stale` is true, and carries the ratchet's own
+ *   `reason` unchanged. An empty project yields `[]`. Never throws: a guard, drafter or
+ *   artifact read that fails contributes no entry rather than an exception.
  *
  * KEYWORDS
- *   needs a human, consent, contradiction, duplicate, stale spec, red gate, entry point,
- *   drafted path, draft identity
+ *   needs a human, consent, contradiction, duplicate, stale spec, red gate, corpus review,
+ *   entry point, drafted path, draft identity
  */
-function buildNeedsHuman(root, records, queue, drift, currentSpecHash, drafted, lawDecider, config, problems = []) {
+function buildNeedsHuman(root, records, queue, drift, currentSpecHash, drafted, lawDecider, config, problems = [], contradictionReview = null) {
   const needs = []
   const asDraft = (value) =>
     value === null || value === undefined || typeof value !== 'object'
@@ -653,6 +677,27 @@ function buildNeedsHuman(root, records, queue, drift, currentSpecHash, drafted, 
     needs.push({ ...red, draft: null, draftReason: 'no drafted fix exists \u2014 a red verification is a fact about the report and the code, not a decision the ratchet can draft a record for' })
   }
 
+  // (6) The contradiction-review staleness fact: whether any run has looked at the MEANING
+  // of the laws now in force. It is the same class of fact as the red gate — a standing
+  // condition about a tooling act that has not happened, not a decision anyone can draft —
+  // and it belongs in this one set because nothing else in the window states it: a corpus
+  // whose deterministic checks are all green still has nothing that has compared two
+  // decisions for contradiction, and a human reading only the green gate would conclude
+  // otherwise. `stale` is true both when a review is recorded against a DIFFERENT law set
+  // and when none was ever recorded; the ratchet's own `reason` distinguishes the two.
+  if (contradictionReview !== null && contradictionReview.stale === true) {
+    needs.push({
+      kind: 'review',
+      id: 'contradiction-review',
+      title: contradictionReview.reviewed === true ? 'the corpus review predates the current laws' : 'no corpus review has read these laws',
+      path: STATE_PATHS.ledger,
+      reason: contradictionReview.reason,
+      action: 'run a corpus review (the "ratchet_review" tool with the "review_corpus" job) so the meaning of these laws, and not only their letter, is judged',
+      draft: null,
+      draftReason: 'nothing is drafted for a review: the act is the review run itself, which records the law set it read in the ratification ledger',
+    })
+  }
+
   // A record blocked by a decidable contradiction or a duplicate is already reported
   // by that need, which carries the drafted resolution; a second card for the same
   // record would say less. A block with no other need — the humanOnly-zone case — is
@@ -690,6 +735,7 @@ export function deriveDecisions({ root } = {}) {
     specs: [],
     drift: { drifted: [], stale: [], missing: [], orphaned: [] },
     needsHuman: [],
+    contradictionReview: null,
     problems: [],
     truncated: null,
   }
@@ -780,6 +826,20 @@ export function deriveDecisions({ root } = {}) {
     drafted = null
   }
 
+  // The contradiction-review staleness fact, from the ratchet's own ledger comparison: has
+  // any review recorded the law set that hashes to what is compiled NOW. Nothing is
+  // computed here — `contradictionReviewStatus` owns the comparison, including the
+  // never-reviewed case — and a project with nothing compiled has no laws to have reviewed,
+  // so the member stays null rather than reporting a review as stale against no law set.
+  let contradictionReview = null
+  if (typeof compiled.report?.specHash === 'string' && compiled.report.specHash.length > 0) {
+    try {
+      contradictionReview = contradictionReviewStatus(root, compiled.report.specHash)
+    } catch {
+      contradictionReview = null
+    }
+  }
+
   return {
     ok: config !== null && config.enabled === true,
     root,
@@ -793,6 +853,7 @@ export function deriveDecisions({ root } = {}) {
     queue,
     specs,
     drift,
+    contradictionReview,
     drafting: drafted === null
       ? { ok: false, unusable: true, duplicates: { drafts: [], alreadyDrafted: [], undraftable: [], scanned: null }, contradictions: { drafts: [], alreadyDrafted: [], undraftable: [], needs: [] }, staleNotes: [], problems: [] }
       : {
@@ -815,6 +876,7 @@ export function deriveDecisions({ root } = {}) {
         new Map((compiled.bundle?.laws ?? []).map((law) => [law.id, law.sourceAdr ?? null])),
         config,
         compiled.problems,
+        contradictionReview,
       ),
     problems: dedupeProblems([...problems, ...(queue.problems ?? [])]),
     // The derivation itself never truncates; the service's cap is what may cut the view,

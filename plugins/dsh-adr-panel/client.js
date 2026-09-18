@@ -96,8 +96,9 @@
  *   is pending, because a question waiting on the human must not be behind a tab.
  *
  *   The **Needs a human** part is built from the ratchet's own `needsHuman` set — the one
- *   entry point for consents waiting, contradictions, duplicates, stale specs and a red
- *   gate — and shows a clear empty state when that set is empty, never hiding the part.
+ *   entry point for consents waiting, contradictions, duplicates, stale specs, a red
+ *   gate and the fact that no corpus review has read the laws now in force — and shows a
+ *   clear empty state when that set is empty, never hiding the part.
  *   The same set arrives grouped as before: decision-shaped kinds stay individual cards
  *   and every other kind is one collapsible batch, with the same order, the same hash
  *   shortening, the same stated truncation and the same way into the record it concerns.
@@ -121,7 +122,8 @@
  *   name, its count and what the batch is, and whose default-collapsed body expands to
  *   each document with its path, a one-line reason, the drafted note path and the
  *   ratchet's full action. The order is fixed: consents, contradictions, duplicates, the
- *   grouped batches, then the red-gate fact, which is one card. Hash values inside a
+ *   grouped batches, then the standing facts, each one card — the red gate and a corpus
+ *   review that does not cover the current laws. Hash values inside a
  *   reason are shortened for display and the full text stays in the element's `title`, so
  *   what is shortened is never what is hidden. When the host's own `needsHuman` cap cut
  *   the set, the section states the shown and total counts and every kind that lost an
@@ -422,7 +424,7 @@ window.__ModuleLoader__.load({
 		 * are equal again after a release and the constant is one ahead only in the working
 		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.51";
+		const PANEL_VERSION = "0.1.52";
 		/** Directories used when the host view reports none. */
 		const DEFAULT_DECISIONS_DIR = "docs/adrs";
 		const DEFAULT_SPECS_DIR = "docs/specs";
@@ -2343,7 +2345,7 @@ window.__ModuleLoader__.load({
 		const SECTION_META = {
 			needs: {
 				label: "Needs a human",
-				explanation: "Everything the ratchet reports as waiting on you — consents to record, contradictions to settle, duplicates to resolve, drifted specs and a red gate."
+				explanation: "Everything the ratchet reports as waiting on you — consents to record, contradictions to settle, duplicates to resolve, drifted specs, a red gate, and whether any corpus review has read the laws now in force."
 			},
 			decisions: {
 				label: "Decisions",
@@ -2498,7 +2500,7 @@ window.__ModuleLoader__.load({
 			if (kind === "duplicate") return "pending";
 			if (kind === "blocked") return "pending";
 			if (kind === "stale-spec") return "superseded";
-			if (kind === "contradiction" || kind === "red-gate") return "rejected";
+			if (kind === "contradiction" || kind === "red-gate" || kind === "review") return "rejected";
 			return "neutral";
 		}
 		/**
@@ -2848,10 +2850,12 @@ window.__ModuleLoader__.load({
 		const DECISION_NEED_KINDS = ["consent", "blocked", "contradiction", "duplicate"];
 		/**
 		 * The kinds rendered as one individual fact card after the grouped batches, because
-		 * each is a standing condition rather than a batch of documents. The red gate is
-		 * today the only one.
+		 * each is a standing condition rather than a batch of documents: the red gate is a
+		 * recorded verification that failed, and `review` is the ratchet's fact that no
+		 * corpus review has read the laws now in force (or that the last one read a
+		 * different law set). Both are one card because there is exactly one of each.
 		 */
-		const FACT_NEED_KINDS = ["red-gate"];
+		const FACT_NEED_KINDS = ["red-gate", "review"];
 		/**
 		 * The reader-facing name of a grouped batch kind. The map exists so the common batch
 		 * reads as `Stale specs` rather than `stale-spec`; a kind not in it falls back to its
@@ -3106,7 +3110,7 @@ window.__ModuleLoader__.load({
 			var body;
 			if (needs.length === 0) {
 				body = truncation === null
-					? React.createElement("p", { style: mutedStyle() }, "Nothing needs a human: no decision waits for consent, no contradiction or duplicate is open, no spec has drifted, and the last recorded verification is green.")
+					? React.createElement("p", { style: mutedStyle() }, "Nothing needs a human: no decision waits for consent, no contradiction or duplicate is open, no spec has drifted, a corpus review has read the laws now in force, and the last recorded verification is green.")
 					: React.createElement("p", { style: mutedStyle() }, "Nothing needs a human in the part of the set that was returned, but " + truncation);
 			} else {
 				var parts = partitionNeedsHuman(needs);
