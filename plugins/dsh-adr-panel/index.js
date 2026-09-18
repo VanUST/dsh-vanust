@@ -542,6 +542,10 @@ async function resolveProject(ctx, sessionId, requirement) {
  * @param adrId - The record id, for the child's label and the log line.
  * @param log - A `{ warn }` sink, or anything (a missing log is not a failure).
  * @returns A promise of `{ spawned: true, childId }` when the child exists, otherwise
+ *   `{ refusal: { status, code, message } }`. It passes the REQUIRED `signal` the start
+ *   request demands, on its own controller: the response's abort must never cancel a
+ *   resolver that is meant to outlive the click. The prompt string is wrapped as the
+ *   `ContentBlock[]` the request wants.
  *   `{ refusal: { status, code, message } }`. Never rejects: a rejected start is the
  *   refusal this function exists to produce.
  */
@@ -556,9 +560,24 @@ export async function startResolver({ runtime, agents, sessionId, prompt, adrId,
   if (parent === undefined || parent === null) {
     return { refusal: { status: 404, code: 'unknown-session', message: `Session "${String(sessionId)}" has no live agent, so there is nothing to parent a resolver: open the panel from an active Session` } }
   }
+  // `signal` is REQUIRED by the subagent start request, and it is the cancellation channel
+  // the provider reads before it publishes the child (`request.signal.aborted`). It cannot
+  // be this request's own abort signal: the HTTP response is written within milliseconds
+  // of the start and the browser closing that connection must not cancel a resolver that
+  // is meant to keep working. A fresh controller per resolver is the honest lifetime — it
+  // is aborted only if the server is shutting the run down, which the runtime owns.
+  const cancellation = new AbortController()
   let run
   try {
-    run = await runtime.start(RESOLVE_PROVIDER, { parent, prompt, label: `resolve-${String(adrId)}` })
+    // `prompt` is a `ContentBlock[]`, not a string — the same shape the `subagent` tool
+    // sends (`[{ type: 'text', text }]`). A bare string is accepted by the type at this
+    // boundary only because nothing checks it before the child's first message is built.
+    run = await runtime.start(RESOLVE_PROVIDER, {
+      parent,
+      prompt: [{ type: 'text', text: String(prompt) }],
+      label: `resolve-${String(adrId)}`,
+      signal: cancellation.signal,
+    })
   } catch (error) {
     const message = error !== null && error !== undefined && typeof error.message === 'string' && error.message.length > 0 ? error.message : String(error)
     try {
@@ -578,6 +597,9 @@ export async function startResolver({ runtime, agents, sessionId, prompt, adrId,
   // publication is not silent. Nothing about it reaches this response.
   const result = run?.result
   if (result !== undefined && result !== null && typeof result.catch === 'function') {
+    // Keep the controller referenced for the run's whole lifetime, so nothing collects the
+    // signal out from under the child.
+    void cancellation
     result.catch((error) => {
       try {
         log?.warn?.(`the resolver for ${String(adrId)} failed: ${String(error)}`)

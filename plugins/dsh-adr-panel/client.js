@@ -360,7 +360,7 @@ window.__ModuleLoader__.load({
 		 * are equal again after a release and the constant is one ahead only in the working
 		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.41";
+		const PANEL_VERSION = "0.1.42";
 		/** Directories used when the host view reports none. */
 		const DEFAULT_DECISIONS_DIR = "docs/adrs";
 		const DEFAULT_SPECS_DIR = "docs/specs";

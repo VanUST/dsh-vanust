@@ -469,8 +469,13 @@ if (resolveService !== undefined) {
 // resolution had begun. `startResolver` is the awaited form, and these cases measure the
 // verdict it returns — a rejection is a refusal, and only an accepted run is `spawned`.
 {
+  // The start request REQUIRES a `signal`, and the provider reads it before publishing the
+  // child. Omitting it made `subagents.start` throw inside the provider with
+  // "Cannot read properties of undefined (reading 'aborted')" — so this stub records what
+  // it was handed, and the claim below refuses a call that carried no signal.
+  let seenRequest = null
   const spawned = await panelHost.startResolver({
-    runtime: { start: async () => ({ localAgent: { session: { header: { id: 'child-1' } } }, result: Promise.resolve() }) },
+    runtime: { start: async (provider, request) => { seenRequest = { provider, request }; return { localAgent: { session: { header: { id: 'child-1' } } }, result: Promise.resolve() } } },
     agents: { get: () => ({ id: 'parent' }) },
     sessionId: 'parent',
     prompt: 'task',
@@ -491,6 +496,14 @@ if (resolveService !== undefined) {
     'a resolver is called started only when the runtime ACCEPTED it; a rejected start is a refusal',
     spawned.spawned === true &&
       spawned.childId === 'child-1' &&
+      seenRequest?.provider === 'spawn' &&
+      seenRequest?.request?.signal !== undefined &&
+      seenRequest.request.signal !== null &&
+      typeof seenRequest.request.signal.aborted === 'boolean' &&
+      seenRequest.request.parent?.id === 'parent' &&
+      Array.isArray(seenRequest.request.prompt) &&
+      seenRequest.request.prompt[0]?.type === 'text' &&
+      seenRequest.request.prompt[0]?.text === 'task' &&
       rejected.spawned === undefined &&
       rejected.refusal?.status === 502 &&
       /MODEL_NOT_ALLOWED/.test(rejected.refusal.message) &&
@@ -498,7 +511,7 @@ if (resolveService !== undefined) {
       noRuntime.refusal?.status === 503 &&
       noAgent.spawned === undefined &&
       noAgent.refusal?.status === 404,
-    JSON.stringify({ spawned, rejected, noRuntime, noAgent }),
+    JSON.stringify({ provider: seenRequest?.provider, signal: seenRequest?.request?.signal?.aborted, prompt: seenRequest?.request?.prompt, spawned, rejected, noRuntime, noAgent }),
   )
 }
 

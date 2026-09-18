@@ -496,3 +496,15 @@ reloaded and nothing had changed because nothing had started. The route now awai
 start through the exported `startResolver`: an accepted run reports its child session, a
 rejection is a `502` refusal with the runtime's own message, and
 `scripts/check-consent-surface.mjs` drives all four verdicts hermetically.
+
+**And the start request was malformed in two ways the first fix exposed.** Awaiting turned a
+silent failure into `Cannot read properties of undefined (reading 'aborted')`: the request's
+`signal` is not optional, and the route had passed none. The `prompt` is a `ContentBlock[]`,
+not a string, and the route had passed a bare string. Both are now the shape the harness's
+own `subagent` tool sends — a fresh `AbortController` per resolver (never this request's own
+abort, which would cancel a resolver meant to outlive the click) and
+`[{ type: 'text', text }]` — and `check-consent-surface.mjs` asserts both, so neither field
+can be dropped again. **The limit:** the request is pinned field-by-field against the
+harness's own tool call and a real child was started in this composition through the public
+`subagent` seam, but the panel's own spawn has not been driven live end to end — doing so
+needs a model turn and would have the child edit a fixture project.
