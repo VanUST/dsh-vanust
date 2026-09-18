@@ -379,7 +379,7 @@ window.__ModuleLoader__.load({
 		 * are equal again after a release and the constant is one ahead only in the working
 		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.47";
+		const PANEL_VERSION = "0.1.48";
 		/** Directories used when the host view reports none. */
 		const DEFAULT_DECISIONS_DIR = "docs/adrs";
 		const DEFAULT_SPECS_DIR = "docs/specs";
@@ -1534,6 +1534,10 @@ window.__ModuleLoader__.load({
 				}).filter(function (problem) { return problem !== null; });
 				adapted.problemCount = typeof entry.problemCount === "number" ? entry.problemCount : null;
 			}
+			// Whether the report predates the current laws: the card says so in the same
+			// paragraph as the count, and a set that dropped the flag would read as current
+			// findings. Copied here so the set still passes through unchanged.
+			if (Object.prototype.hasOwnProperty.call(entry, "lawsMoved")) adapted.lawsMoved = entry.lawsMoved === true;
 			// Added last to keep the key order the service used, so "passes the set through
 			// unchanged" stays a string equality rather than a set comparison.
 			adapted.draft = draft;

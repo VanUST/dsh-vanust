@@ -454,19 +454,21 @@ claim(
 // to have a stale generated spec in it. Regenerating the law cards emptied the needs set
 // and turned the assertion red for a reason that was never a defect.
 const SECTION_LABELS = { needs: 'Needs a human', decisions: 'Decisions', consents: 'Consents', specs: 'Specs' }
-const corpusCounts = (() => {
-  const view = stateView()
-  const count = (value) => (Array.isArray(value) ? value.length : 0)
-  return { needs: count(view.needsHuman), decisions: count(view.decisions), consents: count(view.consents), specs: count(view.specs) }
-})()
-const firstNonEmpty = ['needs', 'decisions', 'consents', 'specs'].find((key) => corpusCounts[key] > 0)
-const selectedTab = firstTabs.find((node) => node.props['aria-selected'] === 'true')
+// The rule is "the first part whose count is non-zero, else Decisions", and the counts are
+// the ones the window itself draws on the tabs. Naming a part here instead is what made this
+// claim pass only while the corpus happened to hold a stale generated spec: regenerating the
+// law cards emptied the needs set and turned the assertion red for something that was never a
+// defect.
+const tabCounts = firstTabs.map((node) => ({
+  key: node.props['data-adr-panel-section'],
+  count: Number((/\((\d+)\)$/.exec(node.text) ?? [])[1] ?? '0'),
+}))
+const firstNonEmpty = (tabCounts.find((tab) => tab.count > 0) ?? { key: 'decisions' }).key
+const selectedTabs = firstTabs.filter((node) => node.props['aria-selected'] === 'true')
 claim(
   'the window opens on the first non-empty part in the tab order',
-  selectedTab !== undefined &&
-    selectedTab.props['data-adr-panel-section'] === firstNonEmpty &&
-    firstTabs.filter((node) => node.props['aria-selected'] === 'true').length === 1,
-  JSON.stringify({ counts: corpusCounts, expected: firstNonEmpty, tabs: firstTabs.map((node) => ({ key: node.props['data-adr-panel-section'], selected: node.props['aria-selected'] })) }),
+  selectedTabs.length === 1 && selectedTabs[0].props['data-adr-panel-section'] === firstNonEmpty,
+  JSON.stringify({ counts: tabCounts, expected: firstNonEmpty, tabs: firstTabs.map((node) => ({ key: node.props['data-adr-panel-section'], selected: node.props['aria-selected'] })) }),
 )
 claim(
   'exactly one section is drawn at a time, and it is the selected one',
@@ -2661,7 +2663,24 @@ needsFiles['docs/adrs/0002-fixture-0002.adr.md'] = fixtureAdr('0002', { status: 
 needsFiles['docs/adrs/0003-fixture-0003.adr.md'] = fixtureAdr('0003', { status: 'proposed', authority: 'agent', zones: ['z'], laws: [{ id: 'law.shared', statement: 'Gamma' }], ...needsSources['0003'] })
 needsFiles['docs/adrs/0004-fixture-0004.adr.md'] = fixtureAdr('0004', { status: 'active', authority: 'agent', zones: ['z'], laws: [{ id: 'law.dup', statement: 'Alpha' }], ...needsSources['0004'] })
 needsFiles['docs/adrs/0005-fixture-0005.adr.md'] = fixtureAdr('0005', { status: 'proposed', authority: 'agent', zones: ['h'], laws: [{ id: 'law.h', statement: 'Delta' }], ...needsSources['0005'] })
-needsFiles['reports/ratchet/verify-report.json'] = `${JSON.stringify({ generatedAt: '2026-09-15T00:00:00.000Z', problems: [{ code: 'FIXTURE_RED', severity: 'error', lawId: 'law.shared', message: 'the fixture records a red gate' }] }, null, 2)}\n`
+needsFiles['reports/ratchet/verify-report.json'] = `${JSON.stringify(
+  {
+    generatedAt: '2026-09-15T00:00:00.000Z',
+    // A hash the current corpus cannot have, so the card must SAY the report predates the
+    // laws rather than presenting its list as current findings.
+    specHash: 'sha256:0000000000000000000000000000000000000000000000000000000000000000',
+    problems: [
+      { code: 'FIXTURE_RED', severity: 'error', lawId: 'law.shared', message: 'the fixture records a red gate' },
+      // A law that has since LEFT the bundle, with the record that decided it carried in the
+      // report. The card must still be able to offer that record: resolving the id from the
+      // compiled law set fails precisely here, which is how a real red-gate card came to show
+      // a failure with no way to open the decision behind it.
+      { code: 'FIXTURE_RED_RETIRED', severity: 'error', lawId: 'law.retired', adrId: '0001', message: 'the fixture records a failure for a law no longer compiled' },
+    ],
+  },
+  null,
+  2,
+)}\n`
 {
   const needsRoot = materialise(needsFiles)
   const previousRoot = stateRoot
@@ -2735,6 +2754,17 @@ needsFiles['reports/ratchet/verify-report.json'] = `${JSON.stringify({ generated
     )
     consentHostHandler = null
     const redNeed = serviceNeeds.find((entry) => entry.kind === 'red-gate')
+    claim(
+      'the red-gate card says when the report predates the current laws',
+      redNeed !== undefined && redNeed.lawsMoved === true && /CHANGED since it was written/.test(String(redNeed.reason)),
+      JSON.stringify({ lawsMoved: redNeed?.lawsMoved, reason: redNeed?.reason }),
+    )
+    claim(
+      'a red-gate problem names the record that decided its law even after that law left the bundle',
+      redNeed !== undefined &&
+        redNeed.problems.some((problem) => problem.code === 'FIXTURE_RED_RETIRED' && problem.adrId === '0001'),
+      JSON.stringify(redNeed === undefined ? null : redNeed.problems),
+    )
     claim(
       "the red-gate need carries the report's own problems and the record that decided each law",
       redNeed !== undefined &&

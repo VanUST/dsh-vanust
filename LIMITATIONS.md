@@ -546,3 +546,19 @@ on any control inside the window bubbles to it. Only `onMouseDown` was stopped, 
 window", and the queue it dispatched was the one record. The window now stops `onClick` too,
 and `closeAndDispatch` carries a guard: state updates are asynchronous, so a second close in
 the same render still reads the old queue and would send the batch twice.
+
+## 18. A red-gate card says what a report is worth (2026-09-18)
+
+A persisted verification report is a fact about the code **at the time it ran**, and the
+red-gate card listed its problems as if they were current. That sent a human to fix a
+failure for a law a later decision had already retired — twice. Two changes:
+
+- **The report names the deciding record as a FIELD.** The verifier's `fail` writes
+  `adrId: law.sourceAdr` next to `lawId`, so a card can offer `Open <id>` after the law has
+  left the bundle. Resolving the id from the compiled law set fails in exactly that case,
+  which is how a card showed a failure with `(decided in 0080)` in its text and no way to
+  open 0080.
+- **The card says when the report predates the laws.** `buildNeedsHuman` compares the
+  report's `specHash` with the current one and, when they differ, states it in the same
+  paragraph as the count (`lawsMoved`). A report written before a retirement reads as a
+  question to re-run, not as a current finding.

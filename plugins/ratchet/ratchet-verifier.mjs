@@ -768,8 +768,14 @@ export async function verifyLaw({ root, law, files, dependencies, config, runCom
   const problems = []
   const pending = []
   let checked = 0
+  // Every failure a law's check produces names the record that decided the law, as a FIELD
+  // and not only in the message. A message is prose a reader sees; a red-gate card that wants
+  // to offer "Open <id>" needs the id, and resolving it later from the compiled law set fails
+  // exactly when it matters most — a law that has since been retired is no longer in the
+  // bundle, so the report listed a failure with a "(decided in 0000)" in its text and no way
+  // to open 0000. The report is the artifact that judged, so it says who decided the law.
   const fail = (code, message, extra = {}) => {
-    problems.push(problem(code, message, law.id, { lawId: law.id, ...extra }))
+    problems.push(problem(code, message, law.id, { lawId: law.id, adrId: law.sourceAdr ?? null, ...extra }))
   }
 
   // How many over-budget files one law reports individually before the rest are folded into a

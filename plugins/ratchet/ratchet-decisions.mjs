@@ -361,19 +361,39 @@ function redGateNeed(root, currentSpecHash, lawDecider) {
       return {
         code: typeof problem?.code === 'string' ? problem.code : null,
         lawId,
-        adrId: lawId === null || lawDecider === null ? null : lawDecider.get(lawId) ?? null,
+        // The report's own `adrId` first: it was written when the law was judged, and it is
+        // still right after the law has left the bundle. The compiled lookup is the fallback
+        // for a report written before the field existed.
+        adrId:
+          typeof problem?.adrId === 'string' && problem.adrId.length > 0
+            ? problem.adrId
+            : lawId === null || lawDecider === null
+              ? null
+              : lawDecider.get(lawId) ?? null,
         message: typeof problem?.message === 'string' ? problem.message.slice(0, 400) : null,
       }
     })
+    // A report is a fact about the code AT THE TIME IT RAN. Whether it still covers the
+    // current laws is a second fact the card has to state, in the same paragraph as the
+    // count: an entry that reads as a current finding sends the human to fix a problem that
+    // a later decision already retired — which is exactly what a stale report did, twice.
+    const recorded = report.value !== undefined && report.value !== null && typeof report.value === 'object' ? report.value : null
+    const recordedSpecHash = recorded !== null && typeof recorded.specHash === 'string' && recorded.specHash.length > 0 ? recorded.specHash : null
+    const lawsMoved = recordedSpecHash !== null && typeof currentSpecHash === 'string' && currentSpecHash.length > 0 && recordedSpecHash !== currentSpecHash
     return {
       kind: 'red-gate',
       id: 'verify',
       title: `the last recorded verification found ${count} problem${count === 1 ? '' : 's'}`,
       path: reportPath,
-      reason: `${reportPath} records ${count} problem${count === 1 ? '' : 's'} from the last verification`,
+      reason:
+        `${reportPath} records ${count} problem${count === 1 ? '' : 's'} from the last verification` +
+        (lawsMoved
+          ? `, and the laws have CHANGED since it was written (it judged ${recordedSpecHash}, the corpus now hashes to ${currentSpecHash}), so some of them may already be retired: re-run "ratchet verify" before acting on this list`
+          : ''),
       action: `read ${reportPath}, fix what it names, and re-run "ratchet verify"`,
       problems,
       problemCount: count,
+      lawsMoved,
     }
   }
   const state = readState(root)

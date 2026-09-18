@@ -1097,6 +1097,10 @@ test('verifier: required_text passes when the text is present and fails when it 
     files: { 'src/auth/session.ts': 'export const x = 1\n' },
   })
   assert.deepEqual(missing.codes, ['CODE_REQUIRED_TEXT_MISSING'])
+  // The deciding record is a FIELD, not only a sentence: the red-gate card offers "Open <id>",
+  // and resolving that id later from the compiled law set fails exactly when it matters — a
+  // law retired since the report was written is no longer in the bundle.
+  assert.equal(missing.problems[0].adrId, '0001', `adrId must survive in the report: ${JSON.stringify(missing.problems[0])}`)
 })
 
 test('verifier: forbidden_text reports the file and line of the first match', async () => {
