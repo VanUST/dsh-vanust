@@ -463,55 +463,94 @@ if (resolveService !== undefined) {
   )
 }
 
-// Drive the SPAWN seam itself. The panel reported "a resolver was started" for a child
-// that never existed, because the route returned before `subagents.start` settled: the
-// promise rejected, the rejection was only logged, and the window told the human the
-// resolution had begun. `startResolver` is the awaited form, and these cases measure the
-// verdict it returns — a rejection is a refusal, and only an accepted run is `spawned`.
+// Drive the DISPATCH seam itself. The panel once reported "a resolver was started" for a
+// child that never existed, because the route returned before the start settled. Two
+// stronger properties are measured here: the start is AWAITED (a rejection is a refusal),
+// and a second dispatch STEERS the resolver already working on the project instead of
+// starting a rival that would race it for the same manifest.
 {
-  // The start request REQUIRES a `signal`, and the provider reads it before publishing the
-  // child. Omitting it made `subagents.start` throw inside the provider with
-  // "Cannot read properties of undefined (reading 'aborted')" — so this stub records what
-  // it was handed, and the claim below refuses a call that carried no signal.
-  let seenRequest = null
-  const spawned = await panelHost.startResolver({
-    runtime: { start: async (provider, request) => { seenRequest = { provider, request }; return { localAgent: { session: { header: { id: 'child-1' } } }, result: Promise.resolve() } } },
+  let startSpec = null
+  const runtime = {
+    startContinuable: async (spec) => { startSpec = spec; return { childId: 'child-1', messageId: 'm1' } },
+    sendMessage: async () => 'm2',
+  }
+  const spawned = await panelHost.dispatchResolver({
+    runtime,
     agents: { get: () => ({ id: 'parent' }) },
     sessionId: 'parent',
     prompt: 'task',
-    adrId: '0001',
+    adrId: 'batch-2',
     log: null,
   })
-  const rejected = await panelHost.startResolver({
-    runtime: { start: async () => { throw new Error('MODEL_NOT_ALLOWED: the resolver route is refused') } },
+  let steeredTo = null
+  const steered = await panelHost.dispatchResolver({
+    runtime: { startContinuable: async () => { throw new Error('should not start a second child') }, sendMessage: async (_parent, childId) => { steeredTo = childId; return 'm3' } },
+    agents: { get: () => ({ id: 'parent' }) },
+    sessionId: 'parent',
+    prompt: 'more work',
+    adrId: '0050',
+    previousChildId: 'child-1',
+    previousParentSessionId: 'parent',
+    log: null,
+  })
+  const busy = await panelHost.dispatchResolver({
+    runtime: { startContinuable: async () => ({ childId: 'nope' }), sendMessage: async () => 'm' },
+    agents: { get: () => ({ id: 'other' }) },
+    sessionId: 'other-session',
+    prompt: 'task',
+    adrId: '0051',
+    previousChildId: 'child-1',
+    previousParentSessionId: 'parent',
+    log: null,
+  })
+  const rejected = await panelHost.dispatchResolver({
+    runtime: { startContinuable: async () => { throw new Error('MODEL_NOT_ALLOWED: refused') }, sendMessage: async () => 'm' },
     agents: { get: () => ({ id: 'parent' }) },
     sessionId: 'parent',
     prompt: 'task',
-    adrId: '0001',
+    adrId: '0052',
     log: null,
   })
-  const noRuntime = await panelHost.startResolver({ runtime: undefined, agents: { get: () => ({}) }, sessionId: 'parent', prompt: 'task', adrId: '0001' })
-  const noAgent = await panelHost.startResolver({ runtime: { start: async () => ({}) }, agents: { get: () => undefined }, sessionId: 'gone', prompt: 'task', adrId: '0001' })
+  const noRuntime = await panelHost.dispatchResolver({ runtime: undefined, agents: { get: () => ({}) }, sessionId: 'parent', prompt: 'task', adrId: '0053' })
+  const noAgent = await panelHost.dispatchResolver({ runtime, agents: { get: () => undefined }, sessionId: 'gone', prompt: 'task', adrId: '0054' })
   claim(
-    'a resolver is called started only when the runtime ACCEPTED it; a rejected start is a refusal',
+    'a dispatch is called started only when the runtime ACCEPTED it, and a second one steers the running resolver',
     spawned.spawned === true &&
       spawned.childId === 'child-1' &&
-      seenRequest?.provider === 'spawn' &&
-      seenRequest?.request?.signal !== undefined &&
-      seenRequest.request.signal !== null &&
-      typeof seenRequest.request.signal.aborted === 'boolean' &&
-      seenRequest.request.parent?.id === 'parent' &&
-      Array.isArray(seenRequest.request.prompt) &&
-      seenRequest.request.prompt[0]?.type === 'text' &&
-      seenRequest.request.prompt[0]?.text === 'task' &&
+      startSpec?.provider === 'spawn' &&
+      typeof startSpec?.label === 'string' &&
+      Array.isArray(startSpec?.request?.prompt) &&
+      startSpec.request.prompt[0]?.type === 'text' &&
+      startSpec.request.prompt[0]?.text === 'task' &&
+      startSpec?.request?.parent?.id === 'parent' &&
+      typeof startSpec?.signal?.aborted === 'boolean' &&
+      steered.steered === true &&
+      steered.childId === 'child-1' &&
+      steeredTo === 'child-1' &&
+      busy.refusal?.status === 409 &&
+      busy.refusal?.code === 'resolve-busy' &&
       rejected.spawned === undefined &&
       rejected.refusal?.status === 502 &&
       /MODEL_NOT_ALLOWED/.test(rejected.refusal.message) &&
-      noRuntime.spawned === undefined &&
       noRuntime.refusal?.status === 503 &&
-      noAgent.spawned === undefined &&
       noAgent.refusal?.status === 404,
-    JSON.stringify({ provider: seenRequest?.provider, signal: seenRequest?.request?.signal?.aborted, prompt: seenRequest?.request?.prompt, spawned, rejected, noRuntime, noAgent }),
+    JSON.stringify({ spawned, steered, busy, rejected: rejected.refusal, noRuntime: noRuntime.refusal?.code, noAgent: noAgent.refusal?.status }),
+  )
+}
+
+// The ratchet's batch prompt is what makes one resolver possible: the steps several records
+// share are stated ONCE, so a child cannot make the same decision several ways.
+{
+  const batch = resolveService.prompt({ root: resolveRoot, ids: ['0001', '0002'] })
+  const one = resolveService.prompt({ root: resolveRoot, ids: ['0001'] })
+  claim(
+    'the resolve service builds one prompt for a batch and reports a record it could not plan',
+    batch.ok === true &&
+      JSON.stringify(batch.ids) === JSON.stringify(['0001']) &&
+      JSON.stringify(batch.skipped) === JSON.stringify([{ id: '0002', reason: 'no record "0002" is in the corpus' }]) &&
+      one.ok === true &&
+      /ADR 0001/.test(one.prompt),
+    JSON.stringify({ ids: batch.ids, skipped: batch.skipped, oneHasRecord: one.ok === true && /ADR 0001/.test(one.prompt) }),
   )
 }
 

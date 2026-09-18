@@ -1630,12 +1630,20 @@ claim(
 // differ. The plan, its steps and the declined reasons are the ratchet's text, read from
 // the resolve route; this bundle sends one of two `decision` values and nothing else.
 const blockedView = Object.assign({}, synthetic, {
-  needsHuman: [{
-    kind: 'blocked', id: '0017', title: 'a decision awaiting a human', path: 'synthetic/0017.adr.md',
-    reason: 'the zone "zone-a" is undeclared, so this record cannot enter force',
-    action: 'declare the zone, or point the record at one that is declared',
-    draft: null, draftReason: null, steps: [], humanRequired: true,
-  }],
+  needsHuman: [
+    {
+      kind: 'blocked', id: '0017', title: 'a decision awaiting a human', path: 'synthetic/0017.adr.md',
+      reason: 'the zone "zone-a" is undeclared, so this record cannot enter force',
+      action: 'declare the zone, or point the record at one that is declared',
+      draft: null, draftReason: null, steps: [], humanRequired: true,
+    },
+    {
+      kind: 'blocked', id: '0018', title: 'another blocked decision', path: 'synthetic/0018.adr.md',
+      reason: 'the zone "zone-b" is undeclared, so this record cannot enter force',
+      action: 'declare the zone, or point the record at one that is declared',
+      draft: null, draftReason: null, steps: [], humanRequired: true,
+    },
+  ],
   needsHumanTruncated: null,
 })
 const resolveCalls = []
@@ -1660,11 +1668,13 @@ const renderBlocked = async (tag) => {
 }
 const planBody = (overrides) => Object.assign({ ok: true, id: '0017', title: 'a decision awaiting a human', path: 'synthetic/0017.adr.md', authority: 'agent', status: 'proposed', zones: ['zone-a'], steps: [{ op: 'declare-zone', zone: 'zone-a', paths: ['src/api/**'], agentAuthority: 'proposeOnly', detail: 'declare zone "zone-a" with src/api/**' }], humanRequired: false, declined: [], reason: null }, overrides)
 
-// The card asks the route for the plan, then a Resolve click starts ONE resolver.
+// The card reads the plan, and a Resolve click QUEUES the record. Nothing is dispatched
+// until the window closes, because a resolver edits the project manifest and one per click
+// is one surviving edit and five lost ones.
 resolveHostHandler = (call) => {
   resolveCalls.push(call)
   if (call.method === 'GET') return { status: 200, body: planBody() }
-  return { status: 200, body: { ok: true, id: '0017', spawned: true, steps: planBody().steps, declined: [] } }
+  return { status: 200, body: { ok: true, ids: ['0017'], spawned: true, steered: false, childId: 'child-1', humanRequiredIds: [], skipped: [] } }
 }
 const beforeResolve = resolveCalls.length
 const resolvedNodes = await renderBlocked('blocked-resolve')
@@ -1676,22 +1686,39 @@ claim(
   JSON.stringify(resolveCallsFrom(beforeResolve).map((call) => ({ method: call.method, url: call.url }))),
 )
 if (resolveButton !== undefined) resolveButton.props.onClick()
+// A SECOND blocked card is queued too: the point of the batch is that closing sends one
+// request for all of them, not one per click.
+const secondResolve = resolvedNodes.filter((node) => node.tag === 'button' && node.text === 'Resolve')[1]
+if (secondResolve !== undefined) secondResolve.props.onClick()
 await new Promise((resolveTick) => setTimeout(resolveTick, 20))
 await flush(
   React.createElement(registry['shell.overlay'].Component, Object.assign({}, overlayForRows, { usePanel: (selector) => selector(panelStore.getSnapshot()), load: () => Promise.resolve(blockedView) })),
   'blocked-resolve',
 )
+claim(
+  'and the Resolve click QUEUES the record instead of dispatching one resolver per click',
+  resolveCallsFrom(beforeResolve).filter((call) => call.method === 'POST').length === 0 &&
+    nodes.filter((node) => node.tag === 'button' && node.text === 'Queued \u2014 remove').length === 2 &&
+    nodes.some((node) => typeof node.text === 'string' && node.text.includes('one resolver will start')),
+  JSON.stringify({ posts: resolveCallsFrom(beforeResolve).filter((call) => call.method === 'POST').length, buttons: nodes.filter((node) => node.tag === 'button').map((node) => node.text) }),
+)
+// Closing the window is what dispatches: ONE POST carrying every queued record.
+const closeButton = nodes.find((node) => node.tag === 'button' && node.text === 'Close')
+if (closeButton !== undefined) closeButton.props.onClick()
+await new Promise((resolveTick) => setTimeout(resolveTick, 20))
 const resolvePosts = resolveCallsFrom(beforeResolve).filter((call) => call.method === 'POST')
 claim(
-  'and the Resolve click posts a resolve request, never a consent',
-  resolvePosts.length === 1 && resolvePosts[0].body !== null && resolvePosts[0].body.decision === 'resolve' && resolvePosts[0].body.adrId === '0017' && resolvePosts[0].body.comment === null,
+  'and closing the window dispatches the whole queue as ONE batch request',
+  resolvePosts.length === 1 &&
+    resolvePosts[0].body !== null &&
+    resolvePosts[0].body.decision === 'resolve' &&
+    Array.isArray(resolvePosts[0].body.adrIds) &&
+    JSON.stringify(resolvePosts[0].body.adrIds) === JSON.stringify(['0017', '0018']) &&
+    resolvePosts[0].body.adrId === undefined,
   JSON.stringify(resolvePosts[0] === undefined ? null : resolvePosts[0].body),
 )
-claim(
-  'and the outcome says a resolver started rather than claiming a consent',
-  nodes.map((node) => node.text).some((text) => typeof text === 'string' && text.includes('A resolver was started')),
-  JSON.stringify(nodes.map((node) => node.text).filter((text) => typeof text === 'string' && text.includes('resolver'))),
-)
+// The close unmounted the window, so the following cases need it open again.
+panelStore.set({ open: true, sessionId: 'stub-session' })
 
 // A plan with a step only a human can carry must NOT offer a working Resolve: a child
 // spawned there could not finish, so the button is disabled and says why.

@@ -508,3 +508,19 @@ can be dropped again. **The limit:** the request is pinned field-by-field agains
 harness's own tool call and a real child was started in this composition through the public
 `subagent` seam, but the panel's own spawn has not been driven live end to end — doing so
 needs a model turn and would have the child edit a fixture project.
+
+**And one resolver per PROJECT, not per click.** Six blocked records were each given their
+own resolver, and six agents then edited one `.dsh/project.json` at once: last write won, the
+only surviving change was unrelated (a `scopes` entry rewritten from `experiments` to
+`assets`), no zone was declared, and the six blocked records were still blocked. So
+**Resolve now QUEUES** and closing the window dispatches the whole queue as ONE request;
+`resolverPrompt` accepts a batch and states a step several records share ONCE (`declare-zone
+art` four times is one decision about one zone, and an agent told to make it four times can
+make it four different ways). The host starts one **continuable** child and a later batch
+**steers** it with `sendMessage` rather than starting a rival; a dispatch from a different
+Session is refused `resolve-busy`, because delivery follows the direct-parent relation and a
+second child would race the first for the same manifest. Records with a `humanOnly` step are
+reported in `humanRequiredIds` and left out of the batch, so one of them cannot poison the
+rest. What this does NOT fix: two people (or two machines) with the panel open on the same
+project are still two resolvers, because the memory of the running child is per plugin
+activation, not shared state.

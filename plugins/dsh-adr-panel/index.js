@@ -523,35 +523,43 @@ async function resolveProject(ctx, sessionId, requirement) {
 }
 
 /**
- * Starts ONE resolver child on the ratchet's own prompt, and reports only what happened.
+ * Delivers one resolver task to the project, starting a resolver or STEERING the one
+ * already running, and reports only what happened.
  *
- * The AWAIT here is the whole point. `subagents.start` resolves when the provider has
- * actually established the run — the child session exists and its initial prompt was
- * accepted — and rejects when it could not (no provider, no model, a veto, a bad parent).
- * Returning "started" before that promise settles reports a resolver that may never have
- * existed, which is the failure this function was written to remove: the window said the
- * resolution had begun, the human reloaded, and nothing had changed because nothing had
- * started. The run's own RESULT is still not awaited — a resolver is a model turn that can
- * take minutes, and an HTTP handler that waited for it would hold the socket — so a later
- * turn failure is logged and read back through the state route like any other proposal.
+ * Two properties are the whole reason this is not a plain `start`:
+ *
+ *   - **The AWAIT is the verdict.** `startContinuable` and `sendMessage` resolve when the
+ *     runtime has actually accepted the work and reject when it could not (no provider, no
+ *     model, a veto, a bad parent). Reporting "started" before that settles is how the
+ *     window once said a resolution had begun while nothing existed — the human reloaded and
+ *     nothing had changed. A rejection is the refusal this function returns.
+ *   - **One agent per project.** A resolver edits one `.dsh/project.json`; six of them
+ *     running at once produced one surviving edit and four zones still undeclared. A child
+ *     the runtime keeps continuable can be sent more work, so a second dispatch goes to the
+ *     SAME child instead of racing it. `previousChildId` is that child, remembered by the
+ *     route per project; a child started by a different Session cannot be steered (delivery
+ *     follows the direct-parent relation), so that case refuses rather than starting a rival.
+ *
+ * The request is the shape the harness's own `subagent` tool sends: `prompt` is a
+ * `ContentBlock[]`, and `signal` is REQUIRED — the provider reads it before publishing the
+ * child, and omitting it is what made the first version throw on `signal.aborted`. The
+ * controller is per dispatch and deliberately not this request's own abort: the HTTP
+ * response is written within milliseconds and must not cancel a resolver that outlives it.
  *
  * @param runtime - The `subagents` service, or anything. A missing one is a named refusal.
  * @param agents - The `agents` registry, or anything. A missing one is a named refusal.
- * @param sessionId - The Session whose live agent is the child's parent.
- * @param prompt - The ratchet's resolver prompt.
- * @param adrId - The record id, for the child's label and the log line.
- * @param log - A `{ warn }` sink, or anything (a missing log is not a failure).
- * @returns A promise of `{ spawned: true, childId }` when the child exists, otherwise
- *   `{ refusal: { status, code, message } }`. It passes the REQUIRED `signal` the start
- *   request demands, on its own controller: the response's abort must never cancel a
- *   resolver that is meant to outlive the click. The prompt string is wrapped as the
- *   `ContentBlock[]` the request wants.
- *   `{ refusal: { status, code, message } }`. Never rejects: a rejected start is the
- *   refusal this function exists to produce.
+ * @param sessionId - The Session whose live agent is the resolver's parent.
+ * @param prompt - The ratchet's resolver prompt, as a string.
+ * @param adrId - The record id or batch label, for the child's label and the log line.
+ * @param previousChildId - The resolver already working for this project, or `null`.
+ * @param previousParentSessionId - The Session that started `previousChildId`, or `null`.
+ * @param log - A `{ warn, info }` sink, or anything (a missing log is not a failure).
+ * @returns A promise of `{ spawned: true } | { steered: true, childId }` with `childId`,
+ *   otherwise `{ refusal: { status, code, message } }`. Never rejects.
  */
-export async function startResolver({ runtime, agents, sessionId, prompt, adrId, log } = {}) {
-  if (runtime === undefined || runtime === null || typeof runtime.start !== 'function') {
-    return { refusal: { status: 503, code: 'resolve-unavailable', message: `no ${SUBAGENTS_SERVICE} runtime is mounted, so the panel cannot start a resolver: ask the agent in this session to run \`ratchet resolve ${String(adrId)}\` and carry out the steps it prints` } }
+export async function dispatchResolver({ runtime, agents, sessionId, prompt, adrId, previousChildId = null, previousParentSessionId = null, log } = {}) {
+  if (runtime === undefined || runtime === null || typeof runtime.startContinuable !== 'function' || typeof runtime.sendMessage !== 'function') {
+    return { refusal: { status: 503, code: 'resolve-unavailable', message: `no ${SUBAGENTS_SERVICE} runtime with continuable children is mounted, so the panel cannot start a resolver: ask the agent in this session to run \`ratchet resolve ${String(adrId)}\` and carry out the steps it prints` } }
   }
   if (agents === undefined || agents === null || typeof agents.get !== 'function') {
     return { refusal: { status: 503, code: 'resolve-unavailable', message: `no ${AGENTS_SERVICE} registry is mounted, so the Session cannot be resolved to a live agent to parent the resolver` } }
@@ -560,54 +568,58 @@ export async function startResolver({ runtime, agents, sessionId, prompt, adrId,
   if (parent === undefined || parent === null) {
     return { refusal: { status: 404, code: 'unknown-session', message: `Session "${String(sessionId)}" has no live agent, so there is nothing to parent a resolver: open the panel from an active Session` } }
   }
-  // `signal` is REQUIRED by the subagent start request, and it is the cancellation channel
-  // the provider reads before it publishes the child (`request.signal.aborted`). It cannot
-  // be this request's own abort signal: the HTTP response is written within milliseconds
-  // of the start and the browser closing that connection must not cancel a resolver that
-  // is meant to keep working. A fresh controller per resolver is the honest lifetime — it
-  // is aborted only if the server is shutting the run down, which the runtime owns.
+  const content = [{ type: 'text', text: String(prompt) }]
+  const warn = (message) => {
+    try {
+      log?.warn?.(message)
+    } catch {
+      // Logging must never be the reason a refusal fails to be reported.
+    }
+  }
+
+  if (typeof previousChildId === 'string' && previousChildId.length > 0) {
+    if (typeof previousParentSessionId === 'string' && previousParentSessionId.length > 0 && previousParentSessionId !== sessionId) {
+      return { refusal: { status: 409, code: 'resolve-busy', message: `a resolver for this project is already working in Session ${previousParentSessionId}; it will pick up only what that Session sends, so open the panel there or wait for it to finish` } }
+    }
+    const steering = new AbortController()
+    try {
+      await runtime.sendMessage(parent, previousChildId, content, { signal: steering.signal })
+      try {
+        log?.info?.(`resolver steered child=${previousChildId} for ${String(adrId)}`)
+      } catch {
+        // Same.
+      }
+      return { steered: true, childId: previousChildId }
+    } catch (error) {
+      // An idle, released or one-shot child is not steerable. Start a fresh one rather than
+      // losing the dispatch; the remembered id is replaced by the caller.
+      warn(`the running resolver could not be steered (${String(error)}); starting a new one`)
+    }
+  }
+
   const cancellation = new AbortController()
-  let run
+  let started
   try {
-    // `prompt` is a `ContentBlock[]`, not a string — the same shape the `subagent` tool
-    // sends (`[{ type: 'text', text }]`). A bare string is accepted by the type at this
-    // boundary only because nothing checks it before the child's first message is built.
-    run = await runtime.start(RESOLVE_PROVIDER, {
-      parent,
-      prompt: [{ type: 'text', text: String(prompt) }],
+    started = await runtime.startContinuable({
+      provider: RESOLVE_PROVIDER,
       label: `resolve-${String(adrId)}`,
+      request: { parent, prompt: content },
       signal: cancellation.signal,
     })
   } catch (error) {
     const message = error !== null && error !== undefined && typeof error.message === 'string' && error.message.length > 0 ? error.message : String(error)
-    try {
-      log?.warn?.(`the resolver for ${String(adrId)} could not be started: ${message}`)
-    } catch {
-      // Logging must never be the reason a refusal fails to be reported.
-    }
+    warn(`the resolver for ${String(adrId)} could not be started: ${message}`)
     return { refusal: { status: 502, code: 'resolve-failed', message: `the resolver could not be started: ${message}` } }
   }
-  const childId = run?.localAgent?.session?.header?.id ?? null
+  const childId = started?.childId ?? null
   try {
     log?.info?.(`resolver started for ${String(adrId)} child=${String(childId)}`)
   } catch {
     // Same.
   }
-  // The run is kept alive by the runtime; its result is observed only so a failure after
-  // publication is not silent. Nothing about it reaches this response.
-  const result = run?.result
-  if (result !== undefined && result !== null && typeof result.catch === 'function') {
-    // Keep the controller referenced for the run's whole lifetime, so nothing collects the
-    // signal out from under the child.
-    void cancellation
-    result.catch((error) => {
-      try {
-        log?.warn?.(`the resolver for ${String(adrId)} failed: ${String(error)}`)
-      } catch {
-        // Same.
-      }
-    })
-  }
+  // Keep the controller referenced for the resolver's lifetime, so nothing collects the
+  // signal out from under the child.
+  void cancellation
   return { spawned: true, childId }
 }
 
@@ -643,15 +655,27 @@ function createResolveHandler(ctx, token, log) {
     unavailable: `no ${RESOLVE_SERVICE} service is mounted, so the ratchet cannot plan a resolution: mount @cc/dsh-ratchet beside this plugin`,
   }
 
-  const start = (sessionId, prompt, adrId) =>
-    startResolver({
+  // ONE resolver per project. The key is the project root, so two Sessions looking at the
+  // same manifest cannot each start a resolver that edits it.
+  const resolvers = new Map()
+  const dispatch = (sessionId, prompt, adrId, root) => {
+    const remembered = resolvers.get(root) ?? null
+    return dispatchResolver({
       runtime: ctx.get(SUBAGENTS_SERVICE),
       agents: ctx.get(AGENTS_SERVICE),
       sessionId,
       prompt,
       adrId,
+      previousChildId: remembered === null ? null : remembered.childId,
+      previousParentSessionId: remembered === null ? null : remembered.parentSessionId,
       log,
+    }).then((result) => {
+      if (result.refusal === undefined && typeof result.childId === 'string' && result.childId.length > 0) {
+        resolvers.set(root, { childId: result.childId, parentSessionId: sessionId })
+      }
+      return result
     })
+  }
 
   return async function handleResolve(req, res) {
     try {
@@ -723,9 +747,16 @@ function createResolveHandler(ctx, token, log) {
         sendRefusal(res, 400, 'bad-request', 'the request body must be a JSON object')
         return
       }
-      const { session, adrId, decision, comment } = parsed
-      if (typeof adrId !== 'string' || adrId.length === 0) {
-        sendRefusal(res, 400, 'bad-request', 'the body must name the decision in "adrId"')
+      const { session, adrId, adrIds, decision, comment } = parsed
+      // The batch form is what the window dispatches when it closes: every record the human
+      // queued goes to ONE resolver. `adrId` stays for a single record and for the tests.
+      const wanted = Array.isArray(adrIds) && adrIds.length > 0
+        ? adrIds.filter((entry) => typeof entry === 'string' && entry.length > 0)
+        : typeof adrId === 'string' && adrId.length > 0
+          ? [adrId]
+          : []
+      if (wanted.length === 0) {
+        sendRefusal(res, 400, 'bad-request', 'the body must name at least one decision in "adrId" or "adrIds"')
         return
       }
       if (decision !== 'resolve' && decision !== 'decline') {
@@ -738,45 +769,65 @@ function createResolveHandler(ctx, token, log) {
         return
       }
       if (decision === 'decline') {
+        // A refusal is about ONE record: it is the human's reason the proposed resolution for
+        // that record is wrong, and a batch of reasons would be a batch of judgements.
         let recorded
         try {
-          recorded = located.service.decline({ root: located.root, id: adrId, comment: typeof comment === 'string' ? comment : null })
+          recorded = located.service.decline({ root: located.root, id: wanted[0], comment: typeof comment === 'string' ? comment : null })
         } catch (error) {
           log.warn(`the ratchet's resolve decline threw: ${String(error)}`)
           sendRefusal(res, 500, 'resolve-failed', `the ratchet could not record the refusal: ${String(error)}`)
           return
         }
-        log.info(`resolve declined id=${adrId} recorded=${String(recorded?.recorded === true)}`)
+        log.info(`resolve declined id=${wanted[0]} recorded=${String(recorded?.recorded === true)}`)
         sendJson(res, 200, { ...recorded, root: located.root })
         return
       }
       let prompted
       try {
-        prompted = located.service.prompt({ root: located.root, id: adrId })
+        prompted = located.service.prompt({ root: located.root, ids: wanted })
       } catch (error) {
         log.warn(`the ratchet's resolver prompt threw: ${String(error)}`)
         sendRefusal(res, 500, 'resolve-failed', `the ratchet could not build a resolver prompt: ${String(error)}`)
         return
       }
       if (prompted === null || prompted === undefined || prompted.ok !== true || typeof prompted.prompt !== 'string') {
-        sendJson(res, 200, { ok: false, id: adrId, plan: prompted === null || prompted === undefined ? null : prompted.plan ?? null, message: prompted === null || prompted === undefined ? 'the ratchet returned no plan' : prompted.reason ?? 'the ratchet returned no plan' })
+        sendJson(res, 200, { ok: false, ids: wanted, plan: prompted === null || prompted === undefined ? null : prompted.plan ?? null, message: prompted === null || prompted === undefined ? 'the ratchet returned no plan' : prompted.reason ?? 'the ratchet returned no plan' })
         return
       }
-      const plan = prompted.plan ?? {}
-      if (plan.humanRequired === true) {
-        // A `humanOnly` zone refuses an agent record however a human answers, so a child
-        // spawned here could not finish the work. The route reports the step that needs a
-        // human instead of starting one that is doomed to stop.
-        log.info(`resolve refused id=${adrId}: humanRequired`)
-        sendJson(res, 200, { ok: false, id: adrId, humanRequired: true, steps: plan.steps ?? [], declined: plan.declined ?? [], message: 'this record has a step only a human can carry, so no resolver was started' })
+      // A record with a `humanOnly` step is separated OUT of the batch rather than poisoning
+      // it: a `humanOnly` zone refuses an agent record however a human answers, so a child told
+      // to carry that step could not finish, while the records beside it are still resolvable.
+      const plans = Array.isArray(prompted.plans) ? prompted.plans : []
+      const human = plans.filter((plan) => plan.humanRequired === true)
+      const auto = plans.filter((plan) => plan.humanRequired !== true)
+      if (auto.length === 0) {
+        log.info(`resolve refused ids=${wanted.join(',')}: humanRequired`)
+        sendJson(res, 200, { ok: false, ids: wanted, humanRequired: true, humanRequiredIds: human.map((plan) => plan.id), steps: human[0]?.steps ?? [], message: 'every named record has a step only a human can carry, so no resolver was started' })
         return
       }
-      const started = await start(session, prompted.prompt, adrId)
-      if (started.refusal !== undefined) {
-        sendRefusal(res, started.refusal.status, started.refusal.code, started.refusal.message)
+      let promptForAuto = prompted.prompt
+      if (human.length > 0) {
+        // The batch prompt must not name a step the child may not carry, so it is rebuilt from
+        // the automatable plans alone.
+        const rebuilt = located.service.prompt({ root: located.root, ids: auto.map((plan) => plan.id) })
+        if (rebuilt !== null && rebuilt !== undefined && rebuilt.ok === true && typeof rebuilt.prompt === 'string') promptForAuto = rebuilt.prompt
+      }
+      const label = auto.length === 1 ? auto[0].id : `batch-${String(auto.length)}`
+      const dispatched = await dispatch(session, promptForAuto, label, located.root)
+      if (dispatched.refusal !== undefined) {
+        sendRefusal(res, dispatched.refusal.status, dispatched.refusal.code, dispatched.refusal.message)
         return
       }
-      sendJson(res, 200, { ok: true, id: adrId, spawned: started.spawned === true, childId: started.childId ?? null, steps: plan.steps ?? [], declined: plan.declined ?? [] })
+      sendJson(res, 200, {
+        ok: true,
+        ids: auto.map((plan) => plan.id),
+        spawned: dispatched.spawned === true,
+        steered: dispatched.steered === true,
+        childId: dispatched.childId ?? null,
+        humanRequiredIds: human.map((plan) => plan.id),
+        skipped: prompted.skipped ?? [],
+      })
     } catch (error) {
       log.warn(`the resolve route threw: ${String(error)}`)
       try {

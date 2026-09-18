@@ -11,13 +11,27 @@ action.
 A **blocked** record is a pending item, not a dead end. Its card reads the ratchet's resolve
 plan from a third route, `/adr-panel/resolve`, and draws it — the steps, whether any needs a
 human, and the reasons a human already declined — then offers **Resolve** and **Decline with
-a reason**. Resolve asks the host to start ONE resolver child on the ratchet's own prompt
-(the panel sends the record id and one `decision` value, never a step or a prompt of its
-own); Decline records why the proposed resolution is wrong, so the next attempt can differ.
-A plan with a step no agent may carry renders Resolve disabled and says so, because a child
-started there could not finish, and with no subagent runtime the route refuses with a named
-reason instead of claiming it started one. Starting a resolver mints nothing: the child
+a reason**.
+
+**Resolve QUEUES; closing the window dispatches.** One resolver per click is wrong for a
+reason that is not cost: a resolver edits the project's `.dsh/project.json`, so six of them
+running at once produced one surviving edit, five lost ones and an unrelated change, while
+no zone was declared. So a click marks the record queued, the window states the queue
+(N queued · which ids · Clear), and **closing the window sends ONE request** carrying every
+queued id. The ratchet builds one prompt from the whole batch, stating a step several
+records share ONCE — four records naming one zone are one decision about that zone. The host
+starts ONE continuable child on that prompt, and a later batch **steers the resolver already
+working** on this project (`sendMessage` to the same child) rather than starting a rival; a
+dispatch from a different Session is refused `resolve-busy`, because delivery follows the
+direct-parent relation and a rival would race it for the same manifest. A plan with a step
+no agent may carry is left out of the batch and reported in `humanRequiredIds`, so one
+`humanOnly` record cannot poison the rest. Starting a resolver mints nothing: the child
 writes a `proposed` record and the human still approves it through the row's own Approve.
+
+**A start is called started only once the runtime accepted it.** The route awaits
+`startContinuable`/`sendMessage`: a rejected start is a refusal carrying the runtime's own
+message, never a success the human cannot distinguish from work that never began.
+**Decline** records why the proposed resolution is wrong, so the next attempt can differ.
 
 
 The window is **four tabbed parts, not one long scroll**: a sticky navigator offers

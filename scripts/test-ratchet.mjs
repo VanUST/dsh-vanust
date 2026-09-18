@@ -9503,6 +9503,33 @@ test('resolve: the resolver prompt names the steps, the refusal reasons and the 
   assert.equal(resolveModule.stepIsAutomated(plan.steps[1]), false)
 })
 
+test('resolve: a batch prompt states a shared step once and names every record', () => {
+  // Six blocked records in one project are usually blocked by ONE zone map. Stating the
+  // plan once is what makes one resolver possible; stating it per record is how six agents
+  // each make the same decision differently.
+  const plan = (id, steps) => ({ ok: true, id, title: `Decision ${id}`, path: `docs/adrs/${id}.adr.md`, reason: null, steps, humanRequired: false, declined: [] })
+  const declare = { op: 'declare-zone', zone: 'art', paths: [], agentAuthority: 'proposeOnly', detail: 'declare zone "art"' }
+  const widen = { op: 'widen-or-remap-zone', lawId: 'art.one', target: 'packages/ui/**', detail: 'widen the zone' }
+  const prompt = resolveModule.resolverPrompt([
+    plan('0048', [declare, widen]),
+    plan('0049', [declare]),
+    plan('0057', [{ op: 'declare-zone', zone: 'progression', paths: [], detail: 'declare zone "progression"' }]),
+  ])
+  const occurrences = prompt.split('declare zone "art"').length - 1
+  assert.equal(occurrences, 1, `the shared step is stated once, not three times:\n${prompt}`)
+  assert.match(prompt, /Resolve 3 blocked architecture decision records/)
+  for (const id of ['0048', '0049', '0057']) assert.match(prompt, new RegExp(id), `ADR ${id} must be named`)
+  assert.match(prompt, /declare zone "progression"/, 'a record-specific step survives')
+  assert.match(prompt, /Shared steps — do each ONCE/)
+})
+
+test('resolve: one record keeps the single-record wording, and an empty batch says so', () => {
+  const single = resolveModule.resolverPrompt({ ok: true, id: '0048', title: 'T', path: 'p', reason: null, steps: [{ op: 'declare-zone', zone: 'art', detail: 'd' }], humanRequired: false, declined: [] })
+  assert.match(single, /Resolve a blocked architecture decision record in this project/)
+  assert.match(single, /Record: ADR 0048/)
+  assert.equal(resolveModule.resolverPrompt([]), 'No blocked record was named, so there is nothing to resolve.')
+})
+
 test('ratify: a declined answer records the human comment, and returns it', () => {
   // A "no" without a reason is unusable: the reason is what a later proposal is drafted
   // against, so it is written to the append-only ledger with the decision it refused.

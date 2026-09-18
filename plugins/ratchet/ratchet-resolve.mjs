@@ -206,7 +206,7 @@ export function resolveRootFor(start) {
  * prompt and records no refusal of its own. Every method is synchronous and reads or
  * appends only the ratchet's own files.
  *
- * @returns `{ plan, decline, history, prompt }`.
+ * @returns `{ plan, decline, history, rootFor, prompt }`.
  */
 export function createResolveService() {
   return {
@@ -218,11 +218,20 @@ export function createResolveService() {
     history: ({ root, id } = {}) => resolveHistory(root, id),
     /** The project root a Session workspace belongs to; the route resolves it from the Session. */
     rootFor: resolveRootFor,
-    /** The ratchet's own resolver prompt for one record, plus the plan it was built from. */
-    prompt: ({ root, id } = {}) => {
-      const plan = resolvePlan(root, id)
-      if (plan.ok !== true) return { ok: false, id, plan, prompt: null, reason: plan.reason ?? 'the plan could not be built' }
-      return { ok: true, id, plan, prompt: resolverPrompt(plan, plan.declined) }
+    /**
+     * The ratchet's own resolver prompt for one record OR a batch, plus the plans it was
+     * built from. `ids` is the batch form the panel dispatches when it closes; `id` stays
+     * for a single record. A record whose plan cannot be built is left out of the prompt
+     * and its reason is returned instead, so one bad id cannot stop the rest.
+     */
+    prompt: ({ root, id = null, ids = null } = {}) => {
+      const wanted = Array.isArray(ids) && ids.length > 0 ? ids : id === null || id === undefined ? [] : [id]
+      if (wanted.length === 0) return { ok: false, id: null, ids: [], plan: null, plans: [], skipped: [], prompt: null, reason: 'no record was named' }
+      const plans = wanted.map((entry) => resolvePlan(root, entry))
+      const usable = plans.filter((plan) => plan.ok === true)
+      const skipped = plans.filter((plan) => plan.ok !== true).map((plan) => ({ id: plan.id ?? null, reason: plan.reason ?? 'the plan could not be built' }))
+      if (usable.length === 0) return { ok: false, id: wanted[0], ids: wanted, plan: plans[0] ?? null, plans, skipped, prompt: null, reason: skipped[0]?.reason ?? 'no plan could be built' }
+      return { ok: true, id: usable[0].id, ids: usable.map((plan) => plan.id), plan: usable[0], plans: usable, skipped, prompt: resolverPrompt(usable) }
     },
   }
 }
@@ -286,41 +295,124 @@ export function resolveHistory(root, id) {
 }
 
 /**
- * Builds the task prompt a resolver child is spawned with.
+ * The key that decides whether two plan steps are the SAME step.
  *
- * It is the ratchet's own text, not the transport's: the transport passes a record id and
- * an opaque string, so it can neither invent a step nor drop one. The prompt names the
- * agent steps to carry and the human ones to leave alone, and it carries the reasons a
- * human already declined — the whole point of recording them — so an agent that is asked
- * again proposes a different resolution rather than repeating a rejected one.
+ * Six blocked records in one project are usually blocked by one zone map, so their plans
+ * repeat: four `declare-zone art` lines are one decision about one zone, and an agent told to
+ * make that decision four times can make it four different ways. Two steps merge when they
+ * name the same operation, zone, law and target; anything else is a genuinely separate step.
  *
- * @param plan - A `resolvePlan` result.
- * @param declines - The `declines` from {@link resolveHistory}, newest first.
- * @returns A prompt string. It is deliberately plain text: no tool protocol, no answer,
- *   and no instruction that could put a decision into force.
+ * @param step - One `resolveStepsFor` step.
+ * @returns A string key. Two steps with the same key are the same step.
  */
-export function resolverPrompt(plan, declines = []) {
+function stepKey(step) {
+  return [step?.op ?? '', step?.zone ?? '', step?.lawId ?? '', step?.target ?? ''].join('\u0000')
+}
+
+/**
+ * The records a batch covers, in the order the caller named them.
+ *
+ * @param plans - An array of `resolvePlan` results, or anything.
+ * @returns The plans, each kept once, with entries that name no record dropped.
+ */
+function planSet(plans) {
+  const seen = new Set()
+  const kept = []
+  for (const plan of Array.isArray(plans) ? plans : []) {
+    if (plan === null || plan === undefined || typeof plan.id !== 'string' || plan.id === '') continue
+    if (seen.has(plan.id)) continue
+    seen.add(plan.id)
+    kept.push(plan)
+  }
+  return kept
+}
+
+/**
+ * Builds the task prompt a resolver child is spawned with, for ONE record or a batch.
+ *
+ * It is the ratchet's own text, not the transport's: the transport passes record ids and gets
+ * an opaque string, so it can neither invent a step nor drop one. **Steps shared by several
+ * records are stated ONCE**, because that is what they are — one zone declared in one manifest
+ * edit — and because six agents each making the same judgement is how a manifest gets six
+ * different answers. A step only one record needs stays under that record.
+ *
+ * The prompt marks each step `[you]` or `[human only]`, carries every reason a human already
+ * declined, and never instructs a child to put anything into force.
+ *
+ * @param plans - One `resolvePlan` result, or an array of them.
+ * @param declines - Extra declines for the single-record form. A plan's own `declined` is
+ *   always read, so the route never has to fetch it separately.
+ * @returns A prompt string. A batch of no records is stated as nothing to resolve.
+ */
+export function resolverPrompt(plans, declines = []) {
+  const list = planSet(Array.isArray(plans) ? plans : [plans])
+  if (list.length === 0) return 'No blocked record was named, so there is nothing to resolve.'
+  const single = list.length === 1
   const lines = []
-  lines.push('Resolve a blocked architecture decision record in this project.')
+  lines.push(single ? 'Resolve a blocked architecture decision record in this project.' : `Resolve ${list.length} blocked architecture decision records in this project.`)
   lines.push('')
-  lines.push(`Record: ADR ${plan.id}${plan.title === undefined || plan.title === null ? '' : ` — ${plan.title}`}`)
-  if (typeof plan.path === 'string' && plan.path.length > 0) lines.push(`File: ${plan.path}`)
-  if (typeof plan.reason === 'string' && plan.reason.length > 0) lines.push(`Status: ${plan.reason}`)
-  lines.push('')
-  lines.push('The deterministic plan names these steps:')
-  const steps = Array.isArray(plan.steps) ? plan.steps : []
-  if (steps.length === 0) lines.push('- (no structural step was found; inspect the record and the gate report yourself)')
-  for (const step of steps) {
-    lines.push(`- ${stepIsAutomated(step) ? '[you]' : '[human only]'} ${step.op}${typeof step.zone === 'string' ? ` (zone ${step.zone})` : ''}${typeof step.target === 'string' ? ` (target ${step.target})` : ''}: ${typeof step.detail === 'string' ? step.detail : ''}`)
+  if (single) {
+    const plan = list[0]
+    lines.push(`Record: ADR ${plan.id}${plan.title === undefined || plan.title === null ? '' : ` — ${plan.title}`}`)
+    if (typeof plan.path === 'string' && plan.path.length > 0) lines.push(`File: ${plan.path}`)
+    if (typeof plan.reason === 'string' && plan.reason.length > 0) lines.push(`Status: ${plan.reason}`)
+  } else {
+    lines.push('The records:')
+    for (const plan of list) {
+      lines.push(`- ADR ${plan.id}${typeof plan.title === 'string' && plan.title !== '' ? ` — ${plan.title}` : ''}${typeof plan.path === 'string' && plan.path !== '' ? ` (${plan.path})` : ''}`)
+    }
   }
-  const reasons = (declines ?? []).filter((entry) => entry !== null && typeof entry.comment === 'string' && entry.comment.length > 0)
+  lines.push('')
+
+  // One bucket per distinct step, with every record that needs it. Insertion order is the
+  // order the records were named, so the same input always produces the same prompt.
+  const buckets = new Map()
+  for (const plan of list) {
+    for (const step of Array.isArray(plan.steps) ? plan.steps : []) {
+      const key = stepKey(step)
+      if (!buckets.has(key)) buckets.set(key, { step, ids: [] })
+      buckets.get(key).ids.push(plan.id)
+    }
+  }
+  const entries = [...buckets.values()]
+  const shared = entries.filter((entry) => entry.ids.length > 1)
+  const once = entries.filter((entry) => entry.ids.length === 1)
+  const render = (entry) => {
+    const step = entry.step
+    const where =
+      (typeof step.zone === 'string' ? ` (zone ${step.zone})` : '') + (typeof step.target === 'string' ? ` (target ${step.target})` : '')
+    return `- ${stepIsAutomated(step) ? '[you]' : '[human only]'} ${String(step.op)}${where}: ${typeof step.detail === 'string' ? step.detail : ''}`
+  }
+
+  if (entries.length === 0) {
+    lines.push('No structural step was found; inspect the records and the gate report yourself.')
+  } else {
+    lines.push(single ? 'The deterministic plan names these steps:' : 'Shared steps — do each ONCE, and decide it once:')
+    for (const entry of shared) lines.push(render(entry))
+    if (!single && once.length > 0) {
+      lines.push('')
+      lines.push('Steps one record needs:')
+    }
+    for (const entry of once) lines.push(`${render(entry)}${single ? '' : `  [for ADR ${entry.ids[0]}]`}`)
+  }
+  lines.push('')
+
+  const reasons = []
+  for (const plan of list) {
+    for (const entry of Array.isArray(plan.declined) ? plan.declined : []) {
+      if (entry !== null && typeof entry.comment === 'string' && entry.comment.length > 0) reasons.push({ id: plan.id, comment: entry.comment })
+    }
+  }
+  for (const entry of Array.isArray(declines) ? declines : []) {
+    if (entry !== null && typeof entry.comment === 'string' && entry.comment.length > 0) reasons.push({ id: null, comment: entry.comment })
+  }
   if (reasons.length > 0) {
+    lines.push('A human has ALREADY DECLINED a resolution here. Do not propose what these reasons rejected; address them instead:')
+    for (const entry of reasons) lines.push(`- ${entry.id === null ? '' : `ADR ${entry.id}: `}${entry.comment}`)
     lines.push('')
-    lines.push('A human has ALREADY DECLINED a resolution for this record. Do not propose what these reasons rejected; address them instead:')
-    for (const entry of reasons) lines.push(`- ${entry.comment}`)
   }
-  lines.push('')
+
   lines.push('Carry out every step marked [you]. Leave every step marked [human only] to the human and say so — never write `authority: human`, and never put a record into force: your proposal is `proposed` and a human ratifies it.')
-  lines.push(`Run \`node plugins/ratchet/ratchet-cli.mjs compile\` and \`node plugins/ratchet/ratchet-cli.mjs verify\` from the project root when you are done, and report exactly what you changed and what the gate now says.`)
+  lines.push('Run `node plugins/ratchet/ratchet-cli.mjs compile` and `node plugins/ratchet/ratchet-cli.mjs verify` from the project root when you are done, and report exactly what you changed and what the gate now says.')
   return lines.join('\n')
 }
