@@ -84,6 +84,13 @@
  *   and every other kind is one collapsible batch, with the same order, the same hash
  *   shortening, the same stated truncation and the same way into the record it concerns.
  *
+ *   A **consent** need is ACTED ON where it is: its card carries the same Approve and
+ *   Decline the Decisions row carries, and the `Open` redirect is gone from it — the human
+ *   used to switch tab, find the record and expand it to do the one thing the card is
+ *   about. Every other kind keeps its way in, because reading the record is the only thing
+ *   to do with a contradiction or a blocked record, and the Decisions row keeps its own
+ *   affordance as the fallback for a consent whose need the host's cap cut from the set.
+ *
  *   THE SECTION IS GROUPED BY KIND, because seven stale specs are seven copies of one
  *   shape while a consent, a contradiction and a duplicate are each a distinct act. The
  *   decision-shaped kinds (`consent`, `contradiction`, `duplicate`) stay individual
@@ -372,7 +379,7 @@ window.__ModuleLoader__.load({
 		 * are equal again after a release and the constant is one ahead only in the working
 		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.45";
+		const PANEL_VERSION = "0.1.47";
 		/** Directories used when the host view reports none. */
 		const DEFAULT_DECISIONS_DIR = "docs/adrs";
 		const DEFAULT_SPECS_DIR = "docs/specs";
@@ -2514,6 +2521,22 @@ window.__ModuleLoader__.load({
 					problem.message === null ? null : React.createElement(HashedText, { style: { fontSize: 12, lineHeight: "18px" }, text: problem.message }),
 					problem.adrId === null ? null : React.createElement("button", { type: "button", style: smallButtonStyle(), onClick: function () { props.onSelectAdr(problem.adrId); } }, "Open " + problem.adrId));
 			});
+			// A decision waiting for a human is ACTED ON here, not here-then-elsewhere: the row
+			// this card used to point at carried the Approve and Decline, so the human had to
+			// switch tab, find the record and expand it to do the one thing this card is about.
+			// Only a consent gets this, because only a consent has a question to answer; every
+			// other kind still offers the way IN to read the record it concerns.
+			var consentControl = need.kind !== "consent" || record === null
+				? null
+				: React.createElement(ConsentAction, {
+					adr: record,
+					canAsk: props.consent === null || props.consent === undefined ? false : props.consent.canAsk === true,
+					ask: props.consent === null || props.consent === undefined ? null : props.consent.ask,
+					settle: props.consent === null || props.consent === undefined ? null : props.consent.settle,
+					sessionId: props.consent === null || props.consent === undefined ? null : props.consent.sessionId,
+					onRecorded: props.consent === null || props.consent === undefined ? null : props.consent.onRecorded,
+					compact: true
+				});
 			var resolveControl = need.kind !== "blocked" || need.id === ""
 				? null
 				: React.createElement(ResolveControl, {
@@ -2551,8 +2574,12 @@ window.__ModuleLoader__.load({
 				drafted === null ? null : React.createElement("div", { style: mutedInlineStyle() }, "drafted: " + drafted),
 				need.draftReason === null || need.draftReason === undefined ? null : React.createElement(HashedText, { style: mutedInlineStyle(), text: need.draftReason }),
 				need.action === "" ? null : React.createElement(HashedText, { style: ctaNoteStyle(), text: need.action }),
+				consentControl,
 				resolveControl,
-				record === null ? null : React.createElement("button", { type: "button", style: smallButtonStyle(), onClick: function () { props.onSelectAdr(record.id); } }, "Open " + record.id));
+				// No "Open" for a consent: its action is above, and a redirect to a tab the human
+				// does not need is the extra step this card exists to remove. Every other kind
+				// keeps it, because reading the record it concerns is the only thing to do with it.
+				record === null || need.kind === "consent" ? null : React.createElement("button", { type: "button", style: smallButtonStyle(), onClick: function () { props.onSelectAdr(record.id); } }, "Open " + record.id));
 		}
 		/**
 		 * PURPOSE
@@ -2853,13 +2880,13 @@ window.__ModuleLoader__.load({
 				if (truncation !== null) children.push(React.createElement("p", { key: "truncated", style: warnStyle() }, truncation));
 				if (heldBack > 0) children.push(React.createElement("p", { key: "heldback", style: mutedStyle() }, "Showing " + needs.length + " of " + all.length + " needs-a-human entries; the rest are loaded and listed by the ratchet but not drawn here."));
 				parts.cards.forEach(function (need, index) {
-					children.push(React.createElement(NeedsHumanCard, { key: "card" + index, need: need, decisions: props.decisions, consents: props.consents, onSelectAdr: props.onSelectAdr, resolve: props.resolve }));
+					children.push(React.createElement(NeedsHumanCard, { key: "card" + index, need: need, decisions: props.decisions, consents: props.consents, onSelectAdr: props.onSelectAdr, resolve: props.resolve, consent: props.consent }));
 				});
 				parts.groups.forEach(function (group, index) {
 					children.push(React.createElement(NeedsHumanGroup, { key: "group" + index, group: group, truncated: props.truncated }));
 				});
 				parts.facts.forEach(function (need, index) {
-					children.push(React.createElement(NeedsHumanCard, { key: "fact" + index, need: need, decisions: props.decisions, consents: props.consents, onSelectAdr: props.onSelectAdr, resolve: props.resolve }));
+					children.push(React.createElement(NeedsHumanCard, { key: "fact" + index, need: need, decisions: props.decisions, consents: props.consents, onSelectAdr: props.onSelectAdr, resolve: props.resolve, consent: props.consent }));
 				});
 				body = React.createElement("div", { style: { display: "grid", gap: 8 } }, children);
 			}
@@ -3341,7 +3368,8 @@ window.__ModuleLoader__.load({
 		 *   `settleConsent(id, label, quiz, sessionId, comment)`, or `null` likewise.
 		 *   props.sessionId — the Session the window was opened from. props.canAsk — whether
 		 *   both are usable in this render. props.onRecorded — called after an approval is
-		 *   written, so the window re-reads the corpus that just changed.
+		 *   written, so the window re-reads the corpus that just changed. props.compact —
+		 *   render without the outer card, for embedding in a card that already has one.
 		 *
 		 * OUTPUTS
 		 *   In the idle phase: the two buttons, or — when the route is unreachable — the CLI
@@ -3484,7 +3512,10 @@ window.__ModuleLoader__.load({
 			if (phase !== null && phase.kind === "done") {
 				children.push(React.createElement(ConsentOutcome, { key: "outcome", decision: phase.decision, result: phase.result }));
 			}
-			return React.createElement("div", { style: cardStyle() }, children);
+			// Compact when it is embedded in a needs-human card: the card already has a border,
+			// and a second one inside it reads as a separate object rather than as the card's
+			// own action.
+			return React.createElement("div", { style: props.compact === true ? { marginTop: 6 } : cardStyle() }, children);
 		}
 
 		/**
@@ -4123,6 +4154,13 @@ window.__ModuleLoader__.load({
 						request: requestResolve,
 						queuedIds: queuedIds,
 						onQueue: queueToggle
+					},
+					consent: {
+						canAsk: canAsk,
+						ask: ask,
+						settle: settle,
+						sessionId: state.sessionId,
+						onRecorded: onRecorded
 					}
 				});
 			} else {

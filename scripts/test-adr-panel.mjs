@@ -2688,6 +2688,39 @@ needsFiles['reports/ratchet/verify-report.json'] = `${JSON.stringify({ generated
       unrendered.length === 0,
       unrendered.join(' | '),
     )
+    // A decision waiting for a human is acted on WHERE IT IS: the Approve and Decline that
+    // used to live only on the Decisions row are on the need's own card, and the "Open"
+    // redirect that made the human switch tab, find the record and expand it is gone. Every
+    // other kind keeps the way in, because reading the record is the only thing to do with it.
+    const needButtons = nodes.filter((node) => node.tag === 'button').map((node) => node.text)
+    claim(
+      'a consent need acts in place: Approve and Decline are on its own card',
+      needButtons.includes('Approve') && needButtons.includes('Decline'),
+      JSON.stringify(needButtons),
+    )
+    claim(
+      'and the card of a consent no longer redirects to the Decisions tab, while the other kinds still do',
+      !needButtons.includes('Open 0002') && needButtons.includes('Open 0005'),
+      JSON.stringify(needButtons.filter((text) => text.indexOf('Open ') === 0)),
+    )
+    // And it is WIRED, not merely drawn: the Approve on that card asks the consent route for
+    // the ratchet's own question about the record the card names, and posts the question's own
+    // label back — the same one consent path the Decisions row uses.
+    const needsConsentQuiz = rowQuiz('0002')
+    const needsConsentCalls = consentCalls.length
+    consentHostHandler = (call) => (call.method === 'GET' ? { status: 200, body: askBody('0002', needsConsentQuiz) } : { status: 200, body: { ok: true, ratified: ['0002'], rejected: [], unreadable: [], wrote: [], problems: [] } })
+    const needsApprove = nodes.find((node) => node.tag === 'button' && node.text === 'Approve')
+    if (needsApprove !== undefined) needsApprove.props.onClick()
+    await new Promise((resolveTick) => setTimeout(resolveTick, 20))
+    await renderOverlayExpanded('needs-approve')
+    const needsConsentSent = consentCalls.slice(needsConsentCalls)
+    claim(
+      'and the Approve on a consent card records through the one consent route',
+      needsConsentSent.some((call) => call.method === 'GET' && call.url.includes('id=0002')) &&
+        needsConsentSent.some((call) => call.method === 'POST' && call.body !== null && call.body.adrId === '0002' && call.body.label === needsConsentQuiz.roles['ratify-0002'].approveLabel),
+      JSON.stringify(needsConsentSent.map((call) => ({ method: call.method, id: call.body === null ? null : call.body.adrId }))),
+    )
+    consentHostHandler = null
     const redNeed = serviceNeeds.find((entry) => entry.kind === 'red-gate')
     claim(
       "the red-gate need carries the report's own problems and the record that decided each law",
