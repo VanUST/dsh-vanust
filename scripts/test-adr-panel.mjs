@@ -13,6 +13,14 @@
  *   UX contract states. A synthetic corpus then exercises the states the real
  *   corpus does not contain (a superseded decision, an unknown `decided in` id).
  *
+ *   Two host-route affordances are driven END TO END against a stub host: the consent
+ *   row's Approve and Decline, and the Session work-mode control, which reads and sets the
+ *   mode through the `@cc/dsh-work-modes` plugin's own route. For the mode control the
+ *   decisive claim makes the route's ANSWER disagree with the click, so a control that
+ *   drew the mode it asked for, rather than the mode the route reported, fails here — and
+ *   a refused switch is asserted to surface its reason while the row keeps the last mode
+ *   the route confirmed.
+ *
  *   It also checks the COLOUR of every toned control, not just the token each one
  *   names. A control can cite the right theme variable and still be unreadable, because
  *   what matters is the value that variable resolves to: the theme's dark variant maps
@@ -37,7 +45,8 @@
  *
  * KEYWORDS
  *   adr panel, client bundle, render test, slots, state pill, provenance, tone,
- *   contract, browser half, stub loader, theme tokens, contrast, readability
+ *   contract, browser half, stub loader, theme tokens, contrast, readability,
+ *   work mode, session mode toggle, mode route, capability header, response is the authority
  *
  * BEHAVIOUR ON EDGE CASES
  *   - The bundle failing to call `window.__ModuleLoader__.load`, or its factory
@@ -254,10 +263,22 @@ let consentHostHandler = null
 const consentCalls = []
 /** The resolve route's own handler: `null` refuses, so a test must opt in to it. */
 let resolveHostHandler = null
+/**
+ * The work-modes plugin's mode route, in its own record.
+ *
+ * Mode requests are kept OUT of `consentCalls` on purpose: the claims below slice that
+ * array from a marker before a click, and a mode read that landed in the same slice would
+ * be read as the row's own request. The route is the work-modes plugin's, so its answers
+ * are recorded and asserted separately.
+ */
+const modeCalls = []
+/** The mode route's handler: `null` refuses, so a test must opt in to it. */
+let modeHostHandler = null
 globalThis.location = { origin: 'http://stub.invalid' }
 globalThis.__DSH_ADR_PANEL_CONSENT__ = { route: '/adr-panel/consent', token: 'stub-capability-token' }
 globalThis.__DSH_ADR_PANEL_STATE__ = { route: '/adr-panel/state', token: 'stub-capability-token' }
 globalThis.__DSH_ADR_PANEL_RESOLVE__ = { route: '/adr-panel/resolve', token: 'stub-capability-token' }
+globalThis.__DSH_WORK_MODES_MODE__ = { route: '/work-modes/mode', token: 'stub-work-modes-token' }
 globalThis.fetch = (url, init) => {
   const target = String(url)
   const headers = init === undefined || init.headers === undefined ? {} : init.headers
@@ -266,6 +287,12 @@ globalThis.fetch = (url, init) => {
     method: init === undefined || init.method === undefined ? 'GET' : init.method,
     headers,
     body: init === undefined || init.body === undefined || init.body === null ? null : JSON.parse(init.body),
+  }
+  if (target.includes('/work-modes/mode')) {
+    modeCalls.push(call)
+    const answered = modeHostHandler === null ? { status: 503, body: { error: 'unavailable', message: 'the stub host has no work-modes handler' } } : modeHostHandler(call)
+    if (answered === null) return new Promise(() => {})
+    return Promise.resolve({ status: answered.status, json: () => Promise.resolve(answered.body) })
   }
   consentCalls.push(call)
   if (target.includes('/adr-panel/state')) {
@@ -2110,24 +2137,26 @@ claim(
 // ── the panel reads and writes nothing of its own ───────────────────────────
 // Every render above went through the recorded fetch stub, and this is a whole-plugin
 // measurement, not a reading of the source: the only URLs the bundle ever requested are
-// its host half's three routes, the state route is GET-only, the resolve route is the only
-// one that starts work, and no request carries a body except the consent and resolve
-// POSTs. The claim that no agent tool can reach any route is the cross-artifact half,
-// enforced in `scripts/check-consent-surface.mjs`.
-const ROUTES = ['/adr-panel/state', '/adr-panel/consent', '/adr-panel/resolve']
-const requestedUrls = [...new Set(consentCalls.map((call) => call.url.replace(/[?].*$/, '')))].sort()
+// its host half's three routes plus the work-modes plugin's mode route, the state route is
+// GET-only, the resolve route is the only panel route that starts work, and no request
+// carries a body except the consent, resolve and mode POSTs. The claim that no agent tool
+// can reach any panel route is the cross-artifact half, enforced in
+// `scripts/check-consent-surface.mjs`.
+const ROUTES = ['/adr-panel/state', '/adr-panel/consent', '/adr-panel/resolve', '/work-modes/mode']
+const allRouteCalls = consentCalls.concat(modeCalls)
+const requestedUrls = [...new Set(allRouteCalls.map((call) => call.url.replace(/[?].*$/, '')))].sort()
 const stateRequests = consentCalls.filter((call) => call.url.includes('/adr-panel/state'))
 const stateNonGet = stateRequests.filter((call) => call.method !== 'GET')
-const offRoute = consentCalls.filter((call) => !ROUTES.some((route) => call.url.includes(route)))
+const offRoute = allRouteCalls.filter((call) => !ROUTES.some((route) => call.url.includes(route)))
 const resolveNonPost = consentCalls.filter((call) => call.url.includes('/adr-panel/resolve') && call.method === 'GET' && call.body !== null)
 claim(
-  'the whole render requests only the three host routes, and the state route is GET-only',
+  'the whole render requests only the four host routes, and the state route is GET-only',
   requestedUrls.length > 0 &&
     offRoute.length === 0 &&
     stateRequests.length > 0 &&
     stateNonGet.length === 0 &&
     resolveNonPost.length === 0,
-  `urls=${JSON.stringify(requestedUrls)} offRoute=${offRoute.length} stateRequests=${stateRequests.length} stateNonGet=${stateNonGet.length}`,
+  `urls=${JSON.stringify(requestedUrls)} offRoute=${offRoute.length} stateRequests=${stateRequests.length} stateNonGet=${stateNonGet.length} modeCalls=${modeCalls.length}`,
 )
 
 // ── the panel's rendered state agrees with the ratchet's ────────────────────
@@ -3093,6 +3122,196 @@ const ROW_CAP = 50 // must equal SECTION_ROW_CAP in the bundle
     `${consentCalls.length - before} unexpected request(s)`,
   )
   globalThis.__DSH_ADR_PANEL_STATE__ = savedStateBridge
+}
+
+// ── the Session work-mode toggle ────────────────────────────────────────────
+//
+// The window carries a control for the `@cc/dsh-work-modes` plugin's per-Session mode.
+// The requirement is exact and these claims measure it rather than reading it: the control
+// shows the mode the ROUTE reports for the Session the window is open on, sends the mode
+// and the capability this page was served, and surfaces a refusal instead of a change that
+// did not happen. The stub answers in the route's own shape — `{ session, mode, modes }`
+// on 200, `{ error, message }` otherwise — and the decisive claim makes the RESPONSE
+// disagree with the click, so a control that drew the button it was given fails here while
+// every structural assertion still passes.
+const workModeAnswer = (session, mode) => ({ status: 200, body: { session, mode, modes: ['research', 'implementation'] } })
+
+/** Opens the window on one Session and settles the mode read, returning the buttons. */
+const renderModeWindow = async (tag, sessionId) => {
+  panelStore.set({ open: true, sessionId })
+  await renderRows(tag)
+  await new Promise((resolveTick) => setTimeout(resolveTick, 20))
+  await settleRender(tag)
+  collectControls()
+  return nodes.filter((node) => node.tag === 'button')
+}
+
+/** The one sentence that claims a mode is in effect, or null when it is not drawn. */
+const modeInEffect = () => {
+  const node = nodes.find((entry) => typeof entry.text === 'string' && /^Mode in effect for this Session: /.test(entry.text))
+  return node === undefined ? null : node.text
+}
+
+/**
+ * Clicks one mode button on the window already rendered at `tag`, waits for the round
+ * trip, and re-draws the SAME component instance (the same prefix), so the state that
+ * button produced is what the assertions read.
+ */
+const clickMode = async (tag, label) => {
+  const button = nodes.find((node) => node.tag === 'button' && node.text === label)
+  if (button !== undefined) button.props.onClick()
+  await new Promise((resolveTick) => setTimeout(resolveTick, 20))
+  await settleRender(tag)
+  collectControls()
+  return button !== undefined
+}
+
+{
+  modeHostHandler = (call) => (call.method === 'GET' ? workModeAnswer('stub-session', 'research') : workModeAnswer('stub-session', 'implementation'))
+  const bridge = globalThis.__DSH_WORK_MODES_MODE__
+  const beforeRead = modeCalls.length
+  const readButtons = await renderModeWindow('work-mode-read', 'stub-session')
+  const readCalls = modeCalls.slice(beforeRead)
+  claim(
+    'the work-mode control reads the mode of the Session the window is open on, with the capability it was served',
+    readCalls.length >= 1 &&
+      readCalls[0].method === 'GET' &&
+      readCalls[0].url.includes('/work-modes/mode') &&
+      readCalls[0].url.includes('session=stub-session') &&
+      readCalls[0].headers['x-work-modes-capability'] === bridge.token,
+    JSON.stringify(readCalls[0] ?? null),
+  )
+  claim(
+    'and it draws the mode the route reported, as a filled pill, not a default of its own',
+    modeInEffect() === 'Mode in effect for this Session: RESEARCH' &&
+      nodes.some((node) => isPillNode(node) && node.text === 'RESEARCH' && isFilled(node.style)),
+    JSON.stringify({ inEffect: modeInEffect(), pills: nodes.filter(isPillNode).map((node) => node.text) }),
+  )
+  claim(
+    'and it says the mode is this Session\'s, not a global',
+    nodes.some((node) => typeof node.text === 'string' && node.text.includes('per-Session state') && node.text.includes('(stub-session)') && node.text.includes('not to the project or to any other Session')),
+    JSON.stringify(nodes.map((node) => node.text).filter((text) => typeof text === 'string' && text.includes('per-Session'))),
+  )
+
+  // The switch itself: what is sent, and what is drawn afterwards.
+  const beforeClick = modeCalls.length
+  const clicked = await clickMode('work-mode-read', 'Implementation')
+  const sent = modeCalls.slice(beforeClick)
+  claim(
+    'clicking a mode sends that mode and the session to the work-modes route, with the capability',
+    clicked &&
+      sent.some((call) => call.method === 'POST' && call.url.includes('/work-modes/mode') && call.body !== null && call.body.session === 'stub-session' && call.body.mode === 'implementation' && call.headers['x-work-modes-capability'] === bridge.token),
+    JSON.stringify(sent.map((call) => ({ method: call.method, url: call.url, body: call.body, capability: call.headers['x-work-modes-capability'] }))),
+  )
+  claim(
+    'and the displayed mode follows the response',
+    modeInEffect() === 'Mode in effect for this Session: IMPLEMENTATION',
+    JSON.stringify({ inEffect: modeInEffect(), buttons: readButtons.map((node) => node.text) }),
+  )
+}
+{
+  // THE DECISIVE CASE. The same click, answered by a route that reports a DIFFERENT mode:
+  // the answer is the authority, so the row must show what the route said and must not
+  // report the mode the human asked for. A control that wrote the requested mode optimistically
+  // passes every claim above and fails this one.
+  modeHostHandler = (call) => (call.method === 'GET' ? workModeAnswer('stub-session', 'research') : workModeAnswer('stub-session', 'research'))
+  await renderModeWindow('work-mode-answer', 'stub-session')
+  await clickMode('work-mode-answer', 'Implementation')
+  const drawn = modeInEffect()
+  claim(
+    'a mode the route did not confirm is never drawn as in effect',
+    drawn === 'Mode in effect for this Session: RESEARCH' &&
+      !nodes.some((node) => typeof node.text === 'string' && /^Mode in effect for this Session: IMPLEMENTATION/.test(node.text)),
+    JSON.stringify({ inEffect: drawn, texts: nodes.map((node) => node.text).filter((text) => typeof text === 'string' && /Implementation|IMPLEMENTATION/.test(text)) }),
+  )
+}
+{
+  // A refusal — no capability, a wrong one, an unknown mode, any non-200 — must be visible
+  // and must leave the row on the last mode the route confirmed.
+  modeHostHandler = (call) => (call.method === 'GET' ? workModeAnswer('stub-session', 'research') : { status: 403, body: { error: 'forbidden', message: 'the work-mode route requires this process\'s capability token' } })
+  const refusal = 'the work-mode route requires this process\'s capability token'
+  await renderModeWindow('work-mode-refused', 'stub-session')
+  await clickMode('work-mode-refused', 'Implementation')
+  claim(
+    'a refused switch is surfaced to the human, with the route\'s own message',
+    nodes.some((node) => typeof node.text === 'string' && node.text.includes('Nothing was changed') && node.text.includes(refusal)),
+    JSON.stringify(nodes.map((node) => node.text).filter((text) => typeof text === 'string' && text.includes('Nothing was changed'))),
+  )
+  claim(
+    'and nothing is shown as changed when the route refused',
+    modeInEffect() === 'Mode in effect for this Session: RESEARCH' &&
+      !nodes.some((node) => typeof node.text === 'string' && /^Mode in effect for this Session: IMPLEMENTATION/.test(node.text)),
+    JSON.stringify({ inEffect: modeInEffect() }),
+  )
+}
+{
+  // A read the route refuses is reported too, and the row then claims NO mode: it shows
+  // `unknown` rather than the work-modes plugin's process-wide default, which this page
+  // cannot know.
+  modeHostHandler = () => ({ status: 400, body: { error: 'bad-request', message: 'a session id is required: the mode is session state' } })
+  await renderModeWindow('work-mode-read-refused', 'stub-session')
+  claim(
+    'a refused read is surfaced, and the mode reads unknown rather than a guessed default',
+    modeInEffect() === 'Mode in effect for this Session: unknown' &&
+      nodes.some((node) => typeof node.text === 'string' && node.text.includes('Nothing was read')),
+    JSON.stringify({ inEffect: modeInEffect(), notices: nodes.map((node) => node.text).filter((text) => typeof text === 'string' && text.includes('Nothing was read')) }),
+  )
+}
+{
+  // No capability global at all: the work-modes plugin is not mounted behind this page, or
+  // the page did not come from it. The control offers no button and fetches nothing.
+  const savedModeBridge = globalThis.__DSH_WORK_MODES_MODE__
+  delete globalThis.__DSH_WORK_MODES_MODE__
+  modeHostHandler = null
+  const before = modeCalls.length
+  const buttons = await renderModeWindow('work-mode-no-capability', 'stub-session')
+  claim(
+    'with no work-modes capability the control offers no button, says why, and fetches nothing',
+    !buttons.some((node) => node.text === 'Research' || node.text === 'Implementation') &&
+      nodes.some((node) => typeof node.text === 'string' && /work-modes route is unreachable/.test(node.text)) &&
+      modeCalls.length === before,
+    JSON.stringify({ buttons: buttons.map((node) => node.text), calls: modeCalls.length - before }),
+  )
+  globalThis.__DSH_WORK_MODES_MODE__ = savedModeBridge
+}
+{
+  // The Session the window is open on decides what is read. A control that read a fixed
+  // session — or a global — passes every claim above and fails this one.
+  modeHostHandler = (call) => workModeAnswer('other-session', 'implementation')
+  const before = modeCalls.length
+  await renderModeWindow('work-mode-other-session', 'other-session')
+  const reads = modeCalls.slice(before)
+  claim(
+    'the control reflects the Session the window is open on, not a fixed one or a global',
+    reads.length >= 1 &&
+      reads[0].url.includes('session=other-session') &&
+      !reads[0].url.includes('session=stub-session') &&
+      modeInEffect() === 'Mode in effect for this Session: IMPLEMENTATION',
+    JSON.stringify({ url: reads[0]?.url ?? null, inEffect: modeInEffect() }),
+  )
+}
+{
+  // The mode route, its header, its global and its two modes exist twice — in the
+  // work-modes plugin and in this hand-written bundle — so nothing but a comparison keeps
+  // the copies equal. Read from the shipped artifacts, both of them.
+  const workModes = await import(pathToFileURL(join(KIT, 'plugins', 'work-modes', 'work-modes.mjs')).href)
+  const bundleSource = readFileSync(CLIENT, 'utf8')
+  const literalOf = (name) => {
+    const match = new RegExp(`(?:^|\\n)[ \\t]*const ${name}\\s*=\\s*["']([^"']+)["']`).exec(bundleSource)
+    return match === null ? null : match[1]
+  }
+  const modesMatch = /(?:^|\n)[ \t]*const WORK_MODES\s*=\s*\[([^\]]*)\]/.exec(bundleSource)
+  const bundleModes = modesMatch === null ? null : modesMatch[1].split(',').map((entry) => entry.trim().replace(/^["']|["']$/g, '')).filter((entry) => entry !== '')
+  claim(
+    'the panel and the work-modes plugin agree on the mode route, header, global and mode list',
+    literalOf('MODE_ROUTE') === workModes.MODE_ROUTE &&
+      literalOf('MODE_HEADER') === workModes.MODE_HEADER &&
+      literalOf('MODE_GLOBAL') === workModes.MODE_GLOBAL &&
+      bundleModes !== null &&
+      JSON.stringify(bundleModes) === JSON.stringify([...workModes.MODES]) &&
+      workModes.MODE_ROUTE.startsWith('/'),
+    JSON.stringify({ bundle: { route: literalOf('MODE_ROUTE'), header: literalOf('MODE_HEADER'), global: literalOf('MODE_GLOBAL'), modes: bundleModes }, plugin: { route: workModes.MODE_ROUTE, header: workModes.MODE_HEADER, global: workModes.MODE_GLOBAL, modes: [...workModes.MODES] } }),
+  )
 }
 
 // ── report ──────────────────────────────────────────────────────────────────

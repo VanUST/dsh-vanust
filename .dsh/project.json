@@ -39,15 +39,17 @@
       "id": "flash-only-models",
       "statement": "Every agent, subagent and worker runs on a Flash-class DeepSeek model; no non-Flash tier is selected or delegated to.",
       "statedIn": "AGENTS.md",
-      "enforcedBy": null,
-      "pendingReason": "the model-gate plugin vetoes a non-Flash model at the llm/stream waterfall, and scripts/verify-upgrade.sh probes exactly that (\"disallowed model vetoed, Flash model admitted\"); what is still unbuilt is a check that the veto is INSTALLED and ENABLED outside the throwaway profile, which is why this rule does not yet cite the release gate as its enforcement point"
+      "enforcedBy": {
+        "command": "model-gate"
+      }
     },
     {
       "id": "pin-the-harness",
       "statement": "The harness version is pinned exactly in install.sh and install.ps1, and no machine runs an unpinned dsh.",
       "statedIn": "AGENTS.md",
-      "enforcedBy": null,
-      "pendingReason": "the pins exist in both installers, but no command compares them or refuses an unpinned harness; that check is unbuilt"
+      "enforcedBy": {
+        "command": "instruction-routing"
+      }
     },
     {
       "id": "kit-rules-are-the-only-rules",
@@ -214,8 +216,14 @@
     {
       "id": "instruction-routing",
       "command": "node scripts/check-instruction-routing.mjs",
-      "purpose": "instruction routing: the harness workspace-instruction loader is disabled by row id, kit-rules is mounted in its place, it reads only the home rules file, and the installers ship that file",
+      "purpose": "instruction routing: the harness workspace-instruction loader is disabled by row id, kit-rules is mounted in its place, it reads only the home rules file, and the installers ship that file; and the harness pin the installers declare is the pin every other place the version is written agrees with — the procedure's statement and command examples, README.md, USERGUIDE.md, and the install command dev-link.mjs prints — while no shipped script installs the harness without a version. It compares the versions the repository WRITES and cannot see the version a machine actually has installed, which is what kit-update.mjs --check reports",
       "path": "scripts/check-instruction-routing.mjs"
+    },
+    {
+      "id": "model-gate",
+      "command": "node scripts/check-model-gate.mjs",
+      "purpose": "the cost policy in the canonical composition a machine converges on: profile/cordis.patch.yml mounts the model-gate row, ENABLES it, and configures the pattern the packed tarball itself declares; that pattern decides a hand-derived fixture table as stated (the Flash class admitted, the pro tier and the near-misses refused, including the ids the class pattern admits by design); and the model picker the same patch configures advertises nothing the gate would refuse. It is a claim about the repository's canonical composition and cannot see a live machine's profile copy",
+      "path": "scripts/check-model-gate.mjs"
     },
     {
       "id": "kit-rules-prompt",

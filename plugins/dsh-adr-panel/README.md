@@ -58,6 +58,20 @@ both to the ratchet's own `ratify` operation, which writes the approval ADR and 
 transcript. A `POST` body that does not complete within the route's deadline is refused
 `408` and its socket destroyed, so an unfinished write cannot pin the route.
 
+It also carries the deployment's **work-mode toggle**, because the window is the one place
+a human already has open on a Session. A bordered row — the same shape as a decision row's
+consent affordance — shows `Mode in effect for this Session:` followed by a pill naming the
+mode the `@cc/dsh-work-modes` route reports, one button per mode, and the outcome of the
+last request. The mode is **Session state**: the row reads and sets it for the Session the
+window is open on, names that Session, and says the setting applies to it rather than to
+the project or any other Session. A click sends `{ session, mode }` to the route with the
+capability this page was served and then draws **the mode from the response**, never the
+button that was pressed, so a refusal — no capability, a wrong one, an unknown mode, any
+non-200, or a 200 whose body names no mode — shows the route's own message and leaves the
+row on the last mode the route confirmed. Nothing is shown as changed when nothing changed.
+With no capability global, which is the normal state of a deployment that does not mount
+`work-modes`, the row says the route is unreachable and offers no button at all.
+
 **Decline asks why.** Pressing **Decline** puts a reason box in the row instead of sending
 at once; the human types their reason and confirms, or cancels and sends nothing. The words
 travel with the refusal as the `comment` field of the same `POST /adr-panel/consent`, and
@@ -151,7 +165,7 @@ nothing claims the seat and the question is still asked.
 | File | Role |
 |---|---|
 | `index.js` | Host half: registers the read-only `/adr-panel/state` route and the `/adr-panel/consent` route on `webServer`, guards both with `connection.requestRejection` and a per-activation capability, calls the ratchet's `ratchetDecisions` service for the view model and its `ratchetConsent` service for an answer, and bounds a `POST` body with a read deadline. It derives no state, builds no question and writes no artifact; a consent `GET` writes only the ratchet's audit ledger line. |
-| `client.js` | The hand-written browser bundle (`window.__ModuleLoader__.load`), no build step. It fetches the state route and renders the ratchet's view as four tabbed parts — the `needsHuman` set, the decisions, the consents and the specs — with one part drawn at a time; it derives no force. |
+| `client.js` | The hand-written browser bundle (`window.__ModuleLoader__.load`), no build step. It fetches the state route and renders the ratchet's view as four tabbed parts — the `needsHuman` set, the decisions, the consents and the specs — with one part drawn at a time; it derives no force. It also carries the Session work-mode control, which reads and sets the mode through `@cc/dsh-work-modes`' own `/work-modes/mode` route and draws the mode that route reports. |
 | `package.json` | `main: index.js`, `exports` for `.` and `./client`, and `dsh.client = { platform: "web", inject: [...] }`. |
 
 ## Contracts it relies on
@@ -192,6 +206,7 @@ ledger/approval distinction above.
 | The browser reaches such a route with an ordinary same-origin `fetch` on a path both halves declare as a constant | `@deepseek-ai/dsh-client-ui-open-in-app/lib/client.js:22-27` (the inlined route constants and `hostBase()`) |
 | Every route should ask the connection service for a rejection first: `connection.requestRejection(request)` answers 403 for an untrusted authority, then 401 unless the request carries the signed, `HttpOnly`, `SameSite=Strict`, authority-bound browser cookie | `@deepseek-ai/dsh-client-connection/lib/index.js:553` (`requestRejection`), `:280-320` and `:431-441` (the cookie); the same call in `@deepseek-ai/dsh-host-open-in-app/lib/index.js:1317-1323` |
 | A plugin can provide a service and read one without injecting it: `ctx.provide(name, value)` returns a disposer, `ctx.get(name)` reads an implementation | `@deepseek-ai/cordis/src/reflect.ts:277-305` (`provide`), `:233` (`get`) |
+| The Session work mode is the `@cc/dsh-work-modes` plugin's own session state, served on its own capability-fenced route and published as the index global `__DSH_WORK_MODES_MODE__` under the header `x-work-modes-capability`; the route takes `?session=`/`{ session, mode }` and answers `{ session, mode, modes }` | `plugins/work-modes/work-modes.mjs` (`MODE_ROUTE`, `MODE_HEADER`, `MODE_GLOBAL`, `MODES`, `handleModeRequest`); the equality is asserted by `scripts/test-adr-panel.mjs`, which imports that module and compares it with the literals in this bundle |
 | A plugin that calls `ctx.inject(['webServer'], cb)` and never gets the service stays inert rather than failing the boot | `@deepseek-ai/dsh-client-connection/lib/index.js:758` does exactly this; `@deepseek-ai/dsh-app-boot/lib/index.js` builds its `did not activate` list from loader rows only |
 | A Session id resolves to a workspace through the live registry, then persistence: `sessions.get(id)?.header` or `sessionPersistence.stat(id).header` | `@deepseek-ai/dsh-api-workspace-files/lib/index.js:372-389` |
 | The context publishes an index global through the webserver's injection table: `web.on('webserver/index-inject', (table) => table.push({ kind: 'global', name, value }))` | `@deepseek-ai/dsh-host-webserver/lib/index.js:74-93` (the row renderer) and `:349-353` (`collectIndexInjections`); the same subscription in `@deepseek-ai/dsh-client-connection/lib/index.js:760-766` |
@@ -262,6 +277,19 @@ measures what the bundle does with them, not whether the running shell supplies 
   executes the shipped bundle against a stub host and requires what it sends and renders.
   No browser was opened, so the page carrying the capability global and a real click
   round-tripping through the shell remain readings rather than measurements.
+- **The work-mode toggle is measured the same way, and its response is the assertion.**
+  The route is the `work-modes` plugin's own (`node --test scripts/test-work-modes.mjs`
+  drives the mode's prompt section and the route's refusals host-side), and
+  `scripts/test-adr-panel.mjs` executes this bundle against a stub host: the row reads the
+  mode of the Session the window is open on, the click sends that mode and the capability,
+  and the DRAWN mode is required to be the one the response names — asserted by a response
+  that deliberately disagrees with the click, which is what a control that trusted its own
+  button fails. A refused switch is required to surface the route's message while the row
+  keeps the last confirmed mode, and a page with no capability global to offer no button and
+  fetch nothing. The stub also compares the bundle's route, header, global and mode list
+  with the plugin's exports, so the duplications cannot drift apart silently. What remains
+  unmeasured is the same residue as the consent route's: that a running shell injects the
+  global into a real page and that a real click round-trips.
 - **The capability's secrecy rests on there being no file.** The token is minted per
   activation with `randomBytes`, held in the plugin's memory, published only as an index
   global, and never written or logged — so no tool of an agent can read it. The route is
@@ -298,6 +326,11 @@ measures what the bundle does with them, not whether the running shell supplies 
   agent to call `ratchet_ratify`, or list what waits with
   `node plugins/ratchet/ratchet-cli.mjs pending --root .`. Nothing is fetched in that
   state, which the offline test asserts.
+- **An unreachable work-mode route falls back to an explanation.** When no
+  `work-modes` capability global exists — the plugin is not mounted, this page did not come
+  from it, or there is no web server — the row says the route is unreachable and offers no
+  button, and it fetches nothing. The mode is not guessed: the work-modes plugin's default
+  belongs to its own process, and this page cannot know it.
 - **The seat claim is a suppression, so its failure mode is asymmetric.** The panel
   claims the composer seat in order to stop the harness asking an agent's decision in
   the Conversation. If the claim is never reached — a future harness that reorders or

@@ -5,7 +5,9 @@ DeepSeek Harness deployment on a machine. It is written to be read by an AGENT t
 was asked to do the work, and it is installed to `$DSH_HOME/DEPLOYMENT.md` by the
 installers. The commands here are the ones that are checked: `scripts/check-instruction-routing.mjs`
 fails if a file this document names is missing, if the harness pin below disagrees with
-the installers, or if the clone URL disagrees with `README.md`.
+the installers, if any other place the harness version is written — `README.md`, `USERGUIDE.md`,
+the install command `scripts/dev-link.mjs` prints — quotes a different one, or if the clone URL
+disagrees with `README.md`.
 
 `$DSH_HOME` is `~/.npm/dsh` on Linux/macOS and `%USERPROFILE%\.npm\dsh` on Windows,
 unless the `DSH_HOME` environment variable overrides it.

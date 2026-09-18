@@ -24,8 +24,10 @@ plugin's provenance:
   a proposed decision entering force only through a recorded human consent.
 - **`@cc/dsh-adr-panel`** — the deployment's own window on that corpus: a session-header
   button opens a frame-wide overlay listing the project's ADR records and spec
-  documents, and asks the agent to run the ratification quiz for a proposed decision
-  rather than ever minting a consent itself.
+  documents, with Approve and Decline answered through a capability-fenced host route
+  rather than by minting a consent itself, and a control that shows and switches the
+  Session's `@cc/dsh-work-modes` research/implementation mode on that plugin's own route,
+  drawing the mode from the response rather than from the button.
 - **`@cc/dsh-work-modes`** — two deployment policies on harness seams that can
   actually refuse something: a monotonic guard refusing a third concurrent `subagent`
   child per session (a `workflow` fan-out is deliberately outside it, so it is not a

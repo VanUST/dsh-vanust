@@ -21,6 +21,15 @@
  *   one and never composes an answer — every label it sends is one the ratchet's own
  *   question offered.
  *
+ *   The window also carries ONE control that is not about the corpus: a per-Session
+ *   work-mode toggle. The `@cc/dsh-work-modes` plugin owns the mode (research or
+ *   implementation), injects it into the system prompt on every assembly and serves it on
+ *   its own capability-fenced route. The panel renders the two choices, asks that route
+ *   which mode the Session this window is open on is in, and sends the mode the human
+ *   clicked. It derives no mode, caches none and persists none: the mode it draws is the
+ *   one the route's ANSWER reports, so a refusal leaves the display on the last mode the
+ *   route confirmed rather than on the button that was pressed.
+ *
  * INPUTS
  *   Loaded by the Web client's module loader as `@cc/dsh-adr-panel/client`. The three
  *   registrations receive the standard slot props of their scope — the Session-header
@@ -48,6 +57,15 @@
  *   request is an ordinary same-origin `fetch`, which carries the harness's
  *   browser-session cookie, and the host refuses anything that fails that fence or the
  *   token.
+ *
+ *   THE WORK-MODE ROUTE IS LEARNED THE SAME WAY, from the global the `@cc/dsh-work-modes`
+ *   plugin writes: `globalThis.__DSH_WORK_MODES_MODE__` carries the route path and the
+ *   capability token that plugin minted for this activation. It is a different plugin's
+ *   global, so its absence is normal — a deployment that does not mount `work-modes` still
+ *   serves this window, and the control then says the route is unreachable and offers no
+ *   button, exactly as the consent row does. The mode is read for the Session the window
+ *   is open on and set for that same Session, because the mode is session state in the
+ *   work-modes plugin and this window must not imply it is global.
  *
  *   PROJECT-AGNOSTIC: the node that renders is discovered by the ratchet from the
  *   project itself, not hardcoded. The view model carries the resolved `decisionsDir`,
@@ -161,6 +179,16 @@
  *   mounted, no capability global, no bound Session — the row prints the CLI command
  *   instead of offering a button.
  *
+ *   THE WORK-MODE CONTROL is the second affordance and the only one that changes
+ *   something outside the corpus. It draws the mode the work-modes route reports for the
+ *   Session the window is open on — as a pill, never inferred, and `unknown` until the
+ *   route answers — one button per mode, and the outcome of the last request. A click
+ *   sends `{ session, mode }` to the route with the capability header and then draws
+ *   `mode` FROM THE RESPONSE; a refusal (an absent or wrong capability, an unknown mode,
+ *   any non-200, or a body with no `mode`) draws the route's own message and leaves the
+ *   displayed mode on the last one the route confirmed, so nothing reads as changed when
+ *   nothing was. A page with no capability global draws no button at all.
+ *
  *   **A decline carries a commentary.** Pressing Decline puts a reason box in the row
  *   instead of sending at once; the human types why, or leaves it empty, and confirms.
  *   The words travel with the refusal and the ratchet records them beside it in the
@@ -245,7 +273,8 @@
  *   presentation intent, state route, ratchetDecisions, view model, capability token,
  *   ratification, approve, decline, decline reason, commentary, consent route, resolve
  *   route, blocked decision, resolver, resolve plan, subagent, queue, batch, dispatch on
- *   close, steer, not now, read-only, viewer
+ *   close, steer, not now, read-only, viewer, work mode, research, implementation,
+ *   session mode toggle, mode route, mode capability, per-Session state
  *
  * BEHAVIOUR ON EDGE CASES
  *   - The state route unreachable — no host half mounted, no state capability, no bound
@@ -254,6 +283,16 @@
  *   - The consent route unreachable — no host half mounted, no capability global, or no
  *     Session bound: the row names the CLI command instead of the two buttons, and
  *     nothing is sent anywhere.
+ *   - The work-mode route unreachable — the `work-modes` plugin is not mounted, this page
+ *     did not come from it, or no Session is bound: the control says so, offers no mode
+ *     button, and fetches nothing. The mode is not guessed from a default, because the
+ *     default belongs to the route's process, not to this page.
+ *   - A work-mode request the route refuses — no capability, a wrong one, an unknown
+ *     mode, any non-200, or a 200 whose body carries no `mode`: the route's own message
+ *     is drawn and the pill keeps the last mode the route REPORTED. A mode is never shown
+ *     as in effect because a button was pressed; only because the answer said so.
+ *   - The window is open on no Session: the work-mode control states that the mode is
+ *     Session state and that no Session is bound, rather than reading or setting one.
  *   - A decision the ratchet's queue does not list — already in force, retired, a zone
  *     that is `humanOnly` or undeclared, or an id that is not a decision at all: the ask
  *     returns the ratchet's own message, the row shows it, and nothing is written. The
@@ -383,7 +422,7 @@ window.__ModuleLoader__.load({
 		 * are equal again after a release and the constant is one ahead only in the working
 		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.49";
+		const PANEL_VERSION = "0.1.51";
 		/** Directories used when the host view reports none. */
 		const DEFAULT_DECISIONS_DIR = "docs/adrs";
 		const DEFAULT_SPECS_DIR = "docs/specs";
@@ -485,6 +524,28 @@ window.__ModuleLoader__.load({
 		const RESOLVE_ROUTE = "/adr-panel/resolve";
 		const RESOLVE_HEADER = "x-adr-panel-resolve";
 		const RESOLVE_GLOBAL = "__DSH_ADR_PANEL_RESOLVE__";
+		/**
+		 * The work-modes plugin's toggle route, and the names its capability travels under.
+		 *
+		 * The mode is not a panel fact and not a ratchet fact: it belongs to the
+		 * `@cc/dsh-work-modes` plugin, which injects it into the system prompt and serves it
+		 * on this route. The panel only draws the control. The literals are duplicated for
+		 * the same reason the panel's own routes' are — the work-modes half is a Node module
+		 * and this is a browser closure with no module graph — and
+		 * `scripts/test-adr-panel.mjs` fails when the two halves stop agreeing, including on
+		 * the mode list, so neither can silently stop naming a mode the other serves.
+		 *
+		 * `MODE_GLOBAL` is the index global the work-modes plugin writes:
+		 * `{ route, token }`, with a token minted in the host process's memory per
+		 * activation. It is a DIFFERENT plugin's global, so its absence is normal rather
+		 * than a defect: this window then says the route is unreachable and offers no
+		 * button, instead of calling a path it cannot authorize.
+		 */
+		const MODE_ROUTE = "/work-modes/mode";
+		const MODE_HEADER = "x-work-modes-capability";
+		const MODE_GLOBAL = "__DSH_WORK_MODES_MODE__";
+		/** The two modes the work-modes plugin serves, in the order it names them. */
+		const WORK_MODES = ["research", "implementation"];
 		/** The page origin the routes are fetched from; the corpus and the routes share it. */
 		const CONSENT_ORIGIN_FALLBACK = "http://dsh.internal";
 
@@ -596,6 +657,26 @@ window.__ModuleLoader__.load({
 		function resolveEndpoint() {
 			if (typeof globalThis === "undefined") return null;
 			var bridge = globalThis[RESOLVE_GLOBAL];
+			if (bridge === null || typeof bridge !== "object") return null;
+			if (typeof bridge.route !== "string" || bridge.route === "") return null;
+			if (typeof bridge.token !== "string" || bridge.token === "") return null;
+			return { route: bridge.route, token: bridge.token };
+		}
+		/**
+		 * The work-modes capability the `work-modes` plugin published into this page, or
+		 * `null`.
+		 *
+		 * Same shape and the same per-activation token as the panel's own three routes, a
+		 * different plugin's global. Its absence is expected rather than exceptional: a
+		 * deployment that does not mount `work-modes` still serves this window, and the
+		 * mode control then reports the route as unreachable instead of calling a path
+		 * whose capability it does not hold.
+		 *
+		 * @returns `{ route, token }` when both are non-empty strings, otherwise `null`.
+		 */
+		function modeEndpoint() {
+			if (typeof globalThis === "undefined") return null;
+			var bridge = globalThis[MODE_GLOBAL];
 			if (bridge === null || typeof bridge !== "object") return null;
 			if (typeof bridge.route !== "string" || bridge.route === "") return null;
 			if (typeof bridge.token !== "string" || bridge.token === "") return null;
@@ -866,6 +947,96 @@ window.__ModuleLoader__.load({
 						return { ok: false, error: "refused", status: answer.status, message: answer.body === null ? "the host answered with no readable body" : answer.body.message };
 					}
 					return answer.body;
+				},
+				function (error) { return { ok: false, error: describeError(error) }; }
+			);
+		}
+		/**
+		 * PURPOSE
+		 *   Read the work mode the `work-modes` route holds for one Session. It sets
+		 *   nothing: the mode already exists in that plugin's process, and this asks it
+		 *   which one it is.
+		 *
+		 * INPUTS
+		 *   sessionId — the Session the window is open on. The route is session-scoped, so
+		 *   an empty or non-string id is refused here rather than sent as a request for a
+		 *   mode that belongs to nobody.
+		 *
+		 * OUTPUTS
+		 *   A promise of `{ ok: true, session, mode, modes }` — the route's own answer,
+		 *   normalized so `ok` is true ONLY for a 200 carrying a non-empty string `mode` —
+		 *   or `{ ok: false, error, status?, message? }`: `unreachable` when no capability
+		 *   global exists, `no-session` for a missing id, `refused` for any other status or
+		 *   an unreadable body, or the transport failure's own message. Never rejects and
+		 *   never throws, because the caller renders the refusal.
+		 *
+		 * KEYWORDS
+		 *   work mode, session mode, read, capability token, no write
+		 */
+		function readSessionMode(sessionId) {
+			var endpoint = modeEndpoint();
+			if (endpoint === null) return Promise.resolve({ ok: false, error: "unreachable" });
+			if (typeof sessionId !== "string" || sessionId === "") return Promise.resolve({ ok: false, error: "no-session" });
+			var init = { method: "GET", headers: {} };
+			init.headers[MODE_HEADER] = endpoint.token;
+			return consentRequest(endpoint.route + "?session=" + encodeURIComponent(sessionId), init).then(
+				function (answer) {
+					if (answer.status !== 200 || answer.body === null) {
+						return { ok: false, error: "refused", status: answer.status, message: answer.body === null ? "the work-modes route answered with no readable body" : answer.body.message };
+					}
+					if (typeof answer.body.mode !== "string" || answer.body.mode === "") {
+						return { ok: false, error: "refused", status: answer.status, message: "the work-modes route answered without naming a mode" };
+					}
+					return { ok: true, session: answer.body.session, mode: answer.body.mode, modes: answer.body.modes };
+				},
+				function (error) { return { ok: false, error: describeError(error) }; }
+			);
+		}
+		/**
+		 * PURPOSE
+		 *   Set the work mode of one Session through the `work-modes` route. This is the
+		 *   only request the panel makes that changes a policy rather than recording a
+		 *   consent, and it still mints nothing: the mode is the work-modes plugin's own
+		 *   session state, and the answer says which mode is in effect afterwards.
+		 *
+		 * INPUTS
+		 *   sessionId — the Session the window is open on (a non-empty string).
+		 *   mode — one of {@link WORK_MODES}. Anything else is refused HERE, before a
+		 *   request is made, so a typo cannot be sent as a mode the route would then have
+		 *   to refuse with a 400.
+		 *
+		 * OUTPUTS
+		 *   A promise of `{ ok: true, session, mode, modes }` — the route's OWN answer,
+		 *   normalized so `ok` is true only for a 200 carrying a non-empty `mode`, which is
+		 *   the value the caller draws — or `{ ok: false, error, status?, message? }` for
+		 *   `unreachable`, `no-session`, `no-mode`, `refused` (any other status, or a body
+		 *   with no `mode`) or a transport failure, with the route's own `message` when it
+		 *   sent one. Never rejects: a refusal is what the control renders.
+		 *
+		 * KEYWORDS
+		 *   work mode, session mode, set, capability token, response is the authority
+		 */
+		function setSessionMode(sessionId, mode) {
+			var endpoint = modeEndpoint();
+			if (endpoint === null) return Promise.resolve({ ok: false, error: "unreachable" });
+			if (typeof sessionId !== "string" || sessionId === "") return Promise.resolve({ ok: false, error: "no-session" });
+			if (WORK_MODES.indexOf(mode) === -1) return Promise.resolve({ ok: false, error: "no-mode" });
+			var init = {
+				method: "POST",
+				headers: {},
+				body: JSON.stringify({ session: sessionId, mode: mode })
+			};
+			init.headers[MODE_HEADER] = endpoint.token;
+			init.headers["content-type"] = "application/json";
+			return consentRequest(endpoint.route, init).then(
+				function (answer) {
+					if (answer.status !== 200 || answer.body === null) {
+						return { ok: false, error: "refused", status: answer.status, message: answer.body === null ? "the work-modes route answered with no readable body" : answer.body.message };
+					}
+					if (typeof answer.body.mode !== "string" || answer.body.mode === "") {
+						return { ok: false, error: "refused", status: answer.status, message: "the work-modes route answered without naming a mode" };
+					}
+					return { ok: true, session: answer.body.session, mode: answer.body.mode, modes: answer.body.modes };
 				},
 				function (error) { return { ok: false, error: describeError(error) }; }
 			);
@@ -1942,7 +2113,9 @@ window.__ModuleLoader__.load({
 		 *   `in-force`/`active`/`ratified` (success), `pending` (warn — the one that must
 		 *   catch the eye), `superseded` (muted, never error), `rejected`/`withdrawn`
 		 *   (error), `consent`/`human` (business), `agent`/`neutral`, `unknown` (warn),
-		 *   and the check kinds `check-required`/`check-forbidden`/`check-command`.
+		 *   `work-mode` (business — the Session's mode, which is neither a record state nor
+		 *   a consent), and the check kinds
+		 *   `check-required`/`check-forbidden`/`check-command`.
 		 * @returns `{ fg, bg, border }`, each a CSS value; unknown kinds get the neutral
 		 *   tone rather than throwing.
 		 */
@@ -1992,6 +2165,7 @@ window.__ModuleLoader__.load({
 				"check-forbidden": "error",
 				consent: "business",
 				human: "business",
+				"work-mode": "business",
 				"check-command": "business",
 				agent: "neutral",
 				neutral: "neutral"
@@ -3741,6 +3915,160 @@ window.__ModuleLoader__.load({
 				typeof result.nextStep === "string" && result.nextStep !== "" ? React.createElement("div", { style: { marginTop: 4 } }, result.nextStep) : null);
 		}
 
+		/** The display form of a mode: upper case, of the value itself and nothing invented. */
+		function modeLabel(mode) {
+			return String(mode === null || mode === undefined ? "" : mode).toUpperCase();
+		}
+		/** The label of the button that selects a mode: the mode's own word, capitalised. */
+		function modeButtonLabel(mode) {
+			var text = String(mode === null || mode === undefined ? "" : mode);
+			return text === "" ? text : text.charAt(0).toUpperCase() + text.slice(1);
+		}
+		/**
+		 * One work-mode refusal as a sentence, with the route's own message when it sent one.
+		 *
+		 * A refusal is what the control must render, so this never returns an empty string:
+		 * every branch names what did not happen, and the route's `message` — the wrong
+		 * capability, an unknown mode, a bad session — is carried through unread rather than
+		 * replaced by a code.
+		 * @param prefix - the sentence's lead-in, e.g. `Nothing was changed: `.
+		 * @param result - a `{ ok: false, error, message? }` from the mode transport, or null.
+		 * @returns The sentence to draw.
+		 */
+		function modeRefusalText(prefix, result) {
+			if (result === null || result === undefined) return prefix + "the work-modes route did not answer.";
+			if (result.error === "unreachable") return prefix + "the work-modes route is not reachable from this window.";
+			if (result.error === "no-session") return prefix + "no Session is bound to this window, and the mode is Session state.";
+			if (result.error === "no-mode") return prefix + "that is not one of the modes this deployment serves.";
+			if (typeof result.message === "string" && result.message !== "") return prefix + result.message;
+			return prefix + String(result.error);
+		}
+
+		/**
+		 * PURPOSE
+		 *   The Session work-mode control: it shows the mode the `@cc/dsh-work-modes` route
+		 *   reports for the Session this window is open on and switches it. It is the only
+		 *   control in the window that changes a policy outside the corpus, and it copies
+		 *   the consent affordance's shape — a bordered row, one labelled action per
+		 *   choice, and an outcome line that is never silent — rather than inventing a
+		 *   second idiom.
+		 *
+		 *   The mode is SESSION state and the row says so: it is read and set for
+		 *   `props.sessionId` alone, and nothing in the row's wording could be read as a
+		 *   project-wide or global switch. The mode shown as in effect is the route's
+		 *   ANSWER, never the button that was pressed. A refusal — no capability global, a
+		 *   wrong or absent token, an unknown mode, any non-200, or a 200 whose body names
+		 *   no mode — draws the route's own message and leaves the row on the last mode the
+		 *   route confirmed, so nothing reads as changed when nothing was.
+		 *
+		 * INPUTS
+		 *   props.sessionId — the Session the window is open on, from the panel store. A
+		 *   null or empty value renders the row's explanation and no button, because the
+		 *   mode is Session state and there is no Session to read or set it for.
+		 *
+		 * OUTPUTS
+		 *   A bordered row: the heading, `Mode in effect for this Session: ` followed by a
+		 *   filled pill naming the route's reported mode (or the word `unknown` until the
+		 *   route answers), a line stating the scope of the setting, one `aria-pressed`
+		 *   button per entry of {@link WORK_MODES} with the mode in effect filled and the
+		 *   others plain, and the last outcome — a muted line naming the mode the route
+		 *   reported, or a warn line carrying the route's refusal. With no capability global
+		 *   it says the route is unreachable and fetches nothing. It never throws and never
+		 *   rejects: a transport failure is rendered as its own message.
+		 *
+		 * KEYWORDS
+		 *   work mode, research, implementation, session state, mode route, capability,
+		 *   response is the authority, refusal surfaced
+		 */
+		function SessionModeControl(props) {
+			var sessionId = props.sessionId;
+			var canSet = modeEndpoint() !== null && typeof sessionId === "string" && sessionId !== "";
+			// The mode the route last REPORTED, or null while no answer has named one. It is
+			// never set from the button that was pressed.
+			var modeState = React.useState(null);
+			var mode = modeState[0];
+			var setMode = modeState[1];
+			// The last outcome: null before anything happened, otherwise `{ tone, text }`.
+			var noticeState = React.useState(null);
+			var notice = noticeState[0];
+			var setNotice = noticeState[1];
+			var busyState = React.useState(false);
+			var busy = busyState[0];
+			var setBusy = busyState[1];
+			// The read runs once per Session the window is opened on. `alive` keeps a late
+			// answer from writing state after the window moved to another Session.
+			React.useEffect(function () {
+				if (!canSet) return undefined;
+				var alive = true;
+				readSessionMode(sessionId).then(function (result) {
+					if (!alive) return;
+					if (result !== null && result.ok === true) {
+						setMode(result.mode);
+						setNotice({ tone: "muted", text: "The work-modes route reports this Session is in " + modeLabel(result.mode) + " mode." });
+					} else {
+						setNotice({ tone: "warn", text: modeRefusalText("Nothing was read: ", result) });
+					}
+				});
+				return function () { alive = false; };
+			}, [sessionId, canSet]);
+			/**
+			 * Sends one mode and draws the mode the ANSWER reports.
+			 *
+			 * The requested mode is never written to the display. A refused request therefore
+			 * leaves the row exactly as the last confirmed answer left it, with the refusal
+			 * beside it: the human sees that nothing changed and why.
+			 */
+			var choose = function (next) {
+				if (!canSet || busy) return;
+				setBusy(true);
+				setNotice({ tone: "muted", text: "Setting this Session's mode to " + modeLabel(next) + "…" });
+				setSessionMode(sessionId, next).then(function (result) {
+					setBusy(false);
+					if (result !== null && result.ok === true) {
+						setMode(result.mode);
+						setNotice({ tone: "muted", text: "The work-modes route reports this Session is now in " + modeLabel(result.mode) + " mode." });
+					} else {
+						setNotice({ tone: "warn", text: modeRefusalText("Nothing was changed: ", result) });
+					}
+				});
+			};
+			var children = [
+				React.createElement("div", { key: "heading", style: { fontSize: 12, fontWeight: 600 } }, "Session work mode"),
+				React.createElement("div", { key: "in-effect", style: { fontSize: 12, marginTop: 4 } },
+					"Mode in effect for this Session: ",
+					mode === null ? "unknown" : pill(modeLabel(mode), "work-mode")),
+				React.createElement("div", { key: "scope", style: mutedStyle() },
+					"This is per-Session state: it applies to the Session this window is open on",
+					typeof sessionId === "string" && sessionId !== "" ? " (" + sessionId + ")" : "",
+					", not to the project or to any other Session.")
+			];
+			if (canSet) {
+				children.push(React.createElement("div", { key: "buttons", style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", margin: "6px 0" } },
+					WORK_MODES.map(function (option) {
+						var active = mode === option;
+						return React.createElement("button", {
+							key: option,
+							type: "button",
+							disabled: busy,
+							"aria-pressed": active ? "true" : "false",
+							style: active
+								? Object.assign({}, primaryButtonStyle(tone("work-mode")), { marginTop: 0, opacity: busy ? 0.7 : 1 })
+								: Object.assign({}, smallButtonStyle(), { opacity: busy ? 0.7 : 1 }),
+							onClick: function () { choose(option); }
+						}, modeButtonLabel(option));
+					})));
+			} else {
+				children.push(React.createElement("div", { key: "unreachable", style: mutedStyle() },
+					modeEndpoint() === null
+						? "The work-modes route is unreachable from this window — the work-modes plugin is not mounted behind this page, or this page did not come from it — so the mode is neither read nor set here."
+						: "No Session is bound to this window, so this Session's work mode is neither read nor set here."));
+			}
+			if (notice !== null) {
+				children.push(React.createElement("div", { key: "notice", style: notice.tone === "warn" ? warnStyle() : mutedStyle() }, notice.text));
+			}
+			return React.createElement("div", { style: cardStyle() }, children);
+		}
+
 		/**
 		 * One decision record: identification, derived state, a summary, and — when
 		 * expanded — metadata, the laws it decided, and the four body sections. Only a
@@ -4250,6 +4578,9 @@ window.__ModuleLoader__.load({
 							React.createElement("button", { type: "button", style: smallButtonStyle(), onClick: closeAndDispatch }, "Close"))),
 					React.createElement("div", { style: overlayBodyStyle() },
 						React.createElement(FailuresBlock, { failures: current.failures }),
+						// The Session's own work mode, above everything it governs: it is not a
+						// corpus fact, and it applies to this Session rather than to the project.
+						React.createElement(SessionModeControl, { sessionId: state.sessionId }),
 						// The queue is stated before the sections, because what will happen on close
 						// must be visible while the human is still choosing: "Resolve" now means
 						// "queue", and the batch is what actually runs.
