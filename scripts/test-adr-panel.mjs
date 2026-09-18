@@ -1702,13 +1702,26 @@ claim(
     nodes.some((node) => typeof node.text === 'string' && node.text.includes('one resolver will start')),
   JSON.stringify({ posts: resolveCallsFrom(beforeResolve).filter((call) => call.method === 'POST').length, buttons: nodes.filter((node) => node.tag === 'button').map((node) => node.text) }),
 )
+// A click INSIDE the window must not reach the backdrop's close handler. Only `onMouseDown`
+// was stopped, so pressing Resolve bubbled a click to the backdrop and closed the panel —
+// the operator's "resolve now just kicks me from ADR window".
+const dialog = nodes.find((node) => node.tag === 'div' && node.props.role === 'dialog')
+let clickStopped = false
+if (dialog !== undefined && typeof dialog.props.onClick === 'function') dialog.props.onClick({ stopPropagation: () => { clickStopped = true; } })
+claim(
+  'a click inside the window does not reach the backdrop that closes it',
+  clickStopped && panelStore.getSnapshot().open === true,
+  JSON.stringify({ clickStopped, open: panelStore.getSnapshot().open }),
+)
 // Closing the window is what dispatches: ONE POST carrying every queued record.
 const closeButton = nodes.find((node) => node.tag === 'button' && node.text === 'Close')
+if (closeButton !== undefined) closeButton.props.onClick()
+// Twice, because a second call still sees the old queue and would send the batch again.
 if (closeButton !== undefined) closeButton.props.onClick()
 await new Promise((resolveTick) => setTimeout(resolveTick, 20))
 const resolvePosts = resolveCallsFrom(beforeResolve).filter((call) => call.method === 'POST')
 claim(
-  'and closing the window dispatches the whole queue as ONE batch request',
+  'and closing the window dispatches the whole queue as ONE batch request, once',
   resolvePosts.length === 1 &&
     resolvePosts[0].body !== null &&
     resolvePosts[0].body.decision === 'resolve' &&

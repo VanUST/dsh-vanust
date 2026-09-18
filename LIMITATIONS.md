@@ -524,3 +524,10 @@ reported in `humanRequiredIds` and left out of the batch, so one of them cannot 
 rest. What this does NOT fix: two people (or two machines) with the panel open on the same
 project are still two resolvers, because the memory of the running child is per plugin
 activation, not shared state.
+
+**One click, one close.** The queue's dispatch hangs off the backdrop's click, and a click
+on any control inside the window bubbles to it. Only `onMouseDown` was stopped, so pressing
+**Resolve** closed the panel — the operator saw it as "resolve kicks me out of the ADR
+window", and the queue it dispatched was the one record. The window now stops `onClick` too,
+and `closeAndDispatch` carries a guard: state updates are asynchronous, so a second close in
+the same render still reads the old queue and would send the batch twice.

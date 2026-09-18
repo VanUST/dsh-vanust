@@ -268,6 +268,12 @@
  *     human what will run before they close.
  *   - A close with an empty queue: nothing is sent at all, so opening the window to read and
  *     closing it again starts no model turn.
+ *   - A click INSIDE the window: it never reaches the backdrop's close handler. The backdrop
+ *     closes on click, and a click on any control bubbles to it, so the window stops BOTH
+ *     `onMouseDown` and `onClick`; stopping only the former is what made pressing Resolve
+ *     close the panel. The close is also guarded, because state updates are asynchronous and
+ *     a second close in the same render would still see the old queue and send the batch
+ *     twice.
  *   - A record edited between the ask and the answer: the ratchet refuses with
  *     `RATIFICATION_STALE` and writes nothing, which is what binds the consent to the
  *     text the human was shown rather than to whatever is on disk when the answer lands.
@@ -366,7 +372,7 @@ window.__ModuleLoader__.load({
 		 * are equal again after a release and the constant is one ahead only in the working
 		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.43";
+		const PANEL_VERSION = "0.1.44";
 		/** Directories used when the host view reports none. */
 		const DEFAULT_DECISIONS_DIR = "docs/adrs";
 		const DEFAULT_SPECS_DIR = "docs/specs";
@@ -3934,6 +3940,9 @@ window.__ModuleLoader__.load({
 			var queuedState = React.useState([]);
 			var queuedIds = queuedState[0];
 			var setQueuedIds = queuedState[1];
+			// A stable guard object, because state updates are asynchronous: a second close in
+			// the same render would still read the old queue and dispatch it twice.
+			var closeGuard = React.useState(function () { return { closing: false }; })[0];
 			React.useEffect(function () {
 				if (!state.open) return undefined;
 				var controller = typeof AbortController === "function" ? new AbortController() : null;
@@ -4009,6 +4018,8 @@ window.__ModuleLoader__.load({
 			 * no dispatch at all, so a close with nothing queued starts nothing.
 			 */
 			var closeAndDispatch = function () {
+				if (closeGuard.closing) return;
+				closeGuard.closing = true;
 				var ids = (queuedIds || []).slice();
 				setQueuedIds([]);
 				if (ids.length > 0 && canResolve) {
@@ -4118,7 +4129,7 @@ window.__ModuleLoader__.load({
 					activeSection === "consents" ? consentBody : activeSection === "specs" ? specBody : decisionBody);
 			}
 			return React.createElement("div", { style: overlayBackdropStyle(), role: "presentation", onClick: closeAndDispatch },
-				React.createElement("div", { style: overlayWindowStyle(), role: "dialog", "aria-label": "Decisions and specs", onMouseDown: function (event) { event.stopPropagation(); } },
+				React.createElement("div", { style: overlayWindowStyle(), role: "dialog", "aria-label": "Decisions and specs", onMouseDown: function (event) { event.stopPropagation(); }, onClick: function (event) { event.stopPropagation(); } },
 					React.createElement("div", { style: overlayHeaderStyle() },
 						React.createElement("div", { style: { minWidth: 0 } },
 							React.createElement("div", { style: { fontSize: 14, fontWeight: 600, display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" } },
