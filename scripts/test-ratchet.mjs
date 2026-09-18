@@ -8906,7 +8906,19 @@ test('verifier: the explicit glob scope widens WHAT is seen but not HOW MUCH may
   assert.ok(budget.exceededCount > 0, 'the scoped walk recorded the stop it made')
 })
 
-test('verifier: the literal file kinds follow a symlink to an existing target', async () => {
+test('verifier: the literal file kinds follow a symlink to an existing target', {
+  // Windows refuses a symlink to an unprivileged process (EPERM without Developer Mode), and the
+  // substitutes are not honest: a hard link is the same inode, so it would not exercise
+  // symlink-following and the assertions below would pass for the wrong reason, and a junction can
+  // only link a directory. So on this platform the evidence is skipped with its reason rather than
+  // produced by a stand-in — a check that passes without testing what it names is the failure this
+  // suite exists to catch. The kit's Linux deployments run it, and the guard suite keeps its
+  // equivalent running here through a junction, where a junction really is equivalent.
+  skip:
+    process.platform === 'win32'
+      ? 'Windows refuses an unprivileged file symlink; a hard link would not follow like one'
+      : false,
+}, async () => {
   // `pathOnDisk` uses `statSync`, which follows a symlink, so a symlink to a real file is seen.
   // A directory symlink inside a check scope is deliberately NOT followed by the glob walk
   // (see `walkProjectFiles`): a recursive walk that followed one could loop or leave the
