@@ -57,6 +57,15 @@
       "source": "plugins/presentation",
       "pack": "scripts/pack-plugin.mjs",
       "mounted": true
+    },
+    {
+      "id": "work-modes",
+      "package": "@cc/dsh-work-modes",
+      "tarballPrefix": "cc-dsh-work-modes",
+      "provenance": "in-repo",
+      "source": "plugins/work-modes",
+      "pack": "scripts/pack-plugin.mjs",
+      "mounted": true
     }
   ]
 }

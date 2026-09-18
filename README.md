@@ -26,6 +26,11 @@ plugin's provenance:
   button opens a frame-wide overlay listing the project's ADR records and spec
   documents, and asks the agent to run the ratification quiz for a proposed decision
   rather than ever minting a consent itself.
+- **`@cc/dsh-work-modes`** — two deployment policies on harness seams that can
+  actually refuse something: a monotonic guard refusing a third concurrent `subagent`
+  child per session (a `workflow` fan-out is deliberately outside it, so it is not a
+  ceiling on concurrent work), and a per-session research/implementation mode injected
+  into the prompt every turn, with its toggle on a capability-fenced host route.
 - **`@cc/dsh-presentation`** — one tool that turns a JSON deck spec into a standalone
   HTML presentation in the session workspace. It ships no client half on purpose: the
   Sidebar document preview already renders `.html` in a script-enabled sandboxed frame,

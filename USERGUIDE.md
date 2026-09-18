@@ -8,6 +8,10 @@ binding rule section), **`@cc/dsh-context`** (a project's modules, rules and wor
 orders as tools), **`@cc/dsh-ratchet`** (architecture decisions compiled into
 checks a command can fail — §3.2), **`@cc/dsh-adr-panel`** (a Session-header
 window on those decisions, their consents and the generated specs — §3.3) and
+**`@cc/dsh-work-modes`** (the deployment's concurrency cap — at most two
+`subagent` children per session, with a `workflow` fan-out deliberately outside
+it — and the per-session research/implementation mode injected into every
+prompt),
 **`@cc/dsh-presentation`** (one tool that renders a JSON deck spec into a
 standalone HTML presentation in the workspace, shown by the Sidebar document
 preview).

@@ -152,6 +152,14 @@
       "enforcedBy": {
         "command": "drill-plan"
       }
+    },
+    {
+      "id": "work-modes-are-a-mechanism",
+      "statement": "At most two `subagent` children of one session run at once (a `workflow` fan-out is deliberately outside the cap, so this is not a ceiling on concurrent work), and every session carries a work mode injected into its prompt; implementation mode requires an underlying record, a defined task and a defined measure, and the review of the corpus's meaning is required and recorded while a meaning check is never a law's shell check.",
+      "statedIn": "AGENTS.md",
+      "enforcedBy": {
+        "command": "work-modes-tests"
+      }
     }
   ],
   "verification": [
@@ -218,7 +226,7 @@
     {
       "id": "adr-panel-render",
       "command": "node scripts/test-adr-panel.mjs",
-      "purpose": "the ADR panel's browser bundle rendered for real: the shipped client.js is loaded through a stub module loader and driven over the kit's own corpus, asserting the UX contract \u2014 three reader-facing sections, states filled and provenance outlined, the awaiting-a-human state in the warn tone, the decided-in chip taking the tone of the record it names, and every toned pill's text resolving through the installed theme to a colour other than its own fill \u2014 and then driven through its CONSENT PATH against a stub host: a row's Approve and Decline ask the route for the ratchet's own question, render it with the record's own text and both labels, post back the ratchet's own label paired with that same question, show the outcome, and compose no composer message in any scenario",
+      "purpose": "the ADR panel's browser bundle rendered for real: the shipped client.js is loaded through a stub module loader and driven over the kit's own corpus, asserting the UX contract — three reader-facing sections, states filled and provenance outlined, the awaiting-a-human state in the warn tone, the decided-in chip taking the tone of the record it names, and every toned pill's text resolving through the installed theme to a colour other than its own fill — and then driven through its CONSENT PATH against a stub host: a row's Approve and Decline ask the route for the ratchet's own question, render it with the record's own text and both labels, post back the ratchet's own label paired with that same question, show the outcome, and compose no composer message in any scenario",
       "path": "scripts/test-adr-panel.mjs"
     },
     {
@@ -268,6 +276,18 @@
       "command": "node --test scripts/test-drill-kit-rules.mjs",
       "purpose": "the rule drill's verdict logic: a RED run that does not elicit the violation is missed and never a pass, a forbidden action is a violation, and an ordering violation is caught",
       "path": "scripts/test-drill-kit-rules.mjs"
+    },
+    {
+      "id": "work-modes-tests",
+      "command": "node --test scripts/test-work-modes.mjs",
+      "purpose": "the two work policies, driven through the real harness: the delegation ledger's per-session count (grandchildren included, sessions independent, a stale admission released by age), the cap refusing a third child before its body runs and naming the running agents through a real ToolRuntime guard, an uncapped tool left alone, and the mode reaching the assembled prompt for the calling session only",
+      "path": "scripts/test-work-modes.mjs"
+    },
+    {
+      "id": "work-modes-probe",
+      "command": "node scripts/probe-work-modes.mjs",
+      "purpose": "the harness facts the two features rest on, measured by execution: a tools.guard() denial reaches the caller as an error result with the guard's own reason and the body never runs, subagent/start announces a run and a throwing listener cannot veto it, the parent is the scoped dispatch receiver rather than a listener argument, and a prompt section provider reads the calling agent",
+      "path": "scripts/probe-work-modes.mjs"
     }
   ],
   "scopes": [

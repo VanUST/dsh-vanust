@@ -1438,3 +1438,37 @@ shell gets.
 
 The ratchet gates are also wired into `scripts/verify-upgrade.sh`, so an upgrade
 cannot be declared safe while the gate is broken.
+
+---
+
+## Module contract addendum: `@cc/dsh-work-modes`
+
+Two deployment policies live in one plugin because both are session-scoped work-policy facts
+read at seams the harness already owns. This is the contract the code implements; the limits of
+each guarantee are in `LIMITATIONS.md` sections 1-3.
+
+| Module surface | Contract |
+|---|---|
+| `createLedger({limit, staleAfterMs, now})` | the concurrent-delegation ledger: `admit`, `start`, `end`, `settleCall`, `countFor`, `entries`, `rootFor`, `bind`. Synchronous and total; a `limit` below 1 falls back to the default rather than disabling the tool. |
+| `refusalFor(ledger, exec, toolName)` | the guard body: `undefined` to allow, or the denial text. Capacity is decided BEFORE the call claims a slot, so the boundary is not off by one. |
+| `refusalText(ledger)` | names every running child by id and by the tool call's own description, and states that a `workflow` fan-out is not covered. |
+| `resolveMode` / `modePromptText` / `MODE_RULES` | the session-to-mode lookup and the rule text each mode injects. An unknown or absent session gets the default, so the section never renders empty. |
+| `apply(ctx, config)` | installs a monotonic `tools.guard()`, the `subagent/start` and `subagent/end` listeners, the `systemPrompt.section()`, and, when a web server is reachable, the mode route and its index-injection row. |
+| `MODE_ROUTE`, `MODE_GLOBAL`, `MODE_HEADER`, `MODES` | the literals a second half must agree on; the test pins their exact values. |
+
+**Two seams, and why each is the one used.** A refusal must not be reversible by listener
+ordering, so the cap is a monotonic guard (`tools.guard()`), which has no allow result. The mode
+must be read per turn rather than frozen at registration, so the prompt section's `text` is a
+provider that receives the assembly's calling agent. Both were measured before either was
+written: `node scripts/probe-work-modes.mjs` (6/6 facts) is the record.
+
+**The correlation the harness does not offer.** `subagent/start` delivers one argument, the run
+identity, because cordis's dispatch shifts the scope carrier off the argument list; the delegating
+parent is that receiver, not a parameter. A per-session count therefore keys on the admission
+recorded at the pre-execute seam and matches the oldest unmatched admission to the start edge.
+Measured, not assumed.
+
+**Why the cap is a guard and not an event listener.** The subagent lifecycle emitter is
+CONTAINED: a listener that throws is logged and the run proceeds, so no listener can veto a
+child. Measured with the same probe, which throws from a `subagent/start` listener and requires
+the run to survive.

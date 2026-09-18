@@ -130,3 +130,23 @@
 - insert:
     - id: presentation
       name: '@cc/dsh-presentation'
+
+# ── work-modes: the concurrency cap and the per-session work mode ───────────
+# Two deployment policies on the harness seams that can actually refuse something.
+#
+# The cap is a monotonic tools.guard(): the third `subagent` child of one session
+# (grandchildren included) is refused before its body runs, with the two running
+# agents named, so the calling agent decides whether to batch, finish its own step
+# or retry. A `workflow` fan-out is deliberately OUTSIDE this cap — it is a cap on
+# the delegation tool, not a ceiling on concurrent work.
+#
+# The mode is session state injected into the prompt as a provider, so the agent
+# reads which mode it is in on every assembly instead of being trusted to remember
+# it. Research needs no decision record and no specification; implementation needs
+# an underlying record, a defined task, and a defined measure whose command runs.
+# The plugin serves the toggle on its own capability-fenced route, which the ADR
+# panel drives, and reaches `webServer` and `tools` through `ctx.get` so a
+# deployment without either still gets the other half.
+- insert:
+    - id: work-modes
+      name: '@cc/dsh-work-modes'

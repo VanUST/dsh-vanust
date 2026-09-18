@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -10,6 +10,7 @@ const guardModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-
 const schema = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-schema.mjs`)
 const compilerModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-compiler.mjs`)
 const contradictionModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-contradiction.mjs`)
+const ops = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-ops.mjs`)
 
 const SOURCE_TEXT = '# Grilling session\n\nWe agreed sessions must move to Redis.\n'
 const SOURCE_PATH = 'docs/ratchet/sources/sessions.md'
@@ -850,4 +851,54 @@ test('guard: deleting the contradiction JSON does not lift the block, but cleari
   // Clearing it through the ratchet appends a `cleared` event and is the only thing that lifts it.
   assert.equal(contradictionModule.clearContradiction(root, target), true, 'the clear is recorded')
   assert.equal(call(guard, 'write', { file_path: 'src/api/handler.ts' }), 'ALLOWED', 'and the guard sees it')
+})
+
+
+// ---------------------------------------------------------------------------
+// The judgement fact: implementation mode requires that a review has READ the law
+// set now in force. This is the deterministic half of the meaning requirement —
+// whether a judgement was made is a fact about the ledger, while what it concluded
+// is a judge's and reaches the write guard as a recorded block.
+// ---------------------------------------------------------------------------
+
+const REVIEW_HASH_A = `sha256:${'a'.repeat(64)}`
+const REVIEW_HASH_B = `sha256:${'b'.repeat(64)}`
+
+test('review status: no recorded review is stale, a review of the current law set is not, and a moved law set is again', () => {
+  // Fails if the status stops comparing the recorded hash with the current one, which
+  // is what makes "a judgement has been made about these laws" checkable without a
+  // model. The two hashes differ, so a status that merely finds an event cannot pass.
+  const root = project('review-status')
+  const none = ops.contradictionReviewStatus(root, REVIEW_HASH_A)
+  assert.equal(none.reviewed, false, 'a project nobody has reviewed reports no review')
+  assert.equal(none.stale, true, 'and it is stale: an unlooked-at corpus is not a checked one')
+  assert.match(none.reason, /no contradiction review has ever been recorded/)
+
+  // The ledger lives in the ratchet's own state directory, which a project that has
+  // never compiled does not have yet.
+  mkdirSync(join(root, '.dsh', 'ratchet'), { recursive: true })
+  appendFileSync(
+    join(root, '.dsh', 'ratchet', 'ledger.jsonl'),
+    `${JSON.stringify({ event: 'ratchet.contradiction.reviewed', at: '2026-01-01T00:00:00.000Z', job: 'review_corpus', specHash: REVIEW_HASH_A, advisory: true })}\n`,
+  )
+  const current = ops.contradictionReviewStatus(root, REVIEW_HASH_A)
+  assert.equal(current.reviewed, true)
+  assert.equal(current.stale, false, 'a review of exactly this law set is current')
+  assert.equal(current.at, '2026-01-01T00:00:00.000Z')
+
+  const moved = ops.contradictionReviewStatus(root, REVIEW_HASH_B)
+  assert.equal(moved.reviewed, true, 'the review is still recorded')
+  assert.equal(moved.stale, true, 'but the laws moved since anything looked at their meaning')
+  assert.match(moved.reason, /the laws now hash to/)
+})
+
+test('review status: a corrupt ledger reports no review, never a pass', () => {
+  // The fail-closed direction. Fails if a broken ledger starts reporting a clean
+  // judgement, which would license implementation mode on no evidence at all.
+  const root = project('review-status-broken')
+  mkdirSync(join(root, '.dsh', 'ratchet'), { recursive: true })
+  writeFileSync(join(root, '.dsh', 'ratchet', 'ledger.jsonl'), '{not json\n')
+  const status = ops.contradictionReviewStatus(root, REVIEW_HASH_A)
+  assert.equal(status.stale, true)
+  assert.equal(status.reviewed, false)
 })

@@ -1,0 +1,544 @@
+/**
+ * PURPOSE
+ *   Verify the two work policies the deployment states: the per-session concurrency
+ *   cap on the `subagent` tool, and the research/implementation mode injected into
+ *   the prompt. Each test names the production change that would make it fail, and
+ *   asserts on an observable result — a refusal string, a count, a prompt body, an
+ *   HTTP status, a recorded mode — never on the shape of a module.
+ *
+ *   The harness classes are resolved through the installed packages (the same
+ *   resolution `scripts/probe-work-modes.mjs` uses) so the tests drive the REAL
+ *   `SystemPrompt`, the real `ToolRuntime` guard path and the real cordis event
+ *   dispatch. Without a linked harness the suite says so rather than passing
+ *   vacuously.
+ *
+ * INPUTS
+ *   None. Every fixture is built here; nothing is written outside a temp directory.
+ *
+ * OUTPUTS
+ *   `node --test` results. The suite is hermetic: no model call, no port, no network.
+ *
+ * KEYWORDS
+ *   work modes, subagent cap, monotonic guard, delegation ledger, prompt section,
+ *   session state, mode route, capability, tests
+ *
+ * BEHAVIOUR ON EDGE CASES
+ *   - No installed harness: the tests that need it are skipped with the reason naming
+ *     `node scripts/dev-link.mjs`; the pure-ledger tests still run.
+ *   - A web-server stand-in that never receives the registration: the route tests fail
+ *     loudly with `registeredRoute` null rather than reporting a pass.
+ */
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+
+const KIT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const PLUGIN = join(KIT, 'plugins', 'work-modes', 'work-modes.mjs')
+const workModes = await import(pathToFileURL(PLUGIN).href)
+
+/**
+ * Candidate `node_modules` directories holding the harness packages; the same
+ * resolution order the kit's probe uses.
+ *
+ * @returns Absolute candidate paths, possibly non-existent.
+ */
+function candidateRoots() {
+  const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
+  const roots = [
+    join(KIT, 'probes', 'api-probe', 'node_modules'),
+    join(home, 'profiles', 'node_modules'),
+    join(dirname(process.execPath), 'node_modules', '@deepseek-ai', 'dsh', 'node_modules'),
+    join(dirname(process.execPath), '..', 'lib', 'node_modules', '@deepseek-ai', 'dsh', 'node_modules'),
+    '/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules',
+    '/usr/lib/node_modules/@deepseek-ai/dsh/node_modules',
+  ]
+  if (process.env.APPDATA !== undefined) roots.push(join(process.env.APPDATA, 'npm', 'node_modules', '@deepseek-ai', 'dsh', 'node_modules'))
+  try {
+    for (const entry of readdirSync(join(home, 'profiles'), { withFileTypes: true })) {
+      if (entry.isDirectory() && entry.name !== 'node_modules') roots.push(join(home, 'profiles', entry.name, 'node_modules'))
+    }
+  } catch {
+    // No profiles directory: one candidate fewer, not a failure.
+  }
+  return roots
+}
+
+/** Resolve a package entry to a `file:` URL through its own manifest. */
+function packageEntry(root, packageName) {
+  const directory = join(root, ...packageName.split('/'))
+  const manifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'))
+  const exported = manifest.exports?.['.'] ?? manifest.exports
+  const entry = typeof exported === 'string' ? exported : (exported?.default ?? exported?.import ?? manifest.main ?? 'index.js')
+  return pathToFileURL(join(directory, entry)).href
+}
+
+const NEEDED = ['cordis', 'dsh-system-prompt', 'dsh-scope', 'dsh-tools']
+const HARNESS_ROOT =
+  candidateRoots().find((root) => NEEDED.every((name) => existsSync(join(root, '@deepseek-ai', name, 'package.json')))) ?? null
+
+let harness = null
+let harnessError = null
+if (HARNESS_ROOT !== null) {
+  try {
+    const [{ Context }, systemPrompt, scope, tools] = await Promise.all([
+      import(packageEntry(HARNESS_ROOT, '@deepseek-ai/cordis')),
+      import(packageEntry(HARNESS_ROOT, '@deepseek-ai/dsh-system-prompt')),
+      import(packageEntry(HARNESS_ROOT, '@deepseek-ai/dsh-scope')),
+      import(packageEntry(HARNESS_ROOT, '@deepseek-ai/dsh-tools')),
+    ])
+    harness = { Context, SystemPrompt: systemPrompt.SystemPrompt, renderPrompt: systemPrompt.renderPrompt, createScope: scope.createScope, ToolRuntime: tools.ToolRuntime, tools }
+  } catch (error) {
+    harnessError = String(error?.message ?? error)
+  }
+}
+
+/** The reason the harness-dependent tests are skipped, or `false` when they can run. */
+const HARNESS_SKIP =
+  harness === null
+    ? `the harness packages this checkout imports are not linked (run: node scripts/dev-link.mjs)${harnessError === null ? '' : `: ${harnessError}`}`
+    : false
+
+/** A tool-execution stand-in carrying the fields the guard and the ledger read. */
+function exec(overrides = {}) {
+  return { name: 'subagent', callId: 'call-1', arguments: { description: 'the first task' }, agent: { id: 'session-a' }, ...overrides }
+}
+
+/**
+ * A context with the prompt service, the web-server stand-in and the plugin applied.
+ *
+ * The stand-in is provided BEFORE pply, because the plugin reaches webServer
+ * through ctx.get at apply time; a real deployment mounts the web server first, and
+ * the plugin is inert without one.
+ *
+ * @param config - Plugin configuration.
+ * @returns The context, carrying __workModesRoute when the route registered.
+ */
+async function applyWithWebServer(config = {}) {
+  const ctx = new harness.Context()
+  new harness.SystemPrompt(ctx, {})
+  ctx.provide('webServer', {
+    on(event, callback) {
+      if (event === 'webserver/index-inject') {
+        const table = []
+        callback(table)
+        ctx.__workModesInjected = Object.fromEntries(table.map((row) => [row.name, row.value]))
+      }
+      return () => undefined
+    },
+    webServer: {
+      register(spec) {
+        ctx.__workModesRoute = { ...spec, token: ctx.__workModesInjected?.[workModes.MODE_GLOBAL]?.token ?? null }
+        return () => undefined
+      },
+    },
+  })
+  workModes.apply(ctx, config)
+  for (let turn = 0; turn < 8; turn += 1) await Promise.resolve()
+  return ctx
+}
+
+/**
+ * Apply the plugin on a plain context (no web server) and let its registrations
+ * activate.
+ *
+ * @param config - Plugin configuration.
+ * @returns The context.
+ */
+async function activate(config = {}) {
+  const ctx = config.ctx ?? new harness.Context()
+  new harness.SystemPrompt(ctx, {})
+  // The registry the TEST dispatches into must be the one the plugin guards, so both
+  // sides use this instance: constructing one here and dispatching into another left the
+  // guard registered on a registry nothing exercised, and the cap assertions then passed
+  // or failed for a reason unrelated to the policy.
+  const tools = new harness.ToolRuntime(ctx, {})
+  workModes.apply(ctx, { ...config, services: { ...config.services, tools } })
+  for (let turn = 0; turn < 8; turn += 1) await Promise.resolve()
+  return { ctx, tools }
+}
+
+/**
+ * Drive the registered route with a synthetic request.
+ *
+ * @param route - `{ path, handler, token }`.
+ * @param options - `{ method, session, mode, capability }`; `capability` defaults to
+ *   the token the plugin injected, so a hardcoded token would not satisfy the check.
+ * @returns `{ status, body }`.
+ */
+async function routeRequest(route, { method, session, mode, capability = 'route-token' }) {
+  const headers = {}
+  if (capability !== null) headers[workModes.MODE_HEADER] = capability === 'route-token' ? route.token : capability
+  const listeners = {}
+  const request = {
+    method,
+    url: `${route.path}?session=${encodeURIComponent(session ?? '')}`,
+    headers,
+    on(event, callback) {
+      listeners[event] = callback
+      return this
+    },
+  }
+  let status = 0
+  let body = null
+  let settle = null
+  const done = new Promise((resolveDone) => {
+    settle = resolveDone
+  })
+  const response = {
+    writeHead(code) {
+      status = code
+    },
+    end(text) {
+      status = status || 200
+      body = text === undefined || text === '' ? null : JSON.parse(text)
+      settle()
+    },
+  }
+  route.handler(request, response)
+  if (method === 'POST') {
+    listeners.data?.(Buffer.from(JSON.stringify({ session, mode })))
+    listeners.end?.()
+  }
+  await done
+  return { status, body }
+}
+
+// ---------------------------------------------------------------------------
+// The ledger: counting, refusal text, nesting, and the stale sweep
+// ---------------------------------------------------------------------------
+
+test('ledger: a third admission for one session is counted over the cap, and the refusal names the two running agents', () => {
+  // Fails if `countFor` or `refusalFor` stops counting each session, or if the refusal
+  // stops naming what is running — the two facts the calling agent's next decision
+  // depends on.
+  const ledger = workModes.createLedger({ limit: 2 })
+  ledger.admit('call-1', 'session-a', 'port the loader')
+  ledger.start('run-1', 'child-1')
+  ledger.admit('call-2', 'session-a', 'fix the counter')
+  ledger.start('run-2', 'child-2')
+  assert.equal(ledger.countFor('session-a'), 2)
+
+  const text = workModes.refusalFor(ledger, exec({ callId: 'call-3', arguments: { description: 'the third task' } }))
+  assert.equal(typeof text, 'string')
+  assert.match(text, /child-1/)
+  assert.match(text, /port the loader/)
+  assert.match(text, /child-2/)
+  assert.match(text, /fix the counter/)
+  assert.match(text, /the cap is 2/)
+  // The refused call must not be left holding a slot, or the next attempt would be
+  // refused for the wrong reason.
+  assert.equal(ledger.countFor('session-a'), 2)
+})
+
+test('ledger: two running children refuse the third call, and a settled child lets the next one through', () => {
+  // The boundary itself, from both sides. Fails if the comparison becomes > instead of
+  // >= (a third child would be admitted) or if a settled child does not release its slot
+  // (the cap would never recover after the first two delegations).
+  const ledger = workModes.createLedger({ limit: 2 })
+  ledger.admit('call-1', 'session-a', 'first')
+  ledger.start('run-1', 'child-1')
+  ledger.admit('call-2', 'session-a', 'second')
+  ledger.start('run-2', 'child-2')
+  const third = workModes.refusalFor(ledger, exec({ callId: 'call-3', arguments: { description: 'third' } }))
+  assert.equal(typeof third, 'string', 'with two running, the third call is refused')
+  assert.match(third, /child-1/)
+  assert.match(third, /child-2/)
+  ledger.end('run-1')
+  assert.equal(workModes.refusalFor(ledger, exec({ callId: 'call-4', arguments: { description: 'fourth' } })), undefined)
+})
+
+test('ledger: a grandchild is counted against the session that started the chain', () => {
+  // Fails if the root index is dropped: a subagent's own delegation would root at the
+  // subagent and the cap would see one child where three are running.
+  const ledger = workModes.createLedger({ limit: 2 })
+  ledger.admit('call-1', 'session-root', 'the only task')
+  ledger.start('run-1', 'session-child')
+  assert.equal(ledger.rootFor('session-child'), 'session-root')
+  // The grandchild CALLS the tool: its own session is the child, which no entry names
+  // yet, so the binding done by `refusalFor` is what keeps it under the root.
+  assert.equal(
+    workModes.refusalFor(ledger, exec({ callId: 'call-2', agent: { id: 'session-child' }, arguments: { description: 'the nested task' } })),
+    undefined,
+  )
+  const text = workModes.refusalFor(ledger, exec({ callId: 'call-3', agent: { id: 'session-child' }, arguments: { description: 'one too many' } }))
+  assert.equal(typeof text, 'string')
+  assert.match(text, /already running in this session/)
+})
+
+test('ledger: separate sessions do not consume each other\'s capacity', () => {
+  // The cap is per session, which is the decision. Fails if the ledger counts globally.
+  const ledger = workModes.createLedger({ limit: 2 })
+  ledger.admit('call-1', 'session-a', 'a-first')
+  ledger.start('run-1', 'child-a1')
+  ledger.admit('call-2', 'session-a', 'a-second')
+  ledger.start('run-2', 'child-a2')
+  ledger.admit('call-3', 'session-b', 'b-first')
+  ledger.start('run-3', 'child-b1')
+  assert.equal(workModes.refusalFor(ledger, exec({ callId: 'call-4', agent: { id: 'session-b' }, arguments: { description: 'b-second' } })), undefined)
+  assert.equal(typeof workModes.refusalFor(ledger, exec({ callId: 'call-5', arguments: { description: 'a-third' } })), 'string')
+})
+
+test('ledger: a lost terminal edge stops blocking after the stale window, and not before', () => {
+  // Fail-closed with a bound. Fails if `sweep` is removed, which would refuse
+  // delegation for the life of the process after one lost event.
+  let clock = 1_000_000
+  const ledger = workModes.createLedger({ limit: 2, staleAfterMs: 60_000, now: () => clock })
+  ledger.admit('call-1', 'session-a', 'first')
+  ledger.start('run-1', 'child-1')
+  ledger.admit('call-2', 'session-a', 'second')
+  ledger.start('run-2', 'child-2')
+  assert.equal(ledger.countFor('session-a'), 2)
+  clock += 59_999
+  assert.equal(ledger.countFor('session-a'), 2, 'inside the window nothing is released')
+  clock += 2
+  assert.equal(ledger.countFor('session-a'), 0, 'past the window the entries are gone')
+  assert.equal(workModes.refusalFor(ledger, exec({ callId: 'call-3' })), undefined)
+})
+
+test('ledger: a settled tool result releases the slot even when no start edge ever arrived', () => {
+  // The release path for a call whose child never announced itself. Fails if
+  // `settleCall` stops clearing admissions as well as running entries.
+  const ledger = workModes.createLedger({ limit: 2 })
+  ledger.admit('call-1', 'session-a', 'first')
+  ledger.admit('call-2', 'session-a', 'second')
+  assert.equal(ledger.countFor('session-a'), 2)
+  ledger.settleCall('call-1')
+  assert.equal(ledger.countFor('session-a'), 1)
+})
+
+test('ledger: a limit below one is refused and floored, because a cap of zero disables the tool', () => {
+  // The edge case in the contract: fails if a configured 0 silently makes every
+  // delegation impossible.
+  const ledger = workModes.createLedger({ limit: 0 })
+  assert.equal(ledger.limit, 2, 'an unusable limit falls back to the default rather than to zero')
+  const floored = workModes.createLedger({ limit: -3 })
+  assert.equal(floored.limit, 2)
+  const one = workModes.createLedger({ limit: 1 })
+  assert.equal(one.limit, 1)
+  one.admit('call-1', 'session-a', 'first')
+  one.start('run-1', 'child-1')
+  assert.equal(typeof workModes.refusalFor(one, exec({ callId: 'call-2' })), 'string')
+})
+
+// ---------------------------------------------------------------------------
+// The cap, driven through the real tool registry
+// ---------------------------------------------------------------------------
+
+test('guard: through a real plugin instance, two children admit and the third is refused without running', { skip: HARNESS_SKIP }, async () => {
+  // The end-to-end path: `apply` installs the guard, the registry runs it, and the
+  // caller reads the plugin's own refusal. Fails if `apply` stops registering the
+  // guard, if the guard is registered where the tool path does not consult it, or if
+  // the refusal text loses the running agents' names.
+  let bodyRuns = 0
+  const ctx = new harness.Context()
+  // The activation comes FIRST so the guard is installed on the registry the tool is
+  // then registered in — a registry built after the guard covers a different instance
+  // and every assertion below would pass for a reason unrelated to the cap.
+  const activated = await activate({ limit: 2, ctx })
+  // The stand-in emits the start edge from INSIDE the tool body, which is what the
+  // harness does for a one-shot delegation: `subagents.start` publishes the run and
+  // `observeRun` emits `subagent/start` before the tool returns. A start edge emitted
+  // after the tool result is the background shape, and the ordering is what this pins.
+  activated.tools.register(
+    harness.tools.defineTool({
+      name: 'subagent',
+      description: 'stand-in for the delegation tool',
+      parameters: { description: { type: 'string', required: true } },
+      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
+      execute() {
+        bodyRuns += 1
+        ctx.emit('subagent/start', { runId: `run-${bodyRuns}`, provider: 'spawn', id: `child-${bodyRuns}`, local: true })
+        return Promise.resolve({ ok: true })
+      },
+    }),
+  )
+  const agent = { id: 'session-root', ctx: harness.createScope(ctx, 'session-root').ctx }
+  const call = (callId, description) =>
+    activated.tools.execute({ name: 'subagent', callId, arguments: { description }, agent, signal: new AbortController().signal })
+
+  await call('call-1', 'first task')
+  await call('call-2', 'second task')
+  assert.equal(bodyRuns, 2, 'the first two delegations reach the tool body')
+
+  const third = await call('call-3', 'third task')
+  assert.equal(third.isError, true)
+  assert.equal(bodyRuns, 2, 'the refused call never reaches the tool body')
+  assert.match(String(third.error?.message ?? ''), /child-1/)
+  assert.match(String(third.error?.message ?? ''), /first task/)
+  assert.match(String(third.error?.message ?? ''), /child-2/)
+  assert.match(String(third.error?.message ?? ''), /second task/)
+
+  // A settled child frees the slot, so the next call goes through.
+  ctx.emit('subagent/end', { runId: 'run-1', provider: 'spawn', id: 'child-1', stopReason: 'completed' })
+  const fourth = await call('call-4', 'fourth task')
+  assert.equal(fourth.isError, false, 'a settled child releases its slot')
+  assert.equal(bodyRuns, 3)
+})
+
+test('guard: a non-delegation tool is never refused, so a workflow fan-out is outside the cap', { skip: HARNESS_SKIP }, async () => {
+  // The documented limit, asserted. Fails if the guard keys on anything broader than
+  // the configured tool name.
+  let workflowRuns = 0
+  const ctx = new harness.Context()
+  const activated = await activate({ limit: 2, ctx })
+  activated.tools.register(
+    harness.tools.defineTool({
+      name: 'workflow',
+      description: 'stand-in for the fan-out tool',
+      parameters: { script: { type: 'string', required: true } },
+      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
+      execute() {
+        workflowRuns += 1
+        return Promise.resolve({ ok: true })
+      },
+    }),
+  )
+  const agent = { id: 'session-root', ctx: harness.createScope(ctx, 'session-root').ctx }
+  // Saturate the delegation cap first, so an uncapped fan-out is exercised while the
+  // delegation tool would be refused.
+  for (const index of [1, 2]) ctx.emit('subagent/start', { runId: `run-${index}`, provider: 'spawn', id: `child-${index}`, local: true })
+  for (const script of ['a', 'b', 'c']) {
+    const result = await activated.tools.execute({ name: 'workflow', arguments: { script }, agent, signal: new AbortController().signal })
+    assert.equal(result.isError, false)
+  }
+  assert.equal(workflowRuns, 3, 'the workflow tool is not capped')
+})
+
+test('guard: the delegation tool is capped at the configured toolName, not at the literal string', { skip: HARNESS_SKIP }, async () => {
+  // Fails if the tool name is hardcoded somewhere the configuration does not reach.
+  let runs = 0
+  const ctx = new harness.Context()
+  const activated = await activate({ limit: 1, toolName: 'delegate', ctx })
+  activated.tools.register(
+    harness.tools.defineTool({
+      name: 'delegate',
+      description: 'a differently named delegation tool',
+      parameters: { description: { type: 'string', required: true } },
+      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
+      execute() {
+        runs += 1
+        ctx.emit('subagent/start', { runId: `run-${runs}`, provider: 'spawn', id: `child-${runs}`, local: true })
+        return Promise.resolve({ ok: true })
+      },
+    }),
+  )
+  const agent = { id: 'session-root', ctx: harness.createScope(ctx, 'session-root').ctx }
+  const call = (callId) => activated.tools.execute({ name: 'delegate', callId, arguments: { description: 'x' }, agent, signal: new AbortController().signal })
+  await call('call-1')
+  const second = await call('call-2')
+  assert.equal(second.isError, true)
+  assert.equal(runs, 1)
+})
+
+// ---------------------------------------------------------------------------
+// The mode: prompt injection
+// ---------------------------------------------------------------------------
+
+test('mode: the prompt carries the mode of the session being assembled, and an unknown session gets the default', { skip: HARNESS_SKIP }, async () => {
+  // Fails if the section's text stops being a provider (a frozen string would report
+  // one session's mode to every session) or if the default changes silently.
+  const ctx = await applyWithWebServer({ defaultMode: 'research' })
+  const route = ctx.__workModesRoute
+  assert.ok(route !== null && route !== undefined, 'the plugin registered its mode route when a web server was mounted')
+
+  const research = await routeRequest(route, { method: 'GET', session: 'session-a' })
+  assert.equal(research.status, 200)
+  assert.equal(research.body.mode, 'research')
+  const toggled = await routeRequest(route, { method: 'POST', session: 'session-a', mode: 'implementation' })
+  assert.equal(toggled.status, 200)
+  assert.equal(toggled.body.mode, 'implementation')
+
+  const forA = harness.renderPrompt(await ctx.systemPrompt.assemble({ agent: { id: 'session-a' }, scope: { id: 'session-a' } }))
+  const forB = harness.renderPrompt(await ctx.systemPrompt.assemble({ agent: { id: 'session-b' }, scope: { id: 'session-b' } }))
+  assert.match(forA, /WORK MODE: IMPLEMENTATION/)
+  assert.match(forB, /WORK MODE: RESEARCH/)
+  assert.doesNotMatch(forB, /WORK MODE: IMPLEMENTATION/)
+})
+
+test('mode: the toggle changes what the NEXT assembly renders, so the mode is not frozen at registration', { skip: HARNESS_SKIP }, async () => {
+  // The difference the "injected, not remembered" decision buys. Fails if the
+  // provider is replaced by a string computed once.
+  const ctx = await applyWithWebServer({})
+  const before = harness.renderPrompt(await ctx.systemPrompt.assemble({ agent: { id: 'session-a' }, scope: { id: 'session-a' } }))
+  assert.match(before, /WORK MODE: RESEARCH/)
+  await routeRequest(ctx.__workModesRoute, { method: 'POST', session: 'session-a', mode: 'implementation' })
+  const after = harness.renderPrompt(await ctx.systemPrompt.assemble({ agent: { id: 'session-a' }, scope: { id: 'session-a' } }))
+  assert.match(after, /WORK MODE: IMPLEMENTATION/)
+  // And the other session is untouched, which is what makes it session state.
+  const other = harness.renderPrompt(await ctx.systemPrompt.assemble({ agent: { id: 'session-z' }, scope: { id: 'session-z' } }))
+  assert.match(other, /WORK MODE: RESEARCH/)
+})
+
+test('mode: the implementation rule states the deterministic boundary rather than claiming a guarantee', () => {
+  // The honesty of the rule is itself testable. Fails if the text is softened back
+  // into "advisory only" or upgraded into a claim it cannot support.
+  const text = workModes.MODE_RULES.implementation
+  assert.match(text, /requiresDecisionRecord/)
+  assert.match(text, /ratchet verify/)
+  assert.match(text, /require that a judgement has been made and recorded/)
+  assert.match(text, /cannot deterministically PRODUCE the judgement/)
+  assert.doesNotMatch(text, /advisory only/)
+})
+
+test('mode: the research rule requires the four fields and refuses no record', () => {
+  // Research is less strict but not aimless. Fails if the four fields are dropped, or
+  // if research starts demanding a decision record.
+  const text = workModes.MODE_RULES.research
+  assert.match(text, /objective/)
+  assert.match(text, /scope/)
+  assert.match(text, /proof/)
+  assert.match(text, /constraints/)
+  assert.match(text, /NOT REQUIRED/)
+})
+
+// ---------------------------------------------------------------------------
+// The mode route's fences
+// ---------------------------------------------------------------------------
+
+test('mode route: a missing or wrong capability is refused and nothing is recorded', { skip: HARNESS_SKIP }, async () => {
+  // Fails if the capability check is dropped. Driven against the real handler with the
+  // token the plugin injected, so a hardcoded token would not pass.
+  const ctx = await applyWithWebServer({})
+  const route = ctx.__workModesRoute
+  const bogus = await routeRequest(route, { method: 'POST', session: 'session-a', mode: 'implementation', capability: 'not-the-token' })
+  assert.equal(bogus.status, 403)
+  const absent = await routeRequest(route, { method: 'POST', session: 'session-a', mode: 'implementation', capability: null })
+  assert.equal(absent.status, 403)
+  const read = await routeRequest(route, { method: 'GET', session: 'session-a' })
+  assert.equal(read.body.mode, 'research', 'the refused writes recorded nothing')
+})
+
+test('mode route: an unknown mode is refused and a known one is stored', { skip: HARNESS_SKIP }, async () => {
+  const ctx = await applyWithWebServer({})
+  const route = ctx.__workModesRoute
+  const bad = await routeRequest(route, { method: 'POST', session: 'session-a', mode: 'hyperdrive' })
+  assert.equal(bad.status, 400)
+  assert.equal((await routeRequest(route, { method: 'GET', session: 'session-a' })).body.mode, 'research')
+  const good = await routeRequest(route, { method: 'POST', session: 'session-a', mode: 'implementation' })
+  assert.equal(good.status, 200)
+  assert.equal((await routeRequest(route, { method: 'GET', session: 'session-a' })).body.mode, 'implementation')
+})
+
+test('mode route: a request with no session id is refused', { skip: HARNESS_SKIP }, async () => {
+  // The mode is session state, so an unattributed write must not land anywhere.
+  const ctx = await applyWithWebServer({})
+  const route = ctx.__workModesRoute
+  const read = await routeRequest(route, { method: 'GET', session: '' })
+  assert.equal(read.status, 400)
+})
+
+test('mode: the plugin declares the prompt service it cannot work without and reaches the tool registry optionally', () => {
+  // Fails if `inject` loses `systemPrompt` (the mode would vanish silently) or gains
+  // `tools` (a deployment without the tool registry would fail its boot instead of
+  // losing only the cap).
+  assert.deepEqual(workModes.inject, ['systemPrompt'])
+  assert.equal(workModes.name, 'work-modes')
+  // And the exports the panel's half and the checks share are the literal values both
+  // sides must agree on.
+  assert.equal(workModes.MODE_ROUTE, '/work-modes/mode')
+  assert.equal(workModes.MODE_GLOBAL, '__DSH_WORK_MODES_MODE__')
+  assert.deepEqual([...workModes.MODES], ['research', 'implementation'])
+})

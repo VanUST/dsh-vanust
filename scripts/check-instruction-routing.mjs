@@ -77,6 +77,13 @@ if (patch.missing === true) {
     alsoDisabled ? 'the row is both disabled and configured; the config will not merge' : 'not disabled',
   )
 
+  // 2a. And the work-mode plugin is mounted, because the cap and the mode are the two
+  //     policies this deployment states, and a profile row is what puts one into force.
+  //     A plugin the deployment describes and does not mount is the same class of lie as
+  //     a rule with no enforcement point.
+  const mountsWorkModes = /name:\s*'@cc\/dsh-work-modes'/.test(patch.text)
+  claim('the patch mounts @cc/dsh-work-modes', mountsWorkModes, mountsWorkModes ? 'row present' : 'no work-modes row')
+
   // 2. And the kit's own rules plugin is what is mounted in its place.
   const mountsKitRules = /name:\s*'@cc\/dsh-kit-rules'/.test(patch.text)
   claim('the patch mounts @cc/dsh-kit-rules', mountsKitRules, mountsKitRules ? 'row present' : 'no kit-rules row')

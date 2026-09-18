@@ -25,6 +25,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 
 import { evaluatePair, loadScenarios, stripSection } from './drill-kit-rules.mjs'
@@ -137,7 +138,10 @@ test('a required action that never happened is reported', () => {
 })
 
 test('the kit ships drill scenarios, and every one names a section the rules file carries', () => {
-  const root = join(new URL('.', import.meta.url).pathname, '..')
+  // `new URL(...).pathname` is `/C:/…` on Windows, which `path.join` cannot walk up
+  // from: the scenario directory then resolves to nothing and this test passes over
+  // zero scenarios. `fileURLToPath` is the platform-correct spelling.
+  const root = join(fileURLToPath(new URL('.', import.meta.url)), '..')
   const scenarios = loadScenarios(join(root, 'rules', 'drills'))
   assert.ok(scenarios.length >= 3, `expected at least 3 scenarios, got ${scenarios.length}`)
   const rules = readFileSync(join(root, 'rules', 'AGENTS.md'), 'utf8')

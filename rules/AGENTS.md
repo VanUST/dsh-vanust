@@ -188,13 +188,32 @@ You must not make important architectural decisions unilaterally. Significant st
 | "The user is in a hurry" | A wrong direction costs more time than one question. |
 
 ## 7. Grilling Option (grill-me)
-When the user asks to be grilled, or uses grill trigger phrases ("grill me", "stress-test my plan", "tear this plan apart", "sharpen this design"), run a grilling session before any implementation starts. If the task is ambiguous, not detailed enough, or contains contradictions with documentation/code — treat this as a trigger to grill the user until shared understanding is reached. It's better to ask important details first than fix later.
+Run a grilling session before any work when the user asks to be grilled or uses a grill trigger phrase ("grill me", "stress-test my plan", "tear this plan apart", "sharpen this design") — and, just as binding, **when the task is ambiguous**. Ambiguity is itself the trigger; waiting to be asked is not the rule. Better to ask the important details first than to fix them later.
+
+**The classes an ambiguous ask falls into, each of which triggers a grill by itself.** Do not wait for a further signal once the ask matches one:
+
+* **A bare continuation** — "continue", "continue research", "go on", "keep going", "carry on". The continuation carries no objective, so the agent that resumes it is choosing the objective for the user. State what you are about to continue and get it confirmed.
+* **A defect ask with no reproduction and no location** — "fix the bugs", "it's broken", "the tests fail", "make it work". Which bug, which failure, and where it shows up are the three facts a fix needs, and none of them is in the ask.
+* **A quality adjective with no criterion** — "make it better", "optimise", "clean up", "improve the design", "make it faster". Every one of those is a direction, not a target, and an unmeasurable target cannot be reported as reached.
+* **A multi-goal ask with no priority** — "add the feature and fix the flakiness and update the docs". Priorities decide the order, and the order decides what is abandoned when time runs out.
+* **A scope-free verb** — "update the docs", "add tests", "refactor this", "tidy the repo". The verb names an activity; the scope names the work.
+
+**Before any work, state all four and get them confirmed:**
+
+1. **The objective** — one sentence, with no vague verb. It says what will be true when the work is done.
+2. **The scope** — the paths or the subsystem the work may touch, named concretely.
+3. **The proof** — the command that shows it done and what its output will look like, or an explicit statement that no measurement exists yet and what would create one.
+4. **The constraints** — what must not change, and whose authority the work needs (a ratification, a remote-system permission, a human decision).
+
+**Propose, do not interrogate.** For each of the four, put forward YOUR best reading and ask the user to confirm or correct it — one question at a time, each with a recommended answer. An agent that asks "what is the objective?" has shifted the work onto the user; an agent that says "I read the objective as X, the scope as Y, the proof as Z, and the constraints as W — is that right?" has done the reading and asks only for the decision. Look facts up rather than asking: if the repository, the docs or a tool can answer it, answer it and present the answer for correction.
 
 * **One question at a time:** Interview the user about every aspect of the plan, walking down each branch of the decision tree. Ask questions one at a time and wait for feedback on each before continuing. Asking multiple questions at once is bewildering.
 * **Resolve dependencies:** Resolve dependencies between decisions one-by-one, branch by branch, until the decision tree is fully covered.
 * **Recommend an answer:** For each question, provide your recommended answer.
 * **Look up facts, don't ask:** If a fact can be found by exploring the environment (filesystem, tools, docs, codebase), look it up rather than asking. The *decisions* are the user's — put each one to them and wait for the answer.
-* **No action until confirmed:** Do not act on the plan until the user confirms shared understanding has been reached.
+* **No action until confirmed:** Do not act on the plan until the user confirms shared understanding has been reached. This holds for implementation and for research: research is less strict about the record, never about the four fields.
+
+**What enforces this.** The rule is behavioural, so its enforcement is a drill: `rules/drills/grill-ambiguous-asks.json` runs a pressure scenario twice — once with this section stripped and once with it present — and requires the unruled run to act on the ambiguous ask while the ruled run states the four fields first. `node scripts/drill-kit-rules.mjs --root . --plan` proves the scenario strips a section this file really carries.
 
 ## 8. Model & Cost Policy — Flash-Only Agents
 
@@ -315,3 +334,64 @@ context, one report.
 | "More agents run in parallel, so it is faster" | Only independent work is parallel. Tasks that write the same file are serial however you dispatch them; parallel ones lose writes |
 | "One agent per task keeps the reports clean" | It keeps nothing: the parent merges N reports about one context instead of reading one report about the block |
 | "The tasks arrived separately, so they are separate" | How work arrived is not how it is grouped. Group by what a subagent must know, not by when the task was written down |
+
+
+## 14. Work Modes and the Delegation Cap
+
+**Two work modes, per session, injected rather than remembered.** Every session is in
+RESEARCH or IMPLEMENTATION mode, and the mode is stated in the system prompt on every
+assembly, by the `@cc/dsh-work-modes` plugin, so an agent reads which mode it is in
+instead of being trusted to recall it. The mode is session state toggled from the ADR
+panel, which calls the plugin's own capability-fenced host route.
+
+* **Research mode** requires neither a decision record nor a specification. Its output is
+  understanding, and nothing refuses it for producing no law. It is not aimless: the
+  grilling rule (§7) still requires the objective, the scope, the proof and the
+  constraints, stated and confirmed. Write a decision record in research mode only when
+  the user asks for one in the conversation.
+* **Implementation mode** requires three things BEFORE the first write: (1) an underlying
+  decision record — `status: proposed` is enough, because a proposal licenses the work it
+  describes; if none exists, propose one first; (2) a defined task, by name, with the paths
+  it may write; (3) a defined measure of the result AND the procedure that measures it —
+  the exact command, run now, whose output shows the work done.
+
+**What is deterministic about the meaning requirement, and what is not — state this
+boundary, never paper over it.** The system can deterministically require that a judgement
+has been MADE and RECORDED; it cannot deterministically PRODUCE the judgement.
+
+* **Deterministic, about whether a judgement was made:** `ratchet compile` and
+  `ratchet verify` print whether a corpus review has read the law set now in force. A
+  review recorded against a different law set is `stale`, and no judgement covers these
+  laws until a review reads them. That fact is a hash comparison, not an opinion.
+* **Enforced, about what the judgement concluded:** a recorded blocking finding makes the
+  write guard refuse writes in the zones the contradicted law governs, until the change is
+  fixed, the judged record is edited, or a human decides. The judgement is a model's; the
+  block is the system's, and the block is deterministic once recorded.
+* **Never a shell check.** A meaning check must never be a law's `checks` entry: a check
+  is a shell command, a shell cannot spawn a judge, and a model verdict that fails a build
+  sends people to re-run the gate until it passes.
+* **Residual limits, named so they are not mistaken for guarantees:** a block is only as
+  good as the judge that raised it — which is why a law-bound finding must quote the law
+  it judges, and a quote that does not match the compiled law makes the finding unusable
+  rather than blocking; a false positive refuses writes in the governed zones until it is
+  rebutted, and a false negative lets a contradiction through; and the block binds writes
+  in the governed zones, not every write. When a review cannot run because no live root
+  agent is available, that is a refusal with a reason — never a silent pass.
+
+**At most two concurrent `subagent` children per session.** A third call is refused
+immediately, with the two running agents named, and the calling agent decides: batch the
+remaining work into the delegations already running, finish its own step first, or retry
+later. It is not a queue and not a wait. The mechanism is a monotonic `tools.guard()`,
+which may only deny, so no listener ordering can turn the refusal back into permission.
+Grandchildren count against the session that started the chain.
+
+**A workflow fan-out is deliberately outside that cap.** The cap counts the `subagent`
+tool's children, nothing else, so it is a cap on one delegation tool and NOT a ceiling on
+concurrent work. Say so wherever the cap is described, so a later reader does not mistake
+it for a total limit.
+
+**What enforces the cap.** `node --test scripts/test-work-modes.mjs` drives the real tool
+registry: two children admit, the third is refused before its body runs with both running
+agents named, a settled child releases its slot, another session is unaffected, and a
+`workflow` call is never refused. `node scripts/probe-work-modes.mjs` measures the seam
+it rests on.
