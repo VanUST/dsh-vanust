@@ -360,7 +360,7 @@ window.__ModuleLoader__.load({
 		 * are equal again after a release and the constant is one ahead only in the working
 		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.40";
+		const PANEL_VERSION = "0.1.41";
 		/** Directories used when the host view reports none. */
 		const DEFAULT_DECISIONS_DIR = "docs/adrs";
 		const DEFAULT_SPECS_DIR = "docs/specs";
@@ -3528,7 +3528,9 @@ window.__ModuleLoader__.load({
 			if (props.mode === "resolve") {
 				if (result.ok === true && result.spawned === true) {
 					return React.createElement("div", { style: mutedStyle() },
-						"A resolver was started for this record: it is working in this project now, and whatever it proposes is a `proposed` record you still approve here.");
+						"A resolver was started for this record",
+						typeof result.childId === "string" && result.childId !== "" ? " (Session " + result.childId + ")" : "",
+						": it is working in this project now, and whatever it proposes is a `proposed` record you still approve here.");
 				}
 				if (result.ok === true && result.recorded === true) {
 					return React.createElement("div", { style: mutedStyle() },

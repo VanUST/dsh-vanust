@@ -921,6 +921,42 @@ claim(
   )
 }
 
+// 14c. A whole-record retirement is a decision too. `supersedes` is one of the exactly two
+//      ways a decision takes force away — the other is `op: remove` — so the laws of a
+//      superseded record must NOT be reported as a removal without a decision. The audit
+//      credited only the explicit remove, so a correct supersession produced one false
+//      `LAW_REMOVED_WITHOUT_DECISION` per law of the retired record.
+{
+  const root = project(
+    'law-superseded',
+    { laws: law({ id: 'auth.kept', statement: 'Keeping.', checks: [{ type: 'required_text', paths: ['src/auth/x.ts'], pattern: 'one' }] }) },
+    { files: { 'src/auth/x.ts': 'const one = 1\n' } },
+  )
+  const second = join(root, 'docs', 'adrs', '0002-b.adr.md')
+  writeFileSync(
+    second,
+    adrText('0002', law({ id: 'auth.retirable', statement: 'Retiring.', checks: [{ type: 'required_text', paths: ['src/auth/x.ts'], pattern: 'one' }] })),
+  )
+  await verify({ root })
+  // Retire the WHOLE record: 0002 becomes terminal, and an active 0003 supersedes it. Its
+  // law is then gone from the bundle through a decision that is in force.
+  writeFileSync(second, readFileSync(second, 'utf8').replace('status: active', 'status: superseded'))
+  writeFileSync(
+    join(root, 'docs', 'adrs', '0003-c.adr.md'),
+    adrText('0003', law({ id: 'auth.replacement', statement: 'Replacing.', checks: [{ type: 'required_text', paths: ['src/auth/x.ts'], pattern: 'one' }] })).replace(
+      'supersedes: []',
+      'supersedes:\n  - "0002"',
+    ),
+  )
+  const run = await verify({ root })
+  const removals = run.problems.filter((entry) => entry.code === 'LAW_REMOVED_WITHOUT_DECISION').map((entry) => entry.lawId)
+  claim(
+    'a whole-record supersession is credited as a decision, not reported as a removal without one',
+    !removals.includes('auth.retirable') && run.problems.every((entry) => entry.code !== 'ADR_SUPERSEDED_NOT_TERMINAL'),
+    JSON.stringify(removals),
+  )
+}
+
 // 14b. Deleting the audit trail does not launder a removal. With the ledger gone the
 //      previous set is read from the persisted spec bundle, which this run has not yet
 //      rewritten. Deleting the ledger used to make the removal invisible — one `rm`

@@ -782,6 +782,50 @@ export function checkTargets(check, config = null) {
  * @returns `{ bundle, problems, reviewRequired }` where `bundle.laws` is the
  *   compiled law list, sorted by law id for a stable hash.
  */
+/**
+ * The law ids an ACTIVE record retires by superseding another whole record.
+ *
+ * `compileLaws` credits only an explicit `op: remove`, because that is the one act it can
+ * see: it is handed the records in force, and a superseded record is not among them. But
+ * `supersedes` is the OTHER way a decision takes force away — the design has exactly two,
+ * and a record asking for both is refused as `RESOLUTION_AMBIGUOUS` — so a whole-record
+ * retirement left the audit comparing a previous law set against a smaller current one with
+ * no credited remover, and reported every law of the superseded record as
+ * `LAW_REMOVED_WITHOUT_DECISION`. That is a wrong verdict about a correct corpus: the
+ * removal was decided, the decision is in force, and the gate called it a deletion. This
+ * function is the credit the audit was missing.
+ *
+ * Only laws that actually LEFT force are returned: a superseding record may re-declare one
+ * of the superseded record's law ids, and a law that is still compiled did not leave. The
+ * check is against the compiled bundle, so it is the same set the audit compares with.
+ *
+ * @param records - The whole corpus, including terminal records.
+ * @param active - The records in force, whose `supersedes` lists are the decisions.
+ * @param bundle - The compiled spec bundle, or `null`.
+ * @returns A sorted array of law ids an active supersession retired. Empty when no active
+ *   record supersedes anything, or when nothing it supersedes had a law leave force.
+ */
+export function supersessionRemovals(records, active, bundle) {
+  if (bundle === null || bundle === undefined) return []
+  const current = new Set((bundle.laws ?? []).map((law) => law.id))
+  const superseded = new Set()
+  for (const record of active ?? []) {
+    for (const target of record.supersedes ?? []) superseded.add(target)
+  }
+  if (superseded.size === 0) return []
+  const retired = new Set()
+  for (const record of records ?? []) {
+    if (record === null || record === undefined || !superseded.has(record.id)) continue
+    for (const law of record.laws ?? []) {
+      // A `remove` op in the superseded record names a law that record did not declare,
+      // so it is not this record's to retire; `compileLaws` already decided that case.
+      if (law.op === 'remove') continue
+      if (!current.has(law.id)) retired.add(law.id)
+    }
+  }
+  return [...retired].sort()
+}
+
 export function compileLaws(active, config) {
   const problems = []
   const reviewRequired = []
@@ -1335,12 +1379,19 @@ export function compileProject(root, options = {}) {
   report.reviewRequired = compiled.reviewRequired
   report.counts.laws = compiled.bundle.laws.length
 
+  // `removedByDecision` is the union of the two ways force leaves a law: an explicit
+  // `op: remove` in an active record, and an active record superseding the whole record
+  // that declared it. Only the first is visible inside `compileLaws`, so the second is
+  // added here, where the whole corpus and the bundle are both in hand.
+  const supersededRemovals = supersessionRemovals(corpus.records, resolved.active, compiled.bundle)
+  const removedByDecision = [...new Set([...compiled.removedByDecision, ...supersededRemovals])].sort()
+
   // Two audits that need the whole corpus and the compiled bundle, so they run here rather
   // than inside either half. `validateResolutions` asks whether each `resolves` list names
   // two sides that exist and that hold or are losing force; `validateRetirement` asks that a
   // record a decision emptied says it is retired, and that a retired record sources no law
   // in force.
-  problems.push(...validateResolutions(corpus.records, { active: resolved.active, removedByDecision: compiled.removedByDecision }))
+  problems.push(...validateResolutions(corpus.records, { active: resolved.active, removedByDecision }))
   problems.push(...validateRetirement(corpus.records, compiled.bundle))
 
   // The operation's own budget summary, once, after every record that could be reported
@@ -1357,10 +1408,11 @@ export function compileProject(root, options = {}) {
     report,
     bundle: compiled.bundle,
     problems,
-    // Forwarded from `compileLaws` because it is a fact about the corpus, not about the
-    // bundle: once the bundle is built, a law retired by a decision and a law deleted
-    // from the corpus are both simply absent.
-    removedByDecision: compiled.removedByDecision,
+    // A fact about the corpus, not about the bundle: once the bundle is built, a law
+    // retired by a decision and a law deleted from the corpus are both simply absent.
+    // It is the union of the explicit `op: remove` retirements `compileLaws` found and
+    // the whole-record retirements an active `supersedes` decided.
+    removedByDecision,
   }
 }
 

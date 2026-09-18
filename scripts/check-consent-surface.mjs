@@ -463,6 +463,45 @@ if (resolveService !== undefined) {
   )
 }
 
+// Drive the SPAWN seam itself. The panel reported "a resolver was started" for a child
+// that never existed, because the route returned before `subagents.start` settled: the
+// promise rejected, the rejection was only logged, and the window told the human the
+// resolution had begun. `startResolver` is the awaited form, and these cases measure the
+// verdict it returns — a rejection is a refusal, and only an accepted run is `spawned`.
+{
+  const spawned = await panelHost.startResolver({
+    runtime: { start: async () => ({ localAgent: { session: { header: { id: 'child-1' } } }, result: Promise.resolve() }) },
+    agents: { get: () => ({ id: 'parent' }) },
+    sessionId: 'parent',
+    prompt: 'task',
+    adrId: '0001',
+    log: null,
+  })
+  const rejected = await panelHost.startResolver({
+    runtime: { start: async () => { throw new Error('MODEL_NOT_ALLOWED: the resolver route is refused') } },
+    agents: { get: () => ({ id: 'parent' }) },
+    sessionId: 'parent',
+    prompt: 'task',
+    adrId: '0001',
+    log: null,
+  })
+  const noRuntime = await panelHost.startResolver({ runtime: undefined, agents: { get: () => ({}) }, sessionId: 'parent', prompt: 'task', adrId: '0001' })
+  const noAgent = await panelHost.startResolver({ runtime: { start: async () => ({}) }, agents: { get: () => undefined }, sessionId: 'gone', prompt: 'task', adrId: '0001' })
+  claim(
+    'a resolver is called started only when the runtime ACCEPTED it; a rejected start is a refusal',
+    spawned.spawned === true &&
+      spawned.childId === 'child-1' &&
+      rejected.spawned === undefined &&
+      rejected.refusal?.status === 502 &&
+      /MODEL_NOT_ALLOWED/.test(rejected.refusal.message) &&
+      noRuntime.spawned === undefined &&
+      noRuntime.refusal?.status === 503 &&
+      noAgent.spawned === undefined &&
+      noAgent.refusal?.status === 404,
+    JSON.stringify({ spawned, rejected, noRuntime, noAgent }),
+  )
+}
+
 // The ratification channel is a second duplicated vocabulary, and the one whose drift is
 // silent in the worst way: a panel whose list lacks the channel its own route records reads
 // its own approval as unproven and keeps offering the decision for ratification. So the

@@ -477,3 +477,22 @@ the ledger keeps it, and no ratchet routine reads it yet. Making the ratchet *pr
 resolution* from a declined one is the resolver work in §15 — the panel's Resolve control and
 the `/adr-panel/resolve` route — which is still missing, so a declined resolution is recorded
 with its reason and nothing yet re-drafts automatically.
+
+## 17. Two wrong verdicts fixed in the resolve path (2026-09-18)
+
+**A `supersedes` retirement is now credited by the removal audit.** `supersedes` is one of
+the exactly two ways a decision takes force away, but `removedByDecision` carried only the
+`op: remove` retirements `compileLaws` can see — and a superseded record is not among the
+records it is handed. So an active record superseding another produced one
+`LAW_REMOVED_WITHOUT_DECISION` per law of the retired record, a wrong verdict about a
+correct corpus. `supersessionRemovals` (`ratchet-compiler.mjs`) adds the laws a supersession
+actually removed, and `scripts/check-gate-invariants.mjs` has an invariant for it. On the
+`compile_and_conquer` corpus this turned four false findings into none.
+
+**A resolver is called started only when the runtime accepted it.** The resolve route
+returned `spawned: true` before `subagents.start` settled, so a rejected start (no provider,
+no model, a veto) was logged and the window still said the resolution had begun — the human
+reloaded and nothing had changed because nothing had started. The route now awaits the
+start through the exported `startResolver`: an accepted run reports its child session, a
+rejection is a `502` refusal with the runtime's own message, and
+`scripts/check-consent-surface.mjs` drives all four verdicts hermetically.

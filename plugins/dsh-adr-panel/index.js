@@ -523,6 +523,73 @@ async function resolveProject(ctx, sessionId, requirement) {
 }
 
 /**
+ * Starts ONE resolver child on the ratchet's own prompt, and reports only what happened.
+ *
+ * The AWAIT here is the whole point. `subagents.start` resolves when the provider has
+ * actually established the run — the child session exists and its initial prompt was
+ * accepted — and rejects when it could not (no provider, no model, a veto, a bad parent).
+ * Returning "started" before that promise settles reports a resolver that may never have
+ * existed, which is the failure this function was written to remove: the window said the
+ * resolution had begun, the human reloaded, and nothing had changed because nothing had
+ * started. The run's own RESULT is still not awaited — a resolver is a model turn that can
+ * take minutes, and an HTTP handler that waited for it would hold the socket — so a later
+ * turn failure is logged and read back through the state route like any other proposal.
+ *
+ * @param runtime - The `subagents` service, or anything. A missing one is a named refusal.
+ * @param agents - The `agents` registry, or anything. A missing one is a named refusal.
+ * @param sessionId - The Session whose live agent is the child's parent.
+ * @param prompt - The ratchet's resolver prompt.
+ * @param adrId - The record id, for the child's label and the log line.
+ * @param log - A `{ warn }` sink, or anything (a missing log is not a failure).
+ * @returns A promise of `{ spawned: true, childId }` when the child exists, otherwise
+ *   `{ refusal: { status, code, message } }`. Never rejects: a rejected start is the
+ *   refusal this function exists to produce.
+ */
+export async function startResolver({ runtime, agents, sessionId, prompt, adrId, log } = {}) {
+  if (runtime === undefined || runtime === null || typeof runtime.start !== 'function') {
+    return { refusal: { status: 503, code: 'resolve-unavailable', message: `no ${SUBAGENTS_SERVICE} runtime is mounted, so the panel cannot start a resolver: ask the agent in this session to run \`ratchet resolve ${String(adrId)}\` and carry out the steps it prints` } }
+  }
+  if (agents === undefined || agents === null || typeof agents.get !== 'function') {
+    return { refusal: { status: 503, code: 'resolve-unavailable', message: `no ${AGENTS_SERVICE} registry is mounted, so the Session cannot be resolved to a live agent to parent the resolver` } }
+  }
+  const parent = agents.get(sessionId)
+  if (parent === undefined || parent === null) {
+    return { refusal: { status: 404, code: 'unknown-session', message: `Session "${String(sessionId)}" has no live agent, so there is nothing to parent a resolver: open the panel from an active Session` } }
+  }
+  let run
+  try {
+    run = await runtime.start(RESOLVE_PROVIDER, { parent, prompt, label: `resolve-${String(adrId)}` })
+  } catch (error) {
+    const message = error !== null && error !== undefined && typeof error.message === 'string' && error.message.length > 0 ? error.message : String(error)
+    try {
+      log?.warn?.(`the resolver for ${String(adrId)} could not be started: ${message}`)
+    } catch {
+      // Logging must never be the reason a refusal fails to be reported.
+    }
+    return { refusal: { status: 502, code: 'resolve-failed', message: `the resolver could not be started: ${message}` } }
+  }
+  const childId = run?.localAgent?.session?.header?.id ?? null
+  try {
+    log?.info?.(`resolver started for ${String(adrId)} child=${String(childId)}`)
+  } catch {
+    // Same.
+  }
+  // The run is kept alive by the runtime; its result is observed only so a failure after
+  // publication is not silent. Nothing about it reaches this response.
+  const result = run?.result
+  if (result !== undefined && result !== null && typeof result.catch === 'function') {
+    result.catch((error) => {
+      try {
+        log?.warn?.(`the resolver for ${String(adrId)} failed: ${String(error)}`)
+      } catch {
+        // Same.
+      }
+    })
+  }
+  return { spawned: true, childId }
+}
+
+/**
  * Builds the handler for the resolve route.
  *
  * Two acts share it, and they are deliberately different HTTP semantics on one route
@@ -554,53 +621,15 @@ function createResolveHandler(ctx, token, log) {
     unavailable: `no ${RESOLVE_SERVICE} service is mounted, so the ratchet cannot plan a resolution: mount @cc/dsh-ratchet beside this plugin`,
   }
 
-  /**
-   * Starts one resolver child on the ratchet's own prompt.
-   *
-   * @param ctx - The plugin context.
-   * @param sessionId - The Session whose live agent is the child's parent.
-   * @param prompt - The ratchet's resolver prompt.
-   * @param adrId - The record id, for the child's label and the log line.
-   * @param log - The log sink.
-   * @returns `{ spawned }` on success or `{ refusal }`; never throws.
-   */
-  const spawnResolver = (ctx, sessionId, prompt, adrId, log) => {
-    const runtime = ctx.get(SUBAGENTS_SERVICE)
-    if (runtime === undefined || runtime === null || typeof runtime.start !== 'function') {
-      return { refusal: { status: 503, code: 'resolve-unavailable', message: `no ${SUBAGENTS_SERVICE} runtime is mounted, so the panel cannot start a resolver: use ratchet_resolve from a session instead` } }
-    }
-    const agents = ctx.get(AGENTS_SERVICE)
-    if (agents === undefined || agents === null || typeof agents.get !== 'function') {
-      return { refusal: { status: 503, code: 'resolve-unavailable', message: `no ${AGENTS_SERVICE} registry is mounted, so the Session cannot be resolved to a live agent to parent the resolver` } }
-    }
-    const parent = agents.get(sessionId)
-    if (parent === undefined || parent === null) {
-      return { refusal: { status: 404, code: 'unknown-session', message: `Session "${sessionId}" has no live agent, so there is nothing to parent a resolver: open the panel from an active Session` } }
-    }
-    let run
-    try {
-      run = runtime.start(RESOLVE_PROVIDER, { parent, prompt, label: `resolve-${adrId}` })
-    } catch (error) {
-      log.warn(`the resolver could not be started: ${String(error)}`)
-      return { refusal: { status: 500, code: 'resolve-failed', message: `the resolver could not be started: ${String(error)}` } }
-    }
-    // The run is deliberately NOT awaited: a resolver is a model turn, and an HTTP
-    // handler that waited for it would hold the socket for minutes. The promise is
-    // kept referenced so the run is not disposed, and a failure is logged rather than
-    // dropped. Nothing about the outcome reaches this route: the child's record is read
-    // back through the state route, like any other proposal.
-    Promise.resolve(run)
-      .then((started) => {
-        log.info(`resolver started for ${adrId}`)
-        const result = started?.result
-        if (result !== undefined && result !== null && typeof result.catch === 'function') {
-          return result.catch((error) => log.warn(`the resolver for ${adrId} failed: ${String(error)}`))
-        }
-        return undefined
-      })
-      .catch((error) => log.warn(`the resolver for ${adrId} could not be started: ${String(error)}`))
-    return { spawned: true }
-  }
+  const start = (sessionId, prompt, adrId) =>
+    startResolver({
+      runtime: ctx.get(SUBAGENTS_SERVICE),
+      agents: ctx.get(AGENTS_SERVICE),
+      sessionId,
+      prompt,
+      adrId,
+      log,
+    })
 
   return async function handleResolve(req, res) {
     try {
@@ -720,12 +749,12 @@ function createResolveHandler(ctx, token, log) {
         sendJson(res, 200, { ok: false, id: adrId, humanRequired: true, steps: plan.steps ?? [], declined: plan.declined ?? [], message: 'this record has a step only a human can carry, so no resolver was started' })
         return
       }
-      const started = spawnResolver(ctx, session, prompted.prompt, adrId, log)
+      const started = await start(session, prompted.prompt, adrId)
       if (started.refusal !== undefined) {
         sendRefusal(res, started.refusal.status, started.refusal.code, started.refusal.message)
         return
       }
-      sendJson(res, 200, { ok: true, id: adrId, spawned: started.spawned === true, steps: plan.steps ?? [], declined: plan.declined ?? [] })
+      sendJson(res, 200, { ok: true, id: adrId, spawned: started.spawned === true, childId: started.childId ?? null, steps: plan.steps ?? [], declined: plan.declined ?? [] })
     } catch (error) {
       log.warn(`the resolve route threw: ${String(error)}`)
       try {
