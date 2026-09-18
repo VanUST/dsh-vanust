@@ -103,8 +103,10 @@ run) repairs what a hard kill left behind.
 ## 5. Rules you must not break while operating this
 
 1. **The harness pin is exact.** Never `npm i -g @deepseek-ai/dsh` without a version, and
-   never upgrade a live machine outside the gate: candidate → `scripts/rebuild-plugins.sh`
-   → `scripts/verify-upgrade.sh` → only on PASS touch the live profile (COMPAT.md §2).
+   never upgrade a live machine outside the gate: install the candidate, run
+   `scripts/rebuild-plugins.sh` against a checkout pinned to it, run
+   `scripts/verify-upgrade.sh`, and only on PASS touch the live profile. The gate is
+   `verify-upgrade.sh`; nothing else authorises an upgrade.
 2. **Bump a plugin's version before repacking it.** pnpm serves a `file:` dependency from
    the profile lockfile by path, so a repacked tarball with an unchanged filename does not
    land. The updater warns about it; the version bump is what makes it correct.

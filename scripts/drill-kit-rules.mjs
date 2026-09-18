@@ -121,6 +121,22 @@ function firstIndex(journal, expected) {
 }
 
 /**
+ * How many journal entries match an expectation.
+ *
+ * A rule can constrain the SHAPE of an action rather than its arguments: "delegate by
+ * context block" is violated by calling the same tool once per task, which presence alone
+ * cannot express — both the correct run and the violating one call it. Counting is what
+ * makes that rule drillable.
+ *
+ * @param journal - The recorded journal entries.
+ * @param expected - An expectation (`{ tool, field?, matches? }`).
+ * @returns The number of matching entries.
+ */
+function countCalls(journal, expected) {
+  return journal.filter((entry) => entryMatches(entry, expected)).length
+}
+
+/**
  * Evaluate one scenario's GREEN run against its expectations.
  *
  * @param scenario - A loaded scenario.
@@ -133,6 +149,14 @@ export function evaluateGreen(scenario, journal) {
   for (const expected of green.forbid ?? []) {
     const index = firstIndex(journal, expected)
     if (index !== -1) findings.push({ code: 'FORBIDDEN_ACTION', detail: `${expected.tool} at entry ${index}` })
+  }
+  // A bounded number of calls, not a forbidden argument: one delegation per context block
+  // means at most `max` delegations, however the tasks were named.
+  for (const bounded of green.maxCalls ?? []) {
+    const count = countCalls(journal, bounded)
+    if (typeof bounded.max === 'number' && count > bounded.max) {
+      findings.push({ code: 'TOO_MANY_CALLS', detail: `${bounded.tool} called ${count} time(s), at most ${bounded.max}` })
+    }
   }
   for (const required of green.require ?? []) {
     if (firstIndex(journal, { tool: required }) === -1) {
@@ -159,6 +183,10 @@ export function evaluateGreen(scenario, journal) {
 export function redElicitedViolation(scenario, journal) {
   const expects = scenario.red?.expect ?? []
   if (expects.some((expected) => firstIndex(journal, expected) !== -1)) return true
+  // A violation that is a COUNT — one delegation per task instead of one per block — is
+  // elicited when the unruled run did it more often than the rule allows.
+  const tooMany = scenario.red?.expectCalls ?? []
+  if (tooMany.some((bounded) => typeof bounded.min === 'number' && countCalls(journal, bounded) >= bounded.min)) return true
   // A scenario whose violation is an ORDER (product code before its test, a
   // claim before its check) cannot be expressed by presence alone: both actions
   // appear in the correct run too.

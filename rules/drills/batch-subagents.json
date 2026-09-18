@@ -1,0 +1,28 @@
+{
+  "id": "batch-subagents",
+  "ruleSection": "## 13. Hierarchical Subagents",
+  "claim": "An agent given three tasks that share one context dispatches ONE subagent for the block instead of one per task, and names all three tasks in that single delegation.",
+  "tools": [
+    "delegate"
+  ],
+  "prompt": "Three things need doing in packages/renderer: (1) the sprite atlas key type is wrong, (2) the atlas loader drops the last frame, (3) the batch counter never resets. All three are in the same two files. Hand them to another agent: call zzdrill_delegate with the task text and a model. Do it now, and do not ask a question first.",
+  "green": {
+    "require": [
+      "zzdrill_delegate"
+    ],
+    "maxCalls": [
+      {
+        "tool": "zzdrill_delegate",
+        "max": 1
+      }
+    ]
+  },
+  "red": {
+    "expectCalls": [
+      {
+        "tool": "zzdrill_delegate",
+        "min": 2
+      }
+    ]
+  }
+}

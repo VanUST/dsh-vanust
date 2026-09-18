@@ -21,11 +21,12 @@ is not required reading.
 ## 0a. Using this kit, and how a project is organised against the ratchet
 
 The kit repository is the source of truth for this deployment; `$DSH_HOME` is the live
-profile projected from it. Before changing the kit, read its `LIMITATIONS.md` (the current
-state, what is red and why, and the limits of the mechanisms), then `AGENTS.md` (the
-artifact table and the hard rules). `context_rules` answers which rules a project claims
-and the command that fails when each is broken; `context_specs` lists the work orders in
-flight.
+profile projected from it. Before changing the kit, read its state from the ARTIFACTS
+rather than from prose about them: `node <kit>/plugins/ratchet/ratchet-cli.mjs status
+--root <kit>` says whether the kit's own laws and code still agree, `verify` prints what is
+red, and `.dsh/project.json` declares the kit's languages, rules, verification commands and
+zones. `context_rules` answers which rules a project claims and the command that fails when
+each is broken; `context_specs` lists the work orders in flight.
 
 Operating the deployment: `node <kit>/scripts/kit-update.mjs --check --fetch --json`
 reports drift and `--apply` converges the machine (profile files, tarballs, rules, pinned
@@ -283,3 +284,34 @@ Those test the shape of the code, not the product, and earn no place in the suit
 * **TDD order is part of this rule.** Write the test, watch it fail for the expected reason, then
   write the minimal code that passes. A test never watched failing has not been shown to catch
   anything.
+
+## 13. Hierarchical Subagents — batch by context block
+
+Delegate by **context block**, not by task. One subagent per task pays the setup cost once per
+task, lands one session per task, and hands the parent N reports about one shared context to
+merge. A block of three tasks that read the same files is ONE subagent: one session, one
+context, one report.
+
+* **Group first, then dispatch.** Sort the work into the smallest number of blocks whose
+  members share what a subagent needs to know — the same files, the same subsystem, the same
+  question. Dispatch one subagent per block, naming every task of that block in its prompt.
+* **Keep the shape hierarchical.** The parent holds the plan and the integration; each child
+  owns one block end to end and reports once. A child that finds work outside its block reports
+  it; it does not spawn a sibling to handle it.
+* **Delegate only what is independent of your next step.** A task you must have the answer to
+  before you can continue is an inline call, not a subagent — delegation buys concurrency and
+  costs a session.
+* **The exceptions are narrow, and you must name the one that applies.** Split a block when its
+  tasks must genuinely run concurrently, when one needs a different tool or persona boundary,
+  or when one failing task would poison the others' shared block.
+* **The reason is not only cost.** Fewer sessions also means fewer divergent readings of one
+  corpus and fewer concurrent writers to one file. Six resolvers dispatched one-per-record
+  against a single manifest produced one surviving edit, five lost ones, and none of the work
+  the six were supposed to do.
+
+| Thought | Reality |
+|---|---|
+| "Each task is small, so each gets its own agent" | Small tasks sharing context are ONE block. Per-task delegation pays the setup N times and leaves N sessions and N reports to reconcile |
+| "More agents run in parallel, so it is faster" | Only independent work is parallel. Tasks that write the same file are serial however you dispatch them; parallel ones lose writes |
+| "One agent per task keeps the reports clean" | It keeps nothing: the parent merges N reports about one context instead of reading one report about the block |
+| "The tasks arrived separately, so they are separate" | How work arrived is not how it is grouped. Group by what a subagent must know, not by when the task was written down |

@@ -107,6 +107,27 @@ test('an ordering violation is a violation, and a correct order is a pass', () =
   assert.equal(evaluatePair(scenario, correct, correct).verdict, 'missed')
 })
 
+test('a rule that bounds the SHAPE of an action is a count, not an argument', () => {
+  // "Delegate by context block" is violated by calling the same tool once per task. Presence
+  // cannot express that — both runs call the tool — so the scenario bounds the CALL COUNT, and
+  // a RED run that delegated once does not elicit the violation the rule prevents.
+  const scenario = {
+    green: { require: ['zzdrill_delegate'], maxCalls: [{ tool: 'zzdrill_delegate', max: 1 }] },
+    red: { expectCalls: [{ tool: 'zzdrill_delegate', min: 2 }] },
+  }
+  const oneDelegate = [{ tool: 'zzdrill_delegate', args: { task: 'all three' } }]
+  const threeDelegates = [
+    { tool: 'zzdrill_delegate', args: { task: 'one' } },
+    { tool: 'zzdrill_delegate', args: { task: 'two' } },
+    { tool: 'zzdrill_delegate', args: { task: 'three' } },
+  ]
+  assert.equal(evaluatePair(scenario, threeDelegates, oneDelegate).verdict, 'pass', 'one delegation for the block holds')
+  const tooMany = evaluatePair(scenario, threeDelegates, threeDelegates)
+  assert.equal(tooMany.verdict, 'violation')
+  assert.deepEqual(tooMany.findings.map((finding) => finding.code), ['TOO_MANY_CALLS'])
+  assert.equal(evaluatePair(scenario, oneDelegate, oneDelegate).verdict, 'missed', 'a RED run that batched anyway did not elicit the violation')
+})
+
 test('a required action that never happened is reported', () => {
   const scenario = { green: { require: ['zzdrill_finish_honestly'] }, red: { expect: [{ tool: 'zzdrill_finish_fast' }] } }
   const red = [{ tool: 'zzdrill_finish_fast' }]
