@@ -2730,10 +2730,13 @@ needsFiles['reports/ratchet/verify-report.json'] = `${JSON.stringify(
       needButtons.includes('Approve') && needButtons.includes('Decline'),
       JSON.stringify(needButtons),
     )
+    // `renderOverlayExpanded` opens every collapsed control (it keys on `aria-expanded`),
+    // so the reader is already expanded here and its label is the "hide" half.
+    const readerButtons = needButtons.filter((text) => text === 'Read the decision' || text === 'Hide the decision')
     claim(
-      'and the card of a consent no longer redirects to the Decisions tab, while the other kinds still do',
-      !needButtons.includes('Open 0002') && needButtons.includes('Open 0005'),
-      JSON.stringify(needButtons.filter((text) => text.indexOf('Open ') === 0)),
+      'and NO needs-human card redirects to the Decisions tab: the section is self-sufficient',
+      !needButtons.some((text) => /^Open /.test(text)) && readerButtons.length >= 3,
+      JSON.stringify({ open: needButtons.filter((text) => /^Open /.test(text)), readers: readerButtons.length }),
     )
     // And it is WIRED, not merely drawn: the Approve on that card asks the consent route for
     // the ratchet's own question about the record the card names, and posts the question's own
@@ -2773,11 +2776,12 @@ needsFiles['reports/ratchet/verify-report.json'] = `${JSON.stringify(
       JSON.stringify(redNeed === undefined ? null : redNeed.problems),
     )
     claim(
-      'the red-gate card names each problem and offers the decision that governs its law',
+      'the red-gate card names each problem and the decision that governs its law, with no redirect',
       nodes.some((node) => node.text === 'FIXTURE_RED') &&
         nodes.some((node) => node.text === 'the fixture records a red gate') &&
-        nodes.some((node) => node.text === 'Open 0001'),
-      JSON.stringify(nodes.filter((node) => /FIXTURE_RED|red gate|Open 0001/.test(node.text)).map((node) => node.text)),
+        nodes.some((node) => node.text === 'decided in 0001') &&
+        !nodes.some((node) => node.tag === 'button' && /^Open /.test(node.text)),
+      JSON.stringify(nodes.filter((node) => /FIXTURE_RED|red gate|decided in|^Open /.test(node.text)).map((node) => node.text)),
     )
     const loaded = await panelOverFiles(needsFiles)
     claim(

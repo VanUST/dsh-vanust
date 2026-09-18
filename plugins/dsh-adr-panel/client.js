@@ -84,12 +84,16 @@
  *   and every other kind is one collapsible batch, with the same order, the same hash
  *   shortening, the same stated truncation and the same way into the record it concerns.
  *
- *   A **consent** need is ACTED ON where it is: its card carries the same Approve and
- *   Decline the Decisions row carries, and the `Open` redirect is gone from it — the human
- *   used to switch tab, find the record and expand it to do the one thing the card is
- *   about. Every other kind keeps its way in, because reading the record is the only thing
- *   to do with a contradiction or a blocked record, and the Decisions row keeps its own
- *   affordance as the fallback for a consent whose need the host's cap cut from the set.
+ *   **Every need is read AND acted on where it is — there is no redirect.** A card used to
+ *   offer `Open <id>`, which switched the navigator to Decisions, found the row and expanded
+ *   it: three steps to answer a question the card was already about. So a card now carries
+ *   **Read the decision** (the record's own four sections, revealed in place) and the action
+ *   the ratchet is actually waiting for: **Approve** and **Decline** for any record whose
+ *   `canRatify` the queue sets — a consent, and the drafted resolution a contradiction or a
+ *   duplicate is settled by — and **Resolve** or **Decline with a reason** for a blocked one.
+ *   `canRatify` is the gate, not the kind, because a drafted resolution is a proposed record
+ *   like any other. The Decisions row keeps its own Approve/Decline, because the host caps
+ *   the needs set and a record whose need was cut must still be actionable somewhere.
  *
  *   THE SECTION IS GROUPED BY KIND, because seven stale specs are seven copies of one
  *   shape while a consent, a contradiction and a duplicate are each a distinct act. The
@@ -379,7 +383,7 @@ window.__ModuleLoader__.load({
 		 * are equal again after a release and the constant is one ahead only in the working
 		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.48";
+		const PANEL_VERSION = "0.1.49";
 		/** Directories used when the host view reports none. */
 		const DEFAULT_DECISIONS_DIR = "docs/adrs";
 		const DEFAULT_SPECS_DIR = "docs/specs";
@@ -2493,6 +2497,48 @@ window.__ModuleLoader__.load({
 
 		/**
 		 * PURPOSE
+		 *   The record a needs-human card concerns, readable WITHOUT leaving the section.
+		 *
+		 *   The card used to offer `Open <id>`, which switched the navigator to Decisions,
+		 *   found the row and expanded it — three steps to answer a question the card was
+		 *   already about, and a redirect the operator asked to be rid of. The same record
+		 *   text the Decisions row draws is revealed here instead, so the section is
+		 *   self-sufficient: read and act in one place.
+		 *
+		 * INPUTS
+		 *   props.adr — the adapted decision record, or anything. A null one renders nothing.
+		 *
+		 * OUTPUTS
+		 *   A toggle and, when open, the record's four body sections. Collapsed by default, so
+		 *   a section full of cards stays scannable. Never throws; a record with no sections
+		 *   renders the toggle with an empty body rather than a crash.
+		 *
+		 * KEYWORDS
+		 *   needs a human, read in place, no redirect, record text, sections
+		 */
+		function NeedRecordReader(props) {
+			var adr = props.adr;
+			var openState = React.useState(false);
+			var open = openState[0];
+			var setOpen = openState[1];
+			if (adr === null || adr === undefined) return null;
+			var sections = Array.isArray(adr.sections) ? adr.sections : [];
+			var body = ["Context", "Decision", "Reasoning", "Consequences"].map(function (title) {
+				var section = findSection(sections, title);
+				return section === null ? null : React.createElement(SectionView, { key: title, section: section });
+			});
+			return React.createElement("div", { key: "reader", style: { marginTop: 4 } },
+				React.createElement("button", {
+					type: "button",
+					style: smallButtonStyle(),
+					"aria-expanded": open ? "true" : "false",
+					onClick: function () { setOpen(!open); }
+				}, open ? "Hide the decision" : "Read the decision"),
+				open ? React.createElement("div", null, body) : null);
+		}
+
+		/**
+		 * PURPOSE
 		 *   Render one entry of the ratchet's `needsHuman` set as a card: the kind and the
 		 *   thing it names, the ratchet's own `reason` and `action` unchanged, and — when
 		 *   the entry concerns a record in the corpus — a button that selects that record's
@@ -2523,17 +2569,27 @@ window.__ModuleLoader__.load({
 					problem.code === null ? null : pill(problem.code, "neutral"),
 					problem.lawId === null ? null : React.createElement("span", { style: mutedInlineStyle() }, problem.lawId),
 					problem.message === null ? null : React.createElement(HashedText, { style: { fontSize: 12, lineHeight: "18px" }, text: problem.message }),
-					problem.adrId === null ? null : React.createElement("button", { type: "button", style: smallButtonStyle(), onClick: function () { props.onSelectAdr(problem.adrId); } }, "Open " + problem.adrId));
+					problem.adrId === null ? null : React.createElement("span", { style: mutedInlineStyle() }, "decided in " + problem.adrId));
 			});
 			// A decision waiting for a human is ACTED ON here, not here-then-elsewhere: the row
 			// this card used to point at carried the Approve and Decline, so the human had to
 			// switch tab, find the record and expand it to do the one thing this card is about.
 			// Only a consent gets this, because only a consent has a question to answer; every
 			// other kind still offers the way IN to read the record it concerns.
-			var consentControl = need.kind !== "consent" || record === null
+			// The actionable record for a needs-human card. A contradiction or a duplicate is
+			// settled by ratifying or declining the DRAFTED resolution, not the record that
+			// raised the finding — the offender is not what a human is asked to approve — so
+			// the draft is looked up by its own id when the ratchet drafted one.
+			var draftId = need.draft === null || need.draft === undefined ? null : need.draft.id;
+			var draftRecord = draftId === null || draftId === "" ? null : findConcernedRecord({ id: draftId, path: null }, props.decisions, props.consents);
+			var actionable = need.kind === "contradiction" || need.kind === "duplicate" ? draftRecord : record;
+			// `canRatify` is the ratchet's own queue membership, so this offers a question the
+			// ratchet is actually waiting to ask and nothing else. It is not gated on the KIND,
+			// because a drafted resolution is a proposed record like any other.
+			var consentControl = actionable === null || actionable.canRatify !== true
 				? null
 				: React.createElement(ConsentAction, {
-					adr: record,
+					adr: actionable,
 					canAsk: props.consent === null || props.consent === undefined ? false : props.consent.canAsk === true,
 					ask: props.consent === null || props.consent === undefined ? null : props.consent.ask,
 					settle: props.consent === null || props.consent === undefined ? null : props.consent.settle,
@@ -2578,12 +2634,12 @@ window.__ModuleLoader__.load({
 				drafted === null ? null : React.createElement("div", { style: mutedInlineStyle() }, "drafted: " + drafted),
 				need.draftReason === null || need.draftReason === undefined ? null : React.createElement(HashedText, { style: mutedInlineStyle(), text: need.draftReason }),
 				need.action === "" ? null : React.createElement(HashedText, { style: ctaNoteStyle(), text: need.action }),
+				// Reading and acting both happen HERE. There is no `Open <id>` redirect on any
+				// card: the section a human acts in is the section that shows them what they are
+				// acting on.
+				React.createElement(NeedRecordReader, { adr: actionable === null ? record : actionable }),
 				consentControl,
-				resolveControl,
-				// No "Open" for a consent: its action is above, and a redirect to a tab the human
-				// does not need is the extra step this card exists to remove. Every other kind
-				// keeps it, because reading the record it concerns is the only thing to do with it.
-				record === null || need.kind === "consent" ? null : React.createElement("button", { type: "button", style: smallButtonStyle(), onClick: function () { props.onSelectAdr(record.id); } }, "Open " + record.id));
+				resolveControl);
 		}
 		/**
 		 * PURPOSE

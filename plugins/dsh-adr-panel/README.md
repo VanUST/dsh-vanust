@@ -85,14 +85,14 @@ red gate read from the persisted verification report. Each entry carries the rat
 reason and action and, when the ratchet drafted a settlement, its `draft` (`{ id, path }`) —
 rendered as the drafted record or note — or a `draftReason` saying why none could be
 produced. A hand-edited, missing or orphaned spec document is a blocking problem, not an
-advisory note, and so is not shown as a drafted fix. A **consent** entry is ACTED ON in
-place: its card carries the same Approve and Decline the Decisions row carries, and the
-`Open` redirect is gone from it, because the human used to switch tab, find the record and
-expand it to do the one thing the card is about. Every other kind keeps its way into the
-record it concerns through the row selection the list already uses (and that way in switches
-the navigator to Decisions), because reading the record is the only thing to do with it; the
-Decisions row keeps its own Approve/Decline as the fallback for a consent whose need the
-host's cap cut from the set. The ratchet derives every entry from its own functions; the panel
+advisory note, and so is not shown as a drafted fix. **Every need is read and acted on in place — there is no redirect.** Each card carries
+**Read the decision** (the record's own four sections, revealed where you are) and the action
+the ratchet is waiting for: **Approve**/**Decline** for any record whose `canRatify` the queue
+sets — a consent, and the drafted resolution a contradiction or a duplicate is settled by —
+and **Resolve**/**Decline with a reason** for a blocked one. `canRatify` is the gate, not the
+kind, because a drafted resolution is a proposed record like any other. The Decisions row
+keeps its own Approve/Decline, because the host caps the needs set and a record whose need was
+cut must still be actionable somewhere. The ratchet derives every entry from its own functions; the panel
 copies the set unchanged and never grows a finding of its own. When the set is empty the
 part still renders, with a plain statement that nothing needs a human, rather than
 disappearing — its tab still states `Needs a human (0)`.
