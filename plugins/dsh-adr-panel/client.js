@@ -372,7 +372,7 @@ window.__ModuleLoader__.load({
 		 * are equal again after a release and the constant is one ahead only in the working
 		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.44";
+		const PANEL_VERSION = "0.1.45";
 		/** Directories used when the host view reports none. */
 		const DEFAULT_DECISIONS_DIR = "docs/adrs";
 		const DEFAULT_SPECS_DIR = "docs/specs";
@@ -3945,6 +3945,9 @@ window.__ModuleLoader__.load({
 			var closeGuard = React.useState(function () { return { closing: false }; })[0];
 			React.useEffect(function () {
 				if (!state.open) return undefined;
+				// A new open is a new batch: without this the guard set by the previous close
+				// would hold for the rest of the session and the second batch would never go.
+				closeGuard.closing = false;
 				var controller = typeof AbortController === "function" ? new AbortController() : null;
 				var alive = true;
 				setView(Object.assign({}, current, { status: "loading" }));
@@ -4018,19 +4021,20 @@ window.__ModuleLoader__.load({
 			 * no dispatch at all, so a close with nothing queued starts nothing.
 			 */
 			var closeAndDispatch = function () {
-				if (closeGuard.closing) return;
-				closeGuard.closing = true;
 				var ids = (queuedIds || []).slice();
 				setQueuedIds([]);
-				if (ids.length > 0 && canResolve) {
-					requestResolveBatch(ids, state.sessionId).then(function () {
-						// The outcome is the resolver Session, not a line in a window that is closing.
-					}, function () {
-						// Same: a rejected promise here has nowhere to render, and swallowing it is
-						// what keeps a close from throwing.
-					});
-				}
+				// The window ALWAYS closes. A guard that could return before `closePanel` would
+				// trap the human in a window they asked to leave, which is a far worse bug than a
+				// double dispatch — so the guard covers the dispatch only.
 				closePanel();
+				if (closeGuard.closing || ids.length === 0 || !canResolve) return;
+				closeGuard.closing = true;
+				requestResolveBatch(ids, state.sessionId).then(function () {
+					// The outcome is the resolver Session, not a line in a window that is closing.
+				}, function () {
+					// Same: a rejected promise here has nowhere to render, and swallowing it is
+					// what keeps a close from throwing.
+				});
 			};
 			// The ratification question the composer entry claimed and mirrored here. It is
 			// re-derived rather than trusted: the store is a plain value bag, and the overlay

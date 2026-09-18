@@ -1730,6 +1730,25 @@ claim(
     resolvePosts[0].body.adrId === undefined,
   JSON.stringify(resolvePosts[0] === undefined ? null : resolvePosts[0].body),
 )
+// A SECOND open must dispatch its own batch. The close guard is per open — a guard that
+// never reset would leave the window unable to dispatch again, or worse, unable to close.
+panelStore.set({ open: true, sessionId: 'stub-session' })
+const againBefore = resolveCalls.length
+const againNodes = await renderBlocked('blocked-second-batch')
+const againResolve = againNodes.find((node) => node.tag === 'button' && node.text === 'Resolve')
+if (againResolve !== undefined) againResolve.props.onClick()
+await new Promise((resolveTick) => setTimeout(resolveTick, 20))
+await flush(blockedElement(), 'blocked-second-batch')
+const againClose = nodes.find((node) => node.tag === 'button' && node.text === 'Close')
+if (againClose !== undefined) againClose.props.onClick()
+await new Promise((resolveTick) => setTimeout(resolveTick, 20))
+claim(
+  'and a second open dispatches its own batch, so the close guard is per open',
+  panelStore.getSnapshot().open === false &&
+    resolveCallsFrom(againBefore).filter((call) => call.method === 'POST').length === 1,
+  JSON.stringify({ open: panelStore.getSnapshot().open, posts: resolveCallsFrom(againBefore).filter((call) => call.method === 'POST').length }),
+)
+
 // The close unmounted the window, so the following cases need it open again.
 panelStore.set({ open: true, sessionId: 'stub-session' })
 
@@ -1807,6 +1826,103 @@ claim(
 )
 globalThis.__DSH_ADR_PANEL_RESOLVE__ = savedResolveBridge
 resolveHostHandler = null
+
+// ── no control inside the window closes it ──────────────────────────────────
+//
+// The queue dispatches when the window closes, so a control that closed it by accident both
+// threw the human out of the panel AND dispatched a batch they were still assembling. This
+// sweeps EVERY button the synthetic corpus renders: each is clicked on its own fresh
+// instance, and the panel must still be open afterwards. Only the Close button and a click
+// on the backdrop may close it.
+{
+  panelStore.set({ open: true, sessionId: 'stub-session' })
+  consentHostHandler = () => ({ status: 200, body: askBody('0017', approveQuiz) })
+  const first = await renderRows('click-sweep')
+  const labels = [...new Set(first.filter((node) => node.tag === 'button').map((node) => node.text))]
+  const closedBy = []
+  for (const label of labels) {
+    if (label === 'Close') continue
+    panelStore.set({ open: true, sessionId: 'stub-session' })
+    const buttons = await renderRows('click-sweep-' + label)
+    const button = buttons.find((node) => node.text === label)
+    if (button === undefined) continue
+    try {
+      button.props.onClick()
+    } catch (error) {
+      closedBy.push(label + ' threw: ' + String(error))
+      continue
+    }
+    await new Promise((resolveTick) => setTimeout(resolveTick, 20))
+    await flush(
+      React.createElement(registry['shell.overlay'].Component, Object.assign({}, overlayForRows, { usePanel: (selector) => selector(panelStore.getSnapshot()), load: () => Promise.resolve(synthetic) })),
+      'click-sweep-' + label,
+    )
+    if (panelStore.getSnapshot().open !== true) closedBy.push(label + ' closed the window')
+  }
+  // The sweep must have covered the controls that matter, or "nothing closed it" measures
+  // nothing: the two chrome buttons, the four section tabs, both consent answers and a way
+  // into a record.
+  const required = ['Reload', 'Close', 'Approve', 'Decline']
+  const covers = required.every((label) => labels.includes(label)) && ['Needs a human', 'Decisions', 'Consents', 'Specs'].every((name) => labels.some((label) => label.indexOf(name) === 0))
+  claim(
+    'no control inside the window closes it, and no handler throws',
+    covers && closedBy.length === 0,
+    JSON.stringify({ labels, closedBy }),
+  )
+  // The one control that MAY close it: a click on the backdrop, which is what queues the
+  // dispatch. Asserted by invoking the backdrop's own handler on a fresh render.
+  panelStore.set({ open: true, sessionId: 'stub-session' })
+  await renderRows('click-sweep-backdrop')
+  // `renderRows` returns buttons; the backdrop is the `presentation` div, so the global
+  // node list is what is searched.
+  const backdrop = nodes.find((node) => node.tag === 'div' && node.props.role === 'presentation')
+  if (backdrop !== undefined && typeof backdrop.props.onClick === 'function') backdrop.props.onClick()
+  await new Promise((resolveTick) => setTimeout(resolveTick, 20))
+  claim(
+    'and a click on the backdrop itself does close it',
+    panelStore.getSnapshot().open === false,
+    JSON.stringify({ open: panelStore.getSnapshot().open }),
+  )
+  panelStore.set({ open: true, sessionId: 'stub-session' })
+}
+
+// The same sweep over the BLOCKED cards, which carry the controls this change touched:
+// Resolve (queues), Decline with a reason (opens its box) and Open (switches tab).
+{
+  panelStore.set({ open: true, sessionId: 'stub-session' })
+  resolveHostHandler = (call) => (call.method === 'GET' ? { status: 200, body: planBody() } : { status: 200, body: { ok: true, ids: ['0017'], spawned: true } })
+  const sweepBlocked = async (tag) => {
+    await flush(blockedElement(), tag)
+    await new Promise((resolveTick) => setTimeout(resolveTick, 20))
+    await flush(blockedElement(), tag)
+  }
+  await sweepBlocked('blocked-sweep')
+  const labels = [...new Set(nodes.filter((node) => node.tag === 'button').map((node) => node.text))]
+  const closedBy = []
+  for (const label of labels) {
+    if (label === 'Close') continue
+    panelStore.set({ open: true, sessionId: 'stub-session' })
+    await sweepBlocked('blocked-sweep-' + label)
+    const button = nodes.find((node) => node.tag === 'button' && node.text === label)
+    if (button === undefined) continue
+    try {
+      button.props.onClick()
+    } catch (error) {
+      closedBy.push(label + ' threw: ' + String(error))
+      continue
+    }
+    await new Promise((resolveTick) => setTimeout(resolveTick, 20))
+    await sweepBlocked('blocked-sweep-' + label)
+    if (panelStore.getSnapshot().open !== true) closedBy.push(label + ' closed the window')
+  }
+  claim(
+    'no control on a blocked card closes the window either',
+    labels.includes('Resolve') && labels.includes('Decline with a reason') && closedBy.length === 0,
+    JSON.stringify({ labels, closedBy }),
+  )
+  panelStore.set({ open: true, sessionId: 'stub-session' })
+  resolveHostHandler = null
+}
 
 // ── the row shows the question, the record text, the labels and the outcome ──
 //

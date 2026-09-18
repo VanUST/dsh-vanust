@@ -525,6 +525,21 @@ rest. What this does NOT fix: two people (or two machines) with the panel open o
 project are still two resolvers, because the memory of the running child is per plugin
 activation, not shared state.
 
+**Buttons audited after the change.** The queue's dispatch hangs off the window's close, so
+a control that closed the window by accident also threw the human out AND sent a batch they
+were still assembling. `scripts/test-adr-panel.mjs` therefore SWEEPS every button the corpus
+renders — on the synthetic view and on the blocked cards — clicking each one on a fresh
+instance and requiring the panel to still be open and no handler to throw, and it requires
+the sweep to have covered the chrome, the four tabs and both consent answers so a sweep of
+nothing cannot pass. Only the Close button and a click on the backdrop itself may close it,
+and both are asserted directly.
+
+**Known inefficiency, not a defect:** each blocked card fetches its own plan, so opening a
+window with N blocked records runs N `resolvePlan` calls and therefore N compiles (~100 ms
+each on a mid-sized corpus, measured on `compile_and_conquer`). The view model already
+carries `steps` and `humanRequired` from the same derivation, so the fix is to read those
+and fetch only the declined history once for the whole set; it has not been done yet.
+
 **One click, one close.** The queue's dispatch hangs off the backdrop's click, and a click
 on any control inside the window bubbles to it. Only `onMouseDown` was stopped, so pressing
 **Resolve** closed the panel — the operator saw it as "resolve kicks me out of the ADR
