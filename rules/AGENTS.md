@@ -213,7 +213,19 @@ Run a grilling session before any work when the user asks to be grilled or uses 
 * **Look up facts, don't ask:** If a fact can be found by exploring the environment (filesystem, tools, docs, codebase), look it up rather than asking. The *decisions* are the user's — put each one to them and wait for the answer.
 * **No action until confirmed:** Do not act on the plan until the user confirms shared understanding has been reached. This holds for implementation and for research: research is less strict about the record, never about the four fields.
 
-**What enforces this.** The rule is behavioural, so its enforcement is a drill: `rules/drills/grill-ambiguous-asks.json` runs a pressure scenario twice — once with this section stripped and once with it present — and requires the unruled run to act on the ambiguous ask while the ruled run states the four fields first. `node scripts/drill-kit-rules.mjs --root . --plan` proves the scenario strips a section this file really carries.
+**What enforces this, and what does not — the deterministic half only.** The rule is
+behavioural, so its evidence is a differential drill: `rules/drills/grill-ambiguous-asks.json`
+runs a pressure scenario twice — once with this section stripped and once with it present —
+and requires the unruled run to act on the ambiguous ask while the ruled run states the four
+fields first. What a command in the gate actually refuses is narrower: `node
+scripts/drill-kit-rules.mjs --root .` (`--plan` is the default) proves every scenario names a
+section this file really carries, so RED strips the rule under test instead of running the
+same prompt twice over an unchanged file. It prints a PLAN, not a verdict, and it touches no
+model. The drill's own judgement needs a live run
+(`--scenario grill-ambiguous-asks --live`, through `scripts/probe-dsh-api.mjs`), which needs
+credentials and the pinned harness and is therefore release-gate evidence rather than a law
+check. So: **nothing in the deterministic gate fails when an agent skips the four fields.**
+What fails is a drill that names no real section, and that is all the rule may claim.
 
 ## 8. Model & Cost Policy — Flash-Only Agents
 
@@ -355,6 +367,25 @@ panel, which calls the plugin's own capability-fenced host route.
   it may write; (3) a defined measure of the result AND the procedure that measures it —
   the exact command, run now, whose output shows the work done.
 
+  **Which of the three a command refuses — stated exactly, because two of them are
+  prompt-level.** Only (1) has an enforcement point. A zone whose manifest entry declares
+  `requiresDecisionRecord: true` makes the write guard refuse a write there until a record
+  in force or proposed names that zone, and the refusal names the zone, the path and the
+  smallest thing that satisfies it. That point is **necessary and not sufficient**, and the
+  shortfall is measured rather than suspected: the guard is satisfied by ANY record that
+  ever named the zone, so it cannot tell *this task's* decision from one written months
+  earlier, and it governs the harness's write tools — not a shell command, a Node script or
+  a packing script that writes the same file. Requirements **(2) and (3) are prompt-level
+  only**: nothing in this repository fails when a session in implementation mode declares no
+  task and runs no measure. The nearest command checks are narrower and land only where a
+  measure is already declared — a law whose `checks` entry is a `command` fails until that
+  command passes, and a work order that is `in-flight` with no acceptance criterion bound to
+  a declared verification id is reported by `validateSpecs`/`context_specs` — and nothing
+  requires a work order to exist. A mechanism that would bind a write to a live work order's
+  scope and acceptance command is a **human's decision, not an agent's**: it needs a
+  manifest field, schema and guard semantics of its own, and a work order is keyed by path
+  rather than by task, so it would move this dilution down one level instead of removing it.
+
 **What is deterministic about the meaning requirement, and what is not — state this
 boundary, never paper over it.** The system can deterministically require that a judgement
 has been MADE and RECORDED; it cannot deterministically PRODUCE the judgement.
@@ -390,8 +421,21 @@ tool's children, nothing else, so it is a cap on one delegation tool and NOT a c
 concurrent work. Say so wherever the cap is described, so a later reader does not mistake
 it for a total limit.
 
+**The bound has a named residual, and it is not an absolute bound on concurrent work.**
+A child this process can see is released when the harness's agent registry stops holding
+it, however long it ran, so a child the registry holds forever — a resident continuable
+child, or one the harness never disposes — **keeps its slot** for as long as it is held,
+and the refusal names it. An entry NO registry answered for — an out-of-process child, a
+composition with no `agents` service, a liveness probe that threw — is released by the age
+bound instead (`staleAfterMs`, 15 minutes by default), so such a child stops being counted
+while it may still be running. The strongest true statement is therefore: *at most two
+`subagent` children per session are counted at once, and a child this process cannot see
+stops being counted after the age bound.* The same residual is stated beside the code in
+`plugins/work-modes/work-modes.mjs`; do not restate the cap as a guarantee the mechanism
+does not give.
+
 **What enforces the cap.** `node --test scripts/test-work-modes.mjs` drives the real tool
 registry: two children admit, the third is refused before its body runs with both running
-agents named, a settled child releases its slot, another session is unaffected, and a
-`workflow` call is never refused. `node scripts/probe-work-modes.mjs` measures the seam
-it rests on.
+agents named, a settled child releases its slot, a live child keeps its slot past the age
+bound, another session is unaffected, and a `workflow` call is never refused.
+`node scripts/probe-work-modes.mjs` measures the seam it rests on.

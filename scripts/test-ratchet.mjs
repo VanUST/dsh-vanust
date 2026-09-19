@@ -4848,6 +4848,44 @@ test('kit: the API probe exits non-zero when a fact is not confirmed', () => {
   assert.ok(source.includes('checks.push'), 'and it must actually record checks')
 })
 
+test('FALSIFICATION: a law bound to a probe is refused, so ADR 0043 is a rule and not a convention', () => {
+  // ADR 0043 decided "a law's check must be hermetic" and restated six laws that had
+  // been bound to two end-to-end probes — but nothing FAILED when a new law bound
+  // itself to a probe. The corpus state ("none remain") was held by inspection. This
+  // drives the shipped enforcement point over one fixture that differs only in the
+  // check command, so the command is shown able to fail and able to pass on the same
+  // corpus, and the falsification is the refutation of the claim that it cannot.
+  const hermetic = 'node scripts/check-consent-surface.mjs'
+  const probeBound = 'node scripts/probe-dsh-api.mjs --ratchet-ratify'
+  const laws = (run) => [{ id: 'auth.one', statement: 'One.', checks: [{ type: 'command', run, expects: 'the fixture asserts nothing beyond the run string' }] }]
+  const root = makeProject({
+    name: 'hermetic-laws',
+    adrs: { '0001-a.adr.md': adrText({ id: '0001', laws: laws(probeBound) }) },
+  })
+  const check = join(KIT_ROOT, 'scripts', 'check-hermetic-laws.mjs')
+  const runCheck = () => spawnSync(process.execPath, [check, '--root', root], { encoding: 'utf8' })
+
+  const broken = runCheck()
+  assert.equal(broken.status, 1, `a probe-bound law must fail the check:\n${broken.stdout}${broken.stderr}`)
+  assert.match(broken.stderr, /NON_HERMETIC_LAW_CHECK/)
+  assert.match(broken.stderr, /auth\.one/, 'the finding names the law it read')
+  assert.match(broken.stderr, /probe-dsh-api\.mjs/, 'and the command that made it non-hermetic')
+
+  // The SAME corpus, the same law, bound to a hermetic command: the pass must come
+  // back, so the failure above was caused by the command and not by the fixture.
+  writeFileSync(join(root, 'docs', 'adrs', '0001-a.adr.md'), adrText({ id: '0001', laws: laws(hermetic) }))
+  const fixed = runCheck()
+  assert.equal(fixed.status, 0, `a hermetic law must pass:\n${fixed.stdout}${fixed.stderr}`)
+  assert.match(fixed.stdout, /hermetic laws ok/)
+
+  // An unusable input is exit 2, never a pass over nothing: a root with no manifest
+  // has no law set, and "I could not look" is not "it is fine".
+  const missing = spawnSync(process.execPath, [check, '--root', join(root, 'no-such-project')], { encoding: 'utf8' })
+  assert.equal(missing.status, 2, 'a root with no manifest must not report a pass')
+  assert.match(missing.stderr, /nothing was checked, which is not a pass/)
+  rmSync(root, { recursive: true, force: true })
+})
+
 test('kit: every shipped plugin declares the peer packages it imports', () => {
   // The failure this prevents is a boot error: a peer pnpm does not hoist fails with
   // `Cannot find package`, which takes the whole plugin down rather than one feature.

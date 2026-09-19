@@ -211,6 +211,14 @@ if command -v node >/dev/null 2>&1; then
   # this probe treats as a failure because "nothing was checked" is not "nothing is wrong".
   probe "zone coverage (every tracked path is zoned or explicitly excepted)" \
     "node '${KIT_DIR}/scripts/check-zone-coverage.mjs' --root '${KIT_DIR}' | grep -q 'zone coverage ok'"
+  # ADR 0043 decided that a law's check must be hermetic and moved six probe-bound laws
+  # onto hermetic commands, but nothing failed when a NEW law bound itself to a probe: the
+  # state was held by a reader noticing. This compiles the corpus the gate compiles and
+  # refuses a command check that runs a probe, the release gate itself, or anything naming
+  # a port, a loopback authority or `dsh web`. Its output names the decidable subset, so a
+  # pass is not read as a proof that a run string is hermetic.
+  probe "a law's check is hermetic (no probe-bound law check)" \
+    "node '${KIT_DIR}/scripts/check-hermetic-laws.mjs' --root '${KIT_DIR}' | grep -q 'hermetic laws ok'"
   probe "instruction routing (only the home rules reach the prompt)" \
     "node '${KIT_DIR}/scripts/check-instruction-routing.mjs' | grep -q 'instruction routing ok'"
   # The static line above reads files: a kit-rules provider that stopped

@@ -29,6 +29,20 @@
  *   paper over: the laws on disk really did change while this ran. Re-run
  *   `ratchet verify` after a falsification run to leave the tree verified.
  *
+ *   THE LEDGER IS SNAPSHOTTED AND RESTORED, and that is not bookkeeping. A case that ADDS
+ *   a law makes the gate it runs RECORD the enlarged law set, and `readRecordedLawIds`
+ *   serves that set to every later run, which then reports the injected law as removed
+ *   without a decision — permanently, because a run that reports a removal records no set
+ *   of its own (`persistVerify` writes `lawIds` only when there is no removal problem).
+ *   The remedy the problem names, an explicit `op: remove`, is refused as
+ *   `LAW_TARGET_DANGLING` because no active record declares the injected law, and the
+ *   record it was injected into cannot be edited because it is ratified. Measured: this
+ *   script once left the ledger recording 68 laws against a 67-law corpus, and the gate
+ *   could not go green until two decisions (ADR 0071 declaring the id, ADR 0072 retiring
+ *   it) accounted for it. A law set a synthetic corpus induced is not part of the
+ *   project's append-only history, so the case's own bytes are put back — the same
+ *   restore the mutated file gets, for the same reason.
+ *
  * KEYWORDS
  *   falsification, breaker, gate, ratchet, self-verification, adversarial
  *
@@ -49,6 +63,42 @@ import { fileURLToPath } from 'node:url'
 
 const KIT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const CLI = join(KIT, 'plugins', 'ratchet', 'ratchet-cli.mjs')
+// The one artifact a case's mutation INDUCES rather than edits. See the OUTPUTS note above:
+// a case that adds a law makes the gate it runs record the enlarged law set, and that
+// recorded set is served to every later run.
+const LEDGER = join(KIT, '.dsh', 'ratchet', 'ledger.jsonl')
+
+/**
+ * Reads a file's bytes, or `null` when there is no such file.
+ *
+ * @param path - Absolute path.
+ * @returns The bytes, or `null` for an absent or unreadable file — which the restore
+ *   treats as "this file did not exist", never as "leave whatever is there".
+ */
+function snapshot(path) {
+  try {
+    return readFileSync(path)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Puts a {@link snapshot} back, removing the file when it did not exist before.
+ *
+ * @param path - Absolute path.
+ * @param bytes - The snapshot, or `null`.
+ * @returns Nothing. A failure is swallowed: this runs in a `finally` and on a signal, and
+ *   throwing there would replace the case's verdict with a restore error.
+ */
+function restoreSnapshot(path, bytes) {
+  try {
+    if (bytes === null) unlinkSync(path)
+    else writeFileSync(path, bytes)
+  } catch {
+    // Best effort; the caller has already reported the case.
+  }
+}
 
 /** Runs the kit's own gate and returns its exit code and combined output. */
 function gate() {
@@ -188,9 +238,17 @@ const CASES = [
     breaks() {
       const path = join(KIT, 'docs', 'adrs', '0004-success-is-an-artifact.adr.md')
       const before = readFileSync(path, 'utf8')
+      // The id is case-specific and is NOT one the corpus declares. It used to be
+      // `kit-tooling.falsified-unchecked`, which the corpus now declares (ADR 0071) and
+      // retires (ADR 0072) to account for the ledger entry an earlier run of this very case
+      // recorded; injecting that id again collided with the declaration and the gate
+      // reported `LAW_CONFLICT` instead, so this case stopped proving what it names while
+      // still exiting non-zero. Measured, and printed as "(reported, but not by
+      // LAW_UNCHECKED)". The prefix is what keeps a future collision visible.
+      const id = 'kit-tooling.falsification-case.unchecked'
       const injected = before.replace(
         'laws:\n',
-        'laws:\n  - op: upsert\n    id: kit-tooling.falsified-unchecked\n    statement: A falsification case inserted this law with nothing to check it.\n    checks: []\n',
+        `laws:\n  - op: upsert\n    id: ${id}\n    statement: A falsification case inserted this law with nothing to check it.\n    checks: []\n`,
       )
       if (injected === before) {
         throw new Error(`the edit changed nothing in ${path}; this case would prove nothing. Fix the target text.`)
@@ -223,10 +281,17 @@ let invalid = 0
 for (const testCase of CASES) {
   process.stdout.write(`\n== ${testCase.id}\n   ${testCase.why}\n`)
   let restore = null
+  let ledgerBefore = null
   let result
   try {
+    ledgerBefore = snapshot(LEDGER)
     restore = testCase.breaks()
-    activeRestore = restore
+    // One closure, because the signal handler can only carry one: the file the case broke
+    // AND the ledger its gate run will rewrite are both put back on a SIGINT/SIGTERM.
+    activeRestore = () => {
+      restore?.()
+      restoreSnapshot(LEDGER, ledgerBefore)
+    }
   } catch (error) {
     // A case that could not break anything is not a passing case. Reporting it as
     // one is how a breaker fabricates a clean bill of health.
@@ -238,7 +303,7 @@ for (const testCase of CASES) {
     result = gate()
   } finally {
     try {
-      restore?.()
+      activeRestore()
     } finally {
       activeRestore = null
     }

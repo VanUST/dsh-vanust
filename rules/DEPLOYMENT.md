@@ -87,10 +87,20 @@ node --test "$KIT/scripts/test-ratchet.mjs"         # the ratchet's full suite
 node "$KIT/scripts/check-portability.mjs"           # platform assumptions + packaging
 node "$KIT/scripts/check-model-gate.mjs"            # the canonical composition's cost policy
 node "$KIT/scripts/check-zone-coverage.mjs" --root "$KIT"   # every tracked path zoned or excepted
+node "$KIT/scripts/check-hermetic-laws.mjs" --root "$KIT"   # no law's command check runs a probe or a live port
 node "$KIT/scripts/probe-dsh-api.mjs" --kit-rules    # the rules reach an assembled prompt (behavioral)
 node "$KIT/plugins/ratchet/ratchet-cli.mjs" verify --root "$KIT"   # the kit's own gate
 node "$KIT/plugins/ratchet/ratchet-cli.mjs" falsify --root "$KIT"  # break the gate, require it to fail
+node "$KIT/scripts/falsify-kit-gate.mjs"            # the breaker at release-gate scope: one full gate per case
 ```
+
+`scripts/falsify-kit-gate.mjs` mutates the kit and restores every artifact its mutation
+induces, **including `.dsh/ratchet/ledger.jsonl`**: a case that adds a law makes the gate it
+runs record the enlarged law set, and that recorded set is served to every later run, which
+then reports the injected law as removed without a decision — permanently, because a run
+that reports a removal records no set of its own, and the removal cannot be declared because
+no record declares the law (`LAW_TARGET_DANGLING`). Re-run `verify` after it and the tree is
+verified, which is what its own documentation always claimed.
 
 `verify` exit codes: `0` every law held, `1` a check failed, `2` the project or its
 decisions are unusable so nothing was checked, `3` a usage error. A verification that

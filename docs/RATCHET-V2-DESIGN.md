@@ -958,11 +958,32 @@ Stated plainly, because a rule with no enforcement point is an unverified claim:
   somebody writes the command, and the entry that says so has to be deleted when they do,
   because a stale entry here reads exactly like a live gap. So read `context_rules` for the
   current answer; this paragraph is history.
-- **`requiresDecisionRecord` is enforced by a guard, and no kit zone opts in.**
+- **`requiresDecisionRecord` is enforced by a guard, and one kit zone opts in.**
   `ratchet-guard.mjs` refuses a write into a regulated zone with no decision behind it, and
-  its own suite covers what it refuses, what is exempt and what satisfies it. Every kit
-  zone declares `requiresDecisionRecord: false`, so the guard is inert here — the rule
-  has an enforcement point and this repository does not use it.
+  its own suite covers what it refuses, what is exempt and what satisfies it.
+  `shipped-plugins` (`plugins/**`) now declares it, decided by ADR 0070; `kit-tooling`
+  (`scripts/**`, `probes/**`) and `deployment-rules` (`rules/**`, `profile/**`, the
+  installers) deliberately do not — the release gate governs the scripts, and `rules/**` is
+  already law in force that the rules zone requires a human (ADR 0060, ratified by 0062).
+  **The flag is necessary and not sufficient, and that is measured rather than suspected:**
+  the guard satisfies a zone from `zonesWithRecords`, the union of the zones of every record
+  IN FORCE, and the kit has twenty-four in-force records naming `shipped-plugins`. They
+  satisfy the flag on their own, so on this corpus a write into `plugins/**` is allowed
+  whether or not any record describes that work. What the flag enforces is *"some record
+  named this zone"*, never *"this task has a decision"*, and it governs the harness's write
+  tools rather than a shell command or a script that writes the same file. The mechanism
+  that would bind a write to a live work order's scope and acceptance command is recorded as
+  a **recommendation for a human to decide** in ADR 0070, not built: it would contradict
+  `shipped-plugins.a-proposed-decision-licenses-the-work`, and a work order is keyed by path
+  rather than by task, so it would move this dilution down one level instead of removing it.
+- **A law's check must be hermetic is now a command, not a convention.** ADR 0043 decided
+  the rule and restated six laws off two probes, but nothing failed when a NEW law bound
+  itself to one. `scripts/check-hermetic-laws.mjs` compiles the corpus the gate compiles and
+  refuses a `command` check that runs a probe, the release gate, or anything naming a port,
+  a loopback authority, an `http` URL or `dsh web`; the release gate runs it, and
+  `.dsh/project.json` declares it as `hermetic-laws` under the rule
+  `a-laws-check-is-hermetic`. Its residual is printed, not implied: a `run` string is
+  opaque, so a probe spelled another way is not caught by any static rule.
 - **Only obvious writes are guarded.** A shell command that edits a regulated file is
   allowed, because guessing would refuse work the guard cannot see. The violation is
   still visible in the diff and to `ratchet verify`; it is not prevented.
@@ -1402,6 +1423,9 @@ node --test scripts/test-ratchet.mjs
 # the guard's rule: what requiresDecisionRecord refuses, and what satisfies it
 node --test scripts/test-ratchet-guard.mjs
 
+# a law's check must be hermetic (ADR 0043): no command check runs a probe or a live port
+node scripts/check-hermetic-laws.mjs --root .
+
 # portability and packaging (prints its own tally)
 node scripts/check-portability.mjs
 
@@ -1410,7 +1434,13 @@ node scripts/check-consent-surface.mjs              # 7 claims, no harness neede
 node scripts/check-instruction-routing.mjs          # no harness needed
 node scripts/check-gate-invariants.mjs              # verdicts asserted behaviourally
 
-# the breaker at release-gate scope: 6 invariants, one full gate per case
+# the breaker at release-gate scope: 6 invariants, one full gate per case.
+# It snapshots and restores `.dsh/ratchet/ledger.jsonl` around every case: a case that ADDS a
+# law makes the gate it runs record the enlarged law set, and that recorded set is served to
+# every later run, which then reports the injected law as removed without a decision —
+# permanently, since a run that reports a removal records no set of its own and the removal
+# cannot be declared (`LAW_TARGET_DANGLING`). Measured once: 68 laws recorded against a 67-law
+# corpus, cleared only by two decisions declaring and retiring the injected id (ADR 0071/0072).
 node scripts/falsify-kit-gate.mjs
 
 # the kit's own gate: run it — the verdict line reports the law and check counts

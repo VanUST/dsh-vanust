@@ -13,7 +13,10 @@
  *   2. **A work mode per session, injected into the prompt every turn.** Research
  *      mode needs neither a decision record nor a specification; implementation
  *      mode does, and its rule says exactly which of those requirements a command
- *      can check and which a judge must judge.
+ *      can check and which a judge must judge. Only the decision-record requirement
+ *      has an enforcement point, and it is a zone's `requiresDecisionRecord` flag
+ *      rather than this plugin; the defined-task and defined-measure requirements
+ *      are prompt-level, and the rule text says so instead of implying otherwise.
  *
  *   Both are read at a seam the harness already owns. The cap is a monotonic
  *   `tools.guard()`: a guard may only DENY, so no later listener can turn the
@@ -186,14 +189,25 @@ const MODE_RULES = {
     '  3. a defined measure of the result AND the procedure that measures it: the exact',
     '     command, run now, whose output shows the work done.',
     '',
-    'What is DETERMINISTIC about those three, and what is not:',
-    '  - Requirement 1 is enforced where it is declared: a zone whose manifest entry sets',
+    'What a command refuses, and what it does NOT — the boundary, stated exactly:',
+    '  - Requirement 1 HAS an enforcement point: a zone whose manifest entry sets',
     '    `requiresDecisionRecord: true` makes the write guard refuse a write in that zone',
     '    until a record in force or proposed names it, and a `humanOnly` zone is never',
-    '    licensed by a proposal.',
-    '  - Requirement 3 is enforced where a measure is declared: a law whose check is a',
-    '    command fails until that command passes, and `ratchet verify` reports a check',
-    '    that could not be evaluated rather than passing it.',
+    '    licensed by a proposal. It is necessary and NOT sufficient, and the shortfall is',
+    '    measured rather than suspected: the guard is satisfied by ANY record that ever',
+    '    named the zone, so it cannot tell this task\'s decision from one written months',
+    '    earlier, and it governs the harness\'s write tools rather than a shell command, a',
+    '    Node script or a packing script that writes the same file.',
+    '  - Requirements 2 and 3 are PROMPT-LEVEL ONLY. Nothing in this deployment fails when',
+    '    a session in implementation mode declares no task and runs no measure. The nearest',
+    '    command checks are narrower and land only where a measure is ALREADY declared: a',
+    '    law whose check is a command fails until that command passes, and `ratchet verify`',
+    '    reports a check that could not be evaluated rather than passing it; a work order',
+    '    that is in flight with no acceptance criterion bound to a declared verification id',
+    '    is reported by validateSpecs. Nothing requires a work order to exist, and binding',
+    '    a write to one is a human\'s decision — it needs a manifest field and guard',
+    '    semantics of its own, and a work order is keyed by path rather than by task, so it',
+    '    would move the dilution down a level instead of removing it.',
     '  - The requirement that the change does not contradict the corpus in MEANING is',
     '    required and recorded, and the boundary is exact: the system can',
     '    deterministically require that a judgement has been made and recorded —',

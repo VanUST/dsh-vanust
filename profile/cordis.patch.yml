@@ -140,10 +140,23 @@
 # or retry. A `workflow` fan-out is deliberately OUTSIDE this cap — it is a cap on
 # the delegation tool, not a ceiling on concurrent work.
 #
+# The cap's residual, stated where the cap is: a child this process can see keeps
+# its slot until the harness's agent registry stops holding it, so a child the
+# registry never disposes keeps its slot for as long as it is held; an entry NO
+# registry answered for (an out-of-process child, no `agents` service, a liveness
+# probe that threw) is released by the age bound instead, so it stops being counted
+# after `staleAfterMs` while it may still be running. That is the strongest true
+# statement, and the plugin's own header carries it beside the code.
+#
 # The mode is session state injected into the prompt as a provider, so the agent
 # reads which mode it is in on every assembly instead of being trusted to remember
 # it. Research needs no decision record and no specification; implementation needs
 # an underlying record, a defined task, and a defined measure whose command runs.
+# Of those three, only the decision record has an enforcement point — a zone's
+# `requiresDecisionRecord` flag, and it is satisfied by ANY record that ever named
+# the zone, for the harness's write tools only. The defined task and the defined
+# measure are prompt-level: nothing fails when they are missing, and the rule text
+# says so rather than implying a guarantee the mechanism does not give.
 # The plugin serves the toggle on its own capability-fenced route, which the ADR
 # panel drives, and reaches `webServer` and `tools` through `ctx.get` so a
 # deployment without either still gets the other half.

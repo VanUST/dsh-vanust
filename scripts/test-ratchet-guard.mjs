@@ -1,12 +1,13 @@
 import { test } from 'node:test'
 import { pathToFileURL } from 'node:url'
 import assert from 'node:assert/strict'
-import { appendFileSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
+import { appendFileSync, cpSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 
 const PLUGIN = resolve(import.meta.dirname, '..', 'plugins', 'ratchet')
+const KIT_ROOT = resolve(import.meta.dirname, '..')
 const guardModule = await import(pathToFileURL(join(PLUGIN, "ratchet-guard.mjs")).href)
 const schema = await import(pathToFileURL(join(PLUGIN, "ratchet-schema.mjs")).href)
 const compilerModule = await import(pathToFileURL(join(PLUGIN, "ratchet-compiler.mjs")).href)
@@ -944,4 +945,102 @@ test('review status: a partly unreadable ledger says how many lines it could not
     })}\n`,
   )
   assert.equal(ops.contradictionReviewStatus(clean, REVIEW_HASH_A).ledgerSkipped, 0, 'a healthy ledger reports zero')
+})
+
+// ---------------------------------------------------------------------------
+// This project's OWN configuration. ADR 0070 declares `shipped-plugins` — the
+// zone that governs what this deployment ships — as requiring a decision record.
+// That declaration is a manifest field, so nothing but a test that reads the
+// manifest and drives the shipped guard over it can tell "the flag is on" from
+// "the flag was turned off and the documents still say it is on". Every case
+// below drives the real manifest and the real corpus through a mirror, so
+// flipping the flag back is a failing test rather than a paragraph.
+// ---------------------------------------------------------------------------
+
+/**
+ * Copies this project's manifest and decision corpus into a temporary root.
+ *
+ * A mirror rather than the checkout: the guard refuses and allows without
+ * writing anything, but a case that built its state by editing the real corpus
+ * would be a test that can corrupt the thing it measures. The source directory
+ * comes along because a record whose cited reasoning is missing is a record the
+ * compiler may treat differently, and the point of the mirror is to be the real
+ * corpus.
+ *
+ * @param options - `{ dropRecordsNamingZone }`. When a zone id is given, every
+ *   record that names it is left out of the mirror, which is how the "no record
+ *   names this zone" state is built from the REAL corpus rather than from a
+ *   hand-written fixture. Records are located through the compiler's own reader,
+ *   so the test cannot disagree with the guard about which records name a zone.
+ * @returns The absolute path of the mirror.
+ */
+function kitMirror({ dropRecordsNamingZone = null } = {}) {
+  const root = join(tmpdir(), `ratchet-guard-kit-${Math.random().toString(36).slice(2, 8)}`)
+  rmSync(root, { recursive: true, force: true })
+  mkdirSync(join(root, '.dsh'), { recursive: true })
+  cpSync(join(KIT_ROOT, '.dsh', 'project.json'), join(root, '.dsh', 'project.json'))
+  cpSync(join(KIT_ROOT, 'docs'), join(root, 'docs'), { recursive: true })
+  if (dropRecordsNamingZone !== null) {
+    const config = compilerModule.readManifest(root).config
+    const corpus = compilerModule.readAdrCorpus(root, config)
+    for (const record of corpus.records) {
+      if ((record.zones ?? []).includes(dropRecordsNamingZone)) rmSync(join(root, record.path), { force: true })
+    }
+  }
+  return root
+}
+
+test('kit: plugins/** is governed, because the manifest declares the flag on shipped-plugins', () => {
+  // The declaration itself, read the way the guard reads it. Fails the moment
+  // `requiresDecisionRecord` goes back to false — in either direction, since the
+  // zone must be governed AND must still be the zone the path falls in.
+  const config = compilerModule.readManifest(KIT_ROOT).config
+  const governed = guardModule.governanceOf('plugins/ratchet/ratchet-guard.mjs', config)
+  assert.equal(governed.governed, true, 'plugins/** must be governed by the shipped-plugins zone')
+  assert.equal(governed.zone.id, 'shipped-plugins')
+  assert.equal(governed.zone.requiresDecisionRecord, true)
+})
+
+test('kit: a write into plugins/** with NO record naming shipped-plugins is refused', () => {
+  // The refusal the flag exists for, driven over the real manifest and the real
+  // corpus with every record that names the zone removed. A guard that answered
+  // from the manifest alone, or one whose flag was flipped back, fails here.
+  const root = kitMirror({ dropRecordsNamingZone: 'shipped-plugins' })
+  const guard = guardModule.createGuard({ root })
+  const reason = guard({ name: 'write', arguments: { file_path: 'plugins/ratchet/ratchet-guard.mjs' } })
+  assert.equal(typeof reason, 'string', 'the write must be refused when no record names the zone')
+  assert.match(reason, /shipped-plugins/, 'the denial names the zone')
+  assert.match(reason, /plugins\/ratchet\/ratchet-guard\.mjs/, 'and the path it refused')
+  assert.match(reason, /PROPOSED record is enough/, 'and the smallest thing that satisfies it')
+})
+
+test('kit: a record naming shipped-plugins licenses the write, proposed or in force', () => {
+  // The other direction, over the untouched corpus: the guard must not refuse the
+  // work this record describes. Fails if the flag is on and the licensing record
+  // is deleted, edited so it stops naming the zone, or made unreadable.
+  const root = kitMirror()
+  const guard = guardModule.createGuard({ root })
+  assert.equal(
+    call(guard, 'write', { file_path: 'plugins/ratchet/ratchet-guard.mjs' }),
+    'ALLOWED',
+    'a record naming the zone licenses the write',
+  )
+  assert.equal(call(guard, 'edit', { file_path: 'plugins/work-modes/work-modes.mjs' }), 'ALLOWED')
+})
+
+test('kit: a zone whose flag is off is unaffected, so scripts, probes and rules stay writable', () => {
+  // The trade-off ADR 0070 reports rather than hides: kit-tooling and
+  // deployment-rules are deliberately left off. Fails if a later change turns the
+  // flag on everywhere, which would make repairing a red gate need a record.
+  const root = kitMirror({ dropRecordsNamingZone: 'shipped-plugins' })
+  const guard = guardModule.createGuard({ root })
+  for (const path of [
+    'scripts/check-portability.mjs',
+    'probes/api-probe/index.mjs',
+    'rules/AGENTS.md',
+    'profile/cordis.patch.yml',
+    'docs/RATCHET-V2-DESIGN.md',
+  ]) {
+    assert.equal(call(guard, 'write', { file_path: path }), 'ALLOWED', `${path} is in a zone whose flag is off`)
+  }
 })

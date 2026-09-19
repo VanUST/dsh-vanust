@@ -33,8 +33,12 @@ plugin's provenance:
 - **`@cc/dsh-work-modes`** — two deployment policies on harness seams that can
   actually refuse something: a monotonic guard refusing a third concurrent `subagent`
   child per session (a `workflow` fan-out is deliberately outside it, so it is not a
-  ceiling on concurrent work), and a per-session research/implementation mode injected
-  into the prompt every turn, with its toggle on a capability-fenced host route.
+  ceiling on concurrent work, and the cap has a stated residual — a child the registry
+  never disposes keeps its slot, while a child no registry can answer for stops being
+  counted after the age bound), and a per-session research/implementation mode injected
+  into the prompt every turn, with its toggle on a capability-fenced host route. Of the
+  mode's three implementation requirements only the decision record has an enforcement
+  point; the defined task and the defined measure are prompt-level.
 - **`@cc/dsh-presentation`** — one tool that turns a JSON deck spec into a standalone
   HTML presentation in the session workspace. It ships no client half on purpose: the
   Sidebar document preview already renders `.html` in a script-enabled sandboxed frame,
@@ -87,6 +91,7 @@ dsh-kit/
 ├── rules/AGENTS.md            # the deployment's mandatory rules (installed to $DSH_HOME/AGENTS.md)
 ├── scripts/dev-link.mjs       # links the harness packages so the kit's own gate runs from a clone
 ├── scripts/verify-upgrade.sh  # upgrade gate: throwaway instance + shipped-artifact policy probe
+├── scripts/check-hermetic-laws.mjs # a law's check is hermetic: no probe-bound command check
 ├── scripts/pack-plugin.mjs    # repack an in-repo plugin with a version bump and one tarball left behind
 ├── scripts/rebuild-plugins.sh # rebuild + repack model-gate from the harness checkout
 ├── USERGUIDE.md               # per-machine setup, startup, first-run checks, Windows notes, troubleshooting
@@ -170,12 +175,21 @@ review cycle, and every limitation that remains.
 - **Enforcement** — `node scripts/check-portability.mjs` (platform + packaging + plugin
   inventory), `node scripts/check-model-gate.mjs` (the canonical composition's flash-only
   cost policy, read out of the packed plugin rather than retyped),
-  `node --test scripts/test-ratchet.mjs`, the gate itself
+  `node scripts/check-hermetic-laws.mjs --root .` (no law's `command` check runs a probe, the
+  release gate or a live port — ADR 0043's rule, which was a convention until this command
+  existed), `node --test scripts/test-ratchet.mjs`, the gate itself
   (`node plugins/ratchet/ratchet-cli.mjs verify --root .`), and the breaker
   (`node plugins/ratchet/ratchet-cli.mjs falsify --root .`), which breaks one generic
   invariant at a time and requires the gate to fail. The last three need the one-time
   `node scripts/dev-link.mjs`. `rules/DEPLOYMENT.md` §4 is the same list with the exit
   codes.
+- **The write guard, and what it does not hold.** `plugins/**` is the one zone whose
+  manifest entry declares `requiresDecisionRecord: true` (ADR 0070, proposed): a write there
+  is refused until a record in force or proposed names `shipped-plugins`. It is necessary and
+  not sufficient — it is satisfied by ANY record that ever named the zone, so it cannot tell
+  this task's decision from an older one, and it sees the harness's write tools rather than a
+  shell or a script that writes the same file. The defined-task and defined-measure halves of
+  implementation mode are prompt-level; `rules/AGENTS.md` §14 says so there.
 
 **Upgrades:** the harness is pre-1.0 and breaking changes are policy. Always
 go through the gate: `npm i -g @deepseek-ai/dsh@<candidate>` →

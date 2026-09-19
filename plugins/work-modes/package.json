@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-work-modes",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Two deployment work policies on the harness's own seams: a monotonic tools.guard() that refuses a third concurrent `subagent` child per session with the running agents named (a `workflow` fan-out is deliberately outside it), and a per-session research/implementation mode injected into the system prompt every turn with the toggle served on a host route the ADR panel drives.",
   "type": "module",
   "main": "work-modes.mjs",

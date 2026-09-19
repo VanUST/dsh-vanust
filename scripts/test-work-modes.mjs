@@ -474,7 +474,6 @@ test('release: the real agent registry holds the slot while the child is live an
   // plugin asks for at sweep time.
   const registry = new harness.AgentRegistry(ctx)
   workModes.apply(ctx, { limit: 1, staleAfterMs: 1 })
-  for (let turn = 0; turn < 8; turn += 1) await Promise.resolve()
   tools.register(
     harness.tools.defineTool({
       name: 'subagent',
@@ -489,6 +488,29 @@ test('release: the real agent registry holds the slot while the child is live an
   const agent = { id: 'session-root', ctx: harness.createScope(ctx, 'session-root').ctx }
   const call = (callId) =>
     tools.execute({ name: 'subagent', callId, arguments: { description: callId }, agent, signal: new AbortController().signal })
+
+  // WAIT FOR THE GUARD BY DRIVING IT, not by counting microtask turns. The plugin installs
+  // its guard inside `ctx.inject(['tools'], ...)`, which the harness schedules, so a fixed
+  // number of `await Promise.resolve()` turns was a race: measured, `node --test
+  // scripts/test-work-modes.mjs` failed this case about one run in three, and the failing
+  // observation was always the same — the second call was ADMITTED, which is what an
+  // uninstalled guard produces. The precondition is therefore asserted through the
+  // plugin's own behaviour: a delegation placed while another is already admitted is
+  // refused only once the guard exists.
+  let installed = false
+  for (let attempt = 0; attempt < 50 && !installed; attempt += 1) {
+    await call(`warm-a-${attempt}`)
+    const warmB = await call(`warm-b-${attempt}`)
+    installed = warmB.isError === true
+    // The warm admissions age out on their own (`staleAfterMs` is 1 ms). Waiting only when
+    // the guard is still absent keeps the loop cheap and leaves the ledger empty before the
+    // measured window opens.
+    if (!installed) await new Promise((resolve) => setTimeout(resolve, 1))
+  }
+  assert.equal(installed, true, 'the plugin must have installed its guard before the measured window opens')
+  // Nothing may be left admitted: the start edge below must consume CALL-1's admission, and
+  // `ledger.start` consumes the oldest pending one.
+  await new Promise((resolve) => setTimeout(resolve, 5))
 
   assert.equal((await call('call-1')).isError, false, 'the delegation is admitted')
   // The child is published in the registry BEFORE the start edge, exactly as the harness's

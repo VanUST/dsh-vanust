@@ -162,6 +162,14 @@
       "enforcedBy": {
         "command": "work-modes-tests"
       }
+    },
+    {
+      "id": "a-laws-check-is-hermetic",
+      "statement": "No law's `command` check runs a probe, the release gate, or anything that needs a live webserver, a port, a loopback authority or a nested process, because the verifier's runner is not a shell and a law whose colour depends on an environment the gate does not control is not enforced; a measurement that needs the whole running deployment is release-gate evidence instead.",
+      "statedIn": "docs/adrs/0043-a-laws-check-must-be-hermetic.adr.md",
+      "enforcedBy": {
+        "command": "hermetic-laws"
+      }
     }
   ],
   "verification": [
@@ -296,6 +304,12 @@
       "command": "node scripts/probe-work-modes.mjs",
       "purpose": "the harness facts the two features rest on, measured by execution: a tools.guard() denial reaches the caller as an error result with the guard's own reason and the body never runs, subagent/start announces a run and a throwing listener cannot veto it, the parent is the scoped dispatch receiver rather than a listener argument, a prompt section provider reads the calling agent, and the agent registry answers liveness — a registered child resolves from get() and list() and a disposed one from neither",
       "path": "scripts/probe-work-modes.mjs"
+    },
+    {
+      "id": "hermetic-laws",
+      "command": "node scripts/check-hermetic-laws.mjs --root .",
+      "purpose": "a law's check is hermetic: every `command` check the corpus compiles is read out of the law bundle and refused when it runs a probe, the release gate, or anything naming a port, a loopback authority, an http URL or `dsh web`; a project with no usable manifest, or one whose corpus does not compile, exits 2 rather than reporting a pass over nothing; and the decidable subset is named in the output so a pass is not read as a proof that a `run` string is hermetic",
+      "path": "scripts/check-hermetic-laws.mjs"
     }
   ],
   "scopes": [
@@ -359,7 +373,7 @@
           "plugins/**"
         ],
         "agentAuthority": "proposeOnly",
-        "requiresDecisionRecord": false
+        "requiresDecisionRecord": true
       },
       {
         "id": "kit-tooling",
