@@ -1,4 +1,5 @@
 import { test } from 'node:test'
+import { pathToFileURL } from 'node:url'
 import assert from 'node:assert/strict'
 import { appendFileSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
@@ -6,11 +7,11 @@ import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 
 const PLUGIN = resolve(import.meta.dirname, '..', 'plugins', 'ratchet')
-const guardModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-guard.mjs`)
-const schema = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-schema.mjs`)
-const compilerModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-compiler.mjs`)
-const contradictionModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-contradiction.mjs`)
-const ops = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-ops.mjs`)
+const guardModule = await import(pathToFileURL(join(PLUGIN, "ratchet-guard.mjs")).href)
+const schema = await import(pathToFileURL(join(PLUGIN, "ratchet-schema.mjs")).href)
+const compilerModule = await import(pathToFileURL(join(PLUGIN, "ratchet-compiler.mjs")).href)
+const contradictionModule = await import(pathToFileURL(join(PLUGIN, "ratchet-contradiction.mjs")).href)
+const ops = await import(pathToFileURL(join(PLUGIN, "ratchet-ops.mjs")).href)
 
 const SOURCE_TEXT = '# Grilling session\n\nWe agreed sessions must move to Redis.\n'
 const SOURCE_PATH = 'docs/ratchet/sources/sessions.md'
@@ -901,4 +902,46 @@ test('review status: a corrupt ledger reports no review, never a pass', () => {
   const status = ops.contradictionReviewStatus(root, REVIEW_HASH_A)
   assert.equal(status.stale, true)
   assert.equal(status.reviewed, false)
+})
+
+test('review status: a partly unreadable ledger says how many lines it could not read', () => {
+  // The transparency gap this closes: `readLedger` counted the unparseable lines and this
+  // caller dropped the count, so a ledger with corrupt lines reported exactly like a clean
+  // one. Fails if the count stops travelling with the verdict, in either direction — the
+  // corrupt case losing its count, or the healthy case losing its zero.
+  const root = project('review-status-skipped')
+  mkdirSync(join(root, '.dsh', 'ratchet'), { recursive: true })
+  writeFileSync(
+    join(root, '.dsh', 'ratchet', 'ledger.jsonl'),
+    [
+      '{ not json at all',
+      JSON.stringify({
+        event: 'ratchet.contradiction.reviewed',
+        at: '2026-01-01T00:00:00.000Z',
+        job: 'review_corpus',
+        specHash: REVIEW_HASH_A,
+        advisory: true,
+      }),
+      'nor is this',
+    ].join('\n') + '\n',
+  )
+  const read = ops.contradictionReviewStatus(root, REVIEW_HASH_A)
+  assert.equal(read.reviewed, true, 'the readable review line is still found')
+  assert.equal(read.stale, false)
+  assert.equal(read.ledgerSkipped, 2, 'and both unreadable lines are reported with the verdict')
+  assert.equal(read.ledgerError, null, 'a readable ledger reports no read error')
+
+  const clean = project('review-status-clean')
+  mkdirSync(join(clean, '.dsh', 'ratchet'), { recursive: true })
+  writeFileSync(
+    join(clean, '.dsh', 'ratchet', 'ledger.jsonl'),
+    `${JSON.stringify({
+      event: 'ratchet.contradiction.reviewed',
+      at: '2026-01-01T00:00:00.000Z',
+      job: 'review_corpus',
+      specHash: REVIEW_HASH_A,
+      advisory: true,
+    })}\n`,
+  )
+  assert.equal(ops.contradictionReviewStatus(clean, REVIEW_HASH_A).ledgerSkipped, 0, 'a healthy ledger reports zero')
 })

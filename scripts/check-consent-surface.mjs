@@ -62,14 +62,14 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const KIT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const PLUGIN = join(KIT, 'plugins', 'ratchet')
 const CLI = join(PLUGIN, 'ratchet-cli.mjs')
 
-const ops = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-ops.mjs`)
-const tools = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-tools.mjs`)
+const ops = await import(pathToFileURL(join(PLUGIN, "ratchet-ops.mjs")).href)
+const tools = await import(pathToFileURL(join(PLUGIN, "ratchet-tools.mjs")).href)
 
 const failures = []
 const claim = (name, ok, detail) => {
@@ -317,7 +317,7 @@ claim(
 //     the question, so a decision an agent proposed is asked as a chat quiz again, and every
 //     other check still passes. So the equality is asserted against the real question the
 //     ratchet builds, and against the source the browser actually loads.
-const ratifyModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-ratify.mjs`)
+const ratifyModule = await import(pathToFileURL(join(PLUGIN, "ratchet-ratify.mjs")).href)
 const panelSource = readFileSync(join(KIT, 'plugins', 'dsh-adr-panel', 'client.js'), 'utf8')
 // Anchored to the start of a line so a COMMENTED-OUT copy cannot satisfy it, and tolerant
 // of spacing and quote style so a formatting-only change is not a failure: this check is
@@ -359,10 +359,10 @@ for (const root of [blockedRoot, terminalRoot, pendingRoot]) rmSync(root, { recu
 //    (c) the service itself refuses a composed payload and mints an approval only for the
 //        label of a question it built, which is the property that lets a UI be an entry to
 //        the one consent channel instead of a second one.
-const ratchetConsent = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-consent.mjs`)
-const ratchetDecisions = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-decisions.mjs`)
-const ratchetResolve = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-resolve.mjs`)
-const panelHost = await import(`file:///${join(KIT, 'plugins', 'dsh-adr-panel', 'index.js').replace(/\\/g, '/')}`)
+const ratchetConsent = await import(pathToFileURL(join(PLUGIN, "ratchet-consent.mjs")).href)
+const ratchetDecisions = await import(pathToFileURL(join(PLUGIN, "ratchet-decisions.mjs")).href)
+const ratchetResolve = await import(pathToFileURL(join(PLUGIN, "ratchet-resolve.mjs")).href)
+const panelHost = await import(pathToFileURL(join(KIT, 'plugins', 'dsh-adr-panel', 'index.js')).href)
 const panelBundle = readFileSync(join(KIT, 'plugins', 'dsh-adr-panel', 'client.js'), 'utf8')
 // Anchored to the start of a line so a COMMENTED-OUT copy cannot satisfy it, and tolerant of
 // spacing and quote style so a formatting-only change is not a failure.
@@ -559,7 +559,7 @@ if (resolveService !== undefined) {
 // its own approval as unproven and keeps offering the decision for ratification. So the
 // bundle's list is compared with the ratchet's, and the channel the service mints under is
 // required to be one of them.
-const { RATIFICATION_CHANNELS } = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-schema.mjs`)
+const { RATIFICATION_CHANNELS } = await import(pathToFileURL(join(PLUGIN, "ratchet-schema.mjs")).href)
 const bundleChannels = /(?:^|\n)[ \t]*const RATIFICATION_CHANNELS\s*=\s*\[([^\]]*)\]/.exec(panelBundle)
 const bundleChannelList = bundleChannels === null ? null : bundleChannels[1].split(',').map((entry) => entry.trim().replace(/^["']|["']$/g, '')).filter((entry) => entry !== '')
 claim(

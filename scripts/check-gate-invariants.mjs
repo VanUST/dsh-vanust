@@ -44,17 +44,17 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const KIT = resolve(fileURLToPath(import.meta.url), '..', '..')
 const PLUGIN_DIR = join(KIT, 'plugins', 'ratchet').replace(/\\/g, '/')
 
-const { compileProject, readAdrCorpus } = await import(`file:///${PLUGIN_DIR}/ratchet-compiler.mjs`)
-const { createWorkBudget, workBudgetRead } = await import(`file:///${PLUGIN_DIR}/ratchet-schema.mjs`)
-const { compile, verify } = await import(`file:///${PLUGIN_DIR}/ratchet-ops.mjs`)
-const { verifyProject, codeHashFor, listFiles } = await import(`file:///${PLUGIN_DIR}/ratchet-verifier.mjs`)
+const { compileProject, readAdrCorpus } = await import(pathToFileURL(join(PLUGIN_DIR, "ratchet-compiler.mjs")).href)
+const { createWorkBudget, workBudgetRead } = await import(pathToFileURL(join(PLUGIN_DIR, "ratchet-schema.mjs")).href)
+const { compile, verify } = await import(pathToFileURL(join(PLUGIN_DIR, "ratchet-ops.mjs")).href)
+const { verifyProject, codeHashFor, listFiles } = await import(pathToFileURL(join(PLUGIN_DIR, "ratchet-verifier.mjs")).href)
 const { ratificationQueue, buildQuiz, deriveDecisions, offeredBy } = await import(
-  `file:///${PLUGIN_DIR}/ratchet-ratify.mjs`
+  pathToFileURL(join(PLUGIN_DIR, "ratchet-ratify.mjs")).href
 )
 
 const failures = []

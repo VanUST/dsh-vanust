@@ -288,13 +288,13 @@
     {
       "id": "work-modes-tests",
       "command": "node --test scripts/test-work-modes.mjs",
-      "purpose": "the two work policies, driven through the real harness: the delegation ledger's per-session count (grandchildren included, sessions independent, a stale admission released by age), the cap refusing a third child before its body runs and naming the running agents through a real ToolRuntime guard, an uncapped tool left alone, and the mode reaching the assembled prompt for the calling session only",
+      "purpose": "the two work policies, driven through the real harness: the delegation ledger's per-session count (grandchildren included, sessions independent, a slot released by the agent registry no longer holding the child and by age only where no registry answered, a live child keeping its slot past the bound, a throwing liveness probe read as cannot-tell), the cap refusing a third child before its body runs and naming the running agents through a real ToolRuntime guard, an uncapped tool left alone, and the mode reaching the assembled prompt for the calling session only",
       "path": "scripts/test-work-modes.mjs"
     },
     {
       "id": "work-modes-probe",
       "command": "node scripts/probe-work-modes.mjs",
-      "purpose": "the harness facts the two features rest on, measured by execution: a tools.guard() denial reaches the caller as an error result with the guard's own reason and the body never runs, subagent/start announces a run and a throwing listener cannot veto it, the parent is the scoped dispatch receiver rather than a listener argument, and a prompt section provider reads the calling agent",
+      "purpose": "the harness facts the two features rest on, measured by execution: a tools.guard() denial reaches the caller as an error result with the guard's own reason and the body never runs, subagent/start announces a run and a throwing listener cannot veto it, the parent is the scoped dispatch receiver rather than a listener argument, a prompt section provider reads the calling agent, and the agent registry answers liveness — a registered child resolves from get() and list() and a disposed one from neither",
       "path": "scripts/probe-work-modes.mjs"
     }
   ],

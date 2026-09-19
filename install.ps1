@@ -1,10 +1,10 @@
-# dsh-kit installer — Windows (fresh machine setup).
+# dsh-kit installer -- Windows (fresh machine setup).
 # What it does:
 #   1. checks Node >= 24 (node-pty ABI),
 #   2. installs the pinned harness version globally (npm i -g),
 #   3. creates $env:DSH_HOME\profiles\web from the kit's canonical profile files,
 #   4. installs every plugin tarball in plugins\ into the profile (five plugins:
-#      model-gate, dsh-context, kit-rules, ratchet, adr-panel — see plugins\inventory.json),
+#      model-gate, dsh-context, kit-rules, ratchet, adr-panel -- see plugins\inventory.json),
 #   5. installs the user-global core operating rules ($env:DSH_HOME\AGENTS.md) and the
 #      DEPLOYMENT.md procedure they point at,
 #   6. links the harness packages so the kit's own tests and gate run from this checkout.
@@ -27,15 +27,45 @@ Write-Host "== dsh-kit installer (harness $DSH_VERSION) =="
 
 # 1. Node check.
 $node = Get-Command node -ErrorAction SilentlyContinue
-if (-not $node) { Write-Error 'Node.js not found — install Node >= 24 first (https://nodejs.org).'; exit 1 }
+if (-not $node) { Write-Error 'Node.js not found -- install Node >= 24 first (https://nodejs.org).'; exit 1 }
 $nodeMajor = [int]((& node -p 'process.versions.node.split(".")[0]').Trim())
-if ($nodeMajor -lt 24) { Write-Error "Node $nodeMajor detected — dsh-kit requires Node >= 24."; exit 1 }
+if ($nodeMajor -lt 24) { Write-Error "Node $nodeMajor detected -- dsh-kit requires Node >= 24."; exit 1 }
 Write-Host "   node: $(& node -v) (ok)"
 
-# 2. Pinned harness install (user-local prefix — no admin needed). Keep an
+# 2. Pinned harness install (user-local prefix, no admin needed). Keep an
 #    existing user-local prefix; only switch a system-wide one.
+#
+#    This file is deliberately ASCII ONLY, and that is not a style preference: a
+#    `.ps1` with no byte-order mark is decoded by Windows PowerShell 5.1 with the
+#    system ANSI codepage, so a UTF-8 em dash (E2 80 94) is read as three ANSI
+#    characters whose third byte is 0x94 -- a SMART DOUBLE QUOTE, which PowerShell
+#    accepts as a string terminator. Measured on the committed file: an em dash inside
+#    the double-quoted Write-Error below made `powershell -File install.ps1` fail with
+#    `TerminatorExpectedAtEndOfString` / `MissingEndCurlyBrace` before running a single
+#    line, while the same bytes with a UTF-8 BOM parsed with 0 errors. Keep this file
+#    ASCII, or the installer stops being a script at all.
+#
+#    The comparison is case-insensitive AND directory-boundary aware. Both properties
+#    were measured under Windows PowerShell 5.1, not assumed, because the obvious form is
+#    wrong in two ways:
+#      'C:\Users\1\AppData\Roaming\npm'.StartsWith('c:\users\1')   ->  False
+#        StartsWith(string) is a culture-sensitive, CASE-SENSITIVE comparison, so a
+#        user-local prefix written with any other casing reads as system-wide and the
+#        else branch rewrites npm's global prefix on a machine that was already correct.
+#      'C:\Users\1by\.npm'.StartsWith('C:\Users\1')                ->  True
+#        There is no directory boundary, so a SIBLING whose name merely begins with the
+#        profile string reads as user-local, is kept, and is announced as user-local.
+#    The profile is trimmed of a trailing separator and the separator is appended
+#    explicitly, so only the profile directory itself or a real descendant matches.
 $currentPrefix = (& npm config get prefix).Trim()
-if ($currentPrefix.StartsWith($env:USERPROFILE)) {
+$userProfile = if ($env:USERPROFILE) { $env:USERPROFILE.TrimEnd('\') } else { '' }
+$prefixPath = $currentPrefix.TrimEnd('\')
+$underProfile =
+  $userProfile.Length -gt 0 -and (
+    $prefixPath.Equals($userProfile, [System.StringComparison]::OrdinalIgnoreCase) -or
+    $prefixPath.StartsWith($userProfile + '\', [System.StringComparison]::OrdinalIgnoreCase)
+  )
+if ($underProfile) {
   $npmPrefix = $currentPrefix
 } else {
   $npmPrefix = if ($env:NPM_PREFIX) { $env:NPM_PREFIX } else { Join-Path $env:USERPROFILE '.npm' }
@@ -72,7 +102,7 @@ Copy-Item (Join-Path $KIT_DIR 'rules\DEPLOYMENT.md') (Join-Path $DSH_HOME 'DEPLO
 # 6. Development links, so the kit's OWN gate runs from this checkout. The ratchet's tool
 #    adapter imports `@deepseek-ai/dsh-tools`, which lives in the harness install and not
 #    in this repository; the tests and probes resolve it through a link beside them. Not
-#    fatal if it fails — the DEPLOYMENT does not need the link, only the self-check does.
+#    fatal if it fails -- the DEPLOYMENT does not need the link, only the self-check does.
 & node (Join-Path $KIT_DIR 'scripts\dev-link.mjs') | Out-Null
 if ($LASTEXITCODE -ne 0) {
   Write-Warning "could not link the harness packages; run 'node scripts\dev-link.mjs' in $KIT_DIR before using the kit's own gate."

@@ -81,6 +81,7 @@ function packageEntry(root, packageName) {
 
 const CLASS_PACKAGES = [
   'cordis',
+  'dsh-agent',
   'dsh-system-prompt',
   'dsh-scope',
   'dsh-subagent',
@@ -103,8 +104,9 @@ if (root === null) {
 let deps = null
 let loadError = null
 try {
-  const [{ Context }, systemPrompt, scope, subagent, tools] = await Promise.all([
+  const [{ Context }, agent, systemPrompt, scope, subagent, tools] = await Promise.all([
     import(packageEntry(root, '@deepseek-ai/cordis')),
+    import(packageEntry(root, '@deepseek-ai/dsh-agent')),
     import(packageEntry(root, '@deepseek-ai/dsh-system-prompt')),
     import(packageEntry(root, '@deepseek-ai/dsh-scope')),
     import(packageEntry(root, '@deepseek-ai/dsh-subagent')),
@@ -112,6 +114,7 @@ try {
   ])
   deps = {
     Context,
+    AgentRegistry: agent.AgentRegistry,
     SystemPrompt: systemPrompt.SystemPrompt,
     renderPrompt: systemPrompt.renderPrompt,
     createScope: scope.createScope,

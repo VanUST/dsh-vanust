@@ -75,7 +75,7 @@ function packageEntry(root, packageName) {
   return pathToFileURL(join(directory, entry)).href
 }
 
-const NEEDED = ['cordis', 'dsh-system-prompt', 'dsh-scope', 'dsh-tools']
+const NEEDED = ['cordis', 'dsh-agent', 'dsh-system-prompt', 'dsh-scope', 'dsh-tools']
 const HARNESS_ROOT =
   candidateRoots().find((root) => NEEDED.every((name) => existsSync(join(root, '@deepseek-ai', name, 'package.json')))) ?? null
 
@@ -83,13 +83,22 @@ let harness = null
 let harnessError = null
 if (HARNESS_ROOT !== null) {
   try {
-    const [{ Context }, systemPrompt, scope, tools] = await Promise.all([
+    const [{ Context }, agent, systemPrompt, scope, tools] = await Promise.all([
       import(packageEntry(HARNESS_ROOT, '@deepseek-ai/cordis')),
+      import(packageEntry(HARNESS_ROOT, '@deepseek-ai/dsh-agent')),
       import(packageEntry(HARNESS_ROOT, '@deepseek-ai/dsh-system-prompt')),
       import(packageEntry(HARNESS_ROOT, '@deepseek-ai/dsh-scope')),
       import(packageEntry(HARNESS_ROOT, '@deepseek-ai/dsh-tools')),
     ])
-    harness = { Context, SystemPrompt: systemPrompt.SystemPrompt, renderPrompt: systemPrompt.renderPrompt, createScope: scope.createScope, ToolRuntime: tools.ToolRuntime, tools }
+    harness = {
+      Context,
+      AgentRegistry: agent.AgentRegistry,
+      SystemPrompt: systemPrompt.SystemPrompt,
+      renderPrompt: systemPrompt.renderPrompt,
+      createScope: scope.createScope,
+      ToolRuntime: tools.ToolRuntime,
+      tools,
+    }
   } catch (error) {
     harnessError = String(error?.message ?? error)
   }
@@ -378,6 +387,127 @@ test('ledger: a limit below one is refused and floored, because a cap of zero di
   one.admit('call-1', 'session-a', 'first')
   one.start('run-1', 'child-1')
   assert.equal(typeof workModes.refusalFor(one, exec({ callId: 'call-2' })), 'string')
+})
+
+// ---------------------------------------------------------------------------
+// The release: LIVENESS from the agent registry, with the age bound as fallback
+// ---------------------------------------------------------------------------
+
+test('ledger: a child the registry still holds keeps its slot past the age bound', () => {
+  // The defect this replaced, attacked directly. Before the liveness release the age bound
+  // WAS the mechanism, so a child running longer than `staleAfterMs` silently stopped being
+  // counted and the cap could be exceeded. Fails if the release goes back to a clock: past
+  // ten times the bound, a live child must still hold its slot and the third call must still
+  // be refused.
+  let clock = 1_000_000
+  const live = new Set(['child-1'])
+  const ledger = workModes.createLedger({
+    limit: 1,
+    staleAfterMs: 60_000,
+    now: () => clock,
+    liveChild: (childId) => live.has(childId),
+  })
+  ledger.admit('call-1', 'session-a', 'a long task')
+  ledger.start('run-1', 'child-1')
+  assert.equal(ledger.countFor('session-a'), 1)
+  clock += 10 * 60_000
+  assert.equal(ledger.countFor('session-a'), 1, 'a child the registry still holds is not released for being slow')
+  assert.equal(
+    typeof workModes.refusalFor(ledger, exec({ callId: 'call-2', arguments: { description: 'one too many' } })),
+    'string',
+    'and the cap still refuses a second delegation',
+  )
+  live.delete('child-1')
+  assert.equal(ledger.countFor('session-a'), 0, 'the registry dropping the child is what releases the slot')
+  assert.equal(workModes.refusalFor(ledger, exec({ callId: 'call-3' })), undefined)
+})
+
+test('ledger: a child no registry can answer for is still released by the age bound', () => {
+  // The fallback, from the other side: an out-of-process child is never in this process's
+  // registry, so a liveness read alone would refuse that child's slot forever. Fails if the
+  // age bound is dropped when the predicate cannot answer.
+  let clock = 1_000_000
+  const ledger = workModes.createLedger({
+    limit: 1,
+    staleAfterMs: 60_000,
+    now: () => clock,
+    liveChild: () => null,
+  })
+  ledger.admit('call-1', 'session-a', 'out of process')
+  ledger.start('run-1', 'child-x')
+  clock += 59_999
+  assert.equal(ledger.countFor('session-a'), 1, 'inside the window the unreconcilable entry is counted')
+  clock += 2
+  assert.equal(ledger.countFor('session-a'), 0, 'and the bound still releases it')
+})
+
+test('ledger: a probe that throws is read as cannot-tell, never as a release', () => {
+  // Fails if a broken registry is mistaken for an ended child, which would turn a wedged
+  // probe into a cap that silently stops counting. The throw must neither escape nor free
+  // the slot, and the age bound must still apply.
+  let clock = 1_000_000
+  const ledger = workModes.createLedger({
+    limit: 1,
+    staleAfterMs: 60_000,
+    now: () => clock,
+    liveChild: () => {
+      throw new Error('the registry is wedged')
+    },
+  })
+  ledger.admit('call-1', 'session-a', 'a task')
+  ledger.start('run-1', 'child-1')
+  assert.equal(ledger.countFor('session-a'), 1, 'a throwing probe neither releases nor crashes the count')
+  clock += 60_001
+  assert.equal(ledger.countFor('session-a'), 0, 'the age bound still bounds it')
+})
+
+test('release: the real agent registry holds the slot while the child is live and releases it when it is disposed', { skip: HARNESS_SKIP }, async () => {
+  // The production release path, driven through the harness's OWN AgentRegistry. The bound is
+  // set to 1 ms, so an age-released ledger frees the slot on the very next sweep: the slot
+  // surviving that wait is the measurement that liveness — not a clock — is the mechanism.
+  // Fails if the plugin stops reading `agents`, reads it at apply time rather than at sweep
+  // time, or releases a slot for a child the registry still holds.
+  const ctx = new harness.Context()
+  new harness.SystemPrompt(ctx, {})
+  const tools = new harness.ToolRuntime(ctx, {})
+  // The registry provides itself as the `agents` service, which is the same service the
+  // plugin asks for at sweep time.
+  const registry = new harness.AgentRegistry(ctx)
+  workModes.apply(ctx, { limit: 1, staleAfterMs: 1 })
+  for (let turn = 0; turn < 8; turn += 1) await Promise.resolve()
+  tools.register(
+    harness.tools.defineTool({
+      name: 'subagent',
+      description: 'stand-in for the delegation tool',
+      parameters: { description: { type: 'string', required: true } },
+      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
+      execute() {
+        return Promise.resolve({ ok: true })
+      },
+    }),
+  )
+  const agent = { id: 'session-root', ctx: harness.createScope(ctx, 'session-root').ctx }
+  const call = (callId) =>
+    tools.execute({ name: 'subagent', callId, arguments: { description: callId }, agent, signal: new AbortController().signal })
+
+  assert.equal((await call('call-1')).isError, false, 'the delegation is admitted')
+  // The child is published in the registry BEFORE the start edge, exactly as the harness's
+  // in-process provider does (`agents.create` resolves before `observeRun` emits start).
+  const detach = registry.register({
+    id: 'child-1',
+    session: { id: 'child-1', header: {} },
+    ctx: harness.createScope(ctx, 'child-1').ctx,
+  })
+  ctx.emit('subagent/start', { runId: 'run-1', provider: 'spawn', id: 'child-1', local: true })
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  const second = await call('call-2')
+  assert.equal(second.isError, true, 'a child the registry still holds keeps its slot long past the 1 ms bound')
+  assert.match(String(second.error?.message ?? ''), /child-1/, 'and the refusal still names the live child')
+
+  detach()
+  await Promise.resolve()
+  const third = await call('call-3')
+  assert.equal(third.isError, false, 'disposing the child removes it from the registry and releases the slot')
 })
 
 // ---------------------------------------------------------------------------

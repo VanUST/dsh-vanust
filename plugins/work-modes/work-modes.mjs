@@ -27,20 +27,30 @@
  *   Config (all optional, all with working defaults):
  *     `toolName` — the delegation tool to cap. Default `subagent`.
  *     `limit` — the most children of that tool that may run at once. Default 2.
- *     `staleAfterMs` — how long a recorded admission with no matching start and no
- *       result is still counted. Default 900000 (15 minutes). It bounds a
- *       fail-closed mechanism: without it a lost terminal edge would refuse
- *       delegation for the life of the process.
+ *     `staleAfterMs` — the FALLBACK bound on an entry the agent registry could not
+ *       answer for (an out-of-process child, or a composition with no `agents` service).
+ *       Default 900000 (15 minutes). It is not the release mechanism: a child this
+ *       process can see is released when the registry stops holding it, however long it
+ *       ran, so a lost terminal edge can never refuse delegation for the life of the
+ *       process and a live child is never dropped for being slow.
+ *     `liveChild` — the reconciliation predicate a ledger built directly may supply:
+ *       `(childId) => true | false | null`. `true`/`false` are answers from a live
+ *       agent registry; `null` (or no predicate at all) means "cannot tell", which
+ *       leaves the entry on the age bound. {@link createLedger} is total for a
+ *       predicate that throws — a throw is also "cannot tell".
  *     `defaultMode` — the mode a session starts in. Default `research`.
  *     `modeRoute` — the HTTP path the panel's toggle calls. Default
  *       `/work-modes/mode`.
  *   Services: `systemPrompt` (DECLARED in {@link inject}, so a missing prompt
  *   service leaves this plugin pending rather than silently dropping the mode
- *   section), and `tools` and `webServer` (each requested with `ctx.inject`, so the
- *   registration happens when that service appears, whenever that is). Neither
- *   optional service is read with `ctx.get` while `apply` runs: a composition that
- *   mounts this plugin without the tool registry or without a web server still gets
- *   whichever halves are possible, and one that mounts them later still gets both.
+ *   section); `tools` and `webServer` (each requested with `ctx.inject`, so the
+ *   registration happens when that service appears, whenever that is); and `agents`,
+ *   read at call time through {@link liveChildProbe} and nowhere required, so a
+ *   composition without an agent registry loses only the exact release and keeps the
+ *   age-bounded fallback. None of the optional services is read with `ctx.get` while
+ *   `apply` runs: a composition that mounts this plugin without the tool registry or
+ *   without a web server still gets whichever halves are possible, and one that mounts
+ *   them later still gets both.
  *
  * OUTPUTS
  *   Registers: one monotonic tool guard, two event listeners (`subagent/start`,
@@ -79,7 +89,21 @@
  *   - A start edge whose child session the `agents` service cannot resolve (an
  *     out-of-process provider): the delegating session is inferred from the oldest
  *     unmatched admission, which is exact when one session delegates at a time and
- *     can cross-attribute when two do.
+ *     can cross-attribute when two do. The same child is also UNRECONCILABLE, so its
+ *     slot is released by `staleAfterMs` and not by a liveness read.
+ *   - A child that never ends: its slot is released as soon as the agent registry
+ *     stops holding it, because liveness is read from the registry rather than
+ *     inferred from an edge or a clock. A child that runs longer than `staleAfterMs`
+ *     therefore KEEPS its slot instead of silently freeing capacity the cap claims to
+ *     bound.
+ *   - A child the registry holds forever (a resident continuable child, or one the
+ *     harness never disposes): its slot is held for as long as it is held. That is the
+ *     fail-closed direction and it is deliberate — the alternative is the age bound
+ *     silently counting a child that still exists as gone. The delegation is refused,
+ *     not lost, and the refusal names the child holding the slot.
+ *   - `staleAfterMs` therefore governs only an entry no registry answered for: an
+ *     out-of-process child, a composition with no `agents` service, or a probe that
+ *     threw. Those are the entries a lost terminal edge can still strand.
  */
 
 /** Cordis function-plugin name; also the id a profile patch targets. */
@@ -259,19 +283,32 @@ export function headerParentOf(session) {
  * to an admission for the SAME session when the caller knows that session, and to the
  * earliest unmatched admission otherwise.
  *
- * @param options - `{ limit, staleAfterMs, now }`. `now` is injectable so a test can
- *   drive the stale sweep without waiting.
+ * A running entry is released by LIVENESS first and by age only as a fallback. A start
+ * edge whose child the caller could see in the harness's agent registry at that moment
+ * (`liveChild(childId) === true`) marks the entry reconcilable, and a later `false` —
+ * the registry no longer holds that child — releases the slot on the next sweep, however
+ * long the child ran. This is what replaces an age bound that released a live child: an
+ * entry the registry answers for is released by the registry, and `staleAfterMs` applies
+ * only to an entry no registry answered for (out-of-process child, no `agents` service,
+ * or a probe that threw).
+ *
+ * @param options - `{ limit, staleAfterMs, now, liveChild }`. `now` is injectable so a
+ *   test can drive the stale sweep without waiting. `liveChild` is an optional
+ *   `(childId) => boolean | null` liveness predicate; omitted, every entry is
+ *   unreconcilable and the ledger behaves exactly as an age-bounded one. A predicate
+ *   that throws is read as `null` ("cannot tell"), never as a release.
  * @returns The ledger's operations, all synchronous and all total.
  */
 export function createLedger(options = {}) {
   const limit = Number.isFinite(options.limit) && options.limit >= 1 ? Math.floor(options.limit) : DEFAULT_LIMIT
   const staleAfterMs = Number.isFinite(options.staleAfterMs) ? options.staleAfterMs : DEFAULT_STALE_AFTER_MS
   const now = typeof options.now === 'function' ? options.now : () => Date.now()
+  const liveness = typeof options.liveChild === 'function' ? options.liveChild : null
   /** Session id -> root session id, so a grandchild counts against its origin session. */
   const rootOf = new Map()
   /** callId -> `{ session, label, at }`, an admitted delegation whose child has not started. */
   const pending = new Map()
-  /** runId -> `{ session, childId, callId, label, root, at }`, a child believed to be running. */
+  /** runId -> entry, a child believed to be running. */
   const running = new Map()
 
   /**
@@ -283,16 +320,44 @@ export function createLedger(options = {}) {
   const rootFor = (session) => rootOf.get(session) ?? session
 
   /**
-   * Drop entries older than `staleAfterMs`.
+   * Ask the liveness predicate whether a child is still held by the agent registry.
    *
-   * Fail-closed means a lost terminal edge would otherwise refuse delegation forever;
-   * this is what bounds it. Swept on every read rather than on a timer, so the plugin
-   * owns no scheduled work and a test can advance the clock by passing `now`.
+   * Total by construction: a predicate that throws, or one that is absent, answers
+   * `null` ("cannot tell") rather than `false`, because a release inferred from a
+   * broken probe is a cap that silently stops counting.
+   *
+   * @param childId - The child session id, or null when the start edge carried none.
+   * @returns `true`/`false` when the registry answered, `null` otherwise.
+   */
+  const childIsLive = (childId) => {
+    if (liveness === null || typeof childId !== 'string' || childId.length === 0) return null
+    try {
+      const answer = liveness(childId)
+      return answer === true || answer === false ? answer : null
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Drop entries released by liveness and then entries past the age bound.
+   *
+   * The two rules do not overlap: a reconcilable entry is released by the registry and
+   * NEVER by the clock — the whole point of reading liveness is that a child the registry
+   * still holds is still running, at minute 1 or minute 40. The age bound governs exactly
+   * the entries no registry answered for, which is what keeps a lost terminal edge from
+   * refusing delegation for the life of the process without ever releasing live work.
    */
   const sweep = () => {
     const cutoff = now() - staleAfterMs
     for (const [callId, entry] of pending) if (entry.at < cutoff) pending.delete(callId)
-    for (const [runId, entry] of running) if (entry.at < cutoff) running.delete(runId)
+    for (const [runId, entry] of running) {
+      if (entry.reconcilable) {
+        if (childIsLive(entry.childId) === false) running.delete(runId)
+        continue
+      }
+      if (entry.at < cutoff) running.delete(runId)
+    }
   }
 
   return {
@@ -367,6 +432,10 @@ export function createLedger(options = {}) {
       const parent = admitted?.session ?? known
       const root = parent === null ? childId : rootFor(parent)
       if (parent !== null && typeof childId === 'string' && childId.length > 0) rootOf.set(childId, root)
+      // Reconcilable only when the registry ANSWERED `true` at this moment. A child the
+      // registry does not hold while it starts (an out-of-process provider) is not
+      // "ended"; it is one this ledger cannot read, so its slot stays age-bounded rather
+      // than being released by a `false` the registry never meant.
       const entry = {
         session: parent,
         childId: childId ?? null,
@@ -374,6 +443,7 @@ export function createLedger(options = {}) {
         label: admitted?.label ?? null,
         root,
         at: now(),
+        reconcilable: childIsLive(childId) === true,
       }
       running.set(String(runId), entry)
       return entry
@@ -541,6 +611,40 @@ export function parentSessionOf(agents, childId) {
 }
 
 /**
+ * Build the liveness predicate a slot release reconciles against.
+ *
+ * The harness's agent registry IS the live set: `AgentRegistry.get(id)` is documented as
+ * "Look up a live agent … the agent, or undefined when no live agent has that id", and a
+ * child is published in it before `subagent/start` is emitted and removed when its run is
+ * disposed — so an id that no longer resolves is a child that has ended, and an id that
+ * still resolves is a child that has not. `list()` is the same set as an array; `get` is
+ * used here because the ledger asks about one entry at a time.
+ *
+ * Distinguishing "the registry answered no" from "nothing could answer" is load-bearing:
+ * an out-of-process child is never in THIS process's registry while it runs, so a `false`
+ * read at start time must not be taken for an ending. That is why the ledger only trusts a
+ * `false` from a predicate that answered `true` earlier for the same child.
+ *
+ * @param agents - The `agents` service (`ctx.get('agents')`), or anything else.
+ * @returns The predicate, or `null` when the service cannot answer liveness at all —
+ *   which leaves the caller on the age bound rather than releasing on no evidence.
+ */
+export function liveChildProbe(agents) {
+  if (agents === undefined || agents === null || typeof agents.get !== 'function') return null
+  return (childId) => {
+    if (typeof childId !== 'string' || childId.length === 0) return null
+    try {
+      return agents.get(childId) !== undefined
+    } catch {
+      // A service that throws on an unknown id is the same fact as one that returns
+      // nothing ONLY for the parent read; for liveness a throw means the question could
+      // not be asked, which is "cannot tell".
+      return null
+    }
+  }
+}
+
+/**
  * Install both policies.
  *
  * @param ctx - Cordis context; `systemPrompt` is present because `inject` names it.
@@ -551,7 +655,15 @@ export function parentSessionOf(agents, childId) {
  */
 export function apply(ctx, config = {}) {
   const toolName = typeof config.toolName === 'string' && config.toolName.length > 0 ? config.toolName : DEFAULT_TOOL_NAME
-  const ledger = createLedger({ limit: usableLimit(config), staleAfterMs: config.staleAfterMs })
+  // The liveness probe is bound to the `agents` service LAZILY, for the same reason the
+  // tool registry is requested rather than read: while `apply` runs, the registry may not
+  // exist yet. `ctx.get` is therefore called at sweep time, and a composition with no
+  // agent registry gets `null` — the age bound — rather than an error or a false release.
+  const liveChild = (childId) => {
+    const probe = liveChildProbe(ctx.get('agents'))
+    return probe === null ? null : probe(childId)
+  }
+  const ledger = createLedger({ limit: usableLimit(config), staleAfterMs: config.staleAfterMs, liveChild })
   const defaultMode = MODES.includes(config.defaultMode) ? config.defaultMode : DEFAULT_MODE
   const modes = new Map()
   const route = typeof config.modeRoute === 'string' && config.modeRoute.startsWith('/') ? config.modeRoute : MODE_ROUTE
@@ -578,13 +690,14 @@ export function apply(ctx, config = {}) {
   // listener records and never vetoes; the guard is where a veto lives.
   ctx.effect(() => ctx.on('subagent/start', (info) => {
     // `agents` is reached at CALL time, not at apply time, so a composition that mounts
-    // no agent registry loses only the exact attribution and keeps the age-bounded
-    // fallback.
+    // no agent registry loses only the exact attribution and the liveness release, and
+    // keeps the age-bounded fallback.
     ledger.start(info?.runId, info?.id, parentSessionOf(ctx.get('agents'), info?.id))
   }))
   // The terminal edge is recorded but not relied on: measured, a provider that settles
-  // its result does not necessarily produce the end edge, which is why the ledger also
-  // bounds an entry by age.
+  // its result does not necessarily produce the end edge. It is a fast release, not the
+  // mechanism — the slot is released by the agent registry no longer holding the child,
+  // and by the age bound only for a child this process cannot see.
   ctx.effect(() => ctx.on('subagent/end', (info) => {
     ledger.end(info?.runId)
   }))
@@ -593,7 +706,8 @@ export function apply(ctx, config = {}) {
   // as the child is established, so releasing on the result would free the slot the
   // moment the child started working — the opposite of a concurrency cap. The slot a
   // call holds is released by the child's start edge consuming it, by a terminal edge,
-  // or by the age bound, and that ordering is what the test below pins.
+  // by the agent registry no longer holding the child, or — for an entry no registry
+  // answered for — by the age bound.
 
   // ── the work mode ─────────────────────────────────────────────────────────
   const order = ctx.systemPrompt.getSectionOrder?.(MODE_SECTION_NAME) ?? MODE_SECTION_ORDER

@@ -416,6 +416,18 @@ export async function run(argv) {
           ? `  contradiction detection: NOT RUN for these laws — ${review.reason}\n`
           : `  contradiction detection: ${review.at ?? '(no time recorded)'} read the law set now in force\n`,
       )
+      // What the fact above was READ FROM. The ledger is append-only and an unparseable
+      // line is counted rather than thrown, so "no review recorded" and "the line that
+      // recorded it was unreadable" are different states that would otherwise print
+      // identically. It is printed for a healthy ledger too (as 0): a line that appears
+      // only when something is wrong is a line nobody knows to look for, and zero is what
+      // makes "nothing was skipped" a measurement rather than an assumption.
+      if (review.ledgerSkipped !== undefined || review.ledgerError !== undefined) {
+        process.stdout.write(
+          `  ledger: ${review.ledgerSkipped ?? 0} unreadable line(s) skipped` +
+            `${review.ledgerError === null || review.ledgerError === undefined ? '' : ` — ${review.ledgerError}`}\n`,
+        )
+      }
     }
     if (result.summary !== undefined && result.summary.total > 0) {
       process.stdout.write(

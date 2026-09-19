@@ -55,7 +55,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 
 const KIT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -114,6 +114,23 @@ const CHECKS = [
     allow: ['probes/api-probe/panel-consent-probe.mjs'],
     allowReason:
       'the pathname property here builds the url of a fake Node HTTP request (an HTTP path, not a filesystem path), which is the only thing that value is ever used for',
+  },
+  {
+    id: 'no-hand-built-file-url',
+    // A dynamic import takes a URL, and the kit used to build one by hand:
+    // `file:///${PLUGIN.replace(/\\/g, '/')}/x.mjs` — three literal slashes plus an absolute
+    // path, whose leading separator makes FOUR on POSIX. `new URL('file:////home/x/y.mjs')`
+    // has the pathname `//home/x/y.mjs` (measured), which Linux tolerates rather than
+    // intends, and the shape was only ever executed on Windows. `pathToFileURL(p).href` is
+    // the API whose contract covers both platforms, so the hand-built form is banned.
+    pattern: /file:\/\//,
+    why: 'a hand-built file URL is a path idiom that has to hold on both platforms at once; use pathToFileURL(...).href, whose Windows and POSIX behaviour is the API contract rather than a reasoned guess',
+    paths: ['plugins', 'scripts', 'probes'],
+    // Two exemptions, each with its reason rather than a pattern that quietly stopped
+    // matching: one is prose in a comment, the other is the check that OWNS this rule.
+    allow: ['plugins/dsh-adr-panel/client.js', 'scripts/check-portability.mjs'],
+    allowReason:
+      'client.js mentions `file://` only inside a comment about the origin a browser reports for a bundle loaded that way; check-portability.mjs must be able to name and execute the platform-API round trip it requires of every other file',
   },
   {
     id: 'no-shell-dependent-spawns',
@@ -433,6 +450,135 @@ for (const dir of ['plugins/ratchet', 'plugins/dsh-context', 'plugins/kit-rules'
     usesFileUrl && !suffixMatch
       ? 'entry detection compares resolved paths, so it behaves the same on either separator'
       : 'entry detection relies on a string suffix; use fileURLToPath(import.meta.url) instead',
+  )
+}
+
+// ── the Windows installer's prefix decision must be case- and boundary-aware ──
+{
+  // The pattern scan above skips `.ps1` (its extension filter is `.mjs|.js|.sh`), so the
+  // installer needs its own block. What it pins, measured under Windows PowerShell 5.1:
+  // `'C:\…\npm'.StartsWith('c:\…')` is FALSE (the single-argument overload is a
+  // culture-sensitive, case-SENSITIVE compare) and `'C:\Users\1by\.npm'.StartsWith('C:\Users\1')`
+  // is TRUE (no directory boundary). Either one alone silently changes which npm prefix the
+  // installer keeps, so the check requires an explicit comparison mode and an explicit
+  // separator rather than trusting a future edit to remember why.
+  let installer = null
+  let installerError = null
+  try {
+    installer = readFileSync(join(KIT, 'install.ps1'), 'utf8')
+  } catch (error) {
+    installerError = String(error)
+  }
+  if (installer === null) {
+    check('install-ps1:prefix-compare', false, `install.ps1 must exist and be readable: ${installerError}`)
+  } else {
+    // Comment lines are excluded on purpose: the installer DOCUMENTS the two defective
+    // forms by quoting them, and a rule that flagged the explanation would push the
+    // explanation out of the file — the same trade the url-pathname rule makes.
+    const codeLines = installer
+      .split('\n')
+      .map((line, index) => ({ line, number: index + 1 }))
+      .filter((entry) => !/^\s*#/.test(entry.line))
+    const bareStartsWith = codeLines.filter((entry) => /\.StartsWith\(\s*[^,()]+\)/.test(entry.line))
+    const caseAware = installer.includes('[System.StringComparison]::OrdinalIgnoreCase')
+    const boundaryAware = /\$userProfile\s*\+\s*['"]\\['"]/.test(installer)
+    const pass = bareStartsWith.length === 0 && caseAware && boundaryAware
+    check(
+      'install-ps1:prefix-compare',
+      pass,
+      pass
+        ? 'the npm prefix is compared with an explicit case-insensitive mode and a directory boundary'
+        : `install.ps1 decides "is this prefix user-local" with a comparison that can change meaning: bareStartsWith=${bareStartsWith
+            .map((entry) => `line ${entry.number}`)
+            .join(',') || 'none'} (a one-argument StartsWith is case-sensitive and boundary-less) caseAware=${caseAware} boundaryAware=${boundaryAware}`,
+    )
+  }
+}
+
+// ── shipped PowerShell must be ASCII, because 5.1 decodes it with the ANSI codepage ──
+{
+  // Measured, not assumed. A `.ps1` with no byte-order mark is decoded by Windows
+  // PowerShell 5.1 with the system ANSI codepage, so the UTF-8 bytes of an em dash
+  // (E2 80 94) become three ANSI characters whose third byte, 0x94, is a SMART DOUBLE
+  // QUOTE — which PowerShell's tokenizer accepts as a string terminator. The committed
+  // install.ps1 had one inside a double-quoted Write-Error, and `powershell -File
+  // install.ps1` failed with `TerminatorExpectedAtEndOfString` / `MissingEndCurlyBrace`
+  // before executing a single line; the identical bytes with a UTF-8 BOM parsed with 0
+  // errors. An ASCII-only file cannot have that failure mode on any codepage, so the rule
+  // is "ASCII" rather than "add a BOM": a BOM changes what the repository stores and what
+  // every `readFileSync(..., 'utf8')` sees at offset 0.
+  const offenders = []
+  let scripts = []
+  try {
+    scripts = readdirSync(KIT)
+      .filter((name) => name.endsWith('.ps1'))
+      .sort()
+  } catch (error) {
+    offenders.push(`the kit root could not be listed (${String(error)})`)
+  }
+  for (const name of scripts) {
+    let text = null
+    try {
+      text = readFileSync(join(KIT, name), 'utf8')
+    } catch (error) {
+      offenders.push(`${name}: unreadable (${String(error)})`)
+      continue
+    }
+    for (const [index, line] of text.split('\n').entries()) {
+      const found = line.match(/[^\x00-\x7F]/u)
+      if (found === null) continue
+      offenders.push(`${name}:${index + 1}: ${JSON.stringify(found[0])} (U+${found[0].codePointAt(0).toString(16).toUpperCase()})`)
+    }
+  }
+  check(
+    'ps1:ascii-only',
+    offenders.length === 0 && scripts.length > 0,
+    offenders.length === 0
+      ? scripts.length === 0
+        ? 'no .ps1 at the kit root was examined, so this check proves nothing'
+        : `${scripts.length} installer script(s) are ASCII-only, so no codepage can change what PowerShell 5.1 reads`
+      : `${offenders.slice(0, 6).join(' | ')} — a non-ASCII character in a BOM-less .ps1 is decoded with the system ANSI codepage; keep the file ASCII`,
+  )
+}
+
+// ── the platform file-URL API round-trips on BOTH platforms, and that is EXECUTED ──
+{
+  // The POSIX half of the dynamic-import URL idiom used to be reasoned, never run: this
+  // machine is Windows-only. `pathToFileURL`/`fileURLToPath` accept a `windows` option, so
+  // the POSIX shape IS executed here — a POSIX path in, the same POSIX path out — which is
+  // what turns "it should work on Linux" into a measurement. For contrast, the hand-built
+  // form this replaced produces the pathname `//home/kit/...` (three literal slashes plus
+  // the path's own leading separator), which Linux tolerates rather than intends; the check
+  // fails if the API form ever stops round-tripping exactly.
+  const samples = [
+    { label: 'posix', path: '/home/kit/plugins/ratchet/x.mjs', windows: false },
+    { label: 'windows', path: 'C:\\dsh-kit\\plugins\\ratchet\\x.mjs', windows: true },
+  ]
+  const offenders = []
+  for (const sample of samples) {
+    let url = null
+    let back = null
+    try {
+      url = pathToFileURL(sample.path, { windows: sample.windows })
+      back = fileURLToPath(url, { windows: sample.windows })
+    } catch (error) {
+      offenders.push(`${sample.label}: ${String(error)}`)
+      continue
+    }
+    // The round trip alone is the strong assertion, and it is the one that falsifies the
+    // form this replaced: `file:////home/kit/x.mjs` comes back as `//home/kit/x.mjs`, not
+    // as the path that went in. The href assertion pins the three-slash shape directly.
+    if (back !== sample.path) offenders.push(`${sample.label}: round trip gave ${JSON.stringify(back)}`)
+    if (!url.href.startsWith('file:///') || url.href.startsWith('file:////')) {
+      offenders.push(`${sample.label}: href ${JSON.stringify(url.href)} is not the three-slash form`)
+    }
+  }
+  check(
+    'file-url:platform-api-round-trips',
+    offenders.length === 0,
+    offenders.length === 0
+      ? 'pathToFileURL/fileURLToPath round-trip the Windows AND POSIX shapes (the POSIX one run here through the windows:false option), so no hand-built URL is needed'
+      : offenders.join(' | '),
   )
 }
 

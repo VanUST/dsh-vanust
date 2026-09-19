@@ -946,18 +946,32 @@ const CORPUS_FINDING_JOBS = new Set(['review_corpus', 'review_duplicates'])
  *
  * @param root - Absolute project root.
  * @param specHash - Hash of the laws compiled now.
- * @returns `{ reviewed, stale, at, recordedHash, reason }`. `reviewed` is false when no corpus
- *   review has ever been recorded, in which case `reason` says so and `stale` is true — a
- *   corpus nobody has looked at is not a corpus that has been checked.
+ * @returns `{ reviewed, stale, at, recordedHash, reason, ledgerSkipped, ledgerError }`.
+ *   `reviewed` is false when no corpus review has ever been recorded, in which case
+ *   `reason` says so and `stale` is true — a corpus nobody has looked at is not a corpus
+ *   that has been checked. `ledgerSkipped` is how many ledger lines could not be parsed
+ *   and were skipped, and `ledgerError` names a ledger that could not be read at all;
+ *   both travel with the verdict because this answer is read FROM the ledger, and a
+ *   partly-read history that reports only "no review recorded" is indistinguishable from
+ *   a clean one. `ledgerSkipped` is always a number (0 for a healthy ledger) and
+ *   `ledgerError` is always a string or null.
  */
 export function contradictionReviewStatus(root, specHash) {
-  const events = readLedger(root).events ?? []
+  const ledger = readLedger(root)
+  const events = ledger.events ?? []
+  // The ledger read is what produced — or failed to produce — this verdict, so what it
+  // could not read is part of the answer rather than a separate question a caller has to
+  // remember to ask. Never a problem and never a gate input: a damaged append is reported,
+  // not fatal, which is why this is carried as fields on the same fact `compile` and
+  // `verify` already print.
+  const ledgerSkipped = Number.isFinite(ledger.skipped) ? ledger.skipped : 0
+  const ledgerError = typeof ledger.error === 'string' ? ledger.error : null
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index]
     if (event === null || typeof event !== 'object' || event.event !== CONTRADICTION_REVIEW_EVENT) continue
     const recordedHash = typeof event.specHash === 'string' ? event.specHash : null
     if (recordedHash === specHash) {
-      return { reviewed: true, stale: false, at: event.at ?? null, recordedHash, reason: null }
+      return { reviewed: true, stale: false, at: event.at ?? null, recordedHash, reason: null, ledgerSkipped, ledgerError }
     }
     return {
       reviewed: true,
@@ -965,6 +979,8 @@ export function contradictionReviewStatus(root, specHash) {
       at: event.at ?? null,
       recordedHash,
       reason: `the last contradiction review ran at ${event.at ?? '(unknown time)'} against the law set hashing to ${recordedHash ?? '(none)'}, and the laws now hash to ${specHash}, so the corpus has changed since anything looked at its meaning`,
+      ledgerSkipped,
+      ledgerError,
     }
   }
   return {
@@ -973,6 +989,8 @@ export function contradictionReviewStatus(root, specHash) {
     at: null,
     recordedHash: null,
     reason: `no contradiction review has ever been recorded for this project, so no run has looked for a decision that contradicts another in meaning — the deterministic checks see only the letter, which is how a contradiction can be written and enforced at the same time`,
+    ledgerSkipped,
+    ledgerError,
   }
 }
 

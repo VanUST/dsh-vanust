@@ -9,9 +9,12 @@
  *        subagent body runs, and which seam produces it.
  *     3. Whether a per-turn system-prompt section can read the CALLING SESSION, so
  *        a session-scoped mode is injected rather than remembered.
+ *     4. Whether the harness exposes a LIVE AGENT SET a concurrency slot can be
+ *        reconciled against, rather than released by an age bound that a
+ *        long-running child would outlive.
  *
- *   It drives the REAL services — `ToolRuntime`, `SystemPrompt`, `SubagentRuntime`
- *   — rather than a stand-in, because the claim under test is about what the
+ *   It drives the REAL services — `ToolRuntime`, `SystemPrompt`, `SubagentRuntime`,
+ *   `AgentRegistry` — rather than a stand-in, because the claim under test is about what the
  *   harness does and a stub would only confirm the stub. The one exception is the
  *   subagent provider, which is a stub: `registerProvider` is a public extension
  *   point, and a stub provider that emits the same `subagent/start`+`subagent/end`
@@ -20,9 +23,8 @@
  *
  * INPUTS
  *   `run(deps)` where `deps` is `{ tools, ToolRuntime, Context, SystemPrompt,
- *   renderPrompt, createScope, SubagentRuntime }` — the harness classes resolved by
- *   the caller, which is `probes/api-probe/work-modes-entry.mjs` when mounted as a
- *   loader row and `scripts/probe-dsh-api.mjs --work-modes` when run directly. They
+ *   renderPrompt, createScope, SubagentRuntime, AgentRegistry }` — the harness classes
+ *   resolved by the caller, which is `scripts/probe-work-modes.mjs`. They
  *   are injected because a bare `@deepseek-ai/…` specifier does not resolve from a
  *   probe directory; the caller owns the harness layout.
  *
@@ -245,14 +247,15 @@ async function measureLifecycle(deps, checks) {
   // rest on it. It is expected to be absent here: the probe's provider settles a
   // result object whose only reader is `observeRun`, and the stub cannot reproduce
   // the real provider's retained-turn bookkeeping. The plugin therefore treats the
-  // start edge as the authority for "a child is running" and reconciles from the
-  // session listing, rather than trusting an end edge to arrive.
+  // start edge as the authority for "a child is running" and releases the slot by
+  // asking the harness's live agent registry (measured below), rather than trusting
+  // an end edge to arrive.
   record(
     checks,
     'lifecycle.the_terminal_edge_is_recorded_as_absent_for_a_stub_provider',
     'a stub provider emits no subagent/end, so a design may not depend on that edge arriving',
     seen.filter((entry) => entry.name === 'end').length === 0,
-    `events=[${names}] — the plugin counts a run in on start and reconciles the rest`,
+    `events=[${names}] — the plugin counts a run in on start and releases the slot from the live agent registry`,
   )
   record(
     checks,
@@ -305,6 +308,60 @@ async function measurePromptScope(deps, checks) {
 }
 
 /**
+ * Measure whether the harness exposes a live agent set a slot can be reconciled against.
+ *
+ * The deployment's concurrency cap used to release a slot by AGE, so a child that ran
+ * longer than the window stopped being counted while it was still working. The release
+ * that replaces it asks the harness's `AgentRegistry`, whose `get(id)` is documented as
+ * returning "the agent, or undefined when no live agent has that id" — so the measurement
+ * is whether that answer tracks a child's real lifetime: present while it is registered,
+ * ABSENT once it is disposed. Both halves are measured, because only the pair makes the
+ * read a liveness answer rather than a constant.
+ *
+ * @param deps - The injected harness classes.
+ * @param checks - The accumulating list.
+ * @returns Nothing; the measurements are recorded.
+ */
+async function measureAgentLiveness(deps, checks) {
+  const ctx = new deps.Context()
+  // Constructing the registry provides it as the `agents` service, which is the same
+  // handle the plugin reads with `ctx.get('agents')` at sweep time.
+  const registry = new deps.AgentRegistry(ctx)
+  const service = ctx.get('agents')
+  const child = {
+    id: 'probe-live-child',
+    session: { id: 'probe-live-child', header: {} },
+    ctx: deps.createScope(ctx, 'probe-live-child').ctx,
+  }
+  let whileLive = null
+  let afterDisposal = null
+  let detach = null
+  try {
+    detach = registry.register(child)
+    whileLive = {
+      get: service?.get?.('probe-live-child') !== undefined,
+      list: (service?.list?.() ?? []).some((entry) => entry?.id === 'probe-live-child'),
+    }
+    detach()
+    await Promise.resolve()
+    afterDisposal = {
+      get: service?.get?.('probe-live-child') !== undefined,
+      list: (service?.list?.() ?? []).some((entry) => entry?.id === 'probe-live-child'),
+    }
+  } catch (error) {
+    record(checks, 'registry.liveness_step_ran', 'the agent-registry measurement ran to completion', false, String(error?.stack ?? error).slice(-400))
+    return
+  }
+  record(
+    checks,
+    'registry.live_agents_track_a_childs_lifetime',
+    'the agents service answers liveness: a registered child resolves from get() and list(), and a disposed one resolves from neither',
+    whileLive.get === true && whileLive.list === true && afterDisposal.get === false && afterDisposal.list === false,
+    `while live: get=${whileLive.get} list=${whileLive.list}; after dispose: get=${afterDisposal.get} list=${afterDisposal.list}`,
+  )
+}
+
+/**
  * Run every measurement.
  *
  * @param deps - The injected harness classes; see the module header.
@@ -312,7 +369,16 @@ async function measurePromptScope(deps, checks) {
  */
 export async function run(deps) {
   const checks = []
-  const needed = ['tools', 'ToolRuntime', 'Context', 'SystemPrompt', 'renderPrompt', 'createScope', 'SubagentRuntime']
+  const needed = [
+    'tools',
+    'ToolRuntime',
+    'Context',
+    'SystemPrompt',
+    'renderPrompt',
+    'createScope',
+    'SubagentRuntime',
+    'AgentRegistry',
+  ]
   const missing = needed.filter((name) => deps?.[name] === undefined)
   if (missing.length > 0) {
     record(checks, 'probe.harness_classes_resolved', 'the probe received every harness class it measures', false, `missing: ${missing.join(', ')}`)
@@ -322,6 +388,7 @@ export async function run(deps) {
     ['refusal', () => measureGuardRefusal(deps, checks)],
     ['lifecycle', () => measureLifecycle(deps, checks)],
     ['prompt', () => measurePromptScope(deps, checks)],
+    ['registry', () => measureAgentLiveness(deps, checks)],
   ]
   for (const [id, step] of steps) {
     try {

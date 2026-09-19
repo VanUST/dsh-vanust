@@ -1463,8 +1463,9 @@ each guarantee are named per surface below the table, and in the panel plugin's 
 
 | Module surface | Contract |
 |---|---|
-| `createLedger({limit, staleAfterMs, now})` | the concurrent-delegation ledger: `admit`, `start`, `end`, `settleCall`, `countFor`, `entries`, `rootFor`, `bind`. Synchronous and total; a `limit` below 1 falls back to the default rather than disabling the tool. |
+| `createLedger({limit, staleAfterMs, now, liveChild})` | the concurrent-delegation ledger: `admit`, `start`, `end`, `settleCall`, `countFor`, `entries`, `rootFor`, `bind`. Synchronous and total; a `limit` below 1 falls back to the default rather than disabling the tool. A slot is released by LIVENESS — the harness's `AgentRegistry` no longer holding the child — and `staleAfterMs` governs only an entry no registry answered for. |
 | `refusalFor(ledger, exec, toolName)` | the guard body: `undefined` to allow, or the denial text. Capacity is decided BEFORE the call claims a slot, so the boundary is not off by one. |
+| `liveChildProbe(agents)` | the liveness predicate the release reconciles against: `agents.get(childId) !== undefined`, or `null` when the service cannot answer, so a missing registry leaves the age bound in place rather than releasing on no evidence. |
 | `refusalText(ledger)` | names every running child by id and by the tool call's own description, and states that a `workflow` fan-out is not covered. |
 | `resolveMode` / `modePromptText` / `MODE_RULES` | the session-to-mode lookup and the rule text each mode injects. An unknown or absent session gets the default, so the section never renders empty. |
 | `apply(ctx, config)` | installs a monotonic `tools.guard()`, the `subagent/start` and `subagent/end` listeners, the `systemPrompt.section()`, and, when a web server is reachable, the mode route and its index-injection row. |
@@ -1474,7 +1475,21 @@ each guarantee are named per surface below the table, and in the panel plugin's 
 ordering, so the cap is a monotonic guard (`tools.guard()`), which has no allow result. The mode
 must be read per turn rather than frozen at registration, so the prompt section's `text` is a
 provider that receives the assembly's calling agent. Both were measured before either was
-written: `node scripts/probe-work-modes.mjs` (6/6 facts) is the record.
+written: `node scripts/probe-work-modes.mjs` (8/8 facts) is the record.
+
+**How a slot is released, and why the clock is not the mechanism.** The cap used to release a
+slot by AGE, and a child that genuinely ran longer than the window stopped being counted while
+it was still working, so the cap could be exceeded in a long session. The release now asks the
+harness's agent registry, which is the live set: a child is published there before
+`subagent/start` is emitted and removed when its run is disposed, so an id that still resolves
+is a child that has not ended and an id that does not is one that has. Measured both ways by the
+probe (`registry.live_agents_track_a_childs_lifetime`) and end to end by
+`node --test scripts/test-work-modes.mjs`, whose release test sets the bound to 1 ms and requires
+a live child to keep its slot anyway. `staleAfterMs` survives as the FALLBACK for an entry no
+registry answered for — an out-of-process child is never in this process's registry — because a
+lost terminal edge must not refuse delegation for the life of the process. Named residual: a
+child the registry holds indefinitely (a resident continuable child) holds its slot
+indefinitely, which is the fail-closed direction.
 
 **The correlation the harness does not offer.** `subagent/start` delivers one argument, the run
 identity, because cordis's dispatch shifts the scope carrier off the argument list; the delegating
@@ -1505,7 +1520,7 @@ the ratchet owns the derivation and the window only reads it.
 | `decisionsSignature(root)` | the cheap cache key: the manifest's own bytes plus the entry signatures (name, size, mtime) of the decisions, sources and ratchet-state directories. It is complete for the view's inputs, which is what makes a ledger append invalidate a cached view. |
 | `capDecisionsView(view)` | the response cap: record, spec, per-kind needs, total needs and byte ceilings, with every cut named in `truncated` — including each needs kind that lost an entry, so a kind cannot vanish silently. |
 | `needsHuman` | the ONE derived set a human must settle, each entry the ratchet's own fact: `consent`, `blocked`, `contradiction`, `duplicate`, `deprecated`, `stale-spec`, `red-gate`, `review`. The `review` entry is present exactly when `contradictionReview.stale` is true. |
-| `contradictionReview` | `contradictionReviewStatus(root, specHash)` — `{ reviewed, stale, at, recordedHash, reason }`, or null when nothing compiled. `stale` covers both "never reviewed" and "the recorded review read a different law set", and `reason` distinguishes them. |
+| `contradictionReview` | `contradictionReviewStatus(root, specHash)` — `{ reviewed, stale, at, recordedHash, reason, ledgerSkipped, ledgerError }`, or null when nothing compiled. `stale` covers both "never reviewed" and "the recorded review read a different law set", and `reason` distinguishes them. `ledgerSkipped` is how many ledger lines could not be parsed and `ledgerError` names a ledger that could not be read at all; both are printed by the CLI on the line under `contradiction detection:`, because this verdict is read FROM the ledger and a partly-read history that reports only "no review recorded" reads exactly like a clean one. |
 | `MAX_STATE_RECORDS`, `MAX_STATE_SPECS`, `MAX_STATE_NEEDS`, `MAX_STATE_NEEDS_PER_KIND`, `MAX_STATE_BYTES` | the ceilings the cap applies, exported so a caller (and the test) can assert against the same numbers rather than retyping them. |
 
 **What the window may not do, and what proves it does not.** The browser half renders the answer:

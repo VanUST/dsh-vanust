@@ -1,4 +1,5 @@
 import { test } from 'node:test'
+import { pathToFileURL } from 'node:url'
 import assert from 'node:assert/strict'
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
@@ -10,21 +11,21 @@ import { tmpdir } from 'node:os'
 const PLUGIN = resolve(process.env.RATCHET_PLUGIN ?? join(import.meta.dirname, '..', 'plugins', 'ratchet'))
 const CLI = join(PLUGIN, 'ratchet-cli.mjs')
 
-const schema = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-schema.mjs`)
-const compiler = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-compiler.mjs`)
-const contradictionModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-contradiction.mjs`)
-const verifier = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-verifier.mjs`)
-const ops = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-ops.mjs`)
-const dynamic = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-dynamic.mjs`)
-const state = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-state.mjs`)
-const ratifyModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-ratify.mjs`)
-const ratchetBootstrap = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-bootstrap.mjs`)
-const falsifyModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-falsify.mjs`)
-const ingestModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-ingest.mjs`)
-const draftsModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-drafts.mjs`)
-const decisionsModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-decisions.mjs`)
-const judgeModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-judge.mjs`)
-const resolveModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-resolve.mjs`)
+const schema = await import(pathToFileURL(join(PLUGIN, "ratchet-schema.mjs")).href)
+const compiler = await import(pathToFileURL(join(PLUGIN, "ratchet-compiler.mjs")).href)
+const contradictionModule = await import(pathToFileURL(join(PLUGIN, "ratchet-contradiction.mjs")).href)
+const verifier = await import(pathToFileURL(join(PLUGIN, "ratchet-verifier.mjs")).href)
+const ops = await import(pathToFileURL(join(PLUGIN, "ratchet-ops.mjs")).href)
+const dynamic = await import(pathToFileURL(join(PLUGIN, "ratchet-dynamic.mjs")).href)
+const state = await import(pathToFileURL(join(PLUGIN, "ratchet-state.mjs")).href)
+const ratifyModule = await import(pathToFileURL(join(PLUGIN, "ratchet-ratify.mjs")).href)
+const ratchetBootstrap = await import(pathToFileURL(join(PLUGIN, "ratchet-bootstrap.mjs")).href)
+const falsifyModule = await import(pathToFileURL(join(PLUGIN, "ratchet-falsify.mjs")).href)
+const ingestModule = await import(pathToFileURL(join(PLUGIN, "ratchet-ingest.mjs")).href)
+const draftsModule = await import(pathToFileURL(join(PLUGIN, "ratchet-drafts.mjs")).href)
+const decisionsModule = await import(pathToFileURL(join(PLUGIN, "ratchet-decisions.mjs")).href)
+const judgeModule = await import(pathToFileURL(join(PLUGIN, "ratchet-judge.mjs")).href)
+const resolveModule = await import(pathToFileURL(join(PLUGIN, "ratchet-resolve.mjs")).href)
 
 // The harness adapter is loaded LAZILY and by hand, because it is the one module here
 // that imports a package the repository does not carry: `@deepseek-ai/dsh-tools`. A
@@ -36,7 +37,7 @@ const resolveModule = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratche
 let tools = null
 let toolsLoadError = null
 try {
-  tools = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-tools.mjs`)
+  tools = await import(pathToFileURL(join(PLUGIN, "ratchet-tools.mjs")).href)
 } catch (error) {
   toolsLoadError = String(error?.message ?? error)
 }
@@ -1350,7 +1351,7 @@ test('setup: the harness packages this checkout imports are linked', () => {
 })
 
 test('tools: the plugin module loads and every tool is declared', { skip: HARNESS_SKIP }, () => {
-  const pluginPath = `file:///${join(PLUGIN, 'ratchet-tools.mjs').replace(/\\/g, '/')}`
+  const pluginPath = pathToFileURL(join(PLUGIN, 'ratchet-tools.mjs')).href
   const output = execFileSync(process.execPath, [
     '-e',
     `import(${JSON.stringify(pluginPath)}).then((m) => {
@@ -1386,7 +1387,7 @@ test('tools: the plugin module loads and every tool is declared', { skip: HARNES
 })
 
 test('tools: a manifest bootstrap preview produces a config the parser accepts', () => {
-  const opsPath = `file:///${join(PLUGIN, 'ratchet-ops.mjs').replace(/\\/g, '/')}`
+  const opsPath = pathToFileURL(join(PLUGIN, 'ratchet-ops.mjs')).href
   const output = execFileSync(process.execPath, [
     '-e',
     `import(${JSON.stringify(opsPath)}).then(async (m) => {
@@ -2283,6 +2284,36 @@ test('gate: a clean project exits 0 from verify and status', () => {
   assert.equal(cli(['status', '--root', root]).status, 0)
 })
 
+test('gate: the ledger line count is printed, so a partly-read history is visible', () => {
+  // The transparency gap: `readLedger` counted unparseable lines and the caller above it
+  // dropped the count, so a ledger with corrupt lines printed exactly like a clean one.
+  // Fails if the count stops reaching stdout — the healthy case included, where the zero is
+  // what makes "nothing was skipped" a measurement rather than an assumption.
+  const fixture = (name) =>
+    makeProject({
+      name,
+      files: { 'src/auth/session.ts': 'redis\n', 'package.json': JSON.stringify({ name: 'x', dependencies: {} }) },
+      adrs: {
+        '0001-a.adr.md': adrText({
+          id: '0001',
+          sourceHash: schema.hashSource(SOURCE_TEXT),
+          zones: ['auth'],
+          laws: [{ id: 'a.one', statement: 'One.', checks: [{ type: 'required_file', path: 'src/auth/session.ts' }] }],
+        }),
+      },
+    })
+
+  const clean = fixture('gate-ledger-clean')
+  const cleanRun = cli(['status', '--root', clean])
+  assert.match(cleanRun.stdout, /ledger: 0 unreadable line\(s\) skipped/, 'a healthy ledger reports zero on stdout')
+
+  const corrupt = fixture('gate-ledger-corrupt')
+  mkdirSync(join(corrupt, '.dsh', 'ratchet'), { recursive: true })
+  writeFileSync(join(corrupt, '.dsh', 'ratchet', 'ledger.jsonl'), '{ not json at all\n')
+  const corruptRun = cli(['status', '--root', corrupt])
+  assert.match(corruptRun.stdout, /ledger: 1 unreadable line\(s\) skipped/, `a corrupt line is counted on stdout: ${corruptRun.stdout}`)
+})
+
 test('FALSIFICATION: the gate fails when a required file disappears', () => {
   // The claim under test is "ratchet verify reports a violation when the code
   // stops obeying a law". Confirming it is cheap and unconvincing; making it fail
@@ -3102,7 +3133,7 @@ test('dynamic: a grilling preparation runs through the operation and returns an 
 // ingestion: raw reasoning to a proposed ADR
 // ---------------------------------------------------------------------------
 
-const ingest = await import(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-ingest.mjs`)
+const ingest = await import(pathToFileURL(join(PLUGIN, "ratchet-ingest.mjs")).href)
 
 /** A source that states a decision AND the reasoning behind it. */
 const RICH_SOURCE = [
@@ -9280,7 +9311,7 @@ test('ingest: a FIFO source is refused with CODE_FILE_NOT_REGULAR and never open
   assert.ok(existsSync(fifo))
 
   const script = `
-import { ingest } from ${JSON.stringify(`file:///${PLUGIN.replace(/\\/g, '/')}/ratchet-ops.mjs`)}
+import { ingest } from ${JSON.stringify(pathToFileURL(join(PLUGIN, "ratchet-ops.mjs")).href)}
 const result = await ingest({ root: ${JSON.stringify(root)}, sourcePath: 'docs/ratchet/sources/pipe.md', budget: null })
 console.log(JSON.stringify({ codes: (result.problems ?? []).map((entry) => entry.code) }))
 `
