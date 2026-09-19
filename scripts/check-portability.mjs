@@ -101,6 +101,21 @@ const CHECKS = [
     allow: [],
   },
   {
+    id: 'no-url-pathname-as-path',
+    // `.pathname` on a Windows file URL is `/C:/…`, which `path.join` cannot walk up from:
+    // the derived root addresses nothing and every check over it passes over an empty tree.
+    // The pattern requires the match to begin a non-comment line — a leading `//` or `*`
+    // makes it a comment, and the three places that DOCUMENT this hazard are comments.
+    pattern: /^(?:(?!\/\/|\*)[\s\S])*?\.pathname\b/,
+    why: 'a filesystem path derived from a file URL\'s pathname property is `/C:/…` on Windows, so use fileURLToPath(new URL(...)); the kit has read an empty tree this way four times',
+    paths: ['plugins', 'scripts', 'probes'],
+    // The one legitimate use: this value is the `url` of a synthetic HTTP request, never a
+    // filesystem path. Anything else that property is used for reaches `fileURLToPath`.
+    allow: ['probes/api-probe/panel-consent-probe.mjs'],
+    allowReason:
+      'the pathname property here builds the url of a fake Node HTTP request (an HTTP path, not a filesystem path), which is the only thing that value is ever used for',
+  },
+  {
     id: 'no-shell-dependent-spawns',
     // A spawn whose FIRST argument is a bare binary name. A prose mention of the
     // pattern inside a comment is not a defect, which is why this requires the

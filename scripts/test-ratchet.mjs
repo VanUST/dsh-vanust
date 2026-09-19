@@ -4867,8 +4867,13 @@ test('FALSIFICATION: the instruction-routing rule has an enforcement point that 
   // keeps the claim honest in both directions: a named script that genuinely does not exist
   // is not copied, the check then reports it missing against the intact copy, and the
   // `status === 0` assertion below fails with that script's name in the output.
+  //
+  // The name class admits upper case, and must stay IDENTICAL to the one in
+  // `check-instruction-routing.mjs`: a narrower class here would leave the fixture tree
+  // without a file the check requires, and a narrower class there would make the claim
+  // itself blind to a mixed-case name.
   const namedScripts = [
-    ...new Set([...readFileSync(join(KIT_ROOT, 'rules', 'DEPLOYMENT.md'), 'utf8').matchAll(/scripts\/([a-z0-9-]+\.mjs)/g)].map((match) => `scripts/${match[1]}`)),
+    ...new Set([...readFileSync(join(KIT_ROOT, 'rules', 'DEPLOYMENT.md'), 'utf8').matchAll(/scripts\/([A-Za-z0-9-]+\.mjs)/g)].map((match) => `scripts/${match[1]}`)),
   ].filter((relative) => existsSync(join(KIT_ROOT, relative)))
   const parts = [
     ...new Set([

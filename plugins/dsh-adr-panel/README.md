@@ -366,10 +366,13 @@ measures what the bundle does with them, not whether the running shell supplies 
   `node plugins/ratchet/ratchet-cli.mjs pending --root .`. Nothing is fetched in that
   state, which the offline test asserts.
 - **An unreachable work-mode route falls back to an explanation.** When no
-  `work-modes` capability global exists — the plugin is not mounted, this page did not come
-  from it, or there is no web server — the row says the route is unreachable and offers no
-  button, and it fetches nothing. The mode is not guessed: the work-modes plugin's default
-  belongs to its own process, and this page cannot know it.
+  `work-modes` capability global exists — and that absence is the whole of what this window
+  can observe, because the composition and the other plugin's activation state are not
+  visible from a browser — the row says the route is unreachable and offers no button, and
+  it fetches nothing. The mode is not guessed: the work-modes plugin's default belongs to
+  its own process, and this page cannot know it. The wording deliberately names no cause:
+  "not mounted" and "mounted but registered no route" are the same observation here, and
+  asserting one of them sent a reader after the wrong one once already.
 - **The seat claim is a suppression, so its failure mode is asymmetric.** The panel
   claims the composer seat in order to stop the harness asking an agent's decision in
   the Conversation. If the claim is never reached — a future harness that reorders or

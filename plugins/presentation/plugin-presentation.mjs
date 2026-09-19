@@ -15,7 +15,7 @@
  * KEYWORDS: presentation, slides, deck, tool, html, render, workspace.
  */
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { THEMES, renderDeck } from './render.mjs'
 
 /** Default file name; a stable name keeps repeated renders at one path instead of littering. */
@@ -131,7 +131,10 @@ export function presentationTool(defineTool) {
         }))
       }
       const rel = relative(cwd, target)
-      const outside = rel.startsWith('..') || isAbsolute(rel)
+      // `..` is a PATH SEGMENT, not a string prefix: a file at `<cwd>/..config/deck.html`
+      // is inside the workspace, and `rel.startsWith('..')` called it outside. The segment
+      // test is `..` itself or `..` followed by a separator.
+      const outside = rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)
       return Promise.resolve(lossless({
         ok: true,
         degraded: result.errors.length > 0,

@@ -107,11 +107,55 @@ function exec(overrides = {}) {
 }
 
 /**
+ * The web-server carrier stand-in, shaped exactly like the harness's own `WebServer`.
+ *
+ * `ctx.inject(['webServer'], (web) => …)` hands the callback a CONTEXT scope, and the
+ * harness's own call sites (`webCtx.webServer.register(route)`,
+ * `webCtx.on('webserver/index-inject', …)`) show what that means: `web` is the event bus
+ * and `web.webServer` is the carrier service. The service value is therefore the carrier
+ * alone — `{ register }` — and `on` comes from the context, not from the service. The
+ * first fixture in this file provided a single object shaped like both at once, which
+ * matched the plugin's own mistaken read and hid the defect this file now pins.
+ *
+ * @param ctx - The context the stand-in is provided on; it records the claimed route.
+ * @returns The service value for `ctx.provide('webServer', …)`.
+ */
+function webServerStandIn(ctx) {
+  return {
+    register(spec) {
+      ctx.__workModesRoute = { ...spec, token: null }
+      return () => undefined
+    },
+  }
+}
+
+/**
+ * Drive the harness's index-injection seam: one emit, every subscriber pushes its rows.
+ *
+ * `WebServer.collectIndexInjections()` does exactly `emit('webserver/index-inject', table)`
+ * over a fresh table, and the rows are rendered into the served index. This reproduces
+ * that, and reads back the capability global the plugin published, so the route's token
+ * can be paired with the global the browser would receive.
+ *
+ * @param ctx - The context the plugin's listener is registered under.
+ * @returns The rows the subscribers pushed.
+ */
+function publishCapability(ctx) {
+  const table = []
+  ctx.emit('webserver/index-inject', table)
+  const row = table.find((entry) => entry.name === workModes.MODE_GLOBAL) ?? null
+  ctx.__workModesInjected = Object.fromEntries(table.map((entry) => [entry.name, entry.value]))
+  if (row !== null && ctx.__workModesRoute !== undefined) ctx.__workModesRoute.token = row.value.token
+  return table
+}
+
+/**
  * A context with the prompt service, the web-server stand-in and the plugin applied.
  *
- * The stand-in is provided BEFORE pply, because the plugin reaches webServer
- * through ctx.get at apply time; a real deployment mounts the web server first, and
- * the plugin is inert without one.
+ * The stand-in is PROVIDED as the `webServer` service and the plugin REQUESTS it with
+ * `ctx.inject`, so the route registers when the service appears. Here it is provided
+ * BEFORE `apply`; `applyWithLateServices` below is the ordering the real web composition
+ * actually has, and the one that used to leave the plugin mounted and doing nothing.
  *
  * @param config - Plugin configuration.
  * @returns The context, carrying __workModesRoute when the route registered.
@@ -119,25 +163,39 @@ function exec(overrides = {}) {
 async function applyWithWebServer(config = {}) {
   const ctx = new harness.Context()
   new harness.SystemPrompt(ctx, {})
-  ctx.provide('webServer', {
-    on(event, callback) {
-      if (event === 'webserver/index-inject') {
-        const table = []
-        callback(table)
-        ctx.__workModesInjected = Object.fromEntries(table.map((row) => [row.name, row.value]))
-      }
-      return () => undefined
-    },
-    webServer: {
-      register(spec) {
-        ctx.__workModesRoute = { ...spec, token: ctx.__workModesInjected?.[workModes.MODE_GLOBAL]?.token ?? null }
-        return () => undefined
-      },
-    },
-  })
+  ctx.provide('webServer', webServerStandIn(ctx))
   workModes.apply(ctx, config)
   for (let turn = 0; turn < 8; turn += 1) await Promise.resolve()
+  publishCapability(ctx)
   return ctx
+}
+
+/**
+ * Apply the plugin BEFORE the services it needs exist, then bring them up one at a time.
+ *
+ * This is the ordering the deployment's own web composition has, and the one a scratch
+ * composition that provides everything up front cannot reproduce. Measured on the real
+ * boot: while `apply` ran, `ctx.get('tools')` and `ctx.get('webServer')` were BOTH
+ * undefined, so an opportunistic read registered no guard and no route while the plugin's
+ * fibre still reported ACTIVE — invisible to every activation diagnostic the loader prints.
+ *
+ * @param config - Plugin configuration.
+ * @returns The context, the tool registry, and whether both services were still absent
+ *   when `apply` returned.
+ */
+async function applyWithLateServices(config = {}) {
+  const ctx = new harness.Context()
+  new harness.SystemPrompt(ctx, {})
+  workModes.apply(ctx, config)
+  // Let the plugin's own activation settle with the optional services still absent.
+  for (let turn = 0; turn < 8; turn += 1) await Promise.resolve()
+  const absentAtApply = ctx.get('tools') === undefined && ctx.get('webServer') === undefined
+  // Now the services appear, on later turns, exactly as the loader activates them.
+  const tools = new harness.ToolRuntime(ctx, {})
+  ctx.provide('webServer', webServerStandIn(ctx))
+  for (let turn = 0; turn < 8; turn += 1) await Promise.resolve()
+  publishCapability(ctx)
+  return { ctx, tools, absentAtApply }
 }
 
 /**
@@ -150,12 +208,11 @@ async function applyWithWebServer(config = {}) {
 async function activate(config = {}) {
   const ctx = config.ctx ?? new harness.Context()
   new harness.SystemPrompt(ctx, {})
-  // The registry the TEST dispatches into must be the one the plugin guards, so both
-  // sides use this instance: constructing one here and dispatching into another left the
-  // guard registered on a registry nothing exercised, and the cap assertions then passed
-  // or failed for a reason unrelated to the policy.
+  // The registry is provided as the `tools` SERVICE by this constructor, and the plugin
+  // REQUESTS that service, so the registry the test dispatches into and the one the guard
+  // covers are the same instance by construction rather than by a config seam.
   const tools = new harness.ToolRuntime(ctx, {})
-  workModes.apply(ctx, { ...config, services: { ...config.services, tools } })
+  workModes.apply(ctx, config)
   for (let turn = 0; turn < 8; turn += 1) await Promise.resolve()
   return { ctx, tools }
 }
@@ -436,6 +493,155 @@ test('guard: the delegation tool is capped at the configured toolName, not at th
 // ---------------------------------------------------------------------------
 // The mode: prompt injection
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Activation: both services arriving AFTER apply is the real composition's order
+// ---------------------------------------------------------------------------
+
+test('activation: the guard and the route both appear when the services are mounted after apply', { skip: HARNESS_SKIP }, async () => {
+  // THE REGRESSION THIS FILE EXISTED WITHOUT. Measured on this deployment's own web
+  // composition: while `apply` runs, `ctx.get('tools')` and `ctx.get('webServer')` are
+  // both undefined, because the loader activates the tool registry and the web server on
+  // later turns. The plugin used to read both with `ctx.get` at apply time, so the cap and
+  // the route were silently never registered, its fibre still reported ACTIVE, and nothing
+  // in the kit's checks could see it: the web window showed "the work-modes route is
+  // unreachable" with no control drawn.
+  //
+  // This test fails if either service goes back to being read opportunistically at apply
+  // time, because both are provided only after `apply` has returned.
+  let bodyRuns = 0
+  const { ctx, tools, absentAtApply } = await applyWithLateServices({ limit: 2 })
+  assert.equal(absentAtApply, true, 'the fixture must reproduce the real order: neither service exists while apply runs')
+
+  // The route and its capability global, registered by the injected web-server scope.
+  const route = ctx.__workModesRoute
+  assert.ok(route !== null && route !== undefined, 'the mode route registered even though the web server appeared after apply')
+  assert.equal(route.path, workModes.MODE_ROUTE)
+  assert.ok(typeof route.token === 'string' && route.token.length > 0, 'and the index global published a non-empty token')
+  assert.equal(ctx.__workModesInjected?.[workModes.MODE_GLOBAL]?.route, workModes.MODE_ROUTE, 'the global names the route the panel must call')
+  // End to end through the route: the capability the page would hold reads the mode.
+  const read = await routeRequest(route, { method: 'GET', session: 'session-root' })
+  assert.equal(read.status, 200, 'the route answers the capability this page was served')
+  assert.equal(read.body.mode, workModes.DEFAULT_MODE)
+
+  // The cap, installed on the registry that arrived after apply.
+  tools.register(
+    harness.tools.defineTool({
+      name: 'subagent',
+      description: 'stand-in for the delegation tool',
+      parameters: { description: { type: 'string', required: true } },
+      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
+      execute() {
+        bodyRuns += 1
+        ctx.emit('subagent/start', { runId: `run-${bodyRuns}`, provider: 'spawn', id: `child-${bodyRuns}`, local: true })
+        return Promise.resolve({ ok: true })
+      },
+    }),
+  )
+  const agent = { id: 'session-root', ctx: harness.createScope(ctx, 'session-root').ctx }
+  const call = (callId) => tools.execute({ name: 'subagent', callId, arguments: { description: callId }, agent, signal: new AbortController().signal })
+  await call('call-1')
+  await call('call-2')
+  const third = await call('call-3')
+  assert.equal(third.isError, true, 'the cap arrived with the registry that was mounted after apply')
+  assert.equal(bodyRuns, 2)
+})
+
+// ---------------------------------------------------------------------------
+// The ledger's attribution: the delegating session, not the oldest admission
+// ---------------------------------------------------------------------------
+
+test('ledger: a start edge consumes an admission of ITS OWN session, not the oldest in the ledger', () => {
+  // Fails if `start` goes back to matching the oldest unmatched admission regardless of
+  // session. Measured before the fix: with two sessions delegating, B's child was rooted at
+  // A, so after B's child settled B stayed blocked for the whole stale window by a phantom
+  // admission while A — which delegated nothing — was released.
+  const ledger = workModes.createLedger({ limit: 1 })
+  ledger.admit('call-a', 'session-A', 'A task')
+  ledger.admit('call-b', 'session-B', 'B task')
+  const entry = ledger.start('run-b', 'child-B', 'session-B')
+  assert.equal(entry.root, 'session-B', 'the running child is charged to the session that delegated it')
+  assert.equal(ledger.rootFor('child-B'), 'session-B')
+  ledger.end('run-b')
+  assert.equal(ledger.countFor('session-B'), 0, 'B is released when its own child settles')
+  assert.equal(ledger.countFor('session-A'), 1, 'and A still holds the delegation it placed')
+  assert.equal(
+    workModes.refusalFor(ledger, exec({ callId: 'call-b2', agent: { id: 'session-B' }, arguments: { description: 'B again' } })),
+    undefined,
+    'B may delegate again',
+  )
+  assert.equal(
+    typeof workModes.refusalFor(ledger, exec({ callId: 'call-a2', agent: { id: 'session-A' }, arguments: { description: 'A again' } })),
+    'string',
+    'and A is at its cap',
+  )
+})
+
+test('ledger: an unresolved delegating session still falls back to the oldest admission', () => {
+  // The out-of-process-provider case: `agents` cannot resolve the child, so the caller
+  // passes no session and the time-ordered correlation is all that is left. Fails if the
+  // fallback is dropped along with the exact path, which would make an unresolvable child
+  // consume nothing.
+  const ledger = workModes.createLedger({ limit: 1 })
+  ledger.admit('call-a', 'session-A', 'A task')
+  const entry = ledger.start('run-x', 'child-X', null)
+  assert.equal(entry.root, 'session-A')
+  assert.equal(ledger.countFor('session-A'), 1)
+})
+
+test('attribution: the delegating session is read from the child session the agents service resolves', { skip: HARNESS_SKIP }, async () => {
+  // The production path for the fix above: the start listener asks the `agents` service for
+  // the child and reads the durable `parentSession` its header carries. Fails if the
+  // listener stops passing that session, or if `headerParentOf` reads the wrong field.
+  //
+  // The two sessions both delegate, and B's child starts, so the two rules disagree about
+  // which admission it consumes: the session-keyed rule charges B and releases B when the
+  // child settles, the oldest-admission rule charges A instead. The assertions below are
+  // the two counts that differ, not the total.
+  const ctx = new harness.Context()
+  new harness.SystemPrompt(ctx, {})
+  const tools = new harness.ToolRuntime(ctx, {})
+  ctx.provide('agents', {
+    get(id) {
+      return { id, session: { header: { parentSession: id === 'child-B' ? 'session-B' : 'session-A' } } }
+    },
+  })
+  workModes.apply(ctx, { limit: 1 })
+  for (let turn = 0; turn < 8; turn += 1) await Promise.resolve()
+  tools.register(
+    harness.tools.defineTool({
+      name: 'subagent',
+      description: 'stand-in for the delegation tool',
+      parameters: { description: { type: 'string', required: true } },
+      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
+      execute() {
+        return Promise.resolve({ ok: true })
+      },
+    }),
+  )
+  const callAs = (session, callId) =>
+    tools.execute({
+      name: 'subagent',
+      callId,
+      arguments: { description: callId },
+      agent: { id: session, ctx: harness.createScope(ctx, session).ctx },
+      signal: new AbortController().signal,
+    })
+  assert.equal((await callAs('session-A', 'call-a')).isError, false, 'A places its delegation')
+  assert.equal((await callAs('session-B', 'call-b')).isError, false, 'B places its delegation')
+  ctx.emit('subagent/start', { runId: 'run-b', provider: 'spawn', id: 'child-B', local: true })
+  ctx.emit('subagent/end', { runId: 'run-b', provider: 'spawn', id: 'child-B', stopReason: 'completed' })
+  assert.equal(
+    (await callAs('session-B', 'call-b2')).isError,
+    false,
+    'B is released when the child it delegated settles: the start consumed B\'s admission',
+  )
+  assert.equal(
+    (await callAs('session-A', 'call-a2')).isError,
+    true,
+    'and A is still at its cap from the delegation it placed',
+  )
+})
 
 test('mode: the prompt carries the mode of the session being assembled, and an unknown session gets the default', { skip: HARNESS_SKIP }, async () => {
   // Fails if the section's text stops being a provider (a frozen string would report

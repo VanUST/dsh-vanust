@@ -63,9 +63,14 @@
  *   capability token that plugin minted for this activation. It is a different plugin's
  *   global, so its absence is normal — a deployment that does not mount `work-modes` still
  *   serves this window, and the control then says the route is unreachable and offers no
- *   button, exactly as the consent row does. The mode is read for the Session the window
- *   is open on and set for that same Session, because the mode is session state in the
- *   work-modes plugin and this window must not imply it is global.
+ *   button, exactly as the consent row does. WHAT THIS WINDOW MAY SAY ABOUT THAT ABSENCE
+ *   IS EXACTLY THE ABSENCE: the page holds no capability, so it cannot call the route. It
+ *   cannot see the composition, the loader, or the plugin's activation state, so it must
+ *   not name a cause — "the plugin is not mounted" and "the plugin is mounted and did not
+ *   register a route" produce the same observable here, and a window that asserts one of
+ *   them sends the next reader after the wrong one. The mode is read for the Session the
+ *   window is open on and set for that same Session, because the mode is session state in
+ *   the work-modes plugin and this window must not imply it is global.
  *
  *   PROJECT-AGNOSTIC: the node that renders is discovered by the ratchet from the
  *   project itself, not hardcoded. The view model carries the resolved `decisionsDir`,
@@ -285,10 +290,11 @@
  *   - The consent route unreachable — no host half mounted, no capability global, or no
  *     Session bound: the row names the CLI command instead of the two buttons, and
  *     nothing is sent anywhere.
- *   - The work-mode route unreachable — the `work-modes` plugin is not mounted, this page
- *     did not come from it, or no Session is bound: the control says so, offers no mode
- *     button, and fetches nothing. The mode is not guessed from a default, because the
- *     default belongs to the route's process, not to this page.
+ *   - The work-mode route unreachable — this page carries no work-modes capability, or no
+ *     Session is bound: the control says so, offers no mode button, and fetches nothing.
+ *     It names the capability as absent and stops there: the composition is not observable
+ *     from this page, so the window asserts no cause for it. The mode is not guessed from
+ *     a default, because the default belongs to the route's process, not to this page.
  *   - A work-mode request the route refuses — no capability, a wrong one, an unknown
  *     mode, any non-200, or a 200 whose body carries no `mode`: the route's own message
  *     is drawn and the pill keeps the last mode the route REPORTED. A mode is never shown
@@ -424,7 +430,7 @@ window.__ModuleLoader__.load({
 		 * are equal again after a release and the constant is one ahead only in the working
 		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.52";
+		const PANEL_VERSION = "0.1.53";
 		/** Directories used when the host view reports none. */
 		const DEFAULT_DECISIONS_DIR = "docs/adrs";
 		const DEFAULT_SPECS_DIR = "docs/specs";
@@ -4064,7 +4070,7 @@ window.__ModuleLoader__.load({
 			} else {
 				children.push(React.createElement("div", { key: "unreachable", style: mutedStyle() },
 					modeEndpoint() === null
-						? "The work-modes route is unreachable from this window — the work-modes plugin is not mounted behind this page, or this page did not come from it — so the mode is neither read nor set here."
+						? "The work-modes route is unreachable from this window: this page carries no work-modes capability (the __DSH_WORK_MODES_MODE__ index global is absent), so this Session's mode is neither read nor set here."
 						: "No Session is bound to this window, so this Session's work mode is neither read nor set here."));
 			}
 			if (notice !== null) {

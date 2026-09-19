@@ -7,7 +7,7 @@
 // KEYWORDS: presentation, tool, test, lossless-json, regression, self-check.
 import { mkdtempSync, existsSync, readFileSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { presentationTool } from './plugin-presentation.mjs'
 
 const cases = []
@@ -58,7 +58,10 @@ const good = await call({ spec: JSON.stringify(spec), out: 'nested/deck.html' })
 check('ok on a valid spec', good.ok === true, JSON.stringify(good).slice(0, 120))
 check('a clean deck is not degraded', good.degraded === false, String(good.degraded))
 check('no undefined anywhere (this is the harness rule)', firstUndefined(good) === null, String(firstUndefined(good)))
-check('path is absolute', good.path.startsWith('/'), good.path)
+// `isAbsolute`, not `startsWith('/')`: on Windows a resolved path is `C:\…`, which is
+// absolute without starting with a slash, so the slash test reported a false failure for a
+// correct result on the platform this kit is authored on.
+check('path is absolute', isAbsolute(good.path), good.path)
 check('resolves a relative name against the session cwd', good.path === join(cwd, 'nested/deck.html'), good.path)
 check('reports the theme', good.theme === 'mono', good.theme)
 check('reports the slide count', good.slides === 2, String(good.slides))
@@ -66,6 +69,17 @@ check('inside the workspace carries no flag', !('outsideWorkspace' in good) && !
 check('the file exists', existsSync(good.path))
 check('the bytes it reports are the bytes on disk', statSync(good.path).size === good.bytes, `${good.bytes}`)
 check('the document is standalone', readFileSync(good.path, 'utf8').startsWith('<!doctype html>'))
+
+// ── a directory whose NAME starts with two dots is still the workspace ────────
+// `relative` returns a path, not a string to prefix-match: `<cwd>/..config/deck.html` is
+// inside the workspace, and reporting it outside would make the tool's own flag wrong for
+// every such directory on every platform.
+const dotted = await call({ spec: JSON.stringify(spec), out: join('..config', 'deck.html') })
+check(
+  'a directory whose name starts with two dots is not outside the workspace',
+  dotted.ok === true && !('outsideWorkspace' in dotted) && dotted.path === join(cwd, '..config', 'deck.html'),
+  `${dotted.path} outsideWorkspace=${JSON.stringify(dotted.outsideWorkspace)}`
+)
 
 // ── an absolute path outside the workspace is flagged, still lossless ─────────
 const outside = await call({ spec: JSON.stringify(spec), out: join(tmpdir(), 'presentation-outside.html') })

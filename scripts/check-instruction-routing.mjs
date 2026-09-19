@@ -199,7 +199,12 @@ const procedure = read('rules/DEPLOYMENT.md')
 if (procedure.missing === true) {
   claim('the deployment procedure names runnable kit files', false, 'missing')
 } else {
-  const named = [...procedure.text.matchAll(/scripts\/([a-z0-9-]+\.mjs)/g)].map((match) => match[1])
+  // The name class admits upper case: the scripts this kit ships are lower-case, but the
+  // claim is about every script the procedure NAMES, and a mixed-case name was invisible to
+  // a `[a-z0-9-]` class — `scripts/Check-Missing.mjs` passed this claim without existing.
+  // The same regular expression is used by the test that derives this list from the
+  // procedure, so the two must stay identical.
+  const named = [...procedure.text.matchAll(/scripts\/([A-Za-z0-9-]+\.mjs)/g)].map((match) => match[1])
   const missing = [...new Set(named)].filter((name) => !existsSync(join(KIT, 'scripts', name)))
   claim(
     'every script the procedure names exists',

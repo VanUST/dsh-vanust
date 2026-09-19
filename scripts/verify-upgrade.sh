@@ -99,6 +99,28 @@ falsify_ok() { # falsify_ok <log-file> <exit-code>
   grep -qE '^  [1-9][0-9]* detected,' "${log}"
 }
 
+# Judge the activation probe. `dsh web` here boots a composition built from THIS
+# repository's tarballs, so this is the only place in the kit where "the row is mounted in
+# the patch" and "the row actually registered what it claims" can be told apart.
+#
+# WHY THIS EXISTS. A plugin whose `apply` returns without registering anything leaves a
+# fibre in state ACTIVE, so every activation diagnostic the loader prints says the row is
+# fine: `assertEntriesActivated` audits fiber state, not capability. Measured: the
+# work-modes row was mounted, enabled and ACTIVE while its capability global was never
+# published and its route was never registered, so the ADR panel drew no mode control at
+# all and said the route was unreachable. Every other check in this gate passed. The two
+# observables below are the ones a browser has: the index global the plugin injects, and
+# the status a registered route returns to an uncapability request.
+#
+# A 404 is the tell: the web server answers an unmatched path from its fallback, and it
+# only reaches the trust fence for a route somebody registered. That is why a registered
+# route answers 401 or 403 and an unregistered one answers 404.
+activation_ok() { # activation_ok <index-html-file> <route-status>
+  local index="$1" status="$2"
+  grep -q "${MODES_GLOBAL}" "${index}" || return 1
+  [ "${status}" = "401" ] || [ "${status}" = "403" ]
+}
+
 # Judge the ADR panel render test. It exits non-zero and prints `adr panel render
 # FAILED` whenever any assertion fails, and prints the success marker only after every
 # non-skipped assertion held, so a skip cannot be mistaken for a pass. It emits a
@@ -287,6 +309,35 @@ if [ -z "${TOKEN}" ]; then
 fi
 probe "web boot serves the app (token)" \
   "[ -n '${TOKEN}' ] && curl -sf 'http://127.0.0.1:${PORT}/?token=${TOKEN}' -o /dev/null"
+
+# ── activation: a mounted row must REGISTER what it claims ──────────────────
+# The mount is already asserted over `--dump-config` above; this is the behavioural half,
+# and the two cannot be substituted for one another. The names come from the plugin source
+# rather than being retyped here, so renaming the route or the global cannot make this probe
+# quietly stop looking for them.
+MODES_GLOBAL="$(grep -oE "MODE_GLOBAL = '[^']+'" "${KIT_DIR}/plugins/work-modes/work-modes.mjs" 2>/dev/null | head -1 | cut -d"'" -f2 || true)"
+MODES_ROUTE="$(grep -oE "MODE_ROUTE = '[^']+'" "${KIT_DIR}/plugins/work-modes/work-modes.mjs" 2>/dev/null | head -1 | cut -d"'" -f2 || true)"
+if [ -z "${MODES_GLOBAL}" ] || [ -z "${MODES_ROUTE}" ]; then
+  echo "   [FAIL] cannot read the work-modes route/global from ${KIT_DIR}/plugins/work-modes/work-modes.mjs"
+  FAILED=1
+elif [ -z "${TOKEN}" ]; then
+  echo "   [FAIL] activation: no token, so the index could not be fetched"
+  FAILED=1
+else
+  echo "   probing plugin activation on :${PORT} (${MODES_ROUTE}, ${MODES_GLOBAL})..."
+  # The index is fenced behind the boot token: the first request is answered with a
+  # redirect and a session cookie, and the second serves the page the browser would get.
+  curl -s -c "${TEST_ROOT}/cookies" -L "http://127.0.0.1:${PORT}/?token=${TOKEN}" -o "${TEST_ROOT}/index.html" || true
+  MODES_STATUS="$(curl -s -b "${TEST_ROOT}/cookies" -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}${MODES_ROUTE}?session=gate-probe" || true)"
+  if activation_ok "${TEST_ROOT}/index.html" "${MODES_STATUS}"; then
+    echo "   [ok ] the mounted work-modes row registered its route and published its capability"
+  else
+    echo "   [FAIL] the work-modes row is mounted but INERT, so nothing enforces the rule it carries:"
+    echo "          index publishes ${MODES_GLOBAL}: $(grep -c "${MODES_GLOBAL}" "${TEST_ROOT}/index.html" 2>/dev/null || echo 0) occurrence(s)"
+    echo "          GET ${MODES_ROUTE} -> ${MODES_STATUS} (404 = the route was never registered)"
+    FAILED=1
+  fi
+fi
 kill "${GATE_PID}" 2>/dev/null || true
 wait "${GATE_PID}" 2>/dev/null || true
 GATE_PID=""

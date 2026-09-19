@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-presentation",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "One tool that renders a JSON deck spec into a standalone HTML presentation in the workspace; the harness's Sidebar document preview displays it (self-contained CSS and player, five themes, print to PDF).",
   "type": "module",
   "main": "index.js",

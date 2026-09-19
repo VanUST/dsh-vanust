@@ -22,12 +22,16 @@
  *   - The temporary directory is removed even when a case fails.
  *   - `scan` over a directory with no test files returns an empty list rather than
  *     throwing, which the "no files" case pins.
+ *   - The kit's own corpus case asserts a NON-ZERO file count as well as an empty finding
+ *     list, because a root that addresses nothing produces `{ files: [], findings: [] }`
+ *     and would otherwise read as a clean corpus.
  */
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 import { analyzeText, importedBindings, main, scan } from './check-test-quality.mjs'
 
@@ -133,6 +137,16 @@ test('a directory with no test files scans to nothing rather than throwing', () 
 })
 
 test("the kit's own suite is clean under the rule", () => {
-  const root = join(new URL('.', import.meta.url).pathname, '..')
-  assert.deepEqual(scan(root).findings, [])
+  // The root is derived with `fileURLToPath`, not `new URL(...).pathname`. Measured on
+  // Windows: `.pathname` yields `/C:/dsh-kit/` and `join('/C:/dsh-kit/', '..')` yields
+  // `\C:\dsh-kit`, a root-relative path that does not exist, so `scan` reported
+  // `{ files: [], findings: [] }` and the assertion below passed over NOTHING. This is the
+  // same defect the drill test declares the fix for, and it made this test a false green on
+  // the platform the kit is authored on.
+  const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+  const scanned = scan(root)
+  // The count is asserted so the root cannot silently address an empty tree again: a scan
+  // that reads no file is not evidence that the corpus is clean.
+  assert.ok(scanned.files.length > 0, `the kit's own test corpus was found at ${root} (files=${scanned.files.length})`)
+  assert.deepEqual(scanned.findings, [])
 })

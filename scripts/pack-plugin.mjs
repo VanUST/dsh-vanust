@@ -10,10 +10,6 @@
  *   superseded sibling was left in `plugins/`, installs correctly only by accident of
  *   glob order. Both mistakes are mechanical, so both belong in a command.
  *
- *   The script refuses to run when the working tree is dirty in a way that would make
- *   the tarball unreproducible from what is committed, because a tarball whose
- *   contents cannot be traced to a revision is one nobody can audit.
- *
  * INPUTS
  *   --dir <path>     plugin directory relative to the kit root (required), e.g.
  *                    `plugins/ratchet`. Must contain a `package.json`.
@@ -43,6 +39,11 @@
  *     version is left as it was, so a failed pack cannot look like a bump.
  *   - --no-bump at the current version when that tarball already exists: refused for
  *     the same reason, so the flag cannot be used to defeat the check by accident.
+ *   - The version-control state is NOT consulted. The pack runs over the source as it
+ *     stands, so a tarball built from uncommitted edits is reproducible from whatever
+ *     revision is committed afterwards and from nothing else. Refusing a dirty tree would
+ *     block the ordinary flow this command exists for — edit, pack, then commit — so the
+ *     absence of a VCS check is the design, not a gap.
  */
 
 import { execFileSync } from 'node:child_process'

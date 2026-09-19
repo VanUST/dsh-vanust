@@ -900,11 +900,16 @@ It is two seconds, it runs inside the gate, and it is named by ADR 0009's laws.
 Stated plainly, because a rule with no enforcement point is an unverified claim:
 
 - **The kit ratchets itself, and its gate passes.** `node plugins/ratchet/ratchet-cli.mjs
-  verify --root .` exits 0 over **19 laws in force** from eight decisions (0007 was
-  superseded by the human-ratified 0010) plus two approval records, running 20 declared
-  checks — of which **17 are `command` checks that run 4 distinct commands, 10 of them the
-  same `node --test scripts/test-ratchet.mjs`**. That is worth
-  stating rather than counting as eighteen independent guarantees: the suite is one wide
+  verify --root .` exits 0 over the laws in force, running the checks those laws declare.
+  **The counts are deliberately not written down here.** They were, and they drifted within
+  a day of being written: the numbers below used to read "19 laws in force from eight
+  decisions … 20 declared checks", and neither figure survived the next two rounds of work.
+  A count in prose is a second copy of a fact the gate already prints, and a second copy
+  drifts — so the reader who wants the numbers runs `ratchet compile` or `ratchet verify`
+  and reads them there, and the reader who wants the shape reads on. The shape is what this
+  section is for: most declared checks are `command` checks, and several of them name the
+  SAME `node --test scripts/test-ratchet.mjs`. That is worth
+  stating rather than counting as so many independent guarantees: the suite is one wide
   assertion set, so a law whose command is that suite is only as strong as the assertions
   inside it. What closed that gap is `scripts/check-gate-invariants.mjs`, which asserts the
   verdicts behaviourally inside the gate (ADR 0009), plus `check-portability.mjs`,
@@ -930,8 +935,10 @@ Stated plainly, because a rule with no enforcement point is an unverified claim:
   boundary rule about where the harness may be imported is therefore in force. **The other
   six decisions (0002–0006 and 0009) are in force on an agent's own say-so**, because they
   bind `kit-tooling`, a zone where the manifest lets an agent activate its own record. That
-  is the configured policy, not an accident, and it is the honest reading of "eight
-  decisions in force": six of them a human has never seen.
+  is the configured policy, not an accident, and it is the honest reading of the law set:
+  a record an agent activated in that zone is in force whether or not a human has ever seen
+  it, and no check here distinguishes the two. How many records are in force is not written
+  down in this file — `ratchet compile` prints it, and a count copied here does not.
 - **A frontmatter word is the whole difference between a decision an agent may make and
   one it may not.** The compiler constrains records whose `authority` is `agent` and
   records whose `type` is `approval`; a record that declares `authority: human`
@@ -941,13 +948,19 @@ Stated plainly, because a rule with no enforcement point is an unverified claim:
   record a human actually made. The mitigation is review of the diff, not a mechanism —
   which is why the kit's approval records are read by a human and committed as a pair
   with the record they cover.
-- **Two manifest rules are explicitly unenforced.** `flash-only-models` and
-  `pin-the-harness` carry `enforcedBy: null` with a `pendingReason` naming the check that
-  does not exist yet. `context_rules` reports them as pending rather than enforced, which
-  is what the field is for.
+- **This list is a snapshot of what was unenforced WHEN IT WAS WRITTEN, and items leave
+  it.** Two rules used to sit here: `flash-only-models` and
+  `pin-the-harness` carried `enforcedBy: null` with a `pendingReason` naming the check that
+  did not exist yet, and `context_rules` reported them as pending. Both now name an
+  enforcement command in `.dsh/project.json` — the model-gate check and the
+  instruction-routing check — and no manifest rule carries a `pendingReason` any more. The
+  lesson is the one this whole section is about: an unenforced rule is only unenforced until
+  somebody writes the command, and the entry that says so has to be deleted when they do,
+  because a stale entry here reads exactly like a live gap. So read `context_rules` for the
+  current answer; this paragraph is history.
 - **`requiresDecisionRecord` is enforced by a guard, and no kit zone opts in.**
-  `ratchet-guard.mjs` refuses a write into a regulated zone with no decision behind it,
-  and 16 tests cover what it refuses, what is exempt and what satisfies it. Every kit
+  `ratchet-guard.mjs` refuses a write into a regulated zone with no decision behind it, and
+  its own suite covers what it refuses, what is exempt and what satisfies it. Every kit
   zone declares `requiresDecisionRecord: false`, so the guard is inert here — the rule
   has an enforcement point and this repository does not use it.
 - **Only obvious writes are guarded.** A shell command that edits a regulated file is
@@ -1313,9 +1326,10 @@ deleted:
 - the enforcement point exists as a CLI with exit codes, with falsification tests
   proving it fails when it should;
 - a zero-check verification no longer counts as verified;
-- `requiresDecisionRecord` is enforced by a real `tools/pre-execute` guard, with 16
-  tests covering what it refuses, what is exempt, and what satisfies it;
-- the kit ratchets itself, with **19 laws in force and a passing gate**, and six of its
+- `requiresDecisionRecord` is enforced by a real `tools/pre-execute` guard, whose own
+  suite covers what it refuses, what is exempt, and what satisfies it;
+- the kit ratchets itself, with a passing gate whose law and check counts are read from
+  `ratchet verify` rather than from this file, and six of its
   invariants falsified by `scripts/falsify-kit-gate.mjs` plus ten verdicts asserted
   behaviourally by `scripts/check-gate-invariants.mjs`;
 - `grill_preparation` returns a structured agenda with its own schema and validator;

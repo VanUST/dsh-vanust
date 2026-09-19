@@ -34,16 +34,20 @@
  *     `defaultMode` — the mode a session starts in. Default `research`.
  *     `modeRoute` — the HTTP path the panel's toggle calls. Default
  *       `/work-modes/mode`.
- *   Services: `systemPrompt` (declared, so a missing prompt service fails the boot
- *   loudly rather than silently dropping the mode section) and `tools` (reached
- *   through `ctx.get`, because a deployment that mounts this plugin without the
- *   tool registry still gets the mode section and the route).
+ *   Services: `systemPrompt` (DECLARED in {@link inject}, so a missing prompt
+ *   service leaves this plugin pending rather than silently dropping the mode
+ *   section), and `tools` and `webServer` (each requested with `ctx.inject`, so the
+ *   registration happens when that service appears, whenever that is). Neither
+ *   optional service is read with `ctx.get` while `apply` runs: a composition that
+ *   mounts this plugin without the tool registry or without a web server still gets
+ *   whichever halves are possible, and one that mounts them later still gets both.
  *
  * OUTPUTS
- *   Registers: one monotonic tool guard, three event listeners (`subagent/start`,
- *   `subagent/end`, `tools/result`), one prompt section, and — when a web server is
- *   mounted — one route plus one index-injection row. Returns Cordis effect
- *   disposers, so a reload replaces each registration rather than colliding.
+ *   Registers: one monotonic tool guard, two event listeners (`subagent/start`,
+ *   `subagent/end`), one prompt section, and — when a web server is mounted — one
+ *   route plus one index-injection row. Each registration lives in the `ctx.effect`
+ *   scope of the service it uses, so a reload or a replaced service disposes the old
+ *   registration instead of colliding with it.
  *   Never throws during prompt assembly or event dispatch: the section returns a
  *   string for every session, including one it has never seen.
  *
@@ -65,9 +69,17 @@
  *     child id and no parent).
  *   - A session whose mode was never set: `defaultMode`, always. Nothing is persisted,
  *     so a restart resets every session to it rather than resurrecting a stale policy.
- *   - No web server mounted: the route is not registered and everything else works.
+ *   - No web server mounted, or one mounted after this plugin applies: the route is
+ *     registered when the service appears, and the cap and the prompt section work
+ *     regardless.
+ *   - No tool registry mounted: the cap is simply absent, and the mode section and
+ *     the route still work.
  *   - An unknown reading of `exec.agent.session.header.parentSession`: treated as no
  *     parent, which makes the session its own root.
+ *   - A start edge whose child session the `agents` service cannot resolve (an
+ *     out-of-process provider): the delegating session is inferred from the oldest
+ *     unmatched admission, which is exact when one session delegates at a time and
+ *     can cross-attribute when two do.
  */
 
 /** Cordis function-plugin name; also the id a profile patch targets. */
@@ -243,8 +255,9 @@ export function headerParentOf(session) {
  * Two maps and one root index, because the harness's event vocabulary does not carry
  * the parent on a start edge (measured: the delegating parent is the scoped dispatch
  * receiver, and the listener receives the run identity alone). An admission recorded
- * at the pre-execute seam therefore carries the session, and the start edge is matched
- * to the earliest unmatched admission rather than to a parent it cannot see.
+ * at the pre-execute seam therefore carries the session, and a start edge is matched
+ * to an admission for the SAME session when the caller knows that session, and to the
+ * earliest unmatched admission otherwise.
  *
  * @param options - `{ limit, staleAfterMs, now }`. `now` is injectable so a test can
  *   drive the stale sweep without waiting.
@@ -319,21 +332,31 @@ export function createLedger(options = {}) {
       pending.set(callId, { session, label: label ?? null, at: now() })
     },
     /**
-     * Promote the earliest unmatched admission for a session into a running child.
+     * Promote an admitted delegation into a running child.
      *
      * @param runId - The run identity from the start edge.
      * @param childId - The child session id from the start edge.
+     * @param delegatingSession - The session that placed the delegation, when the caller
+     *   could resolve it (see {@link parentSessionOf}). Omitted when it could not, which is
+     *   the out-of-process-provider case.
      * @returns The promoted entry, or null when no admission is waiting. A start with no
      *   admission is still counted — rooted at the child's own parent chain when known —
      *   because a child running outside the capped tool still consumes concurrency.
      */
-    start: (runId, childId) => {
+    start: (runId, childId, delegatingSession = null) => {
       sweep()
-      // The earliest unmatched admission is the one this start belongs to: the start
-      // edge carries no parent, so time order is the only correlation the vocabulary
-      // offers, and a single call admits at most one child.
+      // Which admission this start consumes. The start edge carries no parent, so the
+      // correlation is either the session the caller resolved for this child, or — when it
+      // could not be resolved — the oldest unmatched admission. The session-keyed match is
+      // what keeps two sessions delegating concurrently from consuming each other's
+      // admission: measured, the oldest-admission rule charged a running child to whichever
+      // session had admitted FIRST, so the session whose child actually started kept a
+      // phantom admission (blocking it after its child settled) while the other session was
+      // charged for a delegation it never placed.
+      const known = typeof delegatingSession === 'string' && delegatingSession.length > 0 ? delegatingSession : null
       let earliest = null
       for (const [callId, entry] of pending) {
+        if (known !== null && entry.session !== known) continue
         if (earliest === null || entry.at < earliest.entry.at) earliest = { callId, entry }
       }
       let admitted = null
@@ -341,7 +364,7 @@ export function createLedger(options = {}) {
         pending.delete(earliest.callId)
         admitted = { ...earliest.entry, callId: earliest.callId }
       }
-      const parent = admitted?.session ?? null
+      const parent = admitted?.session ?? known
       const root = parent === null ? childId : rootFor(parent)
       if (parent !== null && typeof childId === 'string' && childId.length > 0) rootOf.set(childId, root)
       const entry = {
@@ -493,12 +516,38 @@ function usableLimit(config) {
 }
 
 /**
+ * The session that delegated a child, read from the child's own session header.
+ *
+ * The start edge carries the run identity and nothing else, so the parent cannot be read
+ * from the event. It CAN be read from the child: the harness records the durable
+ * `parentSession` on every subagent session's header, and for an in-process provider
+ * `agents.get(childId)` resolves during the start notification. This is exact, which is
+ * what makes two sessions delegating at once safe; the ledger falls back to the oldest
+ * unmatched admission when it answers null.
+ *
+ * @param agents - The `agents` service, or undefined when the composition mounts none.
+ * @param childId - The child session id from the start edge.
+ * @returns The delegating session id, or null when it cannot be resolved. Never throws.
+ */
+export function parentSessionOf(agents, childId) {
+  if (agents === undefined || agents === null || typeof agents.get !== 'function') return null
+  if (typeof childId !== 'string' || childId.length === 0) return null
+  try {
+    return headerParentOf(agents.get(childId)?.session)
+  } catch {
+    // A service that throws on an unknown id is the same fact as one that returns nothing.
+    return null
+  }
+}
+
+/**
  * Install both policies.
  *
  * @param ctx - Cordis context; `systemPrompt` is present because `inject` names it.
  * @param config - Resolved plugin configuration; see the module header.
- * @returns Nothing; every registration is made through `ctx.effect`, which Cordis
- *   disposes on unload so a reload replaces the registration instead of colliding.
+ * @returns Nothing; every registration is made through an effect scope owned by the fibre
+ *   that supplies the service it uses, so a reload or a replaced service disposes the old
+ *   registration instead of colliding with it.
  */
 export function apply(ctx, config = {}) {
   const toolName = typeof config.toolName === 'string' && config.toolName.length > 0 ? config.toolName : DEFAULT_TOOL_NAME
@@ -511,21 +560,27 @@ export function apply(ctx, config = {}) {
   // A monotonic guard, not a pre-execute listener: a guard may only deny, so no
   // listener ordering can turn the refusal back into permission. The tool registry
   // materializes the returned string as an error result the caller reads.
-  // A caller may supply the services it already holds (`config.services.tools` /
-  // `config.services.webServer`). That is not only for tests: `ctx.get` answers with the
-  // registered service while a construction site holds the object it built, and a
-  // deployment that composes this plugin from code already knows which instances it
-  // means. Both routes end at the same service, so neither is privileged.
-  const tools = config.services?.tools ?? ctx.get('tools')
-  if (tools !== undefined && tools !== null && typeof tools.guard === 'function') {
-    ctx.effect(() => tools.guard((exec) => refusalFor(ledger, exec, toolName)))
-  }
+  //
+  // The registry is REQUESTED, never read opportunistically. Measured in this
+  // deployment's own web composition: while `apply` runs, `ctx.get('tools')` is
+  // undefined — the loader activates the tool registry on a later turn — so an
+  // opportunistic read here silently installed no guard at all while the plugin's
+  // fibre still reported ACTIVE, and no activation diagnostic could see it.
+  ctx.inject(['tools'], (scope) => {
+    scope.effect(
+      () => scope.tools.guard((exec) => refusalFor(ledger, exec, toolName)),
+      'work-modes: the subagent concurrency guard',
+    )
+  })
 
   // The start edge is the only announcement that a child exists. It is a CONTAINED
   // emit (a throwing listener is logged, never propagated — measured), so this
   // listener records and never vetoes; the guard is where a veto lives.
   ctx.effect(() => ctx.on('subagent/start', (info) => {
-    ledger.start(info?.runId, info?.id)
+    // `agents` is reached at CALL time, not at apply time, so a composition that mounts
+    // no agent registry loses only the exact attribution and keeps the age-bounded
+    // fallback.
+    ledger.start(info?.runId, info?.id, parentSessionOf(ctx.get('agents'), info?.id))
   }))
   // The terminal edge is recorded but not relied on: measured, a provider that settles
   // its result does not necessarily produce the end edge, which is why the ledger also
@@ -554,30 +609,37 @@ export function apply(ctx, config = {}) {
   })
 
   // ── the toggle's route ────────────────────────────────────────────────────
-  // Reached opportunistically: a deployment with no web server still gets the cap and
-  // the prompt section, and a deployment whose route collides is reported rather than
-  // silently shadowed. The path, the capability header and the browser fence follow
-  // the shape the ADR panel already uses, so one reader learns one pattern.
-  // The web server is reached the same way the tool registry is — `ctx.get`, at apply
-  // time — and for a measured reason: `ctx.inject(['webServer'], …)` delivers its
-  // callback on a later microtask turn, which the synchronous caller of `apply` cannot
-  // observe and a test cannot read back without guessing how many turns to wait. The
-  // deployment's boot order mounts the web server before the patch layer's rows, so the
-  // service is present here when a route is possible at all; a deployment without one
-  // still gets the cap and the prompt section.
-  const web = config.services?.webServer ?? ctx.get('webServer')
-  if (web !== undefined && web !== null && web.webServer !== undefined && typeof web.webServer.register === 'function') {
+  // Requested, exactly as the tool registry is. A deployment with no web server still
+  // gets the cap and the prompt section; a deployment whose web server is mounted on a
+  // later turn still gets the route and the capability global, because the registration
+  // happens when the service appears rather than when `apply` happens to run. The path,
+  // the capability header and the browser fence follow the shape the ADR panel already
+  // uses, so one reader learns one pattern: inside this callback `web` is the context
+  // scope, `web.webServer` is the carrier service, and `web.on` is the event bus.
+  ctx.inject(['webServer'], (web) => {
     const token = Buffer.from(`${Date.now()}.${Math.random().toString(36).slice(2)}`).toString('base64url')
-    ctx.effect(() => web.on('webserver/index-inject', (table) => {
-      table.push({ kind: 'global', name: MODE_GLOBAL, value: { route, token } })
-    }))
-    ctx.effect(() => web.webServer.register({
-      kind: 'exact',
-      path: route,
-      handler: (request, response) => handleModeRequest({ request, response, modes, defaultMode, token, ctx }),
-    }))
-    ctx.logger?.info?.(`work-modes: mode route registered at ${route}`)
-  }
+    web.effect(
+      () => web.on('webserver/index-inject', (table) => {
+        table.push({ kind: 'global', name: MODE_GLOBAL, value: { route, token } })
+      }),
+      'work-modes: publish the mode capability',
+    )
+    web.effect(
+      () => web.webServer.register({
+        kind: 'exact',
+        path: route,
+        handler: (request, response) => handleModeRequest({ request, response, modes, defaultMode, token, ctx }),
+      }),
+      `work-modes: GET/POST ${route}`,
+    )
+    // The log line is best-effort: a logger that is absent or that throws must never be
+    // the reason a route is missing, because the route's absence is silent.
+    try {
+      ctx.logger?.info?.(`work-modes: mode route registered at ${route}`)
+    } catch {
+      // Deliberately swallowed; see above.
+    }
+  })
 }
 
 /**
