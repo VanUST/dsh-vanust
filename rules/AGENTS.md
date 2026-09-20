@@ -439,3 +439,26 @@ registry: two children admit, the third is refused before its body runs with bot
 agents named, a settled child releases its slot, a live child keeps its slot past the age
 bound, another session is unaffected, and a `workflow` call is never refused.
 `node scripts/probe-work-modes.mjs` measures the seam it rests on.
+
+## 15. Capabilities this deployment provides
+
+The plugins this deployment adds are not obvious from a project's own files, and an agent that
+does not know a capability exists either reimplements it badly or answers "I cannot do that". This
+section is the routing table: match what the user is asking for to the tool that already does it.
+Name the capability when you use it, so the mapping is visible in your answer.
+
+| When the ask sounds like | Reach for | What it gives you |
+|---|---|---|
+| "make a deck", "slides", "presentation", "a talk / briefing from this material", "a one-pager to show someone" | the `presentation` tool: one call turns a JSON deck spec into a standalone, script-enabled HTML file | a self-contained deck in the workspace, previewed in the Sidebar; `present` marks it as the deliverable. It renders; it does not invent content — the deck spec is yours to author |
+| "what does this project claim", "which rule is enforced by what", "what work is in flight", "what does this module export" | `context_rules`, `context_module`, `context_specs` (`@cc/dsh-context`) | the project's declared rules each with the command that fails when it is broken, a module's contract, the work orders in flight |
+| "is this decision in force", "what is red", "what waits for a human", "resolve this contradiction", "merge these duplicates" | the `ratchet_*` tools (`@cc/dsh-ratchet`); the ADR panel window is the human's surface for approving | compiled laws and a verified verdict, the queue with content hashes, drafted resolutions and merges, the corpus review's staleness fact |
+| "which model is this", "why was that refused before it ran", cost questions | `@deepseek-ai/dsh-model-gate`, already active | every non-Flash dispatch is vetoed before it is billed; the veto names the ids it allows |
+| "why did my rule change not appear", "why did that plugin do nothing" | `@cc/dsh-kit-rules` contributes this file to every prompt; `@cc/dsh-work-modes` owns the mode and the delegation cap | the rules are re-read per assembly, so a change needs no restart — but a plugin change needs the process restarted, because a session runs the plugin code it loaded at boot |
+
+Two habits make these reachable in practice:
+
+* **Ask the deployment before writing your own.** `context_rules` and `ratchet status` answer what a
+  hand-rolled script would otherwise guess at, and they answer from the declarations rather than
+  from prose.
+* **A capability that is installed but not named here is one an agent will not find.** When a plugin
+  is added to `plugins/inventory.json`, add its row to this table in the same change.
