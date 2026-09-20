@@ -538,6 +538,35 @@ if (resolveService !== undefined) {
   )
 }
 
+// HYPOTHESIS, FALSIFIED: "the concurrency cap refuses the resolver". The cap is a
+// `tools.guard()` whose decision function is keyed by the DELEGATION TOOL'S NAME, and the
+// dispatch above reaches the subagents SERVICE (`startContinuable`) rather than executing a
+// tool, so the guard is never consulted for it. Driven against the real production
+// predicate with a real ledger already at its limit: the capped tool is refused, and a call
+// to any other tool — which is what a resolver started through the service would be, if it
+// were a tool at all — is left alone.
+{
+  const workModes = await import(pathToFileURL(join(KIT, 'plugins', 'work-modes', 'work-modes.mjs')).href)
+  const full = workModes.createLedger({ limit: 2, now: () => 1000, liveChild: () => true })
+  full.bind('s1', 's1')
+  full.admit('a', 's1', 'alpha')
+  full.start('ra', 'child-a', 's1')
+  full.admit('b', 's1', 'beta')
+  full.start('rb', 'child-b', 's1')
+  const call = (name) => ({ name, callId: name + '-1', agent: { id: 's1' }, arguments: { description: 'x' } })
+  const capRefusesTheTool = workModes.refusalFor(full, call(workModes.DEFAULT_TOOL_NAME))
+  const capIgnoresEverythingElse = workModes.refusalFor(full, call('ratchet_resolve'))
+  claim(
+    'the concurrency cap cannot be what refuses a resolver: it keys on the delegation tool, and the dispatch reaches the subagents service instead',
+    full.countFor('s1') === 2 &&
+      typeof capRefusesTheTool === 'string' &&
+      /the cap is 2/.test(capRefusesTheTool) &&
+      /alpha/.test(capRefusesTheTool) &&
+      capIgnoresEverythingElse === undefined,
+    JSON.stringify({ counted: full.countFor('s1'), cappedTool: typeof capRefusesTheTool, otherTool: capIgnoresEverythingElse === undefined }),
+  )
+}
+
 // The ratchet's batch prompt is what makes one resolver possible: the steps several records
 // share are stated ONCE, so a child cannot make the same decision several ways.
 {

@@ -208,15 +208,18 @@
  *
  *   **A blocked record is pending WITH a way to resolve it.** Its card reads the ratchet's
  *   plan from a third host route, `/adr-panel/resolve`, and draws it: the steps, whether
- *   any needs a human, and the reasons a human already declined. **Resolve** QUEUES the
- *   record — it dispatches nothing — and **closing the window** sends every queued id in
- *   ONE request, because a resolver edits the project's manifest and one per click is one
- *   surviving edit and five lost ones. The window states the queue while it is still open.
- *   **Decline with a reason** records why the proposed resolution is wrong, so the next
- *   attempt can differ. A plan with a step no agent may carry renders Resolve disabled and
- *   says so, because a child started there could not finish. Starting a resolver mints
- *   nothing: the child writes a `proposed` record and the human still approves it through
- *   the row's own Approve. When the route is unreachable the card names the CLI command.
+ *   any needs a human, and the reasons a human already declined. **Resolve DISPATCHES the
+ *   record there** and the answer is drawn — in the card, in the host's own words, and in
+ *   the resolver bar, which names the Session a started or steered resolver runs in. It is
+ *   the click and not the close, because a batch sent as the window closed had nowhere to
+ *   be reported: a refusal reached the human as nothing happening, which is the defect
+ *   that shape produced. A dispatch already on the wire is not repeated, and a refused one
+ *   leaves the record retryable. **Decline with a reason** records why the proposed
+ *   resolution is wrong, so the next attempt can differ. A plan with a step no agent may
+ *   carry renders Resolve disabled and says so, because a child started there could not
+ *   finish. Starting a resolver mints nothing: the child writes a `proposed` record and the
+ *   human still approves it through the row's own Approve. When the route is unreachable
+ *   the card names the CLI command.
  *
  *   The composer entry claims the seat only for a question whose intent is the ratchet's
  *   `ratify-decision`, whose answers are exactly the two options that intent names, and
@@ -279,9 +282,10 @@
  *   shell.overlay, session header, conversation.composer, composer seat claim,
  *   presentation intent, state route, ratchetDecisions, view model, capability token,
  *   ratification, approve, decline, decline reason, commentary, consent route, resolve
- *   route, blocked decision, resolver, resolve plan, subagent, queue, batch, dispatch on
- *   close, steer, not now, read-only, viewer, work mode, research, implementation,
- *   session mode toggle, mode route, mode capability, per-Session state
+ *   route, blocked decision, resolver, resolve plan, resolver bar, dispatch on click,
+ *   capability refusal, cap refusal, steer, retry, not now, read-only, viewer, work mode,
+ *   research, implementation, session mode toggle, mode route, mode capability, per-Session
+ *   state
  *
  * BEHAVIOUR ON EDGE CASES
  *   - The state route unreachable — no host half mounted, no state capability, no bound
@@ -319,19 +323,28 @@
  *     reason, so neither leaves a half-recorded refusal behind.
  *   - The resolve route unreachable, or a composition with no subagent runtime: the blocked
  *     card names the CLI command rather than offering a button that could not work, and a
- *     plan that needs a human disables Resolve instead of queueing a doomed child. A
- *     dispatch the host refuses — no live Session, no runtime, a failed start, a resolver
- *     already working in another Session — happens as the window closes, so it lands as the
- *     absence of a new resolver Session rather than as a line here; the queue bar tells the
- *     human what will run before they close.
- *   - A close with an empty queue: nothing is sent at all, so opening the window to read and
- *     closing it again starts no model turn.
+ *     plan that needs a human disables Resolve instead of dispatching a doomed child. A
+ *     dispatch the host refuses — no live Session, no runtime, a failed start, the
+ *     concurrency cap, a resolver already working in another Session — reaches the card and
+ *     the resolver bar in the HOST'S OWN WORDS, because the click is the dispatch: the
+ *     request is sent while the window is on screen and its answer is drawn there. No
+ *     refusal is silent and no Resolve click is a no-op; only a resolver that started may
+ *     read as a quiet success, and even then the bar names the Session it runs in.
+ *     Residual: a human who closes the window in the milliseconds between the click and the
+ *     answer unmounts the line that would have carried it. The request is still sent and the
+ *     resolver still starts; what is lost is the sentence, and it is lost only to a close
+ *     faster than the route's own reply.
+ *   - A close with work in flight, or with a record already handed over: nothing is sent by
+ *     the close, so there is no queue to lose and no second dispatch to send. A record whose
+ *     dispatch was REFUSED is offered again by the same button, because a refusal with a
+ *     reason is a state the human can act on rather than a record consumed by the attempt.
+ *   - A close with nothing handed over: nothing is sent at all, so opening the window to read
+ *     and closing it again starts no model turn.
  *   - A click INSIDE the window: it never reaches the backdrop's close handler. The backdrop
  *     closes on click, and a click on any control bubbles to it, so the window stops BOTH
  *     `onMouseDown` and `onClick`; stopping only the former is what made pressing Resolve
- *     close the panel. The close is also guarded, because state updates are asynchronous and
- *     a second close in the same render would still see the old queue and send the batch
- *     twice.
+ *     close the panel. The close now SENDS nothing, so a second close in the same render can
+ *     only close an already-closed window, which is a no-op rather than a second dispatch.
  *   - A record edited between the ask and the answer: the ratchet refuses with
  *     `RATIFICATION_STALE` and writes nothing, which is what binds the consent to the
  *     text the human was shown rather than to whatever is on disk when the answer lands.
@@ -430,7 +443,7 @@ window.__ModuleLoader__.load({
 		 * are equal again after a release and the constant is one ahead only in the working
 		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.53";
+		const PANEL_VERSION = "0.1.55";
 		/** Directories used when the host view reports none. */
 		const DEFAULT_DECISIONS_DIR = "docs/adrs";
 		const DEFAULT_SPECS_DIR = "docs/specs";
@@ -916,25 +929,25 @@ window.__ModuleLoader__.load({
 		}
 		/**
 		 * PURPOSE
-		 *   Dispatch the WHOLE queue of blocked records to one resolver. It is sent when the
-		 *   window closes, not when a card is clicked: a resolver edits the project's manifest,
-		 *   so six of them running at once is one surviving edit and five lost ones — the
-		 *   observable failure that produced this function.
+		 *   Ask the resolve route for one resolver over the named records, and hand its answer
+		 *   back. It is sent when a card's **Resolve** is clicked, so the answer can be drawn
+		 *   while the window is still on screen: the same request used to go out as the window
+		 *   closed, where a refusal had nowhere to land. The route dedupes to ONE resolver per
+		 *   project — a second dispatch steers the running child — so passing more than one id
+		 *   is a batch, never a rival.
 		 *
 		 * INPUTS
-		 *   adrIds — the record ids the human queued (a non-empty array of non-empty strings).
+		 *   adrIds — the record ids being handed over (a non-empty array of non-empty strings).
 		 *   sessionId — the Session the window was opened from.
 		 *
 		 * OUTPUTS
 		 *   A promise of the host's own result plus `error` on a transport or host refusal:
 		 *   `{ ok, ids, spawned, steered, childId, humanRequiredIds, skipped, error }`. Never
-		 *   rejects, because the window is closing and nothing is left to render a throw into.
-		 *   The dispatch is deliberately not awaited by the caller for the same reason: the
-		 *   request is in flight as the panel closes, and the resolver appears as its own
-		 *   Session.
+		 *   rejects, so the caller has one shape to draw. The caller awaits it: the answer IS
+		 *   the outcome the human is owed, and a promise nobody reads was the silent path.
 		 *
 		 * KEYWORDS
-		 *   resolve route, batch, queue, one resolver, dispatch on close
+		 *   resolve route, batch, one resolver, dispatch on click, answer drawn
 		 */
 		function requestResolveBatch(adrIds, sessionId) {
 			var endpoint = resolveEndpoint();
@@ -2543,6 +2556,70 @@ window.__ModuleLoader__.load({
 		}
 		/**
 		 * PURPOSE
+		 *   The window-level line that says what this open handed to a resolver: the records
+		 *   it sent, whether the route started one or steered the one already working, which
+		 *   Session that resolver runs in, or — in the host's own words — why none was
+		 *   started. It exists because the click IS the dispatch now, so its answer has to be
+		 *   visible while the window is open; a batch sent as the window closed had nowhere
+		 *   to be reported, which is how a refused resolver read as nothing happening.
+		 *
+		 * INPUTS
+		 *   props.ids — the record ids this open has handed over; anything that is not an
+		 *   array of non-empty strings is read as none.
+		 *   props.inFlight — whether a dispatch is on the wire right now.
+		 *   props.last — `{ ids, result }` from the last dispatch, or anything when none was
+		 *   made. `result` is the host's own body, or a `{ ok:false, error }` value from a
+		 *   transport failure.
+		 *
+		 * OUTPUTS
+		 *   The bar element, or `null` when nothing was handed over and nothing was answered.
+		 *   A started or steered resolver is a success line naming the child Session; a
+		 *   refusal is a warn line carrying the host's own message unchanged; a transport
+		 *   failure names the failure. It never throws, and it never claims a resolver the
+		 *   result does not carry: `spawned` or `steered` on the result is what makes the
+		 *   started sentence appear.
+		 *
+		 * KEYWORDS
+		 *   resolver bar, dispatch outcome, started, steered, refusal, child session, no silence
+		 */
+		function ResolverBar(props) {
+			var ids = (Array.isArray(props.ids) ? props.ids : []).filter(function (entry) { return typeof entry === "string" && entry !== ""; });
+			var last = props.last === null || props.last === undefined || typeof props.last !== "object" ? null : props.last;
+			var result = last !== null && last.result !== null && last.result !== undefined && typeof last.result === "object" ? last.result : null;
+			if (ids.length === 0 && result === null) return null;
+			var records = (ids.length === 1 ? "this record" : ids.length + " records");
+			var childId = result !== null && typeof result.childId === "string" && result.childId !== "" ? result.childId : null;
+			var pillText = "resolver";
+			var pillTone = "neutral";
+			var line;
+			if (props.inFlight === true) {
+				pillText = "starting";
+				pillTone = "pending";
+				line = "Starting a resolver for " + records + "\u2026";
+			} else if (result !== null && result.ok === true && result.spawned === true) {
+				pillText = "resolver started";
+				pillTone = "in-force";
+				line = "A resolver was started for " + records + (childId === null ? "" : " \u2014 Session " + childId) + ". It works in this project now, and whatever it proposes is a `proposed` record you still approve here.";
+			} else if (result !== null && result.ok === true && result.steered === true) {
+				pillText = "resolver steered";
+				pillTone = "in-force";
+				line = "The resolver already working on this project was given " + records + (childId === null ? "" : " \u2014 Session " + childId) + ", rather than a rival being started beside it.";
+			} else if (result === null) {
+				line = "Handed to a resolver: " + records + ".";
+			} else {
+				pillText = "not started";
+				pillTone = "rejected";
+				line = "No resolver was started: " + (typeof result.message === "string" && result.message !== "" ? result.message : describeError(result.error));
+			}
+			var body = React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap", margin: "0 0 10px", padding: "6px 8px", border: "1px solid var(--dsw-alias-border-l2, rgba(128,128,128,0.35))", borderRadius: 6 } },
+				pill(pillText, pillTone),
+				React.createElement("span", { style: { fontSize: 12 } }, line),
+				ids.length === 0 ? null : React.createElement("span", { style: mutedInlineStyle() }, ids.join(", ")));
+			return body;
+		}
+
+		/**
+		 * PURPOSE
 		 *   The resolve affordance a BLOCKED decision's card carries: the ratchet's own plan,
 		 *   a **Resolve** button that asks the host to start one resolver on the ratchet's
 		 *   prompt, and a **Decline with reason** flow that records why the human rejects the
@@ -2554,37 +2631,44 @@ window.__ModuleLoader__.load({
 		 *   mints a consent — a resolver child writes a `proposed` record and the human still
 		 *   approves that through the row's own Approve.
 		 *
+		 *   The click DISPATCHES. It does not mark the record for a later batch: the batch
+		 *   used to go out as the window closed, and a closing window has nowhere to put the
+		 *   route's answer, so a refusal reached the human as nothing at all. The click is
+		 *   the one moment the answer can be shown, so it is the moment the request is sent.
+		 *
 		 * INPUTS
 		 *   props.adrId — the blocked decision id. props.sessionId — the Session the window
 		 *   was opened from. props.ask — `askPlan(id, sessionId)`, or `null` when the route is
-		 *   unreachable. props.request — `requestResolve(id, sessionId, decision, comment)`,
-		 *   or `null` likewise. props.canResolve — whether both are usable in this render.
-		 *   props.onStarted — called after a resolver is started, so the window re-reads the
-		 *   corpus the child will change.
+		 *   unreachable. props.canResolve — whether the route and the Session are usable in
+		 *   this render. props.busy — whether a dispatch is on the wire. props.outcome —
+		 *   `{ ids, result }` for the last dispatch, or `null`; it is drawn here only when
+		 *   `ids` covers this record. props.onResolve — `onResolve(adrId)`.
 		 *
 		 * OUTPUTS
 		 *   With no capability: the CLI command, never a button that could not work. Otherwise
 		 *   the plan and the two controls. While declining: the reason box and its Confirm and
-		 *   Cancel. On completion: what happened — a resolver started, a refusal recorded with
-		 *   its reason, or the host's own refusal. It never renders a silent outcome.
+		 *   Cancel. On completion: what happened — a resolver started or steered with its
+		 *   Session, a refusal recorded with its reason, or the host's own refusal message.
+		 *   It never renders a silent outcome.
 		 *
 		 *   Edge cases: a plan that needs a human renders the Resolve button disabled with the
 		 *   reason, because a child spawned there could not finish; a missing plan is reported
-		 *   rather than assumed; a second click while a request is in flight is refused by the
-		 *   phase guard; a whitespace-only reason is sent as no reason.
+		 *   rather than assumed; while a dispatch is in flight the button is disabled, so one
+		 *   record cannot be sent twice by a double click; a whitespace-only reason is sent as
+		 *   no reason.
 		 *
 		 * KEYWORDS
-		 *   blocked decision, resolve plan, resolver, decline reason, no consent, automatic
-		 *   resolution, subagent
+		 *   blocked decision, resolve plan, resolver, dispatch on click, decline reason, no
+		 *   consent, automatic resolution, subagent
 		 */
 		function ResolveControl(props) {
 			var adrId = props.adrId;
 			var sessionId = props.sessionId;
 			var ask = props.ask;
-			var request = props.request;
 			var canResolve = props.canResolve === true && typeof ask === "function";
-			var queued = props.queued === true;
-			var onQueue = props.onQueue;
+			var busy = props.busy === true;
+			var onResolve = typeof props.onResolve === "function" ? props.onResolve : null;
+			var outcome = props.outcome === null || props.outcome === undefined ? null : props.outcome;
 			var phaseState = React.useState({ kind: "idle" });
 			var phase = phaseState[0];
 			var setPhase = phaseState[1];
@@ -2606,27 +2690,28 @@ window.__ModuleLoader__.load({
 			}, [adrId, canResolve]);
 			if (!canResolve) {
 				return React.createElement("div", { style: mutedInlineStyle() },
-					"The panel's resolve route is unreachable from this window, so it cannot queue a resolution. Run from a session: ask the agent to call ",
+					"The panel's resolve route is unreachable from this window, so it cannot start a resolver. Run from a session: ask the agent to call ",
 					mono("ratchet resolve " + String(adrId)),
 					" and carry out the steps it prints.");
 			}
 			var plan = phase.kind === "ready" || phase.kind === "done" ? phase.plan : null;
 			var blockedByHuman = plan !== null && plan.humanRequired === true;
-			var busy = phase.kind === "sending";
+			var sending = phase.kind === "sending";
+			var declined = plan !== null && Array.isArray(plan.declined) ? plan.declined.filter(function (entry) { return entry !== null && typeof entry.comment === "string" && entry.comment !== ""; }) : [];
+			var mine = outcome !== null && Array.isArray(outcome.ids) && outcome.ids.indexOf(adrId) !== -1;
 			/** Records the human's refusal and its reason, which is a per-record act. */
 			var decline = function () {
-				if (busy || typeof request !== "function") return;
+				if (sending || typeof props.request !== "function") return;
 				setPhase({ kind: "sending", plan: plan });
-				request(adrId, sessionId, "decline", reason).then(
+				props.request(adrId, sessionId, "decline", reason).then(
 					function (result) { setPhase({ kind: "done", plan: plan, decision: "decline", result: result }); },
 					function (error) { setPhase({ kind: "done", plan: plan, decision: "decline", result: { ok: false, error: describeError(error) } }); }
 				);
 			};
 			var children = [];
 			if (phase.kind === "idle") {
-				children.push(React.createElement("div", { key: "loading", style: mutedInlineStyle() }, "Reading the ratchet's plan for this record…"));
+				children.push(React.createElement("div", { key: "loading", style: mutedInlineStyle() }, "Reading the ratchet's plan for this record\u2026"));
 			}
-			var declined = plan !== null && Array.isArray(plan.declined) ? plan.declined.filter(function (entry) { return entry !== null && typeof entry.comment === "string" && entry.comment !== ""; }) : [];
 			if (declined.length > 0) {
 				children.push(React.createElement("div", { key: "declined", style: { margin: "4px 0" } },
 					React.createElement("div", { style: { fontSize: 12, fontWeight: 600 } }, "You already declined a resolution here, because:"),
@@ -2655,24 +2740,25 @@ window.__ModuleLoader__.load({
 				children.push(React.createElement("div", { key: "buttons", style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 4 } },
 					React.createElement("button", {
 						type: "button",
-						disabled: blockedByHuman || typeof onQueue !== "function",
-						style: Object.assign({}, queued ? smallButtonStyle() : primaryButtonStyle(tone("pending")), { marginTop: 0, opacity: blockedByHuman ? 0.5 : 1 }),
-						onClick: function () { if (!blockedByHuman && typeof onQueue === "function") onQueue(adrId); }
-					}, queued ? "Queued \u2014 remove" : "Resolve"),
+						disabled: blockedByHuman || onResolve === null || busy,
+						style: Object.assign({}, primaryButtonStyle(tone("pending")), { marginTop: 0, opacity: blockedByHuman || busy ? 0.5 : 1 }),
+						onClick: function () { if (!blockedByHuman && onResolve !== null && !busy) onResolve(adrId); }
+					}, busy ? "Starting a resolver\u2026" : "Resolve"),
 					React.createElement("button", {
 						type: "button",
-						disabled: busy,
-						style: Object.assign({}, smallButtonStyle(), { marginTop: 0, opacity: busy ? 0.5 : 1 }),
+						disabled: sending,
+						style: Object.assign({}, smallButtonStyle(), { marginTop: 0, opacity: sending ? 0.5 : 1 }),
 						onClick: function () { setPhase({ kind: "declining", plan: plan }); }
 					}, "Decline with a reason")));
 				if (blockedByHuman) {
-					children.push(React.createElement("div", { key: "human", style: mutedInlineStyle() }, "Not queueable: this record has a step only a human can carry, so an agent would stop part-way."));
-				} else if (queued) {
-					children.push(React.createElement("div", { key: "queued", style: mutedInlineStyle() }, "Queued. It goes with the rest to ONE resolver when you close this window."));
+					children.push(React.createElement("div", { key: "human", style: mutedInlineStyle() }, "Not resolvable by an agent: this record has a step only a human can carry, so a resolver would stop part-way."));
 				}
 			}
+			if (mine) {
+				children.push(React.createElement(ConsentOutcome, { key: "outcome", decision: "resolve", result: outcome.result, mode: "resolve" }));
+			}
 			if (phase.kind === "done") {
-				children.push(React.createElement(ConsentOutcome, { key: "outcome", decision: phase.decision, result: phase.result, mode: "resolve" }));
+				children.push(React.createElement(ConsentOutcome, { key: "decline-outcome", decision: phase.decision, result: phase.result, mode: "resolve" }));
 			}
 			return React.createElement("div", { style: { marginTop: 6 } }, children);
 		}
@@ -2787,8 +2873,9 @@ window.__ModuleLoader__.load({
 					canResolve: props.resolve === null || props.resolve === undefined ? false : props.resolve.can === true,
 					ask: props.resolve === null || props.resolve === undefined ? null : props.resolve.ask,
 					request: props.resolve === null || props.resolve === undefined ? null : props.resolve.request,
-					queued: props.resolve !== null && props.resolve !== undefined && Array.isArray(props.resolve.queuedIds) && props.resolve.queuedIds.indexOf(need.id) !== -1,
-					onQueue: props.resolve === null || props.resolve === undefined ? null : props.resolve.onQueue
+					busy: props.resolve !== null && props.resolve !== undefined && props.resolve.busy === true,
+					outcome: props.resolve === null || props.resolve === undefined ? null : props.resolve.outcome,
+					onResolve: props.resolve === null || props.resolve === undefined ? null : props.resolve.onResolve
 				});
 			return React.createElement("div", { style: cardStyle() },
 				React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap" } },
@@ -3860,6 +3947,12 @@ window.__ModuleLoader__.load({
 						typeof result.childId === "string" && result.childId !== "" ? " (Session " + result.childId + ")" : "",
 						": it is working in this project now, and whatever it proposes is a `proposed` record you still approve here.");
 				}
+				if (result.ok === true && result.steered === true) {
+					return React.createElement("div", { style: mutedStyle() },
+						"The resolver already working on this project was given this record",
+						typeof result.childId === "string" && result.childId !== "" ? " (Session " + result.childId + ")" : "",
+						": no rival was started beside it, and whatever it proposes is a `proposed` record you still approve here.");
+				}
 				if (result.ok === true && result.recorded === true) {
 					return React.createElement("div", { style: mutedStyle() },
 						"Recorded: the ratchet stored your refusal of this resolution" + (typeof result.comment === "string" && result.comment !== "" ? " and its reason." : "."),
@@ -4363,20 +4456,46 @@ window.__ModuleLoader__.load({
 			var setChosenSection = sectionState[1];
 			var seq = React.useState(0);
 			var bump = seq[1];
-			// The queue of resolutions the human has asked for. It is component state and it
-			// deliberately starts NOTHING: a resolver edits the project's manifest, so the whole
-			// queue goes to ONE child when the window closes rather than one child per click.
-			var queuedState = React.useState([]);
-			var queuedIds = queuedState[0];
-			var setQueuedIds = queuedState[1];
-			// A stable guard object, because state updates are asynchronous: a second close in
-			// the same render would still read the old queue and dispatch it twice.
-			var closeGuard = React.useState(function () { return { closing: false }; })[0];
+			// What this open has HANDED to a resolver, and the last dispatch's own answer. Both
+			// are component state and neither is persisted: a new open starts with nothing
+			// handed over. The dispatch happens ON the click — the batch used to go out as the
+			// window closed, and a closing window has nowhere to put the route's answer, so a
+			// refusal reached the human as nothing at all.
+			var handedState = React.useState([]);
+			var handedIds = handedState[0];
+			var setHandedIds = handedState[1];
+			var dispatchState = React.useState(null);
+			var lastDispatch = dispatchState[0];
+			var setLastDispatch = dispatchState[1];
+			var wireState = React.useState(false);
+			var inFlight = wireState[0];
+			var setInFlight = wireState[1];
+			/**
+			 * Hands one record to a resolver through the panel's own route and keeps the
+			 * answer. A dispatch already on the wire is not repeated, so a double click
+			 * cannot send the same record twice; a refused dispatch leaves the record
+			 * offered, so the same button retries it.
+			 */
+			var resolveRecord = function (adrId) {
+				if (inFlight || !canResolve || typeof adrId !== "string" || adrId === "") return;
+				setHandedIds(function (current) {
+					var list = Array.isArray(current) ? current : [];
+					return list.indexOf(adrId) === -1 ? list.concat([adrId]) : list;
+				});
+				setInFlight(true);
+				requestResolveBatch([adrId], state.sessionId).then(
+					function (result) {
+						setInFlight(false);
+						setLastDispatch({ ids: [adrId], result: result });
+					},
+					function (error) {
+						setInFlight(false);
+						setLastDispatch({ ids: [adrId], result: { ok: false, error: describeError(error) } });
+					}
+				);
+			};
 			React.useEffect(function () {
 				if (!state.open) return undefined;
-				// A new open is a new batch: without this the guard set by the previous close
-				// would hold for the rest of the session and the second batch would never go.
-				closeGuard.closing = false;
 				var controller = typeof AbortController === "function" ? new AbortController() : null;
 				var alive = true;
 				setView(Object.assign({}, current, { status: "loading" }));
@@ -4410,7 +4529,7 @@ window.__ModuleLoader__.load({
 			React.useEffect(function () {
 				if (!state.open) return undefined;
 				function onKey(event) {
-					if (event && event.key === "Escape") closeAndDispatch();
+					if (event && event.key === "Escape") closeWindow();
 				}
 				window.addEventListener("keydown", onKey);
 				return function () {
@@ -4434,36 +4553,17 @@ window.__ModuleLoader__.load({
 			var onRecorded = function () {
 				bump(seq[0] + 1);
 			};
-			/** Adds or removes one record from the queue. Nothing is sent here. */
-			var queueToggle = function (adrId) {
-				setQueuedIds(function (current) {
-					var list = Array.isArray(current) ? current : [];
-					return list.indexOf(adrId) === -1 ? list.concat([adrId]) : list.filter(function (entry) { return entry !== adrId; });
-				});
-			};
 			/**
-			 * Closes the window, dispatching the queued batch first.
+			 * Closes the window.
 			 *
-			 * The dispatch is deliberately not awaited: the window unmounts here, and awaiting
-			 * would either delay the close or drop the request. The resolver it starts is its
-			 * own Session, which is where its progress is visible. A queue the human emptied is
-			 * no dispatch at all, so a close with nothing queued starts nothing.
+			 * It sends NOTHING. Every record the human asked for was already handed to the
+			 * resolver by the click that asked for it, and its answer was drawn while the
+			 * window was still on screen; a close has nothing left to dispatch and therefore
+			 * nothing left to hide. The window ALWAYS closes, so no state of the queue can
+			 * trap a human in a window they asked to leave.
 			 */
-			var closeAndDispatch = function () {
-				var ids = (queuedIds || []).slice();
-				setQueuedIds([]);
-				// The window ALWAYS closes. A guard that could return before `closePanel` would
-				// trap the human in a window they asked to leave, which is a far worse bug than a
-				// double dispatch — so the guard covers the dispatch only.
+			var closeWindow = function () {
 				closePanel();
-				if (closeGuard.closing || ids.length === 0 || !canResolve) return;
-				closeGuard.closing = true;
-				requestResolveBatch(ids, state.sessionId).then(function () {
-					// The outcome is the resolver Session, not a line in a window that is closing.
-				}, function () {
-					// Same: a rejected promise here has nowhere to render, and swallowing it is
-					// what keeps a close from throwing.
-				});
 			};
 			// The ratification question the composer entry claimed and mirrored here. It is
 			// re-derived rather than trusted: the store is a plain value bag, and the overlay
@@ -4550,8 +4650,9 @@ window.__ModuleLoader__.load({
 						sessionId: state.sessionId,
 						ask: askPlan,
 						request: requestResolve,
-						queuedIds: queuedIds,
-						onQueue: queueToggle
+						busy: inFlight,
+						outcome: lastDispatch,
+						onResolve: resolveRecord
 					},
 					consent: {
 						canAsk: canAsk,
@@ -4568,7 +4669,7 @@ window.__ModuleLoader__.load({
 					React.createElement(sectionHeading, { title: meta.label, explanation: meta.explanation, sourceDir: sourceDir }),
 					activeSection === "consents" ? consentBody : activeSection === "specs" ? specBody : decisionBody);
 			}
-			return React.createElement("div", { style: overlayBackdropStyle(), role: "presentation", onClick: closeAndDispatch },
+			return React.createElement("div", { style: overlayBackdropStyle(), role: "presentation", onClick: closeWindow },
 				React.createElement("div", { style: overlayWindowStyle(), role: "dialog", "aria-label": "Decisions and specs", onMouseDown: function (event) { event.stopPropagation(); }, onClick: function (event) { event.stopPropagation(); } },
 					React.createElement("div", { style: overlayHeaderStyle() },
 						React.createElement("div", { style: { minWidth: 0 } },
@@ -4585,20 +4686,16 @@ window.__ModuleLoader__.load({
 									: null)),
 						React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center" } },
 							React.createElement("button", { type: "button", style: smallButtonStyle(), disabled: loading, onClick: function () { bump(seq[0] + 1); } }, loading ? "Loading…" : "Reload"),
-							React.createElement("button", { type: "button", style: smallButtonStyle(), onClick: closeAndDispatch }, "Close"))),
+							React.createElement("button", { type: "button", style: smallButtonStyle(), onClick: closeWindow }, "Close"))),
 					React.createElement("div", { style: overlayBodyStyle() },
 						React.createElement(FailuresBlock, { failures: current.failures }),
 						// The Session's own work mode, above everything it governs: it is not a
 						// corpus fact, and it applies to this Session rather than to the project.
 						React.createElement(SessionModeControl, { sessionId: state.sessionId }),
-						// The queue is stated before the sections, because what will happen on close
-						// must be visible while the human is still choosing: "Resolve" now means
-						// "queue", and the batch is what actually runs.
-						(queuedIds || []).length === 0 ? null : React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap", margin: "0 0 10px", padding: "6px 8px", border: "1px solid var(--dsw-alias-border-l2, rgba(128,128,128,0.35))", borderRadius: 6 } },
-							pill((queuedIds || []).length + " queued", "pending"),
-							React.createElement("span", { style: { fontSize: 12 } }, "one resolver will start for ", (queuedIds || []).length === 1 ? "this record" : "all " + (queuedIds || []).length + " records", " when you close this window"),
-							React.createElement("span", { style: mutedInlineStyle() }, (queuedIds || []).join(", ")),
-							React.createElement("button", { type: "button", style: smallButtonStyle(), onClick: function () { setQueuedIds([]); } }, "Clear")),
+						// What the window has handed to a resolver, stated above the sections
+						// because it is the outcome of the human's own click: a resolver
+						// started (and where), or the route's own words for why none did.
+						React.createElement(ResolverBar, { ids: handedIds, inFlight: inFlight, last: lastDispatch }),
 						current.notes !== undefined && current.notes.length > 0
 							? React.createElement("div", { style: warnStyle() }, current.notes.map(function (note, index) {
 								return React.createElement(HashedText, { key: String(index), text: note });

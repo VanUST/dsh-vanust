@@ -27,7 +27,10 @@ plugin's provenance:
   documents, rendering the ratchet's own derived state (force, provenance, one
   "needs a human" set that includes whether any corpus review has read the laws in force)
   instead of deriving any of it in the browser, with Approve and Decline answered through a
-  capability-fenced host route rather than by minting a consent itself, and a control that
+  capability-fenced host route rather than by minting a consent itself, a **Resolve** on a
+  blocked record that dispatches one project-scoped resolver through the route and draws
+  the answer it gets — a started resolver and its Session, or the route's own refusal —
+  and a control that
   shows and switches the Session's `@cc/dsh-work-modes` research/implementation mode on that
   plugin's own route, drawing the mode from the response rather than from the button.
 - **`@cc/dsh-work-modes`** — two deployment policies on harness seams that can

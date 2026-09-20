@@ -13,25 +13,51 @@ plan from a third route, `/adr-panel/resolve`, and draws it — the steps, wheth
 human, and the reasons a human already declined — then offers **Resolve** and **Decline with
 a reason**.
 
-**Resolve QUEUES; closing the window dispatches.** One resolver per click is wrong for a
-reason that is not cost: a resolver edits the project's `.dsh/project.json`, so six of them
-running at once produced one surviving edit, five lost ones and an unrelated change, while
-no zone was declared. So a click marks the record queued, the window states the queue
-(N queued · which ids · Clear), and **closing the window sends ONE request** carrying every
-queued id. The ratchet builds one prompt from the whole batch, stating a step several
-records share ONCE — four records naming one zone are one decision about that zone. The host
-starts ONE continuable child on that prompt, and a later batch **steers the resolver already
-working** on this project (`sendMessage` to the same child) rather than starting a rival; a
-dispatch from a different Session is refused `resolve-busy`, because delivery follows the
-direct-parent relation and a rival would race it for the same manifest. A plan with a step
-no agent may carry is left out of the batch and reported in `humanRequiredIds`, so one
-`humanOnly` record cannot poison the rest. Starting a resolver mints nothing: the child
-writes a `proposed` record and the human still approves it through the row's own Approve.
+**Resolve DISPATCHES on the click, and the route's answer is drawn.** The click sends the
+record to `/adr-panel/resolve` and the outcome lands on screen while the window is still
+open: the card and the window-level resolver bar say that a resolver was started (naming the
+Session it runs in), that the resolver already working on this project was given the work
+instead of a rival, or — in the host's own words — why none was started. That shape replaced
+**Resolve QUEUES; closing the window dispatches**, which is what the operator's "I clicked
+Resolve and nothing happened" was: the batch went out as the window closed, so the route's
+refusal had nowhere to land and read as nothing at all. **Only a resolver that started may
+be quiet, and even then the bar names the Session.** A dispatch already on the wire is not
+repeated, so a double click cannot send one record twice, and a refused dispatch leaves the
+record offered, so the same button retries it. Closing sends nothing: everything the human
+asked for was already dispatched and answered by the click that asked for it.
+
+Batching survives in the request shape rather than in the click: `adrIds` still carries an
+array, the ratchet still builds ONE prompt from it and states a step several records share
+ONCE, and the host still starts ONE continuable child per project and **steers the resolver
+already working** (`sendMessage` to the same child) rather than starting a rival; a dispatch
+from a different Session is refused `resolve-busy`, because delivery follows the direct-parent
+relation and a rival would race it for the same manifest. A plan with a step no agent may
+carry is left out of the batch and reported in `humanRequiredIds`, so one `humanOnly` record
+cannot poison the rest. Starting a resolver mints nothing: the child writes a `proposed`
+record and the human still approves it through the row's own Approve.
+
+The cost of moving the dispatch to the click is stated rather than hidden: a human who
+clicks Resolve on three records sends three requests where closing used to send one batch,
+so a step all three share is named in three prompts instead of once. They still reach ONE
+child — the host steers it — so the manifest is edited by one agent either way, which is the
+failure the batching rule was written for. The batch path itself is intact and exercised:
+`adrIds` is still an array, and a control that queued several ids before dispatching one
+request would use the same route. What is gone is only the shape that made the answer
+unreportable.
 
 **A start is called started only once the runtime accepted it.** The route awaits
 `startContinuable`/`sendMessage`: a rejected start is a refusal carrying the runtime's own
-message, never a success the human cannot distinguish from work that never began.
-**Decline** records why the proposed resolution is wrong, so the next attempt can differ.
+message, never a success the human cannot distinguish from work that never began. Every
+refusal the route can return — no live Session, no subagent runtime, a failed start, the
+concurrency cap, a resolver working in another Session, `humanRequired`, or a 200 that
+carries `ok: false` — is drawn from the response's own `message`, so the window cannot
+acknowledge a click without reporting the outcome. **Decline** records why the proposed
+resolution is wrong, so the next attempt can differ.
+
+Residual, stated rather than implied: a human who closes the window in the milliseconds
+between the click and its answer unmounts the line that would have carried it. The request
+still goes out and the resolver still starts; what is lost is the sentence, and only to a
+close faster than the route's own reply.
 
 
 The window is **four tabbed parts, not one long scroll**: a sticky navigator offers
@@ -44,7 +70,8 @@ on the human must not be behind a tab. Every part holds the same data the single
 held; nothing is removed.
 
 A click records the decision silently: no chat message, no model turn, no agent in the
-loop. The host half serves two routes: `GET /adr-panel/state` returns the ratchet's view
+loop. The host half serves **three** routes, each with its own capability header: `GET
+/adr-panel/state` returns the ratchet's view
 model (every record's force, its provenance, the ratify queue, the compiled spec
 documents, and the ratchet's own fact about whether any corpus review has read the laws now
 in force), capped by the ratchet to record, spec and needs-a-human counts and a byte
@@ -57,7 +84,10 @@ text, the record's own bytes, both labels it put on the question — and posts b
 belonging to the button that was pressed, together with that same question. The route hands
 both to the ratchet's own `ratify` operation, which writes the approval ADR and its
 transcript. A `POST` body that does not complete within the route's deadline is refused
-`408` and its socket destroyed, so an unfinished write cannot pin the route.
+`408` and its socket destroyed, so an unfinished write cannot pin the route. The third route,
+`/adr-panel/resolve`, is described above: it reads a blocked record's plan (`GET`), records a
+refusal of it (`POST` `"decision": "decline"`), and dispatches the resolver (`POST`
+`"decision": "resolve"`), which is the only request in the kit that starts work.
 
 It also carries the deployment's **work-mode toggle**, because the window is the one place
 a human already has open on a Session. A bordered row — the same shape as a decision row's
@@ -306,6 +336,20 @@ measures what the bundle does with them, not whether the running shell supplies 
   renders the seat's winner. Without a harness checkout the election check is a `[SKIP]`
   naming the reason, never a silent pass; the always-on half is that the declared priority
   is negative.
+- **The resolve route's PLAN and DECLINE ends are measured live; the wire between a browser
+  and it is not, and neither is a resolver START against the real runtime.**
+  `node scripts/probe-dsh-api.mjs --adr-panel-consent` mounts the real host half and the
+  ratchet, drives `/adr-panel/resolve` over real HTTP on loopback, reads the capability out of
+  the harness's index-injection table, and requires the plan, the 403 without the capability,
+  the recorded decline with its reason, and that a `humanRequired` record starts NOTHING. Its
+  `resolve` case is deliberately the one that must refuse, so the `spawned`/`steered` half of
+  the route has never been exercised against a live subagent runtime — the contract that a
+  start is reported only once `startContinuable` accepted it is measured against a stub
+  runtime in `scripts/check-consent-surface.mjs`. `scripts/test-adr-panel.mjs` executes the
+  shipped bundle against a stub host and requires what it sends and draws for every answer the
+  route can give. No browser was opened and no live resolver was started, so the page carrying
+  the capability global, a real click round-tripping through the shell, and a real child
+  reaching the inbox remain readings rather than measurements.
 - **The consent route's two ends are measured; the wire between a browser and it is not.**
   `node scripts/probe-dsh-api.mjs --adr-panel-consent` mounts the real
   `@deepseek-ai/dsh-host-webserver`, the real `@deepseek-ai/dsh-client-connection`, this

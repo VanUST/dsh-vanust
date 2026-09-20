@@ -1716,14 +1716,61 @@ const renderBlocked = async (tag) => {
 }
 const planBody = (overrides) => Object.assign({ ok: true, id: '0017', title: 'a decision awaiting a human', path: 'synthetic/0017.adr.md', authority: 'agent', status: 'proposed', zones: ['zone-a'], steps: [{ op: 'declare-zone', zone: 'zone-a', paths: ['src/api/**'], agentAuthority: 'proposeOnly', detail: 'declare zone "zone-a" with src/api/**' }], humanRequired: false, declined: [], reason: null }, overrides)
 
-// The card reads the plan, and a Resolve click QUEUES the record. Nothing is dispatched
-// until the window closes, because a resolver edits the project manifest and one per click
-// is one surviving edit and five lost ones.
-resolveHostHandler = (call) => {
+// A Resolve click HANDS THE RECORD TO A RESOLVER, and the route's own answer is drawn.
+// The dispatch happens ON the click, while the window is still on screen: a route answer
+// the human never sees is indistinguishable from a resolver that never started — the
+// defect this replaces — and a closing window has nowhere to put a line.
+//
+// The cap's refusal text is built by the cap ITSELF, from a ledger holding two running
+// agents, so "the card says what refused it, in the cap's own words, naming the two
+// agents" is measured against `@cc/dsh-work-modes` rather than against a sentence written
+// in this file.
+const workModesModule = await import(pathToFileURL(join(KIT, 'plugins', 'work-modes', 'work-modes.mjs')).href)
+const capRefusal = workModesModule.refusalText({
+  limit: 2,
+  entries: () => [
+    { childId: 'alpha', label: 'the first delegation' },
+    { childId: 'beta', label: 'the second delegation' },
+  ],
+})
+const NO_RUNTIME = 'no subagents runtime with continuable children is mounted, so the panel cannot start a resolver: ask the agent in this session to run `ratchet resolve 0017` and carry out the steps it prints'
+const FAILED_START = 'the resolver could not be started: MODEL_NOT_ALLOWED: deepseek-v4-pro is not a Flash-class model'
+const HUMAN_ONLY = 'every named record has a step only a human can carry, so no resolver was started'
+
+/** Renders a fresh blocked window, clicks its Resolve, and reports what was asked and drawn. */
+const resolveOnce = async (tag, expected) => {
+  panelStore.set({ open: true, sessionId: 'stub-session' })
+  const from = resolveCalls.length
+  await renderBlocked(tag)
+  const drawnBefore = nodes.map((node) => node.text).filter((text) => typeof text === 'string').join('\u0000')
+  const clicked = await clickResolveOn(tag)
+  return {
+    clicked,
+    expected,
+    drawnBefore,
+    drawn: nodes.map((node) => node.text).filter((text) => typeof text === 'string').join('\u0000'),
+    posts: resolveCallsFrom(from).filter((call) => call.method === 'POST'),
+  }
+}
+
+/** Clicks the Resolve control the CURRENT render drew, and re-renders the same instance. */
+const clickResolveOn = async (tag) => {
+  const button = nodes.find((node) => node.tag === 'button' && node.text === 'Resolve')
+  if (button === undefined) return false
+  button.props.onClick()
+  await new Promise((resolveTick) => setTimeout(resolveTick, 20))
+  await flush(blockedElement(), tag)
+  return true
+}
+
+const resolveAnswer = (body, status = 200) => (call) => {
   resolveCalls.push(call)
   if (call.method === 'GET') return { status: 200, body: planBody() }
-  return { status: 200, body: { ok: true, ids: ['0017'], spawned: true, steered: false, childId: 'child-1', humanRequiredIds: [], skipped: [] } }
+  return { status, body }
 }
+
+// 1. The ratchet's plan is read, and the control is offered.
+resolveHostHandler = resolveAnswer({ ok: true, ids: ['0017'], spawned: true, steered: false, childId: 'child-9', humanRequiredIds: [], skipped: [] })
 const beforeResolve = resolveCalls.length
 const resolvedNodes = await renderBlocked('blocked-resolve')
 const resolveButton = resolvedNodes.find((node) => node.tag === 'button' && node.text === 'Resolve')
@@ -1733,26 +1780,109 @@ claim(
     resolveCallsFrom(beforeResolve).some((call) => call.method === 'GET' && call.url.includes('/adr-panel/resolve') && call.url.includes('id=0017') && call.headers['x-adr-panel-resolve'] === globalThis.__DSH_ADR_PANEL_RESOLVE__.token),
   JSON.stringify(resolveCallsFrom(beforeResolve).map((call) => ({ method: call.method, url: call.url }))),
 )
-if (resolveButton !== undefined) resolveButton.props.onClick()
-// A SECOND blocked card is queued too: the point of the batch is that closing sends one
-// request for all of them, not one per click.
-const secondResolve = resolvedNodes.filter((node) => node.tag === 'button' && node.text === 'Resolve')[1]
-if (secondResolve !== undefined) secondResolve.props.onClick()
-await new Promise((resolveTick) => setTimeout(resolveTick, 20))
-await flush(
-  React.createElement(registry['shell.overlay'].Component, Object.assign({}, overlayForRows, { usePanel: (selector) => selector(panelStore.getSnapshot()), load: () => Promise.resolve(blockedView) })),
-  'blocked-resolve',
+
+// 2. The click asks the route — once, for that record, with this page's capability — and
+//    the window draws the resolver it started, naming the Session it runs in.
+const accepted = await resolveOnce('blocked-accepted', 'A resolver was started for this record')
+claim(
+  'a Resolve click sends the record to the resolver route once, with the capability this page was served',
+  accepted.clicked &&
+    accepted.posts.length === 1 &&
+    accepted.posts[0].body !== null &&
+    accepted.posts[0].body.decision === 'resolve' &&
+    JSON.stringify(accepted.posts[0].body.adrIds) === JSON.stringify(['0017']) &&
+    accepted.posts[0].headers['x-adr-panel-resolve'] === globalThis.__DSH_ADR_PANEL_RESOLVE__.token,
+  JSON.stringify(accepted.posts.map((call) => ({ body: call.body, header: call.headers['x-adr-panel-resolve'] }))),
 )
 claim(
-  'and the Resolve click QUEUES the record instead of dispatching one resolver per click',
-  resolveCallsFrom(beforeResolve).filter((call) => call.method === 'POST').length === 0 &&
-    nodes.filter((node) => node.tag === 'button' && node.text === 'Queued \u2014 remove').length === 2 &&
-    nodes.some((node) => typeof node.text === 'string' && node.text.includes('one resolver will start')),
-  JSON.stringify({ posts: resolveCallsFrom(beforeResolve).filter((call) => call.method === 'POST').length, buttons: nodes.filter((node) => node.tag === 'button').map((node) => node.text) }),
+  'and the window draws the resolver the route started, naming its Session',
+  accepted.drawn !== accepted.drawnBefore &&
+    /A resolver was started/i.test(accepted.drawn) &&
+    accepted.drawn.includes('child-9'),
+  JSON.stringify(accepted.drawn.slice(-300)),
 )
-// A click INSIDE the window must not reach the backdrop's close handler. Only `onMouseDown`
-// was stopped, so pressing Resolve bubbled a click to the backdrop and closed the panel —
-// the operator's "resolve now just kicks me from ADR window".
+
+// 3. A STEERED dispatch is a success too: the resolver already working on this project was
+//    given the work. Reading it as "nothing happened" would invert the route's answer.
+resolveHostHandler = resolveAnswer({ ok: true, ids: ['0017'], spawned: false, steered: true, childId: 'child-9', humanRequiredIds: [], skipped: [] })
+const steered = await resolveOnce('blocked-steered', 'The resolver already working on this project was given this record')
+claim(
+  'a steered dispatch says the running resolver was given the work instead of drawing "nothing happened"',
+  steered.drawn !== steered.drawnBefore &&
+    /already working|was given/i.test(steered.drawn) &&
+    steered.drawn.includes('child-9') &&
+    !/Nothing happened/i.test(steered.drawn),
+  JSON.stringify(steered.drawn.slice(-300)),
+)
+
+// 4. THE REPORTED DEFECT. The concurrency cap's refusal, the two other refusals the route
+//    can return, and a 200 the route answered with `ok: false`, each have to reach the card
+//    with the route's own words — a silent one is the failure.
+resolveHostHandler = resolveAnswer({ error: 'refused', message: capRefusal }, 503)
+const capped = await resolveOnce('blocked-cap', capRefusal)
+claim(
+  "a refusal from the concurrency cap reaches the card in the cap's own words, naming the agents it names",
+  capped.drawn !== capped.drawnBefore &&
+    capped.drawn.includes('the cap is 2') &&
+    capped.drawn.includes('alpha') &&
+    capped.drawn.includes('beta'),
+  JSON.stringify(capped.drawn.slice(-300)),
+)
+resolveHostHandler = resolveAnswer({ error: 'resolve-unavailable', code: 'resolve-unavailable', message: NO_RUNTIME }, 503)
+const noRuntime = await resolveOnce('blocked-no-runtime', NO_RUNTIME)
+claim(
+  'a composition with no subagent runtime says what is missing, and what to do instead',
+  noRuntime.drawn !== noRuntime.drawnBefore && noRuntime.drawn.includes(NO_RUNTIME),
+  JSON.stringify(noRuntime.drawn.slice(-300)),
+)
+resolveHostHandler = resolveAnswer({ error: 'resolve-failed', code: 'resolve-failed', message: FAILED_START }, 502)
+const failedStart = await resolveOnce('blocked-failed-start', FAILED_START)
+claim(
+  'a start the runtime rejected says what failed, in the runtime\'s own words',
+  failedStart.drawn !== failedStart.drawnBefore && failedStart.drawn.includes('MODEL_NOT_ALLOWED'),
+  JSON.stringify(failedStart.drawn.slice(-300)),
+)
+resolveHostHandler = resolveAnswer({ ok: false, ids: ['0017'], humanRequired: true, humanRequiredIds: ['0017'], steps: [], message: HUMAN_ONLY })
+const humanOnly = await resolveOnce('blocked-human-only', HUMAN_ONLY)
+claim(
+  'a 200 the route answered with ok:false is a refusal too, and it reaches the card',
+  humanOnly.drawn !== humanOnly.drawnBefore && humanOnly.drawn.includes(HUMAN_ONLY),
+  JSON.stringify(humanOnly.drawn.slice(-300)),
+)
+
+// 5. THE INVARIANT: no click in this window is silent. Every Resolve click above asked the
+//    route, changed what the window draws, AND drew the answer the route gave. A click that
+//    asked and drew nothing is the failure this whole section exists to make impossible —
+//    and so is a click that never asked at all, which is what made the operator's Resolve
+//    do nothing. `expected` is each host answer's own words, so a window that acknowledges
+//    the click without reporting the outcome fails here even though the tree changed.
+claim(
+  'no Resolve click in this window is silent: every one asks the route and draws the answer the route gave',
+  [accepted, steered, capped, noRuntime, failedStart, humanOnly].every((step) => step.clicked && step.posts.length === 1 && step.drawn !== step.drawnBefore && step.drawn.includes(step.expected)),
+  JSON.stringify([accepted, steered, capped, noRuntime, failedStart, humanOnly].map((step) => ({ clicked: step.clicked, posts: step.posts.length, changed: step.drawn !== step.drawnBefore, answered: step.drawn.includes(step.expected) }))),
+)
+
+// 6. A refusal is retryable: the record is not consumed by a dispatch that failed, and the
+//    same click sends it again once the host can accept it.
+resolveHostHandler = resolveAnswer({ error: 'refused', message: capRefusal }, 503)
+const retryFirst = await resolveOnce('blocked-retry', capRefusal)
+resolveHostHandler = resolveAnswer({ ok: true, ids: ['0017'], spawned: true, steered: false, childId: 'child-10', humanRequiredIds: [], skipped: [] })
+const retryClicked = await clickResolveOn('blocked-retry')
+const retryDrawn = nodes.map((node) => node.text).filter((text) => typeof text === 'string').join('\u0000')
+claim(
+  'a refused dispatch leaves the record retryable, and the retry reports the resolver it started',
+  retryFirst.clicked &&
+    retryFirst.posts.length === 1 &&
+    retryClicked &&
+    /A resolver was started/i.test(retryDrawn) &&
+    retryDrawn.includes('child-10'),
+  JSON.stringify({ first: retryFirst.posts.length, clicked: retryClicked, drawn: retryDrawn.slice(-300) }),
+)
+
+// 7. A click INSIDE the window must not reach the backdrop's close handler. Only
+//    `onMouseDown` was stopped, so pressing Resolve bubbled a click to the backdrop and
+//    closed the panel — the operator's "resolve now just kicks me from ADR window".
+await renderBlocked('blocked-inside-click')
 const dialog = nodes.find((node) => node.tag === 'div' && node.props.role === 'dialog')
 let clickStopped = false
 if (dialog !== undefined && typeof dialog.props.onClick === 'function') dialog.props.onClick({ stopPropagation: () => { clickStopped = true; } })
@@ -1761,41 +1891,37 @@ claim(
   clickStopped && panelStore.getSnapshot().open === true,
   JSON.stringify({ clickStopped, open: panelStore.getSnapshot().open }),
 )
-// Closing the window is what dispatches: ONE POST carrying every queued record.
-const closeButton = nodes.find((node) => node.tag === 'button' && node.text === 'Close')
-if (closeButton !== undefined) closeButton.props.onClick()
-// Twice, because a second call still sees the old queue and would send the batch again.
-if (closeButton !== undefined) closeButton.props.onClick()
-await new Promise((resolveTick) => setTimeout(resolveTick, 20))
-const resolvePosts = resolveCallsFrom(beforeResolve).filter((call) => call.method === 'POST')
-claim(
-  'and closing the window dispatches the whole queue as ONE batch request, once',
-  resolvePosts.length === 1 &&
-    resolvePosts[0].body !== null &&
-    resolvePosts[0].body.decision === 'resolve' &&
-    Array.isArray(resolvePosts[0].body.adrIds) &&
-    JSON.stringify(resolvePosts[0].body.adrIds) === JSON.stringify(['0017', '0018']) &&
-    resolvePosts[0].body.adrId === undefined,
-  JSON.stringify(resolvePosts[0] === undefined ? null : resolvePosts[0].body),
-)
-// A SECOND open must dispatch its own batch. The close guard is per open — a guard that
-// never reset would leave the window unable to dispatch again, or worse, unable to close.
-panelStore.set({ open: true, sessionId: 'stub-session' })
-const againBefore = resolveCalls.length
-const againNodes = await renderBlocked('blocked-second-batch')
-const againResolve = againNodes.find((node) => node.tag === 'button' && node.text === 'Resolve')
-if (againResolve !== undefined) againResolve.props.onClick()
-await new Promise((resolveTick) => setTimeout(resolveTick, 20))
-await flush(blockedElement(), 'blocked-second-batch')
-const againClose = nodes.find((node) => node.tag === 'button' && node.text === 'Close')
-if (againClose !== undefined) againClose.props.onClick()
-await new Promise((resolveTick) => setTimeout(resolveTick, 20))
-claim(
-  'and a second open dispatches its own batch, so the close guard is per open',
-  panelStore.getSnapshot().open === false &&
-    resolveCallsFrom(againBefore).filter((call) => call.method === 'POST').length === 1,
-  JSON.stringify({ open: panelStore.getSnapshot().open, posts: resolveCallsFrom(againBefore).filter((call) => call.method === 'POST').length }),
-)
+
+// 8. Closing is a close and nothing else: every record the human asked for was handed over
+//    by the click that asked for it, so a close has nothing left to send — and therefore
+//    nothing left to hide.
+{
+  panelStore.set({ open: true, sessionId: 'stub-session' })
+  const from = resolveCalls.length
+  await renderBlocked('blocked-close')
+  const closeButton = nodes.find((node) => node.tag === 'button' && node.text === 'Close')
+  if (closeButton !== undefined) closeButton.props.onClick()
+  if (closeButton !== undefined) closeButton.props.onClick()
+  await new Promise((resolveTick) => setTimeout(resolveTick, 20))
+  claim(
+    'and closing the window sends nothing, because what the human asked for was already dispatched and answered',
+    panelStore.getSnapshot().open === false && resolveCallsFrom(from).filter((call) => call.method === 'POST').length === 0,
+    JSON.stringify({ open: panelStore.getSnapshot().open, posts: resolveCallsFrom(from).filter((call) => call.method === 'POST').length }),
+  )
+}
+
+// 9. A SECOND open is a second request: the window keeps no memory of the last one, so its
+//    Resolve is offered again rather than reading as already handed over.
+{
+  panelStore.set({ open: true, sessionId: 'stub-session' })
+  const again = await renderBlocked('blocked-second-open')
+  const againResolve = again.find((node) => node.tag === 'button' && node.text === 'Resolve')
+  claim(
+    'a second open offers Resolve again, rather than reading as already handed over',
+    againResolve !== undefined && againResolve.props.disabled !== true,
+    JSON.stringify(again.filter((node) => node.tag === 'button').map((node) => ({ text: node.text, disabled: node.props.disabled === true }))),
+  )
+}
 
 // The close unmounted the window, so the following cases need it open again.
 panelStore.set({ open: true, sessionId: 'stub-session' })
@@ -1877,11 +2003,12 @@ resolveHostHandler = null
 
 // ── no control inside the window closes it ──────────────────────────────────
 //
-// The queue dispatches when the window closes, so a control that closed it by accident both
-// threw the human out of the panel AND dispatched a batch they were still assembling. This
-// sweeps EVERY button the synthetic corpus renders: each is clicked on its own fresh
-// instance, and the panel must still be open afterwards. Only the Close button and a click
-// on the backdrop may close it.
+// The queue used to dispatch when the window closed, so a control that closed it by accident
+// both threw the human out of the panel AND dispatched work they were still assembling. The
+// dispatch is now the click itself, so the same accident would only close the panel — which
+// this still forbids. It sweeps EVERY button the synthetic corpus renders: each is clicked on
+// its own fresh instance, and the panel must still be open afterwards. Only the Close button
+// and a click on the backdrop may close it.
 {
   panelStore.set({ open: true, sessionId: 'stub-session' })
   consentHostHandler = () => ({ status: 200, body: askBody('0017', approveQuiz) })
@@ -1917,8 +2044,8 @@ resolveHostHandler = null
     covers && closedBy.length === 0,
     JSON.stringify({ labels, closedBy }),
   )
-  // The one control that MAY close it: a click on the backdrop, which is what queues the
-  // dispatch. Asserted by invoking the backdrop's own handler on a fresh render.
+  // The one control that MAY close it: a click on the backdrop, which is what closes the
+  // panel. Asserted by invoking the backdrop's own handler on a fresh render.
   panelStore.set({ open: true, sessionId: 'stub-session' })
   await renderRows('click-sweep-backdrop')
   // `renderRows` returns buttons; the backdrop is the `presentation` div, so the global
@@ -1935,7 +2062,7 @@ resolveHostHandler = null
 }
 
 // The same sweep over the BLOCKED cards, which carry the controls this change touched:
-// Resolve (queues), Decline with a reason (opens its box) and Open (switches tab).
+// Resolve (dispatches), Decline with a reason (opens its box) and Read the decision.
 {
   panelStore.set({ open: true, sessionId: 'stub-session' })
   resolveHostHandler = (call) => (call.method === 'GET' ? { status: 200, body: planBody() } : { status: 200, body: { ok: true, ids: ['0017'], spawned: true } })

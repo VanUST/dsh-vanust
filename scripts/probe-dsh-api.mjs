@@ -38,6 +38,12 @@
  *                     offered. Asserts the browser fence, the per-activation
  *                     capability, the refusals (no quiz, foreign quiz, human-only
  *                     zone, replayed quiz, stale text) and the approval it writes.
+ *                     The same server's `/adr-panel/resolve` is driven too: the plan,
+ *                     the recorded decline with its reason, and the `humanRequired`
+ *                     refusal. What it deliberately does NOT drive is a resolver START —
+ *                     its `resolve` case is the one that must refuse — so the
+ *                     `spawned`/`steered` half of that route is still unmeasured
+ *                     against a live subagent runtime.
  *                     No model turn beyond the one that calls the probe tool.
  *   --kit-rules       Boot no harness and make no model call. Construct the real
  *                     `systemPrompt` service over a scratch home, apply the
