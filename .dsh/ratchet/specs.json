@@ -200,6 +200,27 @@
       "unenforced": null
     },
     {
+      "id": "kit-tooling.a-contradiction-blocks-only-the-paths-the-law-claims",
+      "statement": "A judged contradiction refuses a write only where the contradicted law's own path claim reaches — the paths of its path-scoped checks, or its whole zone when it declares none — so a block never stops work its finding says nothing about.",
+      "zones": [
+        "shipped-plugins",
+        "kit-tooling"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0075",
+      "sourcePath": "docs/adrs/0075-the-critic-findings.adr.md",
+      "approvedBy": "0077",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet-guard.mjs",
+          "expects": "a law whose path-scoped check names one subtree refuses a write there and admits a write beside it in the same zone",
+          "timeoutMs": 300000
+        }
+      ],
+      "unenforced": null
+    },
+    {
       "id": "kit-tooling.a-non-flash-dispatch-is-vetoed",
       "statement": "Every dispatch whose model is not Flash-class is vetoed before it is billed, and the veto names the ids it allows.",
       "zones": [
@@ -408,6 +429,27 @@
       "approvedBy": null,
       "checks": [],
       "unenforced": "The suite that would check this, node --test scripts/test-work-modes.mjs, is NOT REPRODUCIBLE and is therefore not a gate. Measured over five consecutive runs on one unchanged tree, four exited 1 and one exited 0, and the failing assertion alternates between the two that sit either side of the release race - \"a delegation whose run settled releases its slot\" (observed refused, expected admitted) and \"a run that is still live keeps its slot\" (observed admitted, expected refused). The test admits a delegation, emits one start edge and waits a fixed 20 ms, so whether a settled run has been swept before the next call depends on the clock, and the two assertions cannot both hold under either timing. It belongs in the release gate until it is made deterministic; a gate whose colour is luck teaches people to re-run it."
+    },
+    {
+      "id": "kit-tooling.the-delegation-cap-is-measured-without-a-clock",
+      "statement": "The delegation cap's evidence is reproducible, awaiting the harness's own release edge rather than a fixed sleep, so the suite measures the mechanism and not the scheduler.",
+      "zones": [
+        "shipped-plugins",
+        "kit-tooling"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0075",
+      "sourcePath": "docs/adrs/0075-the-critic-findings.adr.md",
+      "approvedBy": "0077",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-work-modes.mjs",
+          "expects": "the suite reports the same verdict on repeated runs over one unchanged tree, driven by the release edge rather than a sleep",
+          "timeoutMs": 300000
+        }
+      ],
+      "unenforced": null
     },
     {
       "id": "kit-tooling.the-drill-verdicts-are-driven",
@@ -1394,6 +1436,17 @@
       "unenforced": null
     },
     {
+      "id": "shipped-plugins.the-panel-bundle-writes-no-consent-of-its-own",
+      "statement": "The panel writes no approval record and sets no authorship field, so no path from the overlay turns a record into law without the ratchet's question having been asked and answered.",
+      "zones": [],
+      "authority": "agent",
+      "sourceAdr": "0076",
+      "sourcePath": "docs/adrs/0076-two-notes-that-name-an-absent-mechanism.adr.md",
+      "approvedBy": "0078",
+      "checks": [],
+      "unenforced": "Enforceable by extending `node scripts/test-adr-panel.mjs`, which already evaluates the shipped bundle, to assert that the bundle performs no write and that every control it renders answers the state route's payload. The mechanism such a check would assert, read from the shipped bundle rather than assumed: `plugins/dsh-adr-panel/client.js` performs no file write and contains no `workspaceFiles` access at all; its only data paths are the three host routes `/adr-panel/state`, `/adr-panel/consent` and `/adr-panel/resolve`, and the host half constructs no question, interprets no answer and writes no artifact. It replaces a law whose note claimed the bundle \"reads through `workspaceFiles.list`/`read`\" — a mechanism the bundle does not contain, which is what the next reader would have gone looking for."
+    },
+    {
       "id": "shipped-plugins.the-panel-records-consent-without-a-chat-message",
       "statement": "The ADR panel's Approve and Decline record the human's decision through the panel's own host route, so the click produces the consent with no composer message, no model turn and no agent in the loop, and what the row sends is the label the ratchet itself put on the question it built, paired with that same question.",
       "zones": [
@@ -1421,20 +1474,6 @@
         }
       ],
       "unenforced": null
-    },
-    {
-      "id": "shipped-plugins.the-panel-records-no-consent-of-its-own",
-      "statement": "The panel writes no approval record and sets no authorship field, so no path from the overlay turns a record into law without the ratchet's question having been asked and answered.",
-      "zones": [
-        "shipped-plugins",
-        "kit-tooling"
-      ],
-      "authority": "agent",
-      "sourceAdr": "0014",
-      "sourcePath": "docs/adrs/0014-the-panel-ratifies-through-the-question-channel.adr.md",
-      "approvedBy": "0016",
-      "checks": [],
-      "unenforced": "Same phase as the law above, and enforceable by the same script extension, which must assert that the panel bundle calls no write and that the host action mints nothing without an answered question. Its mechanical half already holds and is asserted today — the bundle reads through `workspaceFiles.list`/`read` and writes nothing — by `node scripts/test-adr-panel.mjs`, which prints `adr panel render ok`."
     },
     {
       "id": "shipped-plugins.the-panel-window-drives-the-one-consent-operation",
@@ -1486,18 +1525,15 @@
       "unenforced": null
     },
     {
-      "id": "shipped-plugins.the-question-seam-is-measured-from-the-panel-host",
+      "id": "shipped-plugins.the-question-seam-reach-is-recorded",
       "statement": "Whether the panel's host half can reach the Agent-scoped user-questions seam, or needs an agent-side companion, is measured and recorded before the UI is trusted, because the seam is scoped to an agent and the panel is a web-client plugin.",
-      "zones": [
-        "shipped-plugins",
-        "kit-tooling"
-      ],
+      "zones": [],
       "authority": "agent",
-      "sourceAdr": "0014",
-      "sourcePath": "docs/adrs/0014-the-panel-ratifies-through-the-question-channel.adr.md",
-      "approvedBy": "0016",
+      "sourceAdr": "0076",
+      "sourcePath": "docs/adrs/0076-two-notes-that-name-an-absent-mechanism.adr.md",
+      "approvedBy": "0078",
       "checks": [],
-      "unenforced": "Nothing has been measured yet; this record decides the requirement rather than claiming the result, which would be the assumption the whole feature rests on. It becomes enforceable when a probe in `scripts/probe-dsh-api.mjs` reports the seam's reachability from the chosen host and the measured fact is recorded in `docs/RATCHET-API-FACTS.md` with its reproduction."
+      "unenforced": "The measured fact is recorded in `docs/RATCHET-API-FACTS.md` section 2.5 with its reproduction — a plugin TOOL BODY reaches the Agent-scoped `ctx.userQuestions` with the live root agent and receives an answer (check `ratchet_ratify.channel_reached_with_a_live_root_agent`), which is the seam the ratification path uses. The answer to this law's question follows from the shipped wiring rather than from that measurement alone: the panel's consent route calls the ratchet's `ratchetConsent` service (`plugins/dsh-adr-panel/index.js`), which calls the same `ratify` operation the `ratchet_ratify` tool calls, so the panel host reaches the seam INDIRECTLY and never reads `ctx.userQuestions` itself, and no agent-side companion is needed. Still unenforced by a command: nothing executes the panel host's route to prove it holds that shape, and the note this replaces said nothing had been measured at all."
     },
     {
       "id": "shipped-plugins.the-questions-intent-and-answer-are-measured-hermetically",
@@ -1523,6 +1559,27 @@
           "expects": "the panel's intent literal equals the ratchet's own question intent, and a chat presentation carries no intent to claim",
           "timeoutMs": 180000,
           "outputContains": "consent surface ok"
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.the-removal-authority-is-the-strongest-declarer",
+      "statement": "When two records declare one law id and statement, the merged law carries the strongest authority either declarer had, so a human ratification is not diluted by an unratified twin and the authority to retire a law does not depend on ADR file order.",
+      "zones": [
+        "shipped-plugins",
+        "kit-tooling"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0075",
+      "sourcePath": "docs/adrs/0075-the-critic-findings.adr.md",
+      "approvedBy": "0077",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "a ratified and an unratified declaration of one law id leave the law removable only by a ratified or human-authored record, in either file order",
+          "timeoutMs": 300000
         }
       ],
       "unenforced": null
