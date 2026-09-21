@@ -9667,6 +9667,22 @@ test('ratify: a declined answer records the human comment, and returns it', () =
   const ledger = readFileSync(join(root, '.dsh', 'ratchet', 'ledger.jsonl'), 'utf8')
   assert.match(ledger, /"event":"ratchet\.ratify\.no-consent"/)
   assert.match(ledger, /the boundary belongs to the engine zone/)
+  // The refusal names the record it refused. The field was written by mapping the already
+  // derived IDS through `entry.id`, which produced `[null]`: a refusal recorded against
+  // nothing, so no later reader could attach the reason to the decision it belongs to.
+  const decline = ledger.split('\n').filter((line) => line.includes('ratchet.ratify.no-consent')).map((line) => JSON.parse(line)).pop()
+  assert.ok(
+    Array.isArray(decline.rejected) && decline.rejected.length > 0 && decline.rejected.every((id) => typeof id === 'string' && id.length > 0),
+    `rejected must be the refused record ids, not ${JSON.stringify(decline.rejected)}`,
+  )
+  // And the refusal is visible again: a decline mints nothing, so the decision stays in the
+  // queue, and the need must carry the reason or the card after a reload is identical to the
+  // card before the click.
+  const view = decisionsModule.deriveDecisions({ root })
+  const consent = (view.needsHuman ?? []).find((need) => need.kind === 'consent')
+  assert.ok(consent !== undefined, 'the declined decision is still waiting, and still listed')
+  assert.equal(consent.declined.length, 1, `the recorded refusal travels with the need: ${JSON.stringify(consent.declined)}`)
+  assert.match(consent.declined[0].comment, /the boundary belongs to the engine zone/)
 })
 
 test('ratify: a decline with no comment records none, rather than an empty string', () => {

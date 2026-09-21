@@ -147,7 +147,7 @@ import { Worker } from 'node:worker_threads'
 import { compileProject, readAdrCorpus, readManifest, renderSpecs, resolveActiveSet, zonesForRecord } from './ratchet-compiler.mjs'
 import { resolveStepsFor } from './ratchet-resolve.mjs'
 import { ratificationQueue } from './ratchet-ratify.mjs'
-import { detectSpecDrift, readJsonArtifact, readState, STATE_PATHS, verificationStatus } from './ratchet-state.mjs'
+import { detectSpecDrift, readJsonArtifact, readLedger, readState, STATE_PATHS, verificationStatus } from './ratchet-state.mjs'
 import { draftNeedsHuman } from './ratchet-drafts.mjs'
 import { findRoot, contradictionReviewStatus } from './ratchet-ops.mjs'
 import { MANIFEST_PATH } from './ratchet-schema.mjs'
@@ -487,7 +487,11 @@ function buildNeedsHuman(root, records, queue, drift, currentSpecHash, drafted, 
       : { id: value.id === undefined ? null : value.id, path: value.path === undefined ? null : value.path }
 
   // (1) A consent WAITING to be answered, from the ratchet's own queue. Nothing is
-  // drafted for a consent: the human's answer IS the act.
+  // drafted for a consent: the human's answer IS the act. A decline puts nothing into
+  // force, so the record STAYS here legitimately — which is why the recorded refusals
+  // travel with it: without them the card after a reload is byte-identical to the card
+  // before the click, and the only honest reading of the screen is "nothing happened".
+  const declines = declinesByRecord(root)
   for (const entry of queue.pending ?? []) {
     needs.push({
       kind: 'consent',
@@ -498,6 +502,7 @@ function buildNeedsHuman(root, records, queue, drift, currentSpecHash, drafted, 
       action: 'use Approve or Decline in its row below',
       draft: null,
       draftReason: 'a consent is put to a human as a question; nothing is drafted for it',
+      declined: declines.get(entry.id) ?? [],
     })
   }
 
@@ -922,6 +927,45 @@ export const MAX_STATE_NEEDS_PER_KIND = 50
  * how many were held back, so a bounded list never reads as the whole report.
  */
 const MAX_RED_GATE_PROBLEMS = 5
+
+/** The most recent refusals one record reports, so a long history cannot flood a card. */
+const MAX_DECLINES_PER_RECORD = 5
+
+/**
+ * The reasons a human has already declined this proposal, newest first, read ONCE.
+ *
+ * A refusal records nothing into force, so a declined decision correctly stays in the
+ * queue and stays on the panel after a reload. What was missing is that the refusal left no
+ * trace there at all: the reason went to the append-only ledger and the card looked exactly
+ * as it had before the click, so the only honest reading of the screen was "nothing
+ * happened". This is the read that lets a card say what the human already said.
+ *
+ * The whole ledger is read once for the whole needs set rather than once per record: the
+ * reader parses every line, so a per-record call would cost the file once per pending
+ * record.
+ *
+ * @param root - Absolute project root.
+ * @returns A Map from record id to `[{ at, comment }]`, newest first and capped. A ledger
+ *   that cannot be read yields an empty Map — a missing history is not a crash.
+ */
+function declinesByRecord(root) {
+  const byId = new Map()
+  const ledger = readLedger(root)
+  if (ledger.error !== undefined) return byId
+  for (const event of ledger.events ?? []) {
+    if (event === null || event === undefined || event.event !== 'ratchet.ratify.no-consent') continue
+    const at = typeof event.at === 'string' ? event.at : null
+    const comment = typeof event.comment === 'string' && event.comment.length > 0 ? event.comment : null
+    for (const id of Array.isArray(event.rejected) ? event.rejected : []) {
+      if (typeof id !== 'string' || id.length === 0) continue
+      const list = byId.get(id) ?? []
+      list.push({ at, comment })
+      byId.set(id, list)
+    }
+  }
+  for (const [id, list] of byId) byId.set(id, list.reverse().slice(0, MAX_DECLINES_PER_RECORD))
+  return byId
+}
 
 /**
  * The byte ceiling for one serialised state response. When the document exceeds it, the

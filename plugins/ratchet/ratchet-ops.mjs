@@ -3001,7 +3001,11 @@ export function ratify({
     const declineComment = typeof comment === 'string' && comment.trim().length > 0 ? comment.trim().slice(0, 2000) : null
     appendLedger(root, 'ratchet.ratify.no-consent', {
       attempt,
-      rejected: derived.rejected.map((entry) => entry.id),
+      // `derived.rejected` is already the record ids (the reader derives them from the
+      // answer), so this is the list itself. It was mapped through `entry.id`, which read a
+      // property off a string and wrote `[null]` — a refusal recorded against nothing, and
+      // therefore invisible to every later reader that looked the id up.
+      rejected: derived.rejected,
       unreadable: derived.unreadable.length,
       comment: declineComment,
     })

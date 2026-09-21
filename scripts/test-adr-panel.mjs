@@ -2825,6 +2825,10 @@ needsFiles['docs/adrs/0002-fixture-0002.adr.md'] = fixtureAdr('0002', { status: 
 needsFiles['docs/adrs/0003-fixture-0003.adr.md'] = fixtureAdr('0003', { status: 'proposed', authority: 'agent', zones: ['z'], laws: [{ id: 'law.shared', statement: 'Gamma' }], ...needsSources['0003'] })
 needsFiles['docs/adrs/0004-fixture-0004.adr.md'] = fixtureAdr('0004', { status: 'active', authority: 'agent', zones: ['z'], laws: [{ id: 'law.dup', statement: 'Alpha' }], ...needsSources['0004'] })
 needsFiles['docs/adrs/0005-fixture-0005.adr.md'] = fixtureAdr('0005', { status: 'proposed', authority: 'agent', zones: ['h'], laws: [{ id: 'law.h', statement: 'Delta' }], ...needsSources['0005'] })
+// A refusal already recorded for a waiting consent. A decline mints nothing, so the
+// record legitimately stays in the queue — and the card must say so, or the screen after a
+// reload is identical to the screen before the click and reads as "nothing happened".
+needsFiles['.dsh/ratchet/ledger.jsonl'] = `${JSON.stringify({ event: 'ratchet.ratify.no-consent', at: '2026-09-15T00:00:00.000Z', attempt: 1, rejected: ['0002'], unreadable: 0, comment: 'the fixture records a refusal with its reason' })}\n`
 needsFiles['reports/ratchet/verify-report.json'] = `${JSON.stringify(
   {
     generatedAt: '2026-09-15T00:00:00.000Z',
@@ -2911,6 +2915,15 @@ needsFiles['reports/ratchet/verify-report.json'] = `${JSON.stringify(
     await new Promise((resolveTick) => setTimeout(resolveTick, 20))
     await renderOverlayExpanded('needs-approve')
     const needsConsentSent = consentCalls.slice(needsConsentCalls)
+    // The refusal is visible again after a reload, on the card of the record it refused,
+    // with the reason the human gave.
+    const declinedTexts = nodes.map((node) => node.text)
+    claim(
+      'a consent card shows the refusal the ratchet already recorded, and why the item remains',
+      declinedTexts.some((text) => typeof text === 'string' && text.includes('the fixture records a refusal with its reason')) &&
+        declinedTexts.some((text) => typeof text === 'string' && text.includes('nothing changed: a \"no\" puts nothing into force')),
+      JSON.stringify(declinedTexts.filter((text) => typeof text === 'string' && /declined this|refusal with its reason/.test(text))),
+    )
     claim(
       'and the Approve on a consent card records through the one consent route',
       needsConsentSent.some((call) => call.method === 'GET' && call.url.includes('id=0002')) &&
