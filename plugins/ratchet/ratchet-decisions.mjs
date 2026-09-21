@@ -487,12 +487,22 @@ function buildNeedsHuman(root, records, queue, drift, currentSpecHash, drafted, 
       : { id: value.id === undefined ? null : value.id, path: value.path === undefined ? null : value.path }
 
   // (1) A consent WAITING to be answered, from the ratchet's own queue. Nothing is
-  // drafted for a consent: the human's answer IS the act. A decline puts nothing into
-  // force, so the record STAYS here legitimately — which is why the recorded refusals
-  // travel with it: without them the card after a reload is byte-identical to the card
-  // before the click, and the only honest reading of the screen is "nothing happened".
+  // drafted for a consent: the human's answer IS the act.
+  //
+  // A record the human already REFUSED is not waiting for one any more: it stays in the
+  // queue — a decline mints nothing, so it is still `proposed` and still ratifiable — but
+  // it is not something a human is being asked for, and listing it again after the answer
+  // was given makes the set a record of everything that was ever proposed rather than a
+  // list of what is waiting. It remains in the Decisions list, where Approve and Decline
+  // are still offered, so a change of mind is one click.
+  //
+  // The residual, stated: the ledger records a refusal against the record ID, not against
+  // the text that was shown, so a record EDITED after a refusal is not offered again. A
+  // refusal bound to a content hash would re-offer it; that is a ledger-shape change, not
+  // this filter.
   const declines = declinesByRecord(root)
   for (const entry of queue.pending ?? []) {
+    if ((declines.get(entry.id) ?? []).length > 0) continue
     needs.push({
       kind: 'consent',
       id: entry.id,
@@ -502,7 +512,6 @@ function buildNeedsHuman(root, records, queue, drift, currentSpecHash, drafted, 
       action: 'use Approve or Decline in its row below',
       draft: null,
       draftReason: 'a consent is put to a human as a question; nothing is drafted for it',
-      declined: declines.get(entry.id) ?? [],
     })
   }
 

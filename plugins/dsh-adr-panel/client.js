@@ -443,7 +443,7 @@ window.__ModuleLoader__.load({
 		 * are equal again after a release and the constant is one ahead only in the working
 		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.56";
+		const PANEL_VERSION = "0.1.57";
 		/** Directories used when the host view reports none. */
 		const DEFAULT_DECISIONS_DIR = "docs/adrs";
 		const DEFAULT_SPECS_DIR = "docs/specs";
@@ -1738,16 +1738,6 @@ window.__ModuleLoader__.load({
 			// unchanged" stays a string equality rather than a set comparison.
 			adapted.draft = draft;
 			adapted.draftReason = typeof entry.draftReason === "string" ? entry.draftReason : null;
-			// The reasons a human already declined this proposal. They are what makes a
-			// refusal visible after a reload: a decline puts nothing into force, so the
-			// record stays in the queue, and without these the card is identical to the one
-			// the human clicked.
-			if (Object.prototype.hasOwnProperty.call(entry, "declined")) {
-				adapted.declined = (Array.isArray(entry.declined) ? entry.declined : []).map(function (history) {
-					if (history === null || history === undefined || typeof history !== "object") return null;
-					return { at: typeof history.at === "string" ? history.at : null, comment: typeof history.comment === "string" ? history.comment : null };
-				}).filter(function (history) { return history !== null; });
-			}
 			// A blocked decision's resolve plan, copied unchanged and added last so the key
 			// order still matches the service's — the adapter passes the set through, it
 			// does not extend it.
@@ -2864,23 +2854,6 @@ window.__ModuleLoader__.load({
 			// `canRatify` is the ratchet's own queue membership, so this offers a question the
 			// ratchet is actually waiting to ask and nothing else. It is not gated on the KIND,
 			// because a drafted resolution is a proposed record like any other.
-			// A decline mints nothing, so the record legitimately stays in the queue — and the
-			// card used to look exactly as it had before the click, which reads as "nothing
-			// happened". The refusal the ratchet recorded is shown here, with the reason and the
-			// time, so the screen says what the human already said and why the item remains.
-			var recordedDeclines = (Array.isArray(need.declined) ? need.declined : []).filter(function (history) {
-				return history !== null && typeof history.comment === "string" && history.comment !== "";
-			});
-			var declineHistory = recordedDeclines.length === 0
-				? null
-				: React.createElement("div", { key: "decline-history", style: { margin: "4px 0" } },
-					React.createElement("div", { style: { fontSize: 12, fontWeight: 600 } },
-						"You already declined this " + (recordedDeclines.length === 1 ? "once" : recordedDeclines.length + " times") + ", so nothing changed: a \"no\" puts nothing into force."),
-					recordedDeclines.map(function (history, index) {
-						return React.createElement("div", { key: "decline" + index, style: mutedInlineStyle() },
-							history.at === null ? null : String(history.at) + " \u2014 ",
-							"\u201c" + history.comment + "\u201d");
-					}));
 			var consentControl = actionable === null || actionable.canRatify !== true
 				? null
 				: React.createElement(ConsentAction, {
@@ -2934,7 +2907,6 @@ window.__ModuleLoader__.load({
 				// card: the section a human acts in is the section that shows them what they are
 				// acting on.
 				React.createElement(NeedRecordReader, { adr: actionable === null ? record : actionable }),
-				declineHistory,
 				consentControl,
 				resolveControl);
 		}

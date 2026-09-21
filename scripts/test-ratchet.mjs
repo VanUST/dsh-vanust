@@ -9675,14 +9675,16 @@ test('ratify: a declined answer records the human comment, and returns it', () =
     Array.isArray(decline.rejected) && decline.rejected.length > 0 && decline.rejected.every((id) => typeof id === 'string' && id.length > 0),
     `rejected must be the refused record ids, not ${JSON.stringify(decline.rejected)}`,
   )
-  // And the refusal is visible again: a decline mints nothing, so the decision stays in the
-  // queue, and the need must carry the reason or the card after a reload is identical to the
-  // card before the click.
+  // And the answer is not asked for again: a decline mints nothing, so the record stays in
+  // the ratify queue and stays ratifiable — but it is no longer something a human is being
+  // asked FOR. Listing it again after the answer was given makes the set a record of
+  // everything ever proposed instead of a list of what is waiting.
   const view = decisionsModule.deriveDecisions({ root })
   const consent = (view.needsHuman ?? []).find((need) => need.kind === 'consent')
-  assert.ok(consent !== undefined, 'the declined decision is still waiting, and still listed')
-  assert.equal(consent.declined.length, 1, `the recorded refusal travels with the need: ${JSON.stringify(consent.declined)}`)
-  assert.match(consent.declined[0].comment, /the boundary belongs to the engine zone/)
+  assert.equal(consent, undefined, `a refused record is not waiting for a human: ${JSON.stringify(consent)}`)
+  // It is still the ratchet's queue that decides what is ratifiable: the record was refused,
+  // not withdrawn, so its row can still be approved if the human changes their mind.
+  assert.ok((view.queue?.pending ?? []).some((entry) => entry.id !== undefined), 'the record stays in the ratify queue')
 })
 
 test('ratify: a decline with no comment records none, rather than an empty string', () => {
