@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-kit-rules",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Deployment-owned mandatory operating rules: contributes the kit's single rules file to the system prompt as a binding section, re-read on every prompt assembly, so no project-level instruction file can dilute or override it.",
   "type": "module",
   "main": "kit-rules.mjs",
@@ -16,4 +16,3 @@
     "@deepseek-ai/cordis": "^4.0.2"
   }
 }
-

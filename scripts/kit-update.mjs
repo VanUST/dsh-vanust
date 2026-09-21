@@ -48,6 +48,16 @@
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { renderMachineFacts } from './machine-facts.mjs'
+
+/**
+ * The machine's own facts, written beside the rules on every apply.
+ *
+ * Generated rather than copied, and deliberately outside the drift hash: the facts change
+ * with the hardware, not with the kit. `kit-rules` appends the file to the prompt, so an
+ * agent reads what this machine is instead of probing for it every session.
+ */
+const MACHINE_FACTS_FILE = 'MACHINE.md'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -363,6 +373,17 @@ function installFiles({ items, home, profile }) {
     mkdirSync(dirname(dst), { recursive: true })
     copyFileSync(item.src, dst)
     written.push(item.id)
+  }
+  // The machine's own facts: generated, not copied, and outside the drift hash — they change
+  // with the hardware rather than with the kit. Written on every apply so a machine that gains
+  // a GPU or a toolkit updates by converging, not by an edit nobody remembers to make.
+  try {
+    const dst = join(home, MACHINE_FACTS_FILE)
+    mkdirSync(dirname(dst), { recursive: true })
+    writeFileSync(dst, `${renderMachineFacts()}\n`)
+    written.push(MACHINE_FACTS_FILE)
+  } catch (error) {
+    warn(`could not write ${MACHINE_FACTS_FILE}: ${String(error)}`)
   }
   return written
 }

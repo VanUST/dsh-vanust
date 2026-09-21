@@ -288,6 +288,12 @@
       "path": "scripts/drill-kit-rules.mjs"
     },
     {
+      "id": "machine-facts-tests",
+      "path": "scripts/machine-facts.mjs",
+      "command": "node --test scripts/test-machine-facts.mjs",
+      "purpose": "the machine-facts document names the GPU, the toolkit and the platform from injected probes, and tells 'no GPU' apart from 'the probe could not run'"
+    },
+    {
       "id": "drill-tests",
       "command": "node --test scripts/test-drill-kit-rules.mjs",
       "purpose": "the rule drill's verdict logic: a RED run that does not elicit the violation is missed and never a pass, a forbidden action is a violation, and an ordering violation is caught",
