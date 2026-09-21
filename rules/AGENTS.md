@@ -421,23 +421,33 @@ tool's children, nothing else, so it is a cap on one delegation tool and NOT a c
 concurrent work. Say so wherever the cap is described, so a later reader does not mistake
 it for a total limit.
 
-**The bound has a named residual, and it is not an absolute bound on concurrent work.**
-A child this process can see is released when the harness's agent registry stops holding
-it, however long it ran, so a child the registry holds forever — a resident continuable
-child, or one the harness never disposes — **keeps its slot** for as long as it is held,
-and the refusal names it. An entry NO registry answered for — an out-of-process child, a
-composition with no `agents` service, a liveness probe that threw — is released by the age
-bound instead (`staleAfterMs`, 15 minutes by default), so such a child stops being counted
-while it may still be running. The strongest true statement is therefore: *at most two
-`subagent` children per session are counted at once, and a child this process cannot see
-stops being counted after the age bound.* The same residual is stated beside the code in
-`plugins/work-modes/work-modes.mjs`; do not restate the cap as a guarantee the mechanism
-does not give.
+**The cap counts RUNNING children, not resident ones — measured, not assumed.** The slot
+is released when the child's run settles (`ctx.on('subagent/end', …)` →
+`ledger.end(runId)`), and the harness emits that edge **per activation epoch**: for a
+continuable child it is `createActivationObserver`, which ends each turn and reports that
+epoch's `stopReason`. So a RESIDENT child that is idle between turns holds **no slot**.
+Measured in a live session: a persistent judge was left resident and idle, and two
+concurrent `subagent` calls with `limit: 2` were BOTH admitted — a resident child holding
+one of the two slots would have refused the second admission, and the guard refuses before
+the body runs. The earlier wording of this section claimed the opposite (that a resident
+continuable child keeps its slot); it was read from source and was wrong, which is why this
+one carries the measurement.
+
+**The residual that does survive, stated exactly.** An entry the harness never emits `end`
+for is released by liveness first — the agent registry no longer holding the child — and by
+the age bound (`staleAfterMs`, 15 minutes by default) only when no registry answered for it
+at all: an out-of-process child, a composition with no `agents` service, or a liveness probe
+that threw. Such a child stops being counted while it may still be running. The strongest
+true statement is therefore: *at most two RUNNING `subagent` children per session are counted
+at once; a child whose run settled is not counted however long it stays resident; and a child
+this process cannot see at all stops being counted after the age bound.* The same bound is
+stated beside the code in `plugins/work-modes/work-modes.mjs`; do not restate it as a
+guarantee the mechanism does not give.
 
 **What enforces the cap.** `node --test scripts/test-work-modes.mjs` drives the real tool
 registry: two children admit, the third is refused before its body runs with both running
-agents named, a settled child releases its slot, a live child keeps its slot past the age
-bound, another session is unaffected, and a `workflow` call is never refused.
+agents named, a settled child releases its slot, a child whose run never ended keeps its slot
+past the age bound, another session is unaffected, and a `workflow` call is never refused.
 `node scripts/probe-work-modes.mjs` measures the seam it rests on.
 
 ## 15. Capabilities this deployment provides

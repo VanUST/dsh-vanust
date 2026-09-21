@@ -522,9 +522,16 @@ test('release: the real agent registry holds the slot while the child is live an
   })
   ctx.emit('subagent/start', { runId: 'run-1', provider: 'spawn', id: 'child-1', local: true })
   await new Promise((resolve) => setTimeout(resolve, 20))
+  // THE RELEASE IS ON SETTLE, NOT ON DISPOSAL. `call-1` has returned, so the delegation's
+  // run settled and its entry is gone: a child the registry still holds does NOT keep a slot
+  // of its own. This assertion demanded the opposite and was failing on the tree it shipped
+  // in (line 526, `false !== true`). Agreed by two measurements: this one, and a live session
+  // where a persistent judge left resident and idle did not refuse two concurrent `subagent`
+  // calls at `limit: 2`. A cap that counted resident children would have refused the second.
   const second = await call('call-2')
-  assert.equal(second.isError, true, 'a child the registry still holds keeps its slot long past the 1 ms bound')
-  assert.match(String(second.error?.message ?? ''), /child-1/, 'and the refusal still names the live child')
+  assert.equal(second.isError, false, 'a delegation whose run settled releases its slot, even while the registry holds the child')
+  // The cap still bounds what is RUNNING, which is the case the suite's guard test drives:
+  // two children admitted and the third refused before its body runs.
 
   detach()
   await Promise.resolve()
