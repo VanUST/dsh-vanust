@@ -353,13 +353,9 @@
       "reports/**",
       ".gitattributes",
       ".gitignore",
-      "AGENTS.md",
-      "COMPAT.md",
       "LICENSE",
-      "LIMITATIONS.md",
       "NOTICE",
       "README.md",
-      "REVIEW.md",
       "USERGUIDE.md"
     ]
   },

@@ -92,19 +92,19 @@ dsh-kit/
 ├── plugins/presentation/      # source of @cc/dsh-presentation (deck tool; no client half by design)
 ├── profile/                   # canonical web profile: package.json (no deps) + cordis.patch.yml
 ├── rules/AGENTS.md            # the deployment's mandatory rules (installed to $DSH_HOME/AGENTS.md)
+├── rules/DEPLOYMENT.md        # operating this machine: install, update, gate, troubleshooting ($DSH_HOME/DEPLOYMENT.md)
 ├── scripts/dev-link.mjs       # links the harness packages so the kit's own gate runs from a clone
 ├── scripts/verify-upgrade.sh  # upgrade gate: throwaway instance + shipped-artifact policy probe
 ├── scripts/check-hermetic-laws.mjs # a law's check is hermetic: no probe-bound command check
 ├── scripts/pack-plugin.mjs    # repack an in-repo plugin with a version bump and one tarball left behind
 ├── scripts/rebuild-plugins.sh # rebuild + repack model-gate from the harness checkout
-├── USERGUIDE.md               # per-machine setup, startup, first-run checks, Windows notes, troubleshooting
-└── COMPAT.md                  # upstream API watchlist + the upgrade procedure
+└── USERGUIDE.md               # per-machine setup, startup, first-run checks, Windows notes, troubleshooting
 ```
 
 **Machine-local, never synced:** `$DSH_HOME/sessions`, `$DSH_HOME/storages`,
 `.credentials.yaml`, `settings.yaml`, `node_modules`. The harness treats
 session files as version-0 format with no compatibility promise — keep them
-per-machine (see COMPAT.md §3).
+per-machine (see `rules/DEPLOYMENT.md` §3).
 
 **Plugins** are installed from `plugins/*.tgz` by `install.sh`, which adds every tarball in that
 directory.
@@ -160,10 +160,10 @@ the next request, without a restart, which is the hot reload worth keeping.
 facts belong in `.dsh/project.json` and the `context_*` tools, where they are declared, checkable and
 carry the command that proves them — not in prose that competes with the deployment's rules.
 
-**Reviewing this kit.** The reviewable units, and where they are. `REVIEW.md` carries the
-context no repository can hold: the machine this was verified on, the upstream project as
-a dependency, the layout facts that explain apparent failures, the history of the last
-review cycle, and every limitation that remains.
+**Reviewing this kit.** The reviewable units, and where they are. The machine this was
+verified on and the procedure for reproducing that verification are `rules/DEPLOYMENT.md`;
+`docs/CRITIC-RATCHET.md` is the adversarial review of the ratchet's own laws as a reader
+would experience them, with each finding's fix and its residual.
 
 - **Plugin source** — `plugins/ratchet/`, `plugins/kit-rules/`, and the reconstructed
   `plugins/dsh-context/`; `plugins/model-gate/` is a read-only upstream snapshot. Each
@@ -187,7 +187,7 @@ review cycle, and every limitation that remains.
   `node scripts/dev-link.mjs`. `rules/DEPLOYMENT.md` §4 is the same list with the exit
   codes.
 - **The write guard, and what it does not hold.** `plugins/**` is the one zone whose
-  manifest entry declares `requiresDecisionRecord: true` (ADR 0070, proposed): a write there
+  manifest entry declares `requiresDecisionRecord: true` (ADR 0070, ratified by 0073): a write there
   is refused until a record in force or proposed names `shipped-plugins`. It is necessary and
   not sufficient — it is satisfied by ANY record that ever named the zone, so it cannot tell
   this task's decision from an older one, and it sees the harness's write tools rather than a
@@ -197,7 +197,8 @@ review cycle, and every limitation that remains.
 **Upgrades:** the harness is pre-1.0 and breaking changes are policy. Always
 go through the gate: `npm i -g @deepseek-ai/dsh@<candidate>` →
 `./scripts/rebuild-plugins.sh` → `./scripts/verify-upgrade.sh` → only then
-touch the live profile. Details + the API watchlist: **COMPAT.md**.
+touch the live profile. Details: **`rules/DEPLOYMENT.md`** §3–4 (the procedure and the gate)
+and **`USERGUIDE.md`** §7 (the short version).
 
 **Versions:** harness pin `0.1.5-rc.1` · Node ≥ 24 · pnpm 11.7 (corepack).
 

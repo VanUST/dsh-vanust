@@ -1472,6 +1472,15 @@ export function bundleHash(bundle) {
 }
 
 /**
+ * The spec-card key for laws that declare no zone.
+ *
+ * Deliberately NOT a valid zone id: `parseRatchetConfig` accepts an id matching `[A-Za-z0-9_-]+`,
+ * so a key containing parentheses can never collide with a real zone's card. It doubles as the
+ * file stem, unsanitised, because that is the property that keeps the two apart.
+ */
+const UNZONED_SPEC_KEY = '(unzoned)'
+
+/**
  * Renders the human-readable spec documents from a bundle.
  *
  * Generated files carry a hash header. A hand-edit changes the file without
@@ -1486,7 +1495,7 @@ export function renderSpecs(bundle, specsDir = 'docs/specs') {
   const specHash = bundleHash(bundle)
   const byZone = new Map()
   for (const law of bundle.laws) {
-    const keys = law.zones.length > 0 ? law.zones : ['(unzoned)']
+    const keys = law.zones.length > 0 ? law.zones : [UNZONED_SPEC_KEY]
     for (const zone of keys) {
       if (!byZone.has(zone)) byZone.set(zone, [])
       byZone.get(zone).push(law)
@@ -1533,9 +1542,18 @@ export function renderSpecs(bundle, specsDir = 'docs/specs') {
     // project that declared any other directory had its compile write to `docs/specs`, its verify
     // report every spec as MISSING, and no way to become green: the failure was blamed on the
     // project, and re-running the compile it prescribed wrote to the same wrong place again.
-    // The name is injective because a zone id is restricted to [A-Za-z0-9_-] at parse time: the
-    // replacement is then the identity, so two zones cannot share one file and drop a zone's laws.
-    files[`${String(specsDir).replace(/\/+$/, '')}/${zone.replace(/[^A-Za-z0-9_-]+/g, '-')}.spec.md`] = body
+    //
+    // The name is injective, and each half of that is load-bearing. A real zone id is restricted to
+    // [A-Za-z0-9_-] at parse time, so sanitising one is the identity and two ids cannot share a
+    // file. The zone-less bucket is keyed by {@link UNZONED_SPEC_KEY}, which CONTAINS characters a
+    // zone id may not, and is deliberately NOT sanitised: sanitising it produced `-unzoned-.spec.md`
+    // — a file whose name is punctuation — and, worse, threw away the one property that keeps the
+    // bucket from colliding with a real zone that happens to be called `unzoned`.
+    files[
+      `${String(specsDir).replace(/\/+$/, '')}/${
+        zone === UNZONED_SPEC_KEY ? UNZONED_SPEC_KEY : String(zone).replace(/[^A-Za-z0-9_-]+/g, '-')
+      }.spec.md`
+    ] = body
   }
   return { files, specHash }
 }
