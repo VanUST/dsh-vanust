@@ -219,6 +219,20 @@ export function createResolveService() {
     /** The project root a Session workspace belongs to; the route resolves it from the Session. */
     rootFor: resolveRootFor,
     /**
+     * Whether the outstanding findings warrant ONE automatic dispatch, and the prompt it
+     * would carry. The ratchet owns this because the findings, the steps that clear them and
+     * the cooldown are all its own facts; the host only carries the request and starts the
+     * child. It decides nothing about record ids and mints nothing.
+     */
+    autoResolve: ({ root, needs = [], specHash = null, now = Date.now(), cooldownMs = DISPATCH_COOLDOWN_MS } = {}) => {
+      const findings = clearableFindings(needs)
+      const keys = findings.map((finding) => finding.key)
+      const decision = resolveDispatchDue(root, keys, { now, cooldownMs, specHash })
+      return { ...decision, keys, findings, prompt: decision.due ? findingPrompt(root, findings) : null }
+    },
+    /** Records that one dispatch happened, so the same findings are not re-sent in a row. */
+    noteDispatch: ({ root, keys = [], specHash = null, at = null } = {}) => recordResolveDispatch(root, { keys, specHash, at }),
+    /**
      * The ratchet's own resolver prompt for one record OR a batch, plus the plans it was
      * built from. `ids` is the batch form the panel dispatches when it closes; `id` stays
      * for a single record. A record whose plan cannot be built is left out of the prompt
@@ -415,4 +429,167 @@ export function resolverPrompt(plans, declines = []) {
   lines.push('Carry out every step marked [you]. Leave every step marked [human only] to the human and say so — never write `authority: human`, and never put a record into force: your proposal is `proposed` and a human ratifies it.')
   lines.push('Run `node plugins/ratchet/ratchet-cli.mjs compile` and `node plugins/ratchet/ratchet-cli.mjs verify` from the project root when you are done, and report exactly what you changed and what the gate now says.')
   return lines.join('\n')
+}
+
+/** The ledger event one automatic resolver dispatch is recorded as. */
+export const RESOLVE_DISPATCH_EVENT = 'ratchet.resolve.dispatched'
+
+/**
+ * How long the same finding set is left alone after a dispatch, in milliseconds.
+ *
+ * A finding the resolver cannot clear would otherwise be re-dispatched on every state read,
+ * which is a model turn per panel open. Thirty minutes is long enough for a resolver to make
+ * progress and short enough that a project is not stranded.
+ */
+const DISPATCH_COOLDOWN_MS = 30 * 60 * 1000
+
+/**
+ * The steps that clear one needs-a-human finding WITHOUT a human decision.
+ *
+ * Only findings whose fix is a command are listed. A consent is a human answer, a
+ * contradiction or a duplicate is a human ratification, and a blocked record may need a
+ * human author — none of those is resolvable here, and offering them would be the
+ * automation that decides for the human, which the ratchet forbids.
+ *
+ * @param need - One `needsHuman` entry.
+ * @returns An array of `{ op, detail }` steps; empty when the finding is not automatable.
+ */
+export function findingSteps(need) {
+  const kind = need === null || need === undefined ? '' : String(need.kind)
+  if (kind === 'stale-spec') {
+    return [
+      {
+        op: 'compile-write',
+        detail: `run \`node plugins/ratchet/ratchet-cli.mjs compile --write\` so ${String(need.id)} is regenerated from the laws now in force`,
+      },
+    ]
+  }
+  if (kind === 'red-gate') {
+    return [
+      { op: 'compile-write', detail: 'regenerate the spec bundle with `ratchet-cli.mjs compile --write` so it matches the current laws' },
+      {
+        op: 'verify',
+        detail:
+          're-run `ratchet-cli.mjs verify` against the current laws and code, then fix what each problem names — a CODE_* problem is about the code or the check, so read the law and the target before changing either',
+      },
+    ]
+  }
+  if (kind === 'review') {
+    return [
+      {
+        op: 'corpus-review',
+        detail:
+          'run the corpus review, which needs a judge: call the `ratchet_compile` tool (it runs the review automatically when the law set has no recorded one) or `ratchet_review` with job "review_corpus", and report the findings it records',
+      },
+    ]
+  }
+  return []
+}
+
+/**
+ * The findings an automatic resolver may act on, with a stable key each.
+ *
+ * @param needs - The whole `needsHuman` set.
+ * @returns `[{ key, kind, id, title, steps }]` for the automatable ones, in the order given.
+ *   A finding with no steps is absent, so the resolver is never told to do something a human
+ *   must do.
+ */
+export function clearableFindings(needs) {
+  const out = []
+  for (const need of Array.isArray(needs) ? needs : []) {
+    const steps = findingSteps(need)
+    if (steps.length === 0) continue
+    out.push({ key: `${String(need.kind)}:${String(need.id)}`, kind: String(need.kind), id: need.id, title: need.title ?? null, steps })
+  }
+  return out
+}
+
+/**
+ * Builds the resolver prompt for a set of FINDINGS (not records).
+ *
+ * @param root - Absolute project root, named so the child knows where to work.
+ * @param findings - The `clearableFindings` result.
+ * @returns A prompt string. Empty when there is nothing to act on.
+ */
+export function findingPrompt(root, findings) {
+  const list = Array.isArray(findings) ? findings : []
+  if (list.length === 0) return ''
+  const lines = [
+    'Clear the outstanding ratchet findings in this project.',
+    '',
+    `Project root: ${root}`,
+    '',
+    'Findings:',
+  ]
+  for (const finding of list) {
+    lines.push(`- ${finding.kind} ${String(finding.id)}${finding.title === null || finding.title === undefined ? '' : ` — ${finding.title}`}`)
+    for (const step of finding.steps) lines.push(`  - ${step.detail}`)
+  }
+  lines.push('')
+  lines.push('Work from the project root. Do NOT approve, decline or ratify anything, do not write `authority: human`, and do not edit a decision record to make a check pass: put right what each finding names, or report why it cannot be put right without a human decision.')
+  lines.push('When you are done, run `node plugins/ratchet/ratchet-cli.mjs compile` and `node plugins/ratchet/ratchet-cli.mjs verify` from the project root and report exactly what changed and what the gate now says.')
+  return lines.join('\n')
+}
+
+/**
+ * Records one automatic dispatch, so the same finding set is not dispatched twice in a row.
+ *
+ * @param root - Absolute project root.
+ * @param keys - The finding keys that were dispatched.
+ * @param specHash - The law-set hash at dispatch time, so a corpus change re-arms it.
+ * @param at - Optional ISO timestamp (tests); defaults to now.
+ * @returns `{ ok, recorded }`.
+ */
+export function recordResolveDispatch(root, { keys = [], specHash = null, at = null } = {}) {
+  const fields = { keys: [...keys].sort(), specHash }
+  if (typeof at === 'string' && at.length > 0) fields.at = at
+  const written = appendLedger(root, RESOLVE_DISPATCH_EVENT, fields)
+  return { ok: written.error === undefined, recorded: written.error === undefined, path: written.path ?? null, error: written.error }
+}
+
+/**
+ * Reads back the most recent automatic dispatch.
+ *
+ * @param root - Absolute project root.
+ * @returns `{ at, keys, specHash }`, or `null` when none was ever recorded.
+ */
+export function lastResolveDispatch(root) {
+  const ledger = readLedger(root)
+  if (ledger.error !== undefined) return null
+  const events = (ledger.events ?? []).filter((event) => event?.event === RESOLVE_DISPATCH_EVENT)
+  const last = events[events.length - 1]
+  if (last === undefined) return null
+  return {
+    at: typeof last.at === 'string' ? last.at : null,
+    keys: Array.isArray(last.keys) ? last.keys.filter((key) => typeof key === 'string') : [],
+    specHash: typeof last.specHash === 'string' ? last.specHash : null,
+  }
+}
+
+/**
+ * Decides whether an automatic dispatch is DUE, and why.
+ *
+ * A dispatch that is not recorded is one that will happen again on every state read. The
+ * decision is conservative in the direction that costs nothing: it re-arms when the finding
+ * SET changes, when the law set changes, or when the cooldown has lapsed, and it declines
+ * only while the same findings are still outstanding under the same laws inside the window.
+ *
+ * @param root - Absolute project root.
+ * @param keys - The finding keys the caller would dispatch.
+ * @param options - `{ now, cooldownMs, specHash }`; `now` and the cooldown are injectable so
+ *   a test drives the window without waiting.
+ * @returns `{ due, reason }`.
+ */
+export function resolveDispatchDue(root, keys, { now = Date.now(), cooldownMs = DISPATCH_COOLDOWN_MS, specHash = null } = {}) {
+  const wanted = [...(Array.isArray(keys) ? keys : [])].sort()
+  if (wanted.length === 0) return { due: false, reason: 'nothing automatable is outstanding' }
+  const last = lastResolveDispatch(root)
+  if (last === null) return { due: true, reason: 'no automatic dispatch has been recorded' }
+  if (JSON.stringify(last.keys) !== JSON.stringify(wanted)) return { due: true, reason: 'the set of outstanding findings changed' }
+  if (last.specHash !== null && specHash !== null && last.specHash !== specHash) return { due: true, reason: 'the law set changed since the last attempt' }
+  const at = last.at === null ? NaN : Date.parse(last.at)
+  if (!Number.isFinite(at)) return { due: true, reason: 'the last dispatch records no readable time' }
+  const elapsed = now - at
+  if (elapsed >= cooldownMs) return { due: true, reason: `the cooldown lapsed (${Math.round(elapsed / 60000)} min)` }
+  return { due: false, reason: `dispatched ${Math.round(elapsed / 60000)} min ago for these same findings, under these same laws` }
 }

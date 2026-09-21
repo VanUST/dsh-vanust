@@ -624,6 +624,42 @@ export async function dispatchResolver({ runtime, agents, sessionId, prompt, adr
 }
 
 /**
+ * The ONE resolver per project, shared by the two surfaces that may dispatch one.
+ *
+ * The key is the project root, so two Sessions looking at the same manifest cannot each start
+ * a resolver that edits it, and a later dispatch STEERS the child the first one started. It is
+ * built once per plugin activation and handed to BOTH the resolve route (a human click) and the
+ * state route (the automatic dispatch): two registries would be two children racing for one
+ * manifest, which is the defect this path exists to prevent.
+ *
+ * @param ctx - The plugin context.
+ * @param log - A `{ info, warn }` sink.
+ * @returns `{ dispatch }`.
+ */
+function resolverFor(ctx, log) {
+  const resolvers = new Map()
+  const dispatch = (sessionId, prompt, adrId, root) => {
+    const remembered = resolvers.get(root) ?? null
+    return dispatchResolver({
+      runtime: ctx.get(SUBAGENTS_SERVICE),
+      agents: ctx.get(AGENTS_SERVICE),
+      sessionId,
+      prompt,
+      adrId,
+      previousChildId: remembered === null ? null : remembered.childId,
+      previousParentSessionId: remembered === null ? null : remembered.parentSessionId,
+      log,
+    }).then((result) => {
+      if (result.refusal === undefined && typeof result.childId === 'string' && result.childId.length > 0) {
+        resolvers.set(root, { childId: result.childId, parentSessionId: sessionId })
+      }
+      return result
+    })
+  }
+  return { dispatch }
+}
+
+/**
  * Builds the handler for the resolve route.
  *
  * Two acts share it, and they are deliberately different HTTP semantics on one route
@@ -646,7 +682,7 @@ export async function dispatchResolver({ runtime, agents, sessionId, prompt, adr
  * @param log - A `{ info, warn }` sink; never given the token.
  * @returns An async `(req, res)` handler that never throws.
  */
-function createResolveHandler(ctx, token, log) {
+function createResolveHandler(ctx, token, log, resolver) {
   const fenced = createFence(ctx, token, RESOLVE_HEADER, 'resolve', log)
   const resolveRequirement = {
     serviceName: RESOLVE_SERVICE,
@@ -655,27 +691,7 @@ function createResolveHandler(ctx, token, log) {
     unavailable: `no ${RESOLVE_SERVICE} service is mounted, so the ratchet cannot plan a resolution: mount @cc/dsh-ratchet beside this plugin`,
   }
 
-  // ONE resolver per project. The key is the project root, so two Sessions looking at the
-  // same manifest cannot each start a resolver that edits it.
-  const resolvers = new Map()
-  const dispatch = (sessionId, prompt, adrId, root) => {
-    const remembered = resolvers.get(root) ?? null
-    return dispatchResolver({
-      runtime: ctx.get(SUBAGENTS_SERVICE),
-      agents: ctx.get(AGENTS_SERVICE),
-      sessionId,
-      prompt,
-      adrId,
-      previousChildId: remembered === null ? null : remembered.childId,
-      previousParentSessionId: remembered === null ? null : remembered.parentSessionId,
-      log,
-    }).then((result) => {
-      if (result.refusal === undefined && typeof result.childId === 'string' && result.childId.length > 0) {
-        resolvers.set(root, { childId: result.childId, parentSessionId: sessionId })
-      }
-      return result
-    })
-  }
+  const { dispatch } = resolver
 
   return async function handleResolve(req, res) {
     try {
@@ -1039,7 +1055,7 @@ function createConsentHandler(ctx, token, log) {
  * @param log - A `{ info, warn }` sink; never given the token.
  * @returns An async `(req, res)` handler that never throws.
  */
-function createStateHandler(ctx, token, log) {
+function createStateHandler(ctx, token, log, resolver) {
   const fenced = createFence(ctx, token, STATE_HEADER, 'state', log)
   const stateRequirement = {
     serviceName: STATE_SERVICE,
@@ -1047,6 +1063,10 @@ function createStateHandler(ctx, token, log) {
     valid: (service) => typeof service.view === 'function',
     unavailable: `no ${STATE_SERVICE} service is mounted, so the ratchet cannot derive a decision view: mount @cc/dsh-ratchet beside this plugin`,
   }
+  // Bound here rather than read inside the trigger: a missing binding inside that try/catch
+  // would be logged as "auto-resolve threw" and would silently disable the whole path, which
+  // is the failure mode this whole route exists to avoid.
+  const dispatch = resolver === null || resolver === undefined ? null : resolver.dispatch
 
   return async function handleState(req, res) {
     try {
@@ -1083,6 +1103,49 @@ function createStateHandler(ctx, token, log) {
       log.info(
         `state root=${located.root} records=${Array.isArray(view?.records) ? view.records.length : 0} waiting=${Array.isArray(view?.queue?.pending) ? view.queue.pending.length : 0} blocked=${Array.isArray(view?.queue?.blocked) ? view.queue.blocked.length : 0} truncated=${view?.truncated === null || view?.truncated === undefined ? 'no' : 'yes'}`,
       )
+      // AUTOMATIC RESOLUTION. A finding whose fix is a command is dispatched to the ONE
+      // resolver for this project without a click; a finding that needs a human decision is
+      // not offered here at all, because the ratchet's own `clearableFindings` excludes it.
+      // The ratchet decides whether a dispatch is DUE (a recorded attempt plus a cooldown, so
+      // this cannot become a model turn per panel open) and builds the prompt; this route only
+      // starts the child. A dispatch never blocks the answer: a failure to start one is
+      // logged, and the state is still served.
+      try {
+        const resolveService = ctx.get(RESOLVE_SERVICE)
+        const requestSession = query.get('session')
+        if (
+          typeof dispatch !== 'function' &&
+          resolveService !== undefined &&
+          resolveService !== null &&
+          typeof resolveService.autoResolve === 'function'
+        ) {
+          log.warn('auto-resolve is off: this activation has no resolver registry, so findings are only reported')
+        }
+        if (
+          typeof dispatch === 'function' &&
+          resolveService !== undefined &&
+          resolveService !== null &&
+          typeof resolveService.autoResolve === 'function' &&
+          typeof requestSession === 'string' &&
+          requestSession.length > 0
+        ) {
+          const decision = resolveService.autoResolve({ root: located.root, needs: view?.needsHuman ?? [], specHash: view?.specHash ?? null })
+          if (decision.due === true && typeof decision.prompt === 'string' && decision.prompt.length > 0) {
+            const label = decision.keys.length === 1 ? String(decision.keys[0]).replace(/^[a-z-]+:/, '') : `findings-${String(decision.keys.length)}`
+            const started = await dispatch(requestSession, decision.prompt, label, located.root)
+            if (started.refusal === undefined) {
+              resolveService.noteDispatch({ root: located.root, keys: decision.keys, specHash: view?.specHash ?? null })
+              log.info(`auto-resolve dispatched ${decision.keys.join(',')} (${decision.reason})`)
+            } else {
+              log.warn(`auto-resolve could not dispatch: ${started.refusal.message}`)
+            }
+          } else {
+            log.info(`auto-resolve held: ${decision.reason}`)
+          }
+        }
+      } catch (error) {
+        log.warn(`auto-resolve threw: ${String(error)}`)
+      }
       sendJson(res, 200, view)
     } catch (error) {
       log.warn(`the state route threw: ${String(error)}`)
@@ -1130,6 +1193,9 @@ export function apply(ctx) {
     },
   }
 
+  // Built ONCE, before the routes: the resolve route and the state route must share it.
+  const resolver = resolverFor(ctx, log)
+
   ctx.inject(['webServer'], (web) => {
     // The token reaches the browser as an index global, written by the harness's own
     // renderer before any module runs. It is the ONLY delivery path: the token is in no
@@ -1157,7 +1223,7 @@ export function apply(ctx) {
         web.webServer.register({
           kind: 'exact',
           path: STATE_ROUTE,
-          handler: createStateHandler(ctx, token, log),
+          handler: createStateHandler(ctx, token, log, resolver),
         }),
       `adr-panel: GET ${STATE_ROUTE}`,
     )
@@ -1166,7 +1232,7 @@ export function apply(ctx) {
         web.webServer.register({
           kind: 'exact',
           path: RESOLVE_ROUTE,
-          handler: createResolveHandler(ctx, token, log),
+          handler: createResolveHandler(ctx, token, log, resolver),
         }),
       `adr-panel: GET/POST ${RESOLVE_ROUTE}`,
     )

@@ -9650,6 +9650,56 @@ test('resolve: one record keeps the single-record wording, and an empty batch sa
   assert.equal(resolveModule.resolverPrompt([]), 'No blocked record was named, so there is nothing to resolve.')
 })
 
+test('resolve: only a finding whose fix is a command is automatable', () => {
+  // The line the automation must not cross: a consent is a human ANSWER, and a contradiction,
+  // a duplicate or a blocked record needs a human AUTHORITY. Dispatching those would be an
+  // agent deciding for the human, which hard rule 12 forbids.
+  const steps = (need) => resolveModule.findingSteps(need).map((step) => step.op)
+  assert.deepEqual(steps({ kind: 'stale-spec', id: 'docs/specs/x.spec.md' }), ['compile-write'])
+  assert.deepEqual(steps({ kind: 'red-gate', id: 'verify' }), ['compile-write', 'verify'])
+  assert.deepEqual(steps({ kind: 'review', id: 'contradiction-review' }), ['corpus-review'])
+  for (const kind of ['consent', 'blocked', 'contradiction', 'duplicate']) {
+    assert.deepEqual(steps({ kind, id: '0001' }), [], `${kind} is a human act and must not be automatable`)
+  }
+  const clearable = resolveModule.clearableFindings([
+    { kind: 'consent', id: '0001' },
+    { kind: 'stale-spec', id: 'docs/specs/x.spec.md' },
+    { kind: 'red-gate', id: 'verify' },
+  ])
+  assert.deepEqual(clearable.map((finding) => finding.key), ['stale-spec:docs/specs/x.spec.md', 'red-gate:verify'])
+  assert.match(resolveModule.findingPrompt('/tmp/p', clearable), /Do NOT approve, decline or ratify anything/)
+})
+
+test('resolve: a dispatch is due once, then held until the findings, the laws or the cooldown move', () => {
+  const root = makeProject({ name: 'auto-resolve', adrs: {} })
+  const keys = ['red-gate:verify', 'review:contradiction-review']
+  const at = '2026-09-21T12:00:00.000Z'
+  const base = Date.parse(at)
+  assert.equal(resolveModule.resolveDispatchDue(root, keys, { now: base }).due, true, 'nothing recorded yet')
+  resolveModule.recordResolveDispatch(root, { keys, specHash: 'sha256:aaa', at })
+  assert.equal(
+    resolveModule.resolveDispatchDue(root, keys, { now: base + 60_000, specHash: 'sha256:aaa' }).due,
+    false,
+    'the same findings under the same laws inside the window are not re-dispatched',
+  )
+  assert.equal(
+    resolveModule.resolveDispatchDue(root, keys, { now: base + 31 * 60_000, specHash: 'sha256:aaa' }).due,
+    true,
+    'the cooldown arms it again',
+  )
+  assert.equal(
+    resolveModule.resolveDispatchDue(root, keys, { now: base + 60_000, specHash: 'sha256:bbb' }).due,
+    true,
+    'a changed law set arms it again',
+  )
+  assert.equal(
+    resolveModule.resolveDispatchDue(root, ['review:contradiction-review'], { now: base + 60_000, specHash: 'sha256:aaa' }).due,
+    true,
+    'a changed finding SET arms it again',
+  )
+  assert.equal(resolveModule.resolveDispatchDue(root, [], { now: base }).due, false, 'nothing to do is never due')
+})
+
 test('ratify: a declined answer records the human comment, and returns it', () => {
   // A "no" without a reason is unusable: the reason is what a later proposal is drafted
   // against, so it is written to the append-only ledger with the decision it refused.
