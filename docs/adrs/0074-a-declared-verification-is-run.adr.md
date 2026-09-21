@@ -68,11 +68,8 @@ laws:
   - op: upsert
     id: kit-tooling.the-delegation-cap-and-modes-behave-as-stated
     statement: The subagent cap refuses a third RUNNING child, releases the slot when a run settles, and the per-session work mode is what the next prompt assembly carries.
-    checks:
-      - type: command
-        run: node --test scripts/test-work-modes.mjs
-        expects: the guard, the ledger's release rules, the mode section and the capability-fenced route all hold
-        timeoutMs: 120000
+    checks: []
+    unenforced: The suite that would check this, node --test scripts/test-work-modes.mjs, is NOT REPRODUCIBLE and is therefore not a gate. Measured over five consecutive runs on one unchanged tree, four exited 1 and one exited 0, and the failing assertion alternates between the two that sit either side of the release race - "a delegation whose run settled releases its slot" (observed refused, expected admitted) and "a run that is still live keeps its slot" (observed admitted, expected refused). The test admits a delegation, emits one start edge and waits a fixed 20 ms, so whether a settled run has been swept before the next call depends on the clock, and the two assertions cannot both hold under either timing. It belongs in the release gate until it is made deterministic; a gate whose colour is luck teaches people to re-run it.
   - op: upsert
     id: kit-tooling.the-cap-seam-is-measured
     statement: The seam the delegation cap rests on is measured rather than assumed, and because that measurement depends on the harness this machine happens to have, it is run in the release gate and NOT as a check of this corpus.

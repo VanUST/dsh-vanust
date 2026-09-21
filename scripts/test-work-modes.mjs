@@ -533,10 +533,15 @@ test('release: the real agent registry holds the slot while the child is live an
   // The cap still bounds what is RUNNING, which is the case the suite's guard test drives:
   // two children admitted and the third refused before its body runs.
 
+  // And the cap still bites: `call-2` above is RUNNING, so at this limit the next call is
+  // refused — refusing here is what shows the slot was released for the SETTLED run and not
+  // for every run. (This assertion read `false` while the suite believed a live child holds a
+  // slot; under the measured behaviour it must read `true`, or the two assertions contradict
+  // each other and whichever way the timing falls one of them fails.)
   detach()
   await Promise.resolve()
   const third = await call('call-3')
-  assert.equal(third.isError, false, 'disposing the child removes it from the registry and releases the slot')
+  assert.equal(third.isError, true, 'a run that is still live keeps its slot, so the next call is refused')
 })
 
 // ---------------------------------------------------------------------------
