@@ -1044,3 +1044,87 @@ test('kit: a zone whose flag is off is unaffected, so scripts, probes and rules 
     assert.equal(call(guard, 'write', { file_path: path }), 'ALLOWED', `${path} is in a zone whose flag is off`)
   }
 })
+
+test('guard: a judged contradiction refuses only the paths the contradicted law claims', () => {
+  // ADR 0075's second call. The block keyed on the contradicted law's ZONE id, so a law whose own
+  // check named one subtree refused a write beside it in the same zone — a block stopping work its
+  // finding says nothing about, which is how a reader stops trusting the block. The law below
+  // claims `src/api/inner/**`; the zone `api` is the whole of `src/api`.
+  const root = project('contradiction-path-scope')
+  mkdirSync(join(root, 'src', 'api', 'inner'), { recursive: true })
+  writeFileSync(join(root, 'src', 'api', 'inner', 'x.ts'), 'export const q = 1\n')
+  writeFileSync(
+    join(root, 'docs', 'adrs', '0001-scoped.adr.md'),
+    [
+      '---',
+      'id: "0001"',
+      'title: Inner sessions use Redis',
+      'type: adr',
+      'status: active',
+      'author:',
+      '  authority: human',
+      '  name: ada',
+      'source:',
+      '  kind: file',
+      `  path: ${SOURCE_PATH}`,
+      `  hash: ${schema.hashSource(readFileSync(join(root, SOURCE_PATH), 'utf8'))}`,
+      'zones:',
+      '  - api',
+      'supersedes: []',
+      'approves: []',
+      'laws:',
+      '  - op: upsert',
+      '    id: api.inner.redis',
+      '    statement: Inner sessions must use Redis.',
+      '    checks:',
+      '      - type: required_glob',
+      '        pattern: src/api/inner/**',
+      '---',
+      '',
+      '## Context',
+      '',
+      'c',
+      '',
+      '## Decision',
+      '',
+      'd',
+      '',
+      '## Reasoning',
+      '',
+      'r',
+      '',
+      '## Consequences',
+      '',
+      'x',
+      '',
+    ].join('\n'),
+  )
+  const guard = guardModule.createGuard({ root })
+  const path = join(root, '.dsh', 'ratchet', 'contradiction.json')
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(
+    path,
+    `${JSON.stringify(
+      {
+        version: 1,
+        entries: {
+          'review:review_change': {
+            target: { kind: 'review', id: 'review_change', hash: null },
+            findings: [{ severity: 'error', kind: 'semantic_violation', lawId: 'api.inner.redis', explanation: 'inverts the decision' }],
+          },
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  )
+  assert.ok(
+    call(guard, 'write', { file_path: 'src/api/inner/x.ts' }).startsWith('DENIED:'),
+    'the finding is about this subtree, so the write there is refused',
+  )
+  assert.equal(
+    call(guard, 'write', { file_path: 'src/api/handler.ts' }),
+    'ALLOWED',
+    'the law makes no claim about a path beside it, so the block must not reach it',
+  )
+})

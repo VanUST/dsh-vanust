@@ -760,16 +760,53 @@ claim(
 )
 
 // The channel the approval records is the SURFACE that carried the answer, not the harness
-// seam's. A route-minted consent that said `user-question` would be a false statement in a
-// durable record — and it would be indistinguishable from one the harness delivered.
+// seam's. The expectation must NOT be read from `ratchetConsent.CONSENT_CHANNEL`: that is
+// the constant the service writes the record WITH, so mutating it moves the written value
+// and the oracle together — the check keeps passing while a panel delivery records the
+// harness seam's channel for an answer the panel carried. Two independent facts are
+// observed instead. The surface the check itself drove is the panel, whose own declared
+// identity is `panelHost.name`, so the channel it records must name the panel; and the
+// harness question seam is driven on a throwaway fixture, so the channel IT records is
+// observed rather than read, and the panel's must differ from it. Two surfaces that
+// recorded one channel would make a durable record say the harness delivered a question
+// the panel delivered.
+const seamRoot = fixture('seam-channel', {
+  zones: [{ id: 'api', paths: ['src/api/**'], agentAuthority: 'proposeOnly' }],
+  adrs: { '0001-waiting.adr.md': adr({ id: '0001', status: 'proposed', authority: 'agent', zone: 'api', laws: [] }) },
+})
+const seamPrepared = ops.ratify({ root: seamRoot, ids: ['0001'], at: '2026-09-16T00:00:00Z' })
+const seamSettled = ops.ratify({
+  root: seamRoot,
+  ids: ['0001'],
+  quiz: seamPrepared.quiz,
+  answer: { answers: [{ id: 'ratify-0001', selected: [seamPrepared.quiz.roles['ratify-0001'].approveLabel] }] },
+  at: '2026-09-16T00:00:00Z',
+})
+const seamChannel =
+  seamSettled.approval === undefined
+    ? null
+    : (/^  channel: (.*)$/m.exec(readFileSync(join(seamRoot, seamSettled.approval.path), 'utf8'))?.[1] ?? null)
+rmSync(seamRoot, { recursive: true, force: true })
+
 const approvalText = readFileSync(join(serviceRoot, settled.approval.path), 'utf8')
 const transcriptText = readFileSync(join(serviceRoot, settled.transcript.path), 'utf8')
+const observedChannel = /^  channel: (.*)$/m.exec(approvalText)?.[1] ?? null
+const observedTranscriptChannel = /^- channel: (.*)$/m.exec(transcriptText)?.[1] ?? null
+// The panel's own name is a literal the surface declares about itself, and it is the
+// route's own channel because a consent records the surface that carried it.
+const expectedChannel = panelHost.name
+process.stdout.write(
+  `  (consent channel) expected=${expectedChannel} observed=${observedChannel} transcript=${observedTranscriptChannel} harness-seam=${seamChannel}\n`,
+)
 claim(
   'a consent recorded through the route names the route as its channel, in the approval and the transcript',
-  new RegExp(`^  channel: ${ratchetConsent.CONSENT_CHANNEL}$`, 'm').test(approvalText) &&
-    new RegExp(`^- channel: ${ratchetConsent.CONSENT_CHANNEL}$`, 'm').test(transcriptText) &&
-    RATIFICATION_CHANNELS.includes(ratchetConsent.CONSENT_CHANNEL),
-  `channel=${ratchetConsent.CONSENT_CHANNEL} approval=${JSON.stringify(/^  channel: (.*)$/m.exec(approvalText)?.[1] ?? null)} transcript=${JSON.stringify(/^- channel: (.*)$/m.exec(transcriptText)?.[1] ?? null)}`,
+  observedChannel === expectedChannel &&
+    observedTranscriptChannel === expectedChannel &&
+    seamChannel !== null &&
+    expectedChannel !== seamChannel &&
+    RATIFICATION_CHANNELS.includes(observedChannel) &&
+    RATIFICATION_CHANNELS.includes(seamChannel),
+  `expected=${expectedChannel} observed=${observedChannel} transcript=${observedTranscriptChannel} harness-seam=${seamChannel}`,
 )
 
 // The same call again: the record is no longer waiting, so a replayed quiz mints nothing.

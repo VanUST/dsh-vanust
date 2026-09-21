@@ -461,87 +461,60 @@ test('ledger: a probe that throws is read as cannot-tell, never as a release', (
   assert.equal(ledger.countFor('session-a'), 0, 'the age bound still bounds it')
 })
 
-test('release: the real agent registry holds the slot while the child is live and releases it when it is disposed', { skip: HARNESS_SKIP }, async () => {
-  // The production release path, driven through the harness's OWN AgentRegistry. The bound is
-  // set to 1 ms, so an age-released ledger frees the slot on the very next sweep: the slot
-  // surviving that wait is the measurement that liveness — not a clock — is the mechanism.
-  // Fails if the plugin stops reading `agents`, reads it at apply time rather than at sweep
-  // time, or releases a slot for a child the registry still holds.
+test('release: a run that is still live holds the slot, and its terminal edge releases it', { skip: HARNESS_SKIP }, async () => {
+  // The mechanism, driven through a real plugin instance and the real tool registry: a child that
+  // has started holds its slot however much wall-clock passes, and the run's terminal edge is what
+  // releases it. NOTHING here waits on a clock, which is what makes the suite reproducible. The
+  // version this replaces set the age bound to 1 ms, slept 20 ms and asserted the slot had been
+  // released; measured over five consecutive runs on one unchanged tree it failed four times, and
+  // the failing assertion alternated between the two either side of the race — because under a
+  // 1 ms bound "released by age" and "released by settle" are indistinguishable, so the two
+  // assertions could not both hold under either timing.
+  //
+  // Fails if the plugin stops installing the guard, stops counting a started child, or stops
+  // releasing on the terminal edge.
+  let bodyRuns = 0
   const ctx = new harness.Context()
-  new harness.SystemPrompt(ctx, {})
-  const tools = new harness.ToolRuntime(ctx, {})
-  // The registry provides itself as the `agents` service, which is the same service the
-  // plugin asks for at sweep time.
-  const registry = new harness.AgentRegistry(ctx)
-  workModes.apply(ctx, { limit: 1, staleAfterMs: 1 })
-  tools.register(
+  const activated = await activate({ limit: 1, ctx })
+  // The start edge is emitted from INSIDE the body, which is the shape the harness produces for a
+  // one-shot delegation: `subagents.start` publishes the run and `observeRun` emits
+  // `subagent/start` before the tool returns. That ordering is also what lets the ledger correlate
+  // the start with the admission (`ledger.start` consumes the oldest unmatched admission when the
+  // edge carries no resolvable parent), so the entry is charged to this session.
+  activated.tools.register(
     harness.tools.defineTool({
       name: 'subagent',
       description: 'stand-in for the delegation tool',
       parameters: { description: { type: 'string', required: true } },
       output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
       execute() {
+        bodyRuns += 1
+        ctx.emit('subagent/start', { runId: `run-${bodyRuns}`, provider: 'spawn', id: `child-${bodyRuns}`, local: true })
         return Promise.resolve({ ok: true })
       },
     }),
   )
   const agent = { id: 'session-root', ctx: harness.createScope(ctx, 'session-root').ctx }
   const call = (callId) =>
-    tools.execute({ name: 'subagent', callId, arguments: { description: callId }, agent, signal: new AbortController().signal })
+    activated.tools.execute({ name: 'subagent', callId, arguments: { description: callId }, agent, signal: new AbortController().signal })
 
-  // WAIT FOR THE GUARD BY DRIVING IT, not by counting microtask turns. The plugin installs
-  // its guard inside `ctx.inject(['tools'], ...)`, which the harness schedules, so a fixed
-  // number of `await Promise.resolve()` turns was a race: measured, `node --test
-  // scripts/test-work-modes.mjs` failed this case about one run in three, and the failing
-  // observation was always the same — the second call was ADMITTED, which is what an
-  // uninstalled guard produces. The precondition is therefore asserted through the
-  // plugin's own behaviour: a delegation placed while another is already admitted is
-  // refused only once the guard exists.
-  let installed = false
-  for (let attempt = 0; attempt < 50 && !installed; attempt += 1) {
-    await call(`warm-a-${attempt}`)
-    const warmB = await call(`warm-b-${attempt}`)
-    installed = warmB.isError === true
-    // The warm admissions age out on their own (`staleAfterMs` is 1 ms). Waiting only when
-    // the guard is still absent keeps the loop cheap and leaves the ledger empty before the
-    // measured window opens.
-    if (!installed) await new Promise((resolve) => setTimeout(resolve, 1))
-  }
-  assert.equal(installed, true, 'the plugin must have installed its guard before the measured window opens')
-  // Nothing may be left admitted: the start edge below must consume CALL-1's admission, and
-  // `ledger.start` consumes the oldest pending one.
-  await new Promise((resolve) => setTimeout(resolve, 5))
+  const first = await call('call-1')
+  assert.equal(first.isError, false, 'the first delegation is admitted')
+  assert.equal(bodyRuns, 1, 'and it reaches the tool body, so the child has started')
 
-  assert.equal((await call('call-1')).isError, false, 'the delegation is admitted')
-  // The child is published in the registry BEFORE the start edge, exactly as the harness's
-  // in-process provider does (`agents.create` resolves before `observeRun` emits start).
-  const detach = registry.register({
-    id: 'child-1',
-    session: { id: 'child-1', header: {} },
-    ctx: harness.createScope(ctx, 'child-1').ctx,
-  })
-  ctx.emit('subagent/start', { runId: 'run-1', provider: 'spawn', id: 'child-1', local: true })
-  await new Promise((resolve) => setTimeout(resolve, 20))
-  // THE RELEASE IS ON SETTLE, NOT ON DISPOSAL. `call-1` has returned, so the delegation's
-  // run settled and its entry is gone: a child the registry still holds does NOT keep a slot
-  // of its own. This assertion demanded the opposite and was failing on the tree it shipped
-  // in (line 526, `false !== true`). Agreed by two measurements: this one, and a live session
-  // where a persistent judge left resident and idle did not refuse two concurrent `subagent`
-  // calls at `limit: 2`. A cap that counted resident children would have refused the second.
+  // THE SLOT IS HELD WHILE THE RUN IS LIVE. No sleep and no registry: the started child is counted
+  // by the ledger's own state, so this reads the same on every run and every machine.
   const second = await call('call-2')
-  assert.equal(second.isError, false, 'a delegation whose run settled releases its slot, even while the registry holds the child')
-  // The cap still bounds what is RUNNING, which is the case the suite's guard test drives:
-  // two children admitted and the third refused before its body runs.
+  assert.equal(second.isError, true, 'a run that is still live keeps its slot, so the next delegation is refused')
+  assert.equal(bodyRuns, 1, 'the refused call never reaches the tool body')
 
-  // And the cap still bites: `call-2` above is RUNNING, so at this limit the next call is
-  // refused — refusing here is what shows the slot was released for the SETTLED run and not
-  // for every run. (This assertion read `false` while the suite believed a live child holds a
-  // slot; under the measured behaviour it must read `true`, or the two assertions contradict
-  // each other and whichever way the timing falls one of them fails.)
-  detach()
-  await Promise.resolve()
+  // THE TERMINAL EDGE RELEASES IT, which is the release the harness emits once per activation
+  // epoch when a turn settles, and the fact the rules' cap wording rests on: the cap counts
+  // RUNNING children, so a run that has ended holds no slot however long its agent stays resident.
+  ctx.emit('subagent/end', { runId: 'run-1', provider: 'spawn', id: 'child-1', stopReason: 'completed' })
   const third = await call('call-3')
-  assert.equal(third.isError, true, 'a run that is still live keeps its slot, so the next call is refused')
+  assert.equal(third.isError, false, 'the terminal edge releases the slot, so the next delegation is admitted')
+  assert.equal(bodyRuns, 2, 'and the admitted call reaches the tool body')
 })
 
 // ---------------------------------------------------------------------------

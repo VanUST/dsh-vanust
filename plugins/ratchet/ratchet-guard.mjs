@@ -52,9 +52,9 @@
  */
 import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
-import { MANIFEST_PATH, zoneFor } from './ratchet-schema.mjs'
+import { MANIFEST_PATH, globToRegExp, zoneFor } from './ratchet-schema.mjs'
 import { auditedResolutions, compileLaws, decidableContradictions, readAdrCorpus, readManifest, resolveActiveSet } from './ratchet-compiler.mjs'
-import { CONTRADICTION_PATH, blockedZones, standingContradictions } from './ratchet-contradiction.mjs'
+import { CONTRADICTION_PATH, blockedScopes, standingContradictions } from './ratchet-contradiction.mjs'
 import { STATE_PATHS } from './ratchet-state.mjs'
 
 /**
@@ -211,6 +211,25 @@ function contradictingDenial(path, zone, contradiction) {
 }
 
 /**
+ * Whether a contradicted zone's scope reaches a path.
+ *
+ * @param scope - A zone's entry from `blockedScopes`: `null` for the whole zone, a `Set` of globs
+ *   for a law that made a path claim, or `undefined` when the zone was not recorded at all.
+ * @param path - The repository-relative path a write is about, forward-slashed.
+ * @returns `true` when the block reaches `path`. A `null` or `undefined` scope blocks everything in
+ *   the zone: `null` because the law claims the whole zone, and `undefined` because an unreadable
+ *   scope is the case the guard fails CLOSED on. A malformed glob throws out of `globToRegExp`, and
+ *   the caller's catch renders a refusal rather than letting the write through.
+ */
+function scopeCoversPath(scope, path) {
+  if (scope === null || scope === undefined) return true
+  for (const glob of scope) {
+    if (globToRegExp(glob).test(path)) return true
+  }
+  return false
+}
+
+/**
  * Reads a project's decision state once and answers governance questions from it.
  *
  * The cache is keyed on the decisions directory's entries — each name with its size and
@@ -276,12 +295,16 @@ export function loadDecisionState(root) {
       ? null
       : {
           entries: standing,
-          zones: blockedZones(standing, {
+          // The zones, and within each the paths the finding reaches. A judge's finding is about
+          // the law it names, and a law with a path-scoped check is about those paths only, so a
+          // write beside them in the same zone is not what the finding says anything about.
+          scopes: blockedScopes(standing, {
             active: resolved.active,
             proposed: resolved.proposed,
             laws: compiledForContradiction.bundle.laws,
           }),
         }
+  if (contradiction !== null) contradiction.zones = new Set(contradiction.scopes.keys())
 
   const governedZones = (config.zones ?? []).filter((zone) => zone.requiresDecisionRecord === true)
   if (governedZones.length === 0) {
@@ -533,7 +556,11 @@ export function createGuard({ root }) {
         reviewInfrastructureExemption(path, state.config) === null
       ) {
         const judgedZone = zoneFor(path, state.config?.zones ?? [])
-        if (judgedZone !== null && contradiction.zones.has(judgedZone.id)) {
+        if (
+          judgedZone !== null &&
+          contradiction.zones.has(judgedZone.id) &&
+          scopeCoversPath(contradiction.scopes === undefined ? undefined : contradiction.scopes.get(judgedZone.id), path)
+        ) {
           try {
             return contradictingDenial(path, judgedZone, contradiction)
           } catch (error) {

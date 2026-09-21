@@ -266,6 +266,28 @@ const DEFAULT_TASK = [
 ].join('\n')
 
 /** Parse the probe's own flags; an unknown flag is a usage error. */
+/**
+ * The exit code a probe run reports, from the checks it recorded.
+ *
+ * PURPOSE
+ *   Turn the probe's recorded facts into the process exit code a law's `outputContains`
+ *   and a release gate both read, so "the probe exits non-zero when a fact is not
+ *   confirmed" is one executable rule rather than a line a reader has to trust.
+ * INPUTS
+ *   checks — the array of `{ pass, id, note }` the run recorded. Anything else, including
+ *   an empty array, is read as "no fact was confirmed".
+ * OUTPUTS
+ *   `0` only when every recorded check has `pass === true` AND at least one check was
+ *   recorded; `1` otherwise. An empty run is a failure, not a pass: a probe that recorded
+ *   nothing must not exit 0, which is what `[].every(...)` used to do.
+ * KEYWORDS
+ *   probe, exit code, facts confirmed, churn detector, selftest
+ */
+export function probeExitCode(checks) {
+  if (!Array.isArray(checks) || checks.length === 0) return 1
+  return checks.every((entry) => entry !== null && typeof entry === 'object' && entry.pass === true) ? 0 : 1
+}
+
 function parseArgs(argv) {
   const options = {
     task: DEFAULT_TASK,
@@ -282,6 +304,7 @@ function parseArgs(argv) {
     drillRules: null,
     drillJournal: null,
     kitRules: false,
+    selftestExit: false,
     bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-headless'],
   }
   for (let index = 0; index < argv.length; index += 1) {
@@ -297,6 +320,7 @@ function parseArgs(argv) {
     else if (flag === '--drill-rules') options.drillRules = argv[++index] ?? ''
     else if (flag === '--drill-journal') options.drillJournal = argv[++index] ?? ''
     else if (flag === '--kit-rules') options.kitRules = true
+    else if (flag === '--selftest-exit') options.selftestExit = true
     else if (flag === '--task') options.task = argv[++index] ?? ''
     else if (flag === '--profile') options.profile = argv[++index] ?? ''
     else if (flag === '--out') options.out = argv[++index] ?? ''
@@ -801,6 +825,22 @@ function sessionDirs(home) {
 }
 
 const options = parseArgs(process.argv.slice(2))
+
+// The exit-rule selftest runs before anything that needs credentials or a harness, and it
+// EXECUTES the rule rather than describing it: three fixtures whose correct answers are known
+// by hand — all pass, one fails, none recorded — are pushed through `probeExitCode`. Its own
+// exit is non-zero when any of the three is mapped wrongly, so a mutation of the rule makes
+// `node scripts/probe-dsh-api.mjs --selftest-exit` fail.
+if (options.selftestExit) {
+  const allPass = [{ pass: true }, { pass: true }]
+  const oneFails = [{ pass: true }, { pass: false }]
+  const noneRecorded = []
+  const codes = [probeExitCode(allPass), probeExitCode(oneFails), probeExitCode(noneRecorded)]
+  process.stdout.write(
+    `probe-dsh-api: exit-rule selftest all-pass=${codes[0]} one-fails=${codes[1]} none-recorded=${codes[2]}\n`,
+  )
+  process.exit(codes[0] === 0 && codes[1] === 1 && codes[2] === 1 ? 0 : 1)
+}
 
 // The kit-rules prompt probe boots no harness and makes no model call, so it must
 // run before the credential check that the booting probes need. It is a complete
@@ -1564,4 +1604,4 @@ if (options.json) {
   }
 }
 
-process.exit(checks.every((entry) => entry.pass) ? 0 : 1)
+process.exit(probeExitCode(checks))

@@ -255,29 +255,16 @@ export function quoteAppears(quote, sourceText) {
   const haystack = normaliseText(sourceText).toLowerCase()
   const collapsedNeedle = needle.toLowerCase().replace(/\s+/g, ' ')
   const collapsedHaystack = haystack.replace(/\s+/g, ' ')
+  // Collapsing whitespace covers the only reflow a judge may legitimately perform: a sentence that
+  // wraps a line break, or one whose internal spacing differs from the source's. There was a second
+  // path here that split the quote on sentence punctuation and required each fragment to appear
+  // SOMEWHERE, and it accepted a span stitched from two different sentences that appears nowhere as
+  // a whole — the exact fabrication this check exists to catch, admitted by its own fallback. A span
+  // must appear verbatim; anything else is refused and the refusal says which phrase is missing.
   if (collapsedHaystack.includes(collapsedNeedle)) return { ok: true, reason: null }
-
-  // A judge may quote a sentence that wraps a line break or repeats a word; the
-  // fallback below tolerates that. It does NOT tolerate a MISSING phrase: every
-  // fragment of the quote that is long enough to prove anything must be present, so
-  // an invented sentence cannot ride along behind a real one — which is what the
-  // longest-fragment version allowed, and it is exactly the fabrication this check
-  // exists to catch.
-  const fragments = collapsedNeedle
-    .split(/[.;:]\s+/)
-    .map((fragment) => fragment.trim())
-    .filter((fragment) => fragment.length >= MIN_QUOTE_LENGTH)
-  if (fragments.length === 0) {
-    return {
-      ok: false,
-      reason: 'the quote does not appear in the source, so the reasoning it supports cannot be attributed to it',
-    }
-  }
-  const missing = fragments.filter((fragment) => !collapsedHaystack.includes(fragment))
-  if (missing.length === 0) return { ok: true, reason: null, matched: 'fragments' }
   return {
     ok: false,
-    reason: `the quote does not appear in the source: ${JSON.stringify(missing[0].slice(0, 120))} is not there, so the reasoning it supports cannot be attributed to it`,
+    reason: `the quote does not appear in the source: ${JSON.stringify(collapsedNeedle.slice(0, 120))} is not there, so the reasoning it supports cannot be attributed to it`,
   }
 }
 
@@ -599,7 +586,7 @@ export function validateIngest(candidate, { sourceText, config = null, existingI
  * @param options - `{ fields, sourcePath, sourceHash, createdAt, authorName }`.
  * @returns `{ filename, path, text }` with a repository-relative path.
  */
-export function renderAdr({ fields, sourcePath, sourceHash, createdAt, authorName = 'ratchet-ingest', decisionsDir = 'docs/adrs' }) {
+export function renderAdr({ fields, sourcePath, sourceHash, createdAt, authorName = 'ratchet-ingest', decisionsDir = 'docs/adrs', span = null }) {
   const slug = slugFor(fields.title)
   const filename = `${fields.id}-${slug}.adr.md`
   const zones = fields.zones.length === 0 ? '  - main' : fields.zones.map((zone) => `  - ${zone}`).join('\n')
@@ -668,6 +655,14 @@ export function renderAdr({ fields, sourcePath, sourceHash, createdAt, authorNam
     '',
     fields.reasoning,
     '',
+    // The verbatim span the decision was drawn from, written into the record so a reader can
+    // check the attribution AFTER the call. It lived only on the transient result before, and a
+    // record whose ADR promises a reader can check it against the document is worth nothing if
+    // the document carries nothing to check. Omitted entirely when there is no span — a
+    // single-decision ingestion quotes its basis inside the reasoning instead.
+    ...(typeof span === 'string' && span.trim().length > 0
+      ? ['## Source span', '', span.trim(), '']
+      : []),
     '## Consequences',
     '',
     ...(fields.consequences.length === 0

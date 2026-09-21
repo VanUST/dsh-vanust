@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import { pathToFileURL } from 'node:url'
 import assert from 'node:assert/strict'
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -331,6 +331,38 @@ test('schema: a filename that is not NNNN-slug.adr.md is ADR_FILE_INVALID and yi
   const parsed = schema.parseAdr({ filename: 'README.md', source: adrText({ id: '0001' }) })
   assert.ok(parsed.problems.some((entry) => entry.code === 'ADR_FILE_INVALID'))
   assert.equal(parsed.record.id, '0001', 'the record still parses, so the corpus is not silently shortened')
+  // …and the problem CARRIES THE FILE IT IS ABOUT. `shipped-plugins.problems-carry-a-subject`
+  // had no assertion at all, and `ADR_FILE_INVALID` — the one code whose whole subject is the
+  // file's name — was emitted with `subject: null`, so a consumer filtering a problem list by
+  // subject dropped it. The subject here is the filename, because that is the only identity a
+  // record whose name is invalid has.
+  const invalid = parsed.problems.find((entry) => entry.code === 'ADR_FILE_INVALID')
+  assert.equal(invalid.subject, 'README.md', 'the problem must name the file it is about')
+})
+
+test('schema: every problem a parse emits carries a subject', () => {
+  // The general form of the claim: whatever goes wrong, the problem names something a reader
+  // can act on. Driven over a spread of malformed inputs rather than over one code, because the
+  // defect was a single emit site passing `null` while its neighbours passed the filename.
+  const malformed = [
+    { filename: 'README.md', source: adrText({ id: '0001' }) },
+    { filename: '0001-x.adr.md', source: adrText({ id: '0001', omitReasoning: true }) },
+    {
+      filename: '0001-x.adr.md',
+      source: ['---', 'id: "0001"', '---', '', '## Context', '', 'c', '', '## Decision', '', 'd', '', '## Reasoning', '', 'r', '', '## Consequences', '', 'x', ''].join('\n'),
+    },
+    { filename: '0002-other.adr.md', source: adrText({ id: '0001' }) },
+    { filename: '0003-x.adr.md', source: 'not frontmatter at all\n' },
+  ]
+  const subjectless = []
+  for (const entry of malformed) {
+    for (const problem of schema.parseAdr(entry).problems) {
+      if (problem.subject === null || problem.subject === undefined) {
+        subjectless.push(`${entry.filename}: ${problem.code}`)
+      }
+    }
+  }
+  assert.deepEqual(subjectless, [], `problems carrying no subject: ${subjectless.join(', ')}`)
 })
 
 test('schema: a valid filename with a disagreeing frontmatter id is ADR_ID_MISMATCH', () => {
@@ -2148,6 +2180,41 @@ test('state: a verification that evaluated zero checks does not count as verifie
   const after = ops.status(root)
   assert.equal(after.verified.ran, false, 'a zero-check verification must not read as verified')
   assert.ok(after.problems.some((entry) => entry.code === 'VERIFY_NOT_RUN'))
+})
+
+test('state: an artifact write is atomic, so a reader never sees a half-written report', () => {
+  // ADR-0004's `shipped-plugins.writes-are-atomic`. It named this suite as its enforcement
+  // and NOTHING here touched `writeArtifact`: a breaker replaced the temp-write-and-rename
+  // body with a plain `writeFileSync` and the whole suite stayed green. Two observable
+  // consequences are asserted instead, and each fails for a truncate-in-place writer:
+  // the destination is REPLACED (its inode moves, which only a rename does), and a write
+  // whose rename fails leaves the previous content intact with no temp sibling behind.
+  const root = makeProject({ name: 'write-atomic' })
+  const target = join(root, '.dsh', 'ratchet', 'report.json')
+  mkdirSync(dirname(target), { recursive: true })
+  writeFileSync(target, '{"generation":1}\n', 'utf8')
+  const inodeBefore = statSync(target).ino
+
+  const written = state.writeArtifact(root, '.dsh/ratchet/report.json', '{"generation":2}\n')
+  assert.equal(written.bytes, Buffer.byteLength('{"generation":2}\n'))
+  assert.equal(readFileSync(target, 'utf8'), '{"generation":2}\n', 'the new content is at the destination')
+  assert.notEqual(
+    statSync(target).ino,
+    inodeBefore,
+    'the destination must be REPLACED by a rename; an in-place truncating write keeps the inode, so a reader can observe a half-written file',
+  )
+
+  // A rename that cannot complete: the destination is a directory, so `renameSync` fails.
+  // The failure must be reported AND the temp file must not be left where a reader would
+  // list it as a truncated report.
+  const blocked = join(root, '.dsh', 'ratchet', 'blocked.json')
+  mkdirSync(blocked)
+  assert.throws(
+    () => state.writeArtifact(root, '.dsh/ratchet/blocked.json', '{"generation":3}\n'),
+    'a rename onto a directory must be reported rather than swallowed',
+  )
+  const leftovers = readdirSync(join(root, '.dsh', 'ratchet')).filter((name) => name.includes('.tmp-'))
+  assert.deepEqual(leftovers, [], `a failed write left temp siblings behind: ${leftovers.join(', ')}`)
 })
 
 test('state: specsRequired false does NOT opt out once generated documents exist', () => {
@@ -4762,6 +4829,150 @@ test('ingest: a law id that looks like another YAML type is still an id', () => 
   assert.equal(parsed.data.laws[0].id, '123', 'the id reads back as the string the judge wrote')
 })
 
+test('compiler: one law declared by a ratified and an unratified record keeps the strongest authority, in either order', () => {
+  // ADR 0075's first call. The merge kept the FIRST declarer's `approvedBy`, so the same corpus
+  // yielded opposite verdicts by renaming a file: with the unratified twin numbered lower the
+  // merged law carried no ratification and a later agent record retired it with the gate green.
+  // `compileLaws` is driven directly with both orderings, because directory read order is not a
+  // property a test may rely on.
+  const config = {
+    zones: [
+      { id: 'api', paths: ['src/api/**'], agentAuthority: 'proposeOnly' },
+      { id: 'tests', paths: ['tests/**'], agentAuthority: 'activeIfNoConflict' },
+    ],
+  }
+  const declarer = ({ id, zone, approvedBy = null }) => ({
+    id,
+    path: `docs/adrs/${id}-x.adr.md`,
+    authority: 'agent',
+    approvedBy,
+    zones: [zone],
+    laws: [{ op: 'upsert', id: 'api.x', statement: 'Agent law.', checks: [] }],
+  })
+  const ratified = declarer({ id: '0011', zone: 'api', approvedBy: '0012' })
+  const twin = declarer({ id: '0015', zone: 'tests' })
+  const remover = {
+    id: '0016',
+    path: 'docs/adrs/0016-x.adr.md',
+    authority: 'agent',
+    approvedBy: null,
+    zones: ['tests'],
+    laws: [{ op: 'remove', id: 'api.x' }],
+  }
+  for (const order of [[ratified, twin], [twin, ratified]]) {
+    const label = order.map((record) => record.id).join(' then ')
+    const merged = compiler.compileLaws(order, config)
+    assert.equal(merged.bundle.laws.length, 1, `${label}: the two declarations are one law`)
+    assert.equal(merged.bundle.laws[0].approvedBy, '0012', `${label}: the merged law keeps the ratification`)
+    const withRemoval = compiler.compileLaws([...order, remover], config)
+    assert.ok(
+      withRemoval.problems.some((entry) => entry.code === 'LAW_REMOVE_UNAUTHORISED'),
+      `${label}: the removal must be refused whatever the file order; got ${JSON.stringify(withRemoval.problems.map((entry) => entry.code))}`,
+    )
+  }
+  // With no ratification behind any declarer, an agent record may still retire it: the merge takes
+  // the strongest authority, it does not invent one.
+  const plain = compiler.compileLaws([declarer({ id: '0015', zone: 'tests' }), remover], config)
+  assert.deepEqual(plain.bundle.laws.map((law) => law.id), [], 'an unratified law is still removable')
+})
+
+test('compiler: a resolution that supersedes one record and removes another record\'s law is refused', () => {
+  // ADR 0075-era law: a resolution takes force away in exactly ONE of two ways. The refusal used to
+  // fire only when the removed law belonged to the very record being superseded, so a record that
+  // superseded A and surgically removed a law of B asked for both shapes and was accepted.
+  const root = makeProject({
+    name: 'resolution-two-ways',
+    adrs: {
+      '0001-a.adr.md': adrText({ id: '0001', zones: ['auth'], laws: [{ id: 'api.x', statement: 'First law.', checks: [] }] }),
+      '0002-b.adr.md': adrText({ id: '0002', zones: ['auth'], laws: [{ id: 'api.y', statement: 'Second law.', checks: [] }] }),
+      '0003-resolve.adr.md': adrText({
+        id: '0003',
+        zones: ['auth'],
+        supersedes: ['0001'],
+        resolves: ['0001', '0002'],
+        laws: [{ op: 'remove', id: 'api.y' }],
+      }),
+    },
+  })
+  const compiled = compiler.compileProject(root)
+  assert.ok(
+    compiled.problems.some((entry) => entry.code === 'RESOLUTION_AMBIGUOUS'),
+    `expected RESOLUTION_AMBIGUOUS, got ${JSON.stringify(compiled.problems.map((entry) => entry.code))}`,
+  )
+})
+
+test('ingest: a span stitched from two different sentences is refused, and a real one still passes', () => {
+  // The anti-fabrication guard had a fallback that split the quote on sentence punctuation and
+  // required each fragment to appear SOMEWHERE, so a span assembled from two different sentences —
+  // appearing nowhere as a whole — was accepted and its record written. The collapsed-whitespace
+  // comparison already covers the only reflow a judge may perform, so the fallback is gone.
+  const source = 'The team benchmarks every cache before choosing. Redis is already deployed and provides TTL for the session keys.'
+  const stitched = 'The team benchmarks every cache before choosing. provides TTL for the session keys.'
+  assert.equal(
+    ingestModule.quoteAppears(stitched, source).ok,
+    false,
+    'a stitched span appears nowhere in the source as a whole and must be refused',
+  )
+  assert.equal(
+    ingestModule.quoteAppears('Redis is already deployed and provides TTL', source).ok,
+    true,
+    'a span that is really there must still be accepted',
+  )
+  assert.equal(
+    ingestModule.quoteAppears('Redis is already deployed and\nprovides TTL', source).ok,
+    true,
+    'and one that wraps a line break is still the same span',
+  )
+})
+
+test('ingest: the record a batch writes carries the span it was drawn from', () => {
+  // The span lived only on the transient result: `renderAdr` was called without it, so the
+  // `.adr.md` on disk contained no quote at all. The ADR promises a reader can check a record
+  // against the document it cites; after the call there was nothing to check.
+  const fields = {
+    id: '0002',
+    title: 'A decision',
+    decision: 'D.',
+    reasoning: 'R.',
+    context: 'C.',
+    consequences: [],
+    zones: ['auth'],
+    laws: [{ id: 'auth.x', statement: 'S.', checks: [], unenforced: null }],
+  }
+  const span = 'Redis is already deployed and provides TTL for the session keys.'
+  const rendered = ingestModule.renderAdr({
+    fields,
+    sourcePath: 'docs/ratchet/sources/session-storage.md',
+    sourceHash: schema.hashSource('x'),
+    createdAt: '2026-09-13T00:00:00Z',
+    span,
+  })
+  assert.ok(rendered.text.includes('## Source span'), 'the record must carry the span it was drawn from')
+  assert.ok(rendered.text.includes(span), 'and the span must be the verbatim one the tool located')
+  assert.deepEqual(
+    schema.parseAdr({ filename: rendered.filename, source: rendered.text, root: null }).problems,
+    [],
+    'the record with a span section must still satisfy the parser',
+  )
+})
+
+test('dedupe: two PROPOSED records declaring one statement are not a duplicate', () => {
+  // The law's word is ACTIVE, and there was no status check at all: a corpus holding only
+  // proposals — a project that had settled nothing — was refused as a duplicate and told to merge
+  // two decisions that govern nothing yet.
+  return import(pathToFileURL(join(PLUGIN, 'ratchet-dedupe.mjs')).href).then((dedupe) => {
+    const proposal = (id, lawId) => ({ id, status: 'proposed', laws: [{ op: 'upsert', id: lawId, statement: 'One constraint.', checks: [] }] })
+    const proposed = dedupe.findDuplicates([proposal('0001', 'a.one'), proposal('0002', 'a.two')])
+    assert.deepEqual(proposed.duplicates, [], 'two proposed records hold nothing in force and cannot duplicate one another')
+
+    const active = dedupe.findDuplicates([
+      { id: '0001', status: 'active', laws: [{ op: 'upsert', id: 'a.one', statement: 'One constraint.', checks: [] }] },
+      { id: '0002', status: 'active', laws: [{ op: 'upsert', id: 'a.two', statement: 'One constraint.', checks: [] }] },
+    ])
+    assert.equal(active.duplicates.length, 1, 'two active records declaring one statement are still a duplicate')
+  })
+})
+
 const KIT_ROOT = resolve(import.meta.dirname, '..')
 
 /**
@@ -4815,12 +5026,19 @@ test('kit: every problem code emitted anywhere is declared in the vocabulary', a
 
 test('kit: every manifest rule names an enforcement command the manifest declares', () => {
   // ADR-0006's invariant, and the one the `context_rules` tool reports on: a rule
-  // citing a command nobody declared is a rule with no enforcement point.
+  // citing a command nobody declared is a rule with no enforcement point. A rule that
+  // names NO enforcement point at all is the same defect and was the one case this test
+  // skipped — it `continue`d on a null `enforcedBy`, so the manifest could carry a
+  // declared rule with nothing behind it and this assertion, whose whole subject is
+  // enforcement points, passed.
   const manifest = JSON.parse(readFileSync(join(KIT_ROOT, '.dsh', 'project.json'), 'utf8'))
   const commands = new Set((manifest.verification ?? []).map((entry) => entry.id))
   const offenders = []
   for (const rule of manifest.rules ?? []) {
-    if (rule.enforcedBy === null || rule.enforcedBy === undefined) continue
+    if (rule.enforcedBy === null || rule.enforcedBy === undefined) {
+      offenders.push(`${rule.id} names no enforcement command at all`)
+      continue
+    }
     if (!commands.has(rule.enforcedBy.command)) {
       offenders.push(`${rule.id} cites "${rule.enforcedBy.command}", which is not declared`)
     }
@@ -4830,22 +5048,50 @@ test('kit: every manifest rule names an enforcement command the manifest declare
 })
 
 test('kit: every declared verification command names a file that exists', () => {
+  // ADR-0006's other half. Two claims, because the two fields can disagree: `path` is
+  // the file a reader is pointed at, and the FILE THE COMMAND RUNS is what actually
+  // enforces the law. Only `path` was checked, so a `command` pointed at a script that
+  // does not exist stayed green — the id, the path and the purpose all described an
+  // enforcement point that was never executed.
   const manifest = JSON.parse(readFileSync(join(KIT_ROOT, '.dsh', 'project.json'), 'utf8'))
   const missing = (manifest.verification ?? [])
     .filter((entry) => !existsSync(join(KIT_ROOT, entry.path)))
     .map((entry) => `${entry.id} -> ${entry.path}`)
   assert.deepEqual(missing, [], 'a command whose implementation is absent enforces nothing')
+
+  // The first interpreter-relative argument of the command is the file it runs. Flags are
+  // allowed before it and after it; a command that names no file at all (a bare shell
+  // builtin) is reported rather than skipped, because this assertion exists to say the
+  // implementation is present.
+  const unbacked = []
+  for (const entry of manifest.verification ?? []) {
+    const tokens = String(entry.command ?? '').split(/\s+/).filter((token) => token.length > 0)
+    const script = tokens.slice(1).find((token) => !token.startsWith('-') && /\.(mjs|cjs|js|sh|ps1)$/.test(token))
+    if (script === undefined) {
+      unbacked.push(`${entry.id} -> the command ${JSON.stringify(entry.command)} names no script file`)
+      continue
+    }
+    if (!existsSync(join(KIT_ROOT, script))) unbacked.push(`${entry.id} -> the command runs ${script}, which does not exist`)
+  }
+  assert.deepEqual(unbacked, [], 'a declared verification whose command runs nothing is not an enforcement point')
 })
 
 test('kit: the API probe exits non-zero when a fact is not confirmed', () => {
   // ADR-0005's invariant, and the reason the probe is a churn detector rather than
-  // documentation: a probe that always exits 0 reports nothing.
-  const source = readFileSync(join(KIT_ROOT, 'scripts', 'probe-dsh-api.mjs'), 'utf8')
-  assert.ok(
-    source.includes('process.exit(checks.every((entry) => entry.pass) ? 0 : 1)'),
-    'the probe must exit 1 when a check failed',
-  )
-  assert.ok(source.includes('checks.push'), 'and it must actually record checks')
+  // documentation: a probe that always exits 0 reports nothing. This DRIVES the rule
+  // instead of reading the file. It used to assert that the probe's source CONTAINED a
+  // particular `process.exit(...)` expression, which a breaker defeated by leaving the old
+  // line inside a comment and exiting 0 — the assertion was about text, not behaviour. The
+  // probe now has an exit-rule selftest that pushes three hand-known fixtures through the
+  // same function the real run ends with, so the mapping is executed here.
+  const run = spawnSync(process.execPath, [join(KIT_ROOT, 'scripts', 'probe-dsh-api.mjs'), '--selftest-exit'], {
+    encoding: 'utf8',
+    timeout: 60_000,
+  })
+  assert.equal(run.status, 0, `the probe's exit rule maps a known fixture wrongly: ${run.stdout}${run.stderr}`)
+  assert.match(run.stdout, /one-fails=1/, 'a recorded failing fact must produce exit code 1')
+  assert.match(run.stdout, /none-recorded=1/, 'a run that recorded no fact must not pass')
+  assert.match(run.stdout, /all-pass=0/, 'a run whose every fact held must produce exit code 0')
 })
 
 test('FALSIFICATION: a law bound to a probe is refused, so ADR 0043 is a rule and not a convention', () => {
@@ -7252,21 +7498,27 @@ test('dynamic: a self-review may raise a block but may not clear one', () => {
   )
 })
 
-test('dynamic: a self-review that names nothing records a block a later review can retire', () => {
-  // A block has to be bound to something whose change can retire it. Unnamed material is bound to
-  // the REVIEW JOB, which is the stream the agent is iterating, so the next independent review of
-  // that job clears it — unlike a material-hash binding, which the prescribed loop could never
-  // retire because changing the text writes a different key.
+test('dynamic: a self-review that names nothing declines but records no block', () => {
+  // ADR 0024's law is explicit: "a self-review that names no material declines without recording
+  // anything, because a block on material nobody named is a block nobody can clear." This test
+  // asserted the OPPOSITE — that such a review recorded a `review:`-bound block — which is what the
+  // code did: `submitReview` computed `judgedSomething` and then never read it. The block it wrote
+  // refused writes in the contradicted zone with no edit able to retire it: there is no material
+  // whose change moves a hash, and no record whose edit the job key follows.
   const root = reviewableProject('dyn-self-untargeted')
   const blocking = {
     ok: false,
     findings: [{ severity: 'error', kind: 'intent_violation', lawId: 'auth.session-storage.redis', lawQuote: 'Session storage must use Redis.', explanation: 'inverts the decision' }],
   }
   const result = ops.submitReview({ root, job: 'review_change', verdict: blocking })
-  assert.equal(result.declined, true, 'the finding is reported')
+  assert.equal(result.declined, true, 'the finding is still reported')
   assert.equal(result.advisory, false, 'a self-review that reports a contradiction is a gate too')
   assert.equal(typeof result.nextStep, 'string', 'and it names the route out')
-  assert.deepEqual(Object.keys(contradictionModule.readContradictions(root)), ['review:review_change'])
+  assert.deepEqual(
+    Object.keys(contradictionModule.readContradictions(root)),
+    [],
+    'an unnamed self-review must record nothing: there is no material whose edit could retire the block',
+  )
 })
 
 test('dynamic: an independent clean review retires a job-scoped block', async () => {

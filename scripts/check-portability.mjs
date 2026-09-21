@@ -197,6 +197,53 @@ function filesUnder(target) {
 }
 
 /**
+ * PURPOSE
+ *   Enumerate every shipped plugin's own source files, so a rule about what a
+ *   shipped plugin may register is checked over the whole suite instead of over
+ *   one path somebody remembered to edit.
+ *
+ * INPUTS
+ *   None. The plugin roots are discovered by listing `plugins/` on disk; no
+ *   plugin or module path is hard-coded.
+ *
+ * OUTPUTS
+ *   Sorted kit-relative paths of every `.mjs`, `.js` and `.cjs` file under a
+ *   `plugins/<name>/` directory, excluding `node_modules` and build/packed-output
+ *   directories. Returns `null` when `plugins/` cannot be listed, so the caller
+ *   reports "I could not look" rather than an empty list that passes.
+ *
+ * KEYWORDS
+ *   plugins, discovery, shipped source, tool registration, build artefacts
+ */
+const BUILD_DIRECTORIES = new Set(['node_modules', 'dist', 'build', 'out', 'coverage'])
+function shippedPluginSourceFiles() {
+  const root = join(KIT, 'plugins')
+  let entries
+  try {
+    entries = readdirSync(root, { withFileTypes: true })
+  } catch {
+    return null
+  }
+  const found = []
+  const walk = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (BUILD_DIRECTORIES.has(entry.name)) continue
+      const full = join(directory, entry.name)
+      if (entry.isDirectory()) walk(full)
+      else if (entry.isFile() && /\.(mjs|cjs|js)$/.test(entry.name)) {
+        found.push(relative(KIT, full).replace(/\\/g, '/'))
+      }
+    }
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    if (BUILD_DIRECTORIES.has(entry.name)) continue
+    walk(join(root, entry.name))
+  }
+  return found.sort()
+}
+
+/**
  * Read the regular-file entries of a gzipped tar as a `name -> bytes` map.
  *
  * A tarball is read in pure Node rather than by spawning `tar`: this module is the
@@ -423,19 +470,48 @@ for (const dir of ['plugins/ratchet', 'plugins/dsh-context', 'plugins/kit-rules'
   )
 }
 
-// ── every tool parameter schema must be object-rooted for the provider ────
+// ── every shipped tool must be built with defineTool, across ALL plugins ───
+// The rule is a property of the shipped SUITE, not of one file. The earlier form read
+// `plugins/ratchet/ratchet-tools.mjs` alone, so a raw registration added to any OTHER
+// shipped plugin still printed `[PASS] tools:use-defineTool`. The check now discovers
+// every plugin source under `plugins/*/` (excluding `node_modules` and build/packed
+// output) and reports the offending file and line.
 {
-  const source = readFileSync(join(KIT, 'plugins/ratchet/ratchet-tools.mjs'), 'utf8')
-  const bareParameters = /parameters:\s*\{\s*type:/.test(source)
-  const defineToolUses = (source.match(/defineTool\(/g) ?? []).length
-  const toolNames = (source.match(/name:\s*`?\$\{PREFIX\}|name:\s*'ratchet_/g) ?? []).length
-  check(
-    'tools:use-defineTool',
-    !bareParameters && defineToolUses > 0,
-    bareParameters
-      ? 'a tool declares a raw parameters schema; the registry validates it as RAW JSON Schema and the provider rejects a root without `type`'
-      : `${defineToolUses} defineTool declaration(s) among ${toolNames} tool name(s)`,
-  )
+  const files = shippedPluginSourceFiles()
+  if (files === null) {
+    check('tools:use-defineTool', false, 'plugins/ could not be listed, so no plugin source was examined')
+  } else {
+    const offenders = []
+    let defineToolUses = 0
+    for (const file of files) {
+      let text
+      try {
+        text = readFileSync(join(KIT, file), 'utf8')
+      } catch (error) {
+        offenders.push(`${file}: unreadable (${String(error)})`)
+        continue
+      }
+      defineToolUses += (text.match(/defineTool\(/g) ?? []).length
+      // A raw schema is a `parameters:` whose value is a JSON-Schema root, i.e. a `{`
+      // immediately followed by `type:`. `defineTool`'s parameters is an author DSL map
+      // whose first key is a parameter name, so its declarations never match.
+      const bareParameters = /parameters:\s*\{\s*type:/g
+      let match
+      while ((match = bareParameters.exec(text)) !== null) {
+        const line = text.slice(0, match.index).split('\n').length
+        offenders.push(`${file}:${line}: ${match[0].replace(/\s+/g, ' ').slice(0, 80)}`)
+      }
+    }
+    check(
+      'tools:use-defineTool',
+      offenders.length === 0 && defineToolUses > 0,
+      offenders.length > 0
+        ? `a raw (hand-written) tool parameters schema was registered in: ${offenders.slice(0, 6).join(' | ')}`
+        : defineToolUses === 0
+          ? `no defineTool declaration exists among the ${files.length} shipped plugin source(s), so this check proves nothing`
+          : `${files.length} shipped plugin source(s) examined — ${defineToolUses} defineTool declaration(s), no raw parameters schema`,
+    )
+  }
 }
 
 // ── the CLI must be runnable as a file on both platforms ──────────────────

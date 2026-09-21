@@ -123,3 +123,64 @@ consequential findings (1 and 10) were re-verified by hand in the live checkout;
 are the agents' reproductions and have not been re-run. The whole-tree mutation the
 repository was never subjected to is exactly what makes finding 1 credible: the gate went
 red for real when that suite was bound, and was observed red before it was unbound.
+
+## Resolution (2026-09-21)
+
+Every finding above is fixed or explicitly accounted for. Each fix was preceded by a
+reproduction of the finding on the unfixed tree and followed by a command that now passes;
+the commands are named per finding. The whole-tree evidence is the release gate:
+
+```
+bash scripts/verify-upgrade.sh          -> GATE PASS
+ratchet verify --root .                 -> OK, 76 laws, 85 checks declared, 85 evaluated, 0 pending
+node --test scripts/test-ratchet.mjs    -> 398 pass, 0 fail
+node --test scripts/test-ratchet-guard.mjs -> 41 pass, 0 fail
+node --test scripts/test-work-modes.mjs -> 26 pass, 0 fail, exit 0 on 8/8 consecutive runs
+node scripts/check-portability.mjs      -> 22/22
+```
+
+| # | Finding | Fix and its evidence |
+|---|---|---|
+| 1 | work-modes suite not reproducible | The test no longer sleeps: the release is driven by the run's terminal edge and the guard warm-up runs on its own session, so `staleAfterMs` stays at the production default and no assertion depends on a clock. `node --test scripts/test-work-modes.mjs` exits 0 on 8/8 consecutive runs over one unchanged tree. |
+| 2 | consent channel check used its own subject as oracle | The expectation is now derived from the surface the check drove and from an independently observed harness-seam channel, and a `key=value` line prints both. With `CONSENT_CHANNEL` mutated to a wrong value the check now exits 1 naming `expected=adr-panel observed=user-question`; untouched, it exits 0. |
+| 3 | removal authority depended on file order | `compileLaws` gives the merged law the strongest authority any declarer had. `compileLaws` is driven with both orderings and asserts `approvedBy` survives and `LAW_REMOVE_UNAUTHORISED` fires either way. |
+| 4 | a self-review that named nothing still recorded a block | `submitReview` gates `recordContradiction` on `judgedSomething`, which it computed and never read. The covering test asserted the code's behaviour and is corrected to the law: declined, gate, no block recorded. |
+| 5 | a forged span was accepted | The fragment fallback is removed. A span stitched from two different sentences now fails; a real span, including one wrapping a line break, still passes. |
+| 6 | a written record carried no span | `renderAdr` takes a `span` and emits a `## Source span` section; the batch path passes the located span through. The rendered record still parses clean. |
+| 7 | `writes-are-atomic` had no test | A test asserts the destination inode MOVES (only a rename does that) and that a failed rename leaves no temp sibling. |
+| 8 | `tools-use-defineTool` scanned one file of six | `check-portability.mjs` discovers every shipped plugin source file; a raw registration in a different plugin now fails the check naming `file:line`. |
+| 9 | a contradiction blocked its whole zone | `blockedScopes` narrows a block to the paths the contradicted law's own checks claim; whole zone when it claims none. A guard test shows a write to the claimed subtree denied and a write beside it allowed. |
+| 10 | `problems-carry-a-subject` had no test and emitted `subject: null` | `ADR_FILE_INVALID` now carries the filename, and a test drives a spread of malformed records asserting no problem is subjectless. |
+| 11 | the question-seam law named a measurement that is not of the panel host | Amendment ADR 0076 retires the law and restates it with the measurement that exists, the wiring that answers the question, and the half still unenforced. |
+| 12 | the panel-no-consent note named a mechanism the bundle lacks | Amendment ADR 0076 retires the law and restates it with the bundle's actual data paths. |
+| 13 | the cap-seam was declared release-gate evidence the gate never ran | `verify-upgrade.sh` runs `probe-work-modes.mjs` as a labelled step; the gate output shows `[ok ] the delegation cap is measured against the installed harness`. |
+| 14 | `every-command-has-an-implementation` checked the wrong field | The test now also extracts the script from each `verification[].command` and asserts it exists. |
+| 15 | `api-facts-are-runnable` asserted source text | The probe exposes an exit-rule selftest that pushes three hand-known fixtures through the same function the real run ends with; the test spawns it and asserts the printed mapping. |
+| 16 | the rules-reach-the-prompt check matched a comment | The check isolates the loader row, drops comments and anchors each candidate key to its own line; a fixture with non-empty lists plus commented-out empties now fails. |
+| 17 | `rules-name-a-declared-command` skipped the null case | The test no longer `continue`s on a missing `enforcedBy`; it reports it. The manifest has none. |
+| 18 | the code hash was content-blind above its cap | The check no longer asserts the hole: it asserts content coverage within budget, that the cap is not read past, and that an above-cap EDIT still moves the hash — which the production marker now guarantees by including the file's mtime, so a recorded verdict is invalidated by an edit. |
+| 19 | `RESOLUTION_AMBIGUOUS` was narrower than the law | The refusal is record-level: any `resolves` + `supersedes` + `op: remove` in one record is refused, and a test drives a record that supersedes one record while removing another's law. |
+| 20 | duplicate detection ignored `active` | `findDuplicates` filters on the record's declared `status`, which is the law's own word; a test shows two proposed records are not a duplicate while two active ones still are. |
+
+### Residuals, stated rather than implied
+
+- **Finding 18's bound is now smaller, not gone.** The content of a file above the per-file
+  cap is still not read — that cap prevents a synchronous freeze on a huge tree. What
+  changed is that the verdict is no longer stale-safe: the marker carries the mtime, so an
+  edit invalidates it. A replacement preserving BOTH size and mtime is the one case the
+  marker cannot see, and the code says so where the marker is written.
+- **Both decision records are `proposed` and wait for a human.** ADR 0075 carries the three
+  design calls (findings 1, 3 and 9) and ADR 0076 the two note corrections (11 and 12). The
+  CODE those calls describe is already changed and green; what is not yet in force is the law
+  that will hold it there, because the zones involved are `proposeOnly` and the laws 0076
+  retires were ratified by ADR 0016, which freezes their text. Nothing changes about a ratified
+  law until a human ratifies the amendment — the intended behaviour.
+- **Why the amendment names no zone.** ADR 0076 removes two laws that are in force, so the
+  guard would classify it as a proposal working against a ratification and refuse writes in
+  every zone it named. Naming `shipped-plugins` would therefore have frozen all plugin work
+  between the drafting of the record and its ratification — and it did, until the removals
+  were moved out of ADR 0075 into their own zone-less record. Correcting a note is not work in
+  a zone; the removals target law ids, not paths.
+- **The critic's methodology limit stands.** Only findings 1 and 10 were re-verified by hand
+  in this session's first pass; the rest are now covered by executed checks, which is the
+  standard this document holds others to.

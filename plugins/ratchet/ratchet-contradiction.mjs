@@ -274,15 +274,43 @@ export function standingContradictions(root, { resolved = null } = {}) {
 }
 
 /**
- * The zones a set of standing entries blocks.
+ * The paths a law's own checks claim, as globs.
+ *
+ * A zone is a coarse area; a law inside it may govern a narrower set of paths. This reads the
+ * path-scoped check types the corpus defines and returns the globs they spell, so a caller can
+ * decide whether a given path is one the law is actually about.
+ *
+ * @param law - A compiled law, `{ checks }`, or anything at all.
+ * @returns An array of glob strings; empty when the law makes no path claim, when `law` is null,
+ *   when `checks` is not an array, or when a check is malformed. Never throws on bad input.
+ */
+export function lawPathClaims(law) {
+  const globs = []
+  for (const check of Array.isArray(law?.checks) ? law.checks : []) {
+    if (check === null || typeof check !== 'object') continue
+    if (check.type === 'required_glob' || check.type === 'forbidden_glob') {
+      if (typeof check.pattern === 'string' && check.pattern.length > 0) globs.push(check.pattern)
+    } else if (check.type === 'path_boundary') {
+      for (const deny of Array.isArray(check.deny) ? check.deny : []) {
+        if (typeof deny === 'string' && deny.length > 0) globs.push(deny)
+      }
+    }
+  }
+  return globs
+}
+
+/**
+ * The zones a set of standing entries blocks, each with the paths the finding reaches.
  *
  * @param entries - Standing entries, each `{ entry: { target, findings } }`.
  * @param options.active - In-force records, for the zones a contradicted law governs.
  * @param options.proposed - Proposed records, for the zones a rejected proposal named.
  * @param options.laws - The compiled law bundle, for `lawId` to `sourceAdr`.
- * @returns A `Set` of zone ids.
+ * @returns A `Map` from zone id to either `null` — the whole zone, which is what a law with no
+ *   path claim blocks — or a `Set` of globs, when every contradicted law in that zone made a
+ *   path claim and only a path matching one of them is refused.
  */
-export function blockedZones(entries, { active = [], proposed = [], laws = [] } = {}) {
+export function blockedScopes(entries, { active = [], proposed = [], laws = [] } = {}) {
   const zonesByRecord = new Map()
   for (const record of [...(active ?? []), ...(proposed ?? [])]) {
     if (record !== null && typeof record === 'object' && typeof record.id === 'string') zonesByRecord.set(record.id, record.zones ?? [])
@@ -291,7 +319,20 @@ export function blockedZones(entries, { active = [], proposed = [], laws = [] } 
   for (const law of laws ?? []) {
     if (law !== null && typeof law === 'object' && typeof law.id === 'string') lawById.set(law.id, law)
   }
-  const zones = new Set()
+  const scopes = new Map()
+  // `null` is the whole zone and is absorbing: once one finding blocks every path in a zone, a
+  // later narrower finding cannot narrow it back. A `Set` accumulates the globs of every narrower
+  // finding, so a zone is refused where ANY contradicted law in it reaches.
+  const addZone = (zone, globs) => {
+    if (globs.length === 0) {
+      scopes.set(zone, null)
+      return
+    }
+    if (scopes.has(zone) && scopes.get(zone) === null) return
+    const current = scopes.has(zone) ? scopes.get(zone) : new Set()
+    for (const glob of globs) current.add(glob)
+    scopes.set(zone, current)
+  }
   for (const { entry } of Array.isArray(entries) ? entries : []) {
     // `findings` is read from a FILE, so it can be anything: a number, an object, a list with a
     // null in it. `?? []` does not guard a non-iterable, and iterating it threw — which the guard's
@@ -306,11 +347,30 @@ export function blockedZones(entries, { active = [], proposed = [], laws = [] } 
       // the source record's zones blocked only the first declarer: a law in force in two zones left
       // the second unguarded. A caller whose law objects carry no `zones` still gets the record's.
       const bound = Array.isArray(law.zones) && law.zones.length > 0 ? law.zones : zonesByRecord.get(law.sourceAdr) ?? []
-      for (const zone of bound) zones.add(zone)
+      // The law's own path claim narrows the block to the paths the finding is about. A law that
+      // governs `src/org/alpha/**` refuses a write there, not a write beside it in the same zone:
+      // a block that stops work its finding says nothing about destroys trust in the block itself.
+      const claims = lawPathClaims(law)
+      for (const zone of bound) addZone(zone, claims)
     }
     if (entry !== null && typeof entry === 'object' && entry.target !== null && typeof entry.target === 'object' && entry.target.kind === 'proposal') {
-      for (const zone of zonesByRecord.get(entry.target.id) ?? []) zones.add(zone)
+      // A rejected PROPOSAL names zones and no path claim of its own, so it blocks the whole zone.
+      for (const zone of zonesByRecord.get(entry.target.id) ?? []) addZone(zone, [])
     }
   }
-  return zones
+  return scopes
+}
+
+/**
+ * The zones a set of standing entries blocks.
+ *
+ * @param entries - Standing entries, each `{ entry: { target, findings } }`.
+ * @param options.active - In-force records, for the zones a contradicted law governs.
+ * @param options.proposed - Proposed records, for the zones a rejected proposal named.
+ * @param options.laws - The compiled law bundle, for `lawId` to `sourceAdr`.
+ * @returns A `Set` of zone ids. The path scope of each is `blockedScopes`, for a caller that can
+ *   place the path it is about to write.
+ */
+export function blockedZones(entries, { active = [], proposed = [], laws = [] } = {}) {
+  return new Set(blockedScopes(entries, { active, proposed, laws }).keys())
 }

@@ -343,15 +343,18 @@ export const CODE_HASH_MAX_TOTAL_BYTES = WORK_LIMITS.maxTotalBytes
  * Hashes the walked tree into the code identity a verdict is bound to.
  *
  * Three bounds, all deterministic for a given tree:
- *   - a file above `maxFileBytes` contributes `path` plus its size;
+ *   - a file above `maxFileBytes` contributes `path`, its size AND its mtime, so a same-size edit
+ *     in place still moves the hash;
  *   - past `maxFiles` files each remaining file contributes `path` plus an `unscanned`
  *     marker, so the syscall count is bounded;
  *   - once `maxTotalBytes` of content has been read, a file ABOVE
- *     {@link CODE_HASH_SMALL_FILE_BYTES} contributes `path` plus its size, while a file at or
- *     below it is still read — a small file's content always moves the hash.
- * A path whose size cannot be read contributes its error text, as before. What the bounds
- * give up is noticing a content change in a large file that keeps its size, which is the
- * right trade for a file that large and is stated here rather than discovered as a freeze.
+ *     {@link CODE_HASH_SMALL_FILE_BYTES} contributes `path`, its size and its mtime, while a file
+ *     at or below it is still read — a small file's content always moves the hash.
+ * A path whose size cannot be read contributes its error text, as before. What the bounds give up
+ * is reading the CONTENT of a large file, which is the trade that keeps a huge tree from freezing
+ * the session; the verdict is still invalidated by an edit, because the mtime moves. A file
+ * replaced in a way that preserves both its size and its mtime is the one case the marker cannot
+ * see, and it is stated here rather than discovered as a stale verdict.
  *
  * @param root - Absolute project root.
  * @param files - Repository-relative paths to hash (the walked list).
@@ -378,20 +381,31 @@ export function codeHashFor(root, files, options = {}) {
     }
     scanned += 1
     let size = null
+    let mtimeMs = null
     try {
       const stats = statSync(join(root, path))
-      if (stats.isFile()) size = stats.size
+      if (stats.isFile()) {
+        size = stats.size
+        mtimeMs = stats.mtimeMs
+      }
     } catch {
       size = null
+      mtimeMs = null
     }
     const contentBlind =
       size !== null &&
       (size > maxFileBytes || (total + size > maxTotalBytes && size > CODE_HASH_SMALL_FILE_BYTES))
     if (contentBlind) {
-      // Content-free but deterministic: the path is already in the hash, and the size moves
-      // when the file is replaced. The alternative — reading it — is the freeze this bound
-      // exists to prevent.
-      hash.update(`\u0000large:${size}`)
+      // Content-free but deterministic, and no longer blind to an EDIT. The path is already in the
+      // hash; the size moves when the file is replaced by one of a different length, and the
+      // mtime moves when the file is written in place — which is what every editor and every
+      // `git checkout` does. The size alone was not enough: a same-size edit above the cap left a
+      // recorded verdict standing, so `ratchet status` reported a clean, verified project over a
+      // tree the gate had rejected. The alternative to this marker — reading the content — is the
+      // synchronous freeze this bound exists to prevent (a 43 GiB tree took about 70 seconds in
+      // which no other request was served). What the marker still cannot see is a replacement that
+      // preserves BOTH the size and the mtime, which takes deliberate effort rather than an edit.
+      hash.update(`\u0000large:${size}:${mtimeMs === null ? 'unknown' : mtimeMs}`)
     } else {
       const read = readProjectFile(root, path)
       // A path that cannot be read still contributes a deterministic marker: the error text, or

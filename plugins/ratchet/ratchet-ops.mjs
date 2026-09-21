@@ -1978,6 +1978,7 @@ function buildBatchRecords({
       createdAt: now ?? new Date().toISOString(),
       authorName,
       decisionsDir: config.decisionsDir,
+      span: decision.span,
     })
     const compiled = compileRenderedAdr(root, rendered, config)
     let writtenPath = null
@@ -3320,10 +3321,13 @@ export function submitReview({ root, job, verdict, record = true, change = null,
   // its own block by submitting the verdict it wrote itself.
   const blocking = contradictionModule.blockingFindings(validation.findings)
   // A block has to be bound to something whose change can retire it. A self-review that names
-  // neither a proposal nor the material it judged still DECLINES — the finding is reported — but it
-  // records nothing, because a block on unnamed material is a block nobody can clear.
+  // neither a proposal nor the material it judged still DECLINES — the finding is reported and
+  // `gate` is true — but it records NOTHING, because a block on unnamed material is a block nobody
+  // can clear: no edit retires it, no clean verdict of that job replaces it, and it would refuse
+  // writes in the zone forever. `judgedSomething` is therefore part of the condition, not a fact
+  // computed above for the reader.
   const judgedSomething = proposal !== null || change !== null || source !== null
-  if (record && blocking.length > 0) {
+  if (record && blocking.length > 0 && judgedSomething) {
     const target = contradictionModule.contradictionTarget({ job: report.job, proposal, change, source, records: context.records })
     // `replace: false`: an existing entry stands. A self-review that OVERWRITES an independent
     // finding lifts the zone that finding blocked — a deterministic bypass by the agent the gate

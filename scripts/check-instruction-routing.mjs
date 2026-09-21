@@ -102,10 +102,27 @@ if (patch.missing === true) {
   // booted after the file was written. `--dump-config` also shows that patch `config`
   // merges for an enabled row and not for a disabled one, so the flag was blocking the
   // fix that works. Empty candidate lists leave the loader nothing to find regardless.
+  //
+  // The row's LIVE lines are isolated here and each key is anchored to the start of its
+  // own line. The first version scanned the raw YAML with an unanchored regex: a row whose
+  // real lists were non-empty (`instructionFileCandidates: [AGENTS.md]`) but which merely
+  // MENTIONED the empty form in a comment passed as emptied, so the claim held while the
+  // loader still discovered repository instruction files. Full-line comments are dropped
+  // and trailing comments are stripped, so a commented-out `[]` cannot stand in for the
+  // real list.
+  const agentRow = (() => {
+    const lines = patch.text.split('\n')
+    const start = lines.findIndex((line) => /^-\s*id:\s*agent-instructions\s*$/.test(line))
+    if (start === -1) return []
+    const rest = lines.slice(start + 1)
+    const end = rest.findIndex((line) => /^- /.test(line))
+    return (end === -1 ? rest : rest.slice(0, end))
+      .map((line) => line.replace(/\s+#.*$/, ''))
+      .filter((line) => !/^\s*#/.test(line))
+  })()
+  const liveEmptyList = (key) => new RegExp(`^[ \\t]*${key}:\\s*\\[\\s*\\]\\s*$`, 'm').test(agentRow.join('\n'))
   const emptied =
-    /^-\s*id:\s*agent-instructions\s*$[\s\S]{0,300}?instructionFileCandidates:\s*\[\s*\][\s\S]{0,120}?localInstructionFileCandidates:\s*\[\s*\]/m.test(
-      patch.text,
-    )
+    agentRow.length > 0 && liveEmptyList('instructionFileCandidates') && liveEmptyList('localInstructionFileCandidates')
   claim(
     'the loader row empties its instruction-file discovery',
     emptied,

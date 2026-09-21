@@ -92,8 +92,8 @@ import { existingAdrIds, nextAdrId, readSource, writeIngested } from './ratchet-
  * force.
  *
  * @param records - Parsed ADR records, as `readAdrCorpus` returns them.
- * @param options - `{ removedLawIds }`: law ids an active record retires. An omitted or empty
- *   set reports every declaration, which is the right answer for a corpus nothing retires.
+ * @param options - `{ removedLawIds }`: law ids an active record retires. An omitted or empty set
+ *   reports every declaration, which is the right answer for a corpus nothing retires.
  * @returns `{ scanned, duplicates }` — see the module header for the shapes. The result is
  *   sorted by code and key, so two runs over one corpus print the same order.
  */
@@ -107,6 +107,13 @@ export function findDuplicates(records, { removedLawIds = [] } = {}) {
 
   for (const record of list) {
     if (record === null || typeof record !== 'object') continue
+    // The law's own word is ACTIVE: "two active records that declare the same law statement under
+    // different law ids are refused". There was no status check at all, so a corpus holding only
+    // PROPOSED records — a project that had settled nothing — was refused as a duplicate and told
+    // to merge two decisions that govern nothing yet. This is the record's declared status, not the
+    // authority model's in-force answer: a record the manifest's zones keep out of force is still
+    // an active declaration of its law, and a duplicate against it is still a duplicate.
+    if (record.status !== 'active') continue
     for (const law of record.laws ?? []) {
       if (law === null || typeof law !== 'object' || law.op !== 'upsert') continue
       if (typeof law.id !== 'string' || law.id.length === 0) continue

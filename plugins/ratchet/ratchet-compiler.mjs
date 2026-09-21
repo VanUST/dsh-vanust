@@ -915,6 +915,21 @@ export function compileLaws(active, config) {
         for (const zoneId of record.zones ?? []) {
           if (!existing.zones.includes(zoneId)) existing.zones.push(zoneId)
         }
+        // The merged law carries the STRONGEST authority any declarer had. Keeping the first
+        // declarer's `approvedBy` made a human ratification depend on ADR file order: with an
+        // unratified twin of the same law numbered lower, the merged law carried no ratification,
+        // so a later agent-authored record retired it with no problem reported and the gate still
+        // green. A ratification is a human act, and an unratified twin is not evidence that the
+        // human changed their mind — the only merge that cannot dilute a consent is the strongest
+        // one. The consequence is deliberate: a law declared by both a ratified and an unratified
+        // record can be retired only by a ratified or human-authored record, so an agent that
+        // wants it gone has to ask a human, exactly as for any other ratified law.
+        if (existing.approvedBy === null && (record.approvedBy ?? null) !== null) {
+          existing.approvedBy = record.approvedBy
+        }
+        if (existing.authority !== 'human' && record.authority === 'human') {
+          existing.authority = 'human'
+        }
         continue
       }
 
@@ -1093,6 +1108,30 @@ export function validateResolutions(records, { active = [], removedByDecision = 
   const removed = new Set(removedByDecision ?? [])
 
   for (const record of records) {
+    // A resolution takes force away in exactly ONE of two ways, and the two are alternatives for
+    // the WHOLE record: supersession retires a record whole, while `op: remove` withdraws one law
+    // and leaves its record in force. Checking this per resolved target made the refusal fire only
+    // when the removed law happened to be declared by the very record being superseded, so a
+    // resolution that superseded A and surgically removed a law of B was accepted — two ways of
+    // taking force away in one record, which is the shape this refusal exists to name.
+    const supersededTargets = (record.supersedes ?? []).filter((target) => typeof target === 'string')
+    const removalLaws = (record.laws ?? []).filter((law) => law !== null && typeof law === 'object' && law.op === 'remove' && typeof law.id === 'string')
+    if ((record.resolves ?? []).length > 0 && supersededTargets.length > 0 && removalLaws.length > 0) {
+      const namedSuperseded = supersededTargets.map((target) => `"${target}"`).join(', ')
+      const removedNames = removalLaws.map((law) => `"${law.id}"`).join(', ')
+      problems.push(
+        problem(
+          'RESOLUTION_AMBIGUOUS',
+          `${record.path} both supersedes ${namedSuperseded} and removes ${removedNames}; supersession already takes every law the superseded record declares out of force, and a removal is the surgical shape for a record that stays in force with one law withdrawn. A resolution takes force away in exactly one of the two ways — keep the supersession for a record that is being replaced, or keep the removals for one that stays, and drop the other`,
+          record.id,
+          {
+            path: record.path,
+            supersedes: supersededTargets,
+            removed: removalLaws.map((law) => law.id),
+          },
+        ),
+      )
+    }
     for (const target of record.resolves ?? []) {
       const named = byId.get(target)
       if (named === undefined) {
@@ -1106,32 +1145,17 @@ export function validateResolutions(records, { active = [], removedByDecision = 
         )
         continue
       }
-      // A resolution takes away force in exactly ONE of two ways. Superseding the losing
-      // record leaves nothing to remove — every law it declares is out of force the moment
-      // it is superseded — so a resolution that ALSO names one of those laws with
-      // `op: remove` is reported as `LAW_TARGET_DANGLING` by the law compiler, and one
-      // whose laws were removed one by one cannot then be given a terminal status without
-      // `RETIREMENT_STATUS_MISSING`. The combination is therefore refused here, by name,
-      // rather than surfacing as that pair one step later: a drafter reads which of the two
-      // shapes to keep instead of reverse-engineering an unavailable target.
-      const supersedesHere = (record.supersedes ?? []).includes(target)
+      // A resolution takes away force in exactly ONE of two ways; the record-level refusal above
+      // names the shape when a record asks for both. What is left here is deciding whether the
+      // named side is actually in force or leaving it, which the rest of this loop answers.
       const removedHere = (record.laws ?? []).filter(
-        (law) => law.op === 'remove' && named.laws.some((declared) => declared.op === 'upsert' && declared.id === law.id),
+        (law) => law !== null && typeof law === 'object' && law.op === 'remove' && named.laws.some((declared) => declared.op === 'upsert' && declared.id === law.id),
       )
-      if (supersedesHere && removedHere.length > 0) {
-        problems.push(
-          problem(
-            'RESOLUTION_AMBIGUOUS',
-            `${record.path} both supersedes "${target}" (${named.path}) and removes ${removedHere.map((law) => `"${law.id}"`).join(', ')} from it; supersession already takes every law that record declares out of force, so the removal has no target and which shape this resolution means is not decidable. Keep the removal for a record that stays in force with one law withdrawn, or keep the supersession for a record that is being replaced, and drop the other`,
-            record.id,
-            { path: record.path, target, targetPath: named.path, removed: removedHere.map((law) => law.id) },
-          ),
-        )
-      }
       if (inForce.has(target)) continue
       const supersededByForce = named.supersededBy !== null && named.supersededBy !== undefined
       const emptiedByForce = named.laws.some((law) => law.op === 'upsert' && removed.has(law.id))
       const emptiedHere = removedHere.length > 0
+      const supersedesHere = supersededTargets.includes(target)
       if (supersededByForce || emptiedByForce || supersedesHere || emptiedHere) continue
       problems.push(
         problem(

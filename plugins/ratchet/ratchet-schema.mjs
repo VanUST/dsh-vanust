@@ -1581,7 +1581,10 @@ export function parseAdr({ filename, source, root = null, decisionsDir = RATCHET
       problem(
         'ADR_FILE_INVALID',
         `${path} does not match NNNN-slug.adr.md (four digits, a lowercase hyphenated slug, and the .adr.md suffix)`,
-        null,
+        // The FILENAME, which is the only identity a record whose name is invalid has. This was
+        // `null`, so the one problem whose whole subject is the file's name carried no subject and
+        // a consumer filtering a problem list by subject silently dropped it.
+        filename,
         { path },
       ),
     )

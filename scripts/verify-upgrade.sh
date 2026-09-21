@@ -219,6 +219,15 @@ if command -v node >/dev/null 2>&1; then
   # pass is not read as a proof that a run string is hermetic.
   probe "a law's check is hermetic (no probe-bound law check)" \
     "node '${KIT_DIR}/scripts/check-hermetic-laws.mjs' --root '${KIT_DIR}' | grep -q 'hermetic laws ok'"
+  # The delegation cap's evidence is a MEASUREMENT, not a prose claim: the probe drives the
+  # real harness classes (the tools guard, the agent registry, the subagent runtime) and
+  # requires the measured verdicts. `check-hermetic-laws.mjs` refuses a law bound to a
+  # probe, so this evidence is release-gate only — and the gate did not run it, so a
+  # missing `probe-work-modes` call left "the cap is measured" with nothing behind it.
+  # The probe exits 2 when it cannot find the harness classes, and 1 on a failed fact;
+  # this gate treats either as its own failure, because "I could not look" is not a pass.
+  probe "the delegation cap is measured against the installed harness" \
+    "node '${KIT_DIR}/scripts/probe-work-modes.mjs' | grep -q 'work modes probe ok'"
   probe "instruction routing (only the home rules reach the prompt)" \
     "node '${KIT_DIR}/scripts/check-instruction-routing.mjs' | grep -q 'instruction routing ok'"
   # The static line above reads files: a kit-rules provider that stopped

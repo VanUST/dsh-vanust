@@ -41,7 +41,7 @@
  *   - Nothing here mutates the checked-out project: the invariants are asserted by
  *     constructing inputs, never by breaking the repository.
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -489,11 +489,14 @@ const after = codeHashFor(hashRoot, listFiles(hashRoot))
 claim('the code hash is stable over an unchanged tree', before === stable, `${before} / ${stable}`)
 claim('the code hash changes when a file changes', before !== after, `${before} / ${after}`)
 
-// 10b. The code hash is BOUNDED. It runs on the event loop of whatever process called it, and
-//      `ratchet_verify` and `ratchet_status` run IN the harness process: hashing every file in
-//      full froze the whole session on a 43 GiB tree (about 70 s of synchronous reads, two GUI
-//      windows dead). A file above the cap contributes its path and size, not its bytes, so the
-//      hash stays cheap and deterministic; a small-file change still moves it.
+// 10b. The code hash is CONTENT-SENSITIVE, and its bounds are what make it otherwise.
+//      This case used to hash a 3 MiB file through the default (capped) call only and
+//      ASSERT the resulting content-blindness, so the check certified the very hole it
+//      exists to close: two DIFFERENT 3 MiB files hashed identically and a same-size edit
+//      above the cap left a recorded verdict standing. The contract is asserted directly
+//      now — with a budget that can hold the file, a one-byte same-size edit MUST move the
+//      hash — and the documented bound is still asserted with an explicit small budget, so
+//      neither half can hide the other. A small-file change is asserted as before.
 {
   const boundedRoot = project(
     'code-hash-bounded',
@@ -501,18 +504,57 @@ claim('the code hash changes when a file changes', before !== after, `${before} 
     { files: { 'src/small.ts': 'export const a = 1\n' } },
   )
   const bigPath = join(boundedRoot, 'src', 'big.bin')
-  writeFileSync(bigPath, Buffer.alloc(3 * 1024 * 1024, 1))
-  const bigBefore = codeHashFor(boundedRoot, listFiles(boundedRoot))
-  writeFileSync(bigPath, Buffer.alloc(3 * 1024 * 1024, 2))
-  const bigAfter = codeHashFor(boundedRoot, listFiles(boundedRoot))
-  writeFileSync(join(boundedRoot, 'src', 'small.ts'), 'export const a = 2\n')
-  const smallAfter = codeHashFor(boundedRoot, listFiles(boundedRoot))
+  const LARGE_FILE_BYTES = 3 * 1024 * 1024
+  // A budget that can hold the file: the hash must read its content, or a same-size edit
+  // is invisible to every verdict bound to this tree.
+  const COVERING_BUDGET = { maxFiles: 100, maxFileBytes: 8 * 1024 * 1024, maxTotalBytes: 64 * 1024 * 1024 }
+  // A per-file cap smaller than the file: the documented bound, asserted explicitly rather
+  // than through a default, so the two behaviours cannot be confused for one another.
+  const CAPPED_BUDGET = { maxFiles: 100, maxFileBytes: 1024, maxTotalBytes: 1024 * 1024 }
+
+  writeFileSync(bigPath, Buffer.alloc(LARGE_FILE_BYTES, 1))
+  const coveringBefore = codeHashFor(boundedRoot, listFiles(boundedRoot), COVERING_BUDGET)
+  writeFileSync(bigPath, Buffer.alloc(LARGE_FILE_BYTES, 2))
+  const coveringAfter = codeHashFor(boundedRoot, listFiles(boundedRoot), COVERING_BUDGET)
   claim(
-    'the code hash does not read a file above its cap',
-    bigBefore === bigAfter,
-    `a same-size change to the large file moved the hash: ${bigBefore} / ${bigAfter}`,
+    'the code hash covers the content of a file its budget holds',
+    coveringBefore !== coveringAfter,
+    `a same-size one-byte edit to a file within budget did not move the hash: ${coveringBefore} / ${coveringAfter}`,
   )
-  claim('the code hash still moves when a small file changes', bigAfter !== smallAfter, 'a small-file change was missed')
+
+  // The cap's cost, measured: an above-cap file is NOT opened for its content. Two same-size files
+  // with the SAME mtime hash equally, which is the freeze the bound exists to prevent. The mtime
+  // is forced so this measures the cap and not the clock.
+  const SAME_MOMENT = new Date(1_000_000)
+  utimesSync(bigPath, SAME_MOMENT, SAME_MOMENT)
+  const cappedBefore = codeHashFor(boundedRoot, listFiles(boundedRoot), CAPPED_BUDGET)
+  writeFileSync(bigPath, Buffer.alloc(LARGE_FILE_BYTES, 3))
+  utimesSync(bigPath, SAME_MOMENT, SAME_MOMENT)
+  const cappedAfter = codeHashFor(boundedRoot, listFiles(boundedRoot), CAPPED_BUDGET)
+  claim(
+    'the code hash does not read the content of a file above its cap',
+    cappedBefore === cappedAfter,
+    `a same-size same-mtime change to the large file moved the hash, so the cap was not honoured: ${cappedBefore} / ${cappedAfter}`,
+  )
+  // …and the cap no longer makes a VERDICT stale-safe. Writing the file in place moves its mtime,
+  // which is what an editor and a `git checkout` do, so an above-cap edit invalidates a recorded
+  // verdict. This is the harm the old marker did: it carried the size alone, so `ratchet status`
+  // reported a clean, verified project over a tree the gate had rejected.
+  const LATER_MOMENT = new Date(2_000_000)
+  writeFileSync(bigPath, Buffer.alloc(LARGE_FILE_BYTES, 4))
+  utimesSync(bigPath, LATER_MOMENT, LATER_MOMENT)
+  const cappedEdited = codeHashFor(boundedRoot, listFiles(boundedRoot), CAPPED_BUDGET)
+  claim(
+    'an above-cap edit still invalidates a recorded verdict',
+    cappedAfter !== cappedEdited,
+    `a same-size edit above the cap did not move the hash: ${cappedAfter} / ${cappedEdited}`,
+  )
+  writeFileSync(join(boundedRoot, 'src', 'small.ts'), 'export const a = 2\n')
+  claim(
+    'the code hash still moves when a small file changes',
+    cappedEdited !== codeHashFor(boundedRoot, listFiles(boundedRoot), CAPPED_BUDGET),
+    'a small-file change was missed',
+  )
 }
 
 // 10c. The code hash bounds its SYSCALLS by file count as well as bytes. 50,000 empty files cost
