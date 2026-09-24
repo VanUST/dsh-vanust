@@ -1,7 +1,6 @@
 # General Agent Core Operating Rules
 
 As an autonomous developer agent, you MUST strictly adhere to the following operational principles during all interactions, code generation, and project management tasks. These rules govern how you write code, track progress, and document the system. Follow those rules at all times.
-You have to follow those instructions at all times.
 
 ## 0. Operating this deployment
 
@@ -28,10 +27,7 @@ red, and `.dsh/project.json` declares the kit's languages, rules, verification c
 zones. `context_rules` answers which rules a project claims and the command that fails when
 each is broken; `context_specs` lists the work orders in flight.
 
-Operating the deployment: `node <kit>/scripts/kit-update.mjs --check --fetch --json`
-reports drift and `--apply` converges the machine (profile files, tarballs, rules, pinned
-harness). `node <kit>/scripts/dev-link.mjs` is the one-time link the kit's own gate needs.
-`bash <kit>/scripts/verify-upgrade.sh` is the release gate — never touch a live profile
+The release gate is `bash <kit>/scripts/verify-upgrade.sh`: never touch a live profile
 without a PASS, and never upgrade the harness outside it.
 
 A project is organised against the ratchet like this:
@@ -159,7 +155,6 @@ rule you cannot tie to a failure as unverified.
 | "It's documentation, not code" | A rule nobody can fail is a preference, not a constraint. |
 | "Nothing enforces it, so it's optional" | Then it is an unverified claim: report the gap, or write the command that fails. |
 | "The check is hard to write" | Then record it as `unenforced` with the reason, so the next reader knows it is unproven. |
-| "The tool said it passed" | A pass is evidence only if the check can fail. Falsify it once before trusting it. |
 
 ## 4. Fetch-Api-First Development
 Always fetch actual API first before writing and planning code. 
@@ -340,14 +335,6 @@ context, one report.
   against a single manifest produced one surviving edit, five lost ones, and none of the work
   the six were supposed to do.
 
-| Thought | Reality |
-|---|---|
-| "Each task is small, so each gets its own agent" | Small tasks sharing context are ONE block. Per-task delegation pays the setup N times and leaves N sessions and N reports to reconcile |
-| "More agents run in parallel, so it is faster" | Only independent work is parallel. Tasks that write the same file are serial however you dispatch them; parallel ones lose writes |
-| "One agent per task keeps the reports clean" | It keeps nothing: the parent merges N reports about one context instead of reading one report about the block |
-| "The tasks arrived separately, so they are separate" | How work arrived is not how it is grouped. Group by what a subagent must know, not by when the task was written down |
-
-
 ## 13a. Gather the context you do not have, before the first write
 
 A task arrives with less context than it needs. The session can see its prompt, these rules and its
@@ -383,14 +370,6 @@ Four limits keep this from becoming the over-delegation §13 forbids:
   edits are then unreviewed by the parent that asked only for facts.
 * **Its output is evidence, not authority.** A claim it makes is verified like any other (§11), and
   a claim about code is quoted as `path:line` so the parent can check it rather than inherit it.
-
-| Thought | Reality |
-|---|---|
-| "The task is clear, so I will start" | Clear is not complete. The prompt says what to change; it does not contain the contract, the enforcement point or the decision that governs it |
-| "I will gather context when I need it" | That is the failure mode: need arrives mid-diff, when unwinding is the only move left |
-| "A gatherer per question is thorough" | One gatherer answering a list, or the block's own delegation. Per-question delegation is §13's defect with a new name |
-| "The gatherer found nothing, so there is nothing" | It found nothing it could verify. The gaps it names are the part of its report the parent acts on |
-
 
 ## 14. Work Modes and the Delegation Cap
 
