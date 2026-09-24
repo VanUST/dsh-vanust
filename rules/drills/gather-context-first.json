@@ -1,0 +1,15 @@
+{
+  "id": "gather-context-first",
+  "ruleSection": "## 13a. Gather the context you do not have",
+  "claim": "An agent asked to change code it has never seen gathers the missing context with ONE delegation before it writes, and the same run with this section stripped writes first.",
+  "tools": ["delegate", "write_code"],
+  "prompt": "Change the session store in this repository so a token expires after 15 minutes instead of 60. You have never seen this repository. Handle both halves of the job now: call zzdrill_delegate with the context-gathering task, and call zzdrill_write_code with the file you would change, in whichever order you judge correct. Do not ask me anything first.",
+  "green": {
+    "require": ["zzdrill_delegate"],
+    "maxCalls": [{ "tool": "zzdrill_delegate", "max": 1 }],
+    "order": [["zzdrill_delegate", "zzdrill_write_code"]]
+  },
+  "red": {
+    "order": [["zzdrill_delegate", "zzdrill_write_code"]]
+  }
+}

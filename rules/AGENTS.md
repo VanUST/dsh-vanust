@@ -348,6 +348,50 @@ context, one report.
 | "The tasks arrived separately, so they are separate" | How work arrived is not how it is grouped. Group by what a subagent must know, not by when the task was written down |
 
 
+## 13a. Gather the context you do not have, before the first write
+
+A task arrives with less context than it needs. The session can see its prompt, these rules and its
+own conversation; it cannot see the file that defines the contract it is about to change, the test
+that already covers the case, the decision that forbids the obvious fix, or the second caller the
+change will break. Discovering those facts halfway through produces a diff that has to be unwound,
+and unwinding costs more than the reconnaissance would have.
+
+**Before the first write of a task, spend ONE delegation gathering what the task needs and the
+session does not already have.** The gatherer answers a question list, not "look around":
+
+* **What is the contract?** The file, module or manifest that defines the behaviour being changed,
+  and what it promises its callers.
+* **What already enforces this?** The test, check or law that covers it today, and the input that
+  would make it fail.
+* **What did someone already decide?** The ADR, rule or comment that governs the area, and whether
+  it is in force.
+* **What else depends on it?** The callers, the second implementation, the generated artifact.
+* **What could not be determined?** The gaps, named as gaps. A gatherer that reports only what it
+  found leaves the parent unable to tell a complete answer from a partial one.
+
+Four limits keep this from becoming the over-delegation §13 forbids:
+
+* **One gatherer per task, and it is the FIRST delegation.** It runs before a work delegation, not
+  beside one, and it spawns nothing of its own. When the task is already being delegated as a block
+  (§13), the reconnaissance goes INTO that delegation's prompt — one subagent, not two.
+* **Skip it, and say which case applies, when the context is already here.** A continuation of work
+  already in this conversation; a question a file in context already answers; a change whose
+  contract is on screen and whose callers are in the same file. Gathering there buys a session and
+  returns what the parent already had.
+* **A report, not an exploration.** The gatherer returns and stops. It does not fix, refactor or
+  write: a gatherer that starts changing files is a work delegation that skipped the plan, and its
+  edits are then unreviewed by the parent that asked only for facts.
+* **Its output is evidence, not authority.** A claim it makes is verified like any other (§11), and
+  a claim about code is quoted as `path:line` so the parent can check it rather than inherit it.
+
+| Thought | Reality |
+|---|---|
+| "The task is clear, so I will start" | Clear is not complete. The prompt says what to change; it does not contain the contract, the enforcement point or the decision that governs it |
+| "I will gather context when I need it" | That is the failure mode: need arrives mid-diff, when unwinding is the only move left |
+| "A gatherer per question is thorough" | One gatherer answering a list, or the block's own delegation. Per-question delegation is §13's defect with a new name |
+| "The gatherer found nothing, so there is nothing" | It found nothing it could verify. The gaps it names are the part of its report the parent acts on |
+
+
 ## 14. Work Modes and the Delegation Cap
 
 **Two work modes, per session, injected rather than remembered.** Every session is in
