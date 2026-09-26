@@ -1,0 +1,60 @@
+{
+  "_comment": "Canonical MCP server list for this deployment, projected to $DSH_HOME/mcp-servers.json by scripts/kit-update.mjs. These are DECLARATIONS, not live configuration: the rows actually loaded by the harness are written into $DSH_HOME/cordis.patch.yml by scripts/dsh-mcp-sync.mjs, which reads this file. No absolute machine path belongs here - the Godot executable and project directory are resolved on the machine that runs the sync, because an absolute path is the one thing that cannot transfer between machines. Edit this file in the kit, never the projected copy at $DSH_HOME.",
+  "version": 1,
+  "servers": [
+    {
+      "id": "godot-mcp",
+      "enabled": true,
+      "serverName": "godot",
+      "description": "Godot AI (hi-godot/godot-ai): drives a running Godot 4.7+ editor - scene and node editing, script create/patch with parse validation and hot reload, signal wiring, UI, materials, animation. Editor-live only; it does not screenshot a running game.",
+      "_notes": {
+        "transport": "stdio - the bridge is a local process launched through uvx, not an HTTP service.",
+        "why-attach": "A bare http://127.0.0.1:8000/mcp entry cannot authenticate in Godot AI v4: every request carries a rotating bearer capability published only in a private record on this machine, so the authenticated stdio bridge ('godot-ai attach') is the supported path. It reads that record itself.",
+        "package-pin": "godot-ai==4.2.3 must share the MAJOR version of the addon committed at <project>/addons/godot_ai. A mismatched major version makes the bridge refuse the server. Bump this pin and the addon together.",
+        "ports": "8000 (backend HTTP) and 9500 (editor WebSocket) are stated explicitly rather than left to defaults so the capability record filename is deterministic on every machine. Change them only together with the addon's editor settings.",
+        "exclude-domains": "Empty means every backend tool domain is exposed. Set a comma-separated list to trim the tool surface when the captured tool definitions cost more context than they earn.",
+        "resolver-policy": "The uv flags are not decoration: --isolated/--no-config/--no-env-file/--no-sources remove ambient uv configuration and alternate index authority, and the explicit --index/--default-index/--find-links pin the package source to public PyPI. They are reproduced verbatim from the addon's own documented launch shape so the row and the dock agree.",
+        "telemetry": "false passes --disable-telemetry, which covers this bridge and any backend it spawns. It records an installation UUID, event, outcome, duration, platform and version - never code, scene contents, or project file names; project slugs are hashed before transmission."
+      },
+      "transport": "stdio",
+      "uvxEnv": "UVX_BIN",
+      "uvxCandidates": [
+        "<workspace>/vendor/uv/uvx",
+        "<workspace>/.venv/bin/uvx"
+      ],
+      "package": "godot-ai==4.2.3",
+      "args": [
+        "--isolated",
+        "--no-config",
+        "--no-env-file",
+        "--no-sources",
+        "--no-build",
+        "--index-strategy", "first-index",
+        "--keyring-provider", "disabled",
+        "--index", "https://pypi.org/simple",
+        "--default-index", "https://pypi.org/simple",
+        "--find-links", "https://pypi.org/simple/godot-ai/",
+        "--link-mode", "copy",
+        "--from", "godot-ai==4.2.3",
+        "godot-ai", "attach",
+        "--port", "8000",
+        "--ws-port", "9500"
+      ],
+      "telemetry": false,
+      "excludeDomains": [],
+      "toolCallTimeoutMs": 120000,
+      "failOnStartupError": false,
+      "env": {
+        "GODOT_AI_DISABLE_TELEMETRY": "true"
+      },
+      "projectEnv": "GODOT_AI_PROJECT_PATH",
+      "setup": [
+        "Install the engine and uvx: powershell -ExecutionPolicy Bypass -File tools/provision_godot.ps1 -Mode apply",
+        "Commit the editor addon at <project>/addons/godot_ai/ from https://github.com/hi-godot/godot-ai/releases (it must match the package pin's major version)",
+        "Open the project in Godot and enable Project > Project Settings > Plugins > Godot AI",
+        "If the project is not the directory kit-update runs from, export GODOT_PROJECT=<absolute project path> so the sync can find the project and its provisioned uvx; otherwise run `node scripts/dsh-mcp-sync.mjs --apply` from the project root",
+        "Restart dsh: the MCP row is read at boot"
+      ]
+    }
+  ]
+}
