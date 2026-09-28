@@ -30,12 +30,21 @@
  *   rows[], uvx, project, present, matches, changed, errors[], next[].
  *
  *   The refusal rule, stated because it is the one thing that can lose data: if the target
- *   patch file exists and parses as a top-level array whose every element carries our row
- *   id, it is ours and is rewritten. If it exists in any other shape - another tool's
+ *   patch file exists and parses as a top-level array whose every element carries one of our
+ *   row ids, it is ours and is rewritten. If it exists in any other shape - another tool's
  *   entries, a mapping instead of a list, unparseable text - the script writes NOTHING and
  *   reports `patchPath` with the reason. Merging a foreign YAML document would require a
  *   YAML parser this script deliberately does not carry, and a hand-rolled merge that gets
  *   indentation wrong destroys the operator's other client configuration.
+ *
+ *   OUR ROW IDS ARE TWO SPELLINGS ON PURPOSE. The id a row carries is
+ *   `mcp-client-<server id>`; an earlier version wrote the bare `<server id>`, and that
+ *   spelling collided with the kit's own plugin row — the loader refuses a composition in
+ *   which two entries share an id, so `dsh web` stopped starting entirely. This script
+ *   therefore recognises the older spelling as ours, which is what lets the next sync REWRITE
+ *   a machine that already has the colliding row instead of refusing it as a foreign file and
+ *   leaving the machine unable to boot. Nothing else is accepted, so the refusal above still
+ *   protects another writer's entries.
  *
  * KEYWORDS
  *   mcp, patch layer, cordis, dsh-mcp-client, godot-ai, uvx, projection, fail closed
@@ -54,12 +63,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-  ROW_ID,
   buildRow,
   readSpec,
   renderPatch,
   resolveHome,
   resolveUvx,
+  rowIdsFor,
   serverNames,
 } from '../plugins/godot-mcp/godot-mcp.mjs'
 
@@ -108,10 +117,15 @@ const USAGE = [
  * Decide whether an existing patch file is ours to overwrite.
  *
  * @param path - Absolute patch file path.
+ * @param acceptedIds - Every row id this deployment may have written: the ids a sync writes
+ *   now, plus the pre-prefix spelling an earlier version wrote (see `rowIdsFor`). Recognising
+ *   the older spelling is what lets a machine whose row was written before the rename be
+ *   repaired by the next sync instead of being refused as a foreign file — and the older
+ *   spelling is exactly the one that collided with the kit's own plugin row at boot.
  * @returns `{ ours, reason, text }`. `ours` is true when the file is absent or when every
- *   top-level element carries our row id; `reason` names the refusal otherwise.
+ *   top-level element carries one of our row ids; `reason` names the refusal otherwise.
  */
-function classifyPatch(path) {
+function classifyPatch(path, acceptedIds) {
   if (!existsSync(path)) return { ours: true, reason: 'absent', text: null }
   let text
   try {
@@ -132,7 +146,7 @@ function classifyPatch(path) {
   const foreign = parsed.filter((element) => {
     const rows = element?.insert
     if (!Array.isArray(rows)) return true
-    return rows.some((row) => row?.id !== ROW_ID)
+    return rows.some((row) => !acceptedIds.has(row?.id))
   })
   if (foreign.length > 0) {
     return { ours: false, reason: `${foreign.length} top-level element(s) are not this deployment's rows`, text }
@@ -207,7 +221,10 @@ async function main() {
   }
 
   const rendered = renderPatch({ rows: result.rows })
-  const classification = classifyPatch(patchPath)
+  // The ids this deployment may already have written for the declared servers: the prefixed
+  // ones a sync writes now, plus the bare server ids written before the rename. A layer holding
+  // only those is ours to replace; anything else is another writer's and is left alone.
+  const classification = classifyPatch(patchPath, rowIdsFor(spec).accepted)
   result.present = existsSync(patchPath)
   result.matches = classification.ours && classification.text !== null && classification.text === rendered
 

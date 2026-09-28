@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-godot-mcp",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Keeps a deployment's MCP server list declarative and transportable: owns the canonical spec, resolves the uvx launcher and the Godot project on the machine that runs it, and reports for each declared server whether its tools are actually loadable. The MCP connection itself is the harness's shipped @deepseek-ai/dsh-mcp-client bridge, which this plugin builds a row for rather than reimplementing.",
   "type": "module",
   "main": "godot-mcp.mjs",

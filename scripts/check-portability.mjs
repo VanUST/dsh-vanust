@@ -753,6 +753,43 @@ for (const dir of ['plugins/ratchet', 'plugins/dsh-context', 'plugins/kit-rules'
   }
 }
 
+// ── an id the deployment GENERATES must not spell an id somebody AUTHORED ───
+// Measured 2026-09-28, and the reason this check exists: the sync materialized a row whose id
+// was the SERVER's id (`godot-mcp`) while the kit's own plugin row — whose loader id is its
+// function name, `godot-mcp` — was mounted in `profile/cordis.patch.yml`. A composition has ONE
+// loader-id namespace, so the harness refused the whole tree with `duplicate loader entry id:
+// godot-mcp` and `dsh web` would not start at all. Neither file was wrong on its own — a server
+// id is deployment DATA and a plugin's entry id is AUTHORSHIP — and nothing compared them.
+// `verify-upgrade.sh` could not catch it either: the composition it boots is a THROWAWAY home
+// that never receives the generated layer. This compares the ids the sync would mint for the
+// SHIPPED spec with the ids authored in the SHIPPED patch, hermetically, on every machine.
+{
+  const { readSpec, rowIdsFor } = await import(
+    pathToFileURL(join(KIT, 'plugins', 'godot-mcp', 'godot-mcp.mjs')).href
+  )
+  const specPath = join(KIT, 'profile', 'mcp-servers.json')
+  const patchPath = join(KIT, 'profile', 'cordis.patch.yml')
+  const spec = readSpec({ specPath })
+  if (!spec.ok) {
+    // A spec that cannot be read decides nothing, and a check that passes over what it failed
+    // to read is the silence this file exists to remove.
+    check('generated-row-ids:namespaced', false, `${specPath}: ${spec.errors.join('; ')}`)
+  } else {
+    const patch = readFileSync(patchPath, 'utf8')
+    const escape = (id) => id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const collisions = [...rowIdsFor(spec).current].filter((id) =>
+      new RegExp(`^\\s*-?\\s*id:\\s*['"]?${escape(id)}['"]?\\s*$`, 'm').test(patch),
+    )
+    check(
+      'generated-row-ids:namespaced',
+      collisions.length === 0,
+      collisions.length === 0
+        ? `${rowIdsFor(spec).current.size} generated row id(s) collide with no authored id in profile/cordis.patch.yml`
+        : `profile/cordis.patch.yml authors ${collisions.map((id) => `\`id: ${id}\``).join(', ')}, which ${specPath} also mints for a server row; the loader refuses a duplicate loader entry id, so dsh web cannot start — rename the authored row or the server id`,
+    )
+  }
+}
+
 // ── each tarball must still agree with the source it was packed from ────────
 // The packer is the only link between the two, and it leaves no evidence: a tarball
 // that kept its filename while its source changed installs the old bytes into every

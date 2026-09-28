@@ -48,6 +48,9 @@
  *     resolveUvx({server, workspace}) -> absolute uvx path, or null
  *     buildConfig({server, uvx, workspace, projectDir}) -> the bridge's `config` object
  *     buildRow({...})                 -> { id, name, config }
+ *     rowIdFor({id})                  -> `mcp-client-<id>`, the loader id a row carries
+ *     legacyRowIdFor({id})            -> `<id>`, the spelling written before ROW_ID_PREFIX
+ *     rowIdsFor({servers})            -> { current, accepted }, the ids a layer may carry
  *     renderPatch({row})              -> textual YAML (JSON, which YAML accepts)
  *     serverNames({spec})             -> the `mcp__<serverName>__` namespaces declared
  *
@@ -72,6 +75,10 @@
  *     else, which is why `failOnStartupError` is false in the spec.
  *   - No Godot project directory: the row is still emitted with no `cwd`, because the
  *     project directory is a convenience for the bridge and not a launch prerequisite.
+ *   - A generated row id that equals an AUTHORED entry id: reported by the gate that ships the
+ *     kit, because one composition has one loader-id namespace and the harness fails the whole
+ *     tree on a duplicate (`duplicate loader entry id`) - the boot failure that made every row
+ *     id carry a prefix. `check-portability.mjs` fails when a patch spells one.
  */
 
 import { existsSync, readFileSync } from 'node:fs'
@@ -94,8 +101,68 @@ const FALLBACK_ORDER = 10150
 /** Bridge package name; the row's `name` field must resolve to this. */
 const BRIDGE_PACKAGE = '@deepseek-ai/dsh-mcp-client'
 
-/** Row id the sync writes; stable so the writer can replace its own row and no other. */
-export const ROW_ID = 'godot-mcp'
+/**
+ * Namespace in front of a server's id, for the loader id this deployment mints for it.
+ *
+ * WHY THE ROW ID IS NOT THE SERVER ID — measured on this deployment, 2026-09-28. A
+ * composition has ONE loader-id namespace: the bundles, `profile/cordis.patch.yml` and
+ * `$DSH_HOME/cordis.patch.yml` all insert entries into the same group, and the loader
+ * refuses the whole tree when two entries share an id. This module used to derive a row's
+ * id from the server's own id, so a server declared as `godot-mcp` minted a row with that
+ * id — while the kit's plugin row, whose loader id is its function name (`godot-mcp`), was
+ * mounted in the profile layer. `dsh web` stopped starting at all:
+ * `duplicate loader entry id: godot-mcp`, thrown from the loader before any plugin loaded.
+ *
+ * The defect is a namespace crossing, not a typo: a row id derived from deployment DATA (a
+ * server id, chosen in `mcp-servers.json`) and an entry id AUTHORED in a patch were allowed
+ * to be the same string. The prefix makes them disjoint by construction — a generated id now
+ * reads as generated — and `check-portability.mjs` is what fails when an authored patch id
+ * ever spells one of the ids this module mints.
+ */
+export const ROW_ID_PREFIX = 'mcp-client-'
+
+/**
+ * The loader id this deployment mints for one server.
+ *
+ * @param server - A server from {@link readSpec}, whose `id` is required and non-empty.
+ * @returns `mcp-client-<server id>`.
+ */
+export function rowIdFor(server) {
+  return `${ROW_ID_PREFIX}${server?.id ?? ''}`
+}
+
+/**
+ * The id this deployment wrote for one server BEFORE the prefix existed: the bare server id.
+ *
+ * Recognised, never written. `classifyPatch` in the sync decides whether the home patch layer
+ * is this deployment's to rewrite by matching every row against a known id, and a layer written
+ * by an earlier version of this module carries the unprefixed spelling. A rename that stopped
+ * recognising it would refuse to touch the very file the rename exists to repair, on exactly the
+ * machines whose boot is broken — and the file that collides is the old one. New writes always
+ * use {@link rowIdFor}, so the legacy spelling is gone from a machine the first time it syncs.
+ *
+ * @param server - A server from {@link readSpec}.
+ * @returns The legacy id, `<server id>`.
+ */
+export function legacyRowIdFor(server) {
+  return `${server?.id ?? ''}`
+}
+
+/**
+ * The ids a spec's rows carry now, and every spelling this deployment still recognises.
+ *
+ * @param spec - A result from {@link readSpec}.
+ * @returns `{ current, accepted }`, both Sets: the ids a sync writes, and the ids a layer this
+ *   deployment wrote may already carry (the current ids plus the pre-prefix spelling).
+ */
+export function rowIdsFor(spec = {}) {
+  const servers = Array.isArray(spec?.servers) ? spec.servers : []
+  const current = new Set(servers.map((server) => rowIdFor(server)))
+  return {
+    current,
+    accepted: new Set([...current, ...servers.map((server) => legacyRowIdFor(server))]),
+  }
+}
 
 /** `serverName` grammar the bridge enforces; checked here so the spec fails first. */
 const SERVER_NAME = /^[A-Za-z0-9_-]{1,32}$/
@@ -300,12 +367,12 @@ export function buildConfig(options = {}) {
  * Build the patch-layer row that mounts the bridge for one server.
  *
  * @param options - as `buildConfig`.
- * @returns `{ id, name, config }`, ready to be the single element of an `insert` list.
- *   The `id` is stable per server id so a re-sync replaces its own row and no other.
+ * @returns `{ id, name, config }`, ready to be the single element of an `insert` list. The
+ *   `id` is derived from the server's id under {@link ROW_ID_PREFIX}, so a re-sync replaces
+ *   its own row and no other, and a server id can never spell an authored plugin's entry id.
  */
 export function buildRow(options = {}) {
-  const id = typeof options.server?.id === 'string' && options.server.id !== '' ? options.server.id : ROW_ID
-  return { id, name: BRIDGE_PACKAGE, config: buildConfig(options) }
+  return { id: rowIdFor(options.server), name: BRIDGE_PACKAGE, config: buildConfig(options) }
 }
 
 /**
