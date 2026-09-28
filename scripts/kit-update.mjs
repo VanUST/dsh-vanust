@@ -582,9 +582,14 @@ function main(argv) {
   log('kit.inventory', { kit, home, profile: opts.profile, mode: opts.mode })
   if (!existsSync(kit)) throw new Error(`kit directory not found: ${kit}`)
   if (opts.fetch) {
+    // `run` returns null only on failure, so empty stdout is a SUCCESS: `git fetch
+    // --quiet` prints nothing when it works. Testing the trimmed string for truth made
+    // every successful fetch warn `git fetch failed`, sending a reader after a network
+    // problem that was not there.
     const fetched = run('git', ['-C', kit, 'fetch', '--quiet', 'origin'])
-    log('kit.fetch', { ok: Boolean(fetched) })
-    if (!fetched) warn('git fetch failed; deciding on the working tree as it is')
+    const fetchOk = fetched !== null
+    log('kit.fetch', { ok: fetchOk })
+    if (!fetchOk) warn('git fetch failed; deciding on the working tree as it is')
   }
 
   const state = readJson(statePath(home))
