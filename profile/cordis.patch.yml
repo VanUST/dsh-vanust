@@ -163,3 +163,28 @@
 - insert:
     - id: work-modes
       name: '@cc/dsh-work-modes'
+
+# ── godot-mcp: a declarative, transferable MCP server list ──────────────────
+# The harness ships an MCP client bridge (`@deepseek-ai/dsh-mcp-client`), so this
+# plugin speaks no MCP itself. It owns the three things the bridge does not do:
+# the canonical server list, the resolution of the `uvx` launcher that the Godot
+# AI bridge cannot start without, and the Godot project directory that bridge
+# must be started in.
+#
+# Why a plugin and not a row in this file. A hand-written row here would carry a
+# version pin that has to track the addon committed in the project, and the value
+# of a spec is that the pin lives in one place that a check can compare. The row
+# the loader actually reads is written into the harness HOME patch layer
+# (`$DSH_HOME/cordis.patch.yml`, applied over every profile) by
+# `scripts/dsh-mcp-sync.mjs`, which imports this plugin's own `buildRow`, so the
+# spec format and the row shape cannot drift apart. The HOME layer is used rather
+# than this profile layer because one row then serves every profile.
+#
+# The plugin needs no harness package: it reads one JSON file and contributes one
+# system-prompt section that reports, per declared server, whether its launcher
+# was found. Everything else - connecting, naming tools `mcp__<server>__<tool>`,
+# reconnecting, projecting results - is the shipped bridge's job and is fixed by
+# its own tests.
+- insert:
+    - id: godot-mcp
+      name: '@cc/dsh-godot-mcp'

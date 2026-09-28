@@ -1,20 +1,21 @@
 # USERGUIDE.md — setting up and starting the harness on a new machine
 
 This kit installs **DeepSeek Harness (dsh)** on any of your machines (2× Linux,
-1× Windows) plus the **six** plugins this deployment adds beyond upstream:
+1× Windows) plus the **seven** plugins this deployment adds beyond upstream:
 **`@deepseek-ai/dsh-model-gate`** (the class-based flash-only cost policy),
 **`@cc/dsh-kit-rules`** (delivers `$DSH_HOME/AGENTS.md` to the model as its
 binding rule section), **`@cc/dsh-context`** (a project's modules, rules and work
 orders as tools), **`@cc/dsh-ratchet`** (architecture decisions compiled into
 checks a command can fail — §3.2), **`@cc/dsh-adr-panel`** (a Session-header
-window on those decisions, their consents and the generated specs — §3.3) and
+window on those decisions, their consents and the generated specs — §3.3),
 **`@cc/dsh-work-modes`** (the deployment's concurrency cap — at most two
 `subagent` children per session, with a `workflow` fan-out deliberately outside
 it — and the per-session research/implementation mode injected into every
 prompt),
 **`@cc/dsh-presentation`** (one tool that renders a JSON deck spec into a
 standalone HTML presentation in the workspace, shown by the Sidebar document
-preview).
+preview) and
+**`@cc/dsh-godot-mcp`** (a declarative, transferable MCP server list — §3.4).
 `plugins/inventory.json` is the single source of truth for that set and for each
 plugin's provenance; `scripts/check-portability.mjs` fails when a tarball, a
 mounted profile row, a source directory or a packing entry point disagrees with
@@ -224,6 +225,69 @@ review judge (a shell has no agent to parent one with) — `ratchet review` prin
 prompt it would have sent and says `NOT RUN`, and you can paste it into a session.
 And a dynamic review is **advisory**: it never changes the exit code, so an opinion
 is never mistaken for the gate.
+
+## 3.3 The ADR panel: where your decisions are shown
+
+A **button in the Session header** opens the decision window: the project's ADR
+records, each with its state, its provenance and the spec documents the ratchet
+generated from it. It is a window, not a control surface with a mind of its own.
+
+Two things are deliberately true of it. It **writes no file and composes no
+answer**: the only ratification affordance on a row asks the agent to run
+`ratchet_ratify`, so the question still reaches you through the question channel
+and the ratchet's own hash-bound approval remains the single path into force. And
+it **cannot mint a consent by construction** — a button that could approve a
+decision without you reading it would defeat the whole mechanism. Approve and
+Decline in that window send one of the labels the ratchet itself put on its own
+question; the approval is then written by the ratchet, bound to the exact text you
+were shown.
+
+## 3.4 Connecting Godot (the MCP server list)
+
+`@cc/dsh-godot-mcp` gives the deployment a Godot editor the agent can drive:
+scenes, nodes, scripts, signals and UI, through 47 tools published as
+`mcp__godot__*`. It speaks no MCP itself — it keeps the **server list** and lets
+the harness's own MCP client bridge do the connecting — and the list lives in the
+kit, so any machine you converge has the server without you configuring it there.
+
+`profile/mcp-servers.json` in the kit is the canonical list. `kit-update.mjs
+--apply` projects it to `$DSH_HOME/mcp-servers.json` and then runs
+`scripts/dsh-mcp-sync.mjs`, which writes the launch row the harness actually
+loads into `$DSH_HOME/cordis.patch.yml`. Both steps are safe to re-run.
+
+Three pieces are **yours to supply**, because they are per-machine or per-project
+content rather than kit configuration. The kit names the exact command instead of
+pretending to have run it:
+
+1. **The engine and the launcher.** Godot 4.7 or newer, and `uv` (which provides
+   `uvx`, the launcher the Godot bridge is started through). On Windows,
+   `tools/provision_godot.ps1 -Mode apply` installs both, pinned and idempotent;
+   `-Mode check` reports state and writes nothing. It downloads **through Node**,
+   because on some machines the OS TLS stack cannot reach the internet at all and
+   every other installer fails there with `SEC_E_NO_CREDENTIALS`.
+2. **The editor addon, committed into your Godot project**, at
+   `addons/godot_ai/`, from the
+   [Godot AI releases](https://github.com/hi-godot/godot-ai/releases). Commit it:
+   that is what makes the connection travel with the project. Its **major version
+   must match the `godot-ai==` pin** in `profile/mcp-servers.json`; a mismatch
+   makes the bridge refuse the server rather than fail quietly.
+3. **The plugin switched on** in Godot, once: **Project → Project Settings →
+   Plugins → Godot AI**.
+
+Then restart dsh — the launch row is read at boot. Ask the agent to confirm it
+sees `mcp__godot__*` tools, and open the editor so there is a session to attach to.
+
+Two limits, stated so a surprise is not a mystery. This server is
+**editor-live**: it drives a running editor and can screenshot it, but it does not
+attach to a running *game*. And a missing launcher costs you the Godot tools
+**only** — every other feature still works, because the row is declared with
+`failOnStartupError: false`; the deployment's status section and the sync output
+both say the launcher is missing rather than leaving you to guess.
+
+If you ever configure this server from Godot's own AI dock instead, that dock
+writes the same `$DSH_HOME/cordis.patch.yml`. The sync **refuses rather than
+merges** when it finds entries it did not write, so you will get a named refusal
+telling you which file to reconcile — not a silently deleted entry.
 
 ## 4. Per-machine configuration
 

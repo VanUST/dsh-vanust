@@ -47,6 +47,15 @@ plugin's provenance:
   Sidebar document preview already renders `.html` in a script-enabled sandboxed frame,
   so the deck is its own viewer and the file the user previews is exactly the file they
   export and print.
+- **`@cc/dsh-godot-mcp`** — keeps a deployment's MCP server list declarative so it
+  transfers between machines instead of being configured per machine. The harness's own
+  MCP client bridge does the connecting; this plugin owns the canonical list, resolves
+  the `uvx` launcher the Godot AI bridge needs, and reports for each declared server
+  whether its tools are loadable. Its spec is projected to `$DSH_HOME/mcp-servers.json`
+  and the row the loader reads is written to `$DSH_HOME/cordis.patch.yml` by
+  `scripts/dsh-mcp-sync.mjs`, which imports the plugin's own row builder so the two
+  cannot drift. It ships no MCP protocol code, by design: a second client implementation
+  would diverge from the shipped one on precisely the details that are hard to get right.
 
 Clone this repo on a new machine, run `./install.sh` (or `install.ps1` on
 Windows), and `dsh web` is up with the same pinned harness version, the same

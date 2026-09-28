@@ -278,6 +278,13 @@ function readJson(path) {
  * carries both a hash and the source path so the applier never has to re-derive
  * either.
  *
+ * Each entry's `dst` is relative to the harness home, so an entry can land either
+ * inside the profile directory (`profiles/<profile>/…`) or at the home root. The
+ * MCP server spec deliberately lands at the home root: it is read by a plugin that
+ * is mounted for every profile, and the row it produces is written to the home patch
+ * layer, so projecting it into one profile's directory would make it invisible to
+ * the others.
+ *
  * `rules` is a LIST, not one file: the deployment's rules reach a model through
  * `AGENTS.md`, and the procedure those rules point at for setup, update and
  * verification lives in `DEPLOYMENT.md` beside it. Both are installed together,
@@ -289,6 +296,12 @@ function inventoryKit(kit, profile) {
       { id: 'cordis.patch.yml', src: join(kit, 'profile', 'cordis.patch.yml'), dst: join('profiles', profile, 'cordis.patch.yml') },
       { id: 'package.json', src: join(kit, 'profile', 'package.json'), dst: join('profiles', profile, 'package.json') },
       { id: 'pnpm-workspace.yaml', src: join(kit, 'profile', 'pnpm-workspace.yaml'), dst: join('profiles', profile, 'pnpm-workspace.yaml') },
+      // The MCP server spec is projected to the HARNESS HOME, not into a profile: the
+      // plugin that reads it is mounted for every profile, and the row it produces is
+      // written to the home patch layer so one list serves them all. A spec that only
+      // existed in the kit would be readable on the machine that has the kit checked out
+      // and invisible everywhere else, which is the opposite of the point.
+      { id: 'mcp-servers.json', src: join(kit, 'profile', 'mcp-servers.json'), dst: 'mcp-servers.json' },
     ].map((item) => ({ ...item, hash: hashFile(item.src) })),
     rules: ['AGENTS.md', 'DEPLOYMENT.md'].map((id) => ({
       id,
@@ -671,6 +684,43 @@ function main(argv) {
   const harnessResult = convergeHarness({ want: harnessPin, enabled: opts.harness })
   if (harnessResult.action !== 'skipped' && harnessResult.action !== 'already-current') applied.push('install-harness')
   log('harness.state', harnessResult)
+
+  // Project the declared MCP servers into the home patch layer. This runs LAST and its
+  // failure is reported rather than thrown: the spec file has just been projected, so a
+  // refusal here (a launcher missing on this machine, or a foreign patch layer) is a
+  // fact about this machine and not a reason to leave the rest of the convergence
+  // unrecorded. A deployment with no MCP tools still works; a machine that believes it
+  // converged when it did not does not.
+  //
+  // `process.execPath`, not `runTool('node', …)`: the `tool()` resolver only knows the
+  // npm-family CLIs and answers null for anything else, so routing this through it would
+  // silently never run the sync on Windows — a failure that looks exactly like success.
+  //
+  // The project directory comes from an EXPLICIT environment variable, never from the
+  // working directory. The cwd here is the kit, and a project directory is load-bearing (it
+  // is where the editor addon is discovered), so inferring it would record a `cwd` that has
+  // no Godot project in it. It is also the launcher's home in the default layout — the
+  // provisioned `uvx` lives under `<project>/vendor/uv` — so without it the sync cannot find
+  // `uvx` at all. A machine that keeps its Godot project somewhere else sets `GODOT_PROJECT`
+  // once in its environment; a machine that has not provisioned anything gets a named
+  // refusal from the sync instead of a row that cannot start.
+  const godotProject = process.env.GODOT_PROJECT
+  const syncArgs = [join(kit, 'scripts', 'dsh-mcp-sync.mjs'), '--apply', '--home', home]
+  if (typeof godotProject === 'string' && godotProject.trim() !== '') {
+    if (existsSync(join(godotProject, 'project.godot'))) {
+      syncArgs.push('--project', godotProject)
+    } else {
+      warn(`GODOT_PROJECT=${godotProject} holds no project.godot; ignoring it`)
+    }
+  }
+  const sync = run(process.execPath, syncArgs, { cwd: kit })
+  if (sync === null) {
+    warn('MCP server sync did not run to completion; run it directly for the reason:')
+    warn(`  node ${join(kit, 'scripts', 'dsh-mcp-sync.mjs')} --apply`)
+  } else {
+    applied.push('sync-mcp-servers')
+    log('mcp.synced', { report: sync.split('\n').filter(Boolean).slice(-6) })
+  }
 
   const next = buildState({ items, kit, repo, harness: harnessPin })
   writeFileSync(statePath(home), `${JSON.stringify(next, null, 2)}\n`)

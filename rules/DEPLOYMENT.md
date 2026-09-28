@@ -14,7 +14,7 @@ unless the `DSH_HOME` environment variable overrides it.
 
 ## 1. What this deployment is
 
-The upstream harness plus six plugins, all pinned and installed from one kit repository:
+The upstream harness plus seven plugins, all pinned and installed from one kit repository:
 
 | Piece | What it does |
 |---|---|
@@ -25,6 +25,7 @@ The upstream harness plus six plugins, all pinned and installed from one kit rep
 | `@cc/dsh-adr-panel` | the web UI's window on those decisions and the spec documents: a session-header button opens an overlay listing the records, and its only ratification affordance asks the agent to run the quiz |
 | `@cc/dsh-work-modes` | refuses a third concurrent `subagent` child per session with the running agents named (a `workflow` fan-out is deliberately outside it), and injects the session's research or implementation mode into every prompt, with the toggle on a capability-fenced host route the panel drives |
 | `@cc/dsh-presentation` | one tool, `presentation`, that renders a JSON deck spec into a standalone HTML file in the workspace; the Sidebar document preview displays it, so the file the user previews is the file they export and print |
+| `@cc/dsh-godot-mcp` | keeps the deployment's MCP server list declarative and transportable: owns the canonical spec, resolves the `uvx` launcher the Godot AI bridge needs and the Godot project it starts in, and reports per declared server whether its tools are loadable. It implements no MCP itself — the harness's shipped `@deepseek-ai/dsh-mcp-client` bridge does the connecting, and `scripts/dsh-mcp-sync.mjs` writes the row that bridge loads into `$DSH_HOME/cordis.patch.yml` |
 
 Pinned harness version: **`0.1.5-rc.1`**. Node ≥ 24. The kit is the only source of the
 deployment's files; a machine is a projection of it.

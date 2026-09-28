@@ -72,7 +72,11 @@ const CHECKS = [
     id: 'no-absolute-windows-paths',
     pattern: /["'`][A-Za-z]:[\\/]/,
     why: 'an absolute Windows path in shipped source cannot resolve on Linux',
-    paths: ['plugins/ratchet', 'plugins/dsh-context', 'scripts/probe-dsh-api.mjs', 'probes'],
+    // Every plugin that ships a hardcoded path is scanned, not only the ratchet: the
+    // godot-mcp plugin's whole purpose is resolving a launcher and a project on the
+    // machine that runs it, so a `C:\…` literal there is the exact defect this check
+    // exists to catch.
+    paths: ['plugins/ratchet', 'plugins/dsh-context', 'plugins/godot-mcp', 'scripts/probe-dsh-api.mjs', 'probes'],
     allow: [],
   },
   {
@@ -449,7 +453,7 @@ for (const dir of ['plugins/ratchet', 'plugins/dsh-context']) {
 }
 
 // ── every .mjs a plugin contains must be listed in its files array ────────
-for (const dir of ['plugins/ratchet', 'plugins/dsh-context', 'plugins/kit-rules']) {
+for (const dir of ['plugins/ratchet', 'plugins/dsh-context', 'plugins/kit-rules', 'plugins/godot-mcp']) {
   const manifestPath = join(KIT, dir, 'package.json')
   if (!existsSync(manifestPath)) continue
   let listed
