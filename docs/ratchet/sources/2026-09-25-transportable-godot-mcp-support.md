@@ -130,10 +130,16 @@ which is the honest failure.
 ### 4. Provisioning is kit code, and it speaks to the network through Node
 
 Because no OS-TLS downloader works here, the toolchain is provisioned by a script that
-downloads through Node. The Godot archive publishes **no checksum sidecar** for 4.7.2 (the
-`.sha512` URL returns 404), so the archive size is compared instead — which catches
-truncation and an error page but is not a cryptographic guarantee, and is not reported as
-one. `uv`'s release does publish a `.sha256`, and that one is verified.
+downloads through Node. Every artifact is verified against a digest upstream publishes, and
+finding those digests is part of the job: `godotengine.org/versions.json` carries none, but
+the GitHub release for 4.7.2 ships `SHA512-SUMS.txt`, which lists
+`Godot_v4.7.2-stable_linux.x86_64.zip` and matches the downloaded archive (measured
+2026-09-28). `uv` publishes a `.sha256` for each asset. The Godot AI addon publishes no
+`.sha256` beside `godot-ai-v4-plugin.zip` — the `.sha256` asset that release does carry
+belongs to the v3 archive, `godot-ai-plugin.zip` — so its digest is read from
+`godot-ai-v4-plugin.manifest.json`, whose `asset.sha256` matches the archive. Reading the
+wrong sidecar first is what produced an "unverified" report for an archive whose digest had
+in fact been published.
 
 Two defects found by running it rather than reading it, recorded because both were silent:
 `$LASTEXITCODE` read after a consuming assignment reports the wrong command's status, so a
@@ -152,8 +158,10 @@ wrapper.
    choose.
 3. The addon is committed project content that the project must maintain; the package pin
    and the addon must share a major version, and a mismatch surfaces as a bridge refusal.
-4. The engine archive is not cryptographically verified on this platform because upstream
-   publishes nothing to verify it against.
+4. The engine archive IS cryptographically verified on this platform, through the release's
+   `SHA512-SUMS.txt`. The addon is verified through its release manifest rather than a
+   digest sidecar, so a release that dropped the manifest would leave that artifact
+   unverified rather than checked.
 5. A new or changed server needs a harness restart: the row is read at boot.
 6. The declared server's tool definitions enter every request while it is mounted. The cost
    is bounded by the server's tool count (47 at the version pinned here) and by nothing this

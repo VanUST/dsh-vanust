@@ -10,7 +10,7 @@ created: "2026-09-25T00:00:00Z"
 source:
   kind: file
   path: docs/ratchet/sources/2026-09-25-transportable-godot-mcp-support.md
-  hash: sha256:c1414c4ecc7b1d79a51ce49e01f945243e6125af7ba489c04db199400a9d14db
+  hash: sha256:d6270c24693c5eec5dcda445baa24e24be116301dd4f3b8f4ae4364d08b65ef3
 zones:
   - shipped-plugins
   - deployment-rules
@@ -110,9 +110,11 @@ configured entries would be worse than a refusal.
 5. **Provisioning is tooling code that downloads through Node.** Measured on this machine,
    `curl`, `git`, `choco`, `winget` and the `irm | iex` uv installer all fail because the OS
    TLS stack answers `SEC_E_NO_CREDENTIALS`, while Node's own TLS stack reaches every source
-   needed. The provisioner verifies `uv`'s published `.sha256`; for the Godot 4.7.2 archive
-   upstream publishes **no** checksum, so only the size is compared, and that difference is
-   recorded as a residual rather than presented as verification.
+   needed. The provisioner verifies the digests upstream actually publishes, not the ones a
+   first reading assumes: `uv`'s `.sha256`, the Godot 4.7.2 archive against the release's
+   `SHA512-SUMS.txt`, and the Godot AI addon against `godot-ai-v4-plugin.manifest.json` —
+   that release ships no `.sha256` of its own, and the `.sha256` asset it does carry belongs
+   to the v3 archive, which is what made the addon look unverifiable at first.
 6. **`kit-update --apply` runs the sync last and reports rather than throws.** A launcher
    missing on one machine is a fact about that machine; it must not leave the rest of the
    convergence unrecorded.
@@ -141,5 +143,6 @@ hand-rolled merge that gets indentation wrong destroys the human's own configura
   `failOnStartupError` is false. The loss is visible in the prompt section and in the sync
   report.
 - Adding or changing a server still needs a harness restart, because the row is read at boot.
-- The engine archive is not cryptographically verified on this platform, because upstream
-  publishes nothing to verify it against.
+- The engine archive IS verified: the 4.7.2 release publishes `SHA512-SUMS.txt`, which lists
+  the Linux archive, and the provisioner compares against it. The addon archive has no
+  digest sidecar of that shape, so it is verified through the release manifest instead.
