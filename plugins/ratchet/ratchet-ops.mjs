@@ -20,7 +20,7 @@
  * from a stack trace.
  */
 import { execFile as execFileCallback } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, unlinkSync } from 'node:fs'
 import { promisify } from 'node:util'
 import { dirname, join, resolve } from 'node:path'
 import { MANIFEST_PATH, PROBLEM_CODES, UNUSABLE_PROBLEM_CODES, budgetProblem, hashSource, normaliseText, parseAdr, problem, workBudgetRead } from './ratchet-schema.mjs'
@@ -392,6 +392,11 @@ export function status(root, options = {}) {
     },
     tracksSpecDocuments: tracksSpecs,
     reviewRequired: compiled.report.reviewRequired,
+    // The decisions a human declined, newest first. A declined record's file is removed, so
+    // this is how the agent that proposed it finds out — the durable half of the notice, and
+    // the only half that survives a closed Session. A FIELD, not a problem: a refusal is a
+    // decision a human made, not a defect in the project, so it never makes a status red.
+    declined: state.declinedDecisions(root),
     verified: {
       ran: verification.ran,
       stale: verification.stale,
@@ -2726,6 +2731,46 @@ function regenerateSpecs(root, compiled, budget = null) {
 }
 
 /**
+ * PURPOSE: Remove the record file behind one declined decision, when the ratchet may.
+ * INPUTS: root (absolute project root, string); options `{ id, path, status, authority }`
+ *   taken from the ratification queue's own entry for the record.
+ * OUTPUTS: `{ deleted, path, reason, failed }`. `deleted` is false, with a reason, for a
+ *   human-authored record, a record that is not `proposed`, and a file that is already absent;
+ *   `failed` is true only when a real removal threw, so a caller can report that as a problem
+ *   and stay silent about the choices that are working as intended. Never throws.
+ * KEYWORDS: decline, delete, proposal, lifecycle, consent, cleanup
+ */
+function removeDeclinedRecord(root, { id, path = null, status = null, authority = null } = {}) {
+  if (typeof path !== 'string' || path.length === 0) {
+    return { deleted: false, path: null, failed: false, reason: `ADR ${String(id)} was declined, but the queue entry named no file to remove` }
+  }
+  if (authority !== 'agent') {
+    return {
+      deleted: false,
+      path,
+      failed: false,
+      reason: `ADR ${String(id)} is ${authority === 'human' ? 'human-authored' : 'of unknown authorship'}, so it stays: a decline removes only an agent's own proposal`,
+    }
+  }
+  if (status !== 'proposed') {
+    return {
+      deleted: false,
+      path,
+      failed: false,
+      reason: `ADR ${String(id)} is ${status === null ? 'of unknown status' : `"${status}"`}, not a proposal, so it was not removed`,
+    }
+  }
+  const absolute = join(root, path)
+  try {
+    if (!existsSync(absolute)) return { deleted: false, path, failed: false, reason: `ADR ${String(id)} names ${path}, which is already absent` }
+    unlinkSync(absolute)
+    return { deleted: true, path, failed: false, reason: null }
+  } catch (error) {
+    return { deleted: false, path, failed: true, reason: `ADR ${String(id)} could not be removed from ${path}: ${String(error)}` }
+  }
+}
+
+/**
  * Puts pending decisions to a human and records the consent that follows.
  *
  * One call is one attempt, deliberately: the operation is a function of a root and
@@ -2740,7 +2785,9 @@ function regenerateSpecs(root, compiled, budget = null) {
  *   returned. Nothing is written.
  * - **ratified** — at least one decision was approved; the transcript and the
  *   approval ADR are written, and the compile that follows reports the new law set.
- * - **rejected** — the human declined; nothing is written.
+ * - **rejected** — the human declined; an agent's own proposed record is REMOVED, a
+ *   human-authored record is left in place, and nothing enters force. The refusal, its reason
+ *   and what became of each file are recorded in the ledger and returned under `declined`.
  * - **unreadable** — the answer matched none of the offered options; nothing is
  *   minted, and a differently shaped re-ask is returned with what actually arrived.
  *
@@ -2994,12 +3041,66 @@ export function ratify({
           ),
         ]
 
+  // The human's reason for a decline is part of the record, not a throwaway: it is the one place
+  // a "no" says WHY, and it is what a later proposal is drafted against. It is computed HERE,
+  // above the branch below, because a mixed answer's declines are recorded on the MINT event —
+  // keeping it inside the no-approval branch silently dropped the reason for every decline that
+  // shared an answer with an approval.
+  const declineComment = typeof comment === 'string' && comment.trim().length > 0 ? comment.trim().slice(0, 2000) : null
+  // A decline ends an agent's proposal: the human said no, so the record is REMOVED rather
+  // than left in the queue reading "awaiting a human" forever. It is computed for EVERY
+  // rejection, including one in a batch that also approved something else, because a "no" is
+  // a "no" whether or not another record in the same answer got a "yes". Only the ratchet
+  // decides this, and only for an agent-authored record that is still a proposal: a human's
+  // own draft is theirs to remove, and a record in force never reaches here because the queue
+  // does not offer it.
+  const declined = derived.rejected.map((id) => {
+    const entry = targets.find((item) => item.id === id) ?? null
+    // A dry run removes NOTHING. The removal used to run before the `write !== true` return, so
+    // `write:false` — the shape the consent service's dry-run callers use — deleted the record
+    // while reporting that it had written nothing. The entry still reports what a real call
+    // WOULD do, so a caller sees the proposal and the fate it is being spared.
+    const removal =
+      write === true
+        ? removeDeclinedRecord(root, {
+            id,
+            path: entry?.path ?? null,
+            status: entry?.status ?? null,
+            authority: entry?.authority ?? null,
+          })
+        : {
+            deleted: false,
+            path: entry?.path ?? null,
+            failed: false,
+            reason: `this call is a dry run (write is not true), so ADR ${String(id)} was not removed; a real ratification removes it`,
+          }
+    return {
+      id,
+      title: entry?.title ?? null,
+      path: removal.path ?? entry?.path ?? null,
+      deleted: removal.deleted,
+      failed: removal.failed === true,
+      reason: removal.reason,
+      // The human's own reason travels with the entry, because the ACTIVE notice is rendered
+      // from this array: without it the producer was told its decision was declined and that
+      // "no reason was recorded", while the reason sat one line above, unused.
+      comment: declineComment,
+    }
+  })
+  const removalProblems = declined
+    .filter((entry) => entry.failed === true)
+    .map((entry) =>
+      problem(
+        'ARTIFACT_WRITE_FAILED',
+        `${entry.reason}, so the declined decision is still on disk and will be offered again`,
+        entry.id,
+        { path: entry.path },
+      ),
+    )
+
   if (approvedEntries.length === 0) {
-    // The human's reason for a decline is part of the record, not a throwaway: it is the
-    // one place a "no" says WHY, and it is what a later proposal is drafted against. It
-    // is written to the append-only ledger with the decision it refused, trimmed and
-    // bounded, and returned so the surface that carried it can show it back.
-    const declineComment = typeof comment === 'string' && comment.trim().length > 0 ? comment.trim().slice(0, 2000) : null
+    // The human's reason is computed above, so the mixed-batch path records it too; here it is
+    // only written to the append-only ledger with the decisions it refused.
     appendLedger(root, 'ratchet.ratify.no-consent', {
       attempt,
       // `derived.rejected` is already the record ids (the reader derives them from the
@@ -3009,8 +3110,13 @@ export function ratify({
       rejected: derived.rejected,
       unreadable: derived.unreadable.length,
       comment: declineComment,
+      // What the decline removed, so a later reader — and the notice delivered to the agent
+      // that produced the decision — can say what became of the file, not only that a human
+      // said no. A choice NOT to remove (a human's own record, a path already gone) is a
+      // reason with `deleted:false`; a real failure additionally carries `failed:true`.
+      declined,
     })
-    const problems = [...unknownProblems, ...unreadableProblems, ...changedProblems]
+    const problems = [...unknownProblems, ...unreadableProblems, ...changedProblems, ...removalProblems]
     return {
       ok: false,
       stage: 'ratify',
@@ -3023,13 +3129,16 @@ export function ratify({
       wrote: [],
       reask,
       comment: declineComment,
+      declined,
+      deleted: declined.filter((entry) => entry.deleted === true).map((entry) => entry.path),
+      producers: state.recentProducers(root),
       problems,
       summary: summariseProblems(problems),
       nextStep:
         changed.length > 0
           ? 'a record changed while the question was open, so its answer approved a text that is no longer there; ask again to consent to what the file says now'
           : reask === null
-            ? 'the human answered, and no answer was an approval: the records stay proposed and nothing was written. Ask only if the decision changed'
+            ? 'the human answered, and no answer was an approval: a declined agent proposal was removed and nothing entered force, while a human-authored record is left in place because only an agent proposal is removed'
             : 'ask the re-ask questions: they name the decision in their labels and carry the previous answer, so this answer can be derived rather than guessed',
     }
   }
@@ -3082,6 +3191,11 @@ export function ratify({
       changed,
       wrote: [],
       reask,
+      // A dry run's `declined` says what a real call would remove, with `deleted:false` and the
+      // reason, so the caller can report the fate it is sparing. No ledger event is appended.
+      declined,
+      deleted: [],
+      producers: state.recentProducers(root),
       approval: { id: approvalId, path: approval.path, title: approval.title },
       transcript: { path: transcriptPath },
       approvalText: approval.text,
@@ -3133,9 +3247,15 @@ export function ratify({
     inForce: after.report.counts.active,
     wrote: written.written.length,
     specsRegenerated: specs.written.length,
+    // A batch can approve one decision and decline another; the declined half is removed and
+    // recorded here too, so no rejection is invisible because it shared an answer with a yes.
+    // The human's reason travels with it: the notice to the producing agent quotes it, and
+    // reading it only from the `no-consent` event dropped it for every mixed answer.
+    declined,
+    comment: declineComment,
   })
 
-  const problems = [...unknownProblems, ...unreadableProblems, ...changedProblems, ...after.problems, ...specs.problems]
+  const problems = [...unknownProblems, ...unreadableProblems, ...changedProblems, ...after.problems, ...specs.problems, ...removalProblems]
   return {
     ok: problems.length === 0,
     stage: 'ratify',
@@ -3145,6 +3265,9 @@ export function ratify({
     rejected: derived.rejected,
     unreadable: derived.unreadable,
     changed,
+    declined,
+    deleted: declined.filter((entry) => entry.deleted === true).map((entry) => entry.path),
+    producers: state.recentProducers(root),
     wrote: written.written,
     reask,
     approval: { id: approvalId, path: approval.path, title: approval.title },

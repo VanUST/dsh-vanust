@@ -98,7 +98,7 @@
  *       that what arrived is not the whole corpus, so a renderer can say so rather than
  *       presenting a partial list as complete.
  *   A null/empty `root` returns `{ ok:false, root, records:[], queue:{...empty}, specs:[],
- *   drift:{...empty}, contradictionReview:null, needsHuman:[],
+ *   drift:{...empty}, contradictionReview:null, declined:[], needsHuman:[],
  *   problems:[MANIFEST_MISSING-like], truncated:null }` and
  *   never throws.
  *
@@ -147,7 +147,7 @@ import { Worker } from 'node:worker_threads'
 import { compileProject, readAdrCorpus, readManifest, renderSpecs, resolveActiveSet, zonesForRecord } from './ratchet-compiler.mjs'
 import { resolveStepsFor } from './ratchet-resolve.mjs'
 import { ratificationQueue } from './ratchet-ratify.mjs'
-import { detectSpecDrift, readJsonArtifact, readLedger, readState, STATE_PATHS, verificationStatus } from './ratchet-state.mjs'
+import { declinedDecisions, detectSpecDrift, isDeclineEvent, readJsonArtifact, readLedger, readState, STATE_PATHS, verificationStatus } from './ratchet-state.mjs'
 import { draftNeedsHuman } from './ratchet-drafts.mjs'
 import { findRoot, contradictionReviewStatus } from './ratchet-ops.mjs'
 import { MANIFEST_PATH } from './ratchet-schema.mjs'
@@ -493,8 +493,10 @@ function buildNeedsHuman(root, records, queue, drift, currentSpecHash, drafted, 
   // queue — a decline mints nothing, so it is still `proposed` and still ratifiable — but
   // it is not something a human is being asked for, and listing it again after the answer
   // was given makes the set a record of everything that was ever proposed rather than a
-  // list of what is waiting. It remains in the Decisions list, where Approve and Decline
-  // are still offered, so a change of mind is one click.
+  // list of what is waiting. An agent's OWN declined proposal is REMOVED by the ratification,
+  // so it leaves the corpus entirely and its row is gone with it; a human-authored record is
+  // kept, because a person's draft is theirs, and it stays in the Decisions list where the
+  // human can act on it again.
   //
   // The residual, stated: the ledger records a refusal against the record ID, not against
   // the text that was shown, so a record EDITED after a refusal is not offered again. A
@@ -868,6 +870,9 @@ export function deriveDecisions({ root } = {}) {
     specs,
     drift,
     contradictionReview,
+    // The decisions a human declined, newest first: the notice the producing agent reads when
+    // its Session is not live to receive one, and what the panel shows after a refusal.
+    declined: declinedDecisions(root),
     drafting: drafted === null
       ? { ok: false, unusable: true, duplicates: { drafts: [], alreadyDrafted: [], undraftable: [], scanned: null }, contradictions: { drafts: [], alreadyDrafted: [], undraftable: [], needs: [] }, staleNotes: [], problems: [] }
       : {
@@ -943,11 +948,18 @@ const MAX_DECLINES_PER_RECORD = 5
 /**
  * The reasons a human has already declined this proposal, newest first, read ONCE.
  *
- * A refusal records nothing into force, so a declined decision correctly stays in the
- * queue and stays on the panel after a reload. What was missing is that the refusal left no
- * trace there at all: the reason went to the append-only ledger and the card looked exactly
- * as it had before the click, so the only honest reading of the screen was "nothing
- * happened". This is the read that lets a card say what the human already said.
+ * A refusal records nothing into force. An agent's own declined proposal is REMOVED by the
+ * ratification, so it leaves the corpus and this filter's job is to keep a record that is still
+ * on disk — a human's own draft, which is not removed — out of the needs-a-human set once the
+ * human has answered about it. The read exists because the refusal otherwise left no trace: the
+ * reason went to the append-only ledger and the card looked exactly as it had before the click,
+ * so the only honest reading of the screen was "nothing happened". This is the read that lets a
+ * card say what the human already said.
+ *
+ * It reads EVERY event a decline is recorded on — see `isDeclineEvent` — because an answer that
+ * declines one decision and approves another records its declines on the mint event, and reading
+ * only `no-consent` left such a record listed as waiting in the very view whose `declined` field
+ * reported it refused.
  *
  * The whole ledger is read once for the whole needs set rather than once per record: the
  * reader parses every line, so a per-record call would cost the file once per pending
@@ -962,11 +974,21 @@ function declinesByRecord(root) {
   const ledger = readLedger(root)
   if (ledger.error !== undefined) return byId
   for (const event of ledger.events ?? []) {
-    if (event === null || event === undefined || event.event !== 'ratchet.ratify.no-consent') continue
+    if (!isDeclineEvent(event)) continue
     const at = typeof event.at === 'string' ? event.at : null
     const comment = typeof event.comment === 'string' && event.comment.length > 0 ? event.comment : null
+    // BOTH shapes, and both fields: a `no-consent` event carries `rejected`, while a MINT event
+    // from an answer that also approved something carries `declined`. Reading only the first
+    // left a declined human-authored record listed as waiting in the same view whose `declined`
+    // field reported it refused.
+    const ids = new Set()
     for (const id of Array.isArray(event.rejected) ? event.rejected : []) {
-      if (typeof id !== 'string' || id.length === 0) continue
+      if (typeof id === 'string' && id.length > 0) ids.add(id)
+    }
+    for (const entry of Array.isArray(event.declined) ? event.declined : []) {
+      if (entry !== null && typeof entry === 'object' && typeof entry.id === 'string' && entry.id.length > 0) ids.add(entry.id)
+    }
+    for (const id of ids) {
       const list = byId.get(id) ?? []
       list.push({ at, comment })
       byId.set(id, list)

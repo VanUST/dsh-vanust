@@ -226,7 +226,9 @@ export function consentRootFor(start) {
  *   inside the ratchet.
  *
  * INPUTS
- *   None. The factory itself supplies the conservative in-process work budget: this service
+ *   `{ notifyDeclined }` — an optional `(info) => unknown` called after a settle that DECLINED
+ *   at least one decision, with `{ result }`. It is how the producing agent is told. The
+ *   factory itself supplies the conservative in-process work budget: this service
  *   is the panel's click path, so it runs on the harness event loop and must fail closed on a
  *   corpus too large to read rather than block the click. The exported `askConsent` and
  *   `settleConsent` keep their `budget` parameter so a test can drive them with its own
@@ -234,15 +236,28 @@ export function consentRootFor(start) {
  *
  * OUTPUTS
  *   `{ ask, settle, rootFor }` — the two operations, each providing a fresh work budget per
- *   call, plus root resolution. Never null.
+ *   call, plus root resolution. Never null. `settle` stays SYNCHRONOUS and returns the ratify
+ *   result: the decline is recorded and the file removed before it returns, and the notice is
+ *   delivered in the background, because a human's click must not wait on another Session's
+ *   agent and must not fail if that delivery does.
  *
  * KEYWORDS
- *   cordis service, provide, host seam, adr panel, work budget
+ *   cordis service, provide, host seam, adr panel, work budget, decline, notify
  */
-export function createConsentService() {
+export function createConsentService({ notifyDeclined = null } = {}) {
   return {
     ask: (options = {}) => askConsent({ ...options, budget: options.budget ?? createWorkBudget() }),
-    settle: (options = {}) => settleConsent({ ...options, budget: options.budget ?? createWorkBudget() }),
+    settle: (options = {}) => {
+      const result = settleConsent({ ...options, budget: options.budget ?? createWorkBudget() })
+      if (typeof notifyDeclined === 'function' && Array.isArray(result?.declined) && result.declined.length > 0) {
+        try {
+          Promise.resolve(notifyDeclined({ result })).catch(() => {})
+        } catch {
+          // A notifier that throws synchronously is a diagnostic; the consent already happened.
+        }
+      }
+      return result
+    },
     rootFor: consentRootFor,
   }
 }

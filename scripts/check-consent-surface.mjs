@@ -826,8 +826,11 @@ claim(
   `ratified=${JSON.stringify(replayed.ratified ?? null)} files=${decisionCount(serviceRoot)}`,
 )
 
-// A decline is a real answer and still writes no approval or transcript — by the ratchet's
-// own rule, not the panel's, which is what makes the UI's confirm step honest.
+// A decline is a real answer: it REMOVES the agent's proposal and writes no approval or
+// transcript — by the ratchet's own rule, not the panel's, which is what makes the UI's confirm
+// step honest. `decisionCount === 0` is the removal; the source file is untouched, because a
+// record's reasoning may be cited elsewhere and removing it would be a second, unreviewed
+// deletion.
 const declineRoot = fixture('service-decline', {
   zones: [{ id: 'api', paths: ['src/api/**'], agentAuthority: 'proposeOnly' }],
   adrs: { '0001-waiting.adr.md': adr({ id: '0001', status: 'proposed', authority: 'agent', zone: 'api', laws: [] }) },
@@ -841,12 +844,15 @@ const declined = consentService.settle({
   at: '2026-09-16T00:00:00Z',
 })
 claim(
-  'the ratchet\'s own reject label records a decline and writes no approval or transcript',
+  'the ratchet\'s own reject label removes the declined agent proposal and writes no approval or transcript',
   declined.ok === false &&
     JSON.stringify(declined.rejected) === JSON.stringify(['0001']) &&
     (declined.ratified ?? []).length === 0 &&
-    decisionCount(declineRoot) === 1,
-  `rejected=${JSON.stringify(declined.rejected ?? null)} files=${decisionCount(declineRoot)}`,
+    decisionCount(declineRoot) === 0 &&
+    Array.isArray(declined.declined) &&
+    declined.declined.length === 1 &&
+    declined.declined[0].deleted === true,
+  `rejected=${JSON.stringify(declined.rejected ?? null)} files=${decisionCount(declineRoot)} deleted=${JSON.stringify(declined.deleted ?? null)}`,
 )
 
 // A record edited while the question was open: the answer is about text that is no longer

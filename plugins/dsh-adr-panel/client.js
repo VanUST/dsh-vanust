@@ -314,8 +314,9 @@
  *     returns `null` for the returned quiz): the row says it cannot put the question, and
  *     no label is sent.
  *   - The round trip's outcome is always shown: an approval names the approval id, its
- *     file and the transcript; a decline says the decision stays proposed and that
- *     nothing was written, and repeats the reason it recorded when there was one; a
+ *     file and the transcript; a decline says nothing entered force and, per record, whether
+ *     the ratchet REMOVED it (an agent's own proposal) or KEPT it (a human's draft, with the
+ *     reason), repeating the reason it recorded when there was one; a
  *     refusal shows the ratchet's own problem codes and messages; a transport failure
  *     shows the failure's message. No outcome leaves the row silent.
  *   - A decline the human cancels, or one whose reason is only whitespace: the cancel
@@ -443,7 +444,7 @@ window.__ModuleLoader__.load({
 		 * are equal again after a release and the constant is one ahead only in the working
 		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.58";
+		const PANEL_VERSION = "0.1.59";
 		/** Directories used when the host view reports none. */
 		const DEFAULT_DECISIONS_DIR = "docs/adrs";
 		const DEFAULT_SPECS_DIR = "docs/specs";
@@ -1832,6 +1833,11 @@ window.__ModuleLoader__.load({
 						},
 						projectName: typeof project.name === "string" && project.name !== "" ? project.name : "this project",
 						notes: notes,
+						// The decisions a human declined, with what became of each. A declined
+						// proposal's record is REMOVED, so after a reload this list is the only
+						// trace of it in the window — and the reason the human gave lives only
+						// here, because the record that would have carried it is gone.
+						declined: Array.isArray(view.declined) ? view.declined : [],
 						failures: []
 					};
 				},
@@ -2704,7 +2710,18 @@ window.__ModuleLoader__.load({
 				if (sending || typeof props.request !== "function") return;
 				setPhase({ kind: "sending", plan: plan });
 				props.request(adrId, sessionId, "decline", reason).then(
-					function (result) { setPhase({ kind: "done", plan: plan, decision: "decline", result: result }); },
+					function (result) {
+						setPhase({ kind: "done", plan: plan, decision: "decline", result: result });
+						// The plan this card holds PREDATES the refusal just recorded, so its
+						// "already declined" list omits the reason the human just gave and would
+						// keep omitting it until the card remounts. Re-read it, keeping the
+						// outcome: the fresh plan carries the new reason. A failed re-read is
+						// not a failed refusal, so it leaves the outcome standing.
+						ask(adrId, sessionId).then(
+							function (fresh) { setPhase({ kind: "done", plan: fresh, decision: "decline", result: result }); },
+							function () { /* the refusal is recorded; only the history refresh failed */ }
+						);
+					},
 					function (error) { setPhase({ kind: "done", plan: plan, decision: "decline", result: { ok: false, error: describeError(error) } }); }
 				);
 			};
@@ -3743,9 +3760,21 @@ window.__ModuleLoader__.load({
 			/** Reads the outcome out of one settle result, so the row can render it. */
 			var finish = function (decision, result, quiz) {
 				setPhase({ kind: "done", decision: decision, result: result, quiz: quiz });
-				if (decision === "approve" && result !== null && result !== undefined && result.ok === true && typeof onRecorded === "function") {
-					// The corpus changed: an approval ADR exists now. Re-reading it is how the
-					// row's state, the Consents section and the in-force law set catch up.
+				// Durable state changed, so the window has to re-read it. An approval writes an
+				// approval ADR and puts laws in force; a DECLINE now removes the declined agent
+				// proposal and drops it from the needs-a-human set, so gating this on `approve`
+				// left the window drawing a record the ratchet had already deleted. A refusal
+				// that recorded nothing durable (an unreadable answer, a changed text) still
+				// has nothing to re-read.
+				var recorded =
+					result !== null && result !== undefined &&
+					(decision === "approve"
+						? result.ok === true
+						: Array.isArray(result.rejected) && result.rejected.length > 0);
+				if (recorded && typeof onRecorded === "function") {
+					// The corpus changed: an approval ADR exists now, or a declined proposal is
+					// gone. Re-reading it is how the row's state, the Consents section and the
+					// in-force law set catch up.
 					onRecorded();
 				}
 			};
@@ -3988,8 +4017,23 @@ window.__ModuleLoader__.load({
 					files.length === 0 ? null : React.createElement("div", null, mono(files.join(", "))));
 			}
 			if (Array.isArray(result.rejected) && result.rejected.length > 0) {
+				// A decline REMOVES an agent's own proposal and keeps a human's draft, so the
+				// outcome says which of the two happened per record. The old sentence — "the
+				// decision stays proposed" — was true before the removal existed and is false now,
+				// which is exactly the kind of stale copy that makes a control look broken.
+				var fates = Array.isArray(result.declined) ? result.declined : [];
+				var removedFates = fates.filter(function (entry) { return entry !== null && entry !== undefined && entry.deleted === true; });
+				var keptFates = fates.filter(function (entry) { return entry === null || entry === undefined || entry.deleted !== true; });
+				var fateText = "";
+				if (removedFates.length > 0) {
+					fateText += " " + removedFates.map(function (entry) { return String(entry.id); }).join(", ") + (removedFates.length === 1 ? " was removed" : " were removed") + ".";
+				}
+				if (keptFates.length > 0) {
+					var why = keptFates[0] !== null && keptFates[0] !== undefined && typeof keptFates[0].reason === "string" && keptFates[0].reason !== "" ? " (" + keptFates[0].reason + ")" : "";
+					fateText += " " + keptFates.map(function (entry) { return String(entry.id); }).join(", ") + (keptFates.length === 1 ? " was kept" : " were kept") + why + ".";
+				}
 				return React.createElement("div", { style: mutedStyle() },
-					"Declined: the ratchet recorded no consent for " + result.rejected.join(", ") + ", so nothing was written and " + (result.rejected.length === 1 ? "the decision stays" : "the decisions stay") + " proposed.",
+					"Declined: the ratchet recorded no consent for " + result.rejected.join(", ") + ", so nothing entered force." + fateText,
 					typeof result.comment === "string" && result.comment !== ""
 						? React.createElement("div", { style: { marginTop: 4 } }, "Recorded reason: ", React.createElement("span", { style: { fontStyle: "italic" } }, result.comment))
 						: null);
@@ -4441,7 +4485,7 @@ window.__ModuleLoader__.load({
 			var ask = props.ask;
 			var settle = props.settle;
 			var load = props.load;
-			var emptyView = { status: "idle", decisions: [], consents: [], specs: [], relations: { approvedBy: {}, supersededBy: {} }, lawsByDecision: {}, decisionIds: {}, recordIds: {}, needsHuman: [], needsHumanTruncated: null, dirs: { decisionsDir: DEFAULT_DECISIONS_DIR, specsDir: DEFAULT_SPECS_DIR }, projectName: "this project", notes: [], failures: [] };
+			var emptyView = { status: "idle", decisions: [], consents: [], specs: [], relations: { approvedBy: {}, supersededBy: {} }, lawsByDecision: {}, decisionIds: {}, recordIds: {}, needsHuman: [], needsHumanTruncated: null, declined: [], dirs: { decisionsDir: DEFAULT_DECISIONS_DIR, specsDir: DEFAULT_SPECS_DIR }, projectName: "this project", notes: [], failures: [] };
 			var view = React.useState(emptyView);
 			var current = view[0];
 			var setView = view[1];
@@ -4515,6 +4559,7 @@ window.__ModuleLoader__.load({
 						dirs: result.dirs === undefined ? emptyView.dirs : result.dirs,
 						projectName: result.projectName === undefined ? "this project" : result.projectName,
 						notes: result.notes === undefined ? [] : result.notes,
+						declined: result.declined === undefined ? [] : result.declined,
 						failures: result.failures === undefined ? [] : result.failures
 					});
 				}, function (error) {
@@ -4590,10 +4635,13 @@ window.__ModuleLoader__.load({
 			if (current.specs.length > 0) countParts.push(plural(current.specs.length, "spec"));
 			var onSelectAdr = function (adrId) {
 				setExpandedId(adrId);
-				// A row selection always lands on the Decisions part: the laws-decided-here
-				// links, the needs-human "Open <id>" buttons and a consent's `approves` link
-				// all name a decision, and opening it must switch the tab to where its row is.
-				setChosenSection("decisions");
+				// The link decides the SECTION. A "ratified by <id>" provenance pill names an
+				// APPROVAL record, and approvals are drawn only in the Consents part, so always
+				// landing on Decisions expanded nothing and read as a dead click — 32 of them on
+				// the kit's own corpus. Everything else here (a law's decided-in link, a
+				// needs-human "Open <id>") names a decision record.
+				var isConsent = current.consents.some(function (record) { return record.id === adrId; });
+				setChosenSection(isConsent ? "consents" : "decisions");
 			};
 			var toggle = function (adrId) {
 				setExpandedId(expandedId === adrId ? null : adrId);
@@ -4696,6 +4744,21 @@ window.__ModuleLoader__.load({
 						// because it is the outcome of the human's own click: a resolver
 						// started (and where), or the route's own words for why none did.
 						React.createElement(ResolverBar, { ids: handedIds, inFlight: inFlight, last: lastDispatch }),
+						// A declined decision's record is REMOVED, so it has no row anywhere: this
+						// list is the only place the window can say what a human refused, what
+						// became of it, and why. Without it a refusal left no trace at all on
+						// screen once the record was gone.
+						current.declined !== undefined && current.declined.length > 0
+							? React.createElement("div", { style: { margin: "6px 0" } },
+								React.createElement("div", { style: { fontSize: 12, fontWeight: 600 } }, "Decisions a human declined"),
+								current.declined.map(function (entry, index) {
+									var id = entry !== null && entry !== undefined ? entry.id : null;
+									var title = entry !== null && entry !== undefined && typeof entry.title === "string" && entry.title !== "" ? " \u201c" + entry.title + "\u201d" : "";
+									var fate = entry !== null && entry !== undefined && entry.deleted === true ? "the record was removed" : "the record was kept";
+									var because = entry !== null && entry !== undefined && typeof entry.comment === "string" && entry.comment !== "" ? " \u2014 because: \u201c" + entry.comment + "\u201d" : "";
+									return React.createElement("div", { key: "declined" + String(index), style: mutedInlineStyle() }, "#" + String(id) + title + " \u2014 " + fate + because);
+								}))
+							: null,
 						current.notes !== undefined && current.notes.length > 0
 							? React.createElement("div", { style: warnStyle() }, current.notes.map(function (note, index) {
 								return React.createElement(HashedText, { key: String(index), text: note });

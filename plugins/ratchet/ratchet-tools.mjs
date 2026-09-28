@@ -40,6 +40,7 @@
  *     and verify.
  */
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { resolve } from 'node:path'
 import { MANIFEST_PATH, PROBLEM_CODES, createWorkBudget } from './ratchet-schema.mjs'
 import { CONSENT_SERVICE, createConsentService } from './ratchet-consent.mjs'
@@ -48,6 +49,7 @@ import { RESOLVE_SERVICE, createResolveService } from './ratchet-resolve.mjs'
 import { REVIEW_JOBS } from './ratchet-dynamic.mjs'
 import { createJudgePool } from './ratchet-judge.mjs'
 import { registerGuard } from './ratchet-guard.mjs'
+import { touchProducer } from './ratchet-state.mjs'
 import {
   bootstrap,
   compile,
@@ -174,9 +176,13 @@ export function apply(ctx) {
   // Its consents record their own channel (`adr-panel`) rather than the harness seam's,
   // and the channel is the SERVICE's, not an argument: a caller cannot ask to be recorded
   // as having come through the user-questions seam, because it did not.
+  //
+  // A decline also TELLS the producing Session, which is why the service is given the
+  // notifier below: the record's own file is removed by a decline, so this is the one
+  // moment the agent can be told its decision was refused and why.
   ctx.effect(() => {
     try {
-      return ctx.provide(CONSENT_SERVICE, createConsentService())
+      return ctx.provide(CONSENT_SERVICE, createConsentService({ notifyDeclined: (info) => notifyDeclinedProducers(ctx, info) }))
     } catch (error) {
       process.stderr.write(`ratchet: cannot provide ${CONSENT_SERVICE}: ${String(error)}\n`)
       return undefined
@@ -279,6 +285,11 @@ export function apply(ctx) {
           summary: summariseProblems(problems),
         }
       }
+      // Remember which Session is working here, so a decision a human later declines can be
+      // delivered to the agent that produced it: a record carries an author NAME and never the
+      // Session that wrote it. Best-effort, bounded, and never fatal — a status call must not
+      // fail because a state file could not be written.
+      touchProducer(root, { session: exec?.agent?.id ?? null })
       return operation(root)
     }
 
@@ -320,6 +331,27 @@ export function apply(ctx) {
     }
 
     /**
+     * Runs one interactive ratification and tells the producing Sessions about any decline.
+     *
+     * The panel's consent service notifies through the service it was given, but the AGENT-facing
+     * entries — the `ratchet_ratify` tool, the `/ratify` command, and the ingest-and-ratify flow
+     * — call `ratifyInteractively` directly. Without this wrapper a decline recorded from any of
+     * them removed the record and told nobody, while the same decline from the panel delivered
+     * the notice; the law says a decline tells the producer, not that the panel's path does.
+     *
+     * @param options - The `ratifyInteractively` options.
+     * @returns Its result, unchanged. The notice is best-effort and never awaited: the consent
+     *   has already been recorded, and a delivery that fails must not fail the ratification.
+     */
+    const ratifyInteractivelyAndNotify = async (options) => {
+      const result = await ratifyInteractively(options)
+      if (Array.isArray(result?.declined) && result.declined.length > 0) {
+        void notifyDeclinedProducers(ctx, { result })
+      }
+      return result
+    }
+
+    /**
      * Runs `/ratify [<adr-id> …]` for the session that invoked it.
      *
      * The same operation as the `ratchet_ratify` tool, and deliberately the same code
@@ -352,7 +384,7 @@ export function apply(ctx) {
       }
 
       try {
-        const result = await ratifyInteractively({
+        const result = await ratifyInteractivelyAndNotify({
           root,
           ids: parseRatifyIds(invocation?.rawInput),
           askedBy: askedByFor(exec),
@@ -403,7 +435,7 @@ export function apply(ctx) {
           },
         }
       }
-      const result = await ratifyInteractively({
+      const result = await ratifyInteractivelyAndNotify({
         root,
         ids: [id],
         askedBy: askedByFor(exec),
@@ -509,12 +541,15 @@ export function apply(ctx) {
       defineTool({
         name: 'ratchet_status',
         description:
-          'Report the ratchet state of this project without changing it: whether a manifest is present and ' +
-          'ratchet-enabled, how many ADRs are active or proposed, the current spec hash, whether the ' +
-          'persisted spec bundle is out of date, and whether the code has been verified against the laws ' +
-          'currently in force. Call this first when you do not know whether a project uses the ratchet. ' +
-          'It reports VERIFY_NOT_RUN when no verification covers the current laws, which is the difference ' +
-          'between "checked and clean" and "never checked".',
+          'Report the ratchet state of this project without changing any decision, any law or any report: ' +
+          'whether a manifest is present and ratchet-enabled, how many ADRs are active or proposed, the ' +
+          'current spec hash, whether the persisted spec bundle is out of date, whether the code has been ' +
+          'verified against the laws currently in force, and the decisions a human has declined. Call this ' +
+          'first when you do not know whether a project uses the ratchet. It reports VERIFY_NOT_RUN when no ' +
+          'verification covers the current laws, which is the difference between "checked and clean" and ' +
+          '"never checked". It is not wholly read-only: every ratchet tool records the calling Session in ' +
+          '.dsh/ratchet/sessions.json, so that a decision a human later declines can be reported back to the ' +
+          'agent that proposed it.',
         parameters: {
           root: {
             type: 'string',
@@ -717,7 +752,7 @@ export function apply(ctx) {
           // with a literal answer. This adapter contributes only the channel — and
           // when there is none, the operation reports that rather than accepting an
           // answer from the model instead of the human.
-          return ratifyInteractively({ root, ids, askedBy, askHuman: humanChannel(exec), budget: createWorkBudget() })
+          return ratifyInteractivelyAndNotify({ root, ids, askedBy, askHuman: humanChannel(exec), budget: createWorkBudget() })
         },
       }),
     )
@@ -1120,6 +1155,95 @@ export function apply(ctx) {
  * @param exec - Tool-execution context.
  * @returns A non-empty string, either `session <id>` or `unattributed`.
  */
+/**
+ * The one-line account of a decline that a producing agent is sent.
+ *
+ * A notice, not a question and not a consent: it names each record, what the ratchet did with
+ * the file, and the human's own reason when they gave one, and it asks for nothing. The agent
+ * that wrote the proposal is the reader, so the text is addressed to it rather than to the
+ * human who already decided.
+ *
+ * @param declined - The `declined` entries from a ratify result.
+ * @returns The notice text. An empty list yields an empty string.
+ */
+export function renderDeclineNotice(declined) {
+  const entries = Array.isArray(declined) ? declined.filter((entry) => entry !== null && typeof entry === 'object') : []
+  if (entries.length === 0) return ''
+  const lines = ['A human DECLINED a decision this Session proposed:']
+  for (const entry of entries) {
+    const title = typeof entry.title === 'string' && entry.title.length > 0 ? ` "${entry.title}"` : ''
+    const fate =
+      entry.deleted === true
+        ? `removed by the ratchet${typeof entry.path === 'string' ? ` (${entry.path})` : ''}`
+        : `left in place — ${typeof entry.reason === 'string' && entry.reason.length > 0 ? entry.reason : 'no reason recorded'}`
+    lines.push(`- ADR ${String(entry.id)}${title}: ${fate}`)
+  }
+  const reasons = entries.filter((entry) => typeof entry.comment === 'string' && entry.comment.length > 0)
+  if (reasons.length > 0) {
+    lines.push('', 'The reason given:')
+    for (const entry of reasons) lines.push(`- ADR ${String(entry.id)}: ${entry.comment}`)
+  } else {
+    lines.push('', 'No reason was recorded.')
+  }
+  lines.push('', 'Do not propose the same law again unless a human asks for it.')
+  return lines.join('\n')
+}
+
+/**
+ * PURPOSE: Tell the Sessions that produced a declined decision that a human refused it.
+ * INPUTS: ctx — the plugin context, for the live-agent registry and the logger; info —
+ *   `{ result }`, the ratify result whose `declined` entries name the records and whose
+ *   `producers` list names the Sessions to tell, newest first.
+ * OUTPUTS: `{ delivered, skipped }`, both arrays of Session ids. Both are empty when nothing
+ *   was declined or no registry is mounted; `skipped` also names a Session that is not live
+ *   (its agent has been torn down) or that refused the message. Never throws, and never blocks
+ *   the consent it follows: the decline is already recorded and the file already removed.
+ * KEYWORDS: decline, notify, producer, session, followup, active message
+ */
+export async function notifyDeclinedProducers(ctx, { result } = {}) {
+  const declined = Array.isArray(result?.declined) ? result.declined : []
+  if (declined.length === 0) return { delivered: [], skipped: [] }
+  const agents = ctx?.get?.(AGENTS_SERVICE)
+  if (agents === undefined || agents === null || typeof agents.get !== 'function') {
+    return { delivered: [], skipped: [] }
+  }
+  const text = renderDeclineNotice(declined)
+  const seen = new Set()
+  const delivered = []
+  const skipped = []
+  for (const entry of Array.isArray(result?.producers) ? result.producers : []) {
+    const sessionId = entry?.session
+    if (typeof sessionId !== 'string' || sessionId.length === 0 || seen.has(sessionId)) continue
+    seen.add(sessionId)
+    const agent = agents.get(sessionId)
+    if (agent === undefined || agent === null || typeof agent.followup !== 'function') {
+      // A closed Session has no agent to wake. That is the normal case for a proposal made
+      // earlier and declined later, and the durable notice in the ledger is what covers it.
+      skipped.push(sessionId)
+      continue
+    }
+    try {
+      agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'plugin', plugin: '@cc/dsh-ratchet' } }))
+      delivered.push(sessionId)
+    } catch (error) {
+      skipped.push(sessionId)
+      try {
+        ctx?.logger?.warn?.(`ratchet: could not tell Session ${sessionId} about a declined decision: ${String(error)}`)
+      } catch {
+        /* logging is diagnostics */
+      }
+    }
+  }
+  try {
+    ctx?.logger?.info?.(
+      `ratchet.decline.notice declined=${declined.map((entry) => String(entry.id)).join(',')} delivered=${delivered.join(',')} skipped=${skipped.join(',')}`,
+    )
+  } catch {
+    /* logging is diagnostics */
+  }
+  return { delivered, skipped }
+}
+
 function askedByFor(exec) {
   const id = exec?.agent?.id
   if (typeof id !== 'string' || id.length === 0) return 'unattributed'

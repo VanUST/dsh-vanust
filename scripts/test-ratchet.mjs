@@ -3040,13 +3040,18 @@ test('packaging: no module imports a file that does not exist', () => {
 
 test('packaging: the plugin has no dependency on a package the profile must hoist', () => {
   // A peer dependency pnpm does not hoist fails at boot with `Cannot find package`,
-  // which is a boot failure rather than a degraded feature.
+  // which is a boot failure rather than a degraded feature. The list is exactly what the
+  // ADAPTER imports: `dsh-tools` and `cordis` for the tool surface, and `dsh-llm` for the
+  // message constructor a decline notice is built with. All three are hoisted by the harness
+  // install into the profile's `node_modules`, so none is a package the profile must add —
+  // measured by resolving each from the INSTALLED plugin directory, which is where the boot
+  // resolver runs, not from the kit's source tree.
   const manifest = JSON.parse(readFileSync(join(PLUGIN, 'package.json'), 'utf8'))
   const peers = Object.keys(manifest.peerDependencies ?? {})
   assert.deepEqual(
-    peers.filter((name) => !['@deepseek-ai/cordis', '@deepseek-ai/dsh-tools'].includes(name)),
+    peers.filter((name) => !['@deepseek-ai/cordis', '@deepseek-ai/dsh-tools', '@deepseek-ai/dsh-llm'].includes(name)),
     [],
-    'only the two packages the plugin actually imports may be peers',
+    'only the packages the plugin actually imports may be peers',
   )
   assert.deepEqual(Object.keys(manifest.dependencies ?? {}), [], 'a dependency would have to be installed into every profile')
 })
@@ -5837,15 +5842,168 @@ test('ratify: a law card written by an ordinary compile --write is regenerated b
   })
 })
 
-test('ratify: a rejected answer writes nothing and leaves the record proposed', () => {  const { root } = ratifiableProject('ratify-reject')
+test('ratify: a rejected answer removes the agent proposal and leaves nothing in force', () => {
+  // A decline is the END of an agent's proposal. Leaving the file was the reported defect: the
+  // record stayed `proposed`, the queue kept offering it, and the Decisions row read "awaiting a
+  // human" after the human had already answered — twice, in the project this was found in.
+  const { root } = ratifiableProject('ratify-reject')
   const prepared = ops.ratify({ root })
   const result = ops.ratify({ root, answer: answerWith(prepared.quiz, ['Reject']), quiz: prepared.quiz, at: '2026-09-14T09:00:00Z' })
 
   assert.deepEqual(result.ratified, [])
   assert.deepEqual(result.rejected, ['0011'])
   assert.deepEqual(result.wrote, [])
-  assert.equal(readdirSync(join(root, 'docs', 'adrs')).filter((name) => name.endsWith('.adr.md')).length, 1)
+  assert.equal(result.declined.length, 1, 'the result reports what became of the declined record')
+  assert.equal(result.declined[0].deleted, true, `expected a removal: ${JSON.stringify(result.declined)}`)
+  assert.deepEqual(result.deleted, result.declined.map((entry) => entry.path))
+  assert.equal(typeof result.deleted[0], 'string', 'the removal names the file')
+  assert.equal(existsSync(join(root, result.deleted[0])), false, 'the declined proposal file is gone')
+  assert.equal(readdirSync(join(root, 'docs', 'adrs')).filter((name) => name.endsWith('.adr.md')).length, 0)
   assert.deepEqual(compile(root).laws, [])
+})
+
+test('decline: the producing sessions are remembered, and the notice says what was removed', () => {
+  // An ADR carries its author's NAME and never the Session that wrote it, so the ratchet keeps a
+  // bounded recency list to know who to tell. The ledger notice is the durable half: it is what
+  // reaches a producing agent whose Session is closed, or that the ratchet never saw at all.
+  const { root } = ratifiableProject('decline-notice')
+  state.touchProducer(root, { session: 'session-a', tool: 'ratchet_status', at: '2026-09-28T10:00:00Z' })
+  state.touchProducer(root, { session: 'session-b', tool: 'ratchet_compile', at: '2026-09-28T11:00:00Z' })
+  state.touchProducer(root, { session: 'session-a', tool: 'ratchet_review', at: '2026-09-28T12:00:00Z' })
+
+  assert.deepEqual(
+    state.recentProducers(root).map((entry) => entry.session),
+    ['session-a', 'session-b'],
+    'newest first, and the same Session moves rather than appearing twice',
+  )
+
+  const prepared = ops.ratify({ root })
+  const result = ops.ratify({ root, answer: answerWith(prepared.quiz, ['Reject']), quiz: prepared.quiz, comment: 'not this law', at: '2026-09-28T13:00:00Z' })
+  assert.deepEqual(result.producers.map((entry) => entry.session), ['session-a', 'session-b'], 'the decline names who to tell')
+  assert.equal(result.declined[0].comment, 'not this law', 'the reason is on the RESULT, which the active notice is rendered from')
+  assert.match(tools.renderDeclineNotice(result.declined), /not this law/, 'so the delivered message quotes it')
+
+  const notices = state.declinedDecisions(root)
+  assert.equal(notices.length, 1, `expected one notice, got ${JSON.stringify(notices)}`)
+  assert.equal(notices[0].id, '0011')
+  assert.equal(notices[0].comment, 'not this law')
+  assert.equal(notices[0].deleted, true, 'the notice says the file was removed')
+  assert.equal(existsSync(join(root, notices[0].path)), false)
+  // And the agent that reads a status rather than the ledger sees it there.
+  assert.deepEqual(ops.status(root).declined.map((entry) => entry.id), ['0011'], 'status carries the durable notice')
+})
+
+test('decline: a human-authored proposal is left in place, and the reason says why', () => {
+  // Only an agent's own proposal is removed. A person's draft is theirs to keep or delete, and a
+  // decline that quietly destroyed it would be the ratchet deciding for the human.
+  const root = makeProject({
+    name: 'decline-human-record',
+    adrs: {
+      '0011-human.adr.md': adrText({
+        id: '0011',
+        status: 'proposed',
+        authority: 'human',
+        zones: ['api'],
+        laws: [{ id: 'api.h', statement: 'A human law.', checks: [] }],
+      }),
+    },
+    zones: [{ id: 'api', paths: ['src/api/**'], agentAuthority: 'proposeOnly' }],
+  })
+  const prepared = ops.ratify({ root })
+  const result = ops.ratify({ root, answer: answerWith(prepared.quiz, ['Reject']), quiz: prepared.quiz, at: '2026-09-28T13:00:00Z' })
+
+  assert.deepEqual(result.rejected, ['0011'])
+  assert.equal(result.declined.length, 1)
+  assert.equal(result.declined[0].deleted, false, `a human record must stay: ${JSON.stringify(result.declined)}`)
+  assert.match(result.declined[0].reason, /human-authored/)
+  assert.equal(existsSync(join(root, 'docs', 'adrs', '0011-human.adr.md')), true, 'the human draft survives a decline')
+})
+
+test('decline: a live producing session is told, and a closed one falls back to the durable notice', async () => {
+  // The active half of the notification. A producer whose Session is live gets one message; one
+  // whose Session is closed has no agent to wake, which is the normal case for a proposal made
+  // earlier and declined later — that is what `declinedDecisions` covers.
+  const followed = []
+  const live = { id: 'session-a', followup: (message) => followed.push(message) }
+  const agents = { get: (id) => (id === 'session-a' ? live : undefined) }
+  const ctx = { get: (name) => (name === 'agents' ? agents : undefined) }
+  const declined = [
+    { id: '0011', title: 'Agent law', path: 'docs/adrs/0011-agent.adr.md', deleted: true, comment: 'not this law because the boundary is the engine zone' },
+  ]
+  const result = await tools.notifyDeclinedProducers(ctx, { result: { declined, producers: [{ session: 'session-a' }, { session: 'session-b' }] } })
+
+  assert.deepEqual(result.delivered, ['session-a'])
+  assert.deepEqual(result.skipped, ['session-b'], 'a Session with no live agent is skipped rather than an error')
+  assert.equal(followed.length, 1, 'the live producer gets exactly one message')
+  const notice = followed[0]
+  assert.equal(notice.role, 'user', 'the notice is a user-role message the agent reads')
+  assert.equal(notice.source.kind, 'plugin', 'produced by the ratchet plugin, not by the human')
+  const text = notice.content.map((block) => block.text).join('')
+  assert.match(text, /DECLINED/)
+  assert.match(text, /ADR 0011/)
+  assert.match(text, /not this law because the boundary is the engine zone/, 'the human reason travels with the notice')
+  assert.match(text, /removed by the ratchet/)
+
+  // A record the ratchet deliberately kept says so, rather than reading as removed.
+  const kept = tools.renderDeclineNotice([{ id: '0002', deleted: false, reason: 'ADR 0002 is human-authored, so it stays' }])
+  assert.match(kept, /left in place/)
+  assert.doesNotMatch(kept, /removed by the ratchet/)
+})
+
+test('decline: a decline inside a batch that also approved something is still reported', () => {
+  // Reproduced before this test existed: a mixed answer records its declines on the MINT event
+  // (the event name describes what happened to the CONSENT), so a reader that only looked at
+  // `no-consent` removed the file and told nobody — the producer was never notified and the
+  // removal was invisible in `status`.
+  const root = makeProject({
+    name: 'decline-mixed-batch',
+    adrs: {
+      '0011-one.adr.md': adrText({ id: '0011', status: 'proposed', authority: 'agent', zones: ['api'], laws: [{ id: 'api.one', statement: 'One.', checks: [] }] }),
+      '0012-two.adr.md': adrText({ id: '0012', status: 'proposed', authority: 'agent', zones: ['api'], laws: [{ id: 'api.two', statement: 'Two.', checks: [] }] }),
+      // A HUMAN-authored proposal, declined in the same answer: it is NOT removed, so it stays
+      // on disk and must stop being listed as waiting — which is what the view's two readers
+      // disagreed about when one read only `no-consent` events.
+      '0013-human.adr.md': adrText({ id: '0013', status: 'proposed', authority: 'human', zones: ['api'], laws: [{ id: 'api.three', statement: 'Three.', checks: [] }] }),
+    },
+    zones: [{ id: 'api', paths: ['src/api/**'], agentAuthority: 'proposeOnly' }],
+  })
+  const prepared = ops.ratify({ root })
+  const answers = prepared.quiz.questions.map((question) => {
+    const role = prepared.quiz.roles[question.id]
+    return { id: question.id, selected: [role.adrId === '0011' ? role.approveLabel : role.rejectLabel] }
+  })
+  const result = ops.ratify({ root, answer: { answers }, quiz: prepared.quiz, comment: 'only one of these' })
+
+  assert.deepEqual(result.ratified, ['0011'], 'the approved half still mints')
+  assert.deepEqual(result.rejected, ['0012', '0013'])
+  assert.equal(existsSync(join(root, 'docs', 'adrs', '0012-two.adr.md')), false, 'the declined agent proposal is removed')
+  assert.equal(existsSync(join(root, 'docs', 'adrs', '0013-human.adr.md')), true, 'the declined human draft stays')
+  assert.deepEqual(
+    state.declinedDecisions(root).map((entry) => entry.id),
+    ['0013', '0012'],
+    'both declines are reported even though an approval was recorded in the same answer',
+  )
+  assert.equal(state.declinedDecisions(root)[0].comment, 'only one of these', 'the human reason travels with a mixed decline')
+  assert.deepEqual(ops.status(root).declined.map((entry) => entry.id), ['0013', '0012'])
+  // The view must agree with itself: a record reported as declined is not also listed as waiting.
+  const view = decisionsModule.deriveDecisions({ root })
+  const waiting = (view.needsHuman ?? []).filter((need) => need.kind === 'consent').map((need) => String(need.id))
+  assert.ok(!waiting.includes('0013'), `a declined record must not still be waiting: ${JSON.stringify(waiting)}`)
+})
+
+test('decline: write:false is a dry run and removes nothing', () => {
+  // The removal used to run before the `write !== true` early return, so the shape the consent
+  // service's dry-run callers use deleted the record while reporting that it had written nothing.
+  const { root } = ratifiableProject('decline-dry-run')
+  const prepared = ops.ratify({ root })
+  const result = ops.ratify({ root, answer: answerWith(prepared.quiz, ['Reject']), quiz: prepared.quiz, write: false })
+
+  assert.deepEqual(result.rejected, ['0011'])
+  assert.equal(result.declined.length, 1, 'a dry run still REPORTS what a real call would do')
+  assert.equal(result.declined[0].deleted, false, 'but removes nothing')
+  assert.match(result.declined[0].reason, /dry run/)
+  assert.deepEqual(result.deleted, [])
+  assert.equal(existsSync(join(root, 'docs', 'adrs', '0011-agent.adr.md')), true, 'the proposal is still on disk')
 })
 
 test('ratify: a human-authored proposed decision is offered a question, and the human\'s own approval puts it in force', () => {
@@ -6017,7 +6175,7 @@ test('tool: ingestion with ratify mints nothing when the record was not written'
  * @param ask - The question channel's `ask`, or `null` for a deployment without one.
  * @returns `{ command, commands }` — the registered `/ratify` definition, or undefined.
  */
-function commandHarness({ ask = null } = {}) {
+function commandHarness({ ask = null, agents = undefined } = {}) {
   const commands = []
   const questions = ask === null ? undefined : { ask }
   const ctx = {
@@ -6033,7 +6191,9 @@ function commandHarness({ ask = null } = {}) {
           }
         : name === 'userQuestions'
           ? questions
-          : undefined,
+          : name === 'agents'
+            ? agents
+            : undefined,
   }
   tools.apply(ctx)
   return { command: commands.find((entry) => entry.name === 'ratify'), commands }
@@ -6062,7 +6222,32 @@ test('command: /ratify puts the ratchet question to the human and mints the same
   assert.deepEqual(compile(root).laws, ['api.x'])
 })
 
-test('command: a rejected /ratify answer writes nothing and reports the decision, not a failure', async () => {
+test('command: a decline from /ratify also tells the producing Session', async () => {
+  // The panel's consent service notifies through the service it is given; the AGENT-facing
+  // entries call `ratifyInteractively` directly, so a decline from `/ratify` removed the record
+  // and told nobody while the same decline from the panel delivered the notice — the law says a
+  // decline tells the producer, not that one surface does.
+  const { root } = ratifiableProject('command-decline-notify')
+  state.touchProducer(root, { session: 'session-producer', tool: 'ratchet_compile', at: '2026-09-28T10:00:00Z' })
+  const followed = []
+  const producer = { id: 'session-producer', followup: (message) => followed.push(message) }
+  const { command } = commandHarness({
+    ask: async ({ questions }) => ({ answers: questions.map((question) => ({ id: question.id, selected: ['Reject'] })) }),
+    agents: { get: (id) => (id === 'session-producer' ? producer : undefined) },
+  })
+
+  const result = await command.handler(invocationFor(root, '0011'))
+  // The notice is deliberately not awaited by the ratification, so give it a tick to land.
+  await new Promise((resolve) => setTimeout(resolve, 20))
+
+  assert.equal(result.kind, 'success', result.text)
+  assert.equal(followed.length, 1, `expected the producer to be told once, got ${followed.length}`)
+  const text = followed[0].content.map((block) => block.text).join('')
+  assert.match(text, /DECLINED/)
+  assert.match(text, /ADR 0011/)
+})
+
+test('command: a rejected /ratify answer removes the proposal and reports the decision, not a failure', async () => {
   const { root } = ratifiableProject('command-reject')
   const { command } = commandHarness({
     ask: async ({ questions }) => ({
@@ -10021,16 +10206,17 @@ test('ratify: a declined answer records the human comment, and returns it', () =
     Array.isArray(decline.rejected) && decline.rejected.length > 0 && decline.rejected.every((id) => typeof id === 'string' && id.length > 0),
     `rejected must be the refused record ids, not ${JSON.stringify(decline.rejected)}`,
   )
-  // And the answer is not asked for again: a decline mints nothing, so the record stays in
-  // the ratify queue and stays ratifiable — but it is no longer something a human is being
-  // asked FOR. Listing it again after the answer was given makes the set a record of
-  // everything ever proposed instead of a list of what is waiting.
+  // And it is not asked for again — nor is it left on screen pretending it is: a decline ends
+  // an agent's proposal, so the file is removed, the queue no longer offers it, and the trace
+  // is the ledger plus the notice delivered to the agent that produced it.
   const view = decisionsModule.deriveDecisions({ root })
   const consent = (view.needsHuman ?? []).find((need) => need.kind === 'consent')
-  assert.equal(consent, undefined, `a refused record is not waiting for a human: ${JSON.stringify(consent)}`)
-  // It is still the ratchet's queue that decides what is ratifiable: the record was refused,
-  // not withdrawn, so its row can still be approved if the human changes their mind.
-  assert.ok((view.queue?.pending ?? []).some((entry) => entry.id !== undefined), 'the record stays in the ratify queue')
+  assert.equal(consent, undefined, `a declined record is not waiting for a human: ${JSON.stringify(consent)}`)
+  assert.ok(!(view.queue?.pending ?? []).some((entry) => entry.id === '0011'), 'the declined proposal left the queue')
+  assert.equal(result.declined.length, 1, 'the result says what became of the declined record')
+  assert.equal(result.declined[0].deleted, true, `expected a removal: ${JSON.stringify(result.declined)}`)
+  assert.equal(typeof result.deleted[0], 'string', 'and names the file it removed')
+  assert.equal(existsSync(join(root, result.deleted[0])), false, 'the declined proposal file is gone')
 })
 
 test('ratify: a decline with no comment records none, rather than an empty string', () => {

@@ -42,6 +42,13 @@ export const STATE_PATHS = Object.freeze({
   // ran beside it. The decisions view model reads this to raise `duplicate` and `deprecated`
   // needs, and nothing in the gate reads it at all.
   advisoryFindings: 'reports/ratchet/advisory-findings.json',
+  // The sessions that most recently used a ratchet tool in this project, newest first. A
+  // decision a human declines has to reach the agent that produced it, and an ADR records only
+  // its author's model name, never the Session that wrote it; this is the address book that
+  // makes the delivery possible. It is a bounded state file rather than a ledger stream because
+  // it is overwritten on every use, and an append-only line per tool call would grow without
+  // bound for a fact whose only value is the most recent entry.
+  sessions: '.dsh/ratchet/sessions.json',
 })
 
 /** Bundle format version for the persisted spec bundle. */
@@ -100,6 +107,153 @@ export function readJsonArtifact(root, path) {
   } catch (error) {
     return { error: String(error) }
   }
+}
+
+/**
+ * How many sessions the producer record remembers, newest kept.
+ *
+ * A project is worked by a handful of sessions, and the only question ever asked of this file
+ * is "who touched this project most recently", so a small bound keeps one forgotten session id
+ * from growing the file without limit.
+ */
+export const MAX_REMEMBERED_SESSIONS = 20
+
+/**
+ * Records that one Session has used a ratchet tool in this project.
+ *
+ * The address book a decline is delivered from: `recentProducers` reads it to find the agent
+ * that produced a decision, because a record's own frontmatter carries an author NAME and never
+ * the Session that wrote it. Called on every tool call; it never throws and a failure to record
+ * is reported rather than allowed to fail the tool call that triggered it.
+ *
+ * @param root - Absolute project root (string). An unusable root records nothing.
+ * @param options - `{ session, tool, at }`. `session` is the Session id (string); an empty or
+ *   non-string one records nothing. `tool` is the tool name (string or null). `at` is an ISO
+ *   timestamp (string); null means now.
+ * @returns `{ recorded: boolean, sessions: number }`. `recorded` is false when nothing usable
+ *   was supplied, and `sessions` is the number now held (0 for a failed or skipped write).
+ *
+ * KEYWORDS
+ *   producer, session, notification, decline, address book, state
+ */
+export function touchProducer(root, { session, tool = null, at = null } = {}) {
+  if (typeof root !== 'string' || root.length === 0) return { recorded: false, sessions: 0 }
+  if (typeof session !== 'string' || session.length === 0) return { recorded: false, sessions: 0 }
+  try {
+    const read = readJsonArtifact(root, STATE_PATHS.sessions)
+    const held = read.value !== undefined && read.value !== null && Array.isArray(read.value.sessions) ? read.value.sessions : []
+    const stamp = typeof at === 'string' && at.length > 0 ? at : new Date().toISOString()
+    // The same Session moves to the front rather than appearing twice: the file is a recency
+    // list, not a visit log, and a duplicate would push a real second producer out of the bound.
+    const rest = held.filter((entry) => entry === null || typeof entry !== 'object' || entry.session !== session)
+    const next = [{ session, tool: tool === null ? null : String(tool), at: stamp }, ...rest].slice(0, MAX_REMEMBERED_SESSIONS)
+    writeArtifact(root, STATE_PATHS.sessions, `${JSON.stringify({ version: 1, sessions: next }, null, 2)}\n`)
+    return { recorded: true, sessions: next.length }
+  } catch {
+    // A read-only checkout or a budget refusal must not turn a status call into a failure.
+    return { recorded: false, sessions: 0 }
+  }
+}
+
+/**
+ * The sessions known to have worked this project, newest first.
+ *
+ * @param root - Absolute project root.
+ * @param limit - Maximum entries to return (defaults to the whole remembered set).
+ * @returns `[{ session, tool, at }]`, newest first. An absent or unreadable file yields `[]`:
+ *   "nobody is known" and "the file is broken" are the same answer to the only question asked,
+ *   because the caller falls back to the durable notice either way.
+ */
+export function recentProducers(root, limit = MAX_REMEMBERED_SESSIONS) {
+  const read = readJsonArtifact(root, STATE_PATHS.sessions)
+  const held = read.value !== undefined && read.value !== null && Array.isArray(read.value.sessions) ? read.value.sessions : []
+  const usable = held.filter(
+    (entry) => entry !== null && typeof entry === 'object' && typeof entry.session === 'string' && entry.session.length > 0,
+  )
+  const capped = Number.isInteger(limit) && limit >= 0 ? limit : MAX_REMEMBERED_SESSIONS
+  return usable.slice(0, capped)
+}
+
+/**
+ * How many declined decisions a reader reports, newest first.
+ *
+ * A decline is a message to the agent that produced the decision, not a growing history: the
+ * most recent handful is what an agent can still act on, and an unbounded list would make both
+ * the state payload and a status answer grow with every refusal a project ever had.
+ */
+export const MAX_DECLINED_NOTICES = 10
+
+/**
+ * The ledger events a decline can be recorded on.
+ *
+ * TWO of them, and reading only the first was a real defect, reproduced: an answer that declines
+ * one decision and approves another is recorded as `ratchet.ratify.mint` (with `rejections` and a
+ * `declined` list), not as `ratchet.ratify.no-consent`, so a mixed batch removed the file and told
+ * nobody. The event name says what happened to the CONSENT, not whether a decline occurred.
+ */
+const DECLINE_EVENTS = new Set(['ratchet.ratify.no-consent', 'ratchet.ratify.mint'])
+
+/**
+ * Whether one ledger event records a decline, on either shape.
+ *
+ * Exported because TWO readers must agree about it: the durable notice here, and the decisions
+ * view's `declinesByRecord` filter that keeps a refused record out of the needs-a-human set.
+ * They disagreed — one read both events, the other only `no-consent` — so a mixed answer left a
+ * declined human-authored record listed as waiting while the same view's `declined` field
+ * reported it as refused.
+ *
+ * @param event - One parsed ledger line, or any value.
+ * @returns `true` when the event is one a decline is recorded on.
+ */
+export function isDeclineEvent(event) {
+  return event !== null && event !== undefined && DECLINE_EVENTS.has(String(event.event))
+}
+
+/**
+ * Reads the decisions a human has declined, newest first, with what became of each.
+ *
+ * The DURABLE half of the decline notice. A decision's producer may be a session that is closed
+ * — or one the ratchet never saw — and after a decline the record's file is gone, so the ledger
+ * is the only place that can still tell an agent its proposal was refused, and why. It lives
+ * beside the ledger reader rather than in the decisions view so that `status` can report it
+ * without importing the view model, which imports `ops`.
+ *
+ * @param root - Absolute project root.
+ * @param limit - Maximum notices to return, newest first.
+ * @returns `[{ id, at, comment, title, path, deleted }]`. A ledger that cannot be read yields an
+ *   empty list: a missing history is not a crash.
+ */
+export function declinedDecisions(root, limit = MAX_DECLINED_NOTICES) {
+  const ledger = readLedger(root)
+  if (ledger.error !== undefined) return []
+  const flat = []
+  for (const event of ledger.events ?? []) {
+    if (!isDeclineEvent(event)) continue
+    const at = typeof event.at === 'string' ? event.at : null
+    const comment = typeof event.comment === 'string' && event.comment.length > 0 ? event.comment : null
+    const entries = Array.isArray(event.declined) ? event.declined : []
+    if (entries.length === 0) {
+      // A refusal recorded before the removal existed. It is still a decline worth reporting;
+      // the file's fate is simply unknown to this reader.
+      for (const id of Array.isArray(event.rejected) ? event.rejected : []) {
+        if (typeof id === 'string' && id.length > 0) flat.push({ id, at, comment, title: null, path: null, deleted: false })
+      }
+      continue
+    }
+    for (const entry of entries) {
+      if (entry === null || typeof entry !== 'object' || typeof entry.id !== 'string' || entry.id.length === 0) continue
+      flat.push({
+        id: entry.id,
+        at,
+        comment,
+        title: typeof entry.title === 'string' ? entry.title : null,
+        path: typeof entry.path === 'string' ? entry.path : null,
+        deleted: entry.deleted === true,
+      })
+    }
+  }
+  const capped = Number.isInteger(limit) && limit >= 0 ? limit : MAX_DECLINED_NOTICES
+  return flat.reverse().slice(0, capped)
 }
 
 /**

@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-ratchet",
-  "version": "0.2.86",
+  "version": "0.2.88",
   "description": "Ratchet: a local architecture compiler for DSH projects. Compiles architecture decision records into enforced specs, verifies code against them deterministically, reports every problem with a stable code, and puts a proposed decision to a human as a question whose answer is recorded against the exact text that was approved.",
   "type": "module",
   "main": "ratchet-tools.mjs",
@@ -54,6 +54,7 @@
   "license": "MIT",
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-llm": "^0.1.5-rc.1",
     "@deepseek-ai/dsh-tools": "^0.1.5-rc.1"
   }
 }
