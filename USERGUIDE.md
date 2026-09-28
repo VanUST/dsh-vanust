@@ -260,11 +260,15 @@ content rather than kit configuration. The kit names the exact command instead o
 pretending to have run it:
 
 1. **The engine and the launcher.** Godot 4.7 or newer, and `uv` (which provides
-   `uvx`, the launcher the Godot bridge is started through). On Windows,
-   `tools/provision_godot.ps1 -Mode apply` installs both, pinned and idempotent;
-   `-Mode check` reports state and writes nothing. It downloads **through Node**,
+   `uvx`, the launcher the Godot bridge is started through). `node
+   scripts/provision-godot.mjs --mode apply` installs both, pinned and idempotent;
+   `--mode check` reports state and writes nothing. It downloads **through Node**,
    because on some machines the OS TLS stack cannot reach the internet at all and
-   every other installer fails there with `SEC_E_NO_CREDENTIALS`.
+   every other installer fails there with `SEC_E_NO_CREDENTIALS` — measured again on
+   Linux, where `curl` dies against the release hosts and Node's `fetch` does not.
+   POSIX is verified; the Windows asset names and the `%USERPROFILE%\.local` layout are
+   implemented from upstream's documentation and are **not verified here**, so treat a
+   first Windows run as a test rather than as the POSIX result.
 2. **The editor addon, committed into your Godot project**, at
    `addons/godot_ai/`, from the
    [Godot AI releases](https://github.com/hi-godot/godot-ai/releases). Commit it:

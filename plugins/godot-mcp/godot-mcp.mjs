@@ -433,7 +433,7 @@ function statusText(spec, uvxByServer) {
   if (anyMissing) {
     lines.push('  A missing launcher means those servers cannot start and their tools are absent;')
     lines.push('  the rest of the harness is unaffected because failOnStartupError is false.')
-    lines.push('  fix: powershell -ExecutionPolicy Bypass -File tools/provision_godot.ps1 -Mode apply')
+    lines.push('  fix: node <kit>/scripts/provision-godot.mjs --mode apply   # engine, uvx and addon')
   }
   return lines.join('\n')
 }

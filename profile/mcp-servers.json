@@ -49,7 +49,7 @@
       },
       "projectEnv": "GODOT_AI_PROJECT_PATH",
       "setup": [
-        "Install the engine and uvx: powershell -ExecutionPolicy Bypass -File tools/provision_godot.ps1 -Mode apply",
+        "Install the engine and uvx: node scripts/provision-godot.mjs --mode apply",
         "Commit the editor addon at <project>/addons/godot_ai/ from https://github.com/hi-godot/godot-ai/releases (it must match the package pin's major version)",
         "Open the project in Godot and enable Project > Project Settings > Plugins > Godot AI",
         "If the project is not the directory kit-update runs from, export GODOT_PROJECT=<absolute project path> so the sync can find the project and its provisioned uvx; otherwise run `node scripts/dsh-mcp-sync.mjs --apply` from the project root",
