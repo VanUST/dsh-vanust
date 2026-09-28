@@ -721,20 +721,22 @@ cannot draft — a `humanOnly` zone, a terminal record, no shared law id — are
 `undraftable` with the reason rather than dropped, because a duplicate the command reports and
 the drafts do not mention reads as handled.
 
-### 5.13 The compile trigger — a judgement asked for is made
+### 5.13 The compile trigger — the fact is reported, the judgement is asked for
 
 `compileLaws` marks a question it cannot decide (`reviewRequired`: two records
 declaring one law id and statement with different check sets) and does not choose
-between them. Until this wiring existed, the mark was recorded and nothing acted on
-it: a report saying "somebody should judge this" and no judgement. `ratchet_compile`
-now runs the corpus review itself and returns its findings under `dynamicReview`,
-with three refusals reported rather than passed over — the caller passed
-`review: false`, the composition has no judge, or the call did not come from a live
-root agent. The third is the recursion guard: a spawned judge is a full agent, so a
-judge that ran `ratchet_compile` would otherwise start a review of its own and spawn
-another judge, for as long as the models cooperated. The registry knows which agents
-are roots; an in-process flag would have been a guess. The review stays advisory: it
-never changes the compile verdict, and the CLI never triggers one.
+between them. Until the first wiring existed, the mark was recorded and nothing acted on
+it: a report saying "somebody should judge this" and no judgement. The first wiring made
+`ratchet_compile` run the corpus review itself, and ADR 0085 reversed that: the review is
+a model call, and running two of them inside every compile put the advisory half of the
+ratchet on the hot path of the deterministic one. Now `ratchet_compile` returns the static
+verdict together with `contradictionReview.stale` — the fact that no review has read the
+law set now in force — and spawns nothing. `ratchet_review` is the only call that creates
+a judge, and the judge is created only for a live ROOT agent: a spawned judge is a full
+agent, so a judge that reviewed would otherwise spawn another judge for as long as the
+models cooperated. The registry knows which agents are roots; an in-process flag would
+have been a guess. The review stays advisory and never changes the compile verdict, and
+the CLI never triggers one.
 
 ---
 

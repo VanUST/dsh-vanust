@@ -706,7 +706,7 @@ function buildNeedsHuman(root, records, queue, drift, currentSpecHash, drafted, 
       title: contradictionReview.reviewed === true ? 'the corpus review predates the current laws' : 'no corpus review has read these laws',
       path: STATE_PATHS.ledger,
       reason: contradictionReview.reason,
-      action: 'run a corpus review (the "ratchet_review" tool with the "review_corpus" job) so the meaning of these laws, and not only their letter, is judged',
+      action: 'run a corpus review from the ROOT session of this project (the "ratchet_review" tool with the "review_corpus" job) so the meaning of these laws, and not only their letter, is judged — a spawned subagent gets the prompt back instead of a judge, so a resolver cannot clear this',
       draft: null,
       draftReason: 'nothing is drafted for a review: the act is the review run itself, which records the law set it read in the ratification ledger',
     })

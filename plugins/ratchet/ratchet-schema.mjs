@@ -339,9 +339,10 @@ export const PROBLEM_CODES = Object.freeze({
   // nowhere, because the fact it named — "no corpus review has run against the law set now in
   // force" — is deliberately carried as a FIELD (`contradictionReview`) rather than a problem:
   // a status that is red on the first run of every new project, for a step that needs a model
-  // and a network, is a status people learn to ignore. The automatic review now reads that
-  // field directly (see `reviewWhenRequired` in `ratchet-tools.mjs`), so the code is gone
-  // rather than left as a declaration nothing can emit.
+  // and a network, is a status people learn to ignore. The fact is reported as a field for a
+  // reader and for the panel, and no operation branches on it automatically: measuring meaning
+  // is the explicit `ratchet_review` (ADR 0085), so the code is gone rather than left as a
+  // declaration nothing can emit.
   VERIFY_NOTHING_EVALUATED: 'a verification ran but evaluated no check, so it proves nothing about the code',
   VERIFY_INCOMPLETE: 'a verification left checks unevaluated, so it is not a pass',
   VERIFICATION_FAILED: 'the most recent verification of the current laws reported problems',

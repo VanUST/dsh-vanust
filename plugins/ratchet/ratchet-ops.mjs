@@ -564,7 +564,7 @@ export function compile({ root, write = false, budget = null } = {}) {
           ),
         ],
       }
-    : draftNeedsHuman(root, { write: true })
+    : draftNeedsHuman(root, { write: true, compiled })
   const draftedStaleNotes = drafting.staleNotes.map((note) => ({
     path: note.path,
     notePath: note.notePath,

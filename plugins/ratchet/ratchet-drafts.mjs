@@ -534,11 +534,14 @@ function draftStaleNotes({ root, config, compiled, write }) {
  * settlement for each, idempotently.
  *
  * @param root - Absolute project root.
- * @param options - `{ write, createdAt }`. `write:false` computes the drafts and returns their
- *   text without touching the project.
+ * @param options - `{ write, createdAt, compiled }`. `write:false` computes the drafts and
+ *   returns their text without touching the project. `compiled` is a bundle the caller already
+ *   derived (`compileProject`'s result): a compile that is about to run this pass has one, and
+ *   deriving it again inside the same call was a second full read of the corpus. When it is
+ *   absent this function compiles for itself, so every other caller is unaffected.
  * @returns The result described in this module's header. Never throws.
  */
-export function draftNeedsHuman(root, { write = false, createdAt = null } = {}) {
+export function draftNeedsHuman(root, { write = false, createdAt = null, compiled = null } = {}) {
   const empty = {
     ok: false,
     unusable: true,
@@ -562,8 +565,8 @@ export function draftNeedsHuman(root, { write = false, createdAt = null } = {}) 
   // `semantic_duplicate` findings a corpus review recorded are passed WITH the decidable ones,
   // so a duplicate only meaning reveals is drafted through the same path when the verdict named
   // enough to draft it and reported undraftable with the reason when it did not.
-  const compiled = compileProject(root)
-  const specHash = compiled.bundle === null ? null : bundleHash(compiled.bundle)
+  const bundle = compiled ?? compileProject(root)
+  const specHash = bundle.bundle === null ? null : bundleHash(bundle.bundle)
   const advisory = advisoryFindingsFor(root, specHash)
   const duplicates = draftResolutions(root, { write, createdAt, judgeFindings: advisory.findings })
 
@@ -571,7 +574,7 @@ export function draftNeedsHuman(root, { write = false, createdAt = null } = {}) 
   const resolved = resolveActiveSet(corpus.records, config)
   const resolutions = auditedResolutions(corpus.records, {
     active: resolved.active,
-    removedByDecision: compiled.removedByDecision ?? [],
+    removedByDecision: bundle.removedByDecision ?? [],
     problems: corpus.problems,
   })
   const contradictions = draftContradictions({
@@ -579,12 +582,12 @@ export function draftNeedsHuman(root, { write = false, createdAt = null } = {}) 
     config,
     corpus,
     resolved,
-    compiled,
+    compiled: bundle,
     resolutions,
     write,
     createdAt,
   })
-  const staleNotes = draftStaleNotes({ root, config, compiled, write })
+  const staleNotes = draftStaleNotes({ root, config, compiled: bundle, write })
 
   return {
     ok: true,

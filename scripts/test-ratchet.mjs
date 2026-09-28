@@ -1549,7 +1549,7 @@ function ambiguousProject(name) {
  *   `control.gate` is an optional promise every turn awaits before finishing, so a test can
  *   hold a turn open and cancel or observe it.
  */
-function stubJudgeHarness({ verdict = { ok: true, findings: [] }, failFirstSend = false, turnEnd = 'completed' } = {}) {
+function stubJudgeHarness({ verdict = { ok: true, findings: [] }, failFirstSend = false, turnEnd = 'completed', missResidencyAfterSend = false } = {}) {
   const spawned = []
   const sent = []
   const interrupted = []
@@ -1560,6 +1560,11 @@ function stubJudgeHarness({ verdict = { ok: true, findings: [] }, failFirstSend 
   let sendAttempts = 0
   let active = 0
   let maxActive = 0
+  // A registry read that misses the child after a send models the real seam: a continuable
+  // child's Agent is torn down when its turn settles, so absence is normal. Two reads miss —
+  // the one the send caller performs itself and the next one — so the pool's own residency
+  // wait is what has to recover, not the caller's read.
+  let pendingMiss = 0
 
   const makeChild = (id) => {
     const events = []
@@ -1599,6 +1604,7 @@ function stubJudgeHarness({ verdict = { ok: true, findings: [] }, failFirstSend 
       child.pending.push(content[0])
       active += 1
       maxActive = Math.max(maxActive, active)
+      if (missResidencyAfterSend) pendingMiss = 2
       return `${childId}-m${child.pending.length}`
     },
     interrupt(childId, authority) {
@@ -1608,7 +1614,16 @@ function stubJudgeHarness({ verdict = { ok: true, findings: [] }, failFirstSend 
       released.push(...ids)
     },
   }
-  const agents = { roots: () => [], get: (id) => children.get(id) }
+  const agents = {
+    roots: () => [],
+    get: (id) => {
+      if (pendingMiss > 0) {
+        pendingMiss -= 1
+        return undefined
+      }
+      return children.get(id)
+    },
+  }
   return { services: { subagents, agents }, spawned, sent, interrupted, released, children, control, get maxActive() { return maxActive } }
 }
 
@@ -1711,17 +1726,79 @@ test('judge: a cancelled call interrupts only its own turn and keeps the shared 
   assert.equal(next.reused, true)
 })
 
-test('judge: a changed static prefix recreates the judge rather than serving stale orientation', async () => {
+test('judge: a changed law set reuses the one child and supersedes its material', async () => {
+  // The defect this pins: the pool used to recreate the child whenever the static material
+  // changed, and for a review that material is the law list and the spec hash — so every
+  // decision the ratchet compiled destroyed the judge that was reviewing it. Measured on one
+  // session, that created two judge children two hours apart with five decision commits
+  // between them.
   const { harness, pool } = stubJudgePool()
   const parent = { id: 'parent-stale' }
-  await pool.judge({ parent, signal: signalOf(), prompt: `# Project\n\nv1\n\n# Question\n\nq1`, staticPrompt: '# Project\n\nv1\n' })
+  const first = await pool.judge({ parent, signal: signalOf(), prompt: `# Project\n\nv1\n\n# Question\n\nq1`, staticPrompt: '# Project\n\nv1\n' })
   const second = await pool.judge({ parent, signal: signalOf(), prompt: `# Project\n\nv2\n\n# Question\n\nq2`, staticPrompt: '# Project\n\nv2\n' })
-  assert.equal(harness.spawned.length, 2, 'a changed static context is not cached as if it were current')
-  assert.equal(second.created, true)
-  assert.ok(harness.released.includes('judge-1'))
+
+  assert.equal(harness.spawned.length, 1, 'a corpus change must not create a second judge')
+  assert.equal(first.created, true)
+  assert.equal(second.created, false)
+  assert.equal(second.reused, true)
+  assert.equal(second.childId, first.childId, 'the same child answers both reviews')
+  assert.equal(harness.released.length, 0, 'the changed material replaced nothing')
+  // The whole new material travels, and the judge is told the old material is withdrawn.
+  assert.equal(harness.sent.length, 1)
+  assert.match(harness.sent[0].text, /v2/, 'the changed material reaches the judge')
+  assert.match(harness.sent[0].text, /SUPERSEDES it/, 'and is marked as superseding what came before')
 })
 
-test('compile: a judgement the compiler asked for is made, not merely recorded', { skip: HARNESS_SKIP }, async () => {
+test('judge: a cold-resumed child is read as its current turn, not its whole log', () => {
+  // A reused child's Agent is torn down between turns, so the next send cold-resumes it and the
+  // reader is handed the whole log. Reading the stream fallback across the whole log would answer
+  // with every earlier turn concatenated, which is what happens when a turn ends with a stream
+  // and no assistant message.
+  const events = [
+    { type: 'assistant/attempt', data: { stream: [{ text: 'turn one ' }] } },
+    { type: 'turn/end', data: { reason: { kind: 'completed' } } },
+    { type: 'assistant/attempt', data: { stream: [{ text: 'turn two' }] } },
+    { type: 'turn/end', data: { reason: { kind: 'max-tokens' } } },
+  ]
+  const read = judgeModule.readTurn(events)
+  assert.equal(read.text, 'turn two', 'only the current turn is read')
+  assert.equal(read.stopReason, 'max-tokens', 'and its own stop reason is the one reported')
+})
+
+test('judge: a registry read that misses the child is not a death', async () => {
+  // The installed harness tears a continuable child's Agent down once its turn settles and
+  // cold-resumes it from persistence on the next send, so `agents.get` returning undefined is
+  // the normal between-turns state. Treating it as a death replaced a healthy child.
+  const { harness, pool } = stubJudgePool({ missResidencyAfterSend: true })
+  const parent = { id: 'parent-residency' }
+
+  const first = await pool.judge({ parent, signal: signalOf(), prompt: judgePrompt('first material'), staticPrompt: JUDGE_STATIC })
+  const second = await pool.judge({ parent, signal: signalOf(), prompt: judgePrompt('second material'), staticPrompt: JUDGE_STATIC })
+
+  assert.equal(harness.spawned.length, 1, 'a residency read that missed the child spawned nothing')
+  assert.equal(first.created, true)
+  assert.equal(second.reused, true)
+  assert.equal(harness.released.length, 0)
+})
+
+test('judge: a truncated answer does not kill the child', async () => {
+  // A max-tokens stop is a property of one answer, not of the judge. It used to poison the
+  // pool entry for the rest of the session, so every later review paid for a new child.
+  const { harness, pool } = stubJudgePool({ turnEnd: 'max-tokens' })
+  const parent = { id: 'parent-truncated' }
+
+  const first = await pool.judge({ parent, signal: signalOf(), prompt: judgePrompt('first material'), staticPrompt: JUDGE_STATIC })
+  const second = await pool.judge({ parent, signal: signalOf(), prompt: judgePrompt('second material'), staticPrompt: JUDGE_STATIC })
+
+  assert.equal(first.stopReason, 'max-tokens', 'the truncation is reported on the answer')
+  assert.equal(harness.spawned.length, 1, 'and it replaces nothing')
+  assert.equal(second.reused, true)
+})
+
+test('compile: a compile runs no model and reports the staleness as a fact', { skip: HARNESS_SKIP }, async () => {
+  // The trade ADR 0085 makes. The automatic corpus review used to run two judge turns inside
+  // every compile; the fact that triggered it is still reported, and measuring meaning is now
+  // an explicit ratchet_review.
   const root = ambiguousProject('compile-trigger')
   const compiled = compile(root)
   assert.ok(compiled.report.reviewRequired.length > 0, 'the fixture must be one the compiler cannot decide')
@@ -1731,65 +1808,13 @@ test('compile: a judgement the compiler asked for is made, not merely recorded',
   const definitions = mountPlugin({ ...harness.services, agents: { ...harness.services.agents, roots: () => [agent] } })
   const result = await definitions.get('ratchet_compile').execute({}, { agent })
 
-  assert.equal(result.dynamicReview.ran, true, `expected the review to run: ${JSON.stringify(result.dynamicReview)}`)
-  assert.equal(harness.spawned.length, 1, 'exactly one judge, for one marked question')
-  assert.match(String(harness.spawned[0].options.prompt[0].text), /auth\.shared/, 'the judge is asked about the corpus that raised the question')
-  assert.equal(result.dynamicReview.advisory, true)
-  assert.equal(result.dynamicReview.gate, false, 'a review never becomes the gate')
+  assert.equal(harness.spawned.length, 0, 'a compile spawns no judge')
+  assert.equal(result.dynamicReview, undefined, 'and it carries no review result')
+  assert.ok(result.reviewRequired.length > 0, 'the question the compiler could not decide is reported')
+  assert.equal(result.contradictionReview.stale, true, 'and so is the fact that no review has read the law set')
 })
 
-test('compile: a judge cannot start a review of its own, and says so', { skip: HARNESS_SKIP }, async () => {
-  const root = ambiguousProject('compile-trigger-child')
-  // The same runtime, but the registry does not list this caller as a root вЂ” which
-  // is exactly what a spawned judge looks like from inside its own tool call.
-  const agent = { id: 'agent-child', session: { header: { cwd: root } } }
-  const harness = stubJudgeHarness()
-  const definitions = mountPlugin({ ...harness.services, agents: { ...harness.services.agents, roots: () => [] } })
-  const result = await definitions.get('ratchet_compile').execute({}, { agent })
-
-  assert.equal(result.dynamicReview.ran, false)
-  assert.match(result.dynamicReview.reason, /root/)
-  assert.equal(harness.spawned.length, 0, 'no judge was spawned from inside a judge')
-})
-
-test('compile: the trigger is skippable, and a composition with no judge reports that', { skip: HARNESS_SKIP }, async () => {
-  const root = ambiguousProject('compile-trigger-off')
-  const agent = { id: 'agent-root', session: { header: { cwd: root } } }
-
-  const offHarness = stubJudgeHarness()
-  const off = mountPlugin({ ...offHarness.services, agents: { ...offHarness.services.agents, roots: () => [agent] } })
-  const offResult = await off.get('ratchet_compile').execute({ review: false }, { agent })
-  assert.equal(offResult.dynamicReview, undefined, 'review: false keeps the compile purely static')
-  assert.equal(offHarness.spawned.length, 0)
-
-  const noJudge = mountPlugin({ agents: { roots: () => [agent] } })
-  const noJudgeResult = await noJudge.get('ratchet_compile').execute({}, { agent })
-  assert.equal(noJudgeResult.dynamicReview.ran, false)
-  assert.match(noJudgeResult.dynamicReview.reason, /cannot spawn a judge/)
-
-  // A fresh corpus the compiler has no question about is STILL stale — no corpus review has
-  // ever read its law set — and the automatic pass now fires on that fact. Before the trigger
-  // read `contradictionReview.stale`, this case paid no judge and passed for the wrong reason:
-  // the exec object below was keyed `cleanAgent` instead of `agent`, so the project was never
-  // reached at all.
-  const clean = makeProject({
-    name: 'compile-trigger-clean',
-    adrs: { '0001-a.adr.md': adrText({ id: '0001', zones: ['auth'], laws: [{ id: 'auth.one', statement: 'One.', checks: [] }] }) },
-  })
-  const cleanAgent = { id: 'agent-root', session: { header: { cwd: clean } } }
-  const cleanHarness = stubJudgeHarness()
-  const cleanDefs = mountPlugin({ ...cleanHarness.services, agents: { ...cleanHarness.services.agents, roots: () => [cleanAgent] } })
-  const cleanResult = await cleanDefs.get('ratchet_compile').execute({}, { agent: cleanAgent })
-  assert.equal(cleanResult.dynamicReview.ran, true, 'a law set nobody reviewed triggers the automatic pass')
-  assert.equal(cleanResult.dynamicReview.stale, true, 'and the staleness is the fact that triggered it')
-  assert.equal(cleanHarness.spawned.length, 1, 'the pass pays for one judge')
-})
-
-test('compile: a law set no corpus review has read triggers the automatic pass, which clears the staleness', { skip: HARNESS_SKIP }, async () => {
-  // The DEAD TRIGGER this pins: `reviewWhenRequired` used to decide `stale` from a problem
-  // code (`CONTRADICTION_DETECTION_STALE`) that is emitted nowhere, so a compile with an empty
-  // `reviewRequired` and a stale `contradictionReview` spawned no judge at all. A corpus the
-  // compiler has no question about is exactly that case.
+test('compile: a law set nobody has reviewed still pays no judge', { skip: HARNESS_SKIP }, async () => {
   const root = cleanCorpusProject('compile-stale-trigger')
   const before = ops.compile({ root })
   assert.equal(before.reviewRequired.length, 0, 'the compiler has no question of its own')
@@ -1800,57 +1825,47 @@ test('compile: a law set no corpus review has read triggers the automatic pass, 
   const defs = mountPlugin({ ...harness.services, agents: { ...harness.services.agents, roots: () => [agent] } })
   const result = await defs.get('ratchet_compile').execute({}, { agent })
 
-  assert.equal(result.dynamicReview.ran, true, `expected the pass to run: ${JSON.stringify(result.dynamicReview)}`)
-  assert.equal(result.dynamicReview.stale, true, 'the staleness is what triggered it')
-  assert.deepEqual(
-    Object.keys(result.dynamicReview.jobs).sort(),
-    ['review_corpus', 'review_duplicates'],
-    'one automatic pass runs both corpus jobs',
-  )
-  // Two judge TURNS on ONE pooled judge: the corpus review creates it, the duplicate review
-  // travels as a follow-up on the same child.
-  assert.equal(harness.spawned.length, 1, 'two turns in one pass pay for one judge')
-  assert.equal(harness.sent.length, 1, 'the second job is a follow-up turn on the same judge')
-
-  // The review recorded the law set it read, so the fact that triggered the pass is cleared
-  // by the very call that created it.
-  const after = ops.compile({ root })
-  assert.equal(after.contradictionReview.stale, false, 'the recorded review clears the staleness')
-  assert.equal(after.contradictionReview.reviewed, true)
-
-  // ...and a later compile over the same law set pays no judge again.
-  const again = stubJudgeHarness()
-  const againDefs = mountPlugin({ ...again.services, agents: { ...again.services.agents, roots: () => [agent] } })
-  const second = await againDefs.get('ratchet_compile').execute({}, { agent })
-  assert.equal(second.dynamicReview, undefined, 'a law set with a recorded review is not reviewed again')
-  assert.equal(again.spawned.length, 0)
+  assert.equal(harness.spawned.length, 0, 'staleness is a reported fact, not a trigger')
+  assert.equal(result.contradictionReview.stale, true)
 })
 
-test('compile: review:false neither runs the automatic pass nor clears its trigger', { skip: HARNESS_SKIP }, async () => {
-  const root = cleanCorpusProject('compile-stale-off')
+test('review: the review call is the only path that spawns a judge', { skip: HARNESS_SKIP }, async () => {
+  const root = ambiguousProject('review-only-judge')
   const harness = stubJudgeHarness()
   const agent = { id: 'agent-root', session: { header: { cwd: root } } }
   const defs = mountPlugin({ ...harness.services, agents: { ...harness.services.agents, roots: () => [agent] } })
 
-  const result = await defs.get('ratchet_compile').execute({ review: false }, { agent })
-  assert.equal(result.dynamicReview, undefined, 'review: false keeps the compile purely static')
-  assert.equal(harness.spawned.length, 0)
-  assert.equal(ops.compile({ root }).contradictionReview.stale, true, 'the fact that would have triggered the pass survives')
+  const result = await defs.get('ratchet_review').execute({ job: 'review_corpus' }, { agent })
+  assert.equal(harness.spawned.length, 1, 'the explicit review is what pays for the judge')
+  assert.notEqual(result.degraded, true, 'and a root caller gets an answer rather than a prompt')
 })
 
-test('compile: a non-root caller reports the automatic pass unrun and spawns nothing', { skip: HARNESS_SKIP }, async () => {
-  const root = cleanCorpusProject('compile-stale-child')
+test('review: two jobs ride one judge as two turns', { skip: HARNESS_SKIP }, async () => {
+  const root = ambiguousProject('review-two-jobs')
+  const harness = stubJudgeHarness()
+  const agent = { id: 'agent-root', session: { header: { cwd: root } } }
+  const defs = mountPlugin({ ...harness.services, agents: { ...harness.services.agents, roots: () => [agent] } })
+
+  await defs.get('ratchet_review').execute({ job: 'review_corpus' }, { agent })
+  await defs.get('ratchet_review').execute({ job: 'review_duplicates' }, { agent })
+
+  assert.equal(harness.spawned.length, 1, 'the second job reuses the judge')
+  assert.equal(harness.sent.length, 1, 'and travels as a follow-up turn on the same child')
+})
+
+test('review: a non-root caller gets the prompt instead of a judge', { skip: HARNESS_SKIP }, async () => {
+  // One judge per session root. The harness authorizes a continuable message only between a
+  // parent and its own direct child, so a subagent cannot drive the root's judge; before this
+  // guard, every subagent that reviewed built a judge of its own.
+  const root = ambiguousProject('review-non-root')
   const harness = stubJudgeHarness()
   const agent = { id: 'agent-child', session: { header: { cwd: root } } }
-  // The same runtime, but the registry does not list this caller as a root — a spawned judge
-  // compiling from inside its own tool call.
   const defs = mountPlugin({ ...harness.services, agents: { ...harness.services.agents, roots: () => [] } })
-  const result = await defs.get('ratchet_compile').execute({}, { agent })
 
-  assert.equal(result.dynamicReview.ran, false)
-  assert.match(result.dynamicReview.reason, /root/)
-  assert.equal(harness.spawned.length, 0, 'a judge cannot start a review of its own')
-  assert.equal(ops.compile({ root }).contradictionReview.stale, true, 'the trigger survives an unrun pass')
+  const result = await defs.get('ratchet_review').execute({ job: 'review_corpus' }, { agent })
+  assert.equal(result.degraded, true, 'the caller is handed the prompt')
+  assert.match(String(result.prompt), /# Question/, 'and can answer it or hand it to its parent')
+  assert.equal(harness.spawned.length, 0, 'and no judge is created under a subagent')
 })
 
 test('review: a semantic duplicate and a deprecated decision reach needsHuman as advisory kinds', { skip: HARNESS_SKIP }, async () => {
@@ -8492,6 +8507,32 @@ test('dedupe: the deterministic command loads no judge, and drafting loads no ju
 // the ratchet, never by an agent calling a tool).
 // ---------------------------------------------------------------------------
 
+test('drafting: the pass uses the bundle its caller already compiled', () => {
+  // `compile` derives the law bundle and then runs this pass. Before ADR 0085 the pass
+  // compiled the corpus a second time inside the same call. The observable difference is
+  // WHICH law set the pass reports it read: a caller-provided bundle must be the one used, so
+  // a bundle derived before a corpus change keeps its own spec hash instead of silently
+  // picking up the new one.
+  const root = makeProject({
+    name: 'drafting-reuses-bundle',
+    zones: [{ id: 'auth', paths: ['src/auth/**'], agentAuthority: 'activeIfNoConflict', requiresDecisionRecord: false }],
+    adrs: {
+      '0001-a.adr.md': adrText({ id: '0001', zones: ['auth'], laws: [{ id: 'auth.one', statement: 'Sessions must use Redis.', checks: [] }] }),
+    },
+  })
+  const before = compiler.compileProject(root)
+  // A second law moves the spec hash. The pass must still report the bundle it was handed.
+  writeFileSync(
+    join(root, 'docs', 'adrs', '0002-b.adr.md'),
+    adrText({ id: '0002', zones: ['auth'], laws: [{ id: 'auth.two', statement: 'Sessions must expire.', checks: [] }] }),
+  )
+  const reused = draftsModule.draftNeedsHuman(root, { compiled: before })
+  const fresh = draftsModule.draftNeedsHuman(root)
+
+  assert.equal(reused.advisory.specHash, before.report.specHash, 'the pass read the bundle its caller compiled')
+  assert.notEqual(fresh.advisory.specHash, before.report.specHash, 'and a pass that compiles for itself sees the new law set')
+})
+
 test('drafting: compile itself drafts a duplicate resolution, idempotently and without an agent call', () => {
   // The human's direction: the ratchet detects the issue and flags it for a human, and no
   // agent has to remember to call `ratchet_deduplicate`. Removing the `draftNeedsHuman` call
@@ -9909,7 +9950,10 @@ test('resolve: only a finding whose fix is a command is automatable', () => {
   const steps = (need) => resolveModule.findingSteps(need).map((step) => step.op)
   assert.deepEqual(steps({ kind: 'stale-spec', id: 'docs/specs/x.spec.md' }), ['compile-write'])
   assert.deepEqual(steps({ kind: 'red-gate', id: 'verify' }), ['compile-write', 'verify'])
-  assert.deepEqual(steps({ kind: 'review', id: 'contradiction-review' }), ['corpus-review'])
+  // ADR 0085: a review needs a live ROOT agent for its judge, and a resolver is a spawned
+  // child, so this finding must stay in the root/human queue rather than be dispatched to a
+  // resolver that can never obtain a judge.
+  assert.deepEqual(steps({ kind: 'review', id: 'contradiction-review' }), [], 'a corpus review needs the root session, never a resolver child')
   for (const kind of ['consent', 'blocked', 'contradiction', 'duplicate']) {
     assert.deepEqual(steps({ kind, id: '0001' }), [], `${kind} is a human act and must not be automatable`)
   }

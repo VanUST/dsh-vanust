@@ -474,15 +474,13 @@ export function findingSteps(need) {
       },
     ]
   }
-  if (kind === 'review') {
-    return [
-      {
-        op: 'corpus-review',
-        detail:
-          'run the corpus review, which needs a judge: call the `ratchet_compile` tool (it runs the review automatically when the law set has no recorded one) or `ratchet_review` with job "review_corpus", and report the findings it records',
-      },
-    ]
-  }
+  // A corpus review is the one kind ADR 0085 moved OFF the automatable list. The step used to
+  // tell the resolver that `ratchet_compile` would run the review for it; compile now spawns no
+  // judge (decision 4), and a judge is created only for a live ROOT agent (decision 3,
+  // `isRootCaller`). A resolver is a spawned child, so it can neither run the review nor have a
+  // returned prompt recorded as one. The act belongs to the root session that owns the work, so
+  // this returns no step: the finding stays in the root/human queue instead of dispatching a
+  // resolver that cannot clear it.
   return []
 }
 

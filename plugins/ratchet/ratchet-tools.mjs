@@ -426,16 +426,16 @@ export function apply(ctx) {
     }
 
     /**
-     * The per-session judge pool. ONE durable judge child per calling parent serves every
-     * review and ingestion in that session, instead of a fresh `spawn` run per job that is
-     * disposed in `finally`. The pool owns serialization, recreation of a dead or stale
-     * judge, and turn-scoped cancellation; the lifecycle contract is documented in
-     * `ratchet-judge.mjs`.
+     * The per-session judge pool. ONE durable judge child serves every review and ingestion a
+     * session's ROOT agent runs, instead of a fresh `spawn` run per job that is disposed in
+     * `finally`. The pool owns serialization, reuse across the corpus changes the ratchet
+     * exists to make, replacement of a child whose creation or delivery failed, and
+     * turn-scoped cancellation; the lifecycle contract is documented in `ratchet-judge.mjs`.
      *
      * Reached opportunistically through `ctx.get`, never through `inject` (see
      * SUBAGENTS_SERVICE): a composition without the subagents runtime must still compile and
      * verify, so availability is decided per call by `judgeSpawner`, which returns `null`
-     * exactly as it did before.
+     * exactly as it did before — and now also for a caller that is not a live root.
      */
     const judgePool = createJudgePool({
       runtimeOf: () => ctx.get(SUBAGENTS_SERVICE),
@@ -455,6 +455,14 @@ export function apply(ctx) {
     /**
      * Builds the judge call a review or an ingestion runs on.
      *
+     * A judge is created only for a live ROOT agent. The harness authorizes a continuable
+     * message only between a parent and its own direct child, so a subagent cannot drive the
+     * root session's judge; letting it build one of its own made the number of judge children
+     * follow the number of callers rather than the number of law sets reviewed. A non-root
+     * caller gets `null` and takes the degraded self-review path, which returns the prompt for
+     * the caller to answer or hand to its parent. This is also the recursion guard: a spawned
+     * judge runs `ratchet_review` from a non-root agent, and must not start a review of its own.
+     *
      * @param exec - Tool-execution context; its agent is the judge's parent and its signal
      *   lets a cancelled tool call cancel ONLY that call's turn (the shared judge survives).
      * @returns An async `(prompt, outputSchema, staticPrompt)` returning the judge's result,
@@ -467,6 +475,7 @@ export function apply(ctx) {
       const runtime = ctx.get(SUBAGENTS_SERVICE)
       const agent = exec?.agent
       if (runtime === undefined || agent === undefined) return null
+      if (!isRootCaller(exec)) return null
       return (prompt, outputSchema, staticPrompt) =>
         judgePool.judge({ parent: agent, signal: exec.signal, prompt, outputSchema, staticPrompt })
     }
@@ -474,14 +483,13 @@ export function apply(ctx) {
     /**
      * Reports whether one call is made by a live ROOT agent.
      *
-     * The auto-review a compile triggers is guarded by this, and the guard is not
-     * cosmetic: a spawned judge is a full agent, so a judge that ran
-     * `ratchet_compile` would trigger a review of its own, spawn another judge, and
-     * repeat for as long as the models kept cooperating. The subagent runtime owns
-     * the fact "this agent is a root"; asking it is exact where an in-process flag
-     * would be a guess. A composition without the registry answers `false`, so the
-     * conservative outcome — no automatic judge — is also the one that cannot
-     * recurse.
+     * Every judge is gated on this, and the guard is not cosmetic: a spawned judge is a full
+     * agent, so a judge that ran `ratchet_review` would spawn another judge, and repeat for as
+     * long as the models kept cooperating. The subagent runtime owns the fact "this agent is a
+     * root"; asking it is exact where an in-process flag would be a guess. A composition
+     * without the registry answers `false`, so the conservative outcome — no judge — is also
+     * the one that cannot recurse, and every non-root caller takes the degraded self-review
+     * path that returns the prompt instead of an answer.
      *
      * @param exec - Tool-execution context.
      * @returns `true` only when the registry confirms this agent is a runtime root.
@@ -564,108 +572,6 @@ export function apply(ctx) {
       }),
     )
 
-    /**
-     * Runs the corpus review a compile asked for, when this call can run one.
-     *
-     * The compiler does not guess at a semantic conflict: it marks the question and
-     * records it. Leaving it there meant the mark was made and nothing ever acted on
-     * it — a report that says "somebody should judge this" and no judgement — so a
-     * compile now carries the review out itself.
-     *
-     * TWO facts trigger the pass, and the second is what makes detection AUTOMATIC rather
-     * than something a developer remembers. The compiler asks for a judgement when it can
-     * prove a question needs one (`reviewRequired`); independently of that, a law set that no
-     * corpus review has read is a law set whose meaning nobody has looked at, and THAT fact is
-     * `result.contradictionReview.stale` — the field `contradictionReviewStatus` computes and
-     * the CLI prints as "contradiction detection: NOT RUN". It is deliberately a field rather
-     * than a problem code, so the trigger reads the field. Reviewing here is what clears the
-     * fact as part of the operation that created it.
-     *
-     * The pass runs TWO corpus jobs on the ONE judge: the corpus review (contradictions plus
-     * the ADVISORY question of which decision should be retired) and the semantic duplicate
-     * review. Both go through the same `spawnJudge`, so the per-session pool reuses one child
-     * for both turns — the point of the pool. No new job is added for the retirement question:
-     * it rides on `review_corpus`.
-     *
-     * Three refusals are reported rather than passed over: the caller turned it off,
-     * the composition has no judge, or the call did not come from a live root agent.
-     * The third is the recursion guard, and it is the reason the result says
-     * `ran: false` instead of silently doing nothing — a judge that compiles must not
-     * start a review that spawns a judge.
-     *
-     * The review is ADVISORY and stays advisory here: it never changes the compile's
-     * verdict, because a non-deterministic check that can fail a build is one people
-     * learn to re-run until it passes.
-     *
-     * @param result - The compile result to annotate.
-     * @param root - Absolute project root.
-     * @param exec - Tool-execution context.
-     * @param enabled - `false` when the caller passed `review: false`.
-     * @returns The compile result, with a `dynamicReview` field describing what ran
-     *   and what it found. Never throws: a failed judge is a reported outcome.
-     */
-    const reviewWhenRequired = async (result, root, exec, enabled) => {
-      const questions = Array.isArray(result?.reviewRequired) ? result.reviewRequired : []
-      // The real fact: whether any corpus review has recorded the law set this compile
-      // produced. `contradictionReview` is null when nothing compiled, in which case there is
-      // no law set to review and nothing to trigger.
-      const stale = result?.contradictionReview?.stale === true
-      if (enabled !== true || (questions.length === 0 && !stale)) return result
-
-      const rootCaller = isRootCaller(exec)
-      const spawnJudge = rootCaller ? judgeSpawner(exec) : null
-      if (spawnJudge === null) {
-        return {
-          ...result,
-          dynamicReview: {
-            ran: false,
-            questions,
-            stale,
-            reason: rootCaller
-              ? 'this composition cannot spawn a judge, so the corpus review the compiler asked for was not run'
-              : 'the caller is not a live root agent, so the ratchet did not spawn a judge from inside a judge; run the review from the session that owns this work',
-          },
-        }
-      }
-
-      const started = Date.now()
-      // Two turns on the one pooled judge: the corpus review covers contradictions and the
-      // retirement question, and the duplicate review covers what only meaning reveals. Each
-      // records its findings so the decisions view model can raise `duplicate` and `deprecated`
-      // needs without the judge running again.
-      const corpus = await review({ root, job: 'review_corpus', spawnJudge, record: true })
-      const duplicates = await review({ root, job: 'review_duplicates', spawnJudge, record: true })
-      // The review records which law set it read, so the staleness the caller was told about
-      // is cleared by this very call. The compile's own verdict is NOT changed: the judge's
-      // findings stay advisory, and it is the presence of a recorded review — not what it
-      // said — that the gate reads.
-      const rechecked = await compile({ root })
-      return {
-        ...result,
-        problems: rechecked.problems,
-        summary: rechecked.summary,
-        ok: rechecked.ok,
-        dynamicReview: {
-          ran: true,
-          elapsedMs: Date.now() - started,
-          advisory: corpus.advisory === true && duplicates.advisory === true,
-          gate: corpus.gate === true || duplicates.gate === true,
-          // Every finding the pass produced, whichever job made it, so a caller reads one list.
-          findings: [...(corpus.findings ?? []), ...(duplicates.findings ?? [])],
-          problems: [...(corpus.problems ?? []), ...(duplicates.problems ?? [])],
-          jobs: {
-            review_corpus: { findings: corpus.findings ?? [], report: corpus.report ?? null },
-            review_duplicates: { findings: duplicates.findings ?? [], report: duplicates.report ?? null },
-          },
-          questions,
-          stale,
-          report: corpus.report ?? null,
-        },
-        nextStep:
-          'the corpus review is advisory; ratchet_verify is the gate, and it is the compile problems above that a task has to clear',
-      }
-    }
-
     register(
       defineTool({
         name: 'ratchet_compile',
@@ -674,24 +580,16 @@ export function apply(ctx) {
           'every structural, authority and collision problem the corpus contains. Call this after adding or ' +
           'amending an ADR, and before implementing anything a decision governs. It always records its ' +
           'report and the machine-readable spec bundle; pass write: true to also emit the generated spec ' +
-          'documents. It reports SPEC_HASH_MISMATCH when a generated document was edited by hand. When the ' +
-          'compiler reports that a question needs judgement, OR the law set it produced has no recorded corpus ' +
-          'review (`contradictionReview.stale`), it also runs the automatic corpus review — contradictions, the ' +
-          'question of which decision should be retired, and the semantic duplicate review — and returns its ' +
-          'findings under dynamicReview, which is advisory and never changes the compile verdict.',
+          'documents. It reports SPEC_HASH_MISMATCH when a generated document was edited by hand. It runs no ' +
+          'model: whether a corpus review has read the law set now in force is reported as the ' +
+          '`contradictionReview` field, and measuring meaning is ratchet_review, which is the only call that ' +
+          'spawns a judge.',
         parameters: {
           write: {
             type: 'boolean',
             description:
               'Also write the generated spec documents under the manifest specs directory. Default false — ' +
               'the report and the spec bundle are recorded either way.',
-          },
-          review: {
-            type: 'boolean',
-            description:
-              'Run the automatic corpus review when the compiler flags a question or the law set has no ' +
-              'recorded review. Default true; set false to keep the compile purely static and pay no judge ' +
-              'round trip.',
           },
         },
         output: output(),
@@ -702,11 +600,9 @@ export function apply(ctx) {
               // A conservative in-process budget, for the same reason as `ratchet_status`:
               // compile reads every ADR and the source each one cites, and a 500 MB record
               // blocked the harness event loop for about three seconds. The CLI passes none.
-              const result = compile({ root, write: args.write === true, budget: createWorkBudget() })
-              // A compile that exhausted the budget did not read the whole corpus, so it must
-              // not send a judge to review a law set it only partly compiled.
-              const budgetExceeded = (result.problems ?? []).some((entry) => entry.code === 'WORK_BUDGET_EXCEEDED')
-              return reviewWhenRequired(result, root, exec, args.review !== false && !budgetExceeded)
+              // Nothing here reaches a judge: the deterministic verdict is returned immediately
+              // and the caller reads `contradictionReview.stale` as the fact it is.
+              return compile({ root, write: args.write === true, budget: createWorkBudget() })
             },
             args.root,
           )

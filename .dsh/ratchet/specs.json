@@ -703,6 +703,27 @@
       "unenforced": null
     },
     {
+      "id": "shipped-plugins.a-compile-runs-no-model",
+      "statement": "ratchet_compile returns the deterministic verdict together with the fact that no corpus review has read the law set now in force, and it spawns no judge; measuring meaning is an explicit ratchet_review, so the advised half of the ratchet is off the hot path of every compile.",
+      "zones": [
+        "shipped-plugins",
+        "kit-tooling"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0085",
+      "sourcePath": "docs/adrs/0085-one-judge-reused-and-no-model-in-compile.adr.md",
+      "approvedBy": "0086",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "a compile on a corpus no review has read completes with no judge spawned and reports the staleness, and the review tool remains the only path that spawns one",
+          "timeoutMs": 300000
+        }
+      ],
+      "unenforced": null
+    },
+    {
       "id": "shipped-plugins.a-consent-answers-a-question-the-ratchet-asked",
       "statement": "A consent is minted only from an answer to the question the ratchet builds for the records waiting — the same targets, the same two labels, and a frozen content hash for every one of them — so a caller-composed quiz with no frozen text mints nothing, while a record edited after the question was asked is still answered by the stale-text rule rather than by the shape check.",
       "zones": [
@@ -799,6 +820,27 @@
           "type": "command",
           "run": "node --test scripts/test-ratchet.mjs",
           "expects": "a project whose specs directory is not docs/specs compiles and verifies green, with its document written where the manifest says",
+          "timeoutMs": 300000
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.a-judge-is-reused-across-corpus-changes",
+      "statement": "One judge child serves every review a session's root agent runs, and a change to the compiled laws reaches that same child as material that supersedes what it was shown before, so a corpus edit does not create a second judge; only a delivery that fails or a changed judge role replaces the child.",
+      "zones": [
+        "shipped-plugins",
+        "kit-tooling"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0085",
+      "sourcePath": "docs/adrs/0085-one-judge-reused-and-no-model-in-compile.adr.md",
+      "approvedBy": "0086",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "two reviews whose only difference is the law set both report the same child id, one creation, and the second carries the changed laws as superseding material",
           "timeoutMs": 300000
         }
       ],
@@ -951,6 +993,27 @@
           "type": "command",
           "run": "node scripts/check-portability.mjs",
           "expects": "a tarball repacked at an unchanged version fails tarball:version-bumped while a version bump passes",
+          "timeoutMs": 300000
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.a-resident-read-is-not-a-death",
+      "statement": "A judge child is treated as alive while its session and descriptor are resumable, so a registry that does not currently hold it or a truncated answer neither kills the child nor forces a replacement; only a delivery that throws does.",
+      "zones": [
+        "shipped-plugins",
+        "kit-tooling"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0085",
+      "sourcePath": "docs/adrs/0085-one-judge-reused-and-no-model-in-compile.adr.md",
+      "approvedBy": "0086",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "a call whose registry read is absent, and a call whose answer stopped at max-tokens, both reuse the child instead of spawning a second one",
           "timeoutMs": 300000
         }
       ],
@@ -1245,6 +1308,27 @@
       "unenforced": null
     },
     {
+      "id": "shipped-plugins.only-a-root-caller-gets-a-judge",
+      "statement": "A review asked for by an agent that is not a live root of its session creates no judge child and is answered by the degraded self-review path, so the number of judges a session holds follows the law sets it reviews and not the number of agents that call the tool.",
+      "zones": [
+        "shipped-plugins",
+        "kit-tooling"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0085",
+      "sourcePath": "docs/adrs/0085-one-judge-reused-and-no-model-in-compile.adr.md",
+      "approvedBy": "0086",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "a review executed by a non-root agent reports the prompt back and spawns nothing",
+          "timeoutMs": 300000
+        }
+      ],
+      "unenforced": null
+    },
+    {
       "id": "shipped-plugins.problem-codes-are-declared",
       "statement": "Every problem the ratchet emits carries a code from the closed vocabulary in ratchet-schema.mjs; a code invented at a call site is a defect.",
       "zones": [
@@ -1388,6 +1472,27 @@
           "expects": "the authority table reports the rules zone as ratifiable and offers an agent proposal there",
           "timeoutMs": 120000,
           "outputContains": "consent surface ok"
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.the-compile-pipeline-reads-the-corpus-once",
+      "statement": "A compile derives the law bundle once and hands it to its own drafting pass rather than compiling the corpus a second time inside the same call.",
+      "zones": [
+        "shipped-plugins",
+        "kit-tooling"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0085",
+      "sourcePath": "docs/adrs/0085-one-judge-reused-and-no-model-in-compile.adr.md",
+      "approvedBy": "0086",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "the drafting pass is driven with the already compiled bundle and reports the same drafts as when it compiles for itself",
+          "timeoutMs": 300000
         }
       ],
       "unenforced": null
