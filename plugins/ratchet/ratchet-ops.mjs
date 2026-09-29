@@ -582,17 +582,35 @@ export function compile({ root, write = false, budget = null } = {}) {
   // exited 1 over stale generated documents left `compile-report.json` with
   // `"problems": []` and a ledger line saying `ok: true` — the two artifacts a reader or
   // a CI job consults instead of the terminal, both certifying a run that failed.
-  const persisted =
-    compiled.report.enabled === true || compiled.bundle !== null
-      ? persistCompile(root, {
-          bundle: compiled.bundle,
-          specFiles: null,
-          report: { ...compiled.report, problems },
-          // `null` holds the recorded set at its previous value: a run that reported an
-          // unexplained removal must not also record the shrunken set as the new truth.
-          lawIds: removalProblems.length === 0 ? (compiled.bundle?.laws ?? []).map((law) => law.id) : null,
-        })
-      : { written: [], ledger: { error: 'the ratchet is not enabled in this project' } }
+  // A persist that THROWS is a result, not a process death. `verify` already wraps its own
+  // persist and reports ARTIFACT_WRITE_FAILED; `compile` did not, so an unwritable state path
+  // (a directory where the bundle belongs, a read-only checkout) escaped as an uncaught EISDIR
+  // AFTER the generated cards had been written, and the CLI printed a Node stack trace instead
+  // of a ratchet problem.
+  let persisted
+  try {
+    persisted =
+      compiled.report.enabled === true || compiled.bundle !== null
+        ? persistCompile(root, {
+            bundle: compiled.bundle,
+            specFiles: null,
+            report: { ...compiled.report, problems },
+            // `null` holds the recorded set at its previous value: a run that reported an
+            // unexplained removal must not also record the shrunken set as the new truth.
+            lawIds: removalProblems.length === 0 ? (compiled.bundle?.laws ?? []).map((law) => law.id) : null,
+          })
+        : { written: [], ledger: { error: 'the ratchet is not enabled in this project' } }
+  } catch (error) {
+    persisted = { written: [], ledger: { error: String(error) } }
+    problems.push(
+      problem(
+        'ARTIFACT_WRITE_FAILED',
+        `this compile could not persist its report and spec bundle (${String(error)}), so the persisted artifacts still describe the previous state and a reader consulting them instead of the terminal would certify a run that did not record itself`,
+        null,
+        { wrote: false },
+      ),
+    )
+  }
 
   return {
     ok: problems.length === 0,

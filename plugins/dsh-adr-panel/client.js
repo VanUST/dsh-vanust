@@ -444,7 +444,7 @@ window.__ModuleLoader__.load({
 		 * are equal again after a release and the constant is one ahead only in the working
 		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.61";
+		const PANEL_VERSION = "0.1.62";
 		/** Directories used when the host view reports none. */
 		const DEFAULT_DECISIONS_DIR = "docs/adrs";
 		const DEFAULT_SPECS_DIR = "docs/specs";
@@ -1462,7 +1462,20 @@ window.__ModuleLoader__.load({
 					var law = spec.laws[j];
 					if (law.decidedIn === null || law.decidedIn === "") continue;
 					if (map[law.decidedIn] === undefined) map[law.decidedIn] = [];
-					map[law.decidedIn].push({ law: law, zone: spec.zone });
+					var bucket = map[law.decidedIn];
+					var existing = null;
+					for (var k = 0; k < bucket.length; k += 1) {
+						if (bucket[k].law.id === law.id) { existing = bucket[k]; break; }
+					}
+					if (existing === null) {
+						bucket.push({ law: law, zone: spec.zone, zones: spec.zone === null || spec.zone === undefined ? [] : [spec.zone] });
+					} else if (spec.zone !== null && spec.zone !== undefined && existing.zones.indexOf(spec.zone) === -1) {
+						// The SAME law reaches this decision through a second zone. It is ONE law, so
+						// it gets one card naming both zones: pushing a second entry made the row read
+						// "Laws decided here (6)" for three laws and drew the same statement twice
+						// with nothing to tell the copies apart.
+						existing.zones.push(spec.zone);
+					}
 				}
 			}
 			return map;
@@ -3392,6 +3405,14 @@ window.__ModuleLoader__.load({
 			var expanded = expandedState[0];
 			var setExpanded = expandedState[1];
 			var counts = lawCheckCounts(law);
+			// The zones this law is IN FORCE in. A law the corpus compiles for two zones is one law
+			// reaching two places, and the card names both rather than being drawn twice with
+			// nothing to tell the copies apart.
+			var zones = props.zones !== undefined && props.zones !== null
+				? props.zones
+				: props.zone === null || props.zone === undefined
+					? []
+					: [props.zone];
 			var children = [
 				React.createElement("div", {
 					key: "head",
@@ -3405,6 +3426,9 @@ window.__ModuleLoader__.load({
 					counts.map(function (entry) {
 						return pill(entry.type + " × " + entry.count, checkKind(entry.type));
 					}),
+					zones.length === 0
+						? null
+						: pill("zone" + (zones.length === 1 ? " " : "s ") + zones.join(", "), "neutral"),
 					pill(
 						"decided in " + (law.decidedIn === null || law.decidedIn === "" ? "unknown" : law.decidedIn),
 						decidedKind,
@@ -4312,7 +4336,7 @@ window.__ModuleLoader__.load({
 						laws.length === 0
 							? React.createElement("div", { style: mutedStyle() }, "No compiled law names this decision.")
 							: React.createElement("div", null, laws.map(function (entry) {
-								return React.createElement(LawCard, { key: entry.law.id, law: entry.law, zone: entry.zone, decisionIds: decisionIds, decisionStates: decisionStates, onSelectAdr: onSelectAdr });
+								return React.createElement(LawCard, { key: entry.law.id, law: entry.law, zone: entry.zone, zones: entry.zones, decisionIds: decisionIds, decisionStates: decisionStates, onSelectAdr: onSelectAdr });
 							}))),
 					["Context", "Decision", "Reasoning", "Consequences"].map(function (title) {
 						var section = findSection(adr.sections, title);
@@ -4692,6 +4716,10 @@ window.__ModuleLoader__.load({
 			if (current.decisions.length > 0) countParts.push(plural(current.decisions.length, "decision"));
 			if (current.consents.length > 0) countParts.push(plural(current.consents.length, "consent"));
 			if (current.specs.length > 0) countParts.push(plural(current.specs.length, "spec"));
+			// A project can owe a need with no decisions, consents or specs at all — a corpus no
+			// review has read. Leaving needs out made the header say "nothing was read" while the
+			// Needs-a-human tab on the same screen counted one.
+			if (current.needsHuman.length > 0) countParts.push(plural(current.needsHuman.length, "need"));
 			var onSelectAdr = function (adrId) {
 				setExpandedId(adrId);
 				// The link decides the SECTION. A "ratified by <id>" provenance pill names an

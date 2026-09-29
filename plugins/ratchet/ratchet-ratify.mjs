@@ -443,7 +443,7 @@ export function buildQuiz(entries, { attempt = 1, previous = [], present = 'pane
         },
         {
           label: rejectLabel,
-          description: 'Leave the decision proposed. Nothing is written and nothing enters force.',
+          description: "Leave nothing in force. An agent's own proposal is removed; a human-authored record is kept.",
         },
       ],
     })

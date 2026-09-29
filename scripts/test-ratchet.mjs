@@ -6070,6 +6070,43 @@ test('tools: the ingest tool records the proposing Session', async () => {
   )
 })
 
+test('compile: an unwritable state path is a reported problem, not an uncaught throw', () => {
+  // `verify` wrapped its own persist and reported ARTIFACT_WRITE_FAILED; `compile` did not, so a
+  // `.dsh/ratchet/specs.json` that is a directory escaped as an EISDIR stack trace after the
+  // generated cards had already been written. The module's contract is that an operation RESOLVES
+  // with a canonical result for a project-level problem.
+  const root = makeProject({
+    name: 'compile-persist-throw',
+    adrs: {
+      '0001-a.adr.md': adrText({ id: '0001', status: 'active', authority: 'human', zones: ['api'], laws: [{ id: 'api.x', statement: 'X.', checks: [] }] }),
+    },
+    zones: [{ id: 'api', paths: ['src/api/**'], agentAuthority: 'proposeOnly' }],
+  })
+  rmSync(join(root, '.dsh', 'ratchet', 'specs.json'), { force: true })
+  mkdirSync(join(root, '.dsh', 'ratchet', 'specs.json'), { recursive: true })
+
+  const result = ops.compile({ root, write: true })
+
+  assert.equal(result.ok, false, 'the compile reports a problem rather than throwing')
+  assert.ok(
+    result.problems.some((entry) => entry.code === 'ARTIFACT_WRITE_FAILED'),
+    `expected ARTIFACT_WRITE_FAILED, got ${JSON.stringify(result.problems.map((entry) => entry.code))}`,
+  )
+})
+
+test('ratify: the rendered outcome says what a decline removed', () => {
+  // The text promised "the decisions stay proposed" long after a decline started removing an
+  // agent's own proposal. The result carries the fates; the outcome has to render them.
+  const { root } = ratifiableProject('decline-outcome-text')
+  const prepared = ops.ratify({ root })
+  const result = ops.ratify({ root, answer: answerWith(prepared.quiz, ['Reject']), quiz: prepared.quiz, at: '2026-09-14T09:00:00Z' })
+
+  const text = tools.renderRatifyOutcome(result)
+  assert.match(text, /Nothing entered force/)
+  assert.match(text, /Removed: 0011/, 'the outcome names the record the decline removed')
+  assert.doesNotMatch(text, /stay proposed/, 'and no longer claims the record stays proposed')
+})
+
 test('ratify: a human-authored proposed decision is offered a question, and the human\'s own approval puts it in force', () => {
   // The dead end this pins: a `status: proposed`, `authority: human` record rendered as
   // "not in force" with no action at all, because the queue skipped everything not

@@ -1339,7 +1339,7 @@ function ratifyOutcomeKind(result) {
  *   whether anything was written. Never empty, so a command never settles with no
  *   explanation for the human who clicked it.
  */
-function renderRatifyOutcome(result) {
+export function renderRatifyOutcome(result) {
   const ratified = ratifyIdsOf(result?.ratified)
   if (ratified.length > 0) {
     return `Ratified ${ratified.join(', ')}. The approval ADR and its transcript are written; compile and verify to see the new law set.`
@@ -1354,7 +1354,19 @@ function renderRatifyOutcome(result) {
   }
   const rejected = ratifyIdsOf(result?.rejected)
   if (rejected.length > 0) {
-    return `Not ratified: the human declined ${rejected.join(', ')}. Nothing was written, and the decisions stay proposed.`
+    // What a decline DID, per record, rather than the pre-removal promise that the decisions
+    // stay proposed: an agent-authored proposal is removed by the ratification, and only a
+    // human-authored record stays. The result carries the fates; this renders them.
+    const fates = Array.isArray(result.declined) ? result.declined : []
+    const removed = fates.filter((entry) => entry.deleted === true).map((entry) => String(entry.id))
+    const kept = fates.filter((entry) => entry.deleted !== true).map((entry) => String(entry.id))
+    return [
+      `Not ratified: the human declined ${rejected.join(', ')}. Nothing entered force.`,
+      removed.length === 0 ? null : `Removed: ${removed.join(', ')}.`,
+      kept.length === 0 ? null : `Kept: ${kept.join(', ')} (a decline removes only an agent's own proposal).`,
+    ]
+      .filter((line) => line !== null)
+      .join(' ')
   }
   const unreadable = ratifyIdsOf(result?.unreadable)
   if (unreadable.length > 0) {
