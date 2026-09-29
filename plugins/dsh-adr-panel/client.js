@@ -444,7 +444,7 @@ window.__ModuleLoader__.load({
 		 * are equal again after a release and the constant is one ahead only in the working
 		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.62";
+		const PANEL_VERSION = "0.1.63";
 		/** Directories used when the host view reports none. */
 		const DEFAULT_DECISIONS_DIR = "docs/adrs";
 		const DEFAULT_SPECS_DIR = "docs/specs";
@@ -2946,7 +2946,9 @@ window.__ModuleLoader__.load({
 						: React.createElement("div", { style: mutedInlineStyle() }, "an agent can carry out every step; the consent that puts it in force is still yours")) ,
 				drafted === null ? null : React.createElement("div", { style: mutedInlineStyle() }, "drafted: " + drafted),
 				need.draftReason === null || need.draftReason === undefined ? null : React.createElement(HashedText, { style: mutedInlineStyle(), text: need.draftReason }),
-				need.action === "" ? null : React.createElement(HashedText, { style: ctaNoteStyle(), text: need.action }),
+				need.kind === "consent" && actionable === null
+					? React.createElement("div", { style: warnStyle() }, "This decision is not in the loaded state — the ratchet's answer was capped before it — so there is no row here to act in. Reload to fetch it again, or act on it from the session that owns the project.")
+					: need.action === "" ? null : React.createElement(HashedText, { style: ctaNoteStyle(), text: need.action }),
 				// Reading and acting both happen HERE. There is no `Open <id>` redirect on any
 				// card: the section a human acts in is the section that shows them what they are
 				// acting on.
@@ -3530,7 +3532,22 @@ window.__ModuleLoader__.load({
 			var watch = function (settled) {
 				if (settled !== null && typeof settled === "object" && typeof settled.then === "function") {
 					settled.then(function () {
-						// The interaction is gone; the parent unmounts this surface.
+						// The interaction is gone and the record has been answered, so the corpus is
+						// about to change — but it is changed by the AGENT's ratchet_ratify call,
+						// which runs after the harness accepts the answer. Re-reading once now and
+						// once shortly after is what stops the row reading "awaiting a human" for a
+						// record that was just settled; the deferred read is bounded and single.
+						if (typeof props.onRecorded === "function") {
+							props.onRecorded();
+							// A host may expose the timer on the global or on `window`; a bundle that
+							// assumes one of them throws where the other is the one that exists.
+							var later = typeof setTimeout === "function"
+								? setTimeout
+								: typeof window !== "undefined" && window !== null && typeof window.setTimeout === "function"
+									? window.setTimeout
+									: null;
+							if (later !== null) later(function () { props.onRecorded(); }, 1200);
+						}
 					}, fail);
 				}
 			};
@@ -4855,7 +4872,7 @@ window.__ModuleLoader__.load({
 							: null,
 						pendingRatify === null ? null : React.createElement("div", null,
 							React.createElement(sectionHeading, { title: "Awaiting your answer", sourceDir: current.dirs.decisionsDir }),
-							React.createElement(RatifyAnswer, { claim: pendingRatify })),
+							React.createElement(RatifyAnswer, { claim: pendingRatify, onRecorded: onRecorded })),
 						React.createElement(SectionNav, {
 							tabs: sectionTabs(current),
 							active: activeSection,

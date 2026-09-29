@@ -782,13 +782,21 @@ function createResolveHandler(ctx, token, log, resolver) {
       const { session, adrId, adrIds, decision, comment } = parsed
       // The batch form is what the window dispatches when it closes: every record the human
       // queued goes to ONE resolver. `adrId` stays for a single record and for the tests.
-      const wanted = Array.isArray(adrIds) && adrIds.length > 0
-        ? adrIds.filter((entry) => typeof entry === 'string' && entry.length > 0)
+      const named = Array.isArray(adrIds) && adrIds.length > 0
+        ? adrIds
         : typeof adrId === 'string' && adrId.length > 0
           ? [adrId]
           : []
+      const wanted = named.filter((entry) => typeof entry === 'string' && entry.length > 0)
       if (wanted.length === 0) {
         sendRefusal(res, 400, 'bad-request', 'the body must name at least one decision in "adrId" or "adrIds"')
+        return
+      }
+      if (wanted.length !== named.length) {
+        // A dropped id reads as handled. An empty or non-string entry cannot name a record, so
+        // the shape is refused rather than quietly filtered away: a caller that sent three ids
+        // and got one recorded had no way to tell the other two were never looked at.
+        sendRefusal(res, 400, 'bad-request', `every entry in "adrIds" must be a decision id as a non-empty string, and ${named.length - wanted.length} of ${named.length} named nothing`)
         return
       }
       if (decision !== 'resolve' && decision !== 'decline') {
@@ -802,7 +810,14 @@ function createResolveHandler(ctx, token, log, resolver) {
       }
       if (decision === 'decline') {
         // A refusal is about ONE record: it is the human's reason the proposed resolution for
-        // that record is wrong, and a batch of reasons would be a batch of judgements.
+        // that record is wrong, and a batch of reasons would be a batch of judgements. The route
+        // used to record `wanted[0]` and silently drop the rest while answering ok:true, so a
+        // caller naming two records got one refusal recorded with no way to know. The shape is
+        // now refused instead of guessed at.
+        if (wanted.length !== 1) {
+          sendRefusal(res, 400, 'decline-needs-one-record', `a decline records one record's refusal and this names ${wanted.length} (${wanted.join(', ')}): send one request per record, so each refusal carries the reason for it`)
+          return
+        }
         let recorded
         try {
           recorded = located.service.decline({ root: located.root, id: wanted[0], comment: typeof comment === 'string' ? comment : null })
