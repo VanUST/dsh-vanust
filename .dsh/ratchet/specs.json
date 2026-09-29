@@ -806,6 +806,86 @@
       "unenforced": null
     },
     {
+      "id": "shipped-plugins.a-decline-is-a-reported-fact-not-a-problem",
+      "statement": "The decisions a human declined are reported as a field of the ratchet's status and of the decisions view, and the refusal itself raises no problem code, because a refusal is a decision a human made rather than a defect in the project. Removing a record does change the tree, so a verification recorded before the decline is reported stale exactly as it would be after any other edit; that verdict is about the tree, not about the decline.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0088",
+      "sourcePath": "docs/adrs/0088-a-decline-removes-the-proposal-and-tells-its-author.adr.md",
+      "approvedBy": "0089",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "status carries the declined decisions after a refusal, and no problem code names the refusal itself",
+          "timeoutMs": 300000
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.a-decline-leaves-a-human-record-alone",
+      "statement": "A decline never removes a human-authored record or a record that is not a proposal, and it records the reason it was left, because a person's own draft is theirs to keep and a decline that destroyed it would be the ratchet deciding for the human.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0088",
+      "sourcePath": "docs/adrs/0088-a-decline-removes-the-proposal-and-tells-its-author.adr.md",
+      "approvedBy": "0089",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "a declined human-authored proposal keeps its file and the result carries the reason it was kept",
+          "timeoutMs": 300000
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.a-decline-removes-an-agent-proposal",
+      "statement": "A human decline of an agent-authored record that is still a proposal removes that record's file, and a removal that fails is reported rather than passed over, because a declined proposal that stays on disk is offered again as if nothing had been answered.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0088",
+      "sourcePath": "docs/adrs/0088-a-decline-removes-the-proposal-and-tells-its-author.adr.md",
+      "approvedBy": "0089",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "a rejected answer removes the proposal file and reports the removal, and a removal that cannot happen is reported as a problem",
+          "timeoutMs": 300000
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.a-decline-tells-the-producing-agent",
+      "statement": "A decline is delivered to the Sessions the ratchet has seen working in that project, actively when such a Session is live and never as a failure of the consent when it is not, and the producing agent is asked for nothing.",
+      "zones": [
+        "shipped-plugins"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0088",
+      "sourcePath": "docs/adrs/0088-a-decline-removes-the-proposal-and-tells-its-author.adr.md",
+      "approvedBy": "0089",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "a live producing Session receives one user-role message naming the record and the reason, a Session with no live agent is skipped, and the notice asks for nothing",
+          "timeoutMs": 300000
+        }
+      ],
+      "unenforced": null
+    },
+    {
       "id": "shipped-plugins.a-generated-artifact-goes-where-the-manifest-says",
       "statement": "Every path the ratchet writes or reads for its own records, generated specs, reports and state is resolved from the manifest, so a project that declares any of those directories gets its artifacts there and a reader that resolves the manifest cannot disagree with a writer that does not; a path field the manifest accepts is either honoured or refused, never accepted and ignored.",
       "zones": [

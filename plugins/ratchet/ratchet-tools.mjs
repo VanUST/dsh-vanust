@@ -352,6 +352,27 @@ export function apply(ctx) {
     }
 
     /**
+     * Remembers the calling Session as one that worked in this project.
+     *
+     * The address book a decline notice is delivered from. It is called by the tools that can
+     * CREATE or change a decision, because those callers are producers: the ingest and
+     * deduplicate tools resolve their root themselves rather than through `withRoot`, so before
+     * this they recorded nothing — a session that only READ the project was written into
+     * `sessions.json` while the session that WROTE the proposal was not, which delivered a
+     * decline notice to the wrong Session and none to the right one.
+     *
+     * @param exec - Tool-execution context; its agent id is the Session id.
+     * @param root - The resolved project root, or null/undefined.
+     * @param found - Whether the root really holds a manifest. A directory without one is not a
+     *   project and must not have `.dsh/ratchet/` created inside it.
+     * @returns Nothing. Best-effort: recording is never allowed to fail a tool call.
+     */
+    const rememberProducer = (exec, root, found = true) => {
+      if (found !== true) return
+      touchProducer(root, { session: exec?.agent?.id ?? null })
+    }
+
+    /**
      * Runs `/ratify [<adr-id> …]` for the session that invoked it.
      *
      * The same operation as the `ratchet_ratify` tool, and deliberately the same code
@@ -373,6 +394,7 @@ export function apply(ctx) {
     const ratifyFromCommand = async (invocation) => {
       const exec = { agent: invocation?.agent, signal: invocation?.signal }
       const { root, found } = rootFor(exec)
+      rememberProducer(exec, root, found)
       if (root === null || !found) {
         return {
           kind: 'error',
@@ -720,6 +742,7 @@ export function apply(ctx) {
             typeof args.root === 'string' && args.root.length > 0
               ? { root: resolve(args.root), found: true }
               : rootFor(exec)
+          rememberProducer(exec, root, found)
           if (root === null || !found) {
             const problems = [
               {
@@ -798,6 +821,7 @@ export function apply(ctx) {
         output: output(),
         execute(args, exec) {
           const resolved = rootFor(exec)
+          rememberProducer(exec, resolved.root, resolved.found)
           const job = typeof args.job === 'string' && args.job.length > 0 ? args.job : 'review_corpus'
 
           // Filing a verdict the caller produced. Validated exactly like a spawned
@@ -894,6 +918,7 @@ export function apply(ctx) {
         output: output(),
         async execute(args, exec) {
           const resolved = rootFor(exec)
+          rememberProducer(exec, resolved.root, resolved.found)
           const sourcePath = typeof args.source === 'string' && args.source.length > 0 ? args.source : null
           if (sourcePath === null) {
             return {
@@ -968,6 +993,7 @@ export function apply(ctx) {
         output: output(),
         async execute(args, exec) {
           const resolved = rootFor(exec)
+          rememberProducer(exec, resolved.root, resolved.found)
           const sourcePath = typeof args.source === 'string' && args.source.length > 0 ? args.source : null
           if (sourcePath === null) {
             return {
@@ -1042,6 +1068,7 @@ export function apply(ctx) {
         output: output(),
         async execute(args, exec) {
           const resolved = rootFor(exec)
+          rememberProducer(exec, resolved.root, resolved.found)
           const sourcePath = typeof args.source === 'string' && args.source.length > 0 ? args.source : null
           if (sourcePath === null) {
             return {
@@ -1097,6 +1124,7 @@ export function apply(ctx) {
         output: output(),
         async execute(args, exec) {
           const resolved = rootFor(exec)
+          rememberProducer(exec, resolved.root, resolved.found)
           if (!resolved.found) {
             return {
               ok: false,

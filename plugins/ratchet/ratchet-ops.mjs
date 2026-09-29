@@ -3213,8 +3213,16 @@ export function ratify({
     approvalText: approval.text,
   })
   if (!written.ok) {
-    appendLedger(root, 'ratchet.ratify.write-failed', { problems: written.problems.length })
-    const problems = [...unknownProblems, ...unreadableProblems, ...changedProblems, ...written.problems]
+    // The declined half of the answer ALREADY HAPPENED: its record was removed before the write
+    // was attempted. The failure path used to report only the write problems, so that removal
+    // reached neither the result nor the ledger — the producing Session was never told and
+    // `declinedDecisions`, which reads the ledger, could not see it either.
+    appendLedger(root, 'ratchet.ratify.write-failed', {
+      problems: written.problems.length,
+      declined,
+      comment: declineComment,
+    })
+    const problems = [...unknownProblems, ...unreadableProblems, ...changedProblems, ...written.problems, ...removalProblems]
     return {
       ok: false,
       stage: 'ratify',
@@ -3224,6 +3232,9 @@ export function ratify({
       rejected: derived.rejected,
       unreadable: derived.unreadable,
       changed,
+      declined,
+      deleted: declined.filter((entry) => entry.deleted === true).map((entry) => entry.path),
+      producers: state.recentProducers(root),
       wrote: written.written,
       reask,
       problems,
@@ -3238,6 +3249,32 @@ export function ratify({
   // ...and the generated law cards are regenerated from that same bundle, in the same
   // operation. See `regenerateSpecs` for why this is not left to the caller.
   const specs = regenerateSpecs(root, after, budget)
+  // The persisted BUNDLE moves with the cards, and it did not before: `regenerateSpecs` writes
+  // `docs/specs/*.spec.md` while `.dsh/ratchet/specs.json` kept the law set from before the
+  // consent. The two artifacts then disagreed — `verify` green because it compiles the corpus,
+  // `status` red with SPEC_OUT_OF_DATE because it compares that stale bundle — on the very flow
+  // the ratification's own next step tells the human to run. Observed in production after
+  // ADR 0088 was ratified. A failure to persist is reported, never thrown: the consent is
+  // already recorded and the caller still needs the result.
+  let bundlePersisted = null
+  let bundleProblems = []
+  try {
+    bundlePersisted = persistCompile(root, {
+      bundle: after.bundle,
+      specFiles: null,
+      report: { ...after.report, problems: [] },
+      lawIds: (after.bundle?.laws ?? []).map((law) => law.id),
+    })
+  } catch (error) {
+    bundleProblems = [
+      problem(
+        'ARTIFACT_WRITE_FAILED',
+        `the ratification was recorded and its law cards regenerated, but the persisted spec bundle could not be written (${String(error)}), so \`ratchet status\` will report SPEC_OUT_OF_DATE until \`ratchet compile --write\` runs: the bundle still describes the previous laws`,
+        null,
+        { wrote: false },
+      ),
+    ]
+  }
   appendLedger(root, 'ratchet.ratify.mint', {
     approval: approvalId,
     ratified: approvedEntries.map((entry) => entry.id),
@@ -3255,7 +3292,7 @@ export function ratify({
     comment: declineComment,
   })
 
-  const problems = [...unknownProblems, ...unreadableProblems, ...changedProblems, ...after.problems, ...specs.problems, ...removalProblems]
+  const problems = [...unknownProblems, ...unreadableProblems, ...changedProblems, ...after.problems, ...specs.problems, ...removalProblems, ...bundleProblems]
   return {
     ok: problems.length === 0,
     stage: 'ratify',
@@ -3277,6 +3314,9 @@ export function ratify({
     specFiles: specs.paths,
     specsRegenerated: specs.written,
     specsSkipped: specs.skipped,
+    // The persisted bundle this consent moved, so a caller can see that `status` and `verify`
+    // now compare the SAME law set rather than reporting the split they reported before.
+    specBundleWritten: bundlePersisted === null ? [] : (bundlePersisted.written ?? []),
     problems,
     summary: summariseProblems(problems),
     nextStep:

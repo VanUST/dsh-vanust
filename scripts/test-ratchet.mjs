@@ -6006,6 +6006,70 @@ test('decline: write:false is a dry run and removes nothing', () => {
   assert.equal(existsSync(join(root, 'docs', 'adrs', '0011-agent.adr.md')), true, 'the proposal is still on disk')
 })
 
+test('ratify: the persisted spec bundle moves with the law cards a consent changed', () => {
+  // The two artifacts disagreed: `regenerateSpecs` wrote `docs/specs/*.spec.md` while
+  // `.dsh/ratchet/specs.json` kept the previous law set, so on the same tree `verify` was green
+  // and `status` reported SPEC_OUT_OF_DATE. Observed in production after ADR 0088 was ratified.
+  const { root } = ratifiableProject('ratify-bundle')
+  const prepared = ops.ratify({ root })
+  const minted = ops.ratify({ root, answer: answerWith(prepared.quiz, ['Approve']), quiz: prepared.quiz, at: '2026-09-14T09:00:00Z' })
+
+  assert.deepEqual(minted.ratified, ['0011'])
+  assert.ok(minted.specBundleWritten.length > 0, `the consent must persist the bundle it created, got ${JSON.stringify(minted.specBundleWritten)}`)
+  assert.equal(ops.status(root).bundleOutOfDate, false, 'status compares the law set the consent created, not the previous one')
+})
+
+test('decisions: a spec card that changed invalidates the cached view', async () => {
+  // The cache signature covered the manifest, the decisions dir, the sources dir and the ratchet
+  // state, but NOT the generated spec cards — which the view reads for `drift`. A deleted card was
+  // therefore invisible in the window while a fresh derivation and the gate both reported it.
+  const root = makeProject({
+    name: 'decisions-spec-signature',
+    adrs: {
+      '0001-base.adr.md': adrText({ id: '0001', status: 'active', authority: 'human', zones: ['api'], laws: [{ id: 'api.x', statement: 'X.', checks: [] }] }),
+    },
+    zones: [{ id: 'api', paths: ['src/api/**'], agentAuthority: 'proposeOnly' }],
+  })
+  ops.compile({ root, write: true })
+  const card = join(root, 'docs', 'specs', 'api.spec.md')
+  assert.ok(existsSync(card), 'the fixture must have written a law card')
+  const service = decisionsModule.createDecisionsService()
+  assert.deepEqual((await service.view({ root })).drift.missing, [], 'a fresh project has no missing card')
+  const signatureBefore = decisionsModule.decisionsSignature(root)
+
+  rmSync(card)
+
+  assert.notEqual(decisionsModule.decisionsSignature(root), signatureBefore, 'a spec card change must move the signature')
+  assert.deepEqual(
+    (await service.view({ root })).drift.missing,
+    ['docs/specs/api.spec.md'],
+    'and the served view must report the card the tree no longer has',
+  )
+})
+
+test('tools: the ingest tool records the proposing Session', async () => {
+  // The ingest and deduplicate tools resolve their own root, so they never went through
+  // `withRoot`. The address book therefore listed a session that only READ the project while the
+  // session that WROTE the proposal was absent — the decline notice went to the wrong Session.
+  const root = makeProject({
+    name: 'tool-producer',
+    adrs: {
+      '0001-base.adr.md': adrText({ id: '0001', status: 'active', authority: 'human', zones: ['api'], laws: [] }),
+    },
+    zones: [{ id: 'api', paths: ['src/api/**'], agentAuthority: 'proposeOnly' }],
+    files: { 'notes.md': 'The reasoning behind the decision.\n' },
+  })
+  const definitions = mountPlugin({})
+  const agent = { id: 'session-writer', session: { header: { cwd: root } } }
+  await definitions.get('ratchet_ingest_source').execute({ source: 'notes.md' }, { agent })
+
+  assert.deepEqual(
+    state.recentProducers(root).map((entry) => entry.session),
+    ['session-writer'],
+    'the proposing Session is the one recorded, so a decline can be delivered to it',
+  )
+})
+
 test('ratify: a human-authored proposed decision is offered a question, and the human\'s own approval puts it in force', () => {
   // The dead end this pins: a `status: proposed`, `authority: human` record rendered as
   // "not in force" with no action at all, because the queue skipped everything not

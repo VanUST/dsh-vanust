@@ -186,12 +186,15 @@ export const MAX_DECLINED_NOTICES = 10
 /**
  * The ledger events a decline can be recorded on.
  *
- * TWO of them, and reading only the first was a real defect, reproduced: an answer that declines
- * one decision and approves another is recorded as `ratchet.ratify.mint` (with `rejections` and a
- * `declined` list), not as `ratchet.ratify.no-consent`, so a mixed batch removed the file and told
- * nobody. The event name says what happened to the CONSENT, not whether a decline occurred.
+ * THREE of them, and reading only the first was a real defect, reproduced twice. An answer that
+ * declines one decision and approves another is recorded as `ratchet.ratify.mint` (with
+ * `rejections` and a `declined` list); an answer whose consent could not be WRITTEN is recorded as
+ * `ratchet.ratify.write-failed`, which carries the declines that already happened because the
+ * removal runs before the write is attempted. In both cases reading only `no-consent` removed the
+ * file and told nobody. The event name says what happened to the CONSENT, not whether a decline
+ * occurred — and an event that mentions `declined` is a decline event by construction.
  */
-const DECLINE_EVENTS = new Set(['ratchet.ratify.no-consent', 'ratchet.ratify.mint'])
+const DECLINE_EVENTS = new Set(['ratchet.ratify.no-consent', 'ratchet.ratify.mint', 'ratchet.ratify.write-failed'])
 
 /**
  * Whether one ledger event records a decline, on either shape.

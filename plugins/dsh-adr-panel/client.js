@@ -444,7 +444,7 @@ window.__ModuleLoader__.load({
 		 * are equal again after a release and the constant is one ahead only in the working
 		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.59";
+		const PANEL_VERSION = "0.1.60";
 		/** Directories used when the host view reports none. */
 		const DEFAULT_DECISIONS_DIR = "docs/adrs";
 		const DEFAULT_SPECS_DIR = "docs/specs";
@@ -2880,6 +2880,7 @@ window.__ModuleLoader__.load({
 					settle: props.consent === null || props.consent === undefined ? null : props.consent.settle,
 					sessionId: props.consent === null || props.consent === undefined ? null : props.consent.sessionId,
 					onRecorded: props.consent === null || props.consent === undefined ? null : props.consent.onRecorded,
+					onAnswered: props.consent === null || props.consent === undefined ? null : props.consent.onAnswered,
 					compact: true
 				});
 			var resolveControl = need.kind !== "blocked" || need.id === ""
@@ -3749,6 +3750,7 @@ window.__ModuleLoader__.load({
 			var sessionId = props.sessionId;
 			var canAsk = props.canAsk === true && typeof ask === "function" && typeof settle === "function";
 			var onRecorded = props.onRecorded;
+			var onAnswered = props.onAnswered;
 			var phaseState = React.useState(null);
 			var phase = phaseState[0];
 			var setPhase = phaseState[1];
@@ -3776,6 +3778,14 @@ window.__ModuleLoader__.load({
 					// gone. Re-reading it is how the row's state, the Consents section and the
 					// in-force law set catch up.
 					onRecorded();
+				}
+				if (recorded && typeof onAnswered === "function") {
+					// The SAME record may also be the subject of a question this panel is holding
+					// for an agent's ratchet_ratify call. Answering it here has to release that
+					// question: otherwise the window keeps drawing "Awaiting your answer" with two
+					// live labels for a record that was just settled (and, for an agent proposal,
+					// deleted), and the Conversation keeps pointing at the panel for it.
+					onAnswered(adr.id, decision === "approve");
 				}
 			};
 			/**
@@ -4244,6 +4254,7 @@ window.__ModuleLoader__.load({
 			var settle = props.settle;
 			var sessionId = props.sessionId;
 			var onRecorded = props.onRecorded;
+			var onAnswered = props.onAnswered;
 			var colours = tone(adr.state.kind);
 			var awaiting = adr.state.kind === "pending";
 			var children = [
@@ -4276,7 +4287,8 @@ window.__ModuleLoader__.load({
 						settle: settle,
 						sessionId: sessionId,
 						canAsk: canAsk,
-						onRecorded: onRecorded
+						onRecorded: onRecorded,
+						onAnswered: onAnswered
 					})));
 			}
 			if (expanded) {
@@ -4485,6 +4497,9 @@ window.__ModuleLoader__.load({
 			var ask = props.ask;
 			var settle = props.settle;
 			var load = props.load;
+			// The mirror's writer, owned above this seat: answering a record through the panel has
+			// to release the question the composer entry claimed for it.
+			var publishRatify = props.publishRatify;
 			var emptyView = { status: "idle", decisions: [], consents: [], specs: [], relations: { approvedBy: {}, supersededBy: {} }, lawsByDecision: {}, decisionIds: {}, recordIds: {}, needsHuman: [], needsHumanTruncated: null, declined: [], dirs: { decisionsDir: DEFAULT_DECISIONS_DIR, specsDir: DEFAULT_SPECS_DIR }, projectName: "this project", notes: [], failures: [] };
 			var view = React.useState(emptyView);
 			var current = view[0];
@@ -4599,6 +4614,37 @@ window.__ModuleLoader__.load({
 				bump(seq[0] + 1);
 			};
 			/**
+			 * Releases the mirrored question for a record this panel just answered itself.
+			 *
+			 * A record can have TWO answer surfaces at once: an agent's `ratchet_ratify` call,
+			 * whose question the composer entry claims and mirrors in `state.ratify`, and the
+			 * panel's own Approve/Decline (the Decisions row, or the needs-a-human card).
+			 * Answering through the panel recorded the consent but left the claimed question
+			 * pending, so the window kept drawing "Awaiting your answer" with two live labels for
+			 * a record that was already settled — and, for an agent proposal, deleted — while the
+			 * Conversation went on pointing at the panel for it.
+			 *
+			 * The claim is settled with the SAME label the human chose, so the agent's tool
+			 * receives the human's real answer instead of hanging; the harness refuses a second
+			 * settlement, which the catch absorbs. The mirror is cleared either way, because the
+			 * record it asked about has been answered.
+			 */
+			var onAnswered = function (adrId, approved) {
+				var claim = ratifyQuestionOf(state.ratify);
+				if (claim === null || claim.targetId !== adrId) return;
+				var label = approved === true ? claim.approve.label : claim.decline.label;
+				try {
+					var settled = claim.pending.answer({ answers: [{ id: claim.id, selected: [label] }] });
+					if (settled !== null && typeof settled === "object" && typeof settled.then === "function") {
+						settled.then(undefined, function () {});
+					}
+				} catch (error) {
+					// Already settled, or refused because the question closed while it was on
+					// screen. The mirror is still cleared below: the record WAS answered.
+				}
+				if (typeof publishRatify === "function") publishRatify(null);
+			};
+			/**
 			 * Closes the window.
 			 *
 			 * It sends NOTHING. Every record the human asked for was already handed to the
@@ -4667,7 +4713,8 @@ window.__ModuleLoader__.load({
 						ask: ask,
 						settle: settle,
 						sessionId: state.sessionId,
-						onRecorded: onRecorded
+						onRecorded: onRecorded,
+						onAnswered: onAnswered
 					});
 				}) });
 			var consentBody = current.consents.length === 0
@@ -4707,7 +4754,8 @@ window.__ModuleLoader__.load({
 						ask: ask,
 						settle: settle,
 						sessionId: state.sessionId,
-						onRecorded: onRecorded
+						onRecorded: onRecorded,
+						onAnswered: onAnswered
 					}
 				});
 			} else {
@@ -4859,7 +4907,10 @@ window.__ModuleLoader__.load({
 								settle: settleConsent,
 								load: function (signal) {
 									return loadPanel(ctx, store.getSnapshot().sessionId, signal);
-								}
+								},
+								// The seat that ANSWERS a record must be able to release the question
+								// the composer seat claimed for that same record.
+								publishRatify: publishRatify
 							};
 						}
 					}, AdrPanelOverlay);

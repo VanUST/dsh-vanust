@@ -1105,10 +1105,16 @@ export function decisionsSignature(root) {
   const config = readManifest(root).config
   const decisionsDir = config?.decisionsDir ?? 'docs/adrs'
   const sourcesDir = config?.sourcesDir ?? 'docs/ratchet/sources'
+  const specsDir = config?.specsDir ?? 'docs/specs'
   return [
     `manifest:${manifestDigest(root)}`,
     directoryEntrySignature(root, decisionsDir),
     directoryEntrySignature(root, sourcesDir),
+    // The generated spec CARDS are an input to the view — `drift`, and the `stale-spec` need it
+    // raises — so a card that is edited, deleted or added must invalidate the cached view. Without
+    // this the panel served a drift the gate contradicted: a deleted card reported `missing` by a
+    // fresh derivation was invisible in the window until some unrelated record changed.
+    directoryEntrySignature(root, specsDir),
     directoryEntrySignature(root, '.dsh/ratchet'),
   ].join('|')
 }
