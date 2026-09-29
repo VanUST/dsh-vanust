@@ -638,9 +638,19 @@ export async function dispatchResolver({ runtime, agents, sessionId, prompt, adr
  */
 function resolverFor(ctx, log) {
   const resolvers = new Map()
+  /** Root -> the in-flight start, so a second caller WAITS instead of starting a second child. */
+  const inFlight = new Map()
   const dispatch = (sessionId, prompt, adrId, root) => {
+    // The reservation is written BEFORE the await. It used to be written only once the start had
+    // resolved, so two concurrent callers — two state reads, or a click landing beside an
+    // automatic dispatch — each saw no remembered child and each started one: exactly the two
+    // resolvers racing one manifest that this shared registry exists to prevent. The waiting
+    // caller re-enters afterwards, so it steers the child the first call established instead of
+    // losing its own prompt.
+    const pending = inFlight.get(root)
+    if (pending !== undefined) return pending.then(() => dispatch(sessionId, prompt, adrId, root))
     const remembered = resolvers.get(root) ?? null
-    return dispatchResolver({
+    const started = dispatchResolver({
       runtime: ctx.get(SUBAGENTS_SERVICE),
       agents: ctx.get(AGENTS_SERVICE),
       sessionId,
@@ -649,12 +659,18 @@ function resolverFor(ctx, log) {
       previousChildId: remembered === null ? null : remembered.childId,
       previousParentSessionId: remembered === null ? null : remembered.parentSessionId,
       log,
-    }).then((result) => {
-      if (result.refusal === undefined && typeof result.childId === 'string' && result.childId.length > 0) {
-        resolvers.set(root, { childId: result.childId, parentSessionId: sessionId })
-      }
-      return result
     })
+      .then((result) => {
+        if (result.refusal === undefined && typeof result.childId === 'string' && result.childId.length > 0) {
+          resolvers.set(root, { childId: result.childId, parentSessionId: sessionId })
+        }
+        return result
+      })
+      .finally(() => {
+        inFlight.delete(root)
+      })
+    inFlight.set(root, started)
+    return started
   }
   return { dispatch }
 }
@@ -1039,12 +1055,22 @@ function createConsentHandler(ctx, token, log) {
 }
 
 /**
- * Builds the handler for the one READ-ONLY state route.
+ * Builds the handler for the state route.
  *
  * It is the browser half's single data path: the window renders what the ratchet's
  * `ratchetDecisions` service derived and derives nothing itself. The route answers GET
- * only — there is no method here that could write — and every failure is a status code
- * and a JSON body naming what was refused. The gates are the consent route's: the
+ * only, and it writes nothing ITSELF: the view is derived, capped and returned unchanged.
+ *
+ * It is not wholly read-only, and saying so plainly is the point. After answering, it starts
+ * the ONE automatic resolver for this project when the ratchet reports a dispatch is due, and
+ * that dispatch is recorded in the ledger — the same child and the same registry the resolve
+ * route uses, so a click and an automatic dispatch cannot become two resolvers racing one
+ * manifest. The answer is written BEFORE that start, so a start that never settles cannot hold
+ * the read open. A caller expecting a purely read-only GET should not be surprised by this: it
+ * is the feature, not an accident.
+ *
+ * Every failure is a status code and a JSON body naming what was refused. The gates are the
+ * consent route's: the
  * browser trust fence, then this route's own capability header, then the Session's
  * project, then the service. A window that cannot reach it is told so; it must never
  * fall back to reading the corpus itself, because a second derivation of one truth is the
@@ -1103,6 +1129,11 @@ function createStateHandler(ctx, token, log, resolver) {
       log.info(
         `state root=${located.root} records=${Array.isArray(view?.records) ? view.records.length : 0} waiting=${Array.isArray(view?.queue?.pending) ? view.queue.pending.length : 0} blocked=${Array.isArray(view?.queue?.blocked) ? view.queue.blocked.length : 0} truncated=${view?.truncated === null || view?.truncated === undefined ? 'no' : 'yes'}`,
       )
+      // ANSWER FIRST, THEN ACT. The view is written before the automatic dispatch below, because
+      // awaiting that start held the whole state response open: a `startContinuable` that never
+      // settled left the read unanswered and the window on "Loading" for ever. The client has its
+      // answer; the dispatch continues behind it and its outcome is only logged.
+      sendJson(res, 200, view)
       // AUTOMATIC RESOLUTION. A finding whose fix is a command is dispatched to the ONE
       // resolver for this project without a click; a finding that needs a human decision is
       // not offered here at all, because the ratchet's own `clearableFindings` excludes it.
@@ -1146,7 +1177,6 @@ function createStateHandler(ctx, token, log, resolver) {
       } catch (error) {
         log.warn(`auto-resolve threw: ${String(error)}`)
       }
-      sendJson(res, 200, view)
     } catch (error) {
       log.warn(`the state route threw: ${String(error)}`)
       try {

@@ -444,7 +444,7 @@ window.__ModuleLoader__.load({
 		 * are equal again after a release and the constant is one ahead only in the working
 		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.60";
+		const PANEL_VERSION = "0.1.61";
 		/** Directories used when the host view reports none. */
 		const DEFAULT_DECISIONS_DIR = "docs/adrs";
 		const DEFAULT_SPECS_DIR = "docs/specs";
@@ -2702,6 +2702,12 @@ window.__ModuleLoader__.load({
 			}
 			var plan = phase.kind === "ready" || phase.kind === "done" ? phase.plan : null;
 			var blockedByHuman = plan !== null && plan.humanRequired === true;
+			// A 200 whose plan is `ok:false` is the ratchet saying it could not build one — a
+			// missing record, an unreadable manifest. It used to be treated as a valid plan, so
+			// the card offered an ENABLED Resolve for work no resolver could act on and the
+			// ratchet's own reason was never drawn.
+			var planBroken = plan !== null && plan.ok === false;
+			var planReason = plan !== null && typeof plan.reason === "string" && plan.reason !== "" ? plan.reason : null;
 			var sending = phase.kind === "sending";
 			var declined = plan !== null && Array.isArray(plan.declined) ? plan.declined.filter(function (entry) { return entry !== null && typeof entry.comment === "string" && entry.comment !== ""; }) : [];
 			var mine = outcome !== null && Array.isArray(outcome.ids) && outcome.ids.indexOf(adrId) !== -1;
@@ -2757,9 +2763,9 @@ window.__ModuleLoader__.load({
 				children.push(React.createElement("div", { key: "buttons", style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 4 } },
 					React.createElement("button", {
 						type: "button",
-						disabled: blockedByHuman || onResolve === null || busy,
-						style: Object.assign({}, primaryButtonStyle(tone("pending")), { marginTop: 0, opacity: blockedByHuman || busy ? 0.5 : 1 }),
-						onClick: function () { if (!blockedByHuman && onResolve !== null && !busy) onResolve(adrId); }
+						disabled: blockedByHuman || planBroken || onResolve === null || busy,
+						style: Object.assign({}, primaryButtonStyle(tone("pending")), { marginTop: 0, opacity: blockedByHuman || planBroken || busy ? 0.5 : 1 }),
+						onClick: function () { if (!blockedByHuman && !planBroken && onResolve !== null && !busy) onResolve(adrId); }
 					}, busy ? "Starting a resolver\u2026" : "Resolve"),
 					React.createElement("button", {
 						type: "button",
@@ -2769,6 +2775,13 @@ window.__ModuleLoader__.load({
 					}, "Decline with a reason")));
 				if (blockedByHuman) {
 					children.push(React.createElement("div", { key: "human", style: mutedInlineStyle() }, "Not resolvable by an agent: this record has a step only a human can carry, so a resolver would stop part-way."));
+				}
+				if (planBroken) {
+					// The ratchet's own words, not a guess about why it could not plan.
+					children.push(React.createElement("div", { key: "broken", style: warnStyle() },
+						"The ratchet could not build a plan for this record, so there is nothing to dispatch",
+						planReason === null ? "." : ": " + planReason,
+						" A refusal can still be recorded."));
 				}
 			}
 			if (mine) {
