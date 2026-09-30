@@ -20,14 +20,14 @@ The upstream harness plus seven plugins, all pinned and installed from one kit r
 |---|---|
 | `@deepseek-ai/dsh-model-gate` | cost policy: every dispatch whose model is not Flash-class is vetoed before it costs anything |
 | `@cc/dsh-kit-rules` | contributes `$DSH_HOME/AGENTS.md` (this deployment's binding rules) to every session's system prompt |
-| `@cc/dsh-context` | `context_module`, `context_rules`, `context_specs`, `ratchet_reconcile` — answers about the current project from `.dsh/project.json` |
-| `@cc/dsh-ratchet` | compiles `docs/adrs/*.adr.md` into laws, verifies code against them, and puts proposed decisions to the human as a question |
+| `@cc/dsh-context` | `context_module`, `context_rules`, `context_specs` — answers about the current project from `.dsh/project.json` |
+| `@cc/dsh-specs` | injects a project's human-authored specs (`docs/specs/*.md`) into every agent's system prompt, re-read on every assembly, so a root session and each subagent it starts read the same requirements. It compiles nothing, checks nothing and writes nothing |
 | `@cc/dsh-adr-panel` | the web UI's window on those decisions and the spec documents: a session-header button opens an overlay listing the records, and its only ratification affordance asks the agent to run the quiz |
-| `@cc/dsh-work-modes` | refuses a third concurrent `subagent` child per session with the running agents named (a `workflow` fan-out is deliberately outside it), and injects the session's research or implementation mode into every prompt, with the toggle on a capability-fenced host route the panel drives |
+| `@cc/dsh-work-modes` | refuses a third concurrent `subagent` child per session with the running agents named (a `workflow` fan-out is deliberately outside it). It injects no prompt section and holds no session state |
 | `@cc/dsh-presentation` | one tool, `presentation`, that renders a JSON deck spec into a standalone HTML file in the workspace; the Sidebar document preview displays it, so the file the user previews is the file they export and print |
 | `@cc/dsh-godot-mcp` | keeps the deployment's MCP server list declarative and transportable: owns the canonical spec, resolves the `uvx` launcher the Godot AI bridge needs and the Godot project it starts in, and reports per declared server whether its tools are loadable. It implements no MCP itself — the harness's shipped `@deepseek-ai/dsh-mcp-client` bridge does the connecting, and `scripts/dsh-mcp-sync.mjs` writes the row that bridge loads into `$DSH_HOME/cordis.patch.yml`. **Two rows mount for this server and their ids must differ**: the plugin's own row is `id: godot-mcp` (the kit's convention is that a plugin row's id is its function name), while the bridge row the sync writes is `id: mcp-client-<server id>`. One composition has ONE loader-id namespace and the harness refuses the whole tree on a duplicate — `dsh web` fails to start with `duplicate loader entry id: godot-mcp`, which is what happened when a server id was used as the row id. Do not "tidy" the generated id back to the bare server id; `scripts/check-portability.mjs` fails when a generated id spells an authored one |
 
-Pinned harness version: **`0.1.5-rc.1`**. Node ≥ 24. The kit is the only source of the
+Pinned harness version: **`0.2.0-rc.2`**. Node ≥ 24. The kit is the only source of the
 deployment's files; a machine is a projection of it.
 
 ## 2. Fresh machine
@@ -40,7 +40,7 @@ cd ~/dsh-kit
 ```
 
 `install.sh` / `install.ps1` are idempotent: Node check → pinned `npm i -g
-@deepseek-ai/dsh@0.1.5-rc.1` → profile files under `$DSH_HOME/profiles/web` → every
+@deepseek-ai/dsh@0.2.0-rc.2` → profile files under `$DSH_HOME/profiles/web` → every
 `plugins/*.tgz` installed into that profile → `$DSH_HOME/AGENTS.md` and
 `$DSH_HOME/DEPLOYMENT.md` → the development links (§4).
 
@@ -76,52 +76,34 @@ node "$KIT/scripts/kit-update.mjs" --apply                  # converge, then rec
 `$KIT` is the clone's directory. If you do not know it, read it from
 `$DSH_HOME/.dsh-kit-state.json` (`kit`), or ask: `node <kit>/scripts/kit-update.mjs --help`.
 
-## 4. Run the kit's own gate (before trusting a change)
+## 4. Checks you can still run
 
-The deployment does not need this; the kit's self-check does. The ratchet's tool adapter
-imports `@deepseek-ai/dsh-tools`, which lives in the harness install rather than in the
-repository, so a fresh clone links it once:
+These check the kit's own source; the deployment does not need them. A fresh clone links the
+harness package the API probe imports, which lives in the harness install rather than in the
+repository, so link it once:
 
 ```bash
-node "$KIT/scripts/dev-link.mjs"                    # once per clone; install.sh does it
-node --test "$KIT/scripts/test-ratchet.mjs"         # the ratchet's full suite
-node "$KIT/scripts/check-portability.mjs"           # platform assumptions + packaging
-node "$KIT/scripts/check-model-gate.mjs"            # the canonical composition's cost policy
-node "$KIT/scripts/check-zone-coverage.mjs" --root "$KIT"   # every tracked path zoned or excepted
-node "$KIT/scripts/check-hermetic-laws.mjs" --root "$KIT"   # no law's command check runs a probe or a live port
-node "$KIT/scripts/probe-dsh-api.mjs" --kit-rules    # the rules reach an assembled prompt (behavioral)
-node "$KIT/plugins/ratchet/ratchet-cli.mjs" verify --root "$KIT"   # the kit's own gate
-node "$KIT/plugins/ratchet/ratchet-cli.mjs" falsify --root "$KIT"  # break the gate, require it to fail
-node "$KIT/scripts/falsify-kit-gate.mjs"            # the breaker at release-gate scope: one full gate per case
+node "$KIT/scripts/dev-link.mjs"                     # once per clone; install.sh does it
+node --test "$KIT/scripts/test-specs.mjs"            # specs reach an assembled prompt (behavioural)
+node --test "$KIT/scripts/test-work-modes.mjs"       # the subagent delegation cap
+node "$KIT/scripts/check-portability.mjs"            # platform assumptions + packaging
+node "$KIT/scripts/check-model-gate.mjs"             # the canonical composition's cost policy
+node "$KIT/scripts/probe-dsh-api.mjs" --kit-rules    # the rules reach an assembled prompt (behavioural)
+node "$KIT/scripts/probe-dsh-api.mjs" --specs-prompt # specs ADD a section beside the rules, not rewrite the prompt
 ```
 
-`scripts/falsify-kit-gate.mjs` mutates the kit and restores every artifact its mutation
-induces, **including `.dsh/ratchet/ledger.jsonl`**: a case that adds a law makes the gate it
-runs record the enlarged law set, and that recorded set is served to every later run, which
-then reports the injected law as removed without a decision — permanently, because a run
-that reports a removal records no set of its own, and the removal cannot be declared because
-no record declares the law (`LAW_TARGET_DANGLING`). Re-run `verify` after it and the tree is
-verified, which is what its own documentation always claimed.
-
-`verify` exit codes: `0` every law held, `1` a check failed, `2` the project or its
-decisions are unusable so nothing was checked, `3` a usage error. A verification that
-could not evaluate every check is a failure, not a pass.
-
-`falsify` is the breaker and its exit codes are its own: `0` every applicable case was
-detected, `1` a case was missed (a check that cannot fail), `2` the project is unusable.
-It mutates the project and restores everything it touched, including the persisted
-verdict, and writes only inside the scopes the manifest declares. It runs the whole gate
-once per case, so give it about a minute. `SIGKILL` cannot be caught, but every mutation is
-journaled before it is written, so `ratchet falsify --recover` (or the next `falsify`
-run) repairs what a hard kill left behind.
+There is no release gate and no law compiler. This deployment has NO enforcement machinery:
+no laws, no compiled checks, no consent, no verdict and no judge, and `verify-upgrade.sh` was
+removed with the rest of it. Treat a green check as evidence about that check's own subject —
+never as a verdict on a change, and never as authorisation to touch a live profile.
 
 ## 5. Rules you must not break while operating this
 
-1. **The harness pin is exact.** Never `npm i -g @deepseek-ai/dsh` without a version, and
-   never upgrade a live machine outside the gate: install the candidate, run
-   `scripts/rebuild-plugins.sh` against a checkout pinned to it, run
-   `scripts/verify-upgrade.sh`, and only on PASS touch the live profile. The gate is
-   `verify-upgrade.sh`; nothing else authorises an upgrade.
+1. **The harness pin is exact.** Never `npm i -g @deepseek-ai/dsh` without a version.
+   There is no release gate any more — `scripts/verify-upgrade.sh` was removed together with
+   removed — so a harness upgrade now rests on your own judgement and on the checks in
+   section 4. Install a candidate, run those checks against a checkout pinned to it, and
+   only then converge a live profile.
 2. **Bump a plugin's version before repacking it.** pnpm serves a `file:` dependency from
    the profile lockfile by path, so a repacked tarball with an unchanged filename does not
    land. The updater warns about it; the version bump is what makes it correct.

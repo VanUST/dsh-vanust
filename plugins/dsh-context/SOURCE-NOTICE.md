@@ -24,10 +24,10 @@ What that means concretely:
 
 The kit's own rule (`AGENTS.md`) says `cc-dsh-context` is *copied from its owning
 project*, and that is still the correct arrangement when that project is
-reachable. It became unworkable for the one change the ratchet work needed: a
-shipped plugin cannot be corrected at all if its only source is a tarball on a
-machine nobody here can access. The alternative was to leave a known defect in
-place, which the deployment's own rules forbid.
+reachable. It became unworkable because a shipped plugin cannot be corrected at
+all if its only source is a tarball on a machine nobody here can access. The
+alternative was to leave a known defect in place, which the deployment's own rules
+forbid.
 
 **If the owning project is reachable again, it owns this package.** Port any
 change made here back to it, rebuild there, and replace the tarball from that
@@ -61,13 +61,15 @@ but do not claim a rebuild is verifiable by hash comparison alone.
 | File | Change |
 |---|---|
 | `context-core.mjs` | `noManifest()` no longer cites `docs/specs/README.md`, a file nothing installs. It names the manifest's fields itself, so the message is self-contained. |
+| `reconcile-tool.mjs`, `plugin-context.mjs` | the reconciliation tool shipped in 0.1.2 was removed, leaving the three tools `context_module`, `context_rules` and `context_specs`. |
 | `package.json` | version bump per repack |
 
-This is the one defect from the ratchet brief's Part IV that is both unambiguous
-and self-contained: **R8 — its own instructions cite a file that does not exist.**
+The `noManifest()` change fixed the one defect that was both unambiguous and
+self-contained: **the tool's own instructions cited a file that does not exist.**
 The message violated the deployment's rule that inline, user-visible text must be
 self-contained.
 
-Every other Part IV defect (R1–R7, R9–R11) is addressed by `@cc/dsh-ratchet`,
-which replaces this package's reconciliation role with a strict compiled-decisions
-model rather than patching prose matching. See `docs/RATCHET-V2-DESIGN.md`.
+The package now exposes three tools. Nothing reads a project's decisions, compiles
+them or checks code against them: `context_rules` reports only what a project
+declares in its own manifest, each with the command that fails when the rule is
+broken, and that is the whole mechanism.

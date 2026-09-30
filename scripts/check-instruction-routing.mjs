@@ -348,7 +348,7 @@ if (procedure.missing === true) {
   // upgrade procedure, and a `--help` line may show a placeholder, but a script that
   // executes `npm i -g @deepseek-ai/dsh` — with no version, or with a package name it
   // never pinned — installs whatever npm resolves and defeats the pin for that machine.
-  const runnable = ['install.sh', 'install.ps1', 'scripts/kit-update.mjs', 'start.sh', 'start.ps1', 'scripts/verify-upgrade.sh']
+  const runnable = ['install.sh', 'install.ps1', 'scripts/kit-update.mjs', 'start.sh', 'start.ps1']
   const unpinned = []
   for (const relative of runnable) {
     const file = read(relative)

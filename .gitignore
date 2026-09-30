@@ -7,32 +7,20 @@ node_modules
 .DS_Store
 profiles-web.bak/
 
-# Development-only package links. `plugins/ratchet/node_modules` and
-# `probes/api-probe/node_modules` point at the harness packages a development
-# checkout does not otherwise have on its resolution path — the installed plugin
-# resolves them through the profile it is installed into. Windows creates these as
-# junctions and POSIX as symlinks, hence the slash-free patterns above: only a
-# slash-free pattern matches both.
-plugins/ratchet/node_modules
+# Development-only package links. `probes/api-probe/node_modules` points at the
+# harness packages a development checkout does not otherwise have on its resolution
+# path — the installed plugin resolves them through the profile it is installed into.
+# Windows creates these as junctions and POSIX as symlinks, hence the slash-free
+# pattern above: only a slash-free pattern matches both.
 probes/api-probe/node_modules
 
 # Machine-local scratch state for the API probes.
 probes/**/scratch/
 
-# Per-run evidence, not source. The probe and gate reports change on every run, so
-# committing them would put a diff on every check and drown the changes that matter.
+# Per-run evidence, not source. The probe reports change on every run, so committing
+# them would put a diff on every check and drown the changes that matter.
 reports/
 
-# Transient breaker state. A falsification run journals the original bytes of every
-# file it is about to mutate, so a hard kill is recoverable; both the journal and its
-# backups are deleted on a clean run and must never be committed.
-.dsh/ratchet/falsify-journal.json
-.dsh/ratchet/falsify-backups/
-*.falsify-tmp
-
-# NOT ignored, deliberately: `.dsh/ratchet/specs.json` and `state.json` are the kit's
-# current declared law and the record of what was verified against it. Reviewing a law
-# change as a diff is the point, and `SPEC_OUT_OF_DATE` only means something if the
-# bundle it compares against is in the repository. Generated spec documents under
-# `docs/specs/` are likewise tracked for the same reason.
-
+# Project specs are TRACKED on purpose: a spec file is the text every agent receives
+# in its system prompt, so a change to one is a change to what the agents are told.
+# It belongs in the history.

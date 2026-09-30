@@ -21,7 +21,6 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { defineTool } from '@deepseek-ai/dsh-tools';
-import { registerReconcileTool } from './reconcile-tool.mjs';
 import {
   findProjectRoot,
   listSources,
@@ -234,5 +233,4 @@ export function apply(ctx) {
       },
     }),
   );
-  registerReconcileTool(ctx, rootFor, noManifest, readManifest);
 }

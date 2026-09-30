@@ -3,16 +3,15 @@
 # POSIX shells refuse a script whose shebang line ends CRLF, and this kit is
 # cloned onto Windows machines as well as Linux ones. Without this file, a clone
 # on Windows (core.autocrlf=true) rewrites every text file, so a checkout there
-# produces install.sh / start.sh / verify-upgrade.sh that fail on the Linux
-# machines when the directory is copied or the clone is shared.
+# produces install.sh / start.sh that fail on the Linux machines when the directory
+# is copied or the clone is shared.
 #
 # Scripts that any shell must read get LF everywhere. So does the DATA the tools parse:
-# `docs/adrs/*.adr.md`, `docs/specs/*.spec.md`, `plugins/inventory.json` and every
-# plugin README/LICENSE. Those were left to the platform, and a Windows checkout then
-# held CRLF in exactly them — which broke the panel's line-oriented parsers (`.` never
-# matches `\r`, so a spec parsed to zero laws) and made the tarball-versus-source check
-# fail on an unchanged kit. A file whose bytes are read by a program is not "natural to
-# edit on Windows"; it is input.
+# `docs/specs/*.md`, `plugins/inventory.json` and every plugin README/LICENSE. Those were
+# left to the platform, and a Windows checkout then held CRLF in exactly them — which
+# broke the panel's line-oriented parsers and made the tarball-versus-source check fail on
+# an unchanged kit. A file whose bytes are read by a program is not "natural to edit on
+# Windows"; it is input.
 #
 # `.ps1` stays CRLF, because PowerShell is the one consumer that prefers it.
 *.sh    text eol=lf

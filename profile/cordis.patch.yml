@@ -66,16 +66,13 @@
         imageMaxBytes: 1048576
 
 # ── dsh-context: project structure, rules and work orders as tools ─────────
-# Exposes four tools to any agent on this harness: `context_module` (which module
+# Exposes three tools to any agent on this harness: `context_module` (which module
 # owns a path, what it exports, what it links to), `context_rules` (which rules the
 # project claims and the exact command that fails when one is broken), `context_specs`
 # (what work is in flight, which paths it claims, and where two active specifications
-# collide), and `ratchet_reconcile` (gather the decision records and put them to a
-# reader for reconciliation — superseded for design work by the ratchet's compiled
-# laws, but still mounted and still the tool for a project with only records).
 #
 # Project-agnostic by design: it reads only `.dsh/project.json`, so a Python, C/C++
-# or Unity repository gets the same four tools by writing its own manifest. A project
+# or Unity repository gets the same three tools by writing its own manifest. A project
 # without that file gets an actionable message naming it, never an empty result.
 #
 # Tools rather than documents on purpose: an agent calls a tool, while it ignores a
@@ -84,38 +81,31 @@
     - id: dsh-context
       name: '@cc/dsh-context'
 
-# ── ratchet: the project's own decisions, compiled into laws ───────────────
-# Contributes seven tools to any agent on this harness: `ratchet_status` (what the
-# project's laws are and whether the code has been checked against them),
-# `ratchet_compile` (ADRs → laws, and a corpus review when the compiler cannot
-# decide a question), `ratchet_verify` (the deterministic gate), `ratchet_bootstrap`
-# (the manifest and skeleton a project needs first), `ratchet_review` (an advisory
-# judge for the questions no static check decides), `ratchet_ingest_source` (raw
-# reasoning → a proposed ADR, with every quote checked against the source) and
-# `ratchet_ratify` (the human quiz that puts a proposed decision into force).
+# ── specs: the project's human-authored specs, injected every turn ─────────
+# Contributes a system-prompt section carrying the specs a human wrote for the
+# project the Session is open on. The section's text is a PROVIDER, re-evaluated on
+# every assembly, so editing a spec file takes effect on the next request with no
+# restart, and a subagent reads the same project's specs as its parent because both
+# resolve the project from their own Session header.
 #
-# The ratification path is why this row is worth mounting everywhere: without it a
-# decision an agent may only PROPOSE cannot become law at all, and the ratchet says
-# so rather than activating it. The quiz goes through the harness user-questions
-# channel, so the answer is the human's and not the model's transcription of one.
-#
-# The plugin injects `tools` and nothing else: the subagent runtime, the question
-# channel and the agent registry are reached opportunistically at call time, because
-# declaring a service a composition does not mount fails the entire boot.
+# It is READ-ONLY: the plugin compiles nothing, checks nothing and writes nothing.
+# There are no laws, no checks, no verdicts and no consent in this deployment; specs
+# are advisory requirements a human owns, and the only thing this row does is put
+# them in front of the model.
 - insert:
-    - id: ratchet
-      name: '@cc/dsh-ratchet'
+    - id: specs
+      name: '@cc/dsh-specs'
 
-# ── adr-panel: the decisions and specs window ───────────────────────────────
-# A browser-half-only plugin: its host body is an empty `apply`, and the whole
-# feature is the `./client` bundle the client-module loader serves. It adds a
-# session-header button that opens a frame-wide overlay listing the project's ADR
-# records and spec documents, reading them through the workspace file API.
+# ── adr-panel: the specs window ─────────────────────────────────────────────
+# Two halves. The browser bundle adds a Session-header button labelled SPECS that
+# opens a frame-wide overlay; the host half serves one capability-fenced route that
+# lists, writes and deletes `<project>/docs/specs/*.md` for the Session the window is
+# open on, resolving the project from that Session's own header rather than from the
+# server's launch directory.
 #
-# It cannot mint a consent by construction: the only ratification affordance asks
-# the agent to run `ratchet_ratify`, so the question still reaches the human
-# through the user-questions channel and the ratchet's own hash-bound approval
-# remains the single path into force.
+# It is storage, not machinery: it compiles nothing, verifies nothing, mints no
+# consent and keeps no ledger. The only rule it enforces is that a write stays
+# inside the project's specs directory.
 - insert:
     - id: adr-panel
       name: '@cc/dsh-adr-panel'
@@ -131,8 +121,8 @@
     - id: presentation
       name: '@cc/dsh-presentation'
 
-# ── work-modes: the concurrency cap and the per-session work mode ───────────
-# Two deployment policies on the harness seams that can actually refuse something.
+# ── work-modes: the subagent delegation cap ────────────────────────────────────
+# One deployment policy on the harness seam that can actually refuse something.
 #
 # The cap is a monotonic tools.guard(): the third `subagent` child of one session
 # (grandchildren included) is refused before its body runs, with the two running
@@ -148,18 +138,8 @@
 # after `staleAfterMs` while it may still be running. That is the strongest true
 # statement, and the plugin's own header carries it beside the code.
 #
-# The mode is session state injected into the prompt as a provider, so the agent
-# reads which mode it is in on every assembly instead of being trusted to remember
-# it. Research needs no decision record and no specification; implementation needs
-# an underlying record, a defined task, and a defined measure whose command runs.
-# Of those three, only the decision record has an enforcement point — a zone's
-# `requiresDecisionRecord` flag, and it is satisfied by ANY record that ever named
-# the zone, for the harness's write tools only. The defined task and the defined
-# measure are prompt-level: nothing fails when they are missing, and the rule text
-# says so rather than implying a guarantee the mechanism does not give.
-# The plugin serves the toggle on its own capability-fenced route, which the ADR
-# panel drives, and reaches `webServer` and `tools` through `ctx.get` so a
-# deployment without either still gets the other half.
+# There are NO work modes: the research/implementation mode was removed with the
+# decision-record machinery it rested on, and the plugin injects no prompt section.
 - insert:
     - id: work-modes
       name: '@cc/dsh-work-modes'

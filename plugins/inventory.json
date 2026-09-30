@@ -1,6 +1,6 @@
 {
   "manifestVersion": 1,
-  "description": "The plugins this kit ships beyond upstream, one row each. This is the single source of truth for the count and for each plugin's provenance; README.md, AGENTS.md and COMPAT.md describe the kit from it, and scripts/check-portability.mjs fails when a row, a tarball, a mounted profile row or a packing entry point disagrees with what is on disk.",
+  "description": "The plugins this kit ships beyond upstream, one row each. This is the single source of truth for the count and for each plugin's provenance; README.md and AGENTS.md describe the kit from it, and scripts/check-portability.mjs fails when a row, a tarball, a mounted profile row or a packing entry point disagrees with what is on disk.",
   "plugins": [
     {
       "id": "model-gate",
@@ -32,11 +32,11 @@
       "mounted": true
     },
     {
-      "id": "ratchet",
-      "package": "@cc/dsh-ratchet",
-      "tarballPrefix": "cc-dsh-ratchet",
+      "id": "specs",
+      "package": "@cc/dsh-specs",
+      "tarballPrefix": "cc-dsh-specs",
       "provenance": "in-repo",
-      "source": "plugins/ratchet",
+      "source": "plugins/specs",
       "pack": "scripts/pack-plugin.mjs",
       "mounted": true
     },

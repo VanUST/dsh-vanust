@@ -1,30 +1,16 @@
 /**
  * PURPOSE
- *   Two deployment policies the kit's rules state and nothing enforced, in one
- *   plugin because both are session-scoped work-policy facts read on the same two
- *   seams:
+ *   One deployment policy: a concurrency cap on the `subagent` tool. At most two of
+ *   that tool's children (per session, grandchildren included) may be running; a third
+ *   call is refused immediately with the two running agents named, and the calling
+ *   agent decides what to do. A `workflow` fan-out is deliberately OUTSIDE this cap —
+ *   the human chose that limit knowingly — so this is a cap on the delegation tool,
+ *   never a ceiling on concurrent work.
  *
- *   1. **A concurrency cap on the `subagent` tool.** At most two of that tool's
- *      children (per session, grandchildren included) may be running; a third call
- *      is refused immediately with the two running agents named, and the calling
- *      agent decides what to do. A `workflow` fan-out is deliberately OUTSIDE this
- *      cap — the human chose that limit knowingly — so this is a cap on the
- *      delegation tool, never a ceiling on concurrent work.
- *   2. **A work mode per session, injected into the prompt every turn.** Research
- *      mode needs neither a decision record nor a specification; implementation
- *      mode does, and its rule says exactly which of those requirements a command
- *      can check and which a judge must judge. Only the decision-record requirement
- *      has an enforcement point, and it is a zone's `requiresDecisionRecord` flag
- *      rather than this plugin; the defined-task and defined-measure requirements
- *      are prompt-level, and the rule text says so instead of implying otherwise.
- *
- *   Both are read at a seam the harness already owns. The cap is a monotonic
- *   `tools.guard()`: a guard may only DENY, so no later listener can turn the
- *   refusal back into permission, and a denial is materialized by the registry as
- *   an error result carrying the guard's own text — measured with
- *   `node scripts/probe-work-modes.mjs`. The mode is a `systemPrompt.section()`
- *   whose text is a PROVIDER, which is what lets it read the calling session on
- *   every assembly instead of being frozen at registration.
+ *   The cap is read at a seam the harness already owns: a monotonic `tools.guard()`,
+ *   and a guard may only DENY, so no later listener can turn the refusal back into
+ *   permission. A denial is materialized by the registry as an error result carrying
+ *   the guard's own text — measured with `node scripts/probe-work-modes.mjs`.
  *
  * INPUTS
  *   Config (all optional, all with working defaults):
@@ -41,32 +27,23 @@
  *       agent registry; `null` (or no predicate at all) means "cannot tell", which
  *       leaves the entry on the age bound. {@link createLedger} is total for a
  *       predicate that throws — a throw is also "cannot tell".
- *     `defaultMode` — the mode a session starts in. Default `research`.
- *     `modeRoute` — the HTTP path the panel's toggle calls. Default
- *       `/work-modes/mode`.
- *   Services: `systemPrompt` (DECLARED in {@link inject}, so a missing prompt
- *   service leaves this plugin pending rather than silently dropping the mode
- *   section); `tools` and `webServer` (each requested with `ctx.inject`, so the
- *   registration happens when that service appears, whenever that is); and `agents`,
- *   read at call time through {@link liveChildProbe} and nowhere required, so a
- *   composition without an agent registry loses only the exact release and keeps the
- *   age-bounded fallback. None of the optional services is read with `ctx.get` while
- *   `apply` runs: a composition that mounts this plugin without the tool registry or
- *   without a web server still gets whichever halves are possible, and one that mounts
- *   them later still gets both.
+ *   Services: `tools` (DECLARED in {@link inject}, so a composition with no tool
+ *   registry leaves this plugin pending rather than silently capping nothing) and
+ *   `agents`, read at call time through {@link liveChildProbe} and nowhere required, so
+ *   a composition without an agent registry loses only the exact release and keeps the
+ *   age-bounded fallback. `agents` is never read with `ctx.get` while `apply` runs, so
+ *   a composition that mounts it on a later turn still gets the registration.
  *
  * OUTPUTS
- *   Registers: one monotonic tool guard, three event listeners (`subagent/start`,
- *   `subagent/end`, `tools/result`), one prompt section, and — when a web server is
- *   mounted — one route plus one index-injection row. Each registration lives in the
- *   `ctx.effect` scope of the service it uses, so a reload or a replaced service disposes
- *   the old registration instead of colliding with it.
- *   Never throws during prompt assembly or event dispatch: the section returns a
- *   string for every session, including one it has never seen.
+ *   Registers: one monotonic tool guard and three event listeners (`subagent/start`,
+ *   `subagent/end`, `tools/result`). Each registration lives in the `ctx.effect` scope
+ *   of the service it uses, so a reload or a replaced service disposes the old
+ *   registration instead of colliding with it.
+ *   Never throws during event dispatch: a guard that cannot attribute a call lets it
+ *   through rather than refusing unrelated work.
  *
  * KEYWORDS
- *   subagent concurrency, delegation cap, monotonic guard, work mode, research,
- *   implementation, prompt section, session state, adr panel, ratchet
+ *   subagent concurrency, delegation cap, monotonic guard, session state
  *
  * BEHAVIOUR ON EDGE CASES
  *   - `limit` below 1: treated as 1, because a cap of zero would make the tool
@@ -80,13 +57,8 @@
  *   - Two admissions and one start: the earliest unmatched admission is consumed, which
  *     is the only correlation the event vocabulary supports (the start edge carries the
  *     child id and no parent).
- *   - A session whose mode was never set: `defaultMode`, always. Nothing is persisted,
- *     so a restart resets every session to it rather than resurrecting a stale policy.
- *   - No web server mounted, or one mounted after this plugin applies: the route is
- *     registered when the service appears, and the cap and the prompt section work
- *     regardless.
- *   - No tool registry mounted: the cap is simply absent, and the mode section and
- *     the route still work.
+ *   - No tool registry mounted: the plugin stays pending, so the cap is absent rather
+ *     than silently installed against a registry that does not exist.
  *   - An unknown reading of `exec.agent.session.header.parentSession`: treated as no
  *     parent, which makes the session its own root.
  *   - A start edge whose child session the `agents` service cannot resolve (an
@@ -118,7 +90,7 @@
 export const name = 'work-modes'
 
 /** The prompt registry is the one service this plugin cannot work without. */
-export const inject = ['systemPrompt']
+export const inject = ['tools']
 
 /** The default delegation tool this plugin caps. */
 export const DEFAULT_TOOL_NAME = 'subagent'
@@ -130,144 +102,6 @@ export const DEFAULT_LIMIT = 2
 export const DEFAULT_STALE_AFTER_MS = 15 * 60 * 1000
 
 /** The mode a session starts in when nothing has set one. */
-export const DEFAULT_MODE = 'research'
-
-/** The two modes, in the order the rule text names them. */
-export const MODES = Object.freeze(['research', 'implementation'])
-
-/** The HTTP path the mode toggle calls. */
-export const MODE_ROUTE = '/work-modes/mode'
-
-/** The global the browser reads the route and its capability from. */
-export const MODE_GLOBAL = '__DSH_WORK_MODES_MODE__'
-
-/** The header the browser sends the capability in. */
-export const MODE_HEADER = 'x-work-modes-capability'
-
-/** Section name this plugin registers; unique, so a duplicate is a defect. */
-export const MODE_SECTION_NAME = 'work-modes:mode'
-
-/** Section order used when the prompt registry allocates no central position. */
-export const MODE_SECTION_ORDER = 10110
-
-/**
- * The rule text injected for each mode.
- *
- * Deliberately self-contained: it names the requirement, the command that checks it,
- * and the part a command cannot check. The last paragraph is the boundary the
- * deployment must not paper over — the system can deterministically require that a
- * judgement has been made and recorded, and it cannot deterministically produce the
- * judgement.
- */
-const MODE_RULES = {
-  research: [
-    'WORK MODE: RESEARCH.',
-    '',
-    'This session is in RESEARCH mode. Its output is understanding, not a change to the',
-    'system.',
-    '',
-    'REQUIRED BEFORE WORK (all four, stated and confirmed with the user):',
-    '  1. the objective, in one sentence, with no vague verb;',
-    '  2. the scope: the paths or the subsystem the work may look at;',
-    '  3. the proof: how the answer will be shown, or an explicit statement that no',
-    '     measurement exists yet;',
-    '  4. the constraints: what must not change, and whose authority the work needs.',
-    '',
-    'NOT REQUIRED: a decision record and a specification. Research produces no law and',
-    'no work order, and nothing refuses it for that. Write a decision record only if the',
-    'user asks for one in the conversation.',
-    '',
-    'What still binds: every general rule, including the read-only rule for remote',
-    'systems and the evidence rule for anything you report as found.',
-  ].join('\n'),
-  implementation: [
-    'WORK MODE: IMPLEMENTATION.',
-    '',
-    'This session is in IMPLEMENTATION mode. Its output is a change to the system, and',
-    'three things must exist BEFORE the first write.',
-    '',
-    'REQUIRED BEFORE THE FIRST WRITE (all three, stated and confirmed with the user):',
-    '  1. an underlying decision record — `status: proposed` is enough, because a',
-    '     proposal licenses the work it describes; if none exists, propose one first',
-    '     (`ratchet_ingest_source`, or an ADR written by hand).',
-    '  2. a defined task: what is being changed, by name, with the paths it may write.',
-    '  3. a defined measure of the result AND the procedure that measures it: the exact',
-    '     command, run now, whose output shows the work done.',
-    '',
-    'What a command refuses, and what it does NOT — the boundary, stated exactly:',
-    '  - Requirement 1 HAS an enforcement point: a zone whose manifest entry sets',
-    '    `requiresDecisionRecord: true` makes the write guard refuse a write in that zone',
-    '    until a record in force or proposed names it, and a `humanOnly` zone is never',
-    '    licensed by a proposal. It is necessary and NOT sufficient, and the shortfall is',
-    '    measured rather than suspected: the guard is satisfied by ANY record that ever',
-    '    named the zone, so it cannot tell this task\'s decision from one written months',
-    '    earlier, and it governs the harness\'s write tools rather than a shell command, a',
-    '    Node script or a packing script that writes the same file.',
-    '  - Requirements 2 and 3 are PROMPT-LEVEL ONLY. Nothing in this deployment fails when',
-    '    a session in implementation mode declares no task and runs no measure. The nearest',
-    '    command checks are narrower and land only where a measure is ALREADY declared: a',
-    '    law whose check is a command fails until that command passes, and `ratchet verify`',
-    '    reports a check that could not be evaluated rather than passing it; a work order',
-    '    that is in flight with no acceptance criterion bound to a declared verification id',
-    '    is reported by validateSpecs. Nothing requires a work order to exist, and binding',
-    '    a write to one is a human\'s decision — it needs a manifest field and guard',
-    '    semantics of its own, and a work order is keyed by path rather than by task, so it',
-    '    would move the dilution down a level instead of removing it.',
-    '  - The requirement that the change does not contradict the corpus in MEANING is',
-    '    required and recorded, and the boundary is exact: the system can',
-    '    deterministically require that a judgement has been made and recorded —',
-    '    `ratchet compile` and `ratchet verify` print whether a corpus review has read',
-    '    the law set now in force, and a review that is stale means no judgement covers',
-    '    these laws — and it cannot deterministically PRODUCE the judgement. A recorded',
-    '    blocking finding then refuses writes in the zones its law governs until the',
-    '    change is fixed, the judged record is edited, or a human decides.',
-    '  - A meaning check is never a law\'s `checks` entry: a check is a shell command and',
-    '    a shell cannot spawn a judge. Never present it as one.',
-    '  - Residual limits, stated so they are not mistaken for guarantees: a block is only',
-    '    as good as the judge that raised it (a law-bound finding must quote the law it',
-    '    judges, and a quote that does not match the compiled law makes the finding',
-    '    unusable); a false positive refuses writes in the governed zones until it is',
-    '    rebutted, and a false negative lets a contradiction through; and the block binds',
-    '    writes in the governed zones, not every write.',
-    '',
-    'What still binds: every general rule, including the grilling rule. An ambiguous ask',
-    'is itself the trigger: state the objective, the scope, the proof and the constraints,',
-    'propose all four, and get them confirmed before the first write.',
-  ].join('\n'),
-}
-
-/**
- * Decode a JWT-style capability token's signature, exactly as the panel's host half
- * does, so a token minted for this process is recognisable and a token from another
- * process is not trusted.
- *
- * @param token - The capability token from the index-injection row.
- * @returns The signature part, or the token itself when it carries no dot.
- */
-function tokenSignature(token) {
-  const text = String(token ?? '')
-  const dot = text.lastIndexOf('.')
-  return dot === -1 ? text : text.slice(dot + 1)
-}
-
-/**
- * Compare two capability tokens in constant time.
- *
- * A length difference short-circuits, which leaks the length only; every byte
- * comparison then runs over the whole shared prefix regardless of where it differs.
- *
- * @param left - Presented value.
- * @param right - Expected value.
- * @returns Whether the two are equal.
- */
-function sameToken(left, right) {
-  const a = Buffer.from(String(left ?? ''), 'utf8')
-  const b = Buffer.from(String(right ?? ''), 'utf8')
-  if (a.length !== b.length) return false
-  let difference = 0
-  for (let index = 0; index < a.length; index += 1) difference |= a[index] ^ b[index]
-  return difference === 0
-}
 
 /**
  * Read the session id a tool execution belongs to.
@@ -563,32 +397,6 @@ export function refusalFor(ledger, exec, toolName = DEFAULT_TOOL_NAME) {
 }
 
 /**
- * The mode one session is in.
- *
- * @param modes - The session -> mode map.
- * @param session - The session id, or null for an unattributed assembly.
- * @param fallback - The mode to use when nothing has set one.
- * @returns One of {@link MODES}.
- */
-export function resolveMode(modes, session, fallback = DEFAULT_MODE) {
-  if (typeof session !== 'string' || session.length === 0) return fallback
-  const mode = modes.get(session)
-  return MODES.includes(mode) ? mode : fallback
-}
-
-/**
- * The rule text one session's mode contributes.
- *
- * @param modes - The session -> mode map.
- * @param session - The session id from the assembly's calling agent.
- * @param fallback - The mode to use when nothing has set one.
- * @returns The mode's rule text, never empty.
- */
-export function modePromptText(modes, session, fallback = DEFAULT_MODE) {
-  return MODE_RULES[resolveMode(modes, session, fallback)]
-}
-
-/**
  * The configured limit, floored at one and reported when it was changed.
  *
  * @param config - Resolved plugin configuration.
@@ -664,9 +472,9 @@ export function liveChildProbe(agents) {
 }
 
 /**
- * Install both policies.
+ * Install the delegation cap.
  *
- * @param ctx - Cordis context; `systemPrompt` is present because `inject` names it.
+ * @param ctx - Cordis context; `tools` is present because `inject` names it.
  * @param config - Resolved plugin configuration; see the module header.
  * @returns Nothing; every registration is made through an effect scope owned by the fibre
  *   that supplies the service it uses, so a reload or a replaced service disposes the old
@@ -674,19 +482,15 @@ export function liveChildProbe(agents) {
  */
 export function apply(ctx, config = {}) {
   const toolName = typeof config.toolName === 'string' && config.toolName.length > 0 ? config.toolName : DEFAULT_TOOL_NAME
-  // The liveness probe is bound to the `agents` service LAZILY, for the same reason the
-  // tool registry is requested rather than read: while `apply` runs, the registry may not
-  // exist yet. `ctx.get` is therefore called at sweep time, and a composition with no
-  // agent registry gets `null` — the age bound — rather than an error or a false release.
+  // The liveness probe is bound to the `agents` service LAZILY: this plugin does not
+  // depend on an agent registry, so a composition without one must still load. `ctx.get`
+  // is therefore called at sweep time, and such a composition gets `null` — the age
+  // bound — rather than an error or a false release.
   const liveChild = (childId) => {
     const probe = liveChildProbe(ctx.get('agents'))
     return probe === null ? null : probe(childId)
   }
   const ledger = createLedger({ limit: usableLimit(config), staleAfterMs: config.staleAfterMs, liveChild })
-  const defaultMode = MODES.includes(config.defaultMode) ? config.defaultMode : DEFAULT_MODE
-  const modes = new Map()
-  const route = typeof config.modeRoute === 'string' && config.modeRoute.startsWith('/') ? config.modeRoute : MODE_ROUTE
-
   // ── the concurrency cap ───────────────────────────────────────────────────
   // A monotonic guard, not a pre-execute listener: a guard may only deny, so no
   // listener ordering can turn the refusal back into permission. The tool registry
@@ -747,118 +551,6 @@ export function apply(ctx, config = {}) {
   // registry answered for — by the age bound. A FAILED result is the one exception and
   // is handled at the guard's own scope above, because that call provably has no child.
 
-  // ── the work mode ─────────────────────────────────────────────────────────
-  const order = ctx.systemPrompt.getSectionOrder?.(MODE_SECTION_NAME) ?? MODE_SECTION_ORDER
-  ctx.effect(() => {
-    const dispose = ctx.systemPrompt.section({
-      name: MODE_SECTION_NAME,
-      order,
-      // A provider, not a string: this is what reads the calling session on every
-      // assembly, so a toggle takes effect on the next request.
-      text: (context) => modePromptText(modes, context?.agent?.id ?? null, defaultMode),
-    })
-    return () => dispose()
-  })
-
-  // ── the toggle's route ────────────────────────────────────────────────────
-  // Requested, exactly as the tool registry is. A deployment with no web server still
-  // gets the cap and the prompt section; a deployment whose web server is mounted on a
-  // later turn still gets the route and the capability global, because the registration
-  // happens when the service appears rather than when `apply` happens to run. The path,
-  // the capability header and the browser fence follow the shape the ADR panel already
-  // uses, so one reader learns one pattern: inside this callback `web` is the context
-  // scope, `web.webServer` is the carrier service, and `web.on` is the event bus.
-  ctx.inject(['webServer'], (web) => {
-    const token = Buffer.from(`${Date.now()}.${Math.random().toString(36).slice(2)}`).toString('base64url')
-    web.effect(
-      () => web.on('webserver/index-inject', (table) => {
-        table.push({ kind: 'global', name: MODE_GLOBAL, value: { route, token } })
-      }),
-      'work-modes: publish the mode capability',
-    )
-    web.effect(
-      () => web.webServer.register({
-        kind: 'exact',
-        path: route,
-        handler: (request, response) => handleModeRequest({ request, response, modes, defaultMode, token, ctx }),
-      }),
-      `work-modes: GET/POST ${route}`,
-    )
-    // The log line is best-effort: a logger that is absent or that throws must never be
-    // the reason a route is missing, because the route's absence is silent.
-    try {
-      ctx.logger?.info?.(`work-modes: mode route registered at ${route}`)
-    } catch {
-      // Deliberately swallowed; see above.
-    }
-  })
 }
 
-/**
- * Serve the mode toggle.
- *
- * Four gates before anything is read or written, in this order: the browser trust
- * fence (the connection service rejects an untrusted authority or a missing cookie
- * before this handler runs), this route's capability header, a readable session id,
- * and a mode that is one of the two. A refusal is JSON with a status code and writes
- * nothing.
- *
- * @param options - `{ request, response, modes, defaultMode, token, ctx }`.
- * @returns Nothing; the response is owned by this handler.
- */
-function handleModeRequest({ request, response, modes, defaultMode, token, ctx }) {
-  const send = (status, body) => {
-    const text = JSON.stringify(body)
-    response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
-    response.end(text)
-  }
-  const presented = request.headers?.[MODE_HEADER]
-  // A wrong capability is refused before anything else: a request that was not served
-  // this process's index never holds the token it was injected with.
-  if (!sameToken(tokenSignature(presented), tokenSignature(token))) {
-    ctx.logger?.warn?.('work-modes: refused the mode route: no capability token, or a wrong one')
-    send(403, { error: 'forbidden', message: 'the work-mode route requires this process\'s capability token' })
-    return
-  }
-  const url = new URL(request.url ?? '/', 'http://localhost')
-  if (request.method === 'GET') {
-    const session = url.searchParams.get('session')
-    if (typeof session !== 'string' || session.length === 0) {
-      send(400, { error: 'bad-request', message: 'a session id is required: the mode is session state' })
-      return
-    }
-    send(200, { session, mode: resolveMode(modes, session, defaultMode), modes: [...MODES] })
-    return
-  }
-  if (request.method !== 'POST') {
-    send(405, { error: 'method-not-allowed', message: 'GET reads the mode, POST sets it' })
-    return
-  }
-  let body = ''
-  request.on('data', (chunk) => {
-    body += chunk
-  })
-  request.on('end', () => {
-    let parsed = null
-    try {
-      parsed = JSON.parse(body === '' ? '{}' : body)
-    } catch {
-      send(400, { error: 'bad-request', message: 'the body is not JSON' })
-      return
-    }
-    const session = parsed?.session
-    const mode = parsed?.mode
-    if (typeof session !== 'string' || session.length === 0) {
-      send(400, { error: 'bad-request', message: 'a session id is required: the mode is session state' })
-      return
-    }
-    if (!MODES.includes(mode)) {
-      send(400, { error: 'bad-request', message: `mode must be one of ${MODES.join(', ')}` })
-      return
-    }
-    modes.set(session, mode)
-    send(200, { session, mode, modes: [...MODES] })
-  })
-}
 
-export { MODE_RULES }

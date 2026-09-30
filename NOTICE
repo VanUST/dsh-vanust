@@ -19,7 +19,7 @@ third-party components it contains or depends on:
   declares the MIT License. Original authorship is unknown; this repository
   claims no copyright in it.
 
-- **`@cc/dsh-kit-rules`** and **`@cc/dsh-ratchet`** — this deployment's own
+- **`@cc/dsh-kit-rules`** and **`@cc/dsh-specs`** — this deployment's own
   packages, under this repository's `LICENSE` (MIT).
 
 The harness itself (`@deepseek-ai/dsh`) is installed separately with npm. The

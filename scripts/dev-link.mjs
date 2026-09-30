@@ -3,7 +3,7 @@
  *   Link the harness packages a development checkout resolves against, so the kit's own
  *   tests and probes run from a fresh `git clone`.
  *
- *   `plugins/ratchet/ratchet-tools.mjs` imports `@deepseek-ai/dsh-tools`, and the probe
+ *   `probes/api-probe/index.mjs` imports `@deepseek-ai/dsh-tools`, and the probe
  *   plugin imports it too. Those packages belong to the harness, not to this repository
  *   — a clone has no `node_modules` beside them, and the suite that the kit's gate runs
  *   died with a raw `ERR_MODULE_NOT_FOUND` from a directory git deliberately ignores.
@@ -46,7 +46,7 @@ const CHECK_ONLY = process.argv.includes('--check')
 const QUIET = process.argv.includes('--quiet')
 
 /** Development directories whose modules resolve harness packages by bare name. */
-const LINK_SITES = ['plugins/ratchet', 'probes/api-probe']
+const LINK_SITES = ['probes/api-probe']
 
 /** Packages a link must make resolvable for the site that needs it. */
 const REQUIRED = ['dsh-tools']
@@ -116,7 +116,7 @@ if (source === null) {
   process.stderr.write(
     'dev links FAILED: no installed harness carries @deepseek-ai/dsh-tools.\n' +
       '  Install it first — ./install.sh (or install.ps1), or the pinned global install:\n' +
-      '    npm i -g @deepseek-ai/dsh@0.1.5-rc.1\n',
+      '    npm i -g @deepseek-ai/dsh@0.2.0-rc.2\n',
   )
   process.exit(1)
 }

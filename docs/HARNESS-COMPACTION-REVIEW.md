@@ -113,9 +113,9 @@ Three conclusions follow directly:
    compaction under-triggers.
 2. **The conversation sat 1,199–8,801 tokens below the 800,000 trigger** at each last
    successful request. The trigger was not skipped; it was unreachable.
-3. **6/6 were overflow recoveries.** No `/compact` was ever run (only `ratify` and
-   `permission` commands), and all six brackets carry a numeric `turn`, which is the
-   automatic path — manual compaction stamps `turn: null` (`basic:944`).
+3. **6/6 were overflow recoveries.** No `/compact` was ever run, and all six brackets
+   carry a numeric `turn`, which is the automatic path — manual compaction stamps
+   `turn: null` (`basic:944`).
 
 Cost in tokens rather than currency: the six summarizer calls replayed 756,099–787,633
 tokens each (~4.6M total), of which only 791,168 were cache-read; the other ~3.8M were fresh
@@ -196,17 +196,17 @@ the declared window is corrected, the ratio must come down with it: `0.70 × 1,0
 734,003`, clearing the 792,576 ceiling by 58,573. Correcting the number *without* lowering
 the ratio makes the defect worse (`0.8 × 1,048,576 = 838,861`).
 
-### M4 — enforce the invariant with a command (fits this kit's own rules)
+### M4 — measure the invariant with a command
 
-It is a one-line inequality, so it can be a law rather than a paragraph:
+It is a one-line inequality, so a small script can state it:
 
 ```
 floor(contextWindow × thresholdRatio) + maxTokens  <  providerMaxContext
 ```
 
 A check reading the profile's `llm-deepseek` model config and the compaction policy would
-have caught this before a session ran. This kit already enforces rules this way, which is
-where the mitigation belongs.
+have caught this before a session ran. The kit already states its rules as commands that
+fail when broken, so that is where the mitigation belongs.
 
 ### M5 — upstream asks
 

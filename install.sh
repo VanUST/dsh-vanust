@@ -6,7 +6,7 @@
 #   2. installs the pinned harness version globally (`npm i -g`),
 #   3. creates $DSH_HOME/profiles/web from the kit's canonical profile files,
 #   4. installs every plugin tarball in plugins/ into the profile (five plugins:
-#      model-gate, dsh-context, kit-rules, ratchet, adr-panel — see plugins/inventory.json),
+#      model-gate, dsh-context, kit-rules, specs, adr-panel — see plugins/inventory.json),
 #   5. installs the user-global core operating rules ($DSH_HOME/AGENTS.md) and the
 #      DEPLOYMENT.md procedure they point at,
 #   6. links the harness packages so the kit's own tests and gate run from this
@@ -22,7 +22,7 @@
 set -euo pipefail
 
 KIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DSH_VERSION="0.1.5-rc.1"        # pinned harness version (see COMPAT.md)
+DSH_VERSION="0.2.0-rc.2"        # pinned harness version
 PNPM_VERSION="11.7.0"           # matches the harness workspace toolchain
 DSH_HOME="${DSH_HOME:-$HOME/.npm/dsh}"
 
@@ -74,7 +74,7 @@ cp "${KIT_DIR}/profile/pnpm-workspace.yaml" "${DSH_HOME}/profiles/web/pnpm-works
 
 # 4. Plugin tarballs (pnpm writes machine-local absolute paths into the
 #    profile's package.json — the kit file stays canonical with no deps).
-echo "   installing the kit plugins (model-gate, dsh-context, kit-rules, ratchet)..."
+echo "   installing the kit plugins (model-gate, dsh-context, kit-rules, specs)..."
 (
   cd "${DSH_HOME}/profiles/web"
   corepack pnpm@${PNPM_VERSION} add "${KIT_DIR}"/plugins/*.tgz
@@ -88,7 +88,7 @@ cp "${KIT_DIR}/rules/AGENTS.md" "${DSH_HOME}/AGENTS.md"
 cp "${KIT_DIR}/rules/DEPLOYMENT.md" "${DSH_HOME}/DEPLOYMENT.md"
 
 # 6. Development links, so the kit's OWN gate runs from this checkout.
-#    The ratchet's tool adapter imports `@deepseek-ai/dsh-tools`, which lives in the
+#    The API probe imports `@deepseek-ai/dsh-tools`, which lives in the
 #    harness install and not in this repository; the tests and probes resolve it through
 #    a link beside them. Not fatal if it fails — the DEPLOYMENT does not need the link,
 #    only the kit's self-check does — so a failure is reported with the command to fix it.

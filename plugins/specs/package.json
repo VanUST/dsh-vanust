@@ -1,0 +1,20 @@
+{
+  "name": "@cc/dsh-specs",
+  "version": "0.1.1",
+  "description": "Injects a project's human-authored spec documents into the system prompt as a binding section, re-read on every prompt assembly, so a root session and every subagent it starts read the same requirements without any enforcement machinery.",
+  "type": "module",
+  "main": "plugin-specs.mjs",
+  "exports": {
+    ".": "./plugin-specs.mjs",
+    "./core": "./specs-core.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "plugin-specs.mjs",
+    "specs-core.mjs"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
+  }
+}

@@ -72,25 +72,25 @@ const CHECKS = [
     id: 'no-absolute-windows-paths',
     pattern: /["'`][A-Za-z]:[\\/]/,
     why: 'an absolute Windows path in shipped source cannot resolve on Linux',
-    // Every plugin that ships a hardcoded path is scanned, not only the ratchet: the
+    // Every plugin that ships a hardcoded path is scanned: the
     // godot-mcp plugin's whole purpose is resolving a launcher and a project on the
     // machine that runs it, so a `C:\…` literal there is the exact defect this check
     // exists to catch.
-    paths: ['plugins/ratchet', 'plugins/dsh-context', 'plugins/godot-mcp', 'scripts/probe-dsh-api.mjs', 'probes'],
+    paths: ['plugins/dsh-context', 'plugins/godot-mcp', 'plugins/specs', 'plugins/dsh-adr-panel', 'scripts/probe-dsh-api.mjs', 'probes'],
     allow: [],
   },
   {
     id: 'no-backslash-path-splitting',
     pattern: /\.replace\(\/\\\\\/g,\s*['"]\/['"]\)/,
     why: 'splitting on a backslash is a no-op on Linux and hides a real separator assumption',
-    paths: ['plugins/ratchet', 'scripts/probe-dsh-api.mjs', 'probes'],
+    paths: ['scripts/probe-dsh-api.mjs', 'probes'],
     allow: [],
   },
   {
     id: 'no-windows-only-env-vars',
     pattern: /process\.env\.(APPDATA|USERPROFILE|LOCALAPPDATA|ProgramFiles)/,
     why: 'these are unset on Linux, so any use must be one candidate among several',
-    paths: ['plugins/ratchet'],
+    paths: ['plugins'],
     allow: [],
   },
   {
@@ -115,9 +115,7 @@ const CHECKS = [
     paths: ['plugins', 'scripts', 'probes'],
     // The one legitimate use: this value is the `url` of a synthetic HTTP request, never a
     // filesystem path. Anything else that property is used for reaches `fileURLToPath`.
-    allow: ['probes/api-probe/panel-consent-probe.mjs'],
-    allowReason:
-      'the pathname property here builds the url of a fake Node HTTP request (an HTTP path, not a filesystem path), which is the only thing that value is ever used for',
+    allow: [],
   },
   {
     id: 'no-hand-built-file-url',
@@ -143,12 +141,12 @@ const CHECKS = [
     // call to start at a statement and the string to be the first argument.
     pattern: /^\s*(?:const|let|var|[A-Za-z_$][\w$]*\s*=)?\s*[^/*]*execFileSync\(\s*['"](npm|pnpm|bash|sh|git)['"]/,
     why: 'a bare binary name is not resolvable by execFileSync; resolve the CLI entry instead',
-    paths: ['plugins/ratchet', 'scripts'],
+    paths: ['scripts'],
     // Exempt because these two spawns are deliberate: git is a prerequisite for having a checkout
     // at all, so it cannot be "unavailable on Linux" the way npm is unresolvable on Windows.
-    allow: ['scripts/check-portability.mjs', 'scripts/check-zone-coverage.mjs'],
+    allow: ['scripts/check-portability.mjs'],
     allowReason:
-      'git is required to have a checkout, and check-zone-coverage.mjs reads the tracked set from it; unlike npm it is on PATH everywhere the kit runs, and without it that command exits UNUSABLE rather than reporting a pass',
+      'git is required to have a checkout at all, so it cannot be "unavailable on Linux" the way npm is unresolvable on Windows; unlike npm it is on PATH everywhere the kit runs',
   },
   {
     id: 'no-crlf-in-sources',
@@ -179,7 +177,7 @@ const CHECKS = [
  * that state is a shebang that fails on Linux — so the check asks git rather than
  * guessing from the bytes.
  */
-const SHELL_SCRIPTS = ['scripts/verify-upgrade.sh', 'scripts/rebuild-plugins.sh', 'install.sh', 'start.sh']
+const SHELL_SCRIPTS = ['scripts/rebuild-plugins.sh', 'install.sh', 'start.sh']
 
 /** Every file under a kit-relative path, recursively, excluding node_modules. */
 function filesUnder(target) {
@@ -418,7 +416,7 @@ for (const spec of CHECKS) {
 }
 
 // ── packaging: every module a plugin ships must be in its files list ───────
-for (const dir of ['plugins/ratchet', 'plugins/dsh-context']) {
+for (const dir of ['plugins/specs', 'plugins/dsh-context']) {
   const manifestPath = join(KIT, dir, 'package.json')
   if (!existsSync(manifestPath)) {
     check(`files-list:${dir}`, false, `${manifestPath} does not exist`)
@@ -453,7 +451,7 @@ for (const dir of ['plugins/ratchet', 'plugins/dsh-context']) {
 }
 
 // ── every .mjs a plugin contains must be listed in its files array ────────
-for (const dir of ['plugins/ratchet', 'plugins/dsh-context', 'plugins/kit-rules', 'plugins/godot-mcp']) {
+for (const dir of ['plugins/specs', 'plugins/dsh-context', 'plugins/kit-rules', 'plugins/godot-mcp']) {
   const manifestPath = join(KIT, dir, 'package.json')
   if (!existsSync(manifestPath)) continue
   let listed
@@ -476,8 +474,8 @@ for (const dir of ['plugins/ratchet', 'plugins/dsh-context', 'plugins/kit-rules'
 
 // ── every shipped tool must be built with defineTool, across ALL plugins ───
 // The rule is a property of the shipped SUITE, not of one file. The earlier form read
-// `plugins/ratchet/ratchet-tools.mjs` alone, so a raw registration added to any OTHER
-// shipped plugin still printed `[PASS] tools:use-defineTool`. The check now discovers
+// a single plugin file alone, so a raw registration added to any OTHER shipped plugin
+// still printed `[PASS] tools:use-defineTool`. The check now discovers
 // every plugin source under `plugins/*/` (excluding `node_modules` and build/packed
 // output) and reports the offending file and line.
 {
@@ -518,20 +516,7 @@ for (const dir of ['plugins/ratchet', 'plugins/dsh-context', 'plugins/kit-rules'
   }
 }
 
-// ── the CLI must be runnable as a file on both platforms ──────────────────
-{
-  const cli = join(KIT, 'plugins/ratchet/ratchet-cli.mjs')
-  const source = readFileSync(cli, 'utf8')
-  const usesFileUrl = source.includes('fileURLToPath(import.meta.url)')
-  const suffixMatch = /endsWith\(\s*['"]\/[a-z-]+\.mjs['"]\s*\)/.test(source)
-  check(
-    'cli:platform-independent-entry-detection',
-    usesFileUrl && !suffixMatch,
-    usesFileUrl && !suffixMatch
-      ? 'entry detection compares resolved paths, so it behaves the same on either separator'
-      : 'entry detection relies on a string suffix; use fileURLToPath(import.meta.url) instead',
-  )
-}
+// ── shipped plugins must declare their entry the same way on both platforms ─
 
 // ── the Windows installer's prefix decision must be case- and boundary-aware ──
 {
@@ -631,8 +616,8 @@ for (const dir of ['plugins/ratchet', 'plugins/dsh-context', 'plugins/kit-rules'
   // the path's own leading separator), which Linux tolerates rather than intends; the check
   // fails if the API form ever stops round-tripping exactly.
   const samples = [
-    { label: 'posix', path: '/home/kit/plugins/ratchet/x.mjs', windows: false },
-    { label: 'windows', path: 'C:\\dsh-kit\\plugins\\ratchet\\x.mjs', windows: true },
+    { label: 'posix', path: '/home/kit/plugins/specs/x.mjs', windows: false },
+    { label: 'windows', path: 'C:\\dsh-kit\\plugins\\specs\\x.mjs', windows: true },
   ]
   const offenders = []
   for (const sample of samples) {
@@ -760,7 +745,7 @@ for (const dir of ['plugins/ratchet', 'plugins/dsh-context', 'plugins/kit-rules'
 // loader-id namespace, so the harness refused the whole tree with `duplicate loader entry id:
 // godot-mcp` and `dsh web` would not start at all. Neither file was wrong on its own — a server
 // id is deployment DATA and a plugin's entry id is AUTHORSHIP — and nothing compared them.
-// `verify-upgrade.sh` could not catch it either: the composition it boots is a THROWAWAY home
+// A throwaway composition could not catch it either: the home it boots is a THROWAWAY one
 // that never receives the generated layer. This compares the ids the sync would mint for the
 // SHIPPED spec with the ids authored in the SHIPPED patch, hermetically, on every machine.
 {

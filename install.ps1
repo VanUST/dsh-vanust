@@ -4,7 +4,7 @@
 #   2. installs the pinned harness version globally (npm i -g),
 #   3. creates $env:DSH_HOME\profiles\web from the kit's canonical profile files,
 #   4. installs every plugin tarball in plugins\ into the profile (five plugins:
-#      model-gate, dsh-context, kit-rules, ratchet, adr-panel -- see plugins\inventory.json),
+#      model-gate, dsh-context, kit-rules, specs, adr-panel -- see plugins\inventory.json),
 #   5. installs the user-global core operating rules ($env:DSH_HOME\AGENTS.md) and the
 #      DEPLOYMENT.md procedure they point at,
 #   6. links the harness packages so the kit's own tests and gate run from this checkout.
@@ -19,7 +19,7 @@
 $ErrorActionPreference = 'Stop'
 
 $KIT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
-$DSH_VERSION = '0.1.5-rc.1'
+$DSH_VERSION = '0.2.0-rc.2'
 $PNPM_VERSION = '11.7.0'
 $DSH_HOME = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $env:USERPROFILE '.npm\dsh' }
 
@@ -84,7 +84,7 @@ Copy-Item (Join-Path $KIT_DIR 'profile\package.json') (Join-Path $profileDir 'pa
 Copy-Item (Join-Path $KIT_DIR 'profile\pnpm-workspace.yaml') (Join-Path $profileDir 'pnpm-workspace.yaml') -Force
 
 # 4. Plugin tarballs.
-Write-Host '   installing the kit plugins (model-gate, dsh-context, kit-rules, ratchet)...'
+Write-Host '   installing the kit plugins (model-gate, dsh-context, kit-rules, specs)...'
 Push-Location $profileDir
 try {
   corepack pnpm@$PNPM_VERSION add (Get-ChildItem (Join-Path $KIT_DIR 'plugins\*.tgz') | ForEach-Object { $_.FullName })
@@ -99,7 +99,7 @@ try {
 Copy-Item (Join-Path $KIT_DIR 'rules\AGENTS.md') (Join-Path $DSH_HOME 'AGENTS.md') -Force
 Copy-Item (Join-Path $KIT_DIR 'rules\DEPLOYMENT.md') (Join-Path $DSH_HOME 'DEPLOYMENT.md') -Force
 
-# 6. Development links, so the kit's OWN gate runs from this checkout. The ratchet's tool
+# 6. Development links, so the kit's OWN gate runs from this checkout. The API probe
 #    adapter imports `@deepseek-ai/dsh-tools`, which lives in the harness install and not
 #    in this repository; the tests and probes resolve it through a link beside them. Not
 #    fatal if it fails -- the DEPLOYMENT does not need the link, only the self-check does.

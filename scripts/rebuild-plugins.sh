@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 # dsh-kit model-gate rebuild — rebuild the model-gate plugin from the harness source
 # checkout and pack a fresh tarball into kit/plugins/. This script covers model-gate
-# only: the in-repo plugins (`dsh-context`, `kit-rules`, `ratchet`) are packed by
+# only: the in-repo plugins (`dsh-context`, `kit-rules`, `specs`) are packed by
 # `scripts/pack-plugin.mjs` instead, and `plugins/inventory.json` names every
 # plugin's packing entry point.
 #
-# Prereqs (see COMPAT.md): the checkout must sit on the branch/tag matching the
+# Prereqs: the checkout must sit on the branch/tag matching the
 # installed harness version (the plugin builds against that generation's
 # packages), and the workspace must be installed (corepack pnpm install) at
 # least once.
 #
 # Usage:
 #   HARNESS_DIR=~/deepseek-harness ./scripts/rebuild-plugins.sh
-#   ./scripts/verify-upgrade.sh
+#   node scripts/check-portability.mjs
 set -euo pipefail
 
 KIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -33,4 +33,4 @@ echo "   packing into ${KIT_DIR}/plugins..."
 
 echo "== done — now reinstall on this machine and run the gate: =="
 echo "   cd \$DSH_HOME/profiles/web && corepack pnpm add ${KIT_DIR}/plugins/*.tgz"
-echo "   ${KIT_DIR}/scripts/verify-upgrade.sh"
+echo "   node ${KIT_DIR}/scripts/check-portability.mjs"

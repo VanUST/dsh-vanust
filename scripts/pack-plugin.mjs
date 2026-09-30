@@ -12,7 +12,7 @@
  *
  * INPUTS
  *   --dir <path>     plugin directory relative to the kit root (required), e.g.
- *                    `plugins/ratchet`. Must contain a `package.json`.
+ *                    `plugins/specs`. Must contain a `package.json`.
  *   --dry-run        report what would happen and write nothing (default: pack)
  *   --version <v>    set an exact version instead of bumping the patch
  *   --no-bump        pack at the current version (only for a first pack; prints a
@@ -86,7 +86,7 @@ function parseArgs(argv) {
   }
   if (options.dir === null) {
     process.stderr.write(
-      'pack-plugin: --dir is required, e.g. `node scripts/pack-plugin.mjs --dir plugins/ratchet`\n',
+      'pack-plugin: --dir is required, e.g. `node scripts/pack-plugin.mjs --dir plugins/specs`\n',
     )
     process.exit(2)
   }
@@ -121,7 +121,7 @@ function sha256(path) {
  * The tarball filename prefix npm would give a package.
  *
  * npm names a packed scoped package by dropping the `@` and joining the scope and the
- * name with `-`: `@cc/dsh-ratchet` becomes `cc-dsh-ratchet`, which is why the prefix
+ * name with `-`: `@cc/dsh-specs` becomes `cc-dsh-specs`, which is why the prefix
  * cannot be read from the package name by a naive split on the last path segment.
  *
  * @param packageName - The manifest's `name` field.
@@ -213,7 +213,7 @@ if (target !== current) {
   writeFileSync(manifestPath, `${JSON.stringify({ ...manifest, version: target }, null, 2)}\n`, 'utf8')
   // A hand-written browser bundle cannot read its own package.json, so it declares its
   // version in a constant. That is a second copy of the version and it drifts the moment
-  // the packer bumps one and not the other — `test-adr-panel.mjs` exists because it did.
+  // the packer bumps one and not the other.
   // Rewriting the constant here keeps the copy equal to the manifest.
   if (existsSync(clientBundlePath)) {
     bundleBackup = readFileSync(clientBundlePath, 'utf8')

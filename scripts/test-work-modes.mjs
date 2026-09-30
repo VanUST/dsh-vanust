@@ -1,16 +1,18 @@
 /**
  * PURPOSE
- *   Verify the two work policies the deployment states: the per-session concurrency
- *   cap on the `subagent` tool, and the research/implementation mode injected into
- *   the prompt. Each test names the production change that would make it fail, and
- *   asserts on an observable result — a refusal string, a count, a prompt body, an
- *   HTTP status, a recorded mode — never on the shape of a module.
+ *   Verify the one work policy the deployment states: the per-session concurrency cap
+ *   on the `subagent` tool. Each test names the production change that would make it
+ *   fail, and asserts on an observable result — a refusal string, a count, an error
+ *   result — never on the shape of a module.
+ *
+ *   There are NO work modes. The research/implementation mode was removed, so nothing
+ *   here asserts on a prompt section, a mode route or per-session mode state; the tests
+ *   for those were deleted with the mechanism.
  *
  *   The harness classes are resolved through the installed packages (the same
  *   resolution `scripts/probe-work-modes.mjs` uses) so the tests drive the REAL
- *   `SystemPrompt`, the real `ToolRuntime` guard path and the real cordis event
- *   dispatch. Without a linked harness the suite says so rather than passing
- *   vacuously.
+ *   `ToolRuntime` guard path and the real cordis event dispatch. Without a linked
+ *   harness the suite says so rather than passing vacuously.
  *
  * INPUTS
  *   None. Every fixture is built here; nothing is written outside a temp directory.
@@ -19,14 +21,13 @@
  *   `node --test` results. The suite is hermetic: no model call, no port, no network.
  *
  * KEYWORDS
- *   work modes, subagent cap, monotonic guard, delegation ledger, prompt section,
- *   session state, mode route, capability, tests
+ *   subagent cap, monotonic guard, delegation ledger, tests
  *
  * BEHAVIOUR ON EDGE CASES
  *   - No installed harness: the tests that need it are skipped with the reason naming
  *     `node scripts/dev-link.mjs`; the pure-ledger tests still run.
- *   - A web-server stand-in that never receives the registration: the route tests fail
- *     loudly with `registeredRoute` null rather than reporting a pass.
+ *   - A guard that never refuses: the cap tests fail loudly rather than passing
+ *     vacuously.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -224,52 +225,6 @@ async function activate(config = {}) {
   workModes.apply(ctx, config)
   for (let turn = 0; turn < 8; turn += 1) await Promise.resolve()
   return { ctx, tools }
-}
-
-/**
- * Drive the registered route with a synthetic request.
- *
- * @param route - `{ path, handler, token }`.
- * @param options - `{ method, session, mode, capability }`; `capability` defaults to
- *   the token the plugin injected, so a hardcoded token would not satisfy the check.
- * @returns `{ status, body }`.
- */
-async function routeRequest(route, { method, session, mode, capability = 'route-token' }) {
-  const headers = {}
-  if (capability !== null) headers[workModes.MODE_HEADER] = capability === 'route-token' ? route.token : capability
-  const listeners = {}
-  const request = {
-    method,
-    url: `${route.path}?session=${encodeURIComponent(session ?? '')}`,
-    headers,
-    on(event, callback) {
-      listeners[event] = callback
-      return this
-    },
-  }
-  let status = 0
-  let body = null
-  let settle = null
-  const done = new Promise((resolveDone) => {
-    settle = resolveDone
-  })
-  const response = {
-    writeHead(code) {
-      status = code
-    },
-    end(text) {
-      status = status || 200
-      body = text === undefined || text === '' ? null : JSON.parse(text)
-      settle()
-    },
-  }
-  route.handler(request, response)
-  if (method === 'POST') {
-    listeners.data?.(Buffer.from(JSON.stringify({ session, mode })))
-    listeners.end?.()
-  }
-  await done
-  return { status, body }
 }
 
 // ---------------------------------------------------------------------------
@@ -667,263 +622,4 @@ test('guard: the delegation tool is capped at the configured toolName, not at th
   const second = await call('call-2')
   assert.equal(second.isError, true)
   assert.equal(runs, 1)
-})
-
-// ---------------------------------------------------------------------------
-// The mode: prompt injection
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Activation: both services arriving AFTER apply is the real composition's order
-// ---------------------------------------------------------------------------
-
-test('activation: the guard and the route both appear when the services are mounted after apply', { skip: HARNESS_SKIP }, async () => {
-  // THE REGRESSION THIS FILE EXISTED WITHOUT. Measured on this deployment's own web
-  // composition: while `apply` runs, `ctx.get('tools')` and `ctx.get('webServer')` are
-  // both undefined, because the loader activates the tool registry and the web server on
-  // later turns. The plugin used to read both with `ctx.get` at apply time, so the cap and
-  // the route were silently never registered, its fibre still reported ACTIVE, and nothing
-  // in the kit's checks could see it: the web window showed "the work-modes route is
-  // unreachable" with no control drawn.
-  //
-  // This test fails if either service goes back to being read opportunistically at apply
-  // time, because both are provided only after `apply` has returned.
-  let bodyRuns = 0
-  const { ctx, tools, absentAtApply } = await applyWithLateServices({ limit: 2 })
-  assert.equal(absentAtApply, true, 'the fixture must reproduce the real order: neither service exists while apply runs')
-
-  // The route and its capability global, registered by the injected web-server scope.
-  const route = ctx.__workModesRoute
-  assert.ok(route !== null && route !== undefined, 'the mode route registered even though the web server appeared after apply')
-  assert.equal(route.path, workModes.MODE_ROUTE)
-  assert.ok(typeof route.token === 'string' && route.token.length > 0, 'and the index global published a non-empty token')
-  assert.equal(ctx.__workModesInjected?.[workModes.MODE_GLOBAL]?.route, workModes.MODE_ROUTE, 'the global names the route the panel must call')
-  // End to end through the route: the capability the page would hold reads the mode.
-  const read = await routeRequest(route, { method: 'GET', session: 'session-root' })
-  assert.equal(read.status, 200, 'the route answers the capability this page was served')
-  assert.equal(read.body.mode, workModes.DEFAULT_MODE)
-
-  // The cap, installed on the registry that arrived after apply.
-  tools.register(
-    harness.tools.defineTool({
-      name: 'subagent',
-      description: 'stand-in for the delegation tool',
-      parameters: { description: { type: 'string', required: true } },
-      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
-      execute() {
-        bodyRuns += 1
-        ctx.emit('subagent/start', { runId: `run-${bodyRuns}`, provider: 'spawn', id: `child-${bodyRuns}`, local: true })
-        return Promise.resolve({ ok: true })
-      },
-    }),
-  )
-  const agent = { id: 'session-root', ctx: harness.createScope(ctx, 'session-root').ctx }
-  const call = (callId) => tools.execute({ name: 'subagent', callId, arguments: { description: callId }, agent, signal: new AbortController().signal })
-  await call('call-1')
-  await call('call-2')
-  const third = await call('call-3')
-  assert.equal(third.isError, true, 'the cap arrived with the registry that was mounted after apply')
-  assert.equal(bodyRuns, 2)
-})
-
-// ---------------------------------------------------------------------------
-// The ledger's attribution: the delegating session, not the oldest admission
-// ---------------------------------------------------------------------------
-
-test('ledger: a start edge consumes an admission of ITS OWN session, not the oldest in the ledger', () => {
-  // Fails if `start` goes back to matching the oldest unmatched admission regardless of
-  // session. Measured before the fix: with two sessions delegating, B's child was rooted at
-  // A, so after B's child settled B stayed blocked for the whole stale window by a phantom
-  // admission while A — which delegated nothing — was released.
-  const ledger = workModes.createLedger({ limit: 1 })
-  ledger.admit('call-a', 'session-A', 'A task')
-  ledger.admit('call-b', 'session-B', 'B task')
-  const entry = ledger.start('run-b', 'child-B', 'session-B')
-  assert.equal(entry.root, 'session-B', 'the running child is charged to the session that delegated it')
-  assert.equal(ledger.rootFor('child-B'), 'session-B')
-  ledger.end('run-b')
-  assert.equal(ledger.countFor('session-B'), 0, 'B is released when its own child settles')
-  assert.equal(ledger.countFor('session-A'), 1, 'and A still holds the delegation it placed')
-  assert.equal(
-    workModes.refusalFor(ledger, exec({ callId: 'call-b2', agent: { id: 'session-B' }, arguments: { description: 'B again' } })),
-    undefined,
-    'B may delegate again',
-  )
-  assert.equal(
-    typeof workModes.refusalFor(ledger, exec({ callId: 'call-a2', agent: { id: 'session-A' }, arguments: { description: 'A again' } })),
-    'string',
-    'and A is at its cap',
-  )
-})
-
-test('ledger: an unresolved delegating session still falls back to the oldest admission', () => {
-  // The out-of-process-provider case: `agents` cannot resolve the child, so the caller
-  // passes no session and the time-ordered correlation is all that is left. Fails if the
-  // fallback is dropped along with the exact path, which would make an unresolvable child
-  // consume nothing.
-  const ledger = workModes.createLedger({ limit: 1 })
-  ledger.admit('call-a', 'session-A', 'A task')
-  const entry = ledger.start('run-x', 'child-X', null)
-  assert.equal(entry.root, 'session-A')
-  assert.equal(ledger.countFor('session-A'), 1)
-})
-
-test('attribution: the delegating session is read from the child session the agents service resolves', { skip: HARNESS_SKIP }, async () => {
-  // The production path for the fix above: the start listener asks the `agents` service for
-  // the child and reads the durable `parentSession` its header carries. Fails if the
-  // listener stops passing that session, or if `headerParentOf` reads the wrong field.
-  //
-  // The two sessions both delegate, and B's child starts, so the two rules disagree about
-  // which admission it consumes: the session-keyed rule charges B and releases B when the
-  // child settles, the oldest-admission rule charges A instead. The assertions below are
-  // the two counts that differ, not the total.
-  const ctx = new harness.Context()
-  new harness.SystemPrompt(ctx, {})
-  const tools = new harness.ToolRuntime(ctx, {})
-  ctx.provide('agents', {
-    get(id) {
-      return { id, session: { header: { parentSession: id === 'child-B' ? 'session-B' : 'session-A' } } }
-    },
-  })
-  workModes.apply(ctx, { limit: 1 })
-  for (let turn = 0; turn < 8; turn += 1) await Promise.resolve()
-  tools.register(
-    harness.tools.defineTool({
-      name: 'subagent',
-      description: 'stand-in for the delegation tool',
-      parameters: { description: { type: 'string', required: true } },
-      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
-      execute() {
-        return Promise.resolve({ ok: true })
-      },
-    }),
-  )
-  const callAs = (session, callId) =>
-    tools.execute({
-      name: 'subagent',
-      callId,
-      arguments: { description: callId },
-      agent: { id: session, ctx: harness.createScope(ctx, session).ctx },
-      signal: new AbortController().signal,
-    })
-  assert.equal((await callAs('session-A', 'call-a')).isError, false, 'A places its delegation')
-  assert.equal((await callAs('session-B', 'call-b')).isError, false, 'B places its delegation')
-  ctx.emit('subagent/start', { runId: 'run-b', provider: 'spawn', id: 'child-B', local: true })
-  ctx.emit('subagent/end', { runId: 'run-b', provider: 'spawn', id: 'child-B', stopReason: 'completed' })
-  assert.equal(
-    (await callAs('session-B', 'call-b2')).isError,
-    false,
-    'B is released when the child it delegated settles: the start consumed B\'s admission',
-  )
-  assert.equal(
-    (await callAs('session-A', 'call-a2')).isError,
-    true,
-    'and A is still at its cap from the delegation it placed',
-  )
-})
-
-test('mode: the prompt carries the mode of the session being assembled, and an unknown session gets the default', { skip: HARNESS_SKIP }, async () => {
-  // Fails if the section's text stops being a provider (a frozen string would report
-  // one session's mode to every session) or if the default changes silently.
-  const ctx = await applyWithWebServer({ defaultMode: 'research' })
-  const route = ctx.__workModesRoute
-  assert.ok(route !== null && route !== undefined, 'the plugin registered its mode route when a web server was mounted')
-
-  const research = await routeRequest(route, { method: 'GET', session: 'session-a' })
-  assert.equal(research.status, 200)
-  assert.equal(research.body.mode, 'research')
-  const toggled = await routeRequest(route, { method: 'POST', session: 'session-a', mode: 'implementation' })
-  assert.equal(toggled.status, 200)
-  assert.equal(toggled.body.mode, 'implementation')
-
-  const forA = harness.renderPrompt(await ctx.systemPrompt.assemble({ agent: { id: 'session-a' }, scope: { id: 'session-a' } }))
-  const forB = harness.renderPrompt(await ctx.systemPrompt.assemble({ agent: { id: 'session-b' }, scope: { id: 'session-b' } }))
-  assert.match(forA, /WORK MODE: IMPLEMENTATION/)
-  assert.match(forB, /WORK MODE: RESEARCH/)
-  assert.doesNotMatch(forB, /WORK MODE: IMPLEMENTATION/)
-})
-
-test('mode: the toggle changes what the NEXT assembly renders, so the mode is not frozen at registration', { skip: HARNESS_SKIP }, async () => {
-  // The difference the "injected, not remembered" decision buys. Fails if the
-  // provider is replaced by a string computed once.
-  const ctx = await applyWithWebServer({})
-  const before = harness.renderPrompt(await ctx.systemPrompt.assemble({ agent: { id: 'session-a' }, scope: { id: 'session-a' } }))
-  assert.match(before, /WORK MODE: RESEARCH/)
-  await routeRequest(ctx.__workModesRoute, { method: 'POST', session: 'session-a', mode: 'implementation' })
-  const after = harness.renderPrompt(await ctx.systemPrompt.assemble({ agent: { id: 'session-a' }, scope: { id: 'session-a' } }))
-  assert.match(after, /WORK MODE: IMPLEMENTATION/)
-  // And the other session is untouched, which is what makes it session state.
-  const other = harness.renderPrompt(await ctx.systemPrompt.assemble({ agent: { id: 'session-z' }, scope: { id: 'session-z' } }))
-  assert.match(other, /WORK MODE: RESEARCH/)
-})
-
-test('mode: the implementation rule states the deterministic boundary rather than claiming a guarantee', () => {
-  // The honesty of the rule is itself testable. Fails if the text is softened back
-  // into "advisory only" or upgraded into a claim it cannot support.
-  const text = workModes.MODE_RULES.implementation
-  assert.match(text, /requiresDecisionRecord/)
-  assert.match(text, /ratchet verify/)
-  assert.match(text, /require that a judgement has been made and recorded/)
-  assert.match(text, /cannot deterministically PRODUCE the judgement/)
-  assert.doesNotMatch(text, /advisory only/)
-})
-
-test('mode: the research rule requires the four fields and refuses no record', () => {
-  // Research is less strict but not aimless. Fails if the four fields are dropped, or
-  // if research starts demanding a decision record.
-  const text = workModes.MODE_RULES.research
-  assert.match(text, /objective/)
-  assert.match(text, /scope/)
-  assert.match(text, /proof/)
-  assert.match(text, /constraints/)
-  assert.match(text, /NOT REQUIRED/)
-})
-
-// ---------------------------------------------------------------------------
-// The mode route's fences
-// ---------------------------------------------------------------------------
-
-test('mode route: a missing or wrong capability is refused and nothing is recorded', { skip: HARNESS_SKIP }, async () => {
-  // Fails if the capability check is dropped. Driven against the real handler with the
-  // token the plugin injected, so a hardcoded token would not pass.
-  const ctx = await applyWithWebServer({})
-  const route = ctx.__workModesRoute
-  const bogus = await routeRequest(route, { method: 'POST', session: 'session-a', mode: 'implementation', capability: 'not-the-token' })
-  assert.equal(bogus.status, 403)
-  const absent = await routeRequest(route, { method: 'POST', session: 'session-a', mode: 'implementation', capability: null })
-  assert.equal(absent.status, 403)
-  const read = await routeRequest(route, { method: 'GET', session: 'session-a' })
-  assert.equal(read.body.mode, 'research', 'the refused writes recorded nothing')
-})
-
-test('mode route: an unknown mode is refused and a known one is stored', { skip: HARNESS_SKIP }, async () => {
-  const ctx = await applyWithWebServer({})
-  const route = ctx.__workModesRoute
-  const bad = await routeRequest(route, { method: 'POST', session: 'session-a', mode: 'hyperdrive' })
-  assert.equal(bad.status, 400)
-  assert.equal((await routeRequest(route, { method: 'GET', session: 'session-a' })).body.mode, 'research')
-  const good = await routeRequest(route, { method: 'POST', session: 'session-a', mode: 'implementation' })
-  assert.equal(good.status, 200)
-  assert.equal((await routeRequest(route, { method: 'GET', session: 'session-a' })).body.mode, 'implementation')
-})
-
-test('mode route: a request with no session id is refused', { skip: HARNESS_SKIP }, async () => {
-  // The mode is session state, so an unattributed write must not land anywhere.
-  const ctx = await applyWithWebServer({})
-  const route = ctx.__workModesRoute
-  const read = await routeRequest(route, { method: 'GET', session: '' })
-  assert.equal(read.status, 400)
-})
-
-test('mode: the plugin declares the prompt service it cannot work without and reaches the tool registry optionally', () => {
-  // Fails if `inject` loses `systemPrompt` (the mode would vanish silently) or gains
-  // `tools` (a deployment without the tool registry would fail its boot instead of
-  // losing only the cap).
-  assert.deepEqual(workModes.inject, ['systemPrompt'])
-  assert.equal(workModes.name, 'work-modes')
-  // And the exports the panel's half and the checks share are the literal values both
-  // sides must agree on.
-  assert.equal(workModes.MODE_ROUTE, '/work-modes/mode')
-  assert.equal(workModes.MODE_GLOBAL, '__DSH_WORK_MODES_MODE__')
-  assert.deepEqual([...workModes.MODES], ['research', 'implementation'])
 })

@@ -445,7 +445,7 @@ export function noManifest(root) {
       '"id", "roots" and "extensions", so source files can be found), "verification" (each with ' +
       '"id", "command", "purpose" and "path"), "rules" (each with "id", "statement", "statedIn" ' +
       'and "enforcedBy"), and "scopes" (each with "resolver" and "root"). Architecture ' +
-      'decisions are a separate section of the same file, read by the ratchet plugin.',
+      'decision records, where a project keeps them, are plain documents nothing reads.',
   };
 }
 

@@ -1,30 +1,30 @@
 # USERGUIDE.md — setting up and starting the harness on a new machine
 
 This kit installs **DeepSeek Harness (dsh)** on any of your machines (2× Linux,
-1× Windows) plus the **seven** plugins this deployment adds beyond upstream:
+1× Windows) plus the **eight** plugins this deployment adds beyond upstream:
 **`@deepseek-ai/dsh-model-gate`** (the class-based flash-only cost policy),
 **`@cc/dsh-kit-rules`** (delivers `$DSH_HOME/AGENTS.md` to the model as its
 binding rule section), **`@cc/dsh-context`** (a project's modules, rules and work
-orders as tools), **`@cc/dsh-ratchet`** (architecture decisions compiled into
-checks a command can fail — §3.2), **`@cc/dsh-adr-panel`** (a Session-header
-window on those decisions, their consents and the generated specs — §3.3),
+orders as tools), **`@cc/dsh-specs`** (injects a project's human-authored
+`docs/specs/*.md` into every agent's prompt, re-read each assembly),
+**`@cc/dsh-adr-panel`** (the Session-header **Specs** button: a frame-wide window
+that lists, creates, edits and deletes `docs/specs/*.md` — §3.2),
 **`@cc/dsh-work-modes`** (the deployment's concurrency cap — at most two
 `subagent` children per session, with a `workflow` fan-out deliberately outside
-it — and the per-session research/implementation mode injected into every
-prompt),
+it; it injects no prompt section),
 **`@cc/dsh-presentation`** (one tool that renders a JSON deck spec into a
 standalone HTML presentation in the workspace, shown by the Sidebar document
 preview) and
-**`@cc/dsh-godot-mcp`** (a declarative, transferable MCP server list — §3.4).
+**`@cc/dsh-godot-mcp`** (a declarative, transferable MCP server list — §3.3).
 `plugins/inventory.json` is the single source of truth for that set and for each
 plugin's provenance; `scripts/check-portability.mjs` fails when a tarball, a
 mounted profile row, a source directory or a packing entry point disagrees with
 it. The harness version is pinned; sessions and workspaces stay machine-local by
-design (see COMPAT.md §3).
+design.
 
 The user interface is upstream's own web app: conversations, the right sidebar
 with Files and document preview, open-in-app, and the agent's terminal tools all
-come from the harness itself, plus the ADR panel above.
+come from the harness itself, plus the Specs window above.
 
 ---
 
@@ -50,16 +50,16 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 
 The installer does five things (idempotent; re-running upgrades to the pin):
 1. checks Node ≥ 24,
-2. `npm i -g @deepseek-ai/dsh@0.1.5-rc.1` (exact pin),
+2. `npm i -g @deepseek-ai/dsh@0.2.0-rc.2` (exact pin),
 3. writes `$DSH_HOME/profiles/web/{package.json,cordis.patch.yml,pnpm-workspace.yaml}`
    from the kit's canonical copies and installs every `plugins/*.tgz` into the
    profile,
 4. installs the user-global core operating rules to `$DSH_HOME/AGENTS.md`,
-5. links the harness packages (`@deepseek-ai/dsh-tools`) beside the plugin and the
-   probes, which is what lets the kit's own tests and ratchet gate run from this
-   checkout. Step 5 is not needed by the deployment — an installed plugin resolves
-   its peers through the profile — so if it warns, `dsh web` still works; run
-   `node scripts/dev-link.mjs` before using the gate yourself.
+5. links the harness packages (`@deepseek-ai/dsh-tools`) beside the plugins and the
+   probes, which is what lets the kit's own tests run from this checkout. Step 5
+   is not needed by the deployment — an installed plugin resolves its peers through
+   the profile — so if it warns, `dsh web` still works; run
+   `node scripts/dev-link.mjs` before running the kit's tests yourself.
 
 `$DSH_HOME` = `~/.npm/dsh` (Linux) / `%USERPROFILE%\.npm\dsh` (Windows) —
 override with the `DSH_HOME` env var if you prefer another location.
@@ -174,75 +174,28 @@ dsh --profile web --dump-config | grep -A1 'kit-rules'
 
 If that row is missing, the patch layer was overwritten — see §5.
 
-## 3.2 The ratchet: what it asks of you
+## 3.2 The Specs window: where your specs are written
 
-`@cc/dsh-ratchet` turns a project's architecture decisions (`docs/adrs/*.adr.md`)
-into checks a command can fail. For a project that declares a `ratchet` section in
-`.dsh/project.json`, three things involve you rather than the agent:
+A **button in the Session header** opens a frame-wide overlay on the project's
+specs. It lists `docs/specs/*.md`, opens one in a text editor, and saves, creates
+or deletes it through one capability-fenced host route.
 
-**1. A decision an agent wrote waits for your yes.** See what is waiting:
+`@cc/dsh-specs` is the other half: it reads the active specs and contributes them
+to the system prompt of every root session and every subagent, re-read on each
+prompt assembly, so an edit takes effect on the next request with no restart. A
+spec whose frontmatter `status` is absent or exactly `active` is injected;
+`draft`, `done` and `inactive` are not.
 
-```bash
-node /path/to/dsh-kit/plugins/ratchet/ratchet-cli.mjs pending --root /path/to/project
-```
+**Specs are advisory text a human owns.** Nothing compiles them, nothing verifies
+code against them, and nothing fails when one is ignored — there is no gate, no
+consent step and no verdict anywhere in this deployment. Architecture decision
+records under `docs/adrs/` are plain documents a human keeps; nothing reads them
+either.
 
-Each entry prints the record's id, the zones it governs, its **content hash** —
-that hash is the exact text a "yes" would cover — and, for a record that cannot be
-ratified at all, a `BLOCKED` line with the reason (an agent may not activate a
-decision in a zone the project reserves to humans).
+The window **renders no decisions and mints no consent**: it is a file editor over
+`docs/specs/`, and the only thing a save produces is the spec file itself.
 
-**2. The yes itself happens in a session, not in a shell.** Ask the agent to ratify
-the pending record; `ratchet_ratify` puts a question to you showing the record's own
-text, with an approve answer and a decline answer. Your answer writes an approval
-ADR plus a transcript of the exchange. There is deliberately no CLI verb, no tool
-argument and no file you can hand the ratchet that would let an agent answer for
-you — `pending` prints, and only your answer mints.
-
-**3. Then commit the pair.** The consent binds the text you were shown: editing an
-approved record afterwards voids it (`RATIFICATION_STALE`), so the record and its
-approval are only meaningful together. Do not accept a hand-written approval file —
-one that repeats the channel, time and hash correctly is indistinguishable from a
-generated one, and asking an agent to write it is asking it to forge your consent.
-
-Day to day the agent works the other way round: `ratchet_status` reports whether the
-code has been checked against the laws currently in force, `ratchet_verify` runs the
-deterministic checks (the gate), `ratchet_compile` compiles the records into laws,
-`ratchet_review` asks an independent judge the questions no static check can decide,
-`ratchet_ingest_source` turns a grilling transcript or a brief into a *proposed*
-record, and `ratchet_bootstrap` writes the manifest skeleton. The same operations are
-available from the shell — after the one setup step a fresh clone needs, because the
-gate runs the kit's tests from the checkout:
-
-```bash
-node /path/to/dsh-kit/scripts/dev-link.mjs          # once per clone; install.sh does it
-node /path/to/dsh-kit/plugins/ratchet/ratchet-cli.mjs verify --root /path/to/project
-# exit 0 every law held, 1 a check failed, 2 the project or its decisions are
-# unusable so nothing was checked, 3 a usage error
-```
-
-Two limits worth knowing, because both are by design. The shell cannot spawn a
-review judge (a shell has no agent to parent one with) — `ratchet review` prints the
-prompt it would have sent and says `NOT RUN`, and you can paste it into a session.
-And a dynamic review is **advisory**: it never changes the exit code, so an opinion
-is never mistaken for the gate.
-
-## 3.3 The ADR panel: where your decisions are shown
-
-A **button in the Session header** opens the decision window: the project's ADR
-records, each with its state, its provenance and the spec documents the ratchet
-generated from it. It is a window, not a control surface with a mind of its own.
-
-Two things are deliberately true of it. It **writes no file and composes no
-answer**: the only ratification affordance on a row asks the agent to run
-`ratchet_ratify`, so the question still reaches you through the question channel
-and the ratchet's own hash-bound approval remains the single path into force. And
-it **cannot mint a consent by construction** — a button that could approve a
-decision without you reading it would defeat the whole mechanism. Approve and
-Decline in that window send one of the labels the ratchet itself put on its own
-question; the approval is then written by the ratchet, bound to the exact text you
-were shown.
-
-## 3.4 Connecting Godot (the MCP server list)
+## 3.3 Connecting Godot (the MCP server list)
 
 `@cc/dsh-godot-mcp` gives the deployment a Godot editor the agent can drive:
 scenes, nodes, scripts, signals and UI, through 47 tools published as
@@ -326,18 +279,17 @@ Then restart `dsh web` and open the token URL it prints.
 | Agent fails `MODEL_NOT_ALLOWED` | A non-Flash model is configured; set `agent-default-model.model: deepseek-flash` (or widen `allowedModelPatterns` in the profile patch) |
 | Agent fails `MISSING_CREDENTIAL` | Credentials not stored — finish onboarding / the Models page |
 | `dsh web` won't start | port 3080 busy (`PORT=3081 ./start.sh`) or Node < 24 |
-| Gate not active after a config edit | The row registers at boot — restart `dsh web` |
-| Sessions from the old harness missing/odd after an upgrade | Session formats are not guaranteed across versions; restore the backup taken before the upgrade (COMPAT.md §2) |
+| A plugin row not active after a config edit | The row registers at boot — restart `dsh web` |
+| Sessions from the old harness missing/odd after an upgrade | Session formats are not guaranteed across versions; restore the backup taken before the upgrade |
 
 ## 7. Upgrades (short version)
 
-See **COMPAT.md** for the full gate. One-liner habit:
+One-liner habit:
 
 ```bash
 npm i -g "@deepseek-ai/dsh@<candidate>"        # 1. install candidate
 ./scripts/rebuild-plugins.sh                   # 2. rebuild the plugin (matching checkout)
-./scripts/verify-upgrade.sh                    # 3. gate on a throwaway instance
-# 4. only on PASS: repoint the live profile + restart the GUI (token URL)
+# 3. repoint the live profile + restart the GUI (token URL) only once it composes
 ```
 
 ## Activating a newly added plugin on an already-installed machine
@@ -383,13 +335,13 @@ dsh --profile web --dump-config | grep -A1 'dsh-context'
 
 A missing entry there means the plugin is installed but not wired.
 
-`@cc/dsh-context` registers four tools: `context_module`, `context_rules`, `context_specs` and
-`ratchet_reconcile`. A project without `.dsh/project.json` gets an actionable message naming that file
+`@cc/dsh-context` registers three tools: `context_module`, `context_rules` and
+`context_specs`. A project without `.dsh/project.json` gets an actionable message naming that file
 rather than an empty result — that is the plugin working, not a wiring fault.
 
-`@cc/dsh-ratchet` registers seven: `ratchet_status`, `ratchet_compile`, `ratchet_verify`, `ratchet_ratify`,
-`ratchet_review`, `ratchet_ingest_source` and `ratchet_bootstrap` (§3.2). Check both rows are mounted with:
+`@cc/dsh-specs` injects the project's active `docs/specs/*.md` into every agent's prompt and
+registers no tools of its own. Check both rows are mounted with:
 
 ```bash
-dsh --profile web --dump-config | grep -E 'dsh-context|dsh-ratchet'
+dsh --profile web --dump-config | grep -E 'dsh-context|dsh-specs'
 ```

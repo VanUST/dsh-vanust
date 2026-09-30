@@ -17,62 +17,37 @@ file IS the procedure for this work, and it is installed on every machine this d
 touches. `USERGUIDE.md` in the kit repository is a human's copy of the same material and
 is not required reading.
 
-## 0a. Using this kit, and how a project is organised against the ratchet
+## 0a. Using this kit, and how a project's specs work
 
 The kit repository is the source of truth for this deployment; `$DSH_HOME` is the live
-profile projected from it. Before changing the kit, read its state from the ARTIFACTS
-rather than from prose about them: `node <kit>/plugins/ratchet/ratchet-cli.mjs status
---root <kit>` says whether the kit's own laws and code still agree, `verify` prints what is
-red, and `.dsh/project.json` declares the kit's languages, rules, verification commands and
-zones. `context_rules` answers which rules a project claims and the command that fails when
-each is broken; `context_specs` lists the work orders in flight.
+profile projected from it. Convergence is decided by CONTENT HASH, never by version or git
+state: `node <kit>/scripts/kit-update.mjs --check --fetch --json` reports the drift and
+`--apply` converges the machine. A profile is composed once, at boot, so a change to a
+plugin, a profile file or these rules needs `dsh web` restarted before it is visible.
 
-The release gate is `bash <kit>/scripts/verify-upgrade.sh`: never touch a live profile
-without a PASS, and never upgrade the harness outside it.
+**There is no enforcement machinery in this deployment.** There are no laws, no compiled
+checks, no verification, no consent, no ratification, no verdict and no judge. An
+architecture decision record under `docs/adrs/` is a plain document a human keeps: nothing
+reads it, nothing compiles it, and nothing fails when it is ignored. Do not look for a gate,
+a law compiler or a `verify` command — they do not exist here.
 
-A project is organised against the ratchet like this:
+**Specs are the one mechanism, and they are advisory text a human owns.**
 
-- `.dsh/project.json` — the project's self-declaration: `languages`; `verification` (each
-  command with an `id`, the `path` it covers and its purpose); `rules` (each naming an
-  `enforcedBy.command` that is one of those ids); `scopes` (the resolvers a work order may
-  cite); and `ratchet`: `enabled`, `decisionsDir`, `sourcesDir`, `specsDir`, the `zones`
-  table, `defaultAgentAuthority`, `mainPaths`, `specsRequired`. The state and report
-  directories are fixed, not configurable.
-- `docs/adrs/NNNN-slug.adr.md` — one decision. Frontmatter: `id`, `title`, `type` (`adr`
-  or `approval`), `status`, `author` (`authority: human` or `agent`), `zones`,
-  `supersedes`/`approves`/`resolves`, `source` (a path plus the sha256 of the reasoning),
-  and `laws` — each an `op: upsert` or `op: remove`, a `statement`, and either `checks`
-  (command, required_text, forbidden_text, required_file, forbidden_file, required_glob,
-  forbidden_glob, dependency, path_boundary) or an `unenforced` note saying why nothing can
-  check it. A law may be bound to several zones.
-- `docs/ratchet/sources/` — the reasoning a record cites, content-hashed. A source a
-  RATIFIED record cites is append-only: new reasoning needs its own source and an
-  amendment, never an edit.
-- `docs/specs/` — the generated law cards. Never hand-edit one; regenerate with
-  `ratchet compile --write`.
-- `.dsh/ratchet/` — machine-written state (`specs.json`, `state.json`, `ledger.jsonl`,
-  `contradiction.json`); `reports/ratchet/` — the compile, verify and review reports. The
-  ledger is append-only and is where a verdict and a judge's block are read from.
+- `docs/specs/*.md` — one spec per file, with optional frontmatter carrying `title` and
+  `status`. A spec whose `status` is absent or exactly `active` is injected into the system
+  prompt of EVERY agent working in that project — root sessions and subagents alike — under
+  a "follow these specs" framing. `draft`, `done` and `inactive` are not injected.
+- The project is found by walking upward from the Session's workspace to the nearest
+  directory carrying `.dsh/project.json` or `.git`. A subagent therefore reads the same
+  project's specs as the Session that started it, with no coordination between them.
+- Injection is READ-ONLY and re-evaluated on every prompt assembly, so editing a spec file
+  takes effect on the next request with no restart.
+- A human writes specs in the **Specs** window: the Session-header button served by
+  `@cc/dsh-adr-panel`. An agent does NOT author specs and does not edit or delete them.
+  If a project has no specs, or none is active, nothing is injected.
 
-Zones carry the authority: `humanOnly` (only a human-authored record puts law in force
-there), `proposeOnly` (a human must ratify), `activeIfNoConflict` (an agent record may
-self-activate). `requiresDecisionRecord: true` makes the write guard refuse a write in that
-zone until a record — in force or proposed — names it. A zone id is a filename
-(`[A-Za-z0-9_-]`), and one shared matcher decides membership.
-
-The lifecycle: an agent writes a `status: proposed` record, runs `ratchet compile` and
-`ratchet verify`, and a human puts it in force by answering the ratchet's own question
-(`ratchet_ratify`, or Approve/Decline in the ADR window). A ratified record and the source
-it cites are frozen — editing either voids the consent (`RATIFICATION_STALE`) and the law
-leaves force; a change ships as an amendment that removes the old law id and restates it
-under a new one. `op: remove` retires a law, `supersedes` retires a record, and `resolves`
-names the records a resolution settles. Only a human may set `authority: human` or answer
-a ratification question: never write either yourself, and never hand-write an approval.
-
-The commands are `ratchet compile [--write]`, `verify`, `status`, `pending`, `falsify` and
-`bootstrap`, plus the `ratchet_*` tools. A rule is real only where a command fails: every
-law's check must be hermetic (no live webserver, port or nested process — those belong in
-`verify-upgrade.sh`), and `ratchet falsify` proves a check can fail.
+Follow the specs you are given. Where one conflicts with the task you were asked to do, say
+so rather than silently choosing between them.
 
 ## 1. Log-Driven Development (LDD)
 Logs are the absolute source of truth for the system's state. You must rely exclusively on log outputs to determine task completion, identify bugs, and validate optimizations.
@@ -209,18 +184,14 @@ Run a grilling session before any work when the user asks to be grilled or uses 
 * **No action until confirmed:** Do not act on the plan until the user confirms shared understanding has been reached. This holds for implementation and for research: research is less strict about the record, never about the four fields.
 
 **What enforces this, and what does not — the deterministic half only.** The rule is
-behavioural, so its evidence is a differential drill: `rules/drills/grill-ambiguous-asks.json`
-runs a pressure scenario twice — once with this section stripped and once with it present —
-and requires the unruled run to act on the ambiguous ask while the ruled run states the four
-fields first. What a command in the gate actually refuses is narrower: `node
-scripts/drill-kit-rules.mjs --root .` (`--plan` is the default) proves every scenario names a
-section this file really carries, so RED strips the rule under test instead of running the
-same prompt twice over an unchanged file. It prints a PLAN, not a verdict, and it touches no
-model. The drill's own judgement needs a live run
-(`--scenario grill-ambiguous-asks --live`, through `scripts/probe-dsh-api.mjs`), which needs
-credentials and the pinned harness and is therefore release-gate evidence rather than a law
-check. So: **nothing in the deterministic gate fails when an agent skips the four fields.**
-What fails is a drill that names no real section, and that is all the rule may claim.
+behavioural, and NOTHING in this deployment fails when a session skips the four fields: there
+is no gate, no law and no check behind this section. The scenarios under `rules/drills/` are
+pressure prompts kept to be run by hand — for example `rules/drills/grill-ambiguous-asks.json`
+describes one run with this section stripped and one with it present, and the unruled run
+should act on the ambiguous ask while the ruled run states the four fields first. Running
+either needs credentials, a live model turn and the pinned harness, so no command here can do
+it for you. State the four fields because the rule says so, not because a command will catch
+you.
 
 ## 8. Model & Cost Policy — Flash-Only Agents
 
@@ -282,8 +253,8 @@ run earlier, or on no command at all, is provisional and must be labelled as suc
   proves nothing when its covering check was emptied, and a test *name* is not an assertion.
   Prefer, or require, the output that would change if the behaviour were wrong.
 * **Falsify before trusting.** For a guarantee you are about to rely on, name the mutation that
-  would make its check fail and confirm the check fails. `ratchet falsify` and the breaker role
-  (§10) are how this deployment does that.
+  would make its check fail and confirm the check fails. The breaker role (§10) is how this
+  deployment does that.
 * **State the limit when you cannot run the command.** Say which command was not run, why, and
   what remains unverified, rather than letting silence imply a pass.
 
@@ -371,66 +342,12 @@ Four limits keep this from becoming the over-delegation §13 forbids:
 * **Its output is evidence, not authority.** A claim it makes is verified like any other (§11), and
   a claim about code is quoted as `path:line` so the parent can check it rather than inherit it.
 
-## 14. Work Modes and the Delegation Cap
+## 14. The Delegation Cap
 
-**Two work modes, per session, injected rather than remembered.** Every session is in
-RESEARCH or IMPLEMENTATION mode, and the mode is stated in the system prompt on every
-assembly, by the `@cc/dsh-work-modes` plugin, so an agent reads which mode it is in
-instead of being trusted to recall it. The mode is session state toggled from the ADR
-panel, which calls the plugin's own capability-fenced host route.
-
-* **Research mode** requires neither a decision record nor a specification. Its output is
-  understanding, and nothing refuses it for producing no law. It is not aimless: the
-  grilling rule (§7) still requires the objective, the scope, the proof and the
-  constraints, stated and confirmed. Write a decision record in research mode only when
-  the user asks for one in the conversation.
-* **Implementation mode** requires three things BEFORE the first write: (1) an underlying
-  decision record — `status: proposed` is enough, because a proposal licenses the work it
-  describes; if none exists, propose one first; (2) a defined task, by name, with the paths
-  it may write; (3) a defined measure of the result AND the procedure that measures it —
-  the exact command, run now, whose output shows the work done.
-
-  **Which of the three a command refuses — stated exactly, because two of them are
-  prompt-level.** Only (1) has an enforcement point. A zone whose manifest entry declares
-  `requiresDecisionRecord: true` makes the write guard refuse a write there until a record
-  in force or proposed names that zone, and the refusal names the zone, the path and the
-  smallest thing that satisfies it. That point is **necessary and not sufficient**, and the
-  shortfall is measured rather than suspected: the guard is satisfied by ANY record that
-  ever named the zone, so it cannot tell *this task's* decision from one written months
-  earlier, and it governs the harness's write tools — not a shell command, a Node script or
-  a packing script that writes the same file. Requirements **(2) and (3) are prompt-level
-  only**: nothing in this repository fails when a session in implementation mode declares no
-  task and runs no measure. The nearest command checks are narrower and land only where a
-  measure is already declared — a law whose `checks` entry is a `command` fails until that
-  command passes, and a work order that is `in-flight` with no acceptance criterion bound to
-  a declared verification id is reported by `validateSpecs`/`context_specs` — and nothing
-  requires a work order to exist. A mechanism that would bind a write to a live work order's
-  scope and acceptance command is a **human's decision, not an agent's**: it needs a
-  manifest field, schema and guard semantics of its own, and a work order is keyed by path
-  rather than by task, so it would move this dilution down one level instead of removing it.
-
-**What is deterministic about the meaning requirement, and what is not — state this
-boundary, never paper over it.** The system can deterministically require that a judgement
-has been MADE and RECORDED; it cannot deterministically PRODUCE the judgement.
-
-* **Deterministic, about whether a judgement was made:** `ratchet compile` and
-  `ratchet verify` print whether a corpus review has read the law set now in force. A
-  review recorded against a different law set is `stale`, and no judgement covers these
-  laws until a review reads them. That fact is a hash comparison, not an opinion.
-* **Enforced, about what the judgement concluded:** a recorded blocking finding makes the
-  write guard refuse writes in the zones the contradicted law governs, until the change is
-  fixed, the judged record is edited, or a human decides. The judgement is a model's; the
-  block is the system's, and the block is deterministic once recorded.
-* **Never a shell check.** A meaning check must never be a law's `checks` entry: a check
-  is a shell command, a shell cannot spawn a judge, and a model verdict that fails a build
-  sends people to re-run the gate until it passes.
-* **Residual limits, named so they are not mistaken for guarantees:** a block is only as
-  good as the judge that raised it — which is why a law-bound finding must quote the law
-  it judges, and a quote that does not match the compiled law makes the finding unusable
-  rather than blocking; a false positive refuses writes in the governed zones until it is
-  rebutted, and a false negative lets a contradiction through; and the block binds writes
-  in the governed zones, not every write. When a review cannot run because no live root
-  agent is available, that is a refusal with a reason — never a silent pass.
+**There are no work modes.** No session is in a RESEARCH or IMPLEMENTATION mode, no mode is
+injected into any prompt, and there is no toggle - that mechanism was removed. What a session
+does is governed by the specs injected by `@cc/dsh-specs` (see section 0a) and by the general
+rules in this file.
 
 **At most two concurrent `subagent` children per session.** A third call is refused
 immediately, with the two running agents named, and the calling agent decides: batch the
@@ -484,16 +401,16 @@ Name the capability when you use it, so the mapping is visible in your answer.
 |---|---|---|
 | "make a deck", "slides", "presentation", "a talk / briefing from this material", "a one-pager to show someone" | the `presentation` tool: one call turns a JSON deck spec into a standalone, script-enabled HTML file | a self-contained deck in the workspace, previewed in the Sidebar; `present` marks it as the deliverable. It renders; it does not invent content — the deck spec is yours to author |
 | "what does this project claim", "which rule is enforced by what", "what work is in flight", "what does this module export" | `context_rules`, `context_module`, `context_specs` (`@cc/dsh-context`) | the project's declared rules each with the command that fails when it is broken, a module's contract, the work orders in flight |
-| "is this decision in force", "what is red", "what waits for a human", "resolve this contradiction", "merge these duplicates" | the `ratchet_*` tools (`@cc/dsh-ratchet`); the ADR panel window is the human's surface for approving | compiled laws and a verified verdict, the queue with content hashes, drafted resolutions and merges, the corpus review's staleness fact |
+| "what specs does this project have", "write or edit a spec", "make agents follow a spec" | the **Specs** button (`@cc/dsh-adr-panel`) to author them; `@cc/dsh-specs` injects the active ones into every prompt | specs are plain markdown in `docs/specs/`; a human writes them in the panel window and every root session and subagent reads them. ADRs under `docs/adrs/` are plain documents that nothing reads |
 | "which model is this", "why was that refused before it ran", cost questions | `@deepseek-ai/dsh-model-gate`, already active | every non-Flash dispatch is vetoed before it is billed; the veto names the ids it allows |
 | "is there a GPU / CUDA here", "how many cores", "what platform is this" | `$DSH_HOME/MACHINE.md`, generated by `kit-update.mjs --apply` and injected with the rules by `@cc/dsh-kit-rules` | this machine's platform, CPU count, memory, GPU devices, `CUDA_HOME` and `nvcc`, each stated rather than probed. Read it instead of running `nvidia-smi`, `lspci` or `ls /dev/nvidia*`: the answer never changes between sessions, and re-deriving it costs a turn every time. A line that says `none detected` means the tool is absent, not that the hardware is hidden |
-| "why did my rule change not appear", "why did that plugin do nothing" | `@cc/dsh-kit-rules` contributes this file to every prompt; `@cc/dsh-work-modes` owns the mode and the delegation cap | the rules are re-read per assembly, so a change needs no restart — but a plugin change needs the process restarted, because a session runs the plugin code it loaded at boot |
+| "why did my rule change not appear", "why did that plugin do nothing" | `@cc/dsh-kit-rules` contributes this file to every prompt; `@cc/dsh-work-modes` owns the subagent delegation cap | the rules are re-read per assembly, so a change needs no restart — but a plugin change needs the process restarted, because a session runs the plugin code it loaded at boot |
 | "drive the Godot editor", "why are the Godot tools missing", "add an MCP server" | `@cc/dsh-godot-mcp` owns the deployment's MCP server list (`$DSH_HOME/mcp-servers.json`, projected from the kit's `profile/mcp-servers.json`); `scripts/dsh-mcp-sync.mjs` writes the launch row; the connection itself is the harness's shipped `@deepseek-ai/dsh-mcp-client` | the Godot editor's scenes, nodes, scripts, signals and UI as tools named `mcp__godot__*`, on every machine that has converged rather than on the one machine somebody configured. A missing `uvx` launcher costs only those tools — `failOnStartupError` is false — and the deployment's status section says so |
 
 Two habits make these reachable in practice:
 
-* **Ask the deployment before writing your own.** `context_rules` and `ratchet status` answer what a
-  hand-rolled script would otherwise guess at, and they answer from the declarations rather than
-  from prose.
+* **Ask the deployment before writing your own.** `context_module` and `context_rules` answer
+  what a hand-rolled script would otherwise guess at, and they answer from the declarations
+  rather than from prose.
 * **A capability that is installed but not named here is one an agent will not find.** When a plugin
   is added to `plugins/inventory.json`, add its row to this table in the same change.

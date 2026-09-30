@@ -6,7 +6,7 @@
  *   violates its declared output schema, and whether an installed plugin can
  *   reach the subagent runtime and the LLM service from inside a running profile.
  *
- *   Every Ratchet v2 design decision that touches the harness is downstream of
+ *   Every harness fact this probe records is downstream of
  *   these answers. Writing implementation code first and discovering, say, that
  *   `exec.agent` is absent would invalidate the verifier's workspace resolution
  *   and the whole dynamic-review path at once.
@@ -255,7 +255,7 @@ export function apply(ctx) {
             // Deferral and turn-ending are functions on ToolRunContext.
             deferContext: describe('exec.deferContext', exec?.deferContext),
             concludeTurn: describe('exec.concludeTurn', exec?.concludeTurn),
-            // The workspace root path the whole Ratchet design depends on.
+            // The workspace root path the harness exposes to a tool execution.
             workspace: describe('exec.agent.session.header.cwd', header?.cwd),
             sessionId: describe('exec.agent.session.header.id', header?.id),
             sessionVersion: header?.version ?? null,
@@ -362,7 +362,7 @@ export function apply(ctx) {
         name: `${PREFIX}services`,
         description:
           'Probe: report whether the subagent runtime and LLM service are reachable from a tool body, ' +
-          'and what their public surface looks like. This decides the Ratchet dynamic-review path.',
+          'and what their public surface looks like. This decides how a subagent reaches its workspace.',
         parameters: {},
         output: diagnosticOutput(),
         execute(_args, exec) {
