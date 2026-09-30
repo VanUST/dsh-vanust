@@ -1699,6 +1699,55 @@ test('judge: a dead judge is recreated once and the call still answers', async (
   assert.ok(harness.released.includes('judge-1'), 'the dead child is released before the replacement')
 })
 
+/** The durable `subagent/catalog` record the harness appends for one continuable child. */
+const catalogOf = (childId, label = judgeModule.JUDGE_LABEL) => ({
+  type: 'subagent/catalog',
+  data: { version: 0, childId, childCreatedAt: 1, mode: 'continuable', label },
+})
+
+test('judge: a pool built by a new process re-attaches to the judge its session catalogs', async () => {
+  // The restart defect. A process restart builds a new pool and a new Agent for the same
+  // session, and the child it already had is DURABLE: the harness cold-resumes it from the id
+  // in the session's own `subagent/catalog` record. Creating a second judge here is the defect
+  // this test exists to prevent, and it is what the observed session did four times over.
+  const before = stubJudgePool()
+  const warm = await before.pool.judge({ parent: { id: 'parent-restart' }, signal: signalOf(), prompt: judgePrompt('before the restart'), staticPrompt: JUDGE_STATIC })
+  assert.equal(warm.created, true)
+  assert.equal(before.harness.spawned.length, 1)
+
+  // The new process: a new pool, a new Agent for the same session id, and the durable child the
+  // first process established. Only the id crosses over, because the id is all the harness needs
+  // to resume the child.
+  const after = stubJudgePool()
+  after.harness.children.set('judge-1', before.harness.children.get('judge-1'))
+  const parent = { id: 'parent-restart', session: { snapshotEvents: () => [catalogOf('judge-1')] } }
+  const resumed = await after.pool.judge({ parent, signal: signalOf(), prompt: judgePrompt('after the restart'), staticPrompt: JUDGE_STATIC })
+
+  assert.equal(after.harness.spawned.length, 0, 'the catalogued judge is re-attached, never replaced')
+  assert.equal(resumed.created, false)
+  assert.equal(resumed.reused, true)
+  assert.equal(resumed.childId, 'judge-1')
+  assert.equal(after.harness.sent.length, 1)
+  assert.match(after.harness.sent[0].text, /after the restart/)
+  // The adopted child's static prefix is unknown to the new process, so the whole task travels
+  // and is marked as superseding whatever the child was shown before the restart.
+  assert.match(after.harness.sent[0].text, /^The material shown in your earlier turns is OUT OF DATE/)
+})
+
+test('judge: a catalogued judge the runtime refuses is replaced by exactly one new child', async () => {
+  // The other half: the durable record names a child this process cannot reach. The resume is
+  // refused, and the existing replacement path must create exactly one judge — not zero, and not
+  // one per attempt.
+  const { harness, pool } = stubJudgePool()
+  const parent = { id: 'parent-stale-catalog', session: { snapshotEvents: () => [catalogOf('judge-gone')] } }
+  const result = await pool.judge({ parent, signal: signalOf(), prompt: judgePrompt('the catalog is stale'), staticPrompt: JUDGE_STATIC })
+
+  assert.equal(harness.spawned.length, 1, 'a refused resume creates one replacement, not two')
+  assert.equal(result.created, true)
+  assert.equal(result.childId, 'judge-1')
+  assert.ok(harness.released.includes('judge-gone'), 'the unreachable id is released before the replacement')
+})
+
 test('judge: a cancelled call interrupts only its own turn and keeps the shared judge', async () => {
   const { harness, pool } = stubJudgePool()
   const parent = { id: 'parent-cancel' }
@@ -10309,6 +10358,28 @@ test('resolve: a dispatch is due once, then held until the findings, the laws or
     'a changed finding SET arms it again',
   )
   assert.equal(resolveModule.resolveDispatchDue(root, [], { now: base }).due, false, 'nothing to do is never due')
+})
+
+test('resolve: the child a dispatch started is remembered for the next process', () => {
+  // A restarted process has no in-memory resolver registry, so the ledger is the only thing that
+  // lets it CONTINUE the child rather than start a rival for the same manifest. Fails if the
+  // child id is not written to the ledger or not read back.
+  const root = makeProject({ name: 'resolve-child-memory', adrs: {} })
+  const at = '2026-09-30T12:00:00.000Z'
+  const service = resolveModule.createResolveService()
+  assert.equal(service.rememberedChild({ root }), null, 'nothing is remembered before one is started')
+
+  service.rememberChild({ root, childId: 'child-1', sessionId: 'session-a', at })
+  assert.equal(service.rememberedChild({ root }), 'child-1', 'the started child id round-trips')
+
+  // A later start replaces the memory rather than accumulating, and a blank id is never stored.
+  service.rememberChild({ root, childId: 'child-2', sessionId: 'session-a', at })
+  service.rememberChild({ root, childId: '', sessionId: 'session-a', at })
+  assert.equal(service.rememberedChild({ root }), 'child-2', 'the latest usable child id is the remembered one')
+
+  // The memory is the PROJECT's, not the process's: a second project inherits nothing.
+  const other = makeProject({ name: 'resolve-child-memory-other', adrs: {} })
+  assert.equal(service.rememberedChild({ root: other }), null, 'another project remembers no child')
 })
 
 test('ratify: a declined answer records the human comment, and returns it', () => {

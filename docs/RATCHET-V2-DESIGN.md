@@ -740,6 +740,31 @@ the CLI never triggers one.
 
 ---
 
+### 5.14 A restart continues the ratchet's children
+
+Both ratchet agent children had their identity in process memory only: the judge pool keyed
+its entry on the calling Agent object (`WeakMap`), and the panel's resolver registry was a
+`Map` per plugin activation. The children themselves are durable, and the harness
+cold-resumes one on a `sendMessage` to its id, so the missing piece was only the remembered
+id — and a restart paid for a second child of each role. Measured on one project: a
+`dsh web` restart produced a second judge and a second resolver for the same session and
+law set, and the duplicate pair spent about 1.5M prompt tokens re-doing cleared work.
+
+The id now lives where the harness and the ratchet already record facts.
+`establishCatalogChild` writes a `subagent/catalog` record into the PARENT session's durable
+log for every continuable child it creates, and `Session.snapshotEvents()` reads it back; a
+judge pool that holds no child folds those records for its label, adopts the id, and delivers
+to it. The resolver id is appended to the project's `.dsh/ratchet/ledger.jsonl` as
+`ratchet.resolve.child` by every path that establishes a child, and the panel reads it back on
+a registry miss. In both roles a delivery the runtime refuses still marks the child gone and
+creates one, which is the replacement the judge law already allowed — the change is that a
+MISSING ID is no longer treated as a missing child.
+
+The decision and its rejected alternatives are ADR 0090; the statements it proposes become law
+when a human ratifies it.
+
+---
+
 ## 6. Enforcement points
 
 A rule is real only where something fails when it is broken. This section names,

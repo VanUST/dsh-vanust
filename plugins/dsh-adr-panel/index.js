@@ -53,11 +53,11 @@
  *   Each carries its own capability header ({@link CONSENT_HEADER}, {@link STATE_HEADER}).
  *
  * OUTPUTS
- *   Registers exactly two HTTP routes and one index-injection row, all inside
- *   `ctx.effect` scopes so a reload replaces them rather than colliding. It never
- *   throws out of a handler: every failure is a status code and a JSON body naming what
- *   was refused. It writes no artifact of its own. Two durable writes happen under it,
- *   and neither is this file's:
+ *   Registers exactly three HTTP routes — consent, state and resolve — and one
+ *   index-injection row, all inside `ctx.effect` scopes so a reload replaces them rather
+ *   than colliding. It never throws out of a handler: every failure is a status code and a
+ *   JSON body naming what was refused. It writes no artifact of its own. Its durable
+ *   writes all happen through the ratchet beside it:
  *     - a `GET` consent request asks the ratchet for its question, and the ratchet's
  *       `ratify` prepare path appends exactly one audit event to
  *       `.dsh/ratchet/ledger.jsonl`. That is the whole durable effect of a GET: no
@@ -66,6 +66,10 @@
  *       consent artifact", never the older "a GET writes nothing".
  *     - a `POST` that approves writes the approval ADR and its transcript, through the
  *       ratchet inside the `ratchetConsent` call.
+ *     - a dispatch that ESTABLISHES a resolver child records that child's id through the
+ *       ratchet's `rememberChild`, so a restarted process continues the durable child
+ *       instead of starting a second resolver for the same manifest. The panel's own
+ *       registry of resolvers is process memory and is only the fast path.
  *
  *   Responses are `application/json` with `cache-control: no-store`, because every one
  *   of them is a live fact about a project:
@@ -632,6 +636,13 @@ export async function dispatchResolver({ runtime, agents, sessionId, prompt, adr
  * state route (the automatic dispatch): two registries would be two children racing for one
  * manifest, which is the defect this path exists to prevent.
  *
+ * The in-memory map is the FAST PATH, not the memory. A process restart builds a new registry
+ * over children that are durable and cold-resumable, so a miss falls back to the child id the
+ * project's ledger remembers (`ratchetResolve.rememberedChild`) and steers that; a start is then
+ * recorded through `rememberChild`. The observed defect this closes: one `dsh web` restart made
+ * a second resolver for a finding the first child had already cleared, because the id lived only
+ * in the map.
+ *
  * @param ctx - The plugin context.
  * @param log - A `{ info, warn }` sink.
  * @returns `{ dispatch }`.
@@ -640,6 +651,32 @@ function resolverFor(ctx, log) {
   const resolvers = new Map()
   /** Root -> the in-flight start, so a second caller WAITS instead of starting a second child. */
   const inFlight = new Map()
+  /** The resolver child the project's ledger remembers, for a process with no registry entry. */
+  const durableChild = (root) => {
+    const service = ctx.get(RESOLVE_SERVICE)
+    if (service === null || service === undefined || typeof service.rememberedChild !== 'function') return null
+    try {
+      const childId = service.rememberedChild({ root })
+      return typeof childId === 'string' && childId.length > 0 ? childId : null
+    } catch (error) {
+      log.warn(`the remembered resolver could not be read: ${String(error)}`)
+      return null
+    }
+  }
+  /**
+   * Records the child a start established, so a restart continues it instead of starting a
+   * second one. Best-effort: a service that cannot record it (an older ratchet) leaves the
+   * in-memory registry as the only memory, which is the behaviour that predates this.
+   */
+  const rememberChild = (root, childId, sessionId) => {
+    const service = ctx.get(RESOLVE_SERVICE)
+    if (service === null || service === undefined || typeof service.rememberChild !== 'function') return
+    try {
+      service.rememberChild({ root, childId, sessionId })
+    } catch (error) {
+      log.warn(`the resolver child ${String(childId)} could not be remembered: ${String(error)}`)
+    }
+  }
   const dispatch = (sessionId, prompt, adrId, root) => {
     // The reservation is written BEFORE the await. It used to be written only once the start had
     // resolved, so two concurrent callers — two state reads, or a click landing beside an
@@ -649,7 +686,13 @@ function resolverFor(ctx, log) {
     // losing its own prompt.
     const pending = inFlight.get(root)
     if (pending !== undefined) return pending.then(() => dispatch(sessionId, prompt, adrId, root))
-    const remembered = resolvers.get(root) ?? null
+    const live = resolvers.get(root) ?? null
+    // A REGISTRY MISS IS NOT A MISSING CHILD. The registry is process memory; the child is
+    // durable and the project's ledger names it, so a restarted process continues that child
+    // rather than starting a rival for the same manifest. A steer the runtime refuses falls back
+    // to a start, which is the existing replacement path.
+    const childId = live !== null ? live.childId : durableChild(root)
+    const remembered = childId === null ? null : { childId, parentSessionId: live === null ? null : live.parentSessionId }
     const started = dispatchResolver({
       runtime: ctx.get(SUBAGENTS_SERVICE),
       agents: ctx.get(AGENTS_SERVICE),
@@ -663,6 +706,9 @@ function resolverFor(ctx, log) {
       .then((result) => {
         if (result.refusal === undefined && typeof result.childId === 'string' && result.childId.length > 0) {
           resolvers.set(root, { childId: result.childId, parentSessionId: sessionId })
+          // Only a START is a new durable fact. A steer continues the child the ledger already
+          // names, so recording it again would append a line that says nothing new.
+          if (result.spawned === true) rememberChild(root, result.childId, sessionId)
         }
         return result
       })

@@ -1136,6 +1136,132 @@ for (const root of [serviceRoot, declineRoot, staleRoot]) rmSync(root, { recursi
   rmSync(routeRoot, { recursive: true, force: true })
 }
 
+// 5e. A RESTART is not a reason to start a second resolver. The process that started a resolver
+//     recorded its child id in the project's ratchet ledger; the next process has no in-memory
+//     registry, so that id is the only thing that lets it CONTINUE the child. Two activations of
+//     the shipped plugin are driven through the real state route: the first starts a child and
+//     records it, the second must steer the recorded child and start nothing.
+{
+  const root = fixture('resolver-restart', {
+    zones: [{ id: 'api', paths: ['src/api/**'], agentAuthority: 'proposeOnly' }],
+    adrs: { '0001-waiting.adr.md': adr({ id: '0001', status: 'proposed', authority: 'agent', zone: 'api', laws: [{ id: 'api.one', statement: 'One.' }] }) },
+  })
+  // The durable memory the ratchet's own service would keep: one remembered child per root.
+  let remembered = null
+  const rememberedWrites = []
+  const resolveStub = {
+    autoResolve: () => ({ due: true, reason: 'stub', keys: ['red-gate:verify'], prompt: 'Clear the outstanding ratchet findings in this project.\n' }),
+    noteDispatch: () => {},
+    rememberedChild: ({ root: wanted }) => (wanted === root ? remembered : null),
+    rememberChild: ({ root: wanted, childId = null }) => {
+      rememberedWrites.push({ root: wanted, childId })
+      if (wanted === root && typeof childId === 'string' && childId.length > 0) remembered = childId
+    },
+  }
+  const decisionsStub = {
+    rootFor: (cwd) => (cwd === root ? root : null),
+    view: async () => ({
+      records: [],
+      queue: {},
+      specs: [],
+      needsHuman: [{ kind: 'red-gate', id: 'verify', title: 'the gate is red', reason: 'the last recorded verification does not cover the current laws', action: 're-run verify', draft: null, draftReason: null }],
+      specHash: 'sha256:x',
+      truncated: null,
+    }),
+  }
+  const mockStateRes = () => ({
+    statusCode: 0,
+    headersSent: false,
+    body: null,
+    setHeader() {},
+    end(body) {
+      this.body = body
+      this.headersSent = true
+    },
+  })
+  // One ACTIVATION: the shape `apply` builds, with its own captured routes and capability token.
+  // Two of these are two processes, which is the case the durable memory exists for.
+  const activate = (runtime) => {
+    const captured = new Map()
+    let injectCb = null
+    const web = {
+      effect: (fn) => fn(),
+      on: (event, cb) => {
+        if (event === 'webserver/index-inject') injectCb = cb
+        return () => {}
+      },
+      webServer: {
+        register: ({ path, handler }) => {
+          captured.set(path, handler)
+          return () => {}
+        },
+      },
+    }
+    const ctx = {
+      logger: () => ({ info: () => {}, warn: () => {} }),
+      inject: (_deps, cb) => cb(web),
+      get: (serviceName) => {
+        if (serviceName === 'connection') return { requestRejection: () => undefined }
+        if (serviceName === 'sessions') return { get: (id) => (id === 'route-session' ? { header: { cwd: root } } : undefined) }
+        if (serviceName === ratchetDecisions.DECISIONS_SERVICE) return decisionsStub
+        if (serviceName === ratchetResolve.RESOLVE_SERVICE) return resolveStub
+        if (serviceName === 'subagents') return runtime
+        if (serviceName === 'agents') return { get: (id) => (id === 'route-session' ? { id } : undefined) }
+        return undefined
+      },
+    }
+    panelHost.apply(ctx)
+    const table = []
+    injectCb(table)
+    const token = table.find((row) => row.name === panelHost.STATE_GLOBAL)?.value?.token
+    return { handler: captured.get(panelHost.STATE_ROUTE), token }
+  }
+  const driveState = async (activation) => {
+    const res = mockStateRes()
+    await activation.handler(
+      { url: `${panelHost.STATE_ROUTE}?session=route-session`, method: 'GET', headers: { [panelHost.STATE_HEADER]: activation.token } },
+      res,
+    )
+    return res
+  }
+
+  const firstRuntime = { started: 0, startContinuable: async () => { firstRuntime.started += 1; return { childId: 'child-1' } }, sendMessage: async () => 'm', drainContinuableChildren: async () => {} }
+  await driveState(activate(firstRuntime))
+  const secondRuntime = {
+    started: 0,
+    steered: [],
+    startContinuable: async () => { secondRuntime.started += 1; return { childId: 'child-2' } },
+    sendMessage: async (_parent, childId) => { secondRuntime.steered.push(childId); return 'm' },
+    drainContinuableChildren: async () => {},
+  }
+  await driveState(activate(secondRuntime))
+  claim(
+    'a restarted process continues the resolver the ledger remembers instead of starting a second one',
+    firstRuntime.started === 1 &&
+      rememberedWrites[0]?.childId === 'child-1' &&
+      secondRuntime.started === 0 &&
+      secondRuntime.steered.includes('child-1'),
+    `writes=${JSON.stringify(rememberedWrites)} secondStarted=${secondRuntime.started} steered=${JSON.stringify(secondRuntime.steered)}`,
+  )
+  // The refused steer still falls back to one start: a child the runtime cannot reach must not
+  // wedge every later dispatch.
+  remembered = 'child-gone'
+  const thirdRuntime = {
+    started: 0,
+    steered: [],
+    startContinuable: async () => { thirdRuntime.started += 1; return { childId: 'child-3' } },
+    sendMessage: async () => { throw new Error('stub: NOT_RESUMABLE') },
+    drainContinuableChildren: async () => {},
+  }
+  await driveState(activate(thirdRuntime))
+  claim(
+    'a remembered resolver the runtime refuses is replaced by exactly one start',
+    thirdRuntime.started === 1 && remembered === 'child-3',
+    `started=${thirdRuntime.started} remembered=${JSON.stringify(remembered)}`,
+  )
+  rmSync(root, { recursive: true, force: true })
+}
+
 // 6. The authority table is what makes the surface a surface. A zone that reserves a
 //    path to humans is the only reason `proposeOnly` and `humanOnly` mean anything, and
 //    the manifest is itself governed by no zone — so relaxing it is otherwise invisible.

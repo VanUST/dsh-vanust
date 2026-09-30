@@ -17,8 +17,13 @@
  *   `resolveHistory(root, id)` — reads those refusals back, newest first.
  *   `resolverPrompt(plan, declines)` — the ratchet's own task text for a resolver child.
  *   `resolveRootFor(start)` — the Session workspace resolved to the project root.
+ *   `rememberResolveChild(root, { childId, sessionId, at })` — appends the child a start
+ *     established, so a process that restarts continues that child instead of starting a
+ *     second resolver for the same manifest.
+ *   `rememberedResolveChild(root)` — reads the last such child id back, or `null`.
  *   `createResolveService()` — the `ratchetResolve` cordis service the panel host
- *     reaches all of the above through, including `rootFor`.
+ *     reaches all of the above through, including `rootFor`, `rememberChild` and
+ *     `rememberedChild`.
  *
  * OUTPUTS
  *   `{ ok, id, title, path, authority, status, zones, steps, humanRequired, declined,
@@ -49,6 +54,8 @@
  *   - An approval record: no steps; an approval declares no law and governs nothing.
  *   - A record whose only blocker is authorship: one step, `humanRequired: true`, and no
  *     automatable step — the caller must not offer a "resolve" action for it.
+ *   - A resolver child remembered for one root is invisible to another root: the memory is
+ *     the project's, and a blank child id is never written.
  */
 import { checkTargets, compileProject, readAdrCorpus, readManifest, zonesForRecord } from './ratchet-compiler.mjs'
 import { appendLedger, readLedger } from './ratchet-state.mjs'
@@ -232,6 +239,14 @@ export function createResolveService() {
     },
     /** Records that one dispatch happened, so the same findings are not re-sent in a row. */
     noteDispatch: ({ root, keys = [], specHash = null, at = null } = {}) => recordResolveDispatch(root, { keys, specHash, at }),
+    /**
+     * Records the resolver child one start established. The panel calls it after every start,
+     * from the click path and the automatic path alike, so the child can be continued by a
+     * process that has no in-memory registry entry for it.
+     */
+    rememberChild: ({ root, childId = null, sessionId = null, at = null } = {}) => rememberResolveChild(root, { childId, sessionId, at }),
+    /** The child the project last established, or `null`; what a fresh process steers first. */
+    rememberedChild: ({ root } = {}) => rememberedResolveChild(root),
     /**
      * The ratchet's own resolver prompt for one record OR a batch, plus the plans it was
      * built from. `ids` is the batch form the panel dispatches when it closes; `id` stays
@@ -435,6 +450,16 @@ export function resolverPrompt(plans, declines = []) {
 export const RESOLVE_DISPATCH_EVENT = 'ratchet.resolve.dispatched'
 
 /**
+ * The ledger event one STARTED resolver child is recorded as, with the child's id.
+ *
+ * The panel's registry of resolvers is process memory. A restart loses it, and without a
+ * durable record of the id the next dispatch starts a second resolver for the same manifest
+ * instead of continuing the durable child the harness can cold-resume. This event is that
+ * record; it is written by every path that establishes a child.
+ */
+export const RESOLVE_CHILD_EVENT = 'ratchet.resolve.child'
+
+/**
  * How long the same finding set is left alone after a dispatch, in milliseconds.
  *
  * A finding the resolver cannot clear would otherwise be re-dispatched on every state read,
@@ -562,6 +587,68 @@ export function lastResolveDispatch(root) {
     keys: Array.isArray(last.keys) ? last.keys.filter((key) => typeof key === 'string') : [],
     specHash: typeof last.specHash === 'string' ? last.specHash : null,
   }
+}
+
+/**
+ * Records the resolver child one start established, so a later process continues it.
+ *
+ * PURPOSE: Make the resolver's identity durable. The panel's registry is process memory, and a
+ *   restart that loses it would otherwise start a second child for a manifest the first child is
+ *   still the resolver for.
+ * INPUTS: `root` — the project root; `{ childId, sessionId, at }` — the child id the runtime
+ *   returned (required, a non-empty string; anything else writes nothing and reports why), the
+ *   Session that started it, and an optional ISO time for a test.
+ * OUTPUTS: `{ ok, recorded, path, error }`. `recorded` is true exactly when one line was
+ *   appended. Never throws.
+ * KEYWORDS: resolver, durable child, restart, ledger, continuity
+ *
+ * Edge cases:
+ *   - A blank, missing or non-string `childId`: nothing is written and `ok` is false, because a
+ *     ledger line naming no child would be a memory that reads back as one.
+ *   - An unwritable ledger: `error` names the failure and `recorded` is false.
+ *
+ * @param root - Absolute project root.
+ * @param options - `{ childId, sessionId, at }`.
+ * @returns The write result.
+ */
+export function rememberResolveChild(root, { childId = null, sessionId = null, at = null } = {}) {
+  if (typeof childId !== 'string' || childId.length === 0) {
+    return { ok: false, recorded: false, path: null, error: 'no child id was given, so nothing was remembered' }
+  }
+  const fields = { childId }
+  if (typeof sessionId === 'string' && sessionId.length > 0) fields.sessionId = sessionId
+  if (typeof at === 'string' && at.length > 0) fields.at = at
+  const written = appendLedger(root, RESOLVE_CHILD_EVENT, fields)
+  return { ok: written.error === undefined, recorded: written.error === undefined, path: written.path ?? null, error: written.error }
+}
+
+/**
+ * Reads back the resolver child this project last established.
+ *
+ * PURPOSE: Give a process with no registry entry the id it must steer instead of creating a
+ *   second child.
+ * INPUTS: `root` — the project root.
+ * OUTPUTS: The most recently recorded non-empty `childId`, or `null` when none was ever
+ *   recorded or the ledger cannot be read. Never throws.
+ * KEYWORDS: resolver, durable child, recall, ledger, restart
+ *
+ * Edge cases:
+ *   - An unreadable ledger: `null`, so the caller starts a child rather than failing.
+ *   - A recorded line whose id is blank (hand-edited, or from an older writer): skipped in
+ *     favour of the newest usable one.
+ *
+ * @param root - Absolute project root.
+ * @returns The remembered child id, or `null`.
+ */
+export function rememberedResolveChild(root) {
+  const ledger = readLedger(root)
+  if (ledger.error !== undefined) return null
+  const events = (ledger.events ?? []).filter((event) => event?.event === RESOLVE_CHILD_EVENT)
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const childId = events[index]?.childId
+    if (typeof childId === 'string' && childId.length > 0) return childId
+  }
+  return null
 }
 
 /**

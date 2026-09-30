@@ -83,6 +83,19 @@
  *     pool's own registry is a `WeakMap` keyed by the exact parent Agent, so an entry
  *     becomes unreachable with its parent and never keeps it alive.
  *
+ * A RESTART LOSES THE MAP, NOT THE CHILD
+ *   The `WeakMap` is process memory, so a restart (or a resumed Agent) builds a pool that holds
+ *   no child for a session that already has one — and the old pool-created second judge: measured
+ *   on the `Unnamed` project, one session held two judges and two resolvers across a `dsh web`
+ *   restart, the duplicate pair spending about 1.5M prompt tokens on work already done. The id
+ *   is not lost: `establishCatalogChild` writes a `subagent/catalog` record into the PARENT
+ *   session's durable log for every continuable child it creates, and `Session.snapshotEvents()`
+ *   reads it back. {@link cataloguedJudgeChild} folds those records for this pool's label, and a
+ *   fresh entry adopts the id and delivers to it, so a restart continues the child instead of
+ *   paying for another. The adopted child's static prefix is unknown, so the whole task travels
+ *   with {@link SUPERSEDE_NOTE} — the same shape a corpus change already uses. Replacement is
+ *   unchanged: a delivery the runtime refuses still marks the child gone and creates one.
+ *
  * @module @cc/dsh-ratchet/judge
  */
 
@@ -110,6 +123,47 @@ export const RESIDENCY_WAIT_MS = 2000
 
 /** The poll interval for that wait. */
 export const RESIDENCY_POLL_MS = 20
+
+/**
+ * Finds the judge child a session ALREADY created, from the session's own durable log.
+ *
+ * PURPOSE: Let a pool that holds no entry for a session continue the child that session
+ *   already has, instead of creating a second one. A process restart builds a new pool and a
+ *   new Agent for the same session; the child itself is durable, and the harness cold-resumes
+ *   it from its id, so the id is the only thing missing.
+ * INPUTS: `parent` — the calling agent; `parent.session.snapshotEvents()` is the session's log,
+ *   and anything without that method answers `null` rather than throwing. `label` — the child
+ *   label to match; defaults to {@link JUDGE_LABEL}.
+ * OUTPUTS: The `childId` of the LAST `subagent/catalog` record whose `mode` is `continuable`
+ *   and whose `label` matches, or `null` when the session's log holds none. Never throws.
+ * KEYWORDS: judge reuse, restart, durable child, session log, subagent catalog, cold resume
+ *
+ * Edge cases:
+ *   - No `session`, no `snapshotEvents`, or a non-array answer: `null`, so a pool in a
+ *     composition that exposes no log creates a child exactly as it did before.
+ *   - A log whose last matching record names a child that is gone: the id is still returned;
+ *     the delivery that follows is what discovers it is unreachable, and the existing
+ *     replacement path then creates one child.
+ *
+ * @param parent - The calling agent, or anything.
+ * @param label - The child label to match.
+ * @returns The catalogued child id, or `null`.
+ */
+export function cataloguedJudgeChild(parent, label = JUDGE_LABEL) {
+  const events = typeof parent?.session?.snapshotEvents === 'function' ? parent.session.snapshotEvents() : null
+  if (!Array.isArray(events)) return null
+  let found = null
+  for (const event of events) {
+    if (event === null || typeof event !== 'object' || event.type !== 'subagent/catalog') continue
+    const data = event.data
+    if (data === null || typeof data !== 'object') continue
+    if (data.mode !== 'continuable') continue
+    if (data.label !== label) continue
+    if (!isText(data.childId)) continue
+    found = data.childId
+  }
+  return found
+}
 
 /** Whether a value is a non-empty string. */
 function isText(value) {
@@ -247,6 +301,9 @@ export function readTurn(events) {
  *   - A delivery that throws: the child is released best-effort and recreated once for the
  *     call that discovered it. A registry read that misses the child, and a `max-tokens` or
  *     `refusal` answer, are NOT deaths and replace nothing.
+ *   - A fresh pool over a session whose log catalogs an existing judge: the child is ADOPTED
+ *     and delivered to, never replaced, so a restart costs no second judge. If that delivery
+ *     is refused the existing replacement path creates one — the same path a dead child takes.
  *   - `staticPrompt` absent, empty, or not a prefix of `prompt`: the full prompt is sent and
  *     no prefix is assumed, so every call is treated as its own static anchor.
  *   - `cacheKey` absent: the pool's `label` is the role, so one pool with no explicit keys
@@ -462,6 +519,23 @@ export function createJudgePool({
       ? staticPrompt
       : task
     const entry = entryFor(parent)
+
+    // A pool with no child for this session is not looking at a session that has none. The
+    // session's own log catalogs every continuable child it created, and a restarted process (or
+    // a resumed Agent) builds a fresh pool over a durable child. Adopting the catalogued id is
+    // what keeps a restart from paying for a second judge; the delivery below is what proves the
+    // child is reachable, and a runtime that refuses it falls through to the replacement path.
+    if (entry.childId === null && entry.dead === false && entry.cacheKey === null) {
+      const catalogued = cataloguedJudgeChild(parent, label)
+      if (catalogued !== null) {
+        entry.childId = catalogued
+        entry.cacheKey = key
+        // The adopted child's static prefix is unknown to this pool, so the whole task travels
+        // with the supersede note — the same shape a corpus change already uses.
+        entry.staticText = null
+        emit({ event: 'judge.reattached', childId: catalogued, provider })
+      }
+    }
 
     // At most two attempts: the second is the "replace a child whose creation or delivery
     // failed" path. A cancellation is never retried, and neither a residency read that missed
