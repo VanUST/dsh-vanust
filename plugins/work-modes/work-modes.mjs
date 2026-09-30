@@ -56,11 +56,11 @@
  *   them later still gets both.
  *
  * OUTPUTS
- *   Registers: one monotonic tool guard, two event listeners (`subagent/start`,
- *   `subagent/end`), one prompt section, and — when a web server is mounted — one
- *   route plus one index-injection row. Each registration lives in the `ctx.effect`
- *   scope of the service it uses, so a reload or a replaced service disposes the old
- *   registration instead of colliding with it.
+ *   Registers: one monotonic tool guard, three event listeners (`subagent/start`,
+ *   `subagent/end`, `tools/result`), one prompt section, and — when a web server is
+ *   mounted — one route plus one index-injection row. Each registration lives in the
+ *   `ctx.effect` scope of the service it uses, so a reload or a replaced service disposes
+ *   the old registration instead of colliding with it.
  *   Never throws during prompt assembly or event dispatch: the section returns a
  *   string for every session, including one it has never seen.
  *
@@ -107,6 +107,11 @@
  *   - `staleAfterMs` therefore governs only an entry no registry answered for: an
  *     out-of-process child, a composition with no `agents` service, or a probe that
  *     threw. Those are the entries a lost terminal edge can still strand.
+ *   - A delegation the guard admitted whose tool call then FAILED: the admission is
+ *     settled on that call's failed result, because the call provably spawned no child
+ *     the caller can reach. A successful result is not used this way — for a background
+ *     or continuable delegation it arrives as soon as the child is established — so
+ *     `staleAfterMs` no longer bounds a slot held by a call that never created anything.
  */
 
 /** Cordis function-plugin name; also the id a profile patch targets. */
@@ -697,6 +702,24 @@ export function apply(ctx, config = {}) {
       () => scope.tools.guard((exec) => refusalFor(ledger, exec, toolName)),
       'work-modes: the subagent concurrency guard',
     )
+    // The release for a call whose child never existed. The guard ADMITS a delegation
+    // before the body runs, and the real tool throws before publishing any run for the
+    // failures a model can actually cause — a route outside the session's allowed set, an
+    // unavailable service, a cancelled call. Nothing then consumes that admission, so
+    // without this listener it is counted until `staleAfterMs` and the cap refuses work
+    // no child is running. Only a FAILED result releases: a successful background or
+    // continuable delegation returns as soon as the child is established, so releasing on
+    // success would free the slot the moment the child started working, which is the
+    // opposite of a cap. A call the guard itself refused was never admitted, so settling
+    // it is a no-op.
+    scope.effect(
+      () => scope.on('tools/result', (exec, result) => {
+        if (exec?.name !== toolName) return
+        if (result?.isError !== true) return
+        ledger.settleCall(exec.callId)
+      }),
+      'work-modes: release the admission of a call that failed before any child existed',
+    )
   })
 
   // The start edge is the only announcement that a child exists. It is a CONTAINED
@@ -715,13 +738,14 @@ export function apply(ctx, config = {}) {
   ctx.effect(() => ctx.on('subagent/end', (info) => {
     ledger.end(info?.runId)
   }))
-  // A settled tool result is deliberately NOT used to release the slot. Measured while
-  // building this: for a background or continuable delegation the tool returns as soon
-  // as the child is established, so releasing on the result would free the slot the
-  // moment the child started working — the opposite of a concurrency cap. The slot a
-  // call holds is released by the child's start edge consuming it, by a terminal edge,
-  // by the agent registry no longer holding the child, or — for an entry no registry
-  // answered for — by the age bound.
+  // A settled SUCCESSFUL tool result is deliberately NOT used to release the slot.
+  // Measured while building this: for a background or continuable delegation the tool
+  // returns as soon as the child is established, so releasing on success would free the
+  // slot the moment the child started working — the opposite of a concurrency cap. The
+  // slot a call holds is released by the child's start edge consuming it, by a terminal
+  // edge, by the agent registry no longer holding the child, or — for an entry no
+  // registry answered for — by the age bound. A FAILED result is the one exception and
+  // is handled at the guard's own scope above, because that call provably has no child.
 
   // ── the work mode ─────────────────────────────────────────────────────────
   const order = ctx.systemPrompt.getSectionOrder?.(MODE_SECTION_NAME) ?? MODE_SECTION_ORDER

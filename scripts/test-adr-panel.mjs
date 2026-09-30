@@ -3269,6 +3269,197 @@ const ROW_CAP = 50 // must equal SECTION_ROW_CAP in the bundle
 }
 
 
+// ── a link reaches the row it names, even past the drawing cap ──────────────
+//
+// A `decided in <id>` chip is drawn as a link whenever the ratchet returned the record,
+// but the Decisions part draws only the first 50 rows. Before this, a chip naming the
+// 51st record switched the section, set the expansion to a row that was never drawn and
+// showed nothing at all: a loaded record whose link is a dead control. Measured on 60
+// synthetic decisions, because the kit's own corpus is smaller than the cap.
+{
+  const target = '1059'
+  const fixtureRecord = (index) => ({
+    id: String(1000 + index),
+    path: `docs/adrs/${1000 + index}-fixture.adr.md`,
+    title: `fixture decision ${index}`,
+    type: 'adr',
+    status: 'active',
+    authority: 'agent',
+    authorName: 'fixture-author',
+    created: '2026-09-15',
+    sourcePath: 'docs/ratchet/sources/fixture.md',
+    sourceHash: `sha256:${'a'.repeat(64)}`,
+    ratificationAt: null,
+    contentHash: null,
+    zones: [],
+    supersedes: [],
+    approves: [],
+    laws: [],
+    state: { text: 'in force', kind: 'in-force', derived: false },
+    provenance: null,
+    canRatify: false,
+    blockedReason: null,
+    body: `## Decision\n\nThe fixture decision number ${index} does one thing.\n`,
+    sections: [{ title: 'Decision', lines: [`The fixture decision number ${index} does one thing.`] }],
+    error: null,
+    summary: `The fixture decision number ${index} does one thing.`,
+  })
+  const decisions = Array.from({ length: 60 }, (_, index) => fixtureRecord(index))
+  const decisionIds = {}
+  for (const decision of decisions) decisionIds[decision.id] = true
+  const linkedPanel = {
+    decisions,
+    consents: [],
+    specs: [
+      {
+        name: 'linked',
+        path: 'docs/specs/linked.spec.md',
+        zone: 'zone-a',
+        project: null,
+        hash: null,
+        eof: true,
+        error: null,
+        counts: { laws: 1, checks: 0 },
+        laws: [{ id: 'L-linked', authority: 'agent', decidedIn: target, statement: 'the law that names the last decision', checks: [], unenforced: null }],
+      },
+    ],
+    relations: { approvedBy: {}, supersededBy: {} },
+    lawsByDecision: {},
+    decisionIds,
+    recordIds: { ...decisionIds },
+    dirs: { decisionsDir: 'docs/adrs', specsDir: 'docs/specs' },
+    projectName: 'linked fixture',
+    needsHuman: [],
+    needsHumanTruncated: null,
+    declined: [],
+    notes: [],
+    failures: [],
+  }
+  const rendered = await renderOverlay('linked-row', () => Promise.resolve(linkedPanel))
+  await showSection(rendered.root, 'linked-row', 'specs')
+  const chip = nodes.find((node) => node.tag === 'span' && node.text === 'decided in ' + target)
+  claim(
+    'a law decided by a record past the row cap draws its chip as a link',
+    rendered.ok && chip !== undefined && typeof chip.props.onClick === 'function',
+    `chip=${chip === undefined ? 'none' : JSON.stringify(chip.text)}`,
+  )
+  if (chip !== undefined) chip.props.onClick()
+  await flush(rendered.root, 'linked-row')
+  const badge = nodes.find((node) => node.tag === 'span' && node.text === '#' + target)
+  const expandedBody = nodes.find((node) => typeof node.text === 'string' && node.text === 'Laws decided here (0)')
+  claim(
+    'clicking that link draws and expands the row it names, so the control is not dead',
+    badge !== undefined && expandedBody !== undefined,
+    `badge=${badge === undefined ? 'none' : JSON.stringify(badge.text)} expanded=${expandedBody === undefined ? 'none' : JSON.stringify(expandedBody.text)}`,
+  )
+}
+
+// ── a cut batch's header states what the window DREW ────────────────────────
+//
+// The host caps the needs-a-human set at 500 and reports `shown`/`total` per kind. The
+// window then draws at most 50 of them, so a batch header that repeats the host's
+// `shown` states a number that is not on screen: "500 of 900" above 50 drawn entries. The
+// header must count the entries the batch actually drew, with the ratchet's total beside
+// it; the host's own cut is still stated by the section line.
+{
+  const full = stateModule.deriveDecisions({ root: stateRoot })
+  const syntheticNeeds = Array.from({ length: 60 }, (_, index) => ({
+    kind: 'stale-spec',
+    id: `docs/specs/big${index}.spec.md`,
+    title: `spec big${index}.spec.md`,
+    path: `docs/specs/big${index}.spec.md`,
+    reason: `detectSpecDrift reports the generated document as stale: it records sha256:${'1'.repeat(64)} and the laws now hash to sha256:${'c'.repeat(64)}`,
+    action: 'regenerate the document with "ratchet compile --write"',
+    draft: { id: null, path: `reports/ratchet/drafts/stalewithdraw-${index}.md` },
+    draftReason: null,
+  }))
+  stateViewOverride = {
+    ...full,
+    needsHuman: syntheticNeeds,
+    truncated: { records: null, specs: null, needsHuman: { shown: 500, total: 900, kinds: [{ kind: 'stale-spec', shown: 500, total: 900 }] }, texts: null, specTexts: null, queueTexts: null, byteLimit: 1500000 },
+  }
+  try {
+    const rendered = await renderOverlayExpanded('truncated-batch')
+    const header = nodes.find((node) => node.tag === 'button' && typeof node.text === 'string' && node.text.includes('Stale specs · '))
+    const drawn = nodes.filter((node) => isPillNode(node) && typeof node.text === 'string' && /^stale-spec docs\/specs\/big/.test(node.text)).length
+    claim(
+      'a cut batch header counts the entries the window drew, not the host\'s larger shown count',
+      rendered.ok && header !== undefined && header.text.includes('Stale specs · 50 of 900') && drawn === 50,
+      `header=${header === undefined ? 'none' : JSON.stringify(header.text)} drawn=${drawn}`,
+    )
+  } finally {
+    stateViewOverride = null
+  }
+}
+
+// ── a body the cap dropped is stated, never rendered as an empty one ────────
+//
+// The host's byte budget drops record and spec BODIES (`text: null`) while the record
+// itself stays. The corpus-wide note names how many were dropped, but each affected card
+// then rendered its own empty state — "No law blocks were found in this document" for a
+// spec, and a record that expands to nothing. Those are claims about a document nobody
+// could read. The host marks the omission per item and the card says so.
+{
+  const full = stateModule.deriveDecisions({ root: stateRoot })
+  stateViewOverride = {
+    ...full,
+    records: [
+      {
+        id: '0001',
+        path: 'docs/adrs/0001-dropped.adr.md',
+        title: 'a record whose body the cap dropped',
+        type: 'adr',
+        status: 'active',
+        authority: 'agent',
+        authorName: 'fixture-author',
+        created: '2026-09-15',
+        source: { kind: 'file', path: 'docs/ratchet/sources/fixture.md', hash: `sha256:${'a'.repeat(64)}` },
+        zones: [],
+        supersedes: [],
+        approves: [],
+        laws: [],
+        state: { text: 'in force', kind: 'in-force', derived: false },
+        provenance: null,
+        canRatify: false,
+        text: null,
+        textDropped: true,
+      },
+    ],
+    specs: [
+      { name: 'dropped.spec.md', path: 'docs/specs/dropped.spec.md', zone: 'zone-a', project: 'fixture', hash: null, eof: true, text: null, textDropped: true },
+    ],
+    truncated: { records: null, specs: null, needsHuman: null, texts: { dropped: 1, total: 1 }, specTexts: { dropped: 1, total: 1 }, queueTexts: null, byteLimit: 1500000 },
+  }
+  try {
+    const rendered = await renderOverlay('dropped-bodies')
+    // The Decisions part is not the default here (the base view carries real needs), so
+    // the section is switched to before the row is found.
+    await showSection(rendered.root, 'dropped-bodies', 'decisions')
+    // The decision row's head is a role=button DIV, not a `<button>`, so it is clicked
+    // directly here rather than through the helper that expands the batch buttons.
+    const head = nodes.find((node) => node.tag === 'div' && node.props !== undefined && node.props['aria-expanded'] === 'false' && typeof node.text === 'string' && node.text.includes('#0001'))
+    if (head !== undefined) head.props.onClick()
+    await flush(rendered.root, 'dropped-bodies')
+    const recordNote = nodes.find((node) => typeof node.text === 'string' && /body of this record was omitted/.test(node.text))
+    claim(
+      'a record whose body the cap dropped says so instead of expanding to nothing',
+      rendered.ok && head !== undefined && recordNote !== undefined,
+      `head=${head === undefined ? 'none' : JSON.stringify(head.text)} note=${recordNote === undefined ? 'none' : JSON.stringify(recordNote.text)}`,
+    )
+    // The spec card lives in its own part, so it is read after switching to it — the
+    // recorded tree holds one section at a time.
+    await showSection(rendered.root, 'dropped-bodies', 'specs')
+    const specNote = nodes.find((node) => typeof node.text === 'string' && /body of this spec was omitted/.test(node.text))
+    claim(
+      'a spec whose body the cap dropped says so instead of claiming it has no laws',
+      rendered.ok && specNote !== undefined && !nodes.some((node) => node.text === 'No law blocks were found in this document.'),
+      `note=${specNote === undefined ? 'none' : JSON.stringify(specNote.text)} emptyClaim=${nodes.some((node) => node.text === 'No law blocks were found in this document.')}`,
+    )
+  } finally {
+    stateViewOverride = null
+  }
+}
+
 // The window must never fall back to a derivation of its own. With the state capability
 // absent it reports the state as unavailable, and it fetches nothing.
 {

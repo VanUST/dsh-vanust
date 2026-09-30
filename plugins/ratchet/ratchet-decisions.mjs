@@ -94,7 +94,8 @@
  *       is `{ shown, total, kinds }` when the needs-a-human set itself was cut (`kinds`
  *       lists every kind that lost an entry, as `{ kind, shown, total }`, so a kind
  *       cannot vanish silently), and `texts`/`specTexts` are `{ dropped, total }` when a
- *       body had to be dropped to stay under `byteLimit`. It is the view's own statement
+ *       body had to be dropped to stay under `byteLimit` (the dropped item itself carries
+ *       `textDropped: true`). It is the view's own statement
  *       that what arrived is not the whole corpus, so a renderer can say so rather than
  *       presenting a partial list as complete.
  *   A null/empty `root` returns `{ ok:false, root, records:[], queue:{...empty}, specs:[],
@@ -1215,7 +1216,9 @@ function capNeedsHuman(allNeeds) {
  *   `{ records, specs, needsHuman, texts, specTexts, queueTexts, byteLimit }` where each
  *   element is null or an object naming what was cut (`records`/`specs`: `{ shown, total }`;
  *   `needsHuman`: `{ shown, total, kinds }` with every cut kind as `{ kind, shown, total }`;
- *   `texts`/`specTexts`/`queueTexts`: `{ dropped, total }`). A non-object input is
+ *   `texts`/`specTexts`/`queueTexts`: `{ dropped, total }`). Each record or spec whose
+ *   body was dropped also carries `textDropped: true` with `text: null`, so the reader of
+ *   one item can tell an omitted body from an empty one. A non-object input is
  *   returned unchanged. Record bodies are kept before spec bodies, and spec bodies before
  *   the queue's copies, so the most reader-facing text survives the budget. Never throws.
  *
@@ -1271,7 +1274,11 @@ export function capDecisionsView(view) {
       return record
     }
     droppedTexts += 1
-    return { ...record, text: null }
+    // `textDropped` is the per-record statement that THIS body was omitted. The
+    // `truncated.texts` count says how many were dropped corpus-wide; without a mark on
+    // the record itself a reader of one row cannot tell "this record has no body" from
+    // "this record's body was cut", and an empty row reads as an empty record.
+    return { ...record, text: null, textDropped: true }
   })
   let droppedSpecTexts = 0
   const keptSpecs = specs.map((spec) => {
@@ -1282,7 +1289,9 @@ export function capDecisionsView(view) {
       return spec
     }
     droppedSpecTexts += 1
-    return { ...spec, text: null }
+    // Same per-item mark as the records above: a spec whose body was cut must not render
+    // as a document with no laws.
+    return { ...spec, text: null, textDropped: true }
   })
   const queue = shaped.queue !== null && typeof shaped.queue === 'object' ? shaped.queue : {}
   let droppedQueueTexts = 0

@@ -407,7 +407,8 @@
  *     hyphens turned into spaces and its entries are reachable by expanding it, so a new
  *     kind is shown rather than dropped.
  *   - A needs-human set the host's cap cut: the section says the shown and total counts and
- *     names every kind that lost an entry, and a cut batch's header reads `shown of total`.
+ *     names every kind that lost an entry, and a cut batch's header reads `drawn of total`,
+ *     counting the entries that batch actually drew rather than the host's larger return.
  *   - A reason, action, problem line or spec header carrying a full `sha256:<64 hex>`: it
  *     renders shortened (twelve hex and an ellipsis) with the full value in the element's
  *     `title`, so nothing is hidden and no visible node shows a raw 64-hex value.
@@ -423,7 +424,13 @@
  *   - A corpus larger than 50 rows in one part: the part draws the first 50 and shows a
  *     `Show N more` control beside `Showing X of Y`; the rows past the cap are loaded and
  *     revealed by the control, never dropped, and the host's own truncation is stated
- *     separately.
+ *     separately. A row a link SELECTS past that cap is revealed too, so a `decided in`
+ *     chip or an `Open <id>` on a loaded record is never a dead control.
+ *   - A record or spec body the host's byte cap dropped: the item carries the host's own
+ *     `textDropped` mark, and the card says the body was omitted rather than rendering an
+ *     empty document — `No law blocks were found in this document` for a spec, or a
+ *     record that expands to metadata alone. The corpus-wide note names how many were cut;
+ *     the mark says which.
  */
 window.__ModuleLoader__.load({
 	id: "@cc/dsh-adr-panel",
@@ -444,7 +451,7 @@ window.__ModuleLoader__.load({
 		 * are equal again after a release and the constant is one ahead only in the working
 		 * tree between a source edit and the pack.
 		 */
-		const PANEL_VERSION = "0.1.63";
+		const PANEL_VERSION = "0.1.64";
 		/** Directories used when the host view reports none. */
 		const DEFAULT_DECISIONS_DIR = "docs/adrs";
 		const DEFAULT_SPECS_DIR = "docs/specs";
@@ -1351,14 +1358,16 @@ window.__ModuleLoader__.load({
 		 * into cards and a check histogram — and it computes no law.
 		 *
 		 * @param item - `{ name, path, text }` from the view model's `specs`.
-		 * @returns `{ name, path, zone, project, hash, laws, counts, eof, error }`; never
-		 *   throws. A field that does not parse is null and renders as `unknown`.
+		 * @returns `{ name, path, zone, project, hash, laws, counts, eof, error, bodyDropped }`;
+		 *   never throws. A field that does not parse is null and renders as `unknown`.
 		 *   `counts.checks` is the number of check lines the document declares and
 		 *   `counts.parsedChecks` is how many of them parsed, so a parse gap is observable
-		 *   rather than silent.
+		 *   rather than silent. `bodyDropped` is the host's own mark that this document's
+		 *   text was omitted by the response cap, so the card can say that instead of
+		 *   reporting a document nobody could read as having no laws.
 		 */
 		function parseSpec(item) {
-			var spec = { name: item.name, path: item.path, zone: null, project: null, hash: null, laws: [], eof: item.eof !== false, error: null };
+			var spec = { name: item.name, path: item.path, zone: null, project: null, hash: null, laws: [], eof: item.eof !== false, error: null, bodyDropped: item.textDropped === true };
 			try {
 				var text = normaliseText(item.text);
 				var zone = text.match(/^#[ \t]+Spec:[ \t]*(.+?)[ \t]*$/m);
@@ -1671,7 +1680,8 @@ window.__ModuleLoader__.load({
 		 *
 		 * @param record - one entry of the view model's `records`.
 		 * @returns the renderer's record shape. Never throws; a missing field renders as
-		 *   `unknown` or an empty list.
+		 *   `unknown` or an empty list. `bodyDropped` is true only when the host marked
+		 *   this record's text as omitted by its response cap.
 		 */
 		function adaptRecord(record) {
 			var text = typeof record.text === "string" ? record.text : "";
@@ -1700,6 +1710,10 @@ window.__ModuleLoader__.load({
 				provenance: record.provenance,
 				canRatify: record.canRatify === true,
 				blockedReason: typeof record.blockedReason === "string" && record.blockedReason !== "" ? record.blockedReason : null,
+				// The host's own mark that this record's text was omitted by the response cap.
+				// The corpus-wide note says how many were dropped; this says WHICH, so an
+				// expanded row can state the omission instead of rendering an empty record.
+				bodyDropped: record.textDropped === true,
 				body: body,
 				sections: bodySections(body),
 				error: null
@@ -2489,27 +2503,42 @@ window.__ModuleLoader__.load({
 		 *
 		 * INPUTS
 		 *   props.rows - an array of already-created row elements.
+		 *   props.revealIndex - the index of a row the window has selected and must draw,
+		 *     or null/undefined when nothing is selected. A row past the cap is REVEALED by
+		 *     raising the drawn window past it: a `decided in <id>` chip that names the 51st
+		 *     record would otherwise switch the section, set an expansion for a row that was
+		 *     never drawn and show nothing at all.
 		 *
 		 * OUTPUTS
-		 *   A grid holding the first `limit` rows and, when rows remain, a button that
-		 *   raises the limit and a `Showing X of Y` line. An empty array renders an empty
-		 *   grid. Never throws.
+		 *   A grid holding the first `limit` rows — or more when `revealIndex` is past that
+		 *   bound, which is the whole point of the reveal — and, when rows remain, a button
+		 *   that raises the limit and a `Showing X of Y` line. An empty array renders an
+		 *   empty grid. A `revealIndex` outside the rows, or not a number, reveals nothing.
+		 *   Never throws.
 		 *
 		 * KEYWORDS
-		 *   bounded render, row cap, show more, DOM size, large corpus
+		 *   bounded render, row cap, show more, DOM size, large corpus, reveal, dead control
 		 */
 		function CappedRows(props) {
 			var rows = Array.isArray(props.rows) ? props.rows : [];
 			var limitState = React.useState(SECTION_ROW_CAP);
 			var limit = limitState[0];
 			var setLimit = limitState[1];
-			var shown = rows.slice(0, limit);
+			var revealIndex = typeof props.revealIndex === "number" && props.revealIndex >= 0 ? props.revealIndex : -1;
+			// The drawn window is the larger of the user's own "show more" progress and the
+			// selected row's position: a selection is an instruction to show that row, and
+			// the state must stay the only source the buttons write to.
+			var shownCount = Math.max(limit, revealIndex + 1);
+			var shown = rows.slice(0, shownCount);
 			var remaining = rows.length - shown.length;
 			var more = remaining <= 0 ? null : React.createElement("div", { key: "more", style: { display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" } },
 				React.createElement("button", {
 					type: "button",
 					style: smallButtonStyle(),
-					onClick: function () { setLimit(limit + SECTION_ROW_CAP); }
+					// Advance from what is DRAWN, not from the stored limit: after a reveal the
+					// two differ, and advancing from the stale limit would draw the same rows
+					// again and read as a dead control.
+					onClick: function () { setLimit(shownCount + SECTION_ROW_CAP); }
 				}, "Show " + Math.min(remaining, SECTION_ROW_CAP) + " more"),
 				React.createElement("span", { style: mutedInlineStyle() }, "Showing " + shown.length + " of " + rows.length));
 			return React.createElement("div", { style: { display: "grid", gap: 8 } }, shown.concat(more === null ? [] : [more]));
@@ -3087,15 +3116,18 @@ window.__ModuleLoader__.load({
 		/**
 		 * PURPOSE
 		 *   The count a group header shows. When the ratchet's cap cut this kind the header
-		 *   says `shown of total` rather than only the entries that survived, so a truncated
-		 *   batch is visibly partial instead of reading as complete.
+		 *   says `drawn of total` rather than only the entries that survived, so a truncated
+		 *   batch is visibly partial instead of reading as complete. The first number is
+		 *   what this batch DREW, never the host's larger `shown` count: the section holds a
+		 *   drawing bound of its own, and a header stating rows that are not on screen is a
+		 *   number the window cannot honour.
 		 *
 		 * INPUTS
 		 *   group - one `{ kind, entries }` from {@link partitionNeedsHuman}.
 		 *   truncated - the view model's `truncated.needsHuman`, or anything.
 		 *
 		 * OUTPUTS
-		 *   A string: `<shown> of <total>` when this kind was cut, otherwise `<count>`. Never
+		 *   A string: `<drawn> of <total>` when this kind was cut, otherwise `<count>`. Never
 		 *   throws.
 		 *
 		 * KEYWORDS
@@ -3107,7 +3139,11 @@ window.__ModuleLoader__.load({
 				for (var i = 0; i < truncated.kinds.length; i += 1) {
 					var cut = truncated.kinds[i];
 					if (cut !== null && cut !== undefined && cut.kind === group.kind) {
-						return cut.shown + " of " + cut.total;
+						// The DRAWN count of this batch against the ratchet's total for the kind. The
+						// host's own `shown` is how many it returned, which can be 500 while the
+						// section's drawing bound holds 50, so repeating it here would state a number
+						// that is not on screen. The host's cut is still stated once, by the section.
+						return shown + " of " + cut.total;
 					}
 				}
 			}
@@ -4348,6 +4384,12 @@ window.__ModuleLoader__.load({
 			if (expanded) {
 				children.push(React.createElement("div", { key: "details", style: detailsStyle() },
 					metadataBlock(adr, recordIds, onSelectAdr),
+					// The host's own mark that this record's text was omitted, stated where the
+					// body would be. Without it the row expands to metadata and nothing else, which
+					// reads as a record that has no body rather than one that was not returned.
+					adr.bodyDropped === true
+						? React.createElement("div", { style: warnStyle() }, "The body of this record was omitted by the host's response cap, so its sections are not shown here. Reload to fetch it again.")
+						: null,
 					React.createElement("div", null,
 						React.createElement("div", { style: subHeadingStyle() }, "Laws decided here (" + laws.length + ")"),
 						laws.length === 0
@@ -4451,8 +4493,10 @@ window.__ModuleLoader__.load({
 					React.createElement("span", { style: { fontWeight: 700 } }, spec.zone === null ? spec.name : spec.zone),
 					spec.project === null ? null : chip("project: " + spec.project),
 					chip(shortHash(spec.hash), null, null, spec.hash),
-					chip(spec.counts.laws + " law" + (spec.counts.laws === 1 ? "" : "s")),
-					chip(spec.counts.checks + " check" + (spec.counts.checks === 1 ? "" : "s"))),
+					spec.bodyDropped === true
+						? chip("body omitted by the response cap", "pending")
+						: chip(spec.counts.laws + " law" + (spec.counts.laws === 1 ? "" : "s")),
+					spec.bodyDropped === true ? null : chip(spec.counts.checks + " check" + (spec.counts.checks === 1 ? "" : "s"))),
 				spec.eof === false ? React.createElement("div", { style: warnStyle() }, "Only the first page was read, so this spec may be incomplete.") : null,
 				spec.error === null || spec.error === undefined ? null : React.createElement("div", { style: warnStyle() }, spec.error),
 				kinds.length === 0 ? null : React.createElement("div", null,
@@ -4467,12 +4511,14 @@ window.__ModuleLoader__.load({
 						});
 					}))),
 				histogramComplete ? null : React.createElement("div", { style: warnStyle() }, "The check histogram is incomplete: it counted " + counted + " of the " + spec.counts.checks + " checks this document declares, so at least one check could not be parsed."),
-				spec.laws.length === 0
-					? React.createElement("div", { style: mutedStyle() }, "No law blocks were found in this document.")
-					: React.createElement("div", { style: { marginTop: 6 } },
-						React.createElement(CappedRows, { rows: spec.laws.map(function (law) {
-							return React.createElement(LawCard, { key: law.id, law: law, zone: spec.zone, decisionIds: decisionIds, decisionStates: decisionStates, onSelectAdr: onSelectAdr });
-						}) })));
+				spec.bodyDropped === true
+					? React.createElement("div", { style: warnStyle() }, "The body of this spec was omitted by the host's response cap, so its laws and checks are not shown here. Reload to fetch it again, or read the generated document itself.")
+					: spec.laws.length === 0
+						? React.createElement("div", { style: mutedStyle() }, "No law blocks were found in this document.")
+						: React.createElement("div", { style: { marginTop: 6 } },
+							React.createElement(CappedRows, { rows: spec.laws.map(function (law) {
+								return React.createElement(LawCard, { key: law.id, law: law, zone: spec.zone, decisionIds: decisionIds, decisionStates: decisionStates, onSelectAdr: onSelectAdr });
+							}) })));
 		}
 
 		/**
@@ -4747,6 +4793,18 @@ window.__ModuleLoader__.load({
 				var isConsent = current.consents.some(function (record) { return record.id === adrId; });
 				setChosenSection(isConsent ? "consents" : "decisions");
 			};
+			/**
+			 * @param list - the rows of one section, in the order that section draws them.
+			 * @param id - the selected record id.
+			 * @returns The row's index in that list, or -1 when the section does not draw it.
+			 *   A section that does not hold the selection reveals nothing, which is what
+			 *   keeps a decision's expansion from stretching the consents list.
+			 */
+			var indexOfId = function (list, id) {
+				if (id === null || id === undefined) return -1;
+				for (var i = 0; i < list.length; i += 1) if (list[i].id === id) return i;
+				return -1;
+			};
 			var toggle = function (adrId) {
 				setExpandedId(expandedId === adrId ? null : adrId);
 			};
@@ -4774,7 +4832,7 @@ window.__ModuleLoader__.load({
 						onRecorded: onRecorded,
 						onAnswered: onAnswered
 					});
-				}) });
+				}), revealIndex: indexOfId(current.decisions, expandedId) });
 			var consentBody = current.consents.length === 0
 				? React.createElement("p", { style: mutedStyle() }, "No consent records were found in " + current.dirs.decisionsDir + ".")
 				: React.createElement(CappedRows, { rows: current.consents.map(function (adr) {
@@ -4784,7 +4842,7 @@ window.__ModuleLoader__.load({
 						expanded: expandedId === adr.id,
 						onToggle: function () { toggle(adr.id); }
 					});
-				}) });
+				}), revealIndex: indexOfId(current.consents, expandedId) });
 			var specBody = current.specs.length === 0
 				? React.createElement("p", { style: mutedStyle() }, "No spec files were found in " + current.dirs.specsDir + ", or none could be read.")
 				: React.createElement(CappedRows, { rows: current.specs.map(function (spec) {

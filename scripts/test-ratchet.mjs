@@ -1941,6 +1941,35 @@ test('decisions: the view cap counts a deprecated need like any other kind', () 
   )
 })
 
+test('decisions: a body dropped by the byte cap is marked on the item that lost it', () => {
+  // A reader of ONE row cannot tell an empty body from a body the cap cut; only the item
+  // itself can say which, and the count in `truncated.texts` is corpus-wide. Fails if the
+  // per-item mark is removed, which would leave a renderer with nothing to distinguish
+  // "this document has no laws" from "this document was not returned".
+  const oversized = 'x'.repeat(decisionsModule.MAX_STATE_BYTES)
+  const capped = decisionsModule.capDecisionsView({
+    records: [
+      { id: '0001', path: 'docs/adrs/0001.adr.md', text: oversized },
+      { id: '0002', path: 'docs/adrs/0002.adr.md', text: 'a small body' },
+    ],
+    specs: [
+      { name: 's.spec.md', path: 'docs/specs/s.spec.md', text: oversized },
+      { name: 't.spec.md', path: 'docs/specs/t.spec.md', text: 'a small spec body' },
+    ],
+    queue: { pending: [], blocked: [] },
+    needsHuman: [],
+    truncated: null,
+  })
+  assert.equal(capped.truncated?.texts?.dropped, 1, 'the oversized record body was dropped')
+  assert.equal(capped.truncated?.specTexts?.dropped, 1, 'the oversized spec body was dropped')
+  assert.equal(capped.records[0].textDropped, true, 'the record that lost its body says so')
+  assert.equal(capped.records[0].text, null, 'and carries no text')
+  assert.equal(capped.records[1].textDropped, undefined, 'a record whose body survived carries no mark')
+  assert.equal(capped.records[1].text, 'a small body', 'and keeps its text')
+  assert.equal(capped.specs[0].textDropped, true, 'the spec that lost its body says so')
+  assert.equal(capped.specs[1].textDropped, undefined, 'a spec whose body survived carries no mark')
+})
+
 test('review tool: two reviews in one session reuse ONE judge and each sends its own change', { skip: HARNESS_SKIP }, async () => {
   const root = reviewableProject('judge-reuse-review')
   const harness = stubJudgeHarness()

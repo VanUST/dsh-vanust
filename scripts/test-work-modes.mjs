@@ -572,6 +572,48 @@ test('guard: through a real plugin instance, two children admit and the third is
   assert.equal(bodyRuns, 3)
 })
 
+test('release: a delegation whose child never started does not hold the slot for the stale window', { skip: HARNESS_SKIP }, async () => {
+  // The other half of the release: a call the guard ADMITTED that then failed before any
+  // child existed. The real tool throws exactly this way (a model route outside the
+  // session's allowed set, an unavailable service, a cancellation) and emits no
+  // `subagent/start`, so nothing consumes the admission. Before this was wired the
+  // admission sat in the ledger until `staleAfterMs` — 15 minutes of a cap slot held by a
+  // call that spawned nothing, which reads to the model as a refusal for work that is not
+  // running.
+  //
+  // Fails if the plugin stops observing the tool result, or stops settling the call.
+  let bodyRuns = 0
+  const ctx = new harness.Context()
+  const activated = await activate({ limit: 1, ctx })
+  activated.tools.register(
+    harness.tools.defineTool({
+      name: 'subagent',
+      description: 'stand-in for the delegation tool',
+      parameters: { description: { type: 'string', required: true } },
+      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
+      execute() {
+        bodyRuns += 1
+        // The failure shape the real tool has: the FIRST call rejects before any run is
+        // published, so no `subagent/start` is ever emitted for it. The second call
+        // succeeds, which is what makes "the slot was released" observable as an admitted
+        // call rather than as a second identical failure.
+        if (bodyRuns === 1) return Promise.reject(new Error('the delegation was refused before a child existed'))
+        return Promise.resolve({ ok: true })
+      },
+    }),
+  )
+  const agent = { id: 'session-root', ctx: harness.createScope(ctx, 'session-root').ctx }
+  const call = (callId) =>
+    activated.tools.execute({ name: 'subagent', callId, arguments: { description: callId }, agent, signal: new AbortController().signal })
+
+  const failed = await call('call-1')
+  assert.equal(failed.isError, true, 'the failing delegation reports its error')
+  assert.equal(bodyRuns, 1, 'and it did reach the tool body')
+  const second = await call('call-2')
+  assert.equal(second.isError, false, 'a call that started no child releases its slot on its own failed result')
+  assert.equal(bodyRuns, 2, 'the next delegation reaches the tool body')
+})
+
 test('guard: a non-delegation tool is never refused, so a workflow fan-out is outside the cap', { skip: HARNESS_SKIP }, async () => {
   // The documented limit, asserted. Fails if the guard keys on anything broader than
   // the configured tool name.
