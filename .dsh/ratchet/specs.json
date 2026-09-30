@@ -1276,18 +1276,40 @@
       "unenforced": null
     },
     {
-      "id": "shipped-plugins.ingestion-ratifies-only-a-record-it-wrote",
+      "id": "shipped-plugins.ingestion-ratifies-only-what-it-wrote-and-proves-it",
       "statement": "Ingestion puts a decision to the human only after it has written it, and reports rather than mints when the record was not written, no question channel is available, or the answer cannot be read.",
       "zones": [
         "shipped-plugins",
         "kit-tooling"
       ],
       "authority": "agent",
-      "sourceAdr": "0015",
-      "sourcePath": "docs/adrs/0015-the-grill-session-consents-through-the-question-channel.adr.md",
-      "approvedBy": "0020",
-      "checks": [],
-      "unenforced": "The behaviour is asserted by two tests in `scripts/test-ratchet.mjs` — one drives the tool with a supplied judge result and a stub channel and requires an approval, the other drives it with no judge and requires `attempted: false` and no question. No gate-level check binds them yet, because the suite is a single `node --test` invocation that prints TAP rather than a stable marker line; it becomes enforceable when a dedicated invariant script drives the tool into the three fail-closed states and asserts nothing is minted."
+      "sourceAdr": "0092",
+      "sourcePath": "docs/adrs/0092-bind-the-ingestion-ratify-law.adr.md",
+      "approvedBy": "0093",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "a supplied judge result and a stub channel put the new decision to the human, and an approval is written for it",
+          "timeoutMs": 300000,
+          "outputContains": "tool: ratchet_ingest_source runs, and ratify puts the new decision to the human in the same call"
+        },
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "ingestion with no record to consent to asks nothing and mints nothing",
+          "timeoutMs": 300000,
+          "outputContains": "tool: ingestion with ratify mints nothing when the record was not written"
+        },
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "with no channel reachable, and with a live channel whose answer names an option the ratchet never offered, nothing is minted; the same call with a readable answer writes exactly one approval",
+          "timeoutMs": 300000,
+          "outputContains": "tool: ingestion mints nothing when no channel can be asked, nor when the answer cannot be read, and mints when it can"
+        }
+      ],
+      "unenforced": null
     },
     {
       "id": "shipped-plugins.judge-is-injected",

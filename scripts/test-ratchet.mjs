@@ -6344,6 +6344,91 @@ test('tool: ingestion with ratify mints nothing when the record was not written'
 // the /ratify command: the same operation, reached without a model turn
 // ---------------------------------------------------------------------------
 
+test('tool: ingestion mints nothing when no channel can be asked, nor when the answer cannot be read, and mints when it can', async () => {
+  // The law `shipped-plugins.ingestion-ratifies-only-a-record-it-wrote` names three fail-closed
+  // states and only "the record was not written" had a test. These are the other two, with the
+  // success case beside them as the control that proves the fixture CAN mint: two cases that only
+  // ever observed "nothing minted" would pass on a tool that never mints at all.
+  //
+  // Fails if a missing channel or an unreadable answer ever writes an approval ADR, or if the
+  // readable path stops writing one.
+  const project = (name) =>
+    makeProject({
+      name,
+      zones: [{ id: 'api', paths: ['src/api/**'], agentAuthority: 'proposeOnly' }],
+      adrs: {
+        '0001-starter.adr.md': adrText({
+          id: '0001',
+          sourceHash: schema.hashSource(SOURCE_TEXT),
+          zones: ['api'],
+          laws: [{ id: 'api.starter', statement: 'A starter law.', checks: [] }],
+        }),
+      },
+    })
+  const approvals = (root) => readdirSync(join(root, 'docs', 'adrs')).filter((name) => name.includes('ratify')).length
+  /** Drives one ingest+ratify against a fresh project. `answer` is what the human channel returns; `null` means no channel. */
+  const run = async (name, answer) => {
+    const root = project(name)
+    const asked = []
+    const tool = toolHarness(
+      answer === null
+        ? {}
+        : {
+            ask: async ({ questions }) => {
+              asked.push(questions.map((question) => question.id))
+              return answer(questions)
+            },
+          },
+    ).get('ratchet_ingest_source')
+    const result = await tool.execute(
+      {
+        source: SOURCE_PATH,
+        write: true,
+        ratify: true,
+        ingest: fixtureIngestResult({ zones: ['api'], laws: [{ id: `api.${name}`, statement: `The ${name} law.`, checks: [] }] }),
+      },
+      { agent: { id: `session-${name}`, session: { header: { cwd: root } } } },
+    )
+    return { root, result, asked }
+  }
+
+  // (1) NO QUESTION CHANNEL AT ALL. The ratchet prepares the quiz and reports that it reached
+  // nobody; a deployment without the channel is a fact, not a consent.
+  const noChannel = await run('answer-no-channel', null)
+  assert.equal(
+    noChannel.result.ratify?.askFailed,
+    true,
+    `no channel reports the failure: ${JSON.stringify(noChannel.result.ratify ?? null).slice(0, 240)}`,
+  )
+  assert.deepEqual(noChannel.result.ratified ?? [], [], 'no channel mints nothing')
+  assert.equal(approvals(noChannel.root), 0, 'no approval ADR was written without a human channel')
+
+  // (2) THE ANSWER CANNOT BE READ. The channel is up and the human answered, but the label they
+  // selected is one the ratchet never offered, so nothing may be inferred from it.
+  const unreadable = await run('answer-unreadable', (questions) => ({
+    answers: questions.map((question) => ({ id: question.id, selected: ['Resume'] })),
+  }))
+  assert.ok(unreadable.asked.length >= 1, 'the question was put to the human')
+  assert.deepEqual(unreadable.result.ratified ?? [], [], 'an unreadable answer mints nothing')
+  assert.equal(approvals(unreadable.root), 0, 'and no approval ADR was written for it')
+
+  // (3) CONTROL. The same fixture with a readable answer DOES mint, so (1) and (2) measure the
+  // answer being refused rather than a tool that cannot consent at all.
+  const readable = await run('answer-readable', (questions) => ({
+    answers: questions.map((question) => ({ id: question.id, selected: ['Approve'] })),
+  }))
+  assert.equal(
+    readable.result.ratified?.length,
+    1,
+    `the readable answer minted: ${JSON.stringify(readable.result.ratify ?? null).slice(0, 240)}`,
+  )
+  assert.equal(approvals(readable.root), 1, 'exactly one approval ADR exists, for the readable answer')
+})
+
+// ---------------------------------------------------------------------------
+// the /ratify command: the same operation, reached without a model turn
+// ---------------------------------------------------------------------------
+
 /**
  * Applies the tool adapter against a fake cordis context and returns the command.
  *
