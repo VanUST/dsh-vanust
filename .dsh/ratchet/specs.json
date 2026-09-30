@@ -906,6 +906,27 @@
       "unenforced": null
     },
     {
+      "id": "shipped-plugins.a-judge-is-rediscovered-from-the-session-log",
+      "statement": "A judge pool that holds no child for a session re-discovers the judge that session already created from the session's own durable `subagent/catalog` records and delivers to it, so a pool built by a new process re-attaches to the existing judge instead of creating a second one; only a delivery the runtime refuses replaces the child.",
+      "zones": [
+        "shipped-plugins",
+        "kit-tooling"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0090",
+      "sourcePath": "docs/adrs/0090-ratchet-children-survive-a-restart.adr.md",
+      "approvedBy": "0091",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "a second pool over a session whose log catalogs an existing judge child sends to that child, creates none, and re-sends the whole task with the supersede note; a catalog child the runtime refuses is replaced by exactly one new child",
+          "timeoutMs": 300000
+        }
+      ],
+      "unenforced": null
+    },
+    {
       "id": "shipped-plugins.a-judge-is-reused-across-corpus-changes",
       "statement": "One judge child serves every review a session's root agent runs, and a change to the compiled laws reaches that same child as material that supersedes what it was shown before, so a corpus edit does not create a second judge; only a delivery that fails or a changed judge role replaces the child.",
       "zones": [
@@ -1094,6 +1115,33 @@
           "type": "command",
           "run": "node --test scripts/test-ratchet.mjs",
           "expects": "a call whose registry read is absent, and a call whose answer stopped at max-tokens, both reuse the child instead of spawning a second one",
+          "timeoutMs": 300000
+        }
+      ],
+      "unenforced": null
+    },
+    {
+      "id": "shipped-plugins.a-resolver-child-outlives-its-process",
+      "statement": "Every resolver child a start establishes is recorded in the project's ratchet ledger with its child id, and that id is read back and steered before a start, so a resolver that outlives the process that created it is continued rather than duplicated; a steer the runtime refuses falls back to starting one child.",
+      "zones": [
+        "shipped-plugins",
+        "kit-tooling"
+      ],
+      "authority": "agent",
+      "sourceAdr": "0090",
+      "sourcePath": "docs/adrs/0090-ratchet-children-survive-a-restart.adr.md",
+      "approvedBy": "0091",
+      "checks": [
+        {
+          "type": "command",
+          "run": "node scripts/check-consent-surface.mjs",
+          "expects": "a recorded resolver child is steered by a later dispatch whose registry is empty, a refused steer starts exactly one child, and the child id is written to the ledger",
+          "timeoutMs": 300000
+        },
+        {
+          "type": "command",
+          "run": "node --test scripts/test-ratchet.mjs",
+          "expects": "the resolve ledger round-trips a child id, and a service built over a fresh root reads back the child the earlier one recorded",
           "timeoutMs": 300000
         }
       ],
