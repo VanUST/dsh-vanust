@@ -154,14 +154,19 @@ function exportArchive({ method = 8, name = 'usage_data_2026-09-04_2026-10-03.zi
  * `docs/usage/<month>.html` with synthetic fixture numbers. A test must not be able to write into
  * the product, so no test here can.
  *
+ * `--no-open` is appended unless a test opts in with `allowOpen`. Without it every run of this
+ * suite would launch a browser, and a test suite must not commandeer the desktop.
+ *
  * @param args - Arguments after the script path.
  * @param cwd - Working directory to run in. Defaults to a new temporary directory.
+ * @param options - `{ allowOpen }`; set true only for a test that asserts the opening decision.
  * @returns `{ status, stdout, stderr, cwd }`.
  */
-function run(args, cwd) {
+function run(args, cwd, { allowOpen = false } = {}) {
   const workdir = cwd ?? mkdtempSync(join(tmpdir(), 'usage-cwd-'))
   if (cwd === undefined) roots.push(workdir)
-  const result = spawnSync(process.execPath, [TOOL, ...args], { encoding: 'utf8', cwd: workdir })
+  const argv = allowOpen ? args : [...args, '--no-open']
+  const result = spawnSync(process.execPath, [TOOL, ...argv], { encoding: 'utf8', cwd: workdir })
   return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '', cwd: workdir }
 }
 
@@ -224,6 +229,39 @@ describe('usage pipeline — archive reader', () => {
     const result = run(['--zip', zip])
     assert.equal(result.status, 2)
     assert.match(result.stderr, /holds no CSV/)
+  })
+})
+
+describe('usage pipeline — opening the report', () => {
+  it('tries to launch a browser by default', () => {
+    // The page is the deliverable, so launching is the default. A launcher that does not exist
+    // makes the attempt OBSERVABLE without opening anything: the warning below can only appear
+    // if the open path actually ran. Fails if launching is dropped or becomes opt-in.
+    const { dir, zip } = exportArchive()
+    const result = run(['--zip', zip, '--out', join(dir, 'r.html'), '--open-with', 'no-such-launcher-xyz'], undefined, { allowOpen: true })
+    assert.equal(result.status, 0, result.stderr)
+    assert.match(result.stderr, /no browser launcher found/)
+  })
+
+  it('opens the page by invoking the launcher with the report path', () => {
+    // Uses this interpreter as the launcher: it exists, so the spawn really happens, and it is
+    // harmless because the child is detached with its stdio ignored. Fails if the launcher is
+    // invoked without the report path.
+    const { dir, zip } = exportArchive()
+    const out = join(dir, 'r.html')
+    const result = run(['--zip', zip, '--out', out, '--open-with', process.execPath], undefined, { allowOpen: true })
+    assert.equal(result.status, 0, result.stderr)
+    assert.match(result.stdout, /usage: opening/)
+    assert.ok(result.stdout.includes(out.replace(/\\/g, '\\')), `the report path was not named: ${result.stdout}`)
+  })
+
+  it('--no-open launches nothing and says nothing about a browser', () => {
+    // Fails if the escape hatch stops suppressing the launch, which would make the suite open a
+    // window on every run and make CI depend on a desktop session.
+    const { dir, zip } = exportArchive()
+    const result = run(['--zip', zip, '--out', join(dir, 'r.html'), '--open-with', 'no-such-launcher-xyz'])
+    assert.equal(result.status, 0, result.stderr)
+    assert.ok(!/opening|launcher|browser/i.test(result.stdout + result.stderr), `a browser was mentioned: ${result.stdout}${result.stderr}`)
   })
 })
 

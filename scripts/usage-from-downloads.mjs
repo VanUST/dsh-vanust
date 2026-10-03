@@ -21,12 +21,16 @@
  *   `--pattern <glob>`   Filename pattern to look for. Default `usage_data_*.zip`.
  *   `--out <file>`       Report path. Default `docs/usage/<YYYY-MM>.html`, derived from the export.
  *   `--print`            Also print the report to stdout.
+ *   `--no-open`          Do not launch a browser.
+ *   `--open-with <cmd>`  Use this launcher instead of the platform default (`start` via cmd on
+ *                        Windows, `open` on macOS, `xdg-open` elsewhere).
  *
  * OUTPUTS
- *   Writes the report and prints the resolved paths. Exit 0 on success; 1 when the analysis
- *   refuses (identity material), or when the analyser fails; 2 on a usage error or when no
- *   export is found — naming the directory that was scanned and the pattern that was used, so
- *   "nothing happened" never has to be guessed at.
+ *   Writes the report, prints the resolved paths, and by default opens the page in a browser.
+ *   Exit 0 on success; 1 when the analysis refuses (identity material), or when the analyser
+ *   fails; 2 on a usage error or when no export is found — naming the directory that was
+ *   scanned and the pattern that was used, so "nothing happened" never has to be guessed at.
+ *   A launcher that cannot be found is a warning, not a failure: the report is already on disk.
  *
  * KEYWORDS
  *   usage, cost, downloads, zip, cross-platform, xdg, one command, makefile
@@ -43,10 +47,10 @@
  *   - The temporary extraction directory is always removed, including on failure.
  */
 
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
-import { spawnSync } from 'node:child_process'
+import { delimiter, dirname, join, resolve } from 'node:path'
+import { spawn, spawnSync } from 'node:child_process'
 import { inflateRawSync } from 'node:zlib'
 import { fileURLToPath } from 'node:url'
 
@@ -61,6 +65,8 @@ const USAGE = [
   '  --pattern <glob>   filename pattern to look for (default usage_data_*.zip)',
   '  --out <file>       report path (default docs/usage/<YYYY-MM>.html)',
   '  --print            also print the report to stdout',
+  '  --no-open          do not launch a browser (for scripts and CI)',
+  '  --open-with <cmd>  use this launcher instead of the platform default',
 ].join('\n')
 
 /**
@@ -71,7 +77,7 @@ const USAGE = [
  * @throws On an unknown flag or a flag without a value.
  */
 function parseArgs(argv) {
-  const options = { downloads: null, zip: null, pattern: 'usage_data_*.zip', out: null, print: false }
+  const options = { downloads: null, zip: null, pattern: 'usage_data_*.zip', out: null, print: false, noOpen: false, openWith: null }
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
     const next = () => {
@@ -86,6 +92,8 @@ function parseArgs(argv) {
       case '--pattern': options.pattern = next(); break
       case '--out': options.out = next(); break
       case '--print': options.print = true; break
+      case '--no-open': options.noOpen = true; break
+      case '--open-with': options.openWith = next(); break
       case '--help': options.help = true; break
       default: throw new Error(`unknown argument: ${arg}`)
     }
@@ -229,6 +237,77 @@ function readZip(path) {
 }
 
 /**
+ * Decide whether a command can be run.
+ *
+ * Checked BEFORE spawning so the answer is synchronous. A browser launcher that does not exist
+ * (a headless Linux box with no `xdg-open`) would otherwise fail inside an asynchronous `error`
+ * event that the process may exit before observing, turning "no browser here" into a silent
+ * nothing. A path with a separator is tested directly; a bare name is searched on PATH, with
+ * the platform's executable extensions on Windows.
+ *
+ * @param command - The launcher name or path.
+ * @returns True when something runnable was found.
+ */
+function hasCommand(command) {
+  if (command.includes('/') || command.includes('\\')) return existsSync(command)
+  const extensions = process.platform === 'win32' ? (process.env.PATHEXT ?? '.EXE;.CMD;.BAT').split(';') : ['']
+  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
+    if (dir === '') continue
+    for (const extension of extensions) {
+      try {
+        if (existsSync(join(dir, command + extension))) return true
+      } catch {
+        // An unreadable PATH entry is not a match, and must not stop the search.
+      }
+    }
+  }
+  return false
+}
+
+/**
+ * Open the report in a browser.
+ *
+ * Detached and unref'd because a launcher must not hold this command open: `xdg-open` blocks
+ * until the browser exits, so waiting on it would leave the terminal hanging for as long as the
+ * page is open. A launcher that cannot be found is reported and ignored — the report is already
+ * on disk by then, which is the outcome that matters.
+ *
+ * @param path - Absolute path to the report.
+ * @param custom - A launcher name to use instead of the platform default, or null.
+ * @returns Nothing.
+ */
+function openReport(path, custom) {
+  let command
+  let args
+  if (custom !== null) {
+    command = custom
+    args = []
+  } else if (process.platform === 'win32') {
+    // `start` is a cmd builtin, and its first quoted argument is taken as the window TITLE, so an
+    // empty one is passed before the path or a quoted path would be swallowed as the title.
+    command = 'cmd'
+    args = ['/c', 'start', '']
+  } else if (process.platform === 'darwin') {
+    command = 'open'
+    args = []
+  } else {
+    command = 'xdg-open'
+    args = []
+  }
+
+  if (!hasCommand(command)) {
+    process.stderr.write(`usage: no browser launcher found (${command}) — open ${path} yourself\n`)
+    return
+  }
+  process.stdout.write(`usage: opening ${path}\n`)
+  const child = spawn(command, [...args, path], { detached: true, stdio: 'ignore' })
+  child.on('error', (error) => {
+    process.stderr.write(`usage: could not launch a browser (${error.code ?? error.message}) — open ${path} yourself\n`)
+  })
+  child.unref()
+}
+
+/**
  * Entry point.
  *
  * @returns The process exit code.
@@ -310,6 +389,10 @@ function main() {
     }
     process.stdout.write(`usage: report written to ${resolve(out)}\n`)
     if (options.print) process.stdout.write(`${readFileSync(resolve(out), 'utf8')}\n`)
+    // Launching is the default because the page IS the deliverable: a path printed to a terminal
+    // is a second step the human did not ask for. `--no-open` exists so a script or a CI run is
+    // not made to depend on a desktop session.
+    if (!options.noOpen) openReport(resolve(out), options.openWith)
     return 0
   } finally {
     rmSync(temp, { recursive: true, force: true })

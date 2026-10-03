@@ -13,22 +13,24 @@
 .PHONY: help usage usage-print verify
 
 help:
-	@echo "make usage        newest usage export in Downloads -> docs/usage/<YYYY-MM>.html"
-	@echo "make usage-print  the same, and print the report to stdout"
+	@echo "make usage        newest usage export in Downloads -> docs/usage/<YYYY-MM>.html, opened"
+	@echo "make usage-print  the same, printed to the terminal instead of opened"
 	@echo "make verify       run every check the kit ships"
 	@echo ""
 	@echo "Overrides:"
 	@echo "  make usage DOWNLOADS=/some/dir"
 	@echo "  make usage ZIP=/path/usage_data.zip"
 	@echo "  make usage OUT=docs/usage/2026-10.html"
+	@echo "  make usage NOOPEN=1        write the report without opening a browser"
 
-# One command end to end: scan, extract, redaction-check, write the report.
+# One command end to end: scan, extract, redaction-check, write the report, open it.
 usage:
-	node scripts/usage-from-downloads.mjs $(if $(DOWNLOADS),--downloads "$(DOWNLOADS)") $(if $(ZIP),--zip "$(ZIP)") $(if $(OUT),--out "$(OUT)")
+	node scripts/usage-from-downloads.mjs $(if $(DOWNLOADS),--downloads "$(DOWNLOADS)") $(if $(ZIP),--zip "$(ZIP)") $(if $(OUT),--out "$(OUT)") $(if $(NOOPEN),--no-open,)
 
-# The same run, with the report echoed so it can be read without opening a file.
+# The same run, printed rather than opened: if you are reading it in the terminal, a browser
+# window is not wanted.
 usage-print:
-	node scripts/usage-from-downloads.mjs --print $(if $(DOWNLOADS),--downloads "$(DOWNLOADS)") $(if $(ZIP),--zip "$(ZIP)") $(if $(OUT),--out "$(OUT)")
+	node scripts/usage-from-downloads.mjs --print --no-open $(if $(DOWNLOADS),--downloads "$(DOWNLOADS)") $(if $(ZIP),--zip "$(ZIP)") $(if $(OUT),--out "$(OUT)")
 
 # Every check the kit ships, in the order the deployment documents them.
 # The test list is a make-time wildcard, not a hand-written list: a hand-written one silently
