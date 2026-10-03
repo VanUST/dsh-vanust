@@ -13,14 +13,14 @@
 .PHONY: help usage usage-print verify
 
 help:
-	@echo "make usage        newest usage export in Downloads -> docs/usage/<YYYY-MM>.md"
+	@echo "make usage        newest usage export in Downloads -> docs/usage/<YYYY-MM>.html"
 	@echo "make usage-print  the same, and print the report to stdout"
 	@echo "make verify       run every check the kit ships"
 	@echo ""
 	@echo "Overrides:"
 	@echo "  make usage DOWNLOADS=/some/dir"
 	@echo "  make usage ZIP=/path/usage_data.zip"
-	@echo "  make usage OUT=docs/usage/2026-10.md"
+	@echo "  make usage OUT=docs/usage/2026-10.html"
 
 # One command end to end: scan, extract, redaction-check, write the report.
 usage:

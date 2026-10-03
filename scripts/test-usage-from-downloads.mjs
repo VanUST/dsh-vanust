@@ -151,7 +151,7 @@ function exportArchive({ method = 8, name = 'usage_data_2026-09-04_2026-10-03.zi
  * The working directory is a FRESH TEMPORARY DIRECTORY by default, never the kit. That is
  * load-bearing: the tool's default report path is relative to the working directory, so a test
  * that ran it from the repository root without `--out` overwrote the committed
- * `docs/usage/<month>.md` with synthetic fixture numbers. A test must not be able to write into
+ * `docs/usage/<month>.html` with synthetic fixture numbers. A test must not be able to write into
  * the product, so no test here can.
  *
  * @param args - Arguments after the script path.
@@ -293,8 +293,8 @@ describe('usage pipeline — discovery', () => {
     const { dir, zip } = exportArchive()
     const result = run(['--zip', zip], dir)
     assert.equal(result.status, 0, result.stderr)
-    assert.match(result.stdout, /docs[\\/]usage[\\/]2026-09\.md/)
-    assert.ok(existsSync(join(dir, 'docs', 'usage', '2026-09.md')), 'the default report path was not written under the working directory')
+    assert.match(result.stdout, /docs[\\/]usage[\\/]2026-09\.html/)
+    assert.ok(existsSync(join(dir, 'docs', 'usage', '2026-09.html')), 'the default report path was not written under the working directory')
   })
 
   it('never writes into the kit when run without --out', () => {
@@ -302,7 +302,7 @@ describe('usage pipeline — discovery', () => {
     // relative, so a test run from the repository root silently replaced the committed report
     // with synthetic fixture numbers. Fails if `run` ever defaults its working directory back to
     // the kit — the shipped report would change out from under this assertion.
-    const shipped = join(KIT, 'docs', 'usage', '2026-09.md')
+    const shipped = join(KIT, 'docs', 'usage', '2026-09.html')
     const before = existsSync(shipped) ? readFileSync(shipped, 'utf8') : null
     const { zip } = exportArchive()
     const result = run(['--zip', zip])
@@ -310,6 +310,19 @@ describe('usage pipeline — discovery', () => {
     assert.notEqual(result.cwd, KIT, 'the pipeline ran in the kit, where it can overwrite a shipped report')
     const after = existsSync(shipped) ? readFileSync(shipped, 'utf8') : null
     assert.equal(after, before, 'a test run modified the shipped report')
+  })
+
+  it('writes a standalone HTML page, not markdown', () => {
+    // The shipped artifact is a page a human opens, not a text document. Fails if the pipeline
+    // stops passing --html and starts emitting markdown under an .html name.
+    const { dir, zip } = exportArchive()
+    const out = join(dir, 'report.html')
+    const result = run(['--zip', zip, '--out', out])
+    assert.equal(result.status, 0, result.stderr)
+    const page = readFileSync(out, 'utf8')
+    assert.ok(page.startsWith('<!doctype html>'), 'the report is not an HTML document')
+    assert.match(page, /<title>Usage analysis/)
+    assert.ok(!page.includes('|---'), 'markdown table syntax reached the HTML report')
   })
 
   it('never writes key material into the report it produces', () => {

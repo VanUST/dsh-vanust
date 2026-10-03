@@ -21,6 +21,9 @@
  *   `--out <file>`      Write the report to a file instead of stdout.
  *   `--check`           Do not print the report; exit 0 only when the report contains no
  *                       identity material, and 1 with the offending evidence when it does.
+ *   `--html`            Emit a standalone HTML page instead of markdown. Self-contained: inline
+ *                       CSS, no script, nothing fetched, so it renders the same from disk, from
+ *                       an attachment and through a document preview.
  *   `--json`            Emit the aggregates as JSON instead of markdown.
  *
  * OUTPUTS
@@ -66,13 +69,14 @@ const LEAK_PATTERNS = [
 ]
 
 const USAGE = [
-  'Usage: node scripts/analyze-usage.mjs --dir <extracted-export> [--out <file>] [--check] [--json]',
+  'Usage: node scripts/analyze-usage.mjs --dir <extracted-export> [--out <file>] [--check] [--html|--json]',
   '',
   '  --dir <path>     directory holding cost-*.csv and amount-*.csv',
   '  --cost <file>    explicit cost CSV',
   '  --amount <file>  explicit amount CSV',
   '  --out <file>     write the report here instead of stdout',
   '  --check          exit 0 only when the report carries no identity material',
+  '  --html           emit a standalone HTML page instead of markdown',
   '  --json           emit aggregates as JSON instead of markdown',
 ].join('\n')
 
@@ -84,7 +88,7 @@ const USAGE = [
  * @throws On an unknown flag or a flag without a value.
  */
 function parseArgs(argv) {
-  const options = { dir: null, cost: null, amount: null, out: null, check: false, json: false }
+  const options = { dir: null, cost: null, amount: null, out: null, check: false, json: false, html: false }
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
     const next = () => {
@@ -99,6 +103,7 @@ function parseArgs(argv) {
       case '--amount': options.amount = next(); break
       case '--out': options.out = next(); break
       case '--check': options.check = true; break
+      case '--html': options.html = true; break
       case '--json': options.json = true; break
       case '--help': options.help = true; break
       default: throw new Error(`unknown argument: ${arg}`)
@@ -274,6 +279,162 @@ function renderMarkdown(summary, sources) {
 }
 
 /**
+ * Escape text for HTML.
+ *
+ * Model names, file names and every other value in this report come from a downloaded file, so
+ * a name containing `<script>` must be shown as characters rather than executed as markup. All
+ * five escapable characters are covered, quotes included, so the same helper is safe inside an
+ * attribute as well as in a text node.
+ *
+ * @param value - Any value; coerced with String().
+ * @returns The escaped string.
+ */
+function esc(value) {
+  return String(value).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]))
+}
+
+/**
+ * Render the aggregates as a standalone HTML page.
+ *
+ * Self-contained on purpose: the CSS is inline and nothing is fetched, so the file opens from
+ * the filesystem, from a chat attachment, or through a document preview identically, and it
+ * keeps working with no network. It is a document, not an application, so it carries no script.
+ *
+ * @param summary - The result of {@link aggregate}.
+ * @param sources - `{ cost, amount }` base filenames, for the provenance line.
+ * @returns The page as a string. Carries no identity material by construction, which `--check`
+ *   verifies rather than assumes.
+ */
+function renderHtml(summary, sources) {
+  const money = (n) => `$${n.toFixed(4)}`
+  const num = (n) => n.toLocaleString('en-US')
+  const pct = (part, whole) => (whole > 0 ? ((part / whole) * 100).toFixed(1) : '0.0')
+  const hitShare = summary.totals.tokens > 0 ? (summary.totals.cacheHit / summary.totals.tokens) * 100 : 0
+  const pro = summary.models.find((m) => /pro/.test(m.model))
+  const topCost = summary.models.reduce((max, m) => Math.max(max, m.cost), 0)
+
+  const costRows = summary.models
+    .map((m) => {
+      const width = topCost > 0 ? Math.max(1, (m.cost / topCost) * 100) : 0
+      return `<tr>
+        <td><code>${esc(m.model)}</code></td>
+        <td class="n">${esc(money(m.cost))}</td>
+        <td class="n">${esc(pct(m.cost, summary.totalCost))}%</td>
+        <td class="bar-cell"><span class="bar" style="width:${width.toFixed(1)}%"></span></td>
+      </tr>`
+    })
+    .join('\n')
+
+  const tokenRows = summary.models
+    .map(
+      (m) => `<tr>
+        <td><code>${esc(m.model)}</code></td>
+        <td class="n">${esc(num(m.requests))}</td>
+        <td class="n">${esc(num(m.cacheHit))}</td>
+        <td class="n">${esc(num(m.cacheMiss))}</td>
+        <td class="n">${esc(num(m.output))}</td>
+        <td class="n">${esc(num(m.billable))}</td>
+      </tr>`,
+    )
+    .join('\n')
+
+  const findings = [
+    `<strong>${esc(hitShare.toFixed(1))}% of all tokens were cache hits</strong> — ${esc(num(summary.totals.cacheHit))} of ${esc(num(summary.totals.tokens))}. The cost lever is therefore cache behaviour, not raw token volume: only ${esc(num(summary.totals.billable))} tokens were billed at the full rate.`,
+  ]
+  if (pro !== undefined) {
+    findings.push(
+      `<strong>The non-Flash tier accounted for ${esc(pct(pro.cost, summary.totalCost))}% of spend (${esc(money(pro.cost))}).</strong> The Flash-only policy is a predictability and blast-radius control on this data, not a large saving: the tier it forbids was already a rounding error by spend.`,
+    )
+  }
+  const nonFlash = summary.models.filter((m) => !/flash|pro/.test(m.model))
+  if (nonFlash.length > 0) findings.push(`Models outside the Flash and pro classes: ${nonFlash.map((m) => `<code>${esc(m.model)}</code>`).join(', ')}.`)
+  findings.push(`The export referenced ${esc(summary.keyCount)} distinct API key name(s). This report deliberately does not say which.`)
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Usage analysis ${esc(summary.period.from ?? '')} — ${esc(summary.period.to ?? '')}</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 32px 24px 64px; background: #14141a; color: #e8e8ec;
+         font: 14px/1.6 ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; }
+  main { max-width: 1040px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .period { color: #9a9aa8; font-size: 13px; margin-bottom: 24px; }
+  h2 { font-size: 15px; margin: 36px 0 12px; color: #cfcfe0; text-transform: uppercase; letter-spacing: 0.06em; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+  .kpi { background: #1c1c24; border: 1px solid #2c2c38; border-radius: 10px; padding: 14px 16px; }
+  .kpi .v { font-size: 24px; font-weight: 650; letter-spacing: -0.02em; }
+  .kpi .l { color: #9a9aa8; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 4px; }
+  .kpi .n { color: #7d7d8c; font-size: 12px; margin-top: 6px; }
+  table { width: 100%; border-collapse: collapse; background: #1c1c24; border: 1px solid #2c2c38; border-radius: 10px; overflow: hidden; }
+  th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid #26262f; }
+  th { color: #9a9aa8; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+  tr:last-child td { border-bottom: 0; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  tbody tr.total td { font-weight: 650; background: #22222c; }
+  code { font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: #b9d2ff; }
+  .bar-cell { width: 26%; }
+  .bar { display: block; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #5aa0ff, #8f7dff); min-width: 2px; }
+  ul { padding-left: 18px; }
+  li { margin-bottom: 8px; }
+  footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #26262f; color: #7d7d8c; font-size: 12px; }
+  footer code { color: #9a9aa8; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Usage analysis</h1>
+  <div class="period">${esc(summary.period.from ?? 'unknown')} → ${esc(summary.period.to ?? 'unknown')}</div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="v">${esc(money(summary.totalCost))}</div><div class="l">total spend</div><div class="n">${esc(String(summary.models.length))} model(s)</div></div>
+    <div class="kpi"><div class="v">${esc(num(summary.totals.requests))}</div><div class="l">requests</div></div>
+    <div class="kpi"><div class="v">${esc(hitShare.toFixed(1))}%</div><div class="l">cache-hit tokens</div><div class="n">${esc(num(summary.totals.cacheHit))} of ${esc(num(summary.totals.tokens))}</div></div>
+    <div class="kpi"><div class="v">${esc(num(summary.totals.billable))}</div><div class="l">billable tokens</div><div class="n">cache-miss + output</div></div>
+  </div>
+
+  <h2>Cost by model</h2>
+  <table>
+    <thead><tr><th>model</th><th class="n">cost (USD)</th><th class="n">share</th><th></th></tr></thead>
+    <tbody>
+${costRows}
+      <tr class="total"><td>total</td><td class="n">${esc(money(summary.totalCost))}</td><td class="n">100%</td><td class="bar-cell"></td></tr>
+    </tbody>
+  </table>
+
+  <h2>Tokens and requests by model</h2>
+  <table>
+    <thead><tr><th>model</th><th class="n">requests</th><th class="n">input cache-hit</th><th class="n">input cache-miss</th><th class="n">output</th><th class="n">billable</th></tr></thead>
+    <tbody>
+${tokenRows}
+      <tr class="total"><td>total</td><td class="n">${esc(num(summary.totals.requests))}</td><td class="n">${esc(num(summary.totals.cacheHit))}</td><td class="n">${esc(num(summary.totals.cacheMiss))}</td><td class="n">${esc(num(summary.totals.output))}</td><td class="n">${esc(num(summary.totals.billable))}</td></tr>
+    </tbody>
+  </table>
+
+  <h2>What the data says</h2>
+  <ul>
+${findings.map((f) => `    <li>${f}</li>`).join('\n')}
+  </ul>
+
+  <footer>
+    Aggregated from a DeepSeek platform usage export: <code>${esc(sources.cost)}</code>,
+    <code>${esc(sources.amount)}</code>. The export files are not in this repository — they carry
+    an account id, partially masked API key strings and the key names in use, none of which a cost
+    report needs. Reproduce this page with
+    <code>node scripts/usage-from-downloads.mjs</code>, or
+    <code>node scripts/analyze-usage.mjs --dir &lt;extracted-export&gt; --html</code>.
+  </footer>
+</main>
+</body>
+</html>
+`
+}
+
+/**
  * Find identity material in rendered text.
  *
  * @param text - The report about to be emitted.
@@ -340,7 +501,11 @@ function main() {
   const amount = readExport(amountPath)
   const summary = aggregate(cost.rows, amount.rows, amount.distinctKeys)
   const sources = { cost: basename(costPath), amount: basename(amountPath) }
-  const text = options.json ? `${JSON.stringify(summary, null, 2)}\n` : renderMarkdown(summary, sources)
+  const text = options.json
+    ? `${JSON.stringify(summary, null, 2)}\n`
+    : options.html
+      ? renderHtml(summary, sources)
+      : renderMarkdown(summary, sources)
 
   const leaks = findLeaks(text)
   if (options.check) {

@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Usage analysis 2026-09-04T00:00:00+03:00 — 2026-10-04T00:00:00+03:00</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 32px 24px 64px; background: #14141a; color: #e8e8ec;
+         font: 14px/1.6 ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; }
+  main { max-width: 1040px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .period { color: #9a9aa8; font-size: 13px; margin-bottom: 24px; }
+  h2 { font-size: 15px; margin: 36px 0 12px; color: #cfcfe0; text-transform: uppercase; letter-spacing: 0.06em; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+  .kpi { background: #1c1c24; border: 1px solid #2c2c38; border-radius: 10px; padding: 14px 16px; }
+  .kpi .v { font-size: 24px; font-weight: 650; letter-spacing: -0.02em; }
+  .kpi .l { color: #9a9aa8; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 4px; }
+  .kpi .n { color: #7d7d8c; font-size: 12px; margin-top: 6px; }
+  table { width: 100%; border-collapse: collapse; background: #1c1c24; border: 1px solid #2c2c38; border-radius: 10px; overflow: hidden; }
+  th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid #26262f; }
+  th { color: #9a9aa8; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+  tr:last-child td { border-bottom: 0; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  tbody tr.total td { font-weight: 650; background: #22222c; }
+  code { font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: #b9d2ff; }
+  .bar-cell { width: 26%; }
+  .bar { display: block; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #5aa0ff, #8f7dff); min-width: 2px; }
+  ul { padding-left: 18px; }
+  li { margin-bottom: 8px; }
+  footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #26262f; color: #7d7d8c; font-size: 12px; }
+  footer code { color: #9a9aa8; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Usage analysis</h1>
+  <div class="period">2026-09-04T00:00:00+03:00 → 2026-10-04T00:00:00+03:00</div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="v">$897.2388</div><div class="l">total spend</div><div class="n">4 model(s)</div></div>
+    <div class="kpi"><div class="v">93,061</div><div class="l">requests</div></div>
+    <div class="kpi"><div class="v">98.8%</div><div class="l">cache-hit tokens</div><div class="n">25,044,559,088 of 25,343,875,817</div></div>
+    <div class="kpi"><div class="v">299,316,729</div><div class="l">billable tokens</div><div class="n">cache-miss + output</div></div>
+  </div>
+
+  <h2>Cost by model</h2>
+  <table>
+    <thead><tr><th>model</th><th class="n">cost (USD)</th><th class="n">share</th><th></th></tr></thead>
+    <tbody>
+<tr>
+        <td><code>deepseek-flash</code></td>
+        <td class="n">$851.8556</td>
+        <td class="n">94.9%</td>
+        <td class="bar-cell"><span class="bar" style="width:100.0%"></span></td>
+      </tr>
+<tr>
+        <td><code>deepseek-v4-flash</code></td>
+        <td class="n">$33.6521</td>
+        <td class="n">3.8%</td>
+        <td class="bar-cell"><span class="bar" style="width:4.0%"></span></td>
+      </tr>
+<tr>
+        <td><code>deepseek-v4-pro</code></td>
+        <td class="n">$7.3105</td>
+        <td class="n">0.8%</td>
+        <td class="bar-cell"><span class="bar" style="width:1.0%"></span></td>
+      </tr>
+<tr>
+        <td><code>deepseek-v4-flash-vision-exp</code></td>
+        <td class="n">$4.4206</td>
+        <td class="n">0.5%</td>
+        <td class="bar-cell"><span class="bar" style="width:1.0%"></span></td>
+      </tr>
+      <tr class="total"><td>total</td><td class="n">$897.2388</td><td class="n">100%</td><td class="bar-cell"></td></tr>
+    </tbody>
+  </table>
+
+  <h2>Tokens and requests by model</h2>
+  <table>
+    <thead><tr><th>model</th><th class="n">requests</th><th class="n">input cache-hit</th><th class="n">input cache-miss</th><th class="n">output</th><th class="n">billable</th></tr></thead>
+    <tbody>
+<tr>
+        <td><code>deepseek-flash</code></td>
+        <td class="n">82,107</td>
+        <td class="n">22,464,523,632</td>
+        <td class="n">197,857,564</td>
+        <td class="n">75,845,235</td>
+        <td class="n">273,702,799</td>
+      </tr>
+<tr>
+        <td><code>deepseek-v4-flash</code></td>
+        <td class="n">8,595</td>
+        <td class="n">2,275,462,144</td>
+        <td class="n">13,278,838</td>
+        <td class="n">7,124,892</td>
+        <td class="n">20,403,730</td>
+      </tr>
+<tr>
+        <td><code>deepseek-v4-pro</code></td>
+        <td class="n">671</td>
+        <td class="n">99,639,296</td>
+        <td class="n">910,538</td>
+        <td class="n">849,913</td>
+        <td class="n">1,760,451</td>
+      </tr>
+<tr>
+        <td><code>deepseek-v4-flash-vision-exp</code></td>
+        <td class="n">1,688</td>
+        <td class="n">204,934,016</td>
+        <td class="n">2,216,763</td>
+        <td class="n">1,232,986</td>
+        <td class="n">3,449,749</td>
+      </tr>
+      <tr class="total"><td>total</td><td class="n">93,061</td><td class="n">25,044,559,088</td><td class="n">214,263,703</td><td class="n">85,053,026</td><td class="n">299,316,729</td></tr>
+    </tbody>
+  </table>
+
+  <h2>What the data says</h2>
+  <ul>
+    <li><strong>98.8% of all tokens were cache hits</strong> — 25,044,559,088 of 25,343,875,817. The cost lever is therefore cache behaviour, not raw token volume: only 299,316,729 tokens were billed at the full rate.</li>
+    <li><strong>The non-Flash tier accounted for 0.8% of spend ($7.3105).</strong> The Flash-only policy is a predictability and blast-radius control on this data, not a large saving: the tier it forbids was already a rounding error by spend.</li>
+    <li>The export referenced 5 distinct API key name(s). This report deliberately does not say which.</li>
+  </ul>
+
+  <footer>
+    Aggregated from a DeepSeek platform usage export: <code>cost-2026-09-04_2026-10-03.csv</code>,
+    <code>amount-2026-09-04_2026-10-03.csv</code>. The export files are not in this repository — they carry
+    an account id, partially masked API key strings and the key names in use, none of which a cost
+    report needs. Reproduce this page with
+    <code>node scripts/usage-from-downloads.mjs</code>, or
+    <code>node scripts/analyze-usage.mjs --dir &lt;extracted-export&gt; --html</code>.
+  </footer>
+</main>
+</body>
+</html>

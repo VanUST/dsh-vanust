@@ -19,7 +19,7 @@
  *                        on Windows, `~/Downloads` elsewhere.
  *   `--zip <file>`       Use this archive instead of scanning.
  *   `--pattern <glob>`   Filename pattern to look for. Default `usage_data_*.zip`.
- *   `--out <file>`       Report path. Default `docs/usage/<YYYY-MM>.md`, derived from the export.
+ *   `--out <file>`       Report path. Default `docs/usage/<YYYY-MM>.html`, derived from the export.
  *   `--print`            Also print the report to stdout.
  *
  * OUTPUTS
@@ -59,7 +59,7 @@ const USAGE = [
   '  --downloads <dir>  directory to scan (default: this machine\'s Downloads folder)',
   '  --zip <file>       use this archive instead of scanning',
   '  --pattern <glob>   filename pattern to look for (default usage_data_*.zip)',
-  '  --out <file>       report path (default docs/usage/<YYYY-MM>.md)',
+  '  --out <file>       report path (default docs/usage/<YYYY-MM>.html)',
   '  --print            also print the report to stdout',
 ].join('\n')
 
@@ -300,10 +300,10 @@ function main() {
     let out = options.out
     if (out === null) {
       const stamp = /(\d{4})-(\d{2})-\d{2}/.exec(archive.split(/[\\/]/).pop())
-      out = join('docs', 'usage', `${stamp === null ? 'usage' : `${stamp[1]}-${stamp[2]}`}.md`)
+      out = join('docs', 'usage', `${stamp === null ? 'usage' : `${stamp[1]}-${stamp[2]}`}.html`)
     }
     mkdirSync(dirname(resolve(out)), { recursive: true })
-    const write = spawnSync(process.execPath, [ANALYZER, '--dir', temp, '--out', out, ...(options.print ? [] : [])], { encoding: 'utf8' })
+    const write = spawnSync(process.execPath, [ANALYZER, '--dir', temp, '--html', '--out', out], { encoding: 'utf8' })
     if (write.status !== 0) {
       process.stderr.write(write.stderr || 'usage: the analyser failed\n')
       return 1

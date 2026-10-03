@@ -257,7 +257,11 @@ make usage
 
 That is the whole procedure. It finds the newest `usage_data_*.zip` in your Downloads
 folder, extracts it, checks the result for leaked identity material, and writes
-`docs/usage/<YYYY-MM>.md`. Nothing is unzipped by hand and no path is typed.
+`docs/usage/<YYYY-MM>.html`. Nothing is unzipped by hand and no path is typed.
+
+The report is a **self-contained HTML page**, not a text document: the CSS is inline, there
+is no script and nothing is fetched, so it renders the same opened from disk, sent as an
+attachment, or shown in a document preview — with no network.
 
 **`make` is not required** — every target is a thin alias for the `node` command under it,
 and `make` is not installed by default on Windows:

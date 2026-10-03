@@ -182,6 +182,30 @@ describe('usage analysis redaction', () => {
     assert.equal(parsed.totals.cacheHit, 1000000)
   })
 
+  it('emits a standalone HTML page with no script and nothing fetched', () => {
+    // The shipped report is a page that must open from disk, from an attachment and through a
+    // document preview with no network. Fails if a script tag, a stylesheet link or a remote URL
+    // is ever added to it.
+    const dir = exportDir()
+    const { status, stdout } = run(['--dir', dir, '--html'])
+    assert.equal(status, 0)
+    assert.ok(stdout.startsWith('<!doctype html>'), 'the page does not begin with a doctype')
+    assert.ok(!/<script|<link|src=|@import|url\(/i.test(stdout), 'the page is not self-contained')
+    assert.match(stdout, /deepseek-flash/)
+    assert.match(stdout, /\$12\.75/) // 10.5 + 2.25, summed by hand
+  })
+
+  it('escapes a model name instead of rendering it as markup', () => {
+    // The model name is read from a downloaded file and interpolated into a page, so it is
+    // attacker-controlled as far as this renderer knows. Fails if it is emitted raw, which would
+    // let a crafted export inject markup into the report a human opens.
+    const dir = exportDir('<script>alert(1)</script>')
+    const { status, stdout } = run(['--dir', dir, '--html'])
+    assert.equal(status, 0)
+    assert.ok(!stdout.includes('<script>'), 'a script tag reached the page')
+    assert.match(stdout, /&lt;script&gt;/, 'the name was dropped rather than escaped')
+  })
+
   it('writes to --out and leaves stdout for the confirmation', () => {
     const dir = exportDir()
     const out = join(dir, 'report.md')
