@@ -246,6 +246,40 @@ writes the same `$DSH_HOME/cordis.patch.yml`. The sync **refuses rather than
 merges** when it finds entries it did not write, so you will get a named refusal
 telling you which file to reconcile — not a silently deleted entry.
 
+## 3.4 Usage analysis: one command
+
+Section 8 of the agent's rules justifies the Flash-only model policy with a measured
+usage analysis. To refresh it from a fresh platform export:
+
+```bash
+make usage
+```
+
+That is the whole procedure. It finds the newest `usage_data_*.zip` in your Downloads
+folder, extracts it, checks the result for leaked identity material, and writes
+`docs/usage/<YYYY-MM>.md`. Nothing is unzipped by hand and no path is typed.
+
+**`make` is not required** — every target is a thin alias for the `node` command under it,
+and `make` is not installed by default on Windows:
+
+```bash
+node scripts/usage-from-downloads.mjs                 # scan this machine's Downloads
+node scripts/usage-from-downloads.mjs --print         # the same, and echo the report
+node scripts/usage-from-downloads.mjs --downloads /some/dir
+node scripts/usage-from-downloads.mjs --zip /path/usage_data.zip
+```
+
+The download folder is resolved per platform: `%USERPROFILE%\Downloads` on Windows and
+`$XDG_DOWNLOAD_DIR` (falling back to `~/Downloads`) on Linux. If several exports are
+present the newest by modification time wins, and the run says how many it considered.
+
+**The export files themselves are never committed.** They carry your account id,
+partially masked API key strings and the names of the keys in use, and this repository is
+public — so the tool drops those columns at the parse boundary and then re-reads its own
+output, refusing to emit a report that still contains key-shaped material, a UUID or a
+credential header. `make verify` runs that refusal as a test, including the case that
+proves the refusal *can* fire.
+
 ## 4. Per-machine configuration
 
 | Item | Linux | Windows |
