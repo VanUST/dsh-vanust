@@ -738,6 +738,45 @@ for (const dir of ['plugins/specs', 'plugins/dsh-context', 'plugins/kit-rules', 
   }
 }
 
+// ── the window's slot list must agree with the catalogue that ENFORCES it ───
+// The panel reports which slots only a global item may fill, so a human sees a refusal
+// before saving; `@cc/dsh-specs`'s catalogue is what actually refuses. Two copies of that
+// list would drift into a window that promises an item will reach the prompt while the
+// loader drops it, which is exactly the failure the badge exists to prevent. So they are
+// compared here rather than trusted.
+{
+  const catalogue = join(KIT, 'plugins', 'specs', 'specs-catalogue.mjs')
+  const panel = join(KIT, 'plugins', 'dsh-adr-panel', 'index.js')
+  let problems = []
+  try {
+    const catalogueText = readFileSync(catalogue, 'utf8')
+    const panelText = readFileSync(panel, 'utf8')
+    // Every slot whose `authors` is exactly `['global']` in the catalogue...
+    const globalOnly = [...catalogueText.matchAll(/(\w[\w-]*|'[\w-]+'):\s*\{[^}]*authors:\s*\['global'\]/g)].map((match) =>
+      match[1].replace(/^'|'$/g, ''),
+    )
+    // ...must be listed in the panel's own constant, and nothing else there.
+    const listed = /GLOBAL_ONLY_SLOTS\s*=\s*\[([^\]]*)\]/.exec(panelText)
+    if (listed === null) {
+      problems.push('plugins/dsh-adr-panel/index.js declares no GLOBAL_ONLY_SLOTS list')
+    } else {
+      const declared = [...listed[1].matchAll(/'([^']+)'/g)].map((match) => match[1]).sort()
+      const expected = [...globalOnly].sort()
+      if (declared.join(',') !== expected.join(',')) {
+        problems.push(`the panel's global-only slots ${JSON.stringify(declared)} disagree with the catalogue's ${JSON.stringify(expected)}`)
+      }
+      if (expected.length === 0) problems.push('the catalogue declares NO global-only slot, which cannot be right')
+    }
+  } catch (error) {
+    problems.push(`could not compare the panel's slot list with the catalogue: ${String(error)}`)
+  }
+  check(
+    'panel:slot-list-matches-the-catalogue',
+    problems.length === 0,
+    problems.length === 0 ? "the panel's global-only slots are the catalogue's own" : problems.join(' | '),
+  )
+}
+
 // ── an id the deployment GENERATES must not spell an id somebody AUTHORED ───
 // Measured 2026-09-28, and the reason this check exists: the sync materialized a row whose id
 // was the SERVER's id (`godot-mcp`) while the kit's own plugin row — whose loader id is its

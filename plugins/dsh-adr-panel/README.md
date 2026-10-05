@@ -3,7 +3,9 @@
 A standalone Web-UI plugin for DeepSeek Harness. Its name is historical: it began as a
 window on architecture decision records, and it is now the deployment's **spec editor**.
 It adds a **button to the Session header** labelled **Specs** that opens a **frame-wide
-overlay**: the project's spec documents (`docs/specs/*.md`) are listed, one opens in a
+overlay**: spec items are listed for the chosen SCOPE — the GLOBAL items every agent
+receives (`<harness home>/specs/*.md`) or the LOCAL ones this project's agents receive
+(`docs/specs/*.md`) — one opens in a
 text editor, and specs are saved, created and deleted from there.
 
 **It renders no decisions and mints no consent.** There is no ratification surface, no
@@ -22,9 +24,11 @@ One capability-fenced route, `<SPECS_ROUTE>` = `/adr-panel/specs`:
 
 | Request | Answer |
 |---|---|
-| `GET ?session=<id>` | `{ ok, project, specs: [{ file, title, status, body }] }` |
-| `POST { session, file, content }` | writes (creates or overwrites) one spec |
-| `POST { session, file, remove: true }` | deletes one spec, or reports `removed: false` |
+| `GET ?session=<id>&scope=global\|local` | `{ ok, scope, project, dir, specs: [{ file, title, status, slot, order, scope, body }] }` |
+| `GET ?session=<id>&catalogue=1` | `{ ok, project, home, global, local, effective, problems }` — every active item from both scopes in render order, excluding the ones the loader refuses, with each refusal named |
+| `POST { session, scope, file, content }` | writes (creates or overwrites) one item |
+| `POST { session, scope, file, remove: true }` | deletes one item, or reports `removed: false` |
+| `POST { session, scope, files: [{ file, content }] }` | writes a BATCH: every entry is validated before any is written, so one bad name cannot leave half a save on disk |
 
 Every request carries the `<SPECS_HEADER>` capability (`x-adr-panel-specs`), whose token
 is minted per activation with `randomBytes`, held in memory, published only as the index
@@ -47,7 +51,10 @@ or written; only then is the project resolved. The route reaches three services 
 
 The route is storage and transport only. It compiles nothing, verifies nothing, records
 nothing and keeps no ledger. The one thing it does beyond moving bytes is refuse to
-touch a path outside `<project>/docs/specs`:
+touch a path outside the chosen scope's directory. Scope is named, never pathed: the host
+resolves `global` from the environment the server was started with, so a Session cannot
+point the global scope at a directory of its choosing — which would let one project write
+into every other project's prompt:
 
 - `file` must match a bare markdown filename (`^[A-Za-z0-9._-]{1,120}\.md$`), so a
   separator, a drive letter, `..` or an empty string is refused `400` — a path escape
@@ -61,7 +68,7 @@ touch a path outside `<project>/docs/specs`:
 - A returned body is capped at 200,000 characters so one huge file cannot wedge the
   window.
 
-`docs/specs` missing is not an error: `GET` answers an empty list and `POST` creates the
+A scope directory missing is not an error: `GET` answers an empty list and `POST` creates the
 directory.
 
 ## The browser half (`client.js`)
@@ -87,7 +94,7 @@ message and offers Retry.
 
 | File | Role |
 |---|---|
-| `index.js` | Host half: registers the read-only GET and the writing POST of `/adr-panel/specs` on `webServer`, guards both with `connection.requestRejection` and a per-activation capability, and constrains every write to `<project>/docs/specs`. It derives no state and writes no artifact of its own beyond the requested spec file. |
+| `index.js` | Host half: registers the GET and the writing POST (single or batch) of `/adr-panel/specs` on `webServer`, guards both with `connection.requestRejection` and a per-activation capability, resolves the requested scope's directory itself, and constrains every write to it. It derives no state and writes no artifact of its own beyond the requested item. |
 | `client.js` | The hand-written browser bundle (`window.__ModuleLoader__.load`), no build step. It mounts the Session-header button and the overlay, fetches the route and writes through it; it derives nothing about a spec's meaning. |
 | `package.json` | `main: index.js`, `exports` for `.` and `./client`, and `dsh.client = { platform: "web", inject: [...] }`. |
 

@@ -1,7 +1,13 @@
 /**
  * PURPOSE
  *   Browser half of the ADR panel: a Session-header button labelled SPECS that opens a
- *   frame-wide overlay for reading and writing a project's spec documents.
+ *   frame-wide overlay for reading and writing spec items in either scope - the GLOBAL
+ *   items every agent receives, or the LOCAL ones this project's agents receive. The scope
+ *   switch chooses which directory the list reads and a save writes; "Save all" sends the
+ *   edited items as ONE batch, so several edits land in a single prompt revision; and the
+ *   panel at the foot of the window lists the EFFECTIVE items in render order, marking the
+ *   ones the loader will refuse, so a requirement that reaches no prompt is visible before
+ *   the human walks away from it.
  *
  *   This is the whole UI. There is no ratification surface, no consent, no decision queue,
  *   no law view and no resolve action, because none of those mechanisms exist in this
@@ -169,6 +175,34 @@ window.__ModuleLoader__.load({
       btnDanger: { borderColor: 'rgba(255,120,120,0.5)', color: '#ff9d9d' },
       empty: { opacity: 0.6, padding: '10px' },
       warn: { color: '#ffcf7a', fontSize: '12px' },
+      tab: {
+        padding: '5px 10px',
+        borderRadius: '6px',
+        border: '1px solid rgba(127,127,127,0.35)',
+        background: 'transparent',
+        color: 'inherit',
+        cursor: 'pointer',
+        font: 'inherit',
+      },
+      tabOn: { borderColor: 'rgba(90,160,255,0.7)', color: '#9dc4ff', background: 'rgba(90,160,255,0.08)' },
+      badge: {
+        fontSize: '11px',
+        padding: '1px 6px',
+        borderRadius: '999px',
+        border: '1px solid rgba(127,127,127,0.35)',
+        opacity: 0.85,
+      },
+      badgeGlobal: { borderColor: 'rgba(90,160,255,0.5)', color: '#9dc4ff' },
+      badgeRefused: { borderColor: 'rgba(255,120,120,0.55)', color: '#ff9d9d' },
+      effective: {
+        marginTop: '10px',
+        borderTop: '1px solid rgba(127,127,127,0.25)',
+        paddingTop: '8px',
+        maxHeight: '190px',
+        overflow: 'auto',
+        font: '12px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace',
+      },
+      effectiveRow: { display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' },
     }
 
     /**
@@ -219,6 +253,20 @@ window.__ModuleLoader__.load({
       var busyState = React.useState(false)
       var busy = busyState[0]
       var setBusy = busyState[1]
+      // `global` reaches every agent on this machine; `local` is this Session's project.
+      // The switch is a data decision, not a view one: it changes which directory the list
+      // reads and which one a save writes.
+      var scopeState = React.useState('local')
+      var scope = scopeState[0]
+      var setScope = scopeState[1]
+      var viewState = React.useState(null)
+      var effectiveView = viewState[0]
+      var setEffectiveView = viewState[1]
+      // filename -> edited body, so "Save all" can send a real BATCH rather than one request
+      // per item. A batch is what makes several edits land in one prompt revision.
+      var draftsState = React.useState({})
+      var drafts = draftsState[0]
+      var setDrafts = draftsState[1]
 
       var sessionId = typeof props.sessionId === 'string' && props.sessionId.length > 0 ? props.sessionId : null
 
@@ -227,10 +275,14 @@ window.__ModuleLoader__.load({
        *
        * @returns Nothing; the outcome lands in state.
        */
-      function load() {
+      function load(which) {
         if (cap === null || sessionId === null) return
+        var wanted = which === undefined ? scope : which
         setData({ loading: true, error: null, specs: [] })
-        fetch(cap.route + '?session=' + encodeURIComponent(sessionId), { headers: headersFor(cap) })
+        fetch(
+          cap.route + '?session=' + encodeURIComponent(sessionId) + '&scope=' + encodeURIComponent(wanted),
+          { headers: headersFor(cap) },
+        )
           .then(function (response) {
             return response.json().then(function (body) {
               return { ok: response.ok, body: body }
@@ -241,7 +293,7 @@ window.__ModuleLoader__.load({
               setData({ loading: false, error: (result.body && result.body.message) || 'the specs route refused the request', specs: [] })
               return
             }
-            setData({ loading: false, error: null, specs: result.body.specs || [] })
+            setData({ loading: false, error: null, specs: result.body.specs || [], dir: result.body.dir || null })
           })
           .catch(function (error) {
             setData({ loading: false, error: String(error && error.message ? error.message : error), specs: [] })
@@ -253,7 +305,33 @@ window.__ModuleLoader__.load({
       // the previous project's specs.
       React.useEffect(function () {
         load()
-      }, [cap === null ? null : cap.route, sessionId])
+      }, [cap === null ? null : cap.route, sessionId, scope])
+
+      /**
+       * Read the EFFECTIVE catalogue: both scopes, in the order the prompt renders them,
+       * with the items the loader will refuse named.
+       *
+       * @returns Nothing; the outcome lands in state.
+       */
+      function loadEffective() {
+        if (cap === null || sessionId === null) return
+        fetch(cap.route + '?session=' + encodeURIComponent(sessionId) + '&catalogue=1', { headers: headersFor(cap) })
+          .then(function (response) {
+            return response.json()
+          })
+          .then(function (body) {
+            setEffectiveView(body && body.ok === true ? body : null)
+          })
+          .catch(function () {
+            setEffectiveView(null)
+          })
+      }
+
+      // The effective view is re-read whenever the listing is, so it cannot disagree with
+      // the rows beside it.
+      React.useEffect(function () {
+        loadEffective()
+      }, [cap === null ? null : cap.route, sessionId, data])
 
       /**
        * Send one write or delete request.
@@ -271,7 +349,7 @@ window.__ModuleLoader__.load({
         fetch(cap.route, {
           method: 'POST',
           headers: Object.assign({ 'content-type': 'application/json' }, headersFor(cap)),
-          body: JSON.stringify(Object.assign({ session: sessionId }, payload)),
+          body: JSON.stringify(Object.assign({ session: sessionId, scope: scope }, payload)),
         })
           .then(function (response) {
             return response.json().then(function (body) {
@@ -300,6 +378,12 @@ window.__ModuleLoader__.load({
         setDraft(spec.body || '')
       }
 
+      /** Remember the open draft against its file, for the batch save. */
+      function edit(value) {
+        setDraft(value)
+        if (selected !== null) setDrafts(Object.assign({}, drafts, { [selected.file]: value }))
+      }
+
       /**
        * Create a new spec from the name field.
        *
@@ -314,7 +398,8 @@ window.__ModuleLoader__.load({
           setData({ loading: false, error: 'type a spec name first, then press Create', specs: data.specs })
           return
         }
-        var file = name.toLowerCase().endsWith('.md') ? name : name + '.spec.md'
+        var base = name.toLowerCase().endsWith('.md') ? name : scope === 'global' ? name + '.md' : name + '.spec.md'
+        var file = base
         var content = NEW_SPEC_TEMPLATE.replace('Untitled spec', name.replace(/\.md$/i, ''))
         post({ file: file, content: content }, function (outcome) {
           if (outcome.ok) {
@@ -336,6 +421,34 @@ window.__ModuleLoader__.load({
         if (selected === null) return
         post({ file: selected.file, content: draft }, function (outcome) {
           if (!outcome.ok) setData({ loading: false, error: outcome.message || 'could not save', specs: data.specs })
+          else setDrafts(Object.assign({}, drafts, { [selected.file]: draft }))
+        })
+      }
+
+      /**
+       * Save every edited item in the current scope in ONE request.
+       *
+       * The host validates the whole batch before writing any of it, so a single bad name
+       * cannot leave half the edits saved — and because the prompt reads one catalogue
+       * snapshot, the whole batch reaches the next assembly together.
+       *
+       * @returns Nothing.
+       */
+      function saveAll() {
+        var files = Object.keys(drafts)
+          .filter(function (file) {
+            return drafts[file] !== null && drafts[file] !== undefined
+          })
+          .map(function (file) {
+            return { file: file, content: drafts[file] }
+          })
+        if (files.length === 0) {
+          setData({ loading: false, error: 'nothing to save: edit an item first', specs: data.specs })
+          return
+        }
+        post({ files: files }, function (outcome) {
+          if (outcome.ok) setDrafts({})
+          else setData({ loading: false, error: outcome.message || 'could not save the batch', specs: data.specs })
         })
       }
 
@@ -357,8 +470,18 @@ window.__ModuleLoader__.load({
         })
       }
 
+      // A refusal the loader will make is shown ON the row: an item that saves cleanly and
+      // then reaches no prompt is the one failure a human cannot notice by looking at disk.
+      var refused = {}
+      if (effectiveView !== null && Array.isArray(effectiveView.problems)) {
+        effectiveView.problems.forEach(function (problem) {
+          refused[problem.scope + '/' + problem.file] = problem.why
+        })
+      }
+
       var rows = data.specs.map(function (spec) {
         var active = selected !== null && selected.file === spec.file
+        var why = refused[spec.scope + '/' + spec.file] || null
         return h(
           'button',
           {
@@ -370,9 +493,77 @@ window.__ModuleLoader__.load({
             },
           },
           h('div', null, spec.title),
-          h('div', { style: S.meta }, spec.file + (spec.status ? '  ·  ' + spec.status : '') + (spec.unreadable ? '  ·  unreadable' : '')),
+          h(
+            'div',
+            { style: S.effectiveRow },
+            h('span', { style: Object.assign({}, S.badge, spec.scope === 'global' ? S.badgeGlobal : null) }, spec.scope),
+            h('span', { style: S.badge }, spec.slot),
+            spec.status ? h('span', { style: S.meta }, spec.status) : null,
+            spec.unreadable ? h('span', { style: S.warn }, 'unreadable') : null,
+            why !== null ? h('span', { style: Object.assign({}, S.badge, S.badgeRefused) }, 'refused') : null,
+          ),
+          why !== null ? h('div', { style: S.warn }, why) : null,
         )
       })
+
+      // What the prompt will actually carry, from BOTH scopes, in render order.
+      var effectivePanel =
+        effectiveView === null
+          ? null
+          : h(
+              'div',
+              { key: 'effective', style: S.effective },
+              h(
+                'div',
+                { style: S.meta },
+                'What agents receive — ' + effectiveView.effective.length + ' item(s)',
+              ),
+              effectiveView.effective.map(function (item) {
+                return h(
+                  'div',
+                  { key: item.scope + '/' + item.file, style: S.effectiveRow },
+                  h('span', { style: Object.assign({}, S.badge, item.scope === 'global' ? S.badgeGlobal : null) }, item.scope),
+                  h('span', { style: S.meta }, item.slot),
+                  h('span', null, item.title),
+                  h('span', { style: S.meta }, item.chars + ' chars'),
+                )
+              }),
+              effectiveView.problems.length > 0
+                ? h(
+                    'div',
+                    { style: S.warn },
+                    effectiveView.problems.length +
+                      ' refused — ' +
+                      effectiveView.problems
+                        .map(function (problem) {
+                          return problem.file + ': ' + problem.why
+                        })
+                        .join('; '),
+                  )
+                : null,
+            )
+
+      var dirty = Object.keys(drafts).length
+      var scopeBar = h(
+        'div',
+        { key: 'scopes', style: Object.assign({}, S.bar, { padding: '8px 14px', borderBottom: '1px solid rgba(127,127,127,0.2)' }) },
+        h(
+          'button',
+          { type: 'button', style: Object.assign({}, S.tab, scope === 'local' ? S.tabOn : null), onClick: function () { setScope('local') } },
+          'This project',
+        ),
+        h(
+          'button',
+          { type: 'button', style: Object.assign({}, S.tab, scope === 'global' ? S.tabOn : null), onClick: function () { setScope('global') } },
+          'Global',
+        ),
+        h('span', { style: S.meta }, data.dir || (scope === 'global' ? '$DSH_HOME/specs' : 'docs/specs')),
+        h(
+          'button',
+          { type: 'button', style: Object.assign({}, S.btn, S.btnPrimary), disabled: busy || dirty === 0, onClick: saveAll },
+          'Save all' + (dirty > 0 ? ' (' + dirty + ')' : ''),
+        ),
+      )
 
       var children
       if (cap === null) {
@@ -416,7 +607,7 @@ window.__ModuleLoader__.load({
             readOnly: selected.unreadable === true,
             spellCheck: false,
             onChange: function (event) {
-              setDraft(event.target.value)
+              edit(event.target.value)
             },
           }),
           h(
@@ -447,12 +638,21 @@ window.__ModuleLoader__.load({
             h('span', { style: S.chip }, 'adr-panel ' + PANEL_VERSION),
             h('button', { type: 'button', style: S.btn, onClick: props.onClose }, 'Close'),
           ),
+          scopeBar,
           data.error !== null ? h('div', { style: Object.assign({}, S.warn, { padding: '8px 14px' }) }, data.error) : null,
           h(
             'div',
             { style: S.body },
-            h('div', { style: S.list }, data.loading ? h('div', { style: S.empty }, 'Loading…') : rows.length === 0 ? h('div', { style: S.empty }, 'No specs in this project yet.') : rows),
-            h('div', { style: S.editor }, children),
+            h(
+              'div',
+              { style: S.list },
+              data.loading
+                ? h('div', { style: S.empty }, 'Loading…')
+                : rows.length === 0
+                  ? h('div', { style: S.empty }, scope === 'global' ? 'No global items yet.' : 'No specs in this project yet.')
+                  : rows,
+            ),
+            h('div', { style: S.editor }, children.concat([effectivePanel])),
           ),
         ),
       )
