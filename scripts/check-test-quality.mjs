@@ -28,6 +28,8 @@
  *   summary line. Exit 0 = nothing found, or findings in report mode; 1 =
  *   findings under `--strict`; 2 = the root or a scanned file could not be read,
  *   so "nothing was checked" is never reported as "nothing is wrong".
+ *   When there are findings the report also states how to exempt one, because the
+ *   caller is told to follow this output rather than to remember the marker.
  *
  * KEYWORDS
  *   test quality, assertion engine, shape assertion, change detector, mirror
@@ -38,7 +40,7 @@
  *   - No test files: exit 2, because a lint over an empty test set proves nothing
  *     and a moved test directory must not read as a pass.
  *   - A line carrying `test-quality:allow <reason>` (on the finding's line or the
- *     line before it) is exempt.
+ *     line before it) is exempt; the report prints that rule when it has findings.
  *   - Heuristic by construction: it matches shapes, not semantics. A finding is a
  *     question to answer, not a verdict; the inline allow is how an answered
  *     question stops being reported.
@@ -259,6 +261,14 @@ export function main(argv) {
       `check-test-quality: ${result.findings.length} finding(s) across ${result.files.length} test file(s)` +
         `${strict ? ' (strict)' : ' (report mode)'}\n`,
     )
+    // The rules tell a caller to run this and follow its output rather than to
+    // remember the marker, so the marker is printed where the findings are.
+    if (result.findings.length > 0) {
+      process.stdout.write(
+        'check-test-quality: a finding you have judged and accept is exempted with `test-quality:allow <reason>`\n' +
+          "  on the finding's line or the line before it; the reason is required.\n",
+      )
+    }
   }
 
   if (strict && result.findings.length > 0) return 1

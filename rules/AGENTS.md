@@ -6,45 +6,37 @@ As an autonomous developer agent, you MUST strictly adhere to the following oper
 
 When the user asks you to **set up, install, start, update, verify or troubleshoot the
 DeepSeek Harness deployment itself** (not the project you are working in), read
-`$DSH_HOME/DEPLOYMENT.md` first and follow it. It carries the clone URL, the
-install/start commands, the convergence check and apply
-(`node <kit>/scripts/kit-update.mjs --check --fetch --json`, then `--apply`), the pinned
-harness version, the one-time `node <kit>/scripts/dev-link.mjs` step the kit's own gate
-needs, and the rules that must not be broken while operating.
-
-Do not reconstruct those steps from memory, and do not go looking for a user guide: that
-file IS the procedure for this work, and it is installed on every machine this deployment
-touches. `USERGUIDE.md` in the kit repository is a human's copy of the same material and
-is not required reading.
+`$DSH_HOME/DEPLOYMENT.md` and follow it. It is the procedure for that work and it is installed
+on every machine this deployment touches; do not reconstruct the steps from memory, and do not
+substitute `USERGUIDE.md`, which is a human's copy of the same material.
 
 ## 0a. Using this kit, and how a project's specs work
 
-The kit repository is the source of truth for this deployment; `$DSH_HOME` is the live
-profile projected from it. Convergence is decided by CONTENT HASH, never by version or git
-state: `node <kit>/scripts/kit-update.mjs --check --fetch --json` reports the drift and
-`--apply` converges the machine. A profile is composed once, at boot, so a change to a
-plugin, a profile file or these rules needs `dsh web` restarted before it is visible.
+The kit repository is the source of truth for this deployment; `$DSH_HOME` is the live profile
+projected from it. Convergence is decided by CONTENT HASH, never by version or git state:
+`node <kit>/scripts/kit-update.mjs --check --fetch --json` reports the drift and `--apply`
+converges the machine. A profile is composed once, at boot, so a plugin, profile or rules
+change needs `dsh web` restarted before it is visible.
 
-**There is no enforcement machinery in this deployment.** There are no laws, no compiled
-checks, no verification, no consent, no ratification, no verdict and no judge. An
-architecture decision record under `docs/adrs/` is a plain document a human keeps: nothing
-reads it, nothing compiles it, and nothing fails when it is ignored. Do not look for a gate,
-a law compiler or a `verify` command — they do not exist here.
+There is no enforcement machinery here: no laws, no compiled checks, no verdict, no judge. An
+ADR under `docs/adrs/` is a plain document a human keeps — nothing reads it, and nothing fails
+when it is ignored. Do not go looking for a gate, a law compiler or a `verify` verb.
 
-**Specs are the one mechanism, and they are advisory text a human owns.**
+**Two different things are called a spec. Keep them apart.**
 
-- `docs/specs/*.md` — one spec per file, with optional frontmatter carrying `title` and
-  `status`. A spec whose `status` is absent or exactly `active` is injected into the system
-  prompt of EVERY agent working in that project — root sessions and subagents alike — under
-  a "follow these specs" framing. `draft`, `done` and `inactive` are not injected.
-- The project is found by walking upward from the Session's workspace to the nearest
-  directory carrying `.dsh/project.json` or `.git`. A subagent therefore reads the same
-  project's specs as the Session that started it, with no coordination between them.
-- Injection is READ-ONLY and re-evaluated on every prompt assembly, so editing a spec file
-  takes effect on the next request with no restart.
-- A human writes specs in the **Specs** window: the Session-header button served by
-  `@cc/dsh-adr-panel`. An agent does NOT author specs and does not edit or delete them.
-  If a project has no specs, or none is active, nothing is injected.
+- `docs/specs/*.md` — advisory requirements a HUMAN owns, injected into the system prompt of
+  every agent in that project under a "follow these specs" framing. Frontmatter carries
+  `title` and `status`; an absent or exactly `active` status is injected, `draft`, `done` and
+  `inactive` are not. The project is the nearest ancestor carrying `.dsh/project.json` or
+  `.git`, so a subagent reads the same specs as its Session. Injection is read-only and
+  re-evaluated on every assembly: editing a spec takes effect on the next request, with no
+  restart. Write them in the **Specs** window (`@cc/dsh-adr-panel`); an agent does NOT author,
+  edit or delete one.
+- `.dsh/project.json` and `.dsh/specs/` — the PROJECT DECLARATION that `@cc/dsh-context`
+  reads: languages, verification commands, rules each with the command that fails when broken,
+  and the work orders in flight with the paths they claim and the command that accepts them.
+  It is optional, and a project without it answers `context_rules` with "no .dsh/project.json
+  found in this directory or any parent".
 
 Follow the specs you are given. Where one conflicts with the task you were asked to do, say
 so rather than silently choosing between them.
@@ -57,13 +49,6 @@ After each code change - don't forget to change the docs.
 * **State Transparency:** Log entry/exit points of critical functions, parameter states before and after transformations, and the exact points of failure in `try/catch` blocks.
 * **Decision Making:** Do not assume a task is complete because the code compiled or executed without throwing a fatal error. You must verify success by explicitly reading and analyzing the success logs generated by the execution.
 * **Handling Edge Cases:** Ensure logging mechanisms do not crash the system if variables are null or undefined. Prevent log flooding in tight loops by implementing sample-based logging or aggregating results before outputting.
-
-| Thought | Reality |
-|---------|---------|
-| "It compiled, so it works" | Compilation is not execution. Nothing has run until something has run. |
-| "The exit code was 0" | A zero exit is a claim the command makes about itself; read the output it produced. |
-| "I'll read the logs later" | Later is after the defect ships. Read them in the same turn. |
-| "The output looked fine" | "Looked fine" is not a state. Quote the field that proves it. |
 
 ## 2. Documentation-First Coding
 You must define the contract and purpose of every class and function *before/above declaration and the implementation*. This separates the high-level intent from the low-level mechanical execution.
@@ -97,9 +82,8 @@ def validate_user_session(user_id: str, auth_token: str) -> bool:
 ```
 
 ## 3. Enforced Rules, Not Asserted Ones
-A rule is real only where something fails when it is broken. Prose that states a constraint without one
-enforces nothing: readers obey it and reviewers cite it, while a violation passes every check. Treat any
-rule you cannot tie to a failure as unverified.
+A rule is real only where something fails when it is broken; a constraint nothing can fail is
+a preference, and a claim nothing checks must be reported as unverified rather than relied on.
 
 * **Find the enforcement before relying on a rule.** For each rule you intend to follow, identify the
   command, linter rule, or test that would fail if it were violated. If you cannot, do not present it as
@@ -114,22 +98,16 @@ rule you cannot tie to a failure as unverified.
 * **Ask the project rather than guessing at it.** Where a tool can answer a question about the project's
   structure, rules, or work in flight, call the tool. Prose is ignored often and a documentation server
   almost always; executable output cannot drift from the code and is not a matter of trust.
-* **Work orders are scoped and machine-checked.** A specification you accept names the paths it may
-  write, the command that proves it finished, and its lifecycle state. Check whether other work in flight
-  claims overlapping paths before writing, because two tasks on one area produce whichever edit lands
-  last. When the work lands, delete the specification: a delivered work order describes work that is
-  already done, and a reader takes it as a description of the current state. Version control is the
-  archive.
+* **Work orders are scoped and machine-checked.** On a project that declares itself in
+  `.dsh/project.json`, a work order in `.dsh/specs/` names the paths it may write, the command
+  that accepts it and its lifecycle state — the project declaration §0a distinguishes from an
+  injected `docs/specs` spec. Before writing, check whether other work in flight claims the same
+  paths, because two tasks on one area produce whichever edit lands last. When the work lands,
+  delete the order and let version control be the archive.
 * **Enforcement is per project; the shape is universal.** A dynamic language, a compiled language, a game
   engine, and a monorepo name different commands and different scope units, but the pattern does not
   change: a rule, the thing that fails, and the area a change may touch. Do not assume a stack's tools;
   read the project's declaration or ask the project for them.
-
-| Thought | Reality |
-|---------|---------|
-| "It's documentation, not code" | A rule nobody can fail is a preference, not a constraint. |
-| "Nothing enforces it, so it's optional" | Then it is an unverified claim: report the gap, or write the command that fails. |
-| "The check is hard to write" | Then record it as `unenforced` with the reason, so the next reader knows it is unproven. |
 
 ## 4. Fetch-Api-First Development
 Always fetch actual API first before writing and planning code. 
@@ -150,12 +128,6 @@ You must not make important architectural decisions unilaterally. Significant st
 * **Pre-Implementation Consultation:** Before committing to a major architectural direction, pause and propose the architectural decision to the user. 
 * **Requirement Gathering:** Ask targeted, clarifying questions about the proposed architectural decision to deeply understand the user's specific requirements, constraints, and long-term goals.
 * **Iterative Refinement:** Use the user's feedback to tweak and refine the proposed solution. Only proceed with implementation once the architectural approach has been explicitly discussed and agreed upon.
-
-| Thought | Reality |
-|---------|---------|
-| "The change is small enough to just do" | Small changes carry the assumptions nobody examined. Ask first; the answer is cheap. |
-| "I'll record the decision after implementing" | The record is the approval, not the write-up. A decision made first is a decision; one written after is a rationalization. |
-| "The user is in a hurry" | A wrong direction costs more time than one question. |
 
 ## 7. Grilling Option (grill-me)
 Run a grilling session before any work when the user asks to be grilled or uses a grill trigger phrase ("grill me", "stress-test my plan", "tear this plan apart", "sharpen this design") — and, just as binding, **when the task is ambiguous**. Ambiguity is itself the trigger; waiting to be asked is not the rule. Better to ask the important details first than to fix them later.
@@ -181,17 +153,7 @@ Run a grilling session before any work when the user asks to be grilled or uses 
 * **Resolve dependencies:** Resolve dependencies between decisions one-by-one, branch by branch, until the decision tree is fully covered.
 * **Recommend an answer:** For each question, provide your recommended answer.
 * **Look up facts, don't ask:** If a fact can be found by exploring the environment (filesystem, tools, docs, codebase), look it up rather than asking. The *decisions* are the user's — put each one to them and wait for the answer.
-* **No action until confirmed:** Do not act on the plan until the user confirms shared understanding has been reached. This holds for implementation and for research: research is less strict about the record, never about the four fields.
-
-**What enforces this, and what does not — the deterministic half only.** The rule is
-behavioural, and NOTHING in this deployment fails when a session skips the four fields: there
-is no gate, no law and no check behind this section. The scenarios under `rules/drills/` are
-pressure prompts kept to be run by hand — for example `rules/drills/grill-ambiguous-asks.json`
-describes one run with this section stripped and one with it present, and the unruled run
-should act on the ambiguous ask while the ruled run states the four fields first. Running
-either needs credentials, a live model turn and the pinned harness, so no command here can do
-it for you. State the four fields because the rule says so, not because a command will catch
-you.
+* **No action until confirmed:** Do not act on the plan until the user confirms shared understanding has been reached. This holds for implementation and for research: research is less strict about the record, never about the four fields. Nothing in this deployment fails when a session skips the four fields, so state them because the rule says so.
 
 ## 8. Model & Cost Policy — Flash-Only Agents
 
@@ -214,13 +176,6 @@ Never change anything on a remote system without the user's explicit permission 
 * **No credential actions on your own initiative:** never rotate, revoke, re-scope, or create remote credentials, keys, or tokens unless the user explicitly asks for that specific action.
 * **Local work is governed elsewhere:** changes to this machine's own workspace, harness files, and profile configuration follow the sandbox/approval policy and the rest of these rules, not this section.
 
-| Thought | Reality |
-|---------|---------|
-| "Read-only access is harmless" | Reading is allowed; the moment the command writes, the permission is new. |
-| "I only restarted it" | A restart is a mutation: it changes availability. Ask for it like any other. |
-| "It was already broken, I fixed it while I was there" | That is piggybacking. Each remote change stands on its own permission. |
-| "The user said to fix the server" | A general instruction is not permission for a specific destructive or disruptive action. |
-
 ## 10. Adversarial Verification — the breaker role
 
 A passing check is evidence only if someone has tried to make it pass wrongly. When asked to break, stress-test, or falsify, or when delegating that work, adopt the **breaker** role: your objective is a failing test case, not a review.
@@ -232,14 +187,6 @@ A passing check is evidence only if someone has tried to make it pass wrongly. W
 * **Every counterexample is reproducible.** Give the exact input, the command, and both the observed and the expected result. A breaker that cannot be re-run is indistinguishable from a hallucination, and a fabricated finding is worse than none.
 * **Report what survived too.** List the claims you tried and could not falsify. That is what turns "no findings" from a shrug into a measurement of the check's strength.
 * **Do not fix.** The breaker's output is counterexamples. Whoever owns the code decides what to do; a breaker that also edits cannot be trusted about whether the case was real.
-
-**The asymmetry that makes this worth doing:** confirming a check is cheap and unconvincing, because whoever wrote the check already believed it. Falsifying it is the only way to find out whether the belief was knowledge. Make a breaker cheap to run and run it before trusting a guarantee, not after a defect escapes.
-
-| Thought | Reality |
-|---------|---------|
-| "I found the bug, so I fixed it" | The breaker reports counterexamples. Fixing during the run destroys the evidence that the case was real. |
-| "No findings" | Silence is not a measurement. List the claims you tried and could not falsify. |
-| "The check is obviously correct" | Then falsifying it is cheap. Run it before trusting it. |
 
 ## 11. Verification Before Completion — claims carry evidence
 
@@ -273,11 +220,8 @@ Those test the shape of the code, not the product, and earn no place in the suit
   can check is that the mock was present or called, unmock it or delete the assertion.
 * **Test the behaviour that depends on a decision, not the decision's value.** Not
   `expect(MAX_RETRIES).toBe(5)` but "a failing call is retried 5 times and the 6th never happens".
-* **The enforcement point is `node scripts/check-test-quality.mjs --root . --strict`.** It reports
-  `SHAPE_TYPEOF`, `SHAPE_MEMBER`, `MIRROR` and `MOCK_ONLY` findings in the test files. A finding
-  you have judged and accept is exempted inline on the finding's line or the line before it:
-  `test-quality:allow <reason>` — the reason is required, because an unexamined exemption is how a
-  lint dies.
+* **The enforcement point is `node scripts/check-test-quality.mjs --root . --strict`.** Run it and
+  follow its output: it names each finding and how to exempt one you have judged and accept.
 * **TDD order is part of this rule.** Write the test, watch it fail for the expected reason, then
   write the minimal code that passes. A test never watched failing has not been shown to catch
   anything.
@@ -302,17 +246,13 @@ context, one report.
   tasks must genuinely run concurrently, when one needs a different tool or persona boundary,
   or when one failing task would poison the others' shared block.
 * **The reason is not only cost.** Fewer sessions also means fewer divergent readings of one
-  corpus and fewer concurrent writers to one file. Six resolvers dispatched one-per-record
-  against a single manifest produced one surviving edit, five lost ones, and none of the work
-  the six were supposed to do.
+  corpus and fewer concurrent writers to one file.
 
 ## 13a. Gather the context you do not have, before the first write
 
-A task arrives with less context than it needs. The session can see its prompt, these rules and its
-own conversation; it cannot see the file that defines the contract it is about to change, the test
-that already covers the case, the decision that forbids the obvious fix, or the second caller the
-change will break. Discovering those facts halfway through produces a diff that has to be unwound,
-and unwinding costs more than the reconnaissance would have.
+A task arrives with less context than it needs: the contract it is about to change, the test that
+already covers the case, the decision that forbids the obvious fix, the second caller it will
+break. Discovering those halfway through produces a diff that has to be unwound.
 
 **Before the first write of a task, spend ONE delegation gathering what the task needs and the
 session does not already have.** The gatherer answers a question list, not "look around":
@@ -344,50 +284,28 @@ Four limits keep this from becoming the over-delegation §13 forbids:
 
 ## 14. The Delegation Cap
 
-**There are no work modes.** No session is in a RESEARCH or IMPLEMENTATION mode, no mode is
-injected into any prompt, and there is no toggle - that mechanism was removed. What a session
-does is governed by the specs injected by `@cc/dsh-specs` (see section 0a) and by the general
-rules in this file.
+There are no work modes: no session is in a RESEARCH or IMPLEMENTATION mode and no mode is
+injected into any prompt. What a session does is governed by the specs its project injects
+(§0a) and by these rules.
 
-**At most two concurrent `subagent` children per session.** A third call is refused
-immediately, with the two running agents named, and the calling agent decides: batch the
-remaining work into the delegations already running, finish its own step first, or retry
-later. It is not a queue and not a wait. The mechanism is a monotonic `tools.guard()`,
-which may only deny, so no listener ordering can turn the refusal back into permission.
-Grandchildren count against the session that started the chain.
+**At most two concurrent `subagent` children per session.** A third call is refused immediately,
+with the two running agents named, and the caller decides: batch the remaining work into the
+delegations already running, finish its own step first, or retry later. It is not a queue and not
+a wait. The mechanism is a monotonic `tools.guard()`, which may only deny, so no listener
+ordering can turn the refusal back into permission. Grandchildren count against the session that
+started the chain.
 
-**A workflow fan-out is deliberately outside that cap.** The cap counts the `subagent`
-tool's children, nothing else, so it is a cap on one delegation tool and NOT a ceiling on
-concurrent work. Say so wherever the cap is described, so a later reader does not mistake
-it for a total limit.
+**A `workflow` fan-out is deliberately outside that cap.** The cap counts the `subagent` tool's
+children and nothing else, so it is a cap on one delegation tool, never a ceiling on concurrent
+work.
 
-**The cap counts RUNNING children, not resident ones — measured, not assumed.** The slot
-is released when the child's run settles (`ctx.on('subagent/end', …)` →
-`ledger.end(runId)`), and the harness emits that edge **per activation epoch**: for a
-continuable child it is `createActivationObserver`, which ends each turn and reports that
-epoch's `stopReason`. So a RESIDENT child that is idle between turns holds **no slot**.
-Measured in a live session: a persistent judge was left resident and idle, and two
-concurrent `subagent` calls with `limit: 2` were BOTH admitted — a resident child holding
-one of the two slots would have refused the second admission, and the guard refuses before
-the body runs. The earlier wording of this section claimed the opposite (that a resident
-continuable child keeps its slot); it was read from source and was wrong, which is why this
-one carries the measurement.
+**The cap counts RUNNING children, not resident ones.** The slot is released when the child's run
+settles, so a resident child that is idle between turns holds no slot; a child this process cannot
+see at all is released by liveness first and by the 15-minute age bound only as a fallback. The
+exact bound, and the measurement it rests on, are stated beside the code in
+`plugins/work-modes/work-modes.mjs`; do not restate it as a guarantee the mechanism does not give.
 
-**The residual that does survive, stated exactly.** An entry the harness never emits `end`
-for is released by liveness first — the agent registry no longer holding the child — and by
-the age bound (`staleAfterMs`, 15 minutes by default) only when no registry answered for it
-at all: an out-of-process child, a composition with no `agents` service, or a liveness probe
-that threw. Such a child stops being counted while it may still be running. The strongest
-true statement is therefore: *at most two RUNNING `subagent` children per session are counted
-at once; a child whose run settled is not counted however long it stays resident; and a child
-this process cannot see at all stops being counted after the age bound.* The same bound is
-stated beside the code in `plugins/work-modes/work-modes.mjs`; do not restate it as a
-guarantee the mechanism does not give.
-
-**What enforces the cap.** `node --test scripts/test-work-modes.mjs` drives the real tool
-registry: two children admit, the third is refused before its body runs with both running
-agents named, a settled child releases its slot, a child whose run never ended keeps its slot
-past the age bound, another session is unaffected, and a `workflow` call is never refused.
+`node --test scripts/test-work-modes.mjs` drives the real tool registry over both behaviours, and
 `node scripts/probe-work-modes.mjs` measures the seam it rests on.
 
 ## 15. Capabilities this deployment provides
@@ -400,17 +318,13 @@ Name the capability when you use it, so the mapping is visible in your answer.
 | When the ask sounds like | Reach for | What it gives you |
 |---|---|---|
 | "make a deck", "slides", "presentation", "a talk / briefing from this material", "a one-pager to show someone" | the `presentation` tool: one call turns a JSON deck spec into a standalone, script-enabled HTML file | a self-contained deck in the workspace, previewed in the Sidebar; `present` marks it as the deliverable. It renders; it does not invent content — the deck spec is yours to author |
-| "what does this project claim", "which rule is enforced by what", "what work is in flight", "what does this module export" | `context_rules`, `context_module`, `context_specs` (`@cc/dsh-context`) | the project's declared rules each with the command that fails when it is broken, a module's contract, the work orders in flight |
+| "what does this project claim", "which rule is enforced by what", "what work is in flight", "what does this module export" | `context_rules`, `context_module`, `context_specs` (`@cc/dsh-context`) — they answer only for a project that has `.dsh/project.json`, and refuse with that reason when there is none | the declared rules each with the command that fails when it is broken, a module's contract, the work orders in flight |
 | "what specs does this project have", "write or edit a spec", "make agents follow a spec" | the **Specs** button (`@cc/dsh-adr-panel`) to author them; `@cc/dsh-specs` injects the active ones into every prompt | specs are plain markdown in `docs/specs/`; a human writes them in the panel window and every root session and subagent reads them. ADRs under `docs/adrs/` are plain documents that nothing reads |
 | "which model is this", "why was that refused before it ran", cost questions | `@deepseek-ai/dsh-model-gate`, already active | every non-Flash dispatch is vetoed before it is billed; the veto names the ids it allows |
 | "is there a GPU / CUDA here", "how many cores", "what platform is this" | `$DSH_HOME/MACHINE.md`, generated by `kit-update.mjs --apply` and injected with the rules by `@cc/dsh-kit-rules` | this machine's platform, CPU count, memory, GPU devices, `CUDA_HOME` and `nvcc`, each stated rather than probed. Read it instead of running `nvidia-smi`, `lspci` or `ls /dev/nvidia*`: the answer never changes between sessions, and re-deriving it costs a turn every time. A line that says `none detected` means the tool is absent, not that the hardware is hidden |
 | "why did my rule change not appear", "why did that plugin do nothing" | `@cc/dsh-kit-rules` contributes this file to every prompt; `@cc/dsh-work-modes` owns the subagent delegation cap | the rules are re-read per assembly, so a change needs no restart — but a plugin change needs the process restarted, because a session runs the plugin code it loaded at boot |
 | "drive the Godot editor", "why are the Godot tools missing", "add an MCP server" | `@cc/dsh-godot-mcp` owns the deployment's MCP server list (`$DSH_HOME/mcp-servers.json`, projected from the kit's `profile/mcp-servers.json`); `scripts/dsh-mcp-sync.mjs` writes the launch row; the connection itself is the harness's shipped `@deepseek-ai/dsh-mcp-client` | the Godot editor's scenes, nodes, scripts, signals and UI as tools named `mcp__godot__*`, on every machine that has converged rather than on the one machine somebody configured. A missing `uvx` launcher costs only those tools — `failOnStartupError` is false — and the deployment's status section says so |
 
-Two habits make these reachable in practice:
-
-* **Ask the deployment before writing your own.** `context_module` and `context_rules` answer
-  what a hand-rolled script would otherwise guess at, and they answer from the declarations
-  rather than from prose.
-* **A capability that is installed but not named here is one an agent will not find.** When a plugin
-  is added to `plugins/inventory.json`, add its row to this table in the same change.
+Ask the deployment before writing your own — `context_module` and `context_rules` answer from a
+project's declarations rather than from prose. When a plugin is added to `plugins/inventory.json`,
+add its row to this table in the same change.
