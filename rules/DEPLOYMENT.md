@@ -19,7 +19,7 @@ The upstream harness plus seven plugins, all pinned and installed from one kit r
 | Piece | What it does |
 |---|---|
 | `@deepseek-ai/dsh-model-gate` | cost policy: every dispatch whose model is not Flash-class is vetoed before it costs anything |
-| `@cc/dsh-kit-rules` | contributes `$DSH_HOME/AGENTS.md` (this deployment's binding rules) to every session's system prompt |
+| `@cc/dsh-specs` | contributes the GLOBAL items under `$DSH_HOME/specs` (identity, persona, the binding rules, machine facts) to every session's system prompt, and a project's LOCAL items under its `docs/specs` to that project's agents |
 | `@cc/dsh-context` | `context_module`, `context_rules`, `context_specs` — answers about the current project from `.dsh/project.json` |
 | `@cc/dsh-specs` | injects a project's human-authored specs (`docs/specs/*.md`) into every agent's system prompt, re-read on every assembly, so a root session and each subagent it starts read the same requirements. It compiles nothing, checks nothing and writes nothing |
 | `@cc/dsh-adr-panel` | the web UI's window on those decisions and the spec documents: a session-header button opens an overlay listing the records, and its only ratification affordance asks the agent to run the quiz |
@@ -41,7 +41,7 @@ cd ~/dsh-kit
 
 `install.sh` / `install.ps1` are idempotent: Node check → pinned `npm i -g
 @deepseek-ai/dsh@0.2.0-rc.2` → profile files under `$DSH_HOME/profiles/web` → every
-`plugins/*.tgz` installed into that profile → `$DSH_HOME/AGENTS.md` and
+`plugins/*.tgz` installed into that profile → the global spec items in `$DSH_HOME/specs` and
 `$DSH_HOME/DEPLOYMENT.md` → the development links (§4).
 
 Two steps in that list are the HUMAN's, not yours: entering API credentials (the
@@ -58,7 +58,7 @@ node "$KIT/scripts/kit-update.mjs" --apply                  # converge, then rec
 ```
 
 - `--check --fetch` asks git for new commits first; `--json` is the machine-readable form.
-- `--apply` writes the canonical profile files, `AGENTS.md`, `DEPLOYMENT.md`, reinstalls
+- `--apply` writes the canonical profile files, the global spec seeds (`rules/specs/*.md` → `$DSH_HOME/specs/`, only while each destination is absent or still holds the kit's bytes), `DEPLOYMENT.md`, reinstalls
   every drifted plugin tarball with the pinned pnpm (dropping the profile lockfile and
   pruning the store first, because pnpm keys a `file:` dependency by its path string),
   installs the pinned harness when it differs, then records what it applied.
@@ -93,8 +93,8 @@ node "$KIT/plugins/presentation/test-render.mjs"     # the deck is self-containe
 node "$KIT/plugins/presentation/test-tool.mjs"       # a tool result carries no `undefined`
 node "$KIT/scripts/check-portability.mjs"            # platform assumptions + packaging
 node "$KIT/scripts/check-model-gate.mjs"             # the canonical composition's cost policy
-node "$KIT/scripts/probe-dsh-api.mjs" --kit-rules    # the rules reach an assembled prompt (behavioural)
-node "$KIT/scripts/probe-dsh-api.mjs" --specs-prompt # specs ADD a section beside the rules, not rewrite the prompt
+node "$KIT/scripts/probe-dsh-api.mjs" --global-specs # the global items reach a prompt, a project cannot enter the rules slot
+node "$KIT/scripts/probe-dsh-api.mjs" --local-specs  # project specs ADD a section beside the rules, not rewrite the prompt
 ```
 
 `make verify` runs every one of them. The suite is deliberately SMALL: it keeps a few general
@@ -126,7 +126,7 @@ never as a verdict on a change, and never as authorisation to touch a live profi
 6. **Another machine is a remote system.** Reading it is fine; changing it needs the
    user's explicit permission for that exact action, every time.
 7. **A prompt-affecting change is verified on a throwaway profile first** — a changed
-   `AGENTS.md`, `DEPLOYMENT.md` or `kit-rules` is invisible in `--dump-config` beyond the
+   the spec seeds, `DEPLOYMENT.md` or the `specs` row is invisible in `--dump-config` beyond the
    row itself.
 8. **A rule is real only where a command fails.** Before claiming something is enforced,
    name the command that exits non-zero when it is broken.
@@ -136,7 +136,7 @@ never as a verdict on a change, and never as authorisation to touch a live profi
 The rules reach a model in the profile you actually use (`web`). Confirm it from inside a
 session rather than from a separate profile: **a `--profile headless` run proves nothing
 here** — the kit's patch layer is installed for `web`, so a headless run has neither the
-loader disable nor the `kit-rules` row and reports `ABSENT` on a healthy machine. Ask the
+loader disable nor the `specs` row and reports `ABSENT` on a healthy machine. Ask the
 agent in any GUI session to quote the first line of section 0 of its rules; a correct
 answer names `$DSH_HOME/DEPLOYMENT.md`.
 
@@ -153,7 +153,7 @@ the confirmation is a question to the live session.
 Then confirm the static half:
 
 ```bash
-dsh --profile web --dump-config | grep -A1 'kit-rules'   # the row must be mounted
+dsh --profile web --dump-config | grep -A2 'specs'       # the row must be mounted, and free the identity slot
 ```
 
 Finally open the token URL `dsh web` printed, and confirm the chat renders, a shell command

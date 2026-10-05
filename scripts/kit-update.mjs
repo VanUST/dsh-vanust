@@ -285,10 +285,14 @@ function readJson(path) {
  * layer, so projecting it into one profile's directory would make it invisible to
  * the others.
  *
- * `rules` is a LIST, not one file: the deployment's rules reach a model through
- * `AGENTS.md`, and the procedure those rules point at for setup, update and
- * verification lives in `DEPLOYMENT.md` beside it. Both are installed together,
- * because a pointer to a file the machine does not have is worse than no pointer.
+ * `rules` is the procedure document the deployment's rules point at for setup, update
+ * and verification (`DEPLOYMENT.md`), installed at the harness home so a machine without
+ * the kit checked out can still read it.
+ *
+ * `specs` is the GLOBAL catalogue: every `rules/specs/*.md` seed is projected to
+ * `<home>/specs/<name>`, where the specs plugin reads it as a prompt item. The rules
+ * themselves live in that list now - one item per section - so the mandatory text is
+ * editable from the Specs window instead of being a file only the kit can write.
  */
 function inventoryKit(kit, profile) {
   const items = {
@@ -303,11 +307,23 @@ function inventoryKit(kit, profile) {
       // and invisible everywhere else, which is the opposite of the point.
       { id: 'mcp-servers.json', src: join(kit, 'profile', 'mcp-servers.json'), dst: 'mcp-servers.json' },
     ].map((item) => ({ ...item, hash: hashFile(item.src) })),
-    rules: ['AGENTS.md', 'DEPLOYMENT.md'].map((id) => ({
+    rules: ['DEPLOYMENT.md'].map((id) => ({
       id,
       src: join(kit, 'rules', id),
       dst: id,
       hash: hashFile(join(kit, 'rules', id)),
+    })),
+    // The GLOBAL specs, projected one-to-one into `<home>/specs`. They are SEEDS, not
+    // managed files: each is written once and recorded, and an apply overwrites it only
+    // while the file on disk still matches what was recorded — so a spec edited in the
+    // Specs window survives every later update, and the update says so instead of
+    // silently reverting the human's work. `computeDrift` owns that rule; this list only
+    // names the bytes the kit currently offers.
+    specs: listFiles(join(kit, 'rules', 'specs'), '.md').map((name) => ({
+      id: name,
+      src: join(kit, 'rules', 'specs', name),
+      dst: join('specs', name),
+      hash: hashFile(join(kit, 'rules', 'specs', name)),
     })),
     plugins: listFiles(join(kit, 'plugins'), '.tgz').map((name) => {
       const src = join(kit, 'plugins', name)
@@ -328,9 +344,11 @@ function inventoryKit(kit, profile) {
  * not. `unrecorded` covers the first run, where nothing is known to be applied.
  */
 function computeDrift({ items, state, profile, home }) {
-  // The recorded rules hash was a single string before `DEPLOYMENT.md` joined
-  // `AGENTS.md`; a state written by that version cannot vouch for the new file, so an
-  // unreadable entry counts as drift and the next apply rewrites both.
+  // The recorded rules hash was a single string in the version that shipped one rules
+  // file; a state written by that version cannot vouch for `DEPLOYMENT.md`, so an
+  // unreadable entry counts as drift and the next apply rewrites it. The hash recorded
+  // for the retired `AGENTS.md` is still read by `installSpecs`, which uses it to decide
+  // whether that file was edited before it may be removed.
   const recordedRule = (id) =>
     typeof state?.rules === 'string' ? (id === 'AGENTS.md' ? state.rules : null) : (state?.rules?.[id] ?? null)
   if (!state) {
@@ -339,6 +357,8 @@ function computeDrift({ items, state, profile, home }) {
       profileFiles: items.profile.filter((i) => i.hash).map((i) => i.id),
       rules: items.rules.every((i) => i.hash),
       plugins: items.plugins.map((p) => p.id),
+      specs: items.specs.map((s) => s.id),
+      specsModified: [],
     }
   }
   const profileFiles = items.profile
@@ -348,11 +368,32 @@ function computeDrift({ items, state, profile, home }) {
     .filter((item) => item.hash !== state.plugins?.[item.id])
     .map((item) => item.id)
   const rules = items.rules.some((item) => Boolean(item.hash) && item.hash !== recordedRule(item.id))
+
+  // Global specs, with the managed-file rule: a seed is written when the destination is
+  // absent, and re-written when the destination still matches the hash recorded when it
+  // was written. A destination that differs from that record is the human's edit, so it
+  // is reported as modified and never touched — the alternative is an update that
+  // silently reverts the Specs window's work.
+  const specs = []
+  const specsModified = []
+  for (const item of items.specs) {
+    if (!item.hash) continue
+    const actual = hashFile(join(home, item.dst))
+    if (actual === null) specs.push(item.id)
+    else if (actual !== (state.specs?.[item.id] ?? null)) specsModified.push(item.id)
+    else if (actual !== item.hash) specs.push(item.id)
+  }
+
   const profileJson = readJson(join(home, 'profiles', profile, 'package.json'))
   const installedPlugins = Object.keys(profileJson?.dependencies ?? {})
 
-  if (profileFiles.length === 0 && plugins.length === 0 && !rules) return null
-  return { reason: 'kit-changed', profileFiles, plugins, rules, installedPlugins }
+  if (profileFiles.length === 0 && plugins.length === 0 && !rules && specs.length === 0) {
+    // A project whose only drift is a human-edited spec is CONVERGED, not drifted: the
+    // update has nothing it may write, and reporting drift for ever would train a reader
+    // to ignore the report.
+    return null
+  }
+  return { reason: 'kit-changed', profileFiles, plugins, rules, specs, specsModified, installedPlugins }
 }
 
 /**
@@ -399,6 +440,56 @@ function installFiles({ items, home, profile }) {
     warn(`could not write ${MACHINE_FACTS_FILE}: ${String(error)}`)
   }
   return written
+}
+
+/**
+ * Project the kit's global specs into `<home>/specs`, honouring the managed-file rule.
+ *
+ * A seed is written when the destination is absent, and when the destination still holds
+ * the bytes the kit last offered. A destination that differs from that record is the
+ * human's edit and is kept, named in `kept`, so the caller can report it: an update that
+ * overwrote it would revert the Specs window silently, which is the one failure a
+ * human-authored configuration must not have.
+ *
+ * The pre-specs deployment kept its rules in `<home>/AGENTS.md`, which nothing reads now.
+ * That file is removed only when it still matches the hash recorded for it, so a machine
+ * that edited it keeps the evidence rather than losing it to a version bump.
+ *
+ * @param input - `{ items, home, state }`.
+ * @returns `{ written, kept, retired }`, each an array of ids.
+ */
+function installSpecs({ items, home, state }) {
+  const written = []
+  const kept = []
+  for (const item of items.specs) {
+    if (!item.hash) {
+      warn(`kit spec missing, skipped: ${item.src}`)
+      continue
+    }
+    const dst = join(home, item.dst)
+    const actual = hashFile(dst)
+    const recorded = state?.specs?.[item.id] ?? null
+    // Absent, or still the bytes the kit offered last time: ours to write.
+    if (actual === null || actual === recorded) {
+      mkdirSync(dirname(dst), { recursive: true })
+      copyFileSync(item.src, dst)
+      written.push(item.id)
+      continue
+    }
+    if (actual !== item.hash) kept.push(item.id)
+  }
+  const retired = []
+  const legacy = join(home, 'AGENTS.md')
+  const legacyHash = hashFile(legacy)
+  if (legacyHash !== null && legacyHash === state?.rules?.['AGENTS.md']) {
+    try {
+      rmSync(legacy)
+      retired.push('AGENTS.md')
+    } catch (error) {
+      warn(`could not retire the pre-specs rules file: ${String(error)}`)
+    }
+  }
+  return { written, kept, retired }
 }
 
 /** Plugin package names currently recorded as dependencies of the profile. */
@@ -544,6 +635,10 @@ function buildState({ items, kit, repo, harness }) {
     appliedHead: repo?.head ?? null,
     profile: Object.fromEntries(items.profile.filter((i) => i.hash).map((i) => [i.id, i.hash])),
     rules: Object.fromEntries(items.rules.filter((i) => i.hash).map((i) => [i.id, i.hash])),
+    // The hash the kit OFFERED for each seed, written whether or not the destination was
+    // overwritten: it is what the next run compares against to tell "still the kit's bytes"
+    // from "the human edited this in the Specs window".
+    specs: Object.fromEntries(items.specs.filter((i) => i.hash).map((i) => [i.id, i.hash])),
     plugins: Object.fromEntries(items.plugins.map((p) => [p.id, p.hash])),
     harness,
   }
@@ -609,6 +704,7 @@ function main(argv) {
     profileFiles: items.profile.length,
     plugins: items.plugins.map((p) => p.id),
     rules: items.rules.map((i) => `${i.id}:${i.hash ? 'present' : 'missing'}`),
+    specs: items.specs.length,
   })
 
   const plan = []
@@ -616,6 +712,8 @@ function main(argv) {
     if (drift.profileFiles.length) plan.push({ action: 'write-profile-files', items: drift.profileFiles })
     if (drift.plugins.length) plan.push({ action: 'install-plugins', items: drift.plugins })
     if (drift.rules) plan.push({ action: 'write-rules', items: items.rules.map((i) => i.id) })
+    if (drift.specs.length) plan.push({ action: 'write-specs', items: drift.specs })
+    if (drift.specsModified.length) plan.push({ action: 'keep-modified-specs', items: drift.specsModified })
   }
   const installedHarness = installedHarnessVersion()
   if (harnessPin && installedHarness !== harnessPin) {
@@ -657,6 +755,9 @@ function main(argv) {
   if (writtenFiles.length) applied.push('write-profile-files')
   log('files.installed', { items: writtenFiles })
   if (drift?.rules || items.rules.every((i) => i.hash)) applied.push('write-rules')
+  const seeded = installSpecs({ items, home, state })
+  if (seeded.written.length) applied.push('write-specs')
+  log('specs.installed', { written: seeded.written, kept: seeded.kept, retired: seeded.retired })
 
   const stalePkgs = new Set()
   for (const id of drift?.plugins ?? []) {

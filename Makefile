@@ -62,5 +62,5 @@ verify:
 	node --test $(wildcard scripts/test-*.mjs)
 	node plugins/presentation/test-render.mjs
 	node plugins/presentation/test-tool.mjs
-	node scripts/probe-dsh-api.mjs --kit-rules
-	node scripts/probe-dsh-api.mjs --specs-prompt
+	node scripts/probe-dsh-api.mjs --global-specs
+	node scripts/probe-dsh-api.mjs --local-specs

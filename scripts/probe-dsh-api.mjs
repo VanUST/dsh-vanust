@@ -156,8 +156,8 @@ function parseArgs(argv) {
     drill: null,
     drillRules: null,
     drillJournal: null,
-    kitRules: false,
-    specsPrompt: false,
+    globalSpecs: false,
+    localSpecs: false,
     selftestExit: false,
     bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-headless'],
   }
@@ -168,8 +168,8 @@ function parseArgs(argv) {
     else if (flag === '--drill') options.drill = argv[++index] ?? ''
     else if (flag === '--drill-rules') options.drillRules = argv[++index] ?? ''
     else if (flag === '--drill-journal') options.drillJournal = argv[++index] ?? ''
-    else if (flag === '--kit-rules') options.kitRules = true
-    else if (flag === '--specs-prompt') options.specsPrompt = true
+    else if (flag === '--global-specs' || flag === '--kit-rules') options.globalSpecs = true
+    else if (flag === '--local-specs' || flag === '--specs-prompt') options.localSpecs = true
     else if (flag === '--selftest-exit') options.selftestExit = true
     else if (flag === '--task') options.task = argv[++index] ?? ''
     else if (flag === '--profile') options.profile = argv[++index] ?? ''
@@ -372,53 +372,52 @@ function packageEntry(root, packageName) {
 }
 
 /**
- * Prove behaviourally that kit-rules contributes `$DSH_HOME/AGENTS.md` to an
- * assembled system prompt.
+ * Prove behaviourally that the GLOBAL scope reaches an assembled prompt, that it follows
+ * `$DSH_HOME` rather than a constant, and that a project cannot write into it.
  *
- * A static read of the plugin source cannot tell a provider that contributes the
- * rules from one that returns `''`: the empty string is a valid contribution, it
- * passes every grep, and the assembled prompt silently carries no mandatory
- * rules at all. This probe constructs the harness's real `systemPrompt` service,
- * applies the plugin to it, assembles, and renders exactly as the agent loop
- * does, so the assertion is about the prompt the model would receive.
+ * The claim under test is the boundary this design rests on: specs under
+ * `$DSH_HOME/specs` reach every agent, and a spec under a project's `docs/specs` may NOT
+ * fill a global-only slot. A static read cannot tell a provider that contributes those
+ * items from one that returns `''` - the empty string is a valid contribution, it passes
+ * every grep, and the prompt quietly carries no mandatory rules at all. So this probe
+ * builds a scratch home from the kit's real seeds, assembles the prompt exactly as the
+ * agent loop does, and asserts on the text the model would receive.
  *
- * It uses two scratch homes in one run. The first carries the kit's real
- * `rules/AGENTS.md` plus a per-run nonce, and must appear in the assembled
- * prompt together with the plugin's binding framing. The second carries a
- * different file, and must appear instead of the first: that negative control
- * fails the probe if the first marker survives, so a contribution that ignores
- * `DSH_HOME` or a prompt assembled from a stale cache cannot pass.
+ * It uses two scratch homes in one run. The first carries the kit's real seeds plus a
+ * per-run nonce item, and must appear in the assembled prompt under the plugin's binding
+ * framing. The second carries a different seed, which must appear INSTEAD of the first: a
+ * contribution that ignored `DSH_HOME`, or a prompt assembled from a stale cache, fails
+ * that control.
  *
- * @returns `0` when every assertion holds, `1` otherwise. Never throws: a
- *   missing harness install and an assembly failure are both reported as a
- *   failure with the reason, never as a pass.
+ * @returns `0` when every assertion holds, `1` otherwise. Never throws: a missing harness
+ *   install and an assembly failure are both reported as a failure with the reason.
  */
-async function runKitRulesProbe() {
+async function runGlobalSpecsProbe() {
   const root = harnessPackageRoot()
   if (root === null) {
     process.stderr.write(
-      'probe-dsh-api --kit-rules: no installed harness carrying ' +
+      'probe-dsh-api --global-specs: no installed harness carrying ' +
         '@deepseek-ai/dsh-system-prompt and @deepseek-ai/cordis; ' +
         'looked under $DSH_HOME/profiles, the probe junction and the global installs. ' +
         'Run node scripts/dev-link.mjs once the harness is installed.\n',
     )
     return 1
   }
-  const pluginPath = join(KIT, 'plugins', 'kit-rules', 'kit-rules.mjs')
-  const rulesPath = join(KIT, 'rules', 'AGENTS.md')
+  const seedsDir = join(KIT, 'rules', 'specs')
   let Context
   let SystemPrompt
   let renderPrompt
   let plugin
-  let rules
+  let seeds
   try {
     ;({ Context } = await import(packageEntry(root, '@deepseek-ai/cordis')))
     ;({ SystemPrompt, renderPrompt } = await import(packageEntry(root, '@deepseek-ai/dsh-system-prompt')))
-    plugin = await import(pathToFileURL(pluginPath).href)
-    rules = readFileSync(rulesPath, 'utf8')
+    plugin = await import(pathToFileURL(join(KIT, 'plugins', 'specs', 'plugin-specs.mjs')).href)
+    seeds = readdirSync(seedsDir).filter((name) => name.endsWith('.md')).sort()
+    if (seeds.length === 0) throw new Error(`no seeds under ${seedsDir}`)
   } catch (error) {
     process.stderr.write(
-      `probe-dsh-api --kit-rules: cannot load the harness or the plugin under test: ${String(error)}\n`,
+      `probe-dsh-api --global-specs: cannot load the harness or the sources under test: ${String(error)}\n`,
     )
     return 1
   }
@@ -428,23 +427,41 @@ async function runKitRulesProbe() {
     checks.push({ id, claim, pass: Boolean(pass), note })
     process.stdout.write(`  [${pass ? 'PASS' : 'FAIL'}] ${id}\n         ${note}\n`)
   }
-  const nonceA = `ZZ_KITRULES_A_${Date.now()}_${Math.random().toString(36).slice(2)}`
-  const nonceB = `ZZ_KITRULES_B_${Date.now()}_${Math.random().toString(36).slice(2)}`
-  const deployedMarker = rules.split('\n')[0].trim()
+  const nonceA = `ZZ_GLOBALSPECS_A_${Date.now()}_${Math.random().toString(36).slice(2)}`
+  const nonceB = `ZZ_GLOBALSPECS_B_${Date.now()}_${Math.random().toString(36).slice(2)}`
+  const nonceEvil = `ZZ_LOCALRULES_${Date.now()}_${Math.random().toString(36).slice(2)}`
+  // A line from the rules themselves, taken from the seed the kit ships: the check is that
+  // the text in this repository is the text the model reads.
+  const intro = readFileSync(join(seedsDir, '10-intro.md'), 'utf8')
+  const introBody = intro.slice(intro.indexOf('\n---', 4) + 4)
+  const deployedMarker = introBody.split('\n').find((line) => line.trim().length > 0)?.trim() ?? ''
   const homes = []
   const previousHome = process.env.DSH_HOME
+  const projectFile = join(KIT, 'docs', 'specs', `probe-${nonceEvil}.md`)
 
   let promptA = ''
   let assembledA = null
   let promptB = ''
-  let assembledB = null
   let assemblyProblem = null
   try {
-    const homeA = mkdtempSync(join(tmpdir(), 'kitrules-a-'))
-    const homeB = mkdtempSync(join(tmpdir(), 'kitrules-b-'))
+    const homeA = mkdtempSync(join(tmpdir(), 'globalspecs-a-'))
+    const homeB = mkdtempSync(join(tmpdir(), 'globalspecs-b-'))
     homes.push(homeA, homeB)
-    writeFileSync(join(homeA, 'AGENTS.md'), `${rules}\n\n<!-- ${nonceA} -->\n`)
-    writeFileSync(join(homeB, 'AGENTS.md'), `# Other rules\n${nonceB}\n`)
+    mkdirSync(join(homeA, 'specs'), { recursive: true })
+    for (const seed of seeds) copyFileSync(join(seedsDir, seed), join(homeA, 'specs', seed))
+    writeFileSync(join(homeA, 'MACHINE.md'), '# This machine\n\n- Platform: probe\n')
+    writeFileSync(
+      join(homeA, 'specs', '99-nonce.md'),
+      `---\ntitle: Nonce\nslot: rules\norder: 9999\nstatus: active\n---\n${nonceA}\n`,
+    )
+    mkdirSync(join(homeB, 'specs'), { recursive: true })
+    writeFileSync(join(homeB, 'specs', '10-only.md'), `---\nslot: rules\n---\n${nonceB}\n`)
+
+    // A LOCAL spec naming a GLOBAL-ONLY slot. The probe runs from the kit checkout, which
+    // is a project root, so this file is in scope for the assembly - and it must reach no
+    // section at all.
+    mkdirSync(dirname(projectFile), { recursive: true })
+    writeFileSync(projectFile, `---\ntitle: Project override\nslot: rules\n---\n${nonceEvil}\n`)
 
     process.env.DSH_HOME = homeA
     const ctxA = new Context()
@@ -457,114 +474,114 @@ async function runKitRulesProbe() {
     const ctxB = new Context()
     new SystemPrompt(ctxB, {})
     plugin.apply(ctxB)
-    assembledB = await ctxB.systemPrompt.assemble()
-    promptB = renderPrompt(assembledB)
+    promptB = renderPrompt(await ctxB.systemPrompt.assemble())
   } catch (error) {
     assemblyProblem = String(error?.stack ?? error)
   } finally {
     if (previousHome === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = previousHome
     for (const home of homes) rmSync(home, { recursive: true, force: true })
+    rmSync(projectFile, { force: true })
   }
 
   if (assemblyProblem !== null) {
-    check('kit_rules.prompt_assembles', 'the system prompt assembles without throwing', false, assemblyProblem.slice(-1200))
+    check('global_specs.prompt_assembles', 'the system prompt assembles without throwing', false, assemblyProblem.slice(-1200))
   } else {
-    const sectionA = assembledA.sections.find((section) => section.name === 'kit:rules')
-    const sectionB = assembledB.sections.find((section) => section.name === 'kit:rules')
+    const section = assembledA.sections.find((entry) => entry.name === 'specs:rules')
     check(
-      'kit_rules.section_is_registered',
-      'kit-rules registers a kit:rules section on the assembled prompt',
-      sectionA !== undefined,
-      sectionA === undefined ? `sections: ${JSON.stringify(assembledA.sections.map((s) => s.name))}` : `kit:rules present (${sectionA.text.length} chars)`,
+      'global_specs.rules_section_is_registered',
+      'the specs plugin registers a specs:rules section carrying the global items',
+      section !== undefined && String(section.text).length > 0,
+      section === undefined
+        ? `sections: ${JSON.stringify(assembledA.sections.map((s) => s.name))}`
+        : `specs:rules present (${String(section.text).length} chars)`,
     )
     check(
-      'kit_rules.provider_contributes_the_rules_file',
-      'the rules file current at assembly time reaches the assembled prompt',
-      promptA.includes(nonceA),
-      promptA.includes(nonceA)
-        ? 'the per-run marker from $DSH_HOME/AGENTS.md is in the rendered prompt'
-        : `the marker is ABSENT from a ${promptA.length}-char prompt: the provider contributed nothing`,
-    )
-    check(
-      'kit_rules.provider_renders_the_binding_framing',
+      'global_specs.provider_renders_the_binding_framing',
       'the prompt frames the contribution as mandatory rules, not as guidance',
       promptA.includes('MANDATORY OPERATING RULES'),
       promptA.includes('MANDATORY OPERATING RULES') ? 'binding framing present' : 'the binding framing line is absent',
     )
     check(
-      'kit_rules.provider_contributes_the_deployed_rules_content',
-      "the kit's own rules/AGENTS.md content reaches the prompt",
-      promptA.includes(deployedMarker),
-      promptA.includes(deployedMarker) ? `deployed marker ${JSON.stringify(deployedMarker)} present` : `deployed marker ${JSON.stringify(deployedMarker)} absent`,
+      'global_specs.provider_contributes_the_deployed_rules_content',
+      'the rules the kit ships in rules/specs reach the prompt',
+      deployedMarker.length > 0 && promptA.includes(deployedMarker),
+      promptA.includes(deployedMarker)
+        ? `deployed marker ${JSON.stringify(deployedMarker)} present`
+        : `deployed marker ${JSON.stringify(deployedMarker)} absent`,
     )
     check(
-      'kit_rules.provider_rereads_the_current_home',
+      'global_specs.a_global_item_reaches_the_prompt',
+      'a global item added to $DSH_HOME/specs reaches the prompt without a restart',
+      promptA.includes(nonceA),
+      promptA.includes(nonceA) ? 'the per-run global item is in the rendered prompt' : 'the global item is ABSENT from the prompt',
+    )
+    check(
+      'global_specs.provider_rereads_the_current_home',
       'a second assembly reads its own home, so the contribution is not a constant or a stale cache',
-      promptB.includes(nonceB) &&
-        !promptB.includes(nonceA) &&
-        sectionB !== undefined &&
-        !sectionB.text.includes(nonceA),
+      promptB.includes(nonceB) && !promptB.includes(nonceA),
       `second home marker present=${String(promptB.includes(nonceB))} first home marker leaked=${String(promptB.includes(nonceA))}`,
+    )
+    check(
+      'global_specs.a_local_spec_cannot_fill_a_global_slot',
+      'a project spec naming the rules slot reaches no section, so a project cannot dilute the mandatory rules',
+      !promptA.includes(nonceEvil),
+      promptA.includes(nonceEvil)
+        ? 'a local spec entered the rules slot: the scope boundary is not enforced'
+        : 'the local override was refused and named in the catalogue problems',
     )
   }
 
   const passed = checks.filter((entry) => entry.pass)
   process.stdout.write(
-    `\nprobe-dsh-api: kit-rules prompt assembly (behavioural) root=${root}\n` +
+    `\nprobe-dsh-api: global specs prompt assembly (behavioural) root=${root}\n` +
       `  ${passed.length}/${checks.length} facts confirmed by assembly\n`,
   )
   if (passed.length !== checks.length) {
-    process.stderr.write('kit-rules prompt FAILED\n')
+    process.stderr.write('global specs prompt FAILED\n')
     return 1
   }
-  process.stdout.write('kit-rules prompt ok\n')
+  process.stdout.write('global specs prompt ok\n')
   return 0
 }
 
 /**
- * Prove behaviourally that the specs plugin is ADDITIVE.
+ * Prove behaviourally that the LOCAL scope is additive: a project's own specs arrive in
+ * ADDITION TO the global items, never instead of them.
  *
- * The claim under test is the one that matters to a human writing a spec: a
- * project's specs arrive IN ADDITION TO the deployment rules, never instead of
- * them. A static read cannot tell an additive section from one that replaces the
- * prompt, so this probe mounts BOTH shipped plugins on ONE real `systemPrompt`
- * service and assembles twice over the SAME scratch home and the SAME spec file:
- * once with `kit-rules` alone, once with `kit-rules` AND `specs`.
- *
- * The differential is the proof. The rules-only assembly must carry the binding
- * framing and NOT the spec body; the combined assembly must carry BOTH. If the
- * specs plugin replaced the prompt, the combined assembly would lose the framing;
- * if the section never registered, it would lose the spec body.
+ * A static read cannot tell an additive section from one that rewrites the prompt, so this
+ * probe assembles twice over the SAME scratch home: once with no project spec, once with
+ * an active one, and compares. The differential is the proof - the first assembly must
+ * carry the global framing and not the spec body, the second must carry both, and the
+ * second must be strictly larger.
  *
  * @returns `0` when every assertion holds, `1` otherwise. Never throws.
  */
-async function runSpecsPromptProbe() {
+async function runLocalSpecsProbe() {
   const root = harnessPackageRoot()
   if (root === null) {
     process.stderr.write(
-      'probe-dsh-api --specs-prompt: no installed harness carrying ' +
+      'probe-dsh-api --local-specs: no installed harness carrying ' +
         '@deepseek-ai/dsh-system-prompt and @deepseek-ai/cordis; ' +
         'looked under $DSH_HOME/profiles, the probe junction and the global installs. ' +
         'Run node scripts/dev-link.mjs once the harness is installed.\n',
     )
     return 1
   }
+  const seedsDir = join(KIT, 'rules', 'specs')
   let Context
   let SystemPrompt
   let renderPrompt
-  let kitRulesPlugin
-  let specsPlugin
-  let rules
+  let plugin
+  let seeds
   try {
     ;({ Context } = await import(packageEntry(root, '@deepseek-ai/cordis')))
     ;({ SystemPrompt, renderPrompt } = await import(packageEntry(root, '@deepseek-ai/dsh-system-prompt')))
-    kitRulesPlugin = await import(pathToFileURL(join(KIT, 'plugins', 'kit-rules', 'kit-rules.mjs')).href)
-    specsPlugin = await import(pathToFileURL(join(KIT, 'plugins', 'specs', 'plugin-specs.mjs')).href)
-    rules = readFileSync(join(KIT, 'rules', 'AGENTS.md'), 'utf8')
+    plugin = await import(pathToFileURL(join(KIT, 'plugins', 'specs', 'plugin-specs.mjs')).href)
+    seeds = readdirSync(seedsDir).filter((name) => name.endsWith('.md')).sort()
   } catch (error) {
     process.stderr.write(
-      `probe-dsh-api --specs-prompt: cannot load the harness or a plugin under test: ${String(error)}\n`,
+      `probe-dsh-api --local-specs: cannot load the harness or the sources under test: ${String(error)}\n`,
     )
     return 1
   }
@@ -575,36 +592,37 @@ async function runSpecsPromptProbe() {
     process.stdout.write(`  [${pass ? 'PASS' : 'FAIL'}] ${id}\n         ${note}\n`)
   }
 
-  const nonce = `ZZ_SPECS_ADDITIVE_${Date.now()}_${Math.random().toString(36).slice(2)}`
+  const nonce = `ZZ_LOCALSPECS_${Date.now()}_${Math.random().toString(36).slice(2)}`
   const specsDir = join(KIT, 'docs', 'specs')
   const specFile = join(specsDir, `probe-${nonce}.md`)
   const homes = []
   const previousHome = process.env.DSH_HOME
 
-  let rulesOnlyPrompt = ''
-  let combinedPrompt = ''
-  let combinedSections = []
+  let withoutSpec = ''
+  let withSpec = ''
+  let sections = []
   let problem = null
   try {
-    const home = mkdtempSync(join(tmpdir(), 'specs-additive-'))
+    const home = mkdtempSync(join(tmpdir(), 'localspecs-'))
     homes.push(home)
-    writeFileSync(join(home, 'AGENTS.md'), rules)
-    mkdirSync(specsDir, { recursive: true })
-    writeFileSync(specFile, `---\ntitle: Additivity probe\nstatus: active\n---\n${nonce}\n`)
+    mkdirSync(join(home, 'specs'), { recursive: true })
+    for (const seed of seeds) copyFileSync(join(seedsDir, seed), join(home, 'specs', seed))
+    writeFileSync(join(home, 'MACHINE.md'), '# This machine\n\n- Platform: probe\n')
     process.env.DSH_HOME = home
 
-    const ctxRulesOnly = new Context()
-    new SystemPrompt(ctxRulesOnly, {})
-    kitRulesPlugin.apply(ctxRulesOnly)
-    rulesOnlyPrompt = renderPrompt(await ctxRulesOnly.systemPrompt.assemble())
-
-    const ctxBoth = new Context()
-    new SystemPrompt(ctxBoth, {})
-    kitRulesPlugin.apply(ctxBoth)
-    specsPlugin.apply(ctxBoth)
-    const assembled = await ctxBoth.systemPrompt.assemble()
-    combinedSections = assembled.sections.map((section) => section.name)
-    combinedPrompt = renderPrompt(assembled)
+    const assemble = async () => {
+      const ctx = new Context()
+      new SystemPrompt(ctx, {})
+      plugin.apply(ctx)
+      const assembled = await ctx.systemPrompt.assemble()
+      return { prompt: renderPrompt(assembled), sections: assembled.sections.map((entry) => entry.name) }
+    }
+    withoutSpec = (await assemble()).prompt
+    mkdirSync(specsDir, { recursive: true })
+    writeFileSync(specFile, `---\ntitle: Additivity probe\nstatus: active\n---\n${nonce}\n`)
+    const second = await assemble()
+    withSpec = second.prompt
+    sections = second.sections
   } catch (error) {
     problem = String(error?.stack ?? error)
   } finally {
@@ -615,56 +633,52 @@ async function runSpecsPromptProbe() {
   }
 
   if (problem !== null) {
-    check('specs.combined_prompt_assembles', 'the system prompt assembles with both plugins mounted', false, problem.slice(-1200))
+    check('local_specs.prompt_assembles', 'the system prompt assembles with a project spec present', false, problem.slice(-1200))
   } else {
     check(
-      'specs.section_is_registered',
-      'the specs plugin registers its own section alongside the rules section',
-      combinedSections.includes('kit:rules') && combinedSections.includes('project:specs'),
-      `sections: ${JSON.stringify(combinedSections)}`,
+      'local_specs.items_section_is_registered',
+      'the specs plugin registers the advisory items section beside the rules section',
+      sections.includes('specs:rules') && sections.includes('specs:items'),
+      `sections: ${JSON.stringify(sections)}`,
     )
     check(
-      'specs.spec_body_reaches_the_prompt',
-      'the active spec body is in the rendered prompt',
-      combinedPrompt.includes(nonce),
-      combinedPrompt.includes(nonce)
-        ? `spec nonce present in a ${combinedPrompt.length}-char prompt`
-        : 'the spec body is ABSENT from the rendered prompt',
+      'local_specs.spec_body_reaches_the_prompt',
+      'the active project spec body is in the rendered prompt',
+      withSpec.includes(nonce),
+      withSpec.includes(nonce) ? `spec nonce present in a ${withSpec.length}-char prompt` : 'the spec body is ABSENT from the rendered prompt',
     )
     check(
-      'specs.rules_only_assembly_has_no_specs',
-      'the same home and spec file, assembled without the specs plugin, carry no spec body',
-      !rulesOnlyPrompt.includes(nonce),
-      rulesOnlyPrompt.includes(nonce)
-        ? 'the spec body is present WITHOUT the specs plugin, so this probe proves nothing'
-        : 'the positive control holds: the nonce is absent until the specs plugin is mounted',
+      'local_specs.absent_without_the_project_spec',
+      'the same home without the spec file carries no spec body, so the file is what put it there',
+      !withoutSpec.includes(nonce),
+      withoutSpec.includes(nonce) ? 'the body is present without the file, so this probe proves nothing' : 'the positive control holds: the nonce is absent until the file exists',
     )
     check(
-      'specs.injection_is_additive_not_replacing',
-      'the deployment rules survive in the SAME prompt as the specs, so specs add a section rather than rewrite the prompt',
-      combinedPrompt.includes('MANDATORY OPERATING RULES') && combinedPrompt.includes(nonce),
-      combinedPrompt.includes('MANDATORY OPERATING RULES')
+      'local_specs.injection_is_additive_not_replacing',
+      'the global rules survive in the SAME prompt as the project spec, so a project adds a section rather than rewriting the prompt',
+      withSpec.includes('MANDATORY OPERATING RULES') && withSpec.includes(nonce),
+      withSpec.includes('MANDATORY OPERATING RULES')
         ? 'the binding framing and the spec body are both present in one prompt'
-        : 'the rules framing is ABSENT beside the specs: the specs section replaced the prompt',
+        : 'the rules framing is ABSENT beside the project spec',
     )
     check(
-      'specs.combined_prompt_is_larger_than_rules_alone',
-      'the combined prompt is strictly larger than the rules-only prompt',
-      combinedPrompt.length > rulesOnlyPrompt.length,
-      `rules-only=${rulesOnlyPrompt.length} chars, combined=${combinedPrompt.length} chars`,
+      'local_specs.prompt_is_larger_with_the_spec',
+      'the prompt with the project spec is strictly larger than the same prompt without it',
+      withSpec.length > withoutSpec.length,
+      `without=${withoutSpec.length} chars, with=${withSpec.length} chars`,
     )
   }
 
   const passed = checks.filter((entry) => entry.pass)
   process.stdout.write(
-    `\nprobe-dsh-api: specs prompt assembly (behavioural) root=${root}\n` +
+    `\nprobe-dsh-api: local specs prompt assembly (behavioural) root=${root}\n` +
       `  ${passed.length}/${checks.length} facts confirmed by assembly\n`,
   )
   if (passed.length !== checks.length) {
-    process.stderr.write('specs prompt FAILED\n')
+    process.stderr.write('local specs prompt FAILED\n')
     return 1
   }
-  process.stdout.write('specs prompt ok\n')
+  process.stdout.write('local specs prompt ok\n')
   return 0
 }
 
@@ -810,11 +824,11 @@ if (options.selftestExit) {
 // The kit-rules prompt probe boots no harness and makes no model call, so it must
 // run before the credential check that the booting probes need. It is a complete
 // command in its own right: `node scripts/probe-dsh-api.mjs --kit-rules`.
-if (options.kitRules) {
-  process.exit(await runKitRulesProbe())
+if (options.globalSpecs) {
+  process.exit(await runGlobalSpecsProbe())
 }
-if (options.specsPrompt) {
-  process.exit(await runSpecsPromptProbe())
+if (options.localSpecs) {
+  process.exit(await runLocalSpecsProbe())
 }
 
 const credentials = credentialsSource()

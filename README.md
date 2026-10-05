@@ -11,21 +11,23 @@ plugin's provenance:
   exposed as tools (`context_module`, `context_rules`, `context_specs`). It is
   project-agnostic: it reads only `.dsh/project.json`, so a Python, C/C++ or Unity
   repository gets the same tools by writing its own manifest.
-- **`@cc/dsh-kit-rules`** — the deployment's own operating rules, contributed to the
-  system prompt as a binding section and re-read on every prompt assembly. It exists
-  because the harness's own workspace-instruction loader does the opposite of what this
-  deployment needs: it injects every `AGENTS.md`/`CLAUDE.md` from the project root down
-  to the working directory, frames them as guidance, and lets the most specific file
-  win. Cost policy, remote-change permission and verification duties must not be
-  dilutable by whichever repository the agent happens to sit in, and they must read as
-  binding — so that loader is disabled and this plugin owns the single rules file.
-- **`@cc/dsh-specs`** — injects a project's human-authored specs
-  (`<project>/docs/specs/*.md`) into the system prompt of every root session and every
-  subagent, re-read on every prompt assembly. A spec whose frontmatter `status` is
-  absent or exactly `active` is injected; `draft`, `done` and `inactive` are not. The
-  project is found by walking upward from the session workspace to the nearest
-  directory holding `.dsh/project.json` or `.git`. It compiles, checks and writes
-  nothing: specs are advisory text a human owns, and the plugin only reads them.
+- **`@cc/dsh-specs`** — the whole system prompt, configurable as spec items at two
+  scopes. **Global** items live under `$DSH_HOME/specs/` (seeded from `rules/specs/`)
+  and reach every agent on the machine: the identity, the persona prefix and suffix,
+  the mandatory rules (under their binding `MANDATORY OPERATING RULES` framing) and the
+  generated machine facts. **Local** items live under `<project>/docs/specs/` and reach
+  only that project's root sessions and subagents. All of it is read as ONE catalogue
+  snapshot per prompt assembly, so an edit lands on the next request with no restart and
+  a change to several files never lands half-applied. A `status` of absent or exactly
+  `active` is injected; `draft`, `done` and `inactive` are not. It exists because the
+  harness's own workspace-instruction loader does the opposite of what this deployment
+  needs: it injects every `AGENTS.md`/`CLAUDE.md` from the project root down to the
+  working directory, frames them as guidance, and lets the most specific file win. Cost
+  policy, remote-change permission and verification duties must not be dilutable by
+  whichever repository the agent happens to sit in — so that loader is disabled, the
+  **global** scope is the only one that may fill the identity, persona and rules slots,
+  and a project's own item can never enter them. The plugin compiles, checks and writes
+  nothing: specs are text a human owns, and it only reads them.
 - **`@cc/dsh-adr-panel`** — the deployment's own window on those specs: a session-header
   **Specs** button opens a frame-wide overlay that lists, creates, edits and deletes
   `docs/specs/*.md` through one capability-fenced host route. It renders no decisions
@@ -86,19 +88,18 @@ dsh-kit/
 ├── scripts/usage-analytics.mjs # DeepSeek usage export → peak/cache/agent-hour analytics (md, json, html)
 ├── scripts/kit-update.mjs     # update path: hash drift check + convergence for an existing machine
 ├── plugins/inventory.json     # the shipped plugin set + each plugin's provenance (the source of truth)
-├── plugins/*.tgz              # plugin tarballs: model-gate, cc-dsh-context, cc-dsh-kit-rules, cc-dsh-specs,
+├── plugins/*.tgz              # plugin tarballs: model-gate, cc-dsh-context, cc-dsh-specs,
 │                              #                  cc-dsh-adr-panel, cc-dsh-presentation, cc-dsh-work-modes,
 │                              #                  cc-dsh-godot-mcp
 ├── plugins/model-gate/        # source snapshot + built lib/ of model-gate (see its SOURCE-NOTICE.md)
-├── plugins/kit-rules/         # source of the rules plugin; packed into its tarball above
-├── plugins/specs/             # source of @cc/dsh-specs (packed into its tarball above)
+├── plugins/specs/             # source of @cc/dsh-specs (catalogue + plugin; packed into its tarball)
 ├── plugins/work-modes/        # source of @cc/dsh-work-modes (packed into its tarball above)
 ├── plugins/godot-mcp/         # source of @cc/dsh-godot-mcp (packed into its tarball above)
 ├── plugins/dsh-context/       # reconstructed source of @cc/dsh-context (see its SOURCE-NOTICE.md)
 ├── plugins/dsh-adr-panel/     # source of @cc/dsh-adr-panel (browser-half UI; see its README)
 ├── plugins/presentation/      # source of @cc/dsh-presentation (deck tool; no client half by design)
 ├── profile/                   # canonical web profile: package.json (no deps) + cordis.patch.yml
-├── rules/AGENTS.md            # the deployment's mandatory rules (installed to $DSH_HOME/AGENTS.md)
+├── rules/specs/               # the global prompt items, one file each (installed to $DSH_HOME/specs/)
 ├── rules/DEPLOYMENT.md        # operating this machine: install, update, checks, troubleshooting ($DSH_HOME/DEPLOYMENT.md)
 ├── scripts/dev-link.mjs       # links the harness packages so the kit's own tests run from a clone
 ├── scripts/pack-plugin.mjs    # repack an in-repo plugin with a version bump and one tarball left behind
@@ -157,20 +158,24 @@ relevant to your work … use them as guidance", and lets the most specific file
 deployment cannot use it: rules that carry cost policy, remote-change permission and verification
 duties must not be overridable by whichever repository the agent is opened in, and their framing has
 to read as binding, which is a code constant upstream and therefore not a configuration option. The
-profile patch therefore disables that row and mounts `@cc/dsh-kit-rules`, which reads exactly one file
-— `$DSH_HOME/AGENTS.md`, the kit's own rules — and contributes it to the system prompt as a section
-whose text is a provider, re-evaluated on every prompt assembly. Editing that file takes effect on
-the next request, without a restart, which is the hot reload worth keeping.
+profile patch therefore disables that row and mounts `@cc/dsh-specs`, which reads the global items
+under `$DSH_HOME/specs/` — the kit's own rules among them, one file per prompt item — and contributes
+them to the system prompt as sections whose text is a provider, re-evaluated on every assembly.
+Editing an item takes effect on the next request, without a restart, which is the hot reload worth
+keeping.
 
 **Consequence for projects:** a repository's own `AGENTS.md` no longer reaches the model. Project
 facts belong in `.dsh/project.json` and the `context_*` tools, where they are declared, checkable and
 carry the command that proves them — not in prose that competes with the deployment's rules.
 
-**Specs, and what they are not.** A project's human-authored specs are plain markdown in
-`docs/specs/`; `@cc/dsh-specs` injects the active ones into every agent's prompt and the
-**Specs** button served by `@cc/dsh-adr-panel` is where a human writes them. They are
-advisory text a human owns: nothing compiles them, nothing verifies code against them, and
-nothing fails when one is ignored. Architecture decision records under `docs/adrs/` are
+**Specs, and what they are not.** Two scopes exist, and a file's scope is the directory it
+lives in rather than anything it says about itself: `$DSH_HOME/specs/*.md` is global and
+reaches every agent, `<project>/docs/specs/*.md` is local and reaches only that project's
+agents. The **Specs** button served by `@cc/dsh-adr-panel` is where a human writes both. A
+local item may fill the advisory `items` slot alone, so a project can add requirements but
+never dilute, reorder or disable the rules that carry cost policy and remote-change
+permission. Specs are text a human owns: nothing compiles them, nothing verifies code
+against them, and nothing fails when one is ignored. Architecture decision records under `docs/adrs/` are
 likewise plain documents a human keeps; nothing reads them.
 
 **Reviewing this kit.** The reviewable units, and where they are. The machine this was

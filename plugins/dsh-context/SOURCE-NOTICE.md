@@ -22,7 +22,7 @@ What that means concretely:
 
 ## Why it is here at all
 
-The kit's own rule (`AGENTS.md`) says `cc-dsh-context` is *copied from its owning
+The kit's own rules (`rules/specs/`) say `cc-dsh-context` is *copied from its owning
 project*, and that is still the correct arrangement when that project is
 reachable. It became unworkable because a shipped plugin cannot be corrected at
 all if its only source is a tarball on a machine nobody here can access. The

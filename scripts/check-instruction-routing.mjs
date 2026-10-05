@@ -51,7 +51,7 @@
  *   - A `@deepseek-ai/dsh-<subpackage>` range is not a harness pin and is not compared:
  *     the reader requires the package name immediately before the `@`.
  */
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -144,50 +144,66 @@ if (patch.missing === true) {
   const mountsWorkModes = /name:\s*'@cc\/dsh-work-modes'/.test(patch.text)
   claim('the patch mounts @cc/dsh-work-modes', mountsWorkModes, mountsWorkModes ? 'row present' : 'no work-modes row')
 
-  // 2. And the kit's own rules plugin is what is mounted in its place.
-  const mountsKitRules = /name:\s*'@cc\/dsh-kit-rules'/.test(patch.text)
-  claim('the patch mounts @cc/dsh-kit-rules', mountsKitRules, mountsKitRules ? 'row present' : 'no kit-rules row')
-}
+  // 2. The specs plugin is what carries the prompt text now, at two scopes.
+  const mountsSpecs = /name:\s*'@cc\/dsh-specs'/.test(patch.text)
+  claim('the patch mounts @cc/dsh-specs', mountsSpecs, mountsSpecs ? 'row present' : 'no specs row')
 
-// 3. kit-rules reads ONE file, at the harness home. A directory walk or a cwd lookup
-//    would be a second route into the prompt, which is the thing the rule forbids.
-const kitRules = read('plugins/kit-rules/kit-rules.mjs')
-if (kitRules.missing === true) {
-  claim('the kit-rules source exists', false, kitRules.path)
-} else {
-  const code = kitRules.text
-    .split('\n')
-    .filter((line) => !/^\s*(\*|\/\/|\/\*)/.test(line))
-    .join('\n')
-  const walks = ['readdirSync', 'process.cwd(', 'globSync', 'opendirSync'].filter((token) => code.includes(token))
+  // 2b. The harness's own identity and persona slots are FREED in the same patch. A
+  //     plugin cannot replace a section name registered in its own layer (the
+  //     registration throws), so if this flip is absent the prompt carries the identity
+  //     twice: the harness's fixed sentence and the spec's item. Measured against the
+  //     installed 0.2.0-rc.2, which is why the claim is on the config rather than on a
+  //     section name.
+  const freesIdentity = /includeHarnessIdentity:\s*false/.test(patch.text)
   claim(
-    'kit-rules reads no directory and no working directory',
-    walks.length === 0,
-    walks.length === 0 ? 'no walk or cwd lookup in code' : `found ${walks.join(', ')}`,
+    'the patch frees the harness identity and persona slots (includeHarnessIdentity: false)',
+    freesIdentity,
+    freesIdentity ? 'slot freed' : 'the harness would still register harness:identity beside specs:identity',
   )
-  const homeOnly = /DSH_HOME/.test(code) && /RULES_FILE\s*=\s*'AGENTS\.md'/.test(code)
-  claim('and it reads the rules file inside the harness home', homeOnly, homeOnly ? "RULES_FILE = 'AGENTS.md' + DSH_HOME" : 'the home-relative read is not recognisable')
 }
 
-// 4. The rules the deployment installs are the kit's own copy, so the file a model
-//    reads is the file this repository reviews.
-for (const relative of ['rules/AGENTS.md', 'rules/DEPLOYMENT.md']) {
+// 3. The catalogue source declares BOTH scopes, and the global-only boundary is a
+//    property of the module rather than a sentence in a comment: the local scope may fill
+//    the advisory `items` slot alone, so a project cannot dilute a mandatory rule.
+const catalogue = read('plugins/specs/specs-catalogue.mjs')
+if (catalogue.missing === true) {
+  claim('the specs catalogue source exists', false, catalogue.path)
+} else {
+  const code = catalogue.text
+  const declaresBoth = /SCOPES\s*=\s*\[\s*'global'\s*,\s*'local'\s*\]/.test(code)
+  claim('it declares both scopes', declaresBoth, declaresBoth ? "SCOPES = ['global', 'local']" : 'the two scopes are not declared together')
+  const globalOnly = /identity:\s*\{[^}]*authors:\s*\['global'\]/.test(code) && /rules:\s*\{[^}]*authors:\s*\['global'\]/.test(code)
+  claim(
+    'the identity and rules slots are global-only',
+    globalOnly,
+    globalOnly ? "authors: ['global'] on both" : 'a local spec could enter a mandatory slot',
+  )
+}
+
+// 4. The items the deployment installs are the kit's own copy, so the text a model reads
+//    is the text this repository reviews. One seed per prompt item: the identity, the two
+//    persona halves, the machine facts and one file per rules section.
+for (const relative of ['rules/DEPLOYMENT.md', 'rules/specs/00-identity.md', 'rules/specs/01-persona-prefix.md', 'rules/specs/90-machine.md']) {
   const rules = read(relative)
   claim(`${relative} exists`, rules.missing !== true, rules.missing === true ? 'missing' : `${rules.text.length} bytes`)
 }
+const seeds = existsSync(join(KIT, 'rules', 'specs')) ? readdirSync(join(KIT, 'rules', 'specs')).filter((n) => n.endsWith('.md')) : []
+claim('rules/specs holds the rules sections as separate items', seeds.length >= 18, `${seeds.length} seed(s)`)
+const unslotted = seeds.filter((name) => !/^slot:\s*\S+/m.test(readFileSync(join(KIT, 'rules', 'specs', name), 'utf8')))
+claim('every seed names its slot', unslotted.length === 0, unslotted.length === 0 ? 'all slotted' : `no slot: ${unslotted.join(', ')}`)
 for (const relative of ['install.sh', 'install.ps1', 'scripts/kit-update.mjs']) {
   const script = read(relative)
-  // Either spelling counts: a literal `rules/AGENTS.md`, or the path assembled from
-  // its parts (`join(kit, 'rules', 'AGENTS.md')`). The first version of this check
-  // knew only the literal form and reported the updater as not installing the rules
-  // at all — a false negative that would have sent a reader to fix working code.
+  // Either spelling counts: a literal `rules/specs`, or the path assembled from its parts
+  // (`join(kit, 'rules', 'specs')`). The same shape of false negative that this check
+  // already met once — a literal-only match reporting working code as broken — is why both
+  // forms are accepted here too.
   const installs =
     script.missing !== true &&
-    /AGENTS\.md/.test(script.text) &&
-    (/rules[/\\]AGENTS\.md/.test(script.text) || /['"]rules['"]/.test(script.text))
-  claim(`${relative} installs rules/AGENTS.md`, installs, script.missing === true ? 'missing' : installs ? 'referenced' : 'no reference to rules/AGENTS.md')
-  // And DEPLOYMENT.md travels with it, because AGENTS.md points at it: a machine that
-  // installs the pointer without the file sends every agent to read nothing.
+    /specs/.test(script.text) &&
+    (/rules[/\\]specs/.test(script.text) || /['"]specs['"]/.test(script.text) || /['"]rules['"][\s\S]{0,40}['"]specs['"]/.test(script.text))
+  claim(`${relative} installs the global specs (rules/specs)`, installs, script.missing === true ? 'missing' : installs ? 'referenced' : 'no reference to rules/specs')
+  // And DEPLOYMENT.md travels with them: the rules' own §0 sends an agent to it, so a
+  // machine that installs the specs without the procedure sends every agent to read nothing.
   const installsProcedure =
     script.missing !== true && /DEPLOYMENT\.md/.test(script.text)
   claim(
@@ -201,13 +217,13 @@ for (const relative of ['install.sh', 'install.ps1', 'scripts/kit-update.mjs']) 
 //    procedure names the commands it tells an agent to run, and every kit file it
 //    names exists. This is what keeps an agent-facing document from drifting into
 //    fiction — prose is not a gate, but the files it tells an agent to run are.
-const agents = read('rules/AGENTS.md')
+const agents = read('rules/specs/11-deployment.md')
 if (agents.missing === true) {
-  claim('rules/AGENTS.md names the deployment procedure', false, 'missing')
+  claim('the rules name the deployment procedure', false, 'missing')
 } else {
   const points = /DEPLOYMENT\.md/.test(agents.text) && /\$DSH_HOME/.test(agents.text)
   claim(
-    'rules/AGENTS.md names $DSH_HOME/DEPLOYMENT.md as the operating procedure',
+    'the rules name $DSH_HOME/DEPLOYMENT.md as the operating procedure',
     points,
     points ? 'pointer present' : 'no pointer to the procedure',
   )

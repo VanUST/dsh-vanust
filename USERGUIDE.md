@@ -3,7 +3,8 @@
 This kit installs **DeepSeek Harness (dsh)** on any of your machines (2× Linux,
 1× Windows) plus the **eight** plugins this deployment adds beyond upstream:
 **`@deepseek-ai/dsh-model-gate`** (the class-based flash-only cost policy),
-**`@cc/dsh-kit-rules`** (delivers `$DSH_HOME/AGENTS.md` to the model as its
+**`@cc/dsh-specs`** (delivers the global items under `$DSH_HOME/specs` to every agent,
+and a project's own `docs/specs` items to that project's agents, as its
 binding rule section), **`@cc/dsh-context`** (a project's modules, rules and work
 orders as tools), **`@cc/dsh-specs`** (injects a project's human-authored
 `docs/specs/*.md` into every agent's prompt, re-read each assembly),
@@ -54,7 +55,7 @@ The installer does five things (idempotent; re-running upgrades to the pin):
 3. writes `$DSH_HOME/profiles/web/{package.json,cordis.patch.yml,pnpm-workspace.yaml}`
    from the kit's canonical copies and installs every `plugins/*.tgz` into the
    profile,
-4. installs the user-global core operating rules to `$DSH_HOME/AGENTS.md`,
+4. installs the global spec items to `$DSH_HOME/specs/` (one per prompt item),
 5. links the harness packages (`@deepseek-ai/dsh-tools`) beside the plugins and the
    probes, which is what lets the kit's own tests run from this checkout. Step 5
    is not needed by the deployment — an installed plugin resolves its peers through
@@ -131,13 +132,19 @@ default model is not a Flash-class id — check `$DSH_HOME/settings.yaml`
 
 ## 3.1 Where the agent's rules come from (and how to change them)
 
-The agent's operating rules are `$DSH_HOME/AGENTS.md`, contributed to the system
-prompt by the kit's own `@cc/dsh-kit-rules` plugin as a **binding** section. Three
-consequences worth knowing:
+The agent's rules are **global spec items**: one markdown file per prompt item under
+`$DSH_HOME/specs/`, contributed to the system prompt by the kit's own `@cc/dsh-specs`
+plugin as a **binding** section. The rules are seeded from the kit's `rules/specs/`
+(one file per section), and the identity, the persona prefix and suffix, the rules and
+the machine facts are all items in the same directory, so the whole prompt is edited in
+one place: the **Specs** window, switched to the *Global* scope. Three consequences
+worth knowing:
 
-- **Edit the file, not the harness.** Save `$DSH_HOME/AGENTS.md` and the change
-  applies to the next request in every open session — no restart, because the
-  section's text is re-read on each prompt assembly.
+- **Edit the item, not the harness.** Save a file under `$DSH_HOME/specs/` — in the
+  window or with an editor — and the change applies to the next request in every open
+  session, with no restart, because the catalogue is re-read on each prompt assembly.
+  A kit update overwrites a seeded item only while that file still holds the bytes the
+  kit last wrote; an item you edited is reported as modified and left alone.
 - **A repository's `AGENTS.md` does not reach the model.** The harness ships a
   loader that would inject every `AGENTS.md`/`CLAUDE.md` from the project root
   down to the working directory, frame them as guidance and let the most specific
@@ -161,7 +168,7 @@ To confirm what the model actually received, ask it **in the session you are alr
 using** — `--dump-config` proves only that the plugin is mounted, not that the rules
 reached the prompt, and a `--profile headless` run does NOT prove it either: the kit's
 patch layer is installed for the `web` profile, so a headless run has neither the
-disable nor the `kit-rules` row and reports `ABSENT` on a perfectly healthy machine.
+disable nor the `specs` row and reports `ABSENT` on a perfectly healthy machine.
 In any GUI session, ask the agent to quote the first line of section 0 of its rules.
 A correct answer names `$DSH_HOME/DEPLOYMENT.md`; that is the prompt-content proof, from
 the profile you actually use.
@@ -169,7 +176,8 @@ the profile you actually use.
 The static half is one command:
 
 ```bash
-dsh --profile web --dump-config | grep -A1 'kit-rules'
+dsh --profile web --dump-config | grep -A2 'specs'
+node scripts/probe-dsh-api.mjs --global-specs   # and the rules reach an assembled prompt
 ```
 
 If that row is missing, the patch layer was overwritten — see §5.
@@ -325,7 +333,10 @@ corepack pnpm remove @deepseek-ai/dsh-host-web-workbench \
   @deepseek-ai/dsh-client-ui-workbench @deepseek-ai/dsh-client-ui-terminal
 corepack pnpm add /path/to/dsh-kit/plugins/*.tgz
 cp /path/to/dsh-kit/profile/cordis.patch.yml cordis.patch.yml
-cp /path/to/dsh-kit/rules/AGENTS.md "$DSH_HOME/AGENTS.md"
+mkdir -p "$DSH_HOME/specs"
+for seed in /path/to/dsh-kit/rules/specs/*.md; do
+  [ -f "$DSH_HOME/specs/$(basename "$seed")" ] || cp "$seed" "$DSH_HOME/specs/"
+done
 ```
 
 Then restart `dsh web` and open the token URL it prints.

@@ -1,17 +1,17 @@
 {
   "name": "@cc/dsh-specs",
-  "version": "0.1.1",
-  "description": "Injects a project's human-authored spec documents into the system prompt as a binding section, re-read on every prompt assembly, so a root session and every subagent it starts read the same requirements without any enforcement machinery.",
+  "version": "0.1.4",
+  "description": "Makes every system-prompt item - identity, persona, mandatory rules, machine facts and a project's own requirements - a spec file at one of two scopes: global specs under $DSH_HOME/specs reach every agent, local specs under a project's docs/specs reach only that project. Read as one snapshot per prompt assembly, so edits apply on the next request without a restart.",
   "type": "module",
   "main": "plugin-specs.mjs",
   "exports": {
-    ".": "./plugin-specs.mjs",
-    "./core": "./specs-core.mjs",
-    "./package.json": "./package.json"
+    "./catalogue": "./specs-catalogue.mjs",
+    "./package.json": "./package.json",
+    ".": "./plugin-specs.mjs"
   },
   "files": [
     "plugin-specs.mjs",
-    "specs-core.mjs"
+    "specs-catalogue.mjs"
   ],
   "license": "MIT",
   "peerDependencies": {

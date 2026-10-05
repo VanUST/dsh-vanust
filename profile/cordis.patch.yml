@@ -33,9 +33,26 @@
   config:
     instructionFileCandidates: []
     localInstructionFileCandidates: []
-- insert:
-    - id: kit-rules
-      name: '@cc/dsh-kit-rules'
+
+# ── system-prompt: the identity and persona slots move to specs ─────────────
+# The harness registers `harness:identity`, `deployment:persona-prefix` and
+# `deployment:persona-suffix` itself, and a plugin CANNOT replace them: section
+# registration is per-layer, and a second registration of the same name in the same
+# layer throws ("already registered (for a per-agent override, register ...)").
+# Measured against the installed 0.2.0-rc.2, not assumed.
+#
+# So the deployment stops the harness owning them instead of fighting it: with no
+# default identity and empty persona strings those slots are free, and the specs
+# plugin registers `specs:identity`, `specs:persona-prefix` and
+# `specs:persona-suffix` at the harness's own orders (-1000, 0, 10200). The text
+# then lives in `$DSH_HOME/specs/*.md` like every other prompt item, editable from
+# the Specs window, and `{{model}}` / `{{cwd}}` still resolve because the specs
+# plugin substitutes them itself with `interpolate: false`.
+- id: system-prompt
+  config:
+    includeHarnessIdentity: false
+    personaPrefix: ''
+    personaSuffix: ''
 
 # ── model-gate: cost policy for the official DeepSeek route ────────────────
 # Class-based flash-only gate: every llm/stream dispatch whose model is not a
@@ -81,17 +98,25 @@
     - id: dsh-context
       name: '@cc/dsh-context'
 
-# ── specs: the project's human-authored specs, injected every turn ─────────
-# Contributes a system-prompt section carrying the specs a human wrote for the
-# project the Session is open on. The section's text is a PROVIDER, re-evaluated on
-# every assembly, so editing a spec file takes effect on the next request with no
-# restart, and a subagent reads the same project's specs as its parent because both
-# resolve the project from their own Session header.
+# ── specs: every prompt item, from two scopes of spec file ──────────────────
+# One plugin owns the whole prompt's configurable text. It reads two directories:
+#   - `$DSH_HOME/specs/*.md`   (GLOBAL) - every agent on this machine, every project.
+#     Only these may fill the identity, persona and mandatory-rules slots.
+#   - `<project>/docs/specs/*.md` (LOCAL) - only agents whose Session resolves to that
+#     project. They may fill the advisory `items` slot alone, so a project cannot
+#     dilute, reorder or disable a mandatory rule.
 #
-# It is READ-ONLY: the plugin compiles nothing, checks nothing and writes nothing.
-# There are no laws, no checks, no verdicts and no consent in this deployment; specs
-# are advisory requirements a human owns, and the only thing this row does is put
-# them in front of the model.
+# It renders SIX sections, one per slot: specs:identity (-1000),
+# specs:persona-prefix (0), specs:rules (10000, under the binding MANDATORY framing),
+# specs:machine (10050, the generated MACHINE.md), specs:persona-suffix (10200) and
+# specs:items (10250, the advisory project requirements). Every section's text is a
+# PROVIDER re-evaluated on each assembly, and all six render from ONE catalogue
+# snapshot taken for that assembly, so a change to several spec files lands in a
+# single prompt and no prompt can mix an old section with a new one.
+#
+# The scope directories are conventions, not configuration: turning the plugin off is a
+# profile decision (`- id: specs / disabled: true`), not a plugin option. It is
+# READ-ONLY over those directories and writes nothing; the Specs window is the writer.
 - insert:
     - id: specs
       name: '@cc/dsh-specs'

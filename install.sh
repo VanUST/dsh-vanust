@@ -74,17 +74,25 @@ cp "${KIT_DIR}/profile/pnpm-workspace.yaml" "${DSH_HOME}/profiles/web/pnpm-works
 
 # 4. Plugin tarballs (pnpm writes machine-local absolute paths into the
 #    profile's package.json — the kit file stays canonical with no deps).
-echo "   installing the kit plugins (model-gate, dsh-context, kit-rules, specs)..."
+echo "   installing the kit plugins (model-gate, dsh-context, specs, adr-panel)..."
 (
   cd "${DSH_HOME}/profiles/web"
   corepack pnpm@${PNPM_VERSION} add "${KIT_DIR}"/plugins/*.tgz
 )
 
-# 5. User-global core operating rules, plus the procedure they point at. Both are
-#    installed together: the rules name $DSH_HOME/DEPLOYMENT.md as the setup/update
-#    procedure an agent should follow, and a pointer to a missing file is worse than
-#    no pointer at all.
-cp "${KIT_DIR}/rules/AGENTS.md" "${DSH_HOME}/AGENTS.md"
+# 5. The global specs, plus the procedure they point at. The rules are spec ITEMS now -
+#    one file per prompt item, under $DSH_HOME/specs - and their own §0 names
+#    $DSH_HOME/DEPLOYMENT.md as the setup/update procedure, so a pointer to a missing file
+#    would be worse than no pointer at all.
+#
+#    A seed is copied only when the destination is absent: this script bootstraps a
+#    machine, and re-running it must not overwrite a spec someone edited in the Specs
+#    window. Convergence afterwards is `scripts/kit-update.mjs --apply`, which applies the
+#    same rule and reports a modified seed instead of reverting it.
+mkdir -p "${DSH_HOME}/specs"
+for seed in "${KIT_DIR}"/rules/specs/*.md; do
+  [ -f "${DSH_HOME}/specs/$(basename "${seed}")" ] || cp "${seed}" "${DSH_HOME}/specs/"
+done
 cp "${KIT_DIR}/rules/DEPLOYMENT.md" "${DSH_HOME}/DEPLOYMENT.md"
 
 # 6. Development links, so the kit's OWN gate runs from this checkout.
