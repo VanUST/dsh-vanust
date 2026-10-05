@@ -65,6 +65,14 @@ node "$KIT/scripts/kit-update.mjs" --apply                  # converge, then rec
 - A machine that disagrees with the kit cannot look converged: `--check` exits non-zero
   and names the files.
 - Restart `dsh web` afterwards — the profile is composed once, at boot.
+- **Do not run `--apply` against a live server that is watching its own profile.** The web
+  app reloads when the profile changes, and `--apply` changes the profile files FIRST and
+  reinstalls the plugins afterwards, so a reload landing in between composes a half-applied
+  state: the new patch (a plugin row removed, a slot freed) against the old installed
+  plugins. Measured: doing this left a live server running with no mandatory rules, because
+  the patch had stopped mounting the rules plugin while the replacement was not installed
+  yet. Stop the server, apply, start it again through the launcher — or apply and restart
+  immediately, before trusting any session in it.
 - **A restart kills every subagent running in a session, because they run inside the server
   process.** They are not lost — the session keeps them and a later message resumes one from
   where it stopped — but work in flight is gone and nothing re-runs it by itself. So: do not
@@ -173,4 +181,4 @@ are fixed by re-installing the profile files (§3).
 | A subagent stopped mid-task with no report | the server restarted under it; ping it to resume (see §4) — it is not lost, and only its in-flight work is |
 | A repacked tarball had no effect | its version was not bumped (§5.2) |
 | `ERR_MODULE_NOT_FOUND` for `@deepseek-ai/dsh-tools` | the checkout is not linked: `node $KIT/scripts/dev-link.mjs` |
-| The gate reports `VERIFY_NOT_RUN` | the laws or the code changed since the recorded verification: run `verify` again |
+| A rule you read here names a command that no longer exists | the kit moved on: `node $KIT/scripts/check-instruction-routing.mjs` fails on a named script or plugin that is missing, so run it before trusting the prose |
