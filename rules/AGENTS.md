@@ -207,24 +207,29 @@ run earlier, or on no command at all, is provisional and must be labelled as suc
 
 ## 12. Tests Verify Behaviour, Not Shape
 
-Every test must name the production change that would make it fail, and must exercise real
-product code and assert on its observable result — an output, a side effect, an exit code, a
-recorded state. A test that only proves a class or module *has* a method or a field, that an
-object has a key, that a mock exists or was called, or whose expected value is computed by the
-call under test, is an assertion engine: it passes while the behaviour it names is broken.
-Those test the shape of the code, not the product, and earn no place in the suite.
+Test the PRODUCT, not the code's outline. A suite is a SMALL number of tests that exercise what
+the product does — the command's output and exit code, the file it writes, the state it records,
+the result an API returns — because that is what a user or another system observes, and it is
+the only thing a passing test can honestly claim.
 
+* **A few general behaviour tests, not a test per file or function.** Do not write a test whose
+  subject is "this function returns X" or "this module has Y". Those pin the shape of the code,
+  break on every refactor, and pass while the behaviour they name is broken. If a behaviour
+  matters, it is reachable through a seam the product itself exposes: drive that.
+* **One test per behaviour, not per branch.** Cover the behaviour that rests on a decision — "a
+  failing call is retried 5 times and the 6th never happens" — not every intermediate value the
+  implementation happens to compute. A small suite that walks the real paths beats a large one
+  that mirrors the code.
 * **Derive expectations by hand.** Literals and hand-checked fixtures, never the code under test
   or its helpers — `expect(f(x)).toBe(f(x))` passes no matter what `f` does.
-* **A mock earns no assertions.** Assert the real component's behaviour; if the only thing you
-  can check is that the mock was present or called, unmock it or delete the assertion.
-* **Test the behaviour that depends on a decision, not the decision's value.** Not
-  `expect(MAX_RETRIES).toBe(5)` but "a failing call is retried 5 times and the 6th never happens".
+* **A mock earns no assertion.** Assert what the real component produced; if the only thing you
+  can check is that a mock was present or called, delete it and drive the real thing.
+* **Test what a contract depends on, or what the product got wrong before** — not whatever is
+  easiest to reach.
 * **The enforcement point is `node scripts/check-test-quality.mjs --root . --strict`.** Run it and
-  follow its output: it names each finding and how to exempt one you have judged and accept.
-* **TDD order is part of this rule.** Write the test, watch it fail for the expected reason, then
-  write the minimal code that passes. A test never watched failing has not been shown to catch
-  anything.
+  follow its output: it names each shape-only assertion and how to exempt one you have judged and
+  accept. It cannot see how many tests a suite holds or whether they exercise behaviour, so
+  keeping the suite small and behavioural is on you.
 
 ## 13. Hierarchical Subagents — batch by context block
 
