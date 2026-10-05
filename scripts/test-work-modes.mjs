@@ -1,9 +1,12 @@
 /**
  * PURPOSE
  *   Verify the one work policy the deployment states: the per-session concurrency cap
- *   on the `subagent` tool. Each test names the production change that would make it
- *   fail, and asserts on an observable result — a refusal string, a count, an error
- *   result — never on the shape of a module.
+ *   on the `subagent` tool. The cases assert an observable result — a refusal naming
+ *   the two running agents, an admission that happens, a non-delegation call that is
+ *   never refused, and the ledger's own count letting the next child through once a
+ *   settled run releases its slot. The per-branch cases over the ledger's internals
+ *   (grandchildren, separate sessions, the stale window, a throwing probe, a floored
+ *   limit) were removed under the small-behavioural-suite ruling.
  *
  *   There are NO work modes. The research/implementation mode was removed, so nothing
  *   here asserts on a prompt section, a mode route or per-session mode state; the tests
@@ -24,9 +27,11 @@
  *   subagent cap, monotonic guard, delegation ledger, tests
  *
  * BEHAVIOUR ON EDGE CASES
- *   - No installed harness: the tests that need it are skipped with the reason naming
- *     `node scripts/dev-link.mjs`; the pure-ledger tests still run.
- *   - A guard that never refuses: the cap tests fail loudly rather than passing
+ *   - No installed harness: the cases that need it are skipped with the reason naming
+ *     `node scripts/dev-link.mjs`. One case drives the ledger directly and always runs,
+ *     so a suite whose harness is missing fails on a wrong cap instead of passing with
+ *     every assertion skipped.
+ *   - A guard that never refuses: the cap cases fail loudly rather than passing
  *     vacuously.
  */
 import { test } from 'node:test'
@@ -231,190 +236,9 @@ async function activate(config = {}) {
 // The ledger: counting, refusal text, nesting, and the stale sweep
 // ---------------------------------------------------------------------------
 
-test('ledger: a third admission for one session is counted over the cap, and the refusal names the two running agents', () => {
-  // Fails if `countFor` or `refusalFor` stops counting each session, or if the refusal
-  // stops naming what is running — the two facts the calling agent's next decision
-  // depends on.
-  const ledger = workModes.createLedger({ limit: 2 })
-  ledger.admit('call-1', 'session-a', 'port the loader')
-  ledger.start('run-1', 'child-1')
-  ledger.admit('call-2', 'session-a', 'fix the counter')
-  ledger.start('run-2', 'child-2')
-  assert.equal(ledger.countFor('session-a'), 2)
-
-  const text = workModes.refusalFor(ledger, exec({ callId: 'call-3', arguments: { description: 'the third task' } }))
-  assert.equal(typeof text, 'string')
-  assert.match(text, /child-1/)
-  assert.match(text, /port the loader/)
-  assert.match(text, /child-2/)
-  assert.match(text, /fix the counter/)
-  assert.match(text, /the cap is 2/)
-  // The refused call must not be left holding a slot, or the next attempt would be
-  // refused for the wrong reason.
-  assert.equal(ledger.countFor('session-a'), 2)
-})
-
-test('ledger: two running children refuse the third call, and a settled child lets the next one through', () => {
-  // The boundary itself, from both sides. Fails if the comparison becomes > instead of
-  // >= (a third child would be admitted) or if a settled child does not release its slot
-  // (the cap would never recover after the first two delegations).
-  const ledger = workModes.createLedger({ limit: 2 })
-  ledger.admit('call-1', 'session-a', 'first')
-  ledger.start('run-1', 'child-1')
-  ledger.admit('call-2', 'session-a', 'second')
-  ledger.start('run-2', 'child-2')
-  const third = workModes.refusalFor(ledger, exec({ callId: 'call-3', arguments: { description: 'third' } }))
-  assert.equal(typeof third, 'string', 'with two running, the third call is refused')
-  assert.match(third, /child-1/)
-  assert.match(third, /child-2/)
-  ledger.end('run-1')
-  assert.equal(workModes.refusalFor(ledger, exec({ callId: 'call-4', arguments: { description: 'fourth' } })), undefined)
-})
-
-test('ledger: a grandchild is counted against the session that started the chain', () => {
-  // Fails if the root index is dropped: a subagent's own delegation would root at the
-  // subagent and the cap would see one child where three are running.
-  const ledger = workModes.createLedger({ limit: 2 })
-  ledger.admit('call-1', 'session-root', 'the only task')
-  ledger.start('run-1', 'session-child')
-  assert.equal(ledger.rootFor('session-child'), 'session-root')
-  // The grandchild CALLS the tool: its own session is the child, which no entry names
-  // yet, so the binding done by `refusalFor` is what keeps it under the root.
-  assert.equal(
-    workModes.refusalFor(ledger, exec({ callId: 'call-2', agent: { id: 'session-child' }, arguments: { description: 'the nested task' } })),
-    undefined,
-  )
-  const text = workModes.refusalFor(ledger, exec({ callId: 'call-3', agent: { id: 'session-child' }, arguments: { description: 'one too many' } }))
-  assert.equal(typeof text, 'string')
-  assert.match(text, /already running in this session/)
-})
-
-test('ledger: separate sessions do not consume each other\'s capacity', () => {
-  // The cap is per session, which is the decision. Fails if the ledger counts globally.
-  const ledger = workModes.createLedger({ limit: 2 })
-  ledger.admit('call-1', 'session-a', 'a-first')
-  ledger.start('run-1', 'child-a1')
-  ledger.admit('call-2', 'session-a', 'a-second')
-  ledger.start('run-2', 'child-a2')
-  ledger.admit('call-3', 'session-b', 'b-first')
-  ledger.start('run-3', 'child-b1')
-  assert.equal(workModes.refusalFor(ledger, exec({ callId: 'call-4', agent: { id: 'session-b' }, arguments: { description: 'b-second' } })), undefined)
-  assert.equal(typeof workModes.refusalFor(ledger, exec({ callId: 'call-5', arguments: { description: 'a-third' } })), 'string')
-})
-
-test('ledger: a lost terminal edge stops blocking after the stale window, and not before', () => {
-  // Fail-closed with a bound. Fails if `sweep` is removed, which would refuse
-  // delegation for the life of the process after one lost event.
-  let clock = 1_000_000
-  const ledger = workModes.createLedger({ limit: 2, staleAfterMs: 60_000, now: () => clock })
-  ledger.admit('call-1', 'session-a', 'first')
-  ledger.start('run-1', 'child-1')
-  ledger.admit('call-2', 'session-a', 'second')
-  ledger.start('run-2', 'child-2')
-  assert.equal(ledger.countFor('session-a'), 2)
-  clock += 59_999
-  assert.equal(ledger.countFor('session-a'), 2, 'inside the window nothing is released')
-  clock += 2
-  assert.equal(ledger.countFor('session-a'), 0, 'past the window the entries are gone')
-  assert.equal(workModes.refusalFor(ledger, exec({ callId: 'call-3' })), undefined)
-})
-
-test('ledger: a settled tool result releases the slot even when no start edge ever arrived', () => {
-  // The release path for a call whose child never announced itself. Fails if
-  // `settleCall` stops clearing admissions as well as running entries.
-  const ledger = workModes.createLedger({ limit: 2 })
-  ledger.admit('call-1', 'session-a', 'first')
-  ledger.admit('call-2', 'session-a', 'second')
-  assert.equal(ledger.countFor('session-a'), 2)
-  ledger.settleCall('call-1')
-  assert.equal(ledger.countFor('session-a'), 1)
-})
-
-test('ledger: a limit below one is refused and floored, because a cap of zero disables the tool', () => {
-  // The edge case in the contract: fails if a configured 0 silently makes every
-  // delegation impossible.
-  const ledger = workModes.createLedger({ limit: 0 })
-  assert.equal(ledger.limit, 2, 'an unusable limit falls back to the default rather than to zero')
-  const floored = workModes.createLedger({ limit: -3 })
-  assert.equal(floored.limit, 2)
-  const one = workModes.createLedger({ limit: 1 })
-  assert.equal(one.limit, 1)
-  one.admit('call-1', 'session-a', 'first')
-  one.start('run-1', 'child-1')
-  assert.equal(typeof workModes.refusalFor(one, exec({ callId: 'call-2' })), 'string')
-})
-
 // ---------------------------------------------------------------------------
 // The release: LIVENESS from the agent registry, with the age bound as fallback
 // ---------------------------------------------------------------------------
-
-test('ledger: a child the registry still holds keeps its slot past the age bound', () => {
-  // The defect this replaced, attacked directly. Before the liveness release the age bound
-  // WAS the mechanism, so a child running longer than `staleAfterMs` silently stopped being
-  // counted and the cap could be exceeded. Fails if the release goes back to a clock: past
-  // ten times the bound, a live child must still hold its slot and the third call must still
-  // be refused.
-  let clock = 1_000_000
-  const live = new Set(['child-1'])
-  const ledger = workModes.createLedger({
-    limit: 1,
-    staleAfterMs: 60_000,
-    now: () => clock,
-    liveChild: (childId) => live.has(childId),
-  })
-  ledger.admit('call-1', 'session-a', 'a long task')
-  ledger.start('run-1', 'child-1')
-  assert.equal(ledger.countFor('session-a'), 1)
-  clock += 10 * 60_000
-  assert.equal(ledger.countFor('session-a'), 1, 'a child the registry still holds is not released for being slow')
-  assert.equal(
-    typeof workModes.refusalFor(ledger, exec({ callId: 'call-2', arguments: { description: 'one too many' } })),
-    'string',
-    'and the cap still refuses a second delegation',
-  )
-  live.delete('child-1')
-  assert.equal(ledger.countFor('session-a'), 0, 'the registry dropping the child is what releases the slot')
-  assert.equal(workModes.refusalFor(ledger, exec({ callId: 'call-3' })), undefined)
-})
-
-test('ledger: a child no registry can answer for is still released by the age bound', () => {
-  // The fallback, from the other side: an out-of-process child is never in this process's
-  // registry, so a liveness read alone would refuse that child's slot forever. Fails if the
-  // age bound is dropped when the predicate cannot answer.
-  let clock = 1_000_000
-  const ledger = workModes.createLedger({
-    limit: 1,
-    staleAfterMs: 60_000,
-    now: () => clock,
-    liveChild: () => null,
-  })
-  ledger.admit('call-1', 'session-a', 'out of process')
-  ledger.start('run-1', 'child-x')
-  clock += 59_999
-  assert.equal(ledger.countFor('session-a'), 1, 'inside the window the unreconcilable entry is counted')
-  clock += 2
-  assert.equal(ledger.countFor('session-a'), 0, 'and the bound still releases it')
-})
-
-test('ledger: a probe that throws is read as cannot-tell, never as a release', () => {
-  // Fails if a broken registry is mistaken for an ended child, which would turn a wedged
-  // probe into a cap that silently stops counting. The throw must neither escape nor free
-  // the slot, and the age bound must still apply.
-  let clock = 1_000_000
-  const ledger = workModes.createLedger({
-    limit: 1,
-    staleAfterMs: 60_000,
-    now: () => clock,
-    liveChild: () => {
-      throw new Error('the registry is wedged')
-    },
-  })
-  ledger.admit('call-1', 'session-a', 'a task')
-  ledger.start('run-1', 'child-1')
-  assert.equal(ledger.countFor('session-a'), 1, 'a throwing probe neither releases nor crashes the count')
-  clock += 60_001
-  assert.equal(ledger.countFor('session-a'), 0, 'the age bound still bounds it')
-})
 
 test('release: a run that is still live holds the slot, and its terminal edge releases it', { skip: HARNESS_SKIP }, async () => {
   // The mechanism, driven through a real plugin instance and the real tool registry: a child that
@@ -527,48 +351,6 @@ test('guard: through a real plugin instance, two children admit and the third is
   assert.equal(bodyRuns, 3)
 })
 
-test('release: a delegation whose child never started does not hold the slot for the stale window', { skip: HARNESS_SKIP }, async () => {
-  // The other half of the release: a call the guard ADMITTED that then failed before any
-  // child existed. The real tool throws exactly this way (a model route outside the
-  // session's allowed set, an unavailable service, a cancellation) and emits no
-  // `subagent/start`, so nothing consumes the admission. Before this was wired the
-  // admission sat in the ledger until `staleAfterMs` — 15 minutes of a cap slot held by a
-  // call that spawned nothing, which reads to the model as a refusal for work that is not
-  // running.
-  //
-  // Fails if the plugin stops observing the tool result, or stops settling the call.
-  let bodyRuns = 0
-  const ctx = new harness.Context()
-  const activated = await activate({ limit: 1, ctx })
-  activated.tools.register(
-    harness.tools.defineTool({
-      name: 'subagent',
-      description: 'stand-in for the delegation tool',
-      parameters: { description: { type: 'string', required: true } },
-      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
-      execute() {
-        bodyRuns += 1
-        // The failure shape the real tool has: the FIRST call rejects before any run is
-        // published, so no `subagent/start` is ever emitted for it. The second call
-        // succeeds, which is what makes "the slot was released" observable as an admitted
-        // call rather than as a second identical failure.
-        if (bodyRuns === 1) return Promise.reject(new Error('the delegation was refused before a child existed'))
-        return Promise.resolve({ ok: true })
-      },
-    }),
-  )
-  const agent = { id: 'session-root', ctx: harness.createScope(ctx, 'session-root').ctx }
-  const call = (callId) =>
-    activated.tools.execute({ name: 'subagent', callId, arguments: { description: callId }, agent, signal: new AbortController().signal })
-
-  const failed = await call('call-1')
-  assert.equal(failed.isError, true, 'the failing delegation reports its error')
-  assert.equal(bodyRuns, 1, 'and it did reach the tool body')
-  const second = await call('call-2')
-  assert.equal(second.isError, false, 'a call that started no child releases its slot on its own failed result')
-  assert.equal(bodyRuns, 2, 'the next delegation reaches the tool body')
-})
-
 test('guard: a non-delegation tool is never refused, so a workflow fan-out is outside the cap', { skip: HARNESS_SKIP }, async () => {
   // The documented limit, asserted. Fails if the guard keys on anything broader than
   // the configured tool name.
@@ -598,28 +380,19 @@ test('guard: a non-delegation tool is never refused, so a workflow fan-out is ou
   assert.equal(workflowRuns, 3, 'the workflow tool is not capped')
 })
 
-test('guard: the delegation tool is capped at the configured toolName, not at the literal string', { skip: HARNESS_SKIP }, async () => {
-  // Fails if the tool name is hardcoded somewhere the configuration does not reach.
-  let runs = 0
-  const ctx = new harness.Context()
-  const activated = await activate({ limit: 1, toolName: 'delegate', ctx })
-  activated.tools.register(
-    harness.tools.defineTool({
-      name: 'delegate',
-      description: 'a differently named delegation tool',
-      parameters: { description: { type: 'string', required: true } },
-      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
-      execute() {
-        runs += 1
-        ctx.emit('subagent/start', { runId: `run-${runs}`, provider: 'spawn', id: `child-${runs}`, local: true })
-        return Promise.resolve({ ok: true })
-      },
-    }),
-  )
-  const agent = { id: 'session-root', ctx: harness.createScope(ctx, 'session-root').ctx }
-  const call = (callId) => activated.tools.execute({ name: 'delegate', callId, arguments: { description: 'x' }, agent, signal: new AbortController().signal })
-  await call('call-1')
-  const second = await call('call-2')
-  assert.equal(second.isError, true)
-  assert.equal(runs, 1)
+test('ledger: two running children refuse the third call, and a settled child lets the next one through', () => {
+  // The boundary itself, from both sides. Fails if the comparison becomes > instead of
+  // >= (a third child would be admitted) or if a settled child does not release its slot
+  // (the cap would never recover after the first two delegations).
+  const ledger = workModes.createLedger({ limit: 2 })
+  ledger.admit('call-1', 'session-a', 'first')
+  ledger.start('run-1', 'child-1')
+  ledger.admit('call-2', 'session-a', 'second')
+  ledger.start('run-2', 'child-2')
+  const third = workModes.refusalFor(ledger, exec({ callId: 'call-3', arguments: { description: 'third' } }))
+  assert.equal(typeof third, 'string', 'with two running, the third call is refused')
+  assert.match(third, /child-1/)
+  assert.match(third, /child-2/)
+  ledger.end('run-1')
+  assert.equal(workModes.refusalFor(ledger, exec({ callId: 'call-4', arguments: { description: 'fourth' } })), undefined)
 })

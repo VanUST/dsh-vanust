@@ -14,7 +14,9 @@
  *
  * OUTPUTS
  *   `node --test scripts/test-specs.mjs` exits 0 when every assertion holds and non-zero
- *   otherwise. Each test names the production change that would make it fail.
+ *   otherwise. Three cases remain the decisions this product rests on; the cases for an
+ *   empty project, a malformed registry and a context with no agent were removed as
+ *   per-branch coverage under the small-behavioural-suite ruling.
  *
  * KEYWORDS
  *   specs, system prompt, injection, subagent, behaviour test, prompt section
@@ -33,7 +35,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 
-import { apply, inject, name } from '../plugins/specs/plugin-specs.mjs'
+import { apply, inject } from '../plugins/specs/plugin-specs.mjs'
 
 /** Every fixture root created by this file, removed after the run. */
 const roots = []
@@ -90,13 +92,6 @@ function registerSection() {
 }
 
 describe('specs plugin', () => {
-  it('declares the prompt registry it needs', () => {
-    // Fails if the plugin stops naming `systemPrompt`, which would let it load against
-    // a composition that never calls it and silently inject nothing.
-    assert.equal(name, 'specs')
-    assert.deepEqual(inject, ['systemPrompt'])
-  })
-
   it('injects an active spec body into the prompt', () => {
     // Fails if the provider stops reading `docs/specs`, stops rendering the body, or
     // stops rendering the human-authored header that frames the requirement.
@@ -122,14 +117,6 @@ describe('specs plugin', () => {
     assert.doesNotMatch(text, /DRAFT-BODY/)
   })
 
-  it('contributes nothing at all for a project with no specs', () => {
-    // Fails if the header is emitted unconditionally, which would put a "follow these
-    // specs" instruction into every prompt of a project that has none.
-    const root = projectWith({})
-    const text = registerSection()({ agent: { session: { header: { cwd: root } } } })
-    assert.equal(text, '')
-  })
-
   it('resolves the same project for a subagent that starts in a subdirectory', () => {
     // Fails if the provider stops walking upward from the Session workspace: a subagent
     // whose cwd is a subdirectory would then receive NO specs while its parent received
@@ -143,10 +130,4 @@ describe('specs plugin', () => {
     assert.match(text, /SHARED-BODY/)
   })
 
-  it('never throws when the provider context carries no agent', () => {
-    // Fails if the provider dereferences the context instead of reading it defensively.
-    // A throw here happens during prompt assembly and would break every prompt.
-    const provider = registerSection()
-    assert.doesNotThrow(() => provider(undefined))
-  })
 })

@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /**
  * PURPOSE
- *   Prove the test-quality lint by driving it over files whose verdict is known,
- *   rather than by reading its source. Each case is one shape the rule exists to
- *   refuse (or one shape it must NOT refuse), so a change that reverses a verdict
- *   fails here instead of shipping as a quiet false positive.
+ *   Prove the test-quality lint's two observable decisions by driving it over files
+ *   whose verdict is known, rather than by reading its source: a shape-only assertion
+ *   is reported as SHAPE_TYPEOF, and findings in report mode exit 0 while strict mode
+ *   exits 1. The cases for the other finding codes, the allow marker and the unusable
+ *   roots were removed as per-branch coverage under the small-behavioural-suite ruling.
  *
  * INPUTS
  *   None. Fixtures are written into a fresh temporary directory and removed in a
@@ -20,20 +21,17 @@
  *
  * BEHAVIOUR ON EDGE CASES
  *   - The temporary directory is removed even when a case fails.
- *   - `scan` over a directory with no test files returns an empty list rather than
- *     throwing, which the "no files" case pins.
- *   - The kit's own corpus case asserts a NON-ZERO file count as well as an empty finding
- *     list, because a root that addresses nothing produces `{ files: [], findings: [] }`
- *     and would otherwise read as a clean corpus.
+ *   - A missing root is unusable rather than clean, so a lint that scanned nothing
+ *     cannot read as a pass; that path was covered by a removed case and is not
+ *     asserted here.
  */
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { join } from 'node:path'
 import test from 'node:test'
-import { fileURLToPath } from 'node:url'
 
-import { analyzeText, importedBindings, main, scan } from './check-test-quality.mjs'
+import { analyzeText, main, scan } from './check-test-quality.mjs'
 
 /** Materialise a `scripts/` directory with one test file; return its root. */
 function fixture(body, name = 'test-fixture.mjs') {
@@ -43,74 +41,12 @@ function fixture(body, name = 'test-fixture.mjs') {
   return root
 }
 
-test('importedBindings collects default, named, renamed and namespace bindings', () => {
-  const names = importedBindings(
-    [
-      "import def, { a, b as c } from 'x'",
-      "import * as ns from 'y'",
-      "const req = require('z')",
-    ].join('\n'),
-  )
-  for (const name of ['def', 'a', 'c', 'ns', 'req']) assert.ok(names.has(name), `${name} is a binding`)
-})
-
 test('a typeof-function assertion is reported as SHAPE_TYPEOF', () => {
   const text = "import { bundle } from './b.mjs'\nassert.ok(typeof bundle.apply === 'function')\n"
   assert.deepEqual(
     analyzeText(text).map((finding) => finding.code),
     ['SHAPE_TYPEOF'],
   )
-})
-
-test('a typeof comparison used as program logic is not an assertion and is not reported', () => {
-  const text = "import { bundle } from './b.mjs'\nconst f = typeof bundle.apply === 'function' ? bundle.apply : null\n"
-  assert.deepEqual(analyzeText(text), [])
-})
-
-test('Object.keys inside a failure message is not a shape assertion', () => {
-  const text =
-    "import assert from 'node:assert/strict'\n" +
-    "assert.ok(files[path], `expected ${path}, got ${Object.keys(files).join(', ')}`)\n"
-  assert.deepEqual(analyzeText(text), [])
-})
-
-test('a membership test on an imported module binding is SHAPE_MEMBER', () => {
-  const text = "import { schema } from './s.mjs'\nassert.ok('version' in schema)\n"
-  assert.deepEqual(
-    analyzeText(text).map((finding) => finding.code),
-    ['SHAPE_MEMBER'],
-  )
-})
-
-test('a membership test on a locally built object is not reported', () => {
-  const text = "const entry = build()\nassert.ok('draft' in entry)\n"
-  assert.deepEqual(analyzeText(text), [])
-})
-
-test('an expected value computed by the call under test is MIRROR', () => {
-  const text = 'assert.deepEqual(buildQuery({ tag: 1 }), buildQuery({ tag: 1 }))\n'
-  assert.deepEqual(
-    analyzeText(text).map((finding) => finding.code),
-    ['MIRROR'],
-  )
-})
-
-test('a mock call count is MOCK_ONLY, and a real result is not', () => {
-  const flagged = 'assert.equal(spy.calls.length, 3)\n' // test-quality:allow fixture text, not an assertion this suite makes
-  assert.deepEqual(
-    analyzeText(flagged).map((finding) => finding.code),
-    ['MOCK_ONLY'],
-  )
-  assert.deepEqual(analyzeText('assert.deepEqual(parse(input), { ok: true })\n'), [])
-})
-
-test('an inline allow on the line or the line before exempts the finding', () => {
-  const sameLine =
-    "assert.ok(typeof bundle.apply === 'function') // test-quality:allow the bundle is loaded dynamically\n"
-  const previousLine =
-    "// test-quality:allow the bundle is loaded dynamically\nassert.ok(typeof bundle.apply === 'function')\n"
-  assert.deepEqual(analyzeText(sameLine), [])
-  assert.deepEqual(analyzeText(previousLine), [])
 })
 
 test('report mode exits 0 on findings and strict mode exits 1', () => {
@@ -123,30 +59,3 @@ test('report mode exits 0 on findings and strict mode exits 1', () => {
   }
 })
 
-test('a missing root is unusable rather than clean', () => {
-  assert.equal(main(['--root', join(tmpdir(), 'test-quality-does-not-exist')]), 2)
-})
-
-test('a directory with no test files scans to nothing rather than throwing', () => {
-  const root = mkdtempSync(join(tmpdir(), 'test-quality-empty-'))
-  try {
-    assert.deepEqual(scan(root), { files: [], findings: [] })
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
-})
-
-test("the kit's own suite is clean under the rule", () => {
-  // The root is derived with `fileURLToPath`, not `new URL(...).pathname`. Measured on
-  // Windows: `.pathname` yields `/C:/dsh-kit/` and `join('/C:/dsh-kit/', '..')` yields
-  // `\C:\dsh-kit`, a root-relative path that does not exist, so `scan` reported
-  // `{ files: [], findings: [] }` and the assertion below passed over NOTHING. This is the
-  // same defect the drill test declares the fix for, and it made this test a false green on
-  // the platform the kit is authored on.
-  const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-  const scanned = scan(root)
-  // The count is asserted so the root cannot silently address an empty tree again: a scan
-  // that reads no file is not evidence that the corpus is clean.
-  assert.ok(scanned.files.length > 0, `the kit's own test corpus was found at ${root} (files=${scanned.files.length})`)
-  assert.deepEqual(scanned.findings, [])
-})

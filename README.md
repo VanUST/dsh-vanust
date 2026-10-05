@@ -190,8 +190,10 @@ verified on and the procedure for reproducing that verification are `rules/DEPLO
   inventory), `node scripts/check-model-gate.mjs` (the canonical composition's flash-only
   cost policy, read out of the packed plugin rather than retyped),
   `node scripts/check-instruction-routing.mjs` and `node scripts/check-test-quality.mjs`.
-  Some of these need the one-time `node scripts/dev-link.mjs`. `rules/DEPLOYMENT.md` §4
-  is the same list with the details.
+  Some of these need the one-time `node scripts/dev-link.mjs`. `make verify` runs them plus
+  the tests: a SMALL behavioural suite (a command's output and exit code, the file it
+  writes, a refusal) and the two `presentation` plugin self-tests — never a test per file or
+  function. `rules/DEPLOYMENT.md` §4 is the same list with the details.
 
 **Upgrades:** the harness is pre-1.0 and breaking changes are policy. Install the
 candidate and rebuild the plugins against its checkout first:

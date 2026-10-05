@@ -60,5 +60,7 @@ verify:
 	node scripts/check-model-gate.mjs
 	node scripts/check-test-quality.mjs --root . --strict
 	node --test $(wildcard scripts/test-*.mjs)
+	node plugins/presentation/test-render.mjs
+	node plugins/presentation/test-tool.mjs
 	node scripts/probe-dsh-api.mjs --kit-rules
 	node scripts/probe-dsh-api.mjs --specs-prompt
