@@ -128,9 +128,10 @@
     Aggregated from a DeepSeek platform usage export: <code>cost-2026-09-04_2026-10-03.csv</code>,
     <code>amount-2026-09-04_2026-10-03.csv</code>. The export files are not in this repository — they carry
     an account id, partially masked API key strings and the key names in use, none of which a cost
-    report needs. Reproduce this page with
-    <code>node scripts/usage-from-downloads.mjs</code>, or
-    <code>node scripts/analyze-usage.mjs --dir &lt;extracted-export&gt; --html</code>.
+    report needs. Regenerate the analysis with
+    <code>node scripts/usage-analytics.mjs --export &lt;usage.zip&gt; --out-dir docs/usage</code> (or
+    <code>make usage</code>), which drops those columns at the parse boundary, groups the keys under
+    opaque <code>use-case-N</code> labels, and re-reads its own output before writing it.
   </footer>
 </main>
 </body>

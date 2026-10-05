@@ -82,6 +82,8 @@ for you.
 dsh-kit/
 ├── install.sh / install.ps1   # fresh-machine setup (Node check → pinned dsh → profile → plugins → rules)
 ├── start.sh / start.ps1       # easy startup: dsh web --port 3080
+├── Makefile                   # `make usage`: analyse the newest usage export and open the report
+├── scripts/usage-analytics.mjs # DeepSeek usage export → peak/cache/agent-hour analytics (md, json, html)
 ├── scripts/kit-update.mjs     # update path: hash drift check + convergence for an existing machine
 ├── plugins/inventory.json     # the shipped plugin set + each plugin's provenance (the source of truth)
 ├── plugins/*.tgz              # plugin tarballs: model-gate, cc-dsh-context, cc-dsh-kit-rules, cc-dsh-specs,

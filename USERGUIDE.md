@@ -256,45 +256,54 @@ make usage
 ```
 
 That is the whole procedure. It finds the newest `usage_data_*.zip` in your Downloads
-folder, extracts it, checks the result for leaked identity material, writes
-`docs/usage/<YYYY-MM>.html`, and **opens the page in your browser**. Nothing is unzipped by
-hand and no path is typed.
+folder, reads it (the ZIP is opened in Node; nothing is unzipped by hand), and writes
+three reports into `reports/usage/`, named for the window the export covers:
+`<from>_<to>.md`, `.json` and `.html`. It then **opens the HTML page in your browser**.
+The HTML report is self-contained — inline CSS, no script, nothing fetched — so it
+renders the same from disk, as an attachment, or in a document preview, with no network.
 
-The report is a **self-contained HTML page**, not a text document: the CSS is inline, there
-is no script and nothing is fetched, so it renders the same opened from disk, sent as an
-attachment, or shown in a document preview — with no network.
+The published copy the rules cite is `docs/usage/2026-09.html`. To refresh that one
+instead, point the reports at it:
+
+```bash
+node scripts/usage-analytics.mjs --export ~/Downloads/usage_data_2026-09.zip --out-dir docs/usage
+```
 
 In a script or on a headless machine, suppress the launch:
 
 ```bash
-node scripts/usage-from-downloads.mjs --no-open     # or: make usage NOOPEN=1
+make usage NO_OPEN=1
 ```
-
-`make usage-print` writes the report and prints it to the terminal instead of opening it.
-The launcher is the platform's own — `start` via cmd on Windows, `open` on macOS, `xdg-open`
-elsewhere — and a launcher that cannot be found is a warning, not a failure: the report is
-already on disk by then.
 
 **`make` is not required** — every target is a thin alias for the `node` command under it,
 and `make` is not installed by default on Windows:
 
 ```bash
-node scripts/usage-from-downloads.mjs                 # scan this machine's Downloads
-node scripts/usage-from-downloads.mjs --print         # the same, and echo the report
-node scripts/usage-from-downloads.mjs --downloads /some/dir
-node scripts/usage-from-downloads.mjs --zip /path/usage_data.zip
+node scripts/usage-analytics.mjs                       # newest export in this machine's Downloads
+node scripts/usage-analytics.mjs --export /path/usage.zip
+node scripts/usage-analytics.mjs --export-dir /some/dir
+node scripts/usage-analytics.mjs --no-agent-hours      # skip the session-log pass
+node scripts/usage-analytics.mjs --check               # the redaction gate: write nothing, exit 1 on a leak
 ```
 
 The download folder is resolved per platform: `%USERPROFILE%\Downloads` on Windows and
 `$XDG_DOWNLOAD_DIR` (falling back to `~/Downloads`) on Linux. If several exports are
-present the newest by modification time wins, and the run says how many it considered.
+present the newest by modification time wins.
+
+**Agent-hours.** The analysis divides spend by the hours agents were actually running,
+not by calendar hours, which is why it also reads this machine's session logs under
+`$DSH_HOME/sessions`. `--no-agent-hours` skips that pass and reports the token and cost
+figures alone.
 
 **The export files themselves are never committed.** They carry your account id,
 partially masked API key strings and the names of the keys in use, and this repository is
-public — so the tool drops those columns at the parse boundary and then re-reads its own
-output, refusing to emit a report that still contains key-shaped material, a UUID or a
-credential header. `make verify` runs that refusal as a test, including the case that
-proves the refusal *can* fire.
+public. So the reader drops those columns at the parse boundary, maps each key NAME to an
+opaque `use-case-N` label that the report may group by, and then **re-reads its own
+output** — every format it would write — refusing to emit a report that still contains
+key-shaped material, a UUID or a credential header. `make usage-check` (or `--check`) is
+that refusal as a command, and `make test-usage` proves it *can* fire: one test feeds the
+gate an export whose model name is key-shaped and requires exit 1.
+
 
 ## 4. Per-machine configuration
 

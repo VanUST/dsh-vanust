@@ -1,40 +1,59 @@
 # dsh-kit — one-command tasks.
 #
-# `make` is NOT required to use this kit: every target here is a thin alias for a `node`
-# command you can also run directly. It exists because one task is genuinely multi-step and
-# machine-dependent — find the usage export, find this platform's download folder, unzip it,
-# name the report — and one memorable alias beats four steps that differ on Windows and Linux.
+#   make usage                          newest export in ~/Downloads, then open the page
+#   make usage EXPORT=path/to/usage.zip  a specific export
+#   make usage NO_OPEN=1                 write the reports without opening a browser
+#   make usage REPORT_DIR=somewhere      where the reports land
+#   make usage-check                     the redaction gate: fail if a report would carry identity material
+#   make test-usage                      the analytics' own test suite
+#   make verify                          every check the kit ships
 #
-# All logic lives in scripts/usage-from-downloads.mjs, so nothing here depends on a shell
-# feature. That matters: the recipe must behave the same under sh, bash and cmd.exe.
+# The work is done by Node, not by this file: locating the export, parsing it,
+# computing the figures and opening the browser all live in scripts/ so the same
+# behaviour is available on either platform and is covered by tests. This file is
+# the thin alias on top.
 
-.DEFAULT_GOAL := help
+NODE       ?= node
+REPORT_DIR ?= reports/usage
+EXPORT     ?=
+NO_OPEN    ?=
 
-.PHONY: help usage usage-print verify
+# `--out-dir` names each report after the window the export covers, so a month's
+# artifacts share one name instead of whichever label the caller remembered.
+ANALYTICS  := scripts/usage-analytics.mjs --out-dir "$(REPORT_DIR)"
+ifeq ($(strip $(EXPORT)),)
+EXPORT_ARG :=
+else
+EXPORT_ARG := --export "$(EXPORT)"
+endif
+ifeq ($(strip $(NO_OPEN)),)
+OPEN_ARG := --open
+else
+OPEN_ARG :=
+endif
+
+.PHONY: help usage usage-check test-usage verify
 
 help:
-	@echo "make usage        newest usage export in Downloads -> docs/usage/<YYYY-MM>.html, opened"
-	@echo "make usage-print  the same, printed to the terminal instead of opened"
-	@echo "make verify       run every check the kit ships"
-	@echo ""
-	@echo "Overrides:"
-	@echo "  make usage DOWNLOADS=/some/dir"
-	@echo "  make usage ZIP=/path/usage_data.zip"
-	@echo "  make usage OUT=docs/usage/2026-10.html"
-	@echo "  make usage NOOPEN=1        write the report without opening a browser"
+	@echo "make usage                    - newest usage export in ~/Downloads, write and open the report"
+	@echo "make usage EXPORT=<path.zip>  - a specific export"
+	@echo "make usage NO_OPEN=1          - write the reports without opening a browser"
+	@echo "make usage-check              - the redaction gate; exit 1 when a report would carry identity material"
+	@echo "make test-usage               - run the analytics test suite"
+	@echo "make verify                   - run every check the kit ships"
 
-# One command end to end: scan, extract, redaction-check, write the report, open it.
 usage:
-	node scripts/usage-from-downloads.mjs $(if $(DOWNLOADS),--downloads "$(DOWNLOADS)") $(if $(ZIP),--zip "$(ZIP)") $(if $(OUT),--out "$(OUT)") $(if $(NOOPEN),--no-open,)
+	@$(NODE) $(ANALYTICS) $(EXPORT_ARG) $(OPEN_ARG)
 
-# The same run, printed rather than opened: if you are reading it in the terminal, a browser
-# window is not wanted.
-usage-print:
-	node scripts/usage-from-downloads.mjs --print --no-open $(if $(DOWNLOADS),--downloads "$(DOWNLOADS)") $(if $(ZIP),--zip "$(ZIP)") $(if $(OUT),--out "$(OUT)")
+# The gate as a target: the reader drops the identity columns, and the reporter re-reads
+# its own output before anything is written, so this fails when a key, an account id or a
+# credential header would reach a page. `--check` writes nothing.
+usage-check:
+	@$(NODE) scripts/usage-analytics.mjs --check $(EXPORT_ARG)
 
-# Every check the kit ships, in the order the deployment documents them.
-# The test list is a make-time wildcard, not a hand-written list: a hand-written one silently
-# skips whatever a later change adds, which is the failure mode this target exists to prevent.
+test-usage:
+	@$(NODE) --test scripts/test-usage-analytics.mjs
+
 verify:
 	node scripts/check-portability.mjs
 	node scripts/check-instruction-routing.mjs

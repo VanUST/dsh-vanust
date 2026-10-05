@@ -17,6 +17,9 @@
  *   `decodeSession(bytes)` → the log's text.
  *   `usageSeries(text)` → one entry per billed request: `{turn, step, billed,
  *   cached, prompt, output, reasoning}`.
+ *   `recordTimeline(text)` → one entry per timestamped record, `{time, type}`,
+ *   in file order, which is what a caller measures elapsed or concurrent agent
+ *   time from.
  *   Exports only pure functions; no file is written and no process state is read
  *   beyond the home directory.
  *
@@ -31,6 +34,9 @@
  *     whole session.
  *   - A message without a `usage` object contributes no entry, so callers can
  *     distinguish "no usage data" from "zero tokens".
+ *   - A record whose `time` is absent or not a finite number contributes no
+ *     timeline entry; it is skipped rather than dated to zero, which would place
+ *     it in 1970 and stretch every interval computed from it.
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
@@ -144,4 +150,34 @@ export function usageSeries(text) {
 /** Read and decode one session file path. Thin wrapper for callers with a path. */
 export function readSession(path) {
   return decodeSession(readFileSync(path))
+}
+
+/**
+ * Extract the timestamped record timeline from a decoded session log.
+ *
+ * Every record the harness appends carries a millisecond epoch `time`, which is
+ * the only wall-clock evidence a session log holds; the usage series has no
+ * timestamps at all. Returning here — beside the record walking that already
+ * exists — keeps one reader of the format rather than a second JSON scan in each
+ * caller that needs time rather than tokens.
+ *
+ * @param text - Decoded session text.
+ * @returns `{time, type}[]` in file order, where `time` is the record's epoch
+ *   milliseconds. Records without a finite numeric `time` are omitted. The array
+ *   is empty, never null, when the log holds no timestamped record.
+ */
+export function recordTimeline(text) {
+  const timeline = []
+  for (const line of text.split('\n')) {
+    if (line.trim().length === 0) continue
+    let record
+    try {
+      record = JSON.parse(line)
+    } catch {
+      continue
+    }
+    if (!Number.isFinite(record.time)) continue
+    timeline.push({ time: record.time, type: record.type })
+  }
+  return timeline
 }
