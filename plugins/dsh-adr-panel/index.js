@@ -122,6 +122,16 @@ const DEFAULT_SLOT = 'items'
 /** Every slot the loader knows, used to tell "no slot" from "an unknown one". */
 const ALL_SLOTS = [...GLOBAL_ONLY_SLOTS, DEFAULT_SLOT]
 
+/**
+ * The settings the window offers as typed values, and the label each is shown under.
+ *
+ * Mirrors the `SETTINGS` registry in `@cc/dsh-specs`'s catalogue: the loader is what
+ * validates a value, and a key it does not know is refused as an unknown setting. The
+ * portability check compares the two lists, so a key added on one side cannot be offered -
+ * or silently dropped - on the other.
+ */
+export const SETTING_FIELDS = [{ key: 'subagent-cap', label: 'Subagent cap', hint: 'at most this many subagent delegations per session (1 or more)' }]
+
 /** Longest spec body the route will return, so one huge file cannot wedge the window. */
 const MAX_BODY_CHARS = 200000
 
@@ -265,6 +275,14 @@ function listSpecs(dir, scope) {
     }
     const text2 = text
     const rawSlot = frontmatterField(text2, 'slot')
+    const settings = {}
+    if (rawSlot === 'settings') {
+      for (const field of SETTING_FIELDS) {
+        const raw = frontmatterField(text2, field.key)
+        const value = Number(raw)
+        if (raw !== null && Number.isInteger(value)) settings[field.key] = value
+      }
+    }
     const title = frontmatterField(text2, 'title')
     const status = frontmatterField(text2, 'status')
     const order = Number(frontmatterField(text2, 'order'))
@@ -275,6 +293,7 @@ function listSpecs(dir, scope) {
       slot: rawSlot ?? DEFAULT_SLOT,
       order: Number.isFinite(order) ? order : 0,
       scope,
+      ...(Object.keys(settings).length > 0 ? { settings } : {}),
       body: text.length > MAX_BODY_CHARS ? text.slice(0, MAX_BODY_CHARS) : text,
       ...(unreadable ? { unreadable: true } : {}),
     })
@@ -309,6 +328,80 @@ function problemsFor(specs) {
     }
   }
   return out
+}
+
+/**
+ * Set one key in a scope's settings item, creating the item when the scope has none.
+ *
+ * The item is a spec like any other, so it is edited as markdown everywhere else; this
+ * function exists because a typed number from a one-field bar should not force a human to
+ * hand-write frontmatter. It rewrites the key's line and preserves the rest of the file -
+ * the title, the status, any other setting and the body - because a settings item is a
+ * document a human may also keep notes in.
+ *
+ * @param dir - The scope directory.
+ * @param key - The setting name.
+ * @param value - The value; null removes the key.
+ * @returns `{ file }` on success, or `{ error }`.
+ */
+function writeSetting(dir, key, value) {
+  let names
+  try {
+    names = existsSync(dir) ? readdirSync(dir).filter((name) => name.toLowerCase().endsWith('.md')).sort() : []
+  } catch (error) {
+    return { error: `could not read ${dir}: ${error.message}` }
+  }
+  let target = null
+  let text = null
+  for (const name of names) {
+    let candidate
+    try {
+      candidate = readFileSync(join(dir, name), 'utf8')
+    } catch {
+      continue
+    }
+    if (frontmatterField(candidate, 'slot') === 'settings') {
+      target = name
+      text = candidate
+      break
+    }
+  }
+  if (target === null) {
+    target = 'settings.spec.md'
+    if (names.includes(target)) return { error: `${target} exists but does not declare slot: settings` }
+    text = `---\ntitle: Settings\nslot: settings\nstatus: active\n---\n`
+  }
+
+  const block = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(text)
+  const line = new RegExp(`^${key}\\s*:.*$`, 'm')
+  if (block === null) {
+    const body = text.trim() === '' ? '' : `\n${text.replace(/^\s+/, '')}`
+    text = `---\ntitle: Settings\nslot: settings\nstatus: active\n${key}: ${value}\n---\n${body}`
+  } else {
+    let meta = block[1]
+    if (line.test(meta)) {
+      meta = value === null ? meta.split(/\r?\n/).filter((entry) => !line.test(entry)).join('\n') : meta.replace(line, `${key}: ${value}`)
+    } else if (value !== null) {
+      meta = `${meta}\n${key}: ${value}`
+    }
+    text = `---\n${meta}\n---${block[0].slice(0, block[0].length).endsWith('\n') ? '\n' : ''}${text.slice(block[0].length)}`
+  }
+
+  // A settings item with no setting left is deleted, so the scope falls back to the
+  // default rather than keeping a file that says nothing.
+  const names2 = /^---\r?\n([\s\S]*?)\r?\n---/m.exec(text)
+  const keys = names2 === null ? [] : names2[1].split(/\r?\n/).filter((entry) => /^[A-Za-z0-9_-]+\s*:/.test(entry) && !['title', 'status', 'slot', 'order', 'budget', 'generated'].includes(entry.split(':')[0].trim()))
+  try {
+    if (keys.length === 0 && value === null) {
+      if (existsSync(join(dir, target))) unlinkSync(join(dir, target))
+      return { file: target, removed: true }
+    }
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, target), text, 'utf8')
+  } catch (error) {
+    return { error: `could not write ${target}: ${error.message}` }
+  }
+  return { file: target }
 }
 
 /**
@@ -405,6 +498,13 @@ export function createSpecsHandler(ctx, token, log) {
             status: spec.status,
             chars: spec.body.length,
           }))
+        // The settings in force: the machine's own, the project's, and the value the
+        // loader will actually use (the project's when it declares one, the machine's
+        // otherwise). The window shows the effective value and writes to the scope that
+        // is selected, so "what applies here" is never a guess.
+        const settingsOf = (specs) => Object.assign({}, ...specs.map((spec) => spec.settings ?? {}))
+        const globalSettings = settingsOf(globalSpecs)
+        const localSettings = settingsOf(localSpecs)
         sendJson(res, 200, {
           ok: true,
           project: root,
@@ -413,6 +513,7 @@ export function createSpecsHandler(ctx, token, log) {
           local: { dir: scopeDir('local', root), specs: localSpecs },
           effective,
           problems,
+          settings: { global: globalSettings, local: localSettings, effective: Object.assign({}, globalSettings, localSettings) },
         })
         return
       }
@@ -428,6 +529,37 @@ export function createSpecsHandler(ctx, token, log) {
 
     const scope = body.scope === 'global' ? 'global' : 'local'
     const dir = scopeDir(scope, root)
+
+    // ── a typed setting ─────────────────────────────────────────────────────
+    // `{ settings: { 'subagent-cap': 4 } }` from the window's one-field bar. `null` clears
+    // the scope's own value so the other scope's (or the plugin's default) applies again.
+    if (body.settings !== undefined && body.settings !== null) {
+      if (typeof body.settings !== 'object' || Array.isArray(body.settings)) {
+        sendJson(res, 400, { error: 'bad-request', message: 'settings must be an object of key: value' })
+        return
+      }
+      const written = []
+      for (const [key, value] of Object.entries(body.settings)) {
+        const field = SETTING_FIELDS.find((entry) => entry.key === key)
+        if (field === undefined) {
+          sendJson(res, 400, { error: 'unknown-setting', message: `the window has no field named ${JSON.stringify(key)}` })
+          return
+        }
+        if (value !== null && (!Number.isInteger(value) || value < 1)) {
+          sendJson(res, 400, { error: 'bad-request', message: `${key} must be a whole number of 1 or more` })
+          return
+        }
+        const outcome = writeSetting(dir, key, value)
+        if (outcome.error !== undefined) {
+          sendJson(res, 500, { error: 'write-failed', message: outcome.error, written })
+          return
+        }
+        written.push(outcome.file)
+      }
+      log.info(`set ${Object.keys(body.settings).join(', ')} in the ${scope} scope`)
+      sendJson(res, 200, { ok: true, scope, written })
+      return
+    }
 
     // ── batch write ─────────────────────────────────────────────────────────
     // Validate EVERY entry before writing ANY: a batch is what the window sends when a

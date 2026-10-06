@@ -51,7 +51,7 @@
  *     uniqueness rule.
  */
 
-import { loadCatalogue, renderSlot, slotRegistrations } from './specs-catalogue.mjs'
+import { loadCatalogue, renderSlot, settingsFor, slotRegistrations } from './specs-catalogue.mjs'
 
 /** Cordis function-plugin name; also the id a profile patch targets. */
 export const name = 'specs'
@@ -129,6 +129,26 @@ function snapshotFor(context) {
  *   on unload so a reload replaces the sections rather than colliding with them.
  */
 export function apply(ctx) {
+  // The settings service: how another plugin reads the values a `settings`-slot item
+  // declares, for a given workspace. Published rather than copied, so the loader stays the
+  // one implementation of scope precedence and a second plugin cannot disagree with it.
+  // `undefined` when the cwd is unknown, which callers read as "no setting".
+  ctx.provide('specSettings', {
+    /**
+     * The settings in force for a workspace.
+     *
+     * @param cwd - A session workspace, or anything else.
+     * @returns `{ [key]: value }`; `{}` when nothing is declared or the workspace is unknown.
+     */
+    forWorkspace(cwd) {
+      try {
+        return settingsFor(loadCatalogue({ cwd }))
+      } catch {
+        // A settings read must never be the reason a guard throws.
+        return {}
+      }
+    },
+  })
   for (const { slot, section, order } of slotRegistrations()) {
     ctx.effect(() => {
       const dispose = ctx.systemPrompt.section({

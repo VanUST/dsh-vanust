@@ -213,6 +213,48 @@ describe('specs window route', () => {
     assert.ok(!existsSync(join(home, 'escape.md')), 'a refused name still wrote a file')
   })
 
+  it('sets and clears the subagent cap through the window', async () => {
+    // Fails if the typed value does not reach a settings item, if the catalogue view stops
+    // reporting the value in force (the bar would then show what was typed rather than what
+    // applies), or if clearing leaves a value behind that keeps refusing delegations.
+    const home = homeWith()
+    const project = projectWith()
+    const { handle, token } = handlerFor(project)
+
+    const set = response()
+    await handle(request('POST', { token, payload: { session: 's', scope: 'global', settings: { 'subagent-cap': 3 } } }), set)
+    assert.equal(set.statusCode, 200, set.body)
+    assert.ok(existsSync(join(home, 'specs', 'settings.spec.md')), 'the global cap did not land in a settings item')
+
+    const view = response()
+    await handle(request('GET', { token, query: '?session=s&catalogue=1' }), view)
+    assert.equal(view.json().settings.effective['subagent-cap'], 3)
+
+    // A project's own value is written into ITS scope and wins in the view.
+    const localSet = response()
+    await handle(request('POST', { token, payload: { session: 's', scope: 'local', settings: { 'subagent-cap': 5 } } }), localSet)
+    assert.equal(localSet.statusCode, 200, localSet.body)
+    const view2 = response()
+    await handle(request('GET', { token, query: '?session=s&catalogue=1' }), view2)
+    assert.equal(view2.json().settings.effective['subagent-cap'], 5)
+    assert.equal(view2.json().settings.global['subagent-cap'], 3)
+
+    // Clearing the project's own value falls back to the machine's, and the item is gone.
+    const clear = response()
+    await handle(request('POST', { token, payload: { session: 's', scope: 'local', settings: { 'subagent-cap': null } } }), clear)
+    assert.equal(clear.statusCode, 200, clear.body)
+    assert.ok(!existsSync(join(project, 'docs', 'specs', 'settings.spec.md')), 'a cleared setting left its item behind')
+    const view3 = response()
+    await handle(request('GET', { token, query: '?session=s&catalogue=1' }), view3)
+    assert.equal(view3.json().settings.effective['subagent-cap'], 3, 'clearing the project value did not fall back to the machine value')
+
+    // A value that would disable the tool is refused before it is written.
+    const bad = response()
+    await handle(request('POST', { token, payload: { session: 's', scope: 'local', settings: { 'subagent-cap': 0 } } }), bad)
+    assert.equal(bad.statusCode, 400)
+    assert.ok(!existsSync(join(project, 'docs', 'specs', 'settings.spec.md')), 'a refused value was written anyway')
+  })
+
   it('reports the items the loader will refuse, in the effective catalogue', async () => {
     // Fails if the window cannot see a refusal: a project item that names `slot: rules` is
     // dropped by the loader, and a human who is not told writes a requirement that silently

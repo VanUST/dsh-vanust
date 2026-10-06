@@ -87,14 +87,50 @@ export const SLOTS = {
   machine: { section: 'specs:machine', order: 10050, authors: ['global'], label: false, budget: 8000 },
   'persona-suffix': { section: 'specs:persona-suffix', order: 10200, authors: ['global'], label: false, budget: 4000 },
   items: { section: 'specs:items', order: 10250, authors: ['global', 'local'], label: true, budget: 60000, framing: 'items' },
+  // A slot that contributes NO prompt text. Its items are configuration a plugin reads
+  // through the `specSettings` service this plugin provides, which is how a policy such as
+  // the subagent cap becomes a per-project value in the same window as everything else.
+  // A LOCAL item overrides a GLOBAL one for this slot, unlike the instruction slots: a cap
+  // is an operational parameter of one project, not a guardrail whose dilution the rules
+  // forbid.
+  settings: { section: null, order: 0, authors: ['global', 'local'], label: false, budget: 0, render: false },
 }
+
+/**
+ * The settings a `settings`-slot item may declare, and how each value is validated.
+ *
+ * Every key is named here rather than read as free-form frontmatter, so a typo is a
+ * reported problem instead of a setting that quietly does nothing. `parse` returns either
+ * `{ value }` or `{ problem }`, and the caller records the problem against the file.
+ */
+export const SETTINGS = {
+  'subagent-cap': {
+    parse: (raw) => {
+      const value = Number(raw)
+      if (!Number.isInteger(value) || value < 1) {
+        return { problem: `subagent-cap must be a whole number of 1 or more; got ${JSON.stringify(raw)}` }
+      }
+      return { value }
+    },
+  },
+}
+
+/** Frontmatter keys the format itself owns, so they are never read as settings. */
+const RESERVED_KEYS = new Set(['title', 'status', 'slot', 'order', 'budget', 'generated'])
 
 /** The slot an item lands in when its frontmatter names none or names one that is not real. */
 export const DEFAULT_SLOT = 'items'
 
-/** The section name and order a slot registers; exported so the plugin and probes agree. */
+/**
+ * The section name and order each slot registers; exported so the plugin and probes agree.
+ *
+ * A slot with no `section` (the settings slot) is deliberately absent: it registers nothing,
+ * because it contributes no prompt text.
+ */
 export function slotRegistrations() {
-  return Object.entries(SLOTS).map(([slot, spec]) => ({ slot, section: spec.section, order: spec.order }))
+  return Object.entries(SLOTS)
+    .filter(([, spec]) => spec.section !== null)
+    .map(([slot, spec]) => ({ slot, section: spec.section, order: spec.order }))
 }
 
 /** The framing the rules slot renders under, so the text is binding rather than advisory. */
@@ -204,6 +240,39 @@ export function parseItem(text, file, scope, options = {}) {
   if (slot === null) return { problem: { file, scope, why: `unknown slot "${wanted}"` } }
   if (!SLOTS[slot].authors.includes(scope)) {
     return { problem: { file, scope, why: `a ${scope} spec may not fill the "${slot}" slot (global only)` } }
+  }
+
+  if (slot === 'settings') {
+    const values = {}
+    for (const [key, raw] of Object.entries(meta)) {
+      if (RESERVED_KEYS.has(key)) continue
+      const spec = SETTINGS[key]
+      if (spec === undefined) {
+        return { problem: { file, scope, why: `unknown setting "${key}"` } }
+      }
+      const parsedValue = spec.parse(raw)
+      if (parsedValue.problem !== undefined) {
+        return { problem: { file, scope, why: parsedValue.problem } }
+      }
+      values[key] = parsedValue.value
+    }
+    if (Object.keys(values).length === 0) {
+      return { problem: { file, scope, why: 'no setting declared (a settings item names at least one key)' } }
+    }
+    return {
+      item: {
+        file,
+        scope,
+        title: meta.title && meta.title.length > 0 ? meta.title : file.replace(/\.md$/i, ''),
+        status: meta.status && meta.status.length > 0 ? meta.status.toLowerCase() : null,
+        slot,
+        order: 0,
+        budget: null,
+        generated: null,
+        settings: values,
+        body: '',
+      },
+    }
   }
 
   let bodyText = body.trim()
@@ -390,9 +459,23 @@ function revisionOf(store, key) {
  * @param slot - A key of {@link SLOTS}.
  * @returns The section text, or `''` when the slot has no active item.
  */
+export function settingsFor(snapshot) {
+  if (snapshot === undefined || snapshot === null) return {}
+  const items = (snapshot.items ?? []).filter((item) => item.slot === 'settings' && item.settings !== undefined)
+  // Global first, then local, so a project's own value is the last word for its agents.
+  const ordered = items
+    .filter((item) => item.scope === 'global')
+    .concat(items.filter((item) => item.scope === 'local'))
+  const merged = {}
+  for (const item of ordered) Object.assign(merged, item.settings)
+  return merged
+}
+
 export function renderSlot(snapshot, slot) {
   const spec = SLOTS[slot]
   if (spec === undefined || snapshot === undefined || snapshot === null) return ''
+  // A slot with no section contributes no prompt text; its items are read by a caller.
+  if (spec.render === false) return ''
   const items = (snapshot.items ?? []).filter((item) => item.slot === slot)
   if (items.length === 0) return ''
 

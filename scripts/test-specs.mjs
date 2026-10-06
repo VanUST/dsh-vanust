@@ -110,9 +110,14 @@ function projectWith(specs) {
  */
 function registerSections() {
   const sections = new Map()
+  const services = {}
   const ctx = {
     effect(fn) {
       return fn()
+    },
+    provide(name, value) {
+      services[name] = value
+      return () => {}
     },
     systemPrompt: {
       section(options) {
@@ -123,7 +128,9 @@ function registerSections() {
   }
   apply(ctx)
   assert.ok(sections.size >= 6, `apply() registered ${sections.size} section(s)`)
-  return sections
+  // The settings service is how another plugin reads a `settings` item; the fake keeps it
+  // beside the sections so a case can exercise it the way the cap plugin does.
+  return { sections, services }
 }
 
 /**
@@ -152,7 +159,7 @@ describe('specs catalogue', () => {
       'live.spec.md': '---\ntitle: Live\nstatus: active\n---\nLIVE-BODY-LITERAL\n',
       'draft.spec.md': '---\ntitle: Draft\nstatus: draft\n---\nDRAFT-BODY-LITERAL\n',
     })
-    const sections = registerSections()
+    const { sections } = registerSections()
     const text = render(sections, 'specs:items', root)
     assert.match(text, /LIVE-BODY-LITERAL/)
     assert.match(text, /### Live/)
@@ -168,7 +175,7 @@ describe('specs catalogue', () => {
     const root = projectWith({
       'override.spec.md': '---\ntitle: Override\nslot: rules\n---\nLOCAL-OVERRIDE-LITERAL\n',
     })
-    const sections = registerSections()
+    const { sections } = registerSections()
     const context = { agent: { session: { header: { cwd: root } } } }
     const rules = render(sections, 'specs:rules', root, context)
     assert.match(rules, /GLOBAL-RULE-LITERAL/)
@@ -187,7 +194,7 @@ describe('specs catalogue', () => {
       '90-machine.md': '---\nslot: machine\ngenerated: machine-facts\n---\nplaceholder\n',
     })
     const root = projectWith({})
-    const sections = registerSections()
+    const { sections } = registerSections()
     const context = { agent: { session: { header: { cwd: root } } } }
     assert.equal(render(sections, 'specs:identity', root, context), 'GLOBAL-IDENTITY-LITERAL')
     assert.match(render(sections, 'specs:rules', root, context), /GLOBAL-RULE-LITERAL/)
@@ -202,7 +209,7 @@ describe('specs catalogue', () => {
     // cached snapshot (an edit would need a restart).
     const home = homeWith({ '10-rules.md': '---\nslot: rules\n---\nFIRST-BODY\n' })
     const root = projectWith({})
-    const sections = registerSections()
+    const { sections } = registerSections()
     const firstAssembly = { agent: { session: { header: { cwd: root } } } }
     assert.match(render(sections, 'specs:rules', root, firstAssembly), /FIRST-BODY/)
 
@@ -219,6 +226,32 @@ describe('specs catalogue', () => {
     assert.doesNotMatch(nextAssembly, /FIRST-BODY/)
   })
 
+  it('lets a project override the machine setting, and ignores a value the loader refuses', () => {
+    // Fails if the settings precedence is inverted (the machine value would win in a
+    // project that set its own) or if an invalid value is accepted: a cap of zero would
+    // disable the delegation tool entirely, and it must contribute NOTHING rather than 0.
+    homeWith({ '10-settings.md': '---\ntitle: Machine\nslot: settings\nsubagent-cap: 2\n---\n' })
+    const overriding = projectWith({
+      'cap.spec.md': '---\ntitle: Cap\nslot: settings\nsubagent-cap: 5\n---\n',
+    })
+    const broken = projectWith({
+      'broken.spec.md': '---\ntitle: Broken\nslot: settings\nsubagent-cap: 0\n---\n',
+    })
+    const { services, sections } = registerSections()
+
+    assert.equal(services.specSettings.forWorkspace(overriding)['subagent-cap'], 5, 'the project did not win over the machine setting')
+    // The refused item contributes nothing, so the machine's 2 is what applies there. Had
+    // the 0 been accepted, this would be 0 - which is the failure being tested for.
+    assert.equal(services.specSettings.forWorkspace(broken)['subagent-cap'], 2, 'an invalid value was accepted')
+
+    // The settings slot is configuration, not prompt text: it must register no section, or
+    // every agent would read a cap as prose.
+    assert.ok(
+      ![...sections.keys()].some((name) => name.toLowerCase().includes('setting')),
+      `the settings slot registered a prompt section: ${JSON.stringify([...sections.keys()])}`,
+    )
+  })
+
   it('resolves the same project for a subagent that starts in a subdirectory', () => {
     // Fails if the provider stops walking upward from the Session workspace: a subagent
     // whose cwd is a subdirectory would then receive NO specs while its parent received
@@ -229,7 +262,7 @@ describe('specs catalogue', () => {
     })
     const nested = join(root, 'src', 'deep')
     mkdirSync(nested, { recursive: true })
-    const text = render(registerSections(), 'specs:items', nested)
+    const text = render(registerSections().sections, 'specs:items', nested)
     assert.match(text, /SHARED-BODY-LITERAL/)
   })
 })

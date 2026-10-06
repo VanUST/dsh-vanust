@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-specs",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Makes every system-prompt item - identity, persona, mandatory rules, machine facts and a project's own requirements - a spec file at one of two scopes: global specs under $DSH_HOME/specs reach every agent, local specs under a project's docs/specs reach only that project. Read as one snapshot per prompt assembly, so edits apply on the next request without a restart.",
   "type": "module",
   "main": "plugin-specs.mjs",

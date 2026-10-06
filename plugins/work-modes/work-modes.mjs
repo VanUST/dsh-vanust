@@ -1,6 +1,7 @@
 /**
  * PURPOSE
- *   One deployment policy: a concurrency cap on the `subagent` tool. At most two of
+ *   One deployment policy: a concurrency cap on the `subagent` tool. At most the CONFIGURED
+ *   number of
  *   that tool's children (per session, grandchildren included) may be running; a third
  *   call is refused immediately with the two running agents named, and the calling
  *   agent decides what to do. A `workflow` fan-out is deliberately OUTSIDE this cap —
@@ -15,7 +16,14 @@
  * INPUTS
  *   Config (all optional, all with working defaults):
  *     `toolName` — the delegation tool to cap. Default `subagent`.
- *     `limit` — the most children of that tool that may run at once. Default 2.
+ *     `limit` — the most children of that tool that may run at once. Default 2. It is the
+ *       MACHINE default: a project may override it for its own sessions with a
+ *       `subagent-cap` setting in a settings spec item, which the Specs window writes as a
+ *       typed value. That setting is read through the `specSettings` service the specs
+ *       plugin publishes, at the moment of each call, so an edit applies to the next
+ *       delegation rather than to the next restart. The service is bound with `inject`
+ *       rather than declared, because a required dependency would leave this plugin
+ *       pending - and the cap ABSENT - wherever no specs plugin is mounted.
  *     `staleAfterMs` — the FALLBACK bound on an entry the agent registry could not
  *       answer for (an out-of-process child, or a composition with no `agents` service).
  *       Default 900000 (15 minutes). It is not the release mechanism: a child this
@@ -343,9 +351,11 @@ export function createLedger(options = {}) {
  * so nobody reads this refusal as a cap on concurrent work.
  *
  * @param ledger - A ledger from {@link createLedger}.
+ * @param limit - The cap in force for this session; the ledger's own when omitted.
  * @returns The denial text.
  */
-export function refusalText(ledger) {
+export function refusalText(ledger, limit = undefined) {
+  const effective = Number.isFinite(limit) ? limit : ledger.limit
   const entries = ledger.entries()
   const named = entries.map((entry) => {
     const who = entry.childId ?? entry.callId ?? '(unknown id)'
@@ -353,7 +363,8 @@ export function refusalText(ledger) {
     return `  - ${who}: ${what}`
   })
   return [
-    `refused: ${entries.length} subagent(s) are already running in this session and the cap is ${ledger.limit}.`,
+    `refused: ${entries.length} subagent(s) are already running in this session and the cap is ${effective}` +
+      (effective === ledger.limit ? '.' : ' (this project\'s configured cap).'),
     'The subagents currently running are:',
     ...named,
     '',
@@ -372,12 +383,19 @@ export function refusalText(ledger) {
  * Decide whether one tool call is a capped delegation, and refuse it when the cap is
  * already reached.
  *
+ * The cap is resolved PER SESSION, not once at boot: a project may set its own in a spec
+ * item, and the value is read at the moment of the call so an edit lands on the next
+ * delegation rather than on the next restart.
+ *
  * @param ledger - A ledger from {@link createLedger}.
  * @param exec - The tool execution the guard received.
  * @param toolName - The delegation tool's registered name.
+ * @param limitFor - Optional `(sessionId) => number | null`: the cap configured for that
+ *   session, or null to use the ledger's own. A value below one is ignored, because a cap
+ *   of zero would make the delegation tool unusable.
  * @returns The denial text, or `undefined` to leave the call allowed.
  */
-export function refusalFor(ledger, exec, toolName = DEFAULT_TOOL_NAME) {
+export function refusalFor(ledger, exec, toolName = DEFAULT_TOOL_NAME, limitFor = null) {
   if (exec?.name !== toolName) return undefined
   const caller = sessionOf(exec)
   // An unattributable call is allowed: the ledger keys everything by session, so a
@@ -391,7 +409,18 @@ export function refusalFor(ledger, exec, toolName = DEFAULT_TOOL_NAME) {
   // Capacity is decided BEFORE this call claims a slot. Admitting first and undoing it
   // on refusal made the boundary off by one: the call's own admission appeared in the
   // count and a call that should have been allowed was refused.
-  if (ledger.countFor(root) >= ledger.limit) return refusalText(ledger)
+  let limit = ledger.limit
+  if (typeof limitFor === 'function') {
+    let configured = null
+    try {
+      configured = limitFor(root)
+    } catch {
+      // A settings read that throws is "no setting", never a failure of the guard.
+      configured = null
+    }
+    if (Number.isFinite(configured) && configured >= 1) limit = Math.floor(configured)
+  }
+  if (ledger.countFor(root) >= limit) return refusalText(ledger, limit)
   if (callId !== null) ledger.admit(callId, caller, exec.arguments?.description)
   return undefined
 }
@@ -491,6 +520,47 @@ export function apply(ctx, config = {}) {
     return probe === null ? null : probe(childId)
   }
   const ledger = createLedger({ limit: usableLimit(config), staleAfterMs: config.staleAfterMs, liveChild })
+  // ── the per-project cap ───────────────────────────────────────────────────
+  // A project may set `subagent-cap` in a settings spec item, in its own scope (or the
+  // machine's, as a default). The value is read from the `specSettings` service the specs
+  // plugin publishes - never parsed here, so the loader stays the one implementation of
+  // scope precedence. The service is OPTIONAL and bound through `inject` rather than
+  // declared in this plugin's own `inject` list: a required dependency would leave this
+  // plugin pending, and therefore the cap ABSENT, in a composition that mounts no specs
+  // plugin. That is the same rule the `agents` service is read under.
+  let settingsService = null
+  ctx.inject(['specSettings'], (scope) => {
+    settingsService = scope.specSettings ?? null
+  })
+  /**
+   * The cap configured for one session, or null when nothing configures it.
+   *
+   * @param sessionId - The root session the delegation counts against.
+   * @returns A whole number of one or more, or null.
+   */
+  const limitFor = (sessionId) => {
+    let service = settingsService
+    if (service === null) {
+      try {
+        service = ctx.get('specSettings') ?? null
+      } catch {
+        service = null
+      }
+    }
+    if (service === null || typeof service.forWorkspace !== 'function') return null
+    const agents = ctx.get('agents')
+    if (agents === undefined || agents === null || typeof agents.get !== 'function') return null
+    let cwd = null
+    try {
+      cwd = agents.get(sessionId)?.session?.header?.cwd ?? null
+    } catch {
+      cwd = null
+    }
+    if (typeof cwd !== 'string' || cwd.length === 0) return null
+    const settings = service.forWorkspace(cwd)
+    const cap = settings?.['subagent-cap']
+    return Number.isFinite(cap) && cap >= 1 ? Math.floor(cap) : null
+  }
   // ── the concurrency cap ───────────────────────────────────────────────────
   // A monotonic guard, not a pre-execute listener: a guard may only deny, so no
   // listener ordering can turn the refusal back into permission. The tool registry
@@ -503,7 +573,7 @@ export function apply(ctx, config = {}) {
   // fibre still reported ACTIVE, and no activation diagnostic could see it.
   ctx.inject(['tools'], (scope) => {
     scope.effect(
-      () => scope.tools.guard((exec) => refusalFor(ledger, exec, toolName)),
+      () => scope.tools.guard((exec) => refusalFor(ledger, exec, toolName, limitFor)),
       'work-modes: the subagent concurrency guard',
     )
     // The release for a call whose child never existed. The guard ADMITS a delegation

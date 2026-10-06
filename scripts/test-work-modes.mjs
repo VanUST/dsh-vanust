@@ -380,6 +380,40 @@ test('guard: a non-delegation tool is never refused, so a workflow fan-out is ou
   assert.equal(workflowRuns, 3, 'the workflow tool is not capped')
 })
 
+test('ledger: a session configured with its own cap is refused at THAT cap, not the default', () => {
+  // Fails if the per-session limit is ignored - the guard would refuse at the machine
+  // default even where a project set its own - or if the refusal stops naming the number
+  // that actually applied, which is the only thing that tells a caller what to do.
+  const ledger = workModes.createLedger({ limit: 2 })
+  ledger.admit('call-1', 'session-a', 'first')
+  ledger.start('run-1', 'child-1')
+  ledger.admit('call-2', 'session-a', 'second')
+  ledger.start('run-2', 'child-2')
+  // Two are running and the machine default is 2, but this session's project allows four.
+  const limitFor = (session) => (session === 'session-a' ? 4 : null)
+  assert.equal(
+    workModes.refusalFor(ledger, exec({ callId: 'call-3', arguments: { description: 'third' } }), 'subagent', limitFor),
+    undefined,
+    'a session with a cap of four was refused at the default of two',
+  )
+  // An admitted delegation is counted while its child is pending, so two more admissions
+  // bring this session to four - and only then is the next call refused.
+  assert.equal(
+    workModes.refusalFor(ledger, exec({ callId: 'call-4', arguments: { description: 'fourth' } }), 'subagent', limitFor),
+    undefined,
+    'the fourth call must be admitted at a cap of four',
+  )
+  const fifth = workModes.refusalFor(ledger, exec({ callId: 'call-5', arguments: { description: 'fifth' } }), 'subagent', limitFor)
+  assert.equal(typeof fifth, 'string', 'with four configured and four counted, the fifth must be refused')
+  assert.match(fifth, /the cap is 4/)
+  assert.match(fifth, /this project's configured cap/)
+  // A session the function answers null for keeps the ledger's own limit, and its refusal
+  // names that number rather than the project's.
+  const atDefault = workModes.refusalFor(ledger, exec({ callId: 'call-6', arguments: { description: 'other' } }), 'subagent', () => null)
+  assert.equal(typeof atDefault, 'string', 'the default cap must still refuse a busy session')
+  assert.match(atDefault, /the cap is 2\./)
+})
+
 test('ledger: two running children refuse the third call, and a settled child lets the next one through', () => {
   // The boundary itself, from both sides. Fails if the comparison becomes > instead of
   // >= (a third child would be admitted) or if a settled child does not release its slot

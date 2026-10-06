@@ -10,7 +10,10 @@ There are no work modes: no session is in a RESEARCH or IMPLEMENTATION mode and 
 injected into any prompt. What a session does is governed by the specs its project injects
 (§0a) and by these rules.
 
-**At most two concurrent `subagent` children per session.** A third call is refused immediately,
+**At most the configured number of concurrent `subagent` children per session — two by
+default.** A project may set its own in the **Specs** window (or in a `settings` spec item
+with `subagent-cap: <n>`, n >= 1); the value is read when the call happens, so a change
+applies to the next delegation rather than to the next restart. A call over the cap is refused immediately,
 with the two running agents named, and the caller decides: batch the remaining work into the
 delegations already running, finish its own step first, or retry later. It is not a queue and not
 a wait. The mechanism is a monotonic `tools.guard()`, which may only deny, so no listener

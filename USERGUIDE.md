@@ -173,6 +173,12 @@ In any GUI session, ask the agent to quote the first line of section 0 of its ru
 A correct answer names `$DSH_HOME/DEPLOYMENT.md`; that is the prompt-content proof, from
 the profile you actually use.
 
+The window also holds the one typed setting: a small **Subagent cap** bar. Type a whole
+number of one or more and press **Set** in the *This project* scope to change how many
+subagent delegations that project's sessions may run at once (the machine default is 2, set
+in the *Global* scope); **Clear** removes the project's own value so the machine's applies
+again. The value is read when a delegation happens, so it takes effect on the next one.
+
 The static half is one command:
 
 ```bash

@@ -3,7 +3,11 @@
 A standalone Web-UI plugin for DeepSeek Harness. Its name is historical: it began as a
 window on architecture decision records, and it is now the deployment's **spec editor**.
 It adds a **button to the Session header** labelled **Specs** that opens a **frame-wide
-overlay**: spec items are listed for the chosen SCOPE — the GLOBAL items every agent
+overlay**: next to the scope switch sits one small bar holding the **subagent cap** — a
+number the human types and presses Set to apply, showing the value in force (the project's
+own when it sets one, the machine's otherwise) and a Clear button when the project has its
+own. It is the one setting the window offers as a value rather than as markdown. The
+window lists spec items for the chosen SCOPE — the GLOBAL items every agent
 receives (`<harness home>/specs/*.md`) or the LOCAL ones this project's agents receive
 (`docs/specs/*.md`) — one opens in a
 text editor, and specs are saved, created and deleted from there.
@@ -29,6 +33,7 @@ One capability-fenced route, `<SPECS_ROUTE>` = `/adr-panel/specs`:
 | `POST { session, scope, file, content }` | writes (creates or overwrites) one item |
 | `POST { session, scope, file, remove: true }` | deletes one item, or reports `removed: false` |
 | `POST { session, scope, files: [{ file, content }] }` | writes a BATCH: every entry is validated before any is written, so one bad name cannot leave half a save on disk |
+| `POST { session, scope, settings: { 'subagent-cap': n } }` | sets a TYPED setting in that scope's settings item, creating the item when the scope has none; `null` removes the key, and an item left with no setting is deleted so the other scope's value applies again |
 
 Every request carries the `<SPECS_HEADER>` capability (`x-adr-panel-specs`), whose token
 is minted per activation with `randomBytes`, held in memory, published only as the index

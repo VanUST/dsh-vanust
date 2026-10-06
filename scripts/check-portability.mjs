@@ -767,6 +767,19 @@ for (const dir of ['plugins/specs', 'plugins/dsh-context', 'plugins/kit-rules', 
       }
       if (expected.length === 0) problems.push('the catalogue declares NO global-only slot, which cannot be right')
     }
+
+    // The typed settings the window OFFERS must be the settings the catalogue VALIDATES: a
+    // key only the window knows is written and then refused as an unknown setting, and a key
+    // only the catalogue knows can never be set from the UI.
+    const settingsBlock = /export const SETTINGS = \{([\s\S]*?)\n\}/.exec(catalogueText)?.[1] ?? ''
+    const catalogueKeys = [...settingsBlock.matchAll(/^\s{2}'([\w-]+)':\s*\{/gm)].map((match) => match[1]).sort()
+    const panelKeys = [...(/SETTING_FIELDS\s*=\s*\[([\s\S]*?)\]/.exec(panelText)?.[1] ?? '').matchAll(/key:\s*'([^']+)'/g)]
+      .map((match) => match[1])
+      .sort()
+    if (catalogueKeys.length === 0) problems.push('the catalogue declares no setting key')
+    else if (panelKeys.join(',') !== catalogueKeys.join(',')) {
+      problems.push(`the window offers settings ${JSON.stringify(panelKeys)} but the catalogue validates ${JSON.stringify(catalogueKeys)}`)
+    }
   } catch (error) {
     problems.push(`could not compare the panel's slot list with the catalogue: ${String(error)}`)
   }

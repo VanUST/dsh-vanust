@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-work-modes",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "A monotonic tools.guard() that refuses a third concurrent `subagent` child per session with the running agents named (a `workflow` fan-out is deliberately outside it). There are no work modes: the research/implementation mode was removed and no prompt section is injected.",
   "type": "module",
   "main": "work-modes.mjs",

@@ -267,6 +267,12 @@ window.__ModuleLoader__.load({
       var draftsState = React.useState({})
       var drafts = draftsState[0]
       var setDrafts = draftsState[1]
+      // The one typed setting this window offers: the subagent cap. It is shown as the
+      // value IN FORCE (the project's own when it sets one, the machine's otherwise), and
+      // the button writes it into the scope that is currently selected.
+      var capState = React.useState('')
+      var cap = capState[0]
+      var setCap = capState[1]
 
       var sessionId = typeof props.sessionId === 'string' && props.sessionId.length > 0 ? props.sessionId : null
 
@@ -543,6 +549,37 @@ window.__ModuleLoader__.load({
                 : null,
             )
 
+      // The field follows the catalogue, so it shows what a delegation will actually be
+      // refused by rather than whatever was last typed.
+      var effectiveCap =
+        effectiveView !== null && effectiveView.settings !== undefined
+          ? effectiveView.settings.effective['subagent-cap']
+          : undefined
+      React.useEffect(function () {
+        setCap(effectiveCap === undefined || effectiveCap === null ? '' : String(effectiveCap))
+      }, [effectiveCap])
+
+      /**
+       * Write the typed cap into the selected scope, or clear this scope's own value.
+       *
+       * @param clear - True to remove the key so the other scope (or the default) applies.
+       * @returns Nothing.
+       */
+      function applyCap(clear) {
+        var value = null
+        if (clear !== true) {
+          var parsed = Number(cap)
+          if (!Number.isInteger(parsed) || parsed < 1) {
+            setData({ loading: false, error: 'the subagent cap must be a whole number of 1 or more', specs: data.specs, dir: data.dir })
+            return
+          }
+          value = parsed
+        }
+        post({ settings: { 'subagent-cap': value } }, function (outcome) {
+          if (!outcome.ok) setData({ loading: false, error: outcome.message || 'could not set the cap', specs: data.specs, dir: data.dir })
+        })
+      }
+
       var dirty = Object.keys(drafts).length
       var scopeBar = h(
         'div',
@@ -562,6 +599,33 @@ window.__ModuleLoader__.load({
           'button',
           { type: 'button', style: Object.assign({}, S.btn, S.btnPrimary), disabled: busy || dirty === 0, onClick: saveAll },
           'Save all' + (dirty > 0 ? ' (' + dirty + ')' : ''),
+        ),
+        h('span', { style: Object.assign({}, S.meta, { marginLeft: 'auto' }) }, 'Subagent cap'),
+        h('input', {
+          type: 'number',
+          min: 1,
+          step: 1,
+          value: cap,
+          title: 'the most subagent delegations one session may run at once',
+          onChange: function (event) {
+            setCap(event.target.value)
+          },
+          style: Object.assign({}, S.input, { width: '72px' }),
+        }),
+        h(
+          'button',
+          { type: 'button', style: S.btn, disabled: busy, onClick: function () { applyCap(false) } },
+          'Set',
+        ),
+        effectiveView !== null && effectiveView.settings !== undefined && effectiveView.settings[scope] !== undefined && effectiveView.settings[scope]['subagent-cap'] !== undefined
+          ? h('button', { type: 'button', style: S.btn, disabled: busy, onClick: function () { applyCap(true) } }, 'Clear')
+          : null,
+        h(
+          'span',
+          { style: S.meta },
+          effectiveCap === undefined
+            ? 'default (2)'
+            : 'in force: ' + effectiveCap + (effectiveView.settings.local['subagent-cap'] !== undefined ? ' (this project)' : ' (machine)'),
         ),
       )
 
