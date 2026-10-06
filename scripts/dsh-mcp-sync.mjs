@@ -67,6 +67,7 @@ import {
   readSpec,
   renderPatch,
   resolveHome,
+  resolveNpx,
   resolveUvx,
   rowIdsFor,
   serverNames,
@@ -188,6 +189,7 @@ async function main() {
     rows: [],
     namespaces: [],
     uvx: null,
+    npx: null,
     project: projectDir,
     present: false,
     matches: null,
@@ -202,14 +204,20 @@ async function main() {
     result.errors.push(...spec.errors)
   }
   for (const server of spec.servers) {
-    const uvx = resolveUvx({ server, workspace })
-    if (!uvx) {
+    // Only the launcher the server DECLARES is resolved, and only that one is required. An
+    // npm server has no business needing uvx on the machine, and a uvx server has no business
+    // needing npx; demanding both would refuse a correct row over a tool it never runs.
+    const runner = server.runner ?? 'uvx'
+    const uvx = runner === 'uvx' ? resolveUvx({ server, workspace }) : null
+    if (runner === 'uvx' && !uvx) {
       result.errors.push(`${server.id}: no uvx launcher found (checked $${server.uvxEnv ?? 'UVX_BIN'}, the spec candidates, and PATH)`)
       continue
     }
-    result.uvx = result.uvx ?? uvx
+    const npx = runner === 'npx' ? resolveNpx({}) : null
+    if (uvx) result.uvx = result.uvx ?? uvx
+    if (npx) result.npx = result.npx ?? npx
     try {
-      result.rows.push(buildRow({ server, uvx, projectDir: projectDir ?? undefined }))
+      result.rows.push(buildRow({ server, uvx: uvx ?? undefined, npx: npx ?? undefined, projectDir: projectDir ?? undefined }))
     } catch (error) {
       result.errors.push(`${server.id}: ${error.message}`)
     }
@@ -263,7 +271,8 @@ async function main() {
     say(`mode      ${result.mode}`)
     say(`spec      ${result.spec}`)
     say(`patch     ${result.patchPath}${result.present ? ' (exists)' : ' (absent)'}`)
-    say(`uvx       ${result.uvx ?? 'NOT FOUND'}`)
+    if (result.uvx !== null) say(`uvx       ${result.uvx}`)
+    if (result.npx !== null) say(`npx       ${result.npx}`)
     say(`project   ${result.project ?? '(none — cwd omitted)'}`)
     say(`rows      ${result.rows.length} ${result.namespaces.join(' ')}`.trim())
     for (const error of result.errors) say(`ERROR: ${error}`)

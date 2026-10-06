@@ -37,6 +37,20 @@
  *   Environment: `DSH_HOME` locates the harness home when set; otherwise the conventional
  *   `~/.dsh` when it exists, then the legacy `~/.npm/dsh`.
  *
+ *   Spec fields per server, beyond `id`/`serverName`/`transport`:
+ *     runner         - `uvx` (default) or `npx`. Which launcher the row needs, declared
+ *                      rather than inferred, so an npm server is never refused for a uvx it
+ *                      does not use and vice versa.
+ *     package        - the distribution to run: a Python requirement (`godot-ai==4.2.3`)
+ *                      for uvx, or a pinned npm package (`@playwright/mcp@0.0.79`) for npx.
+ *                      Pinned in both cases, because an unpinned server can change under a
+ *                      running deployment.
+ *     args           - extra arguments for the server itself. For an npx server the runner
+ *                      supplies `-y <package>` ahead of these.
+ *     telemetryFlag / domainsFlag - the flags THIS provider understands. `telemetry: false`
+ *                      appends `telemetryFlag` only when the field is present, because a
+ *                      flag a server does not know makes it refuse to start.
+ *
  * OUTPUTS
  *   `apply(ctx)` registers at most one system-prompt section and returns no value. It
  *   never throws: a missing, empty or malformed spec contributes a section that says so,
@@ -46,7 +60,8 @@
  *   Exports, used by `scripts/dsh-mcp-sync.mjs` and by the deploy checks:
  *     readSpec({specPath})            -> { ok, specPath, version, servers, errors }
  *     resolveUvx({server, workspace}) -> absolute uvx path, or null
- *     buildConfig({server, uvx, workspace, projectDir}) -> the bridge's `config` object
+ *     resolveNpx({env})               -> the npx beside the running interpreter, or `npx`
+ *     buildConfig({server, uvx, npx, projectDir}) -> the bridge's `config` object
  *     buildRow({...})                 -> { id, name, config }
  *     rowIdFor({id})                  -> `mcp-client-<id>`, the loader id a row carries
  *     legacyRowIdFor({id})            -> `<id>`, the spelling written before ROW_ID_PREFIX
@@ -83,7 +98,7 @@
 
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { delimiter, isAbsolute, join } from 'node:path'
+import { delimiter, dirname, isAbsolute, join } from 'node:path'
 
 /** Cordis function-plugin name; also the id a profile patch targets. */
 export const name = 'godot-mcp'
@@ -247,11 +262,20 @@ export function readSpec(options = {}) {
       errors.push(`${at} (${entry.id}): transport "${entry.transport}" is not supported by this plugin (only "stdio")`)
       continue
     }
+    // The launcher, stated rather than inferred. `uvx` is the default so a spec written
+    // before this field existed keeps working; `npx` runs an npm package instead. A runner
+    // this plugin does not implement is REFUSED rather than guessed at: a row whose command
+    // is wrong fails at boot in the loader, a worse place to find out.
+    const runner = entry.runner === undefined ? 'uvx' : entry.runner
+    if (runner !== 'uvx' && runner !== 'npx') {
+      errors.push(`${at} (${entry.id}): \`runner\` must be "uvx" or "npx" (got ${JSON.stringify(entry.runner)})`)
+      continue
+    }
     if (typeof entry.package !== 'string' || entry.package.trim() === '') {
       errors.push(`${at} (${entry.id}): \`package\` must be a non-empty string`)
       continue
     }
-    servers.push({ ...entry, args: Array.isArray(entry.args) ? entry.args : [] })
+    servers.push({ ...entry, runner, args: Array.isArray(entry.args) ? entry.args : [] })
   }
   return { ok: errors.length === 0, specPath, version: parsed.version ?? null, servers, errors }
 }
@@ -315,6 +339,32 @@ export function resolveUvx(options = {}) {
 }
 
 /**
+ * Locate `npx` for a server launched from an npm package.
+ *
+ * Different from {@link resolveUvx} on purpose: `npx` ships with the Node the harness itself
+ * runs on, so the first candidate is the one beside `process.execPath` rather than a set of
+ * per-user install locations. An explicit `NPX_BIN` still wins, and when nothing is found on
+ * disk the bare name `npx` is returned, because the operating system resolves it from PATH at
+ * spawn time - the sync cannot verify that path, and refusing the row over it would break the
+ * ordinary case of a Node installed by a package manager.
+ *
+ * @param options - { env? }. `NPX_BIN` overrides everything.
+ * @returns An absolute path when one was found on disk, else `"npx"`.
+ */
+export function resolveNpx(options = {}) {
+  const env = options.env ?? process.env
+  const override = env?.NPX_BIN
+  if (typeof override === 'string' && override.trim() !== '') return override
+  // Deliberately NOT wrapped in a catch. The first version was, and it swallowed a
+  // ReferenceError from a missing `dirname` import: the function returned the plausible
+  // fallback "npx" while the code was broken, so nothing failed and nothing was logged.
+  // Neither expression here can throw in a Node process, so there is nothing to tolerate.
+  const beside = join(dirname(process.execPath), process.platform === 'win32' ? 'npx.cmd' : 'npx')
+  if (existsSync(beside)) return beside
+  return 'npx'
+}
+
+/**
  * Build the bridge's `config` object for one server.
  *
  * The shape is the one the shipped bridge's own type declares - `transport`, `serverName`,
@@ -323,25 +373,33 @@ export function resolveUvx(options = {}) {
  * bridge passes it to a spawn without shell interpolation, so a bare `uvx` would depend on
  * the child's PATH rather than on the path this function just proved exists.
  *
- * @param options - { server, uvx, projectDir? }.
+ * @param options - `{ server, uvx, npx, projectDir? }`. The launcher for the server's own
+ *   `runner` is required; the other one is ignored.
  * @returns The config object. `cwd` is omitted when no project directory is known, rather
  *   than set to a guess, because a wrong working directory is worse than none.
  */
 export function buildConfig(options = {}) {
-  const { server, uvx, projectDir } = options
-  if (typeof uvx !== 'string' || uvx.trim() === '') {
-    // Callers must resolve uvx first: a row whose `command` is undefined renders as an
-    // absent field and the bridge would fail at load with a message about a missing
+  const { server, uvx, npx, projectDir } = options
+  const runner = server?.runner ?? 'uvx'
+  // Which launcher this row needs is the server's own declaration; requiring the other one
+  // is how a correct npm server would be refused for a launcher it never uses.
+  const launcher = runner === 'npx' ? npx : uvx
+  if (typeof launcher !== 'string' || launcher.trim() === '') {
+    // Callers must resolve the launcher first: a row whose `command` is undefined renders as
+    // an absent field and the bridge would fail at load with a message about a missing
     // command rather than about the missing launcher, which is where the real fault is.
-    throw new Error(`buildConfig: a resolved uvx path is required for server "${server?.id ?? '?'}"`)
+    throw new Error(`buildConfig: a resolved ${runner === 'npx' ? 'npx' : 'uvx'} path is required for server "${server?.id ?? '?'}"`)
   }
   const args = [...(server.args ?? [])]
-  if (server.telemetry === false && !args.includes('--disable-telemetry')) {
-    args.push('--disable-telemetry')
+  // The provider-specific flags are DECLARED in the spec, not inferred from a boolean:
+  // `--disable-telemetry` is a Godot AI flag, and pushing it at an npm server that does not
+  // know it makes that server refuse to start over an unknown option.
+  if (server.telemetry === false && typeof server.telemetryFlag === 'string' && !args.includes(server.telemetryFlag)) {
+    args.push(server.telemetryFlag)
   }
   const domains = Array.isArray(server.excludeDomains) ? server.excludeDomains.filter((d) => typeof d === 'string' && d !== '') : []
-  if (domains.length > 0 && !args.includes('--exclude-domains')) {
-    args.push('--exclude-domains', domains.join(','))
+  if (domains.length > 0 && typeof server.domainsFlag === 'string' && !args.includes(server.domainsFlag)) {
+    args.push(server.domainsFlag, domains.join(','))
   }
   const env = {}
   for (const [key, value] of Object.entries(server.env ?? {})) {
@@ -350,11 +408,14 @@ export function buildConfig(options = {}) {
   if (typeof server.projectEnv === 'string' && server.projectEnv !== '' && projectDir) {
     env[server.projectEnv] = projectDir
   }
+  // `npx -y <package>`: `-y` answers the install prompt that would otherwise wait for a
+  // terminal this process does not have. The package is pinned in the spec, so the bytes
+  // that run are the bytes that were reviewed.
   const config = {
     transport: 'stdio',
     serverName: server.serverName,
-    command: uvx,
-    args,
+    command: launcher,
+    args: runner === 'npx' ? ['-y', ...(typeof server.package === 'string' ? [server.package] : []), ...args] : args,
   }
   if (projectDir) config.cwd = projectDir
   if (Object.keys(env).length > 0) config.env = env

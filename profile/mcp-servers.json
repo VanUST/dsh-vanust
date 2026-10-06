@@ -16,7 +16,10 @@
         "resolver-policy": "The uv flags are not decoration: --isolated/--no-config/--no-env-file/--no-sources remove ambient uv configuration and alternate index authority, and the explicit --index/--default-index/--find-links pin the package source to public PyPI. They are reproduced verbatim from the addon's own documented launch shape so the row and the dock agree.",
         "telemetry": "false passes --disable-telemetry, which covers this bridge and any backend it spawns. It records an installation UUID, event, outcome, duration, platform and version - never code, scene contents, or project file names; project slugs are hashed before transmission."
       },
+      "runner": "uvx",
       "transport": "stdio",
+      "telemetryFlag": "--disable-telemetry",
+      "domainsFlag": "--exclude-domains",
       "uvxEnv": "UVX_BIN",
       "uvxCandidates": [
         "<workspace>/vendor/uv/uvx",
@@ -29,16 +32,26 @@
         "--no-env-file",
         "--no-sources",
         "--no-build",
-        "--index-strategy", "first-index",
-        "--keyring-provider", "disabled",
-        "--index", "https://pypi.org/simple",
-        "--default-index", "https://pypi.org/simple",
-        "--find-links", "https://pypi.org/simple/godot-ai/",
-        "--link-mode", "copy",
-        "--from", "godot-ai==4.2.3",
-        "godot-ai", "attach",
-        "--port", "8000",
-        "--ws-port", "9500"
+        "--index-strategy",
+        "first-index",
+        "--keyring-provider",
+        "disabled",
+        "--index",
+        "https://pypi.org/simple",
+        "--default-index",
+        "https://pypi.org/simple",
+        "--find-links",
+        "https://pypi.org/simple/godot-ai/",
+        "--link-mode",
+        "copy",
+        "--from",
+        "godot-ai==4.2.3",
+        "godot-ai",
+        "attach",
+        "--port",
+        "8000",
+        "--ws-port",
+        "9500"
       ],
       "telemetry": false,
       "excludeDomains": [],
@@ -54,6 +67,34 @@
         "Open the project in Godot and enable Project > Project Settings > Plugins > Godot AI",
         "If the project is not the directory kit-update runs from, export GODOT_PROJECT=<absolute project path> so the sync can find the project and its provisioned uvx; otherwise run `node scripts/dsh-mcp-sync.mjs --apply` from the project root",
         "Restart dsh: the MCP row is read at boot"
+      ]
+    },
+    {
+      "id": "playwright-mcp",
+      "enabled": true,
+      "serverName": "playwright",
+      "description": "Playwright MCP (Microsoft, Apache-2.0): drives a real Chromium - navigate, snapshot the accessibility tree, click, type, screenshot, read console and network - so an agent RENDERS what it built instead of writing CSS blind.",
+      "_notes": {
+        "why": "Its own browsers are already on this machine at ~/.cache/ms-playwright (chromium-1223), so the row costs a launch, not an install.",
+        "pin": "@playwright/mcp@0.0.79 is pinned because that is the version whose CLI flags were read on this machine before the row was written. Bumping is one edit plus a restart; npm `latest` at the time of writing was 0.0.83, which was NOT inspected.",
+        "headless-isolated": "--headless keeps a browser window off the desktop of a machine nobody is sitting at; --isolated keeps the profile in memory, so browsing leaves no state behind and a logged-in profile cannot leak between sessions.",
+        "tool-surface": "The server publishes its tool list to every agent in EVERY project, because an MCP row is machine-wide. If that context cost outweighs the value, set \"enabled\": false and re-run the sync: the row is removed and no tools are exposed.",
+        "not-just-screenshots": "It also gives the agent the rendered accessibility tree, which is what makes an automated layout check possible at all - a screenshot alone is not an assertion.",
+        "browser-choice": "The default is Playwright's bundled Chromium. Add \"--browser\", \"chrome\" to args to drive an installed Chrome; devtools and vision extras are opt-in via --caps (vision, pdf, devtools)."
+      },
+      "runner": "npx",
+      "transport": "stdio",
+      "package": "@playwright/mcp@0.0.79",
+      "args": [
+        "--headless",
+        "--isolated"
+      ],
+      "toolCallTimeoutMs": 120000,
+      "failOnStartupError": false,
+      "setup": [
+        "Nothing to install: `npx -y` fetches the pinned package on first launch, and its browsers are already at ~/.cache/ms-playwright",
+        "Run `node scripts/dsh-mcp-sync.mjs --apply` to write the row into $DSH_HOME/cordis.patch.yml",
+        "Restart dsh: the MCP row is read at boot, and the tools appear as mcp__playwright__*"
       ]
     }
   ]
