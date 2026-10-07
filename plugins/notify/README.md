@@ -32,6 +32,26 @@ it. The default `style: overlay` therefore spawns a real window:
 | **hover** | PAUSES the auto-dismiss, so one you are reading does not vanish mid-sentence |
 | **several at once** | each claims the lowest free STACK ROW and lines up below the others |
 
+### One shape for every notification
+
+Four principles, and every popup obeys all four - a finish, a question, or the self-test:
+
+1. **The source comes first.** The body always begins with the label of what is speaking: the
+   session (`dsh-kit - #5fbab0a6`) or `self-test`. A notification that does not say who it is
+   from is the thing being fixed here.
+2. **There is always a ✕.** Every overlay carries it; `Esc` does the same thing.
+3. **It is always in the same place** - top-right, above other windows, at a fixed size - so a
+   notification never has to be hunted for.
+4. **Concurrency is always resolved the same way**: the lowest free stack row, claimed
+   atomically, so simultaneous popups line up instead of overlapping.
+
+The only permitted difference is the **degraded mode**: on a box with no `python3`/Tkinter/
+`DISPLAY`, or on macOS where `osascript` cannot position a window, the platform's own
+notification mechanism is used instead (`notify-send`, a WinRT toast, `display notification`).
+Principles 1 and the text are identical there - it is the same message in the desktop's frame -
+while 2-4 are impossible for a daemon to honour, which is why that path is a fallback and is
+logged as one rather than being a second style offered as a choice.
+
 ### Which session it is about
 
 A popup that says only "Finished after 93s" is useless the moment two chats are open, so the

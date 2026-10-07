@@ -24,6 +24,7 @@
  */
 
 import { strict as assert } from 'node:assert'
+import { readFile } from 'node:fs/promises'
 import { describe, it } from 'node:test'
 
 import {
@@ -223,6 +224,25 @@ describe('overlay notification (the default style)', () => {
     const built = notificationCommand({ platform: 'darwin', title: 't', body: 'b' })
     assert.equal(built.command, 'osascript')
     assert.match(built.args[1], /display notification/)
+  })
+
+  it('keeps the TEXT identical between the overlay and the degraded daemon mode', () => {
+    // "No splits" as an assertion: the style may change how a notification is presented, never
+    // what it says. A daemon popup that carried different words would be a second, divergent
+    // notification - which is exactly how a self-test ends up verifying something nobody sees.
+    const body = 'dsh-kit - #5fbab0a6 - Finished after 93s'
+    const overlay = notificationCommand({ platform: 'linux', title: 'DeepSeek Harness', body })
+    const daemon = notificationCommand({ platform: 'linux', style: 'daemon', title: 'DeepSeek Harness', body })
+    assert.equal(overlay.env.DSH_NOTIFY_BODY, daemon.args[daemon.args.length - 1], 'the daemon body must be the overlay body')
+    assert.equal(overlay.env.DSH_NOTIFY_TITLE, daemon.args[daemon.args.length - 2], 'the daemon title must be the overlay title')
+    assert.equal(overlay.env.DSH_NOTIFY_BODY, body)
+  })
+
+  it('gives the self-test the same shape as a real notification', async () => {
+    // The self-test is the one notification a human runs on purpose, so it is the easiest place
+    // for a divergent shape to hide: it must still lead with its source.
+    const source = await readFile(new URL('./notify-selftest.mjs', import.meta.url), 'utf8')
+    assert.match(source, /sessionMessage\('self-test'/, 'the self-test does not name its source')
   })
 
   it('honours style: daemon for a machine that wants the desktop in charge', () => {

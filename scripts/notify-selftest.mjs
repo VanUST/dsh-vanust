@@ -8,7 +8,9 @@
  * INPUTS
  *   Optional `--platform <linux|win32|darwin>` to test a path other than this host's, which is
  *   useful for inspecting the exact command a Windows machine would run without running it.
- *   Optional `--style overlay|daemon` to choose the corner or the desktop.
+ *   Optional `--style overlay|daemon` to choose the corner or the desktop. The TEXT does not
+ *   change with the style - only how it is presented - so a daemon popup is the same message
+ *   in the desktop's own frame rather than a different notification.
  *   Optional `--dry-run` to print the command and spawn nothing.
  *
  * OUTPUTS
@@ -26,7 +28,7 @@
 
 import { spawn } from 'node:child_process'
 
-import { notificationCommand } from '../plugins/notify/notify-core.mjs'
+import { notificationCommand, sessionMessage } from '../plugins/notify/notify-core.mjs'
 import { detectDisplay } from '../plugins/notify/plugin-notify.mjs'
 
 /** Parse `--platform <value>` and `--dry-run`. */
@@ -45,7 +47,10 @@ const built = notificationCommand({
   platform: options.platform,
   style: options.style,
   title: 'DeepSeek Harness',
-  body: 'Notification self-test: if you can read this, the agent can reach your desktop.',
+  // The SAME shape every notification uses: source first, then what happened. A self-test that
+  // renders differently from the real thing verifies a notification nobody will ever see - the
+  // split this exists to avoid.
+  body: sessionMessage('self-test', 'if you can read this, the agent can reach your desktop'),
 })
 
 if (built === null) {
