@@ -72,7 +72,7 @@ window.__ModuleLoader__.load({
      * A browser keeps a revision-addressed client bundle until the page reloads, so a stale
      * bundle and a bug look identical without this. Bumped with every change.
      */
-    const PANEL_VERSION = '0.2.14'
+    const PANEL_VERSION = '0.2.15'
 
     /** The index global the host half publishes. */
     const CAPABILITY_GLOBAL = '__DSH_ADR_PANEL_SPECS__'
@@ -325,7 +325,13 @@ window.__ModuleLoader__.load({
         setData({ loading: true, error: null, specs: [] })
         fetch(
           cap.route + '?session=' + encodeURIComponent(sessionId) + '&scope=' + encodeURIComponent(wanted),
-          { headers: headersFor(cap) },
+          // `no-store` is not politeness. The carrier answers an unmatched path - and a handler
+          // whose services are not ready - with 404/400 and an EMPTY body and NO cache headers,
+          // and a browser may then store that empty 404 heuristically. A cached 404 survives a
+          // reload and makes every retry replay the same nothing, which is how a healthy route
+          // looked permanently broken: measured live, the same URL returned a proper JSON
+          // refusal to an authenticated request while the window kept showing HTTP 404.
+          { headers: headersFor(cap), cache: 'no-store' },
         )
           .then(function (response) {
             return readJson(response).then(function (body) {
@@ -386,7 +392,7 @@ window.__ModuleLoader__.load({
        */
       function loadEffective() {
         if (cap === null || sessionId === null) return
-        fetch(cap.route + '?session=' + encodeURIComponent(sessionId) + '&catalogue=1', { headers: headersFor(cap) })
+        fetch(cap.route + '?session=' + encodeURIComponent(sessionId) + '&catalogue=1', { headers: headersFor(cap), cache: 'no-store' })
           .then(function (response) {
             return readJson(response)
           })
@@ -419,6 +425,7 @@ window.__ModuleLoader__.load({
           method: 'POST',
           headers: Object.assign({ 'content-type': 'application/json' }, headersFor(cap)),
           body: JSON.stringify(Object.assign({ session: sessionId, scope: scope }, payload)),
+          cache: 'no-store',
         })
           .then(function (response) {
             return readJson(response).then(function (body) {

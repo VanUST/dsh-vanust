@@ -107,6 +107,14 @@ The window therefore **retries twice, 1.5 s apart, before saying anything**, and
 failure that survives that. A panel that reports a boot as a defect is the kind of error a human
 learns to ignore.
 
+It also sends `cache: 'no-store'` on every request, because that 404 is **cacheable by the
+browser**: the carrier's fallback sends no cache headers, and a stored empty 404 survives a
+reload and makes every retry replay the same nothing. Measured live: the same URL returned a
+proper JSON refusal to an authenticated request (a real browser-session cookie, the panel's own
+token) while the window kept showing HTTP 404 - a healthy route that only *looked* permanently
+broken. If a window is stuck on a 404 from an older build, a hard reload (Ctrl+Shift+R) clears
+the stale entry.
+
 ## Files
 
 | File | Role |

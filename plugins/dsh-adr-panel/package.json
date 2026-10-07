@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-adr-panel",
-  "version": "0.2.14",
+  "version": "0.2.15",
   "description": "Web-UI panel for a project's specs: a Session-header button opening a frame-wide overlay that lists, creates, edits and deletes the project's markdown spec documents through one capability-fenced host route. It renders no decisions, mints no consent and records nothing.",
   "type": "module",
   "main": "index.js",
