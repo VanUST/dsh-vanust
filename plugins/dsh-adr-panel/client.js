@@ -72,7 +72,7 @@ window.__ModuleLoader__.load({
      * A browser keeps a revision-addressed client bundle until the page reloads, so a stale
      * bundle and a bug look identical without this. Bumped with every change.
      */
-    const PANEL_VERSION = '0.2.16'
+    const PANEL_VERSION = '0.2.17'
 
     /** The index global the host half publishes. */
     const CAPABILITY_GLOBAL = '__DSH_ADR_PANEL_SPECS__'
@@ -329,9 +329,16 @@ window.__ModuleLoader__.load({
       // The one typed setting this window offers: the subagent cap. It is shown as the
       // value IN FORCE (the project's own when it sets one, the machine's otherwise), and
       // the button writes it into the scope that is currently selected.
-      var capState = React.useState('')
-      var cap = capState[0]
-      var setCap = capState[1]
+      // Named `capInput`, NOT `cap`. This state holds the subagent-cap field's TEXT, and an
+      // earlier revision called it `cap` - shadowing the capability object above. Every use of
+      // `cap` in this component then became a string: `cap.route` was `undefined`, so the panel
+      // asked for `undefined?session=...` (a RELATIVE url, resolved against the page) and got
+      // the host's 404 with an empty body - identically for both scopes, on every build, past
+      // every restart. Hardening the URL builder turned that silent wrong request into a
+      // TypeError that unmounted the trigger, which is why the button disappeared on click.
+      var capInputState = React.useState('')
+      var capInput = capInputState[0]
+      var setCapInput = capInputState[1]
 
       var sessionId = typeof props.sessionId === 'string' && props.sessionId.length > 0 ? props.sessionId : null
 
@@ -341,7 +348,13 @@ window.__ModuleLoader__.load({
        * @returns Nothing; the outcome lands in state.
        */
       function load(which, attempt) {
-        if (cap === null || sessionId === null) return
+        // Any non-object is "not mounted"; treating only `null` as missing is what let a string
+        // through to become a wrong URL.
+        if (typeof cap !== 'object' || cap === null) {
+          setData({ loading: false, error: 'the panel host is not mounted in this composition', specs: [] })
+          return
+        }
+        if (sessionId === null) return
         var wanted = which === undefined ? scope : which
         var tries = typeof attempt === 'number' ? attempt : 0
         setData({ loading: true, error: null, specs: [] })
@@ -414,7 +427,7 @@ window.__ModuleLoader__.load({
        * @returns Nothing; the outcome lands in state.
        */
       function loadEffective() {
-        if (cap === null || sessionId === null) return
+        if (typeof cap !== 'object' || cap === null || sessionId === null) return
         var url = routeUrl(cap, 'session=' + encodeURIComponent(sessionId) + '&catalogue=1')
         fetch(url, { headers: headersFor(cap), cache: 'no-store' })
           .then(function (response) {
@@ -440,7 +453,7 @@ window.__ModuleLoader__.load({
        * @returns Nothing.
        */
       function post(payload, done) {
-        if (cap === null) {
+        if (typeof cap !== 'object' || cap === null) {
           done({ ok: false, message: 'the panel host is not mounted' })
           return
         }
@@ -650,8 +663,16 @@ window.__ModuleLoader__.load({
         effectiveView !== null && effectiveView.settings !== undefined
           ? effectiveView.settings.effective['subagent-cap']
           : undefined
+      // Which scope supplied the value in force, read defensively: `settings.local` can be
+      // absent, and an absent object here used to be a render-time TypeError - the same class
+      // of crash that removed the trigger.
+      var settings = effectiveView !== null && typeof effectiveView.settings === 'object' && effectiveView.settings !== null ? effectiveView.settings : null
+      var capSource =
+        settings !== null && typeof settings.local === 'object' && settings.local !== null && settings.local['subagent-cap'] !== undefined
+          ? ' (this project)'
+          : ' (machine)'
       React.useEffect(function () {
-        setCap(effectiveCap === undefined || effectiveCap === null ? '' : String(effectiveCap))
+        setCapInput(effectiveCap === undefined || effectiveCap === null ? '' : String(effectiveCap))
       }, [effectiveCap])
 
       /**
@@ -663,7 +684,7 @@ window.__ModuleLoader__.load({
       function applyCap(clear) {
         var value = null
         if (clear !== true) {
-          var parsed = Number(cap)
+          var parsed = Number(capInput)
           if (!Number.isInteger(parsed) || parsed < 1) {
             setData({ loading: false, error: 'the subagent cap must be a whole number of 1 or more', specs: data.specs, dir: data.dir })
             return
@@ -700,10 +721,10 @@ window.__ModuleLoader__.load({
           type: 'number',
           min: 1,
           step: 1,
-          value: cap,
+          value: capInput,
           title: 'the most subagent delegations one session may run at once',
           onChange: function (event) {
-            setCap(event.target.value)
+            setCapInput(event.target.value)
           },
           style: Object.assign({}, S.input, { width: '72px' }),
         }),
@@ -720,7 +741,7 @@ window.__ModuleLoader__.load({
           { style: S.meta },
           effectiveCap === undefined
             ? 'default (2)'
-            : 'in force: ' + effectiveCap + (effectiveView.settings.local['subagent-cap'] !== undefined ? ' (this project)' : ' (machine)'),
+            : 'in force: ' + effectiveCap + capSource,
         ),
       )
 
