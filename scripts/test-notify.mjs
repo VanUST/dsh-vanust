@@ -29,6 +29,12 @@ import { describe, it } from 'node:test'
 import {
   chooseDisplay,
   collapse,
+  firstFreeSlot,
+  sessionLabel,
+  sessionMessage,
+  OVERLAY_HEIGHT,
+  OVERLAY_MAX_SLOTS,
+  OVERLAY_PITCH,
   notificationCommand,
   OVERLAY_PYTHON_SCRIPT,
   platformFamily,
@@ -104,8 +110,70 @@ describe('overlay notification (the default style)', () => {
     assert.match(OVERLAY_PYTHON_SCRIPT, /attributes\('-topmost', True\)/)
     assert.match(OVERLAY_PYTHON_SCRIPT, /overrideredirect\(True\)/)
     assert.match(OVERLAY_PYTHON_SCRIPT, /winfo_screenwidth/)
-    assert.match(OVERLAY_PYTHON_SCRIPT, /screen - width - 24, 24/, 'the top-right geometry is gone')
-    assert.match(OVERLAY_PYTHON_SCRIPT, /after\(dismiss, root.destroy\)/, 'an overlay that never closes is a window the human must clear')
+    assert.match(
+      OVERLAY_PYTHON_SCRIPT,
+      /screen - WIDTH - MARGIN, MARGIN \+ slot \* PITCH/,
+      'the top-right geometry, or the stack row that keeps simultaneous notifications apart, is gone',
+    )
+    assert.match(OVERLAY_PYTHON_SCRIPT, /after\(dismiss, close_now\)/, 'an overlay that never closes is a window the human must clear')
+  })
+
+  it('gives the Linux overlay a close button, a click target and a hover pause', () => {
+    // The three things asked for, each with a way to fail: without the ✕ the only way out is
+    // waiting; without the click binding the notification cannot take you anywhere; without the
+    // pause a notification you are reading disappears mid-sentence.
+    // U+00D7, not a decorative cross: it is present in every font, so the ✕ renders everywhere
+    // instead of becoming an empty box on a machine whose font lacks the fancier glyph.
+    assert.match(OVERLAY_PYTHON_SCRIPT, /\u00d7/, 'the close glyph is gone')
+    assert.match(OVERLAY_PYTHON_SCRIPT, /close\.pack\(side='right'\)[\s\S]{0,400}title_label\.pack\(side='left'\)/, 'the close button must claim its side before the title can squeeze it out')
+    assert.match(OVERLAY_PYTHON_SCRIPT, /close\.bind\('<Button-1>', close_now\)/, '✕ does not dismiss')
+    assert.match(OVERLAY_PYTHON_SCRIPT, /body_label\.bind\('<Button-1>', open_now\)/, 'the body is not clickable')
+    assert.match(OVERLAY_PYTHON_SCRIPT, /webbrowser\.open\(url\)/, 'a click does not open the chat url')
+    assert.match(OVERLAY_PYTHON_SCRIPT, /subprocess\.Popen\(\["xdg-open", url\]\)/, 'no fallback opener for a box without python-webbrowser')
+    assert.match(OVERLAY_PYTHON_SCRIPT, /bind\('<Enter>', pause\)/, 'hover does not pause the auto-dismiss')
+    assert.match(OVERLAY_PYTHON_SCRIPT, /arm\(\)/, 'the timer is never armed')
+  })
+
+  it('claims a stack row atomically so simultaneous notifications cannot overlap', () => {
+    // One process per notification cannot see the others, so the row must be CLAIMED rather
+    // than negotiated: an exclusive create is what makes two races resolve to two rows instead
+    // of two windows in one place. Stale claims are pruned, so a killed popup does not hold a
+    // row for ever.
+    assert.match(OVERLAY_PYTHON_SCRIPT, /O_CREAT \| os\.O_EXCL \| os\.O_WRONLY/)
+    assert.match(OVERLAY_PYTHON_SCRIPT, /os\.path\.getmtime\(old\) > STALE/)
+    assert.match(OVERLAY_PYTHON_SCRIPT, /os\.remove\(claim\)/, 'a closed overlay must release its row')
+    assert.match(WINDOWS_OVERLAY_SCRIPT, /FileMode\]::CreateNew/)
+    assert.match(WINDOWS_OVERLAY_SCRIPT, /Remove-Item -Force -ErrorAction SilentlyContinue \$claim/)
+  })
+
+  it('names the session a notification is about', () => {
+    // Without this a popup says only "Finished after 93s", which is useless with two chats
+    // open. Both fields are the harness's own session identity, read defensively.
+    const full = { session: { id: 'session-5fbab0a6-1b7a-4382-b3e3-a25978f858d1', header: { cwd: '/home/iustimov/dsh-kit' } } }
+    assert.equal(sessionLabel(full), 'dsh-kit - #5fbab0a6')
+    assert.equal(sessionLabel({ session: { id: 'session-5fbab0a6-x', header: {} } }), '#5fbab0a6', 'no cwd: the id must stand alone')
+    assert.equal(sessionLabel({ session: { header: { cwd: '/home/iustimov/dsh-kit' } } }), 'dsh-kit', 'no id: the project must stand alone')
+    assert.equal(sessionLabel({ session: { id: 'session-abc', header: { cwd: '/x/y', title: 'Into the Unknown' } } }), 'y - Into the Unknown')
+    assert.equal(sessionLabel({}), '', 'an agent with no identity contributes nothing')
+    assert.equal(sessionLabel(undefined), '')
+    assert.equal(sessionLabel({ session: { id: 42, header: { cwd: 7 } } }), '', 'a moved field must not become a wrong label')
+    assert.equal(sessionLabel({ session: { header: { cwd: '/a/b/' } } }), 'b', 'a trailing slash is not a name')
+  })
+
+  it('puts the session first, and drops the separator when there is none', () => {
+    assert.equal(sessionMessage('dsh-kit - #5fbab0a6', 'Finished after 93s'), 'dsh-kit - #5fbab0a6 - Finished after 93s')
+    assert.equal(sessionMessage('', 'Finished after 93s'), 'Finished after 93s')
+    assert.equal(sessionMessage('', ''), '')
+  })
+
+  it('picks the lowest free stack row, and reports a full stack', () => {
+    assert.equal(firstFreeSlot([]), 0)
+    assert.equal(firstFreeSlot([0]), 1)
+    assert.equal(firstFreeSlot([0, 2]), 1, 'a hole is a free row')
+    assert.equal(firstFreeSlot([1, 2, 3]), 0)
+    assert.equal(firstFreeSlot([0, 1, 2, 3, 4, 5, 6, 7]), null, 'a full stack has no free row')
+    assert.equal(OVERLAY_MAX_SLOTS, 8)
+    assert.ok(OVERLAY_PITCH > OVERLAY_HEIGHT, 'rows would overlap if the pitch were not taller than a row')
   })
 
   it('builds the Linux overlay with the text in the ENVIRONMENT, never in the script', () => {
@@ -115,6 +183,21 @@ describe('overlay notification (the default style)', () => {
     assert.equal(built.env.DSH_NOTIFY_BODY, 'Ship "it"; $(id)')
     assert.ok(!built.args[1].includes('Ship'), 'the text leaked into the script')
     assert.equal(built.env.DSH_NOTIFY_MS, '6000')
+    assert.equal(built.env.DSH_NOTIFY_URL, '', 'no url means a click only dismisses')
+    assert.equal(built.env.DSH_NOTIFY_SLOTS, '', 'no slot directory means every notification takes row 0')
+  })
+
+  it('carries the chat url and the slot directory to the overlay', () => {
+    const built = notificationCommand({
+      platform: 'linux',
+      title: 't',
+      body: 'b',
+      url: 'http://127.0.0.1:3080/',
+      slotsDir: '/home/u/.npm/dsh/cache/notify-slots',
+    })
+    assert.equal(built.env.DSH_NOTIFY_URL, 'http://127.0.0.1:3080/')
+    assert.equal(built.env.DSH_NOTIFY_SLOTS, '/home/u/.npm/dsh/cache/notify-slots')
+    assert.ok(!built.args[1].includes('3080'), 'the url leaked into the script instead of the environment')
   })
 
   it('builds the Windows overlay as a TopMost form in the primary screen top-right', () => {
@@ -124,7 +207,11 @@ describe('overlay notification (the default style)', () => {
     assert.equal(built.args[3], WINDOWS_OVERLAY_SCRIPT)
     assert.match(WINDOWS_OVERLAY_SCRIPT, /TopMost = \$true/)
     assert.match(WINDOWS_OVERLAY_SCRIPT, /PrimaryScreen\.WorkingArea/)
-    assert.match(WINDOWS_OVERLAY_SCRIPT, /Right - \$form\.Width - 24/)
+    assert.match(WINDOWS_OVERLAY_SCRIPT, /Right - \$width - \$margin/, 'the top-right anchor is gone')
+    assert.match(WINDOWS_OVERLAY_SCRIPT, /\$margin \+ \(\$slot \* \$pitch\)/, 'the stack row is gone')
+    assert.match(WINDOWS_OVERLAY_SCRIPT, /0x00d7/, 'the close glyph is gone')
+    assert.match(WINDOWS_OVERLAY_SCRIPT, /Start-Process \$env:DSH_NOTIFY_URL/, 'a click does not open the chat url')
+    assert.match(WINDOWS_OVERLAY_SCRIPT, /Add_MouseEnter\(\$pauseHandler\)/, 'hover does not pause the auto-dismiss')
     assert.equal(built.env.DSH_NOTIFY_BODY, 'Ship "it"')
     assert.ok(!built.args[3].includes('Ship'), 'the text leaked into the script')
   })
