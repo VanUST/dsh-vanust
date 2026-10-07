@@ -65,7 +65,14 @@ node "$KIT/scripts/kit-update.mjs" --apply                  # converge, then rec
   installs the pinned harness when it differs, then records what it applied.
 - A machine that disagrees with the kit cannot look converged: `--check` exits non-zero
   and names the files.
-- Restart `dsh web` afterwards — the profile is composed once, at boot.
+- Restart `dsh web` afterwards — the profile is composed once, at boot. **A restart through
+  `./start.sh` does NOT converge by itself:** with no interactive stdin it prints
+  "no interactive stdin; booting without applying the kit update" and boots whatever the profile
+  already holds, so a machine can be restarted any number of times with a fix sitting unapplied
+  in the kit. Either answer `y` at its prompt, or run `node "$KIT/scripts/kit-update.mjs --apply"`
+  explicitly (stopping the server first) and then start it. Proof that the right build is live:
+  the Specs window's chip shows the version the HOST reports, and
+  `node "$KIT/scripts/kit-update.mjs" --check --json` reports no drift.
 - **Do not run `--apply` against a live server that is watching its own profile.** The web
   app reloads when the profile changes, and `--apply` changes the profile files FIRST and
   reinstalls the plugins afterwards, so a reload landing in between composes a half-applied

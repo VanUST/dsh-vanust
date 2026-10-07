@@ -790,6 +790,30 @@ for (const dir of ['plugins/specs', 'plugins/dsh-context', 'plugins/kit-rules', 
   )
 }
 
+// ── a bundle's self-declared version must equal its package's ───────────────
+// `client.js` cannot read its own package.json, so it declares the version in a constant and
+// `pack-plugin.mjs` rewrites it on every bump. That rewrite silently did nothing for a while -
+// its regular expression wanted double quotes and the file uses single ones - and the Specs
+// window then showed `adr-panel 0.3.0` for an installed 0.2.8 while the repository held the
+// fix at 0.2.10. A stale chip cost a whole diagnosis, so it is checked rather than trusted.
+for (const bundle of ['plugins/dsh-adr-panel/client.js']) {
+  let problems = []
+  try {
+    const text = readFileSync(join(KIT, bundle), 'utf8')
+    const declared = /\bPANEL_VERSION\s*=\s*['"]([^'"]+)['"]/.exec(text)?.[1] ?? null
+    const manifest = JSON.parse(readFileSync(join(KIT, dirname(bundle), 'package.json'), 'utf8')).version
+    if (declared === null) problems.push(`${bundle} declares no PANEL_VERSION`)
+    else if (declared !== manifest) problems.push(`${bundle} declares ${declared} but its package.json says ${manifest}`)
+  } catch (error) {
+    problems.push(`could not compare ${bundle} with its manifest: ${String(error)}`)
+  }
+  check(
+    'bundle:version-matches-manifest',
+    problems.length === 0,
+    problems.length === 0 ? `${bundle} declares its package version` : problems.join(' | '),
+  )
+}
+
 // ── an id the deployment GENERATES must not spell an id somebody AUTHORED ───
 // Measured 2026-09-28, and the reason this check exists: the sync materialized a row whose id
 // was the SERVER's id (`godot-mcp`) while the kit's own plugin row — whose loader id is its

@@ -84,6 +84,25 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync,
 import { homedir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 
+/**
+ * The version of the INSTALLED package, read from its own manifest.
+ *
+ * Reported on every response so the window can show what is actually answering rather than a
+ * constant compiled into the browser bundle. That constant is how a stale install looked newer
+ * than the repository during a real diagnosis: the chip said `adr-panel 0.3.0` while the
+ * installed package was 0.2.8 and the fix on disk was 0.2.10.
+ *
+ * @returns The version string, or `'unknown'` when the manifest cannot be read.
+ */
+function installedVersion() {
+  try {
+    const manifest = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
+    return typeof manifest.version === 'string' && manifest.version !== '' ? manifest.version : 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+
 /** The path the panel calls. */
 export const SPECS_ROUTE = '/adr-panel/specs'
 
@@ -567,6 +586,7 @@ async function handleSpecsRequest(req, res, ctx, token, log) {
         sendJson(res, 200, {
           ok: true,
           project: root,
+          panelVersion: installedVersion(),
           home: harnessHome(),
           global: { dir: scopeDir('global', root), specs: globalSpecs },
           local: { dir: scopeDir('local', root), specs: localSpecs },
@@ -578,7 +598,7 @@ async function handleSpecsRequest(req, res, ctx, token, log) {
       }
       const scope = url.searchParams.get('scope') === 'global' ? 'global' : 'local'
       const dir = scopeDir(scope, root)
-      sendJson(res, 200, { ok: true, scope, project: root, dir, specs: listSpecs(dir, scope) })
+      sendJson(res, 200, { ok: true, scope, project: root, dir, panelVersion: installedVersion(), specs: listSpecs(dir, scope) })
       return
     }
     if (method !== 'POST') {

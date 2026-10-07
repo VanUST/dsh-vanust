@@ -217,7 +217,11 @@ if (target !== current) {
   // Rewriting the constant here keeps the copy equal to the manifest.
   if (existsSync(clientBundlePath)) {
     bundleBackup = readFileSync(clientBundlePath, 'utf8')
-    const rewritten = bundleBackup.replace(/(\bPANEL_VERSION\s*=\s*")[^"]*(")/u, `$1${target}$2`)
+    // Both quote styles, because the first version of this only matched double quotes while
+    // the bundle uses single ones - so the rewrite silently did nothing and the version chip
+    // went on claiming a version the package did not have. Found by reading the packed file
+    // after a real diagnosis was misled by exactly that.
+    const rewritten = bundleBackup.replace(/(\bPANEL_VERSION\s*=\s*['"])[^'"]*(['"])/u, `$1${target}$2`)
     if (rewritten !== bundleBackup) writeFileSync(clientBundlePath, rewritten, 'utf8')
   }
 }

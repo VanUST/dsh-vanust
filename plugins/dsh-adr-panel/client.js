@@ -72,7 +72,7 @@ window.__ModuleLoader__.load({
      * A browser keeps a revision-addressed client bundle until the page reloads, so a stale
      * bundle and a bug look identical without this. Bumped with every change.
      */
-    const PANEL_VERSION = '0.3.0'
+    const PANEL_VERSION = '0.2.12'
 
     /** The index global the host half publishes. */
     const CAPABILITY_GLOBAL = '__DSH_ADR_PANEL_SPECS__'
@@ -297,6 +297,13 @@ window.__ModuleLoader__.load({
       var draftsState = React.useState({})
       var drafts = draftsState[0]
       var setDrafts = draftsState[1]
+      // The version CHIP shows what is actually answering: the host reports its installed
+      // package version on every reply, and this state takes precedence over the constant
+      // compiled into this bundle. That constant is how a stale install looked newer than the
+      // repository during a real diagnosis - the chip said 0.3.0 while the host was 0.2.8.
+      var versionState = React.useState(null)
+      var hostVersion = versionState[0]
+      var setHostVersion = versionState[1]
       // The one typed setting this window offers: the subagent cap. It is shown as the
       // value IN FORCE (the project's own when it sets one, the machine's otherwise), and
       // the button writes it into the scope that is currently selected.
@@ -330,6 +337,7 @@ window.__ModuleLoader__.load({
               return
             }
             setData({ loading: false, error: null, specs: result.body.specs || [], dir: result.body.dir || null })
+            if (typeof result.body.panelVersion === 'string' && result.body.panelVersion !== '') setHostVersion(result.body.panelVersion)
             // Read the effective view HERE, once per listing, rather than from an effect keyed on
             // the listing state. That effect re-ran on every setData - including the `loading`
             // flip - so a single window opening issued three or four catalogue requests, each
@@ -733,7 +741,7 @@ window.__ModuleLoader__.load({
             { style: S.header },
             h('span', { style: S.title }, 'Specs'),
             h('span', { style: S.meta }, sessionId === null ? 'no session' : 'session bound'),
-            h('span', { style: S.chip }, 'adr-panel ' + PANEL_VERSION),
+            h('span', { style: S.chip }, 'adr-panel ' + (hostVersion === null ? PANEL_VERSION + '?' : hostVersion)),
             h('button', { type: 'button', style: S.btn, onClick: props.onClose }, 'Close'),
           ),
           scopeBar,
