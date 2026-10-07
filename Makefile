@@ -32,7 +32,7 @@ else
 OPEN_ARG :=
 endif
 
-.PHONY: help usage usage-check test-usage verify
+.PHONY: help usage usage-check test-usage notify-selftest verify
 
 help:
 	@echo "make usage                    - newest usage export in ~/Downloads, write and open the report"
@@ -53,6 +53,11 @@ usage-check:
 
 test-usage:
 	@$(NODE) --test scripts/test-usage-analytics.mjs
+
+# Raise one REAL notification on this host. Not part of `verify`: it pops a window on the
+# machine running it, which is evidence when you ask for it and noise when you do not.
+notify-selftest:
+	@$(NODE) scripts/notify-selftest.mjs
 
 verify:
 	node scripts/check-portability.mjs

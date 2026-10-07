@@ -1,0 +1,21 @@
+{
+  "name": "@cc/dsh-notify",
+  "version": "1.0.2",
+  "description": "Raises a desktop notification when an agent finishes a turn and when it asks the user a question: notify-send on Linux, a WinRT toast with a tray-balloon fallback on Windows, osascript on macOS. Spawned detached, argv-only, and it can never fail a turn.",
+  "type": "module",
+  "main": "plugin-notify.mjs",
+  "exports": {
+    ".": "./plugin-notify.mjs",
+    "./core": "./notify-core.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "plugin-notify.mjs",
+    "notify-core.mjs",
+    "README.md"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
+  }
+}

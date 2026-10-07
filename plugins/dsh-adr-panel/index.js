@@ -435,7 +435,66 @@ async function readJson(req) {
  * @returns A `(req, res) => Promise<void>` handler.
  */
 export function createSpecsHandler(ctx, token, log) {
+  /**
+   * Answer a throw with JSON, because the alternative is worse than an error.
+   *
+   * The host web server answers a route that throws with `400` and an EMPTY body (or, when
+   * headers were already sent, by destroying the socket). In a browser both arrive as
+   * `TypeError: Failed to execute 'json' on 'Response': Unexpected end of JSON input` - a
+   * message that names neither the route nor the fault, which is how a reportable failure
+   * became an unactionable one. Measured in this deployment's own server, so the empty body
+   * is a fact about the carrier rather than a guess.
+   *
+   * @param error - Whatever the handler threw.
+   * @param res - The response to answer on.
+   * @returns Nothing.
+   */
+  function answerThrow(error, res) {
+    const detail = String(error?.stack ?? error)
+    try {
+      log.warn(`specs route threw: ${detail}`)
+    } catch {
+      // Logging must never be the reason a response is missing.
+    }
+    try {
+      if (res.headersSent !== true) {
+        sendJson(res, 500, {
+          error: 'panel-threw',
+          message: `the panel route failed before it could answer: ${String(error?.message ?? error)}`,
+        })
+        return
+      }
+      // Headers are already out, so the body cannot be corrected into valid JSON. Ending the
+      // response is still better than leaving the browser waiting for one that never comes.
+      res.end()
+    } catch {
+      // The carrier is already broken; there is nothing left to do about it here.
+    }
+  }
+
   return async function handleSpecs(req, res) {
+    try {
+      return await handleSpecsRequest(req, res, ctx, token, log)
+    } catch (error) {
+      answerThrow(error, res)
+    }
+  }
+}
+
+/**
+ * The route's actual work: fence, capability, then read or write.
+ *
+ * Kept separate from {@link createSpecsHandler} so every exit - including an unexpected throw
+ * from a service this route merely reads - is answered rather than dropped.
+ *
+ * @param req - The incoming request.
+ * @param res - The response to own.
+ * @param ctx - The plugin context, for the `connection` and `agents` services.
+ * @param token - This activation's capability token.
+ * @param log - A `{ info, warn }` sink; never given the token.
+ * @returns Nothing; the response is ended on every path.
+ */
+async function handleSpecsRequest(req, res, ctx, token, log) {
     const connection = ctx.get('connection')
     if (connection === undefined || connection === null || typeof connection.requestRejection !== 'function') {
       log.warn('refused specs: no connection service to authenticate a browser')
@@ -637,7 +696,6 @@ export function createSpecsHandler(ctx, token, log) {
     }
     log.info(`wrote ${scope} spec ${file}`)
     sendJson(res, 200, { ok: true, scope, file, bytes: Buffer.byteLength(body.content, 'utf8') })
-  }
 }
 
 /**

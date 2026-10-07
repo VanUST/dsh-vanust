@@ -67,6 +67,15 @@
       "source": "plugins/godot-mcp",
       "pack": "scripts/pack-plugin.mjs",
       "mounted": true
+    },
+    {
+      "id": "notify",
+      "package": "@cc/dsh-notify",
+      "tarballPrefix": "cc-dsh-notify",
+      "provenance": "in-repo",
+      "source": "plugins/notify",
+      "pack": "scripts/pack-plugin.mjs",
+      "mounted": true
     }
   ]
 }

@@ -28,6 +28,12 @@ plugin's provenance:
   **global** scope is the only one that may fill the identity, persona and rules slots,
   and a project's own item can never enter them. The plugin compiles, checks and writes
   nothing: specs are text a human owns, and it only reads them.
+- **`@cc/dsh-notify`** — a desktop notification when an agent finishes a turn and when it asks
+  the user a question: `notify-send` on Linux, a WinRT toast (with a tray-balloon fallback)
+  through `powershell.exe` on Windows, `osascript` on macOS. The notifier is spawned detached
+  with argv-only arguments — no shell, and the text travels in environment variables on
+  Windows — so it cannot block a turn, and a machine with no notifier loses the popup and
+  nothing else. Silence it with `DSH_NOTIFY_DISABLED=1`.
 - **`@cc/dsh-adr-panel`** — the deployment's own window on those specs: a session-header
   **Specs** button opens a frame-wide overlay that lists, creates, edits and deletes
   `docs/specs/*.md` through one capability-fenced host route. It renders no decisions
@@ -94,6 +100,7 @@ dsh-kit/
 ├── plugins/model-gate/        # source snapshot + built lib/ of model-gate (see its SOURCE-NOTICE.md)
 ├── plugins/specs/             # source of @cc/dsh-specs (catalogue + plugin; packed into its tarball)
 ├── plugins/work-modes/        # source of @cc/dsh-work-modes (packed into its tarball above)
+├── plugins/notify/            # source of @cc/dsh-notify (desktop notifications; packed above)
 ├── plugins/godot-mcp/         # source of @cc/dsh-godot-mcp (packed into its tarball above)
 ├── plugins/dsh-context/       # reconstructed source of @cc/dsh-context (see its SOURCE-NOTICE.md)
 ├── plugins/dsh-adr-panel/     # source of @cc/dsh-adr-panel (browser-half UI; see its README)

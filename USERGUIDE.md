@@ -10,6 +10,9 @@ orders as tools), **`@cc/dsh-specs`** (injects a project's human-authored
 `docs/specs/*.md` into every agent's prompt, re-read each assembly),
 **`@cc/dsh-adr-panel`** (the Session-header **Specs** button: a frame-wide window
 that lists, creates, edits and deletes `docs/specs/*.md` — §3.2),
+**`@cc/dsh-notify`** (raises a desktop notification — `notify-send`, a PowerShell toast or
+`osascript` — when an agent finishes a turn and when it asks you a question; silence it with
+`DSH_NOTIFY_DISABLED=1` in the server's environment),
 **`@cc/dsh-work-modes`** (the deployment's concurrency cap — at most two
 `subagent` children per session, with a `workflow` fan-out deliberately outside
 it; it injects no prompt section),

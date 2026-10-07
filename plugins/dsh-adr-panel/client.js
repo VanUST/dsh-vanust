@@ -230,6 +230,36 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * Read a JSON body, naming what went wrong when it is not one.
+     *
+     * The host web server answers a route that throws with an EMPTY body (or a destroyed
+     * socket once headers are out), and a browser turns that into
+     * `TypeError: Failed to execute 'json' on 'Response': Unexpected end of JSON input` - a
+     * message that names neither the route nor the fault. Reading the text first turns an
+     * empty body, a 404 from a route that was never registered, and a plain-text refusal each
+     * into a sentence carrying the HTTP status and a next step.
+     *
+     * @param response - The fetch response.
+     * @returns A promise of the parsed body; rejects with an Error naming the status.
+     */
+    function readJson(response) {
+      return response.text().then(function (text) {
+        if (text === '' || text === undefined) {
+          throw new Error(
+            'the panel route answered HTTP ' +
+              response.status +
+              ' with an empty body - the host half may not be registered for this page. Reload; if it persists, restart the server and report this message.',
+          )
+        }
+        try {
+          return JSON.parse(text)
+        } catch (error) {
+          throw new Error('the panel route answered HTTP ' + response.status + ' with something that is not JSON: ' + text.slice(0, 120))
+        }
+      })
+    }
+
+    /**
      * The frame-wide specs window. Owns its own data, its own selection and its own draft —
      * nothing is shared with the trigger beyond the Session id it was opened with.
      *
@@ -290,7 +320,7 @@ window.__ModuleLoader__.load({
           { headers: headersFor(cap) },
         )
           .then(function (response) {
-            return response.json().then(function (body) {
+            return readJson(response).then(function (body) {
               return { ok: response.ok, body: body }
             })
           })
@@ -300,6 +330,12 @@ window.__ModuleLoader__.load({
               return
             }
             setData({ loading: false, error: null, specs: result.body.specs || [], dir: result.body.dir || null })
+            // Read the effective view HERE, once per listing, rather than from an effect keyed on
+            // the listing state. That effect re-ran on every setData - including the `loading`
+            // flip - so a single window opening issued three or four catalogue requests, each
+            // ~40KB, and a request abandoned mid-body is exactly the empty response that reads
+            // as "Unexpected end of JSON input" in the browser.
+            loadEffective()
           })
           .catch(function (error) {
             setData({ loading: false, error: String(error && error.message ? error.message : error), specs: [] })
@@ -323,7 +359,7 @@ window.__ModuleLoader__.load({
         if (cap === null || sessionId === null) return
         fetch(cap.route + '?session=' + encodeURIComponent(sessionId) + '&catalogue=1', { headers: headersFor(cap) })
           .then(function (response) {
-            return response.json()
+            return readJson(response)
           })
           .then(function (body) {
             setEffectiveView(body && body.ok === true ? body : null)
@@ -333,11 +369,9 @@ window.__ModuleLoader__.load({
           })
       }
 
-      // The effective view is re-read whenever the listing is, so it cannot disagree with
-      // the rows beside it.
-      React.useEffect(function () {
-        loadEffective()
-      }, [cap === null ? null : cap.route, sessionId, data])
+      // The listing effect owns the catalogue fetch (see `load`), so there is no second
+      // effect keyed on the state it writes; that is what made the two views able to disagree
+      // AND what multiplied the requests.
 
       /**
        * Send one write or delete request.
@@ -358,7 +392,7 @@ window.__ModuleLoader__.load({
           body: JSON.stringify(Object.assign({ session: sessionId, scope: scope }, payload)),
         })
           .then(function (response) {
-            return response.json().then(function (body) {
+            return readJson(response).then(function (body) {
               return { ok: response.ok, body: body }
             })
           })

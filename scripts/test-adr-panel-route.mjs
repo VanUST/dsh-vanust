@@ -198,6 +198,31 @@ describe('specs window route', () => {
     assert.equal(readFileSync(join(home, 'specs', 'good-one.md'), 'utf8'), '---\nslot: rules\n---\nONE\n')
   })
 
+  it('answers a THROW with JSON, never with the empty body a browser cannot parse', async () => {
+    // The bug this pins, observed in the live deployment: the host web server answers a route
+    // that throws with `400` and an EMPTY body (or a destroyed socket once headers are out),
+    // so the Specs window showed "Failed to execute 'json' on 'Response': Unexpected end of
+    // JSON input" - naming neither the route nor the fault. The handler must therefore own
+    // every exit, including an unexpected throw from a service it merely reads.
+    const project = projectWith()
+    const token = 'test-token'
+    const ctx = {
+      get(name) {
+        // A fence that throws is the simulation of ANY unchecked failure in the route's
+        // dependencies; it is deliberately not the only possibility, just the cheapest one.
+        if (name === 'connection') return { requestRejection: () => { throw new Error('fence exploded') } }
+        return undefined
+      },
+    }
+    const res = response()
+    await createSpecsHandler(ctx, token, { info: () => {}, warn: () => {} })(request('GET', { token, query: '?session=s' }), res)
+    assert.equal(res.statusCode, 500)
+    assert.notEqual(res.body, '', 'the route answered with an empty body: that IS the browser TypeError')
+    const body = res.json()
+    assert.equal(body.error, 'panel-threw')
+    assert.match(body.message, /fence exploded/, 'the message must name the underlying fault')
+  })
+
   it('refuses a filename that could leave its directory', async () => {
     // Fails if the name guard is dropped: a write would then be able to place a file
     // anywhere the server can reach, including one every project reads.

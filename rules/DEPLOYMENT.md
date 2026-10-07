@@ -19,6 +19,7 @@ The upstream harness plus seven plugins, all pinned and installed from one kit r
 | Piece | What it does |
 |---|---|
 | `@deepseek-ai/dsh-model-gate` | cost policy: every dispatch whose model is not Flash-class is vetoed before it costs anything |
+| `@cc/dsh-notify` | raises a desktop notification when an agent finishes a turn and when it asks the user a question (`notify-send`, a PowerShell toast, or `osascript`); spawned detached, argv-only, never blocking |
 | `@cc/dsh-specs` | contributes the GLOBAL items under `$DSH_HOME/specs` (identity, persona, the binding rules, machine facts) to every session's system prompt, and a project's LOCAL items under its `docs/specs` to that project's agents |
 | `@cc/dsh-context` | `context_module`, `context_rules`, `context_specs` — answers about the current project from `.dsh/project.json` |
 | `@cc/dsh-specs` | injects a project's human-authored specs (`docs/specs/*.md`) into every agent's system prompt, re-read on every assembly, so a root session and each subagent it starts read the same requirements. It compiles nothing, checks nothing and writes nothing |

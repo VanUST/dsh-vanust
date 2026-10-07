@@ -98,6 +98,25 @@
     - id: dsh-context
       name: '@cc/dsh-context'
 
+# ── notify: a desktop popup when the agent finishes or asks a question ──────
+# Two seams, no guesswork: `agent/status` with a `running -> idle` transition IS the turn
+# having ended, and `user-questions/request` is the waterfall the harness's ask-user path
+# calls before it waits - listening there rather than to a tool name means any caller that
+# asks notifies. The listener announces and then calls next(), so the popup arrives while the
+# human is being waited on.
+#
+# It spawns a detached notifier and can never touch a turn: no tool, no prompt section, no
+# service. Linux uses notify-send; Windows a WinRT toast through powershell.exe with a tray
+# balloon fallback, its text carried in environment variables and XML-escaped in-script, so a
+# question containing quotes is text rather than syntax. Silence it with DSH_NOTIFY_DISABLED=1.
+- insert:
+    - id: notify
+      name: '@cc/dsh-notify'
+      config:
+        minRunMs: 15000
+        onFinish: true
+        onQuestion: true
+
 # ── specs: every prompt item, from two scopes of spec file ──────────────────
 # One plugin owns the whole prompt's configurable text. It reads two directories:
 #   - `$DSH_HOME/specs/*.md`   (GLOBAL) - every agent on this machine, every project.
