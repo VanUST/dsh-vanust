@@ -357,6 +357,62 @@ export const WINDOWS_SCRIPT = [
 ].join('\n')
 
 /**
+ * Which session a notification is about, in one line.
+ *
+ * Without this a popup says only "Finished after 93s", which is useless the moment two chats
+ * are open: the human cannot tell WHICH one wants them. The label is built from the two fields
+ * the harness itself uses for session identity - `agent.session.header.cwd` (26 uses inside the
+ * harness) and `agent.session.id` (24) - so it needs no service and no guess:
+ *
+ *     dsh-kit - #5fbab0a6          project and the short session id
+ *     dsh-kit - Into the Unknown   when the header happens to carry a title
+ *     #5fbab0a6                    no cwd to name
+ *     dsh-kit                      no id to quote
+ *     ''                           neither, so the caller omits the separator
+ *
+ * Everything is read defensively and nothing is invented: a field that moved yields a shorter
+ * label rather than a wrong one, and a notification is never worth a thrown error.
+ *
+ * @param agent - The `agent` from an `agent/status` or `user-questions/request` payload.
+ * @returns A non-empty label, or '' when the agent carries no usable identity.
+ */
+export function sessionLabel(agent) {
+  let cwd = ''
+  let id = ''
+  let title = ''
+  try {
+    cwd = typeof agent?.session?.header?.cwd === 'string' ? agent.session.header.cwd : ''
+    const rawId = agent?.session?.id ?? agent?.session?.header?.id
+    id = typeof rawId === 'string' ? rawId : ''
+    title = typeof agent?.session?.header?.title === 'string' ? agent.session.header.title : ''
+  } catch {
+    return ''
+  }
+  const project = cwd.split(/[\\/]+/).filter((part) => part !== '').pop() ?? ''
+  const short = id.replace(/^session[-_]/, '').slice(0, 8)
+  const name = title.trim() === '' ? (short === '' ? '' : `#${short}`) : title.trim()
+  return [project, name].filter((part) => part !== '').join(' - ')
+}
+
+/**
+ * Prefix a message with the session it came from, or leave it alone.
+ *
+ * The session goes FIRST, because that is the part a human scans for when several chats are
+ * open; the label is dropped entirely rather than joined with a separator when there is none.
+ *
+ * @param label - {@link sessionLabel}'s output, possibly ''.
+ * @param message - What happened, without the session.
+ * @returns `label - message`, or just the message.
+ */
+export function sessionMessage(label, message) {
+  const text = typeof message === 'string' ? message : ''
+  return typeof label === 'string' && label !== '' ? `${label} - ${text}` : text
+}
+
+/** The maximum characters a session label may contribute. */
+export const MAX_LABEL_CHARS = 60
+
+/**
  * Choose the X display an overlay should draw on.
  *
  * A harness server commonly inherits a VIRTUAL display: on the machine this was written for,

@@ -77,6 +77,8 @@ import {
   notificationCommand,
   platformFamily,
   questionSummary,
+  sessionLabel,
+  sessionMessage,
   shouldNotify,
 } from './notify-core.mjs'
 
@@ -140,27 +142,6 @@ function disabledFromEnv() {
  * @param config - Resolved plugin configuration.
  * @returns A non-negative number of milliseconds.
  */
-/**
- * The short name of the project an agent belongs to, for the notification text.
- *
- * Read defensively: the agent object is the harness's, its shape is not this plugin's to
- * assume, and a notification must never fail because a field moved. Returns '' rather than a
- * placeholder, so the caller can omit the separator entirely.
- *
- * @param agent - The `agent/status` payload's agent, or undefined.
- * @returns A basename like `dsh-kit`, or ''.
- */
-function projectOf(agent) {
-  try {
-    const cwd = agent?.session?.header?.cwd
-    if (typeof cwd !== 'string' || cwd === '') return ''
-    const parts = cwd.split(/[\\/]+/).filter((part) => part !== '')
-    return parts.length === 0 ? '' : parts[parts.length - 1]
-  } catch {
-    return ''
-  }
-}
-
 function minRunMsFrom(config) {
   const fromEnv = Number(process.env.DSH_NOTIFY_MIN_RUN_MS)
   if (Number.isFinite(fromEnv) && fromEnv >= 0) return fromEnv
@@ -313,10 +294,9 @@ export function apply(ctx, config = {}) {
       if (status === 'idle') {
         runningSince.delete(id)
         if (shouldNotify({ from: 'running', to: 'idle', startedAt: previous, now: Date.now(), minRunMs })) {
-          // Naming the project is what makes several notifications distinguishable at a glance:
-          // "Finished after 93s" alone says nothing about WHICH chat is waiting.
-          const where = projectOf(payload?.agent)
-          notify(`Finished after ${Math.round((Date.now() - previous) / 1000)}s${where === '' ? '' : ` - ${where}`}`)
+          // Which session, first: "Finished after 93s" says nothing about WHICH chat wants you
+          // the moment two are open, and the session is the only part that answers that.
+          notify(sessionMessage(sessionLabel(payload?.agent), `Finished after ${Math.round((Date.now() - previous) / 1000)}s`))
         }
       }
     }))
@@ -330,7 +310,7 @@ export function apply(ctx, config = {}) {
     ctx.effect(() => ctx.on('user-questions/request', async (request, next) => {
       try {
         const summary = questionSummary(request)
-        notify(summary === '' ? 'The agent is waiting for your answer' : `Question: ${summary}`)
+        notify(sessionMessage(sessionLabel(request?.agent), summary === '' ? 'is waiting for your answer' : `asks: ${summary}`))
       } catch {
         // Never let the notification path affect the question itself.
       }

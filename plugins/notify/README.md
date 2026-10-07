@@ -32,6 +32,23 @@ it. The default `style: overlay` therefore spawns a real window:
 | **hover** | PAUSES the auto-dismiss, so one you are reading does not vanish mid-sentence |
 | **several at once** | each claims the lowest free STACK ROW and lines up below the others |
 
+### Which session it is about
+
+A popup that says only "Finished after 93s" is useless the moment two chats are open, so the
+session comes first:
+
+```
+dsh-kit - #5fbab0a6 - Finished after 93s
+dsh-kit - #5fbab0a6 - asks: which database should the migration target?
+```
+
+The label is `project - #shortid`, built from the two fields the harness's own code uses for
+session identity (`agent.session.header.cwd`, `agent.session.id`), read defensively: a missing
+`cwd` leaves the id, a missing id leaves the project, and neither leaves the message alone. If
+the header ever carries a `title`, that replaces the short id - `dsh-kit - Into the Unknown`.
+It is not read from the session-title service, because that would add a dependency to the
+notification path for cosmetics.
+
 The row is **claimed, not negotiated**: each process creates `slot-<n>` exclusively
 (`O_CREAT|O_EXCL`, `FileMode::CreateNew`) in `slotsDir` and removes it when it closes, so two
 notifications racing for the same row cannot both win. All three geometries are fixed — 360x96
