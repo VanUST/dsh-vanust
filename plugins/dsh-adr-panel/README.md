@@ -95,6 +95,18 @@ host reported as unreadable is listed with a warning and opens read-only, so sav
 cannot overwrite bytes that were never loaded. A failed load shows the route's own
 message and offers Retry.
 
+## Opening it during a boot
+
+A panel opened while the server is still starting (or while it is reloading) lands in a window
+where `/adr-panel/specs` is not registered yet: the carrier answers **404 with an empty body**,
+and a request landing a moment later gets an empty-bodied **400** from a handler whose services
+are not ready. Measured live, on a freshly launched server: empty `400`s for a few seconds, then
+`401`s for ever after - the route is registered the whole time, its dependencies are not ready.
+
+The window therefore **retries twice, 1.5 s apart, before saying anything**, and shows only a
+failure that survives that. A panel that reports a boot as a defect is the kind of error a human
+learns to ignore.
+
 ## Files
 
 | File | Role |

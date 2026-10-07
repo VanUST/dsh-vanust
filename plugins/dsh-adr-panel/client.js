@@ -72,7 +72,7 @@ window.__ModuleLoader__.load({
      * A browser keeps a revision-addressed client bundle until the page reloads, so a stale
      * bundle and a bug look identical without this. Bumped with every change.
      */
-    const PANEL_VERSION = '0.2.12'
+    const PANEL_VERSION = '0.2.14'
 
     /** The index global the host half publishes. */
     const CAPABILITY_GLOBAL = '__DSH_ADR_PANEL_SPECS__'
@@ -248,7 +248,7 @@ window.__ModuleLoader__.load({
           throw new Error(
             'the panel route answered HTTP ' +
               response.status +
-              ' with an empty body - the host half may not be registered for this page. Reload; if it persists, restart the server and report this message.',
+              ' with an empty body. The host half may still be starting, or may not be mounted in this composition. Reload; if it persists, restart the server and report this message.',
           )
         }
         try {
@@ -318,9 +318,10 @@ window.__ModuleLoader__.load({
        *
        * @returns Nothing; the outcome lands in state.
        */
-      function load(which) {
+      function load(which, attempt) {
         if (cap === null || sessionId === null) return
         var wanted = which === undefined ? scope : which
+        var tries = typeof attempt === 'number' ? attempt : 0
         setData({ loading: true, error: null, specs: [] })
         fetch(
           cap.route + '?session=' + encodeURIComponent(sessionId) + '&scope=' + encodeURIComponent(wanted),
@@ -333,7 +334,13 @@ window.__ModuleLoader__.load({
           })
           .then(function (result) {
             if (!result.ok || !result.body || result.body.ok !== true) {
-              setData({ loading: false, error: (result.body && result.body.message) || 'the specs route refused the request', specs: [] })
+              // A refusal the route itself sent carries a message; show it verbatim. It is not
+              // transient, so it is not retried.
+              setData({
+                loading: false,
+                error: (result.body && result.body.message) || 'the specs route refused the request',
+                specs: [],
+              })
               return
             }
             setData({ loading: false, error: null, specs: result.body.specs || [], dir: result.body.dir || null })
@@ -346,7 +353,21 @@ window.__ModuleLoader__.load({
             loadEffective()
           })
           .catch(function (error) {
-            setData({ loading: false, error: String(error && error.message ? error.message : error), specs: [] })
+            var message = String(error && error.message ? error.message : error)
+            // A panel opened while the server is still booting - or while it is reloading - lands
+            // in a window where the route is not registered yet, and the carrier answers 404 or
+            // an empty 400. That is a WAIT, not a failure: retrying twice a second and a half
+            // apart covers a boot, and only then is the human told anything. Observed live:
+            // requests during a freshly launched server returned empty-bodied 400s for a few
+            // seconds and then 401s forever.
+            var transient = /empty body|HTTP 5\d\d|Failed to fetch|NetworkError|network/i.test(message)
+            if (transient && tries < 2) {
+              globalThis.setTimeout(function () {
+                load(wanted, tries + 1)
+              }, 1500)
+              return
+            }
+            setData({ loading: false, error: message, specs: [] })
           })
       }
 
