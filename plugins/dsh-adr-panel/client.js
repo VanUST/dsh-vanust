@@ -72,7 +72,7 @@ window.__ModuleLoader__.load({
      * A browser keeps a revision-addressed client bundle until the page reloads, so a stale
      * bundle and a bug look identical without this. Bumped with every change.
      */
-    const PANEL_VERSION = '0.2.15'
+    const PANEL_VERSION = '0.2.16'
 
     /** The index global the host half publishes. */
     const CAPABILITY_GLOBAL = '__DSH_ADR_PANEL_SPECS__'
@@ -222,6 +222,23 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /**
+     * The URL one panel request goes to, anchored to the page origin's ROOT.
+     *
+     * A route is an absolute path, but a fetch given a string without a leading `/` resolves it
+     * against whatever document this bundle happens to run in - so a route that is not exactly
+     * `/adr-panel/specs` in some composition would quietly request the wrong path and be told
+     * 404 by the host's fallback. Normalising here removes the document from the question.
+     *
+     * @param cap - The capability: `{ route, header, token }`.
+     * @param query - The query string, without `?`, or ''.
+     * @returns A path beginning with `/`.
+     */
+    function routeUrl(cap, query) {
+      var route = cap.route.charAt(0) === '/' ? cap.route : '/' + cap.route
+      return query === '' ? route : route + '?' + query
+    }
+
     /** The capability headers one request carries. */
     function headersFor(cap) {
       var headers = {}
@@ -242,19 +259,24 @@ window.__ModuleLoader__.load({
      * @param response - The fetch response.
      * @returns A promise of the parsed body; rejects with an Error naming the status.
      */
-    function readJson(response) {
+    function readJson(response, url) {
       return response.text().then(function (text) {
+        var where = String(globalThis.location && globalThis.location.origin ? globalThis.location.origin : '(origin unknown)')
         if (text === '' || text === undefined) {
           throw new Error(
             'the panel route answered HTTP ' +
               response.status +
-              ' with an empty body. The host half may still be starting, or may not be mounted in this composition. Reload; if it persists, restart the server and report this message.',
+              ' with an empty body for ' +
+              String(url) +
+              ' from page ' +
+              where +
+              '. The host half may still be starting, or may not be mounted in this composition. Reload; if it persists, restart the server and report this message.',
           )
         }
         try {
           return JSON.parse(text)
         } catch (error) {
-          throw new Error('the panel route answered HTTP ' + response.status + ' with something that is not JSON: ' + text.slice(0, 120))
+          throw new Error('the panel route answered HTTP ' + response.status + ' for ' + String(url) + ' with something that is not JSON: ' + text.slice(0, 120))
         }
       })
     }
@@ -323,8 +345,9 @@ window.__ModuleLoader__.load({
         var wanted = which === undefined ? scope : which
         var tries = typeof attempt === 'number' ? attempt : 0
         setData({ loading: true, error: null, specs: [] })
+        var url = routeUrl(cap, 'session=' + encodeURIComponent(sessionId) + '&scope=' + encodeURIComponent(wanted))
         fetch(
-          cap.route + '?session=' + encodeURIComponent(sessionId) + '&scope=' + encodeURIComponent(wanted),
+          url,
           // `no-store` is not politeness. The carrier answers an unmatched path - and a handler
           // whose services are not ready - with 404/400 and an EMPTY body and NO cache headers,
           // and a browser may then store that empty 404 heuristically. A cached 404 survives a
@@ -334,7 +357,7 @@ window.__ModuleLoader__.load({
           { headers: headersFor(cap), cache: 'no-store' },
         )
           .then(function (response) {
-            return readJson(response).then(function (body) {
+            return readJson(response, url).then(function (body) {
               return { ok: response.ok, body: body }
             })
           })
@@ -392,9 +415,10 @@ window.__ModuleLoader__.load({
        */
       function loadEffective() {
         if (cap === null || sessionId === null) return
-        fetch(cap.route + '?session=' + encodeURIComponent(sessionId) + '&catalogue=1', { headers: headersFor(cap), cache: 'no-store' })
+        var url = routeUrl(cap, 'session=' + encodeURIComponent(sessionId) + '&catalogue=1')
+        fetch(url, { headers: headersFor(cap), cache: 'no-store' })
           .then(function (response) {
-            return readJson(response)
+            return readJson(response, url)
           })
           .then(function (body) {
             setEffectiveView(body && body.ok === true ? body : null)
@@ -421,14 +445,15 @@ window.__ModuleLoader__.load({
           return
         }
         setBusy(true)
-        fetch(cap.route, {
+        var url = routeUrl(cap, '')
+        fetch(url, {
           method: 'POST',
           headers: Object.assign({ 'content-type': 'application/json' }, headersFor(cap)),
           body: JSON.stringify(Object.assign({ session: sessionId, scope: scope }, payload)),
           cache: 'no-store',
         })
           .then(function (response) {
-            return readJson(response).then(function (body) {
+            return readJson(response, url).then(function (body) {
               return { ok: response.ok, body: body }
             })
           })
