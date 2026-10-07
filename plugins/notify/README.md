@@ -23,6 +23,26 @@ it. The default `style: overlay` therefore spawns a real window:
 | Windows | WinRT toast via `powershell.exe -NoProfile -NonInteractive -Command …` | falls back to a tray balloon when WinRT is unavailable; text arrives in environment variables and is XML-escaped in-script |
 | macOS | `osascript -e 'display notification …'` | AppleScript string escaping, one argv element |
 
+### Which display it draws on
+
+A notification is only visible to whoever is looking at the display the process draws on, and a
+harness server often inherits a **virtual** one. Measured on the machine this was written for:
+the desktop runs on `:1` (gnome-shell) while the server's environment says `:99` (Xvfb,
+1920x1080, nobody watching) - so the overlay would have appeared correctly and to no one.
+
+The plugin therefore refuses a display it can identify as Xvfb (`/proc` scan, bounded to one
+`readdir` plus a `cmdline` read per pid) and prefers the lowest-numbered real socket. The choice
+is logged once at activation:
+
+```
+notify: overlay display :1 (inherited DISPLAY=:99)
+```
+
+Override it with `display: ':1'` in the config, or `DSH_NOTIFY_DISPLAY=:1` in the server's
+environment. If the GUI is opened in a browser on **another** machine, no server-side overlay can
+reach that screen at all - only a browser-side notification could, which is a different mechanism
+and is not implemented here.
+
 If an overlay cannot start (`python3` missing, no `DISPLAY`, no Tkinter), the plugin
 **downgrades to the daemon path** rather than losing the notification: you lose the corner and
 the always-on-top, not the message.
@@ -48,6 +68,7 @@ The question listener announces **before** `next()`, so the popup arrives while 
         onQuestion: true
         title: DeepSeek Harness
         style: overlay      # overlay (top-right, always on top) | daemon
+        # display: ':1'     # X display to draw on; defaults to a real socket, not an inherited Xvfb
         dismissMs: 6000     # how long an overlay stays on screen
         # pythonPath: /usr/bin/python3
         # notifySendPath: /usr/bin/notify-send

@@ -27,6 +27,7 @@
 import { spawn } from 'node:child_process'
 
 import { notificationCommand } from '../plugins/notify/notify-core.mjs'
+import { detectDisplay } from '../plugins/notify/plugin-notify.mjs'
 
 /** Parse `--platform <value>` and `--dry-run`. */
 function parseArgs(argv) {
@@ -52,6 +53,8 @@ if (built === null) {
   process.exit(2)
 }
 
+const display = options.platform === 'linux' || options.platform === 'darwin' ? detectDisplay({ display: process.env.DSH_NOTIFY_DISPLAY }) : null
+process.stdout.write(`display   ${display ?? '(none)'}${process.env.DISPLAY && process.env.DISPLAY !== display ? `  (inherited DISPLAY=${process.env.DISPLAY} would be invisible if it is Xvfb)` : ''}\n`)
 process.stdout.write(`command   ${built.command}\n`)
 process.stdout.write(`args      ${JSON.stringify(built.args)}\n`)
 if (Object.keys(built.env).length > 0) process.stdout.write(`env       ${JSON.stringify(Object.keys(built.env))}\n`)
@@ -60,7 +63,10 @@ if (options.dryRun) {
   process.exit(0)
 }
 
-const child = spawn(built.command, built.args, { stdio: ['ignore', 'inherit', 'inherit'], env: { ...process.env, ...built.env } })
+const child = spawn(built.command, built.args, {
+  stdio: ['ignore', 'inherit', 'inherit'],
+  env: { ...process.env, ...built.env, ...(display !== null ? { DISPLAY: display } : {}) },
+})
 const timer = setTimeout(() => {
   process.stderr.write('notify-selftest: the notifier did not exit within 10s; killing it\n')
   child.kill('SIGKILL')

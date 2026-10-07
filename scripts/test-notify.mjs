@@ -27,6 +27,7 @@ import { strict as assert } from 'node:assert'
 import { describe, it } from 'node:test'
 
 import {
+  chooseDisplay,
   collapse,
   notificationCommand,
   OVERLAY_PYTHON_SCRIPT,
@@ -72,6 +73,19 @@ describe('notification decision', () => {
     )
     assert.equal(questionSummary({}), '')
     assert.equal(questionSummary(null), '')
+  })
+
+  it('draws on the human display rather than the virtual one it inherited', () => {
+    // The failure this pins, measured on the machine this was written for: the desktop runs on
+    // :1 while the server's environment said :99 (Xvfb, 1920x1080, nobody watching). Drawing
+    // there succeeds and shows the notification to no one.
+    assert.equal(chooseDisplay({ current: ':99', nodes: [':1', ':99'], virtual: [':99'] }), ':1')
+    assert.equal(chooseDisplay({ current: ':1', nodes: [':1', ':99'], virtual: [':99'] }), ':1', 'a real display is kept')
+    assert.equal(chooseDisplay({ current: undefined, nodes: [':1'], virtual: [] }), ':1')
+    assert.equal(chooseDisplay({ current: ':99', nodes: [':99'], virtual: [':99'] }), ':99', 'nothing else to offer, so keep it')
+    assert.equal(chooseDisplay({ current: ':99', nodes: [], virtual: [':99'] }), ':99')
+    assert.equal(chooseDisplay({ current: undefined, nodes: [], virtual: [] }), null)
+    assert.equal(chooseDisplay({ current: ':99', nodes: [':2', ':10'], virtual: [':99'] }), ':2', 'the lowest real socket wins, numerically')
   })
 
   it('knows which platforms it can notify', () => {

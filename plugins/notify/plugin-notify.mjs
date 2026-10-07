@@ -60,8 +60,56 @@
  */
 
 import { spawn } from 'node:child_process'
+import { readFileSync, readdirSync } from 'node:fs'
 
-import { APP_NAME, DEFAULT_DISMISS_MS, notificationCommand, platformFamily, questionSummary, shouldNotify } from './notify-core.mjs'
+import {
+  APP_NAME,
+  chooseDisplay,
+  DEFAULT_DISMISS_MS,
+  notificationCommand,
+  platformFamily,
+  questionSummary,
+  shouldNotify,
+} from './notify-core.mjs'
+
+/** X display sockets, when this machine has any. */
+function displayNodes() {
+  try {
+    return readdirSync('/tmp/.X11-unix')
+      .filter((name) => /^X\d+$/.test(name))
+      .map((name) => `:${name.slice(1)}`)
+  } catch {
+    return []
+  }
+}
+
+/**
+ * The displays an Xvfb server owns, read from `/proc`.
+ *
+ * Bounded by construction: one `readdirSync` of `/proc` plus a `cmdline` read per numeric
+ * entry, and every failure is skipped. A machine where this finds nothing simply keeps the
+ * display it was given.
+ */
+function virtualDisplays() {
+  const found = new Set()
+  let pids = []
+  try {
+    pids = readdirSync('/proc').filter((name) => /^\d+$/.test(name))
+  } catch {
+    return []
+  }
+  for (const pid of pids) {
+    let cmdline
+    try {
+      cmdline = readFileSync(`/proc/${pid}/cmdline`, 'utf8')
+    } catch {
+      continue
+    }
+    const match = /Xvfb\s+(:\d+)/.exec(cmdline.replace(/\0/g, ' '))
+    if (match) found.add(match[1])
+  }
+  return [...found]
+}
 
 /** Cordis function-plugin name; also the id a profile patch targets. */
 export const name = 'notify'
@@ -91,6 +139,22 @@ function minRunMsFrom(config) {
 }
 
 /**
+ * The X display an overlay should draw on, for this process.
+ *
+ * Exported so `scripts/notify-selftest.mjs` can print it: "the notification appeared nowhere"
+ * is otherwise undiagnosable from the outside, and the answer is usually that the server
+ * inherited a virtual display.
+ *
+ * @param config - Resolved plugin configuration; `display` wins over everything.
+ * @returns A display name, or null when none could be determined.
+ */
+export function detectDisplay(config = {}) {
+  if (typeof config.display === 'string' && config.display !== '') return config.display
+  if (typeof process.env.DSH_NOTIFY_DISPLAY === 'string' && process.env.DSH_NOTIFY_DISPLAY !== '') return process.env.DSH_NOTIFY_DISPLAY
+  return chooseDisplay({ current: process.env.DISPLAY, nodes: displayNodes(), virtual: virtualDisplays() })
+}
+
+/**
  * Install the two listeners.
  *
  * @param ctx - Cordis context.
@@ -104,6 +168,11 @@ export function apply(ctx, config = {}) {
   const title = typeof config.title === 'string' && config.title !== '' ? config.title : APP_NAME
   const minRunMs = minRunMsFrom(config)
   const family = platformFamily(process.platform)
+  // Which display the overlay draws on. Explicit config wins; then the environment; then a
+  // real socket in preference to the virtual one this process probably inherited. The choice
+  // is logged once, because "the notification appeared nowhere" is otherwise impossible to
+  // diagnose from the outside.
+  const display = detectDisplay(config)
   /** When each agent last entered `running`, so a finish can be timed. */
   const runningSince = new Map()
   /** Failures already reported, by launch command, so a headless host logs one line. */
@@ -152,6 +221,9 @@ export function apply(ctx, config = {}) {
     }
     try {
       const child = spawn(built.command, built.args, {
+        // The overlay is only as visible as its display: a server that inherited Xvfb would
+        // draw the window correctly and show it to nobody.
+        ...(family === 'linux' && typeof display === 'string' && display !== '' ? { env: { ...process.env, ...built.env, DISPLAY: display } } : {}),
         // `detached` + `unref` so a popup outlives nothing and blocks nothing: the turn has
         // already ended by the time this runs, and a notification daemon that hangs must not
         // hold a handle the harness waits on.
@@ -217,6 +289,9 @@ export function apply(ctx, config = {}) {
     }))
   }
 
+  if (enabled && family === 'linux' && typeof display === 'string') {
+    ctx.logger?.info?.(`notify: overlay display ${display}${process.env.DISPLAY !== display ? ` (inherited DISPLAY=${process.env.DISPLAY ?? 'unset'})` : ''}`)
+  }
   if (!enabled) {
     ctx.logger?.info?.('notify: disabled by configuration or DSH_NOTIFY_DISABLED')
   } else if (family === null) {

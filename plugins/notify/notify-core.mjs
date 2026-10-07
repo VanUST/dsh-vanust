@@ -161,6 +161,35 @@ export const WINDOWS_SCRIPT = [
 ].join('\n')
 
 /**
+ * Choose the X display an overlay should draw on.
+ *
+ * A harness server commonly inherits a VIRTUAL display: on the machine this was written for,
+ * the desktop runs on `:1` (gnome-shell) while the server's environment says `:99` (Xvfb,
+ * 1920x1080, nobody watching). Drawing there raises the notification correctly and shows it
+ * to no one - the failure mode this function exists to prevent. So a display that is known
+ * to be virtual is not accepted as `current`; the lowest-numbered real socket wins, and the
+ * caller's own value is the last resort rather than the first choice.
+ *
+ * Pure on purpose: the caller supplies the sockets and the virtual list, so the rule can be
+ * tested without an X server and without scanning `/proc`.
+ *
+ * @param input - `{ current, nodes, virtual }`. `nodes` are display names like `:0`; `virtual`
+ *   is the subset of them known to be virtual.
+ * @returns A display name, or null when there is nothing to choose from.
+ */
+export function chooseDisplay(input = {}) {
+  const current = typeof input.current === 'string' && input.current.trim() !== '' ? input.current : null
+  const virtual = Array.isArray(input.virtual) ? input.virtual : []
+  const nodes = Array.isArray(input.nodes) ? input.nodes : []
+  if (current !== null && !virtual.includes(current)) return current
+  const real = nodes
+    .filter((node) => typeof node === 'string' && !virtual.includes(node))
+    .sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)))
+  if (real.length > 0) return real[0]
+  return current ?? (nodes.length > 0 ? nodes[0] : null)
+}
+
+/**
  * Collapse whitespace and cut a string to a length a notification can display.
  *
  * @param text - Anything; a non-string is read as an empty string.

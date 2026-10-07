@@ -54,8 +54,10 @@ usage-check:
 test-usage:
 	@$(NODE) --test scripts/test-usage-analytics.mjs
 
-# Raise one REAL notification on this host. Not part of `verify`: it pops a window on the
-# machine running it, which is evidence when you ask for it and noise when you do not.
+# Raise one REAL notification on this host, in the top-right corner of the display the human
+# is on (not the Xvfb a server usually inherits). Not part of `verify`: it pops a window on
+# the machine running it, which is evidence when you ask for it and noise when you do not.
+# `--style daemon` uses the desktop's own mechanism instead, for comparison.
 notify-selftest:
 	@$(NODE) scripts/notify-selftest.mjs
 
