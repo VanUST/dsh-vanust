@@ -23,6 +23,31 @@ it. The default `style: overlay` therefore spawns a real window:
 | Windows | WinRT toast via `powershell.exe -NoProfile -NonInteractive -Command …` | falls back to a tray balloon when WinRT is unavailable; text arrives in environment variables and is XML-escaped in-script |
 | macOS | `osascript -e 'display notification …'` | AppleScript string escaping, one argv element |
 
+### What the window does
+
+| | |
+|---|---|
+| **✕** (top-right, or `Esc`) | dismisses that notification immediately |
+| **click the title or body** | opens `url` in the default browser and dismisses |
+| **hover** | PAUSES the auto-dismiss, so one you are reading does not vanish mid-sentence |
+| **several at once** | each claims the lowest free STACK ROW and lines up below the others |
+
+The row is **claimed, not negotiated**: each process creates `slot-<n>` exclusively
+(`O_CREAT|O_EXCL`, `FileMode::CreateNew`) in `slotsDir` and removes it when it closes, so two
+notifications racing for the same row cannot both win. All three geometries are fixed — 360x96
+at a 104px pitch, 24px from the edge — which is what makes "no overlap" a property of the design
+rather than a hope. A claim older than 45s (its process died without cleaning up) is pruned by
+the next notification, so a killed popup cannot hold a row for ever. The stack is 8 rows deep;
+beyond that a notification reuses row 8 rather than drawing off-screen.
+
+`url` is what a click opens, and it defaults to **this** harness's own Web address, so a click
+reuses the running `dsh web` instead of starting a second one. **What it does not do:** it does
+not select the session the notification is about. The Web client has no session deep-link
+(`searchParams` is only read for `parent` and `mode`) and no client API for activating a session
+could be verified, so the click takes you to the running GUI — where, for a "finished" popup,
+the chat you were just in is already the one on screen. Setting `url:` (or `DSH_NOTIFY_URL`)
+overrides it entirely.
+
 ### Which display it draws on
 
 A notification is only visible to whoever is looking at the display the process draws on, and a

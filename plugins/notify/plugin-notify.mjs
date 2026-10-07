@@ -32,6 +32,12 @@
  *                      always uses the daemon path there.
  *     `dismissMs`    - how long an overlay stays on screen. Default 6000.
  *     `pythonPath`   - the interpreter an overlay runs on. Default `python3`.
+ *     `url`          - what a CLICK on a notification opens. Default: the harness's own Web
+ *                      address, so a click reuses the running `dsh web` rather than starting a
+ *                      second one. `DSH_NOTIFY_URL` overrides it.
+ *     `slotsDir`     - where concurrent notifications claim a stack row (fixed width, height
+ *                      and pitch, exclusive file creation), so several at once line up instead
+ *                      of overlapping. `DSH_NOTIFY_SLOTS_DIR` overrides it.
  *     `notifySendPath`, `powershellPath`, `appId` - launcher overrides, passed through to
  *       `notificationCommand`; the only absolute paths this plugin will ever use.
  *   Environment: `DSH_NOTIFY_DISABLED=1` disables the plugin without editing the profile, and
@@ -61,6 +67,8 @@
 
 import { spawn } from 'node:child_process'
 import { readFileSync, readdirSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 
 import {
   APP_NAME,
@@ -132,6 +140,27 @@ function disabledFromEnv() {
  * @param config - Resolved plugin configuration.
  * @returns A non-negative number of milliseconds.
  */
+/**
+ * The short name of the project an agent belongs to, for the notification text.
+ *
+ * Read defensively: the agent object is the harness's, its shape is not this plugin's to
+ * assume, and a notification must never fail because a field moved. Returns '' rather than a
+ * placeholder, so the caller can omit the separator entirely.
+ *
+ * @param agent - The `agent/status` payload's agent, or undefined.
+ * @returns A basename like `dsh-kit`, or ''.
+ */
+function projectOf(agent) {
+  try {
+    const cwd = agent?.session?.header?.cwd
+    if (typeof cwd !== 'string' || cwd === '') return ''
+    const parts = cwd.split(/[\\/]+/).filter((part) => part !== '')
+    return parts.length === 0 ? '' : parts[parts.length - 1]
+  } catch {
+    return ''
+  }
+}
+
 function minRunMsFrom(config) {
   const fromEnv = Number(process.env.DSH_NOTIFY_MIN_RUN_MS)
   if (Number.isFinite(fromEnv) && fromEnv >= 0) return fromEnv
@@ -167,6 +196,21 @@ export function apply(ctx, config = {}) {
   const onQuestion = config.onQuestion !== false
   const title = typeof config.title === 'string' && config.title !== '' ? config.title : APP_NAME
   const minRunMs = minRunMsFrom(config)
+  // Where a click goes: the RUNNING GUI. `webStartup` carries the address this server actually
+  // bound, so an instance on another port opens itself rather than a remembered 3080.
+  const startup = ctx.get('webStartup')
+  const webAddress =
+    typeof config.url === 'string' && config.url !== ''
+      ? config.url
+      : typeof process.env.DSH_NOTIFY_URL === 'string' && process.env.DSH_NOTIFY_URL !== ''
+        ? process.env.DSH_NOTIFY_URL
+        : `http://${startup?.host ?? '127.0.0.1'}:${startup?.port ?? 3080}/`
+  const slotsDir =
+    typeof config.slotsDir === 'string' && config.slotsDir !== ''
+      ? config.slotsDir
+      : typeof process.env.DSH_NOTIFY_SLOTS_DIR === 'string' && process.env.DSH_NOTIFY_SLOTS_DIR !== ''
+        ? process.env.DSH_NOTIFY_SLOTS_DIR
+        : join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'cache', 'notify-slots')
   const family = platformFamily(process.platform)
   // Which display the overlay draws on. Explicit config wins; then the environment; then a
   // real socket in preference to the virtual one this process probably inherited. The choice
@@ -207,6 +251,8 @@ export function apply(ctx, config = {}) {
       title,
       body,
       dismissMs: Number.isFinite(config.dismissMs) && config.dismissMs > 0 ? config.dismissMs : DEFAULT_DISMISS_MS,
+      url: webAddress,
+      slotsDir,
       pythonPath: config.pythonPath,
       notifySendPath: config.notifySendPath,
       powershellPath: config.powershellPath,
@@ -267,7 +313,10 @@ export function apply(ctx, config = {}) {
       if (status === 'idle') {
         runningSince.delete(id)
         if (shouldNotify({ from: 'running', to: 'idle', startedAt: previous, now: Date.now(), minRunMs })) {
-          notify(`Finished after ${Math.round((Date.now() - previous) / 1000)}s`)
+          // Naming the project is what makes several notifications distinguishable at a glance:
+          // "Finished after 93s" alone says nothing about WHICH chat is waiting.
+          const where = projectOf(payload?.agent)
+          notify(`Finished after ${Math.round((Date.now() - previous) / 1000)}s${where === '' ? '' : ` - ${where}`}`)
         }
       }
     }))

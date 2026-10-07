@@ -62,29 +62,168 @@ export const DEFAULT_DISMISS_MS = 6000
  * present on this machine; the text arrives in the environment, so a question full of
  * quotes is data rather than script.
  */
+/**
+ * The fixed geometry every overlay uses, so several notifications cannot overlap.
+ *
+ * A notification is one process per popup, and processes cannot see each other, so the rule
+ * that keeps them apart has to be agreed in advance rather than negotiated live: the same
+ * width, the same height and the same vertical pitch, with the slot index choosing the row.
+ * Fixed geometry is what makes "no overlap" a property of the design instead of a hope.
+ */
+export const OVERLAY_WIDTH = 360
+export const OVERLAY_HEIGHT = 96
+export const OVERLAY_PITCH = 104
+export const OVERLAY_MARGIN = 24
+/** How many popups may stack before the last row is reused. */
+export const OVERLAY_MAX_SLOTS = 8
+/** A claim older than this is treated as abandoned (its process died without releasing). */
+export const SLOT_STALE_SECONDS = 45
+
+/**
+ * The lowest stack slot nobody holds, or null when every slot is taken.
+ *
+ * Pure, and the Python and PowerShell overlays implement the same rule: a claim is a file
+ * created exclusively (`O_CREAT|O_EXCL` / `FileMode.CreateNew`), so two processes racing for
+ * the same row cannot both win. Stale claims are pruned by the caller before this is asked.
+ *
+ * @param occupied - Slot indices currently claimed.
+ * @returns The lowest free index below {@link OVERLAY_MAX_SLOTS}, or null.
+ */
+export function firstFreeSlot(occupied = []) {
+  const taken = new Set(occupied)
+  for (let slot = 0; slot < OVERLAY_MAX_SLOTS; slot += 1) {
+    if (!taken.has(slot)) return slot
+  }
+  return null
+}
+
+/**
+ * The Linux/macOS overlay: a borderless, ALWAYS-ON-TOP window pinned to the top-right.
+ *
+ * `notify-send` cannot do any of the three things this was asked for: the desktop daemon decides
+ * where a notification appears, a notification is not a window (so a fullscreen app, a focused
+ * window or Do-Not-Disturb can hide it), and it has no close button. This is a real window with
+ * `-topmost`, positioned from the screen's own width, with:
+ *
+ *   - a ✕ that dismisses it immediately,
+ *   - a title and body that OPEN the given URL and dismiss (the running GUI, same server),
+ *   - a hover PAUSE, so a notification being read does not vanish,
+ *   - a stack slot, claimed atomically, so simultaneous notifications line up instead of
+ *     drawing on top of one another.
+ *
+ * Tkinter is in the Python standard library; every piece of text arrives in the environment, so
+ * a question full of quotes is data rather than script.
+ */
 export const OVERLAY_PYTHON_SCRIPT = [
-  'import os, tkinter as tk',
+  'import os, glob, time',
+  'import tkinter as tk',
   "title = os.environ.get('DSH_NOTIFY_TITLE', '')",
   "body = os.environ.get('DSH_NOTIFY_BODY', '')",
+  "url = os.environ.get('DSH_NOTIFY_URL', '')",
   "dismiss = int(os.environ.get('DSH_NOTIFY_MS', '6000') or 6000)",
-  "bg = '#1f2430'",
+  "slots_dir = os.environ.get('DSH_NOTIFY_SLOTS', '')",
+  'WIDTH = 360',
+  'HEIGHT = 96',
+  'PITCH = 104',
+  'MARGIN = 24',
+  'MAX_SLOTS = 8',
+  'STALE = 45',
+  'claim = None',
+  'slot = 0',
+  'if slots_dir:',
+  '    try:',
+  '        os.makedirs(slots_dir, exist_ok=True)',
+  '        now = time.time()',
+  '        for old in glob.glob(os.path.join(slots_dir, "slot-*")):',
+  '            try:',
+  '                if now - os.path.getmtime(old) > STALE:',
+  '                    os.remove(old)',
+  '            except OSError:',
+  '                pass',
+  '        for candidate in range(MAX_SLOTS):',
+  '            path = os.path.join(slots_dir, "slot-%d" % candidate)',
+  '            try:',
+  '                handle = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)',
+  '                os.close(handle)',
+  '                claim = path',
+  '                slot = candidate',
+  '                break',
+  '            except OSError:',
+  '                continue',
+  '    except OSError:',
+  '        claim = None',
+  'bg = "#12161f"',
+  'fg = "#eaeef7"',
+  'dim = "#8f9bb3"',
+  'accent = "#5aa9ff"',
   'root = tk.Tk()',
   'root.overrideredirect(True)',
   "root.attributes('-topmost', True)",
   'try:',
-  "    root.attributes('-alpha', 0.97)",
+  "    root.attributes('-alpha', 0.98)",
   'except Exception:',
   '    pass',
-  "frame = tk.Frame(root, bg=bg, padx=14, pady=10, highlightthickness=1, highlightbackground='#3b4252')",
-  "tk.Label(frame, text=title, fg='#9dc4ff', bg=bg, font=('DejaVu Sans', 10, 'bold'), anchor='w', justify='left').pack(fill='x')",
-  "tk.Label(frame, text=body, fg='#e8e8e8', bg=bg, font=('DejaVu Sans', 9), anchor='w', justify='left', wraplength=340).pack(fill='x')",
-  'frame.pack(fill="both", expand=True)',
+  'def release():',
+  '    if claim:',
+  '        try:',
+  '            os.remove(claim)',
+  '        except OSError:',
+  '            pass',
+  'shell = tk.Frame(root, bg=fg, highlightthickness=0)',
+  'shell.pack(fill="both", expand=True)',
+  'stripe = tk.Frame(shell, bg=accent, width=4)',
+  'stripe.pack(side="left", fill="y")',
+  'inner = tk.Frame(shell, bg=bg, padx=12, pady=9)',
+  'inner.pack(side="left", fill="both", expand=True)',
+  'top = tk.Frame(inner, bg=bg)',
+  'top.pack(fill="x")',
+  "tk.Label(top, text=title, fg=accent, bg=bg, font=('DejaVu Sans', 10, 'bold'), anchor='w').pack(side='left')",
+  "close = tk.Label(top, text='\u2715', fg=dim, bg=bg, font=('DejaVu Sans', 12), cursor='hand2')",
+  "close.pack(side='right')",
+  "body_label = tk.Label(inner, text=body, fg=fg, bg=bg, font=('DejaVu Sans', 9), anchor='w', justify='left', wraplength=WIDTH - 48)",
+  'body_label.pack(fill="x")',
   'root.update_idletasks()',
-  'width = max(340, root.winfo_reqwidth())',
-  'height = root.winfo_reqheight()',
   'screen = root.winfo_screenwidth()',
-  "root.geometry('%dx%d+%d+%d' % (width, height, screen - width - 24, 24))",
-  'root.after(dismiss, root.destroy)',
+  "root.geometry('%dx%d+%d+%d' % (WIDTH, HEIGHT, screen - WIDTH - MARGIN, MARGIN + slot * PITCH))",
+  'def close_now(*_ignored):',
+  '    release()',
+  '    root.destroy()',
+  'def open_now(*_ignored):',
+  '    release()',
+  '    if url:',
+  '        try:',
+  '            import webbrowser',
+  '            if not webbrowser.open(url):',
+  '                raise RuntimeError("no browser")',
+  '        except Exception:',
+  '            try:',
+  '                import subprocess',
+  '                subprocess.Popen(["xdg-open", url])',
+  '            except Exception:',
+  '                pass',
+  '    root.destroy()',
+  'timer = {}',
+  'def arm():',
+  '    timer["id"] = root.after(dismiss, close_now)',
+  'def pause(*_ignored):',
+  '    if "id" in timer:',
+  '        root.after_cancel(timer["id"])',
+  '        del timer["id"]',
+  'def resume(*_ignored):',
+  '    pause()',
+  '    arm()',
+  "close.bind('<Button-1>', close_now)",
+  "top.bind('<Button-1>', open_now)",
+  "body_label.bind('<Button-1>', open_now)",
+  "inner.bind('<Button-1>', open_now)",
+  'for widget in (inner, top, body_label):',
+  "    widget.bind('<Enter>', pause)",
+  "    widget.bind('<Leave>', resume)",
+  'try:',
+  "    root.bind('<Escape>', close_now)",
+  'except Exception:',
+  '    pass',
+  'arm()',
   'root.mainloop()',
 ].join('\n')
 
@@ -94,35 +233,92 @@ export const OVERLAY_PYTHON_SCRIPT = [
  * can suppress it, which is the opposite of "visible anywhere"; a TopMost window is not.
  * The text arrives in `$env:`, so no quoting question arises.
  */
+/**
+ * The Windows overlay: the same window as the Linux one, in WinForms.
+ *
+ * A borderless `TopMost` form in the primary screen's top-right, anchored to
+ * `WorkingArea.Right`, with the same ✕, the same click-to-open, the same hover pause and the
+ * same fixed geometry so stacked notifications line up. `ShowInTaskbar = $false` keeps it out
+ * of the taskbar list, `AutoScaleMode = Dpi` keeps a 360x96 window 360x96 on a scaled display,
+ * and everything the human reads arrives in `$env:`, so no quoting question arises.
+ */
 export const WINDOWS_OVERLAY_SCRIPT = [
   "$ErrorActionPreference = 'Stop'",
   'Add-Type -AssemblyName System.Windows.Forms',
   'Add-Type -AssemblyName System.Drawing',
+  '$width = 360',
+  '$height = 96',
+  '$pitch = 104',
+  '$margin = 24',
+  '$maxSlots = 8',
+  '$stale = 45',
+  '$slot = 0',
+  '$claim = $null',
+  'if ($env:DSH_NOTIFY_SLOTS) {',
+  '  New-Item -ItemType Directory -Force -Path $env:DSH_NOTIFY_SLOTS | Out-Null',
+  '  Get-ChildItem -Path $env:DSH_NOTIFY_SLOTS -Filter "slot-*" -ErrorAction SilentlyContinue | Where-Object { ((Get-Date) - $_.LastWriteTime).TotalSeconds -gt $stale } | Remove-Item -Force -ErrorAction SilentlyContinue',
+  '  foreach ($candidate in 0..($maxSlots - 1)) {',
+  '    $path = Join-Path $env:DSH_NOTIFY_SLOTS ("slot-" + $candidate)',
+  '    try {',
+  '      $stream = [System.IO.File]::Open($path, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write)',
+  '      $stream.Close()',
+  '      $claim = $path',
+  '      $slot = $candidate',
+  '      break',
+  '    } catch { }',
+  '  }',
+  '}',
   '$form = New-Object System.Windows.Forms.Form',
   "$form.FormBorderStyle = 'None'",
   "$form.StartPosition = 'Manual'",
+  "$form.AutoScaleMode = 'Dpi'",
   '$form.TopMost = $true',
   '$form.ShowInTaskbar = $false',
-  '$form.BackColor = [System.Drawing.Color]::FromArgb(31, 36, 48)',
-  '$form.Size = New-Object System.Drawing.Size(400, 120)',
+  '$form.BackColor = [System.Drawing.Color]::FromArgb(18, 22, 31)',
+  '$form.Size = New-Object System.Drawing.Size($width, $height)',
   '$area = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea',
-  '$form.Location = New-Object System.Drawing.Point(($area.Right - $form.Width - 24), ($area.Top + 24))',
+  '$form.Location = New-Object System.Drawing.Point(($area.Right - $width - $margin), ($area.Top + $margin + ($slot * $pitch)))',
+  '$stripe = New-Object System.Windows.Forms.Panel',
+  '$stripe.BackColor = [System.Drawing.Color]::FromArgb(90, 169, 255)',
+  '$stripe.Location = New-Object System.Drawing.Point(0, 0)',
+  '$stripe.Size = New-Object System.Drawing.Size(4, $height)',
   '$title = New-Object System.Windows.Forms.Label',
   '$title.Text = $env:DSH_NOTIFY_TITLE',
-  '$title.ForeColor = [System.Drawing.Color]::FromArgb(157, 196, 255)',
+  '$title.ForeColor = [System.Drawing.Color]::FromArgb(90, 169, 255)',
   '$title.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)',
-  '$title.Location = New-Object System.Drawing.Point(14, 12)',
-  '$title.Size = New-Object System.Drawing.Size(372, 24)',
+  '$title.Location = New-Object System.Drawing.Point(14, 10)',
+  '$title.Size = New-Object System.Drawing.Size(286, 20)',
+  '$close = New-Object System.Windows.Forms.Label',
+  '$close.Text = [char]0x2715',
+  '$close.ForeColor = [System.Drawing.Color]::FromArgb(143, 155, 179)',
+  '$close.Font = New-Object System.Drawing.Font("Segoe UI", 11)',
+  '$close.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter',
+  '$close.Cursor = [System.Windows.Forms.Cursors]::Hand',
+  '$close.Location = New-Object System.Drawing.Point(320, 6)',
+  '$close.Size = New-Object System.Drawing.Size(30, 26)',
   '$body = New-Object System.Windows.Forms.Label',
   '$body.Text = $env:DSH_NOTIFY_BODY',
-  '$body.ForeColor = [System.Drawing.Color]::FromArgb(232, 232, 232)',
+  '$body.ForeColor = [System.Drawing.Color]::FromArgb(234, 238, 247)',
   '$body.Font = New-Object System.Drawing.Font("Segoe UI", 9)',
-  '$body.Location = New-Object System.Drawing.Point(14, 40)',
-  '$body.Size = New-Object System.Drawing.Size(372, 68)',
-  '$form.Controls.AddRange(@($title, $body))',
+  '$body.Location = New-Object System.Drawing.Point(14, 34)',
+  '$body.Size = New-Object System.Drawing.Size(332, 54)',
+  '$form.Controls.AddRange(@($stripe, $title, $body, $close))',
   '$timer = New-Object System.Windows.Forms.Timer',
   '$timer.Interval = [int]$env:DSH_NOTIFY_MS',
-  '$timer.Add_Tick({ $form.Close() })',
+  '$timer.Add_Tick({ if ($claim) { Remove-Item -Force -ErrorAction SilentlyContinue $claim }; $form.Close() })',
+  '$openHandler = {',
+  '  if ($claim) { Remove-Item -Force -ErrorAction SilentlyContinue $claim }',
+  '  if ($env:DSH_NOTIFY_URL) { Start-Process $env:DSH_NOTIFY_URL -ErrorAction SilentlyContinue }',
+  '  $form.Close()',
+  '}',
+  '$closeHandler = { if ($claim) { Remove-Item -Force -ErrorAction SilentlyContinue $claim }; $form.Close() }',
+  '$pauseHandler = { $timer.Stop() }',
+  '$resumeHandler = { $timer.Start() }',
+  '$close.Add_Click($closeHandler)',
+  '$title.Add_Click($openHandler)',
+  '$body.Add_Click($openHandler)',
+  'foreach ($control in @($form, $title, $body)) { $control.Add_MouseEnter($pauseHandler); $control.Add_MouseLeave($resumeHandler) }',
+  '$form.Add_FormClosed({ if ($claim) { Remove-Item -Force -ErrorAction SilentlyContinue $claim } })',
   '$timer.Start()',
   '[void]$form.ShowDialog()',
 ].join('\n')
@@ -252,12 +448,15 @@ export function platformFamily(platform) {
 /**
  * Build the command that raises one desktop notification.
  *
- * @param input - `{ platform, style, title, body, dismissMs, pythonPath, notifySendPath,
- *   powershellPath, appId }`. The path overrides exist because a plugin cannot assume where a
- *   launcher lives; they are the only absolute paths this function will ever use, and they come
- *   from the caller's configuration. `style` is `overlay` (a borderless always-on-top window in
- *   the top-right corner) or `daemon` (the platform's own notification mechanism); macOS has no
- *   positioned overlay through `osascript`, so it falls back to `daemon` there and says so.
+ * @param input - `{ platform, style, title, body, url, slotsDir, dismissMs, pythonPath,
+ *   notifySendPath, powershellPath, appId }`. The path overrides exist because a plugin cannot
+ *   assume where a launcher lives; they are the only absolute paths this function will ever use,
+ *   and they come from the caller's configuration. `style` is `overlay` (a borderless
+ *   always-on-top window in the top-right corner) or `daemon` (the platform's own notification
+ *   mechanism); macOS has no positioned overlay through `osascript`, so it falls back to
+ *   `daemon` there and says so. `url` is what a click on the notification opens - the RUNNING
+ *   GUI, so no second server is started - and `slotsDir` is where concurrent notifications
+ *   claim a stack row so they cannot overlap.
  * @returns `{ command, args, env }` to spawn with `shell: false`, or null on a platform with no
  *   notifier. `env` carries the TEXT - always, because the text is never interpolated into a
  *   command string - and is meant to be merged over the process environment.
@@ -268,18 +467,27 @@ export function notificationCommand(input = {}) {
   const body = collapse(input.body ?? '', MAX_BODY_CHARS)
   const dismissMs = Number.isFinite(input.dismissMs) && input.dismissMs > 0 ? Math.floor(input.dismissMs) : DEFAULT_DISMISS_MS
   const overlay = input.style !== 'daemon'
+  const url = typeof input.url === 'string' ? input.url : ''
+  const slotsDir = typeof input.slotsDir === 'string' ? input.slotsDir : ''
+  const overlayEnv = {
+    DSH_NOTIFY_TITLE: title,
+    DSH_NOTIFY_BODY: body,
+    DSH_NOTIFY_MS: String(dismissMs),
+    DSH_NOTIFY_URL: url,
+    DSH_NOTIFY_SLOTS: slotsDir,
+  }
   if (overlay && family === 'windows') {
     return {
       command: typeof input.powershellPath === 'string' && input.powershellPath !== '' ? input.powershellPath : 'powershell.exe',
       args: ['-NoProfile', '-NonInteractive', '-Command', WINDOWS_OVERLAY_SCRIPT],
-      env: { DSH_NOTIFY_TITLE: title, DSH_NOTIFY_BODY: body, DSH_NOTIFY_MS: String(dismissMs) },
+      env: overlayEnv,
     }
   }
   if (overlay && family === 'linux') {
     return {
       command: typeof input.pythonPath === 'string' && input.pythonPath !== '' ? input.pythonPath : 'python3',
       args: ['-c', OVERLAY_PYTHON_SCRIPT],
-      env: { DSH_NOTIFY_TITLE: title, DSH_NOTIFY_BODY: body, DSH_NOTIFY_MS: String(dismissMs) },
+      env: overlayEnv,
     }
   }
   if (family === 'windows') {
