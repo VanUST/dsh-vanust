@@ -18,6 +18,8 @@
  *
  * OUTPUTS
  *   `shouldNotify` -> boolean. A turn that ran for less than `minRunMs` is not worth a popup.
+ *   `notificationCommand` with `style: 'overlay'` (the default) -> an always-on-top window in
+ *     the top-right corner; `style: 'daemon'` -> the platform's own notification.
  *   `notificationCommand` -> `{ command, args, env }`, or null on a platform with no notifier
  *     this deployment knows. `env` is merged ON TOP of the process environment by the caller.
  *   `questionSummary` -> a one-line string, whitespace-collapsed and truncated; never throws,
@@ -45,6 +47,85 @@ export const APP_NAME = 'DeepSeek Harness'
 
 /** Longest notification text this module will produce, after collapsing whitespace. */
 export const MAX_BODY_CHARS = 200
+
+/** How long an overlay window stays on screen, in milliseconds. */
+export const DEFAULT_DISMISS_MS = 6000
+
+/**
+ * The Linux/macOS overlay: a borderless, ALWAYS-ON-TOP window pinned to the top-right.
+ *
+ * `notify-send` cannot do either of the two things this was asked for: the desktop daemon
+ * decides where a notification appears, and a notification is not a window, so a fullscreen
+ * app, a focused window or Do-Not-Disturb can hide it. This is a real window with
+ * `-topmost`, positioned from the screen's own width, so it is visible above whatever has
+ * focus and always in the same corner. Tkinter is in the Python standard library and
+ * present on this machine; the text arrives in the environment, so a question full of
+ * quotes is data rather than script.
+ */
+export const OVERLAY_PYTHON_SCRIPT = [
+  'import os, tkinter as tk',
+  "title = os.environ.get('DSH_NOTIFY_TITLE', '')",
+  "body = os.environ.get('DSH_NOTIFY_BODY', '')",
+  "dismiss = int(os.environ.get('DSH_NOTIFY_MS', '6000') or 6000)",
+  "bg = '#1f2430'",
+  'root = tk.Tk()',
+  'root.overrideredirect(True)',
+  "root.attributes('-topmost', True)",
+  'try:',
+  "    root.attributes('-alpha', 0.97)",
+  'except Exception:',
+  '    pass',
+  "frame = tk.Frame(root, bg=bg, padx=14, pady=10, highlightthickness=1, highlightbackground='#3b4252')",
+  "tk.Label(frame, text=title, fg='#9dc4ff', bg=bg, font=('DejaVu Sans', 10, 'bold'), anchor='w', justify='left').pack(fill='x')",
+  "tk.Label(frame, text=body, fg='#e8e8e8', bg=bg, font=('DejaVu Sans', 9), anchor='w', justify='left', wraplength=340).pack(fill='x')",
+  'frame.pack(fill="both", expand=True)',
+  'root.update_idletasks()',
+  'width = max(340, root.winfo_reqwidth())',
+  'height = root.winfo_reqheight()',
+  'screen = root.winfo_screenwidth()',
+  "root.geometry('%dx%d+%d+%d' % (width, height, screen - width - 24, 24))",
+  'root.after(dismiss, root.destroy)',
+  'root.mainloop()',
+].join('\n')
+
+/**
+ * The Windows overlay: a borderless TopMost WinForms window in the primary screen's
+ * top-right corner. A toast is placed by the OS (bottom-right by default) and Focus Assist
+ * can suppress it, which is the opposite of "visible anywhere"; a TopMost window is not.
+ * The text arrives in `$env:`, so no quoting question arises.
+ */
+export const WINDOWS_OVERLAY_SCRIPT = [
+  "$ErrorActionPreference = 'Stop'",
+  'Add-Type -AssemblyName System.Windows.Forms',
+  'Add-Type -AssemblyName System.Drawing',
+  '$form = New-Object System.Windows.Forms.Form',
+  "$form.FormBorderStyle = 'None'",
+  "$form.StartPosition = 'Manual'",
+  '$form.TopMost = $true',
+  '$form.ShowInTaskbar = $false',
+  '$form.BackColor = [System.Drawing.Color]::FromArgb(31, 36, 48)',
+  '$form.Size = New-Object System.Drawing.Size(400, 120)',
+  '$area = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea',
+  '$form.Location = New-Object System.Drawing.Point(($area.Right - $form.Width - 24), ($area.Top + 24))',
+  '$title = New-Object System.Windows.Forms.Label',
+  '$title.Text = $env:DSH_NOTIFY_TITLE',
+  '$title.ForeColor = [System.Drawing.Color]::FromArgb(157, 196, 255)',
+  '$title.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)',
+  '$title.Location = New-Object System.Drawing.Point(14, 12)',
+  '$title.Size = New-Object System.Drawing.Size(372, 24)',
+  '$body = New-Object System.Windows.Forms.Label',
+  '$body.Text = $env:DSH_NOTIFY_BODY',
+  '$body.ForeColor = [System.Drawing.Color]::FromArgb(232, 232, 232)',
+  '$body.Font = New-Object System.Drawing.Font("Segoe UI", 9)',
+  '$body.Location = New-Object System.Drawing.Point(14, 40)',
+  '$body.Size = New-Object System.Drawing.Size(372, 68)',
+  '$form.Controls.AddRange(@($title, $body))',
+  '$timer = New-Object System.Windows.Forms.Timer',
+  '$timer.Interval = [int]$env:DSH_NOTIFY_MS',
+  '$timer.Add_Tick({ $form.Close() })',
+  '$timer.Start()',
+  '[void]$form.ShowDialog()',
+].join('\n')
 
 /** The AppId a Windows toast is published under, so the OS has something to attribute it to. */
 export const WINDOWS_APP_ID = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe'
@@ -142,18 +223,38 @@ export function platformFamily(platform) {
 /**
  * Build the command that raises one desktop notification.
  *
- * @param input - `{ platform, title, body, notifySendPath, powershellPath, appId }`. The path
- *   overrides exist because a plugin cannot assume where a launcher lives; they are the only
- *   absolute paths this function will ever use, and they come from the caller's configuration.
+ * @param input - `{ platform, style, title, body, dismissMs, pythonPath, notifySendPath,
+ *   powershellPath, appId }`. The path overrides exist because a plugin cannot assume where a
+ *   launcher lives; they are the only absolute paths this function will ever use, and they come
+ *   from the caller's configuration. `style` is `overlay` (a borderless always-on-top window in
+ *   the top-right corner) or `daemon` (the platform's own notification mechanism); macOS has no
+ *   positioned overlay through `osascript`, so it falls back to `daemon` there and says so.
  * @returns `{ command, args, env }` to spawn with `shell: false`, or null on a platform with no
- *   notifier. `env` carries the TEXT on Windows and is empty elsewhere; it is meant to be
- *   merged over the process environment, so a missing PATH cannot make the spawn fail.
+ *   notifier. `env` carries the TEXT - always, because the text is never interpolated into a
+ *   command string - and is meant to be merged over the process environment.
  */
 export function notificationCommand(input = {}) {
   const family = platformFamily(input.platform)
   const title = collapse(input.title ?? APP_NAME, 120)
   const body = collapse(input.body ?? '', MAX_BODY_CHARS)
+  const dismissMs = Number.isFinite(input.dismissMs) && input.dismissMs > 0 ? Math.floor(input.dismissMs) : DEFAULT_DISMISS_MS
+  const overlay = input.style !== 'daemon'
+  if (overlay && family === 'windows') {
+    return {
+      command: typeof input.powershellPath === 'string' && input.powershellPath !== '' ? input.powershellPath : 'powershell.exe',
+      args: ['-NoProfile', '-NonInteractive', '-Command', WINDOWS_OVERLAY_SCRIPT],
+      env: { DSH_NOTIFY_TITLE: title, DSH_NOTIFY_BODY: body, DSH_NOTIFY_MS: String(dismissMs) },
+    }
+  }
+  if (overlay && family === 'linux') {
+    return {
+      command: typeof input.pythonPath === 'string' && input.pythonPath !== '' ? input.pythonPath : 'python3',
+      args: ['-c', OVERLAY_PYTHON_SCRIPT],
+      env: { DSH_NOTIFY_TITLE: title, DSH_NOTIFY_BODY: body, DSH_NOTIFY_MS: String(dismissMs) },
+    }
+  }
   if (family === 'windows') {
+    // The DAEMON path (style: daemon, or a macOS overlay that has no positioned form).
     return {
       command: typeof input.powershellPath === 'string' && input.powershellPath !== '' ? input.powershellPath : 'powershell.exe',
       args: ['-NoProfile', '-NonInteractive', '-Command', WINDOWS_SCRIPT],

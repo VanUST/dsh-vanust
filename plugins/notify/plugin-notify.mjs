@@ -23,6 +23,15 @@
  *     `onQuestion`   - announce a `user-questions/request`. Default true.
  *     `minRunMs`     - shortest turn worth announcing. Default 15000 (15s).
  *     `title`        - the notification title. Default `DeepSeek Harness`.
+ *     `style`        - `overlay` (default) puts a borderless ALWAYS-ON-TOP window in the
+ *                      top-right corner of the screen, where no focused window, fullscreen
+ *                      app or Do-Not-Disturb setting can hide it. `daemon` hands the
+ *                      notification to the desktop instead (`notify-send`, a Windows toast,
+ *                      `osascript`), which decides its own placement and can suppress it.
+ *                      macOS has no positioned overlay through `osascript` and therefore
+ *                      always uses the daemon path there.
+ *     `dismissMs`    - how long an overlay stays on screen. Default 6000.
+ *     `pythonPath`   - the interpreter an overlay runs on. Default `python3`.
  *     `notifySendPath`, `powershellPath`, `appId` - launcher overrides, passed through to
  *       `notificationCommand`; the only absolute paths this plugin will ever use.
  *   Environment: `DSH_NOTIFY_DISABLED=1` disables the plugin without editing the profile, and
@@ -52,7 +61,7 @@
 
 import { spawn } from 'node:child_process'
 
-import { APP_NAME, notificationCommand, platformFamily, questionSummary, shouldNotify } from './notify-core.mjs'
+import { APP_NAME, DEFAULT_DISMISS_MS, notificationCommand, platformFamily, questionSummary, shouldNotify } from './notify-core.mjs'
 
 /** Cordis function-plugin name; also the id a profile patch targets. */
 export const name = 'notify'
@@ -108,10 +117,28 @@ export function apply(ctx, config = {}) {
    */
   function notify(body) {
     if (!enabled) return
+    // The style is the caller's, except that an overlay that cannot START falls back to the
+    // daemon: a machine with no Python, no DISPLAY or no Tkinter should lose the corner and
+    // the always-on-top, not the notification itself.
+    const style = config.style === 'daemon' ? 'daemon' : 'overlay'
+    notifyWith(body, style)
+  }
+
+  /**
+   * Raise one notification in the requested style, falling back to the daemon once.
+   *
+   * @param body - The notification text.
+   * @param style - `overlay` or `daemon`.
+   * @returns Nothing.
+   */
+  function notifyWith(body, style) {
     const built = notificationCommand({
       platform: process.platform,
+      style,
       title,
       body,
+      dismissMs: Number.isFinite(config.dismissMs) && config.dismissMs > 0 ? config.dismissMs : DEFAULT_DISMISS_MS,
+      pythonPath: config.pythonPath,
       notifySendPath: config.notifySendPath,
       powershellPath: config.powershellPath,
       appId: config.appId,
@@ -133,10 +160,14 @@ export function apply(ctx, config = {}) {
         env: { ...process.env, ...built.env },
       })
       child.on('error', (error) => {
-        const key = `${built.command}:${error?.code ?? error?.message ?? 'error'}`
-        if (reported.has(key)) return
-        reported.add(key)
-        ctx.logger?.warn?.(`notify: could not run ${built.command}: ${String(error?.code ?? error)}`)
+        const code = String(error?.code ?? error?.message ?? 'error')
+        const key = `${built.command}:${code}`
+        if (!reported.has(key)) {
+          reported.add(key)
+          ctx.logger?.warn?.(`notify: could not run ${built.command}: ${code}`)
+        }
+        // The overlay is the richer style, so its failure is downgraded rather than dropped.
+        if (style === 'overlay' && code === 'ENOENT') notifyWith(body, 'daemon')
       })
       child.unref()
     } catch (error) {

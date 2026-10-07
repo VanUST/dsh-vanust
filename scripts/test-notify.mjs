@@ -29,9 +29,11 @@ import { describe, it } from 'node:test'
 import {
   collapse,
   notificationCommand,
+  OVERLAY_PYTHON_SCRIPT,
   platformFamily,
   questionSummary,
   shouldNotify,
+  WINDOWS_OVERLAY_SCRIPT,
   WINDOWS_SCRIPT,
 } from '../plugins/notify/notify-core.mjs'
 
@@ -80,13 +82,69 @@ describe('notification decision', () => {
   })
 })
 
-describe('notification command', () => {
+describe('overlay notification (the default style)', () => {
+  it('pins the Linux overlay to the top-right and keeps it above other windows', () => {
+    // Fails if the position or the always-on-top is dropped: the point of the overlay is that
+    // a focused window, a fullscreen app or Do-Not-Disturb cannot hide it, which is exactly
+    // what the desktop daemon gets to decide for itself.
+    assert.match(OVERLAY_PYTHON_SCRIPT, /attributes\('-topmost', True\)/)
+    assert.match(OVERLAY_PYTHON_SCRIPT, /overrideredirect\(True\)/)
+    assert.match(OVERLAY_PYTHON_SCRIPT, /winfo_screenwidth/)
+    assert.match(OVERLAY_PYTHON_SCRIPT, /screen - width - 24, 24/, 'the top-right geometry is gone')
+    assert.match(OVERLAY_PYTHON_SCRIPT, /after\(dismiss, root.destroy\)/, 'an overlay that never closes is a window the human must clear')
+  })
+
+  it('builds the Linux overlay with the text in the ENVIRONMENT, never in the script', () => {
+    const built = notificationCommand({ platform: 'linux', title: 'Deck', body: 'Ship "it"; $(id)' })
+    assert.equal(built.command, 'python3')
+    assert.deepEqual(built.args, ['-c', OVERLAY_PYTHON_SCRIPT])
+    assert.equal(built.env.DSH_NOTIFY_BODY, 'Ship "it"; $(id)')
+    assert.ok(!built.args[1].includes('Ship'), 'the text leaked into the script')
+    assert.equal(built.env.DSH_NOTIFY_MS, '6000')
+  })
+
+  it('builds the Windows overlay as a TopMost form in the primary screen top-right', () => {
+    const built = notificationCommand({ platform: 'win32', title: 'Deck', body: 'Ship "it"' })
+    assert.equal(built.command, 'powershell.exe')
+    assert.deepEqual(built.args.slice(0, 3), ['-NoProfile', '-NonInteractive', '-Command'])
+    assert.equal(built.args[3], WINDOWS_OVERLAY_SCRIPT)
+    assert.match(WINDOWS_OVERLAY_SCRIPT, /TopMost = \$true/)
+    assert.match(WINDOWS_OVERLAY_SCRIPT, /PrimaryScreen\.WorkingArea/)
+    assert.match(WINDOWS_OVERLAY_SCRIPT, /Right - \$form\.Width - 24/)
+    assert.equal(built.env.DSH_NOTIFY_BODY, 'Ship "it"')
+    assert.ok(!built.args[3].includes('Ship'), 'the text leaked into the script')
+  })
+
+  it('falls back to the daemon on macOS, where osascript has no positioned window', () => {
+    // Documented limitation made testable: the request was top-right and always-on-top; macOS
+    // cannot do either through the tools this deployment ships, so it must say so by using the
+    // daemon rather than by silently placing a dialog in the middle of the screen.
+    const built = notificationCommand({ platform: 'darwin', title: 't', body: 'b' })
+    assert.equal(built.command, 'osascript')
+    assert.match(built.args[1], /display notification/)
+  })
+
+  it('honours style: daemon for a machine that wants the desktop in charge', () => {
+    const built = notificationCommand({ platform: 'linux', style: 'daemon', title: 't', body: 'b' })
+    assert.equal(built.command, 'notify-send')
+    const windows = notificationCommand({ platform: 'win32', style: 'daemon', title: 't', body: 'b' })
+    assert.equal(windows.args[3], WINDOWS_SCRIPT)
+  })
+
+  it('takes a dismiss time and an interpreter path from the caller', () => {
+    const built = notificationCommand({ platform: 'linux', title: 't', body: 'b', dismissMs: 2500, pythonPath: '/opt/venv/bin/python3' })
+    assert.equal(built.command, '/opt/venv/bin/python3')
+    assert.equal(built.env.DSH_NOTIFY_MS, '2500')
+  })
+})
+
+describe('notification command (daemon style)', () => {
   it('passes the title and body to notify-send as ARGUMENTS, never as a shell string', () => {
     // Fails if the command is ever assembled as one string: the hostile text below would then
     // be executed rather than displayed. The assertion is that the text is an argv element
     // exactly as written, and that no shell is involved at all.
     const hostile = 'Ship it? "; rm -rf / # $(whoami) `id`'
-    const built = notificationCommand({ platform: 'linux', title: 'DeepSeek Harness', body: hostile })
+    const built = notificationCommand({ platform: 'linux', style: 'daemon', title: 'DeepSeek Harness', body: hostile })
     assert.equal(built.command, 'notify-send')
     assert.deepEqual(built.args, ['-a', 'DeepSeek Harness', '-u', 'normal', 'DeepSeek Harness', hostile])
     assert.ok(!built.args.some((arg) => arg.includes('rm -rf') && arg.startsWith('sh')), 'a shell appeared in argv')
@@ -94,7 +152,7 @@ describe('notification command', () => {
   })
 
   it('honours a configured notify-send path without inventing one', () => {
-    const built = notificationCommand({ platform: 'linux', title: 't', body: 'b', notifySendPath: '/opt/bin/notify-send' })
+    const built = notificationCommand({ platform: 'linux', style: 'daemon', title: 't', body: 'b', notifySendPath: '/opt/bin/notify-send' })
     assert.equal(built.command, '/opt/bin/notify-send')
   })
 
@@ -103,7 +161,7 @@ describe('notification command', () => {
     // end the string, which is both a broken notification and an injection. The command must
     // contain the SCRIPT and none of the text.
     const hostile = 'Ship it? " <toast> & \' stuff'
-    const built = notificationCommand({ platform: 'win32', title: 'Deck', body: hostile })
+    const built = notificationCommand({ platform: 'win32', style: 'daemon', title: 'Deck', body: hostile })
     assert.equal(built.command, 'powershell.exe')
     assert.deepEqual(built.args.slice(0, 3), ['-NoProfile', '-NonInteractive', '-Command'])
     assert.equal(built.args[3], WINDOWS_SCRIPT)

@@ -8,6 +8,7 @@
  * INPUTS
  *   Optional `--platform <linux|win32|darwin>` to test a path other than this host's, which is
  *   useful for inspecting the exact command a Windows machine would run without running it.
+ *   Optional `--style overlay|daemon` to choose the corner or the desktop.
  *   Optional `--dry-run` to print the command and spawn nothing.
  *
  * OUTPUTS
@@ -29,10 +30,11 @@ import { notificationCommand } from '../plugins/notify/notify-core.mjs'
 
 /** Parse `--platform <value>` and `--dry-run`. */
 function parseArgs(argv) {
-  const options = { platform: process.platform, dryRun: false }
+  const options = { platform: process.platform, style: 'overlay', dryRun: false }
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === '--dry-run') options.dryRun = true
     else if (argv[index] === '--platform') options.platform = argv[++index] ?? ''
+    else if (argv[index] === '--style') options.style = argv[++index] ?? 'overlay'
   }
   return options
 }
@@ -40,6 +42,7 @@ function parseArgs(argv) {
 const options = parseArgs(process.argv.slice(2))
 const built = notificationCommand({
   platform: options.platform,
+  style: options.style,
   title: 'DeepSeek Harness',
   body: 'Notification self-test: if you can read this, the agent can reach your desktop.',
 })
