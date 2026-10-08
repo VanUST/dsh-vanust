@@ -265,8 +265,16 @@ export function apply(ctx, config = {}) {
           reported.add(key)
           ctx.logger?.warn?.(`notify: could not run ${built.command}: ${code}`)
         }
-        // The overlay is the richer style, so its failure is downgraded rather than dropped.
-        if (style === 'overlay' && code === 'ENOENT') notifyWith(body, 'daemon')
+        // The overlay is the richer style, so its failure is downgraded rather than dropped -
+        // but LOUDLY, because the degraded notification is a different thing: no close button,
+        // no fixed corner, no stacking. A silent downgrade is how a machine ends up showing
+        // notifications that do not obey the shared principles while looking like it does.
+        if (style === 'overlay' && code === 'ENOENT') {
+          ctx.logger?.warn?.(
+            'notify: the overlay cannot start (python3/Tkinter/DISPLAY) - falling back to the desktop notification, which has no close button, no fixed corner and no stacking',
+          )
+          notifyWith(body, 'daemon')
+        }
       })
       child.unref()
     } catch (error) {

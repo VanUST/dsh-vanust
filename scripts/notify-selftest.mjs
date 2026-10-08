@@ -27,6 +27,9 @@
  */
 
 import { spawn } from 'node:child_process'
+import { readdirSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 
 import { notificationCommand, sessionMessage } from '../plugins/notify/notify-core.mjs'
 import { detectDisplay } from '../plugins/notify/plugin-notify.mjs'
@@ -43,6 +46,15 @@ function parseArgs(argv) {
 }
 
 const options = parseArgs(process.argv.slice(2))
+// The overlay claims a stack row, so a row IS the proof that it started. Without this check the
+// self-test proves only that a process was spawned - and a machine quietly degraded to the
+// desktop notification would report success while showing a notification with no close button,
+// no fixed corner and no stacking.
+const slotsDir =
+  process.env.DSH_NOTIFY_SLOTS_DIR && process.env.DSH_NOTIFY_SLOTS_DIR !== ''
+    ? process.env.DSH_NOTIFY_SLOTS_DIR
+    : join(process.env.DSH_HOME && process.env.DSH_HOME !== '' ? process.env.DSH_HOME : join(homedir(), '.dsh'), 'cache', 'notify-slots')
+
 const built = notificationCommand({
   platform: options.platform,
   style: options.style,
@@ -51,6 +63,7 @@ const built = notificationCommand({
   // renders differently from the real thing verifies a notification nobody will ever see - the
   // split this exists to avoid.
   body: sessionMessage('self-test', 'if you can read this, the agent can reach your desktop'),
+  slotsDir,
 })
 
 if (built === null) {
@@ -68,6 +81,16 @@ if (options.dryRun) {
   process.exit(0)
 }
 
+// Watch for the claim WHILE the overlay is alive, because it removes the row as it closes.
+let sawClaim = false
+const claimWatch = setInterval(() => {
+  try {
+    if (readdirSync(slotsDir).some((name) => /^slot-\d+$/.test(name))) sawClaim = true
+  } catch {
+    // No directory yet; the overlay may still be starting.
+  }
+}, 100)
+
 const child = spawn(built.command, built.args, {
   stdio: ['ignore', 'inherit', 'inherit'],
   env: { ...process.env, ...built.env, ...(display !== null ? { DISPLAY: display } : {}) },
@@ -83,6 +106,21 @@ child.on('error', (error) => {
 })
 child.on('exit', (code, signal) => {
   clearTimeout(timer)
+  clearInterval(claimWatch)
   process.stdout.write(`exit      ${code === null ? `signal ${signal}` : code}\n`)
-  process.exit(code === 0 ? 0 : 1)
+  const claims = (() => {
+    try { return readdirSync(slotsDir).filter((name) => /^slot-\d+$/.test(name)).length } catch { return 0 }
+  })()
+  // The overlay releases its row on close, so the row may be gone by now; the point is the
+  // report, and a run that never claimed one is the degraded path wearing a success exit code.
+  process.stdout.write(
+    `overlay   ${
+      options.style === 'daemon'
+        ? 'not used (--style daemon): this is the DESKTOP notification, which has no close button, no fixed corner and no stacking'
+        : claims > 0 || sawClaim
+          ? 'started - it claimed a stack row'
+          : 'DID NOT START - the desktop fallback would be used, which has no close button, no fixed corner and no stacking'
+    }\n`,
+  )
+  process.exit(code === 0 && (claims > 0 || sawClaim || options.style === 'daemon') ? 0 : 3)
 })
