@@ -78,14 +78,11 @@ to a slide. Printing gives one slide per page.
 | `plugin-presentation.mjs` | the tool definition: parse, render, write |
 | `render.mjs` | pure renderer: spec → standalone HTML (exported for reuse and tests) |
 | `theme.css` | the five themes and every component, as tokens |
-| `test-render.mjs` | self-test of the renderer: `node plugins/presentation/test-render.mjs` |
-| `test-tool.mjs` | self-test of the tool's result contract — no `undefined` in the payload, every failure reported: `node plugins/presentation/test-tool.mjs` |
 
 The result contract is not cosmetic: the harness serialises a tool result as lossless
 JSON and refuses a value that carries `undefined`, so a payload that leaks one is
 rejected before the model sees it while the file is still written. `lossless()` in
-`plugin-presentation.mjs` strips such keys, and `test-tool.mjs` is the regression test
-for that class of defect.
+`plugin-presentation.mjs` strips such keys.
 
 `theme.css` originates from the workspace style kit that was reviewed and approved
 before this plugin existed; this copy is the one the shipped renderer uses.

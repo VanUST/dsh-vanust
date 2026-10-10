@@ -318,8 +318,8 @@ public. So the reader drops those columns at the parse boundary, maps each key N
 opaque `use-case-N` label that the report may group by, and then **re-reads its own
 output** — every format it would write — refusing to emit a report that still contains
 key-shaped material, a UUID or a credential header. `make usage-check` (or `--check`) is
-that refusal as a command, and `make test-usage` proves it *can* fire: one test feeds the
-gate an export whose model name is key-shaped and requires exit 1.
+that refusal as a command: it exits 1 and names the finding, rather than writing a page
+that leaks.
 
 
 ## 4. Per-machine configuration

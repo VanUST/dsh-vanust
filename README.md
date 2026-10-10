@@ -201,11 +201,11 @@ verified on and the procedure for reproducing that verification are `rules/DEPLO
 - **Enforcement** — `node scripts/check-portability.mjs` (platform + packaging + plugin
   inventory), `node scripts/check-model-gate.mjs` (the canonical composition's flash-only
   cost policy, read out of the packed plugin rather than retyped),
-  `node scripts/check-instruction-routing.mjs` and `node scripts/check-test-quality.mjs`.
-  Some of these need the one-time `node scripts/dev-link.mjs`. `make verify` runs them plus
-  the tests: a SMALL behavioural suite (a command's output and exit code, the file it
-  writes, a refusal) and the two `presentation` plugin self-tests — never a test per file or
-  function. `rules/DEPLOYMENT.md` §4 is the same list with the details.
+  `node scripts/check-instruction-routing.mjs`. Some of these need the one-time
+  `node scripts/dev-link.mjs`. `make verify` runs them plus the two assembly probes under
+  `scripts/probe-dsh-api.mjs`. **There is no test suite**: rule 12 prohibits agents from
+  writing automated tests, and what replaces them is running the product and quoting what it
+  produced. `rules/DEPLOYMENT.md` §4 is the same list with the details.
 
 **Upgrades:** the harness is pre-1.0 and breaking changes are policy. Install the
 candidate and rebuild the plugins against its checkout first:

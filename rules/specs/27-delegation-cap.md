@@ -30,5 +30,6 @@ see at all is released by liveness first and by the 15-minute age bound only as 
 exact bound, and the measurement it rests on, are stated beside the code in
 `plugins/work-modes/work-modes.mjs`; do not restate it as a guarantee the mechanism does not give.
 
-`node --test scripts/test-work-modes.mjs` drives the real tool registry over both behaviours, and
-`node scripts/probe-work-modes.mjs` measures the seam it rests on.
+`node scripts/probe-work-modes.mjs` measures the seam the cap rests on. It is a probe, not a
+test: it drives the real tool registry and prints what it observed, so the bound above is a
+measurement you can re-run rather than a claim to be trusted.

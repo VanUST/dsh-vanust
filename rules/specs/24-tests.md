@@ -1,31 +1,33 @@
 ---
-title: Tests Verify Behaviour, Not Shape
+title: No Tests Driven Development
 slot: rules
 order: 240
 status: active
 ---
-## 12. Tests Verify Behaviour, Not Shape
+## 12. No Tests Driven Development
 
-Test the PRODUCT, not the code's outline. A suite is a SMALL number of tests that exercise what
-the product does — the command's output and exit code, the file it writes, the state it records,
-the result an API returns — because that is what a user or another system observes, and it is
-the only thing a passing test can honestly claim.
+**Do not write automated tests.** No test-first ordering, no test per change, no suite kept
+alongside the code, no test added "so the behaviour is covered". A test an agent writes about code
+the agent just wrote restates that code's assumptions in a second place: it passes because it was
+written to pass, it fails on a refactor that preserves the behaviour it claims to protect, and it
+becomes maintenance somebody else pays for.
 
-* **A few general behaviour tests, not a test per file or function.** Do not write a test whose
-  subject is "this function returns X" or "this module has Y". Those pin the shape of the code,
-  break on every refactor, and pass while the behaviour they name is broken. If a behaviour
-  matters, it is reachable through a seam the product itself exposes: drive that.
-* **One test per behaviour, not per branch.** Cover the behaviour that rests on a decision — "a
-  failing call is retried 5 times and the 6th never happens" — not every intermediate value the
-  implementation happens to compute. A small suite that walks the real paths beats a large one
-  that mirrors the code.
-* **Derive expectations by hand.** Literals and hand-checked fixtures, never the code under test
-  or its helpers — `expect(f(x)).toBe(f(x))` passes no matter what `f` does.
-* **A mock earns no assertion.** Assert what the real component produced; if the only thing you
-  can check is that a mock was present or called, delete it and drive the real thing.
-* **Test what a contract depends on, or what the product got wrong before** — not whatever is
-  easiest to reach.
-* **The enforcement point is `node scripts/check-test-quality.mjs --root . --strict`.** Run it and
-  follow its output: it names each shape-only assertion and how to exempt one you have judged and
-  accept. It cannot see how many tests a suite holds or whether they exercise behaviour, so
-  keeping the suite small and behavioural is on you.
+* **Never create a test file, a test case, a fixture or a test helper on your own initiative.** Not
+  to demonstrate correctness, not to guard a regression you can imagine, not because some other
+  document mentions a test. If you did not run it, do not write it.
+* **The one exception is a test the USER asks for**, as a verification or an evaluation. Write
+  exactly what was asked and nothing more, say plainly what it proves and what it leaves
+  unproven, and ask before extending it. An unrequested test is not a gift.
+* **Verify by running the product, not by writing a test.** Execute the command, read its output
+  and its exit code, open the file it wrote, and quote what you saw. A behaviour you have actually
+  run against real input is stronger evidence than a test you have not, and it is the evidence this
+  deployment asks for.
+* **A failing check is information, not an invitation.** Never add, loosen, narrow or delete a test
+  to make a check pass. Report the failure and what it means.
+* **Do not delete a test the user owns.** Prohibiting new tests is not permission to remove
+  existing ones — ask first.
+
+**Nothing enforces this.** No command in this kit fails when an agent writes a test it was not
+asked for, and no gate inspects a diff for a new test file. This is a behavioural rule, stated
+because it governs how work is done here — not because a check will catch you. Do not go looking
+for the check; there is not one.

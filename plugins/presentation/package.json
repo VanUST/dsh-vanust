@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-presentation",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "One tool that renders a JSON deck spec into a standalone HTML presentation in the workspace; the harness's Sidebar document preview displays it (self-contained CSS and player, five themes, print to PDF).",
   "type": "module",
   "main": "index.js",
@@ -14,8 +14,6 @@
     "plugin-presentation.mjs",
     "render.mjs",
     "theme.css",
-    "test-render.mjs",
-    "test-tool.mjs",
     "README.md"
   ],
   "license": "MIT",

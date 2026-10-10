@@ -100,23 +100,22 @@ repository, so link it once:
 
 ```bash
 node "$KIT/scripts/dev-link.mjs"                     # once per clone; install.sh does it
-node --test "$KIT/scripts/test-specs.mjs"            # specs reach an assembled prompt (behavioural)
-node --test "$KIT/scripts/test-work-modes.mjs"       # the subagent delegation cap
-node --test "$KIT/scripts/test-usage-analytics.mjs"  # the redaction gate fires; a key name becomes a label
-node --test "$KIT/scripts/test-machine-facts.mjs"    # no GPU is not reported as a GPU count of zero
-node --test "$KIT/scripts/test-check-test-quality.mjs" # the lint's verdict and its exit codes
-node "$KIT/plugins/presentation/test-render.mjs"     # the deck is self-contained; a bad spec is reported
-node "$KIT/plugins/presentation/test-tool.mjs"       # a tool result carries no `undefined`
 node "$KIT/scripts/check-portability.mjs"            # platform assumptions + packaging
+node "$KIT/scripts/check-instruction-routing.mjs"    # every file this document names still exists
 node "$KIT/scripts/check-model-gate.mjs"             # the canonical composition's cost policy
 node "$KIT/scripts/probe-dsh-api.mjs" --global-specs # the global items reach a prompt, a project cannot enter the rules slot
 node "$KIT/scripts/probe-dsh-api.mjs" --local-specs  # project specs ADD a section beside the rules, not rewrite the prompt
 ```
 
-`make verify` runs every one of them. The suite is deliberately SMALL: it keeps a few general
-behaviour tests at the seam a user or another program observes — a command's output and exit
-code, the file it writes, a refusal — rather than a test per file or function. Each file above
-names in its own header the behaviours it carries and why nothing else is there.
+`make verify` runs every one of them.
+
+**There is no test suite, and none of the above is one.** Rule 12 prohibits agents from writing
+automated tests at all: a test about code the same agent just wrote restates that code's
+assumptions, passes because it was written to pass, and becomes maintenance somebody else pays
+for. What replaces it is running the product and reading what it produced — the commands above,
+a command's own output and its exit code, the file it wrote. A test exists in this kit only when
+a human asks for one as a verification or an evaluation, and then it is exactly what was asked
+for and nothing more.
 
 There is no release gate and no law compiler. This deployment has NO enforcement machinery:
 no laws, no compiled checks, no consent, no verdict and no judge, and `verify-upgrade.sh` was

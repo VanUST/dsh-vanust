@@ -160,7 +160,10 @@ result.problems[0].code, 'string')` on a real return value), but nothing stops a
 that only asserts an export has a method — `assert.equal(typeof bundle.apply,
 'function')`, `'field' in object`, `Object.keys(fixture)`, `toHaveProperty`.
 
-Addition, in two halves:
+Addition, in two halves — **superseded**: the deterministic half described below (the
+`scripts/check-test-quality.mjs` lint) and the test suite it policed were both removed when
+rule 12 changed to prohibit agents from writing automated tests at all. The paragraph is kept
+as the record of what was argued and built, not as a description of what the kit does now.
 
 - **The deterministic half** is a lint, `scripts/check-test-quality.mjs`. It scans the test files (`scripts/test-*.mjs`, `plugins/*/test-*.mjs`) and
   reports: a structural assertion whose subject is a module or fixture binding whose
