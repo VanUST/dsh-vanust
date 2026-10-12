@@ -23,11 +23,11 @@ session does not already have.** The gatherer answers a question list, not "look
 * **What could not be determined?** The gaps, named as gaps. A gatherer that reports only what it
   found leaves the parent unable to tell a complete answer from a partial one.
 
-Four limits keep this from becoming the over-delegation §13 forbids:
+Four limits keep this from becoming the over-delegation this kit forbids:
 
 * **One gatherer per task, and it is the FIRST delegation.** It runs before a work delegation, not
-  beside one, and it spawns nothing of its own. When the task is already being delegated as a block
-  (§13), the reconnaissance goes INTO that delegation's prompt — one subagent, not two.
+  beside one, and it spawns nothing of its own. When the task is already being delegated as a block,
+  the reconnaissance goes INTO that delegation's prompt — one subagent, not two.
 * **Skip it, and say which case applies, when the context is already here.** A continuation of work
   already in this conversation; a question a file in context already answers; a change whose
   contract is on screen and whose callers are in the same file. Gathering there buys a session and
