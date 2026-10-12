@@ -64,7 +64,7 @@ prose rules.
 | architectural design before implementation | ADRs as plain documents under `docs/adrs/`, §6 | no path classification; approval gate not universal |
 | design doc / spec artifact | human-authored `docs/specs/*.md`, injected by `@cc/dsh-specs` | a *requirement* artifact, not a *work plan* |
 | plan + task list | `context_specs` work orders (paths it may write, completion command, lifecycle) | no authoring format, no lint, not routinely created |
-| TDD | none | entire gap |
+| test-first development (TDD) | **rejected on purpose**: §12 is *No Tests Driven Development* - an agent writes no automated test at all unless the user asks for one, and verifies by running the product and quoting what it printed | not a gap - the practice this row names is prohibited by §12, and its replacement drill is `rules/drills/no-tests-driven-development.json` |
 | systematic debugging | §10 breaker (adversarial *verification*, after the fact) | no diagnosis protocol |
 | code review | none | no per-task review protocol, no reception discipline |
 | subagent execution | `subagent`/`subagent_fork`/`workflow` | no fresh-per-task + two-stage review protocol |
@@ -148,7 +148,7 @@ provisional; and that a check whose assertion is a test *name* is not evidence. 
 deterministic half already exists; proposal 1 gives the behavioural half. This is the
 cheapest behavioural improvement in the set.
 
-**4. A test-workflow rule: tests verify product behaviour, not shape.** Superpowers'
+**4. A test-workflow rule: tests verify product behaviour, not shape. (SUPERSEDED — see the note below.)** Superpowers'
 `writing-good-tests` states two principles — every test names the break it catches, and
 every test exercises the real thing — and then names the shapes that violate them: a
 *change detector* (`expect(MAX_RETRIES).toBe(5)`), a *mirror assertion* whose expected
@@ -175,9 +175,11 @@ as the record of what was argued and built, not as a description of what the kit
   a required check, because turning the suite red on pre-existing tests is a change the
   human should see.
 - **The process half** is the drill from proposal 1: the scenario gives the child a
-  failing product and a `claim_complete` tool, and asserts the child ran the suite and
-  saw it fail before writing product code — the tool order is deterministic, so no model
-  has to grade it. The same discipline applies to a check itself: name the mutation that
+  failing product and a `claim_complete` tool, and asserts the child ran the check and
+  read its output BEFORE claiming the task complete — the tool order is deterministic, so
+  no model has to grade it. That is §11's discipline (verify before claiming), which §12 now
+  reinforces from the other side: an agent writes no test unless the user asks for one, so a
+  drill cannot demand test-before-code ordering without contradicting the rule it serves. The same discipline applies to a check itself: name the mutation that
   makes it fail and confirm it fails, which is exactly "name the break the test catches".
 
 ### Tier 2 — the missing execution layer (adds an artifact or a protocol; needs a decision)
@@ -306,8 +308,8 @@ none of it needs a new harness fact:
   mutation)`, `claim_complete(evidence)` — and each body appends one JSON line to a
   journal. The result is read from the journal, so the assertion is on what the child
   *did*, not on what it said; the model id, the shell command and the tool order are all
-  deterministic. This is why the drill can cover TDD order and claim discipline without
-  a grading model.
+  deterministic. This is why the drill can cover verification order and claim discipline
+  without a grading model.
 - **Where it runs.** A deliberate probe run, not a per-change check: it needs a live
   model and a port. Credentials are required and the drill
   is skipped — never passed — without them.
