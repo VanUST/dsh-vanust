@@ -76,6 +76,16 @@
       "source": "plugins/notify",
       "pack": "scripts/pack-plugin.mjs",
       "mounted": true
+    },
+    {
+      "id": "chat-bridge",
+      "package": "@cc/dsh-chat-bridge",
+      "tarballPrefix": "cc-dsh-chat-bridge",
+      "provenance": "in-repo",
+      "source": "plugins/dsh-chat-bridge",
+      "pack": "scripts/pack-plugin.mjs",
+      "mounted": false,
+      "notice": null
     }
   ]
 }

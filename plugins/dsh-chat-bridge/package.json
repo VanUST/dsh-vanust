@@ -1,0 +1,20 @@
+{
+  "name": "@cc/dsh-chat-bridge",
+  "version": "0.1.12",
+  "description": "Phone chat bridge for DSH sessions: a capability-fenced host route serving an installable mobile PWA that reads a session's durable log, injects user turns, and answers the user-question and approval waterfalls when no desktop client is attached.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "bridge-ask.mjs",
+    "bridge-state.mjs",
+    "bridge-streams.mjs",
+    "web",
+    "README.md"
+  ],
+  "license": "MIT"
+}

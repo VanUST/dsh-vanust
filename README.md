@@ -1,6 +1,6 @@
 # dsh-kit
 
-Portable setup for **DeepSeek Harness (dsh)** plus the eight plugins this
+Portable setup for **DeepSeek Harness (dsh)** plus the nine plugins this
 deployment needs beyond upstream, across all your machines (2× Linux, 1× Windows).
 `plugins/inventory.json` is the single source of truth for the set and for each
 plugin's provenance:
@@ -58,6 +58,16 @@ plugin's provenance:
   `scripts/dsh-mcp-sync.mjs`, which imports the plugin's own row builder so the two
   cannot drift. It ships no MCP protocol code, by design: a second client implementation
   would diverge from the shipped one on precisely the details that are hard to get right.
+- **`@cc/dsh-chat-bridge`** — drive a session from a phone. One capability-fenced route,
+  `/chat-bridge`, serves an installable PWA that lists sessions, renders a transcript, follows a
+  turn live over SSE, sends prompts (`queue` to dispatch, `steer` to redirect a turn already
+  running), and answers the harness's question and approval waterfalls when no desktop client is
+  attached. It adds no tool, no prompt section and no service: its only influence on a turn is a
+  user message and an answer to a question. Its pairing is its own — the Web GUI's launch token is
+  memory-only and cannot enrol a second device. **Not mounted yet:** the row exists so the
+  packaging is consistent, and the profile row that would arm it is deliberately absent.
+
+## Plugin list
 
 Clone this repo on a new machine, run `./install.sh` (or `install.ps1` on
 Windows), and `dsh web` is up with the same pinned harness version, the same
@@ -203,7 +213,7 @@ verified on and the procedure for reproducing that verification are `rules/DEPLO
   cost policy, read out of the packed plugin rather than retyped),
   `node scripts/check-instruction-routing.mjs`. Some of these need the one-time
   `node scripts/dev-link.mjs`. `make verify` runs them plus the two assembly probes under
-  `scripts/probe-dsh-api.mjs`. **There is no test suite**: rule 12 prohibits agents from
+  `scripts/probe-dsh-api.mjs`. **There is no test suite**: rule 9 prohibits agents from
   writing automated tests, and what replaces them is running the product and quoting what it
   produced. `rules/DEPLOYMENT.md` §4 is the same list with the details.
 

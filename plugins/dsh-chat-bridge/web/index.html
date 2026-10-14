@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e1116">
+<meta name="color-scheme" content="dark">
+<link rel="manifest" href="/chat-bridge/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/chat-bridge/icon-192.png">
+<link rel="stylesheet" href="/chat-bridge/app.css">
+<title>Harness</title>
+</head>
+<body>
+<header>
+  <button id="back" type="button" title="Back to sessions" hidden>‹</button>
+  <h1 id="title">Sessions</h1>
+  <button id="stop" type="button" class="danger" title="Stop the running turn" hidden>Stop</button>
+  <button id="reload" type="button" title="Reload">Reload</button>
+</header>
+
+<!-- Shown only while the browser says the app can be installed. Android gives no supported way
+     to add a home-screen icon from outside the browser, so the honest alternative is to put the
+     one tap in front of the human at the moment it is useful, instead of hiding it in a menu. -->
+<div id="install" hidden>
+  <span>Add Harness to your home screen — it then opens with no address bar.</span>
+  <button id="install-go" type="button" class="primary">Install</button>
+  <button id="install-no" type="button" title="Not now">✕</button>
+</div>
+
+<main id="main">
+  <!-- The list view. -->
+  <section id="list-view">
+    <!-- The computers this phone has talked to. One entry is this machine; the others are
+         reachable only when the phone can actually reach them, so they are offered, not assumed. -->
+    <nav id="peers" hidden></nav>
+    <p class="state" id="state">Loading…</p>
+    <ul id="sessions"></ul>
+  </section>
+
+  <!-- The session view. Both live in the DOM; the hidden attribute switches them so no view is
+       ever rebuilt from scratch on navigation. -->
+  <section id="session-view" hidden>
+    <div id="transcript" aria-live="polite"></div>
+    <p class="state" id="session-state"></p>
+  </section>
+</main>
+
+<!-- Shown only when the reader has scrolled up: appending must never yank them away from what they
+     are reading, but they still need one tap back to the live end. -->
+<button id="jump" type="button" hidden>↓ Latest</button>
+
+<!-- A question or an approval arrives as a card pinned above the composer: it is a decision the
+     turn is blocked on, so it must never scroll away inside the transcript. -->
+<div id="prompt-card" hidden></div>
+
+<footer>
+  <form id="composer" hidden>
+    <textarea id="text" rows="1" placeholder="Message…" enterkeyhint="send"
+              autocomplete="off" autocapitalize="sentences"></textarea>
+    <!-- Shown only while a turn is running: sending then is ambiguous, because the human may mean
+         "and then also…" or "no, do this instead". Two buttons say which, with no mode to forget. -->
+    <button id="steer" type="button" title="Redirect the running turn" hidden>Steer</button>
+    <button id="send" type="submit" title="Send">Send</button>
+  </form>
+  <div class="statusline">
+    <span id="connection" class="pill" data-state="connecting">connecting</span>
+    <span id="working" class="working" hidden><span class="dots"></span> agent working</span>
+  </div>
+</footer>
+
+<script type="module" src="/chat-bridge/app.js"></script>
+</body>
+</html>
