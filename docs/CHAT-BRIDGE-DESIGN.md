@@ -429,10 +429,44 @@ broken.
 | 6 | Streaming and resume | Text arrives progressively; reloading mid-turn resumes from the watermark with no duplicate and no gap |
 | 7 | Phone over the tailnet | The real phone, on cellular, opens the installed PWA, reads a live turn and answers a question |
 
-### 11.3 Unknowns that must be measured before the corresponding milestone
+### 11.3 Unknowns, and what measuring them settled
 
-These are cheap probes against a scratch harness — running the real code, not reading types. Each
-can invalidate a choice above.
+These were cheap probes against a scratch harness — running the real code, not reading types. Each
+could have invalidated a choice above. `scripts/probe-chat-bridge.mjs` ran them in-process and
+recorded its own claims; the results below are its, with the claims it could NOT establish named as
+such rather than quietly dropped.
+
+**Measured, and they held:**
+
+- **The terminal without an answerer is a VALUE, not a throw.** `{"kind":"rejected","error":…}`. That
+  matters because a throw and a value are handled differently in `AskBroker`: a rejection can be
+  forwarded to the phone as a refusal, whereas an exception would have to be caught and turned into
+  one.
+- **`hasLiveClient()` is faithful in both directions.** False on a freshly booted harness with no
+  client; it flips **true** when a client opens the gateway's `$events` stream, and flips back to
+  **false** when that stream is aborted. The desktop-first claim rests on this signal, so a value
+  that stayed true after a window closed would have made the bridge stand down forever.
+- **`session/follow` opens in-process with no Remote carrier**, and its first frame is a `snapshot`
+  before any live frame — which is what makes the replay/watermark design sound rather than
+  hopeful. Over one run it delivered 141 durable event frames plus 18 `assistant-stream` starts.
+- **`sessionController.create`, `prompt` and `prompt` with `mode:'steer'` are all accepted
+  in-process**, and the model answered a prompt injected with no SDK stdio transport.
+- **The `ask_user_question` request shape is captured in full** at the
+  `user-questions/request` waterfall.
+
+**Claimed but NOT established, and left open on purpose:**
+
+- Driving an approval-requiring tool call to completion from a claimed answerer — the model never
+  retried with `sandbox_permissions`, so `approval/request` was never reached (the same gap as
+  `allowed-once` in the milestone reports).
+- Completing a real `ask_user_question` tool call end to end from a claimed answer.
+- Whether iterating `session/follow` blocks other plugin work; the check as written did not
+  separate the two, so it proves nothing either way.
+
+The first two are exercised by hand against a live turn rather than by the probe; the third is
+unresolved and is not claimed anywhere.
+
+The original unknowns, for the record:
 
 1. **Answer shapes and the terminal `next()`** — the exact `AskUserQuestionItem` /
    `AskUserQuestionAnswer` and whether a no-answerer terminal yields a value or throws
