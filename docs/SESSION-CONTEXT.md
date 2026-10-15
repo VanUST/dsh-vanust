@@ -3,6 +3,28 @@
 **Written:** 2026-09-12 · **Harness:** `@deepseek-ai/dsh@0.1.5-rc.1` · **Profile:** `web` on this
 machine · **Measured with:** `scripts/session/session-report.mjs`, which reads the stored session logs.
 
+> ## Status: a dated snapshot, verified 2026-10-15
+>
+> This file is kept for its reasoning and its reproduction recipe, not as a statement about the
+> machine today. Its figures were taken from **eight sessions** on a single day; the machine now
+> holds **1,020** (118 driven directly, 902 subagent) and the same techniques over all of them give
+> different numbers. Re-derive any figure you intend to act on:
+>
+> ```bash
+> node scripts/session/session-report.mjs      # per-session curve, cache share, compaction events
+> ```
+>
+> **What still holds, re-measured 2026-10-15 over all 1,020 sessions:** cumulative prompt tokens are
+> a cost meter, not a context size (33.58 B summed, 99.23% of it cache reads, 257 M billed); a long
+> history does not itself raise cost per step (§4); and the largest single-step billed input — not
+> the cumulative counter — is the figure that costs money.
+>
+> **What no longer holds — corrected below:** the claim that no session on this machine has ever
+> compacted. §3 is amended in place because it is the one stale claim an agent would otherwise act
+> on; the rest of the file is left as written on its date.
+
+---
+
 This file answers a question that came from reading the GUI, not from reading code: *a session shows
 hundreds of millions of tokens — what is that number, and does a long session degrade the agent?*
 Every figure below was measured on this machine's own sessions and is reproducible with the command
@@ -69,19 +91,51 @@ The machinery exists and is well built:
 | `@deepseek-ai/dsh-compaction-tool-result-pruner` | trims oversized tool outputs before condensation |
 | `@deepseek-ai/dsh-spill-policy` | keeps oversized tool results out of context entirely: above `maxInlineBytes` (**50,000** in this profile) a result becomes a bounded head/tail preview plus a locator, with the full text behind the spill backend |
 
-**In this profile none of the condensation paths are active.** The composed tree marks
-`compaction-basic`, `command-compact` and `tool-result-pruner` all `disabled: true`, patched by
-`@deepseek-ai/dsh-web-app`. Nothing else in the tree provides compaction: a directory scan finds only
-those packages, and the session logs confirm it — **`compaction events: 0` in every session on this
-machine**, including the 645-request one, and **zero downward steps** in its prompt-size curve (a
-condensation would appear as a drop).
+**In this profile none of the condensation paths are active** — that was measured on 2026-09-12 in
+a session with no condensation. The composed tree marks `compaction-basic`, `command-compact` and
+`tool-result-pruner` all `disabled: true`, patched by `@deepseek-ai/dsh-web-app`. Nothing else in the
+tree provides compaction: a directory scan finds only those packages.
 
-So the mechanism that keeps a session working near the limit — the threshold trigger, the overflow
-retry, `/compact` — is off in the web profile, and everything rests on the model's declared context
-window (`contextWindow: 1000000` in the profile's `llm-deepseek` catalog). The 701,763-token prompt is
-observed fact; the window is a catalog value. If they ever disagree, the failure is a
-`CONTEXT_WINDOW_EXCEEDED` request error with **no recovery path in this profile** (recovery lives in
-`compaction-basic`'s `agent/request-error` listener, which is disabled).
+> **Correction, measured 2026-10-15.** Compaction **is** running here: **817 events across 35
+> sessions** in the full corpus, and the session log identifies them directly
+> (`compaction/start`, `compaction/summary`, `compaction/prune`, `compaction/end`). The original
+> scan found none because those records are absent from the two long sessions it read — a session's
+> log records condensation only if condensation happened in it.
+>
+> Two consequences, both measured:
+>
+> - **The trigger sits between 0.68 and 0.79 of the window.** The peak prompt of the 35 compacted
+>   sessions clusters in two groups — 14 of them at 673,715–678,781 tokens and 19 at
+>   784,267–801,969 — against a catalog window of 1,000,000. That peak is an upper bound on the
+>   trigger rather than the trigger itself, so read the ratio as a band. Contexts are being bounded
+>   by compaction after all, which mitigates the "silent cliff at an over-stated window" concern in
+>   §5.2; what is NOT explained is why two bands exist, and which band a session lands in is worth
+>   checking before tuning a threshold.
+> - **Compaction is not free.** It rewrites the prompt prefix, so the next request re-bills the
+>   whole context uncached: 60 steps over 50 K uncached tokens each, **19.9 M tokens — 15% of all
+>   uncached spend**, versus 66% for new turns arriving after the prefix cache expired. 11 of the
+>   35 compacted sessions end below half their peak prompt; the other 24 grew again after
+>   compacting.
+>
+> The recommendation in §5.1 therefore changes: the question is no longer whether to enable
+> compaction, but **where the trigger belongs** given that each one costs a full re-bill, and
+> whether a fresh session is cheaper than compacting a ~680 K one.
+
+> **Corrected 2026-10-15 (this paragraph, and the section above, were written from a scan that
+> missed compaction).** The threshold trigger, the overflow retry and `/compact` are **running**, and
+> 817 events are recorded across 35 sessions. The reasoning below is retained for its historical
+> value and is superseded by the correction above: a session IS bounded by condensation, and the
+> recovery path for a provider-confirmed `CONTEXT_WINDOW_EXCEEDED` does exist here.
+>
+> The original paragraph, as written on 2026-09-12:
+>
+> > So the mechanism that keeps a session working near the limit — the threshold trigger, the
+> > overflow retry, `/compact` — is off in the web profile, and everything rests on the model's
+> > declared context window (`contextWindow: 1000000` in the profile's `llm-deepseek` catalog). The
+> > 701,763-token prompt is observed fact; the window is a catalog value. If they ever disagree, the
+> > failure is a `CONTEXT_WINDOW_EXCEEDED` request error with **no recovery path in this profile**
+> > (recovery lives in `compaction-basic`'s `agent/request-error` listener, which is disabled).
+
 
 Two smaller things worth keeping in view:
 
@@ -106,17 +160,46 @@ here*: the mechanism is known, the magnitude on this deployment was not measured
 **Quality — not measurable from this log, and this is the honest answer.** Whether a 700K-token
 context degrades the model's attention to the instructions is a property of the model, not of dsh, and
 nothing in the harness measures it. What the harness does provide is the ability to *avoid* the
-question: `compaction-basic` (disabled here) or starting a fresh session with a summary. The
-deployment's own rules already lean that way — rule 3 pushes facts into `.dsh/project.json` and tools
-rather than into a growing conversation, which is exactly the "don't carry it in context" strategy.
+question: a fresh session with a summary, or letting compaction bound the growth. (This sentence
+said "`compaction-basic` (disabled here)"; it runs, see §3.) The deployment's own rules already lean
+that way — rule 3 pushes facts into `.dsh/project.json` and tools rather than into a growing
+conversation, which is exactly the "don't carry it in context" strategy.
 
 **The failure mode that is real and recorded:** `assistant/attempt` in this session's log records a
 `TRANSPORT` failure — `DeepSeek API request to https://api.deepseek.com failed` — at step 136 of a
 turn. That is a transport error, not a context-length error, but it is the kind of event that becomes
-more likely with very large prompts and long sessions, and with `maxOverflowRetries`/compaction
-disabled there is no recovery path for the context-length variant of it.
+more likely with very large prompts and long sessions. The re-measurement agrees about the magnitude
+and not about the cause: transport failures are the **single largest reliability defect in the
+corpus** — 26,696 retries across 84% of sessions, 13,230 of them `TRANSPORT` — and 47 steps over
+50 K uncached tokens follow a retry, **13.4% of all uncached spend**. Compaction provides a recovery
+path for the context-length variant, so that specific cliff is closed.
 
 ## 5. What to do about it
+
+> **Amended 2026-10-15.** Items 1 and 4 rested on compaction being off, which the corpus disproves
+> (§3). The originals are kept below so the change of advice is visible rather than edited away.
+>
+> 1. **Where the compaction trigger belongs, not whether.** Compaction runs here, firing at
+>    0.68–0.79 of the window. Each firing costs a full prompt re-bill (~20 M tokens over the
+>    corpus, 15% of uncached spend), so the question is whether a threshold in that band is the
+>    right trade against starting a fresh session, whose cost is a handover document rather than a
+>    re-read.
+> 2. **Confirm the model's real context window** against the provider's documentation rather than
+>    trusting `contextWindow: 1000000` in the catalog. The largest prompt observed across the whole
+>    corpus is now **801,969 tokens**, and an over-stated catalog value is a silent cliff.
+> 3. **Watch the cache-miss events, not the cumulative counter** — unchanged and confirmed. The
+>    counter is a sum of cache reads (33.58 B of 33.84 B, 99.23%) and looks alarming while being
+>    nearly free. `scripts/session/session-report.mjs` prints the largest single-step billed input
+>    per session, which is the number that costs money; over the corpus the largest is **794,545
+>    uncached tokens in one step**.
+> 4. **Start fresh sessions when the task changes** — still good advice, for a different reason.
+>    Compaction now bounds a session, so a new session is no longer the *only* reset; it is the
+>    cheaper one, because it avoids the re-bill that a compaction triggers. The deployment's
+>    `.dsh/project.json` + `context_*` tools exist to make that reset cheap: the facts live in the
+>    repository, not in the conversation.
+
+<details>
+<summary>The 2026-09-12 recommendations, as written</summary>
 
 1. **Decide deliberately about compaction in the web profile.** Either enable
    `compaction-basic` (+ its pruner) with a threshold below the real window, or accept
@@ -131,6 +214,8 @@ disabled there is no recovery path for the context-length variant of it.
 4. **Start fresh sessions when the task changes.** Given compaction is off, a new session is the only
    context reset available, and the deployment's `.dsh/project.json` + `context_*` tools exist to make
    that reset cheap: the facts live in the repository, not in the conversation.
+
+</details>
 
 ## Appendix — reproducing every figure
 
