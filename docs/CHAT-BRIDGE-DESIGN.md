@@ -1,13 +1,19 @@
 # Chat bridge — driving DSH sessions from a phone
 
-**Status:** design agreed; **increments 1–8 built and verified** — route, device pairing, session
-list, transcript, live stream with the per-session `seq` watermark, the composer (`queue` / `steer`,
-idempotent on `requestId`), the two answerer waterfalls with the desktop-first policy measured in
-all three of its cases, the phone app (list, transcript, streaming, composer, question and approval
-cards), and a UX pass adding safe Markdown rendering, follow-the-reader scrolling, a working
-indicator and a working Stop control, new-task dispatch, a steer gesture, and the two core
-delivery guarantees measured (multi-viewer stream sharing, and watermark resume across a restart).
-Evidence in `reports/chat-bridge-m1.md` … `m8.md`.
+**Status:** design agreed; **built and verified** — route, device pairing, session list, transcript,
+live stream with the per-session `seq` watermark, the composer (`queue` / `steer`, idempotent on
+`requestId`), the two answerer waterfalls with the desktop-first policy measured in all three of its
+cases, the phone app (list, transcript, streaming, composer, question and approval cards), a UX pass
+adding safe Markdown rendering, follow-the-reader scrolling, a working indicator and a working Stop
+control, new-task dispatch, a steer gesture, and the two core delivery guarantees measured
+(multi-viewer stream sharing, and watermark resume across a restart). Then the phone side proper:
+`make connect-usb-device` tunnelling a USB-attached phone over `adb reverse` and verified end to end
+on a real device, one-step pairing from a printed link, graceful degradation with the cable out,
+multi-computer memory, and an install affordance that produced a real WebAPK. §11.3 records what the
+runtime probe settled and, just as deliberately, what it could not.
+
+What was measured is recorded here rather than cited from elsewhere: the per-increment evidence was
+kept during development as per-run files, which this kit deliberately does not version.
 **Packaged** in the kit's inventory with `mounted: false`, so the tarball and row exist without
 arming a live-profile change. Nothing is mounted in the live profile, and no Tailscale exposure has
 been made.
