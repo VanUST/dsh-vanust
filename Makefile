@@ -64,7 +64,12 @@ ifneq ($(strip $(MAX_LEGACY_PREMIUM)),)
 GATE_ARG += --max-legacy-premium $(MAX_LEGACY_PREMIUM)
 endif
 
-.PHONY: help usage usage-check usage-gate notify-selftest verify connect-usb-device
+# The session corpus and the statistics cut from it. Under .cache/ because both are derived and
+# large (the corpus is ~65 MB): regenerable from the logs, never a source of truth themselves.
+CORPUS   ?= .cache/session-analysis/corpus.json
+ANALYSIS ?= .cache/session-analysis/analysis.json
+
+.PHONY: help usage usage-check usage-gate session-corpus session-analysis notify-selftest verify connect-usb-device
 
 help:
 	@echo "make usage                    - newest usage export in ~/Downloads, write and open the report"
@@ -73,6 +78,8 @@ help:
 	@echo "make usage-check              - the redaction gate; exit 1 when a report would carry identity material"
 	@echo "make usage-gate               - the spend gate; exit 1 when peak share or retired-name premium exceeds the cap"
 	@echo "  EXPORT=<path.zip>, MAX_PEAK_SHARE=<0..1>, MAX_LEGACY_PREMIUM=<usd>"
+	@echo "make session-corpus           - one pass over every session log -> $(CORPUS) (~2 min)"
+	@echo "make session-analysis         - the corpus, then the behaviour and cost figures cut from it"
 	@echo "make verify                   - run every check the kit ships"
 	@echo "make connect-usb-device       - tunnel the harness to a USB-attached phone (PORT=<n>, default 3080)"
 	@echo "make connect-usb-device OPEN=1 - the same, and open the page on the phone"
@@ -118,3 +125,15 @@ verify:
 	node scripts/check-model-gate.mjs
 	node scripts/probe-dsh-api.mjs --global-specs
 	node scripts/probe-dsh-api.mjs --local-specs
+
+# The session corpus: one pass over every stored session log (~2 min for ~1,000 logs), producing a
+# single JSON the questions can be answered from in seconds instead of re-reading ~1 GB of zstd on
+# every ask. `session-report.mjs` stays the per-session view; this is the corpus view.
+session-corpus:
+	@$(NODE) scripts/session/extract-corpus.mjs --out "$(CORPUS)"
+
+# The behavioural and cost statistics cut from that corpus: how asks are framed, where steps go,
+# which tool calls fail, where the cache-miss money is.
+session-analysis: session-corpus
+	@$(NODE) scripts/session/analyse-corpus.mjs --corpus "$(CORPUS)" --json "$(ANALYSIS)"
+	@echo "analysis: $(ANALYSIS)"

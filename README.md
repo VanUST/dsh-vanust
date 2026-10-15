@@ -106,6 +106,9 @@ dsh-kit/
 ├── scripts/usage-analytics.mjs # DeepSeek usage export → peak/cache/agent-hour analytics (md, json, html),
 │                              #   with --gate for a spend threshold and --retired-rate for prices the
 │                              #   current card no longer carries
+├── scripts/session/            # what the harness's own session logs say: session-report.mjs (one
+│                              #   session), extract-corpus.mjs + analyse-corpus.mjs (`make
+│                              #   session-analysis`: every session, in seconds per question)
 ├── scripts/kit-update.mjs     # update path: hash drift check + convergence for an existing machine
 ├── plugins/inventory.json     # the shipped plugin set + each plugin's provenance (the source of truth)
 ├── plugins/*.tgz              # plugin tarballs: model-gate, cc-dsh-context, cc-dsh-specs,
