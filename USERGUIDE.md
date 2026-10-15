@@ -1,7 +1,7 @@
 # USERGUIDE.md — setting up and starting the harness on a new machine
 
 This kit installs **DeepSeek Harness (dsh)** on any of your machines (2× Linux,
-1× Windows) plus the **eight** plugins this deployment adds beyond upstream:
+1× Windows) plus the **nine** plugins this deployment adds beyond upstream:
 **`@deepseek-ai/dsh-model-gate`** (the class-based flash-only cost policy),
 **`@cc/dsh-specs`** (delivers the global items under `$DSH_HOME/specs` to every agent,
 and a project's own `docs/specs` items to that project's agents, as its
@@ -18,8 +18,12 @@ that lists, creates, edits and deletes `docs/specs/*.md` — §3.2),
 it; it injects no prompt section),
 **`@cc/dsh-presentation`** (one tool that renders a JSON deck spec into a
 standalone HTML presentation in the workspace, shown by the Sidebar document
-preview) and
-**`@cc/dsh-godot-mcp`** (a declarative, transferable MCP server list — §3.3).
+preview),
+**`@cc/dsh-godot-mcp`** (a declarative, transferable MCP server list — §3.3) and
+**`@cc/dsh-chat-bridge`** (a phone-facing PWA served on one capability-fenced
+HTTP route, so you can read output, answer questions, approve risky actions,
+dispatch tasks and steer a running turn from a phone; it adds no tool, no prompt
+section and no service to the model's surface — `docs/CHAT-BRIDGE-DESIGN.md`).
 `plugins/inventory.json` is the single source of truth for that set and for each
 plugin's provenance; `scripts/check-portability.mjs` fails when a tarball, a
 mounted profile row, a source directory or a packing entry point disagrees with

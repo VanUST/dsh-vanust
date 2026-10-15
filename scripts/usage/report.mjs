@@ -32,6 +32,10 @@
  *     `NaN`, `null` or `Infinity`.
  *   - A failed reconciliation is printed above the figures it invalidates, not
  *     below them.
+ *   - Rows that matched no rate-card cell are named on the console as well as in the
+ *     Markdown, as distinct `(model, bucket, price)` cells with their row and token
+ *     counts, so a missing cell can be supplied without first writing a report. The
+ *     console names the twelve largest and says how many more the JSON carries.
  */
 
 import {
@@ -299,7 +303,23 @@ export function renderConsole(analysis, meta = {}) {
       ? `reconciliation: ok (${analysis.reconciliation.checked} day/model/currency groups)`
       : `reconciliation: FAILED (${analysis.reconciliation.mismatches.length} mismatch(es), ${analysis.reconciliation.missingLedger.length} missing)`,
   )
-  if (analysis.failures.length > 0) push(`unclassified rows: ${analysis.failures.length} (excluded from totals)`)
+  if (analysis.failures.length > 0) {
+    push(`unclassified rows: ${analysis.failures.length} (excluded from totals)`)
+    // Naming the distinct cells is the difference between "the card is missing
+    // something" and knowing what to add. They are listed on the console too, not
+    // only in the Markdown report, because the failure is what stops a caller from
+    // writing that report in the first place.
+    push(`  distinct missing rate-card cells, largest first (${analysis.failureSummary.length}):`)
+    for (const failure of analysis.failureSummary.slice(0, 12)) {
+      push(
+        `    ${failure.model} ${failure.type} @ ${failure.price === null ? 'no price' : failure.price} — ${failure.rows} row(s), ${count(failure.tokens)} tokens`,
+      )
+    }
+    if (analysis.failureSummary.length > 12) {
+      push(`    … ${analysis.failureSummary.length - 12} more in --json output`)
+    }
+    push('  supply one with --retired-rate <model>=<bucket>:<price>[@<currency>] to classify them')
+  }
   push()
   push(`total spend      ${usd(analysis.money.totalUsd)}   ($${analysis.money.USD.toFixed(4)} + ¥${analysis.money.CNY.toFixed(4)} @ ${meta.usdPerCny} CNY/USD)`)
   push(`tokens           ${count(analysis.tokens)} across ${count(analysis.window.requests)} requests`)

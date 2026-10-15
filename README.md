@@ -82,7 +82,7 @@ node scripts/dev-link.mjs   # only if install.sh warned: links the harness packa
 ```
 
 **What a clone alone gives you, stated exactly.** Everything the deployment
-installs is in the repository: the eight plugin tarballs, the canonical profile, the
+installs is in the repository: the nine plugin tarballs, the canonical profile, the
 rules file and the pinned version in both installers. Every plugin's source is here
 too — `plugins/kit-rules/`, `plugins/specs/`, the reconstructed `plugins/dsh-context/`,
 and a read-only snapshot of `model-gate` under `plugins/model-gate/`, each external one
@@ -100,8 +100,12 @@ for you.
 dsh-kit/
 ├── install.sh / install.ps1   # fresh-machine setup (Node check → pinned dsh → profile → plugins → rules)
 ├── start.sh / start.ps1       # easy startup: dsh web --port 3080
-├── Makefile                   # `make usage`: analyse the newest usage export and open the report
-├── scripts/usage-analytics.mjs # DeepSeek usage export → peak/cache/agent-hour analytics (md, json, html)
+├── Makefile                   # `make usage`: analyse the newest usage export and open the report;
+│                              #   `make usage-gate`: fail when the peak share or the retired-name
+│                              #   premium exceeds its cap
+├── scripts/usage-analytics.mjs # DeepSeek usage export → peak/cache/agent-hour analytics (md, json, html),
+│                              #   with --gate for a spend threshold and --retired-rate for prices the
+│                              #   current card no longer carries
 ├── scripts/kit-update.mjs     # update path: hash drift check + convergence for an existing machine
 ├── plugins/inventory.json     # the shipped plugin set + each plugin's provenance (the source of truth)
 ├── plugins/*.tgz              # plugin tarballs: model-gate, cc-dsh-context, cc-dsh-specs,

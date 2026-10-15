@@ -50,13 +50,29 @@ else
 OPEN_ARG :=
 endif
 
-.PHONY: help usage usage-check notify-selftest verify connect-usb-device
+# The spend gate's thresholds. MAX_PEAK_SHARE defaults to the script's own default
+# (0.25); MAX_LEGACY_PREMIUM defaults to 0, meaning ANY premium paid for a retired
+# model name fails, because the deployment's policy is the Flash class and a retired
+# alias bills above it. Set either to empty to skip that check.
+MAX_PEAK_SHARE ?= 0.25
+MAX_LEGACY_PREMIUM ?= 0
+GATE_ARG := --no-agent-hours
+ifneq ($(strip $(MAX_PEAK_SHARE)),)
+GATE_ARG += --max-peak-share $(MAX_PEAK_SHARE)
+endif
+ifneq ($(strip $(MAX_LEGACY_PREMIUM)),)
+GATE_ARG += --max-legacy-premium $(MAX_LEGACY_PREMIUM)
+endif
+
+.PHONY: help usage usage-check usage-gate notify-selftest verify connect-usb-device
 
 help:
 	@echo "make usage                    - newest usage export in ~/Downloads, write and open the report"
 	@echo "make usage EXPORT=<path.zip>  - a specific export"
 	@echo "make usage NO_OPEN=1          - write the reports without opening a browser"
 	@echo "make usage-check              - the redaction gate; exit 1 when a report would carry identity material"
+	@echo "make usage-gate               - the spend gate; exit 1 when peak share or retired-name premium exceeds the cap"
+	@echo "  EXPORT=<path.zip>, MAX_PEAK_SHARE=<0..1>, MAX_LEGACY_PREMIUM=<usd>"
 	@echo "make verify                   - run every check the kit ships"
 	@echo "make connect-usb-device       - tunnel the harness to a USB-attached phone (PORT=<n>, default 3080)"
 	@echo "make connect-usb-device OPEN=1 - the same, and open the page on the phone"
@@ -70,6 +86,17 @@ usage:
 # credential header would reach a page. `--check` writes nothing.
 usage-check:
 	@$(NODE) scripts/usage-analytics.mjs --check $(EXPORT_ARG)
+
+# The SPEND gate, as a command rather than a sentence in a report. The analytics has
+# always computed the peak premium and the retired-name premium and then exited 0; this
+# is what makes those figures fail a build. Deliberately NOT part of `verify`: it needs an
+# export that a fresh clone does not have, and a check that cannot run on the machine
+# running it is worse than one that runs where the export lives.
+#   make usage-gate EXPORT=~/Downloads/usage_data_2026-09-01_2026-09-30.zip
+# Fails today: that export carries a 41.6% peak share and $19.81 of retired-name premium.
+usage-gate:
+	@$(NODE) scripts/usage-analytics.mjs $(EXPORT_ARG) $(GATE_ARG)
+
 
 # Raise one REAL notification on this host, in the top-right corner of the display the human
 # is on (not the Xvfb a server usually inherits). Not part of `verify`: it pops a window on

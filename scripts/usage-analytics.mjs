@@ -29,17 +29,31 @@
  *   `--html <path>`        also write the self-contained HTML report.
  *   `--out-dir <dir>`      write all three there, named `<from>_<to>.<ext>`.
  *   `--open`               open the HTML report in the default browser.
+ *   `--check`              write nothing; exit 1 when the report would carry identity
+ *                          material.
+ *   `--gate`               exit 1 when a spend threshold is exceeded. Implies
+ *                          `--max-peak-share` at the deployment default when no
+ *                          threshold flag is given.
+ *   `--max-peak-share <f>` peak-window share of spend (fraction, 0..1) that fails the
+ *                          gate.
+ *   `--max-legacy-premium <usd>`  retired-name premium that fails the gate.
+ *   `--retired-rate <spec>` an extra `(model, bucket, price)` rate for rows the current
+ *                          card cannot price, as `<model>=<bucket>:<price>[@<currency>]`,
+ *                          repeatable; lets an export from before a model was retired
+ *                          stay analyzable.
  *   `--quiet`              write no console summary.
  *
  * OUTPUTS
  *   The console summary on stdout, the requested files on disk, and exit code 0
- *   when the analysis reconciled and 1 when it did not, so a red month cannot be
- *   piped into a green one. A usage error exits 2 with the help text. The returned
- *   object also carries `paths` and `opened`, so a caller can act on what was
- *   written without re-deriving the file names.
+ *   when the analysis reconciled and every requested gate check passed, 1 when it
+ *   did not, so a red month cannot be piped into a green one. A usage error exits 2
+ *   with the help text. The returned object also carries `paths`, `opened` and
+ *   `gate`, so a caller can act on what was written and on which threshold failed
+ *   without re-deriving either.
  *
  * KEYWORDS
- *   cli, usage analytics, export, agent hours, report, json, html, browser
+ *   cli, usage analytics, export, agent hours, report, json, html, browser, spend
+ *   gate, peak premium, retired rate
  *
  * BEHAVIOUR ON EDGE CASES
  *   - A missing or unreadable export exits 2 naming the path, rather than
@@ -56,6 +70,14 @@
  *     disk is complete and the run's exit code reflects reconciliation alone.
  *   - An unknown flag exits 2 rather than being ignored, so a typo cannot silently
  *     change a figure.
+ *   - A `--max-peak-share` outside 0..1, a negative `--max-legacy-premium` and a
+ *     malformed `--retired-rate` each exit 2 rather than producing a gate whose
+ *     verdict means nothing.
+ *   - A check whose threshold was not given reports as `skipped` and cannot fail; an
+ *     unrequested gate never changes a run's exit code, so every command that used
+ *     to succeed still does.
+ *   - `--check` does not evaluate the spend gate: it answers only whether the report
+ *     is safe to write.
  */
 
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
@@ -64,11 +86,19 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { readExport, exportWindow, newestExport } from './usage/export-reader.mjs'
-import { buildAnalysis, DEFAULT_USD_PER_CNY, DEFAULT_AGENT_HOUR_KEY } from './usage/analytics.mjs'
+import {
+  buildAnalysis,
+  DEFAULT_USD_PER_CNY,
+  DEFAULT_AGENT_HOUR_KEY,
+  evaluateGate,
+  renderGate,
+  retiredRateKey,
+} from './usage/analytics.mjs'
 import { renderMarkdown, renderConsole } from './usage/report.mjs'
 import { renderHtml } from './usage/report-html.mjs'
 import { openInBrowser } from './usage/open-browser.mjs'
 import { findLeaks } from './usage/redaction.mjs'
+import { OFF_PEAK, TOKEN_BUCKETS } from './usage/price-grid.mjs'
 import {
   agentHours,
   collectIntervals,
@@ -80,6 +110,14 @@ import { resolveHome as resolveSessionHome } from './session/session-log.mjs'
 
 /** Where a downloaded usage export is looked for when no path is given. */
 const DEFAULT_EXPORT_DIR = join(homedir(), 'Downloads')
+
+/**
+ * The peak-window share `--gate` fails at when no `--max-peak-share` is given.
+ * A quarter of spend is the point at which the peak premium is large enough to be
+ * worth moving work for, and is the threshold this kit's own September export
+ * exceeds (41.6% of spend on 23.2% of tokens).
+ */
+export const DEFAULT_MAX_PEAK_SHARE = 0.25
 
 const HELP = `Usage: node scripts/usage-analytics.mjs [--export <usage.zip|dir>] [options]
 
@@ -98,6 +136,11 @@ const HELP = `Usage: node scripts/usage-analytics.mjs [--export <usage.zip|dir>]
   --out-dir <dir>        write .html, .md and .json there, named by the export window
   --open                 open the HTML report in the default browser
   --check                write nothing; exit 1 when the report would carry identity material
+  --gate                 exit 1 when a spend threshold is exceeded (implies --max-peak-share ${DEFAULT_MAX_PEAK_SHARE})
+  --max-peak-share <f>   peak-window share of spend that fails the gate (fraction, 0..1)
+  --max-legacy-premium <usd>  retired-name premium that fails the gate
+  --retired-rate <spec>  extra rate for a row the current card cannot price, as
+                         <model>=<bucket>:<price>[@<currency>] (default currency USD)
   --quiet                write no console summary
   --help                 print this text
 `
@@ -127,11 +170,17 @@ export function parseArgs(argv) {
     outDir: null,
     open: false,
     check: false,
+    gate: false,
+    maxPeakShare: null,
+    maxLegacyPremiumUsd: null,
+    retiredRateSpecs: [],
+    retiredRates: null,
     quiet: false,
     help: false,
     error: null,
   }
-  const numeric = new Set(['--usd-per-cny', '--idle-gap', '--offset'])
+  const numeric = new Set(['--usd-per-cny', '--idle-gap', '--offset', '--max-peak-share', '--max-legacy-premium'])
+  const multiple = new Set(['--retired-rate'])
   const valued = new Set([
     '--export',
     '--export-dir',
@@ -142,6 +191,7 @@ export function parseArgs(argv) {
     '--html',
     '--out-dir',
     ...numeric,
+    ...multiple,
   ])
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index]
@@ -163,6 +213,10 @@ export function parseArgs(argv) {
     }
     if (flag === '--check') {
       options.check = true
+      continue
+    }
+    if (flag === '--gate') {
+      options.gate = true
       continue
     }
     if (!flag.startsWith('--')) {
@@ -192,6 +246,12 @@ export function parseArgs(argv) {
       if (flag === '--usd-per-cny') options.usdPerCny = parsed
       if (flag === '--idle-gap') options.idleGapMs = parsed * 60_000
       if (flag === '--offset') options.offsetMinutes = parsed
+      if (flag === '--max-peak-share') options.maxPeakShare = parsed
+      if (flag === '--max-legacy-premium') options.maxLegacyPremiumUsd = parsed
+      continue
+    }
+    if (multiple.has(flag)) {
+      options.retiredRateSpecs.push(value)
       continue
     }
     if (flag === '--export') options.exportPath = value
@@ -203,7 +263,83 @@ export function parseArgs(argv) {
     if (flag === '--html') options.htmlPath = value
     if (flag === '--out-dir') options.outDir = value
   }
+  // A share is a fraction of spend: 1.5 would silently pass every possible export,
+  // and a negative premium cap would silently fail every one. Both are rejected here
+  // rather than producing a gate whose verdict means nothing.
+  if (options.maxPeakShare !== null && (options.maxPeakShare < 0 || options.maxPeakShare > 1)) {
+    options.error = `flag --max-peak-share expects a fraction between 0 and 1, got "${options.maxPeakShare}"`
+    return options
+  }
+  if (options.maxLegacyPremiumUsd !== null && options.maxLegacyPremiumUsd < 0) {
+    options.error = `flag --max-legacy-premium expects a non-negative amount, got "${options.maxLegacyPremiumUsd}"`
+    return options
+  }
+  // Any threshold OR a bare --gate turns the gate on. Without either, the run behaves
+  // exactly as before, so nothing that used to print a report now exits non-zero.
+  if (options.gate || options.maxPeakShare !== null || options.maxLegacyPremiumUsd !== null) {
+    options.gate = true
+    if (options.maxPeakShare === null && options.maxLegacyPremiumUsd === null) {
+      options.maxPeakShare = DEFAULT_MAX_PEAK_SHARE
+    }
+  }
+  // Retired rates are parsed here so a malformed spec fails with the help text rather
+  // than being dropped, which would silently leave rows unclassified.
+  if (options.retiredRateSpecs.length > 0) {
+    options.retiredRates = new Map()
+    for (const spec of options.retiredRateSpecs) {
+      try {
+        const parsed = parseRetiredRate(spec)
+        options.retiredRates.set(retiredRateKey(parsed.model, parsed.type, parsed.price), {
+          currency: parsed.currency,
+          window: parsed.window,
+        })
+      } catch (error) {
+        options.error = String(error?.message ?? error)
+        return options
+      }
+    }
+  }
   return options
+}
+
+/**
+ * Parse one `--retired-rate` spec.
+ *
+ * Format: `<model>=<bucket>:<price>[@<currency>]`, currency defaulting to USD.
+ * The window is off-peak, because a retired card is being reconstructed to keep an
+ * old export readable and the peak window is represented as the off-peak rate times
+ * the peak multiplier; a retiree's peak rows are expressed by doubling the price in
+ * a second spec rather than by a window suffix.
+ *
+ * @param spec - The raw flag value.
+ * @returns `{model, type, price, currency, window}`.
+ * @throws With a message naming the expected format when the spec does not parse.
+ */
+export function parseRetiredRate(spec) {
+  const shape = 'expected <model>=<bucket>:<price>[@<currency>]'
+  const eq = typeof spec === 'string' ? spec.indexOf('=') : -1
+  if (eq <= 0) throw new Error(`--retired-rate "${spec}": ${shape}`)
+  const model = spec.slice(0, eq).trim()
+  const rest = spec.slice(eq + 1)
+  const colon = rest.indexOf(':')
+  if (colon <= 0) throw new Error(`--retired-rate "${spec}": ${shape}`)
+  const type = rest.slice(0, colon).trim()
+  const priceAndCurrency = rest.slice(colon + 1)
+  const at = priceAndCurrency.indexOf('@')
+  const priceText = (at >= 0 ? priceAndCurrency.slice(0, at) : priceAndCurrency).trim()
+  const currency = (at >= 0 ? priceAndCurrency.slice(at + 1) : 'USD').trim().toUpperCase()
+  const price = Number(priceText)
+  if (model.length === 0) throw new Error(`--retired-rate "${spec}": empty model name`)
+  if (!TOKEN_BUCKETS.includes(type)) {
+    throw new Error(`--retired-rate "${spec}": bucket must be one of ${TOKEN_BUCKETS.join(', ')}`)
+  }
+  if (!Number.isFinite(price) || price <= 0) {
+    throw new Error(`--retired-rate "${spec}": price must be a positive number, got "${priceText}"`)
+  }
+  if (!/^[A-Z]{3}$/.test(currency)) {
+    throw new Error(`--retired-rate "${spec}": currency must be a three-letter code, got "${currency}"`)
+  }
+  return { model, type, price, currency, window: OFF_PEAK }
 }
 
 /**
@@ -284,6 +420,7 @@ export function run(options) {
     // the name out of every artifact: a name the export does not carry stays a literal
     // that matches no row, which is what naming an unused key has always meant.
     agentHourKey: exported.useCases.label(options.agentKey),
+    retiredRates: options.retiredRates ?? null,
   })
 
   const meta = {
@@ -297,6 +434,18 @@ export function run(options) {
 
   const markdown = renderMarkdown(analysis, meta)
   const summary = renderConsole(analysis, meta)
+
+  // The spend gate answers a different question from the redaction gate below: not
+  // "is this report safe to write" but "is this month's bill acceptable". It is
+  // evaluated before anything is written so a failing gate cannot leave a report
+  // behind that a caller mistakes for an accepted run. `--gate` only turns the check
+  // on; it never changes a figure.
+  const gate = options.gate
+    ? evaluateGate(analysis, {
+        maxPeakShare: options.maxPeakShare,
+        maxLegacyPremiumUsd: options.maxLegacyPremiumUsd,
+      })
+    : null
 
   // THE GATE. The reader drops the identity columns, but a report can still carry
   // identity material through a value that was never one of those columns — a key-shaped
@@ -334,6 +483,7 @@ export function run(options) {
 
   if (!options.quiet) process.stdout.write(summary)
   for (const warning of warnings) process.stderr.write(`warning: ${warning}\n`)
+  if (gate) process.stdout.write(renderGate(gate))
 
   // `--out-dir` names the three artifacts after the window the export covers, so a
   // month's reports sit side by side under one name rather than under whatever the
@@ -372,7 +522,14 @@ export function run(options) {
     process.stderr.write('warning: --open needs an HTML report; pass --html <path> or --out-dir <dir>\n')
   }
 
-  return { exitCode: analysis.reconciliation.ok ? 0 : 1, summary, analysis, paths: { markdownPath, jsonPath, htmlPath }, opened }
+  return {
+    exitCode: analysis.reconciliation.ok && (gate === null || gate.ok) ? 0 : 1,
+    summary,
+    analysis,
+    gate,
+    paths: { markdownPath, jsonPath, htmlPath },
+    opened,
+  }
 }
 
 /**

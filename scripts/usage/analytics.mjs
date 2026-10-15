@@ -12,10 +12,13 @@
  *   reported as unverified rather than presented as measured.
  *
  * INPUTS
- *   `buildAnalysis({amounts, costs, usdPerCny, agentHourData})` takes the typed
- *   rows `readExport` returns, the CNY-per-USD rate to convert with, and
- *   optionally `{byDay, total}` agent-hour data from `agent-hours.mjs`.
- *   `agentHourData.total.hours` is the denominator for the per-agent-hour figures.
+ *   `buildAnalysis({amounts, costs, usdPerCny, agentHourData, retiredRates})` takes
+ *   the typed rows `readExport` returns, the CNY-per-USD rate to convert with,
+ *   optionally `{byDay, total}` agent-hour data from `agent-hours.mjs`, and
+ *   optionally `retiredRates` — extra `(model, bucket, price)` → `{currency,
+ *   window}` cells for rows whose prices are no longer on the published card, so an
+ *   old export stays analyzable. `agentHourData.total.hours` is the denominator for
+ *   the per-agent-hour figures.
  *
  * OUTPUTS
  *   An `analysis` object: `{window, reconciliation, money, buckets, models,
@@ -27,6 +30,8 @@
  *   `failures` names every amount row whose price matched no rate-card cell; a
  *   non-empty `failures` means the totals exclude those rows and the caller must
  *   say so.
+ *   `evaluateGate(analysis, thresholds)` returns `{ok, checks, topPeakDays}` and
+ *   `renderGate(gate)` renders it, so a spend threshold can be a failing command.
  *
  * KEYWORDS
  *   cost analytics, peak overhead, cache efficiency, agent hour, use case, usd
@@ -148,11 +153,20 @@ function sum(rows, select) {
  * `request_count` rows are kept separately because they carry no price and must
  * not be valued.
  *
+ * A row whose price matches no card cell is retried against `retiredRates` before
+ * it is called a failure. That fallback exists because the card is the CURRENT
+ * published one and a retired model's cell is removed when the model is retired,
+ * which would silently make an export from that period unanalyzable. A supplied
+ * rate is still a fact about a past invoice, not a guess: an absent one leaves the
+ * row in `failures`, which the caller must report.
+ *
  * @param amounts - Rows from `readExport`.
  * @param usdPerCny - CNY per USD.
+ * @param retiredRates - Optional `Map` from a `model|type|price` key to
+ *   `{currency, window}`. Keys are built by `retiredRateKey`.
  * @returns `{tokenRows, requestRows, failures}`.
  */
-export function classifyAmounts(amounts, usdPerCny) {
+export function classifyAmounts(amounts, usdPerCny, retiredRates = null) {
   const tokenRows = []
   const requestRows = []
   const failures = []
@@ -167,13 +181,14 @@ export function classifyAmounts(amounts, usdPerCny) {
       continue
     }
     const classified = row.price === null ? null : classifyPrice(row.model, row.type, row.price)
-    if (!classified) {
+    const supplied = classified ?? retiredRates?.get(retiredRateKey(row.model, row.type, row.price)) ?? null
+    if (!supplied) {
       failures.push({
         row,
         reason:
           row.price === null
             ? 'a token row carries no price'
-            : `price ${row.price} matches no ${row.model} ${row.type} rate-card cell`,
+            : `price ${row.price} matches no ${row.model} ${row.type} rate-card cell and no supplied retired rate`,
       })
       continue
     }
@@ -181,14 +196,30 @@ export function classifyAmounts(amounts, usdPerCny) {
     tokenRows.push({
       ...row,
       day,
-      currency: classified.currency,
-      window: classified.window,
-      listPricePerToken: classified.listPricePerToken,
+      currency: supplied.currency,
+      window: supplied.window,
+      // A card match reports the card's own price, which may differ from the
+      // export's by the matching tolerance; a supplied retired rate has no card
+      // value, so the invoice's own price stands.
+      listPricePerToken: supplied.listPricePerToken ?? row.price,
       cost,
-      usd: toUsd(cost, classified.currency, usdPerCny),
+      usd: toUsd(cost, supplied.currency, usdPerCny),
     })
   }
   return { tokenRows, requestRows, failures }
+}
+
+/**
+ * Build the `model|type|price` key a retired-rate lookup uses.
+ *
+ * @param model - Model name as the export spells it.
+ * @param type - Token bucket name.
+ * @param price - The per-token price the export recorded, as a number.
+ * @returns A string key, or `null` when the price is not a finite number.
+ */
+export function retiredRateKey(model, type, price) {
+  if (typeof price !== 'number' || !Number.isFinite(price)) return null
+  return `${model}|${type}|${price}`
 }
 
 /**
@@ -475,7 +506,8 @@ export function legacyPremium(tokenRows, usdPerCny) {
 /**
  * Build the whole analysis from an export.
  *
- * @param input - `{amounts, costs, usdPerCny, agentHourData, agentHourKey}`.
+ * @param input - `{amounts, costs, usdPerCny, agentHourData, agentHourKey,
+ *   retiredRates}`.
  *   `agentHourKey` is the OPAQUE use-case label (`use-case-N`) the measured
  *   agent-hours belong to, already resolved from whatever name the caller was
  *   given: the local session logs are the harness's own, so its spend is the spend
@@ -490,8 +522,9 @@ export function buildAnalysis({
   usdPerCny = DEFAULT_USD_PER_CNY,
   agentHourData = null,
   agentHourKey = null,
+  retiredRates = null,
 }) {
-  const { tokenRows, requestRows, failures } = classifyAmounts(amounts, usdPerCny)
+  const { tokenRows, requestRows, failures } = classifyAmounts(amounts, usdPerCny, retiredRates)
   const reconciliation = reconcile(tokenRows, costs)
   const buckets = bucketSplit(tokenRows, usdPerCny)
   const peaks = peakAnalysis(tokenRows, usdPerCny)
@@ -710,6 +743,154 @@ export function buildInsights(analysis) {
     .filter((insight) => insight.usd === null || insight.usd > 0)
     .map((insight) => ({ usdLabel: 'at stake', ...insight }))
     .sort((a, b) => (b.usd ?? 0) - (a.usd ?? 0))
+}
+
+/**
+ * Decide whether an analysis passes the spend checks a shell gate can enforce.
+ *
+ * Three checks, each with a threshold the caller sets, so "the peak premium is too
+ * high" becomes a command that exits non-zero instead of a sentence in a report that
+ * nobody reads. The checks are independent: passing one says nothing about another,
+ * and a check whose threshold is absent is reported as `skipped` rather than as a
+ * pass, because an untested condition is not a satisfied one.
+ *
+ * @param analysis - The object `buildAnalysis` returns.
+ * @param thresholds - `{maxPeakShare, maxLegacyPremiumUsd}`, each optional. A
+ *   `null` threshold skips that check.
+ * @returns `{ok, checks, topPeakDays}`. `ok` is false when any check fails. Each
+ *   check is `{id, title, threshold, actual, usd, status}` with `status` one of
+ *   `pass`, `fail`, `skipped`. `actual` is null for `skipped`.
+ *
+ *   `topPeakDays` is the shift plan: up to ten days carrying a peak premium,
+ *   largest first, each `{day, peakPremiumUsd, peakSpendUsd, peakTokenShare,
+ *   premiumUsd}`. It is empty when no day was billed in the peak window.
+ *
+ *   A `skipped` reconciliation check fails only if reconciliation itself failed —
+ *   the report's own verdict on its numbers is always enforced, regardless of
+ *   what thresholds the caller supplied.
+ */
+export function evaluateGate(analysis, thresholds = {}) {
+  const maxPeakShare = thresholds.maxPeakShare ?? null
+  const maxLegacyPremiumUsd = thresholds.maxLegacyPremiumUsd ?? null
+  const checks = []
+
+  checks.push({
+    id: 'reconciliation',
+    title: 'Token breakdown reconciles with the cost ledger',
+    threshold: maxPeakShare === null && maxLegacyPremiumUsd === null ? null : 'always',
+    actual: analysis.reconciliation.ok,
+    usd: null,
+    status: analysis.reconciliation.ok ? 'pass' : 'fail',
+  })
+
+  if (maxPeakShare === null) {
+    checks.push({
+      id: 'peak-share',
+      title: 'Peak-window share of spend',
+      threshold: null,
+      actual: analysis.peaks.peakSpendShare,
+      usd: analysis.peaks.premiumUsd,
+      status: 'skipped',
+    })
+  } else {
+    const actual = analysis.peaks.peakSpendShare ?? 0
+    checks.push({
+      id: 'peak-share',
+      title: 'Peak-window share of spend',
+      threshold: maxPeakShare,
+      actual,
+      usd: analysis.peaks.premiumUsd,
+      status: actual <= maxPeakShare ? 'pass' : 'fail',
+    })
+  }
+
+  if (maxLegacyPremiumUsd === null) {
+    checks.push({
+      id: 'legacy-premium',
+      title: 'Premium paid for retired model names',
+      threshold: null,
+      actual: analysis.legacy.premiumUsd,
+      usd: analysis.legacy.premiumUsd,
+      status: 'skipped',
+    })
+  } else {
+    checks.push({
+      id: 'legacy-premium',
+      title: 'Premium paid for retired model names',
+      threshold: maxLegacyPremiumUsd,
+      actual: analysis.legacy.premiumUsd,
+      usd: analysis.legacy.premiumUsd,
+      status: analysis.legacy.premiumUsd <= maxLegacyPremiumUsd ? 'pass' : 'fail',
+    })
+  }
+
+  // Half of peak spend is the premium: peak rows were billed at exactly twice the
+  // off-peak rate, so the excess over the off-peak counterfactual is peakUsd / 2.
+  const topPeakDays = (analysis.daily ?? [])
+    .map((day) => ({
+      day: day.day,
+      peakPremiumUsd: day.peakUsd / 2,
+      peakSpendUsd: day.peakUsd,
+      peakTokenShare: day.peakTokenShare,
+      premiumUsd: day.peakUsd / 2 + day.usd - day.peakUsd,
+    }))
+    .filter((day) => day.peakPremiumUsd > 0)
+    .sort((a, b) => b.peakPremiumUsd - a.peakPremiumUsd)
+    .slice(0, 10)
+
+  return { ok: checks.every((check) => check.status !== 'fail'), checks, topPeakDays }
+}
+
+/**
+ * Render a gate result as the lines a terminal or a CI log shows.
+ *
+ * @param gate - The object `evaluateGate` returns.
+ * @returns A string ending in a newline, listing every check with its verdict and,
+ *   after a failure, the days that carried the premium.
+ */
+export function renderGate(gate) {
+  const lines = []
+  for (const check of gate.checks) {
+    const label = check.status === 'pass' ? 'PASS' : check.status === 'fail' ? 'FAIL' : 'SKIP'
+    const wanted = check.threshold === null ? 'no threshold given' : `limit ${formatThreshold(check)}`
+    const at = check.actual === null ? 'n/a' : formatActual(check)
+    lines.push(`  [${label}] ${check.title}: ${at} (${wanted})`)
+  }
+  lines.push(gate.ok ? 'usage gate: PASS' : 'usage gate: FAIL')
+  if (!gate.ok && gate.topPeakDays.length > 0) {
+    lines.push('  days carrying the peak premium (move work off-peak, or accept the premium):')
+    for (const day of gate.topPeakDays) {
+      lines.push(
+        `    ${day.day}  premium $${day.peakPremiumUsd.toFixed(4)}  ` +
+          `peak share ${formatPercent(day.peakTokenShare)}  peak spend $${day.peakSpendUsd.toFixed(4)}`,
+      )
+    }
+  }
+  return lines.join('\n') + '\n'
+}
+
+/**
+ * Format a check's threshold for display, choosing the unit from the check id.
+ *
+ * @param check - One entry of `evaluateGate(...).checks`.
+ * @returns A short string.
+ */
+function formatThreshold(check) {
+  if (typeof check.threshold !== 'number') return String(check.threshold)
+  if (check.id === 'peak-share') return formatPercent(check.threshold)
+  return `$${check.threshold.toFixed(4)}`
+}
+
+/**
+ * Format a check's observed value for display, choosing the unit from the check id.
+ *
+ * @param check - One entry of `evaluateGate(...).checks`.
+ * @returns A short string.
+ */
+function formatActual(check) {
+  if (check.id === 'peak-share') return formatPercent(check.actual)
+  if (check.id === 'reconciliation') return check.actual ? 'ok' : 'failed'
+  return `$${Number(check.actual).toFixed(4)}`
 }
 
 /**
