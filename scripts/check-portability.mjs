@@ -76,7 +76,7 @@ const CHECKS = [
     // godot-mcp plugin's whole purpose is resolving a launcher and a project on the
     // machine that runs it, so a `C:\…` literal there is the exact defect this check
     // exists to catch.
-    paths: ['plugins/dsh-context', 'plugins/godot-mcp', 'plugins/specs', 'plugins/dsh-adr-panel', 'scripts/probe-dsh-api.mjs', 'probes'],
+    paths: ['plugins/dsh-context', 'plugins/godot-mcp', 'plugins/specs', 'plugins/dsh-adr-panel', 'plugins/diagrams', 'scripts/probe-dsh-api.mjs', 'probes'],
     allow: [],
   },
   {

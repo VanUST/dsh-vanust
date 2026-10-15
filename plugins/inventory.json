@@ -51,6 +51,15 @@
       "mounted": true
     },
     {
+      "id": "diagrams",
+      "package": "@cc/dsh-diagrams",
+      "tarballPrefix": "cc-dsh-diagrams",
+      "provenance": "in-repo",
+      "source": "plugins/diagrams",
+      "pack": "scripts/pack-plugin.mjs",
+      "mounted": true
+    },
+    {
       "id": "work-modes",
       "package": "@cc/dsh-work-modes",
       "tarballPrefix": "cc-dsh-work-modes",

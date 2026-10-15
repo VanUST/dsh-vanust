@@ -165,6 +165,22 @@
     - id: presentation
       name: '@cc/dsh-presentation'
 
+# ── diagrams: schemes the agent draws, shown by the file preview ────────────
+# Contributes one tool, `diagram`, which turns a JSON diagram spec into a standalone
+# HTML file whose SVG is inline. Four kinds over one contract — flow (flowcharts and
+# algorithm illustrations), arch (layered system design), sequence and state — because a
+# scheme is a description of relationships, not of coordinates: the agent supplies nodes
+# and edges and the plugin computes every position.
+#
+# No client half, for the same reason presentation has none: the Sidebar document preview
+# already renders `.html` in a script-enabled sandboxed frame, so the document is its own
+# viewer and the file the user prints is the file the agent wrote. The layout engine is
+# dependency-free on purpose — a vendored renderer would put megabytes into every diagram
+# and a supply chain into the plugin.
+- insert:
+    - id: diagrams
+      name: '@cc/dsh-diagrams'
+
 # ── work-modes: the subagent delegation cap ────────────────────────────────────
 # One deployment policy on the harness seam that can actually refuse something.
 #

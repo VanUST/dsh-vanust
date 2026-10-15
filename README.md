@@ -1,6 +1,6 @@
 # dsh-kit
 
-Portable setup for **DeepSeek Harness (dsh)** plus the nine plugins this
+Portable setup for **DeepSeek Harness (dsh)** plus the ten plugins this
 deployment needs beyond upstream, across all your machines (2× Linux, 1× Windows).
 `plugins/inventory.json` is the single source of truth for the set and for each
 plugin's provenance:
@@ -49,6 +49,14 @@ plugin's provenance:
   Sidebar document preview already renders `.html` in a script-enabled sandboxed frame,
   so the deck is its own viewer and the file the user previews is exactly the file they
   export and print.
+- **`@cc/dsh-diagrams`** — one tool, `diagram`, that turns a JSON diagram spec into a
+  standalone HTML document whose SVG is inline: flowcharts and algorithm illustrations,
+  layered system designs, sequence diagrams and state machines, over one contract. The
+  agent supplies nodes and relationships and the plugin computes every coordinate —
+  layered ranking, edge routing and label placement are its own dependency-free layout
+  engine — so a scheme is never handed a set of coordinates to maintain. Same reasoning
+  as presentation for the missing client half: the Sidebar document preview renders the
+  file, and the file prints as it looks.
 - **`@cc/dsh-godot-mcp`** — keeps a deployment's MCP server list declarative so it
   transfers between machines instead of being configured per machine. The harness's own
   MCP client bridge does the connecting; this plugin owns the canonical list, resolves
@@ -82,7 +90,7 @@ node scripts/dev-link.mjs   # only if install.sh warned: links the harness packa
 ```
 
 **What a clone alone gives you, stated exactly.** Everything the deployment
-installs is in the repository: the nine plugin tarballs, the canonical profile, the
+installs is in the repository: the ten plugin tarballs, the canonical profile, the
 rules file and the pinned version in both installers. Every plugin's source is here
 too — `plugins/kit-rules/`, `plugins/specs/`, the reconstructed `plugins/dsh-context/`,
 and a read-only snapshot of `model-gate` under `plugins/model-gate/`, each external one
@@ -112,7 +120,8 @@ dsh-kit/
 ├── scripts/kit-update.mjs     # update path: hash drift check + convergence for an existing machine
 ├── plugins/inventory.json     # the shipped plugin set + each plugin's provenance (the source of truth)
 ├── plugins/*.tgz              # plugin tarballs: model-gate, cc-dsh-context, cc-dsh-specs,
-│                              #                  cc-dsh-adr-panel, cc-dsh-presentation, cc-dsh-work-modes,
+│                              #                  cc-dsh-adr-panel, cc-dsh-presentation,
+│                              #                  cc-dsh-diagrams, cc-dsh-work-modes,
 │                              #                  cc-dsh-godot-mcp
 ├── plugins/model-gate/        # source snapshot + built lib/ of model-gate (see its SOURCE-NOTICE.md)
 ├── plugins/specs/             # source of @cc/dsh-specs (catalogue + plugin; packed into its tarball)
@@ -122,6 +131,7 @@ dsh-kit/
 ├── plugins/dsh-context/       # reconstructed source of @cc/dsh-context (see its SOURCE-NOTICE.md)
 ├── plugins/dsh-adr-panel/     # source of @cc/dsh-adr-panel (browser-half UI; see its README)
 ├── plugins/presentation/      # source of @cc/dsh-presentation (deck tool; no client half by design)
+├── plugins/diagrams/          # source of @cc/dsh-diagrams (scheme tool; own layout engine, no client half)
 ├── profile/                   # canonical web profile: package.json (no deps) + cordis.patch.yml
 ├── rules/specs/               # the global prompt items, one file each (installed to $DSH_HOME/specs/)
 ├── rules/DEPLOYMENT.md        # operating this machine: install, update, checks, troubleshooting ($DSH_HOME/DEPLOYMENT.md)

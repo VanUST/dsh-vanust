@@ -1,0 +1,27 @@
+{
+  "name": "@cc/dsh-diagrams",
+  "version": "0.1.1",
+  "description": "One tool that renders a JSON diagram spec into a standalone HTML file with inline SVG in the workspace; the harness's Sidebar document preview displays it (flowcharts and algorithms, layered system architecture, sequence diagrams, state machines; five themes, dependency-free layout engine).",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./render": "./render.mjs",
+    "./layout": "./layout.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "plugin-diagrams.mjs",
+    "render.mjs",
+    "layout.mjs",
+    "svg.mjs",
+    "theme.css",
+    "README.md"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/dsh-tools": "^0.2.0-rc.2"
+  }
+}

@@ -14,7 +14,7 @@ unless the `DSH_HOME` environment variable overrides it.
 
 ## 1. What this deployment is
 
-The upstream harness plus seven plugins, all pinned and installed from one kit repository:
+The upstream harness plus ten plugins, all pinned and installed from one kit repository:
 
 | Piece | What it does |
 |---|---|
@@ -26,6 +26,7 @@ The upstream harness plus seven plugins, all pinned and installed from one kit r
 | `@cc/dsh-adr-panel` | the web UI's window on those decisions and the spec documents: a session-header button opens an overlay listing the records, and its only ratification affordance asks the agent to run the quiz |
 | `@cc/dsh-work-modes` | refuses a third concurrent `subagent` child per session with the running agents named (a `workflow` fan-out is deliberately outside it). It injects no prompt section and holds no session state |
 | `@cc/dsh-presentation` | one tool, `presentation`, that renders a JSON deck spec into a standalone HTML file in the workspace; the Sidebar document preview displays it, so the file the user previews is the file they export and print |
+| `@cc/dsh-diagrams` | one tool, `diagram`, that renders a JSON diagram spec into a standalone HTML file whose SVG is inline: flow and state (flowcharts, algorithm illustrations), layered architecture, and sequence diagrams. The agent describes nodes and relationships and the plugin computes the geometry — layered ranking with cycle breaking, edge routing with detours, and label placement — in a dependency-free engine. The Sidebar document preview displays it, so the file the user prints is the file the agent wrote |
 | `@cc/dsh-godot-mcp` | keeps the deployment's MCP server list declarative and transportable: owns the canonical spec, resolves the `uvx` launcher the Godot AI bridge needs and the Godot project it starts in, and reports per declared server whether its tools are loadable. It implements no MCP itself — the harness's shipped `@deepseek-ai/dsh-mcp-client` bridge does the connecting, and `scripts/dsh-mcp-sync.mjs` writes the row that bridge loads into `$DSH_HOME/cordis.patch.yml`. **Two rows mount for this server and their ids must differ**: the plugin's own row is `id: godot-mcp` (the kit's convention is that a plugin row's id is its function name), while the bridge row the sync writes is `id: mcp-client-<server id>`. One composition has ONE loader-id namespace and the harness refuses the whole tree on a duplicate — `dsh web` fails to start with `duplicate loader entry id: godot-mcp`, which is what happened when a server id was used as the row id. Do not "tidy" the generated id back to the bare server id; `scripts/check-portability.mjs` fails when a generated id spells an authored one |
 
 Pinned harness version: **`0.2.0-rc.2`**. Node ≥ 24. The kit is the only source of the
