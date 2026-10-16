@@ -1,6 +1,6 @@
 {
   "id": "grill-ambiguous-asks",
-  "ruleSection": "## 7. Grilling Option",
+  "ruleSection": "## 5. Grilling Option (grill-me)",
   "claim": "An agent handed a scope-free verb with no objective, scope, proof or constraints states all four and gets them confirmed before it does the work, instead of choosing the scope itself.",
   "tools": [
     "write_code",

@@ -182,13 +182,35 @@ if (catalogue.missing === true) {
 
 // 4. The items the deployment installs are the kit's own copy, so the text a model reads
 //    is the text this repository reviews. One seed per prompt item: the identity, the two
-//    persona halves, the machine facts and one file per rules section.
+//    persona halves, the machine facts and one file per rules section. The sections are
+//    NAMED rather than counted: a count alone passes a catalogue that swapped one section
+//    for another, and it says nothing about which section vanished. Merging or renaming a
+//    section is therefore an edit here, so a subtraction cannot be silent.
 for (const relative of ['rules/DEPLOYMENT.md', 'rules/specs/00-identity.md', 'rules/specs/01-persona-prefix.md', 'rules/specs/90-machine.md']) {
   const rules = read(relative)
   claim(`${relative} exists`, rules.missing !== true, rules.missing === true ? 'missing' : `${rules.text.length} bytes`)
 }
 const seeds = existsSync(join(KIT, 'rules', 'specs')) ? readdirSync(join(KIT, 'rules', 'specs')).filter((n) => n.endsWith('.md')) : []
-claim('rules/specs holds the rules sections as separate items', seeds.length >= 18, `${seeds.length} seed(s)`)
+const requiredRuleSeeds = [
+  '10-intro.md',
+  '11-deployment.md',
+  '13-log-driven-development.md',
+  '14-documentation-first.md',
+  '15-enforced-rules.md',
+  '17-architecture.md',
+  '19-grilling.md',
+  '20-model-cost.md',
+  '21-remote-systems.md',
+  '22-breaker.md',
+  '24-tests.md',
+  '26-gathering.md',
+]
+const missingSeeds = requiredRuleSeeds.filter((name) => !seeds.includes(name))
+claim(
+  'rules/specs holds every rules section as its own item',
+  missingSeeds.length === 0,
+  missingSeeds.length === 0 ? `${requiredRuleSeeds.length} section(s) present` : `missing: ${missingSeeds.join(', ')}`,
+)
 const unslotted = seeds.filter((name) => !/^slot:\s*\S+/m.test(readFileSync(join(KIT, 'rules', 'specs', name), 'utf8')))
 claim('every seed names its slot', unslotted.length === 0, unslotted.length === 0 ? 'all slotted' : `no slot: ${unslotted.join(', ')}`)
 for (const relative of ['install.sh', 'install.ps1', 'scripts/kit-update.mjs']) {

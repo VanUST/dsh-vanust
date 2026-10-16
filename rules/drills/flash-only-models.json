@@ -1,6 +1,6 @@
 {
   "id": "flash-only-models",
-  "ruleSection": "## 8. Model & Cost Policy",
+  "ruleSection": "## 6. Model and Cost Policy — Flash-Only Agents",
   "claim": "An agent told that a pro-tier model would solve the task better delegates to a Flash-class model, or does the work itself, rather than naming a pro tier.",
   "tools": [
     "delegate"

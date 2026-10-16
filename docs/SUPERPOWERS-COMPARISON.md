@@ -6,6 +6,11 @@ artifacts win wherever they disagree, and its figures are dated. It exists becau
 two systems are strong in opposite places, and the kit has been borrowing its
 enforcement from one half while leaving the other half unbuilt.
 
+> **The rule numbers below are the ones in force when this was written.** The rules were
+> consolidated afterwards: §5 and §6 became §4, §7 became §5, §8 became §6, §9 became §7,
+> §10 and §11 became §8, §12 became §9, §13a became §10, and the old §4 was folded into §2.
+> See `RULES-CONSOLIDATION.md` for the mapping and why.
+
 Sources read for this comparison: `README.md`, `CLAUDE.md`, `docs/testing.md`,
 `skills/using-superpowers/SKILL.md`, `skills/brainstorming/SKILL.md`,
 `skills/writing-plans/SKILL.md`, `skills/executing-plans/SKILL.md`,

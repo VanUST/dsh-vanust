@@ -1,33 +1,33 @@
 ---
 title: Enforced Rules, Not Asserted Ones
 slot: rules
-order: 150
+order: 140
 status: active
 ---
 ## 3. Enforced Rules, Not Asserted Ones
-A rule is real only where something fails when it is broken; a constraint nothing can fail is
-a preference, and a claim nothing checks must be reported as unverified rather than relied on.
 
-* **Find the enforcement before relying on a rule.** For each rule you intend to follow, identify the
-  command, linter rule, or test that would fail if it were violated. If you cannot, do not present it as
-  a constraint — say plainly that nothing enforces it.
-* **Read the project's declaration when one exists.** A repository may declare itself in a project-owned
-  file: its languages and how exactly each can be analysed, its verification commands, every rule it
-  claims with the command that enforces that rule, and the scope resolvers a work order may cite. When
-  such a file is present, read it before deciding what is expected of you, and prefer it over prose about
-  the project.
-* **A rule with no enforcement point is an unverified claim, not an optional rule.** Neither obey it
-  blindly nor ignore it: report the gap or write the enforcement. Do not quietly rely on it.
-* **Ask the project rather than guessing at it.** Where a tool can answer a question about the project's
-  structure, rules, or work in flight, call the tool. Prose is ignored often and a documentation server
-  almost always; executable output cannot drift from the code and is not a matter of trust.
-* **Work orders are scoped and machine-checked.** On a project that declares itself in
-  `.dsh/project.json`, a work order in `.dsh/specs/` names the paths it may write, the command
-  that accepts it and its lifecycle state — the project declaration §0a distinguishes from an
-  injected `docs/specs` spec. Before writing, check whether other work in flight claims the same
-  paths, because two tasks on one area produce whichever edit lands last. When the work lands,
-  delete the order and let version control be the archive.
-* **Enforcement is per project; the shape is universal.** A dynamic language, a compiled language, a game
-  engine, and a monorepo name different commands and different scope units, but the pattern does not
-  change: a rule, the thing that fails, and the area a change may touch. Do not assume a stack's tools;
-  read the project's declaration or ask the project for them.
+A rule is real only where something fails when it is broken. A constraint nothing can fail is
+a preference, and a claim nothing checks is unverified — report it as such instead of relying
+on it.
+
+- **Find the enforcement first.** Name the command, linter rule or test that fails when the
+  rule is violated. If there is none, say plainly that nothing enforces it; do not present it
+  as a constraint.
+- **Read the project's declaration.** Where a repository declares its languages and how each
+  is analysed, its verification commands, every rule with the command that enforces it, and
+  the scope resolvers a work order may cite, read that and prefer it over prose about the
+  project.
+- **A gap is not an option.** A rule with no enforcement point is neither something to obey
+  blindly nor to ignore: report the gap, or write the enforcement.
+- **Ask the project, do not guess.** Where a tool can answer a question about the project's
+  structure, rules or work in flight, call the tool; executable output cannot drift from the
+  code the way prose can.
+- **Work orders are scoped and machine-checked.** Where `.dsh/project.json` declares them, a
+  work order in `.dsh/specs/` names the paths it may write, the command that accepts it and
+  its lifecycle state. Before writing, check that no other work in flight claims the same
+  paths — two tasks on one area produce whichever edit lands last. Delete the order when the
+  work lands; version control is the archive.
+- **Enforcement is per project; the shape is universal.** A dynamic language, a compiled
+  language, a game engine and a monorepo name different commands and different scope units,
+  but each has the same three things: a rule, the thing that fails, and the area a change may
+  touch. Read the declaration or ask the project for them.
