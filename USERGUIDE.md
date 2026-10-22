@@ -40,8 +40,8 @@ flash-route guard. A repository's `AGENTS.md`/`CLAUDE.md` still reaches the mode
 the harness's own loader. The Tasks panel is the one new primary surface: open it from the
 sidebar, or from the **Tasks** header cell in a conversation. Its detail pane is
 hideable; Pause/Resume, Close and Remove act on the task, and Pause/Close interrupt
-linked child sessions. Each task shows its children's roles and active/sleeping/paused
-states. The ledger lives in
+linked child sessions. Each workspace keeps persistent specialist roles (for example UX/UI, BACKEND, BUSINESS,
+RESEARCH); a role's child is reused across tasks and shows active/sleeping/paused state. The ledger lives in
 `.dsh/taskboard.json` inside the workspace; it is ignored by git and survives a restart.
 Hindsight memory is the third-party add-on: its installer stages the runtime and a
 companion skill, and this machine's config is enabled against a local daemon at

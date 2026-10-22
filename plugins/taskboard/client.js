@@ -309,8 +309,17 @@ window.__ModuleLoader__.load({
       return parts.join(' · ')
     }
 
-    function subagentRoster(tasks) {
+    function subagentRoster(tasks, agents = []) {
       const seen = new Map()
+      for (const agent of Array.isArray(agents) ? agents : []) {
+        if (typeof agent?.sessionId !== 'string' || agent.sessionId === '') continue
+        seen.set(agent.sessionId, {
+          sessionId: agent.sessionId,
+          label: typeof agent.label === 'string' && agent.label !== '' ? agent.label : agent.sessionId,
+          role: typeof agent.role === 'string' && agent.role !== '' ? agent.role : 'specialist',
+          status: CHILD_STATES.includes(agent.status) ? agent.status : 'linked',
+        })
+      }
       for (const task of tasks) {
         for (const row of normalizeChildren(task)) {
           if (!seen.has(row.sessionId)) seen.set(row.sessionId, row)
@@ -861,7 +870,7 @@ window.__ModuleLoader__.load({
         setDetailOpen(true)
       }
       const workspaceId = workspaces.find((entry) => entry.sessionIds?.includes(sessionId))?.workspaceId
-      const roster = subagentRoster(tasks)
+      const roster = subagentRoster(tasks, Array.isArray(board?.agents) ? board.agents : [])
       const rosterCounts = childCounts(roster)
       const roles = roleCounts(roster)
       return h('div', { className: 'tb-root' },

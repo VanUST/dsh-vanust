@@ -55,7 +55,8 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   acceptance, status, results and a timeline; model tools and a `/taskboard` command share
   one Host service, plus pause/resume/close/remove lifecycle actions. The Web half reads
   through `workspaceFiles`, writes through the command Remote, adds a Tasks main panel and
-  sidebar entry, a hideable detail pane, and a subagent roster with each child's role and
+  sidebar entry, a hideable detail pane, and a persistent role roster: one child per role
+  (`UX/UI`, `BACKEND`, `BUSINESS`, `RESEARCH`), reused by every task that fits, with
   active/sleeping/paused state. It reuses the `subagent-catalog` header id. The shipped `ui-subagent` client is disabled so the replacement is one cell,
   not two; child sessions are opened from the task detail.
 - **`@cc/dsh-orchestrator`** — a root-only policy section, a child-only specialist section,

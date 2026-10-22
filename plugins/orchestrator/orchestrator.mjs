@@ -85,6 +85,7 @@ You are a delegated specialist. Do exactly the task brief you received.
 
 - Read the code and the callers before you edit. Take the smallest complete change; reuse what exists; do not add a dependency for a few lines.
 - Do not expand scope. If the brief is wrong or incomplete, say so and stop rather than guess.
+- You may be a persistent role specialist: you can receive several task briefs in this session. Keep your assigned role, treat each new message as one task, and do not spawn children.
 - Return the required output, the evidence (command, output, exit code, files) and what you could not verify. A claim without evidence is not a result.
 - Do not write autotests. Prove behavior by running the product.
 - Use \`task_note\` for significant findings and \`task_get\` to re-read your task. The orchestrator owns acceptance and the final handoff.`
@@ -104,6 +105,7 @@ export function renderBrief(task, input, limit = 20000) {
   }
   const brief = `You are a delegated specialist in DeepSeek Harness. Task ${task.id}: ${task.title}
 
+Role: ${input.role ?? task.role ?? 'specialist'}
 ${list('Objective', [task.objective])}
 ${list('Scope (you may touch)', task.scope)}
 ${list('Non-scope (do not touch)', task.nonScope)}
@@ -146,7 +148,9 @@ export function apply(ctx, config = {}) {
     name: 'delegate_task',
     description: 'Create one task in the workspace taskboard, render a self-contained brief, start a flash child for it, and link the child session to the task. Use it for independent research, implementation or review work; do not use it for a one-shot answer or for final integration.',
     parameters: {
-      title: { type: 'string', required: true, description: 'Short task title; also the child label.' },
+      title: { type: 'string', required: true, description: 'Short task title.' },
+      role: { type: 'string', required: true, description: 'Persistent specialist role, e.g. UX/UI, BACKEND, BUSINESS, RESEARCH. One child per role; all fitting tasks reuse it.' },
+      roleDescription: { type: 'string', description: 'Optional one-line responsibility zone for a newly created specialist.' },
       objective: { type: 'string', required: true, description: 'The outcome in one paragraph, not the activity.' },
       scope: { type: 'array', items: { type: 'string' }, description: 'What the child may touch.' },
       nonScope: { type: 'array', items: { type: 'string' }, description: 'What the child must not touch, with the reason.' },
@@ -164,6 +168,8 @@ export function apply(ctx, config = {}) {
     async execute(args, exec) {
       const parent = exec.agent
       if (parent === undefined) throw new Error('delegate_task requires a calling agent')
+      const role = typeof args.role === 'string' ? args.role.trim() : ''
+      if (role === '') throw new Error('delegate_task: role is required (for example BACKEND, UX/UI, BUSINESS; reuse one role across tasks)')
       const childCwd = typeof args.cwd === 'string' && args.cwd !== '' ? args.cwd : workingDir(parent)
       const taskCwd = workingDir(parent)
       let taskboard
@@ -175,6 +181,7 @@ export function apply(ctx, config = {}) {
       if (taskboard === undefined) throw new Error('delegate_task: the taskboard is reloading; start a new conversation or retry')
       const task = taskboard.create(taskCwd, {
         title: args.title,
+        role,
         objective: args.objective,
         scope: args.scope,
         nonScope: args.nonScope,
@@ -196,25 +203,41 @@ export function apply(ctx, config = {}) {
       }
 
       const brief = renderBrief(task, args, maxBriefChars)
+      const roleBrief = `You are the persistent ${role} specialist for this workspace. Responsibility: ${typeof args.roleDescription === 'string' && args.roleDescription.trim() !== '' ? args.roleDescription.trim() : role}. Stay in this role across every task you receive; do not spawn subagents. Each new message is a separate task brief. Use task_note/task_get for the task you are handling; the orchestrator owns acceptance.`
       const agentOptions = subagentProvider.capabilities?.agentOptions === true
         ? { provider: childProvider, model: childModel, reasoningEffort: 'high' }
         : undefined
+      let childId = taskboard.findAgent(taskCwd, role)?.sessionId
+      let reused = false
       try {
         exec.signal.throwIfAborted()
-        const activation = await ctx.subagents.startActivation({
-          provider,
-          label: `${task.id} · ${task.title}`.slice(0, 160),
-          request: {
-            prompt: [{ type: 'text', text: brief }],
-            parent,
-            ...(childCwd === workingDir(parent) ? {} : { cwd: childCwd }),
-            ...(agentOptions === undefined ? {} : { agentOptions }),
-          },
-          signal: exec.signal,
-          delivery: 'parent',
-        })
-        taskboard.linkChild(taskCwd, { id: task.id, sessionId: activation.childId, label: task.title, role: args.role ?? task.title })
-        return { taskId: task.id, childId: activation.childId, title: task.title, status: 'active' }
+        if (typeof childId === 'string' && childId !== '') {
+          try {
+            await ctx.subagents.sendMessage(parent, childId, [{ type: 'text', text: brief }], { signal: exec.signal })
+            reused = true
+            taskboard.touchAgent(taskCwd, { sessionId: childId, status: 'active', taskId: task.id })
+          } catch {
+            childId = undefined
+          }
+        }
+        if (!reused) {
+          const activation = await ctx.subagents.startActivation({
+            provider,
+            label: role.slice(0, 160),
+            request: {
+              prompt: [{ type: 'text', text: `${roleBrief}\n\n${brief}` }],
+              parent,
+              ...(childCwd === taskCwd ? {} : { cwd: childCwd }),
+              ...(agentOptions === undefined ? {} : { agentOptions }),
+            },
+            signal: exec.signal,
+            delivery: 'parent',
+          })
+          childId = activation.childId
+          taskboard.registerAgent(taskCwd, { role, label: role, sessionId: childId, taskId: task.id })
+        }
+        taskboard.linkChild(taskCwd, { id: task.id, sessionId: childId, label: role, role })
+        return { taskId: task.id, childId, role, reused, title: task.title, status: 'active' }
       } catch (error) {
         try {
           taskboard.update(taskCwd, {

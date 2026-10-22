@@ -151,7 +151,7 @@ function timeline(task, kind, actor, text, extra = {}, limit = 120) {
  * @returns The parsed board.
  */
 function readBoard(path) {
-  if (!existsSync(path)) return { version: BOARD_VERSION, revision: 0, tasks: [] }
+  if (!existsSync(path)) return { version: BOARD_VERSION, revision: 0, tasks: [], agents: [] }
   let parsed
   try {
     parsed = JSON.parse(readFileSync(path, 'utf8'))
@@ -167,10 +167,14 @@ function readBoard(path) {
   if (!Array.isArray(parsed.tasks)) throw new Error(`taskboard: ${path} has no tasks array`)
   const malformed = parsed.tasks.filter((task) => task === null || typeof task !== 'object' || typeof task.id !== 'string')
   if (malformed.length > 0) throw new Error(`taskboard: ${path} has ${malformed.length} malformed task record(s); refusing to drop them`)
+  const agents = Array.isArray(parsed.agents)
+    ? parsed.agents.filter((agent) => agent !== null && typeof agent === 'object' && typeof agent.role === 'string' && typeof agent.sessionId === 'string')
+    : []
   return {
     version: BOARD_VERSION,
     revision: Number.isSafeInteger(parsed.revision) ? parsed.revision : 0,
     tasks: parsed.tasks,
+    agents,
   }
 }
 
@@ -220,7 +224,11 @@ function createService(config, logger, hooks = {}) {
       logger?.warn?.(`taskboard: could not write child links ${linksFile}: ${error.message}`)
     }
   }
-  const childLinks = new Map(Object.entries(readLinks()))
+  const normalizeLinkEntry = (value) => {
+    if (Array.isArray(value)) return value.filter((entry) => entry !== null && typeof entry === 'object' && typeof entry.cwd === 'string' && typeof entry.id === 'string')
+    return value !== null && typeof value === 'object' && typeof value.cwd === 'string' && typeof value.id === 'string' ? [value] : []
+  }
+  const childLinks = new Map(Object.entries(readLinks()).map(([childId, value]) => [childId, normalizeLinkEntry(value)]))
 
   /** Absolute ledger path for a session directory. */
   const pathFor = (cwd) => isAbsolute(file) ? file : resolve(cwd, file)
@@ -238,7 +246,7 @@ function createService(config, logger, hooks = {}) {
     const changed = board.revision !== before || result?.changed === true
     if (changed) {
       board.revision = before + 1
-      writeBoard(path, { ...board, tasks: board.tasks })
+      writeBoard(path, { ...board, tasks: board.tasks, agents: board.agents ?? [] })
     }
     return result?.value ?? result
   }
@@ -248,6 +256,7 @@ function createService(config, logger, hooks = {}) {
     id: task.id,
     title: task.title,
     status: task.status,
+    role: task.role ?? null,
     priority: task.priority,
     owner: task.owner?.label ?? null,
     childSessionIds: task.childSessionIds ?? [],
@@ -262,6 +271,58 @@ function createService(config, logger, hooks = {}) {
     /** The whole board for one session workspace. */
     list(cwd) {
       return readBoard(pathFor(cwd)).tasks.map(summary)
+    },
+    /** Persistent specialists for one workspace. */
+    agents(cwd) {
+      return readBoard(pathFor(cwd)).agents ?? []
+    },
+    /** Find one persistent specialist by role (case-insensitive). */
+    findAgent(cwd, role) {
+      const wanted = typeof role === 'string' ? role.trim().toLowerCase() : ''
+      if (wanted === '') return undefined
+      return (readBoard(pathFor(cwd)).agents ?? []).find((agent) => agent.role.trim().toLowerCase() === wanted)
+    },
+    /** Create or update a persistent specialist role and its child session. */
+    registerAgent(cwd, input) {
+      const role = typeof input?.role === 'string' ? input.role.trim().slice(0, 80) : ''
+      const sessionId = typeof input?.sessionId === 'string' ? input.sessionId : ''
+      if (role === '' || sessionId === '') return { ok: false, code: 'invalid_agent' }
+      const label = typeof input?.label === 'string' && input.label !== '' ? input.label.slice(0, 200) : role
+      return mutate(cwd, (board) => {
+        const agents = Array.isArray(board.agents) ? board.agents : []
+        const existing = agents.find((agent) => agent.role.trim().toLowerCase() === role.toLowerCase())
+        const time = now()
+        if (existing === undefined) {
+          agents.push({ role, label, sessionId, status: 'active', taskCount: 1, lastTaskId: input?.taskId ?? null, createdAt: time, updatedAt: time })
+        } else {
+          existing.label = label
+          existing.sessionId = sessionId
+          existing.status = 'active'
+          existing.updatedAt = time
+          if (typeof input?.taskId === 'string' && input.taskId !== '' && input.taskId !== existing.lastTaskId) {
+            existing.lastTaskId = input.taskId
+            existing.taskCount = Number.isSafeInteger(existing.taskCount) ? existing.taskCount + 1 : 1
+          }
+        }
+        board.agents = agents
+        return { changed: true, value: { ok: true, agent: agents.find((agent) => agent.role.trim().toLowerCase() === role.toLowerCase()) } }
+      })
+    },
+    /** Update one specialist by session id. */
+    touchAgent(cwd, input) {
+      const sessionId = typeof input?.sessionId === 'string' ? input.sessionId : ''
+      if (sessionId === '') return { ok: false, code: 'invalid_agent' }
+      return mutate(cwd, (board) => {
+        const agent = (board.agents ?? []).find((entry) => entry.sessionId === sessionId)
+        if (agent === undefined) return { value: { ok: false, code: 'not_found' } }
+        if (typeof input.status === 'string') agent.status = input.status
+        if (typeof input?.taskId === 'string' && input.taskId !== '' && input.taskId !== agent.lastTaskId) {
+          agent.lastTaskId = input.taskId
+          agent.taskCount = Number.isSafeInteger(agent.taskCount) ? agent.taskCount + 1 : 1
+        }
+        agent.updatedAt = now()
+        return { changed: true, value: { ok: true, agent } }
+      })
     },
     /** One full task, or undefined. */
     get(cwd, id) {
@@ -284,6 +345,7 @@ function createService(config, logger, hooks = {}) {
           acceptance: acceptance(input?.acceptance),
           status: statusOf(input?.status, 'proposed'),
           priority: priorityOf(input?.priority),
+          ...(typeof input?.role === 'string' && input.role.trim() !== '' ? { role: input.role.trim().slice(0, 80) } : {}),
           ...(typeof input?.parentSessionId === 'string' && input.parentSessionId !== '' ? { parentSessionId: input.parentSessionId } : {}),
           ...(typeof input?.parentId === 'string' && input.parentId !== '' ? { parentId: input.parentId } : {}),
           dependsOn: strings(input?.dependsOn),
@@ -367,8 +429,9 @@ function createService(config, logger, hooks = {}) {
         if (task === undefined) return { value: { ok: false, code: 'not_found' } }
         if (!task.childSessionIds.includes(childId)) task.childSessionIds.push(childId)
         if (!['done', 'cancelled', 'paused'].includes(task.status)) task.status = 'active'
-        const label = typeof input?.label === 'string' && input.label !== '' ? input.label.slice(0, 200) : 'child'
-        const role = typeof input?.role === 'string' && input.role !== '' ? input.role.slice(0, 200) : label
+        const agent = (board.agents ?? []).find((entry) => entry.sessionId === childId)
+        const label = typeof input?.label === 'string' && input.label !== '' ? input.label.slice(0, 200) : (agent?.label ?? 'child')
+        const role = typeof input?.role === 'string' && input.role !== '' ? input.role.slice(0, 200) : (agent?.role ?? label)
         const children = Array.isArray(task.children) ? task.children : []
         const existing = children.find((child) => child.sessionId === childId)
         if (existing === undefined) children.push({ sessionId: childId, label, role, status: 'active', startedAt: now(), endedAt: null })
@@ -378,43 +441,49 @@ function createService(config, logger, hooks = {}) {
         task.revision += 1
         task.updatedAt = now()
         timeline(task, 'child_started', 'child', `Delegated to ${label}`, { sessionId: childId }, timelineLimit)
-        childLinks.set(childId, { cwd, id })
+        const links = childLinks.get(childId) ?? []
+        if (!links.some((entry) => entry.cwd === cwd && entry.id === id)) links.push({ cwd, id })
+        childLinks.set(childId, links)
         writeLinks(childLinks)
         return { changed: true, value: { ok: true, task } }
       })
     },
     /** A linked child settled: move to review, never straight to done. */
     childEnded(childId, info) {
-      const link = childLinks.get(childId)
-      if (link === undefined) return undefined
+      const links = childLinks.get(childId) ?? []
+      if (links.length === 0) return undefined
       childLinks.delete(childId)
       writeLinks(childLinks)
-      const result = mutate(link.cwd, (board) => {
-        const task = board.tasks.find((entry) => entry.id === link.id)
-        if (task === undefined) return { value: undefined }
-        const children = Array.isArray(task.children) ? task.children : []
-        const child = children.find((entry) => entry.sessionId === childId)
-        if (child === undefined) children.push({ sessionId: childId, label: task.owner?.label ?? 'child', role: task.owner?.label ?? 'child', status: 'sleeping', startedAt: now(), endedAt: now(), stopReason: info?.stopReason ?? null })
-        else Object.assign(child, { status: 'sleeping', endedAt: now(), stopReason: info?.stopReason ?? null })
-        task.children = children
-        const stillRunning = children.some((entry) => entry.status === 'active' || entry.status === 'paused')
-        task.status = ['cancelled', 'paused', 'done'].includes(task.status) ? task.status : stillRunning ? 'active' : 'review'
-        task.revision += 1
-        task.updatedAt = now()
-        const output = Array.isArray(info?.lastAssistantMessage)
-          ? info.lastAssistantMessage.filter((block) => block?.type === 'text').map((block) => block.text).join(' ').slice(0, 800)
-          : ''
-        timeline(task, 'child_finished', 'child', `Child settled (${info?.stopReason ?? 'unknown'})${output === '' ? '' : `: ${output}`}`, { sessionId: childId }, timelineLimit)
-        return { changed: true, value: { ok: true, task } }
-      })
-      return result
+      let last
+      for (const link of links) {
+        const result = mutate(link.cwd, (board) => {
+          const task = board.tasks.find((entry) => entry.id === link.id)
+          if (task === undefined) return { value: undefined }
+          const children = Array.isArray(task.children) ? task.children : []
+          const child = children.find((entry) => entry.sessionId === childId)
+          if (child === undefined) children.push({ sessionId: childId, label: task.owner?.label ?? 'child', role: task.owner?.label ?? 'child', status: 'sleeping', startedAt: now(), endedAt: now(), stopReason: info?.stopReason ?? null })
+          else Object.assign(child, { status: 'sleeping', endedAt: now(), stopReason: info?.stopReason ?? null })
+          task.children = children
+          const stillRunning = children.some((entry) => entry.status === 'active' || entry.status === 'paused')
+          task.status = ['cancelled', 'paused', 'done'].includes(task.status) ? task.status : stillRunning ? 'active' : 'review'
+          const agent = (board.agents ?? []).find((entry) => entry.sessionId === childId)
+          if (agent !== undefined) {
+            agent.status = 'sleeping'
+            agent.updatedAt = now()
+          }
+          task.revision += 1
+          task.updatedAt = now()
+          const output = Array.isArray(info?.lastAssistantMessage)
+            ? info.lastAssistantMessage.filter((block) => block?.type === 'text').map((block) => block.text).join(' ').slice(0, 800)
+            : ''
+          timeline(task, 'child_finished', 'child', `Child settled (${info?.stopReason ?? 'unknown'})${output === '' ? '' : `: ${output}`}`, { sessionId: childId }, timelineLimit)
+          return { changed: true, value: { ok: true, task } }
+        })
+        if (result !== undefined) last = result
+      }
+      return last
     },
-    /**
-     * Pause a task and interrupt its linked children. The ledger is written even
-     * when the subagent service is unavailable; the errors name which children
-     * could not be reached so the human sees the difference between "paused the
-     * board" and "stopped the work".
-     */
+    /** Pause a task and interrupt its linked children; fail closed on interrupt errors. */
     pause(cwd, input) {
       const id = typeof input?.id === 'string' ? input.id : ''
       const requestedParent = typeof input?.parentSessionId === 'string' && input.parentSessionId !== '' ? input.parentSessionId : ''
@@ -436,6 +505,8 @@ function createService(config, logger, hooks = {}) {
             hooks.interrupt(childId, parentSessionId)
             interrupted.push(childId)
             if (child !== undefined) child.status = 'paused'
+            const agent = (board.agents ?? []).find((entry) => entry.sessionId === childId)
+            if (agent !== undefined) { agent.status = 'paused'; agent.updatedAt = now() }
           } catch (error) {
             errors.push(`${childId}: ${error.message}`)
             if (child !== undefined) child.status = 'sleeping'
@@ -450,7 +521,7 @@ function createService(config, logger, hooks = {}) {
         return { changed: true, value: { ok: true, task, interrupted, errors } }
       })
     },
-    /** Resume tracking a paused task. Child sessions are not auto-prompted; open them to continue. */
+    /** Resume tracking a paused task. Child sessions are not auto-prompted. */
     resume(cwd, input) {
       const id = typeof input?.id === 'string' ? input.id : ''
       return mutate(cwd, (board) => {
@@ -460,6 +531,7 @@ function createService(config, logger, hooks = {}) {
         task.status = 'active'
         const children = Array.isArray(task.children) ? task.children : []
         for (const child of children) if (child.status === 'paused') child.status = 'sleeping'
+        for (const agent of board.agents ?? []) if (agent.status === 'paused') agent.status = 'sleeping'
         task.children = children
         task.revision += 1
         task.updatedAt = now()
@@ -467,7 +539,7 @@ function createService(config, logger, hooks = {}) {
         return { changed: true, value: { ok: true, task } }
       })
     },
-    /** Close a task as done and best-effort interrupt its linked children. */
+    /** Close a task as done and interrupt its linked children; fail closed. */
     close(cwd, input) {
       const id = typeof input?.id === 'string' ? input.id : ''
       const requestedParent = typeof input?.parentSessionId === 'string' && input.parentSessionId !== '' ? input.parentSessionId : ''
@@ -486,6 +558,8 @@ function createService(config, logger, hooks = {}) {
             hooks.interrupt(childId, parentSessionId)
             interrupted.push(childId)
             if (child !== undefined) child.status = 'sleeping'
+            const agent = (board.agents ?? []).find((entry) => entry.sessionId === childId)
+            if (agent !== undefined) { agent.status = 'sleeping'; agent.updatedAt = now() }
           } catch (error) {
             errors.push(`${childId}: ${error.message}`)
             if (child !== undefined) child.status = 'sleeping'
@@ -500,14 +574,18 @@ function createService(config, logger, hooks = {}) {
         return { changed: true, value: { ok: true, task, interrupted, errors } }
       })
     },
-    /** Remove a task from the ledger. Child sessions are deliberately left running. */
+    /** Remove a task from the ledger; linked child sessions keep running. */
     remove(cwd, input) {
       const id = typeof input?.id === 'string' ? input.id : ''
       return mutate(cwd, (board) => {
         const index = board.tasks.findIndex((entry) => entry.id === id)
         if (index === -1) return { value: { ok: false, code: 'not_found' } }
         const [task] = board.tasks.splice(index, 1)
-        for (const childId of task.childSessionIds ?? []) childLinks.delete(childId)
+        for (const childId of task.childSessionIds ?? []) {
+          const links = (childLinks.get(childId) ?? []).filter((entry) => !(entry.cwd === cwd && entry.id === id))
+          if (links.length === 0) childLinks.delete(childId)
+          else childLinks.set(childId, links)
+        }
         writeLinks(childLinks)
         return { changed: true, value: { ok: true, removed: true, id, task } }
       })
@@ -526,11 +604,14 @@ function createService(config, logger, hooks = {}) {
       if (kind === 'remove') return this.remove(cwd, op)
       if (kind === 'get') return { ok: true, task: this.get(cwd, op.id) }
       if (kind === 'list') return { ok: true, tasks: this.list(cwd) }
+      if (kind === 'agents') return { ok: true, agents: this.agents(cwd) }
       return { ok: false, code: 'unknown_op' }
     },
     /** Register a child without a task (used by the command path). */
     trackChild(childId, cwd, id) {
-      childLinks.set(childId, { cwd, id })
+      const links = childLinks.get(childId) ?? []
+      if (!links.some((entry) => entry.cwd === cwd && entry.id === id)) links.push({ cwd, id })
+      childLinks.set(childId, links)
       writeLinks(childLinks)
     },
   }

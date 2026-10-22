@@ -12,10 +12,11 @@ One JSON ledger per session workspace, `.dsh/taskboard.json`:
 - `status` — proposed, ready, active, paused, review, done, blocked, cancelled
 - `priority`, `owner`, `parentId`, `parentSessionId`, `dependsOn[]`, `childSessionIds[]`,
   `children[{sessionId,label,role,status,startedAt,endedAt,stopReason}]`
+- `role` on a task; `agents[{role,label,sessionId,status,taskCount,lastTaskId}]` for the persistent specialist roster
 - `result { summary, evidence[], artifacts[], decisions[], risks[] }`
 - `timeline[{at, kind, actor, text, sessionId?}]`
 
-The file is the durable record. It survives a Host restart, lives in the
+The `agents[]` section is the persistent role registry: one child session per role, reused by every task that fits it. A role is not a task title. The file is the durable record. It survives a Host restart, lives in the
 checkout's `.dsh/` directory (gitignored), and is the same document the browser
 displays. Child→task links are persisted in `$DSH_HOME/taskboard-child-links.json`,
 so a `subagent/end` after a Host or plugin reload still settles the task.
@@ -25,9 +26,11 @@ so a `subagent/end` after a Host or plugin reload still settles the task.
 `task_create`, `task_get`, `task_list`, `task_update` (compare-and-set on
 `expectedRevision`), `task_note`, `task_link`, and the lifecycle tools
 `task_pause`, `task_resume`, `task_close`, `task_remove`. The orchestrator's
-`delegate_task` creates a task, starts a flash child, and links the child id with
-these methods. Pause/close interrupt linked children through `ctx.subagents`; a failed interrupt
-is reported per child and the task stays in its previous state (fail closed).
+`delegate_task` requires a `role` (e.g. `UX/UI`, `BACKEND`, `BUSINESS`, `RESEARCH`) and reuses
+that role's existing child session; it starts a child only when the role has none. The taskboard
+stores the role registry in `agents[]`. Pause/close interrupt linked children through
+`ctx.subagents`; a failed interrupt is reported per child and the task stays in its previous
+state (fail closed).
 
 ## Browser surface
 
@@ -49,7 +52,7 @@ is reported per child and the task stays in its previous state (fail closed).
   horizontally. The listener is a native, non-passive `wheel` listener attached
   to the board and removed on unmount. At either horizontal edge the event is
   left to the page, and a horizontal trackpad delta (`deltaX`) is never hijacked.
-- **Subagents**: a task's `children[]` entries render as role-first rows with the
+- **Subagents**: the board's `agents[]` registry drives the workspace roster; a task's `children[]` entries render as role-first rows with the
   label/id, an `active`/`sleeping`/`paused` badge and an **Open** action. A
   one-line summary above the rows reads e.g.
   `2 subagents · 1 active · 1 sleeping`. The board top carries a compact
