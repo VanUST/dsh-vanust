@@ -36,11 +36,11 @@ const CHECK_ONLY = process.argv.includes('--check')
 /**
  * Directories that hold shipped source, and the extensions worth examining.
  *
- * `scripts` and `probes` are here because they are shipped source too, and because
- * the detector's coverage must match this repair's: a check that cannot see a file
- * this tool would fix leaves the contributor hand-editing bytes.
+ * `scripts` is here because it is shipped source too, and because the detector's
+ * coverage must match this repair's: a check that cannot see a file this tool would fix
+ * leaves the contributor hand-editing bytes.
  */
-const ROOTS = ['plugins', 'scripts', 'probes']
+const ROOTS = ['plugins', 'scripts']
 
 /**
  * Root-level files that are shipped source as well.

@@ -1,0 +1,19 @@
+{
+  "name": "@cc/dsh-orchestrator",
+  "version": "0.1.4",
+  "description": "Turns the root agent into an orchestrator without replacing the standard preset: a root-only policy section, a child-only specialist section, and a root-only delegate_task tool that creates a taskboard task, renders a scoped brief, starts a flash child and links it. Scoped registrations only.",
+  "type": "module",
+  "main": "orchestrator.mjs",
+  "exports": {
+    ".": "./orchestrator.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "orchestrator.mjs",
+    "README.md"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
+  }
+}

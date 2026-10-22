@@ -5,14 +5,14 @@
  *
  *   Two facts make this a script rather than a manual sequence. pnpm resolves a
  *   `file:` dependency by path string, so repacking an UNCHANGED version serves the
- *   old bytes from the profile lockfile and the change silently ships nowhere — the
- *   kit's hard rule 6. And a tarball whose version was not bumped, or whose
+ *   old bytes from the profile lockfile and the change silently ships nowhere. And a
+ *   tarball whose version was not bumped, or whose
  *   superseded sibling was left in `plugins/`, installs correctly only by accident of
  *   glob order. Both mistakes are mechanical, so both belong in a command.
  *
  * INPUTS
  *   --dir <path>     plugin directory relative to the kit root (required), e.g.
- *                    `plugins/specs`. Must contain a `package.json`.
+ *                    `plugins/notify`. Must contain a `package.json`.
  *   --dry-run        report what would happen and write nothing (default: pack)
  *   --version <v>    set an exact version instead of bumping the patch
  *   --no-bump        pack at the current version (only for a first pack; prints a
@@ -86,7 +86,7 @@ function parseArgs(argv) {
   }
   if (options.dir === null) {
     process.stderr.write(
-      'pack-plugin: --dir is required, e.g. `node scripts/pack-plugin.mjs --dir plugins/specs`\n',
+      'pack-plugin: --dir is required, e.g. `node scripts/pack-plugin.mjs --dir plugins/notify`\n',
     )
     process.exit(2)
   }
@@ -121,7 +121,7 @@ function sha256(path) {
  * The tarball filename prefix npm would give a package.
  *
  * npm names a packed scoped package by dropping the `@` and joining the scope and the
- * name with `-`: `@cc/dsh-specs` becomes `cc-dsh-specs`, which is why the prefix
+ * name with `-`: `@cc/dsh-notify` becomes `cc-dsh-notify`, which is why the prefix
  * cannot be read from the package name by a naive split on the last path segment.
  *
  * @param packageName - The manifest's `name` field.

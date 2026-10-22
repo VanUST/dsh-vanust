@@ -1,0 +1,21 @@
+{
+  "name": "@cc/dsh-handoff",
+  "version": "0.1.2",
+  "description": "One tool that renders a structured task result into a self-contained A4 handoff page (TL;DR, objective, changes, evidence, decisions, risks, next, artifacts) and optionally a PDF through an installed Chrome/Chromium. The HTML is the source of truth.",
+  "type": "module",
+  "main": "handoff.mjs",
+  "exports": {
+    ".": "./handoff.mjs",
+    "./render": "./render.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "handoff.mjs",
+    "render.mjs",
+    "README.md"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
+  }
+}

@@ -3,11 +3,9 @@
 #   1. checks Node >= 24 (node-pty ABI),
 #   2. installs the pinned harness version globally (npm i -g),
 #   3. creates $env:DSH_HOME\profiles\web from the kit's canonical profile files,
-#   4. installs every plugin tarball in plugins\ into the profile (five plugins:
-#      model-gate, dsh-context, specs, adr-panel -- see plugins\inventory.json),
-#   5. installs the user-global core operating rules ($env:DSH_HOME\AGENTS.md) and the
-#      DEPLOYMENT.md procedure they point at,
-#   6. links the harness packages so the kit's own tests and gate run from this checkout.
+#   4. installs every plugin tarball in plugins\ into the profile (see
+#      plugins\inventory.json for the set),
+#   5. installs the DEPLOYMENT.md procedure to $env:DSH_HOME,
 #
 # Usage (PowerShell):
 #   git clone <your-remote>/dsh-kit.git; cd dsh-kit
@@ -19,7 +17,7 @@
 $ErrorActionPreference = 'Stop'
 
 $KIT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
-$DSH_VERSION = '0.2.0-rc.2'
+$DSH_VERSION = '0.2.1-rc.2'
 $PNPM_VERSION = '11.7.0'
 $DSH_HOME = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $env:USERPROFILE '.npm\dsh' }
 
@@ -84,7 +82,7 @@ Copy-Item (Join-Path $KIT_DIR 'profile\package.json') (Join-Path $profileDir 'pa
 Copy-Item (Join-Path $KIT_DIR 'profile\pnpm-workspace.yaml') (Join-Path $profileDir 'pnpm-workspace.yaml') -Force
 
 # 4. Plugin tarballs.
-Write-Host '   installing the kit plugins (model-gate, dsh-context, specs, adr-panel)...'
+Write-Host '   installing the kit plugins (see plugins\inventory.json)...'
 Push-Location $profileDir
 try {
   corepack pnpm@$PNPM_VERSION add (Get-ChildItem (Join-Path $KIT_DIR 'plugins\*.tgz') | ForEach-Object { $_.FullName })
@@ -92,31 +90,10 @@ try {
   Pop-Location
 }
 
-# 5. The global specs, plus the procedure they point at. The rules are spec ITEMS now -
-#    one file per prompt item, under $DSH_HOME\specs - and their own section 0 names
-#    $DSH_HOME\DEPLOYMENT.md as the setup/update procedure, so a pointer to a missing file
-#    would be worse than no pointer at all.
-#
-#    A seed is copied only when the destination is absent: this script bootstraps a
-#    machine, and re-running it must not overwrite a spec someone edited in the Specs
-#    window. Convergence afterwards is `scripts/kit-update.mjs --apply`, which applies the
-#    same rule and reports a modified seed instead of reverting it.
-$specsDir = Join-Path $DSH_HOME 'specs'
-New-Item -ItemType Directory -Force -Path $specsDir | Out-Null
-Get-ChildItem (Join-Path $KIT_DIR 'rules\specs') -Filter '*.md' | ForEach-Object {
-  $seedDestination = Join-Path $specsDir $_.Name
-  if (-not (Test-Path $seedDestination)) { Copy-Item $_.FullName $seedDestination }
-}
+# 5. The operating procedure, installed so a machine without the kit checked out can still
+#    read how it is set up, updated and verified. Convergence afterwards is
+#    `scripts/kit-update.mjs --apply`.
 Copy-Item (Join-Path $KIT_DIR 'rules\DEPLOYMENT.md') (Join-Path $DSH_HOME 'DEPLOYMENT.md') -Force
-
-# 6. Development links, so the kit's OWN gate runs from this checkout. The API probe
-#    adapter imports `@deepseek-ai/dsh-tools`, which lives in the harness install and not
-#    in this repository; the tests and probes resolve it through a link beside them. Not
-#    fatal if it fails -- the DEPLOYMENT does not need the link, only the self-check does.
-& node (Join-Path $KIT_DIR 'scripts\dev-link.mjs') | Out-Null
-if ($LASTEXITCODE -ne 0) {
-  Write-Warning "could not link the harness packages; run 'node scripts\dev-link.mjs' in $KIT_DIR before using the kit's own gate."
-}
 
 Write-Host
 Write-Host '== done =='

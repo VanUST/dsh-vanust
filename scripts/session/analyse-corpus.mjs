@@ -175,7 +175,7 @@ const framing = {
 
 // ---------------------------------------------------------------- effort
 const MODIFY_TOOLS = new Set(['edit', 'write', 'patch', 'script_create', 'script_patch', 'notebook_edit'])
-const READ_TOOLS = new Set(['read', 'grep', 'glob', 'filesystem_manage', 'resource_manage', 'read_image', 'script_manage', 'node_get_properties', 'scene_get_hierarchy', 'logs_read', 'context_rules', 'context_specs', 'context_module', 'api_manage'])
+const READ_TOOLS = new Set(['read', 'grep', 'glob', 'filesystem_manage', 'resource_manage', 'read_image', 'script_manage', 'node_get_properties', 'scene_get_hierarchy', 'logs_read', 'api_manage'])
 const DELEGATE_TOOLS = new Set(['subagent', 'subagent_fork', 'workflow'])
 const JOB_SUBMIT_TOOLS = new Set(['bash', 'workflow', 'subagent', 'subagent_fork'])
 const JOB_READ_TOOLS = new Set(['job_output', 'job_list'])

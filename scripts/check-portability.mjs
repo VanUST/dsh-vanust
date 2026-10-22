@@ -76,14 +76,14 @@ const CHECKS = [
     // godot-mcp plugin's whole purpose is resolving a launcher and a project on the
     // machine that runs it, so a `C:\…` literal there is the exact defect this check
     // exists to catch.
-    paths: ['plugins/dsh-context', 'plugins/godot-mcp', 'plugins/specs', 'plugins/dsh-adr-panel', 'plugins/diagrams', 'scripts/probe-dsh-api.mjs', 'probes'],
+    paths: ['plugins/godot-mcp', 'plugins/presentation', 'plugins/diagrams', 'plugins/notify', 'plugins/work-modes'],
     allow: [],
   },
   {
     id: 'no-backslash-path-splitting',
     pattern: /\.replace\(\/\\\\\/g,\s*['"]\/['"]\)/,
     why: 'splitting on a backslash is a no-op on Linux and hides a real separator assumption',
-    paths: ['scripts/probe-dsh-api.mjs', 'probes'],
+    paths: ['plugins'],
     allow: [],
   },
   {
@@ -101,7 +101,7 @@ const CHECKS = [
     // verification script: a dynamic import of a bare path variable holding a `C:\…` path
     // made the panel render check crash on Windows while passing on the platform it was
     // written on.
-    paths: ['plugins', 'scripts', 'probes'],
+    paths: ['plugins', 'scripts'],
     allow: [],
   },
   {
@@ -112,7 +112,7 @@ const CHECKS = [
     // makes it a comment, and the three places that DOCUMENT this hazard are comments.
     pattern: /^(?:(?!\/\/|\*)[\s\S])*?\.pathname\b/,
     why: 'a filesystem path derived from a file URL\'s pathname property is `/C:/…` on Windows, so use fileURLToPath(new URL(...)); the kit has read an empty tree this way four times',
-    paths: ['plugins', 'scripts', 'probes'],
+    paths: ['plugins', 'scripts'],
     // The one legitimate use: this value is the `url` of a synthetic HTTP request, never a
     // filesystem path. Anything else that property is used for reaches `fileURLToPath`.
     allow: [],
@@ -127,12 +127,12 @@ const CHECKS = [
     // the API whose contract covers both platforms, so the hand-built form is banned.
     pattern: /file:\/\//,
     why: 'a hand-built file URL is a path idiom that has to hold on both platforms at once; use pathToFileURL(...).href, whose Windows and POSIX behaviour is the API contract rather than a reasoned guess',
-    paths: ['plugins', 'scripts', 'probes'],
+    paths: ['plugins', 'scripts'],
     // Two exemptions, each with its reason rather than a pattern that quietly stopped
     // matching: one is prose in a comment, the other is the check that OWNS this rule.
-    allow: ['plugins/dsh-adr-panel/client.js', 'scripts/check-portability.mjs'],
+    allow: ['scripts/check-portability.mjs'],
     allowReason:
-      'client.js mentions `file://` only inside a comment about the origin a browser reports for a bundle loaded that way; check-portability.mjs must be able to name and execute the platform-API round trip it requires of every other file',
+      'check-portability.mjs must be able to name and execute the platform-API round trip it requires of every other file',
   },
   {
     id: 'no-shell-dependent-spawns',
@@ -152,14 +152,13 @@ const CHECKS = [
     id: 'no-crlf-in-sources',
     pattern: /\r/,
     why: 'a CRLF in a shipped .mjs or .sh breaks a POSIX shebang and dirties every diff',
-    // `scripts` and `probes` are included because they are shipped source too: an
-    // untracked file written by a Windows editing pass keeps its CRLF in the working
-    // tree, and while it stayed out of this rule a 4,800-line CRLF test file passed
-    // every check. The root shell entry points are here for the same reason — a CRLF
+    // `scripts` is included because it is shipped source too: an untracked file written
+    // by a Windows editing pass keeps its CRLF in the working tree. The root shell entry
+    // points are here for the same reason — a CRLF
     // `install.sh` is a script that does not start on Linux, and the git-attribute check
     // below cannot see the working-tree bytes. `.tgz` and other binaries are skipped by
     // the extension filter, and the `.ps1` files are CRLF by policy.
-    paths: ['plugins', 'scripts', 'probes', 'install.sh', 'start.sh'],
+    paths: ['plugins', 'scripts', 'install.sh', 'start.sh'],
     allow: [],
     raw: true,
   },
@@ -177,7 +176,7 @@ const CHECKS = [
  * that state is a shebang that fails on Linux — so the check asks git rather than
  * guessing from the bytes.
  */
-const SHELL_SCRIPTS = ['scripts/rebuild-plugins.sh', 'install.sh', 'start.sh']
+const SHELL_SCRIPTS = ['install.sh', 'start.sh']
 
 /** Every file under a kit-relative path, recursively, excluding node_modules. */
 function filesUnder(target) {
@@ -415,63 +414,6 @@ for (const spec of CHECKS) {
   )
 }
 
-// ── packaging: every module a plugin ships must be in its files list ───────
-for (const dir of ['plugins/specs', 'plugins/dsh-context']) {
-  const manifestPath = join(KIT, dir, 'package.json')
-  if (!existsSync(manifestPath)) {
-    check(`files-list:${dir}`, false, `${manifestPath} does not exist`)
-    continue
-  }
-  let manifest
-  try {
-    manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
-  } catch (error) {
-    check(`files-list:${dir}`, false, `${manifestPath} is not valid JSON: ${String(error)}`)
-    continue
-  }
-  const listed = new Set(manifest.files ?? [])
-  const missing = []
-  const entries = readdirSync(join(KIT, dir), { withFileTypes: true })
-    .filter((entry) => entry.isFile())
-    .map((entry) => entry.name)
-    .filter((name) => /\.(mjs|d\.mts)$/.test(name))
-  for (const name of entries) if (!listed.has(name)) missing.push(name)
-
-  // The entry point must be listed even if it matches no extension rule above.
-  const entry = manifest.main
-  if (typeof entry === 'string' && !listed.has(entry)) missing.push(`${entry} (main)`)
-
-  check(
-    `files-list:${dir}`,
-    missing.length === 0,
-    missing.length === 0
-      ? `${entries.length} module(s) all listed`
-      : `present but NOT in files (an installed copy would lack them): ${missing.join(', ')}`,
-  )
-}
-
-// ── every .mjs a plugin contains must be listed in its files array ────────
-for (const dir of ['plugins/specs', 'plugins/dsh-context', 'plugins/kit-rules', 'plugins/godot-mcp']) {
-  const manifestPath = join(KIT, dir, 'package.json')
-  if (!existsSync(manifestPath)) continue
-  let listed
-  try {
-    listed = new Set(JSON.parse(readFileSync(manifestPath, 'utf8')).files ?? [])
-  } catch {
-    continue
-  }
-  const unlisted = readdirSync(join(KIT, dir))
-    .filter((name) => name.endsWith('.mjs'))
-    .filter((name) => !listed.has(name))
-  check(
-    `files-complete:${dir}`,
-    unlisted.length === 0,
-    unlisted.length === 0
-      ? 'every module is listed'
-      : `module(s) present but not shipped: ${unlisted.join(', ')}`,
-  )
-}
-
 // ── every shipped tool must be built with defineTool, across ALL plugins ───
 // The rule is a property of the shipped SUITE, not of one file. The earlier form read
 // a single plugin file alone, so a raw registration added to any OTHER shipped plugin
@@ -616,8 +558,8 @@ for (const dir of ['plugins/specs', 'plugins/dsh-context', 'plugins/kit-rules', 
   // the path's own leading separator), which Linux tolerates rather than intends; the check
   // fails if the API form ever stops round-tripping exactly.
   const samples = [
-    { label: 'posix', path: '/home/kit/plugins/specs/x.mjs', windows: false },
-    { label: 'windows', path: 'C:\\dsh-kit\\plugins\\specs\\x.mjs', windows: true },
+    { label: 'posix', path: '/home/kit/plugins/diagrams/x.mjs', windows: false },
+    { label: 'windows', path: 'C:\\dsh-kit\\plugins\\diagrams\\x.mjs', windows: true },
   ]
   const offenders = []
   for (const sample of samples) {
@@ -736,82 +678,6 @@ for (const dir of ['plugins/specs', 'plugins/dsh-context', 'plugins/kit-rules', 
         : problems.join(' | '),
     )
   }
-}
-
-// ── the window's slot list must agree with the catalogue that ENFORCES it ───
-// The panel reports which slots only a global item may fill, so a human sees a refusal
-// before saving; `@cc/dsh-specs`'s catalogue is what actually refuses. Two copies of that
-// list would drift into a window that promises an item will reach the prompt while the
-// loader drops it, which is exactly the failure the badge exists to prevent. So they are
-// compared here rather than trusted.
-{
-  const catalogue = join(KIT, 'plugins', 'specs', 'specs-catalogue.mjs')
-  const panel = join(KIT, 'plugins', 'dsh-adr-panel', 'index.js')
-  let problems = []
-  try {
-    const catalogueText = readFileSync(catalogue, 'utf8')
-    const panelText = readFileSync(panel, 'utf8')
-    // Every slot whose `authors` is exactly `['global']` in the catalogue...
-    const globalOnly = [...catalogueText.matchAll(/(\w[\w-]*|'[\w-]+'):\s*\{[^}]*authors:\s*\['global'\]/g)].map((match) =>
-      match[1].replace(/^'|'$/g, ''),
-    )
-    // ...must be listed in the panel's own constant, and nothing else there.
-    const listed = /GLOBAL_ONLY_SLOTS\s*=\s*\[([^\]]*)\]/.exec(panelText)
-    if (listed === null) {
-      problems.push('plugins/dsh-adr-panel/index.js declares no GLOBAL_ONLY_SLOTS list')
-    } else {
-      const declared = [...listed[1].matchAll(/'([^']+)'/g)].map((match) => match[1]).sort()
-      const expected = [...globalOnly].sort()
-      if (declared.join(',') !== expected.join(',')) {
-        problems.push(`the panel's global-only slots ${JSON.stringify(declared)} disagree with the catalogue's ${JSON.stringify(expected)}`)
-      }
-      if (expected.length === 0) problems.push('the catalogue declares NO global-only slot, which cannot be right')
-    }
-
-    // The typed settings the window OFFERS must be the settings the catalogue VALIDATES: a
-    // key only the window knows is written and then refused as an unknown setting, and a key
-    // only the catalogue knows can never be set from the UI.
-    const settingsBlock = /export const SETTINGS = \{([\s\S]*?)\n\}/.exec(catalogueText)?.[1] ?? ''
-    const catalogueKeys = [...settingsBlock.matchAll(/^\s{2}'([\w-]+)':\s*\{/gm)].map((match) => match[1]).sort()
-    const panelKeys = [...(/SETTING_FIELDS\s*=\s*\[([\s\S]*?)\]/.exec(panelText)?.[1] ?? '').matchAll(/key:\s*'([^']+)'/g)]
-      .map((match) => match[1])
-      .sort()
-    if (catalogueKeys.length === 0) problems.push('the catalogue declares no setting key')
-    else if (panelKeys.join(',') !== catalogueKeys.join(',')) {
-      problems.push(`the window offers settings ${JSON.stringify(panelKeys)} but the catalogue validates ${JSON.stringify(catalogueKeys)}`)
-    }
-  } catch (error) {
-    problems.push(`could not compare the panel's slot list with the catalogue: ${String(error)}`)
-  }
-  check(
-    'panel:slot-list-matches-the-catalogue',
-    problems.length === 0,
-    problems.length === 0 ? "the panel's global-only slots are the catalogue's own" : problems.join(' | '),
-  )
-}
-
-// ── a bundle's self-declared version must equal its package's ───────────────
-// `client.js` cannot read its own package.json, so it declares the version in a constant and
-// `pack-plugin.mjs` rewrites it on every bump. That rewrite silently did nothing for a while -
-// its regular expression wanted double quotes and the file uses single ones - and the Specs
-// window then showed `adr-panel 0.3.0` for an installed 0.2.8 while the repository held the
-// fix at 0.2.10. A stale chip cost a whole diagnosis, so it is checked rather than trusted.
-for (const bundle of ['plugins/dsh-adr-panel/client.js']) {
-  let problems = []
-  try {
-    const text = readFileSync(join(KIT, bundle), 'utf8')
-    const declared = /\bPANEL_VERSION\s*=\s*['"]([^'"]+)['"]/.exec(text)?.[1] ?? null
-    const manifest = JSON.parse(readFileSync(join(KIT, dirname(bundle), 'package.json'), 'utf8')).version
-    if (declared === null) problems.push(`${bundle} declares no PANEL_VERSION`)
-    else if (declared !== manifest) problems.push(`${bundle} declares ${declared} but its package.json says ${manifest}`)
-  } catch (error) {
-    problems.push(`could not compare ${bundle} with its manifest: ${String(error)}`)
-  }
-  check(
-    'bundle:version-matches-manifest',
-    problems.length === 0,
-    problems.length === 0 ? `${bundle} declares its package version` : problems.join(' | '),
-  )
 }
 
 // ── an id the deployment GENERATES must not spell an id somebody AUTHORED ───

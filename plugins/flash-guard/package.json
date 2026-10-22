@@ -1,0 +1,19 @@
+{
+  "name": "@cc/dsh-flash-guard",
+  "version": "0.1.0",
+  "description": "Refuses or rewrites a delegated child's model request unless it uses the configured flash route; sits on the agent/request waterfall so a workflow script cannot silently ask for a stronger model. No tool, prompt section or session event.",
+  "type": "module",
+  "main": "flash-guard.mjs",
+  "exports": {
+    ".": "./flash-guard.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "flash-guard.mjs",
+    "README.md"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
+  }
+}

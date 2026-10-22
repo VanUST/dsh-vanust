@@ -11,19 +11,17 @@
  *   The cap is read at a seam the harness already owns: a monotonic `tools.guard()`,
  *   and a guard may only DENY, so no later listener can turn the refusal back into
  *   permission. A denial is materialized by the registry as an error result carrying
- *   the guard's own text — measured with `node scripts/probe-work-modes.mjs`.
+ *   the guard's own text.
  *
  * INPUTS
  *   Config (all optional, all with working defaults):
  *     `toolName` — the delegation tool to cap. Default `subagent`.
- *     `limit` — the most children of that tool that may run at once. Default 2. It is the
- *       MACHINE default: a project may override it for its own sessions with a
- *       `subagent-cap` setting in a settings spec item, which the Specs window writes as a
- *       typed value. That setting is read through the `specSettings` service the specs
- *       plugin publishes, at the moment of each call, so an edit applies to the next
- *       delegation rather than to the next restart. The service is bound with `inject`
- *       rather than declared, because a required dependency would leave this plugin
- *       pending - and the cap ABSENT - wherever no specs plugin is mounted.
+ *     `limit` — the most children of that tool that may run at once. Default 2. In this
+ *       deployment it is the only way the cap is set: a per-project override would be
+ *       read from a `specSettings` service at the moment of each call, and no mounted
+ *       plugin publishes one. The service is bound with `inject` rather than declared,
+ *       because a required dependency would leave this plugin pending - and the cap
+ *       ABSENT - wherever nothing publishes it.
  *     `staleAfterMs` — the FALLBACK bound on an entry the agent registry could not
  *       answer for (an out-of-process child, or a composition with no `agents` service).
  *       Default 900000 (15 minutes). It is not the release mechanism: a child this
@@ -521,13 +519,13 @@ export function apply(ctx, config = {}) {
   }
   const ledger = createLedger({ limit: usableLimit(config), staleAfterMs: config.staleAfterMs, liveChild })
   // ── the per-project cap ───────────────────────────────────────────────────
-  // A project may set `subagent-cap` in a settings spec item, in its own scope (or the
-  // machine's, as a default). The value is read from the `specSettings` service the specs
-  // plugin publishes - never parsed here, so the loader stays the one implementation of
-  // scope precedence. The service is OPTIONAL and bound through `inject` rather than
-  // declared in this plugin's own `inject` list: a required dependency would leave this
-  // plugin pending, and therefore the cap ABSENT, in a composition that mounts no specs
-  // plugin. That is the same rule the `agents` service is read under.
+  // A per-project cap would be read from a `specSettings` service - never parsed here, so
+  // the publisher stays the one implementation of scope precedence. Nothing in this
+  // deployment publishes that service, so this path is inert and `config.limit` is the
+  // cap. The service is OPTIONAL and bound through `inject` rather than declared in this
+  // plugin's own `inject` list: a required dependency would leave this plugin pending, and
+  // therefore the cap ABSENT, wherever nothing publishes it. That is the same rule the
+  // `agents` service is read under.
   let settingsService = null
   ctx.inject(['specSettings'], (scope) => {
     settingsService = scope.specSettings ?? null

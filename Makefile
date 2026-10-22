@@ -6,8 +6,6 @@
 #   make usage REPORT_DIR=somewhere      where the reports land
 #   make usage-check                     the redaction gate: fail if a report would carry identity material
 #   make verify                          every check the kit ships
-#   make connect-usb-device              tunnel the harness to a USB-attached phone
-#   make connect-usb-device OPEN=1       ... and open the page on the phone
 #
 # The work is done by Node, not by this file: locating the export, parsing it,
 # computing the figures and opening the browser all live in scripts/ so the same
@@ -17,25 +15,6 @@ NODE       ?= node
 REPORT_DIR ?= reports/usage
 EXPORT     ?=
 NO_OPEN    ?=
-PORT       ?= 3080
-OPEN       ?=
-DEVICE     ?=
-STATE_DIR  ?=
-
-# `adb reverse` asks the PHONE to forward a port over the cable to the same port here, so the
-# phone's browser reaches this machine's loopback interface. The bridge's trust fence already
-# trusts loopback, so USB needs no `--trusted-host` and exposes nothing to any network.
-USB_ARGS   := --port $(PORT)
-ifneq ($(strip $(DEVICE)),)
-USB_ARGS   += --device "$(DEVICE)"
-endif
-ifneq ($(strip $(OPEN)),)
-USB_ARGS   += --open
-endif
-ifneq ($(strip $(STATE_DIR)),)
-USB_ARGS   += --state-dir "$(STATE_DIR)"
-endif
-
 # `--out-dir` names each report after the window the export covers, so a month's
 # artifacts share one name instead of whichever label the caller remembered.
 ANALYTICS  := scripts/usage-analytics.mjs --out-dir "$(REPORT_DIR)"
@@ -52,8 +31,8 @@ endif
 
 # The spend gate's thresholds. MAX_PEAK_SHARE defaults to the script's own default
 # (0.25); MAX_LEGACY_PREMIUM defaults to 0, meaning ANY premium paid for a retired
-# model name fails, because the deployment's policy is the Flash class and a retired
-# alias bills above it. Set either to empty to skip that check.
+# model name fails, because a retired alias bills above the rate card that replaced it.
+# Set either to empty to skip that check.
 MAX_PEAK_SHARE ?= 0.25
 MAX_LEGACY_PREMIUM ?= 0
 GATE_ARG := --no-agent-hours
@@ -69,7 +48,7 @@ endif
 CORPUS   ?= .cache/session-analysis/corpus.json
 ANALYSIS ?= .cache/session-analysis/analysis.json
 
-.PHONY: help usage usage-check usage-gate session-corpus session-analysis notify-selftest verify connect-usb-device
+.PHONY: help usage usage-check usage-gate session-corpus session-analysis notify-selftest verify
 
 help:
 	@echo "make usage                    - newest usage export in ~/Downloads, write and open the report"
@@ -81,9 +60,6 @@ help:
 	@echo "make session-corpus           - one pass over every session log -> $(CORPUS) (~2 min)"
 	@echo "make session-analysis         - the corpus, then the behaviour and cost figures cut from it"
 	@echo "make verify                   - run every check the kit ships"
-	@echo "make connect-usb-device       - tunnel the harness to a USB-attached phone (PORT=<n>, default 3080)"
-	@echo "make connect-usb-device OPEN=1 - the same, and open the page on the phone"
-	@echo "  PORT=<n> (default 3080), DEVICE=<serial>, STATE_DIR=<path> to find the pairing code"
 
 usage:
 	@$(NODE) $(ANALYTICS) $(EXPORT_ARG) $(OPEN_ARG)
@@ -112,19 +88,9 @@ usage-gate:
 notify-selftest:
 	@$(NODE) scripts/notify-selftest.mjs
 
-# Reach the chat bridge from a phone over the USB cable, with nothing exposed to any network.
-# The script does the diagnosis and names the ONE action a human must take when it cannot
-# connect, because "it did not work" is the expensive part of a cable that needs a dialog
-# accepted on the phone.
-connect-usb-device:
-	@$(NODE) scripts/connect-usb-device.mjs $(USB_ARGS)
-
 verify:
 	node scripts/check-portability.mjs
-	node scripts/check-instruction-routing.mjs
-	node scripts/check-model-gate.mjs
-	node scripts/probe-dsh-api.mjs --global-specs
-	node scripts/probe-dsh-api.mjs --local-specs
+	node scripts/check-documentation.mjs
 
 # The session corpus: one pass over every stored session log (~2 min for ~1,000 logs), producing a
 # single JSON the questions can be answered from in seconds instead of re-reading ~1 GB of zstd on

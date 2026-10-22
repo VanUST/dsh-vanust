@@ -68,7 +68,7 @@ if (-not $NoUpdate -and (Test-Path $updater)) {
     if ($apply) {
       & node $updater '--apply' '--kit' $kit '--home' $env:DSH_HOME
       if ($LASTEXITCODE -ne 0) { Write-Error 'kit update failed; not booting.'; exit 1 }
-      & dsh --profile web --dump-config | Select-String -Pattern '^- id: (model-gate|dsh-context|llm-deepseek)$' -Context 0,3
+      & dsh --profile web --dump-config | Select-String -Pattern '^- id: (notify|presentation|diagrams|work-modes|godot-mcp)$' -Context 0,3
     } else {
       Write-Warning 'booting without applying the kit update'
     }

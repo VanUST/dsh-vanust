@@ -67,7 +67,7 @@ export const DEFAULT_USD_PER_CNY = 6.667
  */
 export const DEFAULT_AGENT_HOUR_KEY = 'dsh'
 
-/** The model the deployment's policy requires; anything else is a finding. */
+/** The reference model the cost figures are computed against; anything else is reported. */
 export const POLICY_MODEL = 'deepseek-flash'
 
 /** Model names the export bills but which the current card has superseded. */
@@ -656,7 +656,7 @@ export function buildInsights(analysis) {
       title: 'Spend on models outside the Flash class',
       detail:
         `${offPolicy.map((model) => `${model.key} $${model.usd.toFixed(4)}`).join(', ')}. ` +
-        'The deployment policy admits only the Flash class, and these tokens were billed at a multiple of it.',
+        'These tokens were billed at a multiple of the Flash class rate.',
       usd: offPolicySpend,
     })
   }

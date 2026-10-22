@@ -1,21 +1,10 @@
 # USERGUIDE.md — setting up and starting the harness on a new machine
 
 This kit installs **DeepSeek Harness (dsh)** on any of your machines (2× Linux,
-1× Windows) plus the **ten** plugins this deployment adds beyond upstream:
-**`@deepseek-ai/dsh-model-gate`** (the class-based flash-only cost policy),
-**`@cc/dsh-specs`** (delivers the global items under `$DSH_HOME/specs` to every agent,
-and a project's own `docs/specs` items to that project's agents, as its
-binding rule section), **`@cc/dsh-context`** (a project's modules, rules and work
-orders as tools), **`@cc/dsh-specs`** (injects a project's human-authored
-`docs/specs/*.md` into every agent's prompt, re-read each assembly),
-**`@cc/dsh-adr-panel`** (the Session-header **Specs** button: a frame-wide window
-that lists, creates, edits and deletes `docs/specs/*.md` — §3.2),
+1× Windows) plus the **twelve** plugins this deployment adds beyond upstream:
 **`@cc/dsh-notify`** (raises a desktop notification — `notify-send`, a PowerShell toast or
 `osascript` — when an agent finishes a turn and when it asks you a question; silence it with
 `DSH_NOTIFY_DISABLED=1` in the server's environment),
-**`@cc/dsh-work-modes`** (the deployment's concurrency cap — at most two
-`subagent` children per session, with a `workflow` fan-out deliberately outside
-it; it injects no prompt section),
 **`@cc/dsh-presentation`** (one tool that renders a JSON deck spec into a
 standalone HTML presentation in the workspace, shown by the Sidebar document
 preview),
@@ -23,20 +12,42 @@ preview),
 HTML document with inline SVG — flowcharts and algorithm illustrations, layered system
 designs, sequence diagrams and state machines; you describe nodes and relationships and
 the plugin computes the geometry, and the Sidebar document preview shows it),
-**`@cc/dsh-godot-mcp`** (a declarative, transferable MCP server list — §3.3) and
-**`@cc/dsh-chat-bridge`** (a phone-facing PWA served on one capability-fenced
-HTTP route, so you can read output, answer questions, approve risky actions,
-dispatch tasks and steer a running turn from a phone; it adds no tool, no prompt
-section and no service to the model's surface — `docs/CHAT-BRIDGE-DESIGN.md`).
-`plugins/inventory.json` is the single source of truth for that set and for each
-plugin's provenance; `scripts/check-portability.mjs` fails when a tarball, a
-mounted profile row, a source directory or a packing entry point disagrees with
-it. The harness version is pinned; sessions and workspaces stay machine-local by
-design.
+**`@cc/dsh-work-modes`** (the deployment's concurrency cap — at most two
+`subagent` children per session, with a `workflow` fan-out deliberately outside
+it; it injects no prompt section) and
+**`@cc/dsh-godot-mcp`** (a declarative, transferable MCP server list — §3.2),
+**`@cc/dsh-skills`** (nine runtime skills: Ponytail, grill-me/grilling, Karpathy
+clear-writing/explain-webpage/explain-diagram, the UI builder loop, the proof-not-tests
+ruling and literature review),
+**`@cc/dsh-flash-guard`** (rewrites or refuses a delegated child's model route unless it is
+the configured flash route),
+**`@cc/dsh-proof-guard`** (denies a test-file write without a `PROOF:` header),
+**`@cc/dsh-taskboard`** (the task ledger and the Tasks panel that replaces the subagent
+catalog; `@cc/dsh-client-ui-subagent` is disabled so the header has one cell),
+**`@cc/dsh-orchestrator`** (root and child policy sections plus the root-only
+`delegate_task` tool) and
+**`@cc/dsh-handoff`** (one-page HTML and optional PDF handoff),
+**`@cc/dsh-papers`** (arXiv/Hugging Face paper search, HF daily trending, and a PDF
+download with text extraction).
+`plugins/inventory.json` is the single source of truth for that set;
+`scripts/check-portability.mjs` fails when a tarball, a mounted profile row, a
+source directory or a packing entry point disagrees with it. The harness version
+is pinned; sessions and workspaces stay machine-local by design.
 
-The user interface is upstream's own web app: conversations, the right sidebar
-with Files and document preview, open-in-app, and the agent's terminal tools all
-come from the harness itself, plus the Specs window above.
+The harness owns the persona, the request pipeline and the user interface; this kit adds a
+deployment policy on top: the orchestrator's root/child sections, nine runtime skills and a
+flash-route guard. A repository's `AGENTS.md`/`CLAUDE.md` still reaches the model through
+the harness's own loader. The Tasks panel is the one new primary surface: open it from the
+sidebar, or from the **Tasks** header cell in a conversation. Its detail pane is
+hideable; Pause/Resume, Close and Remove act on the task, and Pause/Close interrupt
+linked child sessions. Each task shows its children's roles and active/sleeping/paused
+states. The ledger lives in
+`.dsh/taskboard.json` inside the workspace; it is ignored by git and survives a restart.
+Hindsight memory is the third-party add-on: its installer stages the runtime and a
+companion skill, and this machine's config is enabled against a local daemon at
+`127.0.0.1:18888` (native DeepSeek provider). The daemon is a separate process and is not
+auto-started; see `rules/DEPLOYMENT.md` §1.1. Hindsight tools register at DSH boot, so a
+fresh server/session is needed after changing the config.
 
 ---
 
@@ -49,7 +60,7 @@ Requirements: **Node.js ≥ 24**, git, and network access to npm.
 ```bash
 git clone https://github.com/VanUST/dsh-vanust.git
 cd dsh-vanust
-./install.sh          # node check → pinned dsh → web profile → plugin → rules
+./install.sh          # node check → pinned dsh → web profile → plugins → procedure
 ```
 
 ### Windows (PowerShell)
@@ -60,18 +71,13 @@ cd dsh-vanust
 powershell -ExecutionPolicy Bypass -File install.ps1
 ```
 
-The installer does five things (idempotent; re-running upgrades to the pin):
+The installer does four things (idempotent; re-running upgrades to the pin):
 1. checks Node ≥ 24,
-2. `npm i -g @deepseek-ai/dsh@0.2.0-rc.2` (exact pin),
+2. `npm i -g @deepseek-ai/dsh@0.2.1-rc.2` (exact pin),
 3. writes `$DSH_HOME/profiles/web/{package.json,cordis.patch.yml,pnpm-workspace.yaml}`
    from the kit's canonical copies and installs every `plugins/*.tgz` into the
    profile,
-4. installs the global spec items to `$DSH_HOME/specs/` (one per prompt item),
-5. links the harness packages (`@deepseek-ai/dsh-tools`) beside the plugins and the
-   probes, which is what lets the kit's own tests run from this checkout. Step 5
-   is not needed by the deployment — an installed plugin resolves its peers through
-   the profile — so if it warns, `dsh web` still works; run
-   `node scripts/dev-link.mjs` before running the kit's tests yourself.
+4. installs the operating procedure to `$DSH_HOME/DEPLOYMENT.md`.
 
 `$DSH_HOME` = `~/.npm/dsh` (Linux) / `%USERPROFILE%\.npm\dsh` (Windows) —
 override with the `DSH_HOME` env var if you prefer another location.
@@ -110,7 +116,7 @@ dsh web --port 3080
 
 A small machine-local launcher wraps those three steps, so one command is both
 "update if needed" and "start": it runs the check, prints the concrete pending
-actions (harness / profile / plugins / rules), asks once before applying, and
+actions (harness / profile / plugins / procedure), asks once before applying, and
 then boots and prints the token URL. Keep the launcher **outside** this
 repository, next to `$DSH_HOME`, because it holds a machine-specific kit path
 that must not be synced to the other machines.
@@ -135,92 +141,32 @@ apply it unseen" — pass `-Yes` to apply without a prompt in those contexts.
    a terminal block in the chat.
 3. Ask the agent to edit a file and confirm the change appears in the sidebar
    preview.
+4. Ask for a `diagram` and a `presentation`: each writes a standalone `.html` file in the
+   workspace that the sidebar document preview renders.
 
-If the UI loads but the agent immediately fails with `MODEL_NOT_ALLOWED`, the
-default model is not a Flash-class id — check `$DSH_HOME/settings.yaml`
-(`agent-default-model.model`) and the profile patch. If it fails with
-`MISSING_CREDENTIAL`, finish the onboarding credential step.
-
-## 3.1 Where the agent's rules come from (and how to change them)
-
-The agent's rules are **global spec items**: one markdown file per prompt item under
-`$DSH_HOME/specs/`, contributed to the system prompt by the kit's own `@cc/dsh-specs`
-plugin as a **binding** section. The rules are seeded from the kit's `rules/specs/`
-(one file per section), and the identity, the persona prefix and suffix, the rules and
-the machine facts are all items in the same directory, so the whole prompt is edited in
-one place: the **Specs** window, switched to the *Global* scope. Three consequences
-worth knowing:
-
-- **Edit the item, not the harness.** Save a file under `$DSH_HOME/specs/` — in the
-  window or with an editor — and the change applies to the next request in every open
-  session, with no restart, because the catalogue is re-read on each prompt assembly.
-  A kit update overwrites a seeded item only while that file still holds the bytes the
-  kit last wrote; an item you edited is reported as modified and left alone.
-- **A repository's `AGENTS.md` does not reach the model.** The harness ships a
-  loader that would inject every `AGENTS.md`/`CLAUDE.md` from the project root
-  down to the working directory, frame them as guidance and let the most specific
-  one win; this deployment disables it (`- id: agent-instructions / disabled:
-  true` in `profile/cordis.patch.yml`), because a checkout must not be able to
-  override cost policy, remote-change permission or verification duties. Do not
-  re-enable it to "also pick up project notes". **Measured, both ways:** compose a
-  scratch profile from the profile patch and the loader injects nothing, while
-  without the disable a marked `AGENTS.md` in the project reaches the model. **The
-  catch is the running server, not the configuration:** a `dsh web` that started
-  before the patch was in place keeps its old composition for its whole life, so a
-  session can still receive `Instructions from: <path>` while `--dump-config` shows
-  the row disabled. The fix is a restart through the kit's launcher (which applies
-  the update first); the confirmation is asking the agent, in the session, to quote
-  the first line of section 0 of its rules — see §3.1's check below.
-- **Project facts belong in `.dsh/project.json`.** That is what the `context_*`
-  tools read, and a rule declared there names the command that fails when it is
-  broken, which prose never does.
-
-To confirm what the model actually received, ask it **in the session you are already
-using** — `--dump-config` proves only that the plugin is mounted, not that the rules
-reached the prompt, and a `--profile headless` run does NOT prove it either: the kit's
-patch layer is installed for the `web` profile, so a headless run has neither the
-disable nor the `specs` row and reports `ABSENT` on a perfectly healthy machine.
-In any GUI session, ask the agent to quote the first line of section 0 of its rules.
-A correct answer names `$DSH_HOME/DEPLOYMENT.md`; that is the prompt-content proof, from
-the profile you actually use.
-
-The window also holds the one typed setting: a small **Subagent cap** bar. Type a whole
-number of one or more and press **Set** in the *This project* scope to change how many
-subagent delegations that project's sessions may run at once (the machine default is 2, set
-in the *Global* scope); **Clear** removes the project's own value so the machine's applies
-again. The value is read when a delegation happens, so it takes effect on the next one.
-
-The static half is one command:
+If it fails with `MISSING_CREDENTIAL`, finish the onboarding credential step. The static
+half is one command — every plugin row must be mounted:
 
 ```bash
-dsh --profile web --dump-config | grep -A2 'specs'
-node scripts/probe-dsh-api.mjs --global-specs   # and the rules reach an assembled prompt
+dsh --profile web --dump-config | grep -E "id: (notify|presentation|diagrams|work-modes|godot-mcp)"
 ```
 
-If that row is missing, the patch layer was overwritten — see §5.
+If a row is missing, the patch layer was overwritten — see §5.
 
-## 3.2 The Specs window: where your specs are written
+## 3.1 Where the agent's rules come from
 
-A **button in the Session header** opens a frame-wide overlay on the project's
-specs. It lists `docs/specs/*.md`, opens one in a text editor, and saves, creates
-or deletes it through one capability-fenced host route.
+The harness's own workspace-instruction loader is used as shipped: it injects every
+`AGENTS.md`/`CLAUDE.md` from the project root down to the working directory, framed as
+guidance, and the most specific file wins. Put project instructions there.
 
-`@cc/dsh-specs` is the other half: it reads the active specs and contributes them
-to the system prompt of every root session and every subagent, re-read on each
-prompt assembly, so an edit takes effect on the next request with no restart. A
-spec whose frontmatter `status` is absent or exactly `active` is injected;
-`draft`, `done` and `inactive` are not.
+There is no global prompt layer in this kit any more: no identity, persona, rule section or
+machine-facts item is contributed to the system prompt, so nothing in the kit can be
+diluted or overridden — there is nothing to overrule. The consequence is worth stating
+plainly: **cost policy, remote-change permission and verification duties are no longer
+part of the prompt.** They are yours to state in a repository's `AGENTS.md`, and they bind
+only that repository.
 
-**Specs are advisory text a human owns.** Nothing compiles them, nothing verifies
-code against them, and nothing fails when one is ignored — there is no gate, no
-consent step and no verdict anywhere in this deployment. Architecture decision
-records under `docs/adrs/` are plain documents a human keeps; nothing reads them
-either.
-
-The window **renders no decisions and mints no consent**: it is a file editor over
-`docs/specs/`, and the only thing a save produces is the spec file itself.
-
-## 3.3 Connecting Godot (the MCP server list)
+## 3.2 Connecting Godot (the MCP server list)
 
 `@cc/dsh-godot-mcp` gives the deployment a Godot editor the agent can drive:
 scenes, nodes, scripts, signals and UI, through 47 tools published as
@@ -263,18 +209,17 @@ Two limits, stated so a surprise is not a mystery. This server is
 **editor-live**: it drives a running editor and can screenshot it, but it does not
 attach to a running *game*. And a missing launcher costs you the Godot tools
 **only** — every other feature still works, because the row is declared with
-`failOnStartupError: false`; the deployment's status section and the sync output
-both say the launcher is missing rather than leaving you to guess.
+`failOnStartupError: false`; the sync output says the launcher is missing rather
+than leaving you to guess.
 
 If you ever configure this server from Godot's own AI dock instead, that dock
 writes the same `$DSH_HOME/cordis.patch.yml`. The sync **refuses rather than
 merges** when it finds entries it did not write, so you will get a named refusal
 telling you which file to reconcile — not a silently deleted entry.
 
-## 3.4 Usage analysis: one command
+## 3.3 Usage analysis: one command
 
-Section 8 of the agent's rules justifies the Flash-only model policy with a measured
-usage analysis. To refresh it from a fresh platform export:
+To see where the spend goes from a fresh platform export:
 
 ```bash
 make usage
@@ -287,7 +232,8 @@ three reports into `reports/usage/`, named for the window the export covers:
 The HTML report is self-contained — inline CSS, no script, nothing fetched — so it
 renders the same from disk, as an attachment, or in a document preview, with no network.
 
-The published copy the rules cite is `docs/usage/2026-09.html`. To refresh that one
+The published copy for that window is `docs/usage/2026-09.html` — a dated snapshot, whose
+wording describes the model line-up as it stood then. To refresh that one
 instead, point the reports at it:
 
 ```bash
@@ -336,34 +282,31 @@ that leaks.
 |---|---|---|
 | Credentials | first-run onboarding | same |
 | Startup script | `./start.sh` | `.\start.ps1` |
-| Default model | `deepseek-flash` in `$DSH_HOME/settings.yaml` | same |
+| Default model | whatever `$DSH_HOME/settings.yaml` names — no gate, no picker trimming | same |
 | Shell tooling | upstream `terminal/` family | same |
 
 ## 5. Migrating an EXISTING machine
 
-The live profile may still reference the retired workbench/terminal tarballs.
-Bring it to the shipped set:
+The live profile may still reference tarballs and prompt files this kit no longer ships
+(the cost-policy, prompt-layer, project-context, specs-window and chat-bridge plugins, and
+the `$DSH_HOME/specs` directory they read). Bring it to the shipped set:
 
 ```bash
 cd "$DSH_HOME/profiles/web"
-corepack pnpm remove @deepseek-ai/dsh-host-web-workbench \
-  @deepseek-ai/dsh-client-ui-workbench @deepseek-ai/dsh-client-ui-terminal
+corepack pnpm remove @deepseek-ai/dsh-model-gate @cc/dsh-context @cc/dsh-specs \
+  @cc/dsh-adr-panel @cc/dsh-chat-bridge
 corepack pnpm add /path/to/dsh-kit/plugins/*.tgz
 cp /path/to/dsh-kit/profile/cordis.patch.yml cordis.patch.yml
-mkdir -p "$DSH_HOME/specs"
-for seed in /path/to/dsh-kit/rules/specs/*.md; do
-  [ -f "$DSH_HOME/specs/$(basename "$seed")" ] || cp "$seed" "$DSH_HOME/specs/"
-done
 ```
 
-Then restart `dsh web` and open the token URL it prints.
+Then restart `dsh web` and open the token URL it prints. `$DSH_HOME/specs` and
+`$DSH_HOME/MACHINE.md` are no longer read by anything; delete them at your convenience.
 
 ## 6. Troubleshooting
 
 | Symptom | Cause / fix |
 |---|---|
 | `http://127.0.0.1:3080/` says authentication required | Expected since 0.1.5 — reopen the `?token=` URL printed by `dsh web` |
-| Agent fails `MODEL_NOT_ALLOWED` | A non-Flash model is configured; set `agent-default-model.model: deepseek-flash` (or widen `allowedModelPatterns` in the profile patch) |
 | Agent fails `MISSING_CREDENTIAL` | Credentials not stored — finish onboarding / the Models page |
 | `dsh web` won't start | port 3080 busy (`PORT=3081 ./start.sh`) or Node < 24 |
 | A plugin row not active after a config edit | The row registers at boot — restart `dsh web` |
@@ -374,9 +317,10 @@ Then restart `dsh web` and open the token URL it prints.
 One-liner habit:
 
 ```bash
-npm i -g "@deepseek-ai/dsh@<candidate>"        # 1. install candidate
-./scripts/rebuild-plugins.sh                   # 2. rebuild the plugin (matching checkout)
-# 3. repoint the live profile + restart the GUI (token URL) only once it composes
+npm i -g "@deepseek-ai/dsh@<candidate>"             # 1. install candidate
+node scripts/pack-plugin.mjs --dir plugins/notify   # 2. repack each plugin against it
+node scripts/check-portability.mjs                  # 3. the checks must pass
+# 4. repoint the live profile + restart the GUI (token URL) only once it composes
 ```
 
 ## Activating a newly added plugin on an already-installed machine
@@ -389,8 +333,7 @@ reach your profile automatically.
 `scripts/kit-update.mjs --apply` is the supported way to pick one up: it writes the kit's patch layer,
 installs every kit tarball with the pinned pnpm, and verifies the installed bytes against each tarball.
 What it deliberately does **not** do is merge your own edits into the patch layer — it writes the kit's
-copy, so keep machine-specific rows in a second patch file passed with `--patch`, not in
-`profiles/web/cordis.patch.yml`.
+copy, so keep machine-specific rows in a second patch file, not in `profiles/web/cordis.patch.yml`.
 
 The manual equivalent, if you want to keep your own patch layer:
 
@@ -399,7 +342,7 @@ The manual equivalent, if you want to keep your own patch layer:
 #    Use the pnpm major that installed the profile: the store layout is versioned
 #    (v10 vs v11), and a mismatched pnpm fails with ERR_PNPM_UNEXPECTED_STORE.
 #    install.sh installs with ${PNPM_VERSION} above, currently 11.7.0.
-cd "$DSH_HOME/profiles/web" && corepack pnpm@11.7.0 add "${KIT_DIR}"/plugins/cc-dsh-context-*.tgz
+cd "$DSH_HOME/profiles/web" && corepack pnpm@11.7.0 add "${KIT_DIR}"/plugins/cc-dsh-notify-*.tgz
 
 # 2. add the matching insert entry to your cordis.patch.yml, copying it from
 #    ${KIT_DIR}/profile/cordis.patch.yml
@@ -417,18 +360,7 @@ mistake becomes a visible warning, but the version bump is still what makes the 
 Check composition without booting the app:
 
 ```bash
-dsh --profile web --dump-config | grep -A1 'dsh-context'
+dsh --profile web --dump-config | grep -A1 'notify'
 ```
 
 A missing entry there means the plugin is installed but not wired.
-
-`@cc/dsh-context` registers three tools: `context_module`, `context_rules` and
-`context_specs`. A project without `.dsh/project.json` gets an actionable message naming that file
-rather than an empty result — that is the plugin working, not a wiring fault.
-
-`@cc/dsh-specs` injects the project's active `docs/specs/*.md` into every agent's prompt and
-registers no tools of its own. Check both rows are mounted with:
-
-```bash
-dsh --profile web --dump-config | grep -E 'dsh-context|dsh-specs'
-```

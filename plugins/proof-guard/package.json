@@ -1,0 +1,19 @@
+{
+  "name": "@cc/dsh-proof-guard",
+  "version": "0.1.0",
+  "description": "Denies a write or edit to a test file unless the content (or the existing file) states a PROOF header naming the production behavior and the failure it prevents; the no-autotest ruling as mechanical friction, with a warn mode for a trial week. No tool, prompt section or session event.",
+  "type": "module",
+  "main": "proof-guard.mjs",
+  "exports": {
+    ".": "./proof-guard.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "proof-guard.mjs",
+    "README.md"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
+  }
+}

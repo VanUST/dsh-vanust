@@ -2,102 +2,6 @@
 # a top-level YAML array of loader patch entries (id-targeted config
 # overrides, disables, and insert lists; `!!js` expressions allowed).
 
-# ── mandatory rules: the kit's own rules, never a project's ─────────────────
-# The harness ships a workspace-instruction loader that injects every AGENTS.md
-# and CLAUDE.md from the project root down to the working directory, frames them
-# as guidance ("may be relevant to your work"), and lets the most specific file
-# win. That is the wrong shape for this deployment: cost policy, remote-change
-# permission and verification duties must not be dilutable by whichever
-# repository the agent happens to sit in, and the framing must read as binding.
-#
-# So that loader is neutered and the kit's rules are contributed to the system
-# prompt directly instead. The section's text is a provider, re-evaluated on
-# every prompt assembly, so editing $DSH_HOME/AGENTS.md takes effect on the next
-# request without a restart. The plugin reads exactly one file, and no project
-# instruction file can reach the prompt at all.
-#
-# WHY THERE IS NO `disabled: true` HERE, although the kit shipped one for months.
-# Measured: a live web profile still injected a repository's AGENTS.md into fresh
-# sessions, with this row shown as `disabled: true` in `--dump-config`, on a server
-# booted after this file was written — while a scratch composition from the same
-# patch honoured the flag. And `--dump-config` shows that patch `config` merges for
-# an ENABLED row (see `llm-deepseek` below) but not for a disabled one, so a flag
-# that is ignored on some composition also blocks the fix that would work.
-#
-# Emptying the discovery is the route that does not depend on the flag: with no
-# candidate filenames the loader has nothing to find, whatever it is handed. The
-# cost is one sentence in the prompt — its own "no workspace instructions are
-# currently active" baseline — which carries no repository content. The live
-# confirmation is asking a session what it received.
-- id: agent-instructions
-  config:
-    instructionFileCandidates: []
-    localInstructionFileCandidates: []
-
-# ── system-prompt: the identity and persona slots move to specs ─────────────
-# The harness registers `harness:identity`, `deployment:persona-prefix` and
-# `deployment:persona-suffix` itself, and a plugin CANNOT replace them: section
-# registration is per-layer, and a second registration of the same name in the same
-# layer throws ("already registered (for a per-agent override, register ...)").
-# Measured against the installed 0.2.0-rc.2, not assumed.
-#
-# So the deployment stops the harness owning them instead of fighting it: with no
-# default identity and empty persona strings those slots are free, and the specs
-# plugin registers `specs:identity`, `specs:persona-prefix` and
-# `specs:persona-suffix` at the harness's own orders (-1000, 0, 10200). The text
-# then lives in `$DSH_HOME/specs/*.md` like every other prompt item, editable from
-# the Specs window, and `{{model}}` / `{{cwd}}` still resolve because the specs
-# plugin substitutes them itself with `interpolate: false`.
-- id: system-prompt
-  config:
-    includeHarnessIdentity: false
-    personaPrefix: ''
-    personaSuffix: ''
-
-# ── model-gate: cost policy for the official DeepSeek route ────────────────
-# Class-based flash-only gate: every llm/stream dispatch whose model is not a
-# Flash-tier id is vetoed before the adapter is invoked (root turns,
-# subagents, compaction, session titles), so a non-Flash model costs nothing
-# and fails loudly. The pattern admits future Flash releases without a policy
-# edit; non-Flash tiers (the pro line) match nothing.
-- insert:
-    - id: model-gate
-      name: '@deepseek-ai/dsh-model-gate'
-      config:
-        enabled: true
-        allowedModelPatterns:
-          - '^deepseek-(v[0-9.]+-)?flash(-[a-z0-9-]+)*$'
-
-# ── model picker: advertise only the current Flash model ───────────────────
-# The gate is the hard block; this keeps non-Flash tiers out of the picker and
-# every catalog-driven list so the UI never offers what the gate would refuse.
-# Mirrored by the hot `llm-deepseek:` section in $DSH_HOME/settings.yaml.
-- id: llm-deepseek
-  config:
-    models:
-      - id: deepseek-flash
-        name: DeepSeek-V4.1-Flash
-        contextWindow: 1000000
-        inputModalities: [text, image]
-        imagePixelBudget: 640000
-        imageMaxBytes: 1048576
-
-# ── dsh-context: project structure, rules and work orders as tools ─────────
-# Exposes three tools to any agent on this harness: `context_module` (which module
-# owns a path, what it exports, what it links to), `context_rules` (which rules the
-# project claims and the exact command that fails when one is broken), `context_specs`
-# (what work is in flight, which paths it claims, and where two active specifications
-#
-# Project-agnostic by design: it reads only `.dsh/project.json`, so a Python, C/C++
-# or Unity repository gets the same three tools by writing its own manifest. A project
-# without that file gets an actionable message naming it, never an empty result.
-#
-# Tools rather than documents on purpose: an agent calls a tool, while it ignores a
-# documentation server almost always and a prose file about half the time.
-- insert:
-    - id: dsh-context
-      name: '@cc/dsh-context'
-
 # ── notify: a desktop popup when the agent finishes or asks a question ──────
 # Two seams, no guesswork: `agent/status` with a `running -> idle` transition IS the turn
 # having ended, and `user-questions/request` is the waterfall the harness's ask-user path
@@ -116,43 +20,6 @@
         minRunMs: 15000
         onFinish: true
         onQuestion: true
-
-# ── specs: every prompt item, from two scopes of spec file ──────────────────
-# One plugin owns the whole prompt's configurable text. It reads two directories:
-#   - `$DSH_HOME/specs/*.md`   (GLOBAL) - every agent on this machine, every project.
-#     Only these may fill the identity, persona and mandatory-rules slots.
-#   - `<project>/docs/specs/*.md` (LOCAL) - only agents whose Session resolves to that
-#     project. They may fill the advisory `items` slot alone, so a project cannot
-#     dilute, reorder or disable a mandatory rule.
-#
-# It renders SIX sections, one per slot: specs:identity (-1000),
-# specs:persona-prefix (0), specs:rules (10000, under the binding MANDATORY framing),
-# specs:machine (10050, the generated MACHINE.md), specs:persona-suffix (10200) and
-# specs:items (10250, the advisory project requirements). Every section's text is a
-# PROVIDER re-evaluated on each assembly, and all six render from ONE catalogue
-# snapshot taken for that assembly, so a change to several spec files lands in a
-# single prompt and no prompt can mix an old section with a new one.
-#
-# The scope directories are conventions, not configuration: turning the plugin off is a
-# profile decision (`- id: specs / disabled: true`), not a plugin option. It is
-# READ-ONLY over those directories and writes nothing; the Specs window is the writer.
-- insert:
-    - id: specs
-      name: '@cc/dsh-specs'
-
-# ── adr-panel: the specs window ─────────────────────────────────────────────
-# Two halves. The browser bundle adds a Session-header button labelled SPECS that
-# opens a frame-wide overlay; the host half serves one capability-fenced route that
-# lists, writes and deletes `<project>/docs/specs/*.md` for the Session the window is
-# open on, resolving the project from that Session's own header rather than from the
-# server's launch directory.
-#
-# It is storage, not machinery: it compiles nothing, verifies nothing, mints no
-# consent and keeps no ledger. The only rule it enforces is that a write stays
-# inside the project's specs directory.
-- insert:
-    - id: adr-panel
-      name: '@cc/dsh-adr-panel'
 
 # ── presentation: decks the agent renders, shown by the file preview ────────
 # Contributes one tool, `presentation`, which turns a JSON deck spec into a
@@ -228,3 +95,98 @@
 - insert:
     - id: godot-mcp
       name: '@cc/dsh-godot-mcp'
+
+# ── skills: the deployment's reusable instructions ─────────────────────────
+# Nine runtime skills in one tarball: Ponytail's lazy-senior discipline,
+# grill-me/grilling, Karpathy clear-writing/explain-webpage/explain-diagram
+# (adapted to the local `diagram` tool), the UI builder loop, the proof-not-tests
+# ruling, and the literature-review procedure. They register through
+# `ctx.skills.register`, so the tarball is the source of truth and no machine
+# needs a copy under $DSH_HOME/skills. `grill-me` stays user-invocable; the model
+# reaches the procedure through `grilling`.
+- insert:
+    - id: skills
+      name: '@cc/dsh-skills'
+
+# ── papers: arXiv/HF search, trending, PDF text ────────────────────────────
+# One host-only tool family for the literature-review skill. Public APIs, no key;
+# results are normalised across arXiv and Hugging Face, and a source failure is
+# reported while the other source still returns.
+- insert:
+    - id: papers
+      name: '@cc/dsh-papers'
+
+# ── flash-guard: delegated work stays on flash ─────────────────────────────
+# The default model is already deepseek-flash, but a workflow script can name
+# another route. This listener runs after `agent/request` resolves the frozen
+# LlmCallConfig and rewrites a child's route to flash before dispatch; with
+# `onViolation: refuse` it throws instead. `enforceRoot: false` keeps the human's
+# own model choice intact. External providers do not route through this seam.
+- insert:
+    - id: flash-guard
+      name: '@cc/dsh-flash-guard'
+      config:
+        provider: deepseek-official
+        model: deepseek-flash
+        onViolation: rewrite
+        enforceRoot: false
+        maxReasoningEffort: high
+
+# ── proof-guard: the no-autotest ruling at the write seam ───────────────────
+# A `tools/pre-execute` waterfall on write/edit: a test path needs a PROOF
+# header naming the production behavior and the failure it prevents. `mode: deny`
+# is the default; `warn` is the trial mode. The guard reads an existing file so a
+# legacy test is not trapped. This is friction, not proof: the skill and the
+# handoff evidence remain the real check.
+- insert:
+    - id: proof-guard
+      name: '@cc/dsh-proof-guard'
+      config:
+        mode: deny
+
+# ── taskboard: the workspace task ledger ───────────────────────────────────
+# One `.dsh/taskboard.json` per workspace, with objective, scope, non-scope,
+# acceptance, status, results and a timeline. Model tools and the `/taskboard`
+# command share one service. The client half replaces the `subagent-catalog`
+# header cell and adds a Tasks main panel + sidebar entry; it reads through
+# `workspaceFiles` and writes through the command Remote, so it needs no custom
+# Typert namespace.
+- insert:
+    - id: taskboard
+      name: '@cc/dsh-taskboard'
+      config:
+        file: .dsh/taskboard.json
+        maxTasks: 200
+        timelineLimit: 120
+
+# ── orchestrator: the root agent plans, delegates and integrates ─────────────
+# Root-only policy section + root-only `delegate_task`; child-only specialist
+# section. The taskboard service must be mounted first; `inject` waits for it.
+# The delegation tool creates the task, renders a self-contained brief, starts a
+# flash child with `agentOptions`, and links the child id.
+- insert:
+    - id: orchestrator
+      name: '@cc/dsh-orchestrator'
+      config:
+        provider: spawn
+        childProvider: deepseek-official
+        childModel: deepseek-flash
+        promptSections: true
+
+# ── handoff: one readable page per task ────────────────────────────────────
+# Structured result -> self-contained A4 HTML + optional PDF through the
+# installed Chrome. The HTML is the source of truth; a missing browser is a
+# warning, not a failed tool.
+- insert:
+    - id: handoff
+      name: '@cc/dsh-handoff'
+
+# ── replace the subagent catalog with the taskboard ────────────────────────
+# The taskboard's header cell reuses the `subagent-catalog` id; the shipped
+# client package registers that id first and cannot share the cell. Disabling
+# the client package removes the lineage popover (the window this deployment is
+# replacing) while the host-side subagent tools, lifecycle and session child
+# conversations remain. Child sessions are opened from the task detail.
+- id: ui-subagent
+  name: '@deepseek-ai/dsh-client-ui-subagent'
+  disabled: true

@@ -1,0 +1,38 @@
+{
+  "name": "@cc/dsh-taskboard",
+  "version": "0.1.14",
+  "description": "A workspace task ledger with objective, scope, non-scope, acceptance, status, results and a timeline; model tools, a /taskboard command for the UI, and a Web panel that replaces the subagent catalog header cell. Reads the ledger through workspaceFiles, writes through the command Remote, so no custom RPC is needed.",
+  "type": "module",
+  "main": "taskboard.mjs",
+  "exports": {
+    ".": "./taskboard.mjs",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "taskboard.mjs",
+    "client.js",
+    "README.md"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-api-gateway",
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-api-workspace-controller",
+        "@deepseek-ai/dsh-api-workspace-files",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-subagent",
+        "@deepseek-ai/dsh-client-ui-workspace"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
+  }
+}

@@ -1,49 +1,15 @@
 # dsh-kit
 
-Portable setup for **DeepSeek Harness (dsh)** plus the ten plugins this
+Portable setup for **DeepSeek Harness (dsh)** plus the twelve plugins this
 deployment needs beyond upstream, across all your machines (2× Linux, 1× Windows).
-`plugins/inventory.json` is the single source of truth for the set and for each
-plugin's provenance:
+`plugins/inventory.json` is the single source of truth for the set:
 
-- **`@deepseek-ai/dsh-model-gate`** — a class-based flash-only cost policy for the
-  official DeepSeek route.
-- **`@cc/dsh-context`** — project structure, declared rules and work orders
-  exposed as tools (`context_module`, `context_rules`, `context_specs`). It is
-  project-agnostic: it reads only `.dsh/project.json`, so a Python, C/C++ or Unity
-  repository gets the same tools by writing its own manifest.
-- **`@cc/dsh-specs`** — the whole system prompt, configurable as spec items at two
-  scopes. **Global** items live under `$DSH_HOME/specs/` (seeded from `rules/specs/`)
-  and reach every agent on the machine: the identity, the persona prefix and suffix,
-  the mandatory rules (under their binding `MANDATORY OPERATING RULES` framing) and the
-  generated machine facts. **Local** items live under `<project>/docs/specs/` and reach
-  only that project's root sessions and subagents. All of it is read as ONE catalogue
-  snapshot per prompt assembly, so an edit lands on the next request with no restart and
-  a change to several files never lands half-applied. A `status` of absent or exactly
-  `active` is injected; `draft`, `done` and `inactive` are not. It exists because the
-  harness's own workspace-instruction loader does the opposite of what this deployment
-  needs: it injects every `AGENTS.md`/`CLAUDE.md` from the project root down to the
-  working directory, frames them as guidance, and lets the most specific file win. Cost
-  policy, remote-change permission and verification duties must not be dilutable by
-  whichever repository the agent happens to sit in — so that loader is disabled, the
-  **global** scope is the only one that may fill the identity, persona and rules slots,
-  and a project's own item can never enter them. The plugin compiles, checks and writes
-  nothing: specs are text a human owns, and it only reads them.
 - **`@cc/dsh-notify`** — a desktop notification when an agent finishes a turn and when it asks
   the user a question: `notify-send` on Linux, a WinRT toast (with a tray-balloon fallback)
   through `powershell.exe` on Windows, `osascript` on macOS. The notifier is spawned detached
   with argv-only arguments — no shell, and the text travels in environment variables on
   Windows — so it cannot block a turn, and a machine with no notifier loses the popup and
   nothing else. Silence it with `DSH_NOTIFY_DISABLED=1`.
-- **`@cc/dsh-adr-panel`** — the deployment's own window on those specs: a session-header
-  **Specs** button opens a frame-wide overlay that lists, creates, edits and deletes
-  `docs/specs/*.md` through one capability-fenced host route. It renders no decisions
-  and mints no consent.
-- **`@cc/dsh-work-modes`** — one deployment policy on a harness seam that can actually
-  refuse something: a monotonic guard refusing a third concurrent `subagent` child per
-  session (a `workflow` fan-out is deliberately outside it, so it is not a ceiling on
-  concurrent work, and the cap has a stated residual — a child the registry never
-  disposes keeps its slot, while a child no registry can answer for stops being counted
-  after the age bound). It injects no prompt section.
 - **`@cc/dsh-presentation`** — one tool that turns a JSON deck spec into a standalone
   HTML presentation in the session workspace. It ships no client half on purpose: the
   Sidebar document preview already renders `.html` in a script-enabled sandboxed frame,
@@ -57,6 +23,12 @@ plugin's provenance:
   engine — so a scheme is never handed a set of coordinates to maintain. Same reasoning
   as presentation for the missing client half: the Sidebar document preview renders the
   file, and the file prints as it looks.
+- **`@cc/dsh-work-modes`** — one deployment policy on a harness seam that can actually
+  refuse something: a monotonic guard refusing a third concurrent `subagent` child per
+  session (a `workflow` fan-out is deliberately outside it, so it is not a ceiling on
+  concurrent work, and the cap has a stated residual — a child the registry never
+  disposes keeps its slot, while a child no registry can answer for stops being counted
+  after the age bound). It injects no prompt section.
 - **`@cc/dsh-godot-mcp`** — keeps a deployment's MCP server list declarative so it
   transfers between machines instead of being configured per machine. The harness's own
   MCP client bridge does the connecting; this plugin owns the canonical list, resolves
@@ -66,47 +38,86 @@ plugin's provenance:
   `scripts/dsh-mcp-sync.mjs`, which imports the plugin's own row builder so the two
   cannot drift. It ships no MCP protocol code, by design: a second client implementation
   would diverge from the shipped one on precisely the details that are hard to get right.
-- **`@cc/dsh-chat-bridge`** — drive a session from a phone. One capability-fenced route,
-  `/chat-bridge`, serves an installable PWA that lists sessions, renders a transcript, follows a
-  turn live over SSE, sends prompts (`queue` to dispatch, `steer` to redirect a turn already
-  running), and answers the harness's question and approval waterfalls when no desktop client is
-  attached. It adds no tool, no prompt section and no service: its only influence on a turn is a
-  user message and an answer to a question. Its pairing is its own — the Web GUI's launch token is
-  memory-only and cannot enrol a second device. **Not mounted yet:** the row exists so the
-  packaging is consistent, and the profile row that would arm it is deliberately absent.
+- **`@cc/dsh-skills`** — nine runtime skills in one tarball: Ponytail's lazy-senior
+  discipline (its test paragraph patched to the proof rule), grill-me/grilling, Karpathy
+  clear-writing/explain-webpage/explain-diagram (the diagram skill adapted to the local
+  `diagram` tool), the UI builder loop, the proof-not-tests ruling, and the literature
+  review procedure. They register through `ctx.skills.register`; no `$DSH_HOME/skills` copy.
+- **`@cc/dsh-flash-guard`** — one `agent/request` waterfall: a delegated child's model
+  route is rewritten to the configured flash route, or refused, before dispatch. This is
+  the enforcement behind the Subagent model-selection allowlist; external providers are
+  the stated residual.
+- **`@cc/dsh-proof-guard`** — a `tools/pre-execute` waterfall that denies a write or edit to
+  a test file unless it carries a `PROOF:` header naming the production behavior and the
+  failure it prevents. `mode: warn` exists for a trial; this is friction, not proof.
+- **`@cc/dsh-taskboard`** — the task ledger and the dashboard that replaces the subagent
+  catalog. One `.dsh/taskboard.json` per workspace holds objective, scope, non-scope,
+  acceptance, status, results and a timeline; model tools and a `/taskboard` command share
+  one Host service, plus pause/resume/close/remove lifecycle actions. The Web half reads
+  through `workspaceFiles`, writes through the command Remote, adds a Tasks main panel and
+  sidebar entry, a hideable detail pane, and a subagent roster with each child's role and
+  active/sleeping/paused state. It reuses the `subagent-catalog` header id. The shipped `ui-subagent` client is disabled so the replacement is one cell,
+  not two; child sessions are opened from the task detail.
+- **`@cc/dsh-orchestrator`** — a root-only policy section, a child-only specialist section,
+  and a root-only `delegate_task` tool. The tool creates the task, renders a self-contained
+  brief (objective, scope, non-scope, inputs, acceptance, output, proof, timebox), starts a
+  flash child and links the child id. It applies to every preset; no preset is duplicated.
+- **`@cc/dsh-handoff`** — one tool that renders a structured result into a self-contained
+  A4 HTML page (TL;DR, objective, changes, evidence, decisions, risks, next, artifacts) and,
+  when Chrome/Chromium is available, a PDF beside it. The HTML is the source of truth.
+- **`@cc/dsh-papers`** — the literature-research tool family: `papers_search` across arXiv
+  and Hugging Face, `papers_trending` for the HF daily list, and `papers_download` to save an
+  arXiv PDF under `.dsh/papers/` with a `pdftotext` extraction. No API key; one source can
+  fail while the other returns results.
+
+**Third-party add-on: Hindsight memory.** `@vectorize-io/hindsight-coding-agents@0.8.2`
+is installed separately by its own command (`npx @vectorize-io/hindsight-coding-agents install dsh`),
+not from this repository, and is therefore not one of the twelve in-repo plugins. It writes a
+row into `$DSH_HOME/cordis.patch.yml` (the home layer, shared by every profile) and a
+companion skill into `~/.agents/skills/hindsight-coding-agent`. Its settings live in
+`~/.hindsight/coding-agent.json`; this machine's file is enabled with `serverMode: daemon`
+at `apiPort: 18888` and is backed by a running local daemon using the native DeepSeek
+provider. The daemon is a separate process, not auto-started by DSH; start it with the
+command in `rules/DEPLOYMENT.md` §1.1, or point the config at Cloud/self-hosted. Hindsight
+tools register at DSH boot, so restart DSH after changing the config. `kit-update` preserves
+the home row and repairs the installer's footer, but does not configure Hindsight; the row
+survives a kit convergence by design.
+
+**Prompt, skills and model policy are now deployment surfaces.** The harness still owns the
+persona and the request pipeline, but this kit deliberately adds a root/child orchestration
+policy (`@cc/dsh-orchestrator`), nine runtime skills (`@cc/dsh-skills`) and a flash-route
+guard (`@cc/dsh-flash-guard`). This is a change from the earlier "no plugin contributes
+prompt text" stance; `rules/DEPLOYMENT.md` §2 states the policy and the seams, and the
+model route still offers what the profile configures.
 
 ## Plugin list
 
 Clone this repo on a new machine, run `./install.sh` (or `install.ps1` on
-Windows), and `dsh web` is up with the same pinned harness version, the same
-plugins, and the same core operating rules.
+Windows), and `dsh web` is up with the same pinned harness version and the same
+plugins.
 
 ```bash
 git clone https://github.com/VanUST/dsh-vanust.git
 cd dsh-vanust               # the repository is dsh-vanust; the kit it contains is dsh-kit
 ./install.sh          # or: powershell -ExecutionPolicy Bypass -File install.ps1
-node scripts/dev-link.mjs   # only if install.sh warned: links the harness packages
-                            # so the KIT'S OWN tests run from this clone
 ```
 
 **What a clone alone gives you, stated exactly.** Everything the deployment
-installs is in the repository: the ten plugin tarballs, the canonical profile, the
-rules file and the pinned version in both installers. Every plugin's source is here
-too — `plugins/kit-rules/`, `plugins/specs/`, the reconstructed `plugins/dsh-context/`,
-and a read-only snapshot of `model-gate` under `plugins/model-gate/`, each external one
-carrying a `SOURCE-NOTICE.md` that pins what it was copied from. Two things come from
+installs is in the repository: the twelve plugin tarballs, the canonical profile, the
+procedure and the pinned version in both installers. Every plugin's source is here
+too — `plugins/notify/`, `plugins/presentation/`, `plugins/diagrams/`,
+`plugins/work-modes/`, `plugins/godot-mcp/`, `plugins/skills/`, `plugins/flash-guard/`,
+`plugins/proof-guard/`, `plugins/taskboard/`, `plugins/orchestrator/` and
+`plugins/handoff/`. Two things come from
 outside it, and both are steps the installer performs rather than files a clone could
-carry: the harness itself (`npm i -g @deepseek-ai/dsh@0.2.0-rc.2`, so npm must be
+carry: the harness itself (`npm i -g @deepseek-ai/dsh@0.2.1-rc.2`, so npm must be
 reachable) and your API credentials (per machine, configured at first run — never in
-the repository). One further step is needed only to run the kit's OWN tests from the
-checkout: `scripts/dev-link.mjs` links the harness packages the in-repo plugins and
-probes import (`@deepseek-ai/dsh-tools`) beside them (a gitignored `node_modules`).
-Without that link the suite fails with one line naming it, and `install.sh` runs it
-for you.
+the repository). The kit's own checks read the checkout only, so they run on a fresh
+clone with nothing else installed.
 
 ```
 dsh-kit/
-├── install.sh / install.ps1   # fresh-machine setup (Node check → pinned dsh → profile → plugins → rules)
+├── install.sh / install.ps1   # fresh-machine setup (Node check → pinned dsh → profile → plugins → procedure)
 ├── start.sh / start.ps1       # easy startup: dsh web --port 3080
 ├── Makefile                   # `make usage`: analyse the newest usage export and open the report;
 │                              #   `make usage-gate`: fail when the peak share or the retired-name
@@ -118,26 +129,27 @@ dsh-kit/
 │                              #   session), extract-corpus.mjs + analyse-corpus.mjs (`make
 │                              #   session-analysis`: every session, in seconds per question)
 ├── scripts/kit-update.mjs     # update path: hash drift check + convergence for an existing machine
-├── plugins/inventory.json     # the shipped plugin set + each plugin's provenance (the source of truth)
-├── plugins/*.tgz              # plugin tarballs: model-gate, cc-dsh-context, cc-dsh-specs,
-│                              #                  cc-dsh-adr-panel, cc-dsh-presentation,
-│                              #                  cc-dsh-diagrams, cc-dsh-work-modes,
-│                              #                  cc-dsh-godot-mcp
-├── plugins/model-gate/        # source snapshot + built lib/ of model-gate (see its SOURCE-NOTICE.md)
-├── plugins/specs/             # source of @cc/dsh-specs (catalogue + plugin; packed into its tarball)
-├── plugins/work-modes/        # source of @cc/dsh-work-modes (packed into its tarball above)
+├── plugins/inventory.json     # the shipped plugin set (the source of truth)
+├── plugins/*.tgz              # plugin tarballs: twelve packages, including notify, presentation,
+│                              #                  diagrams, work-modes, godot-mcp, skills, flash-guard,
+│                              #                  proof-guard, taskboard, orchestrator, handoff
 ├── plugins/notify/            # source of @cc/dsh-notify (desktop notifications; packed above)
-├── plugins/godot-mcp/         # source of @cc/dsh-godot-mcp (packed into its tarball above)
-├── plugins/dsh-context/       # reconstructed source of @cc/dsh-context (see its SOURCE-NOTICE.md)
-├── plugins/dsh-adr-panel/     # source of @cc/dsh-adr-panel (browser-half UI; see its README)
 ├── plugins/presentation/      # source of @cc/dsh-presentation (deck tool; no client half by design)
 ├── plugins/diagrams/          # source of @cc/dsh-diagrams (scheme tool; own layout engine, no client half)
+├── plugins/work-modes/        # source of @cc/dsh-work-modes (packed into its tarball above)
+├── plugins/godot-mcp/         # source of @cc/dsh-godot-mcp (packed into its tarball above)
+├── plugins/skills/            # source of @cc/dsh-skills (nine runtime skills)
+├── plugins/flash-guard/       # source of @cc/dsh-flash-guard (child model-route guard)
+├── plugins/proof-guard/       # source of @cc/dsh-proof-guard (test-file PROOF header)
+├── plugins/taskboard/         # source of @cc/dsh-taskboard (Host service, command, Web panel)
+├── plugins/orchestrator/      # source of @cc/dsh-orchestrator (root/child policy + delegate_task)
+├── plugins/handoff/           # source of @cc/dsh-handoff (one-page HTML + PDF)
+├── plugins/papers/            # source of @cc/dsh-papers (arXiv/HF search, trending, PDF text)
 ├── profile/                   # canonical web profile: package.json (no deps) + cordis.patch.yml
-├── rules/specs/               # the global prompt items, one file each (installed to $DSH_HOME/specs/)
 ├── rules/DEPLOYMENT.md        # operating this machine: install, update, checks, troubleshooting ($DSH_HOME/DEPLOYMENT.md)
-├── scripts/dev-link.mjs       # links the harness packages so the kit's own tests run from a clone
 ├── scripts/pack-plugin.mjs    # repack an in-repo plugin with a version bump and one tarball left behind
-├── scripts/rebuild-plugins.sh # rebuild + repack model-gate from the harness checkout
+├── scripts/check-portability.mjs  # platform, packaging and inventory checks
+├── scripts/check-documentation.mjs # the pin, the named scripts and the plugin set
 └── USERGUIDE.md               # per-machine setup, startup, first-run checks, Windows notes, troubleshooting
 ```
 
@@ -151,7 +163,7 @@ directory.
 
 **Keeping an installed machine current** is `scripts/kit-update.mjs`, which
 compares the kit's artifacts by content hash against a machine record
-(`$DSH_HOME/.dsh-kit-state.json`), writes the drifted profile files and rules,
+(`$DSH_HOME/.dsh-kit-state.json`), writes the drifted profile files and procedure,
 reinstalls the drifted tarballs with the pinned pnpm, and installs the pinned
 harness when it differs:
 
@@ -169,77 +181,34 @@ tarball that keeps its filename is served from the profile's lockfile snapshot;
 the updater drops that lockfile and verifies the installed bytes against the
 tarball, so this case is reported rather than passing silently.
 
-`plugins/inventory.json` names each plugin's packing entry point. In short:
-
-- **`@cc/dsh-context`** — the owning project is unreachable and the package is not on
-  npm, so `plugins/dsh-context/` is a **reconstruction** extracted verbatim from the
-  shipped tarball, not the original build tree (see its `SOURCE-NOTICE.md`). Edit it
-  only through `node scripts/pack-plugin.mjs --dir plugins/dsh-context`, which bumps
-  the patch version, packs, leaves one tarball behind and prints the sha256.
-- **`@cc/dsh-kit-rules`**, **`@cc/dsh-specs`**, **`@cc/dsh-work-modes`**,
-  **`@cc/dsh-godot-mcp`**, **`@cc/dsh-adr-panel`** and **`@cc/dsh-presentation`** —
-  source lives in this repository under `plugins/<name>/`, packed with
-  `node scripts/pack-plugin.mjs --dir plugins/<name>`.
-- **`@deepseek-ai/dsh-model-gate`** — built in the harness checkout from
-  `packages/host/model-gate` (`HARNESS_DIR=~/deepseek-harness ./scripts/rebuild-plugins.sh`).
-  `plugins/model-gate/` is a read-only source snapshot for review; it does not produce
-  the tarball.
-
-**Where the rules come from, and why not from the repository.** The harness ships a
-workspace-instruction loader (`@deepseek-ai/dsh-agent-instructions`) that injects every
-`AGENTS.md`/`CLAUDE.md` between the project root and the working directory, wraps them in "may be
-relevant to your work … use them as guidance", and lets the most specific file take precedence. This
-deployment cannot use it: rules that carry cost policy, remote-change permission and verification
-duties must not be overridable by whichever repository the agent is opened in, and their framing has
-to read as binding, which is a code constant upstream and therefore not a configuration option. The
-profile patch therefore disables that row and mounts `@cc/dsh-specs`, which reads the global items
-under `$DSH_HOME/specs/` — the kit's own rules among them, one file per prompt item — and contributes
-them to the system prompt as sections whose text is a provider, re-evaluated on every assembly.
-Editing an item takes effect on the next request, without a restart, which is the hot reload worth
-keeping.
-
-**Consequence for projects:** a repository's own `AGENTS.md` no longer reaches the model. Project
-facts belong in `.dsh/project.json` and the `context_*` tools, where they are declared, checkable and
-carry the command that proves them — not in prose that competes with the deployment's rules.
-
-**Specs, and what they are not.** Two scopes exist, and a file's scope is the directory it
-lives in rather than anything it says about itself: `$DSH_HOME/specs/*.md` is global and
-reaches every agent, `<project>/docs/specs/*.md` is local and reaches only that project's
-agents. The **Specs** button served by `@cc/dsh-adr-panel` is where a human writes both. A
-local item may fill the advisory `items` slot alone, so a project can add requirements but
-never dilute, reorder or disable the rules that carry cost policy and remote-change
-permission. Specs are text a human owns: nothing compiles them, nothing verifies code
-against them, and nothing fails when one is ignored. Architecture decision records under `docs/adrs/` are
-likewise plain documents a human keeps; nothing reads them.
+`plugins/inventory.json` names each plugin's packing entry point; every shipped plugin is
+in-repo and packed with `node scripts/pack-plugin.mjs --dir plugins/<name>`, which bumps the
+patch version, packs, leaves one tarball behind and prints the sha256.
 
 **Reviewing this kit.** The reviewable units, and where they are. The machine this was
 verified on and the procedure for reproducing that verification are `rules/DEPLOYMENT.md`.
 
-- **Plugin source** — `plugins/kit-rules/`, `plugins/specs/`, `plugins/work-modes/`,
-  `plugins/godot-mcp/`, `plugins/dsh-adr-panel/`, `plugins/presentation/`, and the
-  reconstructed `plugins/dsh-context/`; `plugins/model-gate/` is a read-only upstream
-  snapshot. Each package whose owning project is not this repository carries a
-  `SOURCE-NOTICE.md` that states exactly what it is and is not. `plugins/inventory.json`
-  is the set.
+- **Plugin source** — `plugins/notify/`, `plugins/presentation/`, `plugins/diagrams/`,
+  `plugins/work-modes/`, `plugins/godot-mcp/`, `plugins/skills/`, `plugins/flash-guard/`,
+  `plugins/proof-guard/`, `plugins/taskboard/`, `plugins/orchestrator/`, `plugins/handoff/`,
+  `plugins/papers/`.
+  `plugins/inventory.json` is the set.
 - **Design rationale** — `docs/` carries the analysis notes this kit was built from
-  (`docs/HARNESS-COMPACTION-REVIEW.md`, `docs/SESSION-CONTEXT.md`,
-  `docs/SUPERPOWERS-COMPARISON.md`); they are readings, not contracts, and the artifacts
-  win wherever they disagree.
+  (`docs/HARNESS-COMPACTION-REVIEW.md`, `docs/SESSION-CONTEXT.md`); they are readings, not
+  contracts, and the artifacts win wherever they disagree.
 - **Enforcement** — `node scripts/check-portability.mjs` (platform + packaging + plugin
-  inventory), `node scripts/check-model-gate.mjs` (the canonical composition's flash-only
-  cost policy, read out of the packed plugin rather than retyped),
-  `node scripts/check-instruction-routing.mjs`. Some of these need the one-time
-  `node scripts/dev-link.mjs`. `make verify` runs them plus the two assembly probes under
-  `scripts/probe-dsh-api.mjs`. **There is no test suite**: rule 9 prohibits agents from
-  writing automated tests, and what replaces them is running the product and quoting what it
-  produced. `rules/DEPLOYMENT.md` §4 is the same list with the details.
+  inventory) and `node scripts/check-documentation.mjs` (the pin, the named scripts, the
+  plugin set). `make verify` runs them.
+  **There is no test suite**: the kit ships no automated tests, and what replaces them is
+  running the product and quoting what it produced. `rules/DEPLOYMENT.md` §4 is the same
+  list with the details.
 
 **Upgrades:** the harness is pre-1.0 and breaking changes are policy. Install the
 candidate and rebuild the plugins against its checkout first:
-`npm i -g @deepseek-ai/dsh@<candidate>` → `./scripts/rebuild-plugins.sh` → only then
-touch the live profile. Details: **`rules/DEPLOYMENT.md`** §3–4 and **`USERGUIDE.md`**
-§7 (the short version).
+`npm i -g @deepseek-ai/dsh@<candidate>`, then `node scripts/pack-plugin.mjs --dir plugins/<name>`
+for each plugin, and only then touch the live profile. Details: **`rules/DEPLOYMENT.md`**
+§3–4 and **`USERGUIDE.md`** §7 (the short version).
 
-**Versions:** harness pin `0.2.0-rc.2` · Node ≥ 24 · pnpm 11.7 (corepack).
+**Versions:** harness pin `0.2.1-rc.2` · Node ≥ 24 · pnpm 11.7 (corepack).
 
 **License:** MIT (see `LICENSE`); third-party attributions in `NOTICE`.

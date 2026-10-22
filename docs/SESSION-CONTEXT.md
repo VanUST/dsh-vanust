@@ -162,8 +162,8 @@ context degrades the model's attention to the instructions is a property of the 
 nothing in the harness measures it. What the harness does provide is the ability to *avoid* the
 question: a fresh session with a summary, or letting compaction bound the growth. (This sentence
 said "`compaction-basic` (disabled here)"; it runs, see §3.) The deployment's own rules already lean
-that way — rule 3 pushes facts into `.dsh/project.json` and tools rather than into a growing
-conversation, which is exactly the "don't carry it in context" strategy.
+that way — keeping durable facts in files rather than in a growing conversation is exactly the
+"don't carry it in context" strategy.
 
 **The failure mode that is real and recorded:** `assistant/attempt` in this session's log records a
 `TRANSPORT` failure — `DeepSeek API request to https://api.deepseek.com failed` — at step 136 of a
@@ -194,9 +194,8 @@ path for the context-length variant, so that specific cliff is closed.
 >    uncached tokens in one step**.
 > 4. **Start fresh sessions when the task changes** — still good advice, for a different reason.
 >    Compaction now bounds a session, so a new session is no longer the *only* reset; it is the
->    cheaper one, because it avoids the re-bill that a compaction triggers. The deployment's
->    `.dsh/project.json` + `context_*` tools exist to make that reset cheap: the facts live in the
->    repository, not in the conversation.
+>    cheaper one, because it avoids the re-bill that a compaction triggers. Keeping the durable
+>    facts in files rather than in the conversation is what makes that reset cheap.
 
 <details>
 <summary>The 2026-09-12 recommendations, as written</summary>

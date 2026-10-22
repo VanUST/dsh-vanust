@@ -190,7 +190,7 @@ export function renderHtml(analysis, meta = {}) {
 
   const modelRows = analysis.models
     .map((model) => {
-      const note = model.key === POLICY_MODEL ? '' : LEGACY_MODELS.has(model.key) ? ' (retired alias)' : ' (outside policy)'
+      const note = model.key === POLICY_MODEL ? '' : LEGACY_MODELS.has(model.key) ? ' (retired alias)' : ' (outside the Flash class)'
       return `<tr>
         <td>${e(model.key)}${e(note)}</td>
         <td class="n">${e(usd(model.usd))}</td>

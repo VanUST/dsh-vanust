@@ -3,45 +3,6 @@
   "description": "The plugins this kit ships beyond upstream, one row each. This is the single source of truth for the count and for each plugin's provenance; README.md and the injected rules describe the kit from it, and scripts/check-portability.mjs fails when a row, a tarball, a mounted profile row or a packing entry point disagrees with what is on disk.",
   "plugins": [
     {
-      "id": "model-gate",
-      "package": "@deepseek-ai/dsh-model-gate",
-      "tarballPrefix": "model-gate",
-      "provenance": "snapshot",
-      "source": "plugins/model-gate",
-      "notice": "plugins/model-gate/SOURCE-NOTICE.md",
-      "pack": "scripts/rebuild-plugins.sh",
-      "mounted": true
-    },
-    {
-      "id": "dsh-context",
-      "package": "@cc/dsh-context",
-      "tarballPrefix": "cc-dsh-context",
-      "provenance": "reconstruction",
-      "source": "plugins/dsh-context",
-      "notice": "plugins/dsh-context/SOURCE-NOTICE.md",
-      "pack": "scripts/pack-plugin.mjs",
-      "mounted": true
-    },
-    {
-      "id": "specs",
-      "package": "@cc/dsh-specs",
-      "tarballPrefix": "cc-dsh-specs",
-      "provenance": "in-repo",
-      "source": "plugins/specs",
-      "pack": "scripts/pack-plugin.mjs",
-      "mounted": true,
-      "notice": null
-    },
-    {
-      "id": "adr-panel",
-      "package": "@cc/dsh-adr-panel",
-      "tarballPrefix": "cc-dsh-adr-panel",
-      "provenance": "in-repo",
-      "source": "plugins/dsh-adr-panel",
-      "pack": "scripts/pack-plugin.mjs",
-      "mounted": true
-    },
-    {
       "id": "presentation",
       "package": "@cc/dsh-presentation",
       "tarballPrefix": "cc-dsh-presentation",
@@ -87,14 +48,67 @@
       "mounted": true
     },
     {
-      "id": "chat-bridge",
-      "package": "@cc/dsh-chat-bridge",
-      "tarballPrefix": "cc-dsh-chat-bridge",
+      "id": "skills",
+      "package": "@cc/dsh-skills",
+      "tarballPrefix": "cc-dsh-skills",
       "provenance": "in-repo",
-      "source": "plugins/dsh-chat-bridge",
+      "source": "plugins/skills",
       "pack": "scripts/pack-plugin.mjs",
-      "mounted": false,
-      "notice": null
+      "mounted": true
+    },
+    {
+      "id": "flash-guard",
+      "package": "@cc/dsh-flash-guard",
+      "tarballPrefix": "cc-dsh-flash-guard",
+      "provenance": "in-repo",
+      "source": "plugins/flash-guard",
+      "pack": "scripts/pack-plugin.mjs",
+      "mounted": true
+    },
+    {
+      "id": "proof-guard",
+      "package": "@cc/dsh-proof-guard",
+      "tarballPrefix": "cc-dsh-proof-guard",
+      "provenance": "in-repo",
+      "source": "plugins/proof-guard",
+      "pack": "scripts/pack-plugin.mjs",
+      "mounted": true
+    },
+    {
+      "id": "taskboard",
+      "package": "@cc/dsh-taskboard",
+      "tarballPrefix": "cc-dsh-taskboard",
+      "provenance": "in-repo",
+      "source": "plugins/taskboard",
+      "pack": "scripts/pack-plugin.mjs",
+      "mounted": true
+    },
+    {
+      "id": "orchestrator",
+      "package": "@cc/dsh-orchestrator",
+      "tarballPrefix": "cc-dsh-orchestrator",
+      "provenance": "in-repo",
+      "source": "plugins/orchestrator",
+      "pack": "scripts/pack-plugin.mjs",
+      "mounted": true
+    },
+    {
+      "id": "handoff",
+      "package": "@cc/dsh-handoff",
+      "tarballPrefix": "cc-dsh-handoff",
+      "provenance": "in-repo",
+      "source": "plugins/handoff",
+      "pack": "scripts/pack-plugin.mjs",
+      "mounted": true
+    },
+    {
+      "id": "papers",
+      "package": "@cc/dsh-papers",
+      "tarballPrefix": "cc-dsh-papers",
+      "provenance": "in-repo",
+      "source": "plugins/papers",
+      "pack": "scripts/pack-plugin.mjs",
+      "mounted": true
     }
   ]
 }

@@ -5,12 +5,9 @@
 #   1. checks Node >= 24 (node-pty ABI),
 #   2. installs the pinned harness version globally (`npm i -g`),
 #   3. creates $DSH_HOME/profiles/web from the kit's canonical profile files,
-#   4. installs every plugin tarball in plugins/ into the profile (five plugins:
-#      model-gate, dsh-context, kit-rules, specs, adr-panel — see plugins/inventory.json),
-#   5. installs the user-global core operating rules ($DSH_HOME/AGENTS.md) and the
-#      DEPLOYMENT.md procedure they point at,
-#   6. links the harness packages so the kit's own tests and gate run from this
-#      checkout.
+#   4. installs every plugin tarball in plugins/ into the profile (see
+#      plugins/inventory.json for the set),
+#   5. installs the DEPLOYMENT.md procedure to $DSH_HOME,
 #
 # Usage:
 #   git clone <your-remote>/dsh-kit.git && cd dsh-kit
@@ -22,7 +19,7 @@
 set -euo pipefail
 
 KIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DSH_VERSION="0.2.0-rc.2"        # pinned harness version
+DSH_VERSION="0.2.1-rc.2"        # pinned harness version
 PNPM_VERSION="11.7.0"           # matches the harness workspace toolchain
 DSH_HOME="${DSH_HOME:-$HOME/.npm/dsh}"
 
@@ -74,35 +71,16 @@ cp "${KIT_DIR}/profile/pnpm-workspace.yaml" "${DSH_HOME}/profiles/web/pnpm-works
 
 # 4. Plugin tarballs (pnpm writes machine-local absolute paths into the
 #    profile's package.json — the kit file stays canonical with no deps).
-echo "   installing the kit plugins (model-gate, dsh-context, specs, adr-panel)..."
+echo "   installing the kit plugins (see plugins/inventory.json)..."
 (
   cd "${DSH_HOME}/profiles/web"
   corepack pnpm@${PNPM_VERSION} add "${KIT_DIR}"/plugins/*.tgz
 )
 
-# 5. The global specs, plus the procedure they point at. The rules are spec ITEMS now -
-#    one file per prompt item, under $DSH_HOME/specs - and their own §0 names
-#    $DSH_HOME/DEPLOYMENT.md as the setup/update procedure, so a pointer to a missing file
-#    would be worse than no pointer at all.
-#
-#    A seed is copied only when the destination is absent: this script bootstraps a
-#    machine, and re-running it must not overwrite a spec someone edited in the Specs
-#    window. Convergence afterwards is `scripts/kit-update.mjs --apply`, which applies the
-#    same rule and reports a modified seed instead of reverting it.
-mkdir -p "${DSH_HOME}/specs"
-for seed in "${KIT_DIR}"/rules/specs/*.md; do
-  [ -f "${DSH_HOME}/specs/$(basename "${seed}")" ] || cp "${seed}" "${DSH_HOME}/specs/"
-done
+# 5. The operating procedure, installed so a machine without the kit checked out can still
+#    read how it is set up, updated and verified. Convergence afterwards is
+#    `scripts/kit-update.mjs --apply`.
 cp "${KIT_DIR}/rules/DEPLOYMENT.md" "${DSH_HOME}/DEPLOYMENT.md"
-
-# 6. Development links, so the kit's OWN gate runs from this checkout.
-#    The API probe imports `@deepseek-ai/dsh-tools`, which lives in the
-#    harness install and not in this repository; the tests and probes resolve it through
-#    a link beside them. Not fatal if it fails — the DEPLOYMENT does not need the link,
-#    only the kit's self-check does — so a failure is reported with the command to fix it.
-if ! node "${KIT_DIR}/scripts/dev-link.mjs" >/dev/null 2>&1; then
-  echo "   WARN: could not link the harness packages; run 'node scripts/dev-link.mjs' in ${KIT_DIR} before using the kit's own gate." >&2
-fi
 
 echo
 echo "== done =="

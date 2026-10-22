@@ -37,6 +37,12 @@
  *   YAML parser this script deliberately does not carry, and a hand-rolled merge that gets
  *   indentation wrong destroys the operator's other client configuration.
  *
+ *   THE HINDSIGHT EXCEPTION. The Hindsight installer appends a marked YAML block after
+ *   this script's JSON array, which makes the home patch invalid. The classifier lifts
+ *   that block, recognises its `hindsight` row as a known third-party row, and the writer
+ *   appends it back as a JSON object. This is a targeted repair for that installer's
+ *   footer, not a general YAML merge; a foreign document without the markers is refused.
+ *
  *   OUR ROW IDS ARE TWO SPELLINGS ON PURPOSE. The id a row carries is
  *   `mcp-client-<server id>`; an earlier version wrote the bare `<server id>`, and that
  *   spelling collided with the kit's own plugin row — the loader refuses a composition in
@@ -126,33 +132,89 @@ const USAGE = [
  * @returns `{ ours, reason, text }`. `ours` is true when the file is absent or when every
  *   top-level element carries one of our row ids; `reason` names the refusal otherwise.
  */
+const HINDSIGHT_START = '# HINDSIGHT_CODING_AGENTS_DSH_START'
+const HINDSIGHT_END = '# HINDSIGHT_CODING_AGENTS_DSH_END'
+
+/**
+ * The Hindsight installer appends a YAML block after the JSON array this script writes,
+ * which makes the home patch invalid. Recognise that exact marked block, lift its row out,
+ * and leave the rest of the file parseable. This is a repair, not a general YAML parser: a
+ * foreign document without those markers is still refused.
+ *
+ * @param text - Raw patch file text.
+ * @returns `{ text, hindsight }`, where `hindsight` is a row element or null.
+ */
+function liftHindsightBlock(text) {
+  const start = text.indexOf(HINDSIGHT_START)
+  const end = text.indexOf(HINDSIGHT_END)
+  if (start === -1 || end === -1 || end < start) return { text, hindsight: null }
+  const block = text.slice(start, end)
+  const name = /name:\s*["']([^"']+)["']/.exec(block)?.[1]
+  if (typeof name !== 'string' || name === '') return { text, hindsight: null }
+  return {
+    text: `${text.slice(0, start)}${text.slice(end + HINDSIGHT_END.length)}`,
+    hindsight: { insert: [{ id: 'hindsight', name }] },
+  }
+}
+
+/**
+ * Decide whether an existing patch file is ours to overwrite.
+ *
+ * @param path - Absolute patch file path.
+ * @param acceptedIds - Every row id this deployment may have written: the ids a sync writes
+ *   now, plus the pre-prefix spelling an earlier version wrote (see `rowIdsFor`). Recognising
+ *   the older spelling is what lets a machine whose row was written before the rename be
+ *   repaired by the next sync instead of being refused as a foreign file — and the older
+ *   spelling is exactly the one that collided with the kit's own plugin row at boot.
+ *   A `hindsight` row is preserved as a known third-party row.
+ * @returns `{ ours, reason, text, hindsight }`. `ours` is true when the file is absent or when
+ *   every top-level element carries one of our row ids or is the Hindsight row; `reason` names
+ *   the refusal otherwise.
+ */
 function classifyPatch(path, acceptedIds) {
-  if (!existsSync(path)) return { ours: true, reason: 'absent', text: null }
+  if (!existsSync(path)) return { ours: true, reason: 'absent', text: null, hindsight: null }
   let text
   try {
     text = readFileSync(path, 'utf8').replace(/^\uFEFF/, '')
   } catch (error) {
-    return { ours: false, reason: `unreadable: ${error.message}`, text: null }
+    return { ours: false, reason: `unreadable: ${error.message}`, text: null, hindsight: null }
   }
-  if (text.trim() === '') return { ours: true, reason: 'empty', text }
+  if (text.trim() === '') return { ours: true, reason: 'empty', text, hindsight: null }
+  const lifted = liftHindsightBlock(text)
   let parsed
   try {
-    parsed = JSON.parse(text)
+    parsed = JSON.parse(lifted.text)
   } catch {
-    return { ours: false, reason: 'not JSON — treating it as another tool\'s YAML and leaving it untouched', text }
+    return { ours: false, reason: 'not JSON — treating it as another tool\'s YAML and leaving it untouched', text, hindsight: null }
   }
   if (!Array.isArray(parsed)) {
-    return { ours: false, reason: 'a JSON document that is not a top-level array', text }
+    return { ours: false, reason: 'a JSON document that is not a top-level array', text, hindsight: null }
   }
+  const existingHindsight = parsed.find((element) => Array.isArray(element?.insert) && element.insert.some((row) => row?.id === 'hindsight')) ?? null
+  const hindsight = existingHindsight ?? lifted.hindsight
   const foreign = parsed.filter((element) => {
     const rows = element?.insert
     if (!Array.isArray(rows)) return true
-    return rows.some((row) => !acceptedIds.has(row?.id))
+    return rows.some((row) => !acceptedIds.has(row?.id) && row?.id !== 'hindsight')
   })
   if (foreign.length > 0) {
-    return { ours: false, reason: `${foreign.length} top-level element(s) are not this deployment's rows`, text }
+    return { ours: false, reason: `${foreign.length} top-level element(s) are not this deployment's rows`, text, hindsight }
   }
-  return { ours: true, reason: 'ours', text }
+  return { ours: true, reason: 'ours', text, hindsight }
+}
+
+/**
+ * Append a preserved Hindsight row to the rendered MCP rows.
+ *
+ * @param rendered - JSON array text from `renderPatch`.
+ * @param hindsight - Preserved row element, or null.
+ * @returns Patch text.
+ */
+function withHindsight(rendered, hindsight) {
+  if (hindsight === null) return rendered
+  const parsed = JSON.parse(rendered)
+  parsed.push(hindsight)
+  return `${JSON.stringify(parsed, null, 2)}\n`
 }
 
 async function main() {
@@ -228,11 +290,11 @@ async function main() {
     result.errors.push('no server could be materialized; refusing to write a patch layer that would mount nothing')
   }
 
-  const rendered = renderPatch({ rows: result.rows })
   // The ids this deployment may already have written for the declared servers: the prefixed
   // ones a sync writes now, plus the bare server ids written before the rename. A layer holding
   // only those is ours to replace; anything else is another writer's and is left alone.
   const classification = classifyPatch(patchPath, rowIdsFor(spec).accepted)
+  const rendered = withHindsight(renderPatch({ rows: result.rows }), classification.hindsight)
   result.present = existsSync(patchPath)
   result.matches = classification.ours && classification.text !== null && classification.text === rendered
 

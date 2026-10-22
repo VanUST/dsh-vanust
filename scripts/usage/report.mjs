@@ -230,7 +230,7 @@ export function renderMarkdown(analysis, meta = {}) {
   push('| Model | Tokens | Spend | Share | Cache hit | Peak tokens |')
   push('| --- | ---: | ---: | ---: | ---: | ---: |')
   for (const model of analysis.models) {
-    const note = model.key === POLICY_MODEL ? '' : LEGACY_MODELS.has(model.key) ? ' (retired alias)' : ' (outside policy)'
+    const note = model.key === POLICY_MODEL ? '' : LEGACY_MODELS.has(model.key) ? ' (retired alias)' : ' (outside the Flash class)'
     push(
       `| ${model.key}${note} | ${count(model.tokens)} | ${usd(model.usd)} | ${pct(
         analysis.money.totalUsd > 0 ? model.usd / analysis.money.totalUsd : null,

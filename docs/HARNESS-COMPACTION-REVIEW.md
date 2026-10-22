@@ -205,7 +205,7 @@ floor(contextWindow × thresholdRatio) + maxTokens  <  providerMaxContext
 ```
 
 A check reading the profile's `llm-deepseek` model config and the compaction policy would
-have caught this before a session ran. The kit already states its rules as commands that
+have caught this before a session ran. The kit already states its claims as commands that
 fail when broken, so that is where the mitigation belongs.
 
 ### M5 — upstream asks
