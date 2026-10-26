@@ -30,7 +30,7 @@
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -70,6 +70,26 @@ function findChrome() {
  * @param pdfPath - Absolute PDF path.
  * @returns `{ ok, error? }`; never throws.
  */
+/**
+ * Count the pages in a PDF by its page objects.
+ *
+ * WHY THIS EXISTS. The tool's contract is a ONE-PAGE handoff, and the item caps it
+ * applies are counts, not height: on 2026-10-26 it returned `ok` with no warning
+ * while shipping a TWO-PAGE PDF, twice, because the rendered content overflowed A4.
+ * The label was a claim and the bytes disagreed. Counting the page objects makes the
+ * disagreement visible in `warnings` instead of hiding in the file.
+ *
+ * @param bytes - The PDF file's bytes.
+ * @returns Page count, or null when the structure could not be read.
+ */
+export function pdfPageCount(bytes) {
+  const text = Buffer.isBuffer(bytes) ? bytes.toString('latin1') : String(bytes)
+  // `/Type /Page` with any spacing; `/Type /Pages` is the tree node, not a page.
+  const pages = text.match(/\/Type\s*\/Page(?![s\w])/g)
+  return pages === null ? null : pages.length
+}
+
+/** Write the PDF with a headless Chrome. */
 function writePdf(chrome, htmlPath, pdfPath) {
   const profile = mkdtempSync(join(tmpdir(), 'dsh-handoff-chrome-'))
   try {
@@ -180,6 +200,11 @@ export function handoffTool(defineToolFn = defineTool) {
           if (!result.ok) {
             warnings.push(`PDF failed: ${result.error}`)
             pdfPath = null
+          } else {
+            const pages = pdfPageCount(readFileSync(pdfPath))
+            if (pages !== null && pages > 1) {
+              warnings.push(`the handoff rendered ${pages} pages but a handoff is one A4 page: this input is over budget. Trim tldr/changed/evidence/decisions/risks items or shorten them, then render again.`)
+            }
           }
         }
       }
