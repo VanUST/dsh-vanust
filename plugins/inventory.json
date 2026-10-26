@@ -109,6 +109,33 @@
       "source": "plugins/papers",
       "pack": "scripts/pack-plugin.mjs",
       "mounted": true
+    },
+    {
+      "id": "rtk",
+      "package": "@cc/dsh-rtk",
+      "tarballPrefix": "cc-dsh-rtk",
+      "provenance": "in-repo",
+      "source": "plugins/rtk",
+      "pack": "scripts/pack-plugin.mjs",
+      "mounted": true
+    },
+    {
+      "id": "skill-evolve",
+      "package": "@cc/dsh-skill-evolve",
+      "tarballPrefix": "cc-dsh-skill-evolve",
+      "provenance": "in-repo",
+      "source": "plugins/skill-evolve",
+      "pack": "scripts/pack-plugin.mjs",
+      "mounted": true
+    },
+    {
+      "id": "babysitter",
+      "package": "@cc/dsh-babysitter",
+      "tarballPrefix": "cc-dsh-babysitter",
+      "provenance": "in-repo",
+      "source": "plugins/babysitter",
+      "pack": "scripts/pack-plugin.mjs",
+      "mounted": true
     }
   ]
 }

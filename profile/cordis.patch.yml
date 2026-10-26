@@ -2,8 +2,9 @@
 # a top-level YAML array of loader patch entries (id-targeted config
 # overrides, disables, and insert lists; `!!js` expressions allowed).
 
-# ── notify: a desktop popup when the agent finishes or asks a question ──────
-# Two seams, no guesswork: `agent/status` with a `running -> idle` transition IS the turn
+# ── notify: a persistent popup when a CORE chat agent finishes or asks ───────
+# Root chats only: delegated subagents never raise a popup. Two seams, no guesswork:
+# `agent/status` with a `running -> idle` transition IS the turn
 # having ended, and `user-questions/request` is the waterfall the harness's ask-user path
 # calls before it waits - listening there rather than to a tool name means any caller that
 # asks notifies. The listener announces and then calls next(), so the popup arrives while the
@@ -20,6 +21,7 @@
         minRunMs: 15000
         onFinish: true
         onQuestion: true
+        dismissMs: 0
 
 # ── presentation: decks the agent renders, shown by the file preview ────────
 # Contributes one tool, `presentation`, which turns a JSON deck spec into a
@@ -181,6 +183,42 @@
     - id: handoff
       name: '@cc/dsh-handoff'
 
+# ── rtk: command-aware shell output, compressed where it enters the context ──
+# The output half of RTK. Upstream rewrites the COMMAND through a Claude Code
+# PreToolUse hook; this harness's `tools/pre-execute` cannot rewrite arguments at
+# all, so the plugin listens on `tools/post-execute` instead: an oversized result
+# from a recognised single command is piped through `rtk pipe -f <filter>` and the
+# model-facing projection is replaced, with a banner that keeps the elision visible
+# and names how to get the full text back. The binary is resolved from PATH and the
+# per-user install locations, never from a baked-in path. Nothing here runs when
+# rtk is absent: the prompt section says so and the listener no-ops.
+- insert:
+    - id: rtk
+      name: '@cc/dsh-rtk'
+
+# ── skill-evolve: the skill library grows instead of rotting ────────────────
+# The harness already discovers `<name>/SKILL.md` under $DSH_HOME/skills and
+# re-reads a body on every load, so the missing half is discipline, not plumbing:
+# write with a validated name and size, keep the previous body, refuse to
+# overwrite a human's skill, and find the duplicates. That is SkillClaw's useful
+# half without its proxy, its Python, or a second process. The model proposes the
+# procedure; these tools enforce the rules.
+- insert:
+    - id: skill-evolve
+      name: '@cc/dsh-skill-evolve'
+
+# ── babysitter: a deterministic process, tracked as one task ─────────────────
+# Babysitter has no adapter for this harness among its twelve, so the plugin
+# shells out to the installed CLI instead of pretending to be one. The mapping is
+# the point: ONE babysitter run is ONE taskboard task, each journal step becomes a
+# timeline note, and the task lands in `review` for a human — never `done`, because
+# the run finishing is not the same as the work being accepted. The taskboard is
+# injected optionally, so the tools still work on a machine without it; with no
+# CLI installed every tool answers with the install line instead of a stack trace.
+- insert:
+    - id: babysitter
+      name: '@cc/dsh-babysitter'
+
 # ── replace the subagent catalog with the taskboard ────────────────────────
 # The taskboard's header cell reuses the `subagent-catalog` id; the shipped
 # client package registers that id first and cannot share the cell. Disabling
@@ -190,3 +228,27 @@
 - id: ui-subagent
   name: '@deepseek-ai/dsh-client-ui-subagent'
   disabled: true
+
+# ── machine rows that were living ONLY in the installed profile ─────────────
+# These two rows were appended to $DSH_HOME/profiles/web/cordis.patch.yml by hand
+# on an earlier day and never came back to the kit. The kit's managed-seed rule
+# reports a hand-edited profile patch and leaves it alone, so the kit and this
+# machine had drifted and `kit-update --check` reported profile drift forever.
+# Folding them in is the kit's own rule applied: the machine is a projection of
+# the kit, so configuration worth keeping lives HERE, not in the installed copy.
+#
+# The welcome notice is pinned to the version the operator has already seen; it is
+# a suppression marker, not a feature flag. The default model is the deployment's
+# model policy (flash, maximum reasoning effort on the root agent) — the same
+# choice flash-guard and model-gate assume, now stated once, portably.
+- id: ui-settings-general
+  name: '@deepseek-ai/dsh-client-ui-settings-general'
+  config:
+    welcomeNoticeVersion: 2026-09-28.1
+
+- id: agent-default-model
+  name: '@deepseek-ai/dsh-agent-default-model'
+  config:
+    provider: deepseek-official
+    model: deepseek-flash
+    reasoningEffort: max

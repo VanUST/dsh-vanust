@@ -12,7 +12,8 @@ third-party components it contains or depends on:
 - **`@cc/dsh-notify`**, **`@cc/dsh-work-modes`**, **`@cc/dsh-presentation`**,
   **`@cc/dsh-diagrams`**, **`@cc/dsh-godot-mcp`**, **`@cc/dsh-skills`**,
   **`@cc/dsh-flash-guard`**, **`@cc/dsh-proof-guard`**, **`@cc/dsh-taskboard`**,
-  **`@cc/dsh-orchestrator`**, **`@cc/dsh-handoff`** and **`@cc/dsh-papers`** — this deployment's own
+  **`@cc/dsh-orchestrator`**, **`@cc/dsh-handoff`**, **`@cc/dsh-papers`**,
+  **`@cc/dsh-rtk`** and **`@cc/dsh-skill-evolve`** — this deployment's own
   packages, under this repository's `LICENSE` (MIT), except where a skill body is
   adapted from an upstream project:
   - `ponytail` is adapted from
@@ -33,6 +34,29 @@ third-party components it contains or depends on:
   command and not redistributed here. Its staged runtime under `~/.hindsight/` and
   its companion skill under `~/.agents/skills/` are governed by that project's
   license.
+
+- **RTK** — `rtk` 1.1.0, installed separately as a standalone binary
+  (https://github.com/rtk-ai/rtk) and invoked by `@cc/dsh-rtk`; no RTK code is
+  vendored or redistributed here. This deployment installs the **`rtk-oss`
+  edition**, which is Apache-2.0 only: the kit needs the command filters, and the
+  permissive edition keeps every dependency it ships around permissive. Upstream's
+  default download adds `rtk-engine` (BUSL-1.1, source-available, with a
+  production-use grant that covers running the binary); switching is one variable,
+  `RTK_EDITION`, and the plugin behaves the same under either edition.
+
+- **Headroom** — `headroom-ai` 0.41.0, installed separately with `uv` or `pip`
+  (https://github.com/headroomlabs-ai/headroom, Apache-2.0) and run as a local
+  proxy; not redistributed here. The kit disables its anonymous usage beacon
+  (`HEADROOM_BEACON=off`) and its tool-schema deferral (`HEADROOM_TOOL_SEARCH=0`).
+
+- **SkillClaw** — no SkillClaw code is installed or redistributed.
+  `@cc/dsh-skill-evolve` is this repository's own implementation of the skill
+  evolution and dedupe behaviour that SkillClaw (https://github.com/AMAP-ML/SkillClaw)
+  motivated, and it writes the same `SKILL.md` format SkillClaw's library uses.
+
+- **Babysitter** — `@a5c-ai/babysitter` 6.x, installed separately with npm
+  (https://github.com/a5c-ai/babysitter, MIT) and invoked by `@cc/dsh-babysitter`;
+  not redistributed here.
 
 The harness itself (`@deepseek-ai/dsh`) is installed separately with npm. The
 runtime dependencies its bundles pull in (for example `node-pty`, `ws` and

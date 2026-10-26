@@ -1,0 +1,19 @@
+{
+  "name": "@cc/dsh-babysitter",
+  "version": "0.1.1",
+  "description": "Drive the real babysitter CLI from DSH: run a process, read run status from the event journal, resume a run, and run diagnostics through genty. Each run is mapped to one taskboard task that ends in review, never done. No bundled CLI and no second ledger.",
+  "type": "module",
+  "main": "babysitter.mjs",
+  "exports": {
+    ".": "./babysitter.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "babysitter.mjs",
+    "README.md"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
+  }
+}

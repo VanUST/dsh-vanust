@@ -70,8 +70,24 @@ node ~/.hindsight/coding-agents/dist/daemon-start.js --harness dsh
 
 The daemon writes no key into the kit. It starts embedded PostgreSQL and serves
 `http://127.0.0.1:18888`; `GET /health` reports `{"status":"healthy","database":"connected"}`.
-It is not supervised and does not auto-start after reboot. A Cloud bank instead sets
-`apiToken` in the JSON. The bank is resolved per session workspace
+The daemon is not installed by the kit; on a machine without an external supervisor it
+does not auto-start after reboot. **This machine runs it as a systemd user service**:
+
+- unit `~/.config/systemd/user/hindsight-memory.service`, enabled at `default.target`;
+- launcher `~/.hindsight/start-coding-agent.sh`, which reads the DeepSeek key from DSH's
+  credentials at service start (the key is not stored in the unit);
+- it starts at user login and survives DSH start/stop/restart; no manual command is needed
+  during normal use.
+
+Check or recover it with:
+
+```bash
+systemctl --user status hindsight-memory.service
+systemctl --user restart hindsight-memory.service
+curl -s http://127.0.0.1:18888/health
+```
+
+A Cloud bank instead sets `apiToken` in the JSON. The bank is resolved per session workspace
 (`bankIdTemplate: "coding-agent::{gitProject}"`). Hindsight tools register at DSH boot, so
 restart DSH after enabling or after the daemon first becomes healthy.
 
@@ -87,6 +103,87 @@ row `- id: hindsight disabled: true`.
 Pinned harness version: **`0.2.1-rc.2`**. Node ≥ 24. The kit is the only source of the
 deployment's own files; Hindsight is the documented third-party exception above, and a
 machine is otherwise a projection of the kit.
+
+### 1.2 Three tools that sit outside the profile, and how each is switched on
+
+These are the integration points added on 2026-10-26. Each is deliberately a separate step
+from `install.sh`, because each either needs a binary the kit does not ship or is opt-in.
+
+**RTK — shell-output compression (binary + plugin).** The binary is a separate download:
+
+```bash
+RTK_EDITION=oss sh <(curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh)
+rtk --version                 # must answer 'rtk <version>' — a different `rtk` exists on crates.io
+```
+
+`oss` is the Apache-2.0-only edition and is what this kit uses; drop `RTK_EDITION` for
+upstream's BUSL edition. `@cc/dsh-rtk` then resolves the binary from PATH, then
+`~/.local/bin/rtk`, then `~/.cargo/bin/rtk` — never from a baked-in path — and reports the
+resolution in its prompt section. With the binary absent the plugin is inert: it says so in
+the section and the listener no-ops. There is nothing to start and nothing to stop.
+
+**Headroom — compression in front of the model (proxy + overlay).** Owned by one script:
+
+```bash
+node scripts/headroom.mjs doctor      # binary, health, marker, overlay
+node scripts/headroom.mjs enable      # write the marker + overlay, start the proxy
+node scripts/headroom.mjs status      # is it up, and is the overlay live
+node scripts/headroom.mjs disable --stop
+```
+
+`enable` starts `headroom proxy --port 8787 --anthropic-api-url
+https://api.deepseek.com/anthropic` detached, with the beacon and tool-schema deferral off,
+then waits for `/readyz`. `start.sh` calls `ensure` on every boot **while the marker exists**
+and adds `--patch $DSH_HOME/headroom/patch.yml` only when the proxy answers; if it does not,
+the boot proceeds WITHOUT compression and says so. That ordering is the whole safety
+argument: a base URL pointing at a dead loopback port fails every request, so the overlay is
+never applied to an unhealthy proxy. `HEADROOM=0 ./start.sh` bypasses all of it for one boot.
+
+Measured on this machine: a 61 KB JSON tool result went from 19 955 to 8 208 input tokens
+through the proxy (≈59%), DeepSeek's SSE stream survives it, and an uncompressed cold start
+is passed through untouched. Revert is `disable --stop` plus one restart.
+
+**Skills that grow — `@cc/dsh-skill-evolve` (in the profile, nothing to start).** Writes
+`<name>/SKILL.md` under `$DSH_HOME/skills`, which the harness's own `skill-filesystem`
+provider already scans and hot-reloads. Skills written this way appear in a running
+session's catalog without a restart. Keep the previous body in `.history/`, retreat to
+`.archive/` for `skill_forget`, and never overwrite a hand-authored skill unless
+`replace: true` is passed on purpose. Because the library is plain files, making it shared
+between machines is `git init` in that directory — that is the "collective" half of
+SkillClaw without a server.
+
+**Babysitter — deterministic process runs (npm binary + plugin).** `npm install -g
+@a5c-ai/babysitter` (or let the plugin report the missing CLI and stop). It has no DSH
+harness, so `@cc/dsh-babysitter` shells out to the CLI and maps each run onto ONE taskboard
+task: the run's journal steps become timeline notes, and the task lands in `review` for the
+human — never `done`.
+
+Shell-only processes need nothing else. **LLM-backed** ones need provider credentials of
+their own, because babysitter resolves its own model rather than borrowing DSH's. The
+credentials this machine already has can serve them — verified 2026-10-26, `genty` reached
+DeepSeek and completed its planning calls:
+
+```bash
+export AGENT_MUX_API_BASE=https://api.deepseek.com/v1
+export AGENT_MUX_API_KEY=...            # the same DeepSeek key the harness stores
+genty doctor --json --model deepseek-flash
+```
+
+Without `--model`, `genty` defaults to `gpt-4o` and DeepSeek rejects it by name; without
+the two variables it fails with "No API credentials found". `babysitter_doctor` reports
+that exact message rather than hiding it. `genty doctor` takes well over two minutes here,
+so raise the tool's `timeoutMs` when probing by hand.
+
+**Two upstream rows the kit now pins, and why they are in the kit.** `profile/cordis.patch.yml`
+carries `@deepseek-ai/dsh-client-ui-settings-general` (welcome notice suppressed at
+`2026-09-28.1`) and `@deepseek-ai/dsh-agent-default-model` (`deepseek-official` /
+`deepseek-flash` / `reasoningEffort: max`). Both lived only in the installed profile before
+2026-10-26, which made `kit-update --check` report profile drift forever: the managed-seed rule
+correctly refuses to overwrite a hand-edited patch, so the kit and the machine could never
+converge. They are now kit state, because the deployment's model policy already assumed them
+(`@cc/dsh-flash-guard` rewrites a child to flash and caps its effort at `high`; the root keeps
+the human's choice). A machine that wants a different default edits these rows in the kit, not
+in `$DSH_HOME`.
 
 ## 2. Fresh machine
 

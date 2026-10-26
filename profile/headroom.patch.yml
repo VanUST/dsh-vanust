@@ -1,0 +1,30 @@
+# ── headroom: the context compression layer, in front of the model ──────────
+# This is an OPT-IN overlay, not part of the canonical profile patch. Apply it on
+# a boot that wants compression:
+#
+#   dsh web --patch "$DSH_HOME/headroom.patch.yml"
+#
+# and start the proxy first with `node scripts/headroom.mjs ensure`. `start.sh`
+# does both when the marker `$DSH_HOME/headroom/enabled` exists, which is what
+# `node scripts/headroom.mjs enable` writes.
+#
+# WHY A SEPARATE OVERLAY. If this row lived in `profile/cordis.patch.yml`, then
+# every machine the kit converges would be unable to reach a model whenever the
+# Python proxy was not running — a portable kit must not trade a hard dependency
+# on a local daemon for a token saving. The overlay keeps the failure mode
+# opt-in and one flag away from being removed.
+#
+# WHY baseURL AND NOT A PLUGIN. The harness's DeepSeek adapter resolves its
+# endpoint per request, with `$DEEPSEEK_BASE_URL` and this config behind it, so
+# the proxy is inserted at the one place that sees the wire traffic: the first
+# thing that arrives at the provider. A plugin would only ever see the pieces
+# (a tool result here, a prompt section there), never the assembled request.
+#
+# WHAT IT COSTS. The anonymous beacon and tool-schema deferral are disabled by
+# scripts/headroom.mjs, because the first is telemetry this deployment does not
+# send and the second rewrites the tool list, which the harness's request-cache
+# assumptions do not survive. Compression runs on the local machine; no prompt,
+# file or tool output is uploaded to be compressed.
+- id: llm-deepseek
+  config:
+    baseURL: http://127.0.0.1:8787

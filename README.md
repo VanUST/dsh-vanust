@@ -70,6 +70,25 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   and Hugging Face, `papers_trending` for the HF daily list, and `papers_download` to save an
   arXiv PDF under `.dsh/papers/` with a `pdftotext` extraction. No API key; one source can
   fail while the other returns results.
+- **`@cc/dsh-rtk`** — command-aware shell output, compressed where it enters the context. RTK
+  (rtk-ai/rtk) rewrites the command upstream; since this harness's `tools/pre-execute` cannot
+  rewrite arguments, the plugin uses `tools/post-execute` and pipes an oversized result through
+  `rtk pipe -f <filter>` before the model reads it. Conservative by construction: only a single
+  simple command whose filter actually shrinks the text, and every replacement carries a banner
+  naming the filter and how to get the full output back. Works with rtk absent — the prompt
+  section says so and the listener no-ops.
+- **`@cc/dsh-skill-evolve`** — makes the skill library grow instead of rot: `skill_evolve`
+  writes a validated `SKILL.md` under `$DSH_HOME/skills` (keeping the previous body under
+  `.history/`, and refusing to overwrite a human-authored skill without explicit consent),
+  `skill_inventory` reports what is there, `skill_grow` finds duplicate clusters and can archive
+  the losers, `skill_forget` archives one skill while keeping its bytes. This is SkillClaw's
+  useful half — evolution and dedupe over SKILL.md — with no proxy, no Python and no second
+  process: the harness's own `skill-filesystem` provider already discovers the result live.
+- **`@cc/dsh-babysitter`** — drives the real `@a5c-ai/babysitter` CLI from DSH: `babysitter_run`,
+  `babysitter_status`, `babysitter_resume` and `babysitter_doctor`, each bounded by a timeout and
+  each answering with the install line rather than a stack trace when the CLI is absent. The
+  mapping is the point: one run is one taskboard task, journal steps become timeline notes, and
+  the task ends in `review` for a human — never `done`.
 
 **Third-party add-on: Hindsight memory.** `@vectorize-io/hindsight-coding-agents@0.8.2`
 is installed separately by its own command (`npx @vectorize-io/hindsight-coding-agents install dsh`),
@@ -146,7 +165,13 @@ dsh-kit/
 ├── plugins/orchestrator/      # source of @cc/dsh-orchestrator (root/child policy + delegate_task)
 ├── plugins/handoff/           # source of @cc/dsh-handoff (one-page HTML + PDF)
 ├── plugins/papers/            # source of @cc/dsh-papers (arXiv/HF search, trending, PDF text)
+├── plugins/rtk/               # source of @cc/dsh-rtk (rtk binary discovery + post-execute output seam)
+├── plugins/skill-evolve/      # source of @cc/dsh-skill-evolve (SKILL.md write/version/dedupe/archive)
+├── plugins/babysitter/        # source of @cc/dsh-babysitter (CLI adapter mapped onto the taskboard)
 ├── profile/                   # canonical web profile: package.json (no deps) + cordis.patch.yml
+├── profile/headroom.patch.yml # opt-in overlay that points the DeepSeek provider at the local proxy
+├── scripts/headroom.mjs       # start/stop/status/enable/disable for the Headroom proxy
+├── scripts/rtk-selftest.mjs   # runs real repo commands through the rtk filter and prints the savings
 ├── rules/DEPLOYMENT.md        # operating this machine: install, update, checks, troubleshooting ($DSH_HOME/DEPLOYMENT.md)
 ├── scripts/pack-plugin.mjs    # repack an in-repo plugin with a version bump and one tarball left behind
 ├── scripts/check-portability.mjs  # platform, packaging and inventory checks
