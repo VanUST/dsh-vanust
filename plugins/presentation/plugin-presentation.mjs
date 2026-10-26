@@ -84,32 +84,41 @@ export function renderMarp(spec) {
   const slides = Array.isArray(spec.slides) ? spec.slides.filter((s) => s !== null && typeof s === 'object') : []
   if (slides.length === 0) errors.push('spec.slides: expected at least one slide')
   const theme = MARP_THEMES[typeof spec.theme === 'string' ? spec.theme : ''] ?? 'default'
-  const lines = ['---', 'marp: true', `theme: ${theme}`, 'paginate: true', '---', '']
-  if (title !== '') lines.push(`# ${title}`, '')
+  const head = ['---', 'marp: true', `theme: ${theme}`, 'paginate: true']
+  if (title !== '') head.push(`title: "${title.replaceAll('"', "'")}"`)
+  head.push('---')
+
+  // Slides are joined by a separator, never preceded by one. Emitting `---` before
+  // the first slide produced an EMPTY leading slide: a two-slide deck rendered to
+  // three pages with marp-cli (measured 2026-10-26).
+  const parts = []
+  const firstIsCover = slides[0]?.type === 'cover'
+  if (title !== '' && !firstIsCover) parts.push(`# ${title}`)
   for (const [index, slide] of slides.entries()) {
-    const heading = typeof slide.title === 'string' ? slide.title : `Slide ${index + 2}`
-    lines.push('---', '', `## ${heading}`, '')
-    if (typeof slide.kicker === 'string' && slide.kicker !== '') lines.push(`**${slide.kicker}**`, '')
-    if (typeof slide.lede === 'string' && slide.lede !== '') lines.push(slide.lede, '')
+    const block = []
+    const heading = typeof slide.title === 'string' ? slide.title : `Slide ${index + 1}`
+    block.push(`## ${heading}`, '')
+    if (typeof slide.kicker === 'string' && slide.kicker !== '') block.push(`**${slide.kicker}**`, '')
+    if (typeof slide.lede === 'string' && slide.lede !== '') block.push(slide.lede, '')
     for (const card of Array.isArray(slide.cards) ? slide.cards : []) {
       if (card === null || typeof card !== 'object') continue
       const name = typeof card.title === 'string' ? card.title : ''
       const text = typeof card.text === 'string' ? card.text : ''
       if (name === '' && text === '') continue
-      lines.push(`- **${name}**${text === '' ? '' : ` — ${text}`}`)
+      block.push(`- **${name}**${text === '' ? '' : ` — ${text}`}`)
     }
     for (const kpi of Array.isArray(slide.kpis) ? slide.kpis : []) {
-      if (kpi !== null && typeof kpi === 'object') lines.push(`- ${kpi.value ?? ''} — ${kpi.label ?? ''}${kpi.note === undefined ? '' : ` (${kpi.note})`}`)
+      if (kpi !== null && typeof kpi === 'object') block.push(`- ${kpi.value ?? ''} — ${kpi.label ?? ''}${kpi.note === undefined ? '' : ` (${kpi.note})`}`)
     }
-    if (Array.isArray(slide.chips?.items) && slide.chips.items.length > 0) lines.push(`*${slide.chips.label ?? 'Items'}: ${slide.chips.items.join(', ')}*`)
-    if (typeof slide.callout === 'string' && slide.callout !== '') lines.push('', `> ${slide.callout}`)
-    if (typeof slide.quote?.text === 'string') lines.push('', `> ${slide.quote.text}${slide.quote.by === undefined ? '' : ` — ${slide.quote.by}`}`)
+    if (Array.isArray(slide.chips?.items) && slide.chips.items.length > 0) block.push(`*${slide.chips.label ?? 'Items'}: ${slide.chips.items.join(', ')}*`)
+    if (typeof slide.callout === 'string' && slide.callout !== '') block.push('', `> ${slide.callout}`)
+    if (typeof slide.quote?.text === 'string') block.push('', `> ${slide.quote.text}${slide.quote.by === undefined ? '' : ` — ${slide.quote.by}`}`)
     if (Array.isArray(slide.timeline) && slide.timeline.length > 0) {
-      for (const step of slide.timeline) if (step !== null && typeof step === 'object') lines.push(`1. **${step.title ?? ''}** — ${step.text ?? ''}`)
+      for (const step of slide.timeline) if (step !== null && typeof step === 'object') block.push(`1. **${step.title ?? ''}** — ${step.text ?? ''}`)
     }
-    lines.push('')
+    parts.push(block.join('\n').trimEnd())
   }
-  return { markdown: lines.join('\n'), errors, theme, slides: slides.length }
+  return { markdown: `${head.join('\n')}\n\n${parts.join('\n\n---\n\n')}\n`, errors, theme, slides: slides.length }
 }
 
 /** Where a Marp deck should land when the caller named an HTML path. */

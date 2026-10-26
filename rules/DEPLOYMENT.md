@@ -105,7 +105,11 @@ Pinned harness version: **`0.2.1-rc.2`**. Node ≥ 24. The kit is the only sourc
 deployment's own files; Hindsight is the documented third-party exception above, and a
 machine is otherwise a projection of the kit.
 
-### 1.2 Three tools that sit outside the profile, and how each is switched on
+### 1.2 The external tools, and how each is switched on
+
+`install.sh` provisions these with `scripts/provision-tools.mjs --apply` (and `make provision`
+reports). Missing tools are a supported state — each feature degrades and says so — so use
+`node scripts/provision-tools.mjs --check` before concluding a feature is broken.
 
 These are the integration points added on 2026-10-26. Each is deliberately a separate step
 from `install.sh`, because each either needs a binary the kit does not ship or is opt-in.

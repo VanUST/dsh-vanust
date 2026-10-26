@@ -70,6 +70,11 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   and Hugging Face, `papers_trending` for the HF daily list, and `papers_download` to save an
   arXiv PDF under `.dsh/papers/` with a `pdftotext` extraction. No API key; one source can
   fail while the other returns results.
+- **`scripts/provision-tools.mjs`** — installs or reports the external binaries the features
+  use (RTK, Headroom, Babysitter, Marp CLI, Mermaid CLI, D2) and detects the OS ones (Chrome,
+  ffmpeg). `install.sh` runs it with `--apply`; `make provision` reports, `make provision-apply`
+  installs. Every tool is optional — its feature degrades and says so — which is why silence
+  about it was a defect.
 - **`@cc/dsh-research-first`** — refuses to create a NEW file in a session that has read
   nothing current: it observes `web_fetch`/`web_search` results, gates new-file writes, names the
   exact next step in the denial, and offers `research_waive` for an offline machine. Memory is a

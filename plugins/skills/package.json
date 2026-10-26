@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-skills",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "The deployment's reusable skills as one runtime provider: Ponytail's lazy-senior discipline, grill-me/grilling, Karpathy clear-writing/explain-webpage/explain-diagram, the UI builder loop, the proof-not-tests ruling, and the literature-review procedure. No prompt section, no tool, no session event.",
   "type": "module",
   "main": "index.js",

@@ -31,6 +31,20 @@ Skip it when the work is local and self-describing: renaming a variable, fixing 
 - Read the local source of truth too: `node_modules/<pkg>/README.md`, `--help`, `man`. The installed code cannot lie about its own version.
 - Record what you found **before** writing: the URL, the version, and the one fact that changed your plan. That note is what you cite in the handoff; a research step with no recorded finding tends to be a ritual.
 
+## When the search tool is broken
+
+`web_search` is not guaranteed. In this deployment its endpoint is unconfigured and every call fails with a transport error, while `web_fetch` works. Do not retry a broken search; go straight to a URL that answers:
+
+| Need | Fetch this |
+|---|---|
+| Package docs and README | `https://raw.githubusercontent.com/<owner>/<repo>/HEAD/README.md` (and the docs folder beside it) |
+| Papers and the state of the art | arXiv API — `http://export.arxiv.org/api/query?search_query=all:<terms>&max_results=10` (Atom XML) |
+| Citations and venues | Semantic Scholar — `https://api.semanticscholar.org/graph/v1/paper/search?query=<terms>&fields=title,year,abstract,url` |
+| A specific function's contract | the project's docs site, or `node_modules/<pkg>/README.md` for the installed version |
+| Whether a release changed an API | the changelog: `<repo>/releases` or `CHANGELOG.md` via raw.githubusercontent.com |
+
+A failed lookup does not unlock the gate that enforces this rule: only a fetch that returned real content counts (the plugin measures the text). So fetch something you know answers, read it, and cite what changed your plan.
+
 ## The prompt this rule answers
 
 > "Do it the best way, not the way you remember."

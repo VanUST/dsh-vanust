@@ -389,6 +389,31 @@ plugin does not, and the loader keeps the failed import until the next boot. Thi
 on 2026-10-26: the row composed, the package was installed and byte-verified, the guard
 correct in isolation, and it stayed inactive in the live process.
 
+## 7.2 The external binaries, provisioned
+
+`install.sh` finishes by running `scripts/provision-tools.mjs --apply`, which installs what is
+missing and never reinstalls what is present. Re-run any time:
+
+```bash
+make provision          # report only, offline-safe
+make provision-apply    # install what is missing (no sudo)
+node scripts/provision-tools.mjs --check --json   # machine-readable
+SKIP_TOOLS=1 ./install.sh                          # skip the step entirely
+```
+
+| Tool | Needed by | Installed as |
+|---|---|---|
+| `rtk` | shell-output compression | `rtk-oss` installer (Apache-2.0 only, `RTK_EDITION`) |
+| `headroom` | model-traffic compression | `uv tool install "headroom-ai[proxy]"` |
+| `babysitter` | process runs | `npm -g @a5c-ai/babysitter` |
+| `marp` | deck export → PDF/PPTX | `npm -g @marp-team/marp-cli` |
+| `mmdc` | Mermaid source → SVG | `npm -g @mermaid-js/mermaid-cli` with no bundled Chromium; a puppeteer config pointing at your Chrome is written to `$DSH_HOME/mermaid-puppeteer.json` |
+| `d2` | D2 source → SVG/PNG/PPTX | the latest release tarball into `~/.local/bin` |
+| `chrome`, `ffmpeg` | PDF rendering, video | **detected only** — they are OS packages |
+
+Everything is optional: a missing tool degrades its feature with a message rather than failing a
+run. That is also why the check exists — silence was indistinguishable from "not needed".
+
 ## 8. The three outside tools (RTK, Headroom, skill evolution, Babysitter)
 
 Each is a decision, not a default; none is required for the harness to run.

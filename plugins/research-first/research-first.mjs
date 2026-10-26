@@ -22,8 +22,10 @@
  *     mode             "deny" (default) refuses the call; "warn" logs and allows,
  *                      for a trial period on a machine that wants the signal first.
  *     requireFor       tools that create artifacts. Default ["write"].
- *     researchTools    tools that count as research. Default ["web_fetch",
- *                      "web_search"]; add a documentation MCP's tool names here.
+ *     researchTools    tools that count as research. Default ["web_fetch"] — the
+ *                      tool that works in this deployment. Add "web_search" only
+ *                      where the search endpoint is configured, and add a
+ *                      documentation MCP's tool names here when one is mounted.
  *     allowPaths       path prefixes that are never blocked, e.g. [".dsh/", "docs/"].
  *     newFilesOnly     default true: only a file that does not exist yet is gated.
  *     allowWaiver      default true: the research_waive tool exists.
@@ -57,7 +59,14 @@ export const name = 'research-first'
 export const inject = ['tools']
 
 const DEFAULT_REQUIRE_FOR = ['write']
-const DEFAULT_RESEARCH_TOOLS = ['web_fetch', 'web_search']
+// `web_search` is deliberately NOT a default. In this deployment the search endpoint
+// is unconfigured and every call fails ("DeepSeek search request failed"), so counting
+// it would let a broken tool unlock the gate. `web_fetch` is the tool that works; a
+// deployment with a working search adds it back through config.
+const DEFAULT_RESEARCH_TOOLS = ['web_fetch']
+
+/** A lookup must have produced real content to count; a failure message is short. */
+const MIN_RESEARCH_CHARS = 200
 const FALLBACK_ORDER = 10070
 const MIN_WAIVER_REASON = 12
 
@@ -75,6 +84,26 @@ export function normalizeConfig(config = {}) {
     newFilesOnly: config.newFilesOnly !== false,
     allowWaiver: config.allowWaiver !== false,
   }
+}
+
+/**
+ * How many characters of text a tool result carried.
+ *
+ * A failed search returns a short message, and a fetch that hit an error returns
+ * little; a page that was actually read returns paragraphs. Requiring real content
+ * is what stops "I tried" from counting as "I looked".
+ *
+ * @param result - A tool result, possibly an error.
+ * @returns Total text characters across its text blocks.
+ */
+export function researchYield(result) {
+  const content = result?.content
+  if (!Array.isArray(content)) return 0
+  let chars = 0
+  for (const block of content) {
+    if (block?.type === 'text' && typeof block.text === 'string') chars += block.text.length
+  }
+  return chars
 }
 
 /** The session identity a call belongs to, with a process-wide fallback. */
@@ -110,7 +139,7 @@ export function denialReason(target) {
   return [
     `research-first: no current source has been read in this session, so ${where} will not be created from memory.`,
     'Do this first, then retry the same call:',
-    '  1. web_fetch the official documentation page for the specific version you are on (check package.json / --version first), or web_search "<library> <version> <topic> best practice".',
+    '  1. web_fetch the official documentation page for the specific version you are on (check package.json / --version first). Search is not reliable in every deployment: if web_search fails, go straight to a URL you know — the docs site, raw.githubusercontent.com, an API endpoint.',
     '  2. If a documentation MCP is mounted (Context7 style), use it: it returns version-matched snippets.',
     '  3. Name the version and the one fact that changed your plan in your next message.',
     'If there is no way to look anything up (offline, auth wall), call research_waive with the reason and state the assumption in your result.',
@@ -122,7 +151,7 @@ export function sectionText(policy) {
   return [
     'LOOK IT UP BEFORE YOU BUILD IT.',
     'Your memory of a library is a snapshot: the API may be renamed and the pattern superseded.',
-    'Before creating a new file, read the current source: the installed version, and the official docs or changelog for THAT version.',
+    'Before creating a new file, read the current source with web_fetch: the installed version, then the official docs or changelog for THAT version. If web_search is unavailable, fetch a known URL instead; a failed lookup does not count.',
     `This deployment ${policy.mode === 'deny' ? 'refuses' : 'flags'} a new-file write with no research recorded in the session. One lookup unlocks the session.`,
     'The `research-first` skill has the procedure and the checklist.',
   ].join(' ')
@@ -138,6 +167,9 @@ export function apply(ctx, config = {}) {
   ctx.on('tools/result', (exec, result) => {
     if (!policy.researchTools.has(exec?.name)) return
     if (result?.isError === true) return
+    // Looking and failing is not looking: a 40-character "search request failed"
+    // must not unlock the gate.
+    if (researchYield(result) < MIN_RESEARCH_CHARS) return
     researched.add(sessionKeyOf(exec))
   })
 

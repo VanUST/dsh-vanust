@@ -82,6 +82,17 @@ echo "   installing the kit plugins (see plugins/inventory.json)..."
 #    `scripts/kit-update.mjs --apply`.
 cp "${KIT_DIR}/rules/DEPLOYMENT.md" "${DSH_HOME}/DEPLOYMENT.md"
 
+# 6. The external binaries the features use: RTK, Headroom, Babysitter, Marp, Mermaid
+#    CLI, D2. They are OPTIONAL by design — every feature degrades and says so — which
+#    is exactly why a fresh machine silently lacks them for weeks. Best effort: a
+#    failure here names the manual command and never fails the install.
+if [ "${SKIP_TOOLS:-0}" != "1" ] && [ -f "${KIT_DIR}/scripts/provision-tools.mjs" ]; then
+  echo
+  echo "== external tools (SKIP_TOOLS=1 to skip) =="
+  node "${KIT_DIR}/scripts/provision-tools.mjs" --apply --kit "${KIT_DIR}" \
+    || echo "   some tools are still missing; the features that need them degrade and say so"
+fi
+
 echo
 echo "== done =="
 echo "   DSH_HOME : ${DSH_HOME}"

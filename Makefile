@@ -88,6 +88,13 @@ usage-gate:
 notify-selftest:
 	@$(NODE) scripts/notify-selftest.mjs
 
+# Report (default) or install the external binaries the features use.
+provision:
+	@$(NODE) scripts/provision-tools.mjs --check
+
+provision-apply:
+	@$(NODE) scripts/provision-tools.mjs --apply
+
 verify:
 	node scripts/check-portability.mjs
 	node scripts/check-documentation.mjs
