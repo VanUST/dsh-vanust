@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-research-first",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Refuse to create a new file in a session that has not read a current source first: observes web_fetch/web_search results, gates new-file writes, offers a recorded waiver for offline work, and contributes the rule as a prompt section.",
   "type": "module",
   "main": "research-first.mjs",

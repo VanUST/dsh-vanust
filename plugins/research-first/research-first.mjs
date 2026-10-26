@@ -51,6 +51,7 @@
 
 import { existsSync } from 'node:fs'
 import { isAbsolute, relative, resolve } from 'node:path'
+import { defineTool } from '@deepseek-ai/dsh-tools'
 
 /** Cordis function-plugin name; also the id a profile patch targets. */
 export const name = 'research-first'
@@ -193,43 +194,63 @@ export function apply(ctx, config = {}) {
   })
 
   if (policy.allowWaiver) {
-    ctx.tools.register({
-      name: 'research_waive',
-      description:
-        'Record that current documentation could not be consulted in this session (offline, auth wall, nothing published), so the research-first gate lets new files be written. Requires a real reason; state the same assumption in your result.',
-      parameters: {
-        reason: { type: 'string', required: true, description: 'Why no current source could be read, e.g. "no network; using the API surface already pinned in package.json 3.2.1".' },
-      },
-      output: {
-        schema: { type: 'json' },
-        render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
-      },
-      async execute(args, exec) {
-        const reason = typeof args?.reason === 'string' ? args.reason.trim() : ''
-        if (reason.length < MIN_WAIVER_REASON) {
-          return { ok: false, code: 'reason_too_short', minimum: MIN_WAIVER_REASON }
-        }
-        const key = sessionKeyOf(exec)
-        waived.add(key)
-        ctx.logger.warn(`research-first: waiver for session ${key}: ${reason}`)
-        return { ok: true, session: key, reason, note: 'new-file writes are unlocked for this session; state this assumption in the result' }
-      },
-    })
+    // Built through defineTool, like every other kit tool: the registry validates the
+    // declaration, and a raw object threw inside a running server. That throw rolled
+    // back the whole plugin, taking the guard with it — the guard looked "not
+    // installed" while the code was correct. The registration is also contained now,
+    // so a tool-declaration mistake can never silently disable the enforcement again.
+    try {
+      ctx.tools.register(defineTool({
+        name: 'research_waive',
+        description:
+          'Record that current documentation could not be consulted in this session (offline, auth wall, nothing published), so the research-first gate lets new files be written. Requires a real reason; state the same assumption in your result.',
+        parameters: {
+          reason: { type: 'string', required: true, description: 'Why no current source could be read, e.g. "no network; using the API surface already pinned in package.json 3.2.1".' },
+        },
+        output: {
+          schema: { type: 'json' },
+          render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+        },
+        async execute(args, exec) {
+          const reason = typeof args?.reason === 'string' ? args.reason.trim() : ''
+          if (reason.length < MIN_WAIVER_REASON) {
+            return { ok: false, code: 'reason_too_short', minimum: MIN_WAIVER_REASON }
+          }
+          const session = sessionKeyOf(exec)
+          waived.add(session)
+          ctx.logger.warn(`research-first: waiver for session ${session}: ${reason}`)
+          return { ok: true, session, reason, note: 'new-file writes are unlocked for this session; state this assumption in the result' }
+        },
+      }))
+    } catch (error) {
+      ctx.logger.warn(`research-first: the waiver tool could not be registered (${error instanceof Error ? error.message : String(error)}); the guard is unaffected`)
+    }
   }
 
-  ctx.inject(['systemPrompt'], (scope) => {
-    const order = scope.systemPrompt.getSectionOrder?.('research:first') ?? FALLBACK_ORDER
-    const dispose = scope.systemPrompt.section({
-      name: 'research:first',
-      order,
-      text: () => {
-        try {
-          return sectionText(policy)
-        } catch {
-          return ''
-        }
-      },
+  // The guard above is the product; the section is guidance. Wrapped so that a prompt
+  // registry which is absent, renamed or mid-restart cannot take the enforcement down
+  // with it — that is how this plugin shipped silently inert once.
+  try {
+    ctx.inject(['systemPrompt'], (scope) => {
+      try {
+        const order = scope.systemPrompt.getSectionOrder?.('research:first') ?? FALLBACK_ORDER
+        const dispose = scope.systemPrompt.section({
+          name: 'research:first',
+          order,
+          text: () => {
+            try {
+              return sectionText(policy)
+            } catch {
+              return ''
+            }
+          },
+        })
+        scope.on('dispose', () => dispose?.())
+      } catch {
+        // No section is a smaller failure than no guard.
+      }
     })
-    scope.on('dispose', () => dispose?.())
-  })
+  } catch {
+    // Same reasoning: the guard stays registered.
+  }
 }

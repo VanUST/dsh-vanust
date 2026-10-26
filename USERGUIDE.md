@@ -385,12 +385,30 @@ and the reason is logged.
 Web calls in this deployment fail transiently: retry two or three times before treating a source
 as unreachable, and remember that only a lookup that returned real content unlocks the gate.
 
-It is a new plugin row plus a new package, and this harness cannot import a newly installed
-plugin into an ALREADY RUNNING server: after `kit-update` installs it, one restart is needed
-(`./start.sh`). Updated versions of an existing plugin do reload on a config change; a *new*
-plugin does not, and the loader keeps the failed import until the next boot. This was measured
-on 2026-10-26: the row composed, the package was installed and byte-verified, the guard
-correct in isolation, and it stayed inactive in the live process.
+It is a new plugin row plus a new package, and this harness does not import a newly installed
+plugin into an already running server on its own: `kit-update` writes the row and installs the
+package, and the loader keeps the failed import until something re-evaluates that entry. A
+restart always works, but it is not the only way — **toggle the row**:
+
+```yaml
+# 1. add this, wait a few seconds
+- id: research-first
+  disabled: true
+
+# 2. replace it with the real row, wait, then test
+- id: research-first
+  config:
+    mode: deny
+```
+
+Measured on 2026-10-26: with the toggle, the tool schema and the prompt section appeared on the
+next turn with no restart. The restart is the fallback, not the requirement.
+
+One defect found on the way there, worth knowing because it looked exactly like "the plugin is
+not installed": the waiver tool was registered as a raw object, the registry rejected it, and
+Cordis rolled back the WHOLE plugin — so the guard disappeared with it. A kit tool must be built
+with `defineTool`, and anything registered after the guard is wrapped so a declaration mistake
+can never take the enforcement down.
 
 ## 7.2 The external binaries, provisioned
 
