@@ -179,6 +179,15 @@ kit, so any machine you converge has the server without you configuring it there
 `scripts/dsh-mcp-sync.mjs`, which writes the launch row the harness actually
 loads into `$DSH_HOME/cordis.patch.yml`. Both steps are safe to re-run.
 
+**When the editor is not running, the tools time out rather than failing fast.** The
+MCP client bridge starts the bridge, the bridge cannot attach without a live editor,
+and a call then waits for its own deadline before returning `Request timed out` — there
+is no hint in that message. Two consequences, measured on 2026-10-26: an agent that
+tries `mcp__godot__*` with no editor open loses a full timeout per call, and every
+`dsh headless` run spawns the bridge (the row lives in the shared home layer), prints a
+failing-attach traceback and carries on. Neither breaks a run; both cost time. Start the
+editor, or ignore the Godot tools, until you need them.
+
 Three pieces are **yours to supply**, because they are per-machine or per-project
 content rather than kit configuration. The kit names the exact command instead of
 pretending to have run it:
