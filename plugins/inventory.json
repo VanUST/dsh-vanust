@@ -136,6 +136,15 @@
       "source": "plugins/babysitter",
       "pack": "scripts/pack-plugin.mjs",
       "mounted": true
+    },
+    {
+      "id": "research-first",
+      "package": "@cc/dsh-research-first",
+      "tarballPrefix": "cc-dsh-research-first",
+      "provenance": "in-repo",
+      "source": "plugins/research-first",
+      "pack": "scripts/pack-plugin.mjs",
+      "mounted": true
     }
   ]
 }

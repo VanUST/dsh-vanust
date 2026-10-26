@@ -16,7 +16,9 @@
  *
  * KEYWORDS
  *   skills, ponytail, grill-me, grilling, clear-writing, explain-diagram,
- *   explain-webpage, ui-builder, proof-not-tests, literature-review.
+ *   explain-webpage, ui-builder, proof-not-tests, literature-review,
+ *   tests-that-could-fail, visual-explanations, ui-testing, ui-design-system,
+ *   research-first.
  *
  * BEHAVIOUR ON EDGE CASES
  *   - A missing body file fails the mount loudly: a skill catalog that silently
@@ -95,6 +97,41 @@ const SKILLS = [
     name: 'proof-not-tests',
     description: 'No autotests: prove behavior by running the product and quoting the command, output and exit code; a test is written only when the human asks and the behavior is non-trivial.',
     whenToUse: 'Before accepting a "done" claim, or whenever a test file is about to be written.',
+    invocation: { modelInvocable: true, userInvocable: true },
+  },
+  {
+    file: 'tests-that-could-fail.md',
+    name: 'tests-that-could-fail',
+    description: 'A check earns its place only if it can fail: name the production change it catches, watch it go red first, and refuse assertions that restate their own setup.',
+    whenToUse: 'About to write or review a test, or about to claim that something works.',
+    invocation: { modelInvocable: true, userInvocable: true },
+  },
+  {
+    file: 'visual-explanations.md',
+    name: 'visual-explanations',
+    description: 'Choose the artifact (handoff, deck, diagram, interactive page, animation) from the reader\'s question, then apply one visual system and the show-the-transformation discipline.',
+    whenToUse: 'A document, deck, diagram or explainer is requested, or a handoff needs a visual.',
+    invocation: { modelInvocable: true, userInvocable: true },
+  },
+  {
+    file: 'ui-testing.md',
+    name: 'ui-testing',
+    description: 'Prove a web UI in a browser: role-first locators, web-first assertions, the state matrix, accessibility, and a negative run that proves the check can fail.',
+    whenToUse: 'Verifying a page, component or flow in a browser, or reviewing a UI test.',
+    invocation: { modelInvocable: true, userInvocable: true },
+  },
+  {
+    file: 'ui-design-system.md',
+    name: 'ui-design-system',
+    description: 'Tokens, component states and layout patterns for an interface that looks deliberate rather than generated.',
+    whenToUse: 'Building or restyling any screen: pick the scales first, then the pattern, then prove contrast and focus.',
+    invocation: { modelInvocable: true, userInvocable: true },
+  },
+  {
+    file: 'research-first.md',
+    name: 'research-first',
+    description: 'Read the current source before implementing: the installed version, the official docs for that version, the changelog — then write.',
+    whenToUse: 'A task with no prior specification, a library or CLI you have not checked in this session, or anything that used to work.',
     invocation: { modelInvocable: true, userInvocable: true },
   },
   {

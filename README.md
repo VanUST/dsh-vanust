@@ -38,7 +38,7 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   `scripts/dsh-mcp-sync.mjs`, which imports the plugin's own row builder so the two
   cannot drift. It ships no MCP protocol code, by design: a second client implementation
   would diverge from the shipped one on precisely the details that are hard to get right.
-- **`@cc/dsh-skills`** — nine runtime skills in one tarball: Ponytail's lazy-senior
+- **`@cc/dsh-skills`** — fourteen runtime skills in one tarball: Ponytail's lazy-senior
   discipline (its test paragraph patched to the proof rule), grill-me/grilling, Karpathy
   clear-writing/explain-webpage/explain-diagram (the diagram skill adapted to the local
   `diagram` tool), the UI builder loop, the proof-not-tests ruling, and the literature
@@ -70,6 +70,10 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   and Hugging Face, `papers_trending` for the HF daily list, and `papers_download` to save an
   arXiv PDF under `.dsh/papers/` with a `pdftotext` extraction. No API key; one source can
   fail while the other returns results.
+- **`@cc/dsh-research-first`** — refuses to create a NEW file in a session that has read
+  nothing current: it observes `web_fetch`/`web_search` results, gates new-file writes, names the
+  exact next step in the denial, and offers `research_waive` for an offline machine. Memory is a
+  prior, not a source; the gate makes that true. Edits to existing files are never blocked.
 - **`@cc/dsh-rtk`** — command-aware shell output, compressed where it enters the context. RTK
   (rtk-ai/rtk) rewrites the command upstream; since this harness's `tools/pre-execute` cannot
   rewrite arguments, the plugin uses `tools/post-execute` and pipes an oversized result through
@@ -105,7 +109,7 @@ survives a kit convergence by design.
 
 **Prompt, skills and model policy are now deployment surfaces.** The harness still owns the
 persona and the request pipeline, but this kit deliberately adds a root/child orchestration
-policy (`@cc/dsh-orchestrator`), nine runtime skills (`@cc/dsh-skills`) and a flash-route
+policy (`@cc/dsh-orchestrator`), fourteen runtime skills (`@cc/dsh-skills`) and a flash-route
 guard (`@cc/dsh-flash-guard`). This is a change from the earlier "no plugin contributes
 prompt text" stance; `rules/DEPLOYMENT.md` §2 states the policy and the seams, and the
 model route still offers what the profile configures.
@@ -158,7 +162,7 @@ dsh-kit/
 ├── plugins/diagrams/          # source of @cc/dsh-diagrams (scheme tool; own layout engine, no client half)
 ├── plugins/work-modes/        # source of @cc/dsh-work-modes (packed into its tarball above)
 ├── plugins/godot-mcp/         # source of @cc/dsh-godot-mcp (packed into its tarball above)
-├── plugins/skills/            # source of @cc/dsh-skills (nine runtime skills)
+├── plugins/skills/            # source of @cc/dsh-skills (fourteen runtime skills)
 ├── plugins/flash-guard/       # source of @cc/dsh-flash-guard (child model-route guard)
 ├── plugins/proof-guard/       # source of @cc/dsh-proof-guard (test-file PROOF header)
 ├── plugins/taskboard/         # source of @cc/dsh-taskboard (Host service, command, Web panel)
@@ -167,6 +171,7 @@ dsh-kit/
 ├── plugins/papers/            # source of @cc/dsh-papers (arXiv/HF search, trending, PDF text)
 ├── plugins/rtk/               # source of @cc/dsh-rtk (rtk binary discovery + post-execute output seam)
 ├── plugins/skill-evolve/      # source of @cc/dsh-skill-evolve (SKILL.md write/version/dedupe/archive)
+├── plugins/research-first/    # source of @cc/dsh-research-first (new-file gate on current docs)
 ├── plugins/babysitter/        # source of @cc/dsh-babysitter (CLI adapter mapped onto the taskboard)
 ├── profile/                   # canonical web profile: package.json (no deps) + cordis.patch.yml
 ├── profile/headroom.patch.yml # opt-in overlay that points the DeepSeek provider at the local proxy

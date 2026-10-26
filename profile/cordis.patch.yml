@@ -99,10 +99,14 @@
       name: '@cc/dsh-godot-mcp'
 
 # ── skills: the deployment's reusable instructions ─────────────────────────
-# Nine runtime skills in one tarball: Ponytail's lazy-senior discipline,
+# Fourteen runtime skills in one tarball: Ponytail's lazy-senior discipline,
 # grill-me/grilling, Karpathy clear-writing/explain-webpage/explain-diagram
 # (adapted to the local `diagram` tool), the UI builder loop, the proof-not-tests
-# ruling, and the literature-review procedure. They register through
+# ruling, the literature-review procedure, and five added on 2026-10-26:
+# tests-that-could-fail (a check must be able to fail), visual-explanations (one
+# system across handoff/deck/diagram/animation), ui-testing (role-first, state
+# matrix, negative run), ui-design-system (tokens, states, layout patterns), and
+# research-first (read the current source before writing). They register through
 # `ctx.skills.register`, so the tarball is the source of truth and no machine
 # needs a copy under $DSH_HOME/skills. `grill-me` stays user-invocable; the model
 # reaches the procedure through `grilling`.
@@ -182,6 +186,18 @@
 - insert:
     - id: handoff
       name: '@cc/dsh-handoff'
+
+# ── research-first: read the current source before you build ────────────────
+# The silent failure is not wrong code but OUTDATED code: a library was renamed,
+# a pattern superseded, and the agent writes last year's API because it compiles.
+# A prompt rule loses to confidence, so this plugin observes the session's
+# web_fetch/web_search results and refuses to CREATE a new file when nothing has
+# been read yet. Editing existing files is never blocked — the code in front of
+# you is the truth about itself. One lookup unlocks the session; research_waive
+# exists for an offline machine and logs its reason.
+- insert:
+    - id: research-first
+      name: '@cc/dsh-research-first'
 
 # ── rtk: command-aware shell output, compressed where it enters the context ──
 # The output half of RTK. Upstream rewrites the COMMAND through a Claude Code

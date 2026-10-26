@@ -13,7 +13,7 @@ third-party components it contains or depends on:
   **`@cc/dsh-diagrams`**, **`@cc/dsh-godot-mcp`**, **`@cc/dsh-skills`**,
   **`@cc/dsh-flash-guard`**, **`@cc/dsh-proof-guard`**, **`@cc/dsh-taskboard`**,
   **`@cc/dsh-orchestrator`**, **`@cc/dsh-handoff`**, **`@cc/dsh-papers`**,
-  **`@cc/dsh-rtk`** and **`@cc/dsh-skill-evolve`** — this deployment's own
+  **`@cc/dsh-rtk`**, **`@cc/dsh-skill-evolve`** and **`@cc/dsh-research-first`** — this deployment's own
   packages, under this repository's `LICENSE` (MIT), except where a skill body is
   adapted from an upstream project:
   - `ponytail` is adapted from
@@ -28,6 +28,11 @@ third-party components it contains or depends on:
     changed to use the local `diagram` tool instead of Excalidraw.
   - `ui-builder`, `proof-not-tests` and `literature-review` were written for this
     kit.
+  - `tests-that-could-fail`, `visual-explanations`, `ui-testing`, `ui-design-system`
+    and `research-first` were written for this kit on 2026-10-26; each cites its
+    sources in a final section (Test Desiderata, Stryker, Playwright, Testing
+    Library, WCAG 2.2, Manim Community, Open Props, Context7, obra/superpowers).
+    They synthesise practice rather than reproduce text.
 
 - **Hindsight coding agents** — `@vectorize-io/hindsight-coding-agents`
   (https://github.com/vectorize-io/hindsight), installed separately by its own

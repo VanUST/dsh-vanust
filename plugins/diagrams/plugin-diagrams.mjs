@@ -60,6 +60,179 @@ function lossless(value) {
   return out
 }
 
+/** Mermaid shape brackets by the kit's node shapes. */
+const MERMAID_SHAPES = {
+  rect: ['[', ']'], round: ['(', ')'], pill: ['([', '])'], diamond: ['{', '}'],
+  hexagon: ['{{', '}}'], circle: ['((', '))'], note: ['[', ']'], start: ['([', '])'],
+  end: ['([', '])'], database: ['[(', ')]'], cylinder: ['[(', ')]'], parallelogram: ['[/', '/]'],
+  decision: ['{', '}'],
+}
+
+/** One line of text, safe inside a quoted diagram label. */
+function flat(value) {
+  return String(value ?? '').replaceAll('"', "'").replace(/\s+/g, ' ').trim()
+}
+
+/** `id` usable as a Mermaid/D2 identifier. */
+function ident(value, fallback) {
+  const text = String(value ?? '').replace(/[^A-Za-z0-9_]/g, '_')
+  return text === '' ? fallback : /^[0-9]/.test(text) ? `n_${text}` : text
+}
+
+/**
+ * Render a diagram spec as Mermaid source.
+ *
+ * WHY: Mermaid is rendered natively by GitHub, GitLab and most wikis, so a diagram
+ * emitted as source becomes reviewable in a pull request — the SVG file cannot.
+ * Emission is offline and dependency-free; rendering is the caller's (`mmdc`, or the
+ * viewer that already understands the fence).
+ *
+ * @param spec - The same diagram spec the SVG renderer accepts.
+ * @returns `{ source, errors, kind }`; `source` is null when the kind is unknown.
+ */
+export function renderMermaid(spec) {
+  const errors = []
+  if (spec === null || typeof spec !== 'object' || Array.isArray(spec)) {
+    return { source: null, errors: ['spec: expected a JSON object'], kind: null }
+  }
+  const kind = spec.kind
+  const nodes = Array.isArray(spec.nodes) ? spec.nodes.filter((n) => n !== null && typeof n === 'object') : []
+  const edges = Array.isArray(spec.edges) ? spec.edges.filter((e) => e !== null && typeof e === 'object') : []
+  const label = (node, index) => `${ident(node.id, `n${index}`)}`
+  const text = (node) => flat(node.label ?? node.id)
+
+  if (kind === 'flow' || kind === 'state') {
+    const lines = kind === 'state' ? ['stateDiagram-v2'] : ['flowchart TD']
+    for (const [index, node] of nodes.entries()) {
+      const id = label(node, index)
+      if (kind === 'state') {
+        // A start/end marker is not a declaration in Mermaid; it only appears as
+        // `[*]` inside a transition. Emitting it as a statement produced
+        // `stateDiagram-v2` followed by bare `[*]` lines, which does not parse.
+        if (node.shape === 'start' || node.shape === 'end') continue
+        lines.push(`    ${id} : ${text(node)}`)
+        continue
+      }
+      const [open, close] = MERMAID_SHAPES[node.shape] ?? MERMAID_SHAPES.rect
+      lines.push(`    ${id}${open}"${text(node)}"${close}`)
+    }
+    for (const edge of edges) {
+      const fromNode = nodes.find((n) => n.id === edge.from)
+      const toNode = nodes.find((n) => n.id === edge.to)
+      if (fromNode === undefined || toNode === undefined) { errors.push(`edge: unknown node ${edge.from} -> ${edge.to}`); continue }
+      const from = kind === 'state' && (fromNode.shape === 'start') ? '[*]' : ident(fromNode.id, 'n')
+      const to = kind === 'state' && (toNode.shape === 'end') ? '[*]' : ident(toNode.id, 'n')
+      const labelText = typeof edge.label === 'string' && edge.label !== '' ? flat(edge.label) : ''
+      if (kind === 'state') {
+        // Mermaid state labels come AFTER the target: `a --> b : done`.
+        lines.push(`    ${from} --> ${to}${labelText === '' ? '' : ` : ${labelText}`}`)
+        continue
+      }
+      const arrow = edge.style === 'dashed' || edge.style === 'dotted' ? '-.->' : '-->'
+      lines.push(`    ${from} ${arrow}${labelText === '' ? '' : `|${labelText}|`} ${to}`)
+    }
+    return { source: lines.join('\n'), errors, kind }
+  }
+
+  if (kind === 'arch') {
+    const lines = ['flowchart TB']
+    const layers = Array.isArray(spec.layers) ? spec.layers.filter((l) => l !== null && typeof l === 'object') : []
+    for (const [layerIndex, layer] of layers.entries()) {
+      const layerId = ident(layer.label, `layer${layerIndex}`)
+      lines.push(`    subgraph ${layerId}["${flat(layer.label ?? layerId)}"]`)
+      for (const [itemIndex, item] of (Array.isArray(layer.items) ? layer.items : []).entries()) {
+        if (item === null || typeof item !== 'object') continue
+        lines.push(`        ${ident(item.id, `i${itemIndex}`)}["${flat(item.label ?? item.id)}"]`)
+      }
+      lines.push('    end')
+    }
+    for (const link of Array.isArray(spec.links) ? spec.links : []) {
+      if (link === null || typeof link !== 'object') continue
+      const arrow = link.style === 'dashed' ? '-.->' : '-->'
+      const tail = typeof link.label === 'string' && link.label !== '' ? `|${flat(link.label)}|` : ''
+      lines.push(`    ${ident(link.from, 'x')} ${arrow}${tail} ${ident(link.to, 'y')}`)
+    }
+    return { source: lines.join('\n'), errors, kind }
+  }
+
+  if (kind === 'sequence') {
+    const actors = Array.isArray(spec.actors) ? spec.actors.filter((a) => a !== null && typeof a === 'object') : []
+    const lines = ['sequenceDiagram']
+    for (const [index, actor] of actors.entries()) {
+      lines.push(`    participant ${ident(actor.id, `a${index}`)} as ${flat(actor.label ?? actor.id)}`)
+    }
+    for (const message of Array.isArray(spec.messages) ? spec.messages : []) {
+      if (message === null || typeof message !== 'object') continue
+      const arrow = message.style === 'return' ? '-->>' : '->>'
+      lines.push(`    ${ident(message.from, 'x')}${arrow}${ident(message.to, 'y')}: ${flat(message.label ?? '')}`)
+    }
+    return { source: lines.join('\n'), errors, kind }
+  }
+
+  return { source: null, errors: [`kind: unknown kind ${JSON.stringify(kind)}`], kind: kind ?? null }
+}
+
+/**
+ * Render a diagram spec as D2 source.
+ *
+ * WHY: D2 gives stronger automatic layout than a hand-rolled engine for dense graphs
+ * and exports SVG/PNG/PDF from one text file. Emitted offline; rendering needs the
+ * `d2` binary, which the plugin does not vendor.
+ *
+ * @param spec - The same diagram spec.
+ * @returns `{ source, errors, kind }`.
+ */
+export function renderD2(spec) {
+  const errors = []
+  if (spec === null || typeof spec !== 'object' || Array.isArray(spec)) {
+    return { source: null, errors: ['spec: expected a JSON object'], kind: null }
+  }
+  const kind = spec.kind
+  const nodes = Array.isArray(spec.nodes) ? spec.nodes.filter((n) => n !== null && typeof n === 'object') : []
+  const lines = []
+  if (kind === 'sequence') {
+    lines.push('shape: sequence_diagram')
+    for (const [index, actor] of (Array.isArray(spec.actors) ? spec.actors : []).entries()) {
+      if (actor !== null && typeof actor === 'object') lines.push(`${ident(actor.id, `a${index}`)}: ${flat(actor.label ?? actor.id)}`)
+    }
+    for (const message of Array.isArray(spec.messages) ? spec.messages : []) {
+      if (message !== null && typeof message === 'object') lines.push(`${ident(message.from, 'x')} -> ${ident(message.to, 'y')}: ${flat(message.label ?? '')}`)
+    }
+    return { source: lines.join('\n'), errors, kind }
+  }
+  if (kind === 'arch') {
+    for (const [layerIndex, layer] of (Array.isArray(spec.layers) ? spec.layers : []).entries()) {
+      if (layer === null || typeof layer !== 'object') continue
+      const layerId = ident(layer.label, `layer${layerIndex}`)
+      lines.push(`${layerId}: "${flat(layer.label ?? layerId)}" {`)
+      for (const [itemIndex, item] of (Array.isArray(layer.items) ? layer.items : []).entries()) {
+        if (item !== null && typeof item === 'object') lines.push(`  ${ident(item.id, `i${itemIndex}`)}: "${flat(item.label ?? item.id)}"`)
+      }
+      lines.push('}')
+    }
+    for (const link of Array.isArray(spec.links) ? spec.links : []) {
+      if (link !== null && typeof link === 'object') lines.push(`${ident(link.from, 'x')} -> ${ident(link.to, 'y')}${typeof link.label === 'string' && link.label !== '' ? `: ${flat(link.label)}` : ''}`)
+    }
+    return { source: lines.join('\n'), errors, kind }
+  }
+  if (kind === 'flow' || kind === 'state') {
+    for (const [index, node] of nodes.entries()) lines.push(`${ident(node.id, `n${index}`)}: "${flat(node.label ?? node.id)}"`)
+    for (const edge of Array.isArray(spec.edges) ? spec.edges : []) {
+      if (edge === null || typeof edge !== 'object') continue
+      const tail = typeof edge.label === 'string' && edge.label !== '' ? `: ${flat(edge.label)}` : ''
+      lines.push(`${ident(edge.from, 'x')} -> ${ident(edge.to, 'y')}${tail}`)
+    }
+    return { source: lines.join('\n'), errors, kind }
+  }
+  return { source: null, errors: [`kind: unknown kind ${JSON.stringify(kind)}`], kind: kind ?? null }
+}
+
+/** Where a source export lands when the caller named an HTML path. */
+export function exportTarget(out, extension) {
+  const name = typeof out === 'string' && out.trim() !== '' ? out.trim() : DEFAULT_OUT
+  return name.replace(/\.html?$/i, `.${extension}`)
+}
+
 /**
  * Builds the tool definition.
  * @param defineTool - The harness's tool factory, injected by the caller.
@@ -94,6 +267,10 @@ export function diagramTool(defineTool) {
       out: {
         type: 'string',
         description: `Optional output file name or absolute path. Defaults to ${DEFAULT_OUT} in the session workspace.`
+      },
+      format: {
+        type: 'string',
+        description: '"svg" (default) renders the built-in SVG/HTML. "mermaid" or "d2" writes SOURCE instead — Mermaid renders natively on GitHub/GitLab so the diagram becomes reviewable, and D2 lays out dense graphs better; render them with `mmdc` or the `d2` binary (neither is vendored).'
       }
     },
     output: {
@@ -116,6 +293,40 @@ export function diagramTool(defineTool) {
         spec = JSON.parse(raw)
       } catch (error) {
         return Promise.resolve(lossless({ ok: false, errors: [`spec: invalid JSON — ${error.message}`] }))
+      }
+      // Source export: a Mermaid fence is rendered natively by GitHub/GitLab, so a
+      // diagram becomes reviewable in a pull request; D2 lays out dense graphs
+      // better than the built-in engine. Neither renderer is vendored — the file is
+      // the deliverable and the conversion is the caller's.
+      const format = typeof args?.format === 'string' ? args.format : 'svg'
+      if (format === 'mermaid' || format === 'd2') {
+        const exported = format === 'mermaid' ? renderMermaid(spec) : renderD2(spec)
+        if (exported.source === null) {
+          return Promise.resolve(lossless({ ok: false, errors: exported.errors }))
+        }
+        const cwdExport = workingDir(exec)
+        const exportPath = targetPath(exportTarget(args?.out, format === 'mermaid' ? 'mmd' : 'd2'), cwdExport)
+        if (exportPath === null) {
+          return Promise.resolve(lossless({ ok: false, errors: ['out: expected a usable file name'] }))
+        }
+        try {
+          mkdirSync(dirname(exportPath), { recursive: true })
+          writeFileSync(exportPath, exported.source)
+        } catch (error) {
+          return Promise.resolve(lossless({ ok: false, errors: [`write ${exportPath}: ${error.message}`] }))
+        }
+        return Promise.resolve(lossless({
+          ok: true,
+          format,
+          path: exportPath,
+          bytes: Buffer.byteLength(exported.source),
+          kind: exported.kind,
+          errors: exported.errors,
+          warnings: [],
+          hint: format === 'mermaid'
+            ? 'Paste it into a ```mermaid fence (GitHub/GitLab render it), or render it with `npx @mermaid-js/mermaid-cli -i <file> -o out.svg`.'
+            : 'Render it with the `d2` binary: `d2 <file> out.svg`.',
+        }))
       }
       const result = renderDiagram(spec)
       if (result.html === null) {

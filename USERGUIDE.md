@@ -16,7 +16,7 @@ the plugin computes the geometry, and the Sidebar document preview shows it),
 `subagent` children per session, with a `workflow` fan-out deliberately outside
 it; it injects no prompt section) and
 **`@cc/dsh-godot-mcp`** (a declarative, transferable MCP server list — §3.2),
-**`@cc/dsh-skills`** (nine runtime skills: Ponytail, grill-me/grilling, Karpathy
+**`@cc/dsh-skills`** (fourteen runtime skills: Ponytail, grill-me/grilling, Karpathy
 clear-writing/explain-webpage/explain-diagram, the UI builder loop, the proof-not-tests
 ruling and literature review),
 **`@cc/dsh-flash-guard`** (rewrites or refuses a delegated child's model route unless it is
@@ -35,7 +35,7 @@ source directory or a packing entry point disagrees with it. The harness version
 is pinned; sessions and workspaces stay machine-local by design.
 
 The harness owns the persona, the request pipeline and the user interface; this kit adds a
-deployment policy on top: the orchestrator's root/child sections, nine runtime skills and a
+deployment policy on top: the orchestrator's root/child sections, fourteen runtime skills and a
 flash-route guard. A repository's `AGENTS.md`/`CLAUDE.md` still reaches the model through
 the harness's own loader. The Tasks panel is the one new primary surface: open it from the
 sidebar, or from the **Tasks** header cell in a conversation. Its detail pane is
@@ -373,6 +373,21 @@ dsh --profile web --dump-config | grep -A1 'notify'
 ```
 
 A missing entry there means the plugin is installed but not wired.
+
+## 7.1 Research-first: the new-file gate
+
+`@cc/dsh-research-first` refuses to CREATE a file in a session that has read nothing
+current. It observes `web_fetch`/`web_search` results and gates new-file writes; editing an
+existing file is never blocked, because the code in front of you is the truth about itself.
+The denial names the lookup to do; `research_waive` exists for a machine with no way to look,
+and the reason is logged.
+
+It is a new plugin row plus a new package, and this harness cannot import a newly installed
+plugin into an ALREADY RUNNING server: after `kit-update` installs it, one restart is needed
+(`./start.sh`). Updated versions of an existing plugin do reload on a config change; a *new*
+plugin does not, and the loader keeps the failed import until the next boot. This was measured
+on 2026-10-26: the row composed, the package was installed and byte-verified, the guard
+correct in isolation, and it stayed inactive in the live process.
 
 ## 8. The three outside tools (RTK, Headroom, skill evolution, Babysitter)
 

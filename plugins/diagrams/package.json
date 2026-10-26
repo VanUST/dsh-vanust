@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-diagrams",
-  "version": "0.1.1",
+  "version": "0.1.3",
   "description": "One tool that renders a JSON diagram spec into a standalone HTML file with inline SVG in the workspace; the harness's Sidebar document preview displays it (flowcharts and algorithms, layered system architecture, sequence diagrams, state machines; five themes, dependency-free layout engine).",
   "type": "module",
   "main": "index.js",

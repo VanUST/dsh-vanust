@@ -60,6 +60,63 @@ function lossless(value) {
   return out
 }
 
+/** Marp's built-in themes, mapped from the kit's own. */
+const MARP_THEMES = { ember: 'gaia', graphite: 'default', aurora: 'uncover', mono: 'default', paper: 'gaia' }
+
+/**
+ * Render a deck spec as Marp Markdown.
+ *
+ * WHY: the HTML deck is a fine viewer but a dead end for editors — it cannot be
+ * opened in PowerPoint, and nobody can diff a slide. Marp Markdown is the opposite:
+ * plain text a human can review, rendered by the VS Code extension, and exported to
+ * HTML/PDF/PPTX by `marp` or `npx @marp-team/marp-cli`. It is emitted offline, with
+ * no dependency; the conversion is the caller's to run.
+ *
+ * @param spec - The same deck spec the HTML renderer accepts.
+ * @returns `{ markdown, errors, theme, slides }`; `markdown` is null on a fatal error.
+ */
+export function renderMarp(spec) {
+  const errors = []
+  if (spec === null || typeof spec !== 'object' || Array.isArray(spec)) {
+    return { markdown: null, errors: ['spec: expected a JSON object'], theme: null, slides: 0 }
+  }
+  const title = typeof spec.title === 'string' ? spec.title.trim() : ''
+  const slides = Array.isArray(spec.slides) ? spec.slides.filter((s) => s !== null && typeof s === 'object') : []
+  if (slides.length === 0) errors.push('spec.slides: expected at least one slide')
+  const theme = MARP_THEMES[typeof spec.theme === 'string' ? spec.theme : ''] ?? 'default'
+  const lines = ['---', 'marp: true', `theme: ${theme}`, 'paginate: true', '---', '']
+  if (title !== '') lines.push(`# ${title}`, '')
+  for (const [index, slide] of slides.entries()) {
+    const heading = typeof slide.title === 'string' ? slide.title : `Slide ${index + 2}`
+    lines.push('---', '', `## ${heading}`, '')
+    if (typeof slide.kicker === 'string' && slide.kicker !== '') lines.push(`**${slide.kicker}**`, '')
+    if (typeof slide.lede === 'string' && slide.lede !== '') lines.push(slide.lede, '')
+    for (const card of Array.isArray(slide.cards) ? slide.cards : []) {
+      if (card === null || typeof card !== 'object') continue
+      const name = typeof card.title === 'string' ? card.title : ''
+      const text = typeof card.text === 'string' ? card.text : ''
+      if (name === '' && text === '') continue
+      lines.push(`- **${name}**${text === '' ? '' : ` — ${text}`}`)
+    }
+    for (const kpi of Array.isArray(slide.kpis) ? slide.kpis : []) {
+      if (kpi !== null && typeof kpi === 'object') lines.push(`- ${kpi.value ?? ''} — ${kpi.label ?? ''}${kpi.note === undefined ? '' : ` (${kpi.note})`}`)
+    }
+    if (Array.isArray(slide.chips?.items) && slide.chips.items.length > 0) lines.push(`*${slide.chips.label ?? 'Items'}: ${slide.chips.items.join(', ')}*`)
+    if (typeof slide.callout === 'string' && slide.callout !== '') lines.push('', `> ${slide.callout}`)
+    if (typeof slide.quote?.text === 'string') lines.push('', `> ${slide.quote.text}${slide.quote.by === undefined ? '' : ` — ${slide.quote.by}`}`)
+    if (Array.isArray(slide.timeline) && slide.timeline.length > 0) {
+      for (const step of slide.timeline) if (step !== null && typeof step === 'object') lines.push(`1. **${step.title ?? ''}** — ${step.text ?? ''}`)
+    }
+    lines.push('')
+  }
+  return { markdown: lines.join('\n'), errors, theme, slides: slides.length }
+}
+
+/** Where a Marp deck should land when the caller named an HTML path. */
+export function marpTarget(out) {
+  return typeof out === 'string' && out !== '' ? out.replace(/\.html?$/i, '.md') : ''
+}
+
 /**
  * Builds the tool definition.
  * @param defineTool - The harness's tool factory, injected by the caller.
@@ -87,6 +144,10 @@ export function presentationTool(defineTool) {
       out: {
         type: 'string',
         description: `Optional output file name or absolute path. Defaults to ${DEFAULT_OUT} in the session workspace.`
+      },
+      format: {
+        type: 'string',
+        description: '"html" (default) renders the self-contained deck. "marp" writes Marp Markdown instead, for review, VS Code preview, and `npx @marp-team/marp-cli deck.md --pdf|--pptx` — the HTML viewer cannot produce PowerPoint.'
       }
     },
     output: {
@@ -109,6 +170,31 @@ export function presentationTool(defineTool) {
         spec = JSON.parse(raw)
       } catch (error) {
         return Promise.resolve(lossless({ ok: false, errors: [`spec: invalid JSON — ${error.message}`] }))
+      }
+      if (args?.format === 'marp') {
+        const marp = renderMarp(spec)
+        if (marp.markdown === null) return Promise.resolve(lossless({ ok: false, errors: marp.errors }))
+        const cwdMarp = workingDir(exec)
+        const marpOut = marpTarget(typeof args?.out === 'string' ? args.out : DEFAULT_OUT)
+        const marpPath = targetPath(marpOut, cwdMarp)
+        if (marpPath === null) return Promise.resolve(lossless({ ok: false, errors: ['out: expected a usable file name'] }))
+        try {
+          mkdirSync(dirname(marpPath), { recursive: true })
+          writeFileSync(marpPath, marp.markdown)
+        } catch (error) {
+          return Promise.resolve(lossless({ ok: false, errors: [`write ${marpPath}: ${error.message}`] }))
+        }
+        return Promise.resolve(lossless({
+          ok: true,
+          format: 'marp',
+          path: marpPath,
+          bytes: Buffer.byteLength(marp.markdown),
+          theme: marp.theme,
+          slides: marp.slides,
+          errors: marp.errors,
+          warnings: [],
+          hint: 'Render it with `npx @marp-team/marp-cli <file> --pdf` (or --pptx), or open it with the Marp VS Code extension.',
+        }))
       }
       const result = renderDeck(spec)
       if (result.html === null) {

@@ -1,0 +1,19 @@
+{
+  "name": "@cc/dsh-research-first",
+  "version": "0.1.1",
+  "description": "Refuse to create a new file in a session that has not read a current source first: observes web_fetch/web_search results, gates new-file writes, offers a recorded waiver for offline work, and contributes the rule as a prompt section.",
+  "type": "module",
+  "main": "research-first.mjs",
+  "exports": {
+    ".": "./research-first.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "research-first.mjs",
+    "README.md"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
+  }
+}
