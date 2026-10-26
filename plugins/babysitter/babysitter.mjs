@@ -392,30 +392,43 @@ export function runCli(entry, args, options = {}) {
     }
 
     try {
+      // POSIX: give the run its own process group so a timeout kills the WHOLE
+      // tree. genty spawns a harness child, and signalling only the direct child
+      // would leave an agent process running after its supervisor was killed.
+      // Windows has no equivalent group signal here, so it keeps the direct-child
+      // path (and windowsHide).
       child = spawn(entry.argv[0], [...entry.argv.slice(1), ...args], {
         cwd,
         env,
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
+        detached: process.platform !== 'win32',
       })
     } catch (error) {
       settle({ exitCode: null, signal: null, error: error instanceof Error ? error.message : String(error) })
       return
     }
 
+    const signalTree = (signal) => {
+      if (child.pid === undefined) return
+      try {
+        if (process.platform === 'win32') child.kill(signal)
+        else process.kill(-child.pid, signal)
+      } catch {
+        // The group may already be gone, or the child never became a leader;
+        // fall back to the direct child so a single process is still stopped.
+        try {
+          child.kill(signal)
+        } catch {
+          // Both paths failed: the hard timer below still resolves the promise.
+        }
+      }
+    }
     timeoutTimer = setTimeout(() => {
       timedOut = true
-      try {
-        child.kill('SIGTERM')
-      } catch {
-        // The hard timer below still resolves the promise.
-      }
+      signalTree('SIGTERM')
       killTimer = setTimeout(() => {
-        try {
-          child.kill('SIGKILL')
-        } catch {
-          // Ignore: the process may have exited between the two signals.
-        }
+        signalTree('SIGKILL')
       }, 2_000)
       killTimer.unref?.()
     }, timeoutMs)

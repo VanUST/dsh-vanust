@@ -113,7 +113,7 @@ export function parseSkill(text) {
     const nested = /^\s+([A-Za-z0-9_-]+):\s*(.*)$/.exec(line)
     if (nested !== null && parent !== undefined) {
       if (typeof fields[parent] !== 'object' || fields[parent] === null) fields[parent] = {}
-      fields[parent][nested[1]] = nested[2].replace(/^["']|["']$/g, '')
+      fields[parent][nested[1]] = unquote(nested[2])
       continue
     }
     const match = /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(line)
@@ -125,9 +125,22 @@ export function parseSkill(text) {
       continue
     }
     parent = undefined
-    fields[key] = value.replace(/^["']|["']$/g, '')
+    fields[key] = unquote(value)
   }
   return { fields, body }
+}
+
+/** Turn one written scalar back into text: quoted values are JSON-unescaped. */
+function unquote(value) {
+  const text = String(value)
+  if (text.length >= 2 && text.startsWith('"') && text.endsWith('"')) {
+    try {
+      return JSON.parse(text)
+    } catch {
+      // Not a JSON-compatible escape sequence; fall through to the literal.
+    }
+  }
+  return text.replace(/^'|'$/g, '')
 }
 
 /** Whether a parsed skill was produced by this plugin rather than written by a human. */
@@ -137,16 +150,31 @@ export function isEvolved(parsed) {
   return typeof metadata.evolvedFrom === 'string' && metadata.evolvedFrom !== ''
 }
 
-/** Render the file the provider will discover. */
+/** Render the file the provider will discover.
+ *
+ * EVERY frontmatter scalar is written DOUBLE-QUOTED, and that is not cosmetic. A
+ * plain YAML scalar breaks on three entirely ordinary descriptions: "Use when the
+ * build fails: exit code 137" (nested mapping), "- start here" (block sequence),
+ * and "# 137 means OOM" (parsed as a comment, so the value becomes empty). The
+ * provider drops a skill whose frontmatter fails to parse or lacks a description,
+ * so an unquoted write would silently LOSE the skill instead of reporting an
+ * error — measured on 2026-10-26 against the `yaml` parser the provider uses.
+ */
 export function renderSkill({ name, description, whenToUse, evolvedFrom, evolvedAt, body }) {
-  const lines = ['---', `name: ${name}`, `description: ${oneLine(description)}`]
-  if (typeof whenToUse === 'string' && whenToUse !== '') lines.push(`whenToUse: ${oneLine(whenToUse)}`)
+  const lines = ['---', `name: ${yamlString(name)}`, `description: ${yamlString(description)}`]
+  if (typeof whenToUse === 'string' && whenToUse !== '') lines.push(`whenToUse: ${yamlString(whenToUse)}`)
   if (typeof evolvedFrom === 'string' && evolvedFrom !== '') {
     lines.push('metadata:')
-    lines.push(`  evolvedFrom: ${oneLine(evolvedFrom)}`)
-    lines.push(`  evolvedAt: ${oneLine(evolvedAt ?? new Date().toISOString())}`)
+    lines.push(`  evolvedFrom: ${yamlString(evolvedFrom)}`)
+    lines.push(`  evolvedAt: ${yamlString(evolvedAt ?? new Date().toISOString())}`)
   }
   lines.push('---', '')
+
+/** One YAML double-quoted scalar: single line, escapes backslash and quote. */
+function yamlString(value) {
+  const text = oneLine(value).replaceAll('\\', '\\\\').replaceAll('"', '\\"')
+  return `"${text}"`
+}
   return `${lines.join('\n')}\n${String(body).trim()}\n`
 }
 
