@@ -21,6 +21,10 @@
  *                 Default 1500.
  *     timeoutMs   how long one `rtk pipe` may run before it is killed and the
  *                 result passes through. Default 15000.
+ *     debug       append one JSON line per post-execute decision to
+ *                 `$DSH_HOME/rtk-debug.log` (or `debugPath`). Off by default; the
+ *                 trace names the exact guard that skipped a result, which is the
+ *                 only way to diagnose a seam without restarting to add logging.
  *
  * OUTPUTS
  *   One `systemPrompt` section named `rtk:output`, and one `tools/post-execute`
@@ -35,6 +39,9 @@
  *   token savings, no argument rewrite
  *
  * BEHAVIOUR ON EDGE CASES
+ *   - The harness prefixes every shell call with `cd <cwd> && `, so that exact
+ *     prefix is unwrapped and the REST classified; every other compound command
+ *     (`;`, `|`, redirects, subshells) is refused.
  *   - Only a single simple command is classified. Any `|`, `&`, `;`, `<`, `>`,
  *     backtick, `$(`, parenthesis, newline, or a leading `VAR=value` returns null,
  *     as does anything whose first word is `rtk` (or ends in `/rtk`). A quoted
@@ -66,6 +73,7 @@
  */
 
 import { execFileSync, spawn } from 'node:child_process'
+import { appendFileSync } from 'node:fs'
 import { accessSync, constants } from 'node:fs'
 import { homedir } from 'node:os'
 import { delimiter, isAbsolute, join, resolve } from 'node:path'
@@ -165,6 +173,8 @@ function normalizeConfig(config = {}) {
     shellTools: new Set(tools.length > 0 ? tools : DEFAULT_SHELL_TOOLS),
     minChars: positiveInteger(config.minChars) ?? DEFAULT_MIN_CHARS,
     timeoutMs: positiveInteger(config.timeoutMs) ?? DEFAULT_TIMEOUT_MS,
+    debug: config.debug === true,
+    debugPath: typeof config.debugPath === 'string' && config.debugPath !== '' ? config.debugPath : '',
   }
 }
 
@@ -251,7 +261,19 @@ export function resolveRtk(config = {}) {
  */
 export function classifyCommand(command) {
   if (typeof command !== 'string') return null
-  const text = command.trim()
+  // THE HARNESS WRAPS EVERY SHELL COMMAND. A real agent call arrives as
+  // `cd /workspace && git log ...`, so refusing every compound command refused
+  // every real command: measured in the running GUI on 2026-10-26, where the trace
+  // showed `why:"unclassified"` for `cd /home/... && git log --oneline -40` and the
+  // feature had never filtered anything outside the pristine selftest commands.
+  // A leading `cd <simple-path>` is unwrapped because it cannot change what the
+  // remaining command prints; anything else compound is still refused.
+  let text = command.trim()
+  for (;;) {
+    const cd = /^cd\s+(?:"[^"]+"|'[^']+'|[^\s;&|<>()`$\\]+)\s*(?:&&|;)\s+/.exec(text)
+    if (cd === null) break
+    text = text.slice(cd[0].length).trimStart()
+  }
   if (text === '') return null
   if (COMPOUND_SHELL.test(text) || text.endsWith('\\')) return null
   const first = text.split(/\s+/, 1)[0]
@@ -534,25 +556,54 @@ export function apply(ctx, config = {}) {
     return () => dispose()
   })
 
+  const trace = (payload) => {
+    if (!policy.debug) return
+    try {
+      // The documented default, and nothing clever: $DSH_HOME/rtk-debug.log.
+      const home = typeof process.env.DSH_HOME === 'string' && process.env.DSH_HOME !== ''
+        ? process.env.DSH_HOME
+        : join(homedir(), '.npm', 'dsh')
+      const path = policy.debugPath !== '' ? policy.debugPath : join(home, 'rtk-debug.log')
+      appendFileSync(path, `${JSON.stringify({ at: new Date().toISOString(), pid: process.pid, ...payload })}\n`)
+    } catch {
+      // A diagnostic that breaks the seam would be worse than no diagnostic.
+    }
+  }
+
   ctx.on('tools/post-execute', async (exec, result, next) => {
-    if (rtk === null || !policy.shellTools.has(exec?.name)) return next()
+    if (rtk === null || !policy.shellTools.has(exec?.name)) {
+      trace({ stage: 'skip', why: rtk === null ? 'rtk-missing-at-load' : 'not-a-shell-tool', tool: exec?.name ?? null })
+      return next()
+    }
     if (exec.signal?.aborted) return next()
     const command = shellCommand(exec)
     const filter = classifyCommand(command)
-    if (filter === null) return next()
+    if (filter === null) {
+      trace({ stage: 'skip', why: 'unclassified', tool: exec.name, command })
+      return next()
+    }
 
     // Run the rest of the waterfall first: a block/replace already owned by
     // another policy is authoritative, and the accept decision describes the
     // projection the model would otherwise see.
     const decision = await next()
-    if (decision.kind !== 'accept' || Object.hasOwn(decision, 'value')) return decision
+    if (decision.kind !== 'accept' || Object.hasOwn(decision, 'value')) {
+      trace({ stage: 'skip', why: `decision-${decision.kind}${Object.hasOwn(decision, 'value') ? '-with-value' : ''}`, tool: exec.name, command })
+      return decision
+    }
     if (exec.signal?.aborted) return decision
     const content = decision.content ?? result?.content
     if (!Array.isArray(content)) return decision
     const index = singleTextIndex(content)
-    if (index === -1) return decision
+    if (index === -1) {
+      trace({ stage: 'skip', why: 'multi-block', tool: exec.name, command, blocks: content.map((b) => b?.type) })
+      return decision
+    }
     const original = content[index]?.text
-    if (typeof original !== 'string' || original.length < policy.minChars) return decision
+    if (typeof original !== 'string' || original.length < policy.minChars) {
+      trace({ stage: 'skip', why: 'below-min', tool: exec.name, command, chars: typeof original === 'string' ? original.length : -1 })
+      return decision
+    }
 
     const outcome = await filterOutput(command, original, {
       bin: rtk.bin,
@@ -561,7 +612,11 @@ export function apply(ctx, config = {}) {
       timeoutMs: policy.timeoutMs,
       signal: exec.signal,
     })
-    if (!outcome.applied) return decision
+    if (!outcome.applied) {
+      trace({ stage: 'skip', why: outcome.reason ?? 'not-applied', tool: exec.name, command, chars: original.length })
+      return decision
+    }
+    trace({ stage: 'applied', tool: exec.name, command, filter, before: outcome.beforeBytes, after: outcome.afterBytes })
 
     const replacement = content.slice()
     replacement[index] = { ...content[index], text: outcome.text }

@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-rtk",
-  "version": "0.1.1",
+  "version": "0.1.4",
   "description": "Command-aware output compression for shell tools: maps a simple command to an `rtk pipe -f` filter, replaces an oversized model-facing text result with rtk's compact projection plus a banner naming the filter and the recovery route, and contributes one system-prompt section that says where the rtk binary is and how to prefix a command for full control. It never rewrites arguments and never filters a result it does not understand.",
   "type": "module",
   "main": "rtk.mjs",

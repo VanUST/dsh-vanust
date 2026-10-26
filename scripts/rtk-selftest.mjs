@@ -83,6 +83,14 @@ const CASES = [
     expect: 'shrink',
   },
   {
+    // THE REAL SHAPE: the harness prefixes every shell call with `cd <cwd> &&`.
+    // Every earlier case ran a pristine command, which is exactly how the plugin
+    // shipped with a classifier that refused 100% of real agent calls.
+    command: `cd ${KIT} && git log --oneline -40`,
+    filter: 'git-log',
+    expect: 'shrink',
+  },
+  {
     // The filter only trims the trailing newline, so banner + text would be larger:
     // the net-loss guard must keep the original and SAY SO. On a clean worktree the
     // output is under minChars, so this case also accepts the below-min guard —
@@ -90,7 +98,7 @@ const CASES = [
     command: 'git status --short',
     filter: 'git-status',
     expect: 'passthrough',
-    expectReason: ['not-smaller', 'below-min'],
+    expectReason: ['not-smaller', 'below-min-chars'],
   },
   {
     // A compound command must never be classified.
