@@ -382,6 +382,9 @@ existing file is never blocked, because the code in front of you is the truth ab
 The denial names the lookup to do; `research_waive` exists for a machine with no way to look,
 and the reason is logged.
 
+Web calls in this deployment fail transiently: retry two or three times before treating a source
+as unreachable, and remember that only a lookup that returned real content unlocks the gate.
+
 It is a new plugin row plus a new package, and this harness cannot import a newly installed
 plugin into an ALREADY RUNNING server: after `kit-update` installs it, one restart is needed
 (`./start.sh`). Updated versions of an existing plugin do reload on a config change; a *new*

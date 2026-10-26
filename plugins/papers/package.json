@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-papers",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "arXiv and Hugging Face paper search, Hugging Face daily trending, and a PDF download that extracts text with pdftotext when present. No API key, no bundled corpus; one tool family for the literature-review skill.",
   "type": "module",
   "main": "papers.mjs",

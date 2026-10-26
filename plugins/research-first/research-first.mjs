@@ -139,7 +139,7 @@ export function denialReason(target) {
   return [
     `research-first: no current source has been read in this session, so ${where} will not be created from memory.`,
     'Do this first, then retry the same call:',
-    '  1. web_fetch the official documentation page for the specific version you are on (check package.json / --version first). Search is not reliable in every deployment: if web_search fails, go straight to a URL you know — the docs site, raw.githubusercontent.com, an API endpoint.',
+    '  1. web_fetch the official documentation page for the specific version you are on (check package.json / --version first). A failed web call is usually transient: retry two or three times before falling back to a URL you know — the docs site, raw.githubusercontent.com, an API endpoint.',
     '  2. If a documentation MCP is mounted (Context7 style), use it: it returns version-matched snippets.',
     '  3. Name the version and the one fact that changed your plan in your next message.',
     'If there is no way to look anything up (offline, auth wall), call research_waive with the reason and state the assumption in your result.',
@@ -151,7 +151,7 @@ export function sectionText(policy) {
   return [
     'LOOK IT UP BEFORE YOU BUILD IT.',
     'Your memory of a library is a snapshot: the API may be renamed and the pattern superseded.',
-    'Before creating a new file, read the current source with web_fetch: the installed version, then the official docs or changelog for THAT version. If web_search is unavailable, fetch a known URL instead; a failed lookup does not count.',
+    'Before creating a new file, read the current source with web_fetch: the installed version, then the official docs or changelog for THAT version. Web calls fail transiently here — retry two or three times before concluding a source is unreachable, then fetch a URL you know; a single failed call does not count.',
     `This deployment ${policy.mode === 'deny' ? 'refuses' : 'flags'} a new-file write with no research recorded in the session. One lookup unlocks the session.`,
     'The `research-first` skill has the procedure and the checklist.',
   ].join(' ')

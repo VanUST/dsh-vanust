@@ -115,13 +115,44 @@ function run(argv, env = {}) {
   return result.status === 0
 }
 
-/** Download a URL to a temp file with Node's fetch (no curl dependency). */
+/**
+ * Run an async step up to three times.
+ *
+ * Measured on this deployment (2026-10-26): a web call commonly fails once or twice
+ * and then succeeds. Provisioning a fresh machine over a flaky link is exactly the
+ * case where a single attempt turns a working install into a reported failure.
+ */
+async function withRetry(step, attempts = 3) {
+  let last
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await step()
+    } catch (error) {
+      last = error
+      if (attempt < attempts - 1) await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** attempt))
+    }
+  }
+  throw last
+}
+
+/** Download a URL to a temp file with Node's fetch (no curl dependency), with retries. */
 async function download(url, target) {
-  const response = await fetch(url, { signal: AbortSignal.timeout(180_000) })
-  if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`)
-  const buffer = Buffer.from(await response.arrayBuffer())
-  writeFileSync(target, buffer)
-  return target
+  return withRetry(async () => {
+    const response = await fetch(url, { signal: AbortSignal.timeout(180_000) })
+    if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`)
+    const buffer = Buffer.from(await response.arrayBuffer())
+    writeFileSync(target, buffer)
+    return target
+  })
+}
+
+/** Fetch a JSON API with retries. */
+async function fetchJson(url) {
+  return withRetry(async () => {
+    const response = await fetch(url, { signal: AbortSignal.timeout(60_000) })
+    if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`)
+    return response.json()
+  })
 }
 
 /** The tool set, in a stable order, with the probe and the installer for each. */
@@ -195,7 +226,7 @@ const TOOLS = [
     required: false,
     names: ['d2'],
     install: async () => {
-      const meta = await (await fetch('https://api.github.com/repos/terrastruct/d2/releases/latest', { signal: AbortSignal.timeout(60_000) })).json()
+      const meta = await fetchJson('https://api.github.com/repos/terrastruct/d2/releases/latest')
       const tag = typeof meta?.tag_name === 'string' ? meta.tag_name : ''
       if (tag === '') return false
       const archive = join(tmpdir(), `d2-${process.pid}.tar.gz`)

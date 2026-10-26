@@ -174,17 +174,24 @@ export function arxivQuery(query, { author = '', category = '' } = {}) {
 }
 
 /**
- * Fetch with one retry for a transient network error, a timeout, 429 or a 5xx.
- * arXiv and Hugging Face both rate-limit bursts; a second attempt is cheap and turns
- * a one-off `fetch failed` into a result without hiding a real 4xx.
+ * Fetch with up to three attempts for a transient network error, a timeout, 429 or a 5xx.
+ *
+ * THREE ATTEMPTS, NOT TWO, and that number is measured rather than chosen: on this
+ * deployment a web call commonly fails one or two times and then succeeds — the
+ * transport is flaky, not broken (2026-10-26). A single retry turned a working request
+ * into a reported failure often enough to be misleading. Backoff doubles (500, 1000 ms)
+ * and a `Retry-After` header wins over it; a real 4xx still fails immediately, so the
+ * retries cannot hide a wrong request.
  *
  * @param {string} url
  * @param {string} accept
  * @returns {Promise<Response>}
  */
 async function request(url, accept) {
+  const ATTEMPTS = 3
   let last = null
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
+    const lastAttempt = attempt === ATTEMPTS - 1
     try {
       const response = await fetch(url, {
         headers: { 'user-agent': USER_AGENT, accept },
@@ -192,9 +199,11 @@ async function request(url, accept) {
         redirect: 'follow',
       })
       if (response.ok) return response
-      if (attempt === 0 && (response.status === 429 || response.status >= 500)) {
+      if (!lastAttempt && (response.status === 429 || response.status >= 500)) {
         last = new Error(`HTTP ${response.status} from ${url}`)
-        await new Promise((resolve) => setTimeout(resolve, 700))
+        const retryAfter = Number(response.headers.get('retry-after'))
+        const wait = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter * 1000, 5_000) : 500 * 2 ** attempt
+        await new Promise((resolve) => setTimeout(resolve, wait))
         continue
       }
       throw new Error(`HTTP ${response.status} from ${url}`)
@@ -202,8 +211,8 @@ async function request(url, accept) {
       if (error?.message?.startsWith('HTTP ')) throw error
       const detail = error?.cause?.code === undefined ? error.message : `${error.message} (${error.cause.code})`
       last = new Error(`network: ${detail}`)
-      if (attempt === 0) {
-        await new Promise((resolve) => setTimeout(resolve, 700))
+      if (!lastAttempt) {
+        await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** attempt))
         continue
       }
     }

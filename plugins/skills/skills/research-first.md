@@ -31,9 +31,9 @@ Skip it when the work is local and self-describing: renaming a variable, fixing 
 - Read the local source of truth too: `node_modules/<pkg>/README.md`, `--help`, `man`. The installed code cannot lie about its own version.
 - Record what you found **before** writing: the URL, the version, and the one fact that changed your plan. That note is what you cite in the handoff; a research step with no recorded finding tends to be a ritual.
 
-## When the search tool is broken
+## When a lookup fails
 
-`web_search` is not guaranteed. In this deployment its endpoint is unconfigured and every call fails with a transport error, while `web_fetch` works. Do not retry a broken search; go straight to a URL that answers:
+A failed web call is usually **transient**, not unavailable: on this deployment a request commonly fails once or twice and then succeeds. Retry two or three times — with a short pause, not in a tight loop — before concluding that a source cannot be reached. Only after the retries fail should you switch to a URL you know will answer:
 
 | Need | Fetch this |
 |---|---|
@@ -43,7 +43,7 @@ Skip it when the work is local and self-describing: renaming a variable, fixing 
 | A specific function's contract | the project's docs site, or `node_modules/<pkg>/README.md` for the installed version |
 | Whether a release changed an API | the changelog: `<repo>/releases` or `CHANGELOG.md` via raw.githubusercontent.com |
 
-A failed lookup does not unlock the gate that enforces this rule: only a fetch that returned real content counts (the plugin measures the text). So fetch something you know answers, read it, and cite what changed your plan.
+The gate that enforces this rule counts only a lookup that returned real content (it measures the text), so a transient failure is not mistaken for research — retry until one succeeds, then read it and cite what changed your plan.
 
 ## The prompt this rule answers
 
