@@ -30,7 +30,8 @@
  *                      `osascript`), which decides its own placement and can suppress it.
  *                      macOS has no positioned overlay through `osascript` and therefore
  *                      always uses the daemon path there.
- *     `dismissMs`    - how long an overlay stays on screen. Default 6000.
+ *     `dismissMs`    - how long an overlay stays on screen. Default 0: persist until
+ *                      the human closes or clicks it. A positive number restores auto-dismiss.
  *     `pythonPath`   - the interpreter an overlay runs on. Default `python3`.
  *     `url`          - what a CLICK on a notification opens. Default: the harness's own Web
  *                      address, so a click reuses the running `dsh web` rather than starting a
@@ -60,6 +61,7 @@
  *     try/catch and always calls `next()`, because a notification that broke asking would be
  *     far worse than a missing popup.
  *   - `agent/status` for a session whose start was never seen: no finish notification.
+ *   - A delegated subagent's finish or question NEVER notifies; only root chat agents do.
  *   - A status flap (running, idle, running, idle) inside the threshold: no notification.
  *   - Repeated notification failures: logged once, not once per turn, so a headless machine
  *     does not fill a log with the same line.
@@ -74,6 +76,7 @@ import {
   APP_NAME,
   chooseDisplay,
   DEFAULT_DISMISS_MS,
+  isCoreAgent,
   notificationCommand,
   platformFamily,
   questionSummary,
@@ -231,7 +234,7 @@ export function apply(ctx, config = {}) {
       style,
       title,
       body,
-      dismissMs: Number.isFinite(config.dismissMs) && config.dismissMs > 0 ? config.dismissMs : DEFAULT_DISMISS_MS,
+      dismissMs: Number.isFinite(config.dismissMs) && config.dismissMs >= 0 ? config.dismissMs : DEFAULT_DISMISS_MS,
       url: webAddress,
       slotsDir,
       pythonPath: config.pythonPath,
@@ -291,6 +294,7 @@ export function apply(ctx, config = {}) {
   // the other's.
   if (onFinish) {
     ctx.effect(() => ctx.on('agent/status', (payload) => {
+      if (!isCoreAgent(payload?.agent)) return
       const id = payload?.agent?.id
       if (typeof id !== 'string' || id.length === 0) return
       const status = payload?.status
@@ -316,6 +320,7 @@ export function apply(ctx, config = {}) {
   // question the user never sees.
   if (onQuestion) {
     ctx.effect(() => ctx.on('user-questions/request', async (request, next) => {
+      if (!isCoreAgent(request?.agent)) return next()
       try {
         const summary = questionSummary(request)
         notify(sessionMessage(sessionLabel(request?.agent), summary === '' ? 'is waiting for your answer' : `asks: ${summary}`))

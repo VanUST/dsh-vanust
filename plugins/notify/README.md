@@ -1,6 +1,7 @@
 # @cc/dsh-notify — desktop notifications for agent events
 
-Tells a human who walked away that the agent **finished** or is **asking them something**.
+Tells a human who walked away that a **core chat agent** finished or is asking them
+something. Delegated subagents are deliberately silent.
 
 ## Where it appears
 
@@ -29,7 +30,8 @@ it. The default `style: overlay` therefore spawns a real window:
 |---|---|
 | **✕** (top-right, or `Esc`) | dismisses that notification immediately |
 | **click the title or body** | opens `url` in the default browser and dismisses |
-| **hover** | PAUSES the auto-dismiss, so one you are reading does not vanish mid-sentence |
+| **hover** | Pauses an auto-dismiss if `dismissMs` is positive; the default popup has no timer |
+| **no timer** | By default the popup persists until ✕, Esc or a click; it does not disappear on its own |
 | **several at once** | each claims the lowest free STACK ROW and lines up below the others |
 
 ### One shape for every notification
@@ -45,6 +47,9 @@ Four principles, and every popup obeys all four - a finish, a question, or the s
 4. **Concurrency is always resolved the same way**: the lowest free stack row, claimed
    atomically, so simultaneous popups line up instead of overlapping.
 
+The default is **persistent**: the overlay has no timer, so it stays until you press ✕, press
+Esc, or click it. Set `dismissMs` to a positive number if you want the old auto-dismiss behavior.
+
 The only permitted difference is the **degraded mode**: on a box with no `python3`/Tkinter/
 `DISPLAY`, or on macOS where `osascript` cannot position a window, the platform's own
 notification mechanism is used instead (`notify-send`, a WinRT toast, `display notification`).
@@ -54,8 +59,9 @@ logged as one rather than being a second style offered as a choice.
 
 ### Which session it is about
 
-A popup that says only "Finished after 93s" is useless the moment two chats are open, so the
-session comes first:
+Only root chat agents notify. A delegated subagent's finish or question is filtered out, so a
+background child cannot interrupt you. A popup that says only "Finished after 93s" is useless the
+moment two chats are open, so the session comes first:
 
 ```
 dsh-kit - #5fbab0a6 - Finished after 93s
@@ -113,7 +119,7 @@ the always-on-top, not the message.
 
 | Harness seam | Event | Fires when |
 |---|---|---|
-| turn ended | `agent/status` with `running → idle` | the agent stopped working, and the turn lasted at least `minRunMs` (default 15 s) |
+| core turn ended | `agent/status` with `running → idle` on a root chat agent | the agent stopped working, the turn lasted at least `minRunMs` (default 15 s), and the agent has no `delegationDepth` |
 | question asked | `user-questions/request` | the harness's ask-user path is about to wait for an answer — any caller, not one tool name |
 
 The question listener announces **before** `next()`, so the popup arrives while you are being waited on, not after you have already answered.
@@ -131,7 +137,7 @@ The question listener announces **before** `next()`, so the popup arrives while 
         title: DeepSeek Harness
         style: overlay      # overlay (top-right, always on top) | daemon
         # display: ':1'     # X display to draw on; defaults to a real socket, not an inherited Xvfb
-        dismissMs: 6000     # how long an overlay stays on screen
+        dismissMs: 0        # 0 = stay until dismissed; a positive number auto-dismisses
         # pythonPath: /usr/bin/python3
         # notifySendPath: /usr/bin/notify-send
         # powershellPath: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe

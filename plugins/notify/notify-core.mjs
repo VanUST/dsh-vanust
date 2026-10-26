@@ -19,7 +19,8 @@
  * OUTPUTS
  *   `shouldNotify` -> boolean. A turn that ran for less than `minRunMs` is not worth a popup.
  *   `notificationCommand` with `style: 'overlay'` (the default) -> an always-on-top window in
- *     the top-right corner; `style: 'daemon'` -> the platform's own notification.
+ *     the top-right corner; `style: 'daemon'` -> the platform's own notification. A zero
+ *     `dismissMs` means the overlay waits for the human instead of expiring.
  *   `notificationCommand` -> `{ command, args, env }`, or null on a platform with no notifier
  *     this deployment knows. `env` is merged ON TOP of the process environment by the caller.
  *   `questionSummary` -> a one-line string, whitespace-collapsed and truncated; never throws,
@@ -48,8 +49,8 @@ export const APP_NAME = 'DeepSeek Harness'
 /** Longest notification text this module will produce, after collapsing whitespace. */
 export const MAX_BODY_CHARS = 200
 
-/** How long an overlay window stays on screen, in milliseconds. */
-export const DEFAULT_DISMISS_MS = 6000
+/** How long an overlay window stays on screen, in milliseconds; 0 means persistent. */
+export const DEFAULT_DISMISS_MS = 0
 
 /**
  * The Linux/macOS overlay: a borderless, ALWAYS-ON-TOP window pinned to the top-right.
@@ -107,7 +108,7 @@ export function firstFreeSlot(occupied = []) {
  *
  *   - a ✕ that dismisses it immediately,
  *   - a title and body that OPEN the given URL and dismiss (the running GUI, same server),
- *   - a hover PAUSE, so a notification being read does not vanish,
+ *   - a hover PAUSE when an auto-dismiss is configured, so a notification being read does not vanish,
  *   - a stack slot, claimed atomically, so simultaneous notifications line up instead of
  *     drawing on top of one another.
  *
@@ -120,7 +121,7 @@ export const OVERLAY_PYTHON_SCRIPT = [
   "title = os.environ.get('DSH_NOTIFY_TITLE', '')",
   "body = os.environ.get('DSH_NOTIFY_BODY', '')",
   "url = os.environ.get('DSH_NOTIFY_URL', '')",
-  "dismiss = int(os.environ.get('DSH_NOTIFY_MS', '6000') or 6000)",
+  "dismiss = int(os.environ.get('DSH_NOTIFY_MS', '0') or 0)",
   "slots_dir = os.environ.get('DSH_NOTIFY_SLOTS', '')",
   'WIDTH = 360',
   'HEIGHT = 96',
@@ -208,7 +209,8 @@ export const OVERLAY_PYTHON_SCRIPT = [
   '    root.destroy()',
   'timer = {}',
   'def arm():',
-  '    timer["id"] = root.after(dismiss, close_now)',
+  '    if dismiss > 0:',
+  '        timer["id"] = root.after(dismiss, close_now)',
   'def pause(*_ignored):',
   '    if "id" in timer:',
   '        root.after_cancel(timer["id"])',
@@ -314,17 +316,21 @@ export const WINDOWS_OVERLAY_SCRIPT = [
   '$body.Location = New-Object System.Drawing.Point(14, 34)',
   '$body.Size = New-Object System.Drawing.Size(332, 54)',
   '$form.Controls.AddRange(@($stripe, $title, $body, $close))',
+  '$dismissMs = [int]$env:DSH_NOTIFY_MS',
+  '$persistent = $dismissMs -le 0',
   '$timer = New-Object System.Windows.Forms.Timer',
-  '$timer.Interval = [int]$env:DSH_NOTIFY_MS',
-  '$timer.Add_Tick({ if ($claim) { Remove-Item -Force -ErrorAction SilentlyContinue $claim }; $form.Close() })',
+  'if (-not $persistent) {',
+  '  $timer.Interval = $dismissMs',
+  '  $timer.Add_Tick({ if ($claim) { Remove-Item -Force -ErrorAction SilentlyContinue $claim }; $form.Close() })',
+  '}',
   '$openHandler = {',
   '  if ($claim) { Remove-Item -Force -ErrorAction SilentlyContinue $claim }',
   '  if ($env:DSH_NOTIFY_URL) { Start-Process $env:DSH_NOTIFY_URL -ErrorAction SilentlyContinue }',
   '  $form.Close()',
   '}',
   '$closeHandler = { if ($claim) { Remove-Item -Force -ErrorAction SilentlyContinue $claim }; $form.Close() }',
-  '$pauseHandler = { $timer.Stop() }',
-  '$resumeHandler = { $timer.Start() }',
+  '$pauseHandler = { if (-not $persistent) { $timer.Stop() } }',
+  '$resumeHandler = { if (-not $persistent) { $timer.Start() } }',
   '$close.Add_Click($closeHandler)',
   '$title.Add_Click($openHandler)',
   '$body.Add_Click($openHandler)',
@@ -332,7 +338,7 @@ export const WINDOWS_OVERLAY_SCRIPT = [
   '$close.Add_MouseLeave({ $close.ForeColor = [System.Drawing.Color]::FromArgb(143, 155, 179) })',
   'foreach ($control in @($form, $title, $body)) { $control.Add_MouseEnter($pauseHandler); $control.Add_MouseLeave($resumeHandler) }',
   '$form.Add_FormClosed({ if ($claim) { Remove-Item -Force -ErrorAction SilentlyContinue $claim } })',
-  '$timer.Start()',
+  'if (-not $persistent) { $timer.Start() }',
   '[void]$form.ShowDialog()',
 ].join('\n')
 
@@ -502,6 +508,19 @@ export function questionSummary(request, max = MAX_BODY_CHARS) {
 }
 
 /**
+ * Whether a notification event belongs to a core chat session. Delegated subagents carry a
+ * non-zero `delegationDepth` in their session header; those turns are noise for a human who
+ * is working in the root chat and must stay silent.
+ *
+ * @param agent - The agent named by an event payload.
+ * @returns True when the agent is a root/core chat agent.
+ */
+export function isCoreAgent(agent) {
+  const depth = Number(agent?.session?.header?.delegationDepth ?? 0)
+  return !(Number.isFinite(depth) && depth > 0)
+}
+
+/**
  * The platform family this module knows how to notify.
  *
  * @param platform - A `process.platform` value.
@@ -534,7 +553,7 @@ export function notificationCommand(input = {}) {
   const family = platformFamily(input.platform)
   const title = collapse(input.title ?? APP_NAME, 120)
   const body = collapse(input.body ?? '', MAX_BODY_CHARS)
-  const dismissMs = Number.isFinite(input.dismissMs) && input.dismissMs > 0 ? Math.floor(input.dismissMs) : DEFAULT_DISMISS_MS
+  const dismissMs = Number.isFinite(input.dismissMs) && input.dismissMs >= 0 ? Math.floor(input.dismissMs) : DEFAULT_DISMISS_MS
   const overlay = input.style !== 'daemon'
   const url = typeof input.url === 'string' ? input.url : ''
   const slotsDir = typeof input.slotsDir === 'string' ? input.slotsDir : ''
@@ -587,7 +606,7 @@ export function notificationCommand(input = {}) {
       // `-a` attributes the popup to the app rather than to the launcher, `-u normal` keeps it
       // out of the "critical" style, and the two text arguments are argv elements: no shell,
       // so a quote in a question is a character rather than the end of a string.
-      args: ['-a', APP_NAME, '-u', 'normal', title, body],
+      args: ['-a', APP_NAME, '-u', 'normal', '-t', String(dismissMs), title, body],
       env: {},
     }
   }

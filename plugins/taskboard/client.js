@@ -36,7 +36,7 @@ window.__ModuleLoader__.load({
 .tb-select{appearance:none;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border-radius:7px;padding:5px 24px 5px 8px;font:inherit;font-size:12px;max-width:190px;background-image:linear-gradient(45deg,transparent 50%,var(--dsw-alias-label-secondary) 50%),linear-gradient(135deg,var(--dsw-alias-label-secondary) 50%,transparent 50%);background-position:calc(100% - 13px) 50%,calc(100% - 9px) 50%;background-size:4px 4px,4px 4px;background-repeat:no-repeat;cursor:pointer}
 .tb-body{display:grid;grid-template-columns:minmax(0,1fr) 400px;flex:1;min-height:0}
 .tb-body.solo{grid-template-columns:minmax(0,1fr)}
-.tb-board{display:flex;gap:9px;padding:11px;overflow:auto;min-width:0;align-items:flex-start;scrollbar-width:thin}
+.tb-board{display:flex;gap:9px;padding:11px;overflow:auto;min-width:0;align-items:flex-start;scrollbar-width:thin;overscroll-behavior:contain}
 .tb-col{min-width:184px;flex:1 0 184px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 55%,transparent);border:1px solid var(--dsw-alias-border-l1);border-radius:9px;padding:8px;min-height:120px}
 .tb-col h3{display:flex;align-items:center;gap:6px;margin:0 0 7px;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--dsw-alias-label-secondary);font-weight:700}
 .tb-col h3 .n{margin-left:auto;color:var(--dsw-alias-label-secondary);font-weight:500;letter-spacing:0}
@@ -123,6 +123,29 @@ window.__ModuleLoader__.load({
 .tb-icon:hover{background:transparent;color:inherit}
 .tb-icon:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}
 .tb-icon.active{background:transparent;color:inherit}
+.tb-viewswitch{display:inline-flex;border:1px solid var(--dsw-alias-border-l1);border-radius:7px;overflow:hidden;background:var(--dsw-alias-bg-layer-1);flex:none}
+.tb-viewbtn{border:0;background:transparent;color:var(--dsw-alias-label-secondary);padding:5px 8px;font:inherit;font-size:11px;font-weight:650;cursor:pointer}
+.tb-viewbtn:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
+.tb-viewbtn.on{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
+.tb-viewbtn:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-2px}
+.tb-filterbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:7px 14px;border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base);flex:none}
+.tb-filter{flex:1 1 220px;max-width:360px;min-width:140px}
+.tb-statusfilter{max-width:160px}
+.tb-filtercount{font-size:10.5px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;white-space:nowrap}
+.tb-listwrap{overflow:auto;min-height:0;min-width:0;padding:0 12px 24px;scrollbar-width:thin;overscroll-behavior:contain}
+.tb-listhead{display:grid;grid-template-columns:76px minmax(0,1fr) 120px 96px 56px;gap:6px;align-items:center;position:sticky;top:0;z-index:1;background:var(--dsw-alias-bg-base);padding:8px;border-bottom:1px solid var(--dsw-alias-border-l1);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--dsw-alias-label-secondary);font-weight:700}
+.tb-list{display:flex;flex-direction:column;gap:1px;padding-top:2px}
+.tb-listrow{display:grid;grid-template-columns:76px minmax(0,1fr) 120px 96px 56px;gap:6px;align-items:center;width:100%;border:0;border-bottom:1px solid var(--dsw-alias-border-l1);background:transparent;color:var(--dsw-alias-label-primary);padding:7px 8px;font:inherit;text-align:left;cursor:pointer;border-radius:5px}
+.tb-listrow:hover{background:var(--dsw-alias-bg-layer-2)}
+.tb-listrow.sel{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 9%,transparent);box-shadow:inset 2px 0 0 var(--dsw-alias-brand-primary)}
+.tb-listrow:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-2px}
+.tb-listrow .tb-chip{justify-self:start;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.tb-listtitle{min-width:0;display:flex;flex-direction:column;gap:1px}
+.tb-listtitle .t{font-size:12px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tb-listtitle .s{font-size:10.5px;color:var(--dsw-alias-label-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tb-listroles,.tb-listowner,.tb-listtime{font-size:10.5px;color:var(--dsw-alias-label-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tb-listtime{text-align:right}
+@media (max-width:760px){.tb-listhead,.tb-listrow{grid-template-columns:76px minmax(0,1fr) 80px;gap:6px}.tb-listhead span:nth-child(4),.tb-listhead span:nth-child(5),.tb-listrow .tb-listowner,.tb-listrow .tb-listtime{display:none}}
 @container (max-width:920px){.tb-body{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) auto}.tb-detail{border-left:0;border-top:1px solid var(--dsw-alias-border-l1);max-height:55vh}}
 @media (max-width:960px){.tb-body{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) auto}.tb-detail{border-left:0;border-top:1px solid var(--dsw-alias-border-l1);max-height:55vh}}
 `
@@ -421,7 +444,7 @@ window.__ModuleLoader__.load({
         return () => { cancelled = true; controller.abort(); clearInterval(timer) }
       }, [remote, sessionId])
       const open = () => {
-        store.set({ sessionId })
+        store.set({ sessionId, returnSessionId: sessionId })
         layout.selectPanel(PANEL_ID)
       }
       return h(React.Fragment, null,
@@ -434,10 +457,18 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function PanelIcon({ size = 18, active = false, layout }) {
+    function PanelIcon({ size = 18, active = false, layout, store, useSessions }) {
+      const sessionsRaw = useSessions((snapshot) => snapshot.byId)
+      const sessionsById = sessionsRaw !== null && sessionsRaw !== undefined && typeof sessionsRaw === 'object' ? sessionsRaw : {}
+      const main = Object.values(sessionsById).find((session) => (session?.retainedBy?.mainView ?? 0) > 0)
+      const open = () => {
+        const next = typeof main?.id === 'string' && main.id !== '' ? main.id : null
+        store.set({ ...(next === null ? {} : { sessionId: next }), returnSessionId: next })
+        layout.selectPanel(PANEL_ID)
+      }
       return h(React.Fragment, null,
         h('style', null, CSS),
-        h('button', { type: 'button', className: `tb-icon${active ? ' active' : ''}`, onClick: () => layout.selectPanel(PANEL_ID), title: 'Tasks', 'aria-label': 'Open the task board', style: { width: size + 12, height: size + 12 } },
+        h('button', { type: 'button', className: `tb-icon${active ? ' active' : ''}`, onClick: open, title: 'Tasks', 'aria-label': 'Open the task board', style: { width: size + 12, height: size + 12 } },
           h(Icon, { size, active }),
         ),
       )
@@ -682,6 +713,44 @@ window.__ModuleLoader__.load({
       }
     }
 
+    function TaskList({ tasks, selectedId, onSelect }) {
+      if (tasks.length === 0) return h('div', { className: 'tb-listwrap', role: 'region', 'aria-label': 'Task list' }, h('div', { className: 'tb-empty' }, 'No tasks match this filter.'))
+      return h('div', { className: 'tb-listwrap', role: 'region', 'aria-label': 'Task list' },
+        h('div', { className: 'tb-listhead', 'aria-hidden': true },
+          h('span', null, 'Status'),
+          h('span', null, 'Task'),
+          h('span', null, 'Subagents'),
+          h('span', null, 'Owner'),
+          h('span', null, 'Updated'),
+        ),
+        h('div', { className: 'tb-list', role: 'list' },
+          tasks.map((task) => {
+            const children = normalizeChildren(task)
+            const selected = task.id === selectedId
+            return h('div', { className: 'tb-listitem', role: 'listitem', key: task.id },
+              h('button', {
+                type: 'button',
+                className: `tb-listrow${selected ? ' sel' : ''}`,
+                onClick: () => onSelect(task.id),
+                'aria-pressed': selected,
+                'aria-label': `${task.title}, ${task.status}${children.length > 0 ? `, ${cardSubagentSummary(children)}` : ''}`,
+                title: task.objective || task.title,
+              },
+                h('span', { className: `tb-chip ${statusTone(task.status)}` }, task.status),
+                h('span', { className: 'tb-listtitle' },
+                  h('span', { className: 't' }, task.title),
+                  task.objective ? h('span', { className: 's' }, task.objective) : null,
+                ),
+                h('span', { className: 'tb-listroles' }, children.length > 0 ? cardSubagentSummary(children) : '—'),
+                h('span', { className: 'tb-listowner' }, task.owner?.label ?? 'unowned'),
+                h('span', { className: 'tb-listtime' }, shortTime(task.updatedAt)),
+              ),
+            )
+          }),
+        ),
+      )
+    }
+
     function TasksPage({ remote, store, uiWorkspace, useWorkspaces, useSessions }) {
       const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
       const workspacesRaw = useWorkspaces((snapshot) => snapshot.items)
@@ -694,6 +763,9 @@ window.__ModuleLoader__.load({
       const [writeError, setWriteError] = useState('')
       const [busy, setBusy] = useState(false)
       const [detailOpen, setDetailOpen] = useState(true)
+      const [view, setView] = useState(null)
+      const [query, setQuery] = useState('')
+      const [statusFilter, setStatusFilter] = useState('all')
       const controllerRef = useRef(null)
       const boardRef = useRef(null)
 
@@ -757,31 +829,42 @@ window.__ModuleLoader__.load({
         return () => { clearInterval(timer); if (controllerRef.current) controllerRef.current.abort() }
       }, [load])
 
+      const tasks = Array.isArray(board?.tasks) ? board.tasks : []
+      const needle = query.trim().toLowerCase()
+      const filteredTasks = tasks.filter((task) => {
+        if (statusFilter !== 'all' && task.status !== statusFilter) return false
+        if (needle === '') return true
+        const children = normalizeChildren(task)
+        const hay = [task.title, task.objective, ...(Array.isArray(task.scope) ? task.scope : []), ...(Array.isArray(task.nonScope) ? task.nonScope : []), task.owner?.label, task.role, ...children.flatMap((child) => [child.label, child.role])].filter((value) => typeof value === 'string').join(' ').toLowerCase()
+        return hay.includes(needle)
+      })
+      const viewMode = view ?? (tasks.length > 8 ? 'list' : 'board')
+      // The board unmounts when the List view is shown, so the listener must
+      // be rebound whenever the view switches back to Board.
       useEffect(() => {
         const board = boardRef.current
         if (board === null) return undefined
         const onWheel = (event) => {
-          if (event.defaultPrevented || event.ctrlKey) return
-          // A horizontal trackpad gesture keeps the browser's native handling.
-          if (event.deltaX !== 0) return
-          if (event.deltaY === 0) return
+          if (event.defaultPrevented || event.ctrlKey || event.metaKey) return
+          const rawX = event.deltaX
+          const rawY = event.deltaY
+          if (rawX === 0 && rawY === 0) return
           const max = board.scrollWidth - board.clientWidth
           if (max <= 0) return
+          // One wheel gesture has one axis here. A vertical wheel and a horizontal
+          // trackpad both drive the board sideways; the page must not also move.
+          const dominant = Math.abs(rawX) > Math.abs(rawY) ? rawX : rawY
           const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? board.clientWidth : 1
-          const delta = event.deltaY * unit
-          const atStart = board.scrollLeft <= 0.5
-          const atEnd = board.scrollLeft >= max - 0.5
-          if (delta > 0 && atEnd) return
-          if (delta < 0 && atStart) return
+          const delta = dominant * unit
+          if (delta === 0) return
+          event.preventDefault()
           const before = board.scrollLeft
           board.scrollLeft = Math.max(0, Math.min(max, before + delta))
-          if (board.scrollLeft !== before) event.preventDefault()
         }
         board.addEventListener('wheel', onWheel, { passive: false })
         return () => board.removeEventListener('wheel', onWheel)
-      }, [])
+      }, [viewMode])
 
-      const tasks = Array.isArray(board?.tasks) ? board.tasks : []
       const selected = tasks.find((task) => task.id === selectedId) ?? null
       useEffect(() => {
         if (selectedId === null && tasks.length > 0) {
@@ -870,14 +953,23 @@ window.__ModuleLoader__.load({
         setDetailOpen(true)
       }
       const workspaceId = workspaces.find((entry) => entry.sessionIds?.includes(sessionId))?.workspaceId
+      const returnSessionId = typeof state.returnSessionId === 'string' && state.returnSessionId !== '' ? state.returnSessionId : (typeof state.sessionId === 'string' ? state.sessionId : '')
+      const returnSession = returnSessionId !== '' ? sessionsById[returnSessionId] : undefined
+      const canReturn = returnSession !== undefined
+      const goBack = () => { if (canReturn) uiWorkspace.openSession(returnSessionId) }
       const roster = subagentRoster(tasks, Array.isArray(board?.agents) ? board.agents : [])
       const rosterCounts = childCounts(roster)
       const roles = roleCounts(roster)
       return h('div', { className: 'tb-root' },
         h('style', null, CSS),
         h('div', { className: 'tb-top' },
+          canReturn ? h('button', { type: 'button', className: 'tb-btn tb-back', onClick: goBack, title: 'Back to the conversation this board was opened from', 'aria-label': 'Back to chat' }, '← Back') : null,
           h('h1', { className: 'tb-title' }, 'Tasks'),
           h('span', { className: 'tb-count', title: `${tasks.length} tasks` }, String(tasks.length)),
+          h('div', { className: 'tb-viewswitch', role: 'group', 'aria-label': 'Task view' },
+            h('button', { type: 'button', className: `tb-viewbtn${viewMode === 'board' ? ' on' : ''}`, onClick: () => setView('board'), 'aria-pressed': viewMode === 'board' }, 'Board'),
+            h('button', { type: 'button', className: `tb-viewbtn${viewMode === 'list' ? ' on' : ''}`, onClick: () => setView('list'), 'aria-pressed': viewMode === 'list' }, 'List'),
+          ),
           h('select', { className: 'tb-select', value: workspaceId === undefined ? '' : String(workspaceId), onChange: (event) => chooseWorkspace(event.target.value), 'aria-label': 'Workspace' },
             workspaceId === undefined ? h('option', { value: '' }, 'Select workspace') : null,
             workspaces.map((workspace) => h('option', { value: String(workspace.workspaceId), key: String(workspace.workspaceId) }, workspace.title || workspace.path)),
@@ -888,6 +980,14 @@ window.__ModuleLoader__.load({
         ),
         !canEdit ? h('div', { className: 'tb-readonly', role: 'status', 'aria-live': 'polite' }, hasSession ? 'Read-only — open a live conversation to edit this board.' : 'Open a live conversation to edit this board.') : null,
         !detailOpen && error ? h('div', { className: 'tb-global-error', role: 'alert' }, error) : null,
+        tasks.length > 0 ? h('div', { className: 'tb-filterbar' },
+          h('input', { className: 'tb-input tb-filter', type: 'search', value: query, onChange: (event) => setQuery(event.target.value), placeholder: 'Filter title, scope, owner…', 'aria-label': 'Filter tasks' }),
+          h('select', { className: 'tb-select tb-statusfilter', value: statusFilter, onChange: (event) => setStatusFilter(event.target.value), 'aria-label': 'Filter by status' },
+            h('option', { value: 'all' }, 'All statuses'),
+            COLUMNS.map((column) => h('option', { value: column.id, key: column.id }, column.label)),
+          ),
+          h('span', { className: 'tb-filtercount', 'aria-live': 'polite' }, `${filteredTasks.length} / ${tasks.length}`),
+        ) : null,
         h('div', { className: 'tb-roster', role: 'group', 'aria-label': 'Subagents in this workspace' },
           h('span', { className: 'tb-rlabel' }, 'Subagents'),
           h('span', { className: 'tb-rstat' }, h('b', null, String(rosterCounts.total))),
@@ -905,18 +1005,24 @@ window.__ModuleLoader__.load({
             : h('div', { className: 'tb-rroles' }, roles.map(({ role, count }) => h('span', { className: 'tb-rrole', key: role }, role, ' ', h('b', null, String(count))))),
         ),
         h('div', { className: `tb-body${detailOpen ? '' : ' solo'}` },
-          h('div', { className: 'tb-board', ref: boardRef, role: 'region', 'aria-label': 'Task board' },
-            COLUMNS.map((column) => {
-              const items = tasks.filter((task) => task.status === column.id)
-              return h('div', { className: 'tb-col', key: column.id },
-                h('h3', null, column.label, h('span', { className: 'n' }, String(items.length))),
-                items.length === 0 ? h('div', { className: 'tb-empty', style: { padding: '8px 4px', fontSize: '11px' } }, '—') : items.map((task) => h(TaskCard, { key: task.id, task, selected: task.id === selectedId, onSelect: selectTask })),
-              )
-            }),
-          ),
+          viewMode === 'board'
+            ? h('div', { className: 'tb-board', ref: boardRef, role: 'region', 'aria-label': 'Task board' },
+              COLUMNS.map((column) => {
+                const items = filteredTasks.filter((task) => task.status === column.id)
+                return h('div', { className: 'tb-col', key: column.id },
+                  h('h3', null, column.label, h('span', { className: 'n' }, String(items.length))),
+                  items.length === 0 ? h('div', { className: 'tb-empty', style: { padding: '8px 4px', fontSize: '11px' } }, '—') : items.map((task) => h(TaskCard, { key: task.id, task, selected: task.id === selectedId, onSelect: selectTask })),
+                )
+              }),
+            )
+            : h(TaskList, { tasks: filteredTasks, selectedId, onSelect: selectTask }),
           detailOpen ? h('aside', { className: 'tb-detail', id: 'tb-detail-pane' },
             selected === null
               ? h('div', null,
+                h('div', { className: 'tb-detail-head' },
+                  h('span', { className: 'tb-kicker' }, 'Task detail'),
+                  h('button', { type: 'button', className: 'tb-btn tb-hide', onClick: () => setDetailOpen(false), title: 'Hide the task detail pane', 'aria-controls': 'tb-detail-pane' }, 'Hide'),
+                ),
                 error ? h('div', { className: 'tb-banner' }, error) : null,
                 h('div', { className: 'tb-empty' },
                   hasSession ? tasks.length === 0 ? 'No tasks yet. The orchestrator creates them with task_create or delegate_task; you can start one here.' : 'Select a task to see its scope, results and timeline.' : 'Open a live conversation to load and edit this board.',
@@ -931,7 +1037,7 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots', 'remote', 'remote.workspaceFiles', 'remote.commands', 'uiWorkspace', 'layout'],
       apply(ctx) {
-        const store = createStore({ sessionId: null, workspaceTitle: null })
+        const store = createStore({ sessionId: null, workspaceTitle: null, returnSessionId: null })
         ctx.slots.inject('main', () => ctx.slots.register({
           name: 'main',
           key: PANEL_ID,
@@ -942,7 +1048,7 @@ window.__ModuleLoader__.load({
           id: PANEL_ID,
           order: 20,
           label: () => 'Tasks',
-          inject: () => ({ layout: ctx.layout }),
+          inject: () => ({ layout: ctx.layout, store }),
         }, PanelIcon))
         ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
           name: 'conversation.session.header.actions',

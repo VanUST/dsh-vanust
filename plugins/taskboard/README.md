@@ -44,14 +44,18 @@ state (fail closed).
   status, objective, scope, non-scope, acceptance, result summary and evidence.
   The detail stacks under the board when the panel is narrower than 920px, and
   each list field shows four lines before scrolling (96px/84px textareas).
+- **Back** is the leftmost top-bar action. It returns to the conversation from which the panel was opened: the header trigger captures its exact session, and the sidebar entry captures the retained main-view conversation. It is hidden when there is no originating chat.
 - **Hide** lives in the task-detail header, beside the task id and title; it
   collapses the right pane and gives the board the full width. The selection is
   kept, and clicking or keyboard-selecting any card reopens the detail. There is
   no show/hide control in the top bar.
-- **Wheel scrolling**: a plain vertical mouse wheel over the board scrolls it
-  horizontally. The listener is a native, non-passive `wheel` listener attached
-  to the board and removed on unmount. At either horizontal edge the event is
-  left to the page, and a horizontal trackpad delta (`deltaX`) is never hijacked.
+- **Scaling**: a **Board / List** switch sits in the top bar. List is the dense scan view — one row per task with status, title/objective, subagents, owner and updated time — and becomes the default when a board has more than 8 tasks. A filter row adds title/scope/owner search and a status filter; both views use the same filtered set and keep the detail pane. The kanban stays available for workflow shaped work.
+- **Wheel scrolling**: wheel input over the board is captured as one horizontal
+  axis. A vertical mouse wheel, a horizontal trackpad gesture, and a diagonal
+  gesture all move the board sideways; the page does not scroll vertically at
+  the same time. The listener is native and non-passive. At a horizontal edge
+  the board stops rather than chaining the page. Move the pointer off the board
+  to scroll the page. The list view keeps normal vertical page scrolling.
 - **Subagents**: the board's `agents[]` registry drives the workspace roster; a task's `children[]` entries render as role-first rows with the
   label/id, an `active`/`sleeping`/`paused` badge and an **Open** action. A
   one-line summary above the rows reads e.g.

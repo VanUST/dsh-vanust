@@ -1,7 +1,7 @@
 {
   "name": "@cc/dsh-notify",
-  "version": "1.0.9",
-  "description": "Raises a desktop notification when an agent finishes a turn and when it asks the user a question: notify-send on Linux, a WinRT toast with a tray-balloon fallback on Windows, osascript on macOS. Spawned detached, argv-only, and it can never fail a turn.",
+  "version": "1.1.0",
+  "description": "Raises a persistent desktop notification when a core chat agent finishes a turn or asks the user a question (subagents are ignored): notify-send on Linux, a WinRT toast with a tray-balloon fallback on Windows, osascript on macOS. Spawned detached, argv-only, and it can never fail a turn.",
   "type": "module",
   "main": "plugin-notify.mjs",
   "exports": {
