@@ -57,6 +57,7 @@
  *     section is simply absent.
  */
 
+import { existsSync } from 'node:fs'
 import { mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -286,12 +287,37 @@ export function duplicatePairs(skills, threshold = 0.55) {
   return pairs.sort((left, right) => right.score - left.score)
 }
 
+/**
+ * A free path for a version or archive, never overwriting an earlier one.
+ *
+ * The stamp has one-second resolution, so two evolutions inside the same second
+ * produced the SAME history filename and the earlier body was overwritten — the
+ * exact failure a version trail exists to prevent. A numeric suffix keeps every
+ * version; found by a review probe that ran three updates in a loop and lost the
+ * first two.
+ *
+ * @param directory - Where the file goes.
+ * @param base - Filename stem, without extension.
+ * @param extension - Including the dot, or '' for a directory.
+ * @returns A path that does not exist yet.
+ */
+function freePath(directory, base, extension) {
+  let candidate = join(directory, `${base}${extension}`)
+  let suffix = 2
+  while (existsSync(candidate)) {
+    candidate = join(directory, `${base}-${suffix}${extension}`)
+    suffix += 1
+  }
+  return candidate
+}
+
 /** Copy the current bytes into `.history/<name>/<stamp>.md` before they are replaced. */
 async function archiveVersion(dir, skill) {
   if (skill === undefined) return undefined
   const stamp = new Date().toISOString().replaceAll(':', '-').replace(/\..+$/, '')
-  const target = join(dir, HISTORY_DIR, skill.directory, `${stamp}.md`)
-  await mkdir(dirname(target), { recursive: true })
+  const historyDir = join(dir, HISTORY_DIR, skill.directory)
+  await mkdir(historyDir, { recursive: true })
+  const target = freePath(historyDir, stamp, '.md')
   await writeFile(target, await readFile(skill.path, 'utf8'))
   return target
 }
@@ -305,7 +331,7 @@ async function archiveSkill(dir, skill) {
   // moves the file itself. Renaming SKILL.md alone would leave an empty bundle in
   // the catalog, which the provider would still list.
   const container = skill.kind === 'file' ? skill.path : dirname(skill.path)
-  const target = join(dir, ARCHIVE_DIR, `${skill.directory}-${stamp}${skill.kind === 'file' ? '.md' : ''}`)
+  const target = freePath(join(dir, ARCHIVE_DIR), `${skill.directory}-${stamp}`, skill.kind === 'file' ? '.md' : '')
   await rename(container, target)
   return target
 }

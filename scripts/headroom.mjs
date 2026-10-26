@@ -51,8 +51,9 @@
 
 import { execFileSync, spawn } from 'node:child_process'
 import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { connect } from 'node:net'
 import { homedir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { delimiter, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -111,11 +112,17 @@ function resolveBin(options) {
   const candidates = []
   if (typeof options.bin === 'string' && options.bin !== '') candidates.push(options.bin)
   if (typeof process.env.HEADROOM_BIN === 'string' && process.env.HEADROOM_BIN !== '') candidates.push(process.env.HEADROOM_BIN)
-  for (const dir of (process.env.PATH ?? '').split(':')) {
-    if (dir !== '') candidates.push(join(dir, 'headroom'))
+  // `delimiter` is ':' on POSIX and ';' on Windows; splitting on ':' there would
+  // read a Windows PATH as one long directory name and report "not installed".
+  const names = process.platform === 'win32' ? ['headroom.exe', 'headroom.cmd', 'headroom'] : ['headroom']
+  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
+    if (dir === '') continue
+    for (const name of names) candidates.push(join(dir, name))
   }
-  candidates.push(join(homedir(), '.local', 'bin', 'headroom'))
-  candidates.push(join(homedir(), '.local', 'share', 'uv', 'tools', 'headroom-ai', 'bin', 'headroom'))
+  for (const name of names) {
+    candidates.push(join(homedir(), '.local', 'bin', name))
+    candidates.push(join(homedir(), '.local', 'share', 'uv', 'tools', 'headroom-ai', 'bin', name))
+  }
   for (const candidate of candidates) {
     if (existsSync(candidate)) return candidate
   }
@@ -123,16 +130,45 @@ function resolveBin(options) {
 }
 
 /** Paths this script owns under the harness home. */
-function statePaths(home) {
+function statePaths(home, kitOption) {
   const dir = join(home, 'headroom')
+  // `--kit` was accepted and documented but never read, so `enable --kit <other>`
+  // silently copied THIS checkout's overlay. An accepted option that changes nothing
+  // is a false success; the resolution order is now explicit.
+  const kit = typeof kitOption === 'string' && kitOption !== ''
+    ? resolve(kitOption)
+    : resolve(process.env.DSH_KIT_DIR ?? join(HERE, '..'))
   return {
     dir,
     marker: join(dir, 'enabled'),
     pid: join(dir, 'proxy.pid'),
     log: join(dir, 'proxy.log'),
-    kitPatch: join(resolve(process.env.DSH_KIT_DIR ?? join(HERE, '..')), 'profile', 'headroom.patch.yml'),
+    kitPatch: join(kit, 'profile', 'headroom.patch.yml'),
     homePatch: join(dir, 'patch.yml'),
   }
+}
+
+/**
+ * Whether anything is listening on the port.
+ *
+ * `/readyz` answering non-2xx is NOT proof the port is free: a foreign listener
+ * answers exactly that way, and the old code then spawned a second proxy that died
+ * on the busy port while the report said "did not become ready" with no pid. A TCP
+ * connect is the honest test of occupancy.
+ */
+function portOpen(port, timeoutMs = 1200) {
+  return new Promise((done) => {
+    const socket = connect({ host: '127.0.0.1', port })
+    const finish = (value) => {
+      socket.removeAllListeners()
+      socket.destroy()
+      done(value)
+    }
+    socket.setTimeout(timeoutMs)
+    socket.once('connect', () => finish(true))
+    socket.once('timeout', () => finish(false))
+    socket.once('error', () => finish(false))
+  })
 }
 
 /** Ask the proxy whether it can serve traffic. */
@@ -187,6 +223,11 @@ async function startProxy(context) {
     report.next = ['uv tool install --python 3.13 "headroom-ai[proxy]"']
     return false
   }
+  if (await portOpen(options.port)) {
+    report.error = `port ${options.port} is already held by a process that does not answer /readyz as a headroom proxy`
+    report.next = [`stop the other listener, or pass --port <free port>`, `then: node scripts/headroom.mjs ensure --port <that port>`]
+    return false
+  }
 
   mkdirSync(paths.dir, { recursive: true })
   const log = openSync(paths.log, 'a')
@@ -196,8 +237,15 @@ async function startProxy(context) {
     stdio: ['ignore', log, log],
     env: { ...process.env, ...PROXY_ENV },
   })
+  // A non-executable or vanished binary emits 'error' asynchronously. Without this
+  // listener Node kills the process with an uncaught exception instead of the
+  // documented install-line answer. The pidfile is only written once a pid exists.
+  let spawnError
+  child.on('error', (error) => {
+    spawnError = error
+  })
   child.unref()
-  writeFileSync(paths.pid, `${child.pid ?? 0}\n`)
+  if (typeof child.pid === 'number' && child.pid > 0) writeFileSync(paths.pid, `${child.pid}\n`)
 
   const deadline = Date.now() + options.timeout
   let last = { ok: false, status: 0 }
@@ -212,11 +260,16 @@ async function startProxy(context) {
       report.log = paths.log
       return true
     }
+    if (spawnError !== undefined) break
     if (child.exitCode !== null) break
   }
-  report.error = `the proxy did not become ready within ${options.timeout} ms (last probe: ${last.status || last.error || 'no answer'})`
+  report.error = spawnError !== undefined
+    ? `the proxy could not be started: ${spawnError.message}`
+    : `the proxy did not become ready within ${options.timeout} ms (last probe: ${last.status || last.error || 'no answer'})`
   report.log = paths.log
-  report.next = [`read the log: tail -n 40 ${paths.log}`]
+  report.next = spawnError !== undefined
+    ? ['check that the headroom binary is executable, or pass --bin <path>', `read the log: tail -n 40 ${paths.log}`]
+    : [`read the log: tail -n 40 ${paths.log}`]
   return false
 }
 
@@ -234,6 +287,17 @@ function looksLikeHeadroom(pid) {
     return cmdline.includes('headroom')
   } catch {
     // /proc is Linux-only; fall back to ps.
+  }
+  if (process.platform === 'win32') {
+    // `ps` does not exist on Windows, so the previous fallback always failed and the
+    // guard treated its own proxy as a stranger: it deleted the pidfile and left the
+    // proxy running. tasklist is the native answer.
+    try {
+      const out = execFileSync('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], { encoding: 'utf8', timeout: 3000 })
+      return out.toLowerCase().includes('headroom')
+    } catch {
+      return false
+    }
   }
   try {
     const out = execFileSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8', timeout: 3000 })
@@ -281,15 +345,29 @@ async function stopProxy(context) {
 }
 
 /** Write the opt-in marker and project the overlay next to the harness home. */
-function enable(context) {
+async function enable(context) {
   const { paths, report } = context
   if (!existsSync(paths.kitPatch)) {
     report.error = `the kit overlay is missing: ${paths.kitPatch}`
     return false
   }
+  // Health first, state second. The marker tells start.sh to REDIRECT model traffic,
+  // so writing it before a working proxy exists would arm a redirect to nothing.
+  if (!(await startProxy(context))) {
+    report.enabled = false
+    report.note = 'the proxy was not made healthy, so the opt-in marker was NOT written'
+    return false
+  }
   mkdirSync(paths.dir, { recursive: true })
-  writeFileSync(paths.marker, `enabled ${new Date().toISOString()}\n`)
-  writeFileSync(paths.homePatch, readFileSync(paths.kitPatch))
+  // The overlay pins the endpoint, so a non-default port must be written into it or
+  // the two would disagree the moment anyone passes --port.
+  const rendered = readFileSync(paths.kitPatch, 'utf8').replace('http://127.0.0.1:8787', `http://127.0.0.1:${context.options.port}`)
+  if (context.options.port !== 8787 && rendered === readFileSync(paths.kitPatch, 'utf8')) {
+    report.error = `the overlay does not name port 8787, so --port ${context.options.port} cannot be applied to it`
+    return false
+  }
+  writeFileSync(paths.homePatch, rendered)
+  writeFileSync(paths.marker, `enabled ${new Date().toISOString()} port ${context.options.port}\n`)
   report.enabled = true
   report.marker = paths.marker
   report.patch = paths.homePatch
@@ -314,7 +392,7 @@ function disable(context) {
 async function main() {
   const { command, options } = parseArgs(process.argv.slice(2))
   const home = resolveHome(options)
-  const paths = statePaths(home)
+  const paths = statePaths(home, options.kit)
   const bin = resolveBin(options)
   const context = { bin, options, paths, report: { command, home, port: options.port, upstream: options.upstream, bin: bin ?? null } }
   const { report } = context
@@ -342,7 +420,7 @@ async function main() {
       break
     }
     case 'enable': {
-      ok = enable(context)
+      ok = await enable(context)
       if (ok) ok = await startProxy(context)
       break
     }

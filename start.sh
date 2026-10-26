@@ -65,11 +65,14 @@ fi
 
 PATCH_ARGS=()
 if [ "${HEADROOM:-1}" != "0" ] && [ -f "${HEADROOM_MARKER}" ] && [ -f "${HEADROOM_PATCH}" ] && [ -f "${KIT_DIR}/scripts/headroom.mjs" ]; then
-  if node "${KIT_DIR}/scripts/headroom.mjs" ensure --home "${DSH_HOME}" >/dev/null 2>&1; then
+  # The reason matters: "not healthy" alone sends the operator to a log. The
+  # script's own `error:` line is the one sentence that says what to fix.
+  if ENSURE_OUT="$(node "${KIT_DIR}/scripts/headroom.mjs" ensure --home "${DSH_HOME}" 2>&1)"; then
     PATCH_ARGS=(--patch "${HEADROOM_PATCH}")
     echo "headroom: compression active on every model request" >&2
   else
     echo "headroom is enabled but its proxy is not healthy; booting WITHOUT compression" >&2
+    printf '%s\n' "${ENSURE_OUT}" | sed -n 's/^  error: /  reason: /p' >&2
     echo "  see: node scripts/headroom.mjs doctor" >&2
   fi
 fi

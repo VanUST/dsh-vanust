@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-skill-evolve",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Let the skill library grow: write, version, deduplicate and archive SKILL.md skills under the harness's own skill root, with the model proposing content and the plugin enforcing the rules. The native half of SkillClaw, with no proxy and no second process.",
   "type": "module",
   "main": "skill-evolve.mjs",

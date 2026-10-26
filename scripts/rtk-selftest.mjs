@@ -17,6 +17,12 @@
  *   followed by exit 0 only when every case matches its expectation; exit 1 on a
  *   failed case, 2 when rtk itself is not installed.
  *
+ * PORTABILITY
+ *   POSIX only: every case runs its command through `bash -c`, so this script cannot
+ *   run on Windows even though the plugin supports pwsh. The plugin's exports
+ *   (classifyCommand, filterOutput) are platform-neutral and are what a Windows
+ *   check should exercise.
+ *
  * KEYWORDS
  *   rtk, rtk pipe, output compression, selftest, byte savings, proof
  *
@@ -77,11 +83,14 @@ const CASES = [
     expect: 'shrink',
   },
   {
-    // The filter only trims the trailing newline, so banner + text is larger:
-    // the net-loss guard must keep the original.
+    // The filter only trims the trailing newline, so banner + text would be larger:
+    // the net-loss guard must keep the original and SAY SO. On a clean worktree the
+    // output is under minChars, so this case also accepts the below-min guard —
+    // both are honest pass-throughs, and any other reason fails the case.
     command: 'git status --short',
     filter: 'git-status',
     expect: 'passthrough',
+    expectReason: ['not-smaller', 'below-min'],
   },
   {
     // A compound command must never be classified.
@@ -111,7 +120,7 @@ if (rtk === null) {
 
 process.stdout.write(`rtk-selftest: bin ${rtk.bin} (${rtk.version ?? 'version unknown'}), minChars ${MIN_CHARS}\n`)
 process.stdout.write(
-  `${cell('#', 3)}${cell('filter', 14)}${cell('before', 8)}${cell('after', 8)}${cell('cmd-exit', 10)}${cell('rtk-exit', 10)}${cell('verdict', 13)}command\n`,
+  `${cell('#', 3)}${cell('filter', 14)}${cell('before', 8)}${cell('after', 8)}${cell('cmd-exit', 10)}${cell('rtk-exit', 10)}${cell('verdict', 13)}${cell('reason', 18)}command\n`,
 )
 
 let saved = 0
@@ -131,9 +140,13 @@ for (const [index, item] of CASES.entries()) {
   const outcome = await filterOutput(item.command, stdout, { bin: rtk.bin, minChars: MIN_CHARS })
 
   const mapped = classified === item.filter
+  // A pass-through must state WHY it passed. `!outcome.applied` alone accepted an
+  // unclassified command, an empty stdin and a genuine net-loss as the same result,
+  // so a case could "prove" the net-loss guard without ever triggering it.
   const outcomeHolds = item.expect === 'shrink'
     ? classified !== null && outcome.applied && outcome.afterBytes < outcome.beforeBytes
-    : !outcome.applied
+    : !outcome.applied && typeof outcome.reason === 'string' && outcome.reason !== ''
+       && (Array.isArray(item.expectReason) ? item.expectReason.includes(outcome.reason) : true)
   const ok = mapped && outcomeHolds && (item.expect !== 'shrink' || stdout.length >= MIN_CHARS)
   if (ok) {
     if (outcome.applied) {
@@ -148,7 +161,7 @@ for (const [index, item] of CASES.entries()) {
 
   const verdict = ok ? (outcome.applied ? 'shrunk' : 'passed') : 'FAILED'
   process.stdout.write(
-    `${cell(`${index + 1}.`, 3)}${cell(outcome.filter ?? '-', 14)}${cell(outcome.beforeBytes, 8)}${cell(outcome.afterBytes, 8)}${cell(commandExit, 10)}${cell(outcome.exitCode ?? '-', 10)}${cell(verdict, 13)}${item.command}\n`,
+    `${cell(`${index + 1}.`, 3)}${cell(outcome.filter ?? '-', 14)}${cell(outcome.beforeBytes, 8)}${cell(outcome.afterBytes, 8)}${cell(commandExit, 10)}${cell(outcome.exitCode ?? '-', 10)}${cell(verdict, 13)}${cell(outcome.reason ?? '-', 18)}${item.command}\n`,
   )
 }
 

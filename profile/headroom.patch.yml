@@ -2,7 +2,7 @@
 # This is an OPT-IN overlay, not part of the canonical profile patch. Apply it on
 # a boot that wants compression:
 #
-#   dsh web --patch "$DSH_HOME/headroom.patch.yml"
+#   dsh web --patch "$DSH_HOME/headroom/patch.yml"
 #
 # and start the proxy first with `node scripts/headroom.mjs ensure`. `start.sh`
 # does both when the marker `$DSH_HOME/headroom/enabled` exists, which is what

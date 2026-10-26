@@ -386,12 +386,15 @@ export async function process(inputs, ctx) {
   if (process.platform !== 'win32') {
     let leftover = ''
     try {
-      leftover = execFileSync('pgrep', ['-f', 'genty/dist/cli/main.js'], { encoding: 'utf8' }).trim()
+      // Match THIS run's workspace, not every genty on the machine: the old
+      // pattern also matched an unrelated `genty --version` and red-flagged a
+      // clean plugin. The temp workspace path is unique per selftest run.
+      leftover = execFileSync('pgrep', ['-f', workspace], { encoding: 'utf8' }).trim()
     } catch (error) {
       if (error?.status !== 1) leftover = `pgrep failed: ${error.message}`
     }
     show('leftover genty processes after the timeout', leftover === '' ? 'none' : leftover)
-    if (leftover !== '') fail(`a genty process survived the timeout: ${leftover}`)
+    if (leftover !== '') fail(`a process in this run's workspace survived the timeout: ${leftover}`)
   }
 
   step('early refusal when the process file imports an unresolvable SDK')

@@ -12,7 +12,8 @@
  *     maxOutputBytes      tail cap for each of stdout and stderr. Default 24000.
  *     maxRecentRuns       recent-run list size. Default 10.
  *     maxTransitionNotes  journal transitions copied to the task timeline. Default 20.
- *     maxJournalScan      journal entries scanned per run. Default 500.
+ *     maxJournalScan      hard cap on journal entries scanned per run; hitting it sets
+ *                         `journalScanTruncated` in the summary. Default 5000.
  *     babysitterPath      absolute path to bin/babysitter.js when not on PATH.
  *     gentyPath           absolute path to genty's CLI when it cannot be derived.
  *     runsDir             extra runs directory to scan.
@@ -80,7 +81,7 @@ const DEFAULT_DOCTOR_TIMEOUT_MS = 60_000
 const DEFAULT_MAX_OUTPUT_BYTES = 24_000
 const DEFAULT_MAX_RECENT_RUNS = 10
 const DEFAULT_MAX_TRANSITION_NOTES = 20
-const DEFAULT_MAX_JOURNAL_SCAN = 500
+const DEFAULT_MAX_JOURNAL_SCAN = 5000
 const DEFAULT_LINKS_FILE = '.dsh/babysitter-links.json'
 const MAX_LINK_ENTRIES = 500
 const MAX_RESULT_PREVIEW = 8_000
@@ -181,9 +182,12 @@ function isJavaScript(path) {
 export function findOnPath(name, env = process.env) {
   const pathValue = typeof env?.PATH === 'string' ? env.PATH : ''
   if (pathValue === '') return null
+  // Windows: PATHEXT extensions come FIRST and the bare name LAST. npm writes a
+  // `babysitter` shell shim beside `babysitter.cmd`; with the bare name first (and
+  // isExecutable true for any file on win32) the sh shim won and genty never started.
   const extensions =
     process.platform === 'win32'
-      ? ['', ...String(env.PATHEXT ?? '.EXE;.CMD;.BAT;.COM').split(';').filter(Boolean)]
+      ? [...String(env.PATHEXT ?? '.EXE;.CMD;.BAT;.COM').split(';').filter(Boolean), '']
       : ['']
   for (const directory of pathValue.split(process.platform === 'win32' ? ';' : ':')) {
     if (directory === '') continue
@@ -596,11 +600,28 @@ export function summarizeRunDir(runDir, config) {
   const journalDir = join(runDir, 'journal')
   let files = []
   try {
-    files = readdirSync(journalDir).filter((name) => name.endsWith('.json')).sort()
+    // NUMERIC order by sequence, not lexicographic order by filename: the journal
+    // files are named `<n>.json`, so a plain sort puts 10 before 2 and the "last
+    // event" - and therefore the run STATE - is read from the wrong file once a run
+    // has ten entries. Non-numeric names keep a stable name order.
+    files = readdirSync(journalDir)
+      .filter((name) => name.endsWith('.json'))
+      .sort((left, right) => {
+        const a = Number.parseInt(left, 10)
+        const b = Number.parseInt(right, 10)
+        if (Number.isSafeInteger(a) && Number.isSafeInteger(b) && a !== b) return a - b
+        return left.localeCompare(right)
+      })
   } catch {
     files = []
   }
-  const scannedFiles = files.slice(-config.maxJournalScan)
+  // The failure scan reads EVERY journal file, not a tail window. A run can be
+  // hundreds of effects long, and a failed effect from early in the run is exactly
+  // what `ok: true` must not hide — a 500-file window made a run whose first effect
+  // failed report "completed, no failed tasks". The cap below is a safety bound, and
+  // hitting it is REPORTED rather than silently narrowing the scan.
+  const journalScanTruncated = files.length > config.maxJournalScan
+  const scannedFiles = journalScanTruncated ? files.slice(-config.maxJournalScan) : files
   const entries = []
   let parseErrors = 0
   for (const file of scannedFiles) {
@@ -664,6 +685,7 @@ export function summarizeRunDir(runDir, config) {
     lastEvent: last === null ? null : transitionOf(last),
     journalEntryCount: files.length,
     journalScanned: entries.length,
+    journalScanTruncated,
     journalParseErrors: parseErrors,
     transitions,
     eventCounts: entries.reduce((counts, entry) => {
@@ -672,6 +694,7 @@ export function summarizeRunDir(runDir, config) {
       return counts
     }, {}),
     failedTasks: failedTasks.slice(0, 20),
+    failedTasksTruncated: failedTasks.length > 20,
     pendingEffects: stateCache?.pendingEffectsByKind ?? {},
     stateCacheSavedAt: typeof stateCache?.savedAt === 'string' ? stateCache.savedAt : null,
     output,
@@ -1054,7 +1077,11 @@ export function babysitterTools(define, settings, boardOf) {
           }
           const reviewed = reviewTask(board, cwd, task.id, bookkeeping.taskRevision, bookkeeping.errors)
           bookkeeping.taskRevision = reviewed.revision
-          bookkeeping.taskStatus = reviewed.task?.status ?? 'review'
+          // Report what the board actually says. The old `?? 'review'` claimed the
+          // lifecycle outcome even when the update never landed, so a caller could
+          // read "the task ends in review" while the task was still active.
+          bookkeeping.taskStatus = reviewed.task?.status ?? 'unknown'
+          if (reviewed.task === null) bookkeeping.taskStatusUnknown = true
           if (reviewed.task === null) warnings.push('the linked task could not be re-read after the review update.')
         }
 
@@ -1238,7 +1265,11 @@ export function babysitterTools(define, settings, boardOf) {
           }
           const reviewed = reviewTask(board, cwd, taskId, bookkeeping.taskRevision, bookkeeping.errors)
           bookkeeping.taskRevision = reviewed.revision
-          bookkeeping.taskStatus = reviewed.task?.status ?? 'review'
+          // Report what the board actually says. The old `?? 'review'` claimed the
+          // lifecycle outcome even when the update never landed, so a caller could
+          // read "the task ends in review" while the task was still active.
+          bookkeeping.taskStatus = reviewed.task?.status ?? 'unknown'
+          if (reviewed.task === null) bookkeeping.taskStatusUnknown = true
           const finalView = taskView(board, cwd, taskId)
           if (finalView !== null) bookkeeping.taskRevision = finalView.revision
         }
