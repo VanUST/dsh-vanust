@@ -14,3 +14,12 @@ reports/
 # Workspace-local application state: the taskboard ledger and similar per-checkout
 # records. The kit ships the plugin, not your board.
 .dsh/
+
+# Local run artefacts that fall out of working on this machine: tool caches, the
+# Playwright MCP session files, the launcher's pidfile, and the screenshots earlier
+# sessions left at the root as evidence. Evidence belongs in reports/ (ignored above);
+# none of this is source, and leaving it untracked made every `git status` noisy.
+.cache/
+.playwright-mcp/
+server.pid
+/*.png
