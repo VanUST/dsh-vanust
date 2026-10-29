@@ -29,7 +29,8 @@ it. The default `style: overlay` therefore spawns a real window:
 | | |
 |---|---|
 | **✕** (top-right, or `Esc`) | dismisses that notification immediately |
-| **click the title or body** | opens `url` in the default browser and dismisses |
+| **click the title or body** | dismisses that notification; it never opens anything |
+| **↗** (left of ✕) | opens `url` in the default browser and dismisses |
 | **hover** | Pauses an auto-dismiss if `dismissMs` is positive; the default popup has no timer |
 | **no timer** | By default the popup persists until ✕, Esc or a click; it does not disappear on its own |
 | **several at once** | each claims the lowest free STACK ROW and lines up below the others |
@@ -83,13 +84,16 @@ rather than a hope. A claim older than 45s (its process died without cleaning up
 the next notification, so a killed popup cannot hold a row for ever. The stack is 8 rows deep;
 beyond that a notification reuses row 8 rather than drawing off-screen.
 
-`url` is what a click opens, and it defaults to **this** harness's own Web address, so a click
-reuses the running `dsh web` instead of starting a second one. **What it does not do:** it does
-not select the session the notification is about. The Web client has no session deep-link
-(`searchParams` is only read for `parent` and `mode`) and no client API for activating a session
-could be verified, so the click takes you to the running GUI — where, for a "finished" popup,
-the chat you were just in is already the one on screen. Setting `url:` (or `DSH_NOTIFY_URL`)
-overrides it entirely.
+`url` is what the **↗** control opens, and it defaults to **this** harness's own Web address, so it
+reuses the running `dsh web` instead of starting a second one. It is deliberately NOT bound to the
+title or body: the card is always-on-top in the top-right corner, which on Windows is exactly where
+a browser's tab strip sits, and a stray click there opened the GUI in a browser "out of nowhere" —
+measuring that twice was enough. A click on the card now dismisses it, and the browser can only be
+opened on purpose. `url` does not select the session the notification is about: the Web client has
+no session deep-link (`searchParams` is only read for `parent` and `mode`) and no client API for
+activating a session could be verified, so the arrow takes you to the running GUI — where, for a
+"finished" popup, the chat you were just in is already the one on screen. Setting `url:` (or
+`DSH_NOTIFY_URL`) overrides the address entirely.
 
 ### Which display it draws on
 
