@@ -56,41 +56,50 @@ It stages its runtime under `~/.hindsight/coding-agents`, writes a `hindsight` r
 `$DSH_HOME/cordis.patch.yml` (the **home** layer, so every profile composes it), and writes
 `~/.agents/skills/hindsight-coding-agent/SKILL.md`. Settings are read from
 `~/.hindsight/coding-agent.json`; `serverMode` is `cloud`, `self-hosted` or `daemon`.
-The current machine's file is `disabled: false`, `serverMode: "daemon"`, `apiPort: 18888`.
-It points at a local daemon started with the native DeepSeek provider; the daemon uses the
-stored `DEEPSEEK_API_KEY` only in its process environment, never in this JSON file:
 
-```bash
-KEY=$(python3 -c 'import yaml; print(yaml.safe_load(open("'"$DSH_HOME"'/.credentials.yaml"))["refs"]["DEEPSEEK_API_KEY"])')
-HINDSIGHT_API_LLM_PROVIDER=deepseek \
-HINDSIGHT_API_LLM_API_KEY="$KEY" \
-HINDSIGHT_API_LLM_MODEL=deepseek-chat \
-HINDSIGHT_API_PORT=18888 \
-node ~/.hindsight/coding-agents/dist/daemon-start.js --harness dsh
+**The default is `daemon`: memory stays on this machine.** The installer asks once on a terminal
+and defaults to `cloud` for a scripted run, so set it explicitly — and note that the package's own
+`apiPort` default is 9077, so a config that wants 18888 must say so:
+
+```json
+{
+  "serverMode": "daemon",
+  "apiPort": 18888,
+  "mapPathToBank": { "C:\\dsh-kit": "github::VanUST/dsh-vanust" },
+  "retainTags": ["project:{gitProject}"],
+  "retainMetadata": { "repo": "{gitProject}" }
+}
 ```
 
-The daemon writes no key into the kit. It starts embedded PostgreSQL and serves
-`http://127.0.0.1:18888`; `GET /health` reports `{"status":"healthy","database":"connected"}`.
-The daemon is not installed by the kit; on a machine without an external supervisor it
-does not auto-start after reboot. **This machine runs it as a systemd user service**:
+**Cloud is opt-in and worse than nothing without a token.** Measured 2026-10-29: with
+`serverMode: "cloud"` and no `apiToken`, every call answered
+`401 {"detail":"Authentication failed: API key required"}`, and because a memory tool that throws
+aborts the tool batch it belongs to, unrelated `web_fetch` calls in the same turn died with it.
+Cloud is what shares one bank across machines; set `apiToken` at the same time or leave the daemon
+in place.
 
-- unit `~/.config/systemd/user/hindsight-memory.service`, enabled at `default.target`;
-- launcher `~/.hindsight/start-coding-agent.sh`, which reads the DeepSeek key from DSH's
-  credentials at service start (the key is not stored in the unit);
-- it starts at user login and survives DSH start/stop/restart; no manual command is needed
-  during normal use.
+The daemon is **not** started by the plugin (measured on 0.8.3: it talks to a daemon that is
+already listening). It is started by a launcher that reads the DeepSeek key from DSH's credentials
+at launch and never stores it, with the kit's own provider settings:
 
-Check or recover it with:
+- Linux: unit `~/.config/systemd/user/hindsight-memory.service`, enabled at `default.target`,
+  launcher `~/.hindsight/start-coding-agent.sh`; `systemctl --user status|restart`.
+- Windows: launcher `~/.hindsight/start-coding-agent.ps1` and a per-user `Run` value
+  `DshHindsightDaemon` (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`). The Run key, not a
+  scheduled task: registering an at-logon task needs elevation here (`Access is denied`), while
+  the per-user Run value does not.
+- Either way `HINDSIGHT_API_LLM_PROVIDER=deepseek`, `HINDSIGHT_API_LLM_MODEL=deepseek-chat`,
+  `HINDSIGHT_API_PORT=18888`, and `uvx hindsight-embed` runs embedded PostgreSQL on 127.0.0.1.
 
-```bash
-systemctl --user status hindsight-memory.service
-systemctl --user restart hindsight-memory.service
-curl -s http://127.0.0.1:18888/health
-```
+Verify with `curl -s http://127.0.0.1:18888/health` →
+`{"status":"healthy","database":"connected"}`, and prove it serves memory, not just health:
+`PUT /v1/default/banks/<id>` then `POST /v1/default/banks/<id>/memories/recall` both answer 200.
+The embedded server reports `api_version` at `GET /version` and advertises its feature set there;
+do not assume the cloud's API surface — check.
 
-A Cloud bank instead sets `apiToken` in the JSON. The bank is resolved per session workspace
-(`bankIdTemplate: "coding-agent::{gitProject}"`). Hindsight tools register at DSH boot, so
-restart DSH after enabling or after the daemon first becomes healthy.
+Config is read when the host loads the plugin, so a mode change takes effect only after restarting
+`dsh web`. `hindsight_diagnose` reports the config file and the URL the live client is actually
+using; when they disagree, the session is still on the old mode.
 
 **One bank per GitHub repository, shared across machines.** The bank a session writes to is
 `bankIdTemplate`, and its placeholders are `{gitProject}`, `{project}`, `{harness}`, `{channel}`
