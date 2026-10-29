@@ -95,6 +95,24 @@ try {
 #    `scripts/kit-update.mjs --apply`.
 Copy-Item (Join-Path $KIT_DIR 'rules\DEPLOYMENT.md') (Join-Path $DSH_HOME 'DEPLOYMENT.md') -Force
 
+# 6. The external binaries the features use: RTK, Headroom, Babysitter, Marp, Mermaid
+#    CLI, D2. They are OPTIONAL by design - every feature degrades and says so - which
+#    is exactly why a fresh machine silently lacks them for weeks. Best effort: a
+#    failure here names the manual command and never fails the install.
+#
+#    Windows parity with install.sh: the POSIX-only installers are refused inside the
+#    script (it reports the winget/choco equivalent per tool instead of half-installing),
+#    so this step never runs a POSIX installer here. Without this block a Windows machine
+#    was the only platform whose installer said nothing at all about the missing tools.
+if ($env:SKIP_TOOLS -ne '1' -and (Test-Path (Join-Path $KIT_DIR 'scripts\provision-tools.mjs'))) {
+  Write-Host
+  Write-Host '== external tools (set SKIP_TOOLS=1 to skip) =='
+  & node (Join-Path $KIT_DIR 'scripts\provision-tools.mjs') --apply --kit $KIT_DIR
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host '   some tools are still missing; the features that need them degrade and say so'
+  }
+}
+
 Write-Host
 Write-Host '== done =='
 Write-Host "   DSH_HOME : $DSH_HOME"

@@ -31,7 +31,7 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { renderHandoff, slug } from './render.mjs'
@@ -48,12 +48,23 @@ function workingDir(exec) {
 function findChrome() {
   const env = process.env.CHROME_PATH
   if (typeof env === 'string' && env !== '' && existsSync(env)) return env
+  // Windows keeps chrome.exe under Program Files and macOS under /Applications,
+  // so neither is on PATH: a PATH-only probe reported "missing" on a machine whose
+  // Chrome is installed. Measured on this deployment: Chrome present at
+  // C:\Program Files\Google\Chrome\Application\chrome.exe, probe answering null.
   const known = process.platform === 'win32'
-    ? []
+    ? [
+        join(process.env['ProgramFiles'] ?? 'C:\\Program Files', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+        join(process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+        join(homedir(), 'AppData', 'Local', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+        join(process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+        join(process.env['ProgramFiles'] ?? 'C:\\Program Files', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+      ]
     : process.platform === 'darwin'
       ? [
           '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
           '/Applications/Chromium.app/Contents/MacOS/Chromium',
+          '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
         ]
       : ['/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser', '/snap/bin/chromium']
   const names = process.platform === 'win32' ? ['chrome.exe', 'msedge.exe'] : ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser', 'chrome']

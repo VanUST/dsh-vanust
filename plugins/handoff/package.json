@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-handoff",
-  "version": "0.1.3",
+  "version": "0.1.5",
   "description": "One tool that renders a structured task result into a self-contained A4 handoff page (TL;DR, objective, changes, evidence, decisions, risks, next, artifacts) and optionally a PDF through an installed Chrome/Chromium. The HTML is the source of truth.",
   "type": "module",
   "main": "handoff.mjs",
