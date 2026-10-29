@@ -193,13 +193,17 @@ so raise the tool's `timeoutMs` when probing by hand.
 installs all three: the two npm CLIs (`marp`, `mmdc`) through the global npm, and d2 from its
 release archive, whose name carries the project's own tokens — `d2-<tag>-<windows|macos|linux>-<amd64|arm64>.tar.gz`,
 so `macos` (not `darwin`) and Windows archives are `.tar.gz`. Mermaid is installed with
-`PUPPETEER_SKIP_DOWNLOAD=1` because this machine already has Chrome; the install then writes
-`$DSH_HOME/mermaid-puppeteer.json` **and** sets the user-scope `PUPPETEER_EXECUTABLE_PATH`,
-because without one of the two a bare `mmdc -i x.mmd -o x.svg` exits 1 with "Could not find
-Chrome" — measured on 2026-10-29, and rendered successfully after. Chrome and ffmpeg are
-DETECTED only, never installed: the probe looks on PATH and then in the per-platform install
-locations (`%ProgramFiles%\Google\Chrome\Application\chrome.exe`, `/Applications/…`), because
-neither Windows nor macOS puts a browser on PATH.
+`PUPPETEER_SKIP_DOWNLOAD=1` and then gets the pinned `chrome-headless-shell` that its own
+puppeteer asks for (`puppeteer browsers install chrome-headless-shell` through that package's
+CLI), plus `$DSH_HOME/mermaid-puppeteer.json` pinning `headless: "shell"` with extensions,
+sync and first-run windows disabled. **Never point puppeteer at the installed desktop Chrome**
+(`PUPPETEER_EXECUTABLE_PATH`): it makes the user's browser the machine-wide target of every
+puppeteer consumer and can put real windows on screen, which no tool call may do. Measured
+2026-10-29: a bare `mmdc -i x.mmd -o x.svg` exits 1 with "Could not find chrome-headless-shell
+(ver. 156.0.8078.47)" until that revision is installed, and renders with no window afterwards.
+Chrome and ffmpeg are DETECTED only, never installed: the probe looks on PATH and then in the
+per-platform install locations (`%ProgramFiles%\Google\Chrome\Application\chrome.exe`,
+`/Applications/…`), because neither Windows nor macOS puts a browser on PATH.
 
 **Two upstream rows the kit now pins, and why they are in the kit.** `profile/cordis.patch.yml`
 carries `@deepseek-ai/dsh-client-ui-settings-general` (welcome notice suppressed at

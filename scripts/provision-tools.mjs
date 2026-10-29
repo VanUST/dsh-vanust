@@ -573,11 +573,13 @@ const TOOLS = [
     required: false,
     names: ['mmdc'],
     install: async () => {
-      // No bundled Chromium: the machine already has a browser, and a second copy is
-      // ~150 MB. The puppeteer config written below points mmdc at this one.
+      // The package installs without its bundled browser; the pinned chrome-headless-shell
+      // is then installed deliberately, so a render never touches the user's desktop browser.
       const ok = installWithNpm('@mermaid-js/mermaid-cli', { PUPPETEER_SKIP_DOWNLOAD: '1' })
-      if (ok) writePuppeteerConfig()
-      return ok
+      if (!ok) return false
+      const shell = ensurePuppeteerShell()
+      writePuppeteerConfig()
+      return shell
     },
     manual: 'PUPPETEER_SKIP_DOWNLOAD=1 npm install -g @mermaid-js/mermaid-cli',
     manualWindows: '$env:PUPPETEER_SKIP_DOWNLOAD="1"; npm install -g @mermaid-js/mermaid-cli',
@@ -630,48 +632,104 @@ const TOOLS = [
 ]
 
 /**
- * Write the puppeteer config mmdc should use when it has no bundled browser, and
- * make it the default for future shells.
+ * Where globally installed npm packages live, so a package's own tooling can be run.
  *
  * PURPOSE
- *   `@mermaid-js/mermaid-cli` is installed with PUPPETEER_SKIP_DOWNLOAD=1, so it has
- *   no browser of its own and every render fails - measured: `mmdc -i x.mmd -o x.svg`
- *   exits 1 with "Could not find Chrome" until a browser is named. Naming it once
- *   makes every later `mmdc` invocation work with no flag.
+ *   mermaid-cli's puppeteer must install the browser revision IT was pinned to, and only
+ *   the copy inside that package knows which revision that is.
  * INPUTS
- *   none; it discovers Chrome through PATH or the per-platform install locations.
+ *   none.
  * OUTPUTS
- *   true when a config was written (and, on Windows, the user-scope
- *   PUPPETEER_EXECUTABLE_PATH was set), false when no browser was found.
+ *   Absolute `node_modules` directory (string), or null when it cannot be determined.
  * KEYWORDS
- *   mermaid, mmdc, puppeteer, executablePath, PUPPETEER_EXECUTABLE_PATH, unattended
+ *   npm root -g, global modules, puppeteer, mermaid-cli
+ */
+function globalModulesRoot() {
+  if (process.platform === 'win32') {
+    const root = join(binDir(), 'node_modules')
+    return existsSync(root) ? root : null
+  }
+  const npm = which('npm')
+  if (npm === null) return null
+  try {
+    const out = execFileSync(npm, ['root', '-g'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+    const value = String(out).trim()
+    return value === '' ? null : value
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Install the browser revision mermaid-cli's puppeteer pins.
+ *
+ * PURPOSE
+ *   `mmdc` defaults to `headless: "shell"`, which needs its own `chrome-headless-shell`
+ *   binary. Without that exact revision every render fails with "Could not find
+ *   chrome-headless-shell (ver. …)". The tempting workaround - pointing puppeteer at the
+ *   installed desktop Chrome with PUPPETEER_EXECUTABLE_PATH - makes a user's browser the
+ *   machine-wide target of every puppeteer consumer and can put real windows on screen,
+ *   which is exactly what a tool call must never do. Installing the pinned shell keeps
+ *   rendering headless and leaves the user's browser alone.
+ * INPUTS
+ *   none.
+ * OUTPUTS
+ *   true when the pinned shell is installed or already present, false when the mermaid-cli
+ *   puppeteer CLI is missing or the download failed.
+ * KEYWORDS
+ *   puppeteer, chrome-headless-shell, mermaid-cli, headless, revision pin
+ */
+function ensurePuppeteerShell() {
+  const root = globalModulesRoot()
+  if (root === null) return false
+  const cli = join(root, '@mermaid-js', 'mermaid-cli', 'node_modules', 'puppeteer', 'lib', 'puppeteer', 'node', 'cli.js')
+  if (!existsSync(cli)) return false
+  return run([process.execPath, cli, 'browsers', 'install', 'chrome-headless-shell'])
+}
+
+/**
+ * Write the puppeteer config mmdc should use, with headlessness stated rather than assumed.
+ *
+ * PURPOSE
+ *   `@mermaid-js/mermaid-cli` is installed with PUPPETEER_SKIP_DOWNLOAD=1, so its browser is
+ *   provisioned deliberately rather than by a postinstall; this config then pins `headless`
+ *   and the flags that keep a render off the desktop - no extensions, no sync, no first-run
+ *   window.
+ * INPUTS
+ *   none.
+ * OUTPUTS
+ *   true when the config was written; false when the file could not be written.
+ * KEYWORDS
+ *   mermaid, mmdc, puppeteer, headless shell, JSON, BOM
+ *
+ * Two measured details. The file is UTF-8 with NO byte-order mark: PowerShell's
+ * `Set-Content -Encoding utf8` adds one and mermaid-cli's `JSON.parse` then rejects the file
+ * with "Unexpected token", so `mmdc -p <config>` failed while the same flags inline worked.
+ * And `headless` is spelled "shell" to match the pinned chrome-headless-shell - never the
+ * desktop Chrome, which would render in a real window.
  */
 function writePuppeteerConfig() {
-  const chrome = which(['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser', 'chrome.exe', 'msedge.exe'])
-    ?? firstExisting(CHROME_KNOWN[process.platform] ?? [])
-  if (chrome === null) return false
   const target = join(DSH_HOME, 'mermaid-puppeteer.json')
-  let written = false
+  const config = {
+    headless: 'shell',
+    args: [
+      '--no-sandbox',
+      '--disable-gpu',
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--disable-extensions',
+      '--disable-sync',
+      '--hide-scrollbars',
+    ],
+  }
   try {
     mkdirSync(DSH_HOME, { recursive: true })
-    writeFileSync(target, `${JSON.stringify({ executablePath: chrome, args: ['--no-sandbox'] }, null, 2)}\n`)
-    written = true
+    writeFileSync(target, `${JSON.stringify(config, null, 2)}\n`, 'utf8')
+    return true
   } catch {
     // A missing config is reported by the mmdc hint, not a failed install.
+    return false
   }
-  // puppeteer reads this variable without any flag being passed, which is what makes a
-  // bare `mmdc -i in.mmd -o out.svg` work. Exported for this process either way.
-  process.env.PUPPETEER_EXECUTABLE_PATH = chrome
-  if (process.platform === 'win32') {
-    run([
-      'powershell.exe',
-      '-NoProfile',
-      '-NonInteractive',
-      '-Command',
-      `[Environment]::SetEnvironmentVariable('PUPPETEER_EXECUTABLE_PATH', '${chrome.replaceAll("'", "''")}', 'User')`,
-    ])
-  }
-  return written
 }
 
 async function main() {
