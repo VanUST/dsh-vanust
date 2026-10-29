@@ -92,6 +92,36 @@ A Cloud bank instead sets `apiToken` in the JSON. The bank is resolved per sessi
 (`bankIdTemplate: "coding-agent::{gitProject}"`). Hindsight tools register at DSH boot, so
 restart DSH after enabling or after the daemon first becomes healthy.
 
+**One bank per GitHub repository, shared across machines.** The bank a session writes to is
+`bankIdTemplate`, and its placeholders are `{gitProject}`, `{project}`, `{harness}`, `{channel}`
+and `{user}` — there is **no GitHub placeholder**, because the plugin resolves git locally and
+never reads a remote URL. Device-independence therefore comes from the bank NAME, not from
+discovery: map each clone's path to the literal `github::<owner>/<repo>` the clone belongs to,
+and the same repository on any machine lands in the same bank:
+
+```json
+{
+  "serverMode": "cloud",
+  "apiUrl": "https://api.hindsight.vectorize.io",
+  "mapPathToBank": { "C:\\dsh-kit": "github::VanUST/dsh-vanust" },
+  "retainTags": ["project:{gitProject}"],
+  "retainMetadata": { "repo": "{gitProject}" }
+}
+```
+
+`mapPathToBank` holds a per-machine path; the bank name is the shared half, so every device adds
+its own path mapping to the same literal. Without a mapping the default `{gitProject}` (the clone's
+directory name) applies, which still shares memory between devices that clone into the same
+directory name but not between a directory that was renamed. Resolve and check it with
+`node ~/.hindsight/coding-agents/dist/status.js --repo <path>`; `hindsight_diagnose` reports the
+bank a live session is actually using.
+
+**Cross-device memory needs `serverMode: "cloud"` and an `apiToken`** — the token is the human's
+step, obtained from Hindsight Cloud, and belongs in that file (or `HINDSIGHT_API_TOKEN`).
+`daemon` is per-machine by design: it keeps memory on one device and is not a substitute for the
+cloud bank. `self-hosted` points `apiUrl` at a Hindsight server you run, which shares memory across
+whatever devices can reach it.
+
 The installer appends its row as a YAML block after the home patch's JSON array. The
 kit's `scripts/dsh-mcp-sync.mjs` (run by `kit-update --apply`) now lifts that block, writes
 the row as JSON and preserves it; if a boot lands between install and sync, repair with
@@ -166,6 +196,14 @@ session's catalog without a restart. Keep the previous body in `.history/`, retr
 `replace: true` is passed on purpose. Because the library is plain files, making it shared
 between machines is `git init` in that directory — that is the "collective" half of
 SkillClaw without a server.
+
+**Sharing that library across devices.** `git init` in `$DSH_HOME/skills`, commit the
+`SKILL.md` files, add a remote, and clone it into `$DSH_HOME/skills` on every other machine: the
+harness discovers whatever is on disk, so nothing else needs wiring. Keep `.history/` (previous
+bodies) and `.archive/` (forgotten skills) out of the repository — they are local history, not
+library content. The library is NOT scoped to a machine, so a skill must name its own platform
+assumptions in the body: a procedure that lists `%APPDATA%` or PowerShell commands is wrong on
+Linux, and a shared library that hides that fact teaches the next machine the wrong command.
 
 **Babysitter — deterministic process runs (npm binary + plugin).** `npm install -g
 @a5c-ai/babysitter` (or let the plugin report the missing CLI and stop). It has no DSH
