@@ -12,6 +12,11 @@
 #   -NoUpdate      boot without checking the kit
 #   -Yes           apply any pending kit update without asking
 #   -CheckOnly     report kit drift and exit without booting
+#   -Open          open the Web UI in the default browser after booting. WITHOUT it
+#                  the boot prints the token URL and opens nothing: `dsh web` opens
+#                  the browser by itself unless `--no-open` is passed, and a boot that
+#                  nobody asked to see (a supervisor, a restart after convergence)
+#                  must never put a window on screen. Interactive launchers pass it.
 # OUTPUTS
 #   Exit code of `dsh web` (0 when it exits cleanly), or 1 when the kit check
 #   fails. The update decision, the composed plugin rows and the token URL are
@@ -30,7 +35,8 @@
 param(
   [switch]$NoUpdate,
   [switch]$Yes,
-  [switch]$CheckOnly
+  [switch]$CheckOnly,
+  [switch]$Open
 )
 
 $ErrorActionPreference = 'Stop'
@@ -99,5 +105,6 @@ if ($env:HEADROOM -ne '0' -and (Test-Path $HeadroomMarker) -and (Test-Path $Head
   }
 }
 
-& dsh web @patchArgs --port $port
+$openArgs = if ($Open) { @() } else { @('--no-open') }
+& dsh web @patchArgs --port $port @openArgs
 exit $LASTEXITCODE

@@ -77,4 +77,10 @@ if [ "${HEADROOM:-1}" != "0" ] && [ -f "${HEADROOM_MARKER}" ] && [ -f "${HEADROO
   fi
 fi
 
-exec dsh web ${PATCH_ARGS[@]+"${PATCH_ARGS[@]}"} --port "${PORT:-3080}"
+# `dsh web` opens a browser by itself unless --no-open is passed. A boot nobody asked
+# to see - a supervisor, a restart after convergence - must not put a window on screen,
+# so it is quiet unless OPEN=1 says an interactive launcher wants it.
+OPEN_ARGS=()
+if [ "${OPEN:-0}" != "1" ]; then OPEN_ARGS=(--no-open); fi
+
+exec dsh web ${PATCH_ARGS[@]+"${PATCH_ARGS[@]}"} ${OPEN_ARGS[@]+"${OPEN_ARGS[@]}"} --port "${PORT:-3080}"
