@@ -17,6 +17,7 @@
  *   --fetch           git fetch the kit before deciding what drifted
  *   --json            emit one JSON object on stdout (logs still go to stderr)
  *   --no-harness      never touch the globally installed harness
+ *   --no-tools        never provision the optional external binaries
  *   --help            usage
  *
  * OUTPUTS
@@ -27,6 +28,8 @@
  *               actions; `applied` lists what actually ran. Exits 0 when the
  *               run reached a decision (drift or not), 1 only on hard failure,
  *               so a caller can separate "needs update" from "could not tell".
+ *               `applied` may contain `provision-tools`: `--apply` also installs the
+ *               optional external binaries, so one call converges the whole machine.
  *
  * KEYWORDS
  *   dsh-kit, drift, convergence, idempotent, profile, plugin tarball, pnpm
@@ -46,7 +49,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -73,6 +76,8 @@ const USAGE = `kit-update — converge an installed machine onto this kit
   --home <dir>  harness home (default: $DSH_HOME, else <userhome>/.npm/dsh)
   --profile     profile to converge (default: web)
   --no-harness  never touch the globally installed harness
+  --no-tools    never provision the optional external binaries (rtk, headroom,
+                babysitter, marp, mermaid, d2); SKIP_TOOLS=1 does the same
   --help        this text
 
 Drift is decided by content hashes, so a repacked tarball that kept its
@@ -92,6 +97,7 @@ function parseArgs(argv) {
     fetch: false,
     json: false,
     harness: true,
+    tools: true,
     help: false,
   }
   for (let i = 0; i < argv.length; i += 1) {
@@ -110,6 +116,7 @@ function parseArgs(argv) {
       case '--fetch': opts.fetch = true; break
       case '--json': opts.json = true; break
       case '--no-harness': opts.harness = false; break
+      case '--no-tools': opts.tools = false; break
       case '--help': case '-h': opts.help = true; break
       default: throw new Error(`unknown argument: ${arg}`)
     }
@@ -124,15 +131,24 @@ function parseArgs(argv) {
 let JSON_MODE = false
 const LOG = []
 
-/** Record one structured event and echo it to the operator-visible stream. */
+/**
+ * Record one structured event and echo it to the operator-visible stream.
+ *
+ * In JSON mode the event goes to STDERR, never to stdout: a caller parses stdout as a
+ * single object, and the contract in this file's header says diagnostics land on stderr.
+ */
 function log(event, fields = {}) {
   const entry = { event, ...fields }
   LOG.push(entry)
-  if (JSON_MODE) return
   const detail = Object.entries(fields)
     .map(([k, v]) => `${k}=${Array.isArray(v) ? v.join(',') : v}`)
     .join(' ')
-  console.log(detail ? `${event} ${detail}` : event)
+  const line = detail ? `${event} ${detail}` : event
+  if (JSON_MODE) {
+    process.stderr.write(`${line}\n`)
+    return
+  }
+  console.log(line)
 }
 
 /** Write a warning to stderr; never throws, never pollutes JSON stdout. */
@@ -171,9 +187,37 @@ function run(cmd, args, options = {}) {
   }
 }
 
-/** Run a command with the operator watching its output; returns success. */
+/**
+ * Run a command with the operator watching its output; returns success.
+ *
+ * PURPOSE
+ *   Run an installer whose output a human wants to see (pnpm, npm), without ever
+ *   writing to the stream a machine-readable caller is reading.
+ * INPUTS
+ *   cmd/args - executable and arguments (string[]).
+ *   options.cwd / options.exec - spawn options (optional).
+ * OUTPUTS
+ *   true on exit 0, false otherwise (and a warning naming the command).
+ * KEYWORDS
+ *   installer, stdio, json mode, stdout contract
+ *
+ * In JSON mode the child's output is captured and relayed to STDERR. Measured before
+ * this fix: `--json --apply` printed pnpm's `Progress: resolved 0, reused 0 ...` on
+ * stdout, so the "exactly one JSON object" promise broke for the one caller that
+ * exists to parse it. Nothing the installer prints is lost - it moves streams.
+ */
 function runVisible(cmd, args, options = {}) {
   try {
+    if (JSON_MODE) {
+      const result = spawnSync(cmd, args, { cwd: options.cwd, encoding: 'utf8', ...options.exec })
+      if (result.stdout) process.stderr.write(result.stdout)
+      if (result.stderr) process.stderr.write(result.stderr)
+      if (result.status !== 0) {
+        warn(`${cmd} ${args.join(' ')} failed: exit ${result.status ?? 'no status'}`)
+        return false
+      }
+      return true
+    }
     execFileSync(cmd, args, {
       cwd: options.cwd,
       stdio: 'inherit',
@@ -667,6 +711,29 @@ function main(argv) {
   const harnessResult = convergeHarness({ want: harnessPin, enabled: opts.harness })
   if (harnessResult.action !== 'skipped' && harnessResult.action !== 'already-current') applied.push('install-harness')
   log('harness.state', harnessResult)
+
+  // Provision the optional external binaries the features degrade without. Same shape as
+  // the MCP projection below: reported, never thrown, because a machine that cannot reach
+  // a release server is still a converged machine for every kit-owned artefact.
+  //
+  // This is what makes a fresh machine complete without a human running a second command.
+  // The kit-owned half of the deployment always converged in one call; the binary half did
+  // not, and the consequence was a machine that reported converged while rtk, headroom,
+  // babysitter, marp, mermaid and d2 were silently absent for weeks. Provisioning is part
+  // of convergence now, opt-out with --no-tools or SKIP_TOOLS=1.
+  if (opts.tools && process.env.SKIP_TOOLS !== '1') {
+    const provisionArgs = [join(kit, 'scripts', 'provision-tools.mjs'), '--apply', '--kit', kit]
+    const provisioned = run(process.execPath, provisionArgs, { cwd: kit })
+    if (provisioned === null) {
+      warn('external tool provisioning did not run to completion; run it directly for the reason:')
+      warn(`  node ${join(kit, 'scripts', 'provision-tools.mjs')} --apply`)
+    } else {
+      applied.push('provision-tools')
+      log('tools.provisioned', { report: provisioned.split('\n').filter(Boolean).slice(-3) })
+    }
+  } else {
+    log('tools.skipped', { reason: opts.tools ? 'SKIP_TOOLS=1' : '--no-tools' })
+  }
 
   // Project the declared MCP servers into the home patch layer. This runs LAST and its
   // failure is reported rather than thrown: the spec file has just been projected, so a

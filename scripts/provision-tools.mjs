@@ -36,12 +36,18 @@
  *   - Windows: `--check` works everywhere, `--apply` refuses the POSIX-only installers
  *     with a message naming the equivalent (winget/choco), rather than half-installing.
  *   - A tool whose probe throws (corrupt binary) is reported missing, not present.
+ *   - `--apply` installs on every platform: npm-based tools through the global npm
+ *     (a `.cmd` shim on Windows, which is why the runner routes through the command
+ *     interpreter), rtk and d2 from their release archives onto a directory that is
+ *     already on PATH, and headroom through `uv tool install` with uv installed on
+ *     demand. A tool whose release asset does not exist for this platform stays
+ *     missing and reports the manual command.
  *   - Chrome and ffmpeg are DETECTED ONLY: they are OS packages, and installing them
  *     under a user account is how a machine ends up with two browsers.
  */
 
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { delimiter, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -173,7 +179,25 @@ function probeVersion(bin, args = ['--version']) {
   }
 }
 
-/** Run an installer with inherited stdio so a human sees what is happening. */
+/**
+ * Run a command with inherited stdio so a human sees what is happening.
+ *
+ * PURPOSE
+ *   Run one installer and report whether it exited zero, on every platform.
+ * INPUTS
+ *   argv - executable followed by its arguments (string[]).
+ *   env  - extra environment entries merged over process.env (object, optional).
+ * OUTPUTS
+ *   true when the command exited 0. false on any non-zero exit, a spawn failure,
+ *   or the 15-minute timeout; never throws.
+ * KEYWORDS
+ *   spawn, install, cross-platform, exit code
+ *
+ * A `.cmd`/`.bat` shim is NOT spawned here: Node refuses that with EINVAL since
+ * CVE-2024-27980, and routing it through `cmd.exe` from spawnSync mis-escapes the
+ * quoted path. Callers that need npm resolve its CLI script instead - see
+ * installWithNpm - which needs neither.
+ */
 function run(argv, env = {}) {
   const result = spawnSync(argv[0], argv.slice(1), {
     stdio: 'inherit',
@@ -223,6 +247,267 @@ async function fetchJson(url) {
   })
 }
 
+/**
+ * Directory a downloaded single binary is installed into.
+ *
+ * PURPOSE
+ *   Put a release binary somewhere the NEXT shell finds it. A tool copied to a
+ *   directory that is not on PATH is installed and unreachable at the same time,
+ *   which reads exactly like a failed install.
+ * INPUTS
+ *   none.
+ * OUTPUTS
+ *   Absolute directory path (string). Windows: the directory npm already puts
+ *   global shims in, because it is on PATH and user-writable - measured on this
+ *   machine: C:\Users\<user>\AppData\Roaming\npm. POSIX: ~/.local/bin, which the
+ *   kit's own rtk installer targets too.
+ * KEYWORDS
+ *   PATH, bin directory, npm prefix, ~/.local/bin, portable install
+ */
+function binDir() {
+  if (process.platform === 'win32') {
+    const npmPrefix = process.env.APPDATA ? join(process.env.APPDATA, 'npm') : null
+    if (npmPrefix !== null && existsSync(npmPrefix)) return npmPrefix
+  }
+  mkdirSync(LOCAL_BIN, { recursive: true })
+  return LOCAL_BIN
+}
+
+/** Extract a .tar.gz with the system tar, which ships on every target OS. */
+function extractTarGz(archive, into) {
+  mkdirSync(into, { recursive: true })
+  return run(['tar', '-xzf', archive, '-C', into])
+}
+
+/**
+ * Extract a .zip. Windows has no unzip binary, so PowerShell's Expand-Archive is
+ * the one extractor guaranteed to be present there.
+ */
+function extractZip(archive, into) {
+  mkdirSync(into, { recursive: true })
+  if (process.platform === 'win32') {
+    return run([
+      'powershell.exe',
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      `Expand-Archive -LiteralPath "${archive}" -DestinationPath "${into}" -Force`,
+    ])
+  }
+  return run(['unzip', '-q', '-o', archive, '-d', into])
+}
+
+/**
+ * Find one file by name under a freshly extracted directory.
+ *
+ * PURPOSE
+ *   Release archives wrap their binary in a versioned directory whose name changes
+ *   every release (`d2-v0.9.0/bin/d2`), so the installer must discover the file
+ *   instead of assuming a path.
+ * INPUTS
+ *   root - directory to search (string).
+ *   name - basename to match, case-insensitively, e.g. 'd2.exe' (string).
+ * OUTPUTS
+ *   Absolute path of the first match in depth-first order, or null when the
+ *   archive does not contain it (a failed or renamed release).
+ * KEYWORDS
+ *   archive layout, find binary, release asset, recursive search
+ */
+function findInTree(root, name) {
+  let entries
+  try {
+    entries = readdirSync(root, { withFileTypes: true })
+  } catch {
+    return null
+  }
+  for (const entry of entries) {
+    const candidate = join(root, entry.name)
+    if (entry.isDirectory()) {
+      const nested = findInTree(candidate, name)
+      if (nested !== null) return nested
+    } else if (entry.name.toLowerCase() === name.toLowerCase()) {
+      return candidate
+    }
+  }
+  return null
+}
+
+/**
+ * Download a release archive, extract it, and install the binary it carries onto PATH.
+ *
+ * PURPOSE
+ *   Install a tool the release publishes as a binary rather than through a package
+ *   manager, without a shell pipeline, an elevation prompt, or an `install.sh`.
+ * INPUTS
+ *   options.url    - archive URL (string).
+ *   options.binary - basename inside the archive, e.g. 'rtk.exe' (string).
+ *   options.target - name to install it as, e.g. 'rtk.exe' (string).
+ *   options.kind   - 'tar.gz' (default) or 'zip' (string).
+ * OUTPUTS
+ *   The installed absolute path (string), or null when the download, the
+ *   extraction, or the copy failed; the caller reports the manual command.
+ * KEYWORDS
+ *   release asset, tar.gz, zip, copy, PATH, user-local install
+ */
+async function installArchiveBinary({ url, binary, target, kind = 'tar.gz' }) {
+  const stem = `${target.replaceAll(/\W/gu, '-')}-${process.pid}`
+  const archive = join(tmpdir(), kind === 'zip' ? `${stem}.zip` : `${stem}.tar.gz`)
+  const into = join(tmpdir(), stem)
+  try {
+    await download(url, archive)
+  } catch {
+    return null
+  }
+  const extracted = kind === 'zip' ? extractZip(archive, into) : extractTarGz(archive, into)
+  if (!extracted) return null
+  const found = findInTree(into, binary)
+  if (found === null) return null
+  const destination = join(binDir(), target)
+  try {
+    copyFileSync(found, destination)
+  } catch {
+    return null
+  }
+  return destination
+}
+
+/**
+ * Run a global npm install for a package that has no prebuilt release archive.
+ *
+ * PURPOSE
+ *   One call site for "install this npm package globally", so the Windows shim
+ *   problem and the PATH check live in exactly one place.
+ * INPUTS
+ *   pkg  - package spec, e.g. '@marp-team/marp-cli' (string).
+ *   env  - extra environment entries for the install (object, optional).
+ * OUTPUTS
+ *   npm's own exit status as a boolean (false when npm is absent or the install
+ *   failed). The caller re-probes the tool, because a package name and its binary
+ *   name differ: `@marp-team/marp-cli` installs `marp`, `@mermaid-js/mermaid-cli`
+ *   installs `mmdc`.
+ * KEYWORDS
+ *   npm, global install, npm-cli.js, windows shim, PATH, provision
+ *
+ * On Windows `npm` resolves to `npm.cmd`, which spawnSync cannot execute (EINVAL
+ * since CVE-2024-27980) and which `cmd.exe` mangles once the path is quoted -
+ * measured: `'\"C:\Program Files\nodejs\npm.cmd\"' is not recognized`. Running
+ * npm's own CLI script with this node binary needs neither a shell nor a quote.
+ */
+function installWithNpm(pkg, env = {}) {
+  const npm = which('npm')
+  if (npm === null) return false
+  const args = ['install', '-g', '--no-audit', '--no-fund', pkg]
+  if (process.platform === 'win32' && /\.cmd$/iu.test(npm)) {
+    const cli = join(dirname(npm), 'node_modules', 'npm', 'bin', 'npm-cli.js')
+    return existsSync(cli) ? run([process.execPath, cli, ...args], env) : false
+  }
+  return run([npm, ...args], env)
+}
+
+/**
+ * Resolve the release asset name for a platform and architecture.
+ *
+ * PURPOSE
+ *   Turn `process.platform`/`process.arch` into the tokens a release actually
+ *   publishes. Guessing these is how a macOS machine ends up downloading a Linux
+ *   binary: d2 publishes `macos`, not `darwin`, and Windows archives are `.tar.gz`
+ *   in the same series as the Unix ones.
+ * INPUTS
+ *   os   - 'windows' | 'macos' | 'linux' for this run (string).
+ *   arch - 'amd64' | 'arm64' (string).
+ * OUTPUTS
+ *   File name of the archive (string), e.g. 'd2-v0.9.0-macos-arm64.tar.gz'.
+ * KEYWORDS
+ *   release asset naming, macos, windows, amd64, arm64
+ */
+function d2AssetName(tag, os, arch) {
+  return `d2-${tag}-${os}-${arch}.tar.gz`
+}
+
+/** Release-asset tokens for this run: d2 says `macos`, not `darwin`. */
+function d2PlatformTokens() {
+  const os = process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux'
+  const arch = process.arch === 'arm64' ? 'arm64' : 'amd64'
+  return { os, arch }
+}
+
+/**
+ * Make a directory visible to this process and to future ones.
+ *
+ * PURPOSE
+ *   A tool whose bin directory is not on PATH is installed and unreachable at the
+ *   same time. `uv` and its tool shims land in `~/.local/bin`, which on Windows is
+ *   not on PATH by default, so wiring the binary also means wiring the PATH.
+ * INPUTS
+ *   dir - absolute directory that must be searchable (string).
+ * OUTPUTS
+ *   true when the directory is now on this process's PATH (always, for the caller's
+ *   lifetime), and on the persisted user PATH on Windows. false only when the
+ *   persisted write failed.
+ * KEYWORDS
+ *   PATH, setx, user environment, uv, shim, persistence
+ */
+function ensureOnPath(dir) {
+  if (!existsSync(dir)) return false
+  const current = String(process.env.PATH ?? '')
+  if (!current.split(delimiter).includes(dir)) process.env.PATH = `${dir}${delimiter}${current}`
+  if (process.platform !== 'win32') return true
+  const escaped = dir.replaceAll("'", "''")
+  const added = run([
+    'powershell.exe',
+    '-NoProfile',
+    '-NonInteractive',
+    '-Command',
+    `$p=[Environment]::GetEnvironmentVariable('Path','User'); if (-not (($p -split ';') -contains '${escaped}')) { [Environment]::SetEnvironmentVariable('Path', ($p.TrimEnd(';') + ';${escaped}'), 'User') }`,
+  ])
+  return added
+}
+
+/**
+ * Return a usable `uv`, installing the official one when it is absent.
+ *
+ * PURPOSE
+ *   Headroom is published only as a Python tool, so `uv tool install` is its one
+ *   supported unattended path. Without this, "install headroom" always degraded to
+ *   a manual instruction.
+ * INPUTS
+ *   none.
+ * OUTPUTS
+ *   Absolute path of `uv` (string), or null when its installer failed or the
+ *   binary cannot be found afterwards.
+ * KEYWORDS
+ *   uv, python toolchain, astral, headroom, unattended install
+ */
+function ensureUv() {
+  const existing = which('uv')
+  if (existing !== null) return existing
+  const installed = process.platform === 'win32'
+    ? run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', 'irm https://astral.sh/uv/install.ps1 | iex'])
+    : run(['sh', '-c', 'curl -fsSL https://astral.sh/uv/install.sh | sh'])
+  if (!installed) return null
+  const candidateDirs = [join(homedir(), '.local', 'bin'), join(homedir(), '.cargo', 'bin')]
+  for (const dir of candidateDirs) ensureOnPath(dir)
+  return which('uv')
+}
+
+/** Chrome/Chromium/Edge install locations, per platform. Shared by detection and by
+ * the mermaid puppeteer config, so the two cannot disagree about what is installed. */
+const CHROME_KNOWN = {
+  win32: [
+    join(process.env['ProgramFiles'] ?? 'C:\\Program Files', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    join(process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    join(homedir(), 'AppData', 'Local', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    join(process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+    join(process.env['ProgramFiles'] ?? 'C:\\Program Files', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+  ],
+  darwin: [
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+  ],
+  linux: ['/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser', '/snap/bin/chromium'],
+}
+
 /** The tool set, in a stable order, with the probe and the installer for each. */
 const TOOLS = [
   {
@@ -230,13 +515,25 @@ const TOOLS = [
     label: 'RTK — command-aware output compression',
     required: false,
     names: ['rtk'],
-    install: async (context) => {
+    install: async () => {
       const edition = process.env.RTK_EDITION === '' ? 'oss' : (process.env.RTK_EDITION ?? 'oss')
+      if (process.platform === 'win32') {
+        // The release publishes a Windows zip per edition (rtk-oss-x86_64-pc-windows-msvc.zip
+        // for v1.1.0), so Windows installs the same Apache-2.0 edition the POSIX
+        // installer would, without a shell.
+        const meta = await fetchJson('https://api.github.com/repos/rtk-ai/rtk/releases/latest')
+        const tag = typeof meta?.tag_name === 'string' ? meta.tag_name : ''
+        if (tag === '') return false
+        const prefix = edition === 'oss' ? 'rtk-oss' : 'rtk'
+        const url = `https://github.com/rtk-ai/rtk/releases/download/${tag}/${prefix}-x86_64-pc-windows-msvc.zip`
+        return (await installArchiveBinary({ url, binary: 'rtk.exe', target: 'rtk.exe', kind: 'zip' })) !== null
+      }
       const script = join(tmpdir(), `rtk-install-${process.pid}.sh`)
       await download('https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh', script)
       return run(['sh', script], { RTK_EDITION: edition, RTK_INSTALL_DIR: LOCAL_BIN })
     },
     manual: 'RTK_EDITION=oss sh <(curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh)',
+    manualWindows: 'download rtk-oss-x86_64-pc-windows-msvc.zip from https://github.com/rtk-ai/rtk/releases and put rtk.exe on PATH',
   },
   {
     id: 'headroom',
@@ -244,21 +541,22 @@ const TOOLS = [
     required: false,
     names: ['headroom'],
     install: async () => {
-      const uv = which('uv')
+      const uv = ensureUv()
       if (uv === null) return false
-      return run([uv, 'tool', 'install', '--python', '3.13', 'headroom-ai[proxy]'])
+      const installed = run([uv, 'tool', 'install', '--python', '3.13', 'headroom-ai[proxy]'])
+      // uv puts the shim in ~/.local/bin, which Windows does not search by default.
+      ensureOnPath(join(homedir(), '.local', 'bin'))
+      return installed && which('headroom') !== null
     },
     manual: 'uv tool install --python 3.13 "headroom-ai[proxy]"',
+    manualWindows: 'irm https://astral.sh/uv/install.ps1 | iex; then: uv tool install --python 3.13 "headroom-ai[proxy]"',
   },
   {
     id: 'babysitter',
     label: 'Babysitter — deterministic process runs',
     required: false,
     names: ['babysitter'],
-    install: async () => {
-      const npm = which('npm')
-      return npm === null ? false : run([npm, 'install', '-g', '@a5c-ai/babysitter'])
-    },
+    install: async () => installWithNpm('@a5c-ai/babysitter'),
     manual: 'npm install -g @a5c-ai/babysitter',
   },
   {
@@ -266,10 +564,7 @@ const TOOLS = [
     label: 'Marp CLI — deck export to PDF/PPTX',
     required: false,
     names: ['marp'],
-    install: async () => {
-      const npm = which('npm')
-      return npm === null ? false : run([npm, 'install', '-g', '@marp-team/marp-cli'])
-    },
+    install: async () => installWithNpm('@marp-team/marp-cli'),
     manual: 'npm install -g @marp-team/marp-cli',
   },
   {
@@ -278,11 +573,9 @@ const TOOLS = [
     required: false,
     names: ['mmdc'],
     install: async () => {
-      const npm = which('npm')
-      if (npm === null) return false
       // No bundled Chromium: the machine already has a browser, and a second copy is
       // ~150 MB. The puppeteer config written below points mmdc at this one.
-      const ok = run([npm, 'install', '-g', '@mermaid-js/mermaid-cli'], { PUPPETEER_SKIP_DOWNLOAD: '1' })
+      const ok = installWithNpm('@mermaid-js/mermaid-cli', { PUPPETEER_SKIP_DOWNLOAD: '1' })
       if (ok) writePuppeteerConfig()
       return ok
     },
@@ -295,28 +588,19 @@ const TOOLS = [
     required: false,
     names: ['d2'],
     install: async () => {
-      const meta = await fetchJson('https://api.github.com/repos/terrastruct/d2/releases/latest')
+      const meta = await fetchJson('https://api.github.com/repos/d2lang/d2/releases/latest')
       const tag = typeof meta?.tag_name === 'string' ? meta.tag_name : ''
       if (tag === '') return false
-      // The release asset is platform- AND architecture-specific. Naming the Linux
-      // asset unconditionally is how a macOS machine ends up with an ELF binary it
-      // cannot run; the matrix below is the smallest true statement of what the
-      // project publishes.
-      const arch = process.arch === 'arm64' ? 'arm64' : 'amd64'
-      const platform = process.platform === 'darwin' ? 'darwin' : 'linux'
-      const archive = join(tmpdir(), `d2-${process.pid}.tar.gz`)
-      await download(`https://github.com/terrastruct/d2/releases/download/${tag}/d2-${tag}-${platform}-${arch}.tar.gz`, archive)
-      const extract = join(tmpdir(), `d2-${process.pid}`)
-      mkdirSync(extract, { recursive: true })
-      if (!run(['tar', '-xzf', archive, '-C', extract])) return false
-      const binary = join(extract, `d2-${tag}`, 'bin', 'd2')
-      if (!existsSync(binary)) return false
-      mkdirSync(LOCAL_BIN, { recursive: true })
-      run(['install', '-m', '0755', binary, join(LOCAL_BIN, 'd2')])
-      return execFileSync(join(LOCAL_BIN, 'd2'), ['--version'], { encoding: 'utf8' }).includes('d2')
+      // The release asset is platform- AND architecture-specific, and the tokens are
+      // the project's own: `macos` (not `darwin`), `windows`, `amd64`/`arm64`, all
+      // shipped as .tar.gz. Measured against v0.9.0 before this line was written.
+      const { os, arch } = d2PlatformTokens()
+      const url = `https://github.com/d2lang/d2/releases/download/${tag}/${d2AssetName(tag, os, arch)}`
+      const binary = process.platform === 'win32' ? 'd2.exe' : 'd2'
+      return (await installArchiveBinary({ url, binary, target: binary })) !== null
     },
-    manual: 'download d2-linux-amd64 from https://github.com/terrastruct/d2/releases and put `d2` on PATH',
-    manualWindows: 'download d2-windows-amd64.zip from https://github.com/terrastruct/d2/releases and put d2.exe on PATH',
+    manual: 'download d2-linux-amd64.tar.gz from https://github.com/d2lang/d2/releases and put `d2` on PATH',
+    manualWindows: 'download d2-windows-amd64.tar.gz from https://github.com/d2lang/d2/releases and put d2.exe on PATH',
   },
   {
     id: 'chrome',
@@ -330,21 +614,7 @@ const TOOLS = [
     // machine whose Chrome is right there. Measured before this change: Chrome
     // present at C:\Program Files\Google\Chrome\Application\chrome.exe, probe
     // answering MISSING.
-    known: {
-      win32: [
-        join(process.env['ProgramFiles'] ?? 'C:\\Program Files', 'Google', 'Chrome', 'Application', 'chrome.exe'),
-        join(process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Google', 'Chrome', 'Application', 'chrome.exe'),
-        join(homedir(), 'AppData', 'Local', 'Google', 'Chrome', 'Application', 'chrome.exe'),
-        join(process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
-        join(process.env['ProgramFiles'] ?? 'C:\\Program Files', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
-      ],
-      darwin: [
-        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-        '/Applications/Chromium.app/Contents/MacOS/Chromium',
-        '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
-      ],
-      linux: ['/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser', '/snap/bin/chromium'],
-    },
+    known: CHROME_KNOWN,
     manual: 'install Chrome or Chromium with your OS package manager, or set CHROME_PATH',
     manualWindows: 'install Chrome or Edge (winget install Google.Chrome, or winget install Microsoft.Edge), or set CHROME_PATH',
   },
@@ -359,17 +629,49 @@ const TOOLS = [
   },
 ]
 
-/** Write the puppeteer config mmdc should use when it has no bundled browser. */
+/**
+ * Write the puppeteer config mmdc should use when it has no bundled browser, and
+ * make it the default for future shells.
+ *
+ * PURPOSE
+ *   `@mermaid-js/mermaid-cli` is installed with PUPPETEER_SKIP_DOWNLOAD=1, so it has
+ *   no browser of its own and every render fails - measured: `mmdc -i x.mmd -o x.svg`
+ *   exits 1 with "Could not find Chrome" until a browser is named. Naming it once
+ *   makes every later `mmdc` invocation work with no flag.
+ * INPUTS
+ *   none; it discovers Chrome through PATH or the per-platform install locations.
+ * OUTPUTS
+ *   true when a config was written (and, on Windows, the user-scope
+ *   PUPPETEER_EXECUTABLE_PATH was set), false when no browser was found.
+ * KEYWORDS
+ *   mermaid, mmdc, puppeteer, executablePath, PUPPETEER_EXECUTABLE_PATH, unattended
+ */
 function writePuppeteerConfig() {
-  const chrome = which(['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser'])
-  if (chrome === null) return
+  const chrome = which(['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser', 'chrome.exe', 'msedge.exe'])
+    ?? firstExisting(CHROME_KNOWN[process.platform] ?? [])
+  if (chrome === null) return false
   const target = join(DSH_HOME, 'mermaid-puppeteer.json')
+  let written = false
   try {
     mkdirSync(DSH_HOME, { recursive: true })
     writeFileSync(target, `${JSON.stringify({ executablePath: chrome, args: ['--no-sandbox'] }, null, 2)}\n`)
+    written = true
   } catch {
     // A missing config is reported by the mmdc hint, not a failed install.
   }
+  // puppeteer reads this variable without any flag being passed, which is what makes a
+  // bare `mmdc -i in.mmd -o out.svg` work. Exported for this process either way.
+  process.env.PUPPETEER_EXECUTABLE_PATH = chrome
+  if (process.platform === 'win32') {
+    run([
+      'powershell.exe',
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      `[Environment]::SetEnvironmentVariable('PUPPETEER_EXECUTABLE_PATH', '${chrome.replaceAll("'", "''")}', 'User')`,
+    ])
+  }
+  return written
 }
 
 async function main() {
@@ -394,9 +696,6 @@ async function main() {
     if (bin === null && options.mode === 'apply') {
       if (tool.detectOnly === true) {
         entry.action = 'manual'
-      } else if (process.platform === 'win32') {
-        entry.action = 'manual'
-        entry.note = 'the POSIX installer is not used on Windows; install it with winget or choco'
       } else {
         const ok = await tool.install({ options }).catch(() => false)
         const after = resolveToolBin(tool)
@@ -404,6 +703,8 @@ async function main() {
         entry.bin = after ?? null
         entry.version = after === null ? null : probeVersion(after)
         entry.action = after === null ? 'manual' : 'none'
+        if (after === null) entry.note = `the installer ran without producing ${tool.names[0]}; see its output above`
+        else if (!ok) entry.note = 'installed, but the installer reported a non-zero exit'
       }
     }
     if (entry.status === 'missing') {

@@ -107,25 +107,35 @@ machine is otherwise a projection of the kit.
 
 ### 1.2 The external tools, and how each is switched on
 
-`install.sh` provisions these with `scripts/provision-tools.mjs --apply` (and `make provision`
-reports). Missing tools are a supported state — each feature degrades and says so — so use
-`node scripts/provision-tools.mjs --check` before concluding a feature is broken.
+`scripts/provision-tools.mjs` installs these, and **convergence now runs it for you**:
+`kit-update.mjs --apply` (which `install.sh`, `install.ps1` and both start scripts call)
+provisions every missing tool as its last convergence step, so one command takes a fresh
+machine from nothing to complete. Opt out with `kit-update --apply --no-tools` or
+`SKIP_TOOLS=1`; report the state with `node scripts/provision-tools.mjs --check`, and install
+by hand with `--only <ids>` / `--skip <ids>`. Missing tools remain a supported state — each
+feature degrades and says so — which is exactly why they used to sit absent for weeks.
 
-These are the integration points added on 2026-10-26. Each is deliberately a separate step
-from `install.sh`, because each either needs a binary the kit does not ship or is opt-in.
+Nothing here needs elevation and nothing needs a POSIX shell. Where a tool has a release
+archive it is downloaded and copied to a directory already on PATH (`%APPDATA%\npm` on
+Windows, `~/.local/bin` elsewhere); where it is an npm package it is installed with the global
+npm; headroom goes through `uv tool install`, with `uv` itself installed on demand and
+`~/.local/bin` added to the user PATH. Measured 2026-10-29 on Windows: `--check` went from
+0/8 to 8/8 after `--apply`, and each binary answered `--version`.
 
-**RTK — shell-output compression (binary + plugin).** The binary is a separate download:
+**RTK — shell-output compression (binary + plugin).** Installed by provisioning: the POSIX
+path runs upstream's installer with `RTK_EDITION=oss`, and the Windows path downloads
+`rtk-oss-x86_64-pc-windows-msvc.zip` from the same release, so both end up with the
+Apache-2.0-only edition this kit uses. By hand:
 
 ```bash
 RTK_EDITION=oss sh <(curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh)
 rtk --version                 # must answer 'rtk <version>' — a different `rtk` exists on crates.io
 ```
 
-`oss` is the Apache-2.0-only edition and is what this kit uses; drop `RTK_EDITION` for
-upstream's BUSL edition. `@cc/dsh-rtk` then resolves the binary from PATH, then
-`~/.local/bin/rtk`, then `~/.cargo/bin/rtk` — never from a baked-in path — and reports the
-resolution in its prompt section. With the binary absent the plugin is inert: it says so in
-the section and the listener no-ops. There is nothing to start and nothing to stop.
+`@cc/dsh-rtk` then resolves the binary from PATH, then `~/.local/bin/rtk`, then
+`~/.cargo/bin/rtk` — never from a baked-in path — and reports the resolution in its prompt
+section. With the binary absent the plugin is inert: it says so in the section and the
+listener no-ops. There is nothing to start and nothing to stop.
 
 **Headroom — compression in front of the model (proxy + overlay).** Owned by one script:
 
@@ -179,6 +189,18 @@ the two variables it fails with "No API credentials found". `babysitter_doctor` 
 that exact message rather than hiding it. `genty doctor` takes well over two minutes here,
 so raise the tool's `timeoutMs` when probing by hand.
 
+**Marp, Mermaid CLI, D2 — deck export and diagram rendering (binaries only).** Provisioning
+installs all three: the two npm CLIs (`marp`, `mmdc`) through the global npm, and d2 from its
+release archive, whose name carries the project's own tokens — `d2-<tag>-<windows|macos|linux>-<amd64|arm64>.tar.gz`,
+so `macos` (not `darwin`) and Windows archives are `.tar.gz`. Mermaid is installed with
+`PUPPETEER_SKIP_DOWNLOAD=1` because this machine already has Chrome; the install then writes
+`$DSH_HOME/mermaid-puppeteer.json` **and** sets the user-scope `PUPPETEER_EXECUTABLE_PATH`,
+because without one of the two a bare `mmdc -i x.mmd -o x.svg` exits 1 with "Could not find
+Chrome" — measured on 2026-10-29, and rendered successfully after. Chrome and ffmpeg are
+DETECTED only, never installed: the probe looks on PATH and then in the per-platform install
+locations (`%ProgramFiles%\Google\Chrome\Application\chrome.exe`, `/Applications/…`), because
+neither Windows nor macOS puts a browser on PATH.
+
 **Two upstream rows the kit now pins, and why they are in the kit.** `profile/cordis.patch.yml`
 carries `@deepseek-ai/dsh-client-ui-settings-general` (welcome notice suppressed at
 `2026-09-28.1`) and `@deepseek-ai/dsh-agent-default-model` (`deepseek-official` /
@@ -220,7 +242,8 @@ node "$KIT/scripts/kit-update.mjs" --apply                  # converge, then rec
 - `--apply` writes the canonical profile files and `DEPLOYMENT.md`, reinstalls every drifted
   plugin tarball with the pinned pnpm (dropping the profile lockfile and pruning the store
   first, because pnpm keys a `file:` dependency by its path string), installs the pinned
-  harness when it differs, then records what it applied.
+  harness when it differs, provisions every missing external binary (see §1.2), then records
+  what it applied. `--no-harness` and `--no-tools` skip those last two steps.
 - A machine that disagrees with the kit cannot look converged: `--check` exits non-zero
   and names the files.
 - Restart `dsh web` afterwards — the profile is composed once, at boot. **A restart through
