@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-orchestrator",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Turns the root agent into an orchestrator without replacing the standard preset: a root-only policy section, a child-only specialist section, and a root-only delegate_task tool that creates a taskboard task, renders a scoped brief, starts a flash child and links it. Scoped registrations only.",
   "type": "module",
   "main": "orchestrator.mjs",

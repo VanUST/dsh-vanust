@@ -651,7 +651,7 @@ export function apply(ctx, config = {}) {
 
   ctx.tools.register(defineTool({
     name: 'task_create',
-    description: 'Create one workspace task with an objective, scope, non-scope and acceptance. The taskboard is the durable ledger for delegated work. Returns the full task, including its id and revision.',
+    description: 'Create one workspace task with an objective, scope, non-scope and acceptance. The taskboard is the workspace ledger for work in flight: open a task for EVERY change you make, whether you do it inline or delegate it, and keep it moving through proposed/ready/active/review/done. Delegation is one way to run a task, not the reason to create one. Returns the full task, including its id and revision.',
     parameters: {
       title: { type: 'string', required: true, description: 'Short task title.' },
       objective: { type: 'string', description: 'The outcome in one paragraph.' },
