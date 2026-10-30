@@ -18,6 +18,8 @@
  *
  * INPUTS
  *   <command>            status | ensure | start | stop | enable | disable | doctor
+ *                        | run (foreground, for a supervisor) | unit (print a systemd
+ *                        user unit that runs it)
  *   --port <n>           proxy port. Default 8787.
  *   --upstream <url>     Anthropic-shaped upstream. Default https://api.deepseek.com/anthropic
  *   --bin <path>         headroom executable. Default: $HEADROOM_BIN, then PATH,
@@ -30,7 +32,9 @@
  * OUTPUTS
  *   Exit 0 on success, 1 when a proxy could not be made healthy, 2 on a usage
  *   error. `enable` writes the marker `$DSH_HOME/headroom/enabled`, `disable`
- *   removes it; the launcher reads that marker and nothing else.
+ *   removes it; the launcher reads that marker and nothing else. `run` takes over
+ *   the calling process and exits with the proxy's own status; `unit` writes a
+ *   systemd user unit to stdout so the caller can redirect it into place.
  *
  * KEYWORDS
  *   headroom, context compression, llm proxy, baseURL, opt-in overlay, readiness
@@ -47,6 +51,21 @@
  *     `status` and `doctor` stay useful before the tool is installed.
  *   - `disable` does NOT stop the proxy by default: another profile may be
  *     using it. Pass `--stop` to stop it too.
+ *   - `run` is the SUPERVISED twin of `start` and never detaches: it holds the
+ *     proxy in the foreground, writes no pidfile, and exits with the proxy's own
+ *     status. A supervisor that is told "spawned and reachable" holds a job that
+ *     has already finished, so it never restarts a proxy that died a minute later
+ *     — which is the failure this command exists to make impossible.
+ *   - `run` does not stop at a busy port to be helpful: the proxy binds it and
+ *     exits, the supervisor sees the failure and retries. Reporting "port taken"
+ *     as success would leave the unit green with no proxy behind it.
+ *   - `unit` prints instead of installing. The file belongs at
+ *     `~/.config/systemd/user/<name>.service`, a machine-specific path the script
+ *     does not own, and the caller may be on a platform with no systemd at all;
+ *     it answers with that line rather than writing outside the harness home.
+ *   - With a unit supervising the proxy, `ensure`/`start` find the port already
+ *     healthy and start nothing, and `stop` refuses to signal a process it did
+ *     not launch. Stopping a supervised proxy is the supervisor's job.
  */
 
 import { execFileSync, spawn } from 'node:child_process'
@@ -95,7 +114,7 @@ function parseArgs(argv) {
     }
   }
   const command = rest[0] ?? 'status'
-  const commands = new Set(['status', 'ensure', 'start', 'stop', 'enable', 'disable', 'doctor'])
+  const commands = new Set(['status', 'ensure', 'start', 'stop', 'enable', 'disable', 'doctor', 'run', 'unit'])
   if (!commands.has(command)) throw new Error(`unknown command ${command}`)
   return { command, options }
 }
@@ -344,6 +363,90 @@ async function stopProxy(context) {
   return true
 }
 
+/**
+ * Hold the proxy in the FOREGROUND so a supervisor owns its lifetime.
+ *
+ * `start` detaches and returns once the proxy is reachable, which is the right
+ * answer for a boot script and the wrong one for systemd: the unit's main process
+ * would exit immediately and the proxy would be an untracked child. Here the
+ * calling process IS the proxy's parent until the proxy exits, so a crash is a
+ * failed unit and `Restart=` applies.
+ */
+async function runProxy(context) {
+  const { bin, options, report } = context
+  if (bin === undefined) {
+    report.error = 'headroom is not installed (looked for HEADROOM_BIN, PATH, ~/.local/bin/headroom, and the uv tool directory)'
+    report.next = ['uv tool install --python 3.13 "headroom-ai[proxy]"']
+    return false
+  }
+  const args = ['proxy', '--port', String(options.port), '--anthropic-api-url', options.upstream]
+  process.stderr.write(`headroom run: ${bin} ${args.join(' ')}\n`)
+  const child = spawn(bin, args, { stdio: 'inherit', env: { ...process.env, ...PROXY_ENV } })
+  report.pid = child.pid
+  report.supervised = 'foreground: this process exits when the proxy does'
+  // systemd signals the whole control group, so the child normally dies first.
+  // Forwarding keeps a plain `node scripts/headroom.mjs run` interruptible too.
+  const forward = (signal) => {
+    try { child.kill(signal) } catch { /* already gone */ }
+  }
+  process.on('SIGTERM', forward)
+  process.on('SIGINT', forward)
+  report.exitCode = await new Promise((done) => {
+    child.once('exit', (code, signal) => done(code ?? (signal ? 1 : 0)))
+    child.once('error', (error) => {
+      report.error = `the proxy could not be started: ${error.message}`
+      done(1)
+    })
+  })
+  return report.exitCode === 0
+}
+
+/** Quote one ExecStart argument the way systemd parses it. */
+function unitArg(value) {
+  const text = String(value)
+  return /[\s"'\\]/.test(text) ? `"${text.replace(/(["\\])/g, '\\$1')}"` : text
+}
+
+/**
+ * Render a systemd user unit that runs this script's own `run` command.
+ *
+ * WHY RENDERED HERE AND NOT A CHECKED-IN FILE. The unit names an absolute node
+ * binary, this script's path and the harness home, all of which differ per
+ * machine, and the argv has to match what `start` launches or the supervised
+ * proxy would be a second, differently-configured one. Both come from the same
+ * place only if this script emits them.
+ */
+function renderUnit(context) {
+  const { options, report } = context
+  const home = report.home
+  const call = [
+    process.execPath,
+    join(HERE, 'headroom.mjs'),
+    'run',
+    '--port', String(options.port),
+    '--upstream', options.upstream,
+    '--home', home,
+  ].map(unitArg).join(' ')
+  return [
+    '[Unit]',
+    'Description=Headroom compression proxy for the DeepSeek harness (dsh-kit)',
+    `Documentation=file:${join(HERE, 'headroom.mjs')}`,
+    'After=network-online.target',
+    'Wants=network-online.target',
+    '',
+    '[Service]',
+    'Type=simple',
+    `ExecStart=${call}`,
+    'Restart=always',
+    'RestartSec=5',
+    'TimeoutStopSec=20',
+    '',
+    '[Install]',
+    'WantedBy=default.target',
+    '',
+  ].join('\n')
+}
+
 /** Write the opt-in marker and project the overlay next to the harness home. */
 async function enable(context) {
   const { paths, report } = context
@@ -373,6 +476,7 @@ async function enable(context) {
   report.patch = paths.homePatch
   report.next = [
     `start the proxy: node scripts/headroom.mjs ensure`,
+    `keep it up under a supervisor: node scripts/headroom.mjs unit > ~/.config/systemd/user/headroom.service`,
     `boot with the overlay: dsh web --patch ${paths.homePatch}`,
     `start.sh does both automatically while ${paths.marker} exists`,
   ]
@@ -413,6 +517,26 @@ async function main() {
     case 'ensure': {
       ok = await startProxy(context)
       report.enabled = existsSync(paths.marker)
+      break
+    }
+    case 'run': {
+      ok = await runProxy(context)
+      break
+    }
+    case 'unit': {
+      if (process.platform !== 'linux') {
+        // Printed as a report, not as a unit: a redirected partial file that systemd
+        // cannot load fails later, in another process, with none of this context.
+        report.error = 'a systemd user unit is Linux-only'
+        report.next = [
+          'Windows: point a scheduled task at `node scripts/headroom.mjs ensure`, or boot with start.ps1',
+          'macOS: a launchd agent running `node scripts/headroom.mjs run`',
+        ]
+        ok = false
+        break
+      }
+      process.stdout.write(renderUnit(context))
+      process.exit(0)
       break
     }
     case 'stop': {

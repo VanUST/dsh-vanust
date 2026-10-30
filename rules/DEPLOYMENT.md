@@ -183,6 +183,8 @@ node scripts/headroom.mjs doctor      # binary, health, marker, overlay
 node scripts/headroom.mjs enable      # write the marker + overlay, start the proxy
 node scripts/headroom.mjs status      # is it up, and is the overlay live
 node scripts/headroom.mjs disable --stop
+node scripts/headroom.mjs run         # foreground: hold the proxy for a supervisor
+node scripts/headroom.mjs unit        # print a systemd user unit that runs `run`
 ```
 
 `enable` starts `headroom proxy --port 8787 --anthropic-api-url
@@ -192,6 +194,25 @@ and adds `--patch $DSH_HOME/headroom/patch.yml` only when the proxy answers; if 
 the boot proceeds WITHOUT compression and says so. That ordering is the whole safety
 argument: a base URL pointing at a dead loopback port fails every request, so the overlay is
 never applied to an unhealthy proxy. `HEADROOM=0 ./start.sh` bypasses all of it for one boot.
+
+**If you launch `dsh web` directly instead of `./start.sh`, nothing restarts a dead proxy** —
+the detached child from `enable` is supervised by nobody, and a proxy that dies quietly turns
+every turn into `DeepSeek Messages transport failed`. A boot script is not a supervisor, so
+`run` holds the proxy in the foreground (it exits when the proxy exits) and `unit` prints the
+systemd user unit that runs it with `Restart=always`. Install it once per machine and `dsh web`
+is safe on its own:
+
+```bash
+node scripts/headroom.mjs run --port 8787   # what the unit executes
+node scripts/headroom.mjs unit > ~/.config/systemd/user/headroom.service
+systemctl --user daemon-reload && systemctl --user enable --now headroom
+loginctl enable-linger "$USER"              # start at boot, not only at login
+```
+
+`ensure`/`start` stay harmless beside it: they find the port healthy and start nothing, and
+`stop` refuses to signal a proxy it did not launch — stopping a supervised proxy is
+`systemctl --user stop headroom`. The unit is Linux-only; on Windows the equivalent is a
+scheduled task running `ensure` at logon.
 
 Measured on this machine: a 61 KB JSON tool result went from 19 955 to 8 208 input tokens
 through the proxy (≈59%), DeepSeek's SSE stream survives it, and an uncompressed cold start

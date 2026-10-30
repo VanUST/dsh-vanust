@@ -443,13 +443,20 @@ Each is a decision, not a default; none is required for the harness to run.
 |---|---|---|---|
 | `@cc/dsh-rtk` | Compresses oversized shell results (`git log/diff`, test runners, `rg`, `find`) before the model reads them | Install the binary: `RTK_EDITION=oss sh <(curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh)` | Nothing to stop; remove the row to disable, or uninstall the binary and the plugin says it is absent |
 | `@cc/dsh-skill-evolve` | Skills grow: write, version, dedupe and archive `SKILL.md` under `$DSH_HOME/skills` | Already in the profile — four tools appear (`skill_evolve`, `skill_inventory`, `skill_grow`, `skill_forget`) | Remove the row; the library files stay |
-| Headroom proxy | Compresses model traffic itself (prompt payloads, tool results) — measured 19 955 → 8 208 input tokens on a 61 KB JSON result | `node scripts/headroom.mjs enable` then restart, or just `./start.sh` (it calls `ensure`) | `node scripts/headroom.mjs disable --stop`, or `HEADROOM=0 ./start.sh` for one boot |
+| Headroom proxy | Compresses model traffic itself (prompt payloads, tool results) — measured 19 955 → 8 208 input tokens on a 61 KB JSON result | `node scripts/headroom.mjs enable` then restart, or just `./start.sh` (it calls `ensure`); to launch `dsh web` directly instead, install `node scripts/headroom.mjs unit` as a systemd user service so the proxy is up regardless of who boots the harness | `node scripts/headroom.mjs disable --stop`, or `HEADROOM=0 ./start.sh` for one boot |
 | `@cc/dsh-babysitter` | Runs a deterministic babysitter process and tracks it as ONE taskboard task | `npm install -g @a5c-ai/babysitter`; rows in the profile | Remove the row; the CLI stays installed |
 
 The one ordering rule that matters: **the proxy must be healthy before the overlay is
 applied.** `start.sh` enforces it — with the marker present it runs `ensure` and adds
 `--patch $DSH_HOME/headroom/patch.yml` only on success, and prints a line either way. If you
 wire it by hand, do the same, or a dead loopback port will refuse every model request.
+
+A boot script is not a supervisor. `enable` leaves the proxy attached to nothing, so if it
+dies the harness keeps pointing at a dead loopback port and every turn ends in
+`DeepSeek Messages transport failed`. That matters the moment you launch `dsh web` yourself
+rather than through `./start.sh`: run `node scripts/headroom.mjs unit` once and install the
+printed file as a systemd user service (`Restart=always`), and the proxy stops depending on
+anyone remembering it.
 
 RTK does not rewrite commands (this harness cannot rewrite tool arguments at all), so the
 compression happens on the way back. When a result was elided, the banner at the top of the
