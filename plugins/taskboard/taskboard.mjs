@@ -288,15 +288,46 @@ function createService(config, logger, hooks = {}) {
       const sessionId = typeof input?.sessionId === 'string' ? input.sessionId : ''
       if (role === '' || sessionId === '') return { ok: false, code: 'invalid_agent' }
       const label = typeof input?.label === 'string' && input.label !== '' ? input.label.slice(0, 200) : role
+      const chatSessionId = typeof input?.chatSessionId === 'string' && input.chatSessionId !== '' ? input.chatSessionId : ''
       return mutate(cwd, (board) => {
         const agents = Array.isArray(board.agents) ? board.agents : []
         const existing = agents.find((agent) => agent.role.trim().toLowerCase() === role.toLowerCase())
         const time = now()
         if (existing === undefined) {
-          agents.push({ role, label, sessionId, status: 'active', taskCount: 1, lastTaskId: input?.taskId ?? null, createdAt: time, updatedAt: time })
+          agents.push({
+            role,
+            label,
+            sessionId,
+            status: 'active',
+            taskCount: 1,
+            lastTaskId: input?.taskId ?? null,
+            generation: 1,
+            history: [],
+            ...(chatSessionId === '' ? {} : { chatSessionId }),
+            createdAt: time,
+            updatedAt: time,
+          })
         } else {
+          // A role is durable, the agent behind it is not: a specialist session belongs
+          // to the chat that created it, so a later chat gets a NEW child and this row is
+          // repointed. Keeping the superseded ids in the history array is what makes that
+          // visible - silently overwriting the field is how the ledger used to claim a
+          // persistence the subagent runtime refuses.
+          if (existing.sessionId !== sessionId) {
+            const history = Array.isArray(existing.history) ? existing.history : []
+            existing.history = [
+              ...history,
+              {
+                sessionId: existing.sessionId,
+                chatSessionId: typeof existing.chatSessionId === 'string' ? existing.chatSessionId : null,
+                replacedAt: time,
+              },
+            ].slice(-8)
+            existing.generation = (Number.isSafeInteger(existing.generation) ? existing.generation : 1) + 1
+          }
           existing.label = label
           existing.sessionId = sessionId
+          if (chatSessionId !== '') existing.chatSessionId = chatSessionId
           existing.status = 'active'
           existing.updatedAt = time
           if (typeof input?.taskId === 'string' && input.taskId !== '' && input.taskId !== existing.lastTaskId) {
@@ -385,6 +416,9 @@ function createService(config, logger, hooks = {}) {
         if (Array.isArray(patch.acceptance)) task.acceptance = acceptance(patch.acceptance, task.acceptance)
         if (patch.status !== undefined) task.status = statusOf(patch.status, task.status)
         if (patch.priority !== undefined) task.priority = priorityOf(patch.priority)
+        // Attaching a delegation to an existing task sets its role: the root creates the
+        // task without one, and the specialist that takes it defines the specialty.
+        if (typeof patch.role === 'string' && patch.role.trim() !== '') task.role = patch.role.trim().slice(0, 80)
         if (patch.owner !== undefined && patch.owner !== null && typeof patch.owner === 'object') {
           task.owner = {
             kind: patch.owner.kind === 'human' ? 'human' : 'agent',

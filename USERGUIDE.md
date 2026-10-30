@@ -25,7 +25,9 @@ the configured flash route),
 **`@cc/dsh-taskboard`** (the task ledger and the Tasks panel that replaces the subagent
 catalog; `@cc/dsh-client-ui-subagent` is disabled so the header has one cell),
 **`@cc/dsh-orchestrator`** (root and child policy sections plus the root-only
-`delegate_task` tool) and
+`delegate_task` tool: it lists the workspace's roles in the root policy, refuses a
+near-duplicate new role unless `forceRole` is passed, attaches to an existing task when
+`taskId` is given, and carries a re-created role's earlier results into its brief) and
 **`@cc/dsh-handoff`** (one-page HTML and optional PDF handoff),
 **`@cc/dsh-papers`** (arXiv/Hugging Face paper search, HF daily trending, and a PDF
 download with text extraction).

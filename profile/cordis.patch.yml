@@ -168,8 +168,12 @@
 # ── orchestrator: the root agent plans, delegates and integrates ─────────────
 # Root-only policy section + root-only `delegate_task`; child-only specialist
 # section. The taskboard service must be mounted first; `inject` waits for it.
-# The delegation tool creates the task, renders a self-contained brief, starts a
-# flash child with `agentOptions`, and links the child id.
+# The delegation tool creates the task (or attaches an existing one with `taskId`),
+# reuses a role from the ledger (a near-duplicate new role is refused unless
+# `forceRole`), renders a self-contained brief, starts a flash child with
+# `agentOptions`, and links the child id. A role re-created in a later chat carries
+# its earlier results into the brief, because the specialist session does not
+# survive the chat that spawned it.
 - insert:
     - id: orchestrator
       name: '@cc/dsh-orchestrator'
