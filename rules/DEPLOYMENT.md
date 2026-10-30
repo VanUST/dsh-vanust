@@ -189,11 +189,22 @@ node scripts/headroom.mjs unit        # print a systemd user unit that runs `run
 
 `enable` starts `headroom proxy --port 8787 --anthropic-api-url
 https://api.deepseek.com/anthropic` detached, with the beacon and tool-schema deferral off,
-then waits for `/readyz`. `start.sh` calls `ensure` on every boot **while the marker exists**
-and adds `--patch $DSH_HOME/headroom/patch.yml` only when the proxy answers; if it does not,
-the boot proceeds WITHOUT compression and says so. That ordering is the whole safety
-argument: a base URL pointing at a dead loopback port fails every request, so the overlay is
-never applied to an unhealthy proxy. `HEADROOM=0 ./start.sh` bypasses all of it for one boot.
+then waits until the port answers **as a headroom proxy configured for that upstream**.
+`start.sh` calls `ensure` on every boot **while the marker exists** and adds
+`--patch $DSH_HOME/headroom/patch.yml` only when the proxy answers; if it does not, the boot
+proceeds WITHOUT compression and says so. That ordering is the whole safety argument: a base
+URL pointing at a dead loopback port fails every request, so the overlay is never applied to
+an unhealthy proxy. `HEADROOM=0 ./start.sh` bypasses all of it for one boot.
+
+The health answer is identity, not the proxy's own opinion. `/readyz` returns 503 whenever ANY
+dependency is unhappy, and its `upstream` check flaps here: measured 2026-10-30, `/readyz`
+answered 503 at 11:52:47 and 200 at 11:53:06 for the same process, which forwarded every model
+request in between. A gate that read 503 as "no proxy" dropped compression at boot and called
+its own proxy a stranger holding the port. So `ensure`/save accepts a non-2xx answer when the
+body names `headroom-proxy` and the upstream it is configured for is the one asked for — a
+foreign listener cannot answer that, and a proxy pointed at another upstream is refused with
+that fact in the message. The proxy's verdict is still reported (`ready:`, `checks:`) rather
+than hidden.
 
 **If you launch `dsh web` directly instead of `./start.sh`, nothing restarts a dead proxy** —
 the detached child from `enable` is supervised by nobody, and a proxy that dies quietly turns

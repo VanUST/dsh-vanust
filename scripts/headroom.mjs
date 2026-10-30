@@ -190,11 +190,49 @@ function portOpen(port, timeoutMs = 1200) {
   })
 }
 
-/** Ask the proxy whether it can serve traffic. */
-async function probe(port, path = '/readyz', timeoutMs = 2500) {
+/**
+ * Ask whether the listener is OUR proxy, not whether it feels well.
+ *
+ * WHY NOT JUST response.ok. /readyz answers 503 whenever ANY dependency check is
+ * unhappy, and on this machine the `upstream` check flaps: measured 2026-10-30,
+ * /readyz answered 503 at 11:52:47 and 200 at 11:53:06 while the same process
+ * forwarded every model request in between. Reading that blip as "no proxy" makes
+ * a boot silently drop compression, and makes `ensure` call its own proxy a
+ * stranger holding the port. So a non-2xx answer is still accepted when the body
+ * identifies itself as `headroom-proxy` AND names the upstream this script wants:
+ * identity and configuration, which a foreign listener cannot fake, instead of an
+ * opinion about the remote that changes minute to minute. The proxy's own verdict
+ * is still reported (`ready`, `checks`) so nothing is hidden.
+ *
+ * @param expected.upstream - when set, an identified proxy serving another upstream
+ *   is NOT ours and must not be adopted.
+ */
+async function probe(port, path = '/readyz', expected = {}) {
   try {
-    const response = await fetch(`http://127.0.0.1:${port}${path}`, { signal: AbortSignal.timeout(timeoutMs) })
-    return { ok: response.ok, status: response.status }
+    const response = await fetch(`http://127.0.0.1:${port}${path}`, { signal: AbortSignal.timeout(2500) })
+    let body
+    try {
+      body = await response.json()
+    } catch {
+      body = undefined
+    }
+    const identified = body?.service === 'headroom-proxy'
+    const upstream = typeof body?.checks?.upstream?.url === 'string' ? body.checks.upstream.url : undefined
+    const upstreamMatches = expected.upstream === undefined || upstream === undefined || upstream === expected.upstream
+    const ours = identified && upstreamMatches
+    const checks = body?.checks === undefined
+      ? undefined
+      : Object.fromEntries(Object.entries(body.checks).map(([name, value]) => [name, value?.status ?? 'unknown']))
+    return {
+      ok: response.ok || ours,
+      status: response.status,
+      healthy: response.ok,
+      identified,
+      ours,
+      upstream,
+      ready: body?.ready === true,
+      checks,
+    }
   } catch (error) {
     return { ok: false, status: 0, error: error instanceof Error ? error.message : String(error) }
   }
@@ -229,12 +267,21 @@ function sleep(ms) {
 /** Start a detached proxy and wait for readiness. */
 async function startProxy(context) {
   const { bin, options, paths, report } = context
-  const before = await probe(options.port)
+  const before = await probe(options.port, '/readyz', { upstream: options.upstream })
   if (before.ok) {
     report.port = options.port
     report.started = false
     report.reachable = true
-    report.note = 'a proxy was already serving on this port'
+    if (!before.healthy) {
+      // Reachable and ours, but its own dependency check is unhappy. Reported, not
+      // hidden: the boot proceeds BECAUSE the traffic path works, and the caller can
+      // see which check complained without being told the proxy is missing.
+      report.ready = false
+      report.checks = before.checks
+      report.note = 'the proxy answers on this port, but reports an unhappy dependency check; compression still applies'
+    } else {
+      report.note = 'a proxy was already serving on this port'
+    }
     return true
   }
   if (bin === undefined) {
@@ -243,8 +290,13 @@ async function startProxy(context) {
     return false
   }
   if (await portOpen(options.port)) {
-    report.error = `port ${options.port} is already held by a process that does not answer /readyz as a headroom proxy`
-    report.next = [`stop the other listener, or pass --port <free port>`, `then: node scripts/headroom.mjs ensure --port <that port>`]
+    // Two different strangers, two different fixes: a headroom proxy set up for another
+    // upstream is config, not a leftover process, and telling the operator to "stop the
+    // other listener" would send them to kill a service they meant to keep.
+    report.error = before.identified === true && before.upstream !== undefined
+      ? `port ${options.port} is held by a headroom proxy configured for ${before.upstream}, not ${options.upstream}`
+      : `port ${options.port} is already held by a process that does not answer /readyz as a headroom proxy`
+    report.next = ['stop the other listener, or pass --port <free port>', `then: node scripts/headroom.mjs ensure --port <that port>`]
     return false
   }
 
@@ -270,7 +322,7 @@ async function startProxy(context) {
   let last = { ok: false, status: 0 }
   while (Date.now() < deadline) {
     await sleep(750)
-    last = await probe(options.port)
+    last = await probe(options.port, '/readyz', { upstream: options.upstream })
     if (last.ok) {
       report.port = options.port
       report.pid = child.pid
@@ -330,7 +382,7 @@ function looksLikeHeadroom(pid) {
 async function stopProxy(context) {
   const { options, paths, report } = context
   const pid = readPid(paths)
-  const reachable = (await probe(options.port)).ok
+  const reachable = (await probe(options.port, '/readyz', { upstream: options.upstream })).ok
   if (pid === undefined || !alive(pid)) {
     report.stopped = false
     report.note = reachable
@@ -504,9 +556,11 @@ async function main() {
   let ok = true
   switch (command) {
     case 'status': {
-      const health = await probe(options.port)
+      const health = await probe(options.port, '/readyz', { upstream: options.upstream })
       report.reachable = health.ok
       report.httpStatus = health.status
+      report.proxyReady = health.ready
+      if (health.ok && !health.healthy) report.checks = health.checks
       report.pid = readPid(paths)
       report.pidAlive = alive(report.pid)
       report.enabled = existsSync(paths.marker)
@@ -554,7 +608,7 @@ async function main() {
       break
     }
     case 'doctor': {
-      const health = await probe(options.port)
+      const health = await probe(options.port, '/readyz', { upstream: options.upstream })
       const before = await probe(options.port, '/stats')
       report.reachable = health.ok
       report.pid = readPid(paths)
