@@ -50,6 +50,12 @@
  *     past, not a reading of the present.
  *   - delegate_task(taskId) attaches to that task (it must be open, not paused, and
  *     already this role or none) instead of creating a second row for the same work.
+ *   - The root policy appends a short board-debt block: tasks parked in review with the
+ *     age of the oldest, and `ready` tasks that have a role but no child - a delegation
+ *     that never started. `active` with no child is NOT debt: that is inline work.
+ *   - A delegation writes a "Delegating to <role>" note before the child starts, and the
+ *     failure path re-reads the task's revision, sets it blocked, and appends a note even
+ *     when that update refuses. A task can no longer sit in `ready` saying only "Created".
  */
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -137,6 +143,40 @@ export function renderCarryForward(tasks, role, limit = 1400) {
   return text.length <= limit ? text : `${text.slice(0, limit - 80)}\n\n[Carried context truncated; the taskboard holds the rest.]`
 }
 
+/** Whole days since an ISO timestamp, for the debt line. */
+function ageDays(value) {
+  const at = Date.parse(String(value ?? ''))
+  if (Number.isNaN(at)) return 'unknown'
+  const days = Math.floor((Date.now() - at) / 86400000)
+  return days < 1 ? 'today' : `${days}d`
+}
+
+/**
+ * Render the debt a fresh chat should see before it adds work.
+ *
+ * WHY. Measured in ~/tasks/3d (2026-10-30): seven of twelve tasks sat in review for
+ * four days because the chats that produced them ended and nobody accepted, and one
+ * task was `ready` with a role and no child - a delegation that never started, with no
+ * trace beyond its own creation. Nothing surfaced either to the next chat. `active` with
+ * no child is NOT debt: that is a task the root is doing itself, by policy.
+ */
+export function renderBoardDebt(tasks, limit = 600) {
+  const rows = Array.isArray(tasks) ? tasks.filter((task) => task !== null && typeof task === 'object') : []
+  const review = rows.filter((task) => task.status === 'review')
+  const stalled = rows.filter((task) => task.status === 'ready' && typeof task.role === 'string' && task.role !== '' && (task.childSessionIds ?? []).length === 0)
+  if (review.length === 0 && stalled.length === 0) return ''
+  const lines = ['## Board debt', '']
+  if (review.length > 0) {
+    const oldest = review.map((task) => task.updatedAt ?? task.createdAt ?? '').sort()[0]
+    lines.push(`- ${review.length} task${review.length === 1 ? '' : 's'} in review, oldest ${ageDays(oldest)}. Accept, reopen or cancel them before adding more: they are waiting on this workspace, not on the chat that created them.`)
+  }
+  if (stalled.length > 0) {
+    const shown = stalled.slice(0, 4).map((task) => `${task.id} \"${String(task.title ?? '').slice(0, 50)}\"`).join(', ')
+    lines.push(`- ${stalled.length} task${stalled.length === 1 ? '' : 's'} ready with a role and no child: the delegation never started. Attach it with delegate_task(taskId: ...) instead of opening a second task: ${shown}`)
+  }
+  const text = lines.join('\n')
+  return text.length <= limit ? text : `${text.slice(0, limit - 70)}\n[More debt on the board; task_list lists it.]`
+}
 /** Cordis function-plugin name; also the id a profile patch targets. */
 export const name = 'orchestrator'
 
@@ -362,6 +402,14 @@ export function apply(ctx, config = {}) {
       let childBrief = brief
       try {
         exec.signal.throwIfAborted()
+        // Leave the intent on the timeline BEFORE the child starts. A delegation that dies
+        // between creation and spawn used to leave a task that said only "Created" - the
+        // signature measured in ~/tasks/3d on 2026-10-30, which reads like work in progress.
+        try {
+          taskboard.note(taskCwd, { id: task.id, text: `Delegating to ${role}${attachId === '' ? '' : ' (attached task)'}` })
+        } catch {
+          // A diagnostic note is never control flow.
+        }
         if (typeof childId === 'string' && childId !== '') {
           try {
             await ctx.subagents.sendMessage(parent, childId, [{ type: 'text', text: brief }], { signal: exec.signal })
@@ -418,11 +466,21 @@ export function apply(ctx, config = {}) {
           ...(reuseNote === undefined ? {} : { roleRecreated: true, roleNote: reuseNote, carriedResults: knownAgent !== undefined }),
         }
       } catch (error) {
+        // The task must not be left saying only "Created". The local revision was taken
+        // before the timeline note above, so the compare-and-set below is read fresh; if it
+        // still refuses, the reason goes into a note rather than disappearing.
         try {
-          taskboard.update(taskCwd, {
+          const current = taskboard.get(taskCwd, task.id)
+          const patched = taskboard.update(taskCwd, {
             id: task.id,
-            expectedRevision: task.revision,
+            expectedRevision: current?.revision ?? task.revision,
             patch: { status: 'blocked', result: { risks: [`child start failed: ${error.message}`] } },
+          })
+          taskboard.note(taskCwd, {
+            id: task.id,
+            text: patched?.ok === true
+              ? `Delegation failed and the task was marked blocked: ${error.message}`
+              : `Delegation failed; the status could not be set to blocked (${patched?.code ?? 'unknown'}): ${error.message}`,
           })
         } catch {
           // The task update is best-effort; the original failure is the one to report.
@@ -440,7 +498,10 @@ export function apply(ctx, config = {}) {
     // workspace's roles instead of inventing them again.
     const rootText = () => {
       try {
-        return `${ROOT_POLICY}\n\n${renderRoleCatalog(ctx.taskboard.agents(workingDir(agent)))}`
+        const cwd = workingDir(agent)
+        const catalog = renderRoleCatalog(ctx.taskboard.agents(cwd))
+        const debt = renderBoardDebt(ctx.taskboard.list(cwd))
+        return [ROOT_POLICY, catalog, debt].filter((part) => part !== '').join('\n\n')
       } catch {
         return ROOT_POLICY
       }

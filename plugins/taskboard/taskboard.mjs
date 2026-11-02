@@ -13,6 +13,8 @@
  *     file     ledger path relative to the session workspace. Default `.dsh/taskboard.json`.
  *     maxTasks maximum retained tasks. Default 200.
  *     timelineLimit maximum timeline entries per task. Default 120.
+ *     staleAfterMs  how old an untouched role row must be to report `stale`.
+ *                   Default 86400000 (one day).
  *
  * OUTPUTS
  *   A `taskboard` service (ctx.provide) used by the orchestrator's `delegate_task`
@@ -35,6 +37,14 @@
  *     it later with `task_link`.
  *   - One process serializes writes per file with a promise chain; the file is the
  *     cross-process authority and is not locked across processes.
+ *   - Role rows are annotated when read, never rewritten by a read: `orphan: true` when
+ *     the row's lastTaskId is no longer in the board, `stale: true` when it has not been
+ *     touched for staleAfterMs. Both mean "nothing is running behind this role" - measured
+ *     2026-10-30: a row read `active` for four days after its chat died, and the panel
+ *     counted it as a subagent.
+ *   - Removing a task clears agent rows that point at it through lastTaskId, not only
+ *     those reachable through the removed task's childSessionIds (a delegation that
+ *     registered its role but never linked the task was invisible to that cleanup).
  */
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -191,6 +201,39 @@ function writeBoard(path, board) {
   renameSync(temp, path)
 }
 
+/** A role row untouched for this long is a tombstone, not an active specialist. */
+const STALE_AFTER_MS = 24 * 60 * 60 * 1000
+
+/**
+ * Mark role rows with what the ledger can actually know.
+ *
+ * WHY THIS EXISTS. A specialist session belongs to the chat that started it, so after
+ * that chat ends the row is a tombstone - and nothing used to clear it. Measured on a
+ * real board (2026-10-30): a role still read `active` four days after its chat died, its
+ * lastTaskId pointed at a task that had been removed, and the panel header counted it as
+ * a running subagent. The ledger cannot ask the runtime whether a session is live, so it
+ * reports the two things it CAN prove: the task it claims is gone, and it has not been
+ * touched for a day.
+ *
+ * @param board - Parsed board.
+ * @returns Copies of the role rows with `stale` and/or `orphan` set.
+ */
+function annotateAgents(board, staleAfterMs = STALE_AFTER_MS) {
+  const ids = new Set((Array.isArray(board?.tasks) ? board.tasks : []).map((task) => task.id))
+  const nowMs = Date.now()
+  return (Array.isArray(board?.agents) ? board.agents : []).map((agent) => {
+    const lastTaskId = typeof agent.lastTaskId === 'string' ? agent.lastTaskId : ''
+    const orphan = lastTaskId !== '' && !ids.has(lastTaskId)
+    const updated = Date.parse(String(agent.updatedAt ?? agent.createdAt ?? ''))
+    const stale = Number.isNaN(updated) ? false : nowMs - updated > staleAfterMs
+    return {
+      ...agent,
+      ...(orphan ? { orphan: true } : {}),
+      ...(stale ? { stale: true } : {}),
+    }
+  })
+}
+
 /**
  * Build the ledger service.
  *
@@ -202,6 +245,7 @@ function createService(config, logger, hooks = {}) {
   const file = typeof config.file === 'string' && config.file !== '' ? config.file : '.dsh/taskboard.json'
   const maxTasks = Number.isSafeInteger(config.maxTasks) && config.maxTasks > 0 ? config.maxTasks : 200
   const timelineLimit = Number.isSafeInteger(config.timelineLimit) && config.timelineLimit > 0 ? config.timelineLimit : 120
+  const staleAfterMs = Number.isSafeInteger(config.staleAfterMs) && config.staleAfterMs > 0 ? config.staleAfterMs : STALE_AFTER_MS
   const linksFile = typeof config.linksFile === 'string' && config.linksFile !== '' ? config.linksFile : join(process.env.DSH_HOME || join(homedir(), '.dsh'), 'taskboard-child-links.json')
   /** Persisted child -> task/workspace links survive a Host or plugin reload. */
   const readLinks = () => {
@@ -272,15 +316,15 @@ function createService(config, logger, hooks = {}) {
     list(cwd) {
       return readBoard(pathFor(cwd)).tasks.map(summary)
     },
-    /** Persistent specialists for one workspace. */
+    /** Persistent specialists for one workspace, with stale/orphan flags. */
     agents(cwd) {
-      return readBoard(pathFor(cwd)).agents ?? []
+      return annotateAgents(readBoard(pathFor(cwd)), staleAfterMs)
     },
     /** Find one persistent specialist by role (case-insensitive). */
     findAgent(cwd, role) {
       const wanted = typeof role === 'string' ? role.trim().toLowerCase() : ''
       if (wanted === '') return undefined
-      return (readBoard(pathFor(cwd)).agents ?? []).find((agent) => agent.role.trim().toLowerCase() === wanted)
+      return annotateAgents(readBoard(pathFor(cwd)), staleAfterMs).find((agent) => agent.role.trim().toLowerCase() === wanted)
     },
     /** Create or update a persistent specialist role and its child session. */
     registerAgent(cwd, input) {
@@ -621,6 +665,15 @@ function createService(config, logger, hooks = {}) {
           else childLinks.set(childId, links)
         }
         writeLinks(childLinks)
+        // A delegation that registered its role but never linked the task leaves an agent
+        // row reachable only through lastTaskId - measured 2026-10-30: such a row stayed
+        // `active` for four days after its chat died and counted as a running subagent.
+        for (const agent of board.agents ?? []) {
+          if (agent.lastTaskId !== id) continue
+          agent.status = 'sleeping'
+          agent.lastTaskId = null
+          agent.updatedAt = now()
+        }
         return { changed: true, value: { ok: true, removed: true, id, task } }
       })
     },

@@ -107,6 +107,7 @@ window.__ModuleLoader__.load({
 .tb-sub .state{flex:none;border:1px solid var(--dsw-alias-border-l1);border-radius:999px;padding:0 5px;font-size:9.5px;font-weight:700;text-transform:capitalize;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1)}
 .tb-sub .state.active{color:var(--dsw-alias-state-success-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary) 32%,var(--dsw-alias-border-l1));background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 9%,transparent)}
 .tb-sub .state.paused{color:var(--dsw-alias-state-warn-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 32%,var(--dsw-alias-border-l1));background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 9%,transparent)}
+.tb-sub .state.stale{color:var(--dsw-alias-label-secondary);border-style:dashed;opacity:.75}
 .tb-sub .tb-btn{margin-left:auto;padding:2px 6px;font-size:10px;flex:none}
 .tb-chip.sub{color:var(--dsw-alias-label-primary);border-color:color-mix(in srgb,var(--dsw-alias-brand-primary) 24%,var(--dsw-alias-border-l1));background:color-mix(in srgb,var(--dsw-alias-brand-primary) 7%,transparent);white-space:normal;overflow:visible;text-overflow:clip;line-height:1.3}
 .tb-note .tb-input{flex:1}
@@ -298,13 +299,19 @@ window.__ModuleLoader__.load({
       return rows
     }
 
+    /** A role row the ledger can prove is not a running specialist any more. */
+    function isGhost(row) {
+      return row?.orphan === true || row?.stale === true
+    }
+
     function childCounts(rows) {
       return {
         total: rows.length,
-        active: rows.filter((row) => row.status === 'active').length,
-        sleeping: rows.filter((row) => row.status === 'sleeping').length,
-        paused: rows.filter((row) => row.status === 'paused').length,
-        linked: rows.filter((row) => row.status === 'linked').length,
+        active: rows.filter((row) => row.status === 'active' && !isGhost(row)).length,
+        sleeping: rows.filter((row) => row.status === 'sleeping' && !isGhost(row)).length,
+        paused: rows.filter((row) => row.status === 'paused' && !isGhost(row)).length,
+        linked: rows.filter((row) => row.status === 'linked' && !isGhost(row)).length,
+        stale: rows.filter(isGhost).length,
       }
     }
 
@@ -317,6 +324,7 @@ window.__ModuleLoader__.load({
       const parts = [`${counts.total} ${subagentWord(counts.total)}`, `${counts.active} active`, `${counts.sleeping} sleeping`]
       if (counts.paused > 0) parts.push(`${counts.paused} paused`)
       if (counts.linked > 0) parts.push(`${counts.linked} linked`)
+      if (counts.stale > 0) parts.push(`${counts.stale} stale`)
       return parts.join(' · ')
     }
 
@@ -329,6 +337,7 @@ window.__ModuleLoader__.load({
       if (counts.sleeping > 0) parts.push(`${counts.sleeping} sleeping`)
       if (counts.paused > 0) parts.push(`${counts.paused} paused`)
       if (counts.linked > 0) parts.push(`${counts.linked} linked`)
+      if (counts.stale > 0) parts.push(`${counts.stale} stale`)
       return parts.join(' · ')
     }
 
@@ -341,6 +350,8 @@ window.__ModuleLoader__.load({
           label: typeof agent.label === 'string' && agent.label !== '' ? agent.label : agent.sessionId,
           role: typeof agent.role === 'string' && agent.role !== '' ? agent.role : 'specialist',
           status: CHILD_STATES.includes(agent.status) ? agent.status : 'linked',
+          ...(agent.orphan === true ? { orphan: true } : {}),
+          ...(agent.stale === true ? { stale: true } : {}),
         })
       }
       for (const task of tasks) {
@@ -658,7 +669,7 @@ window.__ModuleLoader__.load({
                 h('span', { className: 'label', title: child.label }, child.label),
                 child.label !== child.sessionId ? h('span', { className: 'id', title: child.sessionId }, child.sessionId) : null,
               ),
-              h('span', { className: `state ${child.status}` }, child.status),
+              h('span', { className: `state ${child.status}${isGhost(child) ? ' stale' : ''}`, title: child.orphan === true ? 'Its task is gone; nothing is running behind this role' : child.stale === true ? 'Untouched for more than a day; the chat that owned it is gone' : undefined }, child.orphan === true ? 'orphan' : child.stale === true ? 'stale' : child.status),
               h('button', { type: 'button', className: 'tb-btn', onClick: () => onOpenSession(child.sessionId), title: `Open subagent ${child.label}`, 'aria-label': `Open ${child.role} ${child.label}` }, 'Open'),
             )),
           ),
