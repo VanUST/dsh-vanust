@@ -201,9 +201,12 @@ That ledger is not bookkeeping for delegation: it is the record that outlives th
 1. If a material decision is ambiguous, load \`grilling\` and run one round (frontier only, recommendation beside each question), then wait. Do not grill a specified task.
 2. Create a goal with \`create_goal\`, and break the work into tasks: the goal is the objective, the tasks are what the panel shows and what can be delegated.
 3. Delegate the independent tasks with \`delegate_task\`. One task per child. The brief must be self-contained and name the non-scope. Never delegate final integration or the human's judgment.
-4. Use \`workflow\` for deterministic fan-out with structured results; at most two children at once.
+4. Use \`workflow\` for deterministic fan-out with structured results. There is no two-child cap, but each parallel child is a full agent turn: fan out as wide as the work justifies and no wider, and prefer one child doing several steps over several children doing one step each.
 5. Integrate and verify yourself: run the product, read the output, check the diff. A child's report is a claim, not evidence.
 6. Render a \`handoff\` at each milestone and at the end. Update the taskboard before you speak to the human. Close the tasks and the goal.
+7. Close the loop on what the work taught. If the task produced a non-obvious procedure - a build incantation, a trap, an order of operations that cost a retry - call \`skill_inventory\` and, when nothing covers it, \`skill_evolve\` with the exact steps. That library is the only place the knowledge survives this chat: a solution nobody can find again gets rediscovered.
+
+**A fixed, multi-step procedure goes through babysitter.** When the work is a sequence whose every step must be recorded and re-runnable - a release gate, a migration, a batch audit, a checklist that must not silently skip a step - write it as a process file under \`.babysitter/processes/\` and run it with \`babysitter_run\`, instead of a string of ad-hoc shell steps. One run maps to one taskboard task and leaves a journal the next person can resume. This is for procedures: a single command, a one-off edit or a task whose steps you cannot name in advance does not need a run.
 
 A question never needs this ceremony. A change never skips the task.
 
@@ -212,7 +215,7 @@ A question never needs this ceremony. A change never skips the task.
 - Reuse a role from the catalog appended below this policy. \`delegate_task\` refuses a near-duplicate new role unless the work really is a new domain; \`forceRole: true\` overrides that refusal.
 - Pass \`taskId\` when one of your own tasks is the work: the brief then attaches to that task instead of creating a second row for the same thing.
 - A specialist session belongs to the chat that created it. A later chat gets a new one, and the brief then carries the role's earlier results forward - say so in the brief you write, and never assume the child remembers.
-- Children run on flash. Do not request another model for a child; naming one is refused or rewritten.
+- Children run on the configured child route (flash by default), and that is the right default: volume work belongs on the cheap route. You may name a \`provider\`/\`model\` on \`delegate_task\` ONLY when the environment demands it - the default route is throttled, unavailable, or the task needs a capability only the other route has - and only a route listed in Subagent model selection is accepted. Never name a highspeed variant: highspeed routes are refused outright by the model guard.
 - Every brief states: objective, scope, non-scope, inputs, acceptance, required output, proof and timebox.
 - The child owns its task's work, not its acceptance. The task moves to review when the child settles; you decide done.
 - No autotests. Prove behavior by running the product and quoting the command, output and exit code. A test file only when the human asks and the behavior is non-trivial.
@@ -228,7 +231,8 @@ You are a delegated specialist. Do exactly the task brief you received.
 - You may be a persistent role specialist: you can receive several task briefs in this session. Keep your assigned role, treat each new message as one task, and do not spawn children.
 - Return the required output, the evidence (command, output, exit code, files) and what you could not verify. A claim without evidence is not a result.
 - Do not write autotests. Prove behavior by running the product.
-- Use \`task_note\` for significant findings and \`task_get\` to re-read your task. The orchestrator owns acceptance and the final handoff.`
+- Use \`task_note\` for significant findings and \`task_get\` to re-read your task. The orchestrator owns acceptance and the final handoff.
+- BEFORE you report the task done, close the loop on what the work taught. If it produced a procedure that is not obvious from the code - a build incantation, a trap, an order of operations that cost a retry - call \`skill_inventory\`; if nothing covers it, call \`skill_evolve\` with the exact steps, the failure it prevents and this task as the evidence. Never record trivia, one-off facts or a secret. A task that found nothing reusable simply reports that; do not invent a skill to look productive.`
 
 /**
  * Render a self-contained brief for one child.
@@ -273,6 +277,46 @@ ${input.timebox === undefined ? '' : `Timebox: ${input.timebox}\n`}`
 }
 
 /**
+ * Resolve the route a delegated child runs on.
+ *
+ * The configured route is the default. A requested route must be complete and
+ * enabled in Subagent model selection, because that setting is the harness's own
+ * statement of which models an agent may hand to a child; accepting any
+ * registered route would quietly turn this tool into a bypass of that policy.
+ *
+ * @param ctx - Cordis context.
+ * @param args - Tool arguments.
+ * @param defaults - The configured `{ provider, model }` child route.
+ * @returns The route to spawn the child with.
+ */
+export function childRouteFor(ctx, args, defaults) {
+  const provider = typeof args?.provider === 'string' ? args.provider.trim() : ''
+  const model = typeof args?.model === 'string' ? args.model.trim() : ''
+  if (provider === '' && model === '') return { ...defaults }
+  if (provider === '' || model === '') {
+    throw new Error('delegate_task: provider and model form one route; supply both or neither')
+  }
+  let selection
+  try {
+    selection = ctx.get('subagentModelSelection')
+  } catch {
+    selection = undefined
+  }
+  if (selection === undefined) {
+    throw new Error(`delegate_task: ${provider}/${model} was requested but subagent model selection is not mounted; omit provider/model to use ${defaults.provider}/${defaults.model}`)
+  }
+  const { enabled, allowedModels } = selection.current()
+  if (!enabled) {
+    throw new Error(`delegate_task: child model selection is disabled; enable it under Plugins > Subagent > Model selection, or omit provider/model to use ${defaults.provider}/${defaults.model}`)
+  }
+  if (!allowedModels.some((route) => route.provider === provider && route.model === model)) {
+    const offered = allowedModels.map((route) => `${route.provider}/${route.model}`).join(', ')
+    throw new Error(`delegate_task: ${provider}/${model} is not an allowed child route; allowed: ${offered}`)
+  }
+  return { provider, model }
+}
+
+/**
  * Register the policy and the delegation tool.
  *
  * @param ctx - Cordis context.
@@ -287,7 +331,7 @@ export function apply(ctx, config = {}) {
 
   const definition = defineTool({
     name: 'delegate_task',
-    description: 'Create one task in the workspace taskboard (or attach an existing one with taskId), render a self-contained brief, start a flash child for it, and link the child session to the task. Reuse a role from the catalog in your policy: a near-duplicate new role is refused unless forceRole is passed. One piece of work is one task - pass taskId when the task already exists. Use it for independent research, implementation or review work; not for a one-shot answer or for final integration.',
+    description: 'Create one task in the workspace taskboard (or attach an existing one with taskId), render a self-contained brief, start a child on the configured child route (flash by default) and link the child session to the task. Reuse a role from the catalog in your policy: a near-duplicate new role is refused unless forceRole is passed. One piece of work is one task - pass taskId when the task already exists. Use it for independent research, implementation or review work; not for a one-shot answer or for final integration.',
     parameters: {
       title: { type: 'string', required: true, description: 'Short task title.' },
       role: { type: 'string', required: true, description: 'Persistent specialist role, e.g. UX/UI, BACKEND, BUSINESS, RESEARCH. The roles this workspace already has are listed in your policy section - reuse one of those exact names; all fitting tasks belong to it.' },
@@ -303,6 +347,8 @@ export function apply(ctx, config = {}) {
       forceRole: { type: 'boolean', description: 'Allow a role name that resembles an existing one. Use only for a genuinely different specialty; naming the work with the existing role is almost always right.' },
       cwd: { type: 'string', description: 'Optional working directory; inherits the parent cwd.' },
       priority: { type: 'string', enum: ['low', 'normal', 'high'], description: 'Task priority.' },
+      provider: { type: 'string', description: 'Optional child route provider, paired with model. Omit for the configured default. Only a route enabled in Subagent model selection is accepted, and only when the default route is throttled or cannot do the job.' },
+      model: { type: 'string', description: 'Optional child route model, paired with provider. Omit for the configured default. Highspeed variants are refused by the model guard.' },
     },
     output: {
       schema: { type: 'json' },
@@ -313,6 +359,9 @@ export function apply(ctx, config = {}) {
       if (parent === undefined) throw new Error('delegate_task requires a calling agent')
       const role = typeof args.role === 'string' ? args.role.trim() : ''
       if (role === '') throw new Error('delegate_task: role is required (for example BACKEND, UX/UI, BUSINESS; reuse one role across tasks)')
+      // Resolve the route before any taskboard write: an unavailable child route
+      // must fail the call, not leave a task row that says a child is coming.
+      const childRoute = childRouteFor(ctx, args, { provider: childProvider, model: childModel })
       const childCwd = typeof args.cwd === 'string' && args.cwd !== '' ? args.cwd : workingDir(parent)
       const taskCwd = workingDir(parent)
       let taskboard
@@ -394,8 +443,11 @@ export function apply(ctx, config = {}) {
       const brief = renderBrief(task, args, maxBriefChars)
       const roleBrief = `You are the persistent ${role} specialist for this workspace. Responsibility: ${typeof args.roleDescription === 'string' && args.roleDescription.trim() !== '' ? args.roleDescription.trim() : role}. Stay in this role across every task you receive; do not spawn subagents. Each new message is a separate task brief. Use task_note/task_get for the task you are handling; the orchestrator owns acceptance.`
       const agentOptions = subagentProvider.capabilities?.agentOptions === true
-        ? { provider: childProvider, model: childModel, reasoningEffort: 'high' }
+        ? { provider: childRoute.provider, model: childRoute.model, reasoningEffort: 'high' }
         : undefined
+      if (agentOptions === undefined && (childRoute.provider !== childProvider || childRoute.model !== childModel)) {
+        throw new Error(`delegate_task: subagent provider "${provider}" does not accept a model override; omit provider/model to use its own route`)
+      }
       let childId = knownAgent?.sessionId
       let reused = false
       let reuseNote

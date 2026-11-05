@@ -143,7 +143,7 @@ function targetPath(args, cwd, title) {
 export function handoffTool(defineToolFn = defineTool) {
   return defineToolFn({
     name: 'handoff',
-    description: 'Render a one-page handoff for a task: TL;DR, objective, what changed, evidence, decisions, risks, next actions and artifacts. Writes a self-contained A4 HTML file and, when Chrome is available, a PDF beside it. Use it at a milestone and at the end of an initiative; do not turn it into a report.',
+    description: 'Render a one-page handoff for a task: TL;DR, objective, what changed, evidence, decisions, risks, next actions and artifacts. Writes a self-contained A4 HTML file and, when Chrome is available, a PDF beside it. Use it at a milestone and at the end of an initiative; do not turn it into a report. The page is for THIS task: if the work also produced a reusable, non-obvious procedure, call skill_inventory and skill_evolve before rendering, because the page is read once and the skill is what the next task starts from.',
     parameters: {
       title: { type: 'string', required: true, description: 'Handoff title; also the default filename.' },
       audience: { type: 'string', description: 'Who reads this.' },

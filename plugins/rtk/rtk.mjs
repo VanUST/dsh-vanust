@@ -130,6 +130,8 @@ const FILTER_RULES = [
   { filter: 'pytest', pattern: /^pytest(?:\s|$)/ },
   { filter: 'cargo-test', pattern: /^cargo\s+test(?:\s|$)/ },
   { filter: 'go-test', pattern: /^go\s+test(?:\s|$)/ },
+  { filter: 'go-build', pattern: /^go\s+build(?:\s|$)/ },
+  { filter: 'ctest', pattern: /^ctest(?:\s|$)/ },
   { filter: 'tsc', pattern: /^(?:npx\s+(?:--yes\s+)?)?tsc(?:\s|$)/ },
   { filter: 'vitest', pattern: /^(?:npx\s+(?:--yes\s+)?)?vitest(?:\s|$)/ },
   { filter: 'grep', pattern: /^grep(?:\s|$)/ },
@@ -141,11 +143,14 @@ const FILTER_RULES = [
   { filter: 'ruff-format', pattern: /^ruff\s+format(?:\s|$)/ },
   { filter: 'prettier', pattern: /^prettier(?:\s|$)/ },
   { filter: 'phpunit', pattern: /^phpunit(?:\s|$)/ },
+  { filter: 'pest', pattern: /^pest(?:\s|$)/ },
+  { filter: 'phpstan', pattern: /^phpstan(?:\s|$)/ },
+  { filter: 'pint', pattern: /^pint(?:\s|$)/ },
   { filter: 'sqlfluff-lint', pattern: /^sqlfluff\s+lint(?:\s|$)/ },
 ]
 
 /** Command list reused by the prompt section; keeps it in one place. */
-const FILTERED_COMMANDS = 'git status, git diff, git log, pytest, cargo test, go test, tsc, vitest, grep, rg, find, fd, mypy, ruff check, ruff format, prettier, phpunit, sqlfluff lint'
+const FILTERED_COMMANDS = 'git status, git diff, git log, pytest, cargo test, go test, go build, ctest, tsc, vitest, grep, rg, find, fd, mypy, ruff check, ruff format, prettier, phpunit, pest, phpstan, pint, sqlfluff lint'
 
 /**
  * Trailing lines the bash/pwsh renderers append after the command's own output.
@@ -521,6 +526,10 @@ function sectionText(rtk, policy) {
     '  with the absolute binary path:',
     `    ${rtk.bin} git status`,
     `    ${rtk.bin} read <file>`,
+    '  A leading `cd <dir> &&` does not stop filtering, so `cd repo && git log --stat`',
+    '  is still compressed. A pipe, `;`, redirection or an unlisted command opts out:',
+    '  `git log --stat | head -40` is passed through untouched. When a command will',
+    '  print a lot, prefer one of the listed forms over wrapping it in a pipe.',
     '  If the banner reports elision, re-run the command unfiltered; when it prints a',
     '  recovery hash, `rtk recall <hash>` returns the stored output.',
   ].join('\n')

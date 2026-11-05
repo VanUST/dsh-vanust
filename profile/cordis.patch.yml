@@ -50,28 +50,25 @@
     - id: diagrams
       name: '@cc/dsh-diagrams'
 
-# ── work-modes: the subagent delegation cap ────────────────────────────────────
-# One deployment policy on the harness seam that can actually refuse something.
+# ── subagent capacity: no two-child cap ────────────────────────────────────
+# `@cc/dsh-work-modes` is NOT mounted. Its one job was a monotonic tools.guard()
+# that refused the third `subagent` child of a session, and its default limit is
+# 2 — the number the operator hit. Removing the cap is deliberate: the deployment
+# would rather pay for breadth when it asks for it than have a guard decide that
+# the third parallel read is one too many. The package and its tarball stay in
+# the kit (inventory row `mounted: false`) so re-enabling it is one row, not a
+# rebuild.
 #
-# The cap is a monotonic tools.guard(): the third `subagent` child of one session
-# (grandchildren included) is refused before its body runs, with the two running
-# agents named, so the calling agent decides whether to batch, finish its own step
-# or retry. A `workflow` fan-out is deliberately OUTSIDE this cap — it is a cap on
-# the delegation tool, not a ceiling on concurrent work.
-#
-# The cap's residual, stated where the cap is: a child this process can see keeps
-# its slot until the harness's agent registry stops holding it, so a child the
-# registry never disposes keeps its slot for as long as it is held; an entry NO
-# registry answered for (an out-of-process child, no `agents` service, a liveness
-# probe that threw) is released by the age bound instead, so it stops being counted
-# after `staleAfterMs` while it may still be running. That is the strongest true
-# statement, and the plugin's own header carries it beside the code.
-#
-# There are NO work modes: the research/implementation mode was removed with the
-# decision-record machinery it rested on, and the plugin injects no prompt section.
-- insert:
-    - id: work-modes
-      name: '@cc/dsh-work-modes'
+# What stops runaway fan-out instead is the harness's own pool, and its default
+# is 8. Raising it here rather than leaving it at 8 is the point of the change:
+# dropping a cap of 2 only to collide with a cap of 8 a week later would be the
+# same surprise twice. The knobs are the subagent service's: `maxActiveSubagents`
+# is the concurrent child count across one main agent, `maxDepth` is nesting and
+# stays at the default 1 because deeper nesting is a different decision.
+- id: subagent
+  name: '@deepseek-ai/dsh-subagent'
+  config:
+    maxActiveSubagents: 64
 
 # ── godot-mcp: a declarative, transferable MCP server list ──────────────────
 # The harness ships an MCP client bridge (`@deepseek-ai/dsh-mcp-client`), so this
@@ -128,6 +125,15 @@
 # LlmCallConfig and rewrites a child's route to flash before dispatch; with
 # `onViolation: refuse` it throws instead. `enforceRoot: false` keeps the human's
 # own model choice intact. External providers do not route through this seam.
+#
+# Two rules, because they answer different questions. `allowedRoutes` says what a
+# CHILD may run on, so a child may be routed to either Kimi tier deliberately
+# rather than always collapsing to flash; `deniedModels` says what NOBODY may run
+# on, root included, and a match is refused rather than rewritten. Highspeed
+# variants are the deny case: they cost twice to three times the tokens for speed
+# this work does not need, and a silent substitution would spend the budget the
+# rule exists to protect. The Kimi model list in the `llm-pi-ai` row below already
+# omits them, so the deny pattern is the second line of defence, not the only one.
 - insert:
     - id: flash-guard
       name: '@cc/dsh-flash-guard'
@@ -137,6 +143,15 @@
         onViolation: rewrite
         enforceRoot: false
         maxReasoningEffort: high
+        allowedRoutes:
+          - provider: deepseek-official
+            model: deepseek-flash
+          - provider: kimi-coding
+            model: k3.1-pro
+          - provider: kimi-coding
+            model: kimi-for-coding
+        deniedModels:
+          - '*highspeed*'
 
 # ── proof-guard: the no-autotest ruling at the write seam ───────────────────
 # A `tools/pre-execute` waterfall on write/edit: a test path needs a PROOF
@@ -272,3 +287,81 @@
     provider: deepseek-official
     model: deepseek-flash
     reasoningEffort: max
+
+# ── kimi: the Kimi Code subscription as a second model provider ────────────
+# `llm-pi-ai` is mounted dormant by dsh-base — zero routes until `providers`
+# supplies one, then the route registers live and drops when the section empties.
+# `kimi-coding` is the Kimi Code plan endpoint (OpenAI-compatible, models from
+# https://api.kimi.com/coding/v1/models). The key is only ever a REFERENCE:
+# `apiKeyEnv` resolves per request through the harness credential store, so the
+# secret lives in $DSH_HOME/.credentials.yaml and never in this file.
+#
+# Two models, and only two, because the catalog IS the picker: every extra entry
+# is a route someone reaches for without reading its rate. K3.1 Pro is the "smart"
+# tier — planning, design, review, orchestration. `kimi-for-coding` (K2.8 Preview)
+# is the workhorse that stands in for DeepSeek during its peak hours. Neither
+# highspeed variant is listed: they cost two to three times the tokens for latency
+# this work does not need, and flash-guard refuses them outright if anything names
+# one anyway.
+#
+# Why an explicit `models` list at all: the pi-ai catalog installed with this dsh
+# build predates the K3.1 family (it ships k3, k3-256k, kimi-for-coding and
+# kimi-for-coding-highspeed only), and a `models` list REPLACES the route's
+# catalog. Unset fields default from the installed model of the same id, so only
+# k3.1-pro carries the k3 compatibility switches — no installed entry exists for
+# it to inherit them from. Context windows come from the endpoint's own listing.
+# K3.1 Pro is thinking-only and refuses a disabled-thinking request (HTTP 400),
+# so `off` is absent from its effort map: the keys are what a selector may offer.
+- id: llm-pi-ai
+  name: '@deepseek-ai/dsh-llm-pi-ai'
+  config:
+    providers:
+      kimi-coding:
+        apiKeyEnv: KIMI_CODING_API_KEY
+        models:
+          - id: k3.1-pro
+            name: Kimi K3.1 Pro
+            contextWindow: 1048576
+            maxTokens: 131072
+            input: [text, image]
+            reasoningEfforts:
+              low: low
+              high: high
+              max: max
+            compat:
+              supportsStrictMode: false
+              supportsStore: false
+              supportsDeveloperRole: false
+              supportsReasoningEffort: true
+              maxTokensField: max_tokens
+              thinkingFormat: openai
+              requiresReasoningContentOnAssistantMessages: true
+          - id: kimi-for-coding
+            name: Kimi K2.8 Preview
+            contextWindow: 1048576
+            maxTokens: 32768
+            input: [text, image]
+            reasoningEfforts:
+              low: low
+              high: high
+              max: max
+
+# ── subagent model selection: which routes an agent may hand to a child ─────
+# The harness's own gate for a model-facing child route: the `subagent` tool
+# accepts `provider`/`model` only for a route listed here, `delegate_task` reads
+# the same list through `childRouteFor()`, and the Plugins > Subagent page edits
+# this namespace. Enabling it is what makes the Kimi tiers reachable for delegated
+# work at all; without it a child request collapses to the configured flash route.
+# Same three routes as flash-guard's `allowedRoutes`, on purpose: a route this
+# list offers and the guard rewrites is a setting that lies to the operator.
+- id: subagent-model-selection-settings
+  name: '@deepseek-ai/dsh-tool-subagent/model-selection-settings'
+  config:
+    enabled: true
+    allowedModels:
+      - provider: deepseek-official
+        model: deepseek-flash
+      - provider: kimi-coding
+        model: k3.1-pro
+      - provider: kimi-coding
+        model: kimi-for-coding

@@ -23,12 +23,12 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   engine — so a scheme is never handed a set of coordinates to maintain. Same reasoning
   as presentation for the missing client half: the Sidebar document preview renders the
   file, and the file prints as it looks.
-- **`@cc/dsh-work-modes`** — one deployment policy on a harness seam that can actually
-  refuse something: a monotonic guard refusing a third concurrent `subagent` child per
-  session (a `workflow` fan-out is deliberately outside it, so it is not a ceiling on
-  concurrent work, and the cap has a stated residual — a child the registry never
-  disposes keeps its slot, while a child no registry can answer for stops being counted
-  after the age bound). It injects no prompt section.
+- **`@cc/dsh-work-modes`** — shipped but **not mounted**. Its one job was a monotonic
+  guard refusing the third concurrent `subagent` child per session, and its default
+  limit of 2 was the cap that stopped fan-out dead; the deployment removed the cap on
+  2026-11-05 and lets the harness's own pool set the ceiling instead
+  (`subagent.maxActiveSubagents: 64`). The package and tarball stay, so re-enabling it
+  is one profile row, and `plugins/inventory.json` records `mounted: false`.
 - **`@cc/dsh-godot-mcp`** — keeps a deployment's MCP server list declarative so it
   transfers between machines instead of being configured per machine. The harness's own
   MCP client bridge does the connecting; this plugin owns the canonical list, resolves

@@ -21,14 +21,17 @@ The upstream harness plus twelve plugins, all pinned and installed from one kit 
 | `@cc/dsh-notify` | raises a desktop notification when an agent finishes a turn and when it asks the user a question (`notify-send`, a PowerShell toast, or `osascript`); spawned detached, argv-only, never blocking |
 | `@cc/dsh-presentation` | one tool, `presentation`, that renders a JSON deck spec into a standalone HTML file in the workspace; the Sidebar document preview displays it, so the file the user previews is the file they export and print |
 | `@cc/dsh-diagrams` | one tool, `diagram`, that renders a JSON diagram spec into a standalone HTML file whose SVG is inline: flow and state (flowcharts, algorithm illustrations), layered architecture, and sequence diagrams. The agent describes nodes and relationships and the plugin computes the geometry — layered ranking with cycle breaking, edge routing with detours, and label placement — in a dependency-free engine. The Sidebar document preview displays it, so the file the user prints is the file the agent wrote |
-| `@cc/dsh-work-modes` | refuses a third concurrent `subagent` child per session with the running agents named (a `workflow` fan-out is deliberately outside it). It injects no prompt section and holds no session state |
+| `@cc/dsh-work-modes` | **not mounted** since 2026-11-05. It refused a third concurrent `subagent` child per session (its default limit is 2, which was the cap an operator hit). The cap was removed deliberately; the package and its tarball stay in the kit and `plugins/inventory.json` records `mounted: false`, so re-enabling it is one profile row. The ceiling now comes from the harness pool: the `subagent` row in `profile/cordis.patch.yml` sets `maxActiveSubagents: 64` (the harness default is 8) and leaves `maxDepth` at 1 |
 | `@cc/dsh-godot-mcp` | keeps the deployment's MCP server list declarative and transportable: owns the canonical spec, resolves the `uvx` launcher the Godot AI bridge needs and the Godot project it starts in, and reports per declared server whether its tools are loadable. It implements no MCP itself — the harness's shipped `@deepseek-ai/dsh-mcp-client` bridge does the connecting, and `scripts/dsh-mcp-sync.mjs` writes the row that bridge loads into `$DSH_HOME/cordis.patch.yml`. **Two rows mount for this server and their ids must differ**: the plugin's own row is `id: godot-mcp` (the kit's convention is that a plugin row's id is its function name), while the bridge row the sync writes is `id: mcp-client-<server id>`. One composition has ONE loader-id namespace and the harness refuses the whole tree on a duplicate — `dsh web` fails to start with `duplicate loader entry id: godot-mcp`, which is what happened when a server id was used as the row id. Do not "tidy" the generated id back to the bare server id; `scripts/check-portability.mjs` fails when a generated id spells an authored one |
+| `@deepseek-ai/dsh-subagent` | the harness's subagent service, mounted with this profile's one setting: `maxActiveSubagents: 64` (harness default 8), `maxDepth` left at its default 1. It owns the concurrent-child pool, parent/child relationships and the capacity check that answers `ACTIVATION_LIMIT_REACHED`; `subagent`, `subagent_fork`, `workflow` and `delegate_task` all spawn through it. Raising the pool here is what makes removing `@cc/dsh-work-modes` a real removal rather than a move from a cap of 2 to a cap of 8. The volatile fields are also editable on Plugins → Subagent, but a value written in this profile patch takes precedence and a form write it would override is refused |
 | `@cc/dsh-skills` | registers fourteen runtime skills through `ctx.skills.register`: `ponytail` (test paragraph patched to the proof rule), `grill-me`/`grilling`, `clear-writing`, `explain-webpage`, `explain-diagram` (adapted to the local `diagram` tool), `ui-builder`, `proof-not-tests`, `literature-review`, and five added 2026-10-26: `tests-that-could-fail`, `visual-explanations`, `ui-testing`, `ui-design-system`, `research-first`. The tarball is the source of truth; no `$DSH_HOME/skills` copy |
-| `@cc/dsh-flash-guard` | one `agent/request` waterfall. A delegated child (`delegationDepth > 0` or a `parentSession` header) whose route is not in `allowedRoutes` is rewritten to `deepseek-official/deepseek-flash` or refused before dispatch. `enforceRoot: false` keeps the human's own model choice; external ACP/SDK/Claude Code providers bypass the seam and are the stated residual |
+| `@cc/dsh-flash-guard` | one `agent/request` waterfall. A delegated child (`delegationDepth > 0` or a `parentSession` header) whose route is not in `allowedRoutes` is rewritten to `deepseek-official/deepseek-flash` or refused before dispatch. `enforceRoot: false` keeps the human's own model choice; external ACP/SDK/Claude Code providers bypass the seam and are the stated residual. A second, stricter rule covers routes nobody may run: a `deniedModels` match (`*highspeed*`) is **refused for root and child alike**, because silently substituting another model is how a "never use this" rule holds while the expensive route was already paid for |
+| `@deepseek-ai/dsh-llm-pi-ai` | the harness's multi-provider LLM adapter, mounted dormant and activated by this profile's `providers` map. One extra route runs here: `kimi-coding`, the Kimi Code subscription endpoint (OpenAI-compatible, `https://api.kimi.com/coding/v1`), with exactly **two** models — `k3.1-pro` for planning, design, review and orchestration, and `kimi-for-coding` (K2.8 Preview) as the workhorse that stands in during DeepSeek peak hours. Neither highspeed variant is listed: they cost two to three times the tokens for latency this work does not need, and `deniedModels` refuses them if anything names one. Context windows come from the endpoint's own `GET /v1/models`; the key is only the credential reference `KIMI_CODING_API_KEY`, resolved per request from `$DSH_HOME/.credentials.yaml` |
+| `@deepseek-ai/dsh-tool-subagent/model-selection-settings` | the harness's own gate for a model-facing child route: `enabled: true` with exactly three routes (`deepseek-official/deepseek-flash`, `kimi-coding/k3.1-pro`, `kimi-coding/kimi-for-coding`). The `subagent` tool and the kit's `delegate_task` accept `provider`/`model` only for a route listed here, and the Plugins → Subagent page edits the same namespace. The list deliberately matches `flash-guard.allowedRoutes`; a route offered here and rewritten there would be a setting that lies to the operator |
 | `@cc/dsh-research-first` | one `tools/pre-execute` gate plus a `tools/result` observer. A successful `web_fetch`/`web_search` marks the session researched; creating a file that does not exist yet without one is refused, with the denial naming the lookup and the escape hatch. `research_waive({reason})` unlocks the session for offline work and logs the reason. `mode: deny` by default, `warn` for a trial, `allowPaths` for generated trees. It gates file creation, not design decisions inside an edit — that stays with the review |
 | `@cc/dsh-proof-guard` | one `tools/pre-execute` waterfall on `write`/`edit`. A path matching the test conventions needs a `PROOF:` header (`Behavior:`, `Fails when:`, `Production path:`); a legacy file that already carries one is allowed. `mode: deny` is the default, `warn` the trial. Friction, not proof: a shell write and a fake header are outside it |
 | `@cc/dsh-taskboard` | the workspace task ledger and the Tasks panel. One `.dsh/taskboard.json` per workspace holds objective, scope, non-scope, acceptance, status, owner, results and a timeline; `task_create`/`task_get`/`task_list`/`task_update` (CAS)/`task_note`/`task_link` share one Host service with the `/taskboard` command. The client half reads through `workspaceFiles`, writes through `commands`, registers `main` key `tasks`, the `sidebar.panellist` entry and the `subagent-catalog` header cell. It replaces the subagent catalog; `@deepseek-ai/dsh-client-ui-subagent` is disabled in the profile so the header has one cell, and child sessions open from the task detail. Pause/Resume, Close and Remove are lifecycle actions: pause interrupts linked children through `ctx.subagents`, close marks done and interrupts, remove deletes the ledger row and leaves children running. Each workspace keeps persistent `agents[]` roles (one child per role), and each linked child records the role plus active/sleeping/paused state for the panel roster |
-| `@cc/dsh-orchestrator` | root-only policy section (`deployment:orchestrator-policy`), child-only section (`deployment:specialist-policy`) and a root-only `delegate_task` tool. The tool creates the task, renders a self-contained brief (objective, scope, non-scope, inputs, acceptance, output, proof, timebox), starts a flash child with `agentOptions`, and links the child id. The task is created before the child, so a failed start leaves a visible blocked task |
+| `@cc/dsh-orchestrator` | root-only policy section (`deployment:orchestrator-policy`), child-only section (`deployment:specialist-policy`) and a root-only `delegate_task` tool. The tool creates the task, renders a self-contained brief (objective, scope, non-scope, inputs, acceptance, output, proof, timebox), starts a child on the configured child route (flash by default) with `agentOptions`, and links the child id. `provider`/`model` are accepted only for a route enabled in Subagent model selection, so delegation can move to the Kimi workhorse when the default route is throttled; an unavailable route fails the call before the task row is written. The task is created before the child, so a failed start leaves a visible blocked task |
 | `@cc/dsh-handoff` | one tool, `handoff`, that renders a structured result into a self-contained A4 HTML page and, when Chrome/Chromium is on PATH or `CHROME_PATH` names one, a PDF beside it. The HTML is the source of truth; a missing browser is a warning |
 | `@cc/dsh-papers` | the paper-research tool family: `papers_search` (arXiv Atom + Hugging Face JSON, one source can fail while the other returns), `papers_trending` (HF daily papers) and `papers_download` (arXiv PDF into `.dsh/papers/`, capped at 30 MB, `pdftotext` when installed). No key; 20 s timeout with one retry; the literature-review skill calls these tools |
 | `@deepseek-ai/dsh-client-ui-subagent` | shipped client package, **disabled** in this profile: its `subagent-catalog` header cell is replaced by the taskboard's Tasks trigger. Its right-pane child chat tab and `@` reference source are not mounted; child sessions open from the task detail. Re-enable it and use a fresh header id if the lineage popover is needed more than the one-cell replacement |
@@ -41,8 +44,9 @@ rewrites or refuses a delegated child's model route. The earlier "no plugin cont
 prompt text" stance is retired deliberately. A repository's `AGENTS.md`/`CLAUDE.md` still
 reaches the model through the upstream loader; the deployment policy is additional and
 scoped (root or child), not a replacement for the harness persona. The model route is
-whatever the profile configures for the root agent; only delegated children are forced to
-flash, and external providers are outside that seam.
+whatever the profile configures for the root agent; delegated children default to flash and
+may be routed to one of the two allowed Kimi models, and external providers are outside that
+seam.
 
 ### 1.1 Hindsight memory — third-party, installed outside the kit
 
@@ -176,6 +180,16 @@ rtk --version                 # must answer 'rtk <version>' — a different `rtk
 section. With the binary absent the plugin is inert: it says so in the section and the
 listener no-ops. There is nothing to start and nothing to stop.
 
+What actually reaches the filter, measured on this machine (105 compressions between
+2026-10-26 and 2026-11-05, dominated by `git-log` and `git-diff`): a listed command is
+compressed when its output passes `minChars` (1500) and it is a single simple invocation. A
+leading `cd <dir> &&` is stripped before classification, so `cd repo && git log --stat` is
+compressed; a pipe, `;`, redirection, `git show`, `ls` or `cat` is passed through untouched —
+rtk 1.1.0 ships no filter for those. The mapped rules now cover every `rtk pipe` filter name
+this deployment can plausibly meet: git status/diff/log, pytest, cargo test, go test, go build,
+ctest, tsc, vitest, grep, rg, find, fd, mypy, ruff check/format, prettier, phpunit, pest,
+phpstan, pint, sqlfluff lint.
+
 **Headroom — compression in front of the model (proxy + overlay).** Owned by one script:
 
 ```bash
@@ -251,6 +265,18 @@ Linux, and a shared library that hides that fact teaches the next machine the wr
 harness, so `@cc/dsh-babysitter` shells out to the CLI and maps each run onto ONE taskboard
 task: the run's journal steps become timeline notes, and the task lands in `review` for the
 human — never `done`.
+
+**A process must be able to import the SDK**, and the global metapackage nests it
+(`@a5c-ai/babysitter/node_modules/@a5c-ai/babysitter-sdk`), so it is NOT resolvable from a
+workspace file. This kit installs it beside the processes: `.babysitter/node_modules` holds
+`@a5c-ai/babysitter-sdk@6.0.0`, and `.babysitter/processes/` holds the processes —
+`release-gate.mjs` runs the kit's two checks as journaled shell tasks. Two rules cost four
+failed runs on 2026-11-05 and are stated in that file: `defineTask` must be at MODULE scope
+(the runtime replays the process after every effect, and an in-function definition dies with
+`Task id ... is already registered`), and `ctx.task()` resolves to the task's RESULT PAYLOAD
+(the command's stdout string), not `{ok, exitCode}` and not the on-disk `{status, result}`
+envelope. A run's `state: completed` and its exit code are the CLI's verdict, not the
+process's: read `output` before believing the work succeeded.
 
 Shell-only processes need nothing else. **LLM-backed** ones need provider credentials of
 their own, because babysitter resolves its own model rather than borrowing DSH's. The
@@ -400,7 +426,7 @@ live profile.
 ## 6. First-run checks (1 minute, human-visible)
 
 ```bash
-dsh --profile web --dump-config | grep -E "id: (notify|presentation|diagrams|work-modes|godot-mcp)"   # every row mounted
+dsh --profile web --dump-config | grep -E "id: (notify|presentation|diagrams|subagent|godot-mcp)"   # every row mounted
 ```
 
 Then open the token URL `dsh web` printed, and confirm the chat renders, a shell command

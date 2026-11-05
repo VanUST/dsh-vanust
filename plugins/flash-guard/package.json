@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-flash-guard",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Refuses or rewrites a delegated child's model request unless it uses the configured flash route; sits on the agent/request waterfall so a workflow script cannot silently ask for a stronger model. No tool, prompt section or session event.",
   "type": "module",
   "main": "flash-guard.mjs",

@@ -23,3 +23,6 @@ reports/
 .playwright-mcp/
 server.pid
 /*.png
+
+# babysitter run journals (machine state, not kit source)
+.a5c/

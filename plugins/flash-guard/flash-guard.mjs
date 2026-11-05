@@ -16,6 +16,13 @@
  *                            human can still choose a stronger model for the
  *                            conversation itself.
  *     maxReasoningEffort     optional cap: off | low | high | max.
+ *     deniedModels           optional model-id patterns refused for EVERY agent,
+ *                            root included. `*` matches any run of characters,
+ *                            matching is case-insensitive, and the decision is a
+ *                            refusal rather than a rewrite: silently substituting
+ *                            another model is how a "never use this" rule gets
+ *                            believed while the expensive route was paid for. A
+ *                            pattern containing `/` matches `<provider>/<model>`.
  *
  * OUTPUTS
  *   One `agent/request` listener. It never registers a tool, prompt section,
@@ -37,7 +44,21 @@
  *     this listener.
  *   - The warning is logged once per (agent, requested route), so a looping child
  *     does not fill the log with the same line.
+ *   - A deniedModels entry that is not a non-empty string is dropped and counted;
+ *     a typo never turns into "deny everything".
+ *   - A denied-model refusal is reported once per denied pattern, not once per
+ *     request, because it is a configuration fact rather than a looping child.
  */
+
+/** Compile one deny pattern: `*` is the only metacharacter, matching is case-insensitive. */
+function compileDenyPattern(pattern) {
+  const source = pattern.trim().toLowerCase()
+  const body = source
+    .split('*')
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('.*')
+  return { source, matcher: new RegExp(`^${body}$`) }
+}
 
 /** Route of a request after the adapter has resolved it. */
 const EFFORT_ORDER = ['off', 'low', 'high', 'max']
@@ -64,12 +85,17 @@ export function normalizeConfig(config = {}) {
       .map((route) => ({ provider: route.provider, model: route.model }))
     : []
   const onViolation = config.onViolation === 'refuse' ? 'refuse' : 'rewrite'
+  const denyCandidates = Array.isArray(config.deniedModels)
+    ? config.deniedModels.filter((pattern) => typeof pattern === 'string' && pattern.trim() !== '')
+    : []
+  const deniedModels = denyCandidates.map(compileDenyPattern)
   const maxReasoningEffort = EFFORT_ORDER.includes(config.maxReasoningEffort)
     ? config.maxReasoningEffort
     : null
   return {
     fallback,
     allowedRoutes: allowedRoutes.length > 0 ? allowedRoutes : [fallback],
+    deniedModels,
     onViolation,
     enforceRoot: config.enforceRoot === true,
     maxReasoningEffort,
@@ -84,7 +110,7 @@ export function normalizeConfig(config = {}) {
  * @param call - The LlmCallConfig returned by `next()`.
  * @param agent - The requesting Agent.
  * @param policy - `normalizeConfig()` output.
- * @returns `{ action: 'allow' | 'rewrite' | 'refuse', call, reason? }`.
+ * @returns `{ action: 'allow' | 'rewrite' | 'refuse', call, reason?, denied? }`.
  */
 export function guardDecision(call, agent, policy) {
   const depth = Number(agent?.session?.header?.delegationDepth ?? 0)
@@ -92,6 +118,15 @@ export function guardDecision(call, agent, policy) {
   const isChild = (Number.isFinite(depth) && depth > 0) || (typeof parent === 'string' && parent.length > 0)
   const applies = isChild || policy.enforceRoot
   const key = `${call?.provider ?? ''}/${call?.model ?? ''}`
+  const denied = denyMatch(call, policy.deniedModels)
+  if (denied !== null) {
+    return {
+      action: 'refuse',
+      call,
+      denied: denied.source,
+      reason: `flash-guard: ${key} matches deniedModels "${denied.source}" and is never dispatched; choose an allowed route`,
+    }
+  }
   const allowed = policy.allowedRoutes.some((route) => route.provider === call?.provider && route.model === call?.model)
   const capped = capEffort(call, policy.maxReasoningEffort)
   if (!applies) return { action: 'allow', call }
@@ -110,6 +145,22 @@ export function guardDecision(call, agent, policy) {
     }
   }
   return { action: 'allow', call: capped }
+}
+
+/**
+ * Find the first deny pattern a call matches.
+ *
+ * @param call - Resolved call.
+ * @param deniedModels - Compiled deny patterns.
+ * @returns The matching pattern, or null when nothing denies this call.
+ */
+function denyMatch(call, deniedModels) {
+  if (deniedModels.length === 0 || call === null || typeof call !== 'object') return null
+  const model = String(call.model ?? '').toLowerCase()
+  const route = `${String(call.provider ?? '').toLowerCase()}/${model}`
+  return deniedModels.find((pattern) => pattern.matcher.test(
+    pattern.source.includes('/') ? route : model,
+  )) ?? null
 }
 
 /**
@@ -147,13 +198,21 @@ export function apply(ctx, config = {}) {
   if (policy.droppedRoutes > 0) {
     ctx.logger.warn(`flash-guard: ignored ${policy.droppedRoutes} malformed allowedRoutes entr${policy.droppedRoutes === 1 ? 'y' : 'ies'}`)
   }
+  const droppedDeny = (Array.isArray(config.deniedModels) ? config.deniedModels.length : 0) - policy.deniedModels.length
+  if (droppedDeny > 0) {
+    ctx.logger.warn(`flash-guard: ignored ${droppedDeny} malformed deniedModels entr${droppedDeny === 1 ? 'y' : 'ies'}`)
+  }
   const warned = new Set()
   ctx.on('agent/request', async (payload, next) => {
     const call = await next()
     const decision = guardDecision(call, payload?.agent, policy)
     if (decision.action === 'allow') return decision.call
     const agentId = payload?.agent?.id ?? 'unknown'
-    const key = `${agentId}:${call?.provider ?? '?'}/${call?.model ?? '?'}`
+    // A deny rule is a configuration fact, so it is reported once per pattern;
+    // an allowlist violation is reported once per agent and requested route.
+    const key = decision.denied === undefined
+      ? `${agentId}:${call?.provider ?? '?'}/${call?.model ?? '?'}`
+      : `deny:${decision.denied}`
     if (!warned.has(key)) {
       warned.add(key)
       ctx.logger.warn(decision.reason)

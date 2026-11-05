@@ -1,0 +1,8 @@
+{
+  "name": "kit-babysitter-processes",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@a5c-ai/babysitter-sdk": "^6.0.0"
+  }
+}

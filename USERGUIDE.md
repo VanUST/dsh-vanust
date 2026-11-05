@@ -12,10 +12,9 @@ preview),
 HTML document with inline SVG — flowcharts and algorithm illustrations, layered system
 designs, sequence diagrams and state machines; you describe nodes and relationships and
 the plugin computes the geometry, and the Sidebar document preview shows it),
-**`@cc/dsh-work-modes`** (the deployment's concurrency cap — at most two
-`subagent` children per session, with a `workflow` fan-out deliberately outside
-it; it injects no prompt section) and
-**`@cc/dsh-godot-mcp`** (a declarative, transferable MCP server list — §3.2),
+**`@cc/dsh-work-modes`** (shipped but not mounted: its two-child concurrency cap was
+removed on 2026-11-05 and the harness pool now allows 64 concurrent `subagent`
+children), **`@cc/dsh-godot-mcp`** (a declarative, transferable MCP server list — §3.2),
 **`@cc/dsh-skills`** (fourteen runtime skills: Ponytail, grill-me/grilling, Karpathy
 clear-writing/explain-webpage/explain-diagram, the UI builder loop, the proof-not-tests
 ruling and literature review),
@@ -150,7 +149,7 @@ If it fails with `MISSING_CREDENTIAL`, finish the onboarding credential step. Th
 half is one command — every plugin row must be mounted:
 
 ```bash
-dsh --profile web --dump-config | grep -E "id: (notify|presentation|diagrams|work-modes|godot-mcp)"
+dsh --profile web --dump-config | grep -E "id: (notify|presentation|diagrams|subagent|godot-mcp)"
 ```
 
 If a row is missing, the patch layer was overwritten — see §5.

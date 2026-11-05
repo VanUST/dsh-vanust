@@ -27,7 +27,7 @@
       "provenance": "in-repo",
       "source": "plugins/work-modes",
       "pack": "scripts/pack-plugin.mjs",
-      "mounted": true
+      "mounted": false
     },
     {
       "id": "godot-mcp",
