@@ -2,7 +2,8 @@
  * PURPOSE
  *   Raise a desktop notification when the agent STOPS WORKING and when it ASKS THE USER
  *   SOMETHING, so a human who walked away while a long turn ran finds out without watching the
- *   window. It is deliberately small: it decides nothing about the work, changes nothing the
+ *   window. "Stopped" means the session stayed idle through a settle window, and the finished
+ *   sessions share ONE card - a line each - instead of a popup per session. It is deliberately small: it decides nothing about the work, changes nothing the
  *   agent sees, and cannot fail a turn - a machine with no notifier loses the popup, never the
  *   answer.
  *
@@ -22,6 +23,10 @@
  *     `onFinish`     - announce a `running -> idle` transition. Default true.
  *     `onQuestion`   - announce a `user-questions/request`. Default true.
  *     `minRunMs`     - shortest turn worth announcing. Default 15000 (15s).
+ *     `settleMs`     - how long an idle agent must STAY idle before it counts as finished.
+ *                      A goal continuation starts the next turn immediately, and a card
+ *                      between two rounds of one job is the noise this replaces. Default
+ *                      8000 (8s).
  *     `title`        - the notification title. Default `DeepSeek Harness`.
  *     `style`        - `overlay` (default) puts a borderless ALWAYS-ON-TOP window in the
  *                      top-right corner of the screen, where no focused window, fullscreen
@@ -61,8 +66,14 @@
  *     try/catch and always calls `next()`, because a notification that broke asking would be
  *     far worse than a missing popup.
  *   - `agent/status` for a session whose start was never seen: no finish notification.
- *   - A delegated subagent's finish or question NEVER notifies; only root chat agents do.
+ *   - A child NEVER notifies, by any of its three marks: `delegationDepth > 0`, a
+ *     `parentSession`, or `origin: 'subagent'` (the last two catch a `subagent` child that
+ *     reports depth 0).
  *   - A status flap (running, idle, running, idle) inside the threshold: no notification.
+ *   - A session that resumes inside `settleMs` (a continuation, a goal round): its pending
+ *     line is cancelled before anything is drawn.
+ *   - Several sessions finishing: ONE card, one line per session, replaced as sessions join
+ *     it; dismissing it forgets them all. A resumed session drops its line again.
  *   - Repeated notification failures: logged once, not once per turn, so a headless machine
  *     does not fill a log with the same line.
  */
@@ -75,13 +86,13 @@ import { join } from 'node:path'
 import {
   APP_NAME,
   chooseDisplay,
+  createFinishAggregator,
   DEFAULT_DISMISS_MS,
   isCoreAgent,
   notificationCommand,
   platformFamily,
   questionSummary,
   sessionLabel,
-  sessionMessage,
   shouldNotify,
 } from './notify-core.mjs'
 
@@ -205,30 +216,90 @@ export function apply(ctx, config = {}) {
   const runningSince = new Map()
   /** Failures already reported, by launch command, so a headless host logs one line. */
   const reported = new Set()
+  /**
+   * The sessions that finished, so ONE card carries them all.
+   *
+   * A popup per session is what made the old behaviour a chore: three chats finishing a
+   * minute apart left three always-on-top windows, each needing its own click.
+   */
+  const finished = createFinishAggregator({ ttlMs: 10 * 60 * 1000 })
+  /** Timers waiting for an agent to STAY idle; a continuation inside the window cancels it. */
+  const settleTimers = new Map()
+  /** When each agent last asked a question, so its idle settle does not add a second line. */
+  const questionedAt = new Map()
+  /** The one overlay on screen, and the process that draws it. */
+  let card = null
+
+  const style = config.style === 'daemon' ? 'daemon' : 'overlay'
 
   /**
-   * Raise one notification, or explain once why it could not be raised.
+   * The settle window: how long an idle agent must stay idle before it counts as finished.
    *
-   * @param body - The notification text.
-   * @returns Nothing; the child is detached and never awaited.
+   * A goal continuation starts the next turn immediately, and a "finished after 40s" popup
+   * between two rounds of the SAME job is exactly the noise this replace. Eight seconds is
+   * short enough that a human who walked away is not waiting, and long enough to swallow any
+   * continuation the harness starts on its own.
    */
-  function notify(body) {
+  function settleMsFrom(config) {
+    const fromEnv = Number(process.env.DSH_NOTIFY_SETTLE_MS)
+    if (Number.isFinite(fromEnv) && fromEnv >= 0) return fromEnv
+    return Number.isFinite(config?.settleMs) && config.settleMs >= 0 ? config.settleMs : 8000
+  }
+  const settleMs = settleMsFrom(config)
+
+  /** Stop waiting for an idle agent, without announcing anything. */
+  function clearSettle(id) {
+    const timer = settleTimers.get(id)
+    if (timer !== undefined) {
+      clearTimeout(timer)
+      settleTimers.delete(id)
+    }
+  }
+
+  /** Close the card without forgetting the sessions: a replacement follows. */
+  function closeCard() {
+    if (card === null) return
+    // The exit of a card we are replacing must NOT clear the list; dropping the listener is
+    // how "this popup is being replaced" is expressed to the exit handler.
+    card.removeAllListeners('exit')
+    try {
+      card.kill()
+    } catch {
+      // Already gone; nothing to do.
+    }
+    card = null
+  }
+
+  /** Draw the card from the sessions currently finished, or close it when none are left. */
+  function refreshCard() {
     if (!enabled) return
-    // The style is the caller's, except that an overlay that cannot START falls back to the
-    // daemon: a machine with no Python, no DISPLAY or no Tkinter should lose the corner and
-    // the always-on-top, not the notification itself.
-    const style = config.style === 'daemon' ? 'daemon' : 'overlay'
-    notifyWith(body, style)
+    const body = finished.body()
+    if (body === '') {
+      closeCard()
+      return
+    }
+    closeCard()
+    card = notifyWith(body, style, () => {
+      // The human dismissed it (or it expired): those lines have been read.
+      finished.clear()
+      card = null
+    })
   }
 
   /**
    * Raise one notification in the requested style, falling back to the daemon once.
    *
-   * @param body - The notification text.
+   * The style is the caller's, except that an overlay that cannot START falls back to the
+   * daemon: a machine with no Python, no DISPLAY or no Tkinter should lose the corner and
+   * the always-on-top, not the notification itself.
+   *
+   * @param body - The notification text; line breaks are preserved (one line per session).
    * @param style - `overlay` or `daemon`.
-   * @returns Nothing.
+   * @param onExit - Called when the notifier exits on its own (dismissed or expired). Not
+   *   called for a replacement, whose listener the caller removed first.
+   * @returns The spawned child, or null when the platform has no notifier.
    */
-  function notifyWith(body, style) {
+  function notifyWith(body, style, onExit) {
     const built = notificationCommand({
       platform: process.platform,
       style,
@@ -247,7 +318,7 @@ export function apply(ctx, config = {}) {
         reported.add('platform')
         ctx.logger?.info?.(`notify: no notifier implemented for platform ${JSON.stringify(process.platform)}`)
       }
-      return
+      return null
     }
     try {
       const child = spawn(built.command, built.args, {
@@ -261,6 +332,14 @@ export function apply(ctx, config = {}) {
         stdio: 'ignore',
         env: { ...process.env, ...built.env },
       })
+      // Only the overlay LIVES until the human closes it, so only its exit means "read".
+      // `notify-send` exits as soon as the bubble is handed to the desktop, which is not a
+      // dismissal: clearing the list there would drop lines still on screen.
+      if (style === 'overlay') {
+        child.on('exit', () => {
+          if (typeof onExit === 'function') onExit()
+        })
+      }
       child.on('error', (error) => {
         const code = String(error?.code ?? error?.message ?? 'error')
         const key = `${built.command}:${code}`
@@ -280,11 +359,14 @@ export function apply(ctx, config = {}) {
         }
       })
       child.unref()
+      return child
     } catch (error) {
       const key = String(error?.code ?? error)
-      if (reported.has(key)) return
-      reported.add(key)
-      ctx.logger?.warn?.(`notify: could not spawn ${built.command}: ${key}`)
+      if (!reported.has(key)) {
+        reported.add(key)
+        ctx.logger?.warn?.(`notify: could not spawn ${built.command}: ${key}`)
+      }
+      return null
     }
   }
 
@@ -294,22 +376,40 @@ export function apply(ctx, config = {}) {
   // the other's.
   if (onFinish) {
     ctx.effect(() => ctx.on('agent/status', (payload) => {
+      // Only a root chat session may pop a card: a helper's turn is not the human's work, and
+      // `delegate_task` children are excluded by depth while `subagent` children are excluded
+      // by parentSession/origin.
       if (!isCoreAgent(payload?.agent)) return
       const id = payload?.agent?.id
       if (typeof id !== 'string' || id.length === 0) return
       const status = payload?.status
-      const previous = runningSince.get(id)
+      const startedAt = runningSince.get(id)
       if (status === 'running') {
-        if (previous === undefined) runningSince.set(id, Date.now())
+        runningSince.set(id, Date.now())
+        clearSettle(id)
+        // It is working again, so its finished line is no longer true. A session that was
+        // never on the card returns null and needs no redraw.
+        if (finished.resume(id) !== null) refreshCard()
         return
       }
       if (status === 'idle') {
         runningSince.delete(id)
-        if (shouldNotify({ from: 'running', to: 'idle', startedAt: previous, now: Date.now(), minRunMs })) {
-          // Which session, first: "Finished after 93s" says nothing about WHICH chat wants you
-          // the moment two are open, and the session is the only part that answers that.
-          notify(sessionMessage(sessionLabel(payload?.agent), `Finished after ${Math.round((Date.now() - previous) / 1000)}s`))
-        }
+        clearSettle(id)
+        if (!shouldNotify({ from: 'running', to: 'idle', startedAt, now: Date.now(), minRunMs })) return
+        const label = sessionLabel(payload?.agent)
+        const seconds = Math.round((Date.now() - startedAt) / 1000)
+        // Wait out the settle window: a goal continuation starts the next turn right away,
+        // and announcing BETWEEN two rounds of the same job is the noise this prevents.
+        const timer = setTimeout(() => {
+          settleTimers.delete(id)
+          // A question already said what this stop was about; a second line would repeat it.
+          const asked = questionedAt.get(id) ?? 0
+          if (Date.now() - asked < 60_000) return
+          finished.finish(id, { label, message: `finished after ${seconds}s` })
+          refreshCard()
+        }, settleMs)
+        timer.unref?.()
+        settleTimers.set(id, timer)
       }
     }))
   }
@@ -322,8 +422,17 @@ export function apply(ctx, config = {}) {
     ctx.effect(() => ctx.on('user-questions/request', async (request, next) => {
       if (!isCoreAgent(request?.agent)) return next()
       try {
-        const summary = questionSummary(request)
-        notify(sessionMessage(sessionLabel(request?.agent), summary === '' ? 'is waiting for your answer' : `asks: ${summary}`))
+        const id = request?.agent?.id
+        if (typeof id === 'string' && id !== '') {
+          const summary = questionSummary(request)
+          questionedAt.set(id, Date.now())
+          clearSettle(id)
+          finished.finish(id, {
+            label: sessionLabel(request?.agent),
+            message: summary === '' ? 'is waiting for your answer' : `asks: ${summary}`,
+          })
+          refreshCard()
+        }
       } catch {
         // Never let the notification path affect the question itself.
       }

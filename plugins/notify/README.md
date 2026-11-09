@@ -1,7 +1,8 @@
 # @cc/dsh-notify — desktop notifications for agent events
 
 Tells a human who walked away that a **core chat agent** finished or is asking them
-something. Delegated subagents are deliberately silent.
+something. Delegated subagents are deliberately silent, and the sessions that did finish share
+ONE card: a line per session, dismissed together.
 
 ## Where it appears
 
@@ -33,7 +34,7 @@ it. The default `style: overlay` therefore spawns a real window:
 | **↗** (left of ✕) | opens `url` in the default browser and dismisses |
 | **hover** | Pauses an auto-dismiss if `dismissMs` is positive; the default popup has no timer |
 | **no timer** | By default the popup persists until ✕, Esc or a click; it does not disappear on its own |
-| **several at once** | each claims the lowest free STACK ROW and lines up below the others |
+| **several sessions at once** | ONE card; each finished session is a line in it, and one dismissal clears them all |
 
 ### One shape for every notification
 
@@ -43,10 +44,11 @@ Four principles, and every popup obeys all four - a finish, a question, or the s
    session (`dsh-kit - #5fbab0a6`) or `self-test`. A notification that does not say who it is
    from is the thing being fixed here.
 2. **There is always a ✕.** Every overlay carries it; `Esc` does the same thing.
-3. **It is always in the same place** - top-right, above other windows, at a fixed size - so a
-   notification never has to be hunted for.
-4. **Concurrency is always resolved the same way**: the lowest free stack row, claimed
-   atomically, so simultaneous popups line up instead of overlapping.
+3. **It is always in the same place** - top-right, above other windows - so a notification
+   never has to be hunted for. The card grows downwards to fit its lines.
+4. **Concurrency is always resolved the same way**: one card at a time. A session that
+   finishes REPLACES the card with a body that lists every finished session, so three chats
+   finishing a minute apart leave one popup with three lines, not three popups to dismiss.
 
 The default is **persistent**: the overlay has no timer, so it stays until you press ✕, press
 Esc, or click it. Set `dismissMs` to a positive number if you want the old auto-dismiss behavior.
@@ -60,13 +62,16 @@ logged as one rather than being a second style offered as a choice.
 
 ### Which session it is about
 
-Only root chat agents notify. A delegated subagent's finish or question is filtered out, so a
-background child cannot interrupt you. A popup that says only "Finished after 93s" is useless the
-moment two chats are open, so the session comes first:
+Only root chat agents notify. A child is filtered out by ANY of its three marks: a
+`delegate_task` child carries `delegationDepth: 1`, but a `subagent`/`subagent_fork` child can
+report depth 0 while naming a `parentSession` and `origin: 'subagent'` - testing depth alone is
+what once let a helper's turn pop a notification. A popup that says only "Finished after 93s"
+is useless the moment two chats are open, so the session comes first, one line per session:
 
 ```
-dsh-kit - #5fbab0a6 - Finished after 93s
+3d - WP2 - finished after 93s
 dsh-kit - #5fbab0a6 - asks: which database should the migration target?
+autolabel - #7c1a - finished after 412s
 ```
 
 The label is `project - #shortid`, built from the two fields the harness's own code uses for
@@ -123,7 +128,7 @@ the always-on-top, not the message.
 
 | Harness seam | Event | Fires when |
 |---|---|---|
-| core turn ended | `agent/status` with `running → idle` on a root chat agent | the agent stopped working, the turn lasted at least `minRunMs` (default 15 s), and the agent has no `delegationDepth` |
+| core work finished | `agent/status` with `running → idle` on a root chat agent | the turn lasted at least `minRunMs` (default 15 s), AND the agent stayed idle for `settleMs` (default 8 s). A goal continuation starts its next turn immediately, so its intermediate round never pops a card |
 | question asked | `user-questions/request` | the harness's ask-user path is about to wait for an answer — any caller, not one tool name |
 
 The question listener announces **before** `next()`, so the popup arrives while you are being waited on, not after you have already answered.
@@ -136,6 +141,7 @@ The question listener announces **before** `next()`, so the popup arrives while 
       name: '@cc/dsh-notify'
       config:
         minRunMs: 15000     # shortest turn worth a popup
+        settleMs: 8000      # how long an idle agent must STAY idle to count as finished
         onFinish: true
         onQuestion: true
         title: DeepSeek Harness
@@ -147,7 +153,7 @@ The question listener announces **before** `next()`, so the popup arrives while 
         # powershellPath: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
 ```
 
-Silence it without editing the profile: `DSH_NOTIFY_DISABLED=1`, or raise the threshold with `DSH_NOTIFY_MIN_RUN_MS`.
+Silence it without editing the profile: `DSH_NOTIFY_DISABLED=1`; raise the turn threshold with `DSH_NOTIFY_MIN_RUN_MS`; widen the settle window with `DSH_NOTIFY_SETTLE_MS`.
 
 ## What it will not do
 

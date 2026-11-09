@@ -49,6 +49,97 @@ export const APP_NAME = 'DeepSeek Harness'
 /** Longest notification text this module will produce, after collapsing whitespace. */
 export const MAX_BODY_CHARS = 200
 
+/** Longest single line of an aggregated notification, after collapsing its whitespace. */
+export const MAX_LINE_CHARS = 130
+
+/** How many session lines one notification shows before it says how many were left out. */
+export const MAX_BODY_LINES = 8
+
+/**
+ * Normalise notification text while KEEPING the author's line breaks.
+ *
+ * One line is the common case and keeps the old 200-character budget. An aggregated
+ * "these sessions finished" body is one line per session, so its limit is a line count: the
+ * whole point of the aggregation is that a human reads several sessions at once instead of
+ * dismissing several popups. Blank lines are dropped, because a gap in a small dark card
+ * reads as a broken layout rather than as spacing.
+ *
+ * @param text - Anything; a non-string is read as an empty string.
+ * @returns `{ body, lines }` - the text with each line collapsed and the line count.
+ */
+export function normaliseBody(text) {
+  const raw = typeof text === 'string' ? text : ''
+  if (!raw.includes('\n')) return { body: collapse(raw, MAX_BODY_CHARS), lines: raw.trim() === '' ? 0 : 1 }
+  const lines = raw
+    .split('\n')
+    .map((line) => collapse(line, MAX_LINE_CHARS))
+    .filter((line) => line !== '')
+  if (lines.length === 0) return { body: '', lines: 0 }
+  if (lines.length <= MAX_BODY_LINES) return { body: lines.join('\n'), lines: lines.length }
+  const kept = lines.slice(0, MAX_BODY_LINES - 1)
+  kept.push(`and ${lines.length - kept.length} more`)
+  return { body: kept.join('\n'), lines: kept.length }
+}
+
+/**
+ * Collect the sessions that finished, so the human gets ONE card instead of a stack.
+ *
+ * A popup per session is what made the old behaviour a chore: three chats finishing a minute
+ * apart left three always-on-top windows, each needing its own click. This keeps the finished
+ * sessions in one place and hands the caller the whole body to render, so the card is
+ * REPLACED as sessions join it and one dismissal clears them all.
+ *
+ * Pure except for the clock: it spawns and draws nothing, so the ordering can be exercised
+ * without a desktop.
+ *
+ * @param options - `{ ttlMs }`, default 10 minutes; older entries are forgotten.
+ * @returns `{ finish, resume, clear, entries, body, size }`.
+ */
+export function createFinishAggregator(options = {}) {
+  const ttlMs = Number.isFinite(options.ttlMs) && options.ttlMs > 0 ? options.ttlMs : 10 * 60 * 1000
+  const sessions = new Map()
+  const live = () => {
+    const now = Date.now()
+    for (const [id, entry] of sessions) if (now - entry.at > ttlMs) sessions.delete(id)
+    return [...sessions.values()]
+  }
+  return {
+    /** Record a finished session and return the body for that instant. */
+    finish(id, entry) {
+      sessions.set(id, { ...entry, at: Date.now() })
+      return this.body()
+    },
+    /**
+     * Drop a session that started working again.
+     *
+     * Returns null when that session was not on the card, so a session that merely starts
+     * its next turn does not make the caller redraw an unchanged card (which would kill and
+     * respawn the overlay for nothing).
+     */
+    resume(id) {
+      if (!sessions.delete(id)) return null
+      return this.body()
+    },
+    /** Forget everything (the card was dismissed). */
+    clear() {
+      sessions.clear()
+    },
+    /** Sessions currently rendered, oldest first. */
+    entries() {
+      return live()
+    },
+    /** How many lines the card would show. */
+    size() {
+      return live().length
+    },
+    /** One line per session: the label, then what happened. */
+    body() {
+      const rows = live().sort((a, b) => a.at - b.at)
+      return rows.map((row) => normaliseBody(sessionMessage(row.label, row.message)).body).join('\n')
+    },
+  }
+}
+
 /** How long an overlay window stays on screen, in milliseconds; 0 means persistent. */
 export const DEFAULT_DISMISS_MS = 0
 
@@ -189,7 +280,10 @@ export const OVERLAY_PYTHON_SCRIPT = [
   'body_label.pack(fill="x")',
   'root.update_idletasks()',
   'screen = root.winfo_screenwidth()',
-  "root.geometry('%dx%d+%d+%d' % (WIDTH, HEIGHT, screen - WIDTH - MARGIN, MARGIN + slot * PITCH))",
+  // One line per finished session means the height must follow the text: a fixed 96px card
+  // clipped the third session and silently dropped the rest of the message.
+  'height = max(HEIGHT, 46 + body_label.winfo_reqheight())',
+  "root.geometry('%dx%d+%d+%d' % (WIDTH, height, screen - WIDTH - MARGIN, MARGIN + slot * PITCH))",
   'def close_now(*_ignored):',
   '    release()',
   '    root.destroy()',
@@ -260,7 +354,11 @@ export const WINDOWS_OVERLAY_SCRIPT = [
   'Add-Type -AssemblyName System.Windows.Forms',
   'Add-Type -AssemblyName System.Drawing',
   '$width = 360',
-  '$height = 96',
+  // One line per finished session: the form grows instead of clipping the third one.
+  '$lines = 1',
+  'if ($env:DSH_NOTIFY_LINES) { $lines = [int]$env:DSH_NOTIFY_LINES }',
+  '$bodyHeight = [Math]::Max(54, 17 * $lines)',
+  '$height = 34 + $bodyHeight + 12',
   '$pitch = 104',
   '$margin = 24',
   '$maxSlots = 8',
@@ -326,7 +424,7 @@ export const WINDOWS_OVERLAY_SCRIPT = [
   '$body.ForeColor = [System.Drawing.Color]::FromArgb(234, 238, 247)',
   '$body.Font = New-Object System.Drawing.Font("Segoe UI", 9)',
   '$body.Location = New-Object System.Drawing.Point(14, 34)',
-  '$body.Size = New-Object System.Drawing.Size(332, 54)',
+  '$body.Size = New-Object System.Drawing.Size(332, $bodyHeight)',
   '$form.Controls.AddRange(@($stripe, $title, $body, $open, $close))',
   '$dismissMs = [int]$env:DSH_NOTIFY_MS',
   '$persistent = $dismissMs -le 0',
@@ -523,16 +621,24 @@ export function questionSummary(request, max = MAX_BODY_CHARS) {
 }
 
 /**
- * Whether a notification event belongs to a core chat session. Delegated subagents carry a
- * non-zero `delegationDepth` in their session header; those turns are noise for a human who
- * is working in the root chat and must stay silent.
+ * Whether a notification event belongs to a core chat session.
+ *
+ * Three independent marks of a child, because one of them is routinely absent: a `delegate_task`
+ * child carries `delegationDepth: 1`, but a `subagent`/`subagent_fork` child can report depth 0
+ * while still naming a `parentSession` and `origin: 'subagent'`. Testing depth alone is what let
+ * a helper's turn pop a notification the human never asked for.
  *
  * @param agent - The agent named by an event payload.
  * @returns True when the agent is a root/core chat agent.
  */
 export function isCoreAgent(agent) {
-  const depth = Number(agent?.session?.header?.delegationDepth ?? 0)
-  return !(Number.isFinite(depth) && depth > 0)
+  const header = agent?.session?.header ?? {}
+  const depth = Number(header.delegationDepth ?? 0)
+  if (Number.isFinite(depth) && depth > 0) return false
+  const parent = header.parentSession ?? agent?.parentSession
+  if (typeof parent === 'string' && parent !== '') return false
+  if (header.origin === 'subagent' || agent?.origin === 'subagent') return false
+  return true
 }
 
 /**
@@ -567,7 +673,8 @@ export function platformFamily(platform) {
 export function notificationCommand(input = {}) {
   const family = platformFamily(input.platform)
   const title = collapse(input.title ?? APP_NAME, 120)
-  const body = collapse(input.body ?? '', MAX_BODY_CHARS)
+  // One line per finished session: the line breaks are the aggregation, so they survive.
+  const { body, lines } = normaliseBody(input.body ?? '')
   const dismissMs = Number.isFinite(input.dismissMs) && input.dismissMs >= 0 ? Math.floor(input.dismissMs) : DEFAULT_DISMISS_MS
   const overlay = input.style !== 'daemon'
   const url = typeof input.url === 'string' ? input.url : ''
@@ -575,6 +682,7 @@ export function notificationCommand(input = {}) {
   const overlayEnv = {
     DSH_NOTIFY_TITLE: title,
     DSH_NOTIFY_BODY: body,
+    DSH_NOTIFY_LINES: String(lines),
     DSH_NOTIFY_MS: String(dismissMs),
     DSH_NOTIFY_URL: url,
     DSH_NOTIFY_SLOTS: slotsDir,
@@ -619,9 +727,10 @@ export function notificationCommand(input = {}) {
     return {
       command: typeof input.notifySendPath === 'string' && input.notifySendPath !== '' ? input.notifySendPath : 'notify-send',
       // `-a` attributes the popup to the app rather than to the launcher, `-u normal` keeps it
-      // out of the "critical" style, and the two text arguments are argv elements: no shell,
-      // so a quote in a question is a character rather than the end of a string.
-      args: ['-a', APP_NAME, '-u', 'normal', '-t', String(dismissMs), title, body],
+      // out of the "critical" style, `-r` reuses ONE bubble id so an aggregated update replaces
+      // the previous card instead of stacking a second one, and the two text arguments are
+      // argv elements: no shell, so a quote in a question is a character, not a syntax break.
+      args: ['-a', APP_NAME, '-u', 'normal', '-t', String(dismissMs), '-r', '4242', title, body],
       env: {},
     }
   }

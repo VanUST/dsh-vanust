@@ -2,23 +2,31 @@
 # a top-level YAML array of loader patch entries (id-targeted config
 # overrides, disables, and insert lists; `!!js` expressions allowed).
 
-# ── notify: a persistent popup when a CORE chat agent finishes or asks ───────
-# Root chats only: delegated subagents never raise a popup. Two seams, no guesswork:
-# `agent/status` with a `running -> idle` transition IS the turn
-# having ended, and `user-questions/request` is the waterfall the harness's ask-user path
-# calls before it waits - listening there rather than to a tool name means any caller that
-# asks notifies. The listener announces and then calls next(), so the popup arrives while the
-# human is being waited on.
+# ── notify: ONE card when a CORE chat agent finishes or asks ─────────────────
+# Root chats only. A child is filtered by any of its three marks - delegationDepth, a
+# parentSession, or origin 'subagent' - because a `subagent` child can report depth 0 while
+# still being somebody's helper.
+#
+# "Finished" means STAYED idle: after `running -> idle` the plugin waits `settleMs`, and a
+# continuation that starts inside that window cancels the line. A goal-driven job posts a
+# summary per round and starts the next round immediately; without this the human gets one
+# popup per round instead of one when the job is actually done.
+#
+# The finished sessions share ONE card - a line each - replaced as sessions join it, and one
+# dismissal clears them all. A popup per session is what made three chats cost three clicks.
+# `user-questions/request` is the other seam: it is the waterfall the ask-user path calls
+# before it waits, and its listener announces before calling next(), so the card is there
+# while the human is being waited on.
 #
 # It spawns a detached notifier and can never touch a turn: no tool, no prompt section, no
-# service. Linux uses notify-send; Windows a WinRT toast through powershell.exe with a tray
-# balloon fallback, its text carried in environment variables and XML-escaped in-script, so a
-# question containing quotes is text rather than syntax. Silence it with DSH_NOTIFY_DISABLED=1.
+# service. Linux uses a Tk overlay; Windows a TopMost WinForms form; macOS the desktop
+# notification. Silence it with DSH_NOTIFY_DISABLED=1.
 - insert:
     - id: notify
       name: '@cc/dsh-notify'
       config:
         minRunMs: 15000
+        settleMs: 8000
         onFinish: true
         onQuestion: true
         dismissMs: 0
