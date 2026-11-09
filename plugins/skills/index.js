@@ -18,7 +18,9 @@
  *   skills, ponytail, grill-me, grilling, clear-writing, explain-diagram,
  *   explain-webpage, ui-builder, proof-not-tests, literature-review,
  *   tests-that-could-fail, visual-explanations, ui-testing, ui-design-system,
- *   research-first.
+ *   research-first, canvas-test-bridge, property-based-domain-tests,
+ *   visual-golden-tests, a11y-keyboard-audit, maestro-mobile-flows,
+ *   test-run-observability.
  *
  * BEHAVIOUR ON EDGE CASES
  *   - A missing body file fails the mount loudly: a skill catalog that silently
@@ -68,7 +70,7 @@ const SKILLS = [
     file: 'clear-writing.md',
     name: 'clear-writing',
     description: 'Write concise, concrete explanations in the "80% of the way to ASD-STE100" style; one idea per paragraph, active verbs, no decorative synonyms.',
-    whenToUse: 'A handoff, a design note, a paper comparison, or any explanation a busy human must read once.',
+    whenToUse: 'A design note, a paper comparison, or any explanation a busy human must read once.',
     invocation: { modelInvocable: true, userInvocable: true },
   },
   {
@@ -82,7 +84,7 @@ const SKILLS = [
     file: 'explain-diagram.md',
     name: 'explain-diagram',
     description: 'Explain a system, concept or workflow as a diagram rendered by the local `diagram` tool; relationships, not coordinates.',
-    whenToUse: 'The answer is a flow, architecture, sequence or state machine; a handoff needs a visual.',
+    whenToUse: 'The answer is a flow, architecture, sequence or state machine; a document needs a visual.',
     invocation: { modelInvocable: true, userInvocable: true },
   },
   {
@@ -109,8 +111,8 @@ const SKILLS = [
   {
     file: 'visual-explanations.md',
     name: 'visual-explanations',
-    description: 'Choose the artifact (handoff, deck, diagram, interactive page, animation) from the reader\'s question, then apply one visual system and the show-the-transformation discipline.',
-    whenToUse: 'A document, deck, diagram or explainer is requested, or a handoff needs a visual.',
+    description: 'Choose the artifact (deck, diagram, interactive page, animation) from the reader\'s question, then apply one visual system and the show-the-transformation discipline.',
+    whenToUse: 'A document, deck, diagram or explainer is requested, or a record needs a visual.',
     invocation: { modelInvocable: true, userInvocable: true },
   },
   {
@@ -125,6 +127,48 @@ const SKILLS = [
     name: 'ui-design-system',
     description: 'Tokens, component states and layout patterns for an interface that looks deliberate rather than generated.',
     whenToUse: 'Building or restyling any screen: pick the scales first, then the pattern, then prove contrast and focus.',
+    invocation: { modelInvocable: true, userInvocable: true },
+  },
+  {
+    file: 'canvas-test-bridge.md',
+    name: 'canvas-test-bridge',
+    description: 'Give a canvas/editor app a gated window.__APP_TEST__ bridge so tests read the model and act through the same commands as the UI.',
+    whenToUse: 'A canvas, WebGL or notation editor has no DOM to assert against, or a screenshot is the only evidence a flow has.',
+    invocation: { modelInvocable: true, userInvocable: true },
+  },
+  {
+    file: 'property-based-domain-tests.md',
+    name: 'property-based-domain-tests',
+    description: 'Find music-domain edge cases with Vitest and fast-check: invariants for chords, transposition and parsing, a shrunk counterexample, and a property seen to fail.',
+    whenToUse: 'Pure domain logic (chords, transposition, parsing, timing) is about to be tested with examples that only cover the obvious cases.',
+    invocation: { modelInvocable: true, userInvocable: true },
+  },
+  {
+    file: 'visual-golden-tests.md',
+    name: 'visual-golden-tests',
+    description: 'Pin the rendering environment and compare canvas/notation screenshots with pixelmatch: element crops, ignoreMask for live regions, reviewed baselines, Argos for shared review.',
+    whenToUse: 'Layout, notation glyphs or grid geometry must be protected against a change a role-based test cannot see.',
+    invocation: { modelInvocable: true, userInvocable: true },
+  },
+  {
+    file: 'a11y-keyboard-audit.md',
+    name: 'a11y-keyboard-audit',
+    description: 'Run axe-core plus a scripted keyboard walk on a complex UI: fail serious violations, prove the scan catches an unnamed control, and check focus order, visibility and activation.',
+    whenToUse: 'A keyboard-only user must operate a dense editor, or an accessibility claim needs evidence beyond one scan.',
+    invocation: { modelInvocable: true, userInvocable: true },
+  },
+  {
+    file: 'maestro-mobile-flows.md',
+    name: 'maestro-mobile-flows',
+    description: 'Drive the mobile app with Maestro YAML: verify the target is really Android, prefer stable ids, seed state, run smoke flows in CI and read the artifacts.',
+    whenToUse: 'A mobile build needs an end-to-end flow (launch, sign-in, create, edit) without an Appium server.',
+    invocation: { modelInvocable: true, userInvocable: true },
+  },
+  {
+    file: 'test-run-observability.md',
+    name: 'test-run-observability',
+    description: 'Leave a failure bundle worth reading: one JSON event per step with a run id, a summarized gate, and Playwright traces uploaded on failure.',
+    whenToUse: 'A red run is hard to diagnose, CI artifacts are missing, or a suite needs machine-readable evidence instead of console prose.',
     invocation: { modelInvocable: true, userInvocable: true },
   },
   {

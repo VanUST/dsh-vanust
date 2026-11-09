@@ -322,7 +322,15 @@ const totalBilled = sessions.reduce((a, s) => a + (s.billed ?? 0), 0)
 const totalCached = sessions.reduce((a, s) => a + (s.cached ?? 0), 0)
 const totalOutput = sessions.reduce((a, s) => a + (s.output ?? 0), 0)
 const totalRequests = sessions.reduce((a, s) => a + (s.requests ?? 0), 0)
-const missEvents = sessions.flatMap((s) => (s.usage ?? []).filter((u) => (u.billed ?? 0) > 10_000).map((u) => ({ id: s.id, turn: u.turn, step: u.step, billed: u.billed, prompt: u.prompt, cached: u.cached })))
+const totalCompactionSummaries = sessions.reduce((a, s) => a + (s.compactionSummaries ?? 0), 0)
+const totalCompactionBilled = sessions.reduce((a, s) => a + (s.compactionBilled ?? 0), 0)
+const totalCompactionCached = sessions.reduce((a, s) => a + (s.compactionCached ?? 0), 0)
+const totalCompactionOutput = sessions.reduce((a, s) => a + (s.compactionOutput ?? 0), 0)
+// A cache miss is a step whose prompt was NOT read from cache: both providers report
+// ~1.8K cached tokens for the fixed prefix and then nothing. `billed > 10K` (the old
+// test) also counted ordinary context growth, so it overstated misses.
+const isCacheMiss = (u) => (u.prompt ?? 0) > 10_000 && (u.cached ?? 0) <= 2_000
+const missEvents = sessions.flatMap((s) => (s.usage ?? []).filter(isCacheMiss).map((u) => ({ id: s.id, turn: u.turn, step: u.step, billed: u.billed, prompt: u.prompt, cached: u.cached })))
 const over50k = missEvents.filter((e) => e.billed > 50_000)
 const biggestContext = sessions.map((s) => ({ id: s.id, isSubagent: s.isSubagent, cwd: s.cwd, promptMax: s.promptMax ?? 0, requests: s.requests ?? 0 })).sort((a, b) => b.promptMax - a.promptMax).slice(0, 15)
 
@@ -342,6 +350,15 @@ const cost = {
   shareOfBilledInMissEvents: rate(missEvents.reduce((a, e) => a + e.billed, 0), totalBilled),
   topMissEvents: missEvents.sort((a, b) => b.billed - a.billed).slice(0, 15),
   compactions: sessions.reduce((a, s) => a + (s.compactions ?? 0), 0),
+  // A compaction summary is a model call over the context it summarizes. It never
+  // appears in the per-step usage series, so it used to be absent from every figure
+  // above; these are the tokens it actually billed.
+  compactionSummaries: totalCompactionSummaries,
+  compactionBilled: totalCompactionBilled,
+  compactionCached: totalCompactionCached,
+  compactionOutput: totalCompactionOutput,
+  billedWithCompaction: totalBilled + totalCompactionBilled,
+  compactionShareOfBilled: rate(totalCompactionBilled, totalBilled + totalCompactionBilled),
   biggestContexts: biggestContext,
   outputPerBilled: rate(totalOutput, totalBilled),
   topSessionsByBilled: sessions.map((s) => ({ id: s.id, isSubagent: s.isSubagent, billed: s.billed ?? 0, requests: s.requests ?? 0, worstMiss: s.worstMiss ?? 0, missSteps: s.cacheMissSteps ?? 0, cwd: s.cwd })).sort((a, b) => b.billed - a.billed).slice(0, 15),

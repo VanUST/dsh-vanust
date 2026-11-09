@@ -12,7 +12,7 @@ third-party components it contains or depends on:
 - **`@cc/dsh-notify`**, **`@cc/dsh-work-modes`**, **`@cc/dsh-presentation`**,
   **`@cc/dsh-diagrams`**, **`@cc/dsh-godot-mcp`**, **`@cc/dsh-skills`**,
   **`@cc/dsh-flash-guard`**, **`@cc/dsh-proof-guard`**, **`@cc/dsh-taskboard`**,
-  **`@cc/dsh-orchestrator`**, **`@cc/dsh-handoff`**, **`@cc/dsh-papers`**,
+  **`@cc/dsh-orchestrator`**, **`@cc/dsh-papers`**,
   **`@cc/dsh-rtk`**, **`@cc/dsh-skill-evolve`** and **`@cc/dsh-research-first`** — this deployment's own
   packages, under this repository's `LICENSE` (MIT), except where a skill body is
   adapted from an upstream project:

@@ -655,7 +655,7 @@ window.__ModuleLoader__.load({
         h('div', { className: 'tb-sec' },
           h('h4', null, 'Add a note'),
           h('div', { className: 'tb-note' },
-            h('input', { className: 'tb-input', placeholder: 'A decision, a blocker, a handoff link…', readOnly: !canEdit, onKeyDown: (event) => { if (event.key === 'Enter' && event.currentTarget.value.trim() !== '') { onNote(task.id, event.currentTarget.value.trim()); event.currentTarget.value = '' } } }),
+            h('input', { className: 'tb-input', placeholder: 'A decision, a blocker, an evidence link…', readOnly: !canEdit, onKeyDown: (event) => { if (event.key === 'Enter' && event.currentTarget.value.trim() !== '') { onNote(task.id, event.currentTarget.value.trim()); event.currentTarget.value = '' } } }),
             h('button', { type: 'button', className: 'tb-btn', onClick: (event) => { const input = event.currentTarget.previousSibling; if (input.value.trim() !== '') { onNote(task.id, input.value.trim()); input.value = '' } }, disabled: busy || !canEdit }, 'Add'),
           ),
         ),

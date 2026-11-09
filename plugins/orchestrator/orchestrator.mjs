@@ -17,10 +17,11 @@
  *
  * OUTPUTS
  *   Scoped prompt sections and one scoped tool per root agent; no global tool,
- *   no service, no session event. The task and child link are the taskboard's
+ *   no service, and no session event of its own (it observes turn/start only to
+ *   refresh the policy block once per turn). The task and child link are the taskboard's
  *   durable records. The root tool is removed with the agent, and the sections
  *   are removed with it too. The root policy carries the workspace's existing
- *   roles, read from the ledger at assembly time.
+ *   roles, read from the ledger once per turn.
  *
  * KEYWORDS
  *   orchestrator, delegate_task, task brief, scope, non-scope, flash child,
@@ -53,6 +54,10 @@
  *   - The root policy appends a short board-debt block: tasks parked in review with the
  *     age of the oldest, and `ready` tasks that have a role but no child - a delegation
  *     that never started. `active` with no child is NOT debt: that is inline work.
+ *   - The role catalog and the board debt are frozen from the first step of a turn to
+ *     the last: a board write mid-turn does not rewrite the system prompt, because on a
+ *     caching provider that re-bills the whole conversation from the first changed byte.
+ *     The next turn re-reads the ledger, so a role created a minute ago still appears.
  *   - A delegation writes a "Delegating to <role>" note before the child starts, and the
  *     failure path re-reads the task's revision, sets it blocked, and appends a note even
  *     when that update refuses. A task can no longer sit in `ready` saying only "Created".
@@ -177,6 +182,39 @@ export function renderBoardDebt(tasks, limit = 600) {
   const text = lines.join('\n')
   return text.length <= limit ? text : `${text.slice(0, limit - 70)}\n[More debt on the board; task_list lists it.]`
 }
+/**
+ * Freeze a rendered prompt block until the next turn starts.
+ *
+ * WHY. The role catalog and the board debt are read from the live ledger, so every
+ * task_create, task_update, task_close and delegate_task inside a turn changes their
+ * text. The harness turns a changed section into a new system message, and a provider
+ * that caches the prompt prefix re-bills everything from the first changed byte. Measured
+ * on `kimi-coding` (2026-11-09, session df8c3329, 59 steps, 200-310K-token context):
+ * 19 of the 20 steps that carried a changed system prompt came back with cacheRead=1792,
+ * while untouched steps read 96K-313K from cache - 4.6M of that session's 5.0M fresh
+ * input, and a 5-hour quota gone in eight minutes. One render per turn keeps the prefix
+ * byte-identical for every step of the turn; the ledger is still re-read before the
+ * next turn's first step, so a role or a review count changed a minute ago is visible
+ * then.
+ *
+ * @param render - Reads the ledger and returns the block text.
+ * @returns `text()` for the prompt section and `freeze()` to call at a turn boundary.
+ */
+export function freezePerTurn(render) {
+  let text = null
+  return {
+    /** The block for this turn, rendered on first use after the last freeze. */
+    text() {
+      if (text === null) text = render()
+      return text
+    },
+    /** Drop the memo so the next `text()` re-reads the ledger. */
+    freeze() {
+      text = null
+    },
+  }
+}
+
 /** Cordis function-plugin name; also the id a profile patch targets. */
 export const name = 'orchestrator'
 
@@ -203,7 +241,7 @@ That ledger is not bookkeeping for delegation: it is the record that outlives th
 3. Delegate the independent tasks with \`delegate_task\`. One task per child. The brief must be self-contained and name the non-scope. Never delegate final integration or the human's judgment.
 4. Use \`workflow\` for deterministic fan-out with structured results. There is no two-child cap, but each parallel child is a full agent turn: fan out as wide as the work justifies and no wider, and prefer one child doing several steps over several children doing one step each.
 5. Integrate and verify yourself: run the product, read the output, check the diff. A child's report is a claim, not evidence.
-6. Render a \`handoff\` at each milestone and at the end. Update the taskboard before you speak to the human. Close the tasks and the goal.
+6. Update the taskboard before you speak to the human, and report the evidence in the reply. Close the tasks and the goal.
 7. Close the loop on what the work taught. If the task produced a non-obvious procedure - a build incantation, a trap, an order of operations that cost a retry - call \`skill_inventory\` and, when nothing covers it, \`skill_evolve\` with the exact steps. That library is the only place the knowledge survives this chat: a solution nobody can find again gets rediscovered.
 
 **A fixed, multi-step procedure goes through babysitter.** When the work is a sequence whose every step must be recorded and re-runnable - a release gate, a migration, a batch audit, a checklist that must not silently skip a step - write it as a process file under \`.babysitter/processes/\` and run it with \`babysitter_run\`, instead of a string of ad-hoc shell steps. One run maps to one taskboard task and leaves a journal the next person can resume. This is for procedures: a single command, a one-off edit or a task whose steps you cannot name in advance does not need a run.
@@ -219,7 +257,7 @@ A question never needs this ceremony. A change never skips the task.
 - Every brief states: objective, scope, non-scope, inputs, acceptance, required output, proof and timebox.
 - The child owns its task's work, not its acceptance. The task moves to review when the child settles; you decide done.
 - No autotests. Prove behavior by running the product and quoting the command, output and exit code. A test file only when the human asks and the behavior is non-trivial.
-- A handoff is one page: TL;DR, objective, changes, evidence, decisions, risks, next actions. Prefer a diagram when relationships are the point.`
+- Report one page: TL;DR, objective, changes, evidence, decisions, risks, next actions. Prefer a diagram when relationships are the point.`
 
 /** Child policy: the specialist reads its brief and nothing else competes. */
 const CHILD_POLICY = `## Delegated specialist policy (deployment)
@@ -231,7 +269,7 @@ You are a delegated specialist. Do exactly the task brief you received.
 - You may be a persistent role specialist: you can receive several task briefs in this session. Keep your assigned role, treat each new message as one task, and do not spawn children.
 - Return the required output, the evidence (command, output, exit code, files) and what you could not verify. A claim without evidence is not a result.
 - Do not write autotests. Prove behavior by running the product.
-- Use \`task_note\` for significant findings and \`task_get\` to re-read your task. The orchestrator owns acceptance and the final handoff.
+- Use \`task_note\` for significant findings and \`task_get\` to re-read your task. The orchestrator owns acceptance and the final report.
 - BEFORE you report the task done, close the loop on what the work taught. If it produced a procedure that is not obvious from the code - a build incantation, a trap, an order of operations that cost a retry - call \`skill_inventory\`; if nothing covers it, call \`skill_evolve\` with the exact steps, the failure it prevents and this task as the evidence. Never record trivia, one-off facts or a secret. A task that found nothing reusable simply reports that; do not invent a skill to look productive.`
 
 /**
@@ -545,10 +583,11 @@ export function apply(ctx, config = {}) {
   ctx.on('agent/created', ({ agent }) => {
     const depth = Number(agent?.session?.header?.delegationDepth ?? 0)
     const isRoot = !(Number.isFinite(depth) && depth > 0)
-    // The catalog is read at assembly time, not at boot: a role created a minute ago in
-    // this same chat appears on the next turn, and a new chat starts already knowing the
-    // workspace's roles instead of inventing them again.
-    const rootText = () => {
+    // The catalog is read once per turn, not once per request: a role created a minute
+    // ago appears on the next turn, and every step of one turn shares one system prompt,
+    // so the board writes those steps make cannot invalidate the provider's prefix cache
+    // for the conversation. See freezePerTurn.
+    const rootText = freezePerTurn(() => {
       try {
         const cwd = workingDir(agent)
         const catalog = renderRoleCatalog(ctx.taskboard.agents(cwd))
@@ -557,13 +596,19 @@ export function apply(ctx, config = {}) {
       } catch {
         return ROOT_POLICY
       }
+    })
+    if (isRoot) {
+      // A turn boundary is the only point the block refreshes.
+      agent.ctx.on('session/event', (session, event) => {
+        if (session === agent.session && event?.type === 'turn/start') rootText.freeze()
+      })
     }
     if (promptSections) {
       const base = ctx.systemPrompt.getSectionOrder('SUBAGENT_DELEGATION')
       agent.ctx.systemPrompt.section({
         name: isRoot ? 'deployment:orchestrator-policy' : 'deployment:specialist-policy',
         order: Number.isFinite(base) ? base + (isRoot ? 1 : 2) : (isRoot ? 121 : 122),
-        text: isRoot ? rootText : CHILD_POLICY,
+        text: isRoot ? () => rootText.text() : CHILD_POLICY,
       })
     }
     if (isRoot) agent.ctx.tools.register(definition)

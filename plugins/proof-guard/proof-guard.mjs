@@ -4,7 +4,7 @@
  *   The rule is not "no tests ever"; it is "no pointless tests". The guard cannot
  *   judge quality, so it requires the writer to state the production behavior and
  *   the failure the test prevents in a `PROOF:` header. A trivial test can still
- *   fake the header; the human review and the handoff evidence remain the real
+ *   fake the header; the human review remain the real
  *   check. This is friction in the right place, not proof by itself.
  *
  * INPUTS

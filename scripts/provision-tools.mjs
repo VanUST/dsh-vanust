@@ -606,7 +606,7 @@ const TOOLS = [
   },
   {
     id: 'chrome',
-    label: 'Chrome/Chromium — PDF rendering (decks, handoffs)',
+    label: 'Chrome/Chromium — PDF rendering (decks)',
     required: false,
     detectOnly: true,
     names: ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser', 'chrome', 'chrome.exe', 'msedge.exe'],

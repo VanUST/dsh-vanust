@@ -129,6 +129,10 @@ for (const file of files) {
     let textChars = 0
     let todoWrites = 0
     let compactions = 0
+    let compactionSummaries = 0
+    let compactionBilled = 0
+    let compactionCached = 0
+    let compactionOutput = 0
     let broken = 0
     let lastStep = null
 
@@ -268,7 +272,20 @@ for (const file of files) {
         retryCodes[code] = (retryCodes[code] ?? 0) + 1
         continue
       }
-      if (type.startsWith('compaction')) { compactions += 1; continue }
+      if (type.startsWith('compaction')) {
+        compactions += 1
+        // A compaction summary is a real model call whose prompt is the context being
+        // summarized (measured 2026-11-09: up to 792K tokens, 44.6M billed across 119
+        // summaries). The per-step usage series never sees it, so skipping it here made
+        // the kit under-report the bill by ~10% of all billed tokens.
+        if (type === 'compaction/summary' && d.usage) {
+          compactionSummaries += 1
+          compactionBilled += d.usage.inputTokens ?? 0
+          compactionCached += d.usage.cacheReadTokens ?? 0
+          compactionOutput += d.usage.outputTokens ?? 0
+        }
+        continue
+      }
     }
 
     for (const t of [...turnByKey.values()].sort((a, b) => (a.turn ?? 0) - (b.turn ?? 0))) turns.push(t)
@@ -325,12 +342,19 @@ for (const file of files) {
       output: usage.reduce((a, u) => a + (u.output ?? 0), 0),
       outputMax: usage.length ? Math.max(...usage.map((u) => u.output ?? 0)) : 0,
       worstMiss: usage.reduce((a, u) => Math.max(a, u.billed), 0),
-      cacheMissSteps: usage.filter((u) => u.billed > 10_000).length,
+      // A cache miss is a step whose prompt was NOT served from cache: both providers
+      // report ~1.8K cached tokens for the fixed prefix and then nothing. `billed > 10K`
+      // (the old test) also counted ordinary context growth, overstating misses.
+      cacheMissSteps: usage.filter((u) => u.prompt > 10_000 && u.cached <= 2_000).length,
       lowCacheSteps: usage.filter((u) => u.prompt > 0 && u.cached / u.prompt < 0.5).length,
       retries: Object.values(retryCodes).reduce((a, b) => a + b, 0),
       retryCodes,
       todoWrites,
       compactions,
+      compactionSummaries,
+      compactionBilled,
+      compactionCached,
+      compactionOutput,
       textChars,
       reasoningChars,
       assistantMessages: kindCounts['assistant/message'] ?? 0,

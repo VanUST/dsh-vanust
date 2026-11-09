@@ -29,7 +29,7 @@ Skip it when the work is local and self-describing: renaming a variable, fixing 
 - `web_fetch` a specific official page. Search endpoints can be unavailable; a URL you already know (docs, `raw.githubusercontent.com`, a changelog) always works.
 - If the deployment exposes a documentation MCP (for example **Context7**: `resolve-library-id` then `query-docs`, or the `ctx7 library` / `ctx7 docs` CLI), prefer it — it returns version-matched snippets rather than your recollection.
 - Read the local source of truth too: `node_modules/<pkg>/README.md`, `--help`, `man`. The installed code cannot lie about its own version.
-- Record what you found **before** writing: the URL, the version, and the one fact that changed your plan. That note is what you cite in the handoff; a research step with no recorded finding tends to be a ritual.
+- Record what you found **before** writing: the URL, the version, and the one fact that changed your plan. That note is what you cite in the report; a research step with no recorded finding tends to be a ritual.
 
 ## When a lookup fails
 

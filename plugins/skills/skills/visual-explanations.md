@@ -1,18 +1,17 @@
 # Visual explanations
 
-The kit has four rendering surfaces — `presentation`, `diagram`, `handoff`, `explain-webpage` — plus the option of real animation. They are not interchangeable: each answers a different reader question. Choose the artifact from the question, then make every artifact from the same family look like it came from one hand.
+The kit has three rendering surfaces — `presentation`, `diagram`, `explain-webpage` — plus the option of real animation. They are not interchangeable: each answers a different reader question. Choose the artifact from the question, then make every artifact from the same family look like it came from one hand.
 
 ## Pick the artifact
 
 | The reader's question | Artifact | Tool |
 |---|---|---|
-| "What was decided, and on what evidence?" | one-page record | `handoff` |
 | "Walk me through it in order" | deck, one idea per slide | `presentation` |
 | "How do these parts relate / what is the lifecycle?" | diagram (flow, state, arch, sequence) | `diagram` |
 | "What happens if I change this input?" | interactive page with controls | skill `explain-webpage` |
 | "Show me how it moves / transforms" | animation or staged frames | Manim, or staged diagrams |
 
-A handoff is a **record**, not a story: it must fit one A4 page, and the tool now tells you when it does not. A deck is a **performance**: it may not survive printing. A diagram is a **map**: it holds no prose. Choosing wrong is why documents look bad — a deck used as a record is unreadable, a handoff used as a story is cramped.
+A deck is a **performance**: it may not survive printing. A diagram is a **map**: it holds no prose. A one-page decision record in the reply is a **note**, not a story. Choosing wrong is why documents look bad — a deck used as a record is unreadable.
 
 ## One visual system, every artifact
 
@@ -43,7 +42,6 @@ Write the storyboard before rendering: for each frame, list `anchor`, `change`, 
 
 - **`diagram`** — `sequence` for a protocol or a request path, `state` for a lifecycle, `arch` for layers and boundaries, `flow` for a decision. Caps that keep it legible: ≤ 9 nodes, ≤ 3 ranks wide, labels under ~30 characters, edges labelled with verbs. For before/after, prefer two diagrams with identical structure, or one diagram with a dashed edge labelled `then`.
 - **`presentation`** — one idea per slide, ≤ 5 cards, the kicker names the section so a reader can skim. The deck is HTML the preview renders; keep it print-readable if anyone will PDF it.
-- **`handoff`** — the record: TL;DR, objective, what changed, evidence, decisions, risks, next. It refuses nothing, but it warns when the page overflows; trim items rather than shrinking type.
 - **Staged frames without an animation engine** — render 3–5 diagrams of the same scene, then step through them in a self-contained page (CSS transitions, a "step" button, keyboard arrows). The Sidebar preview runs scripts, so this is a real animation surface at a fraction of the cost.
 - **Manim, when motion *is* the explanation** — Manim Community (`pip install manim`, or `uv tool install manim`) renders scenes to MP4 and needs `ffmpeg` plus cairo/pango. A scene is a Python class: build mobjects (`Text`, `MathTex`, `Axes`, `Arrow`), then `self.play(Create(ax), Transform(before, after))`. Use it when the deliverable is a video people will watch; otherwise the HTML route is cheaper, previewable and diffable.
 
@@ -58,9 +56,9 @@ Render it, then look: open the file, screenshot it at 100%, read the smallest la
 - A rainbow: colour that distinguishes categories the viewer does not need to distinguish.
 - Centred body paragraphs; ragged-right is easier to read.
 - Motion that repeats the same state, or animates the arrival of text the viewer could have read instantly.
-- Decorative illustration in a record; the handoff is read for the decision.
+- Decorative illustration in a decision record; it is read for the decision.
 - A deck printed to A4 without checking it.
 
 ## Sources
 
-Method distilled for this deployment from 3Blue1Brown's published explainers and Manim Community's documentation (<https://www.manim.community/>, scene/mobject model and `manim` CLI); the tool contracts are the kit's own (`diagram`, `presentation`, `handoff`, `explain-webpage`).
+Method distilled for this deployment from 3Blue1Brown's published explainers and Manim Community's documentation (<https://www.manim.community/>, scene/mobject model and `manim` CLI); the tool contracts are the kit's own (`diagram`, `presentation`, `explain-webpage`).

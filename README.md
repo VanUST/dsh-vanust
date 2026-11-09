@@ -1,6 +1,6 @@
 # dsh-kit
 
-Portable setup for **DeepSeek Harness (dsh)** plus the twelve plugins this
+Portable setup for **DeepSeek Harness (dsh)** plus the fifteen plugins this
 deployment needs beyond upstream, across all your machines (2× Linux, 1× Windows).
 `plugins/inventory.json` is the single source of truth for the set:
 
@@ -38,11 +38,14 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   `scripts/dsh-mcp-sync.mjs`, which imports the plugin's own row builder so the two
   cannot drift. It ships no MCP protocol code, by design: a second client implementation
   would diverge from the shipped one on precisely the details that are hard to get right.
-- **`@cc/dsh-skills`** — fourteen runtime skills in one tarball: Ponytail's lazy-senior
+- **`@cc/dsh-skills`** — twenty runtime skills in one tarball: Ponytail's lazy-senior
   discipline (its test paragraph patched to the proof rule), grill-me/grilling, Karpathy
   clear-writing/explain-webpage/explain-diagram (the diagram skill adapted to the local
-  `diagram` tool), the UI builder loop, the proof-not-tests ruling, and the literature
-  review procedure. They register through `ctx.skills.register`; no `$DSH_HOME/skills` copy.
+  `diagram` tool), the UI builder loop, the proof-not-tests ruling, the literature
+  review procedure, and the 2026-11-09 UX/UI testing set: a gated canvas test bridge,
+  Vitest/fast-check property tests, pixelmatch/Argos visual goldens, an axe/keyboard
+  audit, Maestro mobile flows and a JSON-log/Playwright-trace failure bundle. They
+  register through `ctx.skills.register`; no `$DSH_HOME/skills` copy.
 - **`@cc/dsh-flash-guard`** — one `agent/request` waterfall: a delegated child's model
   route is rewritten to the configured flash route, or refused, before dispatch. This is
   the enforcement behind the Subagent model-selection allowlist; external providers are
@@ -63,9 +66,6 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   and a root-only `delegate_task` tool. The tool creates the task, renders a self-contained
   brief (objective, scope, non-scope, inputs, acceptance, output, proof, timebox), starts a
   flash child and links the child id. It applies to every preset; no preset is duplicated.
-- **`@cc/dsh-handoff`** — one tool that renders a structured result into a self-contained
-  A4 HTML page (TL;DR, objective, changes, evidence, decisions, risks, next, artifacts) and,
-  when Chrome/Chromium is available, a PDF beside it. The HTML is the source of truth.
 - **`@cc/dsh-papers`** — the literature-research tool family: `papers_search` across arXiv
   and Hugging Face, `papers_trending` for the HF daily list, and `papers_download` to save an
   arXiv PDF under `.dsh/papers/` with a `pdftotext` extraction. No API key; one source can
@@ -101,7 +101,7 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
 
 **Third-party add-on: Hindsight memory.** `@vectorize-io/hindsight-coding-agents@0.8.2`
 is installed separately by its own command (`npx @vectorize-io/hindsight-coding-agents install dsh`),
-not from this repository, and is therefore not one of the twelve in-repo plugins. It writes a
+not from this repository, and is therefore not one of the fifteen in-repo plugins. It writes a
 row into `$DSH_HOME/cordis.patch.yml` (the home layer, shared by every profile) and a
 companion skill into `~/.agents/skills/hindsight-coding-agent`. Its settings live in
 `~/.hindsight/coding-agent.json`; this machine's file is enabled with `serverMode: daemon`
@@ -114,7 +114,7 @@ survives a kit convergence by design.
 
 **Prompt, skills and model policy are now deployment surfaces.** The harness still owns the
 persona and the request pipeline, but this kit deliberately adds a root/child orchestration
-policy (`@cc/dsh-orchestrator`), fourteen runtime skills (`@cc/dsh-skills`) and a flash-route
+policy (`@cc/dsh-orchestrator`), twenty runtime skills (`@cc/dsh-skills`) and a flash-route
 guard (`@cc/dsh-flash-guard`). This is a change from the earlier "no plugin contributes
 prompt text" stance; `rules/DEPLOYMENT.md` §2 states the policy and the seams, and the
 model route still offers what the profile configures.
@@ -132,12 +132,11 @@ cd dsh-vanust               # the repository is dsh-vanust; the kit it contains 
 ```
 
 **What a clone alone gives you, stated exactly.** Everything the deployment
-installs is in the repository: the twelve plugin tarballs, the canonical profile, the
+installs is in the repository: the fifteen plugin tarballs, the canonical profile, the
 procedure and the pinned version in both installers. Every plugin's source is here
 too — `plugins/notify/`, `plugins/presentation/`, `plugins/diagrams/`,
 `plugins/work-modes/`, `plugins/godot-mcp/`, `plugins/skills/`, `plugins/flash-guard/`,
-`plugins/proof-guard/`, `plugins/taskboard/`, `plugins/orchestrator/` and
-`plugins/handoff/`. Two things come from
+`plugins/proof-guard/`, `plugins/taskboard/` and `plugins/orchestrator/`. Two things come from
 outside it, and both are steps the installer performs rather than files a clone could
 carry: the harness itself (`npm i -g @deepseek-ai/dsh@0.2.1-rc.2`, so npm must be
 reachable) and your API credentials (per machine, configured at first run — never in
@@ -159,20 +158,19 @@ dsh-kit/
 │                              #   session-analysis`: every session, in seconds per question)
 ├── scripts/kit-update.mjs     # update path: hash drift check + convergence for an existing machine
 ├── plugins/inventory.json     # the shipped plugin set (the source of truth)
-├── plugins/*.tgz              # plugin tarballs: twelve packages, including notify, presentation,
+├── plugins/*.tgz              # plugin tarballs: fifteen packages, including notify, presentation,
 │                              #                  diagrams, work-modes, godot-mcp, skills, flash-guard,
-│                              #                  proof-guard, taskboard, orchestrator, handoff
+│                              #                  proof-guard, taskboard, orchestrator
 ├── plugins/notify/            # source of @cc/dsh-notify (desktop notifications; packed above)
 ├── plugins/presentation/      # source of @cc/dsh-presentation (deck tool; no client half by design)
 ├── plugins/diagrams/          # source of @cc/dsh-diagrams (scheme tool; own layout engine, no client half)
 ├── plugins/work-modes/        # source of @cc/dsh-work-modes (packed into its tarball above)
 ├── plugins/godot-mcp/         # source of @cc/dsh-godot-mcp (packed into its tarball above)
-├── plugins/skills/            # source of @cc/dsh-skills (fourteen runtime skills)
+├── plugins/skills/            # source of @cc/dsh-skills (twenty runtime skills)
 ├── plugins/flash-guard/       # source of @cc/dsh-flash-guard (child model-route guard)
 ├── plugins/proof-guard/       # source of @cc/dsh-proof-guard (test-file PROOF header)
 ├── plugins/taskboard/         # source of @cc/dsh-taskboard (Host service, command, Web panel)
 ├── plugins/orchestrator/      # source of @cc/dsh-orchestrator (root/child policy + delegate_task)
-├── plugins/handoff/           # source of @cc/dsh-handoff (one-page HTML + PDF)
 ├── plugins/papers/            # source of @cc/dsh-papers (arXiv/HF search, trending, PDF text)
 ├── plugins/rtk/               # source of @cc/dsh-rtk (rtk binary discovery + post-execute output seam)
 ├── plugins/skill-evolve/      # source of @cc/dsh-skill-evolve (SKILL.md write/version/dedupe/archive)
@@ -226,7 +224,7 @@ verified on and the procedure for reproducing that verification are `rules/DEPLO
 
 - **Plugin source** — `plugins/notify/`, `plugins/presentation/`, `plugins/diagrams/`,
   `plugins/work-modes/`, `plugins/godot-mcp/`, `plugins/skills/`, `plugins/flash-guard/`,
-  `plugins/proof-guard/`, `plugins/taskboard/`, `plugins/orchestrator/`, `plugins/handoff/`,
+  `plugins/proof-guard/`, `plugins/taskboard/`, `plugins/orchestrator/`,
   `plugins/papers/`.
   `plugins/inventory.json` is the set.
 - **Design rationale** — `docs/` carries the analysis notes this kit was built from

@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-proof-guard",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Denies a write or edit to a test file unless the content (or the existing file) states a PROOF header naming the production behavior and the failure it prevents; the no-autotest ruling as mechanical friction, with a warn mode for a trial week. No tool, prompt section or session event.",
   "type": "module",
   "main": "proof-guard.mjs",

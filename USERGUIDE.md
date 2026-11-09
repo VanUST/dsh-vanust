@@ -15,9 +15,10 @@ the plugin computes the geometry, and the Sidebar document preview shows it),
 **`@cc/dsh-work-modes`** (shipped but not mounted: its two-child concurrency cap was
 removed on 2026-11-05 and the harness pool now allows 64 concurrent `subagent`
 children), **`@cc/dsh-godot-mcp`** (a declarative, transferable MCP server list — §3.2),
-**`@cc/dsh-skills`** (fourteen runtime skills: Ponytail, grill-me/grilling, Karpathy
+**`@cc/dsh-skills`** (twenty runtime skills: Ponytail, grill-me/grilling, Karpathy
 clear-writing/explain-webpage/explain-diagram, the UI builder loop, the proof-not-tests
-ruling and literature review),
+ruling, literature review, and the 2026-11-09 UX/UI testing set: canvas bridge, property
+tests, visual goldens, a11y/keyboard audit, Maestro flows, run observability),
 **`@cc/dsh-flash-guard`** (rewrites or refuses a delegated child's model route unless it is
 the configured flash route),
 **`@cc/dsh-proof-guard`** (denies a test-file write without a `PROOF:` header),
@@ -26,8 +27,7 @@ catalog; `@cc/dsh-client-ui-subagent` is disabled so the header has one cell),
 **`@cc/dsh-orchestrator`** (root and child policy sections plus the root-only
 `delegate_task` tool: it lists the workspace's roles in the root policy, refuses a
 near-duplicate new role unless `forceRole` is passed, attaches to an existing task when
-`taskId` is given, and carries a re-created role's earlier results into its brief) and
-**`@cc/dsh-handoff`** (one-page HTML and optional PDF handoff),
+`taskId` is given, and carries a re-created role's earlier results into its brief),
 **`@cc/dsh-papers`** (arXiv/Hugging Face paper search, HF daily trending, and a PDF
 download with text extraction).
 `plugins/inventory.json` is the single source of truth for that set;
@@ -36,7 +36,7 @@ source directory or a packing entry point disagrees with it. The harness version
 is pinned; sessions and workspaces stay machine-local by design.
 
 The harness owns the persona, the request pipeline and the user interface; this kit adds a
-deployment policy on top: the orchestrator's root/child sections, fourteen runtime skills and a
+deployment policy on top: the orchestrator's root/child sections, twenty runtime skills and a
 flash-route guard. A repository's `AGENTS.md`/`CLAUDE.md` still reaches the model through
 the harness's own loader. The Tasks panel is the one new primary surface: open it from the
 sidebar, or from the **Tasks** header cell in a conversation. Its detail pane is

@@ -93,15 +93,6 @@
       "mounted": true
     },
     {
-      "id": "handoff",
-      "package": "@cc/dsh-handoff",
-      "tarballPrefix": "cc-dsh-handoff",
-      "provenance": "in-repo",
-      "source": "plugins/handoff",
-      "pack": "scripts/pack-plugin.mjs",
-      "mounted": true
-    },
-    {
       "id": "papers",
       "package": "@cc/dsh-papers",
       "tarballPrefix": "cc-dsh-papers",

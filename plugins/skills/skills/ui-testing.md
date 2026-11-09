@@ -2,6 +2,20 @@
 
 A UI is correct when a user can do the task, so the evidence has to come from a browser driving the interface the way a person does. This skill is the checking half of `ui-builder`: same loop, stricter rules about what counts as proof.
 
+## When this is not enough
+
+This is the default browser loop. Six skills go deeper on one axis each — load
+the one whose axis the task is on, not all of them:
+
+| If the problem is... | Load |
+|---|---|
+| a canvas, WebGL or notation editor with no DOM | `canvas-test-bridge` |
+| chord, transposition or parser invariants | `property-based-domain-tests` |
+| pixels: layout, glyphs, grid geometry | `visual-golden-tests` |
+| keyboard-only use or an accessibility claim | `a11y-keyboard-audit` |
+| a phone app | `maestro-mobile-flows` |
+| diagnosing a red run, or the evidence it leaves | `test-run-observability` |
+
 ## The rules that decide pass or fail
 
 1. **Assert user-visible behaviour.** Query what is rendered and accessible — role, name, text — not the class name, the component state or the array inside it. If the user cannot see it, it is not the contract.
@@ -26,7 +40,7 @@ For each screen or flow, cover the states, not just the happy path:
 - **narrow width** — one phone width (≈375 px) and one desktop width (≈1280 px);
 - **the negative** — clicking the wrong thing does not submit the form.
 
-Accessibility is part of correct, not a separate audit: every input has a label, every button has an accessible name, contrast meets 4.5:1 for body text and 3:1 for large text and UI edges (WCAG 2.2 AA). Run an axe scan where a tool is available, then check focus order by hand — automated scans catch roughly a third of real problems.
+Accessibility is part of correct, not a separate audit: every input has a label, every button has an accessible name, contrast meets 4.5:1 for body text and 3:1 for large text and UI edges (WCAG 2.2 AA). Run an axe scan where a tool is available, then check focus order by hand — automated scans catch a minority of real problems.
 
 ## Visual checks
 

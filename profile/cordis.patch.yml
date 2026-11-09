@@ -96,14 +96,18 @@
       name: '@cc/dsh-godot-mcp'
 
 # ── skills: the deployment's reusable instructions ─────────────────────────
-# Fourteen runtime skills in one tarball: Ponytail's lazy-senior discipline,
+# Twenty runtime skills in one tarball: Ponytail's lazy-senior discipline,
 # grill-me/grilling, Karpathy clear-writing/explain-webpage/explain-diagram
 # (adapted to the local `diagram` tool), the UI builder loop, the proof-not-tests
 # ruling, the literature-review procedure, and five added on 2026-10-26:
 # tests-that-could-fail (a check must be able to fail), visual-explanations (one
-# system across handoff/deck/diagram/animation), ui-testing (role-first, state
+# system across deck/diagram/page/animation), ui-testing (role-first, state
 # matrix, negative run), ui-design-system (tokens, states, layout patterns), and
-# research-first (read the current source before writing). They register through
+# research-first (read the current source before writing), and six added on
+# 2026-11-09 for UX/UI testing: canvas-test-bridge (a gated window.__APP_TEST__),
+# property-based-domain-tests (Vitest + fast-check), visual-golden-tests
+# (pixelmatch + Argos), a11y-keyboard-audit (axe-core + keyboard walk),
+# maestro-mobile-flows, and test-run-observability (JSONL events + traces). They register through
 # `ctx.skills.register`, so the tarball is the source of truth and no machine
 # needs a copy under $DSH_HOME/skills. `grill-me` stays user-invocable; the model
 # reaches the procedure through `grilling`.
@@ -157,8 +161,8 @@
 # A `tools/pre-execute` waterfall on write/edit: a test path needs a PROOF
 # header naming the production behavior and the failure it prevents. `mode: deny`
 # is the default; `warn` is the trial mode. The guard reads an existing file so a
-# legacy test is not trapped. This is friction, not proof: the skill and the
-# handoff evidence remain the real check.
+# legacy test is not trapped. This is friction, not proof: the skill and
+# human review remain the real check.
 - insert:
     - id: proof-guard
       name: '@cc/dsh-proof-guard'
@@ -197,14 +201,6 @@
         childProvider: deepseek-official
         childModel: deepseek-flash
         promptSections: true
-
-# ── handoff: one readable page per task ────────────────────────────────────
-# Structured result -> self-contained A4 HTML + optional PDF through the
-# installed Chrome. The HTML is the source of truth; a missing browser is a
-# warning, not a failed tool.
-- insert:
-    - id: handoff
-      name: '@cc/dsh-handoff'
 
 # ── research-first: read the current source before you build ────────────────
 # The silent failure is not wrong code but OUTDATED code: a library was renamed,

@@ -26,3 +26,9 @@ server.pid
 
 # babysitter run journals (machine state, not kit source)
 .a5c/
+
+# The desktop app's per-checkout state: attachments it copied in and task scratch
+# files. The tracked .reasonix/*.json are the app's own metadata; these two trees
+# are what working on this machine left behind, not kit source.
+.reasonix/attachments/
+.reasonix/tasks/

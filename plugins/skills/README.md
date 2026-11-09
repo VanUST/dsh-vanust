@@ -16,6 +16,17 @@ The deployment's reusable skills, registered from one tarball through
 | `ui-builder` | model + user | Written for this kit. |
 | `proof-not-tests` | model + user | Written for this kit; matches `rules/DEPLOYMENT.md` §4. |
 | `literature-review` | model + user | Written for this kit; pairs with the planned `papers` tool. |
+| `tests-that-could-fail` | model + user | Written for this kit. |
+| `visual-explanations` | model + user | Written for this kit. |
+| `ui-testing` | model + user | Written for this kit. |
+| `ui-design-system` | model + user | Written for this kit. |
+| `research-first` | model + user | Written for this kit; pairs with `@cc/dsh-research-first`. |
+| `canvas-test-bridge` | model + user | Written for this kit; verified on Chromium 158 with Playwright 1.65. |
+| `property-based-domain-tests` | model + user | Written for this kit; verified with Vitest 5.1 and fast-check 4.10. |
+| `visual-golden-tests` | model + user | Written for this kit; verified with pixelmatch 8 and pngjs 7. |
+| `a11y-keyboard-audit` | model + user | Written for this kit; verified with axe-core and @axe-core/playwright 4.14. |
+| `maestro-mobile-flows` | model + user | Written for this kit; the CLI starts, the attached adb target is not Android, so the flow run is blocked and recorded. |
+| `test-run-observability` | model + user | Written for this kit; verified with Playwright traces and a JSONL gate. |
 
 ## Why a plugin
 

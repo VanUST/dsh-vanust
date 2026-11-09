@@ -19,5 +19,5 @@ not trapped. `mode: warn` logs and allows; use it for a trial week before
 `mode: deny`.
 
 This is friction, not proof. A determined writer can fake the header; the human
-review and the handoff evidence remain the real check. A test written through a
+review remain the real check. A test written through a
 shell command is outside this seam.
