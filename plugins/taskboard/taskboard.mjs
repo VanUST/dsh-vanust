@@ -380,6 +380,10 @@ function createService(config, logger, hooks = {}) {
       if (role === '' || sessionId === '') return { ok: false, code: 'invalid_agent' }
       const label = typeof input?.label === 'string' && input.label !== '' ? input.label.slice(0, 200) : role
       const chatSessionId = typeof input?.chatSessionId === 'string' && input.chatSessionId !== '' ? input.chatSessionId : ''
+      // The preset the child was actually started with. Reuse is only safe against the same
+      // tool set, so the row records it; a row from before presets has no value and is
+      // treated as a mismatch by the delegator rather than assumed compatible.
+      const preset = typeof input?.preset === 'string' && input.preset !== '' ? input.preset.slice(0, 80) : ''
       return mutate(cwd, (board) => {
         const agents = Array.isArray(board.agents) ? board.agents : []
         const existing = agents.find((agent) => agent.role.trim().toLowerCase() === role.toLowerCase())
@@ -394,6 +398,7 @@ function createService(config, logger, hooks = {}) {
             lastTaskId: input?.taskId ?? null,
             generation: 1,
             history: [],
+            ...(preset === '' ? {} : { preset }),
             ...(chatSessionId === '' ? {} : { chatSessionId }),
             createdAt: time,
             updatedAt: time,
@@ -418,6 +423,7 @@ function createService(config, logger, hooks = {}) {
           }
           existing.label = label
           existing.sessionId = sessionId
+          if (preset !== '') existing.preset = preset
           if (chatSessionId !== '') existing.chatSessionId = chatSessionId
           existing.status = 'active'
           existing.updatedAt = time

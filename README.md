@@ -68,7 +68,15 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
 - **`@cc/dsh-orchestrator`** — a root-only policy section, a child-only specialist section,
   and a root-only `delegate_task` tool. The tool creates the task, renders a self-contained
   brief (objective, scope, non-scope, inputs, acceptance, output, proof, timebox), starts a
-  flash child and links the child id. It applies to every preset; no preset is duplicated.
+  child on the role's **agent preset** and links the child id. It applies to every preset; no
+  preset is duplicated.
+- **Role presets** — six `@deepseek-ai/dsh-agent-preset` declarations in
+  `profile/cordis.patch.yml`: `orchestrator`, `ux`, `backend`, `research`, `reviewer`, `docs`.
+  A role is its persona and its tool list, not a request in the brief: the orchestrator has no
+  shell and no write/edit tool at all, research has no shell, the reviewer cannot write. New
+  chats default to the orchestrator; `standard` stays in the picker as the hands-on escape
+  hatch. The kit's role-specific tools gate on the same id (`papers_*` research,
+  `babysitter_*` orchestrator, `diagram`/`presentation` orchestrator + UX).
 - **`@cc/dsh-papers`** — the literature-research tool family: `papers_search` across arXiv
   and Hugging Face, `papers_trending` for the HF daily list, and `papers_download` to save an
   arXiv PDF under `.dsh/papers/` with a `pdftotext` extraction. No API key; one source can

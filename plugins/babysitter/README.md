@@ -5,6 +5,11 @@ This is a client of the CLI, not a babysitter harness: babysitter has no DSH
 adapter, so the plugin shells out, reads the event journal, and maps each run to
 one taskboard task.
 
+**An orchestrator instrument.** The tools register per agent on `agent/created`, for preset
+ids `standard` and `orchestrator` only. A deterministic process is how the orchestrator makes
+a multi-step run reproducible; a specialist does not drive one on its own. A session with no
+recorded preset keeps the tools.
+
 ## The gap, stated first
 
 - **DSH is not a babysitter harness.** Babysitter's harness list does not include

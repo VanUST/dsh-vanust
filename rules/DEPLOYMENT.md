@@ -35,17 +35,42 @@ The upstream harness plus twelve plugins, all pinned and installed from one kit 
 | `@cc/dsh-papers` | the paper-research tool family: `papers_search` (arXiv Atom + Hugging Face JSON, one source can fail while the other returns), `papers_trending` (HF daily papers) and `papers_download` (arXiv PDF into `.dsh/papers/`, capped at 30 MB, `pdftotext` when installed). No key; 20 s timeout with one retry; the literature-review skill calls these tools |
 | `@deepseek-ai/dsh-client-ui-subagent` | shipped client package, **disabled** in this profile: its `subagent-catalog` header cell is replaced by the taskboard's Tasks trigger. Its right-pane child chat tab and `@` reference source are not mounted; child sessions open from the task detail. Re-enable it and use a fresh header id if the lineage popover is needed more than the one-cell replacement |
 
-The harness owns the persona, the request pipeline and the user interface, but this kit now
-adds a deployment policy on top of it. Three plugins contribute model-visible text or route
-policy: `@cc/dsh-orchestrator` registers a root policy section and a child specialist
-section on `agent/created`; `@cc/dsh-skills` registers twenty runtime skills; `@cc/dsh-flash-guard`
-rewrites or refuses a delegated child's model route. The earlier "no plugin contributes
-prompt text" stance is retired deliberately. A repository's `AGENTS.md`/`CLAUDE.md` still
-reaches the model through the upstream loader; the deployment policy is additional and
-scoped (root or child), not a replacement for the harness persona. The model route is
-whatever the profile configures for the root agent; delegated children default to flash and
-may be routed to one of the two allowed Kimi models, and external providers are outside that
-seam.
+The harness owns the request pipeline and the user interface, but this kit now adds personas,
+a role roster and a deployment policy on top of it. `@deepseek-ai/dsh-agent-preset` declarations
+give each role its persona and its tool list; `@cc/dsh-orchestrator` registers a root policy
+section and a child specialist section on `agent/created`; `@cc/dsh-skills` registers twenty
+runtime skills; `@cc/dsh-flash-guard` rewrites or refuses a delegated child's model route. The
+earlier "no plugin contributes prompt text" stance is retired deliberately. A repository's
+`AGENTS.md`/`CLAUDE.md` still reaches the model through the upstream loader; the deployment
+policy is additional and scoped (root or child), not a replacement for the harness persona. The
+model route is whatever the profile configures for the root agent; delegated children default to
+flash and may be routed to one of the two allowed Kimi models, and external providers are
+outside that seam.
+
+### 1.0 The role presets — tool sets, not prompts
+
+Six `@deepseek-ai/dsh-agent-preset` declarations sit in the profile patch, and
+`@deepseek-ai/dsh-agent-preset-registry` defaults new sessions to it:
+`preset-orchestrator`, `preset-ux`, `preset-backend`, `preset-research`, `preset-reviewer`,
+`preset-docs`. A preset is the persona AND the tool list, so the isolation is registration, not
+a brief: the orchestrator reads (`read`, `readImage`) and has no `write`, `edit`, `bash` or
+`pwsh` at all; the research role has no shell and cannot surgically edit; the reviewer can run
+and read but not write; the backend, ux and docs roles have the full shell and filesystem.
+`delegate_task` maps a role name to its preset and passes `agentPreset` in the start request; a
+provider without `capabilities.agentPreset` is refused before a child exists, because the child
+would silently inherit the orchestrator composition and the brief would promise work it cannot
+do. Kit tools that only one role should see gate on the same recorded id through `agent/created`
+plus `agent.ctx.tools.register`: `papers_*` to research, `babysitter_*` to the orchestrator,
+`diagram`/`presentation` to the orchestrator and ux. `standard` stays in the picker as the
+hands-on escape hatch, and a session with no recorded preset keeps every gated tool, so an
+unknown composition is never silently degraded.
+
+**Never edit `$DSH_HOME/profiles/web/cordis.patch.yml` while `dsh web` is running.** The Loader
+watches the profile layer and re-composes preset declarations on save: a live turn lost its
+registered preset tools mid-session and the host was left half-mounted (measured 2026-11-10 —
+every session then failed with `tools: at least one tool must have defer_loading=false`).
+Change the kit's `profile/cordis.patch.yml`, then restart: `KIT_UPDATE=0 ./start.sh`, or
+`./start.sh` to converge first.
 
 ### 1.1 Hindsight memory — third-party, installed outside the kit
 

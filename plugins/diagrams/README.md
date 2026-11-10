@@ -3,6 +3,10 @@
 One tool, one file: the agent turns a JSON **diagram spec** into a **standalone HTML
 document with inline SVG** in the session workspace, and the harness displays it.
 
+**Design-role tool.** It registers for preset ids `standard`, `orchestrator` and `ux` only:
+the orchestrator draws the system and the UX role draws flows, while a backend or reviewer
+session carries no diagram tool. A session with no recorded preset keeps it.
+
 Four kinds, one contract: `flow` (flowcharts and algorithm illustrations), `arch`
 (layered system design), `sequence` (message order), `state` (state machines). The
 agent describes nodes and relationships; the plugin computes every coordinate.

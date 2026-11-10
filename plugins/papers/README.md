@@ -2,6 +2,12 @@
 
 arXiv and Hugging Face paper research in one plugin, with no API key.
 
+**Visible only to the research role.** The tools register per agent on `agent/created` and
+`agent.ctx.tools.register`, for preset ids `standard` and `research`; a backend, reviewer or
+orchestrator session never received them, so a brief cannot talk its way into `papers_*`. A
+session with no recorded preset keeps them, so an unknown composition degrades to the old
+behavior instead of silently losing the capability.
+
 Three tools:
 
 - **`papers_search`** — search arXiv, Hugging Face, or both. Returns title, authors,

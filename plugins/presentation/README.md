@@ -3,6 +3,9 @@
 One tool, one file: the agent turns a JSON deck spec into a **standalone HTML
 presentation** in the session workspace, and the harness displays it.
 
+**Design-role tool.** It registers for preset ids `standard`, `orchestrator` and `ux` only;
+a backend or reviewer session has no deck tool. A session with no recorded preset keeps it.
+
 ## Why there is almost no UI here
 
 The Sidebar document preview already renders `.html`/`.htm` documents

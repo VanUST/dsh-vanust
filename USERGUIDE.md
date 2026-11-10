@@ -46,9 +46,20 @@ tasks, and the panel's **This chat / All chats** switch is the read of the works
 history: All chats lists every task ever recorded here, marks rows from other chats as
 `other chat`, and is the one place to clean up old rows. The model gets the same two views
 as `task_list` (scope `chat` by default, `workspace` on request). Each workspace keeps
-persistent specialist roles (for example UX/UI, BACKEND, BUSINESS, RESEARCH); a role's
+persistent specialist roles (UX/UI, BACKEND, RESEARCH, REVIEWER, DOCS); a role's
 child is reused across tasks and shows active/sleeping/paused state. The ledger lives in
 `.dsh/taskboard.json` inside the workspace; it is ignored by git and survives a restart.
+
+**Roles are presets, and a new chat starts as Orchestrator.** It designs the system, runs the
+taskboard and delegates; it has no shell and no `write`/`edit` tool, so it cannot implement
+anything itself. When work needs code, research, review or docs it delegates to a child that
+has that role's persona and tools — UX/UI, Backend, Research, Reviewer, Docs — chosen from the
+preset picker in a new session. Pick **standard** when you want a chat that edits work
+directly instead of delegating; that is the hands-on escape hatch, and it keeps every kit
+tool. The rest of the kit's role-specific tools follow the same rule: `papers_*` only in
+Research, `babysitter_*` only for the Orchestrator, `diagram`/`presentation` for the
+Orchestrator and UX/UI.
+
 Hindsight memory is the third-party add-on: its installer stages the runtime and a
 companion skill, and this machine's config is enabled against a local daemon at
 `127.0.0.1:18888` (native DeepSeek provider). The daemon is a separate process and is not

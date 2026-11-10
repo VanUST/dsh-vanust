@@ -1,6 +1,7 @@
 # @cc/dsh-orchestrator
 
-The root conversation agent becomes an orchestrator without a new preset.
+The root conversation agent becomes an orchestrator, and every delegated child runs on
+the role's **agent preset** — its persona and its tool list.
 
 On `agent/created`, the plugin registers:
 
@@ -10,19 +11,27 @@ On `agent/created`, the plugin registers:
 - a child-only section (`deployment:specialist-policy`) that tells a delegated
   child to do exactly its brief and return evidence;
 - a root-only `delegate_task` tool that requires an explicit persistent `role`
-  (`UX/UI`, `BACKEND`, `BUSINESS`, `RESEARCH`), creates a taskboard task, renders
-  the brief, and routes it to that role's existing child with `sendMessage`;
-  it starts a `spawn` child with flash `agentOptions` only when the role has no
-  child yet, registers the role in the taskboard's `agents[]`, and links the child
-  id to the task. One specialist can therefore carry many tasks.
+  (`UX/UI`, `BACKEND`, `RESEARCH`, `REVIEWER`, `DOCS`), creates a taskboard task, renders
+  the brief, and starts the child **with the role's preset** (`agentPreset` in the start
+  request). The taskboard records the role and the preset; the child id is linked to the
+  task. One specialist can carry many tasks.
+
+The preset decides what the child can actually do, so the role is not a prompt request: the
+orchestrator has no `bash`, `write` or `edit` tool, the research and reviewer roles have no
+shell-write tools, and a child cannot see the tools of another role. A provider without
+`capabilities.agentPreset` is refused before a child exists, because the child would
+silently inherit the orchestrator composition.
 
 The task is created before routing, so a failure leaves a visible blocked task
 rather than an invisible child. A reused child gets only the new task brief; a new
-child first gets a persistent role brief. The role registry is durable per
-workspace, so the same role is used across tasks and root conversations (a child
-whose original root parent is gone is replaced under the same role). The tool is
-scoped to the agent, so a child cannot recurse through it; the existing delegation
-depth and concurrency cap still apply.
+child first gets a persistent role brief. **A role's existing session is reused only when
+its recorded preset matches the requested one** — a session keeps the composition it was
+created with, and an older row (created before the role presets, or under a different
+`preset` argument) is re-created with a note instead of being handed a brief its tools
+cannot perform. The role registry is durable per workspace, so the same role is used across
+tasks and root conversations (a child whose original root parent is gone is replaced under
+the same role). The tool is scoped to the agent, so a child cannot recurse through it; the
+existing delegation depth and concurrency cap still apply.
 
 ## Config
 
@@ -34,6 +43,8 @@ depth and concurrency cap still apply.
 | `maxBriefChars` | `20000` | longest brief; longer briefs are truncated with a visible note |
 | `promptSections` | `true` | set false to ship only the tool |
 
-Every `delegate_task` call must name a `role`; the optional `roleDescription`
-becomes the new child's responsibility line. Roles are case-insensitive; one
-child session per role is the rule, not one child per task.
+Every `delegate_task` call names a `role`; the optional `roleDescription` becomes the new
+child's responsibility line, and the optional `preset` overrides the role → preset mapping
+when the role is a genuine specialty outside the six (e.g. role `AUDIT` with preset
+`reviewer`). Roles are case-insensitive; one child session per role is the rule, not one
+child per task.

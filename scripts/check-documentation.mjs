@@ -143,15 +143,31 @@ if (procedure.missing === true) {
     missing.length === 0 ? `${new Set(named).size} script(s) named, all present` : `missing: ${missing.join(', ')}`,
   )
 
-  // Every plugin the profile MOUNTS must be named in the procedure.
+  // Every plugin the profile MOUNTS must be named in the procedure. A role preset's
+  // `plugins` list is a COMPOSITION, not a mount: those rows sit inside the declaration
+  // (deeper indentation) and name the harness's own tool packages, which the procedure
+  // documents once through the harness, not once per role. Counting them would demand
+  // twenty lines of package names that say nothing about this kit. The preset itself is
+  // documented as a unit by the claim below, so a new role cannot slip in unmentioned.
   const patchText = read('profile/cordis.patch.yml')
-  const mounted =
-    patchText.missing === true ? [] : [...patchText.text.matchAll(/name:\s*'(@[^']+)'/g)].map((match) => match[1])
+  const nameRows = patchText.missing === true ? [] : [...patchText.text.matchAll(/^( *)(?:- )?name:\s*'(@[^']+)'/gm)]
+  const mounted = [...new Set(nameRows.filter((match) => match[1].length <= 8).map((match) => match[2]))]
   const unnamed = mounted.filter((name) => !procedure.text.includes(name))
   claim(
     'every mounted plugin is named in the procedure',
     mounted.length > 0 && unnamed.length === 0,
     unnamed.length === 0 ? `${mounted.length} mounted plugin(s), all documented` : `undocumented: ${unnamed.join(', ')}`,
+  )
+  // The role roster is the other half of the profile: a preset that exists and is not in
+  // the procedure is a tool set nobody can choose knowingly.
+  const presetIds = [...new Set(
+    (patchText.missing === true ? [] : [...patchText.text.matchAll(/^ *- id: (preset-[a-z0-9-]+)$/gm)]).map((match) => match[1]),
+  )]
+  const presetUnnamed = presetIds.filter((id) => !procedure.text.includes(id))
+  claim(
+    'every role preset is named in the procedure',
+    presetIds.length > 0 && presetUnnamed.length === 0,
+    presetUnnamed.length === 0 ? `${presetIds.length} preset(s), all documented` : `undocumented: ${presetUnnamed.join(', ')}`,
   )
 }
 

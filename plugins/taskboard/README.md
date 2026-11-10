@@ -12,9 +12,14 @@ One JSON ledger per session workspace, `.dsh/taskboard.json`:
 - `status` — proposed, ready, active, paused, review, done, blocked, cancelled
 - `priority`, `owner`, `parentId`, `parentSessionId`, `dependsOn[]`, `childSessionIds[]`,
   `children[{sessionId,label,role,status,startedAt,endedAt,stopReason}]`
-- `role` on a task; `agents[{role,label,sessionId,status,taskCount,lastTaskId}]` for the persistent specialist roster
+- `role` on a task; `agents[{role,label,sessionId,preset,status,taskCount,lastTaskId}]` for the persistent specialist roster
 - `result { summary, evidence[], artifacts[], decisions[], risks[] }`
 - `timeline[{at, kind, actor, text, sessionId?}]`
+
+The `preset` on a roster row is the tool composition its child was started with. The
+delegator reuses a role's session only when the requested preset matches it: a session keeps
+the composition it was created with, so an old row (before the role presets, or under a
+different one) is re-created rather than handed a brief its tools cannot perform.
 
 **A chat has its own board.** `chatId` is the root session of the lineage that created
 the task, so a delegated child's rows land on the parent chat's board instead of its own.

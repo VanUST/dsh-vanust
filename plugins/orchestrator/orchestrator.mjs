@@ -147,7 +147,10 @@ export function renderRoleCatalog(agents, limit = 24) {
     const count = Number.isSafeInteger(agent.taskCount) ? agent.taskCount : 0
     const generation = Number.isSafeInteger(agent.generation) && agent.generation > 1 ? `, generation ${agent.generation}` : ''
     const status = typeof agent.status === 'string' ? agent.status : 'unknown'
-    return `- ${agent.role} - ${count} task${count === 1 ? '' : 's'}, ${status}${generation}`
+    // The preset is part of the row because it decides whether the session can be reused:
+    // a role whose row has no preset predates the role roster and will be re-created.
+    const preset = typeof agent.preset === 'string' && agent.preset !== '' ? ` [${agent.preset}]` : ''
+    return `- ${agent.role}${preset} - ${count} task${count === 1 ? '' : 's'}, ${status}${generation}`
   })
   return [
     '## Roles already in this workspace',
@@ -401,6 +404,37 @@ export function childRouteFor(ctx, args, defaults) {
 }
 
 /**
+ * Whether a role's existing child session can take this brief. Only the same tool set is
+ * safe: a session keeps the composition it was created with, and a brief that promises
+ * shell access to a session without one (or the reverse) is a lie the child cannot fix.
+ *
+ * @param knownAgent - The role row from the taskboard, if any.
+ * @param preset - Preset id the delegation is about to use.
+ * @returns True when the recorded session can be messaged instead of starting a new one.
+ */
+export function canReuseAgent(knownAgent, preset) {
+  return knownAgent !== undefined
+    && typeof knownAgent.sessionId === 'string'
+    && knownAgent.sessionId !== ''
+    && knownAgent.preset === preset
+}
+
+/**
+ * Why a known role's session is not reused, or undefined when it is reused (or absent).
+ *
+ * @param knownAgent - The role row from the taskboard, if any.
+ * @param role - Role name, for the sentence.
+ * @param preset - Preset id the delegation is about to use.
+ * @returns The note for the delegation result, or undefined.
+ */
+export function reuseNoteFor(knownAgent, role, preset) {
+  if (knownAgent === undefined || canReuseAgent(knownAgent, preset)) return undefined
+  if (typeof knownAgent.sessionId !== 'string' || knownAgent.sessionId === '') return undefined
+  const previous = typeof knownAgent.preset === 'string' && knownAgent.preset !== '' ? knownAgent.preset : 'pre-preset'
+  return `the existing ${role} session was created with the ${previous} composition, not ${preset}`
+}
+
+/**
  * Register the policy and the delegation tool.
  *
  * @param ctx - Cordis context.
@@ -566,9 +600,14 @@ export function apply(ctx, config = {}) {
       if (agentOptions === undefined && (childRoute.provider !== childProvider || childRoute.model !== childModel)) {
         throw new Error(`delegate_task: subagent provider "${provider}" does not accept a model override; omit provider/model to use its own route`)
       }
-      let childId = knownAgent?.sessionId
+      // A role's existing session is reusable only when it was created with the same tool
+      // set. An older row predates the role presets (or was created under another one), and
+      // reusing it would run this brief on a composition the brief does not describe: the
+      // 2026-11-10 probe caught a "research" brief landing in a cordis session with a shell
+      // and a write tool. Re-create instead, and say why.
+      let childId = canReuseAgent(knownAgent, preset) ? knownAgent.sessionId : ''
       let reused = false
-      let reuseNote
+      let reuseNote = reuseNoteFor(knownAgent, role, preset)
       let childBrief = brief
       try {
         exec.signal.throwIfAborted()
@@ -619,7 +658,7 @@ export function apply(ctx, config = {}) {
             delivery: 'parent',
           })
           childId = activation.childId
-          taskboard.registerAgent(taskCwd, { role, label: role, sessionId: childId, taskId: task.id, chatSessionId: parent.id })
+          taskboard.registerAgent(taskCwd, { role, label: role, sessionId: childId, taskId: task.id, chatSessionId: parent.id, preset })
           if (reuseNote !== undefined) {
             try {
               ctx.logger?.warn?.(`delegate_task: role "${role}" re-created in this chat (${reuseNote})`)
