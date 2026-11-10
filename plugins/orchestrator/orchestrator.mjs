@@ -65,6 +65,45 @@
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
+/**
+ * The tool compositions this deployment runs, in roster order. A role names the
+ * task; a preset names the tools the child actually gets. They are separate on
+ * purpose: the taskboard wants a human-readable specialty ("AUDIT"), while the
+ * child's tool list must be one of a known six, because isolation that comes from
+ * a preset's registrations cannot be talked around by a brief.
+ */
+export const PRESET_IDS = ['ux', 'backend', 'research', 'reviewer', 'docs']
+
+/** Role spellings that denote one of the six compositions. Keys are normalizedRole() output. */
+export const ROLE_PRESETS = {
+  ux: 'ux',
+  ui: 'ux',
+  uxui: 'ux',
+  design: 'ux',
+  designer: 'ux',
+  backend: 'backend',
+  backenddev: 'backend',
+  server: 'backend',
+  api: 'backend',
+  research: 'research',
+  researcher: 'research',
+  researchfirst: 'research',
+  reviewer: 'reviewer',
+  review: 'reviewer',
+  audit: 'reviewer',
+  qa: 'reviewer',
+  docs: 'docs',
+  doc: 'docs',
+  documentation: 'docs',
+  documenter: 'docs',
+  docssteward: 'docs',
+}
+
+/** The preset a role name denotes, or undefined when it denotes none of the six. */
+export function presetForRole(role) {
+  return ROLE_PRESETS[normalizeRole(role)]
+}
+
 /** Resolve the session workspace, falling back to the process directory. */
 function workingDir(agent) {
   const cwd = agent?.session?.header?.cwd
@@ -255,6 +294,7 @@ A question never needs this ceremony. A change never skips the task.
 ## Delegation rules
 
 - Reuse a role from the catalog appended below this policy. \`delegate_task\` refuses a near-duplicate new role unless the work really is a new domain; \`forceRole: true\` overrides that refusal.
+- **The six roles are the tool sets**: UX/UI, BACKEND, RESEARCH, REVIEWER, DOCS. The orchestrator is the seventh and is you. The role picks the child's preset, so the child literally has that role's tools - a BACKEND child cannot run \`papers_*\`, and you cannot run \`bash\` or edit a file at all. Choose the role by the work, not by seniority; a role outside the six needs an explicit \`preset\` argument.
 - Pass \`taskId\` when one of your own tasks is the work: the brief then attaches to that task instead of creating a second row for the same thing.
 - A specialist session belongs to the chat that created it. A later chat gets a new one, and the brief then carries the role's earlier results forward - say so in the brief you write, and never assume the child remembers.
 - Children run on the configured child route (flash by default), and that is the right default: volume work belongs on the cheap route. You may name a \`provider\`/\`model\` on \`delegate_task\` ONLY when the environment demands it - the default route is throttled, unavailable, or the task needs a capability only the other route has - and only a route listed in Subagent model selection is accepted. Never name a highspeed variant: highspeed routes are refused outright by the model guard.
@@ -268,9 +308,11 @@ const CHILD_POLICY = `## Delegated specialist policy (deployment)
 
 You are a delegated specialist. Do exactly the task brief you received.
 
+- Your tools are the role's tool set, chosen by the orchestrator when it started you. Do not try to work around a missing tool: if the work needs something outside your composition, stop and report that instead of improvising.
 - Read the code and the callers before you edit. Take the smallest complete change; reuse what exists; do not add a dependency for a few lines.
 - Do not expand scope. If the brief is wrong or incomplete, say so and stop rather than guess.
-- You may be a persistent role specialist: you can receive several task briefs in this session. Keep your assigned role, treat each new message as one task, and do not spawn children.
+- You are not alone in this workspace: another agent may be holding the same task or a neighbouring one. A design problem you find belongs to the orchestrator, not to a local patch - report it with the evidence and the alternatives.
+- You are a persistent role specialist: you can receive several task briefs in this session. Keep your assigned role, treat each new message as one task, and do not spawn children.
 - Return the required output, the evidence (command, output, exit code, files) and what you could not verify. A claim without evidence is not a result.
 - Do not write autotests. Prove behavior by running the product.
 - Use \`task_note\` for significant findings and \`task_get\` to re-read your task. The orchestrator owns acceptance and the final report.
@@ -373,10 +415,11 @@ export function apply(ctx, config = {}) {
 
   const definition = defineTool({
     name: 'delegate_task',
-    description: 'Create one task in the workspace taskboard (or attach an existing one with taskId), render a self-contained brief, start a child on the configured child route (flash by default) and link the child session to the task. Reuse a role from the catalog in your policy: a near-duplicate new role is refused unless forceRole is passed. One piece of work is one task - pass taskId when the task already exists. Use it for independent research, implementation or review work; not for a one-shot answer or for final integration.',
+    description: 'Create one task in the workspace taskboard (or attach an existing one with taskId), render a self-contained brief, start a child on the role preset (its persona and tool set) and link the child session to the task. The role picks the tool composition: UX/UI, BACKEND, RESEARCH, REVIEWER, DOCS. A role outside those six needs an explicit preset. Reuse a role from the catalog in your policy: a near-duplicate new role is refused unless forceRole is passed. One piece of work is one task - pass taskId when the task already exists. Use it for independent research, implementation or review work; not for a one-shot answer or for final integration.',
     parameters: {
       title: { type: 'string', required: true, description: 'Short task title.' },
-      role: { type: 'string', required: true, description: 'Persistent specialist role, e.g. UX/UI, BACKEND, BUSINESS, RESEARCH. The roles this workspace already has are listed in your policy section - reuse one of those exact names; all fitting tasks belong to it.' },
+      role: { type: 'string', required: true, description: 'Specialist role, e.g. UX/UI, BACKEND, RESEARCH, REVIEWER, DOCS. The roles this workspace already has are listed in your policy section - reuse one of those exact names; all fitting tasks belong to it.' },
+      preset: { type: 'string', enum: PRESET_IDS, description: 'Tool composition for the child. Omit to derive it from the role; pass it explicitly when the role is a specialty outside the six (e.g. role AUDIT with preset reviewer).' },
       roleDescription: { type: 'string', description: 'Optional one-line responsibility zone for a newly created specialist.' },
       objective: { type: 'string', required: true, description: 'The outcome in one paragraph, not the activity.' },
       scope: { type: 'array', items: { type: 'string' }, description: 'What the child may touch.' },
@@ -400,7 +443,18 @@ export function apply(ctx, config = {}) {
       const parent = exec.agent
       if (parent === undefined) throw new Error('delegate_task requires a calling agent')
       const role = typeof args.role === 'string' ? args.role.trim() : ''
-      if (role === '') throw new Error('delegate_task: role is required (for example BACKEND, UX/UI, BUSINESS; reuse one role across tasks)')
+      if (role === '') throw new Error('delegate_task: role is required (for example BACKEND, UX/UI, RESEARCH, REVIEWER, DOCS; reuse one role across tasks)')
+      // A role names the task, a preset names the tools. Resolve it before any
+      // taskboard write: a child started on the wrong composition does work that has
+      // to be thrown away, and an explicit preset is the escape hatch for a role
+      // outside the six.
+      const preset = typeof args.preset === 'string' && args.preset !== '' ? args.preset : presetForRole(role)
+      if (preset === undefined) {
+        throw new Error(`delegate_task: role "${role}" names none of the six tool compositions (${PRESET_IDS.join(', ')}). Reuse one of those role names, or pass preset explicitly when the role is a genuine specialty.`)
+      }
+      if (!PRESET_IDS.includes(preset)) {
+        throw new Error(`delegate_task: "${preset}" is not one of the role presets (${PRESET_IDS.join(', ')}).`)
+      }
       // Resolve the route before any taskboard write: an unavailable child route
       // must fail the call, not leave a task row that says a child is coming.
       const childRoute = childRouteFor(ctx, args, { provider: childProvider, model: childModel })
@@ -491,9 +545,21 @@ export function apply(ctx, config = {}) {
         })
         throw new Error(`delegate_task: subagent provider "${provider}" is not registered`)
       }
+      // Without preset support the child inherits the orchestrator's composition - no
+      // shell, no write tool - and the task fails after the brief promised work. Refuse
+      // before a child exists, for the same reason the provider check is here.
+      if (subagentProvider.capabilities?.agentPreset !== true) {
+        taskboard.update(taskCwd, {
+          id: task.id,
+          expectedRevision: task.revision,
+          chatId,
+          patch: { status: 'blocked', result: { risks: [`subagent provider "${provider}" cannot select the "${preset}" preset`] } },
+        })
+        throw new Error(`delegate_task: subagent provider "${provider}" cannot select a preset, so the child would inherit the orchestrator tool set; use a provider that supports agentPreset`)
+      }
 
       const brief = renderBrief(task, args, maxBriefChars)
-      const roleBrief = `You are the persistent ${role} specialist for this workspace. Responsibility: ${typeof args.roleDescription === 'string' && args.roleDescription.trim() !== '' ? args.roleDescription.trim() : role}. Stay in this role across every task you receive; do not spawn subagents. Each new message is a separate task brief. Use task_note/task_get for the task you are handling; the orchestrator owns acceptance.`
+      const roleBrief = `You are the persistent ${role} specialist for this workspace. Responsibility: ${typeof args.roleDescription === 'string' && args.roleDescription.trim() !== '' ? args.roleDescription.trim() : role}. Your tool set is the ${preset} preset: if the work needs something that is not in it, stop and report that instead of improvising around it. Stay in this role across every task you receive; do not spawn subagents. Each new message is a separate task brief. Use task_note/task_get for the task you are handling; the orchestrator owns acceptance.`
       const agentOptions = subagentProvider.capabilities?.agentOptions === true
         ? { provider: childRoute.provider, model: childRoute.model, reasoningEffort: 'high' }
         : undefined
@@ -545,6 +611,7 @@ export function apply(ctx, config = {}) {
             request: {
               prompt: [{ type: 'text', text: `${roleBrief}\n\n${childBrief}` }],
               parent,
+              agentPreset: preset,
               ...(childCwd === taskCwd ? {} : { cwd: childCwd }),
               ...(agentOptions === undefined ? {} : { agentOptions }),
             },
@@ -566,6 +633,7 @@ export function apply(ctx, config = {}) {
           taskId: task.id,
           childId,
           role,
+          preset,
           reused,
           title: task.title,
           status: 'active',

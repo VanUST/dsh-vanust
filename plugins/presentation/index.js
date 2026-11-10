@@ -14,11 +14,31 @@ export const name = 'presentation'
 export const inject = ['tools']
 
 /**
- * Registers the `presentation` tool on the tools service.
+ * Register a tool only on agents whose session preset is in `presets`. Decks are a
+ * communication instrument for the design roles; a backend child has no use for one.
+ * A session with no recorded preset keeps the tool, so an unknown composition is never
+ * silently degraded.
+ *
+ * @param ctx - Cordis context (host).
+ * @param tool - The tool definition.
+ * @param presets - Preset ids that may see the tool.
+ */
+function registerForPresets(ctx, tool, presets) {
+  const allowed = (agent) => {
+    const preset = agent?.session?.header?.agentPreset
+    return typeof preset !== 'string' || preset === '' || presets.includes(preset)
+  }
+  ctx.on('agent/created', ({ agent }) => {
+    if (allowed(agent)) agent.ctx.tools.register(tool)
+  })
+}
+
+/**
+ * Registers the `presentation` tool on the tools service, scoped to the design roles.
  * @param ctx - Cordis context; `ctx.tools` is guaranteed by `inject`.
  */
 export function apply(ctx) {
-  ctx.tools.register(presentationTool(defineTool))
+  registerForPresets(ctx, presentationTool(defineTool), ['standard', 'orchestrator', 'ux'])
 }
 
 export { renderDeck, THEMES, SLIDE_TYPES } from './render.mjs'

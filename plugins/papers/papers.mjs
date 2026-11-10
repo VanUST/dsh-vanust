@@ -425,10 +425,31 @@ export function paperTools(define) {
 export const name = '@cc/dsh-papers'
 export const inject = ['tools']
 
-/** Register the paper tools on a host Context. */
+/**
+ * Register a tool only on agents whose session preset is in `presets`. Papers belong
+ * to the research role, not to every agent that happens to run in this host; scoping
+ * the registration is what makes that true, because a tool an agent never received
+ * cannot be argued into existence by a brief. A session with no recorded preset keeps
+ * the tool, so an unknown composition is never silently degraded.
+ *
+ * @param ctx - Cordis context (host).
+ * @param tool - The tool definition.
+ * @param presets - Preset ids that may see the tool.
+ */
+export function registerForPresets(ctx, tool, presets) {
+  const allowed = (agent) => {
+    const preset = agent?.session?.header?.agentPreset
+    return typeof preset !== 'string' || preset === '' || presets.includes(preset)
+  }
+  ctx.on('agent/created', ({ agent }) => {
+    if (allowed(agent)) agent.ctx.tools.register(tool)
+  })
+}
+
+/** Register the paper tools on a host Context, scoped to the research role. */
 export function apply(ctx) {
   const tools = paperTools(defineTool)
-  ctx.tools.register(tools.search)
-  ctx.tools.register(tools.trending)
-  ctx.tools.register(tools.download)
+  for (const tool of [tools.search, tools.trending, tools.download]) {
+    registerForPresets(ctx, tool, ['standard', 'research'])
+  }
 }

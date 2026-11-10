@@ -1415,8 +1415,27 @@ export function apply(ctx, config = {}) {
     }
   }
   const tools = babysitterTools(defineTool, settings, boardOf)
-  ctx.tools.register(tools.run)
-  ctx.tools.register(tools.status)
-  ctx.tools.register(tools.resume)
-  ctx.tools.register(tools.doctor)
+  // A deterministic process is an orchestrator instrument: it maps one run onto one
+  // task and a journal, which a specialist has no business driving on its own.
+  for (const tool of [tools.run, tools.status, tools.resume, tools.doctor]) {
+    registerForPresets(ctx, tool, ['standard', 'orchestrator'])
+  }
+}
+
+/**
+ * Register a tool only on agents whose session preset is in `presets`. A session with
+ * no recorded preset keeps the tool, so an unknown composition is never degraded.
+ *
+ * @param ctx - Cordis context (host).
+ * @param tool - The tool definition.
+ * @param presets - Preset ids that may see the tool.
+ */
+function registerForPresets(ctx, tool, presets) {
+  const allowed = (agent) => {
+    const preset = agent?.session?.header?.agentPreset
+    return typeof preset !== 'string' || preset === '' || presets.includes(preset)
+  }
+  ctx.on('agent/created', ({ agent }) => {
+    if (allowed(agent)) agent.ctx.tools.register(tool)
+  })
 }
