@@ -234,7 +234,7 @@ You are the workspace orchestrator. **Work flows through the taskboard.**
 
 **Any change is a task, delegated or not.** Before the first write of a change — an edit, a bug fix, a config change, a migration step, an audit, a feature — open it with \`task_create\` (objective, scope, non-scope, acceptance), move it to \`active\` when you start, and finish with \`task_update\` to \`review\` (then \`task_close\` when the human accepts). Put what a stranger would need to resume into \`task_note\`.
 
-That ledger is not bookkeeping for delegation: it is the record that outlives this session. The Tasks panel is where the human watches work in flight, a task survives a restart that a session does not, and a second session in the same workspace sees it there. "What is left to do" is answered from the taskboard, not by re-reading a conversation.
+That ledger is not bookkeeping for delegation: it is the record that outlives this session. The Tasks panel is where the human watches work in flight, and a task survives a restart that a session does not. **Each chat has its own board**: a new chat starts empty and the panel shows only this chat's tasks. The whole workspace history is still one call away with \`task_list\` scope \`workspace\` — use it when the human asks what was done before, or before reusing a role name. "What is left to do" is answered from the taskboard, not by re-reading a conversation.
 
 **Delegation is one way to run a task, never the trigger for one.** \`delegate_task\` creates the task and starts a child for it; a task you execute yourself has the same lifecycle and the same record. Create the task first, then choose: do it inline, or delegate it.
 
@@ -439,11 +439,18 @@ export function apply(ctx, config = {}) {
 
       // One piece of work is one row. The root usually creates the task first and then
       // delegates it; attaching keeps that pair from becoming two near-duplicate tasks.
+      // Tasks belong to a chat now, so a task id from somebody else's board is refused
+      // here, before a child is started against work this chat cannot see.
       const attachId = typeof args.taskId === 'string' ? args.taskId.trim() : ''
+      const chatId = parent.id
       let task
       if (attachId !== '') {
         const existing = taskboard.get(taskCwd, attachId)
         if (existing === undefined) throw new Error(`delegate_task: no task "${attachId}" in this workspace`)
+        const owner = typeof existing.chatId === 'string' && existing.chatId !== '' ? existing.chatId : existing.parentSessionId
+        if (typeof owner === 'string' && owner !== '' && owner !== chatId) {
+          throw new Error(`delegate_task: task "${attachId}" belongs to another chat's board; open a task in this chat instead`)
+        }
         if (existing.status === 'done' || existing.status === 'cancelled') {
           throw new Error(`delegate_task: task "${attachId}" is ${existing.status}; open a new task instead`)
         }
@@ -454,6 +461,7 @@ export function apply(ctx, config = {}) {
         const updated = taskboard.update(taskCwd, {
           id: existing.id,
           expectedRevision: existing.revision,
+          chatId,
           patch: { status: 'active', role, priority: args.priority },
         })
         task = updated?.ok === true ? updated.task : existing
@@ -467,6 +475,7 @@ export function apply(ctx, config = {}) {
           acceptance: args.acceptance,
           parentId: args.parentTaskId,
           parentSessionId: parent.id,
+          chatId,
           priority: args.priority,
           status: 'ready',
         }, 'orchestrator')
@@ -477,6 +486,7 @@ export function apply(ctx, config = {}) {
         taskboard.update(taskCwd, {
           id: task.id,
           expectedRevision: task.revision,
+          chatId,
           patch: { status: 'blocked', result: { risks: [`subagent provider "${provider}" is not registered`] } },
         })
         throw new Error(`delegate_task: subagent provider "${provider}" is not registered`)
@@ -500,7 +510,7 @@ export function apply(ctx, config = {}) {
         // between creation and spawn used to leave a task that said only "Created" - the
         // signature measured in ~/tasks/3d on 2026-10-30, which reads like work in progress.
         try {
-          taskboard.note(taskCwd, { id: task.id, text: `Delegating to ${role}${attachId === '' ? '' : ' (attached task)'}` })
+          taskboard.note(taskCwd, { id: task.id, chatId, text: `Delegating to ${role}${attachId === '' ? '' : ' (attached task)'}` })
         } catch {
           // A diagnostic note is never control flow.
         }
@@ -521,7 +531,9 @@ export function apply(ctx, config = {}) {
           let carryForward = ''
           if (knownAgent !== undefined) {
             try {
-              carryForward = renderCarryForward(taskboard.list(taskCwd), role)
+              // The role's history is cross-chat on purpose: carry-forward must show what
+              // this specialist did in earlier chats, which is exactly what a chat board hides.
+              carryForward = renderCarryForward(taskboard.list(taskCwd, { all: true }), role)
             } catch {
               carryForward = ''
             }
@@ -549,7 +561,7 @@ export function apply(ctx, config = {}) {
             }
           }
         }
-        taskboard.linkChild(taskCwd, { id: task.id, sessionId: childId, label: role, role })
+        taskboard.linkChild(taskCwd, { id: task.id, sessionId: childId, label: role, role, chatId })
         return {
           taskId: task.id,
           childId,
@@ -568,10 +580,12 @@ export function apply(ctx, config = {}) {
           const patched = taskboard.update(taskCwd, {
             id: task.id,
             expectedRevision: current?.revision ?? task.revision,
+            chatId,
             patch: { status: 'blocked', result: { risks: [`child start failed: ${error.message}`] } },
           })
           taskboard.note(taskCwd, {
             id: task.id,
+            chatId,
             text: patched?.ok === true
               ? `Delegation failed and the task was marked blocked: ${error.message}`
               : `Delegation failed; the status could not be set to blocked (${patched?.code ?? 'unknown'}): ${error.message}`,
@@ -594,8 +608,12 @@ export function apply(ctx, config = {}) {
     const rootText = freezePerTurn(() => {
       try {
         const cwd = workingDir(agent)
+        // The role catalog is a workspace fact (a name to reuse across chats); the debt
+        // block is this chat's backlog, because that is what the human is watching and
+        // what this orchestrator can act on.
+        const chatId = agent?.session?.header?.id ?? agent?.id ?? ''
         const catalog = renderRoleCatalog(ctx.taskboard.agents(cwd))
-        const debt = renderBoardDebt(ctx.taskboard.list(cwd))
+        const debt = renderBoardDebt(ctx.taskboard.list(cwd, { chatId }))
         return [ROOT_POLICY, catalog, debt].filter((part) => part !== '').join('\n\n')
       } catch {
         return ROOT_POLICY

@@ -8,6 +8,14 @@
  *   through tools; the browser writes it through the `/taskboard` command; both go
  *   through the same service, so there is one schema and one compare-and-set rule.
  *
+ *   A CHAT HAS ITS OWN BOARD. Every task records the chat it belongs to (`chatId`,
+ *   the root session of its lineage), reads default to that chat, and a task created
+ *   by a delegated child lands on the parent chat's board. The file still holds the
+ *   whole workspace history: `task_list` with the workspace scope reads it on
+ *   request, and the panel has an explicit toggle. Fresh chat, fresh board, nothing
+ *   lost - the two requirements pull in opposite directions, and one file with a chat
+ *   column satisfies both without a second store to drift.
+ *
  * INPUTS
  *   Config (all optional):
  *     file     ledger path relative to the session workspace. Default `.dsh/taskboard.json`.
@@ -45,6 +53,18 @@
  *   - Removing a task clears agent rows that point at it through lastTaskId, not only
  *     those reachable through the removed task's childSessionIds (a delegation that
  *     registered its role but never linked the task was invisible to that cleanup).
+ *   - A task created by a delegated child belongs to the parent chat: `chatId` is the
+ *     root of the session lineage (`parentSession`), found by walking the live agents,
+ *     so a child's rows land on the board the human is looking at.
+ *   - A task with no chat at all (legacy row, hand-written ledger) is visible in the
+ *     workspace scope and writable only by the human. No chat can claim it, so no agent
+ *     rewrites history it cannot see.
+ *   - A write from another chat is refused with `other_chat` rather than landing on a
+ *     board the caller cannot read; `task_get` still reads any task by id, because
+ *     knowing the id is the reason to look.
+ *   - The chat scope is resolved once per call from the live agent tree. A session
+ *     whose parent is no longer loaded stops at the id it can prove, which is that
+ *     session's own chat - never an invented root.
  */
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -295,9 +315,32 @@ function createService(config, logger, hooks = {}) {
     return result?.value ?? result
   }
 
+  /**
+   * The chat a task belongs to: the root session recorded at creation, or - for a row
+   * written before chats had boards - the session that created it. A row with neither
+   * is workspace history that no chat owns.
+   */
+  const chatOf = (task) => {
+    if (typeof task?.chatId === 'string' && task.chatId !== '') return task.chatId
+    return typeof task?.parentSessionId === 'string' && task.parentSessionId !== '' ? task.parentSessionId : null
+  }
+
+  /**
+   * Whether a caller may write a task. An empty chatId is the unscoped path (a child
+   * settling, a link the orchestrator makes without a session), the human owns the whole
+   * board including rows no chat claims, and an agent owns exactly the chat it works in.
+   */
+  const writable = (task, chatId, actor) => {
+    if (chatId === '' || actor === 'human') return true
+    const owner = chatOf(task)
+    return owner !== null && owner === chatId
+  }
+  const otherChat = (task) => ({ value: { ok: false, code: 'other_chat', chatId: chatOf(task) } })
+
   /** Compact list row; the board UI uses the full task document. */
   const summary = (task) => ({
     id: task.id,
+    chatId: chatOf(task),
     title: task.title,
     status: task.status,
     role: task.role ?? null,
@@ -312,9 +355,13 @@ function createService(config, logger, hooks = {}) {
   return {
     file,
     pathFor,
-    /** The whole board for one session workspace. */
-    list(cwd) {
-      return readBoard(pathFor(cwd)).tasks.map(summary)
+    /** One chat's board, or the whole workspace with `all`. */
+    list(cwd, options = {}) {
+      const chatId = typeof options?.chatId === 'string' ? options.chatId : ''
+      const all = options?.all === true
+      return readBoard(pathFor(cwd)).tasks
+        .filter((task) => all || chatId === '' || chatOf(task) === chatId)
+        .map(summary)
     },
     /** Persistent specialists for one workspace, with stale/orphan flags. */
     agents(cwd) {
@@ -407,6 +454,11 @@ function createService(config, logger, hooks = {}) {
     create(cwd, input, actor = 'orchestrator') {
       const title = typeof input?.title === 'string' ? input.title.trim() : ''
       if (title === '') throw new Error('taskboard: a task needs a non-empty title')
+      // The caller may pass the resolved chat, or only the session that asked; the hook
+      // walks that session to its root so a child's Task lands on the parent's board.
+      const chatId = typeof input?.chatId === 'string' && input.chatId !== ''
+        ? input.chatId
+        : (typeof input?.parentSessionId === 'string' && input.parentSessionId !== '' && typeof hooks.rootOf === 'function' ? hooks.rootOf(input.parentSessionId) : '')
       return mutate(cwd, (board) => {
         const time = now()
         if (board.tasks.length >= maxTasks) return { value: { ok: false, code: 'board_full' } }
@@ -421,6 +473,7 @@ function createService(config, logger, hooks = {}) {
           status: statusOf(input?.status, 'proposed'),
           priority: priorityOf(input?.priority),
           ...(typeof input?.role === 'string' && input.role.trim() !== '' ? { role: input.role.trim().slice(0, 80) } : {}),
+          ...(chatId === '' ? {} : { chatId }),
           ...(typeof input?.parentSessionId === 'string' && input.parentSessionId !== '' ? { parentSessionId: input.parentSessionId } : {}),
           ...(typeof input?.parentId === 'string' && input.parentId !== '' ? { parentId: input.parentId } : {}),
           dependsOn: strings(input?.dependsOn),
@@ -440,9 +493,11 @@ function createService(config, logger, hooks = {}) {
     update(cwd, input) {
       const id = typeof input?.id === 'string' ? input.id : ''
       const expected = Number.isSafeInteger(input?.expectedRevision) ? input.expectedRevision : null
+      const chatId = typeof input?.chatId === 'string' ? input.chatId : ''
       return mutate(cwd, (board) => {
         const task = board.tasks.find((entry) => entry.id === id)
         if (task === undefined) return { value: { ok: false, code: 'not_found' } }
+        if (!writable(task, chatId, input?.actor)) return otherChat(task)
         if (expected !== null && task.revision !== expected) {
           return { value: { ok: false, code: 'stale', task } }
         }
@@ -487,10 +542,12 @@ function createService(config, logger, hooks = {}) {
     note(cwd, input) {
       const id = typeof input?.id === 'string' ? input.id : ''
       const text = typeof input?.text === 'string' ? input.text.trim() : ''
+      const chatId = typeof input?.chatId === 'string' ? input.chatId : ''
       if (text === '') return { ok: false, code: 'empty' }
       return mutate(cwd, (board) => {
         const task = board.tasks.find((entry) => entry.id === id)
         if (task === undefined) return { value: { ok: false, code: 'not_found' } }
+        if (!writable(task, chatId, input?.actor)) return otherChat(task)
         task.revision += 1
         task.updatedAt = now()
         timeline(task, 'note', input?.actor === 'human' ? 'human' : 'orchestrator', text.slice(0, 1000), {}, timelineLimit)
@@ -501,10 +558,12 @@ function createService(config, logger, hooks = {}) {
     linkChild(cwd, input) {
       const id = typeof input?.id === 'string' ? input.id : ''
       const childId = typeof input?.sessionId === 'string' ? input.sessionId : ''
+      const chatId = typeof input?.chatId === 'string' ? input.chatId : ''
       if (childId === '') return { ok: false, code: 'empty' }
       return mutate(cwd, (board) => {
         const task = board.tasks.find((entry) => entry.id === id)
         if (task === undefined) return { value: { ok: false, code: 'not_found' } }
+        if (!writable(task, chatId, input?.actor)) return otherChat(task)
         if (!task.childSessionIds.includes(childId)) task.childSessionIds.push(childId)
         if (!['done', 'cancelled', 'paused'].includes(task.status)) task.status = 'active'
         const agent = (board.agents ?? []).find((entry) => entry.sessionId === childId)
@@ -565,9 +624,11 @@ function createService(config, logger, hooks = {}) {
     pause(cwd, input) {
       const id = typeof input?.id === 'string' ? input.id : ''
       const requestedParent = typeof input?.parentSessionId === 'string' && input.parentSessionId !== '' ? input.parentSessionId : ''
+      const chatId = typeof input?.chatId === 'string' ? input.chatId : ''
       return mutate(cwd, (board) => {
         const task = board.tasks.find((entry) => entry.id === id)
         if (task === undefined) return { value: { ok: false, code: 'not_found' } }
+        if (!writable(task, chatId, input?.actor)) return otherChat(task)
         if (task.status === 'done' || task.status === 'cancelled') return { value: { ok: false, code: 'closed', task } }
         const parentSessionId = typeof task.parentSessionId === 'string' && task.parentSessionId !== '' ? task.parentSessionId : requestedParent
         const interrupted = []
@@ -602,9 +663,11 @@ function createService(config, logger, hooks = {}) {
     /** Resume tracking a paused task. Child sessions are not auto-prompted. */
     resume(cwd, input) {
       const id = typeof input?.id === 'string' ? input.id : ''
+      const chatId = typeof input?.chatId === 'string' ? input.chatId : ''
       return mutate(cwd, (board) => {
         const task = board.tasks.find((entry) => entry.id === id)
         if (task === undefined) return { value: { ok: false, code: 'not_found' } }
+        if (!writable(task, chatId, input?.actor)) return otherChat(task)
         if (task.status !== 'paused') return { value: { ok: false, code: 'not_paused', task } }
         task.status = 'active'
         const children = Array.isArray(task.children) ? task.children : []
@@ -621,9 +684,11 @@ function createService(config, logger, hooks = {}) {
     close(cwd, input) {
       const id = typeof input?.id === 'string' ? input.id : ''
       const requestedParent = typeof input?.parentSessionId === 'string' && input.parentSessionId !== '' ? input.parentSessionId : ''
+      const chatId = typeof input?.chatId === 'string' ? input.chatId : ''
       return mutate(cwd, (board) => {
         const task = board.tasks.find((entry) => entry.id === id)
         if (task === undefined) return { value: { ok: false, code: 'not_found' } }
+        if (!writable(task, chatId, input?.actor)) return otherChat(task)
         if (task.status === 'cancelled') return { value: { ok: false, code: 'cancelled', task } }
         const parentSessionId = typeof task.parentSessionId === 'string' && task.parentSessionId !== '' ? task.parentSessionId : requestedParent
         const interrupted = []
@@ -655,9 +720,11 @@ function createService(config, logger, hooks = {}) {
     /** Remove a task from the ledger; linked child sessions keep running. */
     remove(cwd, input) {
       const id = typeof input?.id === 'string' ? input.id : ''
+      const chatId = typeof input?.chatId === 'string' ? input.chatId : ''
       return mutate(cwd, (board) => {
         const index = board.tasks.findIndex((entry) => entry.id === id)
         if (index === -1) return { value: { ok: false, code: 'not_found' } }
+        if (!writable(board.tasks[index], chatId, input?.actor)) return otherChat(board.tasks[index])
         const [task] = board.tasks.splice(index, 1)
         for (const childId of task.childSessionIds ?? []) {
           const links = (childLinks.get(childId) ?? []).filter((entry) => !(entry.cwd === cwd && entry.id === id))
@@ -677,20 +744,25 @@ function createService(config, logger, hooks = {}) {
         return { changed: true, value: { ok: true, removed: true, id, task } }
       })
     },
-    /** The one operation shape the UI command uses. */
+    /**
+     * The one operation shape the UI command uses. `actorSessionId` is the chat the
+     * command ran in; it is resolved to the chat id here so every write from the panel
+     * is attributed and guarded the same way a tool call is.
+     */
     applyOp(cwd, op, actor = 'human', actorSessionId = '') {
       if (op === null || typeof op !== 'object') return { ok: false, code: 'invalid' }
       const kind = op.op
-      if (kind === 'create') return { ok: true, task: this.create(cwd, { ...(op.task ?? op), parentSessionId: actorSessionId }, actor) }
-      if (kind === 'update') return this.update(cwd, { ...op, actor })
-      if (kind === 'note') return this.note(cwd, { ...op, actor })
-      if (kind === 'link') return this.linkChild(cwd, op)
-      if (kind === 'pause') return this.pause(cwd, { ...op, parentSessionId: actorSessionId, actor })
-      if (kind === 'resume') return this.resume(cwd, { ...op, actor })
-      if (kind === 'close') return this.close(cwd, { ...op, parentSessionId: actorSessionId, actor })
-      if (kind === 'remove') return this.remove(cwd, op)
+      const chatId = typeof hooks.rootOf === 'function' ? hooks.rootOf(actorSessionId) : actorSessionId
+      if (kind === 'create') return { ok: true, task: this.create(cwd, { ...(op.task ?? op), parentSessionId: actorSessionId, chatId }, actor) }
+      if (kind === 'update') return this.update(cwd, { ...op, chatId, actor })
+      if (kind === 'note') return this.note(cwd, { ...op, chatId, actor })
+      if (kind === 'link') return this.linkChild(cwd, { ...op, chatId, actor })
+      if (kind === 'pause') return this.pause(cwd, { ...op, chatId, parentSessionId: actorSessionId, actor })
+      if (kind === 'resume') return this.resume(cwd, { ...op, chatId, actor })
+      if (kind === 'close') return this.close(cwd, { ...op, chatId, parentSessionId: actorSessionId, actor })
+      if (kind === 'remove') return this.remove(cwd, { ...op, chatId, actor })
       if (kind === 'get') return { ok: true, task: this.get(cwd, op.id) }
-      if (kind === 'list') return { ok: true, tasks: this.list(cwd) }
+      if (kind === 'list') return { ok: true, tasks: this.list(cwd, { chatId, all: op.all === true }) }
       if (kind === 'agents') return { ok: true, agents: this.agents(cwd) }
       return { ok: false, code: 'unknown_op' }
     },
@@ -711,7 +783,24 @@ function createService(config, logger, hooks = {}) {
  * @param config - Raw plugin config.
  */
 export function apply(ctx, config = {}) {
+  /**
+   * The chat a session belongs to: walk `parentSession` up the live agent tree, so a
+   * child's tasks land on the parent chat's board - the board the human is reading.
+   * The walk stops at the deepest session it can prove: a historical or unloaded parent
+   * never invents a root, and depth is bounded by the harness (default 1) anyway.
+   */
+  const rootOf = (sessionId) => {
+    if (typeof sessionId !== 'string' || sessionId === '') return ''
+    let id = sessionId
+    for (let hop = 0; hop < 8; hop += 1) {
+      const parent = ctx.get('agents')?.get(id)?.session?.header?.parentSession
+      if (typeof parent !== 'string' || parent === '') break
+      id = parent
+    }
+    return id
+  }
   const service = createService(config, ctx.logger, {
+    rootOf,
     interrupt(childId, parentSessionId) {
       const subagents = ctx.get('subagents')
       if (subagents === undefined || typeof subagents.interrupt !== 'function') throw new Error('subagent service is unavailable')
@@ -750,7 +839,7 @@ export function apply(ctx, config = {}) {
     },
     output: out(),
     execute(args, exec) {
-      const task = service.create(workingDir(exec.agent), { ...args, parentSessionId: exec.agent?.id }, 'orchestrator')
+      const task = service.create(workingDir(exec.agent), { ...args, parentSessionId: exec.agent?.id, chatId: rootOf(exec.agent?.id) }, 'orchestrator')
       return Promise.resolve(task)
     },
   }))
@@ -768,11 +857,16 @@ export function apply(ctx, config = {}) {
 
   ctx.tools.register(defineTool({
     name: 'task_list',
-    description: 'List the workspace task ledger in compact form. Use it before delegating and before claiming a task is done.',
-    parameters: {},
+    description: 'List tasks in compact form. The default scope is THIS CHAT only: every chat starts with its own empty board. Pass scope "workspace" to read every task the workspace has ever recorded, including other chats and rows from before boards were per-chat - use it when the user asks what has been done before, or before reusing a role name.',
+    parameters: {
+      scope: { type: 'string', enum: ['chat', 'workspace'], description: 'chat (default) lists this chat only; workspace lists the whole workspace history.' },
+    },
     output: out(),
-    execute(_args, exec) {
-      return Promise.resolve(service.list(workingDir(exec.agent)))
+    execute(args, exec) {
+      return Promise.resolve(service.list(workingDir(exec.agent), {
+        chatId: rootOf(exec.agent?.id),
+        all: args.scope === 'workspace',
+      }))
     },
   }))
 
@@ -810,7 +904,7 @@ export function apply(ctx, config = {}) {
           risks: args.resultRisks,
         }
       }
-      const result = service.update(workingDir(exec.agent), { id: args.id, expectedRevision: args.expectedRevision, patch })
+      const result = service.update(workingDir(exec.agent), { id: args.id, expectedRevision: args.expectedRevision, patch, chatId: rootOf(exec.agent?.id) })
       return Promise.resolve(result)
     },
   }))
@@ -824,7 +918,7 @@ export function apply(ctx, config = {}) {
     },
     output: out(),
     execute(args, exec) {
-      return Promise.resolve(service.note(workingDir(exec.agent), args))
+      return Promise.resolve(service.note(workingDir(exec.agent), { ...args, chatId: rootOf(exec.agent?.id) }))
     },
   }))
 
@@ -839,7 +933,7 @@ export function apply(ctx, config = {}) {
     },
     output: out(),
     execute(args, exec) {
-      return Promise.resolve(service.linkChild(workingDir(exec.agent), args))
+      return Promise.resolve(service.linkChild(workingDir(exec.agent), { ...args, chatId: rootOf(exec.agent?.id) }))
     },
   }))
 
@@ -849,7 +943,7 @@ export function apply(ctx, config = {}) {
     parameters: { id: { type: 'string', required: true, description: 'Task id.' } },
     output: out(),
     execute(args, exec) {
-      return Promise.resolve(service.pause(workingDir(exec.agent), { id: args.id, parentSessionId: exec.agent?.id, actor: 'orchestrator' }))
+      return Promise.resolve(service.pause(workingDir(exec.agent), { id: args.id, parentSessionId: exec.agent?.id, chatId: rootOf(exec.agent?.id), actor: 'orchestrator' }))
     },
   }))
 
@@ -859,7 +953,7 @@ export function apply(ctx, config = {}) {
     parameters: { id: { type: 'string', required: true, description: 'Task id.' } },
     output: out(),
     execute(args, exec) {
-      return Promise.resolve(service.resume(workingDir(exec.agent), { id: args.id, actor: 'orchestrator' }))
+      return Promise.resolve(service.resume(workingDir(exec.agent), { id: args.id, chatId: rootOf(exec.agent?.id), actor: 'orchestrator' }))
     },
   }))
 
@@ -869,7 +963,7 @@ export function apply(ctx, config = {}) {
     parameters: { id: { type: 'string', required: true, description: 'Task id.' } },
     output: out(),
     execute(args, exec) {
-      return Promise.resolve(service.close(workingDir(exec.agent), { id: args.id, parentSessionId: exec.agent?.id, actor: 'orchestrator' }))
+      return Promise.resolve(service.close(workingDir(exec.agent), { id: args.id, parentSessionId: exec.agent?.id, chatId: rootOf(exec.agent?.id), actor: 'orchestrator' }))
     },
   }))
 
@@ -879,7 +973,7 @@ export function apply(ctx, config = {}) {
     parameters: { id: { type: 'string', required: true, description: 'Task id.' } },
     output: out(),
     execute(args, exec) {
-      return Promise.resolve(service.remove(workingDir(exec.agent), { id: args.id }))
+      return Promise.resolve(service.remove(workingDir(exec.agent), { id: args.id, chatId: rootOf(exec.agent?.id) }))
     },
   }))
 

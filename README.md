@@ -56,12 +56,15 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
 - **`@cc/dsh-taskboard`** — the task ledger and the dashboard that replaces the subagent
   catalog. One `.dsh/taskboard.json` per workspace holds objective, scope, non-scope,
   acceptance, status, results and a timeline; model tools and a `/taskboard` command share
-  one Host service, plus pause/resume/close/remove lifecycle actions. The Web half reads
-  through `workspaceFiles`, writes through the command Remote, adds a Tasks main panel and
-  sidebar entry, a hideable detail pane, and a persistent role roster: one child per role
-  (`UX/UI`, `BACKEND`, `BUSINESS`, `RESEARCH`), reused by every task that fits, with
-  active/sleeping/paused state. It reuses the `subagent-catalog` header id. The shipped `ui-subagent` client is disabled so the replacement is one cell,
-  not two; child sessions are opened from the task detail.
+  one Host service, plus pause/resume/close/remove lifecycle actions. **Each chat has its own
+  board**: reads default to the current chat, `task_list` scope `workspace` and the panel's
+  **All chats** toggle read the whole history, and a delegated child's task lands on the
+  parent chat's board. The Web half reads through `workspaceFiles`, writes through the
+  command Remote, adds a Tasks main panel and sidebar entry, a hideable detail pane, and a
+  persistent role roster: one child per role (`UX/UI`, `BACKEND`, `BUSINESS`, `RESEARCH`),
+  reused by every task that fits, with active/sleeping/paused state. It reuses the
+  `subagent-catalog` header id. The shipped `ui-subagent` client is disabled so the
+  replacement is one cell, not two; child sessions are opened from the task detail.
 - **`@cc/dsh-orchestrator`** — a root-only policy section, a child-only specialist section,
   and a root-only `delegate_task` tool. The tool creates the task, renders a self-contained
   brief (objective, scope, non-scope, inputs, acceptance, output, proof, timebox), starts a

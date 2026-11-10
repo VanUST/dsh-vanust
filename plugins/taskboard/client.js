@@ -177,6 +177,33 @@ window.__ModuleLoader__.load({
       return { sessionId: pickWorkspaceSession(workspace, sessionsById, null), workspace }
     }
 
+    /**
+     * The chat a task belongs to - the same rule the Host applies. The recorded chat, or
+     * the session that created the row before chats had boards; null means no chat owns
+     * it, and only the All-chats view shows it.
+     */
+    function chatOf(task) {
+      if (typeof task?.chatId === 'string' && task.chatId !== '') return task.chatId
+      return typeof task?.parentSessionId === 'string' && task.parentSessionId !== '' ? task.parentSessionId : null
+    }
+
+    /**
+     * The root session of a chat: a child's board is its parent's board, because a
+     * delegated child's tasks land on the board the human is reading. The walk is bounded
+     * like the Host's and stops at the deepest session the catalog can prove.
+     */
+    function chatIdOf(sessionId, sessionsById) {
+      if (typeof sessionId !== 'string' || sessionId === '') return ''
+      let id = sessionId
+      for (let hop = 0; hop < 8; hop += 1) {
+        const parent = sessionsById?.[id]?.parentId
+        if (typeof parent !== 'string' || parent === '') break
+        if (sessionsById?.[parent] === undefined) break
+        id = parent
+      }
+      return id
+    }
+
     function isMissing(error) {
       const text = `${error?.code ?? ''} ${error?.message ?? ''}`.toLowerCase()
       return text.includes('enoent') || text.includes('no such file') || text.includes('no entry at') || text.includes('not found')
@@ -448,7 +475,9 @@ window.__ModuleLoader__.load({
         const controller = new AbortController()
         const tick = async () => {
           const result = await readBoard(remote, sessionId, controller.signal)
-          if (!cancelled && result.board) setCount(result.board.tasks.length)
+          // This chat's board only: a new chat is a new board, and a count of the whole
+          // workspace on a fresh conversation reads as tasks this chat cannot see.
+          if (!cancelled && result.board) setCount(result.board.tasks.filter((task) => chatOf(task) === sessionId).length)
         }
         tick().catch(() => {})
         const timer = setInterval(() => { tick().catch(() => {}) }, 5000)
@@ -485,9 +514,11 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function TaskCard({ task, selected, onSelect }) {
+    function TaskCard({ task, selected, onSelect, chatId }) {
       const children = normalizeChildren(task)
       const scope = Array.isArray(task.scope) ? task.scope : []
+      const ownerChat = chatOf(task)
+      const foreign = ownerChat !== null && chatId !== '' && ownerChat !== chatId
       return h('div', {
         className: `tb-card${selected ? ' sel' : ''}`,
         role: 'button',
@@ -495,11 +526,13 @@ window.__ModuleLoader__.load({
         onClick: () => onSelect(task.id),
         onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(task.id) } },
         'aria-pressed': selected,
+        title: foreign ? `Created in another chat (${ownerChat})` : task.objective,
       },
         h('div', { className: 't' }, task.title),
         task.objective ? h('div', { className: 's' }, task.objective.length > 90 ? `${task.objective.slice(0, 90)}…` : task.objective) : null,
         h('div', { className: 'tb-chips' },
           h('span', { className: `tb-chip ${statusTone(task.status)}` }, task.status),
+          foreign ? h('span', { className: 'tb-chip' }, 'other chat') : null,
           children.length > 0 ? h('span', { className: 'tb-chip sub' }, cardSubagentSummary(children)) : null,
           scope.slice(0, 2).map((entry, index) => h('span', { className: 'tb-chip', key: `s${index}` }, entry)),
           scope.length > 2 ? h('span', { className: 'tb-chip' }, `+${scope.length - 2}`) : null,
@@ -724,7 +757,7 @@ window.__ModuleLoader__.load({
       }
     }
 
-    function TaskList({ tasks, selectedId, onSelect }) {
+    function TaskList({ tasks, selectedId, onSelect, chatId }) {
       if (tasks.length === 0) return h('div', { className: 'tb-listwrap', role: 'region', 'aria-label': 'Task list' }, h('div', { className: 'tb-empty' }, 'No tasks match this filter.'))
       return h('div', { className: 'tb-listwrap', role: 'region', 'aria-label': 'Task list' },
         h('div', { className: 'tb-listhead', 'aria-hidden': true },
@@ -738,21 +771,25 @@ window.__ModuleLoader__.load({
           tasks.map((task) => {
             const children = normalizeChildren(task)
             const selected = task.id === selectedId
+            // In the All-chats read, say which rows are not this chat's: an old task's
+            // owner and child sessions read as current work otherwise.
+            const ownerChat = chatOf(task)
+            const foreign = ownerChat !== null && chatId !== '' && ownerChat !== chatId
             return h('div', { className: 'tb-listitem', role: 'listitem', key: task.id },
               h('button', {
                 type: 'button',
                 className: `tb-listrow${selected ? ' sel' : ''}`,
                 onClick: () => onSelect(task.id),
                 'aria-pressed': selected,
-                'aria-label': `${task.title}, ${task.status}${children.length > 0 ? `, ${cardSubagentSummary(children)}` : ''}`,
-                title: task.objective || task.title,
+                'aria-label': `${task.title}, ${task.status}${children.length > 0 ? `, ${cardSubagentSummary(children)}` : ''}${foreign ? ', created in another chat' : ''}`,
+                title: foreign ? `Created in another chat (${ownerChat})` : (task.objective || task.title),
               },
                 h('span', { className: `tb-chip ${statusTone(task.status)}` }, task.status),
                 h('span', { className: 'tb-listtitle' },
                   h('span', { className: 't' }, task.title),
                   task.objective ? h('span', { className: 's' }, task.objective) : null,
                 ),
-                h('span', { className: 'tb-listroles' }, children.length > 0 ? cardSubagentSummary(children) : '—'),
+                h('span', { className: 'tb-listroles' }, foreign ? 'other chat' : children.length > 0 ? cardSubagentSummary(children) : '—'),
                 h('span', { className: 'tb-listowner' }, task.owner?.label ?? 'unowned'),
                 h('span', { className: 'tb-listtime' }, shortTime(task.updatedAt)),
               ),
@@ -777,6 +814,8 @@ window.__ModuleLoader__.load({
       const [view, setView] = useState(null)
       const [query, setQuery] = useState('')
       const [statusFilter, setStatusFilter] = useState('all')
+      // The board is per chat. All chats is a read of the workspace history, not a store.
+      const [scope, setScope] = useState('chat')
       const controllerRef = useRef(null)
       const boardRef = useRef(null)
 
@@ -810,6 +849,9 @@ window.__ModuleLoader__.load({
         setSelectedId(null)
         setReadError('')
         setWriteError('')
+        // Opening a different chat means a different board; the workspace read is a
+        // deliberate act each time, never a mode that silently follows you into a new chat.
+        setScope('chat')
       }, [sessionId])
 
       const load = useCallback(async () => {
@@ -841,8 +883,13 @@ window.__ModuleLoader__.load({
       }, [load])
 
       const tasks = Array.isArray(board?.tasks) ? board.tasks : []
+      const chatId = chatIdOf(sessionId, sessionsById)
+      // The ledger holds every chat; the panel's default view holds one. The All-chats
+      // toggle is the read of the workspace history the agent gets from task_list scope
+      // "workspace" - same data, same rule, so the human and the agent see one board.
+      const chatTasks = scope === 'all' || chatId === '' ? tasks : tasks.filter((task) => chatOf(task) === chatId)
       const needle = query.trim().toLowerCase()
-      const filteredTasks = tasks.filter((task) => {
+      const filteredTasks = chatTasks.filter((task) => {
         if (statusFilter !== 'all' && task.status !== statusFilter) return false
         if (needle === '') return true
         const children = normalizeChildren(task)
@@ -878,11 +925,16 @@ window.__ModuleLoader__.load({
 
       const selected = tasks.find((task) => task.id === selectedId) ?? null
       useEffect(() => {
-        if (selectedId === null && tasks.length > 0) {
-          const active = tasks.find((task) => task.status === 'active' || task.status === 'review')
-          setSelectedId((active ?? tasks[0]).id)
+        if (selectedId === null && chatTasks.length > 0) {
+          const active = chatTasks.find((task) => task.status === 'active' || task.status === 'review')
+          setSelectedId((active ?? chatTasks[0]).id)
         }
-      }, [tasks, selectedId])
+      }, [chatTasks, selectedId])
+      // A scope is a working set: a detail pane must not keep showing a task the visible
+      // board says is not there. Switching scope drops a selection outside the new one.
+      useEffect(() => {
+        if (selectedId !== null && !chatTasks.some((task) => task.id === selectedId)) setSelectedId(null)
+      }, [chatTasks, selectedId])
 
       const reload = () => {
         load().catch((failure) => setReadError(failure?.message ?? 'read failed'))
@@ -898,7 +950,9 @@ window.__ModuleLoader__.load({
         try {
           let result
           try {
-            result = await runOp(remote, sessionId, op)
+            // The write is attributed to the chat's root session, so a panel opened on a
+            // child still creates and edits rows on the board the human is reading.
+            result = await runOp(remote, chatId === '' ? sessionId : chatId, op)
           } catch (failure) {
             const message = failure?.message ?? 'The taskboard command failed.'
             setWriteError(message)
@@ -976,7 +1030,7 @@ window.__ModuleLoader__.load({
         h('div', { className: 'tb-top' },
           canReturn ? h('button', { type: 'button', className: 'tb-btn tb-back', onClick: goBack, title: 'Back to the conversation this board was opened from', 'aria-label': 'Back to chat' }, '← Back') : null,
           h('h1', { className: 'tb-title' }, 'Tasks'),
-          h('span', { className: 'tb-count', title: `${tasks.length} tasks` }, String(tasks.length)),
+          h('span', { className: 'tb-count', title: scope === 'all' ? `${tasks.length} tasks in this workspace` : `${chatTasks.length} tasks in this chat` }, String(chatTasks.length)),
           h('div', { className: 'tb-viewswitch', role: 'group', 'aria-label': 'Task view' },
             h('button', { type: 'button', className: `tb-viewbtn${viewMode === 'board' ? ' on' : ''}`, onClick: () => setView('board'), 'aria-pressed': viewMode === 'board' }, 'Board'),
             h('button', { type: 'button', className: `tb-viewbtn${viewMode === 'list' ? ' on' : ''}`, onClick: () => setView('list'), 'aria-pressed': viewMode === 'list' }, 'List'),
@@ -992,12 +1046,16 @@ window.__ModuleLoader__.load({
         !canEdit ? h('div', { className: 'tb-readonly', role: 'status', 'aria-live': 'polite' }, hasSession ? 'Read-only — open a live conversation to edit this board.' : 'Open a live conversation to edit this board.') : null,
         !detailOpen && error ? h('div', { className: 'tb-global-error', role: 'alert' }, error) : null,
         tasks.length > 0 ? h('div', { className: 'tb-filterbar' },
+          h('div', { className: 'tb-viewswitch', role: 'group', 'aria-label': 'Board scope' },
+            h('button', { type: 'button', className: `tb-viewbtn${scope === 'chat' ? ' on' : ''}`, onClick: () => setScope('chat'), 'aria-pressed': scope === 'chat', title: 'Only the tasks created in this chat' }, 'This chat'),
+            h('button', { type: 'button', className: `tb-viewbtn${scope === 'all' ? ' on' : ''}`, onClick: () => setScope('all'), 'aria-pressed': scope === 'all', title: 'Every task in this workspace, including earlier chats' }, 'All chats'),
+          ),
           h('input', { className: 'tb-input tb-filter', type: 'search', value: query, onChange: (event) => setQuery(event.target.value), placeholder: 'Filter title, scope, owner…', 'aria-label': 'Filter tasks' }),
           h('select', { className: 'tb-select tb-statusfilter', value: statusFilter, onChange: (event) => setStatusFilter(event.target.value), 'aria-label': 'Filter by status' },
             h('option', { value: 'all' }, 'All statuses'),
             COLUMNS.map((column) => h('option', { value: column.id, key: column.id }, column.label)),
           ),
-          h('span', { className: 'tb-filtercount', 'aria-live': 'polite' }, `${filteredTasks.length} / ${tasks.length}`),
+          h('span', { className: 'tb-filtercount', 'aria-live': 'polite', title: 'Shown / tasks in this view' }, `${filteredTasks.length} / ${chatTasks.length}${scope === 'chat' && tasks.length > chatTasks.length ? ` · ${tasks.length - chatTasks.length} elsewhere` : ''}`),
         ) : null,
         h('div', { className: 'tb-roster', role: 'group', 'aria-label': 'Subagents in this workspace' },
           h('span', { className: 'tb-rlabel' }, 'Subagents'),
@@ -1022,11 +1080,11 @@ window.__ModuleLoader__.load({
                 const items = filteredTasks.filter((task) => task.status === column.id)
                 return h('div', { className: 'tb-col', key: column.id },
                   h('h3', null, column.label, h('span', { className: 'n' }, String(items.length))),
-                  items.length === 0 ? h('div', { className: 'tb-empty', style: { padding: '8px 4px', fontSize: '11px' } }, '—') : items.map((task) => h(TaskCard, { key: task.id, task, selected: task.id === selectedId, onSelect: selectTask })),
+                  items.length === 0 ? h('div', { className: 'tb-empty', style: { padding: '8px 4px', fontSize: '11px' } }, '—') : items.map((task) => h(TaskCard, { key: task.id, task, selected: task.id === selectedId, onSelect: selectTask, chatId })),
                 )
               }),
             )
-            : h(TaskList, { tasks: filteredTasks, selectedId, onSelect: selectTask }),
+            : h(TaskList, { tasks: filteredTasks, selectedId, onSelect: selectTask, chatId }),
           detailOpen ? h('aside', { className: 'tb-detail', id: 'tb-detail-pane' },
             selected === null
               ? h('div', null,
@@ -1036,7 +1094,15 @@ window.__ModuleLoader__.load({
                 ),
                 error ? h('div', { className: 'tb-banner' }, error) : null,
                 h('div', { className: 'tb-empty' },
-                  hasSession ? tasks.length === 0 ? 'No tasks yet. The orchestrator creates them with task_create or delegate_task; you can start one here.' : 'Select a task to see its scope, results and timeline.' : 'Open a live conversation to load and edit this board.',
+                  !hasSession
+                    ? 'Open a live conversation to load and edit this board.'
+                    : chatTasks.length === 0
+                      ? scope === 'chat'
+                        ? (tasks.length === 0
+                          ? 'No tasks in this workspace yet. The orchestrator creates them with task_create or delegate_task; you can start one here.'
+                          : `No tasks in this chat yet. Switch to All chats to read the ${tasks.length} task${tasks.length === 1 ? '' : 's'} recorded in other chats.`)
+                        : 'No tasks in this workspace yet.'
+                      : 'Select a task to see its scope, results and timeline.',
                 ),
               )
               : h(TaskDetail, { key: selected.id, task: selected, busy, error, canEdit, onHide: () => setDetailOpen(false), onSave: save, onNote: note, onOpenSession: (id) => uiWorkspace.openSession(id), onAction: action, onRefresh: reload }),

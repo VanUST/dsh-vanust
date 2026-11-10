@@ -7,7 +7,7 @@ is tracked.
 
 One JSON ledger per session workspace, `.dsh/taskboard.json`:
 
-- `id`, `revision`, `title`, `objective`
+- `id`, `revision`, `title`, `objective`, `chatId`
 - `scope[]`, `nonScope[]`, `acceptance[{text,done}]`
 - `status` — proposed, ready, active, paused, review, done, blocked, cancelled
 - `priority`, `owner`, `parentId`, `parentSessionId`, `dependsOn[]`, `childSessionIds[]`,
@@ -15,6 +15,15 @@ One JSON ledger per session workspace, `.dsh/taskboard.json`:
 - `role` on a task; `agents[{role,label,sessionId,status,taskCount,lastTaskId}]` for the persistent specialist roster
 - `result { summary, evidence[], artifacts[], decisions[], risks[] }`
 - `timeline[{at, kind, actor, text, sessionId?}]`
+
+**A chat has its own board.** `chatId` is the root session of the lineage that created
+the task, so a delegated child's rows land on the parent chat's board instead of its own.
+Reads default to the caller's chat; the whole workspace history is still one explicit
+request away (`task_list` with scope `workspace`, or the panel's **All chats** toggle).
+One file with a chat column, not one file per chat: the history cannot drift out of the
+ledger it belongs to, and a new chat starts empty without deleting anything. Rows written
+before `chatId` existed fall back to `parentSessionId`; rows with neither are workspace
+history that only the human can edit.
 
 The `agents[]` section is the persistent role registry: one child session per role, reused by every task that fits it. A role is not a task title. The file is the durable record. It survives a Host restart, lives in the
 checkout's `.dsh/` directory (gitignored), and is the same document the browser
@@ -31,6 +40,12 @@ that role's existing child session; it starts a child only when the role has non
 stores the role registry in `agents[]`. Pause/close interrupt linked children through
 `ctx.subagents`; a failed interrupt is reported per child and the task stays in its previous
 state (fail closed).
+
+`task_list` takes `scope: chat` (default) or `scope: workspace`; `task_get` reads any task by
+id, because knowing the id is the reason to look. A write from another chat is refused with
+`other_chat` for an agent and allowed for the human, who owns the board; the refusal exists
+so an id guessed or carried over from an earlier chat cannot silently rewrite work this chat
+cannot see.
 
 ## Browser surface
 
@@ -50,6 +65,13 @@ state (fail closed).
   kept, and clicking or keyboard-selecting any card reopens the detail. There is
   no show/hide control in the top bar.
 - **Scaling**: a **Board / List** switch sits in the top bar. List is the dense scan view — one row per task with status, title/objective, subagents, owner and updated time — and becomes the default when a board has more than 8 tasks. A filter row adds title/scope/owner search and a status filter; both views use the same filtered set and keep the detail pane. The kanban stays available for workflow shaped work.
+- **Scope**: the filter row starts with **This chat / All chats**. This chat is the default
+  and is the chat's board; All chats reads the whole workspace history in place, with
+  foreign rows marked `other chat` (card chip and list column), and **Back** to This chat
+  when the conversation changes. The header count, the top-bar count and the filter count
+  all follow the active scope, and a chat with no tasks says how many exist elsewhere
+  instead of looking broken. Switching scope drops a selection that is not in the new
+  working set, so the detail pane never shows a task the visible board says is not there.
 - **Wheel scrolling**: wheel input over the board is captured as one horizontal
   axis. A vertical mouse wheel, a horizontal trackpad gesture, and a diagonal
   gesture all move the board sideways; the page does not scroll vertically at
@@ -115,6 +137,9 @@ live session and is left alone.
   draft and offers Refresh. A malformed ledger fails the read loudly rather than
   replacing the human's work. The Host writes temp-file + rename, so a crash
   cannot leave half a JSON document.
+- A write from another chat is refused with `other_chat` for an agent; the panel
+  (the human) may still fix an old row it is reading, which is why Remove on an
+  earlier chat's task works from the All-chats view.
 - A read stops on `eof`. If the ledger does not reach `eof` within 200 pages of
   2,000 lines, the read returns `ledger is too large to read` instead of parsing
   truncated JSON (a maximal board is about 75 pages).
