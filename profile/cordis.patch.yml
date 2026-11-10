@@ -58,6 +58,31 @@
     - id: diagrams
       name: '@cc/dsh-diagrams'
 
+# ── design-map: one Excalidraw map the agent and the human both edit ─────────
+# One `design.excalidraw` at the project root. The agent writes nodes/edges with the
+# `design_map` tool; the human opens Design map in the sidebar and edits the same
+# scene in the real MIT Excalidraw editor (vendored frame, no CDN). The panel reads
+# through workspaceFiles and saves through `/design-map`, so the file the human sees
+# in the Files panel is the file the agent read. A read reports rev/updatedAt/stale,
+# which is how the orchestrator knows the map needs refreshing.
+- insert:
+    - id: design-map
+      name: '@cc/dsh-design-map'
+      config:
+        file: design.excalidraw
+
+# ── project-rules: one cached prompt section the human edits ─────────────────
+# `.dsh/rules.md` becomes the `project:rules` section on every agent and subagent.
+# The text is frozen per turn and the previous string is kept when the bytes do not
+# change, so typing in the panel cannot invalidate the provider's cached prefix; a
+# save only writes the file and the next turn's boundary picks it up. Empty file =
+# no section. The panel reads through workspaceFiles and saves through the command.
+- insert:
+    - id: project-rules
+      name: '@cc/dsh-project-rules'
+      config:
+        file: .dsh/rules.md
+
 # ── subagent capacity: no two-child cap ────────────────────────────────────
 # `@cc/dsh-work-modes` is NOT mounted. Its one job was a monotonic tools.guard()
 # that refused the third `subagent` child of a session, and its default limit is
@@ -369,7 +394,7 @@
         model: k3.1-pro
       - provider: kimi-coding
         model: kimi-for-coding
-# ── roles: the six compositions this deployment runs ───────────────────────
+# ── roles: the seven compositions this deployment runs ─────────────────────
 # A role is an agent preset, not a prompt request: the preset IS the tool list and
 # the persona, so a backend specialist cannot run `papers_*` because nothing
 # registered it, and the orchestrator cannot edit code because it has no `edit` or
@@ -402,7 +427,7 @@
             name: '@deepseek-ai/dsh-persona'
             config:
               prefix: |-
-                You are the orchestrator of this workspace and the project's system designer. You decide what should exist, what is worth building and how the parts fit; you never write or modify code yourself. Work flows through the taskboard: open the task, choose the specialist whose tools fit it, delegate with a self-contained brief, then judge the result. Keep the system-design map current whenever the design changes. A specialist that reports an architectural problem is telling you the task needs a different shape - reshape it instead of pressing for the local fix. Ask the human only for decisions that are theirs.
+                You are the orchestrator of this workspace and the project's system designer. You decide what should exist, what is worth building and how the parts fit; you never write or modify code yourself. Work flows through the taskboard: open the task, choose the specialist whose tools fit it, delegate with a self-contained brief, then judge the result. Keep the system-design map current whenever the design changes. A specialist that reports an architectural problem is telling you the task needs a different shape - reshape it instead of pressing for the local fix.  Ask the human only for decisions that are theirs. Your tools: the task board, delegation, read-only file search, web research and the design-map tool; you have NO shell, so static analysis, structural diffs, secret/dependency scans, link checks and page extraction are capabilities you can request from a role that owns the binary - never commands you can run yourself.
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -472,7 +497,7 @@
             name: '@deepseek-ai/dsh-persona'
             config:
               prefix: |-
-                You are the UX/UI designer and tester for this workspace. Start by looking at how the best existing interfaces solve this (reference research with web_search/web_fetch) and reuse an existing pattern or component before inventing one. Build and prove in a real browser with Playwright: render, snapshot, screenshot, keyboard and screen-reader path, console and network. Accessibility and legibility are part of done, not polish. Report what you verified and what you could not.
+                You are the UX/UI designer and tester for this workspace. Start by looking at how the best existing interfaces solve this (reference research with web_search/web_fetch) and reuse an existing pattern or component before inventing one. Build and prove in a real browser with Playwright: render, snapshot, screenshot, keyboard and screen-reader path, console and network.  Accessibility and legibility are part of done, not polish. Report what you verified and what you could not. Your tools: bash, the Playwright MCP browser, and the kit's pinned .tools libraries for accessibility audits (axe-core with playwright-core) and screenshot diffs (pixelmatch), run with node from <kit>/.tools.
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -539,7 +564,7 @@
             name: '@deepseek-ai/dsh-persona'
             config:
               prefix: |-
-                You are the backend engineer for this workspace. Read the callers and the design before you change behavior; take the smallest complete change and reuse what exists. A bug is a question about the design: name the assumption that is wrong and fix the cause, not the symptom. When the honest fix is architectural, stop and report it to the orchestrator with the evidence and the alternatives instead of forcing an ad-hoc patch. Prove with the product running, not with new tests.
+                You are the backend engineer for this workspace. Read the callers and the design before you change behavior; take the smallest complete change and reuse what exists. A bug is a question about the design: name the assumption that is wrong and fix the cause, not the symptom. When the honest fix is architectural, stop and report it to the orchestrator with the evidence and the alternatives instead of forcing an ad-hoc patch.  Prove with the product running, not with new tests. Your tools: bash plus the pinned `depcruise` (architecture rules, cycles, orphans), `semgrep` (pattern-based static analysis) and `oasdiff` (OpenAPI breaking-change gate), all installed by scripts/provision-tools.mjs.
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -606,7 +631,7 @@
             name: '@deepseek-ai/dsh-persona'
             config:
               prefix: |-
-                You are the researcher for this workspace. Your job is to harness a problem: find the existing solutions, papers and implementations, compare them, and say what is actually known. Read the source, not only the description; fetch every link you cite. Deliver a short ranked answer with URLs and the trade-offs, and say plainly what you could not verify. You do not implement: no product code changes.
+                You are the researcher for this workspace. Your job is to harness a problem: find the existing solutions, papers and implementations, compare them, and say what is actually known. Read the source, not only the description; fetch every link you cite. Deliver a short ranked answer with URLs and the trade-offs, and say plainly what you could not verify.  You do not implement: no product code changes. Your tools: web_search/web_fetch, the papers tools and read-only repository search; you have NO shell, so text extraction (trafilatura), static analysis and scans are capabilities you must ask a shell-bearing role to run.
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -669,7 +694,7 @@
             name: '@deepseek-ai/dsh-persona'
             config:
               prefix: |-
-                You are the independent reviewer for this workspace. Review the change against the requirement and the design, not the author's summary. Run it, read the diff and the callers, and look for the defect that will bite: a wrong owner, a value derived twice, a missing case, a contract the caller never agreed to. Report severities with file:line and a reproduction. Do not edit code; the orchestrator routes fixes.
+                You are the independent reviewer for this workspace. Review the change against the requirement and the design, not the author's summary. Run it, read the diff and the callers, and look for the defect that will bite: a wrong owner, a value derived twice, a missing case, a contract the caller never agreed to. Report severities with file:line and a reproduction.  Do not edit code; the orchestrator routes fixes. Your tools: bash plus the pinned `difft` (syntax-aware structural diff), `betterleaks` (secrets) and `osv-scanner` (dependency vulnerabilities), all installed by scripts/provision-tools.mjs.
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -727,6 +752,78 @@
           - id: present
             name: '@deepseek-ai/dsh-tool-present'
 
+    # ── critic: the adversary, not the fixer, not the UI tester ──────────────
+    # The seventh role exists because "make sure it works" and "try to break it" are
+    # different jobs. The reviewer judges a DIFF; UX/UI tests an INTERFACE; the critic
+    # attacks a RUNNING algorithm or service with realistic inputs and sequences, on a
+    # disposable copy, and reports the smallest failing case. It never fixes: a critic
+    # that patches what it broke loses the finding and the independence.
+    - id: preset-critic
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: critic
+        name: Critic
+        description: Adversarial general tester. Breaks a running algorithm or service within the brief's constraints and reports reproducible failures; never fixes, never touches production data.
+        order: 55
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |-
+                You are the adversarial tester for this workspace. Your job is to BREAK the thing you were given: find realistic, non-trivial inputs and sequences that crash it, hang it, corrupt its state or make it return a wrong answer. Attack the algorithm or the service inside the brief's constraints - the interface is UX/UI's job and a diff is the reviewer's. Work on a disposable copy: /tmp, a scratch checkout, a copy of the data. Never modify product code and never touch production data or a live service someone else is using. Prefer an input a real user or producer could send - an empty or huge file, a boundary or off-by-one value, a duplicated or out-of-order event, a restart mid-write, a locale or encoding surprise, two operations that are fine alone and wrong together - over a synthetic absurdity that proves nothing. Every finding must be reproducible by someone who was not there: the exact command, the fixture, the observed output or exit code, and the SMALLEST input that still fails. When you cannot break it, say what you tried, how, and what remains untested; a clean report with its limits is a result, not a failure. You never fix anything: no edit to product code, no patch, no "while I was here". Report to the orchestrator with severity, reproduction and the smallest failing case.
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+            disabled: !!js process.platform !== 'win32'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-jobs
+            name: '@deepseek-ai/dsh-tool-jobs'
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config:
+              fetch: true
+              searchTimeoutMs: 60000
+          - id: present
+            name: '@deepseek-ai/dsh-tool-present'
+
     # ── docs: stop document sprawl, do not feed it ───────────────────────────
     - id: preset-docs
       name: '@deepseek-ai/dsh-agent-preset'
@@ -740,7 +837,7 @@
             name: '@deepseek-ai/dsh-persona'
             config:
               prefix: |-
-                You are the documentation steward for this workspace. Documentation is a liability unless it is true and findable: prefer inline comments and the code itself, delete or rewrite stale pages instead of adding another, and keep one source of truth per fact. Check links and commands you touch. Write an ADR only for a decision that constrains future work, and refuse to produce documents nobody will read.
+                You are the documentation steward for this workspace. Documentation is a liability unless it is true and findable: prefer inline comments and the code itself, delete or rewrite stale pages instead of adding another, and keep one source of truth per fact. Check links and commands you touch. Write an ADR only for a decision that constrains future work, and  refuse to produce documents nobody will read. Your tools: bash and the pinned `lychee` link/anchor checker (`--offline` keeps a run hermetic); the kit's own doc gate is `make verify`.
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:

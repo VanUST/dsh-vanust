@@ -49,21 +49,49 @@ outside that seam.
 
 ### 1.0 The role presets — tool sets, not prompts
 
-Six `@deepseek-ai/dsh-agent-preset` declarations sit in the profile patch, and
+Seven `@deepseek-ai/dsh-agent-preset` declarations sit in the profile patch, and
 `@deepseek-ai/dsh-agent-preset-registry` defaults new sessions to it:
 `preset-orchestrator`, `preset-ux`, `preset-backend`, `preset-research`, `preset-reviewer`,
-`preset-docs`. A preset is the persona AND the tool list, so the isolation is registration, not
-a brief: the orchestrator reads (`read`, `readImage`) and has no `write`, `edit`, `bash` or
+`preset-critic`, `preset-docs`. A preset is the persona AND the tool list, so the isolation is
+registration, not a brief: the orchestrator reads (`read`, `readImage`) and has no `write`,
+`edit`, `bash` or
 `pwsh` at all; the research role has no shell and cannot surgically edit; the reviewer can run
-and read but not write; the backend, ux and docs roles have the full shell and filesystem.
+and read but not write; the backend, ux, critic and docs roles have the full shell and
+filesystem.
+
+**`critic` is the seventh, and it is a different job from `reviewer`.** The reviewer judges a
+diff and does not write; the critic attacks a RUNNING behaviour - a service, a CLI, an
+algorithm - with realistic non-trivial inputs and sequences, on a disposable copy (`/tmp`, a
+scratch checkout, a copy of the data), and reports the smallest reproducible failure or what
+it tried and what stayed untested. It never fixes and never touches production data, and its
+preset carries no browser: UI crash testing stays with `ux`. `delegate_task` maps CRITIC,
+CRITIC-GENERAL, TESTER and QA to `critic`; AUDIT stays on `reviewer`.
 `delegate_task` maps a role name to its preset and passes `agentPreset` in the start request; a
 provider without `capabilities.agentPreset` is refused before a child exists, because the child
 would silently inherit the orchestrator composition and the brief would promise work it cannot
 do. Kit tools that only one role should see gate on the same recorded id through `agent/created`
 plus `agent.ctx.tools.register`: `papers_*` to research, `babysitter_*` to the orchestrator,
-`diagram`/`presentation` to the orchestrator and ux. `standard` stays in the picker as the
-hands-on escape hatch, and a session with no recorded preset keeps every gated tool, so an
-unknown composition is never silently degraded.
+`diagram`/`presentation` to the orchestrator and ux, and `design_map` to the **orchestrator
+only**. `standard` stays in the picker as the
+hands-on escape hatch, and a session with no recorded preset keeps every capability-gated tool,
+so an unknown composition is never silently degraded - except `design_map`, which fails closed
+because it is an ownership boundary, not a capability.
+
+#### 1.0.1 Who may change what
+
+Three workspaces artefacts have an owner that is not "any agent", and the deployment enforces
+the boundary where it can:
+
+| Artefact | Agent side | Human side | Enforced by |
+|---|---|---|---|
+| `design.excalidraw` (the design map) | **orchestrator only** - `design_map` is registered per agent for `agentPreset === 'orchestrator'`; a specialist child has no such tool | **yes** - **Design map** panel via `/design-map` | registration: a tool a child never received cannot be talked into existence by a brief. `standard`/unknown presets get no tool (fail closed) |
+| `.dsh/rules.md` (project rules) | **nobody** - `write`/`edit` and `bash`/`pwsh` naming the file are refused with `rules_human_only` | **yes** - **Rules** panel via `/project-rules` | a `tools/pre-execute` guard on resolved paths and on the shell command text. A guardrail, not a jail: an obfuscated or symlinked path is outside it, and the panel command is a different registry so the human keeps the pen |
+| `.dsh/taskboard.json` (the task ledger) | any agent in its own chat, through `task_create`/`task_update`/…; another chat's row is refused `other_chat` | **yes**, for the whole board | the taskboard service (chat scoping and the lifecycle invariants) |
+| `docker`/MCP/network state | no role preset carries it; the harness's own tools decide | **yes** | the harness's tool registration |
+
+The rule the human set: **the design map is edited by the orchestrator and the human; the
+project rules are edited by the human alone.** Neither is offered to a child by any persona or
+prompt section, and a child that reaches for one gets a named refusal it can quote.
 
 **Never edit `$DSH_HOME/profiles/web/cordis.patch.yml` while `dsh web` is running.** The Loader
 watches the profile layer and re-composes preset declarations on save: a live turn lost its
@@ -333,6 +361,41 @@ puppeteer consumer and can put real windows on screen, which no tool call may do
 Chrome and ffmpeg are DETECTED only, never installed: the probe looks on PATH and then in the
 per-platform install locations (`%ProgramFiles%\Google\Chrome\Application\chrome.exe`,
 `/Applications/…`), because neither Windows nor macOS puts a browser on PATH.
+
+
+**The role toolchain — seven presets, nine pinned binaries, and two roles that cannot run them.**
+Provisioning also installs the CLIs the role personas name. Each pin is the project's own latest
+release measured on 2026-11-10; the release date, licence, last-commit date and the exact proof
+command for every row are recorded in `.dsh/research/role-toolchain-install.md`.
+
+| Binary | Pin (release) | Licence | Installed from | Proven with |
+|---|---|---|---|---|
+| `depcruise` (dependency-cruiser) | 18.7.2 (2026-11-02) | MIT | global npm | `depcruise --no-config --output-type text <dir>` |
+| `semgrep` | 1.185.0 (2026-11-10) | LGPL-2.1 | `uv tool install semgrep==1.185.0` | a local rule reports `eval()` |
+| `oasdiff` | 1.37.0 (2026-11-09) | Apache-2.0 | release archive, sha256 pinned | `oasdiff breaking` names a removed path |
+| `difft` | 0.72.0 (2026-10-29) | MIT | release archive, sha256 pinned | `difft --check-only --exit-code` |
+| `betterleaks` | 1.10.0 (2026-11-04) | MIT | release archive, sha256 pinned | `betterleaks dir` reports no leak |
+| `osv-scanner` | 2.7.1 (2026-11-09) | Apache-2.0 | bare release binary, sha256 pinned | a lockfile scan reports lodash CVEs |
+| `lychee` | 0.24.2 (2026-10-12) | MIT / Apache-2.0 | musl release archive, sha256 pinned | `lychee --offline` reports 1 OK |
+| `trafilatura` | 2.3.1 | Apache-2.0 | `uv tool install trafilatura==2.3.1` | stdin HTML becomes clean markdown |
+| `@axe-core/playwright`, `pixelmatch` | 4.14.0 / 8.0.0 | MPL-2.0 / ISC | `npm --prefix <kit>/.tools` | axe flags an unnamed button; pixelmatch counts one changed pixel |
+
+Three facts the table cannot show. A downloaded artifact is verified before it is unpacked:
+the digest is pinned in `scripts/provision-tools.mjs` where the kit measured it, and otherwise
+read from the release's published checksum file; with neither, the install refuses. The GNU
+`lychee` build needs GLIBC 2.39 while this kit runs on Ubuntu 22.04 (2.35), so provisioning
+installs the static musl build — measured today, the GNU binary exited before printing a
+version. And `~/.local/bin` is where the kit's binaries land, but a conda or distro copy of the
+same name can sit earlier on PATH (measured: conda's `trafilatura` 2.0.0 beat the pinned 2.3.1),
+so the probe prefers the kit's own `~/.local/bin/<name>` once it exists and `--check` reports
+the pinned version rather than the ambient one. `--apply` never replaces a present binary; a
+present-but-different version is reported as a note, so drift is visible without a silent
+upgrade.
+
+**Shell-less roles.** `preset-orchestrator` and `preset-research` have no `tool-bash`. They
+cannot run any CLI in the table, and their personas say so: static analysis, scans, link
+checks and extraction are capabilities they must request from a role that has bash. That is a
+delegation, not a tool call, and the brief has to carry it.
 
 **Two upstream rows the kit now pins, and why they are in the kit.** `profile/cordis.patch.yml`
 carries `@deepseek-ai/dsh-client-ui-settings-general` (welcome notice suppressed at

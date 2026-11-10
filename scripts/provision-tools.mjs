@@ -26,11 +26,26 @@
  *   found, and the exact next command for a manual install.
  *
  * KEYWORDS
- *   provisioning, rtk, headroom, babysitter, marp, mermaid, d2, chrome, installer
+ *   provisioning, rtk, headroom, babysitter, marp, mermaid, d2, chrome, installer,
+ *   role toolchain, depcruise, semgrep, oasdiff, difftastic, betterleaks, osv-scanner,
+ *   lychee, trafilatura, axe-core, pixelmatch, checksum, pin
  *
  * BEHAVIOUR ON EDGE CASES
  *   - Already present (any version): never reinstalled, never fetched. The probe is
- *     the authority, so re-running is free and offline-safe.
+ *     the authority, so re-running is free and offline-safe. A present version that
+ *     differs from the pin is REPORTED as a note, not replaced: a silent upgrade is
+ *     how a documented role command stops matching the machine.
+ *   - A downloaded release artifact is verified before it is unpacked. The digest is
+ *     pinned in this file where the kit measured it, otherwise read from the release's
+ *     published checksum file; with neither, the install refuses rather than running
+ *     bytes nothing vouched for.
+ *   - The kit's own `~/.local/bin/<name>` wins over an ambient binary of the same name
+ *     (measured 2026-11-10: conda's trafilatura 2.0.0 sat earlier on PATH than the
+ *     pinned 2.3.1), so `--check` reports the version the kit installed.
+ *   - Python tools go through `uv tool install`; `pip install` into the conda base is
+ *     deliberately not a path this script knows.
+ *   - A missing tool is a supported state: the run reports it with the manual command
+ *     and exits 1, and the boot proceeds.
  *   - No network: each install fails on its own and is reported with the manual
  *     command; the run continues, and the exit code says something is missing.
  *   - Windows: `--check` works everywhere, `--apply` refuses the POSIX-only installers
@@ -41,20 +56,102 @@
  *     interpreter), rtk and d2 from their release archives onto a directory that is
  *     already on PATH, and headroom through `uv tool install` with uv installed on
  *     demand. A tool whose release asset does not exist for this platform stays
- *     missing and reports the manual command.
+ *     missing and reports the manual command. The browser-audit libraries are the one
+ *     kit-local exception: they are installed into `<kit>/.tools`, not a global bin.
  *   - Chrome and ffmpeg are DETECTED ONLY: they are OS packages, and installing them
  *     under a user account is how a machine ends up with two browsers.
  */
 
 import { execFileSync, spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { delimiter, dirname, join, resolve } from 'node:path'
+import { basename, delimiter, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const LOCAL_BIN = join(homedir(), '.local', 'bin')
 const DSH_HOME = resolve(process.env.DSH_HOME ?? join(homedir(), '.npm', 'dsh'))
+
+/**
+ * The role toolchain, pinned. Each value is the version this kit installs when
+ * the tool is absent; a newer release is not adopted silently, because a role's
+ * command has to behave the same on every machine. Measured 2026-11-10 against
+ * the project's own latest release (see .dsh/research/role-toolchain-install.md).
+ *
+ * The first group is comment-only here: the entries below read these constants,
+ * so the pin lives once instead of once per URL.
+ */
+const PINS = {
+  depcruise: '18.7.2',
+  semgrep: '1.185.0',
+  oasdiff: '1.37.0',
+  difft: '0.72.0',
+  betterleaks: '1.10.0',
+  osvScanner: '2.7.1',
+  lychee: '0.24.2',
+  trafilatura: '2.3.1',
+  axePlaywright: '4.14.0',
+  pixelmatch: '8.0.0',
+  playwrightCore: '1.65.0',
+}
+
+/** The OS token these release projects publish (`windows`, `darwin`, `linux`). */
+function releaseOS({ platform = process.platform } = {}) {
+  return { os: platform === 'win32' ? 'windows' : platform === 'darwin' ? 'darwin' : 'linux' }
+}
+
+/** sha256 of a file, lowercase hex. */
+function sha256(path) {
+  return createHash('sha256').update(readFileSync(path)).digest('hex')
+}
+
+/**
+ * Extract the asset's digest from a release checksum file.
+ *
+ * PURPOSE
+ *   Projects publish their sums in three shapes (`<sum>  <name>`, `<sum> *<name>`,
+ *   and the `.sha256` sibling which is one line of the first form). One parser
+ *   keeps the installer honest instead of trusting an asset's bytes because the
+ *   download succeeded.
+ * INPUTS
+ *   text  - the checksum file body (string).
+ *   asset - basename of the downloaded asset (string).
+ * OUTPUTS
+ *   Lowercase hex digest, or null when the file does not name the asset.
+ * KEYWORDS
+ *   checksum, sha256, release asset, verification
+ */
+function checksumFor(text, asset) {
+  for (const line of String(text).split('\n')) {
+    const match = /^([0-9a-f]{64})\s+\*?(.+)$/iu.exec(line.trim())
+    if (match !== null && match[2].trim() === asset) return match[1].toLowerCase()
+  }
+  return null
+}
+
+/**
+ * Read the version field of an installed package, or null.
+ *
+ * PURPOSE
+ *   The two Node libraries are a kit-level pair, not a CLI, so the probe is their
+ *   package metadata rather than `--version`. Reading it also proves the package
+ *   directory is complete, not merely present.
+ * INPUTS
+ *   path - absolute path to the package's package.json (string).
+ * OUTPUTS
+ *   Version string, or null when the file is missing or unreadable.
+ * KEYWORDS
+ *   npm package, probe, kit tools directory, axe, pixelmatch
+ */
+function packageVersion(path) {
+  try {
+    const value = JSON.parse(readFileSync(path, 'utf8'))
+    return typeof value.version === 'string' ? value.version : null
+  } catch {
+    return null
+  }
+}
 
 /** Parse arguments; unknown flags are a usage error. */
 function parseArgs(argv) {
@@ -163,6 +260,15 @@ export function which(names) {
  *   chrome, chromium, edge, detection, known locations, per-platform
  */
 function resolveToolBin(tool) {
+  // A kit-installed binary wins over an ambient one of the same name. Measured
+  // 2026-11-10: the conda `trafilatura` 2.0.0 sits earlier on PATH than the pinned
+  // uv tool 2.3.1, so a PATH-first probe reported the wrong version as present.
+  if (tool.preferLocal === true) {
+    for (const name of tool.names) {
+      const candidate = join(LOCAL_BIN, process.platform === 'win32' ? `${name}.exe` : name)
+      if (existsSync(candidate)) return candidate
+    }
+  }
   const fromPath = which(tool.names)
   if (fromPath !== null) return fromPath
   const known = tool.known?.[process.platform] ?? []
@@ -349,7 +455,7 @@ function findInTree(root, name) {
  * KEYWORDS
  *   release asset, tar.gz, zip, copy, PATH, user-local install
  */
-async function installArchiveBinary({ url, binary, target, kind = 'tar.gz' }) {
+async function installArchiveBinary({ url, binary, target, kind = 'tar.gz', sha256: pinned = null, checksumUrl = null }) {
   const stem = `${target.replaceAll(/\W/gu, '-')}-${process.pid}`
   const archive = join(tmpdir(), kind === 'zip' ? `${stem}.zip` : `${stem}.tar.gz`)
   const into = join(tmpdir(), stem)
@@ -358,6 +464,10 @@ async function installArchiveBinary({ url, binary, target, kind = 'tar.gz' }) {
   } catch {
     return null
   }
+  // A downloaded artifact is verified before it is unpacked. The digest is either pinned in
+  // this file (the offline, strongest case) or read from the release's published checksum
+  // file; with neither, the install refuses rather than running unchecked bytes.
+  if (!(await verifyDownload(archive, url, pinned, checksumUrl))) return null
   const extracted = kind === 'zip' ? extractZip(archive, into) : extractTarGz(archive, into)
   if (!extracted) return null
   const found = findInTree(into, binary)
@@ -369,6 +479,152 @@ async function installArchiveBinary({ url, binary, target, kind = 'tar.gz' }) {
     return null
   }
   return destination
+}
+
+/**
+ * Verify one downloaded artifact before it is used.
+ *
+ * PURPOSE
+ *   Put the checksum gate in one place so an archive and a bare release binary
+ *   cannot diverge: a pinned digest is compared directly, and a published
+ *   checksum file is fetched and parsed only when no digest is pinned.
+ * INPUTS
+ *   file         - downloaded artifact (absolute path).
+ *   url          - artifact URL, whose basename names it in the checksum file.
+ *   pinned       - known sha256 hex digest, or null.
+ *   checksumUrl  - URL of the release's published checksum file, or null.
+ * OUTPUTS
+ *   true when the digest matches; false on a mismatch, an absent digest, or a
+ *   checksum file that does not name the asset. Never throws.
+ * KEYWORDS
+ *   checksum, sha256, supply chain, release artifact
+ */
+async function verifyDownload(file, url, pinned, checksumUrl) {
+  const expected = typeof pinned === 'string' && pinned !== ''
+    ? pinned.toLowerCase()
+    : checksumUrl === null
+      ? null
+      : await withRetry(async () => {
+        const response = await fetch(checksumUrl, { signal: AbortSignal.timeout(60_000) })
+        if (!response.ok) throw new Error(`HTTP ${response.status} for ${checksumUrl}`)
+        const digest = checksumFor(await response.text(), basename(url))
+        if (digest === null) throw new Error(`checksum file does not name ${basename(url)}`)
+        return digest
+      }).catch(() => null)
+  return expected !== null && sha256(file) === expected
+}
+
+/**
+ * Install a release that publishes the executable as a bare file (no archive).
+ *
+ * PURPOSE
+ *   osv-scanner publishes `osv-scanner_linux_amd64` directly. Pouring it into the
+ *   archive path would need a fake archive, so the raw case gets its own small
+ *   function that still verifies before copying.
+ * INPUTS
+ *   url, target, sha256, checksumUrl - as in installArchiveBinary.
+ * OUTPUTS
+ *   Installed absolute path (string), or null.
+ * KEYWORDS
+ *   raw binary, osv-scanner, checksum, user-local install
+ */
+async function installRawBinary({ url, target, sha256: pinned = null, checksumUrl = null }) {
+  const temp = join(tmpdir(), `${target.replaceAll(/\W/gu, '-')}-${process.pid}`)
+  try {
+    await download(url, temp)
+  } catch {
+    return null
+  }
+  if (!(await verifyDownload(temp, url, pinned, checksumUrl))) return null
+  const destination = join(binDir(), target)
+  try {
+    copyFileSync(temp, destination)
+    if (process.platform !== 'win32') execFileSync('chmod', ['0755', destination])
+  } catch {
+    return null
+  }
+  return destination
+}
+
+/**
+ * Install a pinned Python tool through `uv tool install`.
+ *
+ * PURPOSE
+ *   semgrep and trafilatura are Python CLIs. `pip install` into the conda base is
+ *   forbidden on this deployment (it would change every other Python consumer),
+ *   so the one supported unattended path is an isolated uv tool environment with
+ *   a pinned version. uv also verifies the wheel hashes it downloads from PyPI.
+ * INPUTS
+ *   spec - pinned requirement, e.g. 'semgrep==1.185.0' (string).
+ * OUTPUTS
+ *   true when the install exited zero and the shim resolves afterwards.
+ * KEYWORDS
+ *   uv, python tool, semgrep, trafilatura, isolated install
+ */
+function installUvTool(spec) {
+  const uv = ensureUv()
+  if (uv === null) return false
+  const installed = run([uv, 'tool', 'install', '--python', '3.13', spec])
+  ensureOnPath(join(homedir(), '.local', 'bin'))
+  return installed
+}
+
+/**
+ * The argv that runs the npm CLI, including the Windows shim workaround.
+ *
+ * PURPOSE
+ *   Both the global install and the kit-local `.tools` install need the same
+ *   resolution: `npm.cmd` cannot be spawned directly on Windows (EINVAL since
+ *   CVE-2024-27980), so the CLI script is run with this node binary instead.
+ * INPUTS
+ *   args - npm arguments (string[]).
+ * OUTPUTS
+ *   argv for run(), or null when npm is absent.
+ * KEYWORDS
+ *   npm, windows shim, npm-cli.js, install
+ */
+function npmArgv(args) {
+  const npm = which('npm')
+  if (npm === null) return null
+  if (process.platform === 'win32' && /\.cmd$/iu.test(npm)) {
+    const cli = join(dirname(npm), 'node_modules', 'npm', 'bin', 'npm-cli.js')
+    return existsSync(cli) ? [process.execPath, cli, ...args] : null
+  }
+  return [npm, ...args]
+}
+
+/**
+ * Install pinned packages into the kit's own `.tools` directory.
+ *
+ * PURPOSE
+ *   @axe-core/playwright and pixelmatch are libraries a role script imports, not
+ *   CLIs, so there is no global binary to install and no PATH entry to wire. They
+ *   live beside the kit they serve, so a fresh checkout converges with the same
+ *   two versions the report names.
+ * INPUTS
+ *   directory - the kit's `.tools` path (string).
+ * OUTPUTS
+ *   true when npm exited zero.
+ * KEYWORDS
+ *   kit tools directory, npm prefix, axe-core, pixelmatch
+ */
+function installNpmPrefix(directory) {
+  mkdirSync(directory, { recursive: true })
+  const manifest = join(directory, 'package.json')
+  if (!existsSync(manifest)) {
+    writeFileSync(manifest, `${JSON.stringify({
+      name: 'dsh-kit-tools',
+      private: true,
+      type: 'module',
+      dependencies: {
+        '@axe-core/playwright': PINS.axePlaywright,
+        pixelmatch: PINS.pixelmatch,
+        'playwright-core': PINS.playwrightCore,
+      },
+    }, null, 2)}\n`, 'utf8')
+  }
+  const argv = npmArgv(['install', '--prefix', directory, '--no-audit', '--no-fund'])
+  return argv !== null && run(argv)
 }
 
 /**
@@ -394,14 +650,8 @@ async function installArchiveBinary({ url, binary, target, kind = 'tar.gz' }) {
  * npm's own CLI script with this node binary needs neither a shell nor a quote.
  */
 function installWithNpm(pkg, env = {}) {
-  const npm = which('npm')
-  if (npm === null) return false
-  const args = ['install', '-g', '--no-audit', '--no-fund', pkg]
-  if (process.platform === 'win32' && /\.cmd$/iu.test(npm)) {
-    const cli = join(dirname(npm), 'node_modules', 'npm', 'bin', 'npm-cli.js')
-    return existsSync(cli) ? run([process.execPath, cli, ...args], env) : false
-  }
-  return run([npm, ...args], env)
+  const argv = npmArgv(['install', '-g', '--no-audit', '--no-fund', pkg])
+  return argv !== null && run(argv, env)
 }
 
 /**
@@ -604,6 +854,193 @@ const TOOLS = [
     manual: 'download d2-linux-amd64.tar.gz from https://github.com/d2lang/d2/releases and put `d2` on PATH',
     manualWindows: 'download d2-windows-amd64.tar.gz from https://github.com/d2lang/d2/releases and put d2.exe on PATH',
   },
+  // ── the role toolchain (pinned 2026-11-10) ─────────────────────────────────
+  // These are the CLIs the six agent presets may run. Each entry carries the exact
+  // release it installs: an available-but-newer binary is reported, never swapped
+  // in, because a role's documented command has to behave the same on every
+  // machine. The maintenance evidence (release date, licence, last commit) lives
+  // in .dsh/research/role-toolchain-install.md; the digest pins live here.
+  {
+    id: 'depcruise',
+    label: 'dependency-cruiser — architecture rules and dependency graph',
+    required: false,
+    pin: PINS.depcruise,
+    versionPin: PINS.depcruise,
+    names: ['depcruise', 'dependency-cruiser'],
+    install: async () => installWithNpm(`dependency-cruiser@${PINS.depcruise}`),
+    manual: `npm install -g dependency-cruiser@${PINS.depcruise}`,
+  },
+  {
+    id: 'semgrep',
+    preferLocal: true,
+    label: 'semgrep — pattern-based static analysis',
+    required: false,
+    pin: PINS.semgrep,
+    versionPin: PINS.semgrep,
+    names: ['semgrep'],
+    install: async () => installUvTool(`semgrep==${PINS.semgrep}`) && which('semgrep') !== null,
+    manual: `uv tool install --python 3.13 semgrep==${PINS.semgrep}`,
+  },
+  {
+    id: 'oasdiff',
+    preferLocal: true,
+    label: 'oasdiff — OpenAPI breaking-change gate',
+    required: false,
+    pin: PINS.oasdiff,
+    versionPin: PINS.oasdiff,
+    names: ['oasdiff'],
+    install: async () => {
+      const { os } = releaseOS()
+      const arch = process.arch === 'arm64' ? 'arm64' : 'amd64'
+      const tag = `v${PINS.oasdiff}`
+      const asset = os === 'darwin'
+        ? `oasdiff_${PINS.oasdiff}_darwin_all.tar.gz`
+        : `oasdiff_${PINS.oasdiff}_${os}_${arch}.tar.gz`
+      const base = `https://github.com/oasdiff/oasdiff/releases/download/${tag}`
+      const binary = os === 'windows' ? 'oasdiff.exe' : 'oasdiff'
+      return (await installArchiveBinary({ url: `${base}/${asset}`, binary, target: binary, checksumUrl: `${base}/checksums.txt` })) !== null
+    },
+    manual: 'download the oasdiff release archive for this platform from https://github.com/oasdiff/oasdiff/releases and put it on PATH',
+  },
+  {
+    id: 'difft',
+    preferLocal: true,
+    label: 'difftastic — syntax-aware structural diff',
+    required: false,
+    pin: PINS.difft,
+    versionPin: PINS.difft,
+    names: ['difft'],
+    install: async () => {
+      const { os } = releaseOS()
+      const triple = {
+        linux: process.arch === 'arm64' ? 'aarch64-unknown-linux-gnu' : 'x86_64-unknown-linux-gnu',
+        darwin: process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin',
+      }[os]
+      // The project publishes no checksum file, so this kit pins the digest it measured
+      // for the one asset it can verify (Linux x64). Other platforms stay a manual row
+      // rather than being fetched unverified.
+      const pinned = os === 'linux' && process.arch === 'x64' ? '33ea1f003081e9f2422299a434e6040c89085bd9f102b08f3fe30393720d5d4a' : null
+      if (triple === undefined || pinned === null) return false
+      const url = `https://github.com/Wilfred/difftastic/releases/download/${PINS.difft}/difft-${PINS.difft}-${triple}.tar.gz`
+      return (await installArchiveBinary({ url, binary: 'difft', target: 'difft', sha256: pinned })) !== null
+    },
+    manual: 'download difft from https://github.com/Wilfred/difftastic/releases and put it on PATH (or cargo install difftastic)',
+  },
+  {
+    id: 'betterleaks',
+    preferLocal: true,
+    label: 'betterleaks — secrets scan (maintained gitleaks successor)',
+    required: false,
+    pin: PINS.betterleaks,
+    versionPin: PINS.betterleaks,
+    names: ['betterleaks'],
+    install: async () => {
+      const { os } = releaseOS()
+      const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
+      const tag = `v${PINS.betterleaks}`
+      const suffix = os === 'windows' ? 'zip' : 'tar.gz'
+      const asset = `betterleaks_${PINS.betterleaks}_${os}_${arch}.${suffix}`
+      const base = `https://github.com/betterleaks/betterleaks/releases/download/${tag}`
+      const binary = os === 'windows' ? 'betterleaks.exe' : 'betterleaks'
+      const pinned = os === 'linux' && process.arch === 'x64' ? '9d9ad503cd5d80d18a939352266c3fcca52f10da9b83cd5cfe646989b13940fe' : null
+      return (await installArchiveBinary({
+        url: `${base}/${asset}`,
+        binary,
+        target: binary,
+        kind: suffix === 'zip' ? 'zip' : 'tar.gz',
+        sha256: pinned,
+        checksumUrl: `${base}/checksums.txt`,
+      })) !== null
+    },
+    manual: 'download betterleaks from https://github.com/betterleaks/betterleaks/releases and put it on PATH',
+  },
+  {
+    id: 'osv-scanner',
+    preferLocal: true,
+    label: 'osv-scanner — dependency vulnerability scan',
+    required: false,
+    pin: PINS.osvScanner,
+    versionPin: PINS.osvScanner,
+    names: ['osv-scanner'],
+    install: async () => {
+      const { os } = releaseOS()
+      const arch = process.arch === 'arm64' ? 'arm64' : 'amd64'
+      const asset = `osv-scanner_${os}_${arch}${os === 'windows' ? '.exe' : ''}`
+      const base = `https://github.com/google/osv-scanner/releases/download/v${PINS.osvScanner}`
+      const pinned = os === 'linux' && process.arch === 'x64' ? 'fb7dab19a8bd9bbe5c3189f09d4b7ee1820c9553a23bac202648a56efd2f6ee8' : null
+      return (await installRawBinary({
+        url: `${base}/${asset}`,
+        target: process.platform === 'win32' ? 'osv-scanner.exe' : 'osv-scanner',
+        sha256: pinned,
+        checksumUrl: `${base}/osv-scanner_SHA256SUMS`,
+      })) !== null
+    },
+    manual: 'download osv-scanner from https://github.com/google/osv-scanner/releases and put it on PATH',
+  },
+  {
+    id: 'lychee',
+    preferLocal: true,
+    label: 'lychee — link and anchor checker',
+    required: false,
+    pin: PINS.lychee,
+    versionPin: PINS.lychee,
+    names: ['lychee'],
+    install: async () => {
+      const { os } = releaseOS()
+      const triple = os === 'darwin'
+        ? `${process.arch === 'arm64' ? 'aarch64' : 'x86_64'}-apple-darwin`
+        : os === 'windows'
+          ? 'x86_64-pc-windows-msvc'
+          // The GNU build needs GLIBC 2.39 and this kit runs on Ubuntu 22.04 (2.35);
+          // the musl build is static and starts there. Measured 2026-11-10.
+          : `${process.arch === 'arm64' ? 'aarch64' : 'x86_64'}-unknown-linux-musl`
+      const suffix = os === 'windows' ? 'zip' : 'tar.gz'
+      const url = `https://github.com/lycheeverse/lychee/releases/download/lychee-v${PINS.lychee}/lychee-${triple}.${suffix}`
+      const binary = os === 'windows' ? 'lychee.exe' : 'lychee'
+      const pinned = os === 'linux' && process.arch === 'x64' ? '73657a111819a30c47c08352896796f23d64e4eb2b3ed39b6d32149241566fc5' : null
+      return (await installArchiveBinary({
+        url,
+        binary,
+        target: binary,
+        kind: suffix === 'zip' ? 'zip' : 'tar.gz',
+        sha256: pinned,
+        checksumUrl: `${url}.sha256`,
+      })) !== null
+    },
+    manual: 'download the lychee release archive for this platform from https://github.com/lycheeverse/lychee/releases and put it on PATH',
+  },
+  {
+    id: 'trafilatura',
+    preferLocal: true,
+    label: 'trafilatura — boilerplate-free web text extraction',
+    required: false,
+    pin: PINS.trafilatura,
+    versionPin: PINS.trafilatura,
+    names: ['trafilatura'],
+    install: async () => installUvTool(`trafilatura==${PINS.trafilatura}`) && which('trafilatura') !== null,
+    manual: `uv tool install --python 3.13 trafilatura==${PINS.trafilatura}`,
+  },
+  {
+    id: 'browser-audit',
+    label: 'axe-core + pixelmatch — browser accessibility audit and screenshot diff (kit .tools)',
+    required: false,
+    pin: `@axe-core/playwright ${PINS.axePlaywright}; pixelmatch ${PINS.pixelmatch}; playwright-core ${PINS.playwrightCore}`,
+    names: [],
+    // A Node library has no PATH binary; the probe is its package metadata, and the
+    // install target is the kit's own .tools directory rather than a global npm prefix.
+    detect: (options) => {
+      const directory = join(options.kit, '.tools')
+      const axe = packageVersion(join(directory, 'node_modules', '@axe-core', 'playwright', 'package.json'))
+      const pixelmatch = packageVersion(join(directory, 'node_modules', 'pixelmatch', 'package.json'))
+      const playwright = packageVersion(join(directory, 'node_modules', 'playwright-core', 'package.json'))
+      return axe !== null && pixelmatch !== null && playwright !== null
+        ? { bin: directory, version: `axe ${axe}, pixelmatch ${pixelmatch}, playwright ${playwright}` }
+        : { bin: null, version: null }
+    },
+    install: async ({ options }) => installNpmPrefix(join(options.kit, '.tools')),
+    manual: 'npm install --prefix <kit>/.tools (installs @axe-core/playwright, pixelmatch and playwright-core at the pinned versions)',
+  },
+
   {
     id: 'chrome',
     label: 'Chrome/Chromium — PDF rendering (decks)',
@@ -740,28 +1177,47 @@ async function main() {
 
   const report = { mode: options.mode, platform: process.platform, tools: [] }
   let missing = 0
+  /**
+   * Probe one tool through its own detector when it has one, because a Node
+   * library has no PATH binary to resolve. Everything else keeps the same
+   * PATH-then-known-locations resolution the kit has always used.
+   */
+  const detect = (tool) => typeof tool.detect === 'function'
+    ? tool.detect(options)
+    : (() => {
+      const bin = resolveToolBin(tool)
+      return { bin, version: bin === null ? null : probeVersion(bin, tool.probeArgs) }
+    })()
   for (const tool of selected) {
-    const bin = resolveToolBin(tool)
-    const version = bin === null ? null : probeVersion(bin)
+    const found = detect(tool)
+    const bin = found.bin
+    const version = found.version
     const entry = {
       id: tool.id,
       label: tool.label,
+      ...(typeof tool.pin === 'string' ? { pin: tool.pin } : {}),
       status: bin === null ? 'missing' : 'present',
       bin: bin ?? null,
       version,
       action: bin === null ? 'install' : 'none',
+    }
+    // A present tool is reported with the version it actually runs. When that is not
+    // the pin, say so: silently running an older release is the drift this list exists
+    // to make visible, and replacing a working binary without being asked is worse.
+    if (version !== null && typeof tool.versionPin === 'string' && !version.includes(tool.versionPin)) {
+      entry.note = `running ${version}; this kit pins ${tool.versionPin}`
     }
     if (bin === null && options.mode === 'apply') {
       if (tool.detectOnly === true) {
         entry.action = 'manual'
       } else {
         const ok = await tool.install({ options }).catch(() => false)
-        const after = resolveToolBin(tool)
-        entry.status = after === null ? 'missing' : 'installed'
-        entry.bin = after ?? null
-        entry.version = after === null ? null : probeVersion(after)
-        entry.action = after === null ? 'manual' : 'none'
-        if (after === null) entry.note = `the installer ran without producing ${tool.names[0]}; see its output above`
+        const after = detect(tool)
+        entry.status = after.bin === null ? 'missing' : 'installed'
+        entry.bin = after.bin ?? null
+        entry.version = after.version
+        entry.action = after.bin === null ? 'manual' : 'none'
+        if (after.bin === null) entry.note = `the installer ran without producing ${tool.id}; see its output above`
         else if (!ok) entry.note = 'installed, but the installer reported a non-zero exit'
       }
     }
@@ -775,6 +1231,7 @@ async function main() {
     if (!options.json) {
       const version = entry.version === null ? '' : `  ${entry.version}`
       process.stdout.write(`${entry.status === 'missing' ? 'MISSING' : entry.status === 'installed' ? 'INSTALLED' : 'ok     '}  ${tool.id}${version}\n`)
+      if (entry.note !== undefined) process.stdout.write(`         note: ${entry.note}\n`)
       if (entry.status === 'missing') process.stdout.write(`         manual: ${entry.manual}\n`)
     }
   }

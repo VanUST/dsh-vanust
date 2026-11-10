@@ -84,7 +84,9 @@ const CHECKS = [
     pattern: /\.replace\(\/\\\\\/g,\s*['"]\/['"]\)/,
     why: 'splitting on a backslash is a no-op on Linux and hides a real separator assumption',
     paths: ['plugins'],
-    allow: [],
+    allow: ['plugins/design-map/client.frame.js'],
+    allowReason:
+      'the vendored Excalidraw frame is generated minified code; the matched sequence is inside a Vite env string constant, not a separator assumption in kit source',
   },
   {
     id: 'no-windows-only-env-vars',

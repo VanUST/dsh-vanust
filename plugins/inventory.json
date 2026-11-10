@@ -136,6 +136,24 @@
       "source": "plugins/research-first",
       "pack": "scripts/pack-plugin.mjs",
       "mounted": true
+    },
+    {
+      "id": "design-map",
+      "package": "@cc/dsh-design-map",
+      "tarballPrefix": "cc-dsh-design-map",
+      "provenance": "in-repo",
+      "source": "plugins/design-map",
+      "pack": "scripts/pack-plugin.mjs",
+      "mounted": true
+    },
+    {
+      "id": "project-rules",
+      "package": "@cc/dsh-project-rules",
+      "tarballPrefix": "cc-dsh-project-rules",
+      "provenance": "in-repo",
+      "source": "plugins/project-rules",
+      "pack": "scripts/pack-plugin.mjs",
+      "mounted": true
     }
   ]
 }

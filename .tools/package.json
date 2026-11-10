@@ -1,0 +1,11 @@
+{
+  "name": "dsh-kit-tools",
+  "private": true,
+  "description": "Pinned Node libraries the role presets run from a script: the browser-audit and screenshot-diff pair. Installed by scripts/provision-tools.mjs; node_modules is git-ignored.",
+  "type": "module",
+  "dependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "pixelmatch": "8.0.0",
+    "playwright-core": "1.65.0"
+  }
+}

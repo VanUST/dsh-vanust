@@ -23,6 +23,25 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   engine — so a scheme is never handed a set of coordinates to maintain. Same reasoning
   as presentation for the missing client half: the Sidebar document preview renders the
   file, and the file prints as it looks.
+- **`@cc/dsh-design-map`** — one Excalidraw scene, `design.excalidraw` at the project
+  root, that the **orchestrator** and the human both edit. The orchestrator gets a
+  `design_map` tool over labelled boxes and arrows (positions are laid out for it), gated
+  per agent on `agentPreset === 'orchestrator'` - a delegated specialist never receives it,
+  because a child must not rewrite the design it was asked to work inside; the human gets a
+  **Design map** panel embedding the real MIT editor in an iframe `srcdoc` built from a
+  vendored frame, with no CDN. The panel reads through `workspaceFiles` and saves through
+  the `/design-map` command (not a tool, so it is never gated), one file carries one
+  revision counter, and a read returns `updatedAt`/`stale` for the orchestrator.
+- **`@cc/dsh-project-rules`** — one workspace rules file, `.dsh/rules.md`, rendered as
+  ONE system-prompt section for every agent and subagent and edited from a **Rules** panel
+  by the **human alone**. The file is read-only for agents: a `tools/pre-execute` guard
+  refuses `write`/`edit` on the resolved path and a `bash`/`pwsh` command that names it with
+  the code `rules_human_only`, while the panel's `/project-rules` command is a different
+  registry and keeps working. Guardrail, not jail - an obfuscated path is outside a string
+  match; the roles with no shell are the hard version. Typing is local; Save writes the file
+  through `/project-rules` and nothing else. The
+  section re-reads the file only at a turn boundary and keeps the previous string when the
+  bytes are unchanged, so an edit mid-turn cannot invalidate the provider's cached prefix.
 - **`@cc/dsh-work-modes`** — shipped but **not mounted**. Its one job was a monotonic
   guard refusing the third concurrent `subagent` child per session, and its default
   limit of 2 was the cap that stopped fan-out dead; the deployment removed the cap on
@@ -56,27 +75,40 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
 - **`@cc/dsh-taskboard`** — the task ledger and the dashboard that replaces the subagent
   catalog. One `.dsh/taskboard.json` per workspace holds objective, scope, non-scope,
   acceptance, status, results and a timeline; model tools and a `/taskboard` command share
-  one Host service, plus pause/resume/close/remove lifecycle actions. **Each chat has its own
+  one Host service, plus pause/resume/close/remove lifecycle actions. **The lifecycle is
+  strict and Host-enforced**: `open -> active` needs a specialist role with an owner or an
+  explicit `inline` task, `-> review` needs a result summary and one evidence item, `blocked`
+  needs a reason, and `done` is reached only by `task_close` from review; every refusal is a
+  named code. `proposed`/`ready` were merged into `open` and old rows are display-mapped on
+  read, never rewritten. **Each chat has its own
   board**: reads default to the current chat, `task_list` scope `workspace` and the panel's
   **All chats** toggle read the whole history, and a delegated child's task lands on the
   parent chat's board. The Web half reads through `workspaceFiles`, writes through the
-  command Remote, adds a Tasks main panel and sidebar entry, a hideable detail pane, and a
-  persistent role roster: one child per role (`UX/UI`, `BACKEND`, `BUSINESS`, `RESEARCH`),
-  reused by every task that fits, with active/sleeping/paused state. It reuses the
-  `subagent-catalog` header id. The shipped `ui-subagent` client is disabled so the
-  replacement is one cell, not two; child sessions are opened from the task detail.
+  command Remote, adds a Tasks main panel and sidebar entry, a hideable detail pane, a List
+  view whose Role column carries the role chip, its preset and the child count, a five-column
+  board (Open, Active, Review, Blocked, Done), and a role roster scoped to the visible board:
+  one child per role (`UX/UI`, `BACKEND`, `BUSINESS`, `RESEARCH`), reused by every task that
+  fits, with active/sleeping/paused state. It reuses the `subagent-catalog` header id. The
+  shipped `ui-subagent` client is disabled so the replacement is one cell, not two; child
+  sessions are opened from the task detail.
 - **`@cc/dsh-orchestrator`** — a root-only policy section, a child-only specialist section,
   and a root-only `delegate_task` tool. The tool creates the task, renders a self-contained
   brief (objective, scope, non-scope, inputs, acceptance, output, proof, timebox), starts a
   child on the role's **agent preset** and links the child id. It applies to every preset; no
   preset is duplicated.
-- **Role presets** — six `@deepseek-ai/dsh-agent-preset` declarations in
-  `profile/cordis.patch.yml`: `orchestrator`, `ux`, `backend`, `research`, `reviewer`, `docs`.
+- **Role presets** — seven `@deepseek-ai/dsh-agent-preset` declarations in
+  `profile/cordis.patch.yml`: `orchestrator`, `ux`, `backend`, `research`, `reviewer`,
+  `critic`, `docs`.
   A role is its persona and its tool list, not a request in the brief: the orchestrator has no
   shell and no write/edit tool at all, research has no shell, the reviewer cannot write. New
   chats default to the orchestrator; `standard` stays in the picker as the hands-on escape
   hatch. The kit's role-specific tools gate on the same id (`papers_*` research,
   `babysitter_*` orchestrator, `diagram`/`presentation` orchestrator + UX).
+  **`critic` is the adversary**: an adversarial general tester whose brief is to break a
+  running algorithm or service on a disposable copy, find realistic non-trivial inputs that
+  crash, hang, corrupt state or return a wrong answer, and report the smallest reproducible
+  failure — never a fix. It is not the reviewer (which judges a diff) and not UX/UI (which
+  tests an interface); `delegate_task` maps CRITIC / CRITIC-GENERAL / TESTER / QA to it.
 - **`@cc/dsh-papers`** — the literature-research tool family: `papers_search` across arXiv
   and Hugging Face, `papers_trending` for the HF daily list, and `papers_download` to save an
   arXiv PDF under `.dsh/papers/` with a `pdftotext` extraction. No API key; one source can
@@ -175,6 +207,8 @@ dsh-kit/
 ├── plugins/notify/            # source of @cc/dsh-notify (desktop notifications; packed above)
 ├── plugins/presentation/      # source of @cc/dsh-presentation (deck tool; no client half by design)
 ├── plugins/diagrams/          # source of @cc/dsh-diagrams (scheme tool; own layout engine, no client half)
+├── plugins/design-map/       # source of @cc/dsh-design-map (Host tool + command + Excalidraw panel)
+├── plugins/project-rules/    # source of @cc/dsh-project-rules (one frozen rules section + editor panel)
 ├── plugins/work-modes/        # source of @cc/dsh-work-modes (packed into its tarball above)
 ├── plugins/godot-mcp/         # source of @cc/dsh-godot-mcp (packed into its tarball above)
 ├── plugins/skills/            # source of @cc/dsh-skills (twenty runtime skills)

@@ -7,16 +7,23 @@ window.__ModuleLoader__.load({
 
     const PANEL_ID = 'tasks'
     const FILE = '.dsh/taskboard.json'
-    const STATUSES = ['proposed', 'ready', 'active', 'paused', 'review', 'done', 'blocked', 'cancelled']
+    // Seven states, no two of them the same thing. `proposed` and `ready` were two names
+    // for "not started"; rows that still say so are mapped to `open` on READ, never
+    // rewritten (see mapStatus).
+    const STATUSES = ['open', 'active', 'paused', 'review', 'done', 'blocked', 'cancelled']
+    const LEGACY_STATUS = { proposed: 'open', ready: 'open' }
+    /**
+     * Five board columns, not eight. The board answers "where is this work", so the two
+     * states that are not stages share a column with the stage they belong to: `paused`
+     * sits under Active (the card chip still says paused) and `cancelled` under Done (the
+     * chip still says cancelled). The List view and the status filter keep all seven.
+     */
     const COLUMNS = [
-      { id: 'proposed', label: 'Proposed' },
-      { id: 'ready', label: 'Ready' },
-      { id: 'active', label: 'Active' },
-      { id: 'paused', label: 'Paused' },
-      { id: 'review', label: 'Review' },
-      { id: 'done', label: 'Done' },
-      { id: 'blocked', label: 'Blocked' },
-      { id: 'cancelled', label: 'Cancelled' },
+      { id: 'open', label: 'Open', statuses: ['open'] },
+      { id: 'active', label: 'Active', statuses: ['active', 'paused'] },
+      { id: 'review', label: 'Review', statuses: ['review'] },
+      { id: 'blocked', label: 'Blocked', statuses: ['blocked'] },
+      { id: 'done', label: 'Done', statuses: ['done', 'cancelled'] },
     ]
 
     const CSS = `
@@ -134,9 +141,9 @@ window.__ModuleLoader__.load({
 .tb-statusfilter{max-width:160px}
 .tb-filtercount{font-size:10.5px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;white-space:nowrap}
 .tb-listwrap{overflow:auto;min-height:0;min-width:0;padding:0 12px 24px;scrollbar-width:thin;overscroll-behavior:contain}
-.tb-listhead{display:grid;grid-template-columns:76px minmax(0,1fr) 120px 96px 56px;gap:6px;align-items:center;position:sticky;top:0;z-index:1;background:var(--dsw-alias-bg-base);padding:8px;border-bottom:1px solid var(--dsw-alias-border-l1);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--dsw-alias-label-secondary);font-weight:700}
+.tb-listhead{display:grid;grid-template-columns:76px 170px minmax(0,1fr) 120px 56px;gap:6px;align-items:center;position:sticky;top:0;z-index:1;background:var(--dsw-alias-bg-base);padding:8px;border-bottom:1px solid var(--dsw-alias-border-l1);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--dsw-alias-label-secondary);font-weight:700}
 .tb-list{display:flex;flex-direction:column;gap:1px;padding-top:2px}
-.tb-listrow{display:grid;grid-template-columns:76px minmax(0,1fr) 120px 96px 56px;gap:6px;align-items:center;width:100%;border:0;border-bottom:1px solid var(--dsw-alias-border-l1);background:transparent;color:var(--dsw-alias-label-primary);padding:7px 8px;font:inherit;text-align:left;cursor:pointer;border-radius:5px}
+.tb-listrow{display:grid;grid-template-columns:76px 170px minmax(0,1fr) 120px 56px;gap:6px;align-items:center;width:100%;border:0;border-bottom:1px solid var(--dsw-alias-border-l1);background:transparent;color:var(--dsw-alias-label-primary);padding:7px 8px;font:inherit;text-align:left;cursor:pointer;border-radius:5px}
 .tb-listrow:hover{background:var(--dsw-alias-bg-layer-2)}
 .tb-listrow.sel{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 9%,transparent);box-shadow:inset 2px 0 0 var(--dsw-alias-brand-primary)}
 .tb-listrow:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-2px}
@@ -144,9 +151,19 @@ window.__ModuleLoader__.load({
 .tb-listtitle{min-width:0;display:flex;flex-direction:column;gap:1px}
 .tb-listtitle .t{font-size:12px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tb-listtitle .s{font-size:10.5px;color:var(--dsw-alias-label-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tb-listroles,.tb-listowner,.tb-listtime{font-size:10.5px;color:var(--dsw-alias-label-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tb-listrole,.tb-listowner,.tb-listtime{font-size:10.5px;color:var(--dsw-alias-label-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.tb-listrole{display:flex;align-items:center;gap:4px;overflow:hidden}
+.tb-listrole .tb-chip{flex:none}
+.tb-listrole .tb-preset{font-size:9.5px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;min-width:0}
+.tb-listrole .tb-kids{font-size:9.5px;color:var(--dsw-alias-label-secondary);flex:none;font-variant-numeric:tabular-nums}
 .tb-listtime{text-align:right}
-@media (max-width:760px){.tb-listhead,.tb-listrow{grid-template-columns:76px minmax(0,1fr) 80px;gap:6px}.tb-listhead span:nth-child(4),.tb-listhead span:nth-child(5),.tb-listrow .tb-listowner,.tb-listrow .tb-listtime{display:none}}
+.tb-chip.role{color:var(--dsw-alias-label-primary);border-color:color-mix(in srgb,var(--dsw-alias-brand-primary) 30%,var(--dsw-alias-border-l1));background:color-mix(in srgb,var(--dsw-alias-brand-primary) 8%,transparent);font-weight:700}
+.tb-chip.inline{border-style:dashed}
+.tb-chip.missing{color:var(--dsw-alias-state-warn-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 30%,var(--dsw-alias-border-l1));background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 9%,transparent)}
+.tb-owner{display:flex;align-items:center;gap:5px;min-width:0}
+.tb-policy{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base);border-radius:6px;padding:6px 8px;margin:0 0 9px;font-size:11px;color:var(--dsw-alias-label-secondary)}
+.tb-policy b{color:var(--dsw-alias-label-primary);font-weight:650}
+@media (max-width:760px){.tb-listhead,.tb-listrow{grid-template-columns:76px 120px minmax(0,1fr);gap:6px}.tb-listhead span:nth-child(4),.tb-listhead span:nth-child(5),.tb-listrow .tb-listowner,.tb-listrow .tb-listtime{display:none}}
 @container (max-width:920px){.tb-body{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) auto}.tb-detail{border-left:0;border-top:1px solid var(--dsw-alias-border-l1);max-height:55vh}}
 @media (max-width:960px){.tb-body{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) auto}.tb-detail{border-left:0;border-top:1px solid var(--dsw-alias-border-l1);max-height:55vh}}
 `
@@ -209,6 +226,19 @@ window.__ModuleLoader__.load({
       return text.includes('enoent') || text.includes('no such file') || text.includes('no entry at') || text.includes('not found')
     }
 
+    /**
+     * The board as the panel READS it: every task carries the status it means. The mapping
+     * happens here, before any filter, column or chip, so no view has to remember that a
+     * `proposed` row is an `open` one - and nothing writes the file back.
+     */
+    function normalizeBoard(board) {
+      if (board === null || typeof board !== 'object' || !Array.isArray(board.tasks)) return { version: 1, revision: 0, tasks: [] }
+      return {
+        ...board,
+        tasks: board.tasks.map((task) => task !== null && typeof task === 'object' && task.status !== undefined ? { ...task, status: mapStatus(task.status) } : task),
+      }
+    }
+
     async function readBoard(remote, sessionId, signal) {
       if (typeof sessionId !== 'string' || sessionId === '') return { board: null }
       let offset = 1
@@ -235,7 +265,7 @@ window.__ModuleLoader__.load({
       if (text.trim() === '') return { board: null }
       try {
         const board = JSON.parse(text)
-        return { board: board !== null && typeof board === 'object' && Array.isArray(board.tasks) ? board : { version: 1, revision: 0, tasks: [] } }
+        return { board: normalizeBoard(board) }
       } catch (error) {
         return { error: `ledger is not valid JSON: ${error.message}` }
       }
@@ -256,11 +286,24 @@ window.__ModuleLoader__.load({
       return { ok: true, text: outcome.text ?? '' }
     }
 
+    /** The status a row MEANS; the file keeps whatever it stores. */
+    function mapStatus(value) {
+      if (Object.prototype.hasOwnProperty.call(LEGACY_STATUS, value)) return LEGACY_STATUS[value]
+      return STATUSES.includes(value) ? value : 'open'
+    }
+
     function statusTone(status) {
       if (status === 'done') return 'ok'
       if (status === 'active' || status === 'review' || status === 'paused') return 'warn'
       if (status === 'blocked') return 'bad'
       return ''
+    }
+
+    /** A task's specialty: a role with its preset, or inline work the owner does itself. */
+    function assignmentOf(task) {
+      const role = typeof task?.role === 'string' && task.role.trim() !== '' ? task.role.trim() : ''
+      if (role !== '') return { role, preset: typeof task?.preset === 'string' && task.preset !== '' ? task.preset : null, inline: false }
+      return { role: null, preset: null, inline: task?.inline === true }
     }
 
     const CHILD_STATES = ['active', 'sleeping', 'paused']
@@ -355,17 +398,53 @@ window.__ModuleLoader__.load({
       return parts.join(' · ')
     }
 
-    function cardSubagentSummary(rows) {
+    /** The former Subagents column, folded into Role: how many children and how many run. */
+    function childColumnSummary(rows) {
       if (rows.length === 0) return ''
       const counts = childCounts(rows)
-      const head = rows.length > 1 ? `${rows[0].role} +${rows.length - 1}` : rows[0].role
-      const parts = [head]
+      const parts = [`${rows.length} ${rows.length === 1 ? 'child' : 'children'}`]
       if (counts.active > 0) parts.push(`${counts.active} active`)
-      if (counts.sleeping > 0) parts.push(`${counts.sleeping} sleeping`)
       if (counts.paused > 0) parts.push(`${counts.paused} paused`)
-      if (counts.linked > 0) parts.push(`${counts.linked} linked`)
       if (counts.stale > 0) parts.push(`${counts.stale} stale`)
       return parts.join(' · ')
+    }
+
+    /** The role cell every view shares: the chip, its preset id, and the child count. */
+    function RoleCell({ task, presets }) {
+      const assignment = assignmentOf(task)
+      if (assignment.role === null && !assignment.inline) {
+        return h('span', { className: 'tb-chip missing', title: 'No role and no inline flag: a row from before the role rule. Edit it to assign one.' }, 'unassigned')
+      }
+      if (assignment.inline) {
+        return h('span', { className: 'tb-chip inline', title: 'Inline: the task owner does this work itself, with no specialist child' }, 'inline')
+      }
+      const preset = assignment.preset ?? presets?.[assignment.role] ?? null
+      return h(React.Fragment, null,
+        h('span', { className: 'tb-chip role' }, assignment.role),
+        preset === null ? null : h('span', { className: 'tb-preset', title: `Preset ${preset}` }, preset),
+      )
+    }
+
+    /**
+     * The role rows that belong to the tasks in view.
+     *
+     * A workspace's `agents[]` is history: a role delegated in an earlier chat stays there
+     * after the chat ends, so counting the whole array above a chat board reports
+     * specialists nobody in this chat can reach. A row belongs to the view when it was
+     * opened for one of the visible tasks (its session is a child or the owner) or when it
+     * records this chat in `chatSessionId`. The All-chats read asks for the workspace view
+     * and gets every row, with its own label.
+     */
+    function agentRowsFor(tasks, agents, chatId, all) {
+      const rows = Array.isArray(agents) ? agents : []
+      if (all) return rows
+      const linked = new Set()
+      for (const task of Array.isArray(tasks) ? tasks : []) {
+        for (const child of normalizeChildren(task)) linked.add(child.sessionId)
+        for (const id of Array.isArray(task?.childSessionIds) ? task.childSessionIds : []) if (typeof id === 'string') linked.add(id)
+        if (typeof task?.owner?.sessionId === 'string' && task.owner.sessionId !== '') linked.add(task.owner.sessionId)
+      }
+      return rows.filter((agent) => linked.has(agent.sessionId) || (chatId !== '' && agent.chatSessionId === chatId))
     }
 
     function subagentRoster(tasks, agents = []) {
@@ -514,11 +593,13 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function TaskCard({ task, selected, onSelect, chatId }) {
+    function TaskCard({ task, selected, onSelect, chatId, presets }) {
       const children = normalizeChildren(task)
+      const assignment = assignmentOf(task)
       const scope = Array.isArray(task.scope) ? task.scope : []
       const ownerChat = chatOf(task)
       const foreign = ownerChat !== null && chatId !== '' && ownerChat !== chatId
+      const ownerWord = assignment.inline ? 'inline' : (task.owner?.label ?? 'unowned')
       return h('div', {
         className: `tb-card${selected ? ' sel' : ''}`,
         role: 'button',
@@ -532,20 +613,21 @@ window.__ModuleLoader__.load({
         task.objective ? h('div', { className: 's' }, task.objective.length > 90 ? `${task.objective.slice(0, 90)}…` : task.objective) : null,
         h('div', { className: 'tb-chips' },
           h('span', { className: `tb-chip ${statusTone(task.status)}` }, task.status),
+          h(RoleCell, { task, presets }),
           foreign ? h('span', { className: 'tb-chip' }, 'other chat') : null,
-          children.length > 0 ? h('span', { className: 'tb-chip sub' }, cardSubagentSummary(children)) : null,
+          children.length > 0 ? h('span', { className: 'tb-chip sub' }, childColumnSummary(children)) : null,
           scope.slice(0, 2).map((entry, index) => h('span', { className: 'tb-chip', key: `s${index}` }, entry)),
           scope.length > 2 ? h('span', { className: 'tb-chip' }, `+${scope.length - 2}`) : null,
         ),
         h('div', { className: 'f' },
-          h('span', { className: 'tb-avatar' }, (task.owner?.label ?? '?').slice(0, 1).toUpperCase()),
-          h('span', { className: 'o' }, task.owner?.label ?? 'unowned'),
+          h('span', { className: 'tb-avatar' }, ownerWord.slice(0, 1).toUpperCase()),
+          h('span', { className: 'o' }, ownerWord),
           h('span', { style: { marginLeft: 'auto' } }, shortTime(task.updatedAt)),
         ),
       )
     }
 
-    function TaskDetail({ task, busy, error, canEdit, onHide, onSave, onNote, onOpenSession, onAction, onRefresh }) {
+    function TaskDetail({ task, busy, error, canEdit, presets, onHide, onSave, onNote, onOpenSession, onAction, onRefresh }) {
       const [draft, setDraft] = useState(() => draftOf(task))
       const baseRef = useRef(task)
       const [conflict, setConflict] = useState(false)
@@ -598,6 +680,8 @@ window.__ModuleLoader__.load({
             evidence: lines(draft.resultEvidence),
           },
         }
+        // The host requires a reason to hold a task in blocked; only send it when it moved.
+        if (draft.reason.trim() !== String(base.reason ?? '').trim()) patch.reason = draft.reason.trim()
         // Paused and done are lifecycle actions, not ordinary field edits.
         if (draft.status !== base.status && draft.status !== 'paused' && draft.status !== 'done') patch.status = draft.status
         onSave(task.id, base.revision, patch)
@@ -628,8 +712,26 @@ window.__ModuleLoader__.load({
           h('button', { type: 'button', className: 'tb-btn tb-hide', onClick: onHide, title: 'Hide the task detail pane', 'aria-controls': 'tb-detail-pane' }, 'Hide'),
         ),
         h('h2', null, task.title),
+        h('div', { className: 'tb-sec' },
+          h('div', { className: 'tb-row', style: { marginBottom: 4 } },
+            h('span', { className: 'tb-label', style: { margin: 0 } }, 'Role'),
+            h(RoleCell, { task, presets }),
+            task.inline === true ? h('span', { className: 'tb-chip', title: 'Nobody was delegated this task' }, 'no child') : null,
+            task.reason ? h('span', { className: 'tb-chip bad' }, `blocked: ${task.reason}`) : null,
+          ),
+          h('div', { className: 'tb-policy' },
+            h('b', null, 'One rule: '),
+            'a task belongs to a specialist role (its preset is the child tool set) or it is ',
+            h('b', null, 'inline'),
+            ' — the owner does the work itself. Moving a task from open to active needs one of those; ',
+            h('b', null, 'review'),
+            ' needs a result summary and evidence, ',
+            h('b', null, 'blocked'),
+            ' needs a reason, and done is reached only by Close from review.',
+          ),
+        ),
         h('div', { className: 'tb-row' },
-          h('select', { className: 'tb-select', value: draft.status, onChange: (event) => set('status', event.target.value), 'aria-label': 'Task status', 'aria-describedby': hintId, title: 'Paused and done change through Resume and Close, not Save', disabled: busy || !canEdit },
+          h('select', { className: 'tb-select', value: draft.status, onChange: (event) => set('status', event.target.value), 'aria-label': 'Task status', 'aria-describedby': hintId, title: 'Paused and done change through Pause/Resume and Close, not Save', disabled: busy || !canEdit },
             STATUSES.map((status) => h('option', { value: status, key: status, disabled: status === 'paused' || status === 'done' }, status)),
           ),
           h('span', { className: `tb-chip ${statusTone(task.status)}` }, task.status),
@@ -641,8 +743,8 @@ window.__ModuleLoader__.load({
           h('button', { type: 'button', className: 'tb-btn', onClick: refreshDraft, title: 'Load the latest task revision into the form' }, 'Refresh'),
         ) : null,
         h('div', { className: 'tb-row' },
-          h('button', { type: 'button', className: 'tb-btn', onClick: () => onAction(paused ? 'resume' : 'pause', task.id), disabled: busy || closed || !canEdit }, paused ? 'Resume' : 'Pause'),
-          h('button', { type: 'button', className: 'tb-btn', onClick: () => onAction('close', task.id), disabled: busy || closed || !canEdit }, 'Close'),
+          h('button', { type: 'button', className: 'tb-btn', onClick: () => onAction(paused ? 'resume' : 'pause', task.id), disabled: busy || closed || !canEdit, title: paused ? 'Continue tracking this task; linked children are not re-prompted' : 'Hold this task and interrupt its linked children' }, paused ? 'Resume' : 'Pause'),
+          h('button', { type: 'button', className: 'tb-btn', onClick: () => onAction('close', task.id), disabled: busy || closed || !canEdit || task.status !== 'review', title: task.status === 'review' ? 'Accept this task as done' : 'Only a task in review can be accepted; moving work to review needs a result and evidence' }, 'Close'),
           h('button', { type: 'button', className: 'tb-btn danger', onClick: () => onAction('remove', task.id), disabled: busy || !canEdit }, 'Remove'),
         ),
         error ? h('div', { className: 'tb-banner' }, error) : null,
@@ -673,6 +775,10 @@ window.__ModuleLoader__.load({
         h('div', { className: 'tb-sec' },
           h('label', { className: 'tb-label', htmlFor: `tb-evi-${task.id}` }, 'Evidence — one per line'),
           h('textarea', { id: `tb-evi-${task.id}`, className: 'tb-area small', value: draft.resultEvidence, onChange: (event) => set('resultEvidence', event.target.value), readOnly: !canEdit }),
+        ),
+        h('div', { className: 'tb-sec' },
+          h('label', { className: 'tb-label', htmlFor: `tb-reason-${task.id}` }, 'Reason — required when blocked'),
+          h('input', { id: `tb-reason-${task.id}`, className: 'tb-input', value: draft.reason, onChange: (event) => set('reason', event.target.value), readOnly: !canEdit, placeholder: 'What the task is waiting on' }),
         ),
         h('div', { className: 'tb-sec' },
           h('h4', null, 'Timeline'),
@@ -724,6 +830,7 @@ window.__ModuleLoader__.load({
         // save echo is not mistaken for an external edit.
         title: String(draft.title ?? '').trim(),
         status: draft.status,
+        reason: String(draft.reason ?? '').trim(),
         objective: draft.objective,
         scope: lines(draft.scope),
         nonScope: lines(draft.nonScope),
@@ -736,6 +843,7 @@ window.__ModuleLoader__.load({
       return JSON.stringify({
         title: task.title ?? '',
         status: task.status ?? '',
+        reason: task.reason ?? '',
         objective: task.objective ?? '',
         scope: Array.isArray(task.scope) ? task.scope : [],
         nonScope: Array.isArray(task.nonScope) ? task.nonScope : [],
@@ -747,7 +855,8 @@ window.__ModuleLoader__.load({
     function draftOf(task) {
       return {
         title: task.title ?? '',
-        status: task.status ?? 'proposed',
+        status: task.status ?? 'open',
+        reason: task.reason ?? '',
         objective: task.objective ?? '',
         scope: Array.isArray(task.scope) ? task.scope.join('\n') : '',
         nonScope: Array.isArray(task.nonScope) ? task.nonScope.join('\n') : '',
@@ -757,40 +866,47 @@ window.__ModuleLoader__.load({
       }
     }
 
-    function TaskList({ tasks, selectedId, onSelect, chatId }) {
+    function TaskList({ tasks, selectedId, onSelect, chatId, presets }) {
       if (tasks.length === 0) return h('div', { className: 'tb-listwrap', role: 'region', 'aria-label': 'Task list' }, h('div', { className: 'tb-empty' }, 'No tasks match this filter.'))
       return h('div', { className: 'tb-listwrap', role: 'region', 'aria-label': 'Task list' },
         h('div', { className: 'tb-listhead', 'aria-hidden': true },
           h('span', null, 'Status'),
+          h('span', null, 'Role'),
           h('span', null, 'Task'),
-          h('span', null, 'Subagents'),
           h('span', null, 'Owner'),
           h('span', null, 'Updated'),
         ),
         h('div', { className: 'tb-list', role: 'list' },
           tasks.map((task) => {
             const children = normalizeChildren(task)
+            const assignment = assignmentOf(task)
             const selected = task.id === selectedId
             // In the All-chats read, say which rows are not this chat's: an old task's
             // owner and child sessions read as current work otherwise.
             const ownerChat = chatOf(task)
             const foreign = ownerChat !== null && chatId !== '' && ownerChat !== chatId
+            const roleWord = assignment.role ?? (assignment.inline ? 'inline' : 'unassigned')
+            const ownerWord = assignment.inline ? 'inline' : (task.owner?.label ?? 'unowned')
             return h('div', { className: 'tb-listitem', role: 'listitem', key: task.id },
               h('button', {
                 type: 'button',
                 className: `tb-listrow${selected ? ' sel' : ''}`,
                 onClick: () => onSelect(task.id),
                 'aria-pressed': selected,
-                'aria-label': `${task.title}, ${task.status}${children.length > 0 ? `, ${cardSubagentSummary(children)}` : ''}${foreign ? ', created in another chat' : ''}`,
+                'aria-label': `${task.title}, ${task.status}, ${roleWord}${children.length > 0 ? `, ${childColumnSummary(children)}` : ''}, owner ${ownerWord}${foreign ? ', created in another chat' : ''}`,
                 title: foreign ? `Created in another chat (${ownerChat})` : (task.objective || task.title),
               },
                 h('span', { className: `tb-chip ${statusTone(task.status)}` }, task.status),
+                h('span', { className: 'tb-listrole' },
+                  h(RoleCell, { task, presets }),
+                  foreign ? h('span', { className: 'tb-chip', title: `Created in another chat (${ownerChat})` }, 'other chat') : null,
+                  children.length > 0 ? h('span', { className: 'tb-kids' }, childColumnSummary(children)) : null,
+                ),
                 h('span', { className: 'tb-listtitle' },
                   h('span', { className: 't' }, task.title),
                   task.objective ? h('span', { className: 's' }, task.objective) : null,
                 ),
-                h('span', { className: 'tb-listroles' }, foreign ? 'other chat' : children.length > 0 ? cardSubagentSummary(children) : '—'),
-                h('span', { className: 'tb-listowner' }, task.owner?.label ?? 'unowned'),
+                h('span', { className: 'tb-listowner' }, ownerWord),
                 h('span', { className: 'tb-listtime' }, shortTime(task.updatedAt)),
               ),
             )
@@ -1000,7 +1116,9 @@ window.__ModuleLoader__.load({
         }
       }
       const create = async () => {
-        const result = await run({ op: 'create', task: { title: 'New task', objective: '', status: 'proposed' } })
+        // A task the human starts here is inline: nobody has delegated it to a specialist,
+        // and the host refuses a task with neither a role nor inline:true.
+        const result = await run({ op: 'create', task: { title: 'New task', objective: '', status: 'open', inline: true } })
         if (result.ok) {
           const task = taskOfPayload(parseResultPayload(result.text))
           if (task !== null && typeof task.id === 'string') setSelectedId(task.id)
@@ -1022,9 +1140,21 @@ window.__ModuleLoader__.load({
       const returnSession = returnSessionId !== '' ? sessionsById[returnSessionId] : undefined
       const canReturn = returnSession !== undefined
       const goBack = () => { if (canReturn) uiWorkspace.openSession(returnSessionId) }
-      const roster = subagentRoster(tasks, Array.isArray(board?.agents) ? board.agents : [])
+      const boardAgents = Array.isArray(board?.agents) ? board.agents : []
+      // The roster describes the board in view: this chat's roles by default, every role in
+      // the workspace read. Reading it off `tasks` reported other chats' specialists here.
+      const rosterRows = agentRowsFor(chatTasks, boardAgents, chatId, scope === 'all')
+      const rosterTasks = scope === 'all' ? tasks : chatTasks
+      const roster = subagentRoster(rosterTasks, rosterRows)
       const rosterCounts = childCounts(roster)
       const roles = roleCounts(roster)
+      const rosterLabel = scope === 'all' ? 'Workspace roles' : 'Roles in this chat'
+      // The roster row knows the preset a role's child runs with; an older task may carry
+      // none of its own, so the list falls back to this.
+      const presets = {}
+      for (const agent of boardAgents) {
+        if (typeof agent?.role === 'string' && typeof agent?.preset === 'string' && agent.preset !== '' && presets[agent.role] === undefined) presets[agent.role] = agent.preset
+      }
       return h('div', { className: 'tb-root' },
         h('style', null, CSS),
         h('div', { className: 'tb-top' },
@@ -1053,11 +1183,11 @@ window.__ModuleLoader__.load({
           h('input', { className: 'tb-input tb-filter', type: 'search', value: query, onChange: (event) => setQuery(event.target.value), placeholder: 'Filter title, scope, owner…', 'aria-label': 'Filter tasks' }),
           h('select', { className: 'tb-select tb-statusfilter', value: statusFilter, onChange: (event) => setStatusFilter(event.target.value), 'aria-label': 'Filter by status' },
             h('option', { value: 'all' }, 'All statuses'),
-            COLUMNS.map((column) => h('option', { value: column.id, key: column.id }, column.label)),
+            STATUSES.map((status) => h('option', { value: status, key: status }, status)),
           ),
           h('span', { className: 'tb-filtercount', 'aria-live': 'polite', title: 'Shown / tasks in this view' }, `${filteredTasks.length} / ${chatTasks.length}${scope === 'chat' && tasks.length > chatTasks.length ? ` · ${tasks.length - chatTasks.length} elsewhere` : ''}`),
         ) : null,
-        h('div', { className: 'tb-roster', role: 'group', 'aria-label': 'Subagents in this workspace' },
+        h('div', { className: 'tb-roster', role: 'group', 'aria-label': scope === 'all' ? 'Roles in this workspace' : 'Roles linked to this chat' },
           h('span', { className: 'tb-rlabel' }, 'Subagents'),
           h('span', { className: 'tb-rstat' }, h('b', null, String(rosterCounts.total))),
           h('span', { className: 'tb-rsep', 'aria-hidden': true }, '·'),
@@ -1068,23 +1198,23 @@ window.__ModuleLoader__.load({
           rosterCounts.paused > 0 ? h('span', { className: 'tb-rstat' }, h('b', null, String(rosterCounts.paused)), ' paused') : null,
           rosterCounts.linked > 0 ? h('span', { className: 'tb-rstat' }, h('b', null, String(rosterCounts.linked)), ' linked') : null,
           h('span', { className: 'tb-rsep', 'aria-hidden': true }, '·'),
-          h('span', { className: 'tb-rlabel' }, 'Roles'),
+          h('span', { className: 'tb-rlabel' }, rosterLabel),
           roles.length === 0
-            ? h('span', { className: 'tb-rnone' }, 'none linked')
+            ? h('span', { className: 'tb-rnone' }, scope === 'all' ? 'none in this workspace' : 'none linked to this chat')
             : h('div', { className: 'tb-rroles' }, roles.map(({ role, count }) => h('span', { className: 'tb-rrole', key: role }, role, ' ', h('b', null, String(count))))),
         ),
         h('div', { className: `tb-body${detailOpen ? '' : ' solo'}` },
           viewMode === 'board'
             ? h('div', { className: 'tb-board', ref: boardRef, role: 'region', 'aria-label': 'Task board' },
               COLUMNS.map((column) => {
-                const items = filteredTasks.filter((task) => task.status === column.id)
+                const items = filteredTasks.filter((task) => column.statuses.includes(task.status))
                 return h('div', { className: 'tb-col', key: column.id },
                   h('h3', null, column.label, h('span', { className: 'n' }, String(items.length))),
-                  items.length === 0 ? h('div', { className: 'tb-empty', style: { padding: '8px 4px', fontSize: '11px' } }, '—') : items.map((task) => h(TaskCard, { key: task.id, task, selected: task.id === selectedId, onSelect: selectTask, chatId })),
+                  items.length === 0 ? h('div', { className: 'tb-empty', style: { padding: '8px 4px', fontSize: '11px' } }, '—') : items.map((task) => h(TaskCard, { key: task.id, task, selected: task.id === selectedId, onSelect: selectTask, chatId, presets })),
                 )
               }),
             )
-            : h(TaskList, { tasks: filteredTasks, selectedId, onSelect: selectTask, chatId }),
+            : h(TaskList, { tasks: filteredTasks, selectedId, onSelect: selectTask, chatId, presets }),
           detailOpen ? h('aside', { className: 'tb-detail', id: 'tb-detail-pane' },
             selected === null
               ? h('div', null,
@@ -1105,7 +1235,7 @@ window.__ModuleLoader__.load({
                       : 'Select a task to see its scope, results and timeline.',
                 ),
               )
-              : h(TaskDetail, { key: selected.id, task: selected, busy, error, canEdit, onHide: () => setDetailOpen(false), onSave: save, onNote: note, onOpenSession: (id) => uiWorkspace.openSession(id), onAction: action, onRefresh: reload }),
+              : h(TaskDetail, { key: selected.id, task: selected, busy, error, canEdit, presets, onHide: () => setDetailOpen(false), onSave: save, onNote: note, onOpenSession: (id) => uiWorkspace.openSession(id), onAction: action, onRefresh: reload }),
           ) : null,
         ),
       )

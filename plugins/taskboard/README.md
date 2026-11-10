@@ -9,10 +9,11 @@ One JSON ledger per session workspace, `.dsh/taskboard.json`:
 
 - `id`, `revision`, `title`, `objective`, `chatId`
 - `scope[]`, `nonScope[]`, `acceptance[{text,done}]`
-- `status` — proposed, ready, active, paused, review, done, blocked, cancelled
-- `priority`, `owner`, `parentId`, `parentSessionId`, `dependsOn[]`, `childSessionIds[]`,
+- `status` — open, active, paused, review, done, blocked, cancelled
+- `priority`, `owner`, `reason` (why a task is blocked), `parentId`, `parentSessionId`,
+  `dependsOn[]`, `childSessionIds[]`,
   `children[{sessionId,label,role,status,startedAt,endedAt,stopReason}]`
-- `role` on a task; `agents[{role,label,sessionId,preset,status,taskCount,lastTaskId}]` for the persistent specialist roster
+- `role` + `preset` on a task, or `inline: true`; `agents[{role,label,sessionId,preset,status,taskCount,lastTaskId}]` for the persistent specialist roster
 - `result { summary, evidence[], artifacts[], decisions[], risks[] }`
 - `timeline[{at, kind, actor, text, sessionId?}]`
 
@@ -20,6 +21,47 @@ The `preset` on a roster row is the tool composition its child was started with.
 delegator reuses a role's session only when the requested preset matches it: a session keeps
 the composition it was created with, so an old row (before the role presets, or under a
 different one) is re-created rather than handed a brief its tools cannot perform.
+
+## The lifecycle
+
+Seven states, and no two of them mean the same thing:
+
+| state | means | reached by |
+| --- | --- | --- |
+| `open` | created, nobody is working on it | `task_create` (it is the default) |
+| `active` | a specialist child or the owner is working | `task_update`, `task_link`, `task_resume` |
+| `paused` | held; linked children interrupted | `task_pause` |
+| `review` | work claimed finished, waits for acceptance | `task_update` (with a result and evidence) or the child settling |
+| `done` | accepted | `task_close`, only from `review` |
+| `blocked` | cannot proceed, and says why | `task_update` with a `reason` |
+| `cancelled` | terminal, not reachable from `done` | `task_update` |
+
+`proposed` and `ready` were two names for "not started". They are not states any more: a row
+that still says them is **display-mapped to `open` on read** and its bytes are left alone, so
+the ledger format version stays 1 and no old row is rewritten by a read.
+
+The transitions are enforced by the Host, in `transitionRefusal()`, because the model tools
+and the human's panel reach the same service. Every refusal is a value with a named code:
+
+| code | when |
+| --- | --- |
+| `needs_role_or_inline` | `open -> active` for a task with no role+owner and no `inline: true`; also `task_create` with neither |
+| `needs_result` | `-> review` without a result summary |
+| `needs_evidence` | `-> review` without one evidence item |
+| `needs_reason` | `-> blocked` without a reason |
+| `use_pause` | `paused` set through an ordinary update |
+| `use_close` | `done` set through an ordinary update, or a cancel of a task with linked children |
+| `use_resume` | any move out of `paused` through an ordinary update |
+| `needs_review` | `task_close` on a task that is not in review |
+| `terminal` | any move out of `done` or `cancelled` |
+| `other_chat` | a write from another chat's agent |
+
+**No task is role-less.** A task either carries a `role` (and the `preset` its child runs
+with) or it is `inline: true`: work the owner — the orchestrator or the human — does itself,
+with no specialist child. `task_create` refuses the third case with
+`needs_role_or_inline`; a delegated task's role is its owner until `task_link` replaces it
+with the child session, which is what `open -> active` checks. A pre-rule row with neither is
+labelled `unassigned` in the panel instead of being refused on read or rewritten.
 
 **A chat has its own board.** `chatId` is the root session of the lineage that created
 the task, so a delegated child's rows land on the parent chat's board instead of its own.
@@ -60,16 +102,19 @@ cannot see.
 - **Tasks** icon in the sidebar panel list opens the full page. The icon inherits
   the row label color and draws no fill or border of its own; the sidebar row owns
   the selected background.
-- **Board + detail**: eight status columns, a detail panel with editable title,
-  status, objective, scope, non-scope, acceptance, result summary and evidence.
-  The detail stacks under the board when the panel is narrower than 920px, and
-  each list field shows four lines before scrolling (96px/84px textareas).
+- **Board + detail**: five workflow columns — Open, Active, Review, Blocked, Done. The
+  two states that are not stages share the column they belong to: a `paused` card sits
+  under Active and a `cancelled` card under Done, and the card chip still says paused or
+  cancelled. A detail panel edits title, status, objective, scope, non-scope, acceptance,
+  result summary, evidence and the blocked reason, and states the one assignment rule
+  above the status row. The detail stacks under the board when the panel is narrower than
+  920px, and each list field shows four lines before scrolling (96px/84px textareas).
 - **Back** is the leftmost top-bar action. It returns to the conversation from which the panel was opened: the header trigger captures its exact session, and the sidebar entry captures the retained main-view conversation. It is hidden when there is no originating chat.
 - **Hide** lives in the task-detail header, beside the task id and title; it
   collapses the right pane and gives the board the full width. The selection is
   kept, and clicking or keyboard-selecting any card reopens the detail. There is
   no show/hide control in the top bar.
-- **Scaling**: a **Board / List** switch sits in the top bar. List is the dense scan view — one row per task with status, title/objective, subagents, owner and updated time — and becomes the default when a board has more than 8 tasks. A filter row adds title/scope/owner search and a status filter; both views use the same filtered set and keep the detail pane. The kanban stays available for workflow shaped work.
+- **Scaling**: a **Board / List** switch sits in the top bar. List is the dense scan view — one row per task with **Status, Role, Task, Owner, Updated** — and becomes the default when a board has more than 8 tasks. The Role cell is the role chip plus its preset id and the child count, so the old Subagents column has no column of its own; Owner shows the child's label, `inline`, or `unowned`. A filter row adds title/scope/owner search and a status filter over all seven states; both views use the same filtered set and keep the detail pane. The kanban stays available for workflow shaped work.
 - **Scope**: the filter row starts with **This chat / All chats**. This chat is the default
   and is the chat's board; All chats reads the whole workspace history in place, with
   foreign rows marked `other chat` (card chip and list column), and **Back** to This chat
@@ -83,23 +128,32 @@ cannot see.
   the same time. The listener is native and non-passive. At a horizontal edge
   the board stops rather than chaining the page. Move the pointer off the board
   to scroll the page. The list view keeps normal vertical page scrolling.
-- **Subagents**: the board's `agents[]` registry drives the workspace roster; a task's `children[]` entries render as role-first rows with the
+- **Subagents**: a task's `children[]` entries render as role-first rows with the
   label/id, an `active`/`sleeping`/`paused` badge and an **Open** action. A
   one-line summary above the rows reads e.g.
-  `2 subagents · 1 active · 1 sleeping`. The board top carries a compact
-  workspace roster with total, active, sleeping (paused/linked when present) and
-  every role name with its count. Card chips show the first role, `+N`, and the
-  active/sleeping counts. Tasks without `children[]` fall back to
+  `2 subagents · 1 active · 1 sleeping`. The board top carries a compact roster
+  with total, active, sleeping (paused/linked when present) and every role name
+  with its count. **The roster describes the board in view**: in *This chat* it
+  counts only the roles linked to this chat's tasks (rows opened for them, or
+  rows recording this chat), and *All chats* switches the label to **Workspace
+  roles** and counts the whole `agents[]` registry. Reading it off the whole
+  registry reported specialists from earlier chats that nobody here could reach.
+  Card chips show the role (or `inline`), the child count and its
+  active/sleeping split. Tasks without `children[]` fall back to
   `childSessionIds[]` with role `child` and neutral state `linked`.
 - **Lifecycle**: **Pause** moves the task to `paused` and interrupts its linked
   child sessions; **Resume** moves it back to `active` (it does not auto-prompt a
-  child; open the child to continue). **Close** marks it done and interrupts
-  children; if the subagent service cannot be reached it refuses to mark done. **Remove** deletes the task and its timeline after a
+  child; open the child to continue). **Close** accepts a task as done and
+  interrupts children; it is enabled only for a task in review, because acceptance
+  is the one door to `done`, and it refuses to mark done if the subagent service
+  cannot be reached. **Remove** deletes the task and its timeline after a
   confirmation, and deliberately leaves child sessions running. `paused` and
   `done` are lifecycle states, not ordinary edit values: the status select
-  disables those options and Save never submits them. Host refusals such as
-  `use_pause`, `use_close`, `empty_title` or `interrupt_failed` are shown as
-  errors.
+  disables those options and Save never submits them; `blocked` needs the reason
+  in the field beside it. Host refusals such as `needs_role_or_inline`,
+  `needs_result`, `needs_evidence`, `needs_reason`, `use_pause`, `use_close`,
+  `needs_review`, `terminal`, `empty_title` or `interrupt_failed` are shown as
+  errors in the detail pane.
 - **Timeline**: created, edited, delegated, child started/finished, paused,
   resumed, closed, notes.
 - **Child sessions**: each linked child opens its existing conversation.

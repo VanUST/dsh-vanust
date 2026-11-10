@@ -69,12 +69,17 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
  * The tool compositions this deployment runs, in roster order. A role names the
  * task; a preset names the tools the child actually gets. They are separate on
  * purpose: the taskboard wants a human-readable specialty ("AUDIT"), while the
- * child's tool list must be one of a known six, because isolation that comes from
+ * child's tool list must be one of a known seven, because isolation that comes from
  * a preset's registrations cannot be talked around by a brief.
+ *
+ * `critic` is the seventh: an adversarial tester that attacks a RUNNING behaviour on a
+ * disposable copy and reports the smallest failing case. It is not the reviewer (which
+ * judges a diff) and not UX/UI (which tests an interface), so it gets its own tools and
+ * its own preset instead of being a wording variant of either.
  */
-export const PRESET_IDS = ['ux', 'backend', 'research', 'reviewer', 'docs']
+export const PRESET_IDS = ['ux', 'backend', 'research', 'reviewer', 'critic', 'docs']
 
-/** Role spellings that denote one of the six compositions. Keys are normalizedRole() output. */
+/** Role spellings that denote one of the seven compositions. Keys are normalizedRole() output. */
 export const ROLE_PRESETS = {
   ux: 'ux',
   ui: 'ux',
@@ -91,7 +96,12 @@ export const ROLE_PRESETS = {
   reviewer: 'reviewer',
   review: 'reviewer',
   audit: 'reviewer',
-  qa: 'reviewer',
+  critic: 'critic',
+  criticgeneral: 'critic',
+  generalcritic: 'critic',
+  qa: 'critic',
+  tester: 'critic',
+  test: 'critic',
   docs: 'docs',
   doc: 'docs',
   documentation: 'docs',
@@ -99,7 +109,7 @@ export const ROLE_PRESETS = {
   docssteward: 'docs',
 }
 
-/** The preset a role name denotes, or undefined when it denotes none of the six. */
+/** The preset a role name denotes, or undefined when it denotes none of the seven. */
 export function presetForRole(role) {
   return ROLE_PRESETS[normalizeRole(role)]
 }
@@ -210,7 +220,10 @@ function ageDays(value) {
 export function renderBoardDebt(tasks, limit = 600) {
   const rows = Array.isArray(tasks) ? tasks.filter((task) => task !== null && typeof task === 'object') : []
   const review = rows.filter((task) => task.status === 'review')
-  const stalled = rows.filter((task) => task.status === 'ready' && typeof task.role === 'string' && task.role !== '' && (task.childSessionIds ?? []).length === 0)
+  // `proposed` and `ready` were merged into `open`; the ledger maps them on read, so a row
+  // written before the merge is still caught here.
+  const notStarted = (task) => task.status === 'open' || task.status === 'proposed' || task.status === 'ready'
+  const stalled = rows.filter((task) => notStarted(task) && typeof task.role === 'string' && task.role !== '' && (task.childSessionIds ?? []).length === 0)
   if (review.length === 0 && stalled.length === 0) return ''
   const lines = ['## Board debt', '']
   if (review.length > 0) {
@@ -274,7 +287,7 @@ You are the workspace orchestrator. **Work flows through the taskboard.**
 
 **No ad hoc policy.** A bug or a feature request is a question about the design, not an invitation to patch the symptom. Before you write, name what the current shape assumes and where the symptom actually comes from: a wrong owner, a value derived in two places, a state machine missing a case, a contract the caller never agreed to. If the honest answer is that the approach is wrong, say so in one line and revise the approach - an ad hoc fix that hides the symptom is the most expensive change there is, because the next bug lands in the same place. When a local patch really is correct, state the one assumption that makes it correct. Fix the cause once, where it lives.
 
-**Any change is a task, delegated or not.** Before the first write of a change — an edit, a bug fix, a config change, a migration step, an audit, a feature — open it with \`task_create\` (objective, scope, non-scope, acceptance), move it to \`active\` when you start, and finish with \`task_update\` to \`review\` (then \`task_close\` when the human accepts). Put what a stranger would need to resume into \`task_note\`.
+**Any change is a task, delegated or not.** Before the first write of a change — an edit, a bug fix, a config change, a migration step, an audit, a feature — open it with \`task_create\` (objective, scope, non-scope, acceptance; pass \`inline: true\` when you do the work yourself), move it to \`active\` when you start, and finish with \`task_update\` to \`review\` — the ledger refuses a review without a result summary and at least one evidence item — then \`task_close\` when the human accepts. The lifecycle is \`open/active/review/done\`; \`blocked\` needs the reason it waits on, and \`cancelled\` is terminal. Put what a stranger would need to resume into \`task_note\`.
 
 That ledger is not bookkeeping for delegation: it is the record that outlives this session. The Tasks panel is where the human watches work in flight, and a task survives a restart that a session does not. **Each chat has its own board**: a new chat starts empty and the panel shows only this chat's tasks. The whole workspace history is still one call away with \`task_list\` scope \`workspace\` — use it when the human asks what was done before, or before reusing a role name. "What is left to do" is answered from the taskboard, not by re-reading a conversation.
 
@@ -297,7 +310,7 @@ A question never needs this ceremony. A change never skips the task.
 ## Delegation rules
 
 - Reuse a role from the catalog appended below this policy. \`delegate_task\` refuses a near-duplicate new role unless the work really is a new domain; \`forceRole: true\` overrides that refusal.
-- **The six roles are the tool sets**: UX/UI, BACKEND, RESEARCH, REVIEWER, DOCS. The orchestrator is the seventh and is you. The role picks the child's preset, so the child literally has that role's tools - a BACKEND child cannot run \`papers_*\`, and you cannot run \`bash\` or edit a file at all. Choose the role by the work, not by seniority; a role outside the six needs an explicit \`preset\` argument.
+- **The seven roles are the tool sets**: UX/UI, BACKEND, RESEARCH, REVIEWER, CRITIC, DOCS. The orchestrator is the eighth and is you. The role picks the child's preset, so the child literally has that role's tools - a BACKEND child cannot run \`papers_*\`, and you cannot run \`bash\` or edit a file at all. Choose the role by the work, not by seniority; a role outside the seven needs an explicit \`preset\` argument. Use REVIEWER to judge a change and CRITIC to attack a running behaviour: the critic breaks the algorithm or service on a disposable copy and reports the smallest reproducible failure, it never fixes and never touches production data - reach for it when "it works" is a claim rather than a measurement.
 - Pass \`taskId\` when one of your own tasks is the work: the brief then attaches to that task instead of creating a second row for the same thing.
 - A specialist session belongs to the chat that created it. A later chat gets a new one, and the brief then carries the role's earlier results forward - say so in the brief you write, and never assume the child remembers.
 - Children run on the configured child route (flash by default), and that is the right default: volume work belongs on the cheap route. You may name a \`provider\`/\`model\` on \`delegate_task\` ONLY when the environment demands it - the default route is throttled, unavailable, or the task needs a capability only the other route has - and only a route listed in Subagent model selection is accepted. Never name a highspeed variant: highspeed routes are refused outright by the model guard.
@@ -449,11 +462,11 @@ export function apply(ctx, config = {}) {
 
   const definition = defineTool({
     name: 'delegate_task',
-    description: 'Create one task in the workspace taskboard (or attach an existing one with taskId), render a self-contained brief, start a child on the role preset (its persona and tool set) and link the child session to the task. The role picks the tool composition: UX/UI, BACKEND, RESEARCH, REVIEWER, DOCS. A role outside those six needs an explicit preset. Reuse a role from the catalog in your policy: a near-duplicate new role is refused unless forceRole is passed. One piece of work is one task - pass taskId when the task already exists. Use it for independent research, implementation or review work; not for a one-shot answer or for final integration.',
+    description: 'Create one task in the workspace taskboard (or attach an existing one with taskId), render a self-contained brief, start a child on the role preset (its persona and tool set) and link the child session to the task. The role picks the tool composition: UX/UI, BACKEND, RESEARCH, REVIEWER, CRITIC, DOCS. A role outside those seven needs an explicit preset. Reuse a role from the catalog in your policy: a near-duplicate new role is refused unless forceRole is passed. One piece of work is one task - pass taskId when the task already exists. Use it for independent research, implementation or review work; not for a one-shot answer or for final integration.',
     parameters: {
       title: { type: 'string', required: true, description: 'Short task title.' },
-      role: { type: 'string', required: true, description: 'Specialist role, e.g. UX/UI, BACKEND, RESEARCH, REVIEWER, DOCS. The roles this workspace already has are listed in your policy section - reuse one of those exact names; all fitting tasks belong to it.' },
-      preset: { type: 'string', enum: PRESET_IDS, description: 'Tool composition for the child. Omit to derive it from the role; pass it explicitly when the role is a specialty outside the six (e.g. role AUDIT with preset reviewer).' },
+      role: { type: 'string', required: true, description: 'Specialist role, e.g. UX/UI, BACKEND, RESEARCH, REVIEWER, CRITIC, DOCS. The roles this workspace already has are listed in your policy section - reuse one of those exact names; all fitting tasks belong to it.' },
+      preset: { type: 'string', enum: PRESET_IDS, description: 'Tool composition for the child. Omit to derive it from the role; pass it explicitly when the role is a specialty outside the seven (e.g. role AUDIT with preset reviewer, or an adversarial pass over an algorithm with preset critic).' },
       roleDescription: { type: 'string', description: 'Optional one-line responsibility zone for a newly created specialist.' },
       objective: { type: 'string', required: true, description: 'The outcome in one paragraph, not the activity.' },
       scope: { type: 'array', items: { type: 'string' }, description: 'What the child may touch.' },
@@ -481,10 +494,10 @@ export function apply(ctx, config = {}) {
       // A role names the task, a preset names the tools. Resolve it before any
       // taskboard write: a child started on the wrong composition does work that has
       // to be thrown away, and an explicit preset is the escape hatch for a role
-      // outside the six.
+      // outside the seven.
       const preset = typeof args.preset === 'string' && args.preset !== '' ? args.preset : presetForRole(role)
       if (preset === undefined) {
-        throw new Error(`delegate_task: role "${role}" names none of the six tool compositions (${PRESET_IDS.join(', ')}). Reuse one of those role names, or pass preset explicitly when the role is a genuine specialty.`)
+        throw new Error(`delegate_task: role "${role}" names none of the seven tool compositions (${PRESET_IDS.join(', ')}). Reuse one of those role names (CRITIC/QA/TESTER map to the adversarial tester), or pass preset explicitly when the role is a genuine specialty.`)
       }
       if (!PRESET_IDS.includes(preset)) {
         throw new Error(`delegate_task: "${preset}" is not one of the role presets (${PRESET_IDS.join(', ')}).`)
@@ -550,13 +563,22 @@ export function apply(ctx, config = {}) {
           id: existing.id,
           expectedRevision: existing.revision,
           chatId,
-          patch: { status: 'active', role, priority: args.priority },
+          patch: {
+            status: 'active',
+            role,
+            preset,
+            priority: args.priority,
+            // open -> active is refused by the ledger without an owner; the role is the
+            // owner until linkChild replaces it with the child session.
+            owner: { kind: 'agent', label: role },
+          },
         })
         task = updated?.ok === true ? updated.task : existing
       } else {
         task = taskboard.create(taskCwd, {
           title: args.title,
           role,
+          preset,
           objective: args.objective,
           scope: args.scope,
           nonScope: args.nonScope,
@@ -565,7 +587,9 @@ export function apply(ctx, config = {}) {
           parentSessionId: parent.id,
           chatId,
           priority: args.priority,
-          status: 'ready',
+          // The task is created before the child exists: it is open, not active. linkChild
+          // moves it when the child is really running.
+          status: 'open',
         }, 'orchestrator')
       }
 
@@ -575,7 +599,7 @@ export function apply(ctx, config = {}) {
           id: task.id,
           expectedRevision: task.revision,
           chatId,
-          patch: { status: 'blocked', result: { risks: [`subagent provider "${provider}" is not registered`] } },
+          patch: { status: 'blocked', reason: `subagent provider "${provider}" is not registered`, result: { risks: [`subagent provider "${provider}" is not registered`] } },
         })
         throw new Error(`delegate_task: subagent provider "${provider}" is not registered`)
       }
@@ -587,7 +611,7 @@ export function apply(ctx, config = {}) {
           id: task.id,
           expectedRevision: task.revision,
           chatId,
-          patch: { status: 'blocked', result: { risks: [`subagent provider "${provider}" cannot select the "${preset}" preset`] } },
+          patch: { status: 'blocked', reason: `subagent provider "${provider}" cannot select the "${preset}" preset`, result: { risks: [`subagent provider "${provider}" cannot select the "${preset}" preset`] } },
         })
         throw new Error(`delegate_task: subagent provider "${provider}" cannot select a preset, so the child would inherit the orchestrator tool set; use a provider that supports agentPreset`)
       }
@@ -688,7 +712,7 @@ export function apply(ctx, config = {}) {
             id: task.id,
             expectedRevision: current?.revision ?? task.revision,
             chatId,
-            patch: { status: 'blocked', result: { risks: [`child start failed: ${error.message}`] } },
+            patch: { status: 'blocked', reason: `child start failed: ${error.message}`, result: { risks: [`child start failed: ${error.message}`] } },
           })
           taskboard.note(taskCwd, {
             id: task.id,

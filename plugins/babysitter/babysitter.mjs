@@ -810,6 +810,10 @@ function createRunTask(board, cwd, input, errors) {
         acceptance: ['The babysitter journal shows the run result.', 'The linked task is reviewed by a human/orchestrator.'],
         status: 'active',
         priority: 'normal',
+        // Inline: a babysitter run is work the orchestrator drives itself. The taskboard
+        // refuses a task that names neither a specialist role nor inline, and a process
+        // run has no child session behind it to be a role.
+        inline: true,
       },
       'orchestrator',
     )
@@ -840,13 +844,22 @@ function noteTask(board, cwd, taskId, value, errors) {
   }
 }
 
-/** Move a finished task to review. Never `done`: acceptance belongs to the human. */
-function reviewTask(board, cwd, taskId, revision, errors) {
+/**
+ * Move a finished task to review. Never `done`: acceptance belongs to the human.
+ *
+ * @param evidence - The run's own record: `{ summary, evidence[] }`. The taskboard refuses
+ *   a review without a result and one evidence item, which is the rule that keeps a
+ *   "review" from meaning "the process exited"; the journal path is the evidence and the
+ *   run state is the summary.
+ */
+function reviewTask(board, cwd, taskId, revision, errors, evidence = null) {
   if (board === null || typeof taskId !== 'string') return { task: null, revision }
   let expected = revision
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      const result = board.update(cwd, { id: taskId, expectedRevision: expected, patch: { status: 'review' } })
+      const patch = { status: 'review' }
+      if (evidence !== null && typeof evidence === 'object') patch.result = { summary: evidence.summary, evidence: Array.isArray(evidence.evidence) ? evidence.evidence : [] }
+      const result = board.update(cwd, { id: taskId, expectedRevision: expected, patch })
       if (result?.ok === true) return { task: result.task ?? null, revision: result.task?.revision ?? expected }
       if (result?.code === 'stale' && result.task !== undefined) {
         expected = result.task.revision
@@ -1075,7 +1088,13 @@ export function babysitterTools(define, settings, boardOf) {
               }
             }
           }
-          const reviewed = reviewTask(board, cwd, task.id, bookkeeping.taskRevision, bookkeeping.errors)
+          const reviewed = reviewTask(board, cwd, task.id, bookkeeping.taskRevision, bookkeeping.errors, {
+            summary: `babysitter run ${runId ?? '(no run id)'}: ${runSummary?.state ?? 'finished'} (exit ${cliResult.exitCode ?? 'null'})`,
+            evidence: [
+              runDir === null ? 'no journal directory was found for the run' : `journal: ${resolve(runDir)}`,
+              `genty ${mode} exit ${cliResult.exitCode ?? 'null'}${cliResult.timedOut === true ? ' (timed out)' : ''}`,
+            ],
+          })
           bookkeeping.taskRevision = reviewed.revision
           // Report what the board actually says. The old `?? 'review'` claimed the
           // lifecycle outcome even when the update never landed, so a caller could
@@ -1263,7 +1282,13 @@ export function babysitterTools(define, settings, boardOf) {
             bookkeeping.notes += 1
             bookkeeping.taskRevision = noted.revision
           }
-          const reviewed = reviewTask(board, cwd, taskId, bookkeeping.taskRevision, bookkeeping.errors)
+          const reviewed = reviewTask(board, cwd, taskId, bookkeeping.taskRevision, bookkeeping.errors, {
+            summary: `babysitter run ${runId}: resumed to ${runSummary?.state ?? 'finished'} (exit ${cliResult.exitCode ?? 'null'})`,
+            evidence: [
+              resolvedRunDir === null ? 'no journal directory was found for the run' : `journal: ${resolve(resolvedRunDir)}`,
+              `genty resume-run exit ${cliResult.exitCode ?? 'null'}${cliResult.timedOut === true ? ' (timed out)' : ''}`,
+            ],
+          })
           bookkeeping.taskRevision = reviewed.revision
           // Report what the board actually says. The old `?? 'review'` claimed the
           // lifecycle outcome even when the update never landed, so a caller could

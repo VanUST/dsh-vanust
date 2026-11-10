@@ -41,20 +41,54 @@ flash-route guard. A repository's `AGENTS.md`/`CLAUDE.md` still reaches the mode
 the harness's own loader. The Tasks panel is the one new primary surface: open it from the
 sidebar, or from the **Tasks** header cell in a conversation. Its detail pane is
 hideable; Pause/Resume, Close and Remove act on the task, and Pause/Close interrupt
-linked child sessions. **Each chat has its own board.** A new conversation starts with no
+linked child sessions. **The lifecycle is strict and the panel cannot talk its way around
+it**: a task is `open`, `active`, `paused`, `in review`, `done`, `blocked` or `cancelled`.
+Moving one from Open to Active needs a specialist role with an owner or an `inline` task
+(work you or the orchestrator does itself); moving it to Review needs a result summary and
+at least one evidence item; Blocked needs the reason it waits on; and **Close** — the only
+door to Done — is enabled only for a task in review, because a finished task is not an
+accepted one. An illegal move is refused with a named code (`needs_role_or_inline`,
+`needs_result`, `needs_evidence`, `needs_reason`, `needs_review`, `terminal`, `use_close`)
+shown in the detail pane. The old `proposed` and `ready` columns meant the same thing and
+are merged into Open: rows recorded before the merge still read as Open in the file's own
+terms, and nothing rewrites them. The board has five columns (Open, Active, Review, Blocked,
+Done) — a paused card sits under Active and a cancelled one under Done, with the chip still
+naming the real state — and the List view is Status, **Role**, Task, Owner, Updated, where
+the role chip carries the preset its child runs with and the child count. **Each chat has
+its own board.** A new conversation starts with no
 tasks, and the panel's **This chat / All chats** switch is the read of the workspace
 history: All chats lists every task ever recorded here, marks rows from other chats as
-`other chat`, and is the one place to clean up old rows. The model gets the same two views
+`other chat`, and is the one place to clean up old rows. The roster above the board follows
+this switch too: *This chat* counts only the roles linked to this chat's tasks, and *All
+chats* is labelled **Workspace roles** and counts the whole registry. The model gets the
+same two views
 as `task_list` (scope `chat` by default, `workspace` on request). Each workspace keeps
-persistent specialist roles (UX/UI, BACKEND, RESEARCH, REVIEWER, DOCS); a role's
+persistent specialist roles (UX/UI, BACKEND, RESEARCH, REVIEWER, CRITIC, DOCS); a role's
 child is reused across tasks and shows active/sleeping/paused state. The ledger lives in
 `.dsh/taskboard.json` inside the workspace; it is ignored by git and survives a restart.
+
+**Project rules (`@cc/dsh-project-rules`) are one cached prompt section, and they are yours alone.** Open **Rules** in the sidebar, edit `.dsh/rules.md` (gitignored) and press Save. The panel never writes while you type; Save calls `/project-rules`, which only writes the file. **No agent may change that file**: a write or edit aimed at it is refused with `rules_human_only`, and so is a shell command that names it - the models read the rules through their prompt section and never write them. That is a guardrail, not a jail (a shell command can spell a path in ways a guard cannot follow); the roles without a shell at all - orchestrator, research - are the hard version. The section re-reads it at the next turn boundary and keeps the previous text when the bytes are unchanged, so a draft or a mid-turn save cannot bust the model's prompt cache. An empty file adds no section.
+
+**The design map (`@cc/dsh-design-map`) is one file the orchestrator and you edit.** `design.excalidraw` at the project root is a normal Excalidraw scene; open **Design map** in the sidebar to edit it in the real editor, or let the orchestrator update it with the `design_map` tool. The tool is registered for the **orchestrator preset only**: a delegated specialist never receives it, so a BACKEND or UX child cannot rewrite the system design it was asked to work inside. The panel saves through the host command, so the human's drags, renames and new boxes land in the same file the agent reads, stamped with a revision and an author. A map older than a day is marked **stale** in the panel and in the tool's read output, which is the cue to ask the orchestrator to refresh it. The file is plain JSON and can be committed with the project if you want the map to travel with the code.
+
+**Who may change what.** Three workspace artefacts have an owner that is not "any agent":
+
+| Artefact | Agent side | Your side |
+|---|---|---|
+| `design.excalidraw` (design map) | **orchestrator only** (`design_map` is not registered for a child preset) | **Design map** panel |
+| `.dsh/rules.md` (project rules) | **nobody** - refused with `rules_human_only`, in write/edit and in a shell command naming the path | **Rules** panel |
+| `.dsh/taskboard.json` (task ledger) | any agent, in its own chat; another chat's row is refused `other_chat` | the whole board, in the Tasks panel |
 
 **Roles are presets, and a new chat starts as Orchestrator.** It designs the system, runs the
 taskboard and delegates; it has no shell and no `write`/`edit` tool, so it cannot implement
 anything itself. When work needs code, research, review or docs it delegates to a child that
-has that role's persona and tools — UX/UI, Backend, Research, Reviewer, Docs — chosen from the
-preset picker in a new session. Pick **standard** when you want a chat that edits work
+has that role's persona and tools — UX/UI, Backend, Research, Reviewer, Critic, Docs — chosen
+from the preset picker in a new session. **Critic** is the adversary: give it the algorithm or
+service and it tries to break it — realistic non-trivial inputs, boundaries, out-of-order
+events, restarts — on a disposable copy in `/tmp`, then reports the smallest reproducible
+failure (or what it tried and what stayed untested). It never fixes anything and never touches
+production data, and it is not the same job as Reviewer (judges a diff) or UX/UI (tests an
+interface). Pick **standard** when you want a chat that edits work
 directly instead of delegating; that is the hands-on escape hatch, and it keeps every kit
 tool. The rest of the kit's role-specific tools follow the same rule: `papers_*` only in
 Research, `babysitter_*` only for the Orchestrator, `diagram`/`presentation` for the
@@ -160,6 +194,10 @@ apply it unseen" — pass `-Yes` to apply without a prompt in those contexts.
    preview.
 4. Ask for a `diagram` and a `presentation`: each writes a standalone `.html` file in the
    workspace that the sidebar document preview renders.
+5. Run `make provision`: every row must say `ok`, including the role toolchain
+   (`depcruise`, `semgrep`, `oasdiff`, `difft`, `betterleaks`, `osv-scanner`, `lychee`,
+   `trafilatura`, `browser-audit`). The orchestrator and research presets have no shell, so
+   they cannot run those binaries themselves — their personas name the capability and delegate.
 
 If it fails with `MISSING_CREDENTIAL`, finish the onboarding credential step. The static
 half is one command — every plugin row must be mounted:
@@ -448,6 +486,15 @@ SKIP_TOOLS=1 ./install.sh                          # skip the step entirely
 | `mmdc` | Mermaid source → SVG | `npm -g @mermaid-js/mermaid-cli` with no bundled Chromium; a puppeteer config pointing at your Chrome is written to `$DSH_HOME/mermaid-puppeteer.json` |
 | `d2` | D2 source → SVG/PNG/PPTX | the latest release tarball into `~/.local/bin` |
 | `chrome`, `ffmpeg` | PDF rendering, video | **detected only** — they are OS packages |
+| `depcruise` | backend: architecture rules, cycles | `npm -g dependency-cruiser@18.7.2` |
+| `semgrep` | backend: pattern-based static analysis | `uv tool install semgrep==1.185.0` |
+| `oasdiff` | backend: OpenAPI breaking-change gate | release archive → `~/.local/bin` |
+| `difft` | reviewer: syntax-aware structural diff | release archive → `~/.local/bin` |
+| `betterleaks` | reviewer: secrets scan | release archive → `~/.local/bin` |
+| `osv-scanner` | reviewer: dependency vulnerabilities | bare release binary → `~/.local/bin` |
+| `lychee` | docs: link and anchor check | static musl release archive → `~/.local/bin` |
+| `trafilatura` | web text extraction (shell-bearing roles) | `uv tool install trafilatura==2.3.1` |
+| `@axe-core/playwright`, `pixelmatch` | UX: accessibility audit, screenshot diff | `npm --prefix <kit>/.tools` |
 
 Everything is optional: a missing tool degrades its feature with a message rather than failing a
 run. That is also why the check exists — silence was indistinguishable from "not needed".

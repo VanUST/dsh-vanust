@@ -62,6 +62,22 @@
  *   - A write from another chat is refused with `other_chat` rather than landing on a
  *     board the caller cannot read; `task_get` still reads any task by id, because
  *     knowing the id is the reason to look.
+ *   - The lifecycle is enforced HERE, in one function (`transitionRefusal`), because the
+ *     model tools and the human's panel reach the same service. `open -> active` needs a
+ *     specialist role AND an owner, or `inline: true` (`needs_role_or_inline`); `-> review`
+ *     needs a result summary (`needs_result`) and one evidence item (`needs_evidence`);
+ *     `-> blocked` needs a reason (`needs_reason`); paused and done are lifecycle tools
+ *     (`use_pause`, `use_close`) and leaving paused is `use_resume`; done and cancelled are
+ *     terminal (`terminal`); `task_close` accepts only a task in review (`needs_review`).
+ *     A refusal is a value, not a throw: the caller quotes the code.
+ *   - A row with `proposed` or `ready` was written before those two names were merged into
+ *     `open`. It is DISPLAY-MAPPED on read (`displayStatus`) and never rewritten by a read:
+ *     a save that does not change the state leaves the stored value alone. The board
+ *     version therefore stays 1.
+ *   - A task is never role-less: it carries a `role` (with the `preset` its child runs with)
+ *     or `inline: true` for work the owner does itself. `create` refuses the third case with
+ *     `needs_role_or_inline`; the panel labels a pre-rule row `unassigned` instead of
+ *     pretending it has one.
  *   - The chat scope is resolved once per call from the live agent tree. A session
  *     whose parent is no longer loaded stops at the id it can prove, which is that
  *     session's own chat - never an invented root.
@@ -75,9 +91,29 @@ import { dirname, isAbsolute, join, resolve } from 'node:path'
 /** Ledger format version. A different version is refused, never reinterpreted. */
 const BOARD_VERSION = 1
 
-const STATUSES = ['proposed', 'ready', 'active', 'paused', 'review', 'done', 'blocked', 'cancelled']
+/**
+ * THE LIFECYCLE. Seven states, and no two of them mean the same thing.
+ *
+ *   open      created, nobody is working on it yet
+ *   active    a specialist child or the owner itself is working on it
+ *   paused    held, with its children interrupted; continue with task_resume
+ *   review    work is claimed finished and waits for acceptance
+ *   done      accepted. Only task_close (or the human) may set it
+ *   blocked   cannot proceed; carries the `reason` it cannot
+ *   cancelled terminal; not reachable from done
+ *
+ * `proposed` and `ready` were two names for "not started", which is why a board
+ * could show a column nobody could act on. They are not states any more: rows
+ * written before this merge are DISPLAY-MAPPED to `open` on read (see
+ * `displayStatus`) and the file is never rewritten by a read. The board format
+ * version stays 1 for the same reason.
+ */
+const STATUSES = ['open', 'active', 'paused', 'review', 'done', 'blocked', 'cancelled']
 const PRIORITIES = ['low', 'normal', 'high']
-const EDITABLE_STATUSES = ['proposed', 'ready', 'active', 'review', 'blocked', 'cancelled']
+/** The statuses an ordinary compare-and-set update may set: paused and done are lifecycle tools. */
+const EDITABLE_STATUSES = ['open', 'active', 'review', 'blocked', 'cancelled']
+/** The retired names, mapped on read only. */
+const LEGACY_STATUS = { proposed: 'open', ready: 'open' }
 
 /** Cordis function-plugin name; also the id a profile patch targets. */
 export const name = 'taskboard'
@@ -101,9 +137,34 @@ function now() {
   return new Date().toISOString()
 }
 
-/** A status the schema accepts, or `proposed`. */
-function statusOf(value, fallback = 'proposed') {
+/**
+ * The status a board SHOWS for a stored value.
+ *
+ * A row written before the merge still says `proposed` or `ready` in the file; both
+ * meant "not started", so both read as `open`. Nothing about a read writes the file:
+ * the mapping is applied to the projection, so an old row keeps its bytes until a
+ * real transition replaces the value.
+ *
+ * @param value - The stored status.
+ * @returns One of STATUSES; an unknown value reads as `open`, which is the state a
+ *   task nobody has moved to is in.
+ */
+function displayStatus(value) {
+  if (Object.hasOwn(LEGACY_STATUS, value)) return LEGACY_STATUS[value]
+  return STATUSES.includes(value) ? value : 'open'
+}
+
+/** A status a WRITE may store: the retired names are folded into `open`. */
+function statusOf(value, fallback = 'open') {
+  if (Object.hasOwn(LEGACY_STATUS, value)) return LEGACY_STATUS[value]
   return STATUSES.includes(value) ? value : fallback
+}
+
+/** A task's specialty: a role with its preset, or `inline` for work the owner does itself. */
+function assignmentOf(task) {
+  const role = typeof task?.role === 'string' && task.role.trim() !== '' ? task.role.trim() : ''
+  if (role !== '') return { role, preset: typeof task?.preset === 'string' && task.preset !== '' ? task.preset : null, inline: false }
+  return { role: null, preset: null, inline: task?.inline === true }
 }
 
 /** A priority the schema accepts, or `normal`. */
@@ -172,6 +233,59 @@ function resultOf(input, existing = undefined) {
 function timeline(task, kind, actor, text, extra = {}, limit = 120) {
   const entry = { at: now(), kind, actor, text: String(text).slice(0, 1000), ...extra }
   task.timeline = [...(Array.isArray(task.timeline) ? task.timeline : []), entry].slice(-limit)
+}
+
+/**
+ * Why one status change is refused, or null when the Host accepts it.
+ *
+ * The rules live HERE, not in the panel. A model tool and the human's panel go through
+ * the same service, so a UI that forgot a rule cannot write a board the Host would have
+ * refused; every refusal names itself with a code the caller can quote.
+ *
+ *   needs_role_or_inline  open -> active without a specialist role AND owner, and not inline
+ *   needs_result          -> review without a result summary
+ *   needs_evidence        -> review without one evidence item
+ *   needs_reason          -> blocked without a reason
+ *   use_pause             -> paused through an ordinary update
+ *   use_close             -> done through an ordinary update
+ *   use_resume            any move out of paused through an ordinary update
+ *   terminal              any move out of done or cancelled
+ *   needs_review          task_close on a task that is not in review
+ *
+ * @param task - The stored task.
+ * @param patch - The requested patch.
+ * @returns The refusal code, or null.
+ */
+function transitionRefusal(task, patch) {
+  if (patch === null || typeof patch !== 'object' || patch.status === undefined) return null
+  const from = displayStatus(task.status)
+  const to = statusOf(patch.status, from)
+  if (to === from) return null
+  if (to === 'paused') return 'use_pause'
+  if (to === 'done') return 'use_close'
+  if (from === 'paused') return 'use_resume'
+  // cancelled is terminal, and done is the one state acceptance reached: neither can be
+  // reopened by an edit. That is what makes "done" mean accepted rather than touched last.
+  if (from === 'done' || from === 'cancelled') return 'terminal'
+  if (to === 'cancelled' && Array.isArray(task.childSessionIds) && task.childSessionIds.length > 0) return 'use_close'
+  if (to === 'active') {
+    // A task that starts moving belongs to somebody: a specialist role with an owner, or
+    // inline work the owner does itself. A role without an owner is a task nobody picked up.
+    const role = typeof patch.role === 'string' && patch.role.trim() !== '' ? patch.role.trim() : (typeof task.role === 'string' ? task.role.trim() : '')
+    const owner = patch.owner !== undefined && patch.owner !== null && typeof patch.owner === 'object' ? patch.owner : task.owner
+    const owned = owner !== null && typeof owner === 'object' && typeof owner.label === 'string' && owner.label.trim() !== ''
+    if (task.inline !== true && (role === '' || !owned)) return 'needs_role_or_inline'
+  }
+  if (to === 'review') {
+    const result = patch.result !== undefined ? resultOf(patch.result, task.result) : task.result
+    if (typeof result?.summary !== 'string' || result.summary.trim() === '') return 'needs_result'
+    if (!Array.isArray(result?.evidence) || result.evidence.length === 0) return 'needs_evidence'
+  }
+  if (to === 'blocked') {
+    const reason = typeof patch.reason === 'string' && patch.reason.trim() !== '' ? patch.reason.trim() : (typeof task.reason === 'string' ? task.reason.trim() : '')
+    if (reason === '') return 'needs_reason'
+  }
+  return null
 }
 
 /**
@@ -338,19 +452,27 @@ function createService(config, logger, hooks = {}) {
   const otherChat = (task) => ({ value: { ok: false, code: 'other_chat', chatId: chatOf(task) } })
 
   /** Compact list row; the board UI uses the full task document. */
-  const summary = (task) => ({
-    id: task.id,
-    chatId: chatOf(task),
-    title: task.title,
-    status: task.status,
-    role: task.role ?? null,
-    priority: task.priority,
-    owner: task.owner?.label ?? null,
-    childSessionIds: task.childSessionIds ?? [],
-    children: Array.isArray(task.children) ? task.children : [],
-    revision: task.revision,
-    updatedAt: task.updatedAt,
-  })
+  const summary = (task) => {
+    const assignment = assignmentOf(task)
+    return {
+      id: task.id,
+      chatId: chatOf(task),
+      title: task.title,
+      // The projection, never the stored value: a reader of a pre-merge row sees the
+      // state the board means, and the file keeps the bytes it had.
+      status: displayStatus(task.status),
+      role: assignment.role,
+      preset: assignment.preset,
+      inline: assignment.inline,
+      priority: task.priority,
+      owner: task.owner?.label ?? null,
+      reason: typeof task.reason === 'string' && task.reason !== '' ? task.reason : null,
+      childSessionIds: task.childSessionIds ?? [],
+      children: Array.isArray(task.children) ? task.children : [],
+      revision: task.revision,
+      updatedAt: task.updatedAt,
+    }
+  }
 
   return {
     file,
@@ -456,10 +578,17 @@ function createService(config, logger, hooks = {}) {
     get(cwd, id) {
       return readBoard(pathFor(cwd)).tasks.find((task) => task.id === id)
     },
-    /** Create a task; returns the full record. */
+    /** Create a task; returns the full record, or a named refusal. */
     create(cwd, input, actor = 'orchestrator') {
       const title = typeof input?.title === 'string' ? input.title.trim() : ''
       if (title === '') throw new Error('taskboard: a task needs a non-empty title')
+      // NO ROLE-LESS TASK. A task belongs to a specialist role (which carries the preset
+      // its child runs with) or it is explicitly inline work the owner does itself. The
+      // refusal is here rather than in the panel because `delegate_task`, `task_create`
+      // and the UI all reach this one function.
+      const role = typeof input?.role === 'string' ? input.role.trim().slice(0, 80) : ''
+      const inline = role === '' && input?.inline === true
+      if (role === '' && !inline) return { ok: false, code: 'needs_role_or_inline' }
       // The caller may pass the resolved chat, or only the session that asked; the hook
       // walks that session to its root so a child's Task lands on the parent's board.
       const chatId = typeof input?.chatId === 'string' && input.chatId !== ''
@@ -476,9 +605,15 @@ function createService(config, logger, hooks = {}) {
           scope: strings(input?.scope),
           nonScope: strings(input?.nonScope),
           acceptance: acceptance(input?.acceptance),
-          status: statusOf(input?.status, 'proposed'),
+          status: statusOf(input?.status, 'open'),
           priority: priorityOf(input?.priority),
-          ...(typeof input?.role === 'string' && input.role.trim() !== '' ? { role: input.role.trim().slice(0, 80) } : {}),
+          ...(role === '' ? {} : { role }),
+          // The role IS the owner until a specialist session links: it says who the work
+          // belongs to, which is what open -> active requires.
+          ...(role === '' ? {} : { owner: { kind: 'agent', label: role } }),
+          ...(inline ? { inline: true } : {}),
+          ...(role !== '' && typeof input.preset === 'string' && input.preset.trim() !== '' ? { preset: input.preset.trim().slice(0, 80) } : {}),
+          ...(typeof input?.reason === 'string' && input.reason.trim() !== '' ? { reason: input.reason.trim().slice(0, 1000) } : {}),
           ...(chatId === '' ? {} : { chatId }),
           ...(typeof input?.parentSessionId === 'string' && input.parentSessionId !== '' ? { parentSessionId: input.parentSessionId } : {}),
           ...(typeof input?.parentId === 'string' && input.parentId !== '' ? { parentId: input.parentId } : {}),
@@ -490,6 +625,8 @@ function createService(config, logger, hooks = {}) {
           createdAt: time,
           updatedAt: time,
         }
+        // A row may be created straight into blocked only with the reason it is blocked on.
+        if (displayStatus(task.status) === 'blocked' && task.reason === undefined) return { value: { ok: false, code: 'needs_reason' } }
         timeline(task, 'created', actor, `Created: ${task.title}`, {}, timelineLimit)
         board.tasks.push(task)
         return { changed: true, value: task }
@@ -508,22 +645,36 @@ function createService(config, logger, hooks = {}) {
           return { value: { ok: false, code: 'stale', task } }
         }
         const patch = input?.patch !== null && typeof input?.patch === 'object' ? input.patch : input
-        if (patch.status === 'paused' && task.status !== 'paused') return { value: { ok: false, code: 'use_pause', task } }
-        if (patch.status === 'done' && task.status !== 'done') return { value: { ok: false, code: 'use_close', task } }
-        if (task.status === 'paused' && patch.status !== 'paused') return { value: { ok: false, code: 'use_resume', task } }
-        if (patch.status === 'cancelled' && task.status !== 'cancelled' && task.childSessionIds.length > 0) return { value: { ok: false, code: 'use_close', task } }
+        const refusal = transitionRefusal(task, patch)
+        if (refusal !== null) return { value: { ok: false, code: refusal, task } }
         if (typeof patch.title === 'string' && patch.title.trim() === '') return { value: { ok: false, code: 'empty_title', task } }
+        // The status a legacy row MEANS. A patch that names it is not a transition, so the
+        // row's bytes are left alone rather than normalized by an unrelated save.
+        const current = displayStatus(task.status)
+        const target = patch.status === undefined ? undefined : statusOf(patch.status, current)
         const before = JSON.stringify(task)
         if (typeof patch.title === 'string' && patch.title.trim() !== '') task.title = patch.title.trim().slice(0, 200)
         if (typeof patch.objective === 'string') task.objective = patch.objective.slice(0, 4000)
         if (Array.isArray(patch.scope)) task.scope = strings(patch.scope)
         if (Array.isArray(patch.nonScope)) task.nonScope = strings(patch.nonScope)
         if (Array.isArray(patch.acceptance)) task.acceptance = acceptance(patch.acceptance, task.acceptance)
-        if (patch.status !== undefined) task.status = statusOf(patch.status, task.status)
+        if (target !== undefined && target !== current) task.status = target
         if (patch.priority !== undefined) task.priority = priorityOf(patch.priority)
-        // Attaching a delegation to an existing task sets its role: the root creates the
-        // task without one, and the specialist that takes it defines the specialty.
-        if (typeof patch.role === 'string' && patch.role.trim() !== '') task.role = patch.role.trim().slice(0, 80)
+        // Attaching a delegation to an existing task sets its role: the task was created
+        // inline (or without one), and the specialist that takes it defines the specialty.
+        // A task carries a role OR is inline, never both.
+        if (typeof patch.role === 'string' && patch.role.trim() !== '') {
+          task.role = patch.role.trim().slice(0, 80)
+          delete task.inline
+        }
+        if (typeof patch.preset === 'string' && patch.preset.trim() !== '') task.preset = patch.preset.trim().slice(0, 80)
+        if (typeof patch.reason === 'string') {
+          if (patch.reason.trim() === '') delete task.reason
+          else task.reason = patch.reason.trim().slice(0, 1000)
+        }
+        // The reason describes why the task is blocked; leaving blocked clears it, and the
+        // timeline keeps what it said.
+        if (target !== undefined && target !== 'blocked' && current === 'blocked') delete task.reason
         if (patch.owner !== undefined && patch.owner !== null && typeof patch.owner === 'object') {
           task.owner = {
             kind: patch.owner.kind === 'human' ? 'human' : 'agent',
@@ -571,16 +722,21 @@ function createService(config, logger, hooks = {}) {
         if (task === undefined) return { value: { ok: false, code: 'not_found' } }
         if (!writable(task, chatId, input?.actor)) return otherChat(task)
         if (!task.childSessionIds.includes(childId)) task.childSessionIds.push(childId)
-        if (!['done', 'cancelled', 'paused'].includes(task.status)) task.status = 'active'
         const agent = (board.agents ?? []).find((entry) => entry.sessionId === childId)
         const label = typeof input?.label === 'string' && input.label !== '' ? input.label.slice(0, 200) : (agent?.label ?? 'child')
         const role = typeof input?.role === 'string' && input.role !== '' ? input.role.slice(0, 200) : (agent?.role ?? label)
+        // A linked child IS the assignment. A task created inline stops being inline when a
+        // specialist takes it: a task carries a role or is inline, never both.
+        if (task.inline === true) delete task.inline
+        if (typeof task.role !== 'string' || task.role === '') task.role = role.slice(0, 80)
+        if (typeof task.preset !== 'string' && typeof agent?.preset === 'string' && agent.preset !== '') task.preset = agent.preset
         const children = Array.isArray(task.children) ? task.children : []
         const existing = children.find((child) => child.sessionId === childId)
         if (existing === undefined) children.push({ sessionId: childId, label, role, status: 'active', startedAt: now(), endedAt: null })
         else Object.assign(existing, { label, role, status: 'active', endedAt: null })
         task.children = children
         task.owner = { kind: 'agent', label, sessionId: childId }
+        if (!['done', 'cancelled', 'paused'].includes(displayStatus(task.status))) task.status = 'active'
         task.revision += 1
         task.updatedAt = now()
         timeline(task, 'child_started', 'child', `Delegated to ${label}`, { sessionId: childId }, timelineLimit)
@@ -608,7 +764,10 @@ function createService(config, logger, hooks = {}) {
           else Object.assign(child, { status: 'sleeping', endedAt: now(), stopReason: info?.stopReason ?? null })
           task.children = children
           const stillRunning = children.some((entry) => entry.status === 'active' || entry.status === 'paused')
-          task.status = ['cancelled', 'paused', 'done'].includes(task.status) ? task.status : stillRunning ? 'active' : 'review'
+          // A child settling is the runtime reporting work finished, not the human claiming
+          // acceptance: the task waits in review for the orchestrator (done is close-only).
+          const nowStatus = displayStatus(task.status)
+          task.status = ['cancelled', 'paused', 'done'].includes(nowStatus) ? task.status : stillRunning ? 'active' : 'review'
           const agent = (board.agents ?? []).find((entry) => entry.sessionId === childId)
           if (agent !== undefined) {
             agent.status = 'sleeping'
@@ -635,7 +794,7 @@ function createService(config, logger, hooks = {}) {
         const task = board.tasks.find((entry) => entry.id === id)
         if (task === undefined) return { value: { ok: false, code: 'not_found' } }
         if (!writable(task, chatId, input?.actor)) return otherChat(task)
-        if (task.status === 'done' || task.status === 'cancelled') return { value: { ok: false, code: 'closed', task } }
+        if (['done', 'cancelled'].includes(displayStatus(task.status))) return { value: { ok: false, code: 'closed', task } }
         const parentSessionId = typeof task.parentSessionId === 'string' && task.parentSessionId !== '' ? task.parentSessionId : requestedParent
         const interrupted = []
         const errors = []
@@ -674,7 +833,7 @@ function createService(config, logger, hooks = {}) {
         const task = board.tasks.find((entry) => entry.id === id)
         if (task === undefined) return { value: { ok: false, code: 'not_found' } }
         if (!writable(task, chatId, input?.actor)) return otherChat(task)
-        if (task.status !== 'paused') return { value: { ok: false, code: 'not_paused', task } }
+        if (displayStatus(task.status) !== 'paused') return { value: { ok: false, code: 'not_paused', task } }
         task.status = 'active'
         const children = Array.isArray(task.children) ? task.children : []
         for (const child of children) if (child.status === 'paused') child.status = 'sleeping'
@@ -695,7 +854,13 @@ function createService(config, logger, hooks = {}) {
         const task = board.tasks.find((entry) => entry.id === id)
         if (task === undefined) return { value: { ok: false, code: 'not_found' } }
         if (!writable(task, chatId, input?.actor)) return otherChat(task)
-        if (task.status === 'cancelled') return { value: { ok: false, code: 'cancelled', task } }
+        const from = displayStatus(task.status)
+        if (from === 'cancelled') return { value: { ok: false, code: 'cancelled', task } }
+        if (from === 'done') return { value: { ok: true, task } }
+        // ACCEPTANCE IS THE ONLY DOOR TO `done`. A task closes from review, which means a
+        // result was claimed and the evidence examined; an open or active task is cancelled
+        // instead of being declared accepted, and a blocked one is unblocked first.
+        if (from !== 'review') return { value: { ok: false, code: 'needs_review', task } }
         const parentSessionId = typeof task.parentSessionId === 'string' && task.parentSessionId !== '' ? task.parentSessionId : requestedParent
         const interrupted = []
         const errors = []
@@ -759,7 +924,10 @@ function createService(config, logger, hooks = {}) {
       if (op === null || typeof op !== 'object') return { ok: false, code: 'invalid' }
       const kind = op.op
       const chatId = typeof hooks.rootOf === 'function' ? hooks.rootOf(actorSessionId) : actorSessionId
-      if (kind === 'create') return { ok: true, task: this.create(cwd, { ...(op.task ?? op), parentSessionId: actorSessionId, chatId }, actor) }
+      if (kind === 'create') {
+        const created = this.create(cwd, { ...(op.task ?? op), parentSessionId: actorSessionId, chatId }, actor)
+        return created?.ok === false ? created : { ok: true, task: created }
+      }
       if (kind === 'update') return this.update(cwd, { ...op, chatId, actor })
       if (kind === 'note') return this.note(cwd, { ...op, chatId, actor })
       if (kind === 'link') return this.linkChild(cwd, { ...op, chatId, actor })
@@ -833,13 +1001,16 @@ export function apply(ctx, config = {}) {
 
   ctx.tools.register(defineTool({
     name: 'task_create',
-    description: 'Create one workspace task with an objective, scope, non-scope and acceptance. The taskboard is the workspace ledger for work in flight: open a task for EVERY change you make, whether you do it inline or delegate it, and keep it moving through proposed/ready/active/review/done. Delegation is one way to run a task, not the reason to create one. Returns the full task, including its id and revision.',
+    description: 'Create one workspace task with an objective, scope, non-scope and acceptance. The taskboard is the workspace ledger for work in flight: open a task for EVERY change you make, whether you do it inline or delegate it, and keep it moving through open/active/review/done. Delegation is one way to run a task, not the reason to create one. Every task carries a specialist role (with its preset) or is inline: pass role, or inline: true when you do the work yourself; a task with neither is refused with needs_role_or_inline. Returns the full task, including its id and revision.',
     parameters: {
       title: { type: 'string', required: true, description: 'Short task title.' },
       objective: { type: 'string', description: 'The outcome in one paragraph.' },
       scope: { type: 'array', items: { type: 'string' }, description: 'What the work may touch.' },
       nonScope: { type: 'array', items: { type: 'string' }, description: 'What the work must not touch, with the reason.' },
       acceptance: { type: 'array', items: { type: 'string' }, description: 'How the orchestrator will judge the result.' },
+      role: { type: 'string', description: 'Specialist role that owns the task (e.g. BACKEND, REVIEWER). Required unless inline is true.' },
+      preset: { type: 'string', description: 'The role preset id the child will run with, when it is already known.' },
+      inline: { type: 'boolean', description: 'true when the caller does this work itself, with no specialist role. Required unless role is given.' },
       parentId: { type: 'string', description: 'Optional parent task id.' },
       priority: { type: 'string', enum: PRIORITIES, description: 'low | normal | high.' },
     },
@@ -882,7 +1053,8 @@ export function apply(ctx, config = {}) {
     parameters: {
       id: { type: 'string', required: true, description: 'Task id.' },
       expectedRevision: { type: 'integer', required: true, description: 'Task revision you read.' },
-      status: { type: 'string', enum: EDITABLE_STATUSES, description: 'New status. Use task_pause/task_resume/task_close for paused/done.' },
+      status: { type: 'string', enum: EDITABLE_STATUSES, description: 'New status: open | active | review | blocked | cancelled. Use task_pause/task_resume/task_close for paused/done. open->active needs a role+owner or an inline task; ->review needs a result summary and evidence; blocked needs a reason; done and cancelled are terminal.' },
+      reason: { type: 'string', description: 'Why the task is blocked. Required when moving it to blocked.' },
       title: { type: 'string', description: 'New title.' },
       objective: { type: 'string', description: 'New objective.' },
       scope: { type: 'array', items: { type: 'string' }, description: 'New scope list.' },
@@ -898,7 +1070,7 @@ export function apply(ctx, config = {}) {
     output: out(),
     execute(args, exec) {
       const patch = {}
-      for (const key of ['status', 'title', 'objective', 'scope', 'nonScope', 'acceptance', 'priority']) {
+      for (const key of ['status', 'title', 'objective', 'scope', 'nonScope', 'acceptance', 'priority', 'reason']) {
         if (args[key] !== undefined) patch[key] = args[key]
       }
       if (args.resultSummary !== undefined || args.resultEvidence !== undefined || args.resultArtifacts !== undefined || args.resultDecisions !== undefined || args.resultRisks !== undefined) {
