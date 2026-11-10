@@ -81,9 +81,39 @@ window.__ModuleLoader__.load({
       return { sessionId: pickWorkspaceSession(workspace, sessionsById, null), workspace }
     }
 
+    /**
+     * Read the rules file BYTE-EXACTLY through the command's `raw` op.
+     *
+     * WHY NOT `workspaceFiles.read`. That API is line-based: it splits on "\n" and joins
+     * with "\n", so the final newline of a newline-terminated file belongs to no line and
+     * never arrives. A panel that loaded 103 bytes of a 104-byte file and saved its draft
+     * wrote 103 bytes back - a silent one-byte change on every untouched save. `raw` returns
+     * the host's bytes in base64; the byte count is the host's count.
+     *
+     * @returns `{ text, bytes }`, `{ text: null }` for a missing file, or `{ error }`.
+     */
+    async function readRulesRaw(remote, sessionId, signal) {
+      const result = await runOp(remote, sessionId, { op: 'raw' })
+      if (!result.ok) return { error: result.error }
+      let payload
+      try { payload = JSON.parse(result.text) } catch { return { error: 'the raw read returned no bytes' } }
+      if (payload === null || typeof payload !== 'object' || typeof payload.base64 !== 'string') return { error: 'the raw read returned no bytes' }
+      try {
+        const bytes = Uint8Array.from(atob(payload.base64), (character) => character.charCodeAt(0))
+        return { text: new TextDecoder('utf-8', { fatal: true }).decode(bytes), bytes: Number.isSafeInteger(payload.bytes) ? payload.bytes : bytes.length }
+      } catch (error) {
+        return { error: `the rules file is not valid UTF-8: ${error instanceof Error ? error.message : String(error)}` }
+      }
+    }
+
     /** Read the rules text; a missing file is an empty document, not an error. */
     async function readRules(remote, sessionId, signal) {
       if (typeof sessionId !== 'string' || sessionId === '') return { text: null }
+      const raw = await readRulesRaw(remote, sessionId, signal).catch((error) => ({ error: error?.message ?? 'raw read failed' }))
+      // An older host has no `raw` op; the line-based read is wrong by one byte on a
+      // newline-terminated file, but it is better than showing nothing.
+      if (raw.error === undefined) return raw
+      try { console.warn(`project-rules: the byte-exact read failed (${raw.error}); falling back to the line-based read, which drops a trailing newline`) } catch { /* a logger that cannot log must not break the panel */ }
       let offset = 1
       let text = ''
       for (let page = 0; page < 60; page += 1) {
@@ -149,6 +179,9 @@ window.__ModuleLoader__.load({
       const canEdit = isLiveSession(sessionsById, sessionId)
 
       const [draft, setDraft] = useState('')
+      // The size the HOST reported for the loaded file; `draft` differs from it only when the
+      // human typed, so a one-byte difference is visible instead of silent.
+      const [loadedBytes, setLoadedBytes] = useState(null)
       const [loaded, setLoaded] = useState(null)
       const [error, setError] = useState('')
       const [status, setStatus] = useState('')
@@ -158,6 +191,7 @@ window.__ModuleLoader__.load({
 
       const dirty = loaded !== null && draft !== loaded
       const bytes = byteLength(draft)
+      const fileBytes = Number.isSafeInteger(loadedBytes) ? loadedBytes : null
       const overLimit = bytes > MAX_BYTES
 
       const reload = useCallback(async () => {
@@ -172,7 +206,14 @@ window.__ModuleLoader__.load({
           if (result.error) { setError(result.error); return }
           setError('')
           if (result.text === null) { setDraft(''); setLoaded(''); setStatus('No rules yet — the section is empty until you save this file.') }
-          else { setDraft(result.text); setLoaded(result.text); setStatus(`Loaded ${byteLength(result.text)} bytes.`) }
+          else {
+            setDraft(result.text)
+            setLoaded(result.text)
+            // The counter is the HOST's byte count, not a re-encoding of the textarea.
+            const size = Number.isSafeInteger(result.bytes) ? result.bytes : byteLength(result.text)
+            setStatus(`Loaded ${size} bytes.`)
+            setLoadedBytes(size)
+          }
         } catch (failure) {
           if (!next.signal.aborted) setError(failure?.message ?? 'read failed')
         } finally {
@@ -192,7 +233,10 @@ window.__ModuleLoader__.load({
           try { payload = JSON.parse(result.text) } catch { /* the re-read is the truth */ }
           setLoaded(draft)
           setError('')
-          if (payload !== null && Number.isSafeInteger(payload.bytes)) setStatus(`Saved ${payload.bytes} bytes exactly as typed. The next turn picks them up.`)
+          if (payload !== null && Number.isSafeInteger(payload.bytes)) {
+            setStatus(`Saved ${payload.bytes} bytes exactly as typed. The next turn picks them up.`)
+            setLoadedBytes(payload.bytes)
+          }
           else setStatus('Saved. The next turn picks up the new rules.')
         } catch (failure) {
           setError(failure?.message ?? 'save failed')
@@ -217,7 +261,7 @@ window.__ModuleLoader__.load({
           h('h1', { className: 'pr-title' }, 'Project rules'),
           h('span', { className: 'pr-file' }, FILE),
           h('span', { className: `pr-chip ${dirty ? 'warn' : 'ok'}` }, dirty ? 'dirty' : 'saved'),
-          h('span', { className: 'pr-chip' }, `${bytes} bytes`),
+          h('span', { className: 'pr-chip', title: fileBytes === null ? 'bytes in the editor' : `${fileBytes} bytes in the file` }, fileBytes !== null && fileBytes !== bytes ? `${bytes} bytes · file ${fileBytes}` : `${bytes} bytes`),
           h('span', { className: 'pr-spacer' }),
           h('button', { type: 'button', className: 'pr-btn', onClick: () => { reload().catch(() => {}) }, disabled: loading || dirty, title: dirty ? 'Save or discard the draft before reloading' : 'Re-read .dsh/rules.md' }, loading ? 'Loading…' : 'Reload'),
           h('button', { type: 'button', className: 'pr-btn primary', onClick: () => { save().catch(() => {}) }, disabled: !dirty || saving || !canEdit || overLimit, title: canEdit ? 'Write exactly this text to .dsh/rules.md' : 'Open a live conversation to save' }, saveLabel),

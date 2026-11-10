@@ -86,7 +86,10 @@ has that role's persona and tools — UX/UI, Backend, Research, Reviewer, Critic
 from the preset picker in a new session. **Critic** is the adversary: give it the algorithm or
 service and it tries to break it — realistic non-trivial inputs, boundaries, out-of-order
 events, restarts — on a disposable copy in `/tmp`, then reports the smallest reproducible
-failure (or what it tried and what stayed untested). It never fixes anything and never touches
+failure (or what it tried and what stayed untested). It never fixes anything — its `write` and
+`edit` tools are disabled at the preset, so a finding cannot become a patch; it keeps a shell
+for fixtures, and a shell can still write, so the never-fix rule is a persona plus a tool
+surface, not a jail. It never touches
 production data, and it is not the same job as Reviewer (judges a diff) or UX/UI (tests an
 interface). Pick **standard** when you want a chat that edits work
 directly instead of delegating; that is the hands-on escape hatch, and it keeps every kit

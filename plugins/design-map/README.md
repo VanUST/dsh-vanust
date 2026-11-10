@@ -29,7 +29,34 @@ boundary fails closed.
   removed node go with it).
 - Missing `x`/`y` are laid out in a grid; `width`/`height`/`color` are optional.
 - A node is an Excalidraw rectangle with a bound text label; an edge is a bound arrow.
-  The human's drags and renames therefore show up in the next `read` unchanged.
+  The human's drags and renames therefore show up in the next `read` unchanged. Rebuilding a
+  node also rebuilds its bindings from **every** arrow in the scene that points at it, not
+  only the arrows in the same call, so an upsert does not detach the human's existing arrows.
+
+### Refusals, the revision and the caps
+
+Every refusal is a value with a stable code — the tool returns
+`{ok:false, code, message}` and the command returns `{kind:"error", text:"design-map: <code>: …"}`:
+
+| code | when |
+| --- | --- |
+| `empty_write` | `write` with no nodes and no edges. It would erase the map; pass `clear: true` to mean it |
+| `needs_rev` | a `write`/`save` over a NON-EMPTY scene without the `rev` the caller read |
+| `stale` | the `rev` given is not the scene's current rev (checked on write, save and, when given, upsert/remove) |
+| `duplicate_node_id` / `duplicate_edge_id` | the same id twice in one payload |
+| `invalid_node` / `invalid_edge` | a node that is not an object or has a non-string/empty id; an edge that is not an object or has no `from`/`to` |
+| `unknown_edge_node` | an edge endpoint that is not a node in the resulting map (it used to be dropped silently) |
+| `unknown_id` | `remove` of an id that is not in the scene (it used to be a silent no-op) |
+| `too_many_nodes` / `too_many_edges` / `too_many_elements` | the document caps, below |
+| `needs_elements` / `invalid_element` / `duplicate_id` | the panel save's shape: an elements array of objects with unique string ids |
+
+**The caps are the document's, not the caller's.** 200 nodes, 400 edges, 1000 elements — and
+the panel's `save` is held to the same numbers (a browser save used to write 5000 elements
+while the tool refused 201 nodes).
+
+**A whole-scene write is a compare-and-set.** The map on disk may be newer than the one the
+caller read; overwriting it without that `rev` is how a "refresh the map" call would erase a
+human's last drag. Read, then write with the rev you read. An empty scene needs no rev.
 
 ## The human's view
 
@@ -39,7 +66,9 @@ posts debounced edits to the panel, which saves them through `/design-map`; the 
 stamps the revision and author. The file is read through `workspaceFiles`, so the same
 `design.excalidraw` is visible in the Files panel and survives a restart.
 
-The frame is a package-local chunk (`/plugins/@cc/dsh-design-map/client.frame.js?rev=…`),
+The frame is a package-local chunk fetched from the APP-ABSOLUTE route
+(`/plugins/@cc/dsh-design-map/client.frame.js?rev=…`) — a relative `plugins/...` resolved
+against the document and 404'd below the root. It is a package-local chunk,
 with no CDN and no network at runtime. It is built with:
 
 ```bash
@@ -53,8 +82,10 @@ dialog with stubs; without that the frame is ~8.4 MB. Everything else is the rea
 
 ## Persistence contract
 
-- Scene writes are temp-file + rename.
-- The panel sends only `elements`/`appState`/`files`; `rev`, `updatedAt` and `updatedBy`
+- Scene writes are temp-file + rename. A refusal happens BEFORE the write, so the file on
+  disk is byte-identical after a refused call.
+- The panel sends `elements`/`appState`/`files` plus the `rev` it last read (the host checks
+  it on a non-empty scene); `rev`, `updatedAt` and `updatedBy`
   are assigned by the host, never trusted from the browser.
 - `save` is the same service the tool uses, so an agent write and a human save cannot
   produce two different file shapes.

@@ -39,6 +39,7 @@
  *   - A `@deepseek-ai/dsh-<subpackage>` range is not a harness pin and is not compared: the
  *     reader requires the package name immediately before the `@`.
  */
+import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -232,6 +233,66 @@ if (procedure.missing !== true) {
   )
 }
 
+/**
+ * How many plugins the COMMITTED kit ships: the inventory rows whose source directory has
+ * at least one file tracked by git.
+ *
+ * WHY IT IS NOT `rows.length`. The working tree can hold a plugin another chat is still
+ * writing (measured 2026-11-10: plugins/image-window was on disk, in the inventory and in
+ * nobody's commit). That plugin is not part of the kit a reader can check out, so counting
+ * it would make every document state a number that is only true on one uncommitted tree -
+ * and the gate would fail on the commit that describes it. A source directory with no
+ * tracked file is skipped; outside a git checkout every row counts.
+ *
+ * @param rows - Inventory plugin rows.
+ * @returns The number of committed plugins.
+ */
+function countTrackedPlugins(rows) {
+  let tracked = 0
+  for (const row of rows) {
+    const source = typeof row.source === 'string' ? row.source : ''
+    if (source === '') continue
+    try {
+      const files = execFileSync('git', ['-C', KIT, 'ls-files', '--', source], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+      if (files.trim() !== '') tracked += 1
+    } catch {
+      // Not a git checkout: nothing says the row is uncommitted, so it counts.
+      tracked += 1
+    }
+  }
+  return tracked
+}
+
+/** Number words a document may spell a plugin count with. */
+const PLUGIN_COUNT_WORDS = {
+  eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16,
+  seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20,
+}
+
+/**
+ * Every stated plugin count in one document, as `{ value, phrase }`.
+ *
+ * The claims a reader acts on are of the form "fifteen plugins", "12 plugin tarballs",
+ * "twelve in-repo plugins" and "plugin tarballs: fifteen packages". A numeral is taken as
+ * written; a word must be one of PLUGIN_COUNT_WORDS, so "one plugin" or a sentence such as
+ * "the plugins" is not a count and is skipped.
+ *
+ * @param text - Document contents.
+ * @returns The counts in the order they appear.
+ */
+function statedPluginCounts(text) {
+  const counts = []
+  // Markdown emphasis sits INSIDE the claim a reader sees: "the **twelve** plugins" is a
+  // count of twelve. Strip the markers before matching, or the gate misses the bolded ones.
+  const plain = text.replaceAll('*', '').replaceAll('_', '').replaceAll('`', '')
+  for (const match of plain.matchAll(/\b([A-Za-z]+|\d+)\s+(?:in-repo\s+|plugin\s+)?(plugins?|packages?)\b/gi)) {
+    const raw = match[1].toLowerCase()
+    const value = /^\d+$/.test(raw) ? Number(raw) : PLUGIN_COUNT_WORDS[raw]
+    if (Number.isInteger(value)) counts.push({ value, phrase: match[0] })
+  }
+  return counts
+}
+
 // 5. Every document that describes the shipped plugin set must agree with the inventory.
 //    A user guide that denies the existence of a shipped plugin is the same class of lie as
 //    a rule with no enforcement point: it reads as authoritative and nothing contradicted it.
@@ -258,7 +319,29 @@ if (inventory.missing === true) {
       unnamed.length === 0 ? `${rows.length} plugin(s), all named` : `not named: ${unnamed.join(', ')}`,
     )
   }
+  // 6. THE COUNT IS A CLAIM TOO. "Names every plugin" passes a document that says "the
+  //    fifteen plugins" while shipping seventeen: a reader who trusts the number plans for
+  //    two plugins that do not exist. Only rows whose SOURCE IS COMMITTED count, so an
+  //    uncommitted plugin from another checkout does not move the number the documents
+  //    describe (the reviewed kit is the committed one).
+  const tracked = countTrackedPlugins(rows)
+  const mismatches = []
+  for (const relative of ['README.md', 'USERGUIDE.md', 'rules/DEPLOYMENT.md']) {
+    const document = read(relative)
+    if (document.missing === true) { mismatches.push(`${relative}: missing`); continue }
+    const stated = statedPluginCounts(document.text)
+    if (stated.length === 0) { mismatches.push(`${relative}: states no plugin count`); continue }
+    for (const entry of stated) {
+      if (entry.value !== tracked) mismatches.push(`${relative}: "${entry.phrase}" (${entry.value}) but the inventory has ${tracked} committed plugin(s)`)
+    }
+  }
+  claim(
+    'every stated plugin count is the committed inventory count',
+    rows.length > 0 && mismatches.length === 0,
+    mismatches.length === 0 ? `${tracked} committed plugin(s), every count agrees` : mismatches.join(' | '),
+  )
 }
+
 
 if (failures.length > 0) {
   process.stderr.write(`documentation claims FAILED\n${failures.map((entry) => `  - ${entry}`).join('\n')}\n`)

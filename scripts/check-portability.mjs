@@ -146,7 +146,10 @@ const CHECKS = [
     paths: ['scripts'],
     // Exempt because these two spawns are deliberate: git is a prerequisite for having a checkout
     // at all, so it cannot be "unavailable on Linux" the way npm is unresolvable on Windows.
-    allow: ['scripts/check-portability.mjs'],
+    // check-documentation reads `git ls-files` for one purpose: a plugin whose source is not
+    // committed yet (another chat's working-tree row) must not move the count the documents
+    // state. Same prerequisite as here - git is what makes a checkout a checkout.
+    allow: ['scripts/check-portability.mjs', 'scripts/check-documentation.mjs'],
     allowReason:
       'git is required to have a checkout at all, so it cannot be "unavailable on Linux" the way npm is unresolvable on Windows; unlike npm it is on PATH everywhere the kit runs',
   },

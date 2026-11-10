@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-project-rules",
-  "version": "0.1.2",
+  "version": "0.1.7",
   "description": "One workspace rules file (.dsh/rules.md) that becomes ONE system-prompt section for every agent and subagent, edited from a Web panel. The section freezes per turn and keeps the previous string when the file bytes are unchanged, so typing and saving cannot invalidate the provider's cached prompt prefix.",
   "type": "module",
   "main": "index.js",

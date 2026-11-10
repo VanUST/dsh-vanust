@@ -56,8 +56,11 @@ Seven `@deepseek-ai/dsh-agent-preset` declarations sit in the profile patch, and
 registration, not a brief: the orchestrator reads (`read`, `readImage`) and has no `write`,
 `edit`, `bash` or
 `pwsh` at all; the research role has no shell and cannot surgically edit; the reviewer can run
-and read but not write; the backend, ux, critic and docs roles have the full shell and
-filesystem.
+and read, and its `write`/`edit` tools are disabled - but it HAS `tool-bash`, and **a shell
+can write**: "cannot write" means "cannot use the write/edit tools", not "cannot change a
+file". The same is true of the critic, whose `tool-fs` now carries `write: false` and
+`edit: false` for the same reason (its persona says never fix). The backend, ux and docs roles
+have the full shell and filesystem.
 
 **`critic` is the seventh, and it is a different job from `reviewer`.** The reviewer judges a
 diff and does not write; the critic attacks a RUNNING behaviour - a service, a CLI, an
@@ -84,7 +87,7 @@ the boundary where it can:
 
 | Artefact | Agent side | Human side | Enforced by |
 |---|---|---|---|
-| `design.excalidraw` (the design map) | **orchestrator only** - `design_map` is registered per agent for `agentPreset === 'orchestrator'`; a specialist child has no such tool | **yes** - **Design map** panel via `/design-map` | registration: a tool a child never received cannot be talked into existence by a brief. `standard`/unknown presets get no tool (fail closed) |
+| `design.excalidraw` (the design map) | **orchestrator only** - `design_map` is registered per agent for `agentPreset === 'orchestrator'`; a specialist child has no such tool | **yes** - **Design map** panel via `/design-map` | registration: a tool a child never received cannot be talked into existence by a brief. `standard`/unknown presets get no tool (fail closed). **This is registration-level, not a shell jail**: a role with `bash` can still edit `design.excalidraw` directly, exactly as it can edit `.dsh/rules.md`; the gate is which tools the role was given |
 | `.dsh/rules.md` (project rules) | **nobody** - `write`/`edit` and `bash`/`pwsh` naming the file are refused with `rules_human_only` | **yes** - **Rules** panel via `/project-rules` | a `tools/pre-execute` guard on resolved paths and on the shell command text. A guardrail, not a jail: an obfuscated or symlinked path is outside it, and the panel command is a different registry so the human keeps the pen |
 | `.dsh/taskboard.json` (the task ledger) | any agent in its own chat, through `task_create`/`task_update`/…; another chat's row is refused `other_chat` | **yes**, for the whole board | the taskboard service (chat scoping and the lifecycle invariants) |
 | `docker`/MCP/network state | no role preset carries it; the harness's own tools decide | **yes** | the harness's tool registration |

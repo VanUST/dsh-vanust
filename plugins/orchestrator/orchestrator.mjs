@@ -36,6 +36,15 @@
  *     failing the delegation after the task was created.
  *   - A failed child start marks the task blocked with the error as a risk and
  *     rethrows, so the orchestrator sees the failure instead of a silent no-op.
+ *   - A taskboard REFUSAL stops the delegation before a child exists: a refused create
+ *     (`board_full`) has no row to work on, a refused attach (`stale`, `other_chat`) is not a
+ *     task this chat may claim, and the pre-flight note is the first write that proves the
+ *     row is ours. Each returns `{ok:false, code, message}` and blocks the row with the code
+ *     when the same guard allows it. A refused linkChild after the start interrupts that
+ *     child, so a live child never works for a task that does not record it.
+ *   - Root detection is the taskboard's lineage rule: depth > 0, a `parentSession` header or
+ *     `origin: 'subagent'` all mean CHILD, so a depth-0 subagent never gets the root policy
+ *     or `delegate_task`.
  *   - The task is created before the child, so a crash between the two leaves a
  *     task the human can see and retry rather than an invisible child.
  *   - A role name that normalizes to an existing one, or contains it (`BACKEND-SAM`
@@ -448,6 +457,61 @@ export function reuseNoteFor(knownAgent, role, preset) {
 }
 
 /**
+ * Mark a task blocked with the code a taskboard write refused it for.
+ *
+ * The row is the record of WHY the delegation did not happen; a refusal that leaves no trace
+ * makes the next reader start the same work again. Best effort by design: when the refusal
+ * was `other_chat` or `not_found`, the block write is refused for the same reason and the
+ * row is left exactly as it was.
+ *
+ * @param taskboard - The taskboard service.
+ * @param cwd - Session workspace.
+ * @param id - Task id.
+ * @param code - The refusal code to record.
+ * @param extra - Optional extra taskpatch fields.
+ */
+function noteRefusal(taskboard, cwd, id, code, extra = {}) {
+  try {
+    const current = taskboard.get(cwd, id)
+    if (current === undefined) return false
+    const patched = taskboard.update(cwd, {
+      id,
+      expectedRevision: current.revision,
+      chatId: current.chatId ?? '',
+      patch: {
+        status: 'blocked',
+        reason: `delegation refused: ${code}`,
+        result: { risks: [`delegation refused: ${code}`] },
+        ...extra,
+      },
+    })
+    return patched?.ok === true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Whether this agent is the ROOT of its session tree (policy section + delegate_task).
+ *
+ * Depth alone is not enough: a subagent child can report `delegationDepth: 0` and still name
+ * its parent (`parentSession`) or label itself `origin: 'subagent'` - measured in
+ * @cc/dsh-notify's core, and a child that is treated as a root gets a second top to the tree
+ * and the delegation tool. The same lineage signals the taskboard uses decide it here.
+ *
+ * @param agent - The agent a session was created for.
+ * @returns True for a root session, false for a delegated child.
+ */
+export function isRootAgent(agent) {
+  const header = agent?.session?.header
+  const depth = Number(header?.delegationDepth ?? 0)
+  if (Number.isFinite(depth) && depth > 0) return false
+  if (typeof header?.parentSession === 'string' && header.parentSession !== '') return false
+  if (header?.origin === 'subagent') return false
+  return true
+}
+
+/**
  * Register the policy and the delegation tool.
  *
  * @param ctx - Cordis context.
@@ -573,7 +637,17 @@ export function apply(ctx, config = {}) {
             owner: { kind: 'agent', label: role },
           },
         })
-        task = updated?.ok === true ? updated.task : existing
+        // A REFUSED ATTACH IS NOT A TASK. The old code kept `existing` and started a child
+        // against a row this chat could not claim: orphan work, and the CAS race the update
+        // reported was swallowed. The refusal is the answer; the row is blocked with its code
+        // when the same guard allows the write (a foreign-chat row refuses that too, so it is
+        // left untouched).
+        if (updated?.ok !== true) {
+          const code = typeof updated?.code === 'string' && updated.code !== '' ? updated.code : 'taskboard_refused'
+          noteRefusal(taskboard, taskCwd, existing.id, code)
+          return { ok: false, code, message: `delegate_task: the taskboard refused to attach task "${attachId}" (${code}); no child was started. The task was left untouched or blocked with that code.` }
+        }
+        task = updated.task
       } else {
         task = taskboard.create(taskCwd, {
           title: args.title,
@@ -591,6 +665,13 @@ export function apply(ctx, config = {}) {
           // moves it when the child is really running.
           status: 'open',
         }, 'orchestrator')
+        // A REFUSED CREATE HAS NO ROW. `board_full` (the cap) used to fall through to a
+        // brief and a child for a task that does not exist - the whole delegation ran
+        // against `undefined`. The refusal is the result; nothing is spawned.
+        if (task?.ok === false || typeof task?.id !== 'string') {
+          const code = typeof task?.code === 'string' && task.code !== '' ? task.code : 'taskboard_refused'
+          return { ok: false, code, message: `delegate_task: the taskboard refused to create the task (${code}); no child was started. Free a row (task_remove / task_close) or delegate onto an existing task with taskId.` }
+        }
       }
 
       const subagentProvider = ctx.subagents.getProvider(provider)
@@ -639,7 +720,15 @@ export function apply(ctx, config = {}) {
         // between creation and spawn used to leave a task that said only "Created" - the
         // signature measured in ~/tasks/3d on 2026-10-30, which reads like work in progress.
         try {
-          taskboard.note(taskCwd, { id: task.id, chatId, text: `Delegating to ${role}${attachId === '' ? '' : ' (attached task)'}` })
+          const noted = taskboard.note(taskCwd, { id: task.id, chatId, text: `Delegating to ${role}${attachId === '' ? '' : ' (attached task)'}` })
+          // THE FIRST WRITE PROVES THE ROW IS OURS. A note refused with `other_chat` or
+          // `not_found` means the link would be refused moments later, after a child already
+          // exists; stopping here is the only point where "no child" can still be true.
+          if (noted?.ok === false) {
+            const code = typeof noted.code === 'string' && noted.code !== '' ? noted.code : 'taskboard_refused'
+            noteRefusal(taskboard, taskCwd, task.id, code)
+            return { ok: false, code, message: `delegate_task: the taskboard refused the delegation note on task "${task.id}" (${code}); no child was started. Open a task in this chat instead.` }
+          }
         } catch {
           // A diagnostic note is never control flow.
         }
@@ -691,7 +780,15 @@ export function apply(ctx, config = {}) {
             }
           }
         }
-        taskboard.linkChild(taskCwd, { id: task.id, sessionId: childId, label: role, role, chatId })
+        const linked = taskboard.linkChild(taskCwd, { id: task.id, sessionId: childId, label: role, role, chatId })
+        if (linked?.ok !== true) {
+          const code = typeof linked?.code === 'string' && linked.code !== '' ? linked.code : 'taskboard_refused'
+          // The child exists but the ledger would not record it. Stop it: a child working for
+          // a task that does not know it exists is the orphan this whole path is about.
+          try { ctx.subagents.interrupt?.(childId, { kind: 'ancestor', agent: parent }) } catch { /* a child that cannot be stopped is reported, not hidden */ }
+          noteRefusal(taskboard, taskCwd, task.id, code)
+          return { ok: false, code, message: `delegate_task: the taskboard refused to link child "${childId}" to task "${task.id}" (${code}); the child was interrupted and no work was started.` }
+        }
         return {
           taskId: task.id,
           childId,
@@ -730,8 +827,9 @@ export function apply(ctx, config = {}) {
   })
 
   ctx.on('agent/created', ({ agent }) => {
-    const depth = Number(agent?.session?.header?.delegationDepth ?? 0)
-    const isRoot = !(Number.isFinite(depth) && depth > 0)
+    // Lineage, not depth alone: a subagent child can report depth 0 and still name its
+    // parent (see isRootAgent).
+    const isRoot = isRootAgent(agent)
     // The catalog is read once per turn, not once per request: a role created a minute
     // ago appears on the next turn, and every step of one turn shares one system prompt,
     // so the board writes those steps make cannot invalidate the provider's prefix cache

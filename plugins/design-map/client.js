@@ -123,7 +123,10 @@ window.__ModuleLoader__.load({
       if (entry === undefined || typeof entry.url !== 'string') throw new Error('the design-map client entry is not in the boot graph')
       const rev = new URL(entry.url, location.href).searchParams.get('rev')
       if (rev === null) throw new Error('the design-map client entry has no revision')
-      const response = await fetch(`plugins/${PKG}/client.frame.js?rev=${encodeURIComponent(rev)}`, { credentials: 'same-origin' })
+      // A RELATIVE `plugins/...` resolves against the DOCUMENT, so a page served below the
+      // root (or under a path prefix) asked for the wrong file and the panel showed "frame
+      // bundle HTTP 404". The module route is app-absolute.
+      const response = await fetch(`/plugins/${PKG}/client.frame.js?rev=${encodeURIComponent(rev)}`, { credentials: 'same-origin' })
       if (!response.ok) throw new Error(`frame bundle HTTP ${response.status}`)
       return response.text()
     }
@@ -283,7 +286,15 @@ window.__ModuleLoader__.load({
         if (pending === null || !hasSession || !canEdit) return
         setSaving(true)
         try {
-          const result = await runOp(remote, sessionId, { op: 'save', elements: pending.elements ?? [], appState: pending.appState ?? {}, files: pending.files ?? {} })
+          // The host refuses a whole-scene save over a non-empty map without the rev it read
+          // (needs_rev / stale), so an outdated panel cannot overwrite a newer map.
+          const result = await runOp(remote, sessionId, {
+            op: 'save',
+            rev: Number.isSafeInteger(metaRef.current?.rev) ? metaRef.current.rev : 0,
+            elements: pending.elements ?? [],
+            appState: pending.appState ?? {},
+            files: pending.files ?? {},
+          })
           if (!result.ok) { setError(result.error); return }
           let summary = null
           try { summary = JSON.parse(result.text) } catch { /* the next read is the truth */ }

@@ -100,7 +100,9 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   `profile/cordis.patch.yml`: `orchestrator`, `ux`, `backend`, `research`, `reviewer`,
   `critic`, `docs`.
   A role is its persona and its tool list, not a request in the brief: the orchestrator has no
-  shell and no write/edit tool at all, research has no shell, the reviewer cannot write. New
+  shell and no write/edit tool at all, research has no shell, the reviewer and the critic have
+  their `write`/`edit` tools disabled (both keep `bash`, and a shell can write - the rule is
+  the tool surface, not a jail). New
   chats default to the orchestrator; `standard` stays in the picker as the hands-on escape
   hatch. The kit's role-specific tools gate on the same id (`papers_*` research,
   `babysitter_*` orchestrator, `diagram`/`presentation` orchestrator + UX).
@@ -144,7 +146,7 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
 
 **Third-party add-on: Hindsight memory.** `@vectorize-io/hindsight-coding-agents@0.8.2`
 is installed separately by its own command (`npx @vectorize-io/hindsight-coding-agents install dsh`),
-not from this repository, and is therefore not one of the fifteen in-repo plugins. It writes a
+not from this repository, and is therefore not one of the seventeen in-repo plugins. It writes a
 row into `$DSH_HOME/cordis.patch.yml` (the home layer, shared by every profile) and a
 companion skill into `~/.agents/skills/hindsight-coding-agent`. Its settings live in
 `~/.hindsight/coding-agent.json`; this machine's file is enabled with `serverMode: daemon`
@@ -175,7 +177,7 @@ cd dsh-vanust               # the repository is dsh-vanust; the kit it contains 
 ```
 
 **What a clone alone gives you, stated exactly.** Everything the deployment
-installs is in the repository: the fifteen plugin tarballs, the canonical profile, the
+installs is in the repository: the seventeen plugin tarballs, the canonical profile, the
 procedure and the pinned version in both installers. Every plugin's source is here
 too — `plugins/notify/`, `plugins/presentation/`, `plugins/diagrams/`,
 `plugins/work-modes/`, `plugins/godot-mcp/`, `plugins/skills/`, `plugins/flash-guard/`,
@@ -201,7 +203,7 @@ dsh-kit/
 │                              #   session-analysis`: every session, in seconds per question)
 ├── scripts/kit-update.mjs     # update path: hash drift check + convergence for an existing machine
 ├── plugins/inventory.json     # the shipped plugin set (the source of truth)
-├── plugins/*.tgz              # plugin tarballs: fifteen packages, including notify, presentation,
+├── plugins/*.tgz              # plugin tarballs: seventeen packages, including notify, presentation,
 │                              #                  diagrams, work-modes, godot-mcp, skills, flash-guard,
 │                              #                  proof-guard, taskboard, orchestrator
 ├── plugins/notify/            # source of @cc/dsh-notify (desktop notifications; packed above)

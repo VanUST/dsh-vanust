@@ -65,6 +65,29 @@ const SOURCE = 'https://github.com/cc/dsh-design-map'
 const META = 'designMap'
 const MAX_NODES = 200
 const MAX_EDGES = 400
+/**
+ * The whole-scene cap the PANEL save obeys too. A node is a rectangle plus its bound text,
+ * so 200 boxes + 200 labels + 400 arrows is 800 elements; 1000 leaves room for the human's
+ * freehand strokes without letting one save write an unbounded document.
+ */
+const MAX_ELEMENTS = 1000
+
+/**
+ * A refusal the caller can quote: an Error carrying a stable code.
+ *
+ * The tool turns it into `{ok:false, code, message}` and the command into
+ * `{kind:'error', text:'design-map: <code>: <detail>'}`, so an agent and the panel see the
+ * same word for the same refusal (empty_write, stale, duplicate_node_id, ...).
+ *
+ * @param code - Stable refusal code.
+ * @param detail - One sentence naming the offending input.
+ * @returns The Error to throw.
+ */
+function refusal(code, detail) {
+  const error = new Error(`design-map: ${code}: ${detail}`)
+  error.code = code
+  return error
+}
 const DEFAULT_STALE_MS = 24 * 60 * 60 * 1000
 
 const NODE_STYLE = {
@@ -170,6 +193,52 @@ function buildNode(node, index) {
     customData: { designMap: { kind: 'label', nodeId: id } },
   })
   return [rectangle, text]
+}
+
+/**
+ * Validate a whole element array the way the tool validates its nodes and edges.
+ *
+ * Only the invariants that do not require interpreting the document: every element is an
+ * object with a non-empty string id, ids are unique, and the document obeys the same
+ * node/edge/total caps the tool has. A human's freehand strokes and images are counted by
+ * the total cap and otherwise left alone - the panel is not asked to speak nodes-and-edges.
+ *
+ * @param elements - The array a caller wants to write.
+ * @param label - Where the refusal came from (`save`), for the message.
+ */
+function validateElements(elements, label = 'save') {
+  if (elements.length > MAX_ELEMENTS) throw refusal('too_many_elements', `${label} carries ${elements.length} elements; at most ${MAX_ELEMENTS}`)
+  let rectangles = 0
+  let arrows = 0
+  const seen = new Set()
+  for (const [index, element] of elements.entries()) {
+    if (element === null || typeof element !== 'object' || Array.isArray(element)) throw refusal('invalid_element', `${label} elements[${index}] is not an object`)
+    if (typeof element.id !== 'string' || element.id === '') throw refusal('invalid_element', `${label} elements[${index}] has no string id`)
+    if (seen.has(element.id)) throw refusal('duplicate_id', `${label} names the id "${element.id}" twice`)
+    seen.add(element.id)
+    if (element.type === 'rectangle') rectangles += 1
+    else if (element.type === 'arrow') arrows += 1
+  }
+  if (rectangles > MAX_NODES) throw refusal('too_many_nodes', `${label} carries ${rectangles} nodes; at most ${MAX_NODES}`)
+  if (arrows > MAX_EDGES) throw refusal('too_many_edges', `${label} carries ${arrows} edges; at most ${MAX_EDGES}`)
+}
+
+/**
+ * Compare-and-set for a whole-scene write.
+ *
+ * A scene somebody has already drawn in is not a blank file: overwriting it without the rev
+ * the caller read means the writer is describing a document that may no longer exist, and
+ * the human's last drag disappears. An empty scene needs no rev (there is nothing to lose).
+ *
+ * @param current - The scene on disk.
+ * @param rev - The rev the caller claims to have read.
+ * @param what - The operation name for the message.
+ */
+function assertRevision(current, rev, what = 'write') {
+  const elements = Array.isArray(current?.elements) ? current.elements : []
+  if (elements.length === 0) return
+  if (rev === undefined || rev === null) throw refusal('needs_rev', `${what} over a non-empty scene needs the rev it read (current rev ${current?.[META]?.rev ?? 0})`)
+  if (!Number.isSafeInteger(rev) || rev !== (current?.[META]?.rev ?? 0)) throw refusal('stale', `${what} read rev ${String(rev)}, the scene is at rev ${current?.[META]?.rev ?? 0}`)
 }
 
 /** The point where the line from one rectangle centre leaves the rectangle. */
@@ -353,7 +422,12 @@ function createService(config, logger) {
       const path = scenePath(config, cwd)
       const current = readScene(path)
       const elements = Array.isArray(payload?.elements) ? payload.elements : null
-      if (elements === null) throw new Error('design-map: save needs an elements array')
+      if (elements === null) throw refusal('needs_elements', 'a save needs an elements array')
+      // THE PANEL OBEYS THE SAME LIMITS AS THE TOOL. A browser save used to write 5000
+      // elements while the tool capped at 200 nodes / 400 edges; the caps are a property of
+      // the document, not of the caller.
+      validateElements(elements, 'save')
+      assertRevision(current, payload?.rev, 'save')
       const scene = {
         ...current,
         elements,
@@ -370,17 +444,43 @@ function createService(config, logger) {
      * @param mode - 'write' replaces every element; 'upsert' keeps unknown elements and
      *   replaces only the ones named, so the human's freehand annotations survive.
      */
-    apply(cwd, { mode = 'write', nodes = [], edges = [], title } = {}, by = 'agent') {
-      if (!Array.isArray(nodes)) throw new Error('design-map: nodes must be an array')
-      if (!Array.isArray(edges)) throw new Error('design-map: edges must be an array')
-      if (nodes.length > MAX_NODES) throw new Error(`design-map: at most ${MAX_NODES} nodes`)
-      if (edges.length > MAX_EDGES) throw new Error(`design-map: at most ${MAX_EDGES} edges`)
+    apply(cwd, { mode = 'write', nodes = [], edges = [], title, rev, clear = false } = {}, by = 'agent') {
+      if (!Array.isArray(nodes)) throw refusal('invalid_nodes', 'nodes must be an array')
+      if (!Array.isArray(edges)) throw refusal('invalid_edges', 'edges must be an array')
+      if (nodes.length > MAX_NODES) throw refusal('too_many_nodes', `at most ${MAX_NODES} nodes, got ${nodes.length}`)
+      if (edges.length > MAX_EDGES) throw refusal('too_many_edges', `at most ${MAX_EDGES} edges, got ${edges.length}`)
       const path = scenePath(config, cwd)
       const current = readScene(path)
+      // A WRITE IS A REPLACEMENT. With nothing to write it is a delete, and that is what
+      // silently wiped a five-element map before this check; `clear: true` is the explicit
+      // way to say it.
+      if (mode === 'write' && nodes.length === 0 && edges.length === 0 && clear !== true) {
+        throw refusal('empty_write', 'a write with no nodes and no edges would erase the map; pass clear: true to mean it')
+      }
+      if (mode === 'write') assertRevision(current, rev, 'write')
+      else if (rev !== undefined && rev !== null) assertRevision(current, rev, mode)
       const existing = mode === 'write' ? [] : current.elements
-      const nextNodes = []
+      // Ids first: the effective id of every node is decided before anything is spliced, so a
+      // duplicate is refused instead of producing two elements with one id (which the earlier
+      // `nodes:[{id:"dup"},{id:"dup"}]` probe did).
+      const nodeIds = new Set()
+      const planned = []
       for (const [index, node] of nodes.entries()) {
-        const id = String(node?.id ?? `node-${index + 1}`).slice(0, 100)
+        if (node === null || typeof node !== 'object' || Array.isArray(node)) throw refusal('invalid_node', `nodes[${index}] is not an object`)
+        if (node.id !== undefined && (typeof node.id !== 'string' || node.id === '')) throw refusal('invalid_node', `nodes[${index}].id must be a non-empty string`)
+        const id = String(node.id ?? `node-${index + 1}`).slice(0, 100)
+        if (nodeIds.has(id)) throw refusal('duplicate_node_id', `the node id "${id}" is named twice`)
+        nodeIds.add(id)
+        planned.push({ node, id, index })
+      }
+      for (const edge of edges) {
+        if (edge === null || typeof edge !== 'object' || Array.isArray(edge)) throw refusal('invalid_edge', 'an edge is not an object')
+        for (const end of ['from', 'to']) {
+          if (typeof edge[end] !== 'string' || edge[end] === '') throw refusal('invalid_edge', `an edge is missing its "${end}" node id`)
+        }
+      }
+      const nextNodes = []
+      for (const { node, id, index } of planned) {
         const removed = new Set([id, `${id}__label`])
         for (let at = existing.length - 1; at >= 0; at -= 1) if (removed.has(existing[at]?.id)) existing.splice(at, 1)
         nextNodes.push(...buildNode({ ...node, id }, index))
@@ -393,13 +493,23 @@ function createService(config, logger) {
         if (element?.type !== 'rectangle' || element.isDeleted === true) continue
         rectangles.set(element.id, element)
       }
+      // An edge endpoint that is not a node in the RESULT is a dangling arrow: it used to be
+      // dropped silently while the call reported success. Name the missing id instead.
+      for (const edge of edges) {
+        for (const end of ['from', 'to']) {
+          if (!rectangles.has(edge[end])) throw refusal('unknown_edge_node', `the edge endpoint "${edge[end]}" is not a node in the map`)
+        }
+      }
+      const edgeIds = new Set()
       const nextEdges = []
       for (const [index, edge] of edges.entries()) {
         const id = String(edge?.id ?? `edge:${edge?.from}->${edge?.to}`).slice(0, 140)
+        if (edgeIds.has(id)) throw refusal('duplicate_edge_id', `the edge id "${id}" is named twice`)
+        edgeIds.add(id)
         const at = merged.findIndex((element) => element?.id === id)
         if (at !== -1) merged.splice(at, 1)
         const arrow = buildEdge({ ...edge, id }, index, rectangles)
-        if (arrow === null) continue
+        if (arrow === null) throw refusal('invalid_edge', `the edge "${id}" could not be built`)
         nextEdges.push(arrow)
         // Excalidraw keeps the binding on BOTH ends: the arrow names the shapes, and
         // each shape names the arrow in boundElements. Without the second half a drag
@@ -412,6 +522,19 @@ function createService(config, logger) {
           rectangle.boundElements = [...bound.filter((entry) => entry?.id !== arrow.id), { type: 'arrow', id: arrow.id }]
         }
       }
+      // P2-3: REBUILD THE WHOLE BINDING, NOT JUST THIS CALL'S HALF. Rebuilding a rectangle
+      // drops its boundElements, so an arrow that was already in the scene kept pointing at a
+      // box that no longer listed it - the next drag of the box left the arrow behind. Every
+      // rebuilt rectangle now names every arrow that binds to it, plus the label it owns.
+      const allArrows = [...merged, ...nextEdges].filter((element) => element?.type === 'arrow' && element.isDeleted !== true)
+      for (const rectangle of nextNodes) {
+        if (rectangle?.type !== 'rectangle') continue
+        const labels = Array.isArray(rectangle.boundElements) ? rectangle.boundElements.filter((entry) => entry?.type === 'text') : []
+        const bound = allArrows
+          .filter((arrow) => arrow.startBinding?.elementId === rectangle.id || arrow.endBinding?.elementId === rectangle.id)
+          .map((arrow) => ({ type: 'arrow', id: arrow.id }))
+        rectangle.boundElements = [...labels, ...bound]
+      }
       const scene = {
         ...current,
         elements: [...merged, ...nextEdges],
@@ -421,11 +544,17 @@ function createService(config, logger) {
       return describe(written, path, staleAfterMs)
     },
     /** Remove node or edge ids; arrows attached to a removed node go with it. */
-    remove(cwd, ids, by = 'agent') {
-      if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string')) throw new Error('design-map: ids must be a string array')
+    remove(cwd, ids, { by = 'agent', rev } = {}) {
+      if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string' || id === '')) throw refusal('invalid_ids', 'ids must be a string array')
       const wanted = new Set(ids)
       const path = scenePath(config, cwd)
       const current = readScene(path)
+      if (rev !== undefined && rev !== null) assertRevision(current, rev, 'remove')
+      // An id that is not in the scene used to be a silent no-op: the caller could not tell
+      // "removed" from "never existed". Name the ids that are not there.
+      const present = new Set(current.elements.filter((element) => element !== null && typeof element === 'object').map((element) => element.id))
+      const missing = ids.filter((id) => !present.has(id) && !present.has(`${id}__label`))
+      if (missing.length > 0) throw refusal('unknown_id', `not in the map: ${missing.slice(0, 5).join(', ')}`)
       const elements = current.elements.filter((element) => {
         if (element === null || typeof element !== 'object') return true
         if (wanted.has(element.id)) return false
@@ -483,16 +612,24 @@ export function apply(ctx, config = {}) {
         to: { type: 'string', description: 'Target node id.' },
         label: { type: 'string' },
       } }, description: 'Arrows to create or update (write/upsert).' },
-      ids: { type: 'array', items: { type: 'string' }, description: 'Node or edge ids to remove.' },
+      ids: { type: 'array', items: { type: 'string' }, description: 'Node or edge ids to remove. An id that is not in the scene is refused (unknown_id), not silently ignored.' },
       title: { type: 'string', description: 'Optional map title, returned by read.' },
+      rev: { type: 'number', description: 'The rev the caller read. REQUIRED to overwrite a non-empty scene (write) and checked on save/remove when given: a stale rev is refused (stale), so an old view cannot wipe a newer map.' },
+      clear: { type: 'boolean', description: 'Explicit permission to replace the whole scene with nothing (write with no nodes/edges). Without it an empty write is refused (empty_write).' },
     },
     output: out(),
     execute(args, exec) {
       const cwd = workingDir(exec.agent)
-      if (args.op === 'read') return Promise.resolve(service.describe(cwd))
-      if (args.op === 'remove') return Promise.resolve(service.remove(cwd, args.ids ?? [], 'agent'))
-      const mode = args.op === 'upsert' ? 'upsert' : 'write'
-      return Promise.resolve(service.apply(cwd, { mode, nodes: args.nodes ?? [], edges: args.edges ?? [], title: args.title }, 'agent'))
+      try {
+        if (args.op === 'read') return Promise.resolve(service.describe(cwd))
+        if (args.op === 'remove') return Promise.resolve(service.remove(cwd, args.ids ?? [], { by: 'agent', rev: args.rev }))
+        const mode = args.op === 'upsert' ? 'upsert' : 'write'
+        return Promise.resolve(service.apply(cwd, { mode, nodes: args.nodes ?? [], edges: args.edges ?? [], title: args.title, rev: args.rev, clear: args.clear === true }, 'agent'))
+      } catch (error) {
+        // A refusal is a value: the model gets the code, the same word the panel shows.
+        if (typeof error?.code === 'string') return Promise.resolve({ ok: false, code: error.code, message: error.message })
+        throw error
+      }
     },
   })
 
@@ -515,10 +652,12 @@ export function apply(ctx, config = {}) {
         const cwd = workingDir(invocation.agent)
         if (op?.op === 'read') return { kind: 'success', text: JSON.stringify(service.read(cwd).scene) }
         if (op?.op === 'save') return { kind: 'success', text: JSON.stringify(service.save(cwd, op, 'human')) }
-        if (op?.op === 'remove') return { kind: 'success', text: JSON.stringify(service.remove(cwd, op.ids ?? [], 'human')) }
+        if (op?.op === 'remove') return { kind: 'success', text: JSON.stringify(service.remove(cwd, op.ids ?? [], { by: 'human', rev: op.rev })) }
         return { kind: 'error', text: 'design-map: unknown op (read | save | remove)' }
       } catch (error) {
-        return { kind: 'error', text: `design-map: ${error.message}` }
+        // A refusal already reads `design-map: <code>: <detail>`; anything else gets the prefix.
+        const message = String(error?.message ?? error)
+        return { kind: 'error', text: message.startsWith('design-map:') ? message : `design-map: ${message}` }
       }
     },
   })

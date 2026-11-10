@@ -608,21 +608,53 @@ function npmArgv(args) {
  * KEYWORDS
  *   kit tools directory, npm prefix, axe-core, pixelmatch
  */
+/**
+ * Whether `.tools/package.json` names the versions this kit pins.
+ *
+ * WHY THIS EXISTS. The manifest used to be written only when absent, so a PINS bump left it
+ * naming the previous versions: npm kept them, `detect()` saw the packages and `--check`
+ * reported a healthy install of a set nobody pins. Comparing the manifest with PINS makes
+ * that state visible, and `--apply` now rewrites the manifest before installing.
+ *
+ * @param directory - The kit's `.tools` directory.
+ * @returns A sentence naming the drift, or null when it matches (or is unreadable).
+ */
+function npmManifestDrift(directory) {
+  const manifest = join(directory, 'package.json')
+  let dependencies
+  try {
+    dependencies = JSON.parse(readFileSync(manifest, 'utf8')).dependencies ?? {}
+  } catch {
+    return null
+  }
+  const expected = {
+    '@axe-core/playwright': PINS.axePlaywright,
+    pixelmatch: PINS.pixelmatch,
+    'playwright-core': PINS.playwrightCore,
+  }
+  const stale = Object.entries(expected)
+    .filter(([name, version]) => dependencies[name] !== version)
+    .map(([name, version]) => `${name}@${dependencies[name] ?? '(absent)'} (this kit pins ${version})`)
+  if (stale.length === 0) return null
+  return `${manifest} names ${stale.join(', ')}; run --apply to rewrite it from PINS`
+}
+
 function installNpmPrefix(directory) {
   mkdirSync(directory, { recursive: true })
   const manifest = join(directory, 'package.json')
-  if (!existsSync(manifest)) {
-    writeFileSync(manifest, `${JSON.stringify({
-      name: 'dsh-kit-tools',
-      private: true,
-      type: 'module',
-      dependencies: {
-        '@axe-core/playwright': PINS.axePlaywright,
-        pixelmatch: PINS.pixelmatch,
-        'playwright-core': PINS.playwrightCore,
-      },
-    }, null, 2)}\n`, 'utf8')
-  }
+  // ALWAYS rewritten from PINS. Writing it only when absent is why a PINS bump installed the
+  // old set: the manifest still named the previous versions, npm kept them, and --check then
+  // reported a healthy install of a version nobody pinned.
+  writeFileSync(manifest, `${JSON.stringify({
+    name: 'dsh-kit-tools',
+    private: true,
+    type: 'module',
+    dependencies: {
+      '@axe-core/playwright': PINS.axePlaywright,
+      pixelmatch: PINS.pixelmatch,
+      'playwright-core': PINS.playwrightCore,
+    },
+  }, null, 2)}\n`, 'utf8')
   const argv = npmArgv(['install', '--prefix', directory, '--no-audit', '--no-fund'])
   return argv !== null && run(argv)
 }
@@ -1025,6 +1057,10 @@ const TOOLS = [
     label: 'axe-core + pixelmatch — browser accessibility audit and screenshot diff (kit .tools)',
     required: false,
     pin: `@axe-core/playwright ${PINS.axePlaywright}; pixelmatch ${PINS.pixelmatch}; playwright-core ${PINS.playwrightCore}`,
+    // The composite string detect() builds, so `--check` reports a drifted package instead of
+    // passing a set that only LOOKS installed (it had no versionPin at all before: the drift
+    // note below never fired for the one entry that is not a PATH binary).
+    versionPin: `axe ${PINS.axePlaywright}, pixelmatch ${PINS.pixelmatch}, playwright ${PINS.playwrightCore}`,
     names: [],
     // A Node library has no PATH binary; the probe is its package metadata, and the
     // install target is the kit's own .tools directory rather than a global npm prefix.
@@ -1033,9 +1069,18 @@ const TOOLS = [
       const axe = packageVersion(join(directory, 'node_modules', '@axe-core', 'playwright', 'package.json'))
       const pixelmatch = packageVersion(join(directory, 'node_modules', 'pixelmatch', 'package.json'))
       const playwright = packageVersion(join(directory, 'node_modules', 'playwright-core', 'package.json'))
-      return axe !== null && pixelmatch !== null && playwright !== null
-        ? { bin: directory, version: `axe ${axe}, pixelmatch ${pixelmatch}, playwright ${playwright}` }
-        : { bin: null, version: null }
+      // The manifest is the second half of the pin: a bumped PINS with an old manifest installs
+      // the old set. installNpmPrefix rewrites it now, and --check says so when they disagree.
+      const drift = npmManifestDrift(directory)
+      // `drifted` is what makes --apply rewrite the manifest from PINS even though the packages
+      // are present: the manifest is kit state, and a stale one keeps the old versions forever.
+      const extra = drift === null ? {} : { note: drift, drifted: true }
+      if (axe === null || pixelmatch === null || playwright === null) return { bin: null, version: null, ...extra }
+      return {
+        bin: directory,
+        version: `axe ${axe}, pixelmatch ${pixelmatch}, playwright ${playwright}`,
+        ...extra,
+      }
     },
     install: async ({ options }) => installNpmPrefix(join(options.kit, '.tools')),
     manual: 'npm install --prefix <kit>/.tools (installs @axe-core/playwright, pixelmatch and playwright-core at the pinned versions)',
@@ -1207,7 +1252,10 @@ async function main() {
     if (version !== null && typeof tool.versionPin === 'string' && !version.includes(tool.versionPin)) {
       entry.note = `running ${version}; this kit pins ${tool.versionPin}`
     }
-    if (bin === null && options.mode === 'apply') {
+    // A detector may know something the version string cannot say (the .tools manifest vs the
+    // PINS). Its note is appended, never hidden behind the version note.
+    if (typeof found.note === 'string' && found.note !== '') entry.note = entry.note === undefined ? found.note : `${entry.note}; ${found.note}`
+    if ((bin === null || found.drifted === true) && options.mode === 'apply') {
       if (tool.detectOnly === true) {
         entry.action = 'manual'
       } else {
@@ -1217,6 +1265,13 @@ async function main() {
         entry.bin = after.bin ?? null
         entry.version = after.version
         entry.action = after.bin === null ? 'manual' : 'none'
+        // The report describes the state AFTER --apply: a drift that the install fixed is not
+        // reported as still there.
+        const afterNote = typeof after.note === 'string' && after.note !== ''
+          ? after.note
+          : (after.version !== null && typeof tool.versionPin === 'string' && !after.version.includes(tool.versionPin) ? `running ${after.version}; this kit pins ${tool.versionPin}` : undefined)
+        if (afterNote === undefined) delete entry.note
+        else entry.note = afterNote
         if (after.bin === null) entry.note = `the installer ran without producing ${tool.id}; see its output above`
         else if (!ok) entry.note = 'installed, but the installer reported a non-zero exit'
       }

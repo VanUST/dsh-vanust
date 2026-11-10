@@ -547,8 +547,14 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function TasksTrigger({ remote, store, layout, sessionId }) {
+    function TasksTrigger({ remote, store, layout, sessionId, useSessions }) {
       const [count, setCount] = useState(0)
+      const sessionsRaw = useSessions((snapshot) => snapshot.byId)
+      const sessionsById = sessionsRaw !== null && sessionsRaw !== undefined && typeof sessionsRaw === 'object' ? sessionsRaw : {}
+      // The header trigger runs on a child conversation too. A task's chatId is the ROOT of the
+      // lineage, so comparing it with the raw session id counted 0 here while the pane showed
+      // the board. Same resolver as the pane (chatIdOf), so the badge and the board agree.
+      const chatId = chatIdOf(sessionId, sessionsById)
       useEffect(() => {
         let cancelled = false
         const controller = new AbortController()
@@ -556,12 +562,12 @@ window.__ModuleLoader__.load({
           const result = await readBoard(remote, sessionId, controller.signal)
           // This chat's board only: a new chat is a new board, and a count of the whole
           // workspace on a fresh conversation reads as tasks this chat cannot see.
-          if (!cancelled && result.board) setCount(result.board.tasks.filter((task) => chatOf(task) === sessionId).length)
+          if (!cancelled && result.board) setCount(result.board.tasks.filter((task) => chatOf(task) === chatId).length)
         }
         tick().catch(() => {})
         const timer = setInterval(() => { tick().catch(() => {}) }, 5000)
         return () => { cancelled = true; controller.abort(); clearInterval(timer) }
-      }, [remote, sessionId])
+      }, [remote, sessionId, chatId])
       const open = () => {
         store.set({ sessionId, returnSessionId: sessionId })
         layout.selectPanel(PANEL_ID)
@@ -682,6 +688,14 @@ window.__ModuleLoader__.load({
         }
         // The host requires a reason to hold a task in blocked; only send it when it moved.
         if (draft.reason.trim() !== String(base.reason ?? '').trim()) patch.reason = draft.reason.trim()
+        // The assignment. One rule: a specialist role (with an owner) or inline work; the host
+        // refuses an open->active move that has neither, and refuses both at once here.
+        const role = draft.role.trim()
+        if (role !== (base.role ?? '')) patch.role = role
+        if (draft.inline === true && role !== '') patch.inline = false
+        else if (draft.inline !== (base.inline === true)) patch.inline = draft.inline === true
+        const ownerLabel = draft.ownerLabel.trim()
+        if (ownerLabel !== (base.owner?.label ?? '')) patch.owner = ownerLabel === '' ? null : { kind: 'agent', label: ownerLabel, ...(base.owner?.sessionId === undefined ? {} : { sessionId: base.owner.sessionId }) }
         // Paused and done are lifecycle actions, not ordinary field edits.
         if (draft.status !== base.status && draft.status !== 'paused' && draft.status !== 'done') patch.status = draft.status
         onSave(task.id, base.revision, patch)
@@ -719,6 +733,21 @@ window.__ModuleLoader__.load({
             task.inline === true ? h('span', { className: 'tb-chip', title: 'Nobody was delegated this task' }, 'no child') : null,
             task.reason ? h('span', { className: 'tb-chip bad' }, `blocked: ${task.reason}`) : null,
           ),
+          // THE ASSIGNMENT IS EDITABLE: a pre-role row can only reach active once it has a
+          // role with an owner (or is inline), and before this editor existed the human had
+          // no way to say which it is.
+          h('div', { className: 'tb-row' },
+            h('label', { className: 'tb-label', htmlFor: `tb-role-${task.id}`, style: { margin: 0 } }, 'Assign role'),
+            // Typing a role clears the inline flag on save (a task is one or the other), so the
+            // field stays editable instead of asking the human to uncheck a box first.
+            h('input', { id: `tb-role-${task.id}`, className: 'tb-input', style: { maxWidth: 180 }, value: draft.role, onChange: (event) => set('role', event.target.value), readOnly: !canEdit, placeholder: 'BACKEND' }),
+            h('label', { className: 'tb-label', htmlFor: `tb-owner-${task.id}`, style: { margin: 0 } }, 'Owner'),
+            h('input', { id: `tb-owner-${task.id}`, className: 'tb-input', style: { maxWidth: 180 }, value: draft.ownerLabel, onChange: (event) => set('ownerLabel', event.target.value), readOnly: !canEdit, placeholder: 'the child or the human' }),
+            h('label', { className: 'tb-row', style: { margin: 0, gap: 4 } },
+              h('input', { type: 'checkbox', checked: draft.inline, onChange: (event) => set('inline', event.target.checked), disabled: !canEdit }),
+              h('span', { className: 'tb-label', style: { margin: 0 } }, 'Inline — I do this myself'),
+            ),
+          ),
           h('div', { className: 'tb-policy' },
             h('b', null, 'One rule: '),
             'a task belongs to a specialist role (its preset is the child tool set) or it is ',
@@ -744,6 +773,7 @@ window.__ModuleLoader__.load({
         ) : null,
         h('div', { className: 'tb-row' },
           h('button', { type: 'button', className: 'tb-btn', onClick: () => onAction(paused ? 'resume' : 'pause', task.id), disabled: busy || closed || !canEdit, title: paused ? 'Continue tracking this task; linked children are not re-prompted' : 'Hold this task and interrupt its linked children' }, paused ? 'Resume' : 'Pause'),
+          h('button', { type: 'button', className: 'tb-btn', onClick: () => onAction('cancel', task.id), disabled: busy || closed || !canEdit, title: 'Abandon this task and interrupt its linked children. The one door for a paused task or one that still has children' }, 'Cancel'),
           h('button', { type: 'button', className: 'tb-btn', onClick: () => onAction('close', task.id), disabled: busy || closed || !canEdit || task.status !== 'review', title: task.status === 'review' ? 'Accept this task as done' : 'Only a task in review can be accepted; moving work to review needs a result and evidence' }, 'Close'),
           h('button', { type: 'button', className: 'tb-btn danger', onClick: () => onAction('remove', task.id), disabled: busy || !canEdit }, 'Remove'),
         ),
@@ -831,6 +861,9 @@ window.__ModuleLoader__.load({
         title: String(draft.title ?? '').trim(),
         status: draft.status,
         reason: String(draft.reason ?? '').trim(),
+        role: String(draft.role ?? '').trim(),
+        inline: draft.inline === true,
+        ownerLabel: String(draft.ownerLabel ?? '').trim(),
         objective: draft.objective,
         scope: lines(draft.scope),
         nonScope: lines(draft.nonScope),
@@ -844,6 +877,9 @@ window.__ModuleLoader__.load({
         title: task.title ?? '',
         status: task.status ?? '',
         reason: task.reason ?? '',
+        role: task.role ?? '',
+        inline: task.inline === true,
+        ownerLabel: task.owner?.label ?? '',
         objective: task.objective ?? '',
         scope: Array.isArray(task.scope) ? task.scope : [],
         nonScope: Array.isArray(task.nonScope) ? task.nonScope : [],
@@ -857,6 +893,10 @@ window.__ModuleLoader__.load({
         title: task.title ?? '',
         status: task.status ?? 'open',
         reason: task.reason ?? '',
+        // The assignment the human edits: a specialist role, or inline work, and who owns it.
+        role: task.role ?? '',
+        inline: task.inline === true,
+        ownerLabel: task.owner?.label ?? '',
         objective: task.objective ?? '',
         scope: Array.isArray(task.scope) ? task.scope.join('\n') : '',
         nonScope: Array.isArray(task.nonScope) ? task.nonScope.join('\n') : '',
@@ -1103,13 +1143,19 @@ window.__ModuleLoader__.load({
           .catch((failure) => setWriteError(failure?.message ?? 'Save failed.'))
       }
       const note = (id, text) => {
-        run({ op: 'note', id, text }, { reload: false })
+        const task = tasks.find((entry) => entry.id === id)
+        run({ op: 'note', id, expectedRevision: task?.revision, text }, { reload: false })
           .catch((failure) => setWriteError(failure?.message ?? 'The note was not saved.'))
       }
       const action = async (kind, id) => {
         if (kind === 'remove' && !window.confirm('Remove this task from the board? Its child sessions keep running; pause or close first if they should stop.')) return
         if (kind === 'close' && !window.confirm('Close this task as done and interrupt its linked child agents?')) return
-        const result = await run({ op: kind, id })
+        if (kind === 'cancel' && !window.confirm('Cancel this task and interrupt its linked child agents? It stays on the board as cancelled.')) return
+        // The command is a compare-and-set like the model tools: the panel must send the
+        // revision it is acting on, or the host refuses (needs_revision) instead of silently
+        // overwriting an edit that landed in between.
+        const task = tasks.find((entry) => entry.id === id)
+        const result = await run({ op: kind, id, expectedRevision: task?.revision })
         if (result.ok && kind === 'remove') {
           setSelectedId(null)
           setDetailOpen(true)

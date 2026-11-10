@@ -783,8 +783,14 @@
           - id: tool-pwsh
             name: '@deepseek-ai/dsh-tool-pwsh'
             disabled: !!js process.platform !== 'win32'
+          # The 'never fix' persona is a tool surface here: no write and no edit, so a
+          # finding cannot turn into a patch. bash stays for fixtures, and a shell can
+          # still write - the critic is a reporter, not a jail (see DEPLOYMENT §1.0).
           - id: tool-fs
             name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              write: false
+              edit: false
           - id: tool-fs-search
             name: '@deepseek-ai/dsh-tool-fs-search'
             config:

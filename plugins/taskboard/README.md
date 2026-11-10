@@ -34,7 +34,7 @@ Seven states, and no two of them mean the same thing:
 | `review` | work claimed finished, waits for acceptance | `task_update` (with a result and evidence) or the child settling |
 | `done` | accepted | `task_close`, only from `review` |
 | `blocked` | cannot proceed, and says why | `task_update` with a `reason` |
-| `cancelled` | terminal, not reachable from `done` | `task_update` |
+| `cancelled` | terminal, not reachable from `done` | `task_cancel` (interrupts the children), or `task_update` for a childless task that is not paused |
 
 `proposed` and `ready` were two names for "not started". They are not states any more: a row
 that still says them is **display-mapped to `open` on read** and its bytes are left alone, so
@@ -48,13 +48,44 @@ and the human's panel reach the same service. Every refusal is a value with a na
 | `needs_role_or_inline` | `open -> active` for a task with no role+owner and no `inline: true`; also `task_create` with neither |
 | `needs_result` | `-> review` without a result summary |
 | `needs_evidence` | `-> review` without one evidence item |
-| `needs_reason` | `-> blocked` without a reason |
+| `needs_reason` | `-> blocked` without a reason, and a BLANK reason on an already-blocked task |
 | `use_pause` | `paused` set through an ordinary update |
 | `use_close` | `done` set through an ordinary update, or a cancel of a task with linked children |
 | `use_resume` | any move out of `paused` through an ordinary update |
 | `needs_review` | `task_close` on a task that is not in review |
+| `needs_result` | also `task_close` on a task whose result has no summary — the child settling is not an acceptance |
+| `initial_status` | `task_create` with any status other than `open` (or `blocked` with its reason); a task is born open |
+| `needs_revision` | a command-path write without the `expectedRevision` it read |
 | `terminal` | any move out of `done` or `cancelled` |
 | `other_chat` | a write from another chat's agent |
+
+**A task is born open.** `task_create` refuses `done`, `cancelled`, `paused`, `active` and
+`review` with `initial_status`, so `done` cannot be minted without an acceptance; `blocked` is
+a real starting state and needs its reason.
+
+**`task_cancel` is the door the transition table does not have.** An ordinary update refuses a
+move out of `paused` (`use_resume`) and a cancel of a task that still has children (`use_close`),
+which left a paused task and a delegated task impossible to abandon. `task_cancel` interrupts the
+linked children (fail closed, like `task_pause`), writes `cancelled`, records the reason as a
+decision on the result and as a timeline entry, and never rewrites a summary somebody wrote.
+`done` is not cancellable: an accepted task stays accepted.
+
+**`task_close` needs a result.** A linked child settling still moves its task to `review` — that
+is the runtime reporting that work finished — but closing refuses with `needs_result` until
+somebody wrote the summary. "The child finished" is a signal; the acceptance is a judgement.
+
+**The command registry is the human/client path; agents use the tools.** `delegate_task` and
+the model tools carry `expectedRevision` in their schema. The `/taskboard` command has only what
+the panel sends, so it checks it itself: every mutating op (`update`, `note`, `link`, `pause`,
+`resume`, `close`, `cancel`, `remove`) is refused with `needs_revision` when the revision is
+missing and with `stale` when it moved. A create is the one exception — there is nothing to
+compare yet.
+
+**The assignment is editable, and it is one field pair.** `task_update` accepts `role`,
+`inline` and `owner` (the panel shows them beside the status), so a row written before the role
+rule can be adopted instead of left unassigned: a role with an owner, or inline work. The
+`open -> active` check reads the same patch, so both can arrive in one write; a task never
+carries a role and `inline: true` at once, and `owner: null` clears the owner.
 
 **No task is role-less.** A task either carries a `role` (and the `preset` its child runs
 with) or it is `inline: true`: work the owner — the orchestrator or the human — does itself,
@@ -81,7 +112,7 @@ so a `subagent/end` after a Host or plugin reload still settles the task.
 
 `task_create`, `task_get`, `task_list`, `task_update` (compare-and-set on
 `expectedRevision`), `task_note`, `task_link`, and the lifecycle tools
-`task_pause`, `task_resume`, `task_close`, `task_remove`. The orchestrator's
+`task_pause`, `task_resume`, `task_close`, `task_cancel`, `task_remove`. The orchestrator's
 `delegate_task` requires a `role` (e.g. `UX/UI`, `BACKEND`, `BUSINESS`, `RESEARCH`) and reuses
 that role's existing child session; it starts a child only when the role has none. The taskboard
 stores the role registry in `agents[]`. Pause/close interrupt linked children through
@@ -143,7 +174,9 @@ cannot see.
   `childSessionIds[]` with role `child` and neutral state `linked`.
 - **Lifecycle**: **Pause** moves the task to `paused` and interrupts its linked
   child sessions; **Resume** moves it back to `active` (it does not auto-prompt a
-  child; open the child to continue). **Close** accepts a task as done and
+  child; open the child to continue). **Cancel** abandons the task, interrupts its
+  children and keeps the row as `cancelled` with the reason on its decisions — the
+  only door for a paused task or one that still has children. **Close** accepts a task as done and
   interrupts children; it is enabled only for a task in review, because acceptance
   is the one door to `done`, and it refuses to mark done if the subagent service
   cannot be reached. **Remove** deletes the task and its timeline after a
@@ -153,7 +186,9 @@ cannot see.
   in the field beside it. Host refusals such as `needs_role_or_inline`,
   `needs_result`, `needs_evidence`, `needs_reason`, `use_pause`, `use_close`,
   `needs_review`, `terminal`, `empty_title` or `interrupt_failed` are shown as
-  errors in the detail pane.
+  errors in the detail pane. The header badge counts the same chat the pane shows:
+  it resolves the session to the root of its lineage (`chatIdOf`) instead of comparing a
+  task's `chatId` with the raw session id, which showed 0 on a child conversation.
 - **Timeline**: created, edited, delegated, child started/finished, paused,
   resumed, closed, notes.
 - **Child sessions**: each linked child opens its existing conversation.
@@ -202,8 +237,15 @@ live session and is left alone.
 - A read stops on `eof`. If the ledger does not reach `eof` within 200 pages of
   2,000 lines, the read returns `ledger is too large to read` instead of parsing
   truncated JSON (a maximal board is about 75 pages).
-- At the configured cap (default 200 tasks) a create is refused with
-  `board_full`; the Host never evicts an older task as a side effect of a write.
+- **The cap counts work in flight, not history.** `maxTasks` (default 200) limits the
+  tasks that can still be acted on — open, active, paused, review, blocked — and a create
+  past it is refused with `board_full` plus the counts (`active`, `cap`). Finished and
+  cancelled rows are the record of what the board did; they do not occupy a slot, so a
+  workspace with 190 done rows and 5 open ones can still add work. A second, larger limit
+  guards the FILE: at `maxRows` (default 1000) a create is refused with `board_rows_full`
+  (`rows`, `cap`). The Host never evicts, deletes or rewrites a row to make space — a full
+  board is answered by closing or cancelling what is finished, or by raising the cap in the
+  profile.
 - The ledger has no cross-process file lock. Run one DSH host per workspace;
   a second host writing the same checkout can lose an update (the UI shows the
   `session/writer-held` failure instead of pretending it saved).
