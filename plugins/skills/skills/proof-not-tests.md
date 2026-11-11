@@ -1,6 +1,6 @@
-# Proof, not autotests
+# Proof, not speculative tests
 
-This deployment does not write autotests. A test about code the same agent just wrote restates that code's assumptions, passes because it was written to pass, and becomes maintenance somebody else pays for. What replaces it is running the product and quoting what it produced.
+This deployment does not write speculative tests: explore, observe the behaviour fail/pass, then persist the case in the docs/cases library. An autotest is legitimate when it encodes an OBSERVED case (red first, green after) and names the production behaviour it protects. A test about code the same agent just wrote restates that code's assumptions, passes because it was written to pass, and becomes maintenance somebody else pays for. What replaces it is running the product and quoting what it produced.
 
 ## The rule
 

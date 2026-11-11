@@ -1,9 +1,14 @@
 # dsh-kit
 
-Portable setup for **DeepSeek Harness (dsh)** plus the fifteen plugins this
+Portable setup for **DeepSeek Harness (dsh)** plus the nineteen plugins this
 deployment needs beyond upstream, across all your machines (2× Linux, 1× Windows).
 `plugins/inventory.json` is the single source of truth for the set:
 
+- **`@cc/dsh-image-window`** — keeps only the newest image in a session's request by offloading
+  the one that falls out of the window as a new image arrives. The harness's own image offload is
+  reactive and removes the *oldest* image after the route rejects the request; that head rewrite
+  re-billed 1,783,829 of 2,260,222 fresh tokens in one measured session, while the tail rewrite
+  this row performs projects 440,944 for the same session. `keepImages` raises the window.
 - **`@cc/dsh-notify`** — a desktop notification when an agent finishes a turn and when it asks
   the user a question: `notify-send` on Linux, a WinRT toast (with a tray-balloon fallback)
   through `powershell.exe` on Windows, `osascript` on macOS. The notifier is spawned detached
@@ -32,6 +37,7 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   vendored frame, with no CDN. The panel reads through `workspaceFiles` and saves through
   the `/design-map` command (not a tool, so it is never gated), one file carries one
   revision counter, and a read returns `updatedAt`/`stale` for the orchestrator.
+- **`@cc/dsh-test-cases`** — the observed test-case library in `docs/cases/`. Eight host tools (`case_record`, `case_update`, `case_verify`, `case_list`, `case_get`, `case_supersede`, `case_deprecate`, `case_drift`) over one JSON file per case: compare-and-set edits keep history, an automated case records its test path, exact run command and the observed red/green runs, a documented-only case keeps steps, expected behaviour and the reason it cannot be a test. A changed surface file or a missing test marks a case stale instead of deleting the requirement; the orchestrator gets only the intake subset (record a human requirement as unverified, read the library). The rule is observe first, then persist — no speculative tests.
 - **`@cc/dsh-project-rules`** — one workspace rules file, `.dsh/rules.md`, rendered as
   ONE system-prompt section for every agent and subagent and edited from a **Rules** panel
   by the **human alone**. The file is read-only for agents: a `tools/pre-execute` guard
@@ -146,7 +152,7 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
 
 **Third-party add-on: Hindsight memory.** `@vectorize-io/hindsight-coding-agents@0.8.2`
 is installed separately by its own command (`npx @vectorize-io/hindsight-coding-agents install dsh`),
-not from this repository, and is therefore not one of the seventeen in-repo plugins. It writes a
+not from this repository, and is therefore not one of the nineteen in-repo plugins. It writes a
 row into `$DSH_HOME/cordis.patch.yml` (the home layer, shared by every profile) and a
 companion skill into `~/.agents/skills/hindsight-coding-agent`. Its settings live in
 `~/.hindsight/coding-agent.json`; this machine's file is enabled with `serverMode: daemon`
@@ -156,6 +162,21 @@ command in `rules/DEPLOYMENT.md` §1.1, or point the config at Cloud/self-hosted
 tools register at DSH boot, so restart DSH after changing the config. `kit-update` preserves
 the home row and repairs the installer's footer, but does not configure Hindsight; the row
 survives a kit convergence by design.
+
+**Opt-in code search: Serena + Octocode, one repository at a time.**
+`profile/code-search.mcp.json` is a workspace **pack**, not a home-layer row: it mounts
+Serena 2.1.0 (symbolic navigation) and Octocode 0.29.2 (semantic / AST / graph retrieval)
+plus one static routing section and a hooks bridge, and is generated into
+`.dsh/code-search.patch.yml` for one checkout with
+`node scripts/dsh-mcp-sync.mjs --spec profile/code-search.mcp.json --project "$PWD" --out .dsh/code-search.patch.yml --apply`.
+Pass it at launch (`dsh web --patch .dsh/code-search.patch.yml`) and restart to change it;
+`./start.sh` forwards no extra patch argument. Both servers are read-only by construction
+(Serena's `fixed_tools`; Octocode's guard refuses `rewrite`/`update_all`), every role on
+that instance gets the same tools, and Octocode needs an explicit `octocode index` per
+revision (10m32s for 147 files, measured). Adoption so far is **partial** — Serena was
+called, Octocode was never called, and the enhanced arm spent more prompt tokens — so this
+kit makes **no efficiency claim**. Runbook: [§1.2 of rules/DEPLOYMENT.md](rules/DEPLOYMENT.md);
+evidence: [reports/code-search/report.md](reports/code-search/report.md).
 
 **Prompt, skills and model policy are now deployment surfaces.** The harness still owns the
 persona and the request pipeline, but this kit deliberately adds a root/child orchestration
@@ -177,7 +198,7 @@ cd dsh-vanust               # the repository is dsh-vanust; the kit it contains 
 ```
 
 **What a clone alone gives you, stated exactly.** Everything the deployment
-installs is in the repository: the seventeen plugin tarballs, the canonical profile, the
+installs is in the repository: the nineteen plugin tarballs, the canonical profile, the
 procedure and the pinned version in both installers. Every plugin's source is here
 too — `plugins/notify/`, `plugins/presentation/`, `plugins/diagrams/`,
 `plugins/work-modes/`, `plugins/godot-mcp/`, `plugins/skills/`, `plugins/flash-guard/`,
@@ -203,7 +224,7 @@ dsh-kit/
 │                              #   session-analysis`: every session, in seconds per question)
 ├── scripts/kit-update.mjs     # update path: hash drift check + convergence for an existing machine
 ├── plugins/inventory.json     # the shipped plugin set (the source of truth)
-├── plugins/*.tgz              # plugin tarballs: seventeen packages, including notify, presentation,
+├── plugins/*.tgz              # plugin tarballs: nineteen packages, including notify, presentation,
 │                              #                  diagrams, work-modes, godot-mcp, skills, flash-guard,
 │                              #                  proof-guard, taskboard, orchestrator
 ├── plugins/notify/            # source of @cc/dsh-notify (desktop notifications; packed above)
@@ -227,6 +248,7 @@ dsh-kit/
 ├── profile/headroom.patch.yml # opt-in overlay that points the DeepSeek provider at the local proxy
 ├── scripts/headroom.mjs       # start/stop/status/enable/disable for the Headroom proxy
 ├── scripts/rtk-selftest.mjs   # runs real repo commands through the rtk filter and prints the savings
+├── scripts/session-store.mjs  # boot guard: quarantines session logs the OS refuses (an unreadable one hides ALL history)
 ├── rules/DEPLOYMENT.md        # operating this machine: install, update, checks, troubleshooting ($DSH_HOME/DEPLOYMENT.md)
 ├── scripts/pack-plugin.mjs    # repack an in-repo plugin with a version bump and one tarball left behind
 ├── scripts/check-portability.mjs  # platform, packaging and inventory checks

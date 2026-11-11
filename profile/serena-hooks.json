@@ -1,0 +1,35 @@
+{
+  "_comment": "Serena hook commands for the code-search pack, in the Claude Code hooks.json shape that @deepseek-ai/dsh-hooks-claude-code consumes. Mounted by the pack row code-search-hooks (configPath). SessionStart attaches the project-activation/read-manual context, PreToolUse runs the symbolic-tool reminder (denies after 3 consecutive grep calls, 3 code-file reads, or 4 mixed; 120 s cool-down; a Serena symbolic call resets it), Stop cleans that session state. WHY SERENA_HOME IS PINNED. Hook processes run through the harness shell, whose HOME is sandboxed per run, so Serena state under ~/.serena was invisible to the next hook process and the counter never accumulated (measured 2026-11-11: four real greps, all pass). Setting SERENA_HOME to ${CLAUDE_PROJECT_DIR}/.dsh/serena-hooks gives every hook process the same project-local state dir; the bridge substitutes CLAUDE_PROJECT_DIR at config parse time. The directory is tool state under the already-gitignored .dsh/.",
+  "SessionStart": [
+    {
+      "matcher": "",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "SERENA_HOME=\"${CLAUDE_PROJECT_DIR}/.dsh/serena-hooks\" serena-hooks activate --client dsh"
+        }
+      ]
+    }
+  ],
+  "PreToolUse": [
+    {
+      "matcher": "",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "SERENA_HOME=\"${CLAUDE_PROJECT_DIR}/.dsh/serena-hooks\" serena-hooks remind --client dsh"
+        }
+      ]
+    }
+  ],
+  "Stop": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "SERENA_HOME=\"${CLAUDE_PROJECT_DIR}/.dsh/serena-hooks\" serena-hooks cleanup --client dsh"
+        }
+      ]
+    }
+  ]
+}

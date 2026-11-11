@@ -1,0 +1,19 @@
+{
+  "name": "@cc/dsh-image-window",
+  "version": "0.1.1",
+  "description": "Keeps only the newest N images in a session's request surface: when a new image arrives, the one that falls out of the window is offloaded immediately (a tail rewrite, cheap for the provider's prefix cache) instead of the harness's oldest-first offload on a route-budget rejection (a head rewrite that re-bills the whole context).",
+  "type": "module",
+  "main": "image-window.mjs",
+  "exports": {
+    ".": "./image-window.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "image-window.mjs",
+    "README.md"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
+  }
+}

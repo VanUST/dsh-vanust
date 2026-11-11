@@ -28,7 +28,7 @@
  * KEYWORDS
  *   provisioning, rtk, headroom, babysitter, marp, mermaid, d2, chrome, installer,
  *   role toolchain, depcruise, semgrep, oasdiff, difftastic, betterleaks, osv-scanner,
- *   lychee, trafilatura, axe-core, pixelmatch, checksum, pin
+ *   lychee, trafilatura, axe-core, pixelmatch, checksum, pin, hooks bridge, dsh-hooks-claude-code
  *
  * BEHAVIOUR ON EDGE CASES
  *   - Already present (any version): never reinstalled, never fetched. The probe is
@@ -56,18 +56,20 @@
  *     interpreter), rtk and d2 from their release archives onto a directory that is
  *     already on PATH, and headroom through `uv tool install` with uv installed on
  *     demand. A tool whose release asset does not exist for this platform stays
- *     missing and reports the manual command. The browser-audit libraries are the one
- *     kit-local exception: they are installed into `<kit>/.tools`, not a global bin.
+ *     missing and reports the manual command. Two kit-local exceptions are installed
+ *     into `<kit>/.tools`, not a global bin: the browser-audit libraries, and the
+ *     `@deepseek-ai/dsh-hooks-claude-code` bridge the code-search pack mounts (with the
+ *     wire-protocol package it imports and the harness peers npm may not supply).
  *   - Chrome and ffmpeg are DETECTED ONLY: they are OS packages, and installing them
  *     under a user account is how a machine ends up with two browsers.
  */
 
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { basename, delimiter, dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const LOCAL_BIN = join(homedir(), '.local', 'bin')
@@ -94,6 +96,16 @@ const PINS = {
   axePlaywright: '4.14.0',
   pixelmatch: '8.0.0',
   playwrightCore: '1.65.0',
+  // Code-search pack (profile/code-search.mcp.json). Pinned because a symbol server and an
+  // embedding index that change under a deployment change its answers, not just its speed.
+  serena: '2.1.0',
+  octocode: '0.29.2',
+  // Code-search adoption hooks: the real Claude Code hooks bridge the pack mounts for
+  // Serena activate/remind/cleanup, plus the wire-protocol package it imports. The bridge is
+  // NOT part of the installed harness tree on 0.2.1-rc.2 (its profile symlinks dangle), so the
+  // kit installs both into .tools and links the harness peers itself.
+  hooksClaudeCode: '0.2.1-rc.2',
+  hookProtocol: '0.2.1-rc.2',
 }
 
 /** The OS token these release projects publish (`windows`, `darwin`, `linux`). */
@@ -619,6 +631,26 @@ function npmArgv(args) {
  * @param directory - The kit's `.tools` directory.
  * @returns A sentence naming the drift, or null when it matches (or is unreadable).
  */
+/**
+ * The dependency set the kit installs into its own `.tools` directory.
+ *
+ * ONE SOURCE OF TRUTH. The manifest used to be written by the browser-audit installer alone,
+ * so a second `.tools` consumer could not be added without one installer silently dropping the
+ * other's dependencies. Both the manifest writer and the drift check read this list, so
+ * `npm install --prefix <kit>/.tools` always converges the whole set.
+ *
+ * @returns Package name to exact version.
+ */
+function kitToolDependencies() {
+  return {
+    '@axe-core/playwright': PINS.axePlaywright,
+    pixelmatch: PINS.pixelmatch,
+    'playwright-core': PINS.playwrightCore,
+    '@deepseek-ai/dsh-hooks-claude-code': PINS.hooksClaudeCode,
+    '@deepseek-ai/dsh-hook-protocol': PINS.hookProtocol,
+  }
+}
+
 function npmManifestDrift(directory) {
   const manifest = join(directory, 'package.json')
   let dependencies
@@ -627,11 +659,7 @@ function npmManifestDrift(directory) {
   } catch {
     return null
   }
-  const expected = {
-    '@axe-core/playwright': PINS.axePlaywright,
-    pixelmatch: PINS.pixelmatch,
-    'playwright-core': PINS.playwrightCore,
-  }
+  const expected = kitToolDependencies()
   const stale = Object.entries(expected)
     .filter(([name, version]) => dependencies[name] !== version)
     .map(([name, version]) => `${name}@${dependencies[name] ?? '(absent)'} (this kit pins ${version})`)
@@ -649,15 +677,128 @@ function installNpmPrefix(directory) {
     name: 'dsh-kit-tools',
     private: true,
     type: 'module',
-    dependencies: {
-      '@axe-core/playwright': PINS.axePlaywright,
-      pixelmatch: PINS.pixelmatch,
-      'playwright-core': PINS.playwrightCore,
-    },
+    dependencies: kitToolDependencies(),
   }, null, 2)}\n`, 'utf8')
   const argv = npmArgv(['install', '--prefix', directory, '--no-audit', '--no-fund'])
   return argv !== null && run(argv)
 }
+
+/**
+ * Locate a harness package that a kit-installed plugin imports at runtime.
+ *
+ * WHY THIS EXISTS. `@deepseek-ai/dsh-hooks-claude-code` declares the harness packages it
+ * imports as PEER dependencies, and npm does not install peers. On the installed harness
+ * 0.2.1-rc.2 the profile's `@deepseek-ai/*` entries are dangling symlinks into a node_modules
+ * tree that does not contain them, so a bare `npm install` of the bridge leaves
+ * `Cannot find package '@deepseek-ai/dsh-hook-protocol'`. The kit therefore links the real
+ * packages, resolved from the harness that is actually installed, next to the bridge.
+ *
+ * @param name - Full package name, e.g. `@deepseek-ai/dsh-tools`.
+ * @returns Absolute path to the package directory, or null when the harness does not ship it.
+ */
+function harnessPackagePath(name) {
+  const candidates = []
+  const global = globalModulesRoot()
+  if (global !== null) {
+    candidates.push(join(global, '@deepseek-ai', 'dsh', 'node_modules', name))
+    candidates.push(join(global, name))
+  }
+  // The profile symlinks are checked LAST and by real path: they are the normal location on a
+  // healthy machine, and they are exactly what dangles on the measured one.
+  candidates.push(join(DSH_HOME, 'profiles', 'node_modules', name))
+  for (const candidate of candidates) {
+    try {
+      if (existsSync(candidate)) return realpathSync(candidate)
+    } catch {
+      // A dangling symlink throws on realpath; try the next candidate.
+    }
+  }
+  return null
+}
+
+/**
+ * Link the peer dependencies of kit-installed packages so their imports resolve.
+ *
+ * @param directory - The kit's `.tools` directory (its `node_modules` is the parent scope).
+ * @param packages - Package names to read `peerDependencies` from.
+ * @returns `{ linked, unresolved }`, where each entry names the peer and its source.
+ */
+function linkHarnessPeers(directory, packages) {
+  const scope = join(directory, 'node_modules', '@deepseek-ai')
+  mkdirSync(scope, { recursive: true })
+  const linked = []
+  const unresolved = []
+  const seen = new Set()
+  for (const packageName of packages) {
+    let peers = {}
+    try {
+      peers = JSON.parse(readFileSync(join(directory, 'node_modules', packageName, 'package.json'), 'utf8')).peerDependencies ?? {}
+    } catch {
+      continue
+    }
+    for (const peer of Object.keys(peers)) {
+      if (seen.has(peer)) continue
+      seen.add(peer)
+      const target = join(directory, 'node_modules', peer)
+      if (existsSync(target)) continue
+      const source = harnessPackagePath(peer)
+      if (source === null) {
+        unresolved.push(peer)
+        continue
+      }
+      mkdirSync(dirname(target), { recursive: true })
+      symlinkSync(source, target)
+      linked.push({ peer, source })
+    }
+  }
+  return { linked, unresolved }
+}
+
+/**
+ * Import the hooks bridge out of process and report what it exports.
+ *
+ * The import is the only honest check that the peer links work: a package that exists but
+ * cannot import looks installed to `--check` and fails at boot in the loader.
+ *
+ * @param directory - The kit's `.tools` directory.
+ * @returns `{ ok, detail }`; `detail` is `name`/`inject` or the first error line.
+ */
+function probeHooksBridge(directory) {
+  const entry = join(directory, 'node_modules', '@deepseek-ai', 'dsh-hooks-claude-code', 'lib', 'index.js')
+  if (!existsSync(entry)) return { ok: false, detail: 'bridge not installed' }
+  try {
+    const out = execFileSync(process.execPath, [
+      '-e',
+      `import(${JSON.stringify(pathToFileURL(entry).href)}).then(m => console.log(JSON.stringify({ name: m.name, inject: m.inject }))).catch(e => { console.error(e.message); process.exit(1) })`,
+    ], { encoding: 'utf8', timeout: 30_000, stdio: ['ignore', 'pipe', 'pipe'] })
+    const parsed = JSON.parse(String(out).trim())
+    if (parsed?.name !== 'hooks-claude-code') return { ok: false, detail: `unexpected export ${JSON.stringify(parsed)}` }
+    return { ok: true, detail: `${parsed.name} inject=${JSON.stringify(parsed.inject)}` }
+  } catch (error) {
+    const message = String(error?.stderr ?? error?.message ?? error).trim().split('\n').slice(-1)[0]
+    return { ok: false, detail: message.slice(0, 200) }
+  }
+}
+
+/**
+ * Install the hooks bridge and the wire-protocol package it imports, then link harness peers.
+ *
+ * The order matters: npm installs the two packages (and the bridge's only non-peer dependency,
+ * schemastery), and only then can `linkHarnessPeers` read their `peerDependencies`. A failed
+ * link is reported by the probe, so `--apply` tells the operator a missing harness package
+ * instead of leaving a bridge that cannot import.
+ *
+ * @param directory - The kit's `.tools` directory.
+ * @returns true when npm succeeded and the bridge imports.
+ */
+function installHooksBridge(directory) {
+  const installed = installNpmPrefix(directory)
+  linkHarnessPeers(directory, ['dsh-hooks-claude-code', 'dsh-hook-protocol'])
+  const probe = probeHooksBridge(directory)
+  if (!probe.ok) process.stderr.write(`hooks bridge: ${probe.detail}\n`)
+  return installed && probe.ok
+}
+
 
 /**
  * Run a global npm install for a package that has no prebuilt release archive.
@@ -1042,6 +1183,60 @@ const TOOLS = [
     manual: 'download the lychee release archive for this platform from https://github.com/lycheeverse/lychee/releases and put it on PATH',
   },
   {
+    id: 'serena',
+    preferLocal: true,
+    label: 'Serena — symbolic code navigation MCP server (code-search pack)',
+    required: false,
+    pin: PINS.serena,
+    versionPin: PINS.serena,
+    names: ['serena'],
+    // A `uv tool install` puts the console script in ~/.local/bin, which is what the pack's
+    // `binary: serena` row resolves. The alternative - `uvx --from …` on every launch - would
+    // re-resolve the pin on every bridge restart and add seconds to each session.
+    install: async () => installUvTool(`serena-agent==${PINS.serena}`) && which('serena') !== null,
+    manual: `uv tool install --python 3.13 serena-agent==${PINS.serena}`,
+  },
+  {
+    id: 'octocode',
+    preferLocal: true,
+    label: 'Octocode — semantic/AST/graph code retrieval MCP server (code-search pack)',
+    required: false,
+    pin: PINS.octocode,
+    versionPin: PINS.octocode,
+    names: ['octocode'],
+    // WHICH DIGEST IS VERIFIED. Octocode 0.29.2 publishes `<triple>.sha256` release assets,
+    // but they hold the digest of the `.mcpb` bundle for that triple, not of the `.tar.gz`
+    // this installer downloads (checked against the release's server.json, which publishes
+    // the same value as `fileSha256` for the .mcpb). The digest below is the measured sha256
+    // of `octocode-0.29.2-x86_64-unknown-linux-musl.tar.gz` on 2026-11-11; for other targets
+    // no digest is pinned, so the install refuses rather than running unverified bytes and
+    // prints the manual command.
+    install: async () => {
+      const { os } = releaseOS()
+      const arch = process.arch === 'arm64' ? 'aarch64' : 'x86_64'
+      const triple = os === 'darwin'
+        ? `${arch}-apple-darwin`
+        : os === 'windows'
+          ? `${arch}-pc-windows-msvc`
+          : `${arch}-unknown-linux-musl`
+      const suffix = os === 'windows' ? 'zip' : 'tar.gz'
+      const base = `https://github.com/Muvon/octocode/releases/download/${PINS.octocode}`
+      const url = `${base}/octocode-${PINS.octocode}-${triple}.${suffix}`
+      const binary = os === 'windows' ? 'octocode.exe' : 'octocode'
+      const pinned = os === 'linux' && process.arch === 'x64'
+        ? '7b4e7908b0e29544a6a5003f3e50803d540e9dc15c8223de3f19f5a626029af8'
+        : null
+      return (await installArchiveBinary({
+        url,
+        binary,
+        target: binary,
+        kind: suffix === 'zip' ? 'zip' : 'tar.gz',
+        sha256: pinned,
+      })) !== null
+    },
+    manual: `download octocode-${PINS.octocode}-<triple>.tar.gz from https://github.com/Muvon/octocode/releases/tag/${PINS.octocode}, check its sha256, and put octocode on PATH`,
+  },
+  {
     id: 'trafilatura',
     preferLocal: true,
     label: 'trafilatura — boilerplate-free web text extraction',
@@ -1084,6 +1279,32 @@ const TOOLS = [
     },
     install: async ({ options }) => installNpmPrefix(join(options.kit, '.tools')),
     manual: 'npm install --prefix <kit>/.tools (installs @axe-core/playwright, pixelmatch and playwright-core at the pinned versions)',
+  },
+
+  {
+    id: 'hooks-bridge',
+    label: '@deepseek-ai/dsh-hooks-claude-code — Claude Code hooks bridge (Serena activate/remind/cleanup)',
+    required: false,
+    pin: `@deepseek-ai/dsh-hooks-claude-code ${PINS.hooksClaudeCode}; @deepseek-ai/dsh-hook-protocol ${PINS.hookProtocol}`,
+    versionPin: `hooks-claude-code ${PINS.hooksClaudeCode}, hook-protocol ${PINS.hookProtocol}`,
+    names: [],
+    // Like browser-audit, this is a Node package rather than a PATH binary: the probe is the
+    // package metadata plus an out-of-process IMPORT, because a bridge whose peer links are
+    // missing exists on disk and cannot load. That exact state was measured on this machine:
+    // npm installed the bridge, `import` failed on @deepseek-ai/dsh-hook-protocol, and the
+    // loader then reported "did not activate" while the boot continued.
+    detect: (options) => {
+      const directory = join(options.kit, '.tools')
+      const bridge = packageVersion(join(directory, 'node_modules', '@deepseek-ai', 'dsh-hooks-claude-code', 'package.json'))
+      const protocol = packageVersion(join(directory, 'node_modules', '@deepseek-ai', 'dsh-hook-protocol', 'package.json'))
+      const probe = probeHooksBridge(directory)
+      if (bridge === null || protocol === null || !probe.ok) {
+        return { bin: null, version: bridge === null ? null : `hooks-claude-code ${bridge}, hook-protocol ${protocol ?? '(absent)'}`, note: probe.ok ? undefined : probe.detail }
+      }
+      return { bin: join(directory, 'node_modules', '@deepseek-ai', 'dsh-hooks-claude-code', 'lib', 'index.js'), version: `hooks-claude-code ${bridge}, hook-protocol ${protocol}` }
+    },
+    install: async ({ options }) => installHooksBridge(join(options.kit, '.tools')),
+    manual: `npm install --prefix <kit>/.tools @deepseek-ai/dsh-hooks-claude-code@${PINS.hooksClaudeCode} @deepseek-ai/dsh-hook-protocol@${PINS.hookProtocol}, then link the harness peers (node scripts/provision-tools.mjs --apply --only hooks-bridge)`,
   },
 
   {

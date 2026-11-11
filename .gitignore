@@ -27,6 +27,11 @@ server.pid
 # babysitter run journals (machine state, not kit source)
 .a5c/
 
+# Serena's per-project state (.serena/project.yml, symbol cache): created by the code-search
+# pack's symbol server on first use, a property of the checkout rather than of the kit. The
+# agent's tool calls are what write it, so it must not show up as a source change.
+.serena/
+
 # The desktop app's per-checkout state: attachments it copied in and task scratch
 # files. The tracked .reasonix/*.json are the app's own metadata; these two trees
 # are what working on this machine left behind, not kit source.

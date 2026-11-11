@@ -325,7 +325,7 @@ A question never needs this ceremony. A change never skips the task.
 - Children run on the configured child route (flash by default), and that is the right default: volume work belongs on the cheap route. You may name a \`provider\`/\`model\` on \`delegate_task\` ONLY when the environment demands it - the default route is throttled, unavailable, or the task needs a capability only the other route has - and only a route listed in Subagent model selection is accepted. Never name a highspeed variant: highspeed routes are refused outright by the model guard.
 - Every brief states: objective, scope, non-scope, inputs, acceptance, required output, proof and timebox.
 - The child owns its task's work, not its acceptance. The task moves to review when the child settles; you decide done.
-- No autotests. Prove behavior by running the product and quoting the command, output and exit code. A test file only when the human asks and the behavior is non-trivial.
+- **No speculative tests: observe first, then persist the case.** Explore with the role's own tools, reproduce the behaviour, and only then record it in the case library with \`case_record\` (docs/cases/): an automated case needs its real test file + exact run command and an observed red run before the green one; a case that cannot be automated is recorded with steps, expected outcome and a named reason. Prove behaviour by running the product and quoting the command, output and exit code. A test file only for an observed case, never to guess at behaviour. A requirement the human states in chat is an intake case: record it with \`case_record\` (\`source: human\`), status unverified, and link the task that implements it - never claim a verification you did not run.
 - Report one page: TL;DR, objective, changes, evidence, decisions, risks, next actions. Prefer a diagram when relationships are the point.`
 
 /** Child policy: the specialist reads its brief and nothing else competes. */
@@ -339,7 +339,7 @@ You are a delegated specialist. Do exactly the task brief you received.
 - You are not alone in this workspace: another agent may be holding the same task or a neighbouring one. A design problem you find belongs to the orchestrator, not to a local patch - report it with the evidence and the alternatives.
 - You are a persistent role specialist: you can receive several task briefs in this session. Keep your assigned role, treat each new message as one task, and do not spawn children.
 - Return the required output, the evidence (command, output, exit code, files) and what you could not verify. A claim without evidence is not a result.
-- Do not write autotests. Prove behavior by running the product.
+- **No speculative tests: observe first, then persist the case.** Prove behaviour by running the product; when the behaviour is worth keeping, record it with \`case_record\` (automated needs testPath+runCommand and red-first evidence; otherwise documented-only with a reason). Do not write a test to guess at behaviour.
 - Use \`task_note\` for significant findings and \`task_get\` to re-read your task. The orchestrator owns acceptance and the final report.
 - BEFORE you report the task done, close the loop on what the work taught. If it produced a procedure that is not obvious from the code - a build incantation, a trap, an order of operations that cost a retry - call \`skill_inventory\`; if nothing covers it, call \`skill_evolve\` with the exact steps, the failure it prevents and this task as the evidence. Never record trivia, one-off facts or a secret. A task that found nothing reusable simply reports that; do not invent a skill to look productive.`
 
@@ -376,7 +376,7 @@ ${typeof extra.carryForward === 'string' && extra.carryForward.trim() !== '' ? `
 ## Rules
 
 - Read the callers before you edit; take the smallest complete change; do not add a dependency for a few lines.
-- Do not write autotests. Run the product and quote what it produced. A test file only if this brief explicitly asks for one, and then name the production behavior it protects.
+- Do not guess with tests: observe first, then persist the case. Run the product and quote what it produced; when the brief asks for a case, record it with \`case_record\` (red-first evidence for automated). A test file only for an observed case, and name the production behaviour it protects.
 - Do not expand scope. If the brief is wrong, say so and stop.
 - Use \`task_note\` for significant findings and \`task_get\` to re-read the task. The orchestrator owns acceptance.
 
@@ -862,7 +862,33 @@ export function apply(ctx, config = {}) {
         text: isRoot ? () => rootText.text() : CHILD_POLICY,
       })
     }
-    if (isRoot) agent.ctx.tools.register(definition)
+    if (isRoot) {
+      // THE ROLE GAP, CLOSED AT THE WIRE. `delegate_task` starts a child through
+      // `startActivation`, which carries the role's agent preset (persona + tool
+      // composition) and refuses a provider without preset capability. The generic
+      // `subagent`/`subagent_fork` tools do neither: a root that calls them directly
+      // creates a child with no preset, no role persona and the ROOT tool set, while the
+      // taskboard label still says BACKEND (measured 2026-11-11: sessions a89c91e0,
+      // 92a56489, 63ee9c52 were generic subagent children with no agent-preset/selected
+      // event; two of them were task_link-ed as BACKEND). task_link only records metadata;
+      // it cannot start or reconfigure a session, and a prompt that says "use
+      // delegate_task" is not enforcement. This per-agent guard runs in the monotonic
+      // `tools.guard` seam after `tools/pre-execute`, so no later listener can force-allow
+      // the call; it is registered on `agent.ctx`, so it binds the root only and leaves a
+      // specialist's own subagent capability (when its preset has one) untouched.
+      // `delegate_task` does not pass through a tool call at all - it calls the subagents
+      // service directly - so the legitimate path is unaffected.
+      agent.ctx.tools.guard((exec) => {
+        if (exec?.name !== 'subagent' && exec?.name !== 'subagent_fork') return undefined
+        return [
+          `Refused: ${exec.name} is disabled for the root agent of this deployment.`,
+          'A child started here has no agent preset, no role persona and the root tool set, even if the task looks like a BACKEND/REVIEWER task.',
+          'Use delegate_task with a role (BACKEND, UX/UI, RESEARCH, REVIEWER, CRITIC, DOCS, or your own catalog role) so the child starts on its role preset, gets its persona and restricted tools, and is linked to its task.',
+          'For an existing task, pass taskId; for a one-shot answer, do the work inline.',
+        ].join(' ')
+      })
+      agent.ctx.tools.register(definition)
+    }
   })
 }
 

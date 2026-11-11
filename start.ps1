@@ -9,6 +9,7 @@
 #   $env:DSH_HOME  harness home (default %USERPROFILE%\.npm\dsh)
 #   $env:PORT      listen port (default 3080)
 #   $env:HEADROOM  set to 0 to boot without the Headroom overlay even when enabled
+#   $env:SESSION_STORE  set to 0 to boot without the session-store guard
 #   -NoUpdate      boot without checking the kit
 #   -Yes           apply any pending kit update without asking
 #   -CheckOnly     report kit drift and exit without booting
@@ -32,6 +33,11 @@
 #   - Headroom enabled but its proxy cannot be made healthy: the overlay is NOT
 #     added and the reason is printed, because a redirect to a dead loopback port
 #     fails every model request.
+#   - One unreadable session log: the store guard moves it out first, because dsh
+#     aborts the WHOLE cross-workspace listing on any error it does not recognise as
+#     corruption - one file the OS refuses leaves the UI with no history and no way to
+#     start a chat. Every byte is kept and the move is printed; silence means nothing
+#     was wrong.
 param(
   [switch]$NoUpdate,
   [switch]$Yes,
@@ -103,6 +109,12 @@ if ($env:HEADROOM -ne '0' -and (Test-Path $HeadroomMarker) -and (Test-Path $Head
     ($ensureOut | Select-String -Pattern '^\s*error: ') | ForEach-Object { Write-Warning "reason:$($_)" }
     Write-Host '  see: node scripts/headroom.mjs doctor'
   }
+}
+
+# The session store decides whether the UI has any history at all; see the header.
+$SessionStoreScript = Join-Path $kit 'scripts\session-store.mjs'
+if ($env:SESSION_STORE -ne '0' -and (Test-Path $SessionStoreScript)) {
+  & node $SessionStoreScript ensure --quiet --home $env:DSH_HOME
 }
 
 $openArgs = if ($Open) { @() } else { @('--no-open') }

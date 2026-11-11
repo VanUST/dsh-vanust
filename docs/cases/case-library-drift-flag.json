@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "id": "case-library-drift-flag",
+  "title": "Case library drift flag",
+  "requirement": "A changed recorded surface file must mark a case stale and keep the requirement",
+  "kind": "scenario",
+  "status": "stale",
+  "source": "agent",
+  "automated": false,
+  "reason": "needs a workspace edit between calls, which the tool cannot perform; verified by case_drift observation",
+  "steps": [
+    "record a documented case with surfaceFiles [docs/cases/fixtures/surface.txt]",
+    "modify that file",
+    "run case_drift"
+  ],
+  "expected": "case_drift reports status stale and changedFiles includes the surface file",
+  "tags": [
+    "case-library",
+    "drift"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "docs/cases/fixtures/surface.txt",
+      "sha256": "06db121761a651f1f93001fd9ccf30a45600bc4f52ea7829cc71d217c2239b63"
+    }
+  ],
+  "revision": 1,
+  "createdAt": "2026-11-11T11:30:48.685Z",
+  "updatedAt": "2026-11-11T11:30:48.685Z",
+  "createdBy": "agent",
+  "history": [],
+  "evidence": {},
+  "needsReverification": {
+    "at": "2026-11-11T11:32:35.637Z",
+    "changedFiles": [
+      "docs/cases/fixtures/surface.txt"
+    ],
+    "reason": "surface files changed since lastVerified: docs/cases/fixtures/surface.txt"
+  }
+}

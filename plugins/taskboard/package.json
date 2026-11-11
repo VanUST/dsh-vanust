@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-taskboard",
-  "version": "0.1.41",
+  "version": "0.1.45",
   "description": "A chat-scoped workspace task ledger with objective, scope, non-scope, acceptance, status, results and a timeline: a chat sees its own board, an explicit workspace scope reads every chat history, delegated children land on the parent board. Model tools, a /taskboard command for the UI, and a Web panel that replaces the subagent catalog header cell. Reads the ledger through workspaceFiles, writes through the command Remote, so no custom RPC is needed.",
   "type": "module",
   "main": "taskboard.mjs",

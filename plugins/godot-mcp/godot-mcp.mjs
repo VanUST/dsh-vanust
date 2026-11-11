@@ -38,15 +38,21 @@
  *   `~/.dsh` when it exists, then the legacy `~/.npm/dsh`.
  *
  *   Spec fields per server, beyond `id`/`serverName`/`transport`:
- *     runner         - `uvx` (default) or `npx`. Which launcher the row needs, declared
- *                      rather than inferred, so an npm server is never refused for a uvx it
- *                      does not use and vice versa.
+ *     runner         - `uvx` (default), `npx`, or `binary`. Which launcher the row needs,
+ *                      declared rather than inferred, so an npm server is never refused for a
+ *                      uvx it does not use, a provisioned release binary is not mistaken for a
+ *                      package, and vice versa.
  *     package        - the distribution to run: a Python requirement (`godot-ai==4.2.3`)
  *                      for uvx, or a pinned npm package (`@playwright/mcp@0.0.79`) for npx.
  *                      Pinned in both cases, because an unpinned server can change under a
  *                      running deployment.
+ *     binary         - the executable name for `runner: "binary"` (`serena`, `octocode`).
+ *                      Resolved to an absolute path by `resolveBinary` at sync time, because
+ *                      the bridge spawns `command` without a shell.
  *     args           - extra arguments for the server itself. For an npx server the runner
- *                      supplies `-y <package>` ahead of these.
+ *                      supplies `-y <package>` ahead of these. `<kit>` (the checkout that owns
+ *                      the spec) and `<project>` (the row's cwd) are expanded when the row is
+ *                      written, so a spec never carries a machine path.
  *     telemetryFlag / domainsFlag - the flags THIS provider understands. `telemetry: false`
  *                      appends `telemetryFlag` only when the field is present, because a
  *                      flag a server does not know makes it refuse to start.
@@ -61,7 +67,9 @@
  *     readSpec({specPath})            -> { ok, specPath, version, servers, errors }
  *     resolveUvx({server, workspace}) -> absolute uvx path, or null
  *     resolveNpx({env})               -> the npx beside the running interpreter, or `npx`
- *     buildConfig({server, uvx, npx, projectDir}) -> the bridge's `config` object
+ *     resolveBinary({server})         -> absolute executable path for a `binary` server, or null
+ *     expandPathTokens(value, {kitDir, projectDir}) -> `<kit>`/`<project>` expanded, or throw
+ *     buildConfig({server, uvx, npx, binary, projectDir, kitDir}) -> the bridge's `config` object
  *     buildRow({...})                 -> { id, name, config }
  *     rowIdFor({id})                  -> `mcp-client-<id>`, the loader id a row carries
  *     legacyRowIdFor({id})            -> `<id>`, the spelling written before ROW_ID_PREFIX
@@ -263,15 +271,25 @@ export function readSpec(options = {}) {
       continue
     }
     // The launcher, stated rather than inferred. `uvx` is the default so a spec written
-    // before this field existed keeps working; `npx` runs an npm package instead. A runner
-    // this plugin does not implement is REFUSED rather than guessed at: a row whose command
-    // is wrong fails at boot in the loader, a worse place to find out.
+    // before this field existed keeps working; `npx` runs an npm package; `binary` runs an
+    // executable the deployment provisioned (a release archive or `uv tool install`). A
+    // runner this plugin does not implement is REFUSED rather than guessed at: a row whose
+    // command is wrong fails at boot in the loader, a worse place to find out.
     const runner = entry.runner === undefined ? 'uvx' : entry.runner
-    if (runner !== 'uvx' && runner !== 'npx') {
-      errors.push(`${at} (${entry.id}): \`runner\` must be "uvx" or "npx" (got ${JSON.stringify(entry.runner)})`)
+    if (runner !== 'uvx' && runner !== 'npx' && runner !== 'binary') {
+      errors.push(`${at} (${entry.id}): \`runner\` must be "uvx", "npx" or "binary" (got ${JSON.stringify(entry.runner)})`)
       continue
     }
-    if (typeof entry.package !== 'string' || entry.package.trim() === '') {
+    // A package-manager runner needs the distribution it runs; a binary runner needs the
+    // executable name instead. Demanding `package` from a binary server would put a
+    // meaningless field in the spec, and not demanding it from a uvx server would emit a row
+    // whose command is uvx with nothing to run - a boot failure in the loader.
+    if (runner === 'binary') {
+      if (typeof entry.binary !== 'string' || entry.binary.trim() === '') {
+        errors.push(`${at} (${entry.id}): \`binary\` must be a non-empty string for runner "binary"`)
+        continue
+      }
+    } else if (typeof entry.package !== 'string' || entry.package.trim() === '') {
       errors.push(`${at} (${entry.id}): \`package\` must be a non-empty string`)
       continue
     }
@@ -365,6 +383,94 @@ export function resolveNpx(options = {}) {
 }
 
 /**
+ * Locate a provisioned executable for a `binary` server.
+ *
+ * PURPOSE
+ *   A release binary and a `uv tool install` console script are not package-manager
+ *   launches: there is no uvx/npx in front of them, so the row needs the executable's own
+ *   absolute path. Resolution mirrors {@link resolveUvx} (override, explicit candidates,
+ *   per-user bin dirs, PATH) so a machine that installs into an unusual prefix says so once,
+ *   in the spec, rather than in every row.
+ *
+ * INPUTS
+ *   options.server  - a server from {@link readSpec}, with `binary` non-empty.
+ *   options.workspace - expands `<workspace>` in `binaryCandidates`; absent means skip those.
+ *   options.env, options.home - process environment and home directory (overridable for tests
+ *     and for a second install tree).
+ * OUTPUTS
+ *   Absolute path to the executable, or null when it is not installed. Null is a reported
+ *   state, not an error: the sync names the server and skips it.
+ * KEYWORDS
+ *   binary runner, release asset, uv tool, PATH, launcher resolution
+ */
+export function resolveBinary(options = {}) {
+  const server = options.server ?? {}
+  const env = options.env ?? process.env
+  const workspace = options.workspace ?? null
+  const home = options.home ?? homedir()
+  // The sync and the harness run on the same interpreter, and `node` is not guaranteed to be
+  // a PATH entry a provisioned profile inherits (nvm and Homebrew both rewrite PATH), so a
+  // server declared as `binary: "node"` resolves to the interpreter running this code.
+  if (server.binary === 'node') return process.execPath
+  const overrideName = typeof server.binaryEnv === 'string' ? server.binaryEnv : null
+  const override = overrideName === null ? null : env[overrideName]
+  if (typeof override === 'string' && override.trim() !== '' && existsSync(override)) return override
+  const exeNames = process.platform === 'win32' ? ['.exe', ''] : ['']
+  const name = server.binary
+  const explicit = Array.isArray(server.binaryCandidates) ? server.binaryCandidates : []
+  for (const candidate of explicit) {
+    if (typeof candidate !== 'string' || candidate.trim() === '') continue
+    const usesWorkspace = candidate.includes('<workspace>')
+    if (usesWorkspace && !workspace) continue
+    const expanded = usesWorkspace ? join(workspace, ...candidate.split('<workspace>').pop().split('/').filter(Boolean)) : candidate
+    if (!isAbsolute(expanded)) continue
+    for (const ext of exeNames) {
+      const path = `${expanded}${ext}`
+      if (existsSync(path)) return path
+    }
+  }
+  const standardDirs = [join(home, '.local', 'bin'), join(home, '.cargo', 'bin')]
+  const pathVar = env.PATH ?? env.Path ?? ''
+  for (const dir of [...standardDirs, ...pathVar.split(delimiter)]) {
+    if (typeof dir !== 'string' || dir.trim() === '') continue
+    for (const ext of exeNames) {
+      const path = join(dir, `${name}${ext}`)
+      if (existsSync(path)) return path
+    }
+  }
+  return null
+}
+
+/**
+ * Expand the two placeholders a portable server spec may use in `args` or `env`.
+ *
+ * `<kit>` is the checkout that owns the spec (its shipped helper files live there), and
+ * `<project>` is the repository the server works on. They are expanded when the ROW is
+ * written, not when the spec is authored, because both paths are properties of the machine
+ * running the sync - the one thing a spec must not carry.
+ *
+ * @param value - a string from the spec.
+ * @param paths - `{ kitDir, projectDir }`, either possibly null.
+ * @returns The expanded string; a placeholder with no path is a refused row, not a literal.
+ */
+export function expandPathTokens(value, paths = {}) {
+  let result = value
+  if (result.includes('<kit>')) {
+    if (typeof paths.kitDir !== 'string' || paths.kitDir.trim() === '') {
+      throw new Error(`spec uses <kit> but no kit directory was supplied: ${value}`)
+    }
+    result = result.replaceAll('<kit>', paths.kitDir)
+  }
+  if (result.includes('<project>')) {
+    if (typeof paths.projectDir !== 'string' || paths.projectDir.trim() === '') {
+      throw new Error(`spec uses <project> but no project directory was supplied: ${value}`)
+    }
+    result = result.replaceAll('<project>', paths.projectDir)
+  }
+  return result
+}
+
+/**
  * Build the bridge's `config` object for one server.
  *
  * The shape is the one the shipped bridge's own type declares - `transport`, `serverName`,
@@ -373,24 +479,25 @@ export function resolveNpx(options = {}) {
  * bridge passes it to a spawn without shell interpolation, so a bare `uvx` would depend on
  * the child's PATH rather than on the path this function just proved exists.
  *
- * @param options - `{ server, uvx, npx, projectDir? }`. The launcher for the server's own
- *   `runner` is required; the other one is ignored.
+ * @param options - `{ server, uvx, npx, binary, projectDir?, kitDir? }`. The launcher for
+ *   the server's own `runner` is required; the others are ignored.
  * @returns The config object. `cwd` is omitted when no project directory is known, rather
  *   than set to a guess, because a wrong working directory is worse than none.
  */
 export function buildConfig(options = {}) {
-  const { server, uvx, npx, projectDir } = options
+  const { server, uvx, npx, binary, projectDir, kitDir } = options
   const runner = server?.runner ?? 'uvx'
   // Which launcher this row needs is the server's own declaration; requiring the other one
   // is how a correct npm server would be refused for a launcher it never uses.
-  const launcher = runner === 'npx' ? npx : uvx
+  const launcher = runner === 'npx' ? npx : runner === 'binary' ? binary : uvx
   if (typeof launcher !== 'string' || launcher.trim() === '') {
     // Callers must resolve the launcher first: a row whose `command` is undefined renders as
     // an absent field and the bridge would fail at load with a message about a missing
     // command rather than about the missing launcher, which is where the real fault is.
-    throw new Error(`buildConfig: a resolved ${runner === 'npx' ? 'npx' : 'uvx'} path is required for server "${server?.id ?? '?'}"`)
+    throw new Error(`buildConfig: a resolved ${runner === 'binary' ? 'binary' : runner === 'npx' ? 'npx' : 'uvx'} path is required for server "${server?.id ?? '?'}"`)
   }
-  const args = [...(server.args ?? [])]
+  const paths = { kitDir, projectDir }
+  const args = (server.args ?? []).map((arg) => (typeof arg === 'string' ? expandPathTokens(arg, paths) : arg))
   // The provider-specific flags are DECLARED in the spec, not inferred from a boolean:
   // `--disable-telemetry` is a Godot AI flag, and pushing it at an npm server that does not
   // know it makes that server refuse to start over an unknown option.
@@ -403,7 +510,7 @@ export function buildConfig(options = {}) {
   }
   const env = {}
   for (const [key, value] of Object.entries(server.env ?? {})) {
-    if (typeof value === 'string') env[key] = value
+    if (typeof value === 'string') env[key] = expandPathTokens(value, paths)
   }
   if (typeof server.projectEnv === 'string' && server.projectEnv !== '' && projectDir) {
     env[server.projectEnv] = projectDir

@@ -1,0 +1,37 @@
+{
+  "name": "@cc/dsh-test-cases",
+  "version": "0.1.7",
+  "description": "A repo-tracked library of observed test cases (docs/cases/): eight schema-enforced tools for recording, compare-and-set editing, red-first verification, supersede/deprecate history and surface-file drift, available per role (intake records human requirements; testers prove them).",
+  "type": "module",
+  "main": "test-cases.mjs",
+  "exports": {
+    ".": "./test-cases.mjs",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "test-cases.mjs",
+    "client.js",
+    "README.md",
+    "lib/schema.mjs"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-api-gateway",
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-api-workspace-controller",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-workspace"
+      ]
+    }
+  }
+}

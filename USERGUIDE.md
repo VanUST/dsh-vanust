@@ -1,10 +1,13 @@
 # USERGUIDE.md — setting up and starting the harness on a new machine
 
 This kit installs **DeepSeek Harness (dsh)** on any of your machines (2× Linux,
-1× Windows) plus the **twelve** plugins this deployment adds beyond upstream:
+1× Windows) plus the **nineteen** plugins this deployment adds beyond upstream:
 **`@cc/dsh-notify`** (raises a desktop notification — `notify-send`, a PowerShell toast or
 `osascript` — when an agent finishes a turn and when it asks you a question; silence it with
 `DSH_NOTIFY_DISABLED=1` in the server's environment),
+**`@cc/dsh-image-window`** (keeps only the newest screenshot in the request: the image that
+falls out of the window is offloaded as a new one arrives, so the provider re-bills the new
+batch instead of the whole context),
 **`@cc/dsh-presentation`** (one tool that renders a JSON deck spec into a
 standalone HTML presentation in the workspace, shown by the Sidebar document
 preview),
@@ -70,6 +73,8 @@ child is reused across tasks and shows active/sleeping/paused state. The ledger 
 **Project rules (`@cc/dsh-project-rules`) are one cached prompt section, and they are yours alone.** Open **Rules** in the sidebar, edit `.dsh/rules.md` (gitignored) and press Save. The panel never writes while you type; Save calls `/project-rules`, which only writes the file. **No agent may change that file**: a write or edit aimed at it is refused with `rules_human_only`, and so is a shell command that names it - the models read the rules through their prompt section and never write them. That is a guardrail, not a jail (a shell command can spell a path in ways a guard cannot follow); the roles without a shell at all - orchestrator, research - are the hard version. The section re-reads it at the next turn boundary and keeps the previous text when the bytes are unchanged, so a draft or a mid-turn save cannot bust the model's prompt cache. An empty file adds no section.
 
 **The design map (`@cc/dsh-design-map`) is one file the orchestrator and you edit.** `design.excalidraw` at the project root is a normal Excalidraw scene; open **Design map** in the sidebar to edit it in the real editor, or let the orchestrator update it with the `design_map` tool. The tool is registered for the **orchestrator preset only**: a delegated specialist never receives it, so a BACKEND or UX child cannot rewrite the system design it was asked to work inside. The panel saves through the host command, so the human's drags, renames and new boxes land in the same file the agent reads, stamped with a revision and an author. A map older than a day is marked **stale** in the panel and in the tool's read output, which is the cue to ask the orchestrator to refresh it. The file is plain JSON and can be committed with the project if you want the map to travel with the code.
+
+**The test-case library (`@cc/dsh-test-cases`) keeps what a role actually tested.** Cases live in `docs/cases/` as one JSON file each. A role explores with its normal tools, reproduces the behaviour and then records the case: an automated case stores its test path, the exact run command and the observed red-first and green runs; a case that cannot be automated stores its steps, expected outcome and the reason, so the business requirement is never lost. The orchestrator sees only the intake subset: it can record a requirement you state in chat and read the library, but it cannot claim a verification it did not run. Edits are compare-and-set with a revision and history, and a case is superseded or deprecated rather than deleted. When a recorded surface file changes or an automated test disappears, `case_drift` marks the case **stale** and degrades a missing test to documented-only with the reason.
 
 **Who may change what.** Three workspace artefacts have an owner that is not "any agent":
 
@@ -395,6 +400,7 @@ Then restart `dsh web` and open the token URL it prints. `$DSH_HOME/specs` and
 | `dsh web` won't start | port 3080 busy (`PORT=3081 ./start.sh`) or Node < 24 |
 | A plugin row not active after a config edit | The row registers at boot — restart `dsh web` |
 | Sessions from the old harness missing/odd after an upgrade | Session formats are not guaranteed across versions; restore the backup taken before the upgrade |
+| **All chats disappeared and a new one cannot be created** (every session file is still in `$DSH_HOME/sessions`) | one log the OS refuses to read aborts the whole session listing — dsh treats it as fatal, the `workspace` service never activates, and the UI loses history *and* New Session. Run `make session-doctor` to name it, `node scripts/session-store.mjs ensure` to quarantine it (bytes kept, `README.txt` restores it), then restart. `./start.sh` now does this on every boot; `SESSION_STORE=0` skips it |
 
 ## 7. Upgrades (short version)
 

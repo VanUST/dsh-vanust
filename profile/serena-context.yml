@@ -1,0 +1,46 @@
+# Serena context for the dsh-kit code-search pack.
+#
+# WHY THIS FILE EXISTS. Serena's built-in contexts are written for IDE agents: `ide`
+# keeps every editing, memory, file and shell tool and only drops the ones an IDE
+# already provides. This deployment wants the opposite of that: Serena is mounted as a
+# SYMBOLIC NAVIGATION server beside the agent's own bash/grep/read tools, so the tools
+# below are the whole surface. `fixed_tools` replaces Serena's default set rather than
+# subtracting from it, which is why the list is short and explicit: a tool added to
+# Serena in a later release cannot appear here without this file changing.
+#
+# The exact names were read from `serena tools list` on serena-agent 2.1.0, not guessed:
+#   find_symbol               name-path lookup, returns the definition/body
+#   find_referencing_symbols  callers/references of a symbol (LSP-precise)
+#   get_symbols_overview      top-level symbol outline of one file
+#   initial_instructions      the connection manual
+#
+# WHY initial_instructions IS KEPT. Serena's own connection prompt says, unconditionally,
+# "CRITICAL: Before starting to work on a coding task, call the initial_instructions tool"
+# (resources/config/prompt_templates/system_prompt.yml on 2.1.0). With the tool removed the
+# server advertises an instruction no tool can satisfy, and the agent's first move is a call
+# that fails. The tool returns a static instruction document and touches no project file, so
+# it is part of the read-only surface rather than an exception to it.
+#
+# Deliberately absent: read_file/list_dir/find_file/search_for_pattern (the agent's own
+# grep/glob/read are cheaper and exact), every editing tool, every memory tool and
+# execute_shell_command. `prompt` is static text so the section it contributes cannot
+# change between turns and invalidate a cached provider prefix.
+description: dsh-kit symbolic navigation surface (read-only, no edits, no memory, no shell)
+prompt: |
+  Serena is mounted as a SYMBOLIC NAVIGATION server for this repository. Use it when the
+  question is about a symbol rather than a string: find_symbol to locate a definition,
+  find_referencing_symbols before changing a signature, get_symbols_overview to outline a
+  file you have not read. Do not use it for exact text/path lookup - grep/glob are cheaper
+  and exact - and do not expect file reads, edits, memories or shell commands from it.
+excluded_tools: []
+included_optional_tools: []
+fixed_tools:
+  - find_symbol
+  - find_referencing_symbols
+  - get_symbols_overview
+  - initial_instructions
+excluded_apis: []
+included_apis: []
+tool_description_overrides: {}
+single_project: true
+structured_tool_output: null

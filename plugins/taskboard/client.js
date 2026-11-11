@@ -31,6 +31,10 @@ window.__ModuleLoader__.load({
 .tb-root *{box-sizing:border-box}
 .tb-top{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;min-height:48px;flex-wrap:wrap}
 .tb-title{font-size:16px;font-weight:700;letter-spacing:-.01em;margin:0}
+.tb-tabs{display:inline-flex;align-items:center;gap:2px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:2px;background:var(--dsw-alias-bg-layer-1)}
+.tb-tab{border:0;background:transparent;color:var(--dsw-alias-label-secondary);border-radius:6px;padding:3px 9px;font:inherit;font-size:11.5px;font-weight:650;cursor:pointer;white-space:nowrap}
+.tb-tab.on{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
+.tb-tab:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}
 .tb-count{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:var(--tb-primary-fill);color:var(--tb-primary-label);font-size:10.5px;font-weight:700}
 .tb-spacer{flex:1}
 .tb-btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border-radius:7px;padding:5px 9px;font:inherit;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
@@ -332,7 +336,7 @@ window.__ModuleLoader__.load({
      * One child row per linked session. The Host's `children[]` is authoritative;
      * older tasks that only have `childSessionIds[]` fall back to id + "child".
      */
-    function normalizeChildren(task) {
+    function normalizeChildren(task, sessionsById = {}) {
       const rows = []
       const seen = new Set()
       const timeline = Array.isArray(task?.timeline) ? task.timeline : []
@@ -350,12 +354,21 @@ window.__ModuleLoader__.load({
         const derived = fallback(sessionId)
         const resolvedRole = typeof role === 'string' && role !== '' && role !== 'child' ? role : (derived.role || task?.title || 'child')
         const resolvedLabel = typeof label === 'string' && label !== '' ? label : derived.label
-        const resolvedStatus = CHILD_STATES.includes(status) && status !== 'linked' ? status : derived.status
+        const stored = CHILD_STATES.includes(status) ? status : derived.status
+        // The Host stores the child LIFECYCLE (it sees `markChildEnded` -> sleeping); it has no
+        // runtime state. The live session snapshot does: `running` is true while a turn is
+        // executing, including while it waits on a synchronous command or a managed background
+        // job. A running session therefore wins over a stale 'sleeping' - and only upward: a
+        // missing/older snapshot can never turn a settled child back into work.
+        const live = sessionsById?.[sessionId]
+        const running = live?.running === true
+        const resolvedStatus = running ? 'active' : stored
         rows.push({
           sessionId,
           label: resolvedLabel !== '' ? resolvedLabel : sessionId,
           role: resolvedRole !== '' ? resolvedRole : 'child',
           status: resolvedStatus,
+          running,
         })
       }
       if (Array.isArray(task?.children)) {
@@ -435,19 +448,19 @@ window.__ModuleLoader__.load({
      * records this chat in `chatSessionId`. The All-chats read asks for the workspace view
      * and gets every row, with its own label.
      */
-    function agentRowsFor(tasks, agents, chatId, all) {
+    function agentRowsFor(tasks, agents, chatId, all, sessionsById = {}) {
       const rows = Array.isArray(agents) ? agents : []
       if (all) return rows
       const linked = new Set()
       for (const task of Array.isArray(tasks) ? tasks : []) {
-        for (const child of normalizeChildren(task)) linked.add(child.sessionId)
+        for (const child of normalizeChildren(task, sessionsById)) linked.add(child.sessionId)
         for (const id of Array.isArray(task?.childSessionIds) ? task.childSessionIds : []) if (typeof id === 'string') linked.add(id)
         if (typeof task?.owner?.sessionId === 'string' && task.owner.sessionId !== '') linked.add(task.owner.sessionId)
       }
       return rows.filter((agent) => linked.has(agent.sessionId) || (chatId !== '' && agent.chatSessionId === chatId))
     }
 
-    function subagentRoster(tasks, agents = []) {
+    function subagentRoster(tasks, agents = [], sessionsById = {}) {
       const seen = new Map()
       for (const agent of Array.isArray(agents) ? agents : []) {
         if (typeof agent?.sessionId !== 'string' || agent.sessionId === '') continue
@@ -455,13 +468,14 @@ window.__ModuleLoader__.load({
           sessionId: agent.sessionId,
           label: typeof agent.label === 'string' && agent.label !== '' ? agent.label : agent.sessionId,
           role: typeof agent.role === 'string' && agent.role !== '' ? agent.role : 'specialist',
-          status: CHILD_STATES.includes(agent.status) ? agent.status : 'linked',
+          status: sessionsById?.[agent.sessionId]?.running === true ? 'active' : (CHILD_STATES.includes(agent.status) ? agent.status : 'linked'),
+          running: sessionsById?.[agent.sessionId]?.running === true,
           ...(agent.orphan === true ? { orphan: true } : {}),
           ...(agent.stale === true ? { stale: true } : {}),
         })
       }
       for (const task of tasks) {
-        for (const row of normalizeChildren(task)) {
+        for (const row of normalizeChildren(task, sessionsById)) {
           if (!seen.has(row.sessionId)) seen.set(row.sessionId, row)
         }
       }
@@ -599,8 +613,8 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function TaskCard({ task, selected, onSelect, chatId, presets }) {
-      const children = normalizeChildren(task)
+    function TaskCard({ task, selected, onSelect, chatId, presets, sessionsById = {} }) {
+      const children = normalizeChildren(task, sessionsById)
       const assignment = assignmentOf(task)
       const scope = Array.isArray(task.scope) ? task.scope : []
       const ownerChat = chatOf(task)
@@ -633,7 +647,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function TaskDetail({ task, busy, error, canEdit, presets, onHide, onSave, onNote, onOpenSession, onAction, onRefresh }) {
+    function TaskDetail({ task, busy, error, canEdit, presets, sessionsById = {}, onHide, onSave, onNote, onOpenSession, onAction, onRefresh }) {
       const [draft, setDraft] = useState(() => draftOf(task))
       const baseRef = useRef(task)
       const [conflict, setConflict] = useState(false)
@@ -701,7 +715,7 @@ window.__ModuleLoader__.load({
         onSave(task.id, base.revision, patch)
       }
       const timeline = Array.isArray(task.timeline) ? task.timeline.slice().reverse() : []
-      const children = normalizeChildren(task)
+      const children = normalizeChildren(task, sessionsById)
       const artifacts = Array.isArray(task.result?.artifacts) ? task.result.artifacts : []
       const closed = task.status === 'done' || task.status === 'cancelled'
       const paused = task.status === 'paused'
@@ -838,7 +852,7 @@ window.__ModuleLoader__.load({
                 h('span', { className: 'label', title: child.label }, child.label),
                 child.label !== child.sessionId ? h('span', { className: 'id', title: child.sessionId }, child.sessionId) : null,
               ),
-              h('span', { className: `state ${child.status}${isGhost(child) ? ' stale' : ''}`, title: child.orphan === true ? 'Its task is gone; nothing is running behind this role' : child.stale === true ? 'Untouched for more than a day; the chat that owned it is gone' : undefined }, child.orphan === true ? 'orphan' : child.stale === true ? 'stale' : child.status),
+              h('span', { className: `state ${child.status}${isGhost(child) ? ' stale' : ''}`, title: child.orphan === true ? 'Its task is gone; nothing is running behind this role' : child.stale === true ? 'Untouched for more than a day; the chat that owned it is gone' : child.running === true ? 'Running now - a turn is executing (a command or a background job may be in flight)' : undefined }, child.orphan === true ? 'orphan' : child.stale === true ? 'stale' : child.status),
               h('button', { type: 'button', className: 'tb-btn', onClick: () => onOpenSession(child.sessionId), title: `Open subagent ${child.label}`, 'aria-label': `Open ${child.role} ${child.label}` }, 'Open'),
             )),
           ),
@@ -906,7 +920,7 @@ window.__ModuleLoader__.load({
       }
     }
 
-    function TaskList({ tasks, selectedId, onSelect, chatId, presets }) {
+    function TaskList({ tasks, selectedId, onSelect, chatId, presets, sessionsById = {} }) {
       if (tasks.length === 0) return h('div', { className: 'tb-listwrap', role: 'region', 'aria-label': 'Task list' }, h('div', { className: 'tb-empty' }, 'No tasks match this filter.'))
       return h('div', { className: 'tb-listwrap', role: 'region', 'aria-label': 'Task list' },
         h('div', { className: 'tb-listhead', 'aria-hidden': true },
@@ -918,7 +932,7 @@ window.__ModuleLoader__.load({
         ),
         h('div', { className: 'tb-list', role: 'list' },
           tasks.map((task) => {
-            const children = normalizeChildren(task)
+            const children = normalizeChildren(task, sessionsById)
             const assignment = assignmentOf(task)
             const selected = task.id === selectedId
             // In the All-chats read, say which rows are not this chat's: an old task's
@@ -955,7 +969,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function TasksPage({ remote, store, uiWorkspace, useWorkspaces, useSessions }) {
+    function TasksPage({ remote, store, uiWorkspace, layout, useWorkspaces, useSessions }) {
       const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
       const workspacesRaw = useWorkspaces((snapshot) => snapshot.items)
       const workspaces = Array.isArray(workspacesRaw) ? workspacesRaw : []
@@ -1048,7 +1062,7 @@ window.__ModuleLoader__.load({
       const filteredTasks = chatTasks.filter((task) => {
         if (statusFilter !== 'all' && task.status !== statusFilter) return false
         if (needle === '') return true
-        const children = normalizeChildren(task)
+        const children = normalizeChildren(task, sessionsById)
         const hay = [task.title, task.objective, ...(Array.isArray(task.scope) ? task.scope : []), ...(Array.isArray(task.nonScope) ? task.nonScope : []), task.owner?.label, task.role, ...children.flatMap((child) => [child.label, child.role])].filter((value) => typeof value === 'string').join(' ').toLowerCase()
         return hay.includes(needle)
       })
@@ -1189,9 +1203,9 @@ window.__ModuleLoader__.load({
       const boardAgents = Array.isArray(board?.agents) ? board.agents : []
       // The roster describes the board in view: this chat's roles by default, every role in
       // the workspace read. Reading it off `tasks` reported other chats' specialists here.
-      const rosterRows = agentRowsFor(chatTasks, boardAgents, chatId, scope === 'all')
+      const rosterRows = agentRowsFor(chatTasks, boardAgents, chatId, scope === 'all', sessionsById)
       const rosterTasks = scope === 'all' ? tasks : chatTasks
-      const roster = subagentRoster(rosterTasks, rosterRows)
+      const roster = subagentRoster(rosterTasks, rosterRows, sessionsById)
       const rosterCounts = childCounts(roster)
       const roles = roleCounts(roster)
       const rosterLabel = scope === 'all' ? 'Workspace roles' : 'Roles in this chat'
@@ -1201,11 +1215,28 @@ window.__ModuleLoader__.load({
       for (const agent of boardAgents) {
         if (typeof agent?.role === 'string' && typeof agent?.preset === 'string' && agent.preset !== '' && presets[agent.role] === undefined) presets[agent.role] = agent.preset
       }
+      // Test cases is an OPTIONAL sibling plugin. Never assume its panel exists: the
+      // task board must work when that row is not installed, and a dead tab is worse
+      // than no tab. Prefer the live main-panel registry; fall back to the boot graph.
+      const hasPanel = (id) => {
+        try {
+          if (typeof layout?.hasMainPanel === 'function') return layout.hasMainPanel(id)
+        } catch { /* fall through to the boot graph */ }
+        return (globalThis.__DSH_BOOT__?.entries ?? []).some((entry) => entry?.id === id)
+      }
+      const casesAvailable = hasPanel('test-cases') || hasPanel('@cc/dsh-test-cases')
+      const openCases = () => {
+        try { layout.selectPanel('test-cases') } catch { /* absent plugin: do nothing */ }
+      }
       return h('div', { className: 'tb-root' },
         h('style', null, CSS),
         h('div', { className: 'tb-top' },
           canReturn ? h('button', { type: 'button', className: 'tb-btn tb-back', onClick: goBack, title: 'Back to the conversation this board was opened from', 'aria-label': 'Back to chat' }, '← Back') : null,
           h('h1', { className: 'tb-title' }, 'Tasks'),
+          casesAvailable ? h('div', { className: 'tb-tabs', role: 'tablist', 'aria-label': 'Board sections' },
+            h('span', { className: 'tb-tab on', role: 'tab', 'aria-selected': 'true' }, 'Tasks'),
+            h('button', { type: 'button', className: 'tb-tab', role: 'tab', 'aria-selected': 'false', title: 'Open the test-case library', onClick: openCases }, 'Test cases'),
+          ) : null,
           h('span', { className: 'tb-count', title: scope === 'all' ? `${tasks.length} tasks in this workspace` : `${chatTasks.length} tasks in this chat` }, String(chatTasks.length)),
           h('div', { className: 'tb-viewswitch', role: 'group', 'aria-label': 'Task view' },
             h('button', { type: 'button', className: `tb-viewbtn${viewMode === 'board' ? ' on' : ''}`, onClick: () => setView('board'), 'aria-pressed': viewMode === 'board' }, 'Board'),
@@ -1256,11 +1287,11 @@ window.__ModuleLoader__.load({
                 const items = filteredTasks.filter((task) => column.statuses.includes(task.status))
                 return h('div', { className: 'tb-col', key: column.id },
                   h('h3', null, column.label, h('span', { className: 'n' }, String(items.length))),
-                  items.length === 0 ? h('div', { className: 'tb-empty', style: { padding: '8px 4px', fontSize: '11px' } }, '—') : items.map((task) => h(TaskCard, { key: task.id, task, selected: task.id === selectedId, onSelect: selectTask, chatId, presets })),
+                  items.length === 0 ? h('div', { className: 'tb-empty', style: { padding: '8px 4px', fontSize: '11px' } }, '—') : items.map((task) => h(TaskCard, { key: task.id, task, selected: task.id === selectedId, onSelect: selectTask, chatId, presets, sessionsById })),
                 )
               }),
             )
-            : h(TaskList, { tasks: filteredTasks, selectedId, onSelect: selectTask, chatId, presets }),
+            : h(TaskList, { tasks: filteredTasks, selectedId, onSelect: selectTask, chatId, presets, sessionsById }),
           detailOpen ? h('aside', { className: 'tb-detail', id: 'tb-detail-pane' },
             selected === null
               ? h('div', null,
@@ -1281,7 +1312,7 @@ window.__ModuleLoader__.load({
                       : 'Select a task to see its scope, results and timeline.',
                 ),
               )
-              : h(TaskDetail, { key: selected.id, task: selected, busy, error, canEdit, presets, onHide: () => setDetailOpen(false), onSave: save, onNote: note, onOpenSession: (id) => uiWorkspace.openSession(id), onAction: action, onRefresh: reload }),
+              : h(TaskDetail, { key: selected.id, task: selected, busy, error, canEdit, presets, sessionsById, onHide: () => setDetailOpen(false), onSave: save, onNote: note, onOpenSession: (id) => uiWorkspace.openSession(id), onAction: action, onRefresh: reload }),
           ) : null,
         ),
       )
@@ -1294,7 +1325,7 @@ window.__ModuleLoader__.load({
         ctx.slots.inject('main', () => ctx.slots.register({
           name: 'main',
           key: PANEL_ID,
-          inject: () => ({ remote: ctx.remote, store, uiWorkspace: ctx.uiWorkspace }),
+          inject: () => ({ remote: ctx.remote, store, uiWorkspace: ctx.uiWorkspace, layout: ctx.layout }),
         }, TasksPage))
         ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
           name: 'sidebar.panellist',

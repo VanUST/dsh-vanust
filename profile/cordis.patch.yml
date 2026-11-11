@@ -31,6 +31,22 @@
         onQuestion: true
         dismissMs: 0
 
+# ── image window: only the newest screenshots stay in the request ───────────
+# The harness satisfies a route's image budget REACTIVELY: the adapter rejects the
+# request, @deepseek-ai/dsh-compaction-image-offload then removes the OLDEST images
+# and retries - a head rewrite, so the provider re-bills the whole context from there.
+# Measured 2026-11-10 (session-1cb0708d, kimi-coding, 532K context, 95 pasted
+# screenshots in 13 batches): 6 offloads re-billed 1,783,829 of 2,260,222 fresh
+# tokens. This row makes the window a sliding one: the image that falls out is
+# dropped as the new one arrives, so the rewrite sits at the tail (~440K projected
+# for the same session instead of 1,783,829). keepImages: 1 suits screenshot
+# reading; raise it when a task compares several images.
+- insert:
+    - id: image-window
+      name: '@cc/dsh-image-window'
+      config:
+        keepImages: 1
+
 # ── presentation: decks the agent renders, shown by the file preview ────────
 # Contributes one tool, `presentation`, which turns a JSON deck spec into a
 # standalone HTML file in the session workspace. There is no client half on
@@ -70,6 +86,19 @@
       name: '@cc/dsh-design-map'
       config:
         file: design.excalidraw
+
+# ── test-cases: observed test cases persisted in docs/cases/ ────────────────
+# Eight schema-enforced host tools over a repo-tracked library: case_record,
+# case_update (compare-and-set), case_verify (red-first evidence), case_list,
+# case_get, case_supersede, case_deprecate and case_drift. The rule is "observe
+# first, then persist - no speculative tests"; a documented-only case keeps its
+# requirement and a named reason, and a changed surface file marks a case stale
+# instead of deleting it. The orchestrator only gets the intake subset
+# (record/list/get/drift), so it can capture a human requirement without ever
+# claiming a verification it did not run.
+- insert:
+    - id: test-cases
+      name: '@cc/dsh-test-cases'
 
 # ── project-rules: one cached prompt section the human edits ─────────────────
 # `.dsh/rules.md` becomes the `project:rules` section on every agent and subagent.

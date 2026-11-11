@@ -8,9 +8,13 @@
  *   because a sandboxed Web frame cannot write the workspace itself.
  *
  *   COORDINATES ARE NOT THE AGENT'S JOB. `design_map` takes nodes with labels and edges
- *   with endpoints; this plugin lays out missing positions and builds the Excalidraw
- *   elements (rectangle + bound text + bound arrow). The human's drags and renames come
- *   back through the same scene, and a read maps them to the same nodes/edges.
+ *   with endpoints; this plugin sizes a box from its label, places missing positions by
+ *   graph rank (real sizes, existing rectangles, a fixed gap) and builds the Excalidraw
+ *   elements (rectangle + wrapped bound text + boundary-to-boundary orthogonal arrow).
+ *   An ordinary upsert never moves a node already in the scene; only `layout` does, and
+ *   it requires the rev it read. Every agent write is validated before it is persisted.
+ *   The human's drags and renames come back through the same scene, and a read maps them
+ *   to the same nodes/edges.
  *
  * INPUTS
  *   Config (all optional):
@@ -18,7 +22,7 @@
  *     staleAfterMs  age at which a read reports `stale: true`. Default 86400000 (one day).
  *
  * OUTPUTS
- *   A `design_map` tool (op: read | write | upsert | remove) registered ONLY on the
+ *   A `design_map` tool (op: read | write | upsert | layout | remove) registered ONLY on the
  *   `orchestrator` preset, a `/design-map` command used by the panel (which is not a tool,
  *   so it keeps working for the human), and the scene file. `read` returns the revision,
  *   timestamp author and age so the orchestrator can see that the map is stale and refresh it.
@@ -51,6 +55,7 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, resolve } from 'node:path'
+import { NODE_GAP, TEXT, analyzeElements, layoutGraph, measureNode, routeEdge } from './layout.js'
 
 /** Cordis function-plugin name; also the id the profile patch targets. */
 export const name = 'design-map'
@@ -93,8 +98,6 @@ const DEFAULT_STALE_MS = 24 * 60 * 60 * 1000
 const NODE_STYLE = {
   stroke: '#1e1e1e',
   background: '#e7f5ff',
-  width: 190,
-  height: 76,
 }
 
 /** Resolve the session workspace, falling back to the process directory. */
@@ -160,35 +163,37 @@ function baseElement(id, type, x, y, width, height, extra) {
 }
 
 /**
- * Build one node as a rectangle plus its bound label.
+ * Build one node as a rectangle plus its bound multiline label.
  *
- * @param node - {id, label, x, y, width, height, color} from the tool.
- * @param index - placement index when x/y are missing.
+ * The record carries the numbers measureNode() produced, so the text height and
+ * the container height obey the frame's own formula (fontSize * lineHeight *
+ * lines + BOUND_TEXT_PADDING * 2) and Excalidraw does not have to grow the box.
+ *
+ * @param record - {id,label,x,y,width,height,color,lines,textHeight}.
  * @returns The rectangle and text elements, with the text bound to the rectangle.
  */
-function buildNode(node, index) {
-  const id = String(node.id ?? `node-${index + 1}`).slice(0, 100)
-  const label = textOf(node)
-  const width = Number.isFinite(node.width) ? Math.max(80, Math.min(600, node.width)) : NODE_STYLE.width
-  const height = Number.isFinite(node.height) ? Math.max(40, Math.min(400, node.height)) : NODE_STYLE.height
-  const x = Number.isFinite(node.x) ? node.x : (index % 3) * 280
-  const y = Number.isFinite(node.y) ? node.y : Math.floor(index / 3) * 150
+function buildNode(record) {
+  const { id, x, y, width, height, lines, textHeight } = record
+  const label = String(record.label ?? '').trim()
+  const color = typeof record.color === 'string' && record.color !== '' ? record.color : NODE_STYLE.background
   const labelId = `${id}__label`
   const rectangle = baseElement(id, 'rectangle', x, y, width, height, {
-    backgroundColor: typeof node.color === 'string' && node.color !== '' ? node.color : NODE_STYLE.background,
+    backgroundColor: color,
+    ...(record.style ?? {}),
     boundElements: [{ type: 'text', id: labelId }],
-    customData: { designMap: { kind: 'node' } },
+    customData: { designMap: { kind: 'node', position: record.position } },
   })
-  const text = baseElement(labelId, 'text', x + 8, y + height / 2 - 12, width - 16, 24, {
-    text: label === '' ? id : label,
-    originalText: label === '' ? id : label,
-    fontSize: 17,
+  const text = baseElement(labelId, 'text', x + TEXT.padding, y + (height - textHeight) / 2, width - TEXT.padding * 2, textHeight, {
+    ...(record.textStyle ?? {}),
+    text: label === '' ? id : lines.join('\n'),
+    originalText: label === '' ? id : lines.join('\n'),
+    fontSize: TEXT.fontSize,
     fontFamily: 2,
     textAlign: 'center',
     verticalAlign: 'middle',
     containerId: id,
-    lineHeight: 1.25,
-    baseline: 18,
+    lineHeight: TEXT.lineHeight,
+    baseline: Math.round(TEXT.fontSize * 0.8),
     autoResize: true,
     customData: { designMap: { kind: 'label', nodeId: id } },
   })
@@ -241,37 +246,42 @@ function assertRevision(current, rev, what = 'write') {
   if (!Number.isSafeInteger(rev) || rev !== (current?.[META]?.rev ?? 0)) throw refusal('stale', `${what} read rev ${String(rev)}, the scene is at rev ${current?.[META]?.rev ?? 0}`)
 }
 
-/** The point where the line from one rectangle centre leaves the rectangle. */
-function edgePoint(from, to) {
-  const dx = to.x + to.width / 2 - (from.x + from.width / 2)
-  const dy = to.y + to.height / 2 - (from.y + from.height / 2)
-  if (dx === 0 && dy === 0) return { x: from.x + from.width / 2, y: from.y + from.height / 2 }
-  const halfW = from.width / 2
-  const halfH = from.height / 2
-  const scale = Math.min(
-    dx === 0 ? Infinity : halfW / Math.abs(dx),
-    dy === 0 ? Infinity : halfH / Math.abs(dy),
-  )
-  return { x: from.x + from.width / 2 + dx * scale, y: from.y + from.height / 2 + dy * scale }
-}
-
-/** Build one edge as a bound arrow between two rectangles. */
-function buildEdge(edge, index, nodes) {
+/**
+ * Build one edge as a bound arrow with a boundary-to-boundary path.
+ *
+ * The path comes from routeEdge(): it starts and ends on a side midpoint, prefers
+ * an orthogonal route, and scores obstacle hits, crossings with the arrows already
+ * routed and length. `routed` carries the earlier paths so two arrows do not
+ * stack on the same line.
+ *
+ * @param edge - {id, from, to, label}.
+ * @param nodes - Map of rectangle id -> rectangle for the whole final scene.
+ * @param routed - Absolute point arrays of arrows already routed in this call.
+ */
+function buildEdge(edge, nodes, routed) {
   const from = nodes.get(String(edge.from))
   const to = nodes.get(String(edge.to))
   if (from === undefined || to === undefined) return null
-  const start = edgePoint(from, to)
-  const end = edgePoint(to, from)
-  const dx = end.x - start.x
-  const dy = end.y - start.y
+  const obstacles = [...nodes.values()].filter((node) => node.id !== from.id && node.id !== to.id)
+  const route = routeEdge(from, to, obstacles, routed)
+  const absolute = route.points.map((point) => ({ x: Math.round(point.x * 10) / 10, y: Math.round(point.y * 10) / 10 }))
+  // Excalidraw normalizes a linear element as "first point at (0,0)"; the rest may
+  // be negative. Its LinearElementEditor logs "not normalized" otherwise when the
+  // arrow is selected (measured on the dense scene), so keep that invariant.
+  const start = absolute[0]
+  const maxX = Math.max(...absolute.map((point) => point.x))
+  const minX = Math.min(...absolute.map((point) => point.x))
+  const maxY = Math.max(...absolute.map((point) => point.y))
+  const minY = Math.min(...absolute.map((point) => point.y))
   const id = String(edge.id ?? `edge:${from.id}->${to.id}`).slice(0, 140)
-  return baseElement(id, 'arrow', start.x, start.y, Math.abs(dx), Math.abs(dy), {
-    points: [[0, 0], [dx, dy]],
+  return baseElement(id, 'arrow', start.x, start.y, maxX - minX, maxY - minY, {
+    points: absolute.map((point) => [point.x - start.x, point.y - start.y]),
     lastCommittedPoint: null,
     startBinding: { elementId: from.id, focus: 0, gap: 4 },
     endBinding: { elementId: to.id, focus: 0, gap: 4 },
     startArrowhead: null,
     endArrowhead: 'arrow',
+    ...(edge.style ?? {}),
     elbowed: false,
     customData: { designMap: { kind: 'edge', label: typeof edge.label === 'string' ? edge.label.slice(0, 200) : '' } },
   })
@@ -293,6 +303,12 @@ function labelOf(elements, rectangle) {
   if (bound === undefined) return ''
   const text = elements.find((entry) => entry?.id === bound.id)
   return typeof text?.text === 'string' ? text.text : ''
+}
+
+/** The text element bound to a rectangle, when there is one. */
+function labelElementOf(elements, rectangle) {
+  const bound = Array.isArray(rectangle.boundElements) ? rectangle.boundElements.find((entry) => entry?.type === 'text') : undefined
+  return bound === undefined ? undefined : elements.find((entry) => entry?.id === bound.id)
 }
 
 /**
@@ -323,6 +339,112 @@ function deriveMap(elements) {
       label: typeof element.customData?.designMap?.label === 'string' ? element.customData.designMap.label : '',
     }))
   return { nodes, edges }
+}
+
+/** A rectangle this plugin owns, as opposed to a human's freehand shape. */
+function isDesignNode(element) {
+  return element !== null && typeof element === 'object' && element.isDeleted !== true && element.type === 'rectangle' && element.customData?.designMap?.kind === 'node'
+}
+
+/** Human styling a rebuilt rectangle must not silently reset. */
+function styleOf(element) {
+  if (element === null || element === undefined) return {}
+  const style = {}
+  for (const key of ['angle', 'strokeColor', 'fillStyle', 'strokeWidth', 'strokeStyle', 'roughness', 'opacity', 'groupIds', 'frameId', 'roundness', 'link', 'locked']) {
+    if (element[key] !== undefined) style[key] = element[key]
+  }
+  return style
+}
+
+/** Human label styling that survives a rebuild (font size/family stay system-sized). */
+function textStyleOf(element) {
+  if (element === null || element === undefined) return {}
+  const style = {}
+  for (const key of ['angle', 'groupIds', 'strokeColor', 'opacity', 'link', 'locked']) {
+    if (element[key] !== undefined) style[key] = element[key]
+  }
+  return style
+}
+
+/** Human arrow styling that survives a re-route (geometry and bindings are rebuilt). */
+function arrowStyleOf(element) {
+  if (element === null || element === undefined) return {}
+  const style = {}
+  for (const key of ['strokeColor', 'strokeWidth', 'strokeStyle', 'fillStyle', 'roughness', 'opacity', 'groupIds', 'startArrowhead', 'endArrowhead', 'locked', 'link']) {
+    if (element[key] !== undefined) style[key] = element[key]
+  }
+  return style
+}
+
+/**
+ * The record for a node already in the scene.
+ *
+ * In an upsert it is a fixed obstacle: its position and size are the human's. In a
+ * layout it is repositioned and re-sized from its label, because that is what the
+ * explicit layout operation was asked to do.
+ */
+function recordOfExisting(element, elements, layout) {
+  const rawLabel = textOf({ label: labelOf(elements, element) })
+  const label = rawLabel === '' ? element.id : rawLabel
+  // In an upsert the human box keeps its size and top-left; a label it cannot hold
+  // is reported as a warning, not silently reflowed. Layout content-sizes it.
+  const size = layout ? measureNode(label, {}) : measureNode(label, { width: element.width, height: element.height })
+  return {
+    id: element.id,
+    label,
+    x: element.x,
+    y: element.y,
+    width: layout ? size.width : element.width,
+    height: layout ? size.height : element.height,
+    color: element.backgroundColor,
+    lines: size.lines,
+    textHeight: size.textHeight,
+    existing: element,
+    style: styleOf(element),
+    textStyle: textStyleOf(labelElementOf(elements, element)),
+    write: layout,
+    auto: layout,
+    position: layout ? 'auto' : 'human',
+  }
+}
+
+/**
+ * The record for a node in the payload.
+ *
+ * AN ORDINARY UPSERT NEVER MOVES AN EXISTING NODE: the payload's x/y are ignored
+ * for a node already in the scene, while a new node without x/y is auto-placed.
+ * A rename re-sizes the box from its content; the same label keeps a size the
+ * human may have dragged.
+ */
+function recordOfSupplied(node, id, existing, elements) {
+  existing = existing ?? undefined
+  const raw = typeof node.label === 'string' ? node.label : existing === undefined ? '' : labelOf(elements, existing)
+  const trimmed = textOf({ label: raw })
+  const label = trimmed === '' ? id : trimmed
+  const sameLabel = existing !== undefined && textOf({ label: labelOf(elements, existing) || existing.id }) === label
+  const size = existing !== undefined && sameLabel
+    ? measureNode(label, { width: existing.width, height: existing.height })
+    : measureNode(label, { width: node.width, height: node.height })
+  const x = existing !== undefined ? existing.x : (Number.isFinite(node.x) ? node.x : undefined)
+  const y = existing !== undefined ? existing.y : (Number.isFinite(node.y) ? node.y : undefined)
+  const auto = !Number.isFinite(x) || !Number.isFinite(y)
+  return {
+    id,
+    label,
+    x,
+    y,
+    width: size.width,
+    height: size.height,
+    color: typeof node.color === 'string' && node.color !== '' ? node.color : (existing?.backgroundColor ?? NODE_STYLE.background),
+    lines: size.lines,
+    textHeight: size.textHeight,
+    existing,
+    style: styleOf(existing),
+    textStyle: textStyleOf(existing === undefined ? undefined : labelElementOf(elements, existing)),
+    write: true,
+    auto,
+    position: existing !== undefined ? 'human' : auto ? 'auto' : 'fixed',
+  }
 }
 
 /** A scene read from disk, or an empty one when the file does not exist. */
@@ -383,7 +505,7 @@ function writeScene(path, scene, by) {
 }
 
 /** The agent-facing metadata view; the elements stay in the file. */
-function describe(scene, path, staleAfterMs) {
+function describe(scene, path, staleAfterMs, layout) {
   const { nodes, edges } = deriveMap(scene.elements)
   const meta = scene[META]
   const updated = meta.updatedAt === null ? Number.NaN : Date.parse(meta.updatedAt)
@@ -399,6 +521,7 @@ function describe(scene, path, staleAfterMs) {
     nodes,
     edges,
     elementCount: scene.elements.length,
+    ...(layout === undefined ? {} : { layout }),
   }
 }
 
@@ -439,39 +562,49 @@ function createService(config, logger) {
       return describe(written, path, staleAfterMs)
     },
     /**
-     * Build or merge nodes and edges.
+     * Build, merge or rearrange nodes and edges.
      *
-     * @param mode - 'write' replaces every element; 'upsert' keeps unknown elements and
-     *   replaces only the ones named, so the human's freehand annotations survive.
+     * WRITE replaces every element. UPSERT keeps unknown elements and, crucially,
+     * keeps the position of a node that is already in the scene: the agent may
+     * rename or resize it, but only `layout` is allowed to move a human's box.
+     * LAYOUT rearranges every design-map node around the graph and requires the
+     * rev it read, because it rewrites positions on purpose.
+     *
+     * @param mode - 'write' | 'upsert' | 'layout'.
      */
     apply(cwd, { mode = 'write', nodes = [], edges = [], title, rev, clear = false } = {}, by = 'agent') {
       if (!Array.isArray(nodes)) throw refusal('invalid_nodes', 'nodes must be an array')
       if (!Array.isArray(edges)) throw refusal('invalid_edges', 'edges must be an array')
       if (nodes.length > MAX_NODES) throw refusal('too_many_nodes', `at most ${MAX_NODES} nodes, got ${nodes.length}`)
       if (edges.length > MAX_EDGES) throw refusal('too_many_edges', `at most ${MAX_EDGES} edges, got ${edges.length}`)
+      if (mode !== 'write' && mode !== 'upsert' && mode !== 'layout') throw refusal('invalid_op', `unknown mode "${String(mode)}"`)
       const path = scenePath(config, cwd)
       const current = readScene(path)
+      const currentElements = current.elements.filter((element) => element !== null && typeof element === 'object')
       // A WRITE IS A REPLACEMENT. With nothing to write it is a delete, and that is what
       // silently wiped a five-element map before this check; `clear: true` is the explicit
       // way to say it.
       if (mode === 'write' && nodes.length === 0 && edges.length === 0 && clear !== true) {
         throw refusal('empty_write', 'a write with no nodes and no edges would erase the map; pass clear: true to mean it')
       }
-      if (mode === 'write') assertRevision(current, rev, 'write')
+      if (mode === 'layout') {
+        if (nodes.length > 0 || edges.length > 0) throw refusal('invalid_layout', 'layout rearranges the existing map; nodes/edges belong to write/upsert')
+        if (currentElements.filter((element) => isDesignNode(element)).length === 0) throw refusal('empty_layout', 'there are no design-map nodes to lay out')
+        assertRevision(current, rev, 'layout')
+      } else if (mode === 'write') assertRevision(current, rev, 'write')
       else if (rev !== undefined && rev !== null) assertRevision(current, rev, mode)
-      const existing = mode === 'write' ? [] : current.elements
       // Ids first: the effective id of every node is decided before anything is spliced, so a
       // duplicate is refused instead of producing two elements with one id (which the earlier
       // `nodes:[{id:"dup"},{id:"dup"}]` probe did).
-      const nodeIds = new Set()
-      const planned = []
+      const payloadIds = new Set()
+      const supplied = []
       for (const [index, node] of nodes.entries()) {
         if (node === null || typeof node !== 'object' || Array.isArray(node)) throw refusal('invalid_node', `nodes[${index}] is not an object`)
         if (node.id !== undefined && (typeof node.id !== 'string' || node.id === '')) throw refusal('invalid_node', `nodes[${index}].id must be a non-empty string`)
         const id = String(node.id ?? `node-${index + 1}`).slice(0, 100)
-        if (nodeIds.has(id)) throw refusal('duplicate_node_id', `the node id "${id}" is named twice`)
-        nodeIds.add(id)
-        planned.push({ node, id, index })
+        if (payloadIds.has(id)) throw refusal('duplicate_node_id', `the node id "${id}" is named twice`)
+        payloadIds.add(id)
+        supplied.push({ node, id })
       }
       for (const edge of edges) {
         if (edge === null || typeof edge !== 'object' || Array.isArray(edge)) throw refusal('invalid_edge', 'an edge is not an object')
@@ -479,69 +612,139 @@ function createService(config, logger) {
           if (typeof edge[end] !== 'string' || edge[end] === '') throw refusal('invalid_edge', `an edge is missing its "${end}" node id`)
         }
       }
-      const nextNodes = []
-      for (const { node, id, index } of planned) {
-        const removed = new Set([id, `${id}__label`])
-        for (let at = existing.length - 1; at >= 0; at -= 1) if (removed.has(existing[at]?.id)) existing.splice(at, 1)
-        nextNodes.push(...buildNode({ ...node, id }, index))
+      const existingRects = new Map(currentElements.filter((element) => element.type === 'rectangle' && element.isDeleted !== true).map((element) => [element.id, element]))
+      // One record per node in the RESULT. A human-positioned node that an upsert did
+      // not name still takes part in ranking, but it is not rewritten and it keeps x/y.
+      const recordMap = new Map()
+      for (const element of currentElements) {
+        if (!isDesignNode(element) || mode === 'write') continue
+        // In an upsert an unnamed node is a fixed obstacle; in a layout every design
+        // node is repositioned and content-sized.
+        recordMap.set(element.id, recordOfExisting(element, currentElements, mode === 'layout'))
       }
-      const merged = [...existing, ...nextNodes]
-      // Edges are derived against the merged rectangle set, so a new edge can point at
-      // a node this same call did not redraw.
-      const rectangles = new Map()
-      for (const element of merged) {
-        if (element?.type !== 'rectangle' || element.isDeleted === true) continue
-        rectangles.set(element.id, element)
+      for (const { node, id } of supplied) {
+        const existing = mode === 'write' ? null : existingRects.get(id)
+        recordMap.set(id, recordOfSupplied(node, id, existing, currentElements))
       }
-      // An edge endpoint that is not a node in the RESULT is a dangling arrow: it used to be
-      // dropped silently while the call reported success. Name the missing id instead.
-      for (const edge of edges) {
-        for (const end of ['from', 'to']) {
-          if (!rectangles.has(edge[end])) throw refusal('unknown_edge_node', `the edge endpoint "${edge[end]}" is not a node in the map`)
+      const finalIds = new Set(recordMap.keys())
+      // Edges to rebuild: every existing arrow between two result nodes, overridden by
+      // the payload. Rebuilding all of them is what keeps an old arrow attached when
+      // its neighbour is renamed or a new node lands beside it.
+      const edgeMap = new Map()
+      if (mode !== 'write') {
+        for (const element of currentElements) {
+          if (element.type !== 'arrow' || element.isDeleted === true) continue
+          if (!finalIds.has(element.startBinding?.elementId) || !finalIds.has(element.endBinding?.elementId)) continue
+          edgeMap.set(element.id, { id: element.id, from: element.startBinding.elementId, to: element.endBinding.elementId, label: typeof element.customData?.designMap?.label === 'string' ? element.customData.designMap.label : '', style: arrowStyleOf(element) })
         }
       }
       const edgeIds = new Set()
-      const nextEdges = []
-      for (const [index, edge] of edges.entries()) {
-        const id = String(edge?.id ?? `edge:${edge?.from}->${edge?.to}`).slice(0, 140)
+      for (const edge of edges) {
+        const id = String(edge.id ?? `edge:${edge.from}->${edge.to}`).slice(0, 140)
         if (edgeIds.has(id)) throw refusal('duplicate_edge_id', `the edge id "${id}" is named twice`)
         edgeIds.add(id)
-        const at = merged.findIndex((element) => element?.id === id)
-        if (at !== -1) merged.splice(at, 1)
-        const arrow = buildEdge({ ...edge, id }, index, rectangles)
-        if (arrow === null) throw refusal('invalid_edge', `the edge "${id}" could not be built`)
-        nextEdges.push(arrow)
-        // Excalidraw keeps the binding on BOTH ends: the arrow names the shapes, and
-        // each shape names the arrow in boundElements. Without the second half a drag
-        // of the shape leaves the arrow behind in empty space, which is exactly what
-        // the first human move exposed.
-        for (const nodeId of [arrow.startBinding.elementId, arrow.endBinding.elementId]) {
-          const rectangle = rectangles.get(nodeId)
-          if (rectangle === undefined) continue
-          const bound = Array.isArray(rectangle.boundElements) ? rectangle.boundElements : []
-          rectangle.boundElements = [...bound.filter((entry) => entry?.id !== arrow.id), { type: 'arrow', id: arrow.id }]
+        for (const end of ['from', 'to']) {
+          if (!finalIds.has(edge[end])) throw refusal('unknown_edge_node', `the edge endpoint "${edge[end]}" is not a node in the map`)
         }
+        edgeMap.set(id, { id, from: edge.from, to: edge.to, label: edge.label ?? edgeMap.get(id)?.label ?? '', style: edgeMap.get(id)?.style ?? {} })
       }
-      // P2-3: REBUILD THE WHOLE BINDING, NOT JUST THIS CALL'S HALF. Rebuilding a rectangle
-      // drops its boundElements, so an arrow that was already in the scene kept pointing at a
-      // box that no longer listed it - the next drag of the box left the arrow behind. Every
-      // rebuilt rectangle now names every arrow that binds to it, plus the label it owns.
-      const allArrows = [...merged, ...nextEdges].filter((element) => element?.type === 'arrow' && element.isDeleted !== true)
-      for (const rectangle of nextNodes) {
-        if (rectangle?.type !== 'rectangle') continue
+      // Automatic placement: graph ranks over the real node sizes; explicit and human
+      // positions are obstacles, and nothing auto-placed lands within NODE_GAP of them.
+      const autoIds = new Set([...recordMap.values()].filter((record) => record.auto).map((record) => record.id))
+      const writtenIds = new Set([...recordMap.values()].filter((record) => record.write).map((record) => record.id))
+      const sceneRectangles = mode === 'write' ? [] : currentElements.filter((element) => element.type === 'rectangle' && element.isDeleted !== true)
+      const obstacles = sceneRectangles.filter((element) => !finalIds.has(element.id)).map((element) => ({ id: element.id, x: element.x, y: element.y, width: element.width, height: element.height }))
+      const graphEdges = [...edgeMap.values()].filter((edge) => finalIds.has(edge.from) && finalIds.has(edge.to))
+      const records = [...recordMap.values()]
+      const placedRects = records.filter((record) => Number.isFinite(record.x) && Number.isFinite(record.y))
+      const originX = mode === 'write' || mode === 'layout' ? 80 : Math.min(80, ...placedRects.map((record) => record.x))
+      const originY = mode === 'write' || mode === 'layout' ? 80 : Math.min(80, ...placedRects.map((record) => record.y))
+      const positions = layoutGraph({
+        nodes: records.map((record) => ({ id: record.id, width: record.width, height: record.height, x: record.auto ? undefined : record.x, y: record.auto ? undefined : record.y })),
+        edges: graphEdges,
+        obstacles,
+        originX,
+        originY,
+      })
+      for (const record of records) if (record.auto) {
+        const at = positions.get(record.id)
+        record.x = Number.isFinite(at?.x) ? at.x : originX
+        record.y = Number.isFinite(at?.y) ? at.y : originY
+      }
+      // Base: every live element the operation keeps. Written nodes, their labels and all
+      // arrows being rebuilt are removed first, so nothing is left stale beside its replacement.
+      const removeIds = new Set([...edgeMap.keys()])
+      for (const id of writtenIds) {
+        removeIds.add(id)
+        removeIds.add(`${id}__label`)
+        for (const element of currentElements) if (element.type === 'text' && element.containerId === id) removeIds.add(element.id)
+      }
+      const base = mode === 'write' ? [] : currentElements.filter((element) => element.isDeleted !== true && !removeIds.has(element.id))
+      const nextNodes = []
+      for (const record of records) if (record.write) nextNodes.push(...buildNode(record))
+      const merged = [...base, ...nextNodes]
+      const rectangles = new Map()
+      for (const element of merged) if (element.type === 'rectangle' && element.isDeleted !== true) rectangles.set(element.id, element)
+      const routed = []
+      const nextEdges = []
+      for (const edge of edgeMap.values()) {
+        if (!rectangles.has(edge.from) || !rectangles.has(edge.to)) continue
+        const arrow = buildEdge(edge, rectangles, routed)
+        if (arrow === null) continue
+        nextEdges.push(arrow)
+        routed.push(arrow.points.map((point) => ({ x: arrow.x + point[0], y: arrow.y + point[1] })))
+      }
+      // Excalidraw keeps the binding on BOTH ends: the arrow names the shapes, and each
+      // shape names the arrow. EVERY live arrow counts here, including a human arrow
+      // whose other end is a plain rectangle this tool did not rebuild; otherwise an
+      // upsert would silently detach that arrow from its box.
+      const allArrows = [...merged, ...nextEdges].filter((element) => element.type === 'arrow' && element.isDeleted !== true)
+      for (const rectangle of rectangles.values()) {
+        if (rectangle.customData?.designMap?.kind !== 'node') continue
         const labels = Array.isArray(rectangle.boundElements) ? rectangle.boundElements.filter((entry) => entry?.type === 'text') : []
         const bound = allArrows
           .filter((arrow) => arrow.startBinding?.elementId === rectangle.id || arrow.endBinding?.elementId === rectangle.id)
           .map((arrow) => ({ type: 'arrow', id: arrow.id }))
         rectangle.boundElements = [...labels, ...bound]
       }
+      const finalElements = [...merged, ...nextEdges]
+      // VALIDATE BEFORE WRITE. Clipping, overlap and an arrow through an unrelated
+      // rectangle are refused with the element ids, so the caller can fix the input.
+      // Overlaps between two rectangles this call did not touch are outside it and are
+      // not reported. Placement keeps NODE_GAP; validation refuses a real touch (2px).
+      const issues = analyzeElements(finalElements, {
+        gap: 2,
+        nodeIds: mode === 'upsert' ? writtenIds : null,
+        arrowIds: new Set(nextEdges.map((arrow) => arrow.id)),
+      })
+      const blocking = issues.filter((issue) => {
+        if (issue.kind === 'nonfinite' || issue.kind === 'clip' || issue.kind === 'edge_cross') return true
+        if (issue.kind === 'overlap') return mode !== 'upsert' || writtenIds.has(issue.a) || writtenIds.has(issue.b)
+        return false
+      })
+      if (blocking.length > 0) {
+        const head = blocking.slice(0, 3).map((issue) => issue.detail).join('; ')
+        throw refusal('layout_invalid', `${head}${blocking.length > 3 ? ` (and ${blocking.length - 3} more)` : ''}`)
+      }
+      // A human box that was already clipped stays exactly where it is (ordinary
+      // upsert must not move it); layout is the explicit repair. Say so instead of
+      // silently claiming the whole scene is clean.
+      const inherited = mode === 'upsert'
+        ? analyzeElements(finalElements, { gap: 2, nodeIds: new Set(records.filter((record) => !record.write).map((record) => record.id)), arrowIds: new Set() }).filter((issue) => issue.kind === 'clip')
+        : []
       const scene = {
         ...current,
-        elements: [...merged, ...nextEdges],
+        elements: finalElements,
         [META]: { ...current[META], ...(typeof title === 'string' && title !== '' ? { title: title.slice(0, 200) } : {}) },
       }
       const written = writeScene(path, scene, by)
-      return describe(written, path, staleAfterMs)
+      return describe(written, path, staleAfterMs, {
+        mode,
+        placed: autoIds.size,
+        preserved: records.filter((record) => !record.write).length,
+        edges: nextEdges.length,
+        warnings: [...issues.map((issue) => issue.detail), ...inherited.map((issue) => `${issue.detail} (pre-existing; run layout to repair)`)],
+      })
     },
     /** Remove node or edge ids; arrows attached to a removed node go with it. */
     remove(cwd, ids, { by = 'agent', rev } = {}) {
@@ -550,6 +753,17 @@ function createService(config, logger) {
       const path = scenePath(config, cwd)
       const current = readScene(path)
       if (rev !== undefined && rev !== null) assertRevision(current, rev, 'remove')
+      // A label is owned by its node: deleting only the text would leave an unlabeled
+      // rectangle whose boundElements names a missing element. Refuse and name the owner.
+      const labelOwners = new Map(
+        current.elements
+          .filter((element) => element !== null && typeof element === 'object' && element.type === 'text' && typeof element.containerId === 'string')
+          .map((element) => [element.id, element.containerId]),
+      )
+      for (const id of ids) {
+        const owner = labelOwners.get(id)
+        if (owner !== undefined) throw refusal('label_id', `"${id}" is the label of node "${owner}"; remove the node id "${owner}" instead`)
+      }
       // An id that is not in the scene used to be a silent no-op: the caller could not tell
       // "removed" from "never existed". Name the ids that are not there.
       const present = new Set(current.elements.filter((element) => element !== null && typeof element === 'object').map((element) => element.id))
@@ -563,6 +777,13 @@ function createService(config, logger) {
         return true
       })
       if (elements.length === current.elements.length) return describe(current, path, staleAfterMs)
+      // A removal must also clean the other end: an edge's endpoints used to keep the
+      // deleted arrow in boundElements, and deleting a label id left a dangling entry.
+      const liveIds = new Set(elements.filter((element) => element !== null && typeof element === 'object').map((element) => element.id))
+      for (const element of elements) {
+        if (element?.type !== 'rectangle' || !Array.isArray(element.boundElements)) continue
+        element.boundElements = element.boundElements.filter((entry) => entry !== null && typeof entry === 'object' && liveIds.has(entry.id))
+      }
       const written = writeScene(path, { ...current, elements }, by)
       return describe(written, path, staleAfterMs)
     },
@@ -596,9 +817,9 @@ export function apply(ctx, config = {}) {
 
   const tool = defineTool({
     name: 'design_map',
-    description: 'Read or update the workspace design map in design.excalidraw (project root). The human edits the same file visually in the Dsh client. Nodes are boxes with labels; edges are arrows between them. op "read" returns rev/updatedAt/ageMs/stale plus nodes and edges - check stale before trusting it; op "write" replaces the map, "upsert" adds or updates nodes/edges without dropping other elements, "remove" deletes ids. Positions are optional; missing ones are laid out automatically.',
+    description: 'Read or update the workspace design map in design.excalidraw (project root). The human edits the same file visually in the Dsh client. Nodes are boxes with wrapped, content-sized labels; edges are arrows between them. op "read" returns rev/updatedAt/ageMs/stale plus nodes and edges - check stale before trusting it; op "write" replaces the map, "upsert" adds or updates nodes/edges without dropping other elements and never moves a node already in the scene, "layout" rearranges every node by graph rank (needs the rev it read), "remove" deletes ids. Missing positions are placed by graph rank around real node sizes and existing rectangles.',
     parameters: {
-      op: { type: 'string', enum: ['read', 'write', 'upsert', 'remove'], required: true, description: 'read | write | upsert | remove' },
+      op: { type: 'string', enum: ['read', 'write', 'upsert', 'layout', 'remove'], required: true, description: 'read | write | upsert | layout | remove' },
       nodes: { type: 'array', items: { type: 'object', additionalProperties: false, properties: {
         id: { type: 'string', description: 'Stable node id; reuse it to move or rename an existing node.' },
         label: { type: 'string', description: 'Text shown inside the box.' },
@@ -623,7 +844,7 @@ export function apply(ctx, config = {}) {
       try {
         if (args.op === 'read') return Promise.resolve(service.describe(cwd))
         if (args.op === 'remove') return Promise.resolve(service.remove(cwd, args.ids ?? [], { by: 'agent', rev: args.rev }))
-        const mode = args.op === 'upsert' ? 'upsert' : 'write'
+        const mode = args.op === 'upsert' ? 'upsert' : args.op === 'layout' ? 'layout' : 'write'
         return Promise.resolve(service.apply(cwd, { mode, nodes: args.nodes ?? [], edges: args.edges ?? [], title: args.title, rev: args.rev, clear: args.clear === true }, 'agent'))
       } catch (error) {
         // A refusal is a value: the model gets the code, the same word the panel shows.
@@ -653,7 +874,8 @@ export function apply(ctx, config = {}) {
         if (op?.op === 'read') return { kind: 'success', text: JSON.stringify(service.read(cwd).scene) }
         if (op?.op === 'save') return { kind: 'success', text: JSON.stringify(service.save(cwd, op, 'human')) }
         if (op?.op === 'remove') return { kind: 'success', text: JSON.stringify(service.remove(cwd, op.ids ?? [], { by: 'human', rev: op.rev })) }
-        return { kind: 'error', text: 'design-map: unknown op (read | save | remove)' }
+        if (op?.op === 'layout') return { kind: 'success', text: JSON.stringify(service.apply(cwd, { mode: 'layout', rev: op.rev, title: op.title }, 'human')) }
+        return { kind: 'error', text: 'design-map: unknown op (read | save | layout | remove)' }
       } catch (error) {
         // A refusal already reads `design-map: <code>: <detail>`; anything else gets the prefix.
         const message = String(error?.message ?? error)

@@ -30,7 +30,7 @@ Take the first option that fully works:
 
 ## The proof, not a test file
 
-This deployment does not write autotests. Lazy code without its proof is unfinished: run the product and quote the command, its output and its exit code. Add a test file only when the human asks for one, and only when the behavior is non-trivial; then the test names the production behavior and the failure it prevents. A test that restates the implementation is worse than no test.
+This deployment does not write speculative tests: observe the behaviour first, then persist the case (docs/cases via case_record). Lazy code without its proof is unfinished: run the product and quote the command, its output and its exit code. Add a test file only when the human asks for one, and only when the behavior is non-trivial; then the test names the production behavior and the failure it prevents. A test that restates the implementation is worse than no test.
 
 Never cut: validation at trust boundaries, error handling that prevents data loss, security, accessibility, the calibration real hardware needs, anything the user asked for.
 

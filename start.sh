@@ -11,6 +11,7 @@
 #   PORT      listen port (default 3080)
 #   KIT_UPDATE=0   boot without checking the kit
 #   HEADROOM=0     boot without the Headroom compression overlay even when enabled
+#   SESSION_STORE=0  boot without the session-store guard
 # OUTPUTS
 #   Exit code of `dsh web`, or 1 when the kit check fails or no profile exists.
 #   The update decision and the token URL are printed to the console.
@@ -28,6 +29,11 @@
 #     added and the reason is printed, because a redirect to a dead 127.0.0.1
 #     port fails every model request. Losing compression is recoverable; losing
 #     the model is not.
+#   - One unreadable session log: the store guard moves it out first. dsh aborts the
+#     WHOLE cross-workspace listing on any error it does not recognise as corruption,
+#     so a single file the OS refuses (an on-access scanner returning EPERM is the
+#     local case) leaves the UI with no history and no way to start a chat. The guard
+#     keeps every byte and prints what it moved; with nothing to do it says nothing.
 set -euo pipefail
 
 DSH_HOME="${DSH_HOME:-$HOME/.npm/dsh}"
@@ -75,6 +81,18 @@ if [ "${HEADROOM:-1}" != "0" ] && [ -f "${HEADROOM_MARKER}" ] && [ -f "${HEADROO
     printf '%s\n' "${ENSURE_OUT}" | sed -n 's/^  error: /  reason: /p' >&2
     echo "  see: node scripts/headroom.mjs doctor" >&2
   fi
+fi
+
+# The session store decides whether the UI has any history at all. dsh treats an
+# unreadable session log as fatal rather than skippable, so one file the OS refuses
+# aborts the whole cross-workspace listing: `workspace` never activates, four plugins
+# that inject workspaceRegistry stay pending, and `dsh web` serves an empty history that
+# cannot create a chat - all my chats are gone, when every byte is still on disk. The
+# guard moves only what is refused into $DSH_HOME/sessions-quarantine with a README, and
+# prints nothing when there is nothing to do.
+if [ "${SESSION_STORE:-1}" != "0" ] && [ -f "${KIT_DIR}/scripts/session-store.mjs" ]; then
+  STORE_OUT="$(node "${KIT_DIR}/scripts/session-store.mjs" ensure --quiet --home "${DSH_HOME}" 2>&1 || true)"
+  if [ -n "${STORE_OUT}" ]; then printf '%s\n' "${STORE_OUT}" >&2; fi
 fi
 
 # `dsh web` opens a browser by itself unless --no-open is passed. A boot nobody asked

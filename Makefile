@@ -48,7 +48,7 @@ endif
 CORPUS   ?= .cache/session-analysis/corpus.json
 ANALYSIS ?= .cache/session-analysis/analysis.json
 
-.PHONY: help usage usage-check usage-gate session-corpus session-analysis notify-selftest verify
+.PHONY: help usage usage-check usage-gate session-corpus session-analysis notify-selftest session-doctor verify
 
 help:
 	@echo "make usage                    - newest usage export in ~/Downloads, write and open the report"
@@ -59,6 +59,7 @@ help:
 	@echo "  EXPORT=<path.zip>, MAX_PEAK_SHARE=<0..1>, MAX_LEGACY_PREMIUM=<usd>"
 	@echo "make session-corpus           - one pass over every session log -> $(CORPUS) (~2 min)"
 	@echo "make session-analysis         - the corpus, then the behaviour and cost figures cut from it"
+	@echo "make session-doctor           - report session logs the OS refuses to read (the UI shows no history)"
 	@echo "make verify                   - run every check the kit ships"
 
 usage:
@@ -80,6 +81,15 @@ usage-check:
 usage-gate:
 	@$(NODE) scripts/usage-analytics.mjs $(EXPORT_ARG) $(GATE_ARG)
 
+
+# The other reason the UI can look wiped when every byte is on disk: dsh aborts the whole
+# cross-workspace session listing on any error it does not recognise as corruption, so ONE
+# unreadable log (an on-access scanner returning EPERM is the local case) costs the history
+# and the New Session button. `start.sh` runs the guard's `ensure` automatically; this is the
+# report-only half - it moves nothing and exits 1 when something is refused, so it can be a
+# check as well as an answer.
+session-doctor:
+	@$(NODE) scripts/session-store.mjs doctor
 
 # Raise one REAL notification on this host, in the top-right corner of the display the human
 # is on (not the Xvfb a server usually inherits). Not part of `verify`: it pops a window on

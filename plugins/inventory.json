@@ -48,6 +48,15 @@
       "mounted": true
     },
     {
+      "id": "image-window",
+      "package": "@cc/dsh-image-window",
+      "tarballPrefix": "cc-dsh-image-window",
+      "provenance": "in-repo",
+      "source": "plugins/image-window",
+      "pack": "scripts/pack-plugin.mjs",
+      "mounted": true
+    },
+    {
       "id": "skills",
       "package": "@cc/dsh-skills",
       "tarballPrefix": "cc-dsh-skills",
@@ -152,6 +161,15 @@
       "tarballPrefix": "cc-dsh-project-rules",
       "provenance": "in-repo",
       "source": "plugins/project-rules",
+      "pack": "scripts/pack-plugin.mjs",
+      "mounted": true
+    },
+    {
+      "id": "test-cases",
+      "package": "@cc/dsh-test-cases",
+      "tarballPrefix": "cc-dsh-test-cases",
+      "provenance": "in-repo",
+      "source": "plugins/test-cases",
       "pack": "scripts/pack-plugin.mjs",
       "mounted": true
     }

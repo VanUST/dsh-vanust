@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "id": "case-library-drift-rule",
+  "title": "Case library drift rule",
+  "requirement": "driftFor flags a changed surface hash and a missing test",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "docs/cases/tests/case-library.test.mjs",
+  "runCommand": "node --test docs/cases/tests/case-library.test.mjs",
+  "steps": [
+    "node --test docs/cases/tests/case-library.test.mjs"
+  ],
+  "expected": "4 passing; red run before the fix had 1 failure",
+  "tags": [
+    "case-library"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/test-cases/lib/schema.mjs",
+      "sha256": "c8936578934e90ee7d07edefafb9ada1eef6d94191c8eadfcf4af1c46da069ec"
+    }
+  ],
+  "revision": 2,
+  "createdAt": "2026-11-11T11:30:50.863Z",
+  "updatedAt": "2026-11-11T11:30:56.002Z",
+  "createdBy": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-11T11:30:56.002Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": null
+    }
+  ],
+  "evidence": {
+    "redFirst": {
+      "command": "node --test docs/cases/tests/case-library.test.mjs",
+      "output": "tests 4 pass 3 fail 1",
+      "exitCode": 1,
+      "at": "2026-11-11T11:30:56.001Z"
+    },
+    "green": {
+      "command": "node --test docs/cases/tests/case-library.test.mjs",
+      "output": "tests 4 pass 4 fail 0",
+      "exitCode": 0,
+      "at": "2026-11-11T11:30:56.001Z"
+    },
+    "commit": null
+  },
+  "lastVerified": {
+    "at": "2026-11-11T11:30:56.001Z",
+    "command": "node --test docs/cases/tests/case-library.test.mjs",
+    "exitCode": 0
+  }
+}

@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "id": "panel-proof-fixture-v2-requirement-stays-visible",
+  "title": "Panel proof fixture v2: requirement stays visible",
+  "requirement": "The Test cases panel must show the requirement, steps and evidence for every case, including a documented-only one. Panel edit applied. External edit.",
+  "kind": "scenario",
+  "status": "deprecated",
+  "source": "human",
+  "automated": false,
+  "reason": "panel fixture for the UI proof; this requirement is about rendering, not a runnable test",
+  "steps": [
+    "Open the Test cases panel from the Tasks tab.",
+    "Filter to documented cases and open this fixture.",
+    "Read the requirement, steps, expected outcome and automation reason."
+  ],
+  "expected": "The panel renders the requirement, the three steps and the documented-only reason without clipping.",
+  "tags": [
+    "panel-fixture",
+    "documented"
+  ],
+  "surfaceFiles": [],
+  "revision": 5,
+  "createdAt": "2026-11-11T12:05:45.124Z",
+  "updatedAt": "2026-11-11T12:08:05.306Z",
+  "createdBy": "ux",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-11T12:05:45.124Z",
+      "editedBy": "human",
+      "snapshot": {
+        "title": "Panel proof fixture v2: requirement stays visible",
+        "requirement": "The Test cases panel must show the requirement, steps and evidence for every case, including a documented-only one.",
+        "expected": "The panel renders the requirement, the three steps and the documented-only reason without clipping.",
+        "steps": [
+          "Open the Test cases panel from the Tasks tab.",
+          "Filter to documented cases and open this fixture.",
+          "Read the requirement, steps, expected outcome and automation reason."
+        ],
+        "automated": false,
+        "reason": "panel fixture for the UI proof; this requirement is about rendering, not a runnable test",
+        "status": "unverified"
+      }
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-11T12:07:57.622Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "Panel proof fixture v2: requirement stays visible",
+        "requirement": "The Test cases panel must show the requirement, steps and evidence for every case, including a documented-only one. Panel edit applied.",
+        "expected": "The panel renders the requirement, the three steps and the documented-only reason without clipping.",
+        "steps": [
+          "Open the Test cases panel from the Tasks tab.",
+          "Filter to documented cases and open this fixture.",
+          "Read the requirement, steps, expected outcome and automation reason."
+        ],
+        "automated": false,
+        "testPath": "",
+        "runCommand": "",
+        "reason": "panel fixture for the UI proof; this requirement is about rendering, not a runnable test",
+        "status": "unverified"
+      }
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-11T12:08:03.088Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": null
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-11T12:08:05.306Z",
+      "editedBy": "human",
+      "action": "deprecated",
+      "reason": "panel proof complete; fixture retired"
+    }
+  ],
+  "evidence": {
+    "observation": {
+      "command": "manual observation at 1440x900",
+      "output": "fixture rendered with requirement, steps and documented-only reason",
+      "exitCode": 0,
+      "at": "2026-11-11T12:08:03.081Z"
+    },
+    "commit": null
+  },
+  "testPath": "",
+  "runCommand": "",
+  "lastVerified": {
+    "at": "2026-11-11T12:08:03.081Z",
+    "command": "manual observation at 1440x900",
+    "exitCode": 0
+  },
+  "degraded": false,
+  "deprecateReason": "panel proof complete; fixture retired"
+}

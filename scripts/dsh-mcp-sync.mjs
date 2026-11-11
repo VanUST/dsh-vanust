@@ -70,8 +70,10 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   buildRow,
+  expandPathTokens,
   readSpec,
   renderPatch,
+  resolveBinary,
   resolveHome,
   resolveNpx,
   resolveUvx,
@@ -84,7 +86,7 @@ const KIT = resolve(HERE, '..')
 
 /** Parses argv. An unknown flag or a missing value is a usage error. */
 function parseArgs(argv) {
-  const options = { mode: 'check', spec: null, home: null, workspace: null, project: null, json: false }
+  const options = { mode: 'check', spec: null, home: null, workspace: null, project: null, out: null, json: false }
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
     const next = () => {
@@ -98,6 +100,7 @@ function parseArgs(argv) {
       case '--home': options.home = next(); break
       case '--workspace': options.workspace = next(); break
       case '--project': options.project = next(); break
+      case '--out': options.out = next(); break
       case '--check': options.mode = 'check'; break
       case '--apply': options.mode = 'apply'; break
       case '--json': options.json = true; break
@@ -114,9 +117,11 @@ const USAGE = [
   '  --spec <path>       canonical server list (default <kit>/profile/mcp-servers.json)',
   '  --home <path>       harness home (default $DSH_HOME)',
   '  --workspace <path>  expands <workspace> in launcher candidates',
-  '  --project <path>    Godot project directory, placed on the row as cwd',
+  '  --project <path>    project directory, placed on the row as cwd',
+  '  --out <path>        write the pack to this patch file instead of the harness home;',
+  '                      use with a workspace-scoped spec so no machine-wide row is written',
   '  --check             report only (default)',
-  '  --apply             write $DSH_HOME/cordis.patch.yml',
+  '  --apply             write the patch layer',
   '  --json              machine-readable output',
 ].join('\n')
 
@@ -217,6 +222,41 @@ function withHindsight(rendered, hindsight) {
   return `${JSON.stringify(parsed, null, 2)}\n`
 }
 
+/**
+ * Read the pack-level rows a spec declares beside its servers.
+ *
+ * A workspace pack is more than MCP rows: the code-search pack also mounts one static
+ * prompt-routing plugin, and that row belongs to the same opt-in artifact as the servers.
+ * The rows are declared in the spec (so one file describes the whole pack) and written here,
+ * because this script is the only writer of a pack. A row must carry an id and a name; a
+ * malformed one is refused rather than emitted, for the same reason a malformed server is.
+ *
+ * @param specPath - Absolute path to the spec.
+ * @returns `{ rows, errors }`, where `rows` are `{ id, name }` objects with `<kit>` and
+ *   `<project>` already refused (they are expanded by the caller, which knows both paths).
+ */
+function readPackRows(specPath) {
+  const errors = []
+  let parsed
+  try {
+    parsed = JSON.parse(readFileSync(specPath, 'utf8').replace(/^\uFEFF/, ''))
+  } catch (error) {
+    return { rows: [], errors: [`pack rows unreadable: ${error.message}`] }
+  }
+  const declared = parsed?.packRows
+  if (declared === undefined) return { rows: [], errors }
+  if (!Array.isArray(declared)) return { rows: [], errors: ['`packRows` must be an array'] }
+  const rows = []
+  for (const [index, row] of declared.entries()) {
+    if (row === null || typeof row !== 'object' || typeof row.id !== 'string' || typeof row.name !== 'string') {
+      errors.push(`packRows[${index}]: expected { id, name }`)
+      continue
+    }
+    rows.push(row)
+  }
+  return { rows, errors }
+}
+
 async function main() {
   let options
   try {
@@ -232,6 +272,10 @@ async function main() {
 
   const home = options.home ?? resolveHome()
   const specPath = options.spec ?? join(KIT, 'profile', 'mcp-servers.json')
+  // A workspace pack is an OVERLAY the operator applies (`dsh ... --patch <out>`), not a
+  // machine-wide row. `--out` is what makes that possible without a second writer: the same
+  // row builder renders the same shape, and the harness home is never opened for writing.
+  const outPath = options.out === null ? null : resolve(options.out)
   const workspace = options.workspace ?? options.project ?? process.cwd()
   // Default the project directory by looking for the marker rather than by adopting the
   // working directory. A `cwd` the bridge is started in is load-bearing — it is where the
@@ -240,7 +284,7 @@ async function main() {
   const projectDir = options.project
     ? resolve(options.project)
     : (existsSync(join(workspace, 'project.godot')) ? resolve(workspace) : null)
-  const patchPath = join(home, 'cordis.patch.yml')
+  const patchPath = outPath ?? join(home, 'cordis.patch.yml')
 
   const result = {
     ok: true,
@@ -248,10 +292,13 @@ async function main() {
     spec: specPath,
     home,
     patchPath,
+    pack: outPath !== null,
     rows: [],
+    routes: [],
     namespaces: [],
     uvx: null,
     npx: null,
+    binary: {},
     project: projectDir,
     present: false,
     matches: null,
@@ -276,10 +323,23 @@ async function main() {
       continue
     }
     const npx = runner === 'npx' ? resolveNpx({}) : null
+    const binary = runner === 'binary' ? resolveBinary({ server }) : null
+    if (runner === 'binary' && !binary) {
+      result.errors.push(`${server.id}: no "${server.binary}" executable found (checked $${server.binaryEnv ?? 'PATH'}, the spec candidates, and PATH); run node ${join(KIT, 'scripts', 'provision-tools.mjs')} --apply`)
+      continue
+    }
     if (uvx) result.uvx = result.uvx ?? uvx
     if (npx) result.npx = result.npx ?? npx
+    if (binary) result.binary[server.id] = binary
     try {
-      result.rows.push(buildRow({ server, uvx: uvx ?? undefined, npx: npx ?? undefined, projectDir: projectDir ?? undefined }))
+      result.rows.push(buildRow({
+        server,
+        uvx: uvx ?? undefined,
+        npx: npx ?? undefined,
+        binary: binary ?? undefined,
+        projectDir: projectDir ?? undefined,
+        kitDir: KIT,
+      }))
     } catch (error) {
       result.errors.push(`${server.id}: ${error.message}`)
     }
@@ -290,11 +350,28 @@ async function main() {
     result.errors.push('no server could be materialized; refusing to write a patch layer that would mount nothing')
   }
 
+  // Pack-level rows (a static routing section, in the code-search pack) travel with the same
+  // opt-in artifact. Their ids join the accepted set so a regenerated pack is recognized as
+  // ours, and a foreign file at the same path is still refused.
+  const pack = readPackRows(specPath)
+  result.errors.push(...pack.errors)
+  if (pack.errors.length > 0) result.ok = false
+  const expandValue = (value) => {
+    if (typeof value === 'string') return expandPathTokens(value, { kitDir: KIT, projectDir })
+    if (Array.isArray(value)) return value.map(expandValue)
+    if (value !== null && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, inner]) => [key, expandValue(inner)]))
+    return value
+  }
+  const packRows = pack.rows.map((row) => expandValue(row))
+  result.routes = packRows.map((row) => row.id)
+  const acceptedIds = rowIdsFor(spec).accepted
+  for (const row of packRows) acceptedIds.add(row.id)
+
   // The ids this deployment may already have written for the declared servers: the prefixed
   // ones a sync writes now, plus the bare server ids written before the rename. A layer holding
   // only those is ours to replace; anything else is another writer's and is left alone.
-  const classification = classifyPatch(patchPath, rowIdsFor(spec).accepted)
-  const rendered = withHindsight(renderPatch({ rows: result.rows }), classification.hindsight)
+  const classification = classifyPatch(patchPath, acceptedIds)
+  const rendered = withHindsight(renderPatch({ rows: [...result.rows, ...packRows] }), classification.hindsight)
   result.present = existsSync(patchPath)
   result.matches = classification.ours && classification.text !== null && classification.text === rendered
 
@@ -320,9 +397,11 @@ async function main() {
   }
 
   if (result.changed) {
-    result.next.push('Restart dsh: the patch layer is read at boot, so the new server row is not live yet.')
+    result.next.push(result.pack
+      ? `Apply the pack per project: dsh <profile> --patch ${patchPath} (or dsh headless --patch …). It is inert until an operator passes it.`
+      : 'Restart dsh: the patch layer is read at boot, so the new server row is not live yet.')
   }
-  if (!existsSync(join(home, 'mcp-servers.json'))) {
+  if (!result.pack && !existsSync(join(home, 'mcp-servers.json'))) {
     result.next.push(`Project the canonical spec first: node ${join(KIT, 'scripts', 'kit-update.mjs')} --apply`)
   }
 
@@ -330,13 +409,15 @@ async function main() {
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
   } else {
     const say = (line) => process.stdout.write(`${line}\n`)
-    say(`mode      ${result.mode}`)
+    say(`mode      ${result.mode}${result.pack ? ' (workspace pack)' : ' (harness home)'}`)
     say(`spec      ${result.spec}`)
     say(`patch     ${result.patchPath}${result.present ? ' (exists)' : ' (absent)'}`)
     if (result.uvx !== null) say(`uvx       ${result.uvx}`)
     if (result.npx !== null) say(`npx       ${result.npx}`)
+    for (const [id, path] of Object.entries(result.binary)) say(`binary    ${id}: ${path}`)
     say(`project   ${result.project ?? '(none — cwd omitted)'}`)
     say(`rows      ${result.rows.length} ${result.namespaces.join(' ')}`.trim())
+    if (result.routes.length > 0) say(`pack      ${result.routes.join(' ')}`)
     for (const error of result.errors) say(`ERROR: ${error}`)
     for (const line of result.next) say(`next: ${line}`)
   }

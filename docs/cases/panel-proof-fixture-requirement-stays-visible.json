@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 1,
+  "id": "panel-proof-fixture-requirement-stays-visible",
+  "title": "Panel proof fixture: requirement stays visible",
+  "requirement": "The Test cases panel must show the requirement, steps and evidence for every case, including a documented-only one. Panel edit applied. Panel edit applied. External edit.",
+  "kind": "scenario",
+  "status": "deprecated",
+  "source": "human",
+  "automated": false,
+  "reason": "panel fixture for the UI proof; this requirement is about rendering, not a runnable test",
+  "steps": [
+    "Open the Test cases panel in a live chat.",
+    "Filter to documented cases and open this fixture.",
+    "Read the requirement, steps, expected outcome and automation reason."
+  ],
+  "expected": "The panel renders the requirement, the three steps and the documented-only reason without clipping.",
+  "tags": [
+    "panel-fixture",
+    "documented"
+  ],
+  "surfaceFiles": [],
+  "revision": 6,
+  "createdAt": "2026-11-11T11:37:57.015Z",
+  "updatedAt": "2026-11-11T11:51:10.613Z",
+  "createdBy": "orchestrator",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-11T11:37:57.015Z",
+      "editedBy": "human",
+      "snapshot": {
+        "title": "Panel proof fixture: requirement stays visible",
+        "requirement": "The Test cases panel must show the requirement, steps and evidence for every case, including a documented-only one.",
+        "expected": "The panel renders the requirement, the three steps and the documented-only reason without clipping.",
+        "steps": [
+          "Open the Test cases panel in a live chat.",
+          "Filter to documented cases and open this fixture.",
+          "Read the requirement, steps, expected outcome and automation reason."
+        ],
+        "automated": false,
+        "reason": "panel fixture for the UI proof; this requirement is about rendering, not a runnable test",
+        "status": "unverified"
+      }
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-11T11:50:02.717Z",
+      "editedBy": "human",
+      "snapshot": {
+        "title": "Panel proof fixture: requirement stays visible",
+        "requirement": "The Test cases panel must show the requirement, steps and evidence for every case, including a documented-only one. Panel edit applied.",
+        "expected": "The panel renders the requirement, the three steps and the documented-only reason without clipping.",
+        "steps": [
+          "Open the Test cases panel in a live chat.",
+          "Filter to documented cases and open this fixture.",
+          "Read the requirement, steps, expected outcome and automation reason."
+        ],
+        "automated": false,
+        "testPath": "",
+        "runCommand": "",
+        "reason": "panel fixture for the UI proof; this requirement is about rendering, not a runnable test",
+        "status": "unverified"
+      }
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-11T11:51:02.949Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "Panel proof fixture: requirement stays visible",
+        "requirement": "The Test cases panel must show the requirement, steps and evidence for every case, including a documented-only one. Panel edit applied. Panel edit applied.",
+        "expected": "The panel renders the requirement, the three steps and the documented-only reason without clipping.",
+        "steps": [
+          "Open the Test cases panel in a live chat.",
+          "Filter to documented cases and open this fixture.",
+          "Read the requirement, steps, expected outcome and automation reason."
+        ],
+        "automated": false,
+        "testPath": "",
+        "runCommand": "",
+        "reason": "panel fixture for the UI proof; this requirement is about rendering, not a runnable test",
+        "status": "unverified"
+      }
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-11T11:51:08.381Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": null
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-11T11:51:10.613Z",
+      "editedBy": "human",
+      "action": "deprecated",
+      "reason": "panel proof complete; fixture retired"
+    }
+  ],
+  "evidence": {
+    "observation": {
+      "command": "manual observation at 1440x900",
+      "output": "fixture rendered with requirement, steps and documented-only reason",
+      "exitCode": 0,
+      "at": "2026-11-11T11:51:08.373Z"
+    },
+    "commit": null
+  },
+  "testPath": "",
+  "runCommand": "",
+  "lastVerified": {
+    "at": "2026-11-11T11:51:08.373Z",
+    "command": "manual observation at 1440x900",
+    "exitCode": 0
+  },
+  "deprecateReason": "panel proof complete; fixture retired"
+}

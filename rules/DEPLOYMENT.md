@@ -14,13 +14,17 @@ unless the `DSH_HOME` environment variable overrides it.
 
 ## 1. What this deployment is
 
-The upstream harness plus twelve plugins, all pinned and installed from one kit repository:
+The upstream harness plus nineteen plugins, all pinned and installed from one kit repository:
 
 | Piece | What it does |
 |---|---|
 | `@cc/dsh-notify` | raises a desktop notification when an agent finishes a turn and when it asks the user a question (`notify-send`, a PowerShell toast, or `osascript`); spawned detached, argv-only, never blocking |
+| `@cc/dsh-image-window` | keeps only the newest N images in a session's request by offloading the one that falls out of the window as a new image arrives — a *tail* rewrite, so a caching provider re-bills the new batch instead of the whole context. It exists because the harness satisfies a route's image budget reactively: an adapter rejects the request, `@deepseek-ai/dsh-compaction-image-offload` removes the **oldest** occurrences and retries, and that head rewrite re-billed 1,783,829 of 2,260,222 fresh tokens in one measured session (2026-11-10, `session-1cb0708d`, kimi-coding, 532K context). The harness plugin stays mounted as the safety net for a single image larger than the whole byte budget. `keepImages: 1` by default; raise it when a task compares several images |
 | `@cc/dsh-presentation` | one tool, `presentation`, that renders a JSON deck spec into a standalone HTML file in the workspace; the Sidebar document preview displays it, so the file the user previews is the file they export and print |
 | `@cc/dsh-diagrams` | one tool, `diagram`, that renders a JSON diagram spec into a standalone HTML file whose SVG is inline: flow and state (flowcharts, algorithm illustrations), layered architecture, and sequence diagrams. The agent describes nodes and relationships and the plugin computes the geometry — layered ranking with cycle breaking, edge routing with detours, and label placement — in a dependency-free engine. The Sidebar document preview displays it, so the file the user prints is the file the agent wrote |
+| `@cc/dsh-design-map` | one Excalidraw scene, `design.excalidraw` at the project root, that the **orchestrator** and the human both edit. The orchestrator gets `design_map` (read/write/upsert/remove over labelled boxes and arrows; missing positions are laid out for it) and the human opens **Design map** in the sidebar. The tool is registered per agent on `agent/created` and ONLY for the `orchestrator` preset: a specialist child has no `design_map`, and an unknown preset gets none either (an ownership boundary fails closed). The `/design-map` command is not gated - it is the human's panel path. The panel embeds the real MIT Excalidraw editor in an iframe `srcdoc` built from a vendored 3.4 MB frame (no CDN), reads the scene through `workspaceFiles` and saves through the `/design-map` command; every save is stamped with `rev`, `updatedAt` and `updatedBy` at the scene root, and a read returns `ageMs`/`stale` so the orchestrator knows when the map must be refreshed. One document, one revision counter, no second store |
+| `@cc/dsh-test-cases` | the observed test-case library in `docs/cases/`: eight host tools (`case_record`, `case_update`, `case_verify`, `case_list`, `case_get`, `case_supersede`, `case_deprecate`, `case_drift`) over one schema-validated JSON file per case. Compare-and-set on `revision` with `history`; automated cases carry `testPath`, `runCommand` and the observed red-first (non-zero exit) + green runs; documented-only cases carry `steps`, `expected` and a named `reason`; `case_drift` rehashes recorded surface files and degrades a missing test to documented-only, marking the case `stale` rather than deleting the requirement. Tools are registered per agent on `agent/created`: the `orchestrator` gets only the intake subset (`case_record` with `source:human`, `case_list`, `case_get`, `case_drift`), the tester presets get all eight, and a preset not listed gets all eight so the library stays usable outside the orchestrated presets. The rule is observe first, then persist - no speculative tests |
+| `@cc/dsh-project-rules` | one workspace file, `.dsh/rules.md` (gitignored), rendered as the single prompt section `project:rules` at order 12 on every agent and subagent. The **Rules** panel edits it - **the human only**: a `tools/pre-execute` guard refuses an agent's `write`/`edit` of the resolved path and a `bash`/`pwsh` command naming it, both with the code `rules_human_only`, while the panel's command path is untouched. Guardrail, not jail: a shell command can spell a path the string match cannot follow, so the boundary is enforced by the guard where it can be and by review where it cannot. Typing is local React state, Save writes the file atomically through `/project-rules`, and the save deliberately does not touch the in-memory section. Each agent re-reads the file only at its own `turn/start` and **keeps the previous string when the bytes are unchanged**; an empty file renders no section. That is what makes the editor cache-safe: a dirty draft, a keystroke or a save mid-turn cannot change the system prompt of the turn already in flight, and an untouched file cannot churn the prefix between turns |
 | `@cc/dsh-work-modes` | **not mounted** since 2026-11-05. It refused a third concurrent `subagent` child per session (its default limit is 2, which was the cap an operator hit). The cap was removed deliberately; the package and its tarball stay in the kit and `plugins/inventory.json` records `mounted: false`, so re-enabling it is one profile row. The ceiling now comes from the harness pool: the `subagent` row in `profile/cordis.patch.yml` sets `maxActiveSubagents: 64` (the harness default is 8) and leaves `maxDepth` at 1 |
 | `@cc/dsh-godot-mcp` | keeps the deployment's MCP server list declarative and transportable: owns the canonical spec, resolves the `uvx` launcher the Godot AI bridge needs and the Godot project it starts in, and reports per declared server whether its tools are loadable. It implements no MCP itself — the harness's shipped `@deepseek-ai/dsh-mcp-client` bridge does the connecting, and `scripts/dsh-mcp-sync.mjs` writes the row that bridge loads into `$DSH_HOME/cordis.patch.yml`. **Two rows mount for this server and their ids must differ**: the plugin's own row is `id: godot-mcp` (the kit's convention is that a plugin row's id is its function name), while the bridge row the sync writes is `id: mcp-client-<server id>`. One composition has ONE loader-id namespace and the harness refuses the whole tree on a duplicate — `dsh web` fails to start with `duplicate loader entry id: godot-mcp`, which is what happened when a server id was used as the row id. Do not "tidy" the generated id back to the bare server id; `scripts/check-portability.mjs` fails when a generated id spells an authored one |
 | `@deepseek-ai/dsh-subagent` | the harness's subagent service, mounted with this profile's one setting: `maxActiveSubagents: 64` (harness default 8), `maxDepth` left at its default 1. It owns the concurrent-child pool, parent/child relationships and the capacity check that answers `ACTIVATION_LIMIT_REACHED`; `subagent`, `subagent_fork`, `workflow` and `delegate_task` all spawn through it. Raising the pool here is what makes removing `@cc/dsh-work-modes` a real removal rather than a move from a cap of 2 to a cap of 8. The volatile fields are also editable on Plugins → Subagent, but a value written in this profile patch takes precedence and a form write it would override is refused |
@@ -310,6 +314,44 @@ Measured on this machine: a 61 KB JSON tool result went from 19 955 to 8 208 inp
 through the proxy (≈59%), DeepSeek's SSE stream survives it, and an uncompressed cold start
 is passed through untouched. Revert is `disable --stop` plus one restart.
 
+**The session store — one unreadable log costs the whole history (boot guard).** The other
+failure that reads as data loss without any data being lost. `listArtifacts()` in
+`dsh-session-persistence-jsonl` tolerates only `SessionFormatUnsupportedError` and
+`SessionPersistenceCorruptionError` and rethrows everything else, and the `open()` inside
+`readFirstZstdLine()` is not wrapped — so a single log the OS refuses aborts the **entire
+cross-workspace listing**, the `workspace` plugin never activates, and the four plugins that
+inject `workspaceRegistry` (`session-controller`, `workspace-controller`, `schedule`,
+`ui-deliverables`) stay pending. `dsh web` then serves an empty history and cannot create a
+chat. The local cause is an on-access security scanner returning `EPERM` for one file —
+observed 2026-11-03 and again 2026-11-10, both times on a subagent log under
+`tasks/Unnamed`; the boot log names it outright:
+
+```
+dsh: warning: 6 entries did not activate
+workspace (@deepseek-ai/dsh-workspace): Error: EPERM: operation not permitted, open '…/session.v4.jsonl.zstd'
+session-controller (@deepseek-ai/dsh-session-controller): pending (waiting for service: workspaceRegistry)
+```
+
+`scripts/session-store.mjs` owns the answer, and `start.sh` / `start.ps1` run `ensure` before
+`exec dsh web`:
+
+```bash
+node scripts/session-store.mjs doctor   # report every log it would move; moves nothing, exits 1 when one is refused
+node scripts/session-store.mjs ensure   # quarantine what the OS refuses, then exit 0 so the boot continues
+node scripts/session-store.mjs ensure --verbose        # name every probed file
+node scripts/session-store.mjs doctor --json           # machine-readable
+SESSION_STORE=0 ./start.sh                             # skip the guard for one boot
+```
+
+`ensure` probes exactly what the harness does (`open` plus a first read), retries before it
+decides, and moves **only** what stays refused — the whole session directory, bytes untouched,
+into `$DSH_HOME/sessions-quarantine/<session>-<date>/`, with a `README.txt` naming the file,
+the errno, the attempts and the restore command, plus one line per move in `preflight.log`.
+It never moves a directory written in the last 60 minutes (`--max-age-minutes`), because a
+fresh mtime means a live session. A clean store costs ~0.2 s and prints nothing; the summary
+line is `make session-doctor`. Quarantining does not delete the chat: it removes it from the
+listing, which is the difference between "invisible" and "gone".
+
 **Skills that grow — `@cc/dsh-skill-evolve` (in the profile, nothing to start).** Writes
 `<name>/SKILL.md` under `$DSH_HOME/skills`, which the harness's own `skill-filesystem`
 provider already scans and hot-reloads. Skills written this way appear in a running
@@ -377,6 +419,107 @@ Chrome and ffmpeg are DETECTED only, never installed: the probe looks on PATH an
 per-platform install locations (`%ProgramFiles%\Google\Chrome\Application\chrome.exe`,
 `/Applications/…`), because neither Windows nor macOS puts a browser on PATH.
 
+**Code search — Serena + Octocode, as a workspace pack per repository.** Two MCP servers give
+agents symbolic navigation (Serena 2.1.0: `find_symbol`, `find_referencing_symbols`,
+`get_symbols_overview`, plus `initial_instructions`, the connection manual its own prompt
+demands) and conceptual/AST/graph retrieval (Octocode 0.29.2: `semantic_search`,
+`structural_search`, `view_signatures`, `graphrag`). `profile/code-search-pack.mjs` adds one
+static prompt section that routes between those instruments and the agent's own
+grep/glob/read, and `profile/serena-hooks.json` mounts a Claude-Code-shape hooks bridge that
+reminds an agent to use them. The spec is `profile/code-search.mcp.json`, deliberately **not**
+a row in `profile/mcp-servers.json`: that list is projected into `$DSH_HOME/cordis.patch.yml`,
+which serves every profile and every project, and a symbol server bound to one repository
+(`--project-from-cwd`, `octocode mcp --path .`) must not appear in every project's sessions.
+So the pack is generated as an overlay for ONE repository, and the harness home is never
+opened for writing.
+
+```bash
+# Prerequisites. Serena also installs the `serena-hooks` command the hooks rows call; the
+# bridge is a kit-local package. Expect 3/3 after provisioning.
+node scripts/provision-tools.mjs --check --only serena,octocode,hooks-bridge
+node scripts/provision-tools.mjs --apply --only serena,octocode,hooks-bridge
+
+# Generate the overlay for the current checkout. `--project` is load-bearing: it becomes the
+# bridge's cwd, which is where Serena and Octocode find the repository. `.dsh/` is gitignored.
+node scripts/dsh-mcp-sync.mjs --spec profile/code-search.mcp.json \
+  --project "$PWD" --out .dsh/code-search.patch.yml --apply
+
+# Prove the rows compose before booting anything (no home-layer write, no server started).
+DSH_KIT_BOOT=0 dsh --profile web --patch .dsh/code-search.patch.yml --dump-config \
+  | grep -E 'mcp-client-(serena|octocode)|code-search-(routing|hooks)'
+
+# Build the Octocode index for THIS revision, then gate it. The kit's config is required:
+# it disables the 1.1 GB reranker and pins similarity_threshold = 0.3.
+export OCTOCODE_CONFIG_PATH="$PWD/profile/octocode-config.toml"
+octocode index
+octocode stats                                  # Status: Up to date, HEAD matches
+octocode index --list-files | sed -n 's/^  📄 //p' | sort > /tmp/indexed.txt
+git ls-tree -r --name-only HEAD | sort > /tmp/head.txt
+comm -13 /tmp/head.txt /tmp/indexed.txt          # absent from HEAD: must print nothing
+while IFS= read -r p; do [ -e "$p" ] || echo "missing on disk: $p"; done < /tmp/indexed.txt
+```
+
+The overlay is **inert until an instance is started with it**: `dsh web --patch
+.dsh/code-search.patch.yml --port 3080` (add `--patch $DSH_HOME/headroom/patch.yml` when
+compression is enabled and healthy; `dsh headless --patch …` for one run). `./start.sh`
+forwards no extra arguments, so it cannot carry the pack — launch `dsh web` directly for a
+packed instance. The servers, the routing section and the hooks are all read at boot: after
+regenerating the overlay, or editing `profile/serena-context.yml`, `profile/octocode-config.toml`,
+`profile/serena-hooks.json` or `profile/octocode-readonly-guard.mjs`, regenerate and restart.
+There is no hot reload. The pack survives `kit-update` because it is not in the home layer,
+but the overlay carries absolute paths and the kit owns the spec: regenerate it after moving
+the checkout or after a kit update that changes the spec or a profile file.
+
+**All roles, one surface.** The overlay inserts root-level loader rows, not a preset row, so
+every role on that instance — orchestrator, backend, research, reviewer, critic, docs, ux and
+standard — receives the same static routing section and the same `mcp__serena__*` /
+`mcp__octocode__*` tools. No preset lists them, and a preset cannot hide them. Measured on a
+standard headless session: 36 offered tools including all eight code-search tools
+(`reports/code-search/integration.md`); per-preset lists were not read one by one, because a
+root row is not per-preset state.
+
+**Read-only is enforced, not requested.** Serena's `fixed_tools` is the whole surface: three
+symbolic reads plus the manual, with no editing, memory, file-read or shell tools. Octocode
+0.29.2 has no read-only switch, so `profile/octocode-readonly-guard.mjs` proxies its stdio
+JSON-RPC: it deletes `rewrite` and `update_all` from `structural_search`'s advertised schema
+and answers a call that still carries either with `-32601` before Octocode sees it. No LSP
+tools are exposed (`mcp --with-lsp` is not passed). Neither server can write source; both
+write tool state, which is why that state is outside the source tree or gitignored:
+`<project>/.serena/` (Serena project config and symbol cache), `<project>/.dsh/serena-hooks/`
+(hook counters) and `~/.local/share/octocode/<project-hash>/storage` (the index).
+
+**Hooks run in a sandboxed HOME.** Hook processes run through the harness shell, whose HOME is
+sandboxed per run, so `~/.serena` state was invisible to the next hook and the reminder never
+accumulated (measured 2026-11-11: four real greps, all pass). `profile/serena-hooks.json`
+therefore pins `SERENA_HOME=${CLAUDE_PROJECT_DIR}/.dsh/serena-hooks` on every hook.
+`SessionStart` attaches the activation context and the manual, `PreToolUse` reminds and denies
+after 3 consecutive grep calls, 3 code-file reads, or 4 mixed (120 s cool-down; a Serena
+symbolic call resets the counter), and `Stop` cleans that session's state. In the measured runs
+the bridge was invoked 64 times: 61 pass, 3 deny — one per task — and the retry after each
+denial is part of the enhanced arm's latency.
+
+**Indexing is a real setup step with a freshness trap.** Octocode's MCP server never indexes
+(`mcp_index = false`); `octocode index` is the explicit step. The index is a snapshot of the
+working tree, not of HEAD: untracked files are indexed, and generated `.serena/` state was
+indexed in a measured run (138 files; 137 after removing it and re-indexing). So commit or
+stash so the tree is clean, delete generated `.serena/` with the instance stopped, and let the
+`comm` gate above prove every indexed path is in HEAD and on disk — this checkout's own
+main-tree index failed that gate on 2026-11-11 with ten untracked paths. Cost measured here:
+**10m32s and a ~10 MB store for 147 files**, one full index per revision; after HEAD moves,
+`octocode stats` reports "Not indexed" until it runs again, and the MCP server will not
+reindex mid-run. Serena regenerates `.serena/` on first use.
+
+**Measured result: partial adoption, no efficiency claim.** In the clean paired run both arms
+scored 1.0 on every task. Serena was used (8 calls: 3 `initial_instructions`, 5 `find_symbol`);
+Octocode was offered but never called (0 calls). The enhanced arm made +20 requests, +25 tool
+calls and +694,212 prompt tokens, with +31.2 s log wall; the instance also offered 11 more
+tools (8 code-search, 3 MCP-resource) and 17,752 bytes of schema, plus the indexing cost
+above. With one run per task that is descriptive, not causal, and it is not evidence that the
+pack saves tokens or time. Evidence and the full tables:
+[reports/code-search/report.md](../reports/code-search/report.md),
+[adoption/comparison.json](../reports/code-search/adoption/comparison.json) and
+[integration.md](../reports/code-search/integration.md) (local run artifacts; `reports/` is
+gitignored, so these links exist in this checkout, not in an installed copy).
 
 **The role toolchain — seven presets, nine pinned binaries, and two roles that cannot run them.**
 Provisioning also installs the CLIs the role personas name. Each pin is the project's own latest
@@ -545,6 +688,8 @@ written — both are fixed by re-installing the profile files (§3).
 | `http://127.0.0.1:3080/` says authentication required | expected: reopen the `?token=` URL the boot printed |
 | `MISSING_CREDENTIAL` | credentials live per machine in `$DSH_HOME/.credentials.yaml`; finish onboarding |
 | A plugin change had no effect | the profile composes at boot — restart `dsh web` |
+| The UI shows no history and New Session does nothing, on a machine whose sessions are all on disk | one unreadable session log aborted the whole listing (scanner `EPERM`): `make session-doctor` names it, `node scripts/session-store.mjs ensure` quarantines it, then restart. `start.sh` does this on every boot |
+| `dsh: warning: N entries did not activate` at boot | read the named rows: a plugin package that is not installed (`ERR_MODULE_NOT_FOUND`) is a stale patch row, a `pending (waiting for service: …)` chain starts at the first failed service |
 | A subagent stopped mid-task with no report | the server restarted under it; ping it to resume (see §3) — it is not lost, and only its in-flight work is |
 | A repacked tarball had no effect | its version was not bumped (§5.2) |
 | A command you read here no longer exists | the kit moved on: `node $KIT/scripts/check-documentation.mjs` fails on a named script or plugin that is missing, so run it before trusting the prose |

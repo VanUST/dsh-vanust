@@ -1,0 +1,80 @@
+{
+  "_comment": "Code-search workspace pack — Serena (symbolic navigation) and Octocode (semantic/AST/graph retrieval) for ONE project. COMMON TO EVERY ROLE: the rows are root-level loader rows, so orchestrator, backend, research, reviewer, critic, docs, ux and standard sessions all receive the same static mcp__serena__*/mcp__octocode__* surface; no preset lists them and none can hide them. WORKSPACE-SCOPED, NOT MACHINE-WIDE: this is deliberately NOT profile/mcp-servers.json, because that list is projected into $DSH_HOME/cordis.patch.yml and a symbol server bound to one repository would then serve every project on the machine. scripts/dsh-mcp-sync.mjs --spec <this> --project <dir> --out <patch> renders the rows into an overlay the operator passes with --patch for that repository instance; nothing is written to the harness home. Owner: backend, task-mwbw9fmt-speqo9.",
+  "version": 1,
+  "scope": "workspace",
+  "owner": "backend (task-mwbw9fmt-speqo9)",
+  "packRows": [
+    {
+      "id": "code-search-routing",
+      "name": "<kit>/profile/code-search-pack.mjs"
+    },
+    {
+      "id": "code-search-hooks",
+      "name": "<kit>/.tools/node_modules/@deepseek-ai/dsh-hooks-claude-code/lib/index.js",
+      "config": {
+        "configPath": "<kit>/profile/serena-hooks.json"
+      }
+    }
+  ],
+  "servers": [
+    {
+      "id": "serena",
+      "enabled": true,
+      "serverName": "serena",
+      "description": "Serena 2.1.0 (oraios/serena; the application is GPL-3.0-or-later, its SolidLSP library MIT): language-server symbolic navigation — find_symbol, find_referencing_symbols, get_symbols_overview, plus initial_instructions (the connection manual its own prompt demands). Read-only surface fixed by profile/serena-context.yml; no edit, memory, file-read or shell tools are loaded.",
+      "_notes": {
+        "license": "Serena the application is GPL-3.0-or-later (SolidLSP alone is MIT). This pack launches the user-installed binary as a separate process and ships no Serena code, so the kit is not a derivative work; a downstream redistribution of Serena itself would carry the GPL.",
+        "why-binary": "Provisioned by `uv tool install serena-agent==2.1.0` into ~/.local/bin, so the row launches the installed, pinned console script. `uvx` would resolve the same pin on every launch and add seconds to every restart.",
+        "context": "profile/serena-context.yml uses fixed_tools, which REPLACES Serena's default set. Measured on 2.1.0: without `--agent-interface tools` Serena 2.1 defaults to the REPL facade and exposes serena_repl instead of per-operation tools.",
+        "project": "--project-from-cwd reads the project from the bridge's cwd (the row carries <project> as cwd); no machine path is baked into this file.",
+        "privacy": "the web dashboard is off, and SERENA_USAGE_REPORTING=false stops the anonymous startup ping the server otherwise sends to oraios-software.de.",
+        "state": "Serena stores its per-project cache and project.yml under <project>/.serena — tool state, not source (ignored by .gitignore)."
+      },
+      "runner": "binary",
+      "binary": "serena",
+      "transport": "stdio",
+      "args": [
+        "start-mcp-server",
+        "--project-from-cwd",
+        "--context",
+        "<kit>/profile/serena-context.yml",
+        "--agent-interface",
+        "tools",
+        "--enable-web-dashboard",
+        "false",
+        "--log-level",
+        "ERROR"
+      ],
+      "env": {
+        "SERENA_USAGE_REPORTING": "false"
+      },
+      "toolCallTimeoutMs": 180000,
+      "failOnStartupError": false
+    },
+    {
+      "id": "octocode",
+      "enabled": true,
+      "serverName": "octocode",
+      "description": "Octocode 0.29.2 (Apache-2.0, Muvon/octocode): conceptual/semantic retrieval, AST structural search and the Tree-sitter relationship graph. Wrapped by profile/octocode-readonly-guard.mjs, which hides and refuses the one write parameter (structural_search rewrite/update_all).",
+      "_notes": {
+        "no-lsp": "Octocode exposes LSP tools only when `mcp --with-lsp <command>` is passed. The row does not pass it, so the LSP surface does not exist (proved by tools/list).",
+        "read-only": "structural_search can write files when `update_all` or `rewrite` is supplied. Prompt guidance is not an enforcement point, so the server row runs the kit's guard: it removes those two parameters from tools/list and answers a tools/call that carries them with a JSON-RPC error, before Octocode sees it. Measured: the guarded tools/list schema has no update_all/rewrite.",
+        "config": "profile/octocode-config.toml disables the 1.1 GB FastEmbed reranker (the measured startup blocker) and keeps mcp_index=false, so the MCP server serves an existing index read-only; `octocode index` is the one setup step that builds it.",
+        "state": "Octocode keeps its index outside source: ~/.local/share/octocode/<project-hash>/storage, measured 2026-11-11.",
+        "runner": "node launches the guard, which spawns the provisioned `octocode mcp --path .` in the same cwd and proxies JSON-RPC without interpreting results."
+      },
+      "runner": "binary",
+      "binary": "node",
+      "transport": "stdio",
+      "args": [
+        "<kit>/profile/octocode-readonly-guard.mjs"
+      ],
+      "env": {
+        "OCTOCODE_BIN": "octocode",
+        "OCTOCODE_CONFIG_PATH": "<kit>/profile/octocode-config.toml"
+      },
+      "toolCallTimeoutMs": 600000,
+      "failOnStartupError": false
+    }
+  ]
+}
