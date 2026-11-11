@@ -157,9 +157,26 @@ credentials there** (each machine keeps its own keys in
 ### 2.1 Start from the kit so updates apply themselves
 
 The harness composes a profile once, at boot: a plugin, a patch row or a harness
-pin changed in the kit reaches a machine only after a restart. Make the restart
-the thing that converges the machine by starting through
-`scripts/kit-update.mjs` instead of calling `dsh web` directly:
+pin changed in the kit reaches a machine only after a restart. The installer puts
+a `dsh` wrapper in `$DSH_HOME/bin` that makes every launch that restart:
+
+```bash
+dsh web --port 3080        # converges the kit, then boots
+```
+
+The wrapper runs `scripts/kit-update.mjs --apply --no-harness --no-tools
+--keep-model-config` before the harness starts, when no `dsh web` server is
+running, and logs to `$DSH_HOME/kit-boot.log`. It skips with one line when a
+server is already up, because editing the profile patch under a live server
+disposes live plugins. Two things it deliberately does not do: it does not touch
+the pinned harness or the optional external binaries (run `kit-update --apply`
+without the flags for that), and it preserves the machine's
+`agent-default-model` row - provider, model and reasoning effort are a cost
+decision, not a kit artefact. `DSH_KIT_BOOT=0 dsh web` opts out for one launch.
+
+`npx @deepseek-ai/dsh web` runs the package's own bin and cannot be intercepted by
+the wrapper; use `dsh web` (or the explicit steps below) when you want the
+convergence.
 
 ```bash
 # any machine — check and apply in one line, then boot

@@ -93,8 +93,22 @@ if [ "${SKIP_TOOLS:-0}" != "1" ] && [ -f "${KIT_DIR}/scripts/provision-tools.mjs
     || echo "   some tools are still missing; the features that need them degrade and say so"
 fi
 
+# 7. The `dsh` wrapper: pins Node 24 AND converges the machine on the kit before
+#    every boot, so a plain `dsh web` picks up new plugins, profile rows and fixes
+#    without start.sh. A running server makes it skip (the profile is composed at
+#    boot; editing the patch under a live server disposes live plugins). The
+#    machine's agent-default-model row is preserved; opt out with DSH_KIT_BOOT=0.
+mkdir -p "${DSH_HOME}/bin"
+sed "s|@KIT_DIR@|${KIT_DIR}|g" "${KIT_DIR}/scripts/dsh-wrapper.sh" > "${DSH_HOME}/bin/dsh"
+chmod +x "${DSH_HOME}/bin/dsh"
+echo "   wrapper: ${DSH_HOME}/bin/dsh (converges the kit on every boot)"
+case ":$PATH:" in
+  *":${DSH_HOME}/bin:"*) ;;
+  *) echo "   add to ~/.bashrc AFTER the nvm/npm PATH lines: export PATH=\"${DSH_HOME}/bin:\$PATH\"" ;;
+esac
+
 echo
 echo "== done =="
 echo "   DSH_HOME : ${DSH_HOME}"
-echo "   start    : dsh web --port 3080   (or ./start.sh)"
+echo "   start    : dsh web --port 3080   (converges the kit first; ./start.sh also works)"
 echo "   docs     : open USERGUIDE.md for first-run checks and per-machine config."

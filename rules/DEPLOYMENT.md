@@ -103,6 +103,18 @@ every session then failed with `tools: at least one tool must have defer_loading
 Change the kit's `profile/cordis.patch.yml`, then restart: `KIT_UPDATE=0 ./start.sh`, or
 `./start.sh` to converge first.
 
+**A plain `dsh web` converges too, since 2026-11-11.** The installer puts a wrapper at
+`$DSH_HOME/bin/dsh` (canonical source `scripts/dsh-wrapper.sh`) after the nvm/npm PATH lines, so
+it wins over the npm bin. Before the harness boots it runs
+`scripts/kit-update.mjs --apply --no-harness --no-tools --keep-model-config`, logging to
+`$DSH_HOME/kit-boot.log`. Three consequences worth knowing: (1) it skips with one line while a
+`dsh web` server runs, which is exactly the rule above; (2) it preserves the machine's
+`agent-default-model` row, so an automatic update cannot change provider/model/reasoning effort;
+(3) it does not touch the harness pin or the optional external binaries — `node
+scripts/kit-update.mjs --apply` (or `./start.sh`) remains the full convergence. `DSH_KIT_BOOT=0`
+opts out for one launch, `DSH_KIT_DIR` relocates the kit. `npx @deepseek-ai/dsh web` runs the
+package's bin directly and bypasses the wrapper; use `dsh web` when the convergence matters.
+
 ### 1.1 Hindsight memory — third-party, installed outside the kit
 
 The only plugin that is deliberately not in this repository is Hindsight:

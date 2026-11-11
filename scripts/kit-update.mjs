@@ -78,6 +78,11 @@ const USAGE = `kit-update — converge an installed machine onto this kit
   --no-harness  never touch the globally installed harness
   --no-tools    never provision the optional external binaries (rtk, headroom,
                 babysitter, marp, mermaid, d2); SKIP_TOOLS=1 does the same
+  --keep-model-config
+                keep the installed agent-default-model row (provider/model/
+                reasoningEffort) when the profile patch is written; every other
+                row still comes from the kit. A dsh boot hook passes this so an
+                automatic update cannot silently change the model cost.
   --help        this text
 
 Drift is decided by content hashes, so a repacked tarball that kept its
@@ -98,6 +103,7 @@ function parseArgs(argv) {
     json: false,
     harness: true,
     tools: true,
+    keepModelConfig: false,
     help: false,
   }
   for (let i = 0; i < argv.length; i += 1) {
@@ -117,6 +123,7 @@ function parseArgs(argv) {
       case '--json': opts.json = true; break
       case '--no-harness': opts.harness = false; break
       case '--no-tools': opts.tools = false; break
+      case '--keep-model-config': opts.keepModelConfig = true; break
       case '--help': case '-h': opts.help = true; break
       default: throw new Error(`unknown argument: ${arg}`)
     }
@@ -423,6 +430,35 @@ function installFiles({ items, home, profile }) {
   return written
 }
 
+/**
+ * The installed `agent-default-model` row, verbatim, or null.
+ *
+ * The row is a top-level patch entry: it starts at `- id: agent-default-model`
+ * and ends before the next top-level `- ` entry. A boot-time convergence keeps
+ * this row from the machine, so an automatic kit update can never change the
+ * provider, the model or the reasoning effort - a cost decision, not a kit
+ * artefact.
+ */
+function readModelConfigRow(patchPath) {
+  if (!existsSync(patchPath)) return null
+  const lines = readFileSync(patchPath, 'utf8').split('\n')
+  const start = lines.findIndex((line) => /^- id: agent-default-model$/.test(line))
+  if (start === -1) return null
+  let end = start + 1
+  while (end < lines.length && !/^- /.test(lines[end])) end += 1
+  while (end > start + 1 && lines[end - 1].trim() === '') end -= 1
+  return lines.slice(start, end).join('\n')
+}
+
+/** Replace the kit's model row in a freshly written patch with the machine's own. */
+function keepModelConfigRow(patchPath, saved) {
+  const current = readModelConfigRow(patchPath)
+  if (!current || current === saved) return false
+  const text = readFileSync(patchPath, 'utf8')
+  writeFileSync(patchPath, text.replace(current, () => saved))
+  return true
+}
+
 /** Plugin package names currently recorded as dependencies of the profile. */
 function installedPluginNames(profileJson) {
   return Object.keys(profileJson?.dependencies ?? {})
@@ -675,7 +711,13 @@ function main(argv) {
   // interrupted between the two, and a whole-file copy is cheap next to the
   // risk of a machine that believes it converged while a file is stale.
   const applied = []
+  const patchPath = join(home, 'profiles', opts.profile, 'cordis.patch.yml')
+  const modelRow = opts.keepModelConfig ? readModelConfigRow(patchPath) : null
   const writtenFiles = installFiles({ items, home, profile: opts.profile })
+  if (modelRow && keepModelConfigRow(patchPath, modelRow)) {
+    applied.push('keep-model-config')
+    log('files.model-config-kept', { row: 'agent-default-model' })
+  }
   if (writtenFiles.length) applied.push('write-profile-files')
   log('files.installed', { items: writtenFiles })
   if (drift?.rules || items.rules.every((i) => i.hash)) applied.push('write-rules')
