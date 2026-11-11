@@ -46,6 +46,7 @@ window.__ModuleLoader__.load({
 .dm-trigger:hover{background:var(--dsw-alias-bg-layer-1)}
 .dm-trigger:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}
 .dm-trigger-label{white-space:nowrap}
+.dm-back{display:inline-flex;align-items:center;justify-content:center;padding:4px 6px}
 `
 
     function createStore(initial) {
@@ -159,6 +160,12 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function BackIcon({ size = 16 }) {
+      return h('svg', { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', 'aria-hidden': true },
+        h('path', { d: 'M14.5 5.5 8 12l6.5 6.5', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round' }),
+      )
+    }
+
     function HeaderTrigger({ layout, store, useSessions }) {
       const sessionsRaw = useSessions((snapshot) => snapshot.byId)
       const sessionsById = sessionsRaw !== null && typeof sessionsRaw === 'object' ? sessionsRaw : {}
@@ -176,7 +183,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function DesignMapPage({ remote, store, useWorkspaces, useSessions }) {
+    function DesignMapPage({ remote, store, layout, useWorkspaces, useSessions }) {
       const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
       const workspacesRaw = useWorkspaces((snapshot) => snapshot.items)
       const workspaces = Array.isArray(workspacesRaw) ? workspacesRaw : []
@@ -351,6 +358,7 @@ window.__ModuleLoader__.load({
       return h('div', { className: 'dm-root' },
         h('style', null, CSS),
         h('div', { className: 'dm-top' },
+          h('button', { type: 'button', className: 'dm-btn dm-back', onClick: () => layout.selectPanel(null), title: 'Back to chat', 'aria-label': 'Back to chat' }, h(BackIcon, { size: 16 })),
           h('h1', { className: 'dm-title' }, 'Design map'),
           h('span', { className: 'dm-chip', title: 'Excalidraw scene at the project root' }, FILE),
           h('span', { className: 'dm-meta' },
@@ -390,7 +398,7 @@ window.__ModuleLoader__.load({
         ctx.slots.inject('main', () => ctx.slots.register({
           name: 'main',
           key: PANEL_ID,
-          inject: () => ({ remote: ctx.remote, store }),
+          inject: () => ({ remote: ctx.remote, store, layout: ctx.layout }),
         }, DesignMapPage))
         ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
           name: 'conversation.session.header.actions',

@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-design-map",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "description": "One Excalidraw design map per workspace: the agent writes nodes/edges through a tool, the human edits the same design.excalidraw in a Web panel, and both go through the same host service. The panel embeds a vendored Excalidraw frame (MIT) with a postMessage bridge, reads through workspaceFiles and saves through the /design-map command.",
   "type": "module",
   "main": "index.js",
