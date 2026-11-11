@@ -24,7 +24,7 @@ ENTRY="$(readlink -f "$HOME/.npm/node/bin/dsh")"
 KIT="${DSH_KIT_DIR:-@KIT_DIR@}"
 
 if [ "${DSH_KIT_BOOT:-1}" != "0" ] && [ -f "$KIT/scripts/kit-update.mjs" ]; then
-  if pgrep -f "node .*dsh web" >/dev/null 2>&1; then
+  if pgrep -f "node .*(bin\.js|dsh) web" >/dev/null 2>&1; then
     echo "dsh: kit update skipped - a dsh web server is running; stop it and launch again" >&2
   else
     LOG="${DSH_HOME:-$HOME/.npm/dsh}/kit-boot.log"
