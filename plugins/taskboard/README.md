@@ -17,10 +17,22 @@ One JSON ledger per session workspace, `.dsh/taskboard.json`:
 - `result { summary, evidence[], artifacts[], decisions[], risks[] }`
 - `timeline[{at, kind, actor, text, sessionId?}]`
 
-The `preset` on a roster row is the tool composition its child was started with. The
-delegator reuses a role's session only when the requested preset matches it: a session keeps
-the composition it was created with, so an old row (before the role presets, or under a
-different one) is re-created rather than handed a brief its tools cannot perform.
+The `preset` on a roster row is the tool composition its child was started with, and the
+pair `(role, preset)` is the row's identity. `registerAgent` refuses a second preset under a
+name that already records one, with `preset_conflict` and the row left untouched; `force: true`
+is the recorded exception and lands in the row's `history`. The delegator reuses a role's
+session only when the requested preset matches it. A row with **no** preset predates the
+roster and reads as `legacy`: its tasks stay on the board, it is never a reuse target, and an
+explicit preset upgrades it once (history entry `{preset, adoptedAt, from: null}`).
+`scripts/taskboard-migrate.mjs` repairs a board written before this contract (see
+`rules/DEPLOYMENT.md` §1.0.0).
+
+**A child that ends in error blocks its task.** `childEnded` moves a settled task to `review`
+only when the child actually finished; a `stopReason` of `error`/`aborted`/`interrupted`/
+`cancelled`/`timeout`/`failed` parks it in `blocked` with that reason and a `child_failed`
+timeline entry. `reconcile(cwd)` (also `applyOp {op: "reconcile"}`) settles `active` rows the
+ledger can prove have no running child: every linked child has a settled `children[]` entry; a
+child with no entry, or one still `active`/`paused`, is left alone and counted.
 
 ## The lifecycle
 

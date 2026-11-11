@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "id": "collapsible-test-case-detail-pane",
+  "title": "Collapsible test case detail pane",
+  "requirement": "The test-cases detail pane must be collapsible so the case list can use the full panel width when detail is not needed.",
+  "kind": "scenario",
+  "status": "verified",
+  "source": "human",
+  "automated": false,
+  "reason": "Interactive layout requirement; implemented UI proof is pending.",
+  "steps": [
+    "Open Tasks → Test cases with a case selected.",
+    "Hide the detail pane.",
+    "Confirm the list becomes wider and remains usable.",
+    "Show detail again and confirm the same case and filters return."
+  ],
+  "expected": "The detail pane can be hidden, the list expands to the available width, and showing detail restores the selected case without losing filters or scroll position.",
+  "tags": [
+    "owner-requirement",
+    "test-cases",
+    "ui"
+  ],
+  "surfaceFiles": [],
+  "linkedTaskId": "task-mwc5oun7-d5txre",
+  "revision": 2,
+  "createdAt": "2026-11-11T13:30:35.170Z",
+  "updatedAt": "2026-11-11T14:01:46.750Z",
+  "createdBy": "orchestrator",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-11T14:01:46.750Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "Observed in the real Tasks → Test cases panel; usability-proof.mjs exit 0"
+    }
+  ],
+  "evidence": {
+    "observation": {
+      "command": "node reports/test-cases-panel/usability-proof.mjs",
+      "output": "PASS hiding detail gives the list the full width | 390 -> 1160; PASS detail is actually hidden; PASS filters survive hiding; PASS showing detail restores the same selected case; PASS filters survive showing",
+      "exitCode": 0,
+      "at": "2026-11-11T14:01:46.743Z"
+    },
+    "commit": null
+  },
+  "lastVerified": {
+    "at": "2026-11-11T14:01:46.743Z",
+    "command": "node reports/test-cases-panel/usability-proof.mjs",
+    "exitCode": 0
+  }
+}

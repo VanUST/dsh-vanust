@@ -41,7 +41,7 @@
  *     reason and status stale; the requirement stays.
  */
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { driftFor, fileHash, slugify } from './lib/schema.mjs'
@@ -52,7 +52,7 @@ export const name = 'test-cases'
 export const inject = ['tools', 'systemPrompt', 'commands']
 
 /** Tools every tester role gets: the full library, including evidence. */
-const ALL_TOOLS = ['case_record', 'case_update', 'case_verify', 'case_list', 'case_get', 'case_supersede', 'case_deprecate', 'case_drift']
+const ALL_TOOLS = ['case_record', 'case_update', 'case_verify', 'case_list', 'case_get', 'case_supersede', 'case_deprecate', 'case_remove', 'case_drift']
 /** The root intake set: record a human requirement and read the library, never claim a run. */
 const INTAKE_TOOLS = ['case_record', 'case_list', 'case_get', 'case_drift']
 
@@ -607,7 +607,49 @@ export function createTools(config = {}) {
     }),
   })
 
-  return { case_record: record, case_update: update, case_verify: verify, case_list: list, case_get: get, case_supersede: supersede, case_deprecate: deprecate, case_drift: drift }
+  /**
+   * Permanently remove a CLOSED case.
+   *
+   * The library's rule was "never delete", but the owner now needs to retire deprecated and
+   * superseded records. Removal is the only destructive verb and is deliberately narrow:
+   * terminal status only, compare-and-set with the revision the caller read, and an append-only
+   * audit line before the file is unlinked. Active/open cases are refused, never silently
+   * degraded.
+   */
+  const remove = defineTool({
+    name: 'case_remove',
+    description: 'Permanently remove a DEPRECATED or SUPERSEDED case with compare-and-set. Active/open cases are refused (CASE_NOT_REMOVABLE). The removal is written to docs/cases/.removed.jsonl before the case file is unlinked.',
+    parameters: {
+      id: { type: 'string', required: true },
+      expectedRevision: { type: 'number', required: true },
+      removedBy: { type: 'string', enum: ['human', 'agent'], description: 'Who removed the case. Default agent.' },
+    },
+    output: OUTPUT,
+    execute: (args, exec) => guarded(() => {
+      requireStrings(args, ['id'])
+      const dir = dirFor(exec.agent)
+      const workspace = workingDir(exec.agent)
+      const { record, path } = readCase(dir, args.id)
+      // Do NOT use checkRevision: it refuses closed cases, and closed cases are exactly the
+      // ones this verb exists for. Revision checks are repeated here without the status gate.
+      if (!Number.isInteger(args.expectedRevision)) throw new Refusal('REVISION_REQUIRED', 'expectedRevision is required (read the case first; removal is compare-and-set)')
+      if (record.revision !== args.expectedRevision) {
+        throw new Refusal('REVISION_CONFLICT', `case "${record.id}" is at revision ${record.revision}, not ${args.expectedRevision}`, { currentRevision: record.revision })
+      }
+      if (!CLOSED.has(record.status)) {
+        throw new Refusal('CASE_NOT_REMOVABLE', `case "${record.id}" is ${record.status}; only deprecated or superseded cases can be removed`)
+      }
+      const removedBy = args.removedBy === 'human' || exec.actor === 'human' ? 'human' : 'agent'
+      const audit = { at: new Date().toISOString(), id: record.id, title: record.title, status: record.status, revision: record.revision, removedBy }
+      // Audit first: a failed audit write must not destroy the only copy of the record.
+      mkdirSync(dir, { recursive: true })
+      appendFileSync(join(dir, '.removed.jsonl'), `${JSON.stringify(audit)}\n`, 'utf8')
+      unlinkSync(path)
+      return { ok: true, removed: audit, path: relative(workspace, path) }
+    }),
+  })
+
+  return { case_record: record, case_update: update, case_verify: verify, case_list: list, case_get: get, case_supersede: supersede, case_deprecate: deprecate, case_remove: remove, case_drift: drift }
 }
 
 /** Short prompt section: the rule that makes the library worth trusting. */
@@ -616,6 +658,7 @@ const SECTION = [
   '  Explore with your own tools first and OBSERVE the behaviour, then persist the case. Never record a speculative test.',
   '  automated:true needs a real test file + exact runCommand, and case_verify needs the observed red run (non-zero exit) before the green one. Otherwise record automated:false with steps, expected and the reason it cannot be a test.',
   '  The library is compare-and-set: read the case (case_get), pass expectedRevision on every edit, and supersede/deprecate instead of deleting. A changed surface file or a missing test makes a case stale; it never erases the requirement.',
+  '  Removal is the only destructive verb: case_remove accepts ONLY deprecated/superseded cases, with the revision and an audit line; active/open cases are refused.',
 ].join('\n')
 
 /**
@@ -648,7 +691,7 @@ export function apply(ctx, config = {}) {
   // the same schema, CAS and writer); it never edits docs/cases/ itself.
   const COMMANDS = {
     list: 'case_list', detail: 'case_get', get: 'case_get', update: 'case_update',
-    verify: 'case_verify', deprecate: 'case_deprecate', drift: 'case_drift',
+    verify: 'case_verify', deprecate: 'case_deprecate', remove: 'case_remove', drift: 'case_drift',
   }
   ctx.commands.register({
     name: 'test-cases',
@@ -662,7 +705,7 @@ export function apply(ctx, config = {}) {
         return { kind: 'error', text: 'test-cases: expected a JSON operation' }
       }
       const toolName = COMMANDS[op?.op]
-      if (toolName === undefined) return { kind: 'error', text: 'test-cases: unknown op (list | detail | update | verify | deprecate | drift)' }
+      if (toolName === undefined) return { kind: 'error', text: 'test-cases: unknown op (list | detail | update | verify | deprecate | remove | drift)' }
       const args = { ...op }
       delete args.op
       try {

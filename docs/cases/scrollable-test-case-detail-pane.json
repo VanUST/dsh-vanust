@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "id": "scrollable-test-case-detail-pane",
+  "title": "Scrollable test case detail pane",
+  "requirement": "Long test-case details must be vertically scrollable so every section can be reached in the fixed-height panel.",
+  "kind": "scenario",
+  "status": "verified",
+  "source": "human",
+  "automated": false,
+  "reason": "Scroll behaviour at real panel heights requires a live browser surface that is being implemented now.",
+  "steps": [
+    "Open a case with a long requirement, many steps, evidence and history.",
+    "Scroll the detail pane from top to bottom.",
+    "Reach the final action without the content being clipped or the page itself scrolling unexpectedly."
+  ],
+  "expected": "The detail column scrolls independently through the entire requirement, steps, expected outcome, evidence, history and actions without clipping at desktop or narrow widths.",
+  "tags": [
+    "owner-requirement",
+    "test-cases",
+    "ui"
+  ],
+  "surfaceFiles": [],
+  "linkedTaskId": "task-mwc5oun7-d5txre",
+  "revision": 2,
+  "createdAt": "2026-11-11T13:30:41.064Z",
+  "updatedAt": "2026-11-11T14:01:46.751Z",
+  "createdBy": "orchestrator",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-11T14:01:46.751Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "Observed in the real Tasks → Test cases panel; usability-proof.mjs exit 0"
+    }
+  ],
+  "evidence": {
+    "observation": {
+      "command": "node reports/test-cases-panel/usability-proof.mjs",
+      "output": "PASS long detail has its own overflow | scrollHeight 1380/clientHeight 854; PASS detail scroll reaches the end without scrolling the page | pageY 0; PASS last history/record content is reachable; PASS narrow detail still scrolls independently and does not overflow | 760 == 760",
+      "exitCode": 0,
+      "at": "2026-11-11T14:01:46.743Z"
+    },
+    "commit": null
+  },
+  "lastVerified": {
+    "at": "2026-11-11T14:01:46.743Z",
+    "command": "node reports/test-cases-panel/usability-proof.mjs",
+    "exitCode": 0
+  }
+}

@@ -72,9 +72,10 @@ tool objects (and the same compare-and-set writer) the model uses:
 | `update` | `case_update` | payload carries `expectedRevision`; refusal is `REVISION_CONFLICT` with the current revision |
 | `verify` | `case_verify` | same evidence/red-first contract as the tool |
 | `deprecate` | `case_deprecate` | requires a reason; edits/verification then refuse `CASE_CLOSED` |
+| `remove` | `case_remove` | terminal status only (`deprecated`/`superseded`), compare-and-set, audit line in `docs/cases/.removed.jsonl` before unlink |
 | `drift` | `case_drift` | optional id; rehashes surface files and test paths |
 
-`editedBy` is forced to `human` for update/deprecate. A refusal is returned as
+`editedBy`/`removedBy` is `human` for panel edits and removals. Removal is the only destructive verb: active/open cases are refused `CASE_NOT_REMOVABLE`; the UI requires an explicit confirmation checkbox. A refusal is returned as
 `test-cases: CODE: message (current rev N)`; the panel shows the code and reloads rather
 than overwriting. `stale` is shown as a prominent badge plus a sentence: a surface file or
 the automated test changed, not that the requirement is gone.
@@ -82,5 +83,5 @@ the automated test changed, not that the requirement is gone.
 The panel lives in `client.js` (package-local, no build). It registers **only the `main`
 slot** and **no `conversation.session.header.actions` action**; the Tasks panel feature-detects
 the `test-cases` main panel and shows a `Test cases` tab only when it is registered. It has
-list/filter, detail, bounded-but-expandable text, edit/verify/deprecate forms, drift refresh
+list/filter, labelled status (word + meaning), detail, bounded-but-expandable text, hide/show detail pane, independent detail scrolling, edit/verify/deprecate/remove forms, drift refresh
 and empty/loading/error/read-only states.

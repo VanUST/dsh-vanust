@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "id": "remove-deprecated-test-cases",
+  "title": "Remove deprecated test cases",
+  "requirement": "Deprecated and superseded test cases must be removable because they are terminal and no longer actionable, while non-terminal cases remain protected.",
+  "kind": "scenario",
+  "status": "verified",
+  "source": "human",
+  "automated": false,
+  "reason": "Deletion behavior and confirmation dialog require a UI surface that is being implemented now; no passing run exists yet.",
+  "steps": [
+    "Open a deprecated case in Tasks → Test cases.",
+    "Choose the remove action and confirm.",
+    "Confirm the case disappears from the library and its file is removed.",
+    "Attempt the same action on a non-closed case and confirm it is refused."
+  ],
+  "expected": "Deprecated and superseded cases can be removed after an explicit confirmation; cases in any active/open/review state are refused with a clear reason.",
+  "tags": [
+    "owner-requirement",
+    "test-cases",
+    "ui"
+  ],
+  "surfaceFiles": [],
+  "linkedTaskId": "task-mwc5oun7-d5txre",
+  "revision": 2,
+  "createdAt": "2026-11-11T13:30:29.288Z",
+  "updatedAt": "2026-11-11T14:01:46.749Z",
+  "createdBy": "orchestrator",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-11T14:01:46.749Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "Observed in the real Tasks → Test cases panel; usability-proof.mjs exit 0"
+    }
+  ],
+  "evidence": {
+    "observation": {
+      "command": "node reports/test-cases-panel/usability-proof.mjs",
+      "output": "PASS host-created removal fixture is visible by exact id; PASS removal requires explicit confirmation; PASS deprecated case file is removed; PASS removal is audited|removedBy:\"human\"; PASS open/active case cannot be removed in the UI; PASS host refuses removing an active case|CASE_NOT_REMOVABLE",
+      "exitCode": 0,
+      "at": "2026-11-11T14:01:46.743Z"
+    },
+    "commit": null
+  },
+  "lastVerified": {
+    "at": "2026-11-11T14:01:46.743Z",
+    "command": "node reports/test-cases-panel/usability-proof.mjs",
+    "exitCode": 0
+  }
+}

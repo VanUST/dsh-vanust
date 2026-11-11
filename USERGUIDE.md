@@ -102,6 +102,19 @@ tool. The rest of the kit's role-specific tools follow the same rule: `papers_*`
 Research, `babysitter_*` only for the Orchestrator, `diagram`/`presentation` for the
 Orchestrator and UX/UI.
 
+**A delegated role is a `(name, preset)` pair, and the name keeps one preset.** `delegate_task`
+refuses to start a child under a name that already runs a different tool set
+(`preset_conflict` on the ledger, a named refusal before the child exists), so `AUDIT` — which
+used to mean reviewer in one chat and critic in the next — is gone: ask for REVIEWER to judge a
+change or CRITIC to attack a running behaviour. A role row written before presets existed is
+marked *legacy*: its tasks stay on the board, the root policy lists the name under **Legacy
+roles (history only — do not reuse)** instead of offering it, and new work must reuse one of the
+seven. A child that ends in **error** parks its task in *blocked* with the stop reason, not in
+*review*, so the panel never reports failed work as ready to accept. To repair a board written
+before these rules, run `node scripts/taskboard-migrate.mjs --board <workspace>/.dsh/taskboard.json`
+(dry run, prints counts) and add `--apply` to back it up and write it; the script is idempotent
+and refuses to overwrite a board that changed while it ran.
+
 Hindsight memory is the third-party add-on: its installer stages the runtime and a
 companion skill, and this machine's config is enabled against a local daemon at
 `127.0.0.1:18888` (native DeepSeek provider). The daemon is a separate process and is not

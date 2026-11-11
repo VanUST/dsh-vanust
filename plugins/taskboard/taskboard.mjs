@@ -380,6 +380,66 @@ function writeBoard(path, board) {
 /** A role row untouched for this long is a tombstone, not an active specialist. */
 const STALE_AFTER_MS = 24 * 60 * 60 * 1000
 
+/** A role label without its case and spacing, so BACKEND, Backend and back-end meet. */
+function normalizeAgentRole(value) {
+  return String(value ?? '').trim().toLowerCase()
+}
+
+/** The stop reasons that mean the child did NOT finish its work. */
+const FAILED_STOP_REASONS = ['error', 'aborted', 'interrupted', 'cancelled', 'timeout', 'failed']
+
+/**
+ * Reconcile tasks the ledger can prove nobody is working on, without touching a live child.
+ *
+ * WHY. `childEnded` is the live path, and it only fires for a child this process saw settle.
+ * A child that dies with its chat, or a Host that stops between the child's last event and
+ * the ledger write, leaves `active` rows whose children are all finished - the state read as
+ * "work in flight" forever. Measured in ~/tasks/autolabel_pipeline (2026-11-11): RESEARCH task
+ * task-mwc4h93k-2v3s0c stayed `active` after child d864c24f ended with `error` at 32 s.
+ *
+ * WHAT IT MAY DECIDE. Only what the ledger itself records: a task with linked children whose
+ * every `children[]` entry is settled (status not `active`/`paused`) has no running child. A
+ * child with no `children[]` entry at all is NOT evidence of anything - it may be running -
+ * so the row is reported as `unknown` and left alone. A task with no linked children is the
+ * root's own inline work and is skipped.
+ *
+ * @param board - Parsed board; mutated in place.
+ * @param limit - Timeline entries per task.
+ * @returns Counts and the ids it changed, so a caller can quote them.
+ */
+export function reconcileTasks(board, limit = 120) {
+  const result = { checked: 0, fixed: 0, blocked: 0, review: 0, running: 0, unknown: 0, ids: [] }
+  for (const task of Array.isArray(board?.tasks) ? board.tasks : []) {
+    if (displayStatus(task?.status) !== 'active') continue
+    const linked = Array.isArray(task.childSessionIds) ? task.childSessionIds.filter((id) => typeof id === 'string' && id !== '') : []
+    if (linked.length === 0) continue
+    result.checked += 1
+    const children = Array.isArray(task.children) ? task.children : []
+    const known = linked.map((id) => children.find((entry) => entry?.sessionId === id))
+    if (known.some((entry) => entry !== undefined && (entry.status === 'active' || entry.status === 'paused'))) {
+      // A genuinely running child is never touched: that is the one claim `active` makes.
+      result.running += 1
+      continue
+    }
+    if (known.some((entry) => entry === undefined)) {
+      result.unknown += 1
+      continue
+    }
+    const failed = known.filter((entry) => FAILED_STOP_REASONS.includes(String(entry.stopReason ?? '').toLowerCase()))
+    task.status = failed.length === 0 ? 'review' : 'blocked'
+    if (failed.length > 0) task.reason = `reconciled: child ${failed[0].sessionId} ended with ${failed[0].stopReason}`
+    task.revision = (Number.isSafeInteger(task.revision) ? task.revision : 1) + 1
+    task.updatedAt = now()
+    timeline(task, 'reconciled', 'orchestrator', failed.length === 0
+      ? `Task moved to review: its ${linked.length} linked child session(s) had all settled`
+      : `Task blocked: child ${failed[0].sessionId} ended with ${failed[0].stopReason}`, { sessionIds: linked }, limit)
+    result.fixed += 1
+    result[failed.length === 0 ? 'review' : 'blocked'] += 1
+    result.ids.push(task.id)
+  }
+  return result
+}
+
 /**
  * Mark role rows with what the ledger can actually know.
  *
@@ -397,15 +457,31 @@ const STALE_AFTER_MS = 24 * 60 * 60 * 1000
 function annotateAgents(board, staleAfterMs = STALE_AFTER_MS) {
   const ids = new Set((Array.isArray(board?.tasks) ? board.tasks : []).map((task) => task.id))
   const nowMs = Date.now()
-  return (Array.isArray(board?.agents) ? board.agents : []).map((agent) => {
+  const rows = Array.isArray(board?.agents) ? board.agents : []
+  // A ROLE IS (name, preset), and the LEDGER must say when it cannot be one. `preset` is the
+  // child's tool composition: a row without one predates the roster, so reusing its session
+  // would run a brief on a composition nobody chose (`legacy`). Two rows with one name and two
+  // presets is the AUDIT split that never happened - the old ledger keyed on the label alone
+  // and let the later write win silently (`conflict`).
+  const byLabel = new Map()
+  for (const row of rows) {
+    const label = normalizeAgentRole(row?.role)
+    if (label === '') continue
+    byLabel.set(label, (byLabel.get(label) ?? 0) + 1)
+  }
+  return rows.map((agent) => {
     const lastTaskId = typeof agent.lastTaskId === 'string' ? agent.lastTaskId : ''
     const orphan = lastTaskId !== '' && !ids.has(lastTaskId)
     const updated = Date.parse(String(agent.updatedAt ?? agent.createdAt ?? ''))
     const stale = Number.isNaN(updated) ? false : nowMs - updated > staleAfterMs
+    const legacy = typeof agent.preset !== 'string' || agent.preset.trim() === ''
+    const conflict = (byLabel.get(normalizeAgentRole(agent.role)) ?? 0) > 1
     return {
       ...agent,
       ...(orphan ? { orphan: true } : {}),
       ...(stale ? { stale: true } : {}),
+      ...(legacy ? { legacy: true } : {}),
+      ...(conflict ? { conflict: true } : {}),
     }
   })
 }
@@ -551,10 +627,23 @@ function createService(config, logger, hooks = {}) {
       // tool set, so the row records it; a row from before presets has no value and is
       // treated as a mismatch by the delegator rather than assumed compatible.
       const preset = typeof input?.preset === 'string' && input.preset !== '' ? input.preset.slice(0, 80) : ''
+      const force = input?.force === true
       return mutate(cwd, (board) => {
         const agents = Array.isArray(board.agents) ? board.agents : []
-        const existing = agents.find((agent) => agent.role.trim().toLowerCase() === role.toLowerCase())
+        const existing = agents.find((agent) => normalizeAgentRole(agent.role) === normalizeAgentRole(role))
         const time = now()
+        // A ROLE LABEL OWNS ONE TOOL SET. Reusing the label with another preset used to
+        // overwrite the recorded composition in place, so `AUDIT [reviewer]` became
+        // `AUDIT [critic]` between two delegations and the catalog showed one role where two
+        // specialties had been used - measured in ~/tasks/autolabel_pipeline (2026-11-11,
+        // revision 1906): a reviewer row and a critic row collapsed into `AUDIT [critic]`.
+        // The ledger keeps ONE row per label and refuses the switch; splitting the label
+        // (REVIEWER / CRITIC, or a genuinely new name) is the caller's decision, and `force`
+        // is the recorded exception for correcting a row that was wrong.
+        const recorded = typeof existing?.preset === 'string' ? existing.preset.trim() : ''
+        if (existing !== undefined && recorded !== '' && preset !== '' && recorded !== preset && !force) {
+          return { value: { ok: false, code: 'preset_conflict', role: existing.role, recorded, requested: preset } }
+        }
         if (existing === undefined) {
           agents.push({
             role,
@@ -590,7 +679,19 @@ function createService(config, logger, hooks = {}) {
           }
           existing.label = label
           existing.sessionId = sessionId
-          if (preset !== '') existing.preset = preset
+          if (preset !== '') {
+            // A row from before presets has no composition to switch away from: adopting one
+            // the caller passed explicitly is the upgrade, and it is written down so a reader
+            // can tell an adopted role from one that was born with its tool set.
+            if (recorded === '') {
+              const history = Array.isArray(existing.history) ? existing.history : []
+              existing.history = [...history, { preset, adoptedAt: time, from: null }].slice(-8)
+            } else if (recorded !== preset && force) {
+              const history = Array.isArray(existing.history) ? existing.history : []
+              existing.history = [...history, { preset, replacedPreset: recorded, replacedAt: time, forced: true }].slice(-8)
+            }
+            existing.preset = preset
+          }
           if (chatSessionId !== '') existing.chatSessionId = chatSessionId
           existing.status = 'active'
           existing.updatedAt = time
@@ -600,7 +701,7 @@ function createService(config, logger, hooks = {}) {
           }
         }
         board.agents = agents
-        return { changed: true, value: { ok: true, agent: agents.find((agent) => agent.role.trim().toLowerCase() === role.toLowerCase()) } }
+        return { changed: true, value: { ok: true, agent: agents.find((agent) => normalizeAgentRole(agent.role) === normalizeAgentRole(role)) } }
       })
     },
     /** Update one specialist by session id. */
@@ -838,8 +939,23 @@ function createService(config, logger, hooks = {}) {
           const stillRunning = children.some((entry) => entry.status === 'active' || entry.status === 'paused')
           // A child settling is the runtime reporting work finished, not the human claiming
           // acceptance: the task waits in review for the orchestrator (done is close-only).
+          // A child that ended in ERROR did not finish its work, so review would be a lie that
+          // the orchestrator reads as "ready to accept" - measured in ~/tasks/autolabel_pipeline
+          // (2026-11-11): RESEARCH child d864c24f stopped with `error` at 32 s and the task was
+          // reported finished. Failure parks the task in `blocked`, which is the state that
+          // says somebody must decide, and the stop reason is the reason on the row.
           const nowStatus = displayStatus(task.status)
-          task.status = ['cancelled', 'paused', 'done'].includes(nowStatus) ? task.status : stillRunning ? 'active' : 'review'
+          const failed = FAILED_STOP_REASONS.includes(String(info?.stopReason ?? '').toLowerCase())
+          task.status = ['cancelled', 'paused', 'done'].includes(nowStatus)
+            ? task.status
+            : stillRunning
+              ? 'active'
+              : failed
+                ? 'blocked'
+                : 'review'
+          if (!stillRunning && failed && nowStatus !== 'blocked') {
+            task.reason = `child ${childId} ended with ${String(info?.stopReason ?? 'error')}`
+          }
           const agent = (board.agents ?? []).find((entry) => entry.sessionId === childId)
           if (agent !== undefined) {
             agent.status = 'sleeping'
@@ -850,12 +966,25 @@ function createService(config, logger, hooks = {}) {
           const output = Array.isArray(info?.lastAssistantMessage)
             ? info.lastAssistantMessage.filter((block) => block?.type === 'text').map((block) => block.text).join(' ').slice(0, 800)
             : ''
-          timeline(task, 'child_finished', 'child', `Child settled (${info?.stopReason ?? 'unknown'})${output === '' ? '' : `: ${output}`}`, { sessionId: childId }, timelineLimit)
+          timeline(task, failed && !stillRunning ? 'child_failed' : 'child_finished', 'child', `${failed && !stillRunning ? 'Child failed' : 'Child settled'} (${info?.stopReason ?? 'unknown'})${output === '' ? '' : `: ${output}`}`, { sessionId: childId }, timelineLimit)
           return { changed: true, value: { ok: true, task } }
         })
         if (result !== undefined) last = result
       }
       return last
+    },
+    /**
+     * Settle `active` rows the ledger can prove have no running child.
+     *
+     * Board-level by design: it is not a transition of one task, so it takes no revision and
+     * never writes a task whose children are still running (see reconcileTasks). `changed`
+     * comes from the result, because the helper bumps the per-task revision, not the board's.
+     */
+    reconcile(cwd) {
+      return mutate(cwd, (board) => {
+        const result = reconcileTasks(board, timelineLimit)
+        return { changed: result.fixed > 0, value: { ok: true, ...result } }
+      })
     },
     /** Pause a task and interrupt its linked children; fail closed on interrupt errors. */
     pause(cwd, input) {
@@ -1087,6 +1216,9 @@ function createService(config, logger, hooks = {}) {
       if (kind === 'get') return { ok: true, task: this.get(cwd, op.id) }
       if (kind === 'list') return { ok: true, tasks: this.list(cwd, { chatId, all: op.all === true }) }
       if (kind === 'agents') return { ok: true, agents: this.agents(cwd) }
+      // Board-level, so it takes no revision: it acts only on rows whose own children are all
+      // settled, and it is idempotent (a reconciled row is no longer `active`).
+      if (kind === 'reconcile') return this.reconcile(cwd)
       return { ok: false, code: 'unknown_op' }
     },
     /** Register a child without a task (used by the command path). */

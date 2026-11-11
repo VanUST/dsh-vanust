@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-test-cases",
-  "version": "0.1.7",
+  "version": "0.1.9",
   "description": "A repo-tracked library of observed test cases (docs/cases/): eight schema-enforced tools for recording, compare-and-set editing, red-first verification, supersede/deprecate history and surface-file drift, available per role (intake records human requirements; testers prove them).",
   "type": "module",
   "main": "test-cases.mjs",

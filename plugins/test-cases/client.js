@@ -34,8 +34,9 @@ window.__ModuleLoader__.load({
 .tc-btn.danger{color:var(--dsw-alias-state-error-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 40%,var(--dsw-alias-border-l1))}
 .tc-btn:disabled{opacity:.55;cursor:not-allowed}
 .tc-btn:focus-visible,.tc-input:focus-visible,.tc-select:focus-visible,.tc-textarea:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}
-.tc-body{flex:1;min-height:0;display:flex}
-.tc-list{width:390px;min-width:280px;border-right:1px solid var(--dsw-alias-border-l1);display:flex;flex-direction:column;min-height:0}
+.tc-body{flex:1;min-height:0;display:flex;overflow:hidden}
+.tc-list{width:390px;min-width:280px;border-right:1px solid var(--dsw-alias-border-l1);display:flex;flex-direction:column;min-height:0;transition:width .15s ease}
+.tc-body.hide-detail .tc-list{width:100%;min-width:0;border-right:0}
 .tc-filters{padding:10px 12px;display:grid;grid-template-columns:1fr 1fr;gap:6px;border-bottom:1px solid var(--dsw-alias-border-l1);flex:none}
 .tc-filters .wide{grid-column:1/-1}
 .tc-input,.tc-select,.tc-textarea{border:1px solid var(--dsw-alias-border-l1);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:5px 7px;min-width:0}
@@ -54,7 +55,12 @@ window.__ModuleLoader__.load({
 .tc-badge.verified{color:var(--dsw-alias-state-success-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary) 40%,var(--dsw-alias-border-l1))}
 .tc-badge.failing{color:var(--dsw-alias-state-error-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 40%,var(--dsw-alias-border-l1))}
 .tc-badge.muted{color:var(--dsw-alias-label-secondary)}
-.tc-detail{flex:1;min-width:0;overflow:auto;padding:14px 16px 28px}
+.tc-statuskey{font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--dsw-alias-label-secondary);margin-right:4px}
+.tc-statusrow{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:4px 0 8px}
+.tc-statustext{font-size:11.5px;color:var(--dsw-alias-label-secondary)}
+.tc-confirm{border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary) 40%,var(--dsw-alias-border-l1));background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 7%,transparent);border-radius:8px;padding:12px;max-width:640px}
+.tc-confirm h3{margin:0 0 6px;font-size:13px}
+.tc-detail{flex:1;min-width:0;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;scrollbar-gutter:stable;padding:14px 16px 28px}
 .tc-empty{padding:24px 14px;color:var(--dsw-alias-label-secondary);font-size:12px;text-align:center}
 .tc-error{color:var(--dsw-alias-state-error-primary);font-weight:600;overflow-wrap:anywhere}
 .tc-banner{border:1px solid color-mix(in srgb,var(--dsw-alias-state-warn-primary) 42%,var(--dsw-alias-border-l1));background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 9%,transparent);color:var(--dsw-alias-state-warn-primary);border-radius:7px;padding:8px 10px;margin-bottom:12px;font-size:12px}
@@ -80,7 +86,7 @@ window.__ModuleLoader__.load({
 .tc-trigger:hover{background:var(--dsw-alias-bg-layer-1)}
 .tc-trigger:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}
 .tc-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-@media (max-width:760px){.tc-body{flex-direction:column}.tc-list{width:100%;min-width:0;max-height:46%;border-right:0;border-bottom:1px solid var(--dsw-alias-border-l1)}.tc-detail{padding:12px}.tc-filters{grid-template-columns:1fr 1fr}.tc-top{gap:6px}}
+@media (max-width:760px){.tc-body{flex-direction:column}.tc-list{width:100%;min-width:0;max-height:46%;border-right:0;border-bottom:1px solid var(--dsw-alias-border-l1)}.tc-body.hide-detail .tc-list{max-height:none;flex:1}.tc-detail{padding:12px;min-height:0}.tc-filters{grid-template-columns:1fr 1fr}.tc-top{gap:6px}}
 `
 
     function createStore(initial) {
@@ -129,6 +135,15 @@ window.__ModuleLoader__.load({
       if (minutes < 1440) return `${Math.round(minutes / 60)}h ago`
       return `${Math.round(minutes / 1440)}d ago`
     }
+    const REMOVABLE = new Set(['deprecated', 'superseded'])
+    const STATUS_MEANING = {
+      unverified: 'Unverified — recorded but not yet proven.',
+      verified: 'Verified — a run or observation is recorded.',
+      failing: 'Failing — the last recorded run did not pass.',
+      stale: 'Stale — a surface file or test changed; re-verify. The requirement still stands.',
+      superseded: 'Superseded — replaced by a newer case.',
+      deprecated: 'Deprecated — retired; it can be removed permanently.',
+    }
     function statusClass(status) {
       if (status === 'verified') return 'verified'
       if (status === 'stale') return 'stale'
@@ -146,9 +161,18 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function Badges({ item }) {
+    function StatusBadge({ status, detailed = false }) {
+      const meaning = STATUS_MEANING[status] ?? status
+      return h('span', { className: detailed ? 'tc-statusrow' : 'tc-rowmeta', 'data-status': status },
+        h('span', { className: 'tc-statuskey' }, 'Status'),
+        h('span', { className: `tc-badge ${statusClass(status)}`, title: meaning }, status),
+        detailed ? h('span', { className: 'tc-statustext' }, meaning) : null,
+      )
+    }
+
+    function Badges({ item, omitStatus = false }) {
       return h('span', { className: 'tc-rowmeta' },
-        h('span', { className: `tc-badge ${statusClass(item.status)}`, title: item.status === 'stale' ? 'A surface file changed or the test disappeared; the requirement still stands' : `status: ${item.status}` }, item.status),
+        omitStatus ? null : h(StatusBadge, { status: item.status }),
         h('span', { className: 'tc-badge' }, item.kind),
         h('span', { className: 'tc-badge' }, item.source),
         h('span', { className: 'tc-badge' }, item.automated ? 'automated' : 'documented'),
@@ -184,9 +208,12 @@ window.__ModuleLoader__.load({
       const workspaces = Array.isArray(workspacesRaw) ? workspacesRaw : []
       const sessionsRaw = useSessions((snapshot) => snapshot.byId)
       const sessionsById = sessionsRaw !== null && typeof sessionsRaw === 'object' ? sessionsRaw : {}
-      const sessionId = state.sessionId ?? firstSession(workspaces, sessionsById)?.sessionId ?? null
+      const handoff = (() => { try { return sessionStorage.getItem('dsh:test-cases:session') } catch { return null } })()
+      const sessionId = state.sessionId ?? (typeof handoff === 'string' && handoff !== '' ? handoff : firstSession(workspaces, sessionsById)?.sessionId) ?? null
       const hasSession = typeof sessionId === 'string' && sessionId !== ''
-      const canWrite = isLiveSession(sessionsById, sessionId)
+      // The host command is the authority. A session handed over from the Tasks tab can
+      // execute host commands even when this global panel does not own a main-view handle.
+      const canWrite = hasSession
       const [cases, setCases] = useState([])
       const [total, setTotal] = useState(null)
       const [loading, setLoading] = useState(true)
@@ -201,7 +228,10 @@ window.__ModuleLoader__.load({
       const [form, setForm] = useState(null)
       const [verifyForm, setVerifyForm] = useState(null)
       const [deprecateReason, setDeprecateReason] = useState('')
+      const [detailOpen, setDetailOpen] = useState(true)
+      const [removeConfirmed, setRemoveConfirmed] = useState(false)
       const detailHeading = useRef(null)
+      const detailPane = useRef(null)
       const selectedRef = useRef(null)
       selectedRef.current = selected
 
@@ -228,7 +258,7 @@ window.__ModuleLoader__.load({
         const result = await runOp(remote, sessionId, { op: 'detail', id })
         if (!result.ok) { setError(result.error); return null }
         const record = result.value?.case ?? null
-        setDetail(record); setSelected(id); setView('detail'); setConflict('')
+        setDetail(record); setSelected(id); setView('detail'); setConflict(''); setDetailOpen(true)
         return record
       }, [remote, sessionId])
 
@@ -308,6 +338,21 @@ window.__ModuleLoader__.load({
         setDeprecateReason(''); await loadDetail(detail.id); await loadList(filters)
         setNotice('Case deprecated; its requirement is kept.')
       }
+      const saveRemove = async () => {
+        if (detail === null || !removeConfirmed) return
+        setBusy(true); setError(''); setConflict('')
+        const result = await runOp(remote, sessionId, { op: 'remove', id: detail.id, expectedRevision: detail.revision })
+        setBusy(false)
+        if (!result.ok) {
+          if (/REVISION_CONFLICT/.test(result.error)) setConflict(result.error)
+          else setError(result.error)
+          return
+        }
+        const removed = result.value?.removed ?? { id: detail.id, status: detail.status }
+        setDetail(null); setSelected(null); setView('list'); setRemoveConfirmed(false)
+        await loadList(filters)
+        setNotice(`Removed ${removed.id} (${removed.status}) — permanently deleted, audit line written.`)
+      }
       const checkDrift = async () => {
         if (detail === null) return
         setBusy(true); setError(''); setNotice('')
@@ -363,6 +408,7 @@ window.__ModuleLoader__.load({
         h('button', { type: 'button', className: 'tc-btn', onClick: beginVerify, disabled: !canWrite || detail.status === 'deprecated' || detail.status === 'superseded' }, 'Verify / record run'),
         h('button', { type: 'button', className: 'tc-btn', onClick: checkDrift, disabled: busy }, busy ? 'Checking…' : 'Check drift'),
         h('button', { type: 'button', className: 'tc-btn danger', onClick: () => { setDeprecateReason(''); setView('deprecate'); setError(''); setNotice('') }, disabled: !canWrite || detail.status === 'deprecated' || detail.status === 'superseded' }, 'Deprecate'),
+        h('button', { type: 'button', className: 'tc-btn danger', onClick: () => { setRemoveConfirmed(false); setView('remove'); setError(''); setNotice('') }, disabled: !canWrite, title: REMOVABLE.has(detail.status) ? 'Permanently remove this terminal case' : 'Only deprecated or superseded cases can be removed' }, 'Remove…'),
       )
 
       const conflictBanner = conflict === '' ? null : h('div', { className: 'tc-banner', role: 'alert' },
@@ -421,13 +467,35 @@ window.__ModuleLoader__.load({
           h('label', { className: 'tc-label' }, 'Reason (required)', h('textarea', { className: 'tc-textarea', rows: 4, value: deprecateReason, onChange: (event) => setDeprecateReason(event.target.value), 'aria-label': 'Reason (required)' })),
           h('div', { className: 'tc-actions' }, h('button', { type: 'button', className: 'tc-btn danger', onClick: saveDeprecate, disabled: busy || deprecateReason.trim() === '' }, busy ? 'Saving…' : 'Deprecate case'), h('button', { type: 'button', className: 'tc-btn', onClick: () => setView('detail') }, 'Cancel')),
         )
+      } else if (view === 'remove' && detail !== null) {
+        const removable = REMOVABLE.has(detail.status)
+        pane = h(React.Fragment, null,
+          conflictBanner,
+          h('button', { type: 'button', className: 'tc-btn', onClick: () => setView('detail') }, '← Back to detail'),
+          h('h2', { className: 'tc-h2', style: { marginTop: 10 } }, `Remove: ${detail.title}`),
+          h('div', { className: 'tc-confirm' },
+            h('h3', null, 'This permanently deletes the case file'),
+            h('p', { className: 'tc-p' }, removable
+              ? `The case is ${detail.status}. Removing it also removes its requirement, steps, evidence and history from docs/cases/. An audit line is written to docs/cases/.removed.jsonl.`
+              : `The case is ${detail.status}. Only deprecated or superseded cases can be removed. Deprecate it first and then remove it.`),
+            removable ? h('label', { className: 'tc-label', style: { display: 'flex', flexDirection: 'row', gap: 8, alignItems: 'center', marginTop: 10 } },
+              h('input', { type: 'checkbox', checked: removeConfirmed, onChange: (event) => setRemoveConfirmed(event.target.checked), 'aria-label': 'I understand this permanently removes the case' }),
+              'I understand this permanent removal cannot be undone',
+            ) : null,
+            h('div', { className: 'tc-actions' },
+              h('button', { type: 'button', className: 'tc-btn danger', onClick: saveRemove, disabled: busy || !removable || !removeConfirmed }, busy ? 'Removing…' : 'Remove permanently'),
+              h('button', { type: 'button', className: 'tc-btn', onClick: () => setView('detail') }, 'Cancel'),
+            ),
+          ),
+        )
       } else if (view === 'detail' && detail !== null) {
         const drift = detail.needsReverification
         pane = h(React.Fragment, null,
           conflictBanner,
           h('button', { type: 'button', className: 'tc-btn', onClick: () => { setView('list'); setDetail(null) } }, '← All cases'),
           h('h2', { className: 'tc-h2', style: { marginTop: 10 }, tabIndex: -1, ref: detailHeading }, detail.title),
-          h(Badges, { item: detail }),
+          h(StatusBadge, { status: detail.status, detailed: true }),
+          h(Badges, { item: detail, omitStatus: true }),
           detail.status === 'stale' ? h('div', { className: 'tc-banner', style: { marginTop: 10 } }, 'Stale: a recorded surface file or the automated test changed after the last verification. The requirement still stands; re-verify or run drift.') : null,
           detail.deprecateReason ? h('div', { className: 'tc-banner' }, `Deprecated: ${detail.deprecateReason}`) : null,
           detail.supersededBy ? h('div', { className: 'tc-banner' }, `Superseded by ${detail.supersededBy}.`) : null,
@@ -481,14 +549,15 @@ window.__ModuleLoader__.load({
           ),
           h('span', { className: 'tc-meta' }, h('span', { className: 'tc-badge' }, 'docs/cases'), total !== null ? h('span', { className: 'tc-badge' }, `${total} cases`) : null, hasSession ? h('span', { className: 'tc-badge' }, canWrite ? 'live chat' : 'read-only') : null),
           h('span', { className: 'tc-spacer' }),
+          h('button', { type: 'button', className: 'tc-btn', onClick: () => setDetailOpen(!detailOpen), 'aria-pressed': !detailOpen, disabled: detail === null, title: detail === null ? 'Select a case first' : (detailOpen ? 'Hide the detail pane and let the list use the full width' : 'Show the selected case detail again') }, detailOpen ? 'Hide detail' : 'Show detail'),
           h('button', { type: 'button', className: 'tc-btn', onClick: () => loadList(filters).catch(() => {}) }, 'Reload'),
         ),
-        h('div', { className: 'tc-body' }, listPane, h('div', { className: 'tc-detail' },
+        h('div', { className: `tc-body${detailOpen ? '' : ' hide-detail'}` }, listPane, detailOpen ? h('div', { className: 'tc-detail', ref: detailPane },
           h('div', { className: 'tc-sr', role: 'status', 'aria-live': 'polite' }, loading ? 'Loading cases' : error !== '' ? `Error: ${error}` : notice),
           error !== '' ? h('div', { className: 'tc-banner', role: 'alert', style: { color: 'var(--dsw-alias-state-error-primary)' } }, h('span', { className: 'tc-error' }, error), ' ', h('button', { type: 'button', className: 'tc-btn', onClick: () => loadList(filters).catch(() => {}) }, 'Retry')) : null,
           notice !== '' ? h('div', { className: 'tc-banner', role: 'status', style: { color: 'var(--dsw-alias-state-success-primary)', borderColor: 'color-mix(in srgb,var(--dsw-alias-state-success-primary) 40%,var(--dsw-alias-border-l1))' } }, notice) : null,
           pane,
-        )),
+        ) : null),
       )
     }
 

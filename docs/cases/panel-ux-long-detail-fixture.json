@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "id": "panel-ux-long-detail-fixture",
+  "title": "Panel UX long detail fixture",
+  "requirement": "The detail pane must keep paragraph 1 inside its own scroll container so a long requirement does not push the list or the page. The detail pane must keep paragraph 2 inside its own scroll container so a long requirement does not push the list or the page. The detail pane must keep paragraph 3 inside its own scroll container so a long requirement does not push the list or the page. The detail pane must keep paragraph 4 inside its own scroll container so a long requirement does not push the list or the page. The detail pane must keep paragraph 5 inside its own scroll container so a long requirement does not push the list or the page. The detail pane must keep paragraph 6 inside its own scroll container so a long requirement does not push the list or the page. The detail pane must keep paragraph 7 inside its own scroll container so a long requirement does not push the list or the page. The detail pane must keep paragraph 8 inside its own scroll container so a long requirement does not push the list or the page. The detail pane must keep paragraph 9 inside its own scroll container so a long requirement does not push the list or the page. The detail pane must keep paragraph 10 inside its own scroll container so a long requirement does not push the list or the page. The detail pane must keep paragraph 11 inside its own scroll container so a long requirement does not push the list or the page. The detail pane must keep paragraph 12 inside its own scroll container so a long requirement does not push the list or the page. The detail pane must keep paragraph 13 inside its own scroll container so a long requirement does not push the list or the page. The detail pane must keep paragraph 14 inside its own scroll container so a long requirement does not push the list or the page.",
+  "kind": "scenario",
+  "status": "verified",
+  "source": "human",
+  "automated": false,
+  "reason": "long-content rendering fixture for the panel scroll proof",
+  "steps": [
+    "Step 1: inspect section 1, read the evidence and continue scrolling without moving the list.",
+    "Step 2: inspect section 2, read the evidence and continue scrolling without moving the list.",
+    "Step 3: inspect section 3, read the evidence and continue scrolling without moving the list.",
+    "Step 4: inspect section 4, read the evidence and continue scrolling without moving the list.",
+    "Step 5: inspect section 5, read the evidence and continue scrolling without moving the list.",
+    "Step 6: inspect section 6, read the evidence and continue scrolling without moving the list.",
+    "Step 7: inspect section 7, read the evidence and continue scrolling without moving the list.",
+    "Step 8: inspect section 8, read the evidence and continue scrolling without moving the list.",
+    "Step 9: inspect section 9, read the evidence and continue scrolling without moving the list.",
+    "Step 10: inspect section 10, read the evidence and continue scrolling without moving the list.",
+    "Step 11: inspect section 11, read the evidence and continue scrolling without moving the list.",
+    "Step 12: inspect section 12, read the evidence and continue scrolling without moving the list.",
+    "Step 13: inspect section 13, read the evidence and continue scrolling without moving the list.",
+    "Step 14: inspect section 14, read the evidence and continue scrolling without moving the list.",
+    "Step 15: inspect section 15, read the evidence and continue scrolling without moving the list.",
+    "Step 16: inspect section 16, read the evidence and continue scrolling without moving the list.",
+    "Step 17: inspect section 17, read the evidence and continue scrolling without moving the list.",
+    "Step 18: inspect section 18, read the evidence and continue scrolling without moving the list.",
+    "Step 19: inspect section 19, read the evidence and continue scrolling without moving the list.",
+    "Step 20: inspect section 20, read the evidence and continue scrolling without moving the list."
+  ],
+  "expected": "The detail pane scrolls independently from top to bottom while the list and page stay fixed.",
+  "tags": [
+    "panel-fixture",
+    "long"
+  ],
+  "surfaceFiles": [],
+  "revision": 2,
+  "createdAt": "2026-11-11T13:33:24.432Z",
+  "updatedAt": "2026-11-11T13:33:29.229Z",
+  "createdBy": "ux",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-11T13:33:29.229Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "fixture for scroll proof"
+    }
+  ],
+  "evidence": {
+    "observation": {
+      "command": "manual observation of long detail fixture",
+      "output": "detail pane reached the end of 20 steps, evidence and history without clipping",
+      "exitCode": 0,
+      "at": "2026-11-11T13:33:29.226Z"
+    },
+    "commit": null
+  },
+  "lastVerified": {
+    "at": "2026-11-11T13:33:29.226Z",
+    "command": "manual observation of long detail fixture",
+    "exitCode": 0
+  }
+}

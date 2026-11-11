@@ -85,6 +85,12 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
  * disposable copy and reports the smallest failing case. It is not the reviewer (which
  * judges a diff) and not UX/UI (which tests an interface), so it gets its own tools and
  * its own preset instead of being a wording variant of either.
+ *
+ * `audit` used to map to `reviewer`, which made one name mean two jobs: the autolabel board
+ * carried `AUDIT [reviewer]` and `AUDIT [critic]`, and the second registration overwrote the
+ * first's preset. The name is deliberately NOT in this table any more - a delegation asking
+ * for AUDIT is told to choose REVIEWER or CRITIC, and a board that still holds the label keeps
+ * it as history (scripts/taskboard-migrate.mjs splits the rows it can still prove).
  */
 export const PRESET_IDS = ['ux', 'backend', 'research', 'reviewer', 'critic', 'docs']
 
@@ -104,7 +110,6 @@ export const ROLE_PRESETS = {
   researchfirst: 'research',
   reviewer: 'reviewer',
   review: 'reviewer',
-  audit: 'reviewer',
   critic: 'critic',
   criticgeneral: 'critic',
   generalcritic: 'critic',
@@ -162,22 +167,52 @@ export function roleMatches(left, right) {
 export function renderRoleCatalog(agents, limit = 24) {
   const rows = Array.isArray(agents) ? agents.filter((agent) => agent !== null && typeof agent === 'object' && typeof agent.role === 'string') : []
   if (rows.length === 0) return '## Roles already in this workspace\n\nNone yet. The first delegation creates one.'
-  const lines = rows.slice(0, limit).map((agent) => {
-    const count = Number.isSafeInteger(agent.taskCount) ? agent.taskCount : 0
-    const generation = Number.isSafeInteger(agent.generation) && agent.generation > 1 ? `, generation ${agent.generation}` : ''
-    const status = typeof agent.status === 'string' ? agent.status : 'unknown'
-    // The preset is part of the row because it decides whether the session can be reused:
-    // a role whose row has no preset predates the role roster and will be re-created.
-    const preset = typeof agent.preset === 'string' && agent.preset !== '' ? ` [${agent.preset}]` : ''
-    return `- ${agent.role}${preset} - ${count} task${count === 1 ? '' : 's'}, ${status}${generation}`
+  // A ROLE IS A (NAME, PRESET) PAIR. The old catalog printed one line per row, so a name with
+  // two presets looked like two roles (AUDIT [reviewer] and AUDIT [critic]) and a name written
+  // twice looked like two specialists. One line per pair, and a name whose pairs disagree is
+  // called out as ambiguous instead of being offered for reuse.
+  const seen = new Set()
+  const reusable = []
+  const legacy = []
+  const presets = new Map()
+  for (const agent of rows) {
+    const preset = typeof agent.preset === 'string' ? agent.preset.trim() : ''
+    const key = `${normalizeRole(agent.role)}|${preset}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    const label = normalizeRole(agent.role)
+    presets.set(label, new Set([...(presets.get(label) ?? []), preset]))
+    const line = agentLine(agent, preset)
+    if (preset === '') legacy.push(line)
+    else reusable.push(line)
+  }
+  const ambiguous = [...presets].filter(([, set]) => set.size > 1).map(([label]) => {
+    const names = rows.filter((agent) => normalizeRole(agent.role) === label)
+    return names[0].role
   })
-  return [
-    '## Roles already in this workspace',
-    '',
-    'Reuse one of these exact names. A new role is for a NEW domain, not for the same work in a new chat.',
-    '',
-    ...lines,
-  ].join('\n')
+  const sections = [['## Roles already in this workspace', '', 'Reuse one of these exact names. A new role is for a NEW domain, not for the same work in a new chat.', '', ...reusable.slice(0, limit)]]
+  if (ambiguous.length > 0) {
+    sections[0].push(
+      '',
+      `A name with two presets is ambiguous - ${ambiguous.map((name) => `"${name}"`).join(', ')}. Split it: REVIEWER judges a change, CRITIC attacks a running behaviour; pass \`preset\` only for a genuinely new specialty.`,
+    )
+  }
+  if (legacy.length > 0) {
+    // HISTORY, NOT A TARGET. A row without a preset predates the roster: its child ran on a
+    // composition the ledger cannot name, so reusing the session would run a new brief on an
+    // unknown tool set. The tasks stay under the old name; the NAME is not offered again.
+    sections.push(['## Legacy roles (history only - do not reuse)', '', 'These roles predate role presets, so their child\'s tool set is unknown. Keep their tasks as history and name new work with one of the roles above; delegate_task refuses these names without forceRole.', '', ...legacy.slice(0, limit)])
+  }
+  return sections.map((lines) => lines.join('\n')).join('\n\n')
+}
+
+/** One catalog line: the name, its preset, what it did and whether it can be reused. */
+function agentLine(agent, preset) {
+  const count = Number.isSafeInteger(agent.taskCount) ? agent.taskCount : 0
+  const generation = Number.isSafeInteger(agent.generation) && agent.generation > 1 ? `, generation ${agent.generation}` : ''
+  const status = typeof agent.status === 'string' ? agent.status : 'unknown'
+  const flag = agent.conflict === true ? ', NAME COLLIDES - one of two rows' : agent.legacy === true ? ', no preset - not reusable' : ''
+  return `- ${agent.role}${preset === '' ? '' : ` [${preset}]`} - ${count} task${count === 1 ? '' : 's'}, ${status}${generation}${flag}`
 }
 
 /**
@@ -339,6 +374,7 @@ You are a delegated specialist. Do exactly the task brief you received.
 - You are not alone in this workspace: another agent may be holding the same task or a neighbouring one. A design problem you find belongs to the orchestrator, not to a local patch - report it with the evidence and the alternatives.
 - You are a persistent role specialist: you can receive several task briefs in this session. Keep your assigned role, treat each new message as one task, and do not spawn children.
 - Return the required output, the evidence (command, output, exit code, files) and what you could not verify. A claim without evidence is not a result.
+- **Some of the tools in your header are the HOST's, not your role's**: the MCP bridge (mcp__godot__*, mcp__playwright__*), Hindsight memory, the taskboard and the skills library are mounted at the host and inherited by every preset, so they do not widen the composition your role deliberately chose. Use them for the brief's work, and do not reach for one to do a job your role was given no tool for (a reviewer has read and bash but no write/edit).
 - **No speculative tests: observe first, then persist the case.** Prove behaviour by running the product; when the behaviour is worth keeping, record it with \`case_record\` (automated needs testPath+runCommand and red-first evidence; otherwise documented-only with a reason). Do not write a test to guess at behaviour.
 - Use \`task_note\` for significant findings and \`task_get\` to re-read your task. The orchestrator owns acceptance and the final report.
 - BEFORE you report the task done, close the loop on what the work taught. If it produced a procedure that is not obvious from the code - a build incantation, a trap, an order of operations that cost a retry - call \`skill_inventory\`; if nothing covers it, call \`skill_evolve\` with the exact steps, the failure it prevents and this task as the evidence. Never record trivia, one-off facts or a secret. A task that found nothing reusable simply reports that; do not invent a skill to look productive.`
@@ -530,7 +566,7 @@ export function apply(ctx, config = {}) {
     parameters: {
       title: { type: 'string', required: true, description: 'Short task title.' },
       role: { type: 'string', required: true, description: 'Specialist role, e.g. UX/UI, BACKEND, RESEARCH, REVIEWER, CRITIC, DOCS. The roles this workspace already has are listed in your policy section - reuse one of those exact names; all fitting tasks belong to it.' },
-      preset: { type: 'string', enum: PRESET_IDS, description: 'Tool composition for the child. Omit to derive it from the role; pass it explicitly when the role is a specialty outside the seven (e.g. role AUDIT with preset reviewer, or an adversarial pass over an algorithm with preset critic).' },
+      preset: { type: 'string', enum: PRESET_IDS, description: 'Tool composition for the child. Omit to derive it from the role; pass it explicitly when the role is a specialty outside the seven (e.g. a migration under preset backend, or an adversarial pass over an algorithm with preset critic). AUDIT is not accepted as a name at all - use REVIEWER or CRITIC.' },
       roleDescription: { type: 'string', description: 'Optional one-line responsibility zone for a newly created specialist.' },
       objective: { type: 'string', required: true, description: 'The outcome in one paragraph, not the activity.' },
       scope: { type: 'array', items: { type: 'string' }, description: 'What the child may touch.' },
@@ -559,6 +595,13 @@ export function apply(ctx, config = {}) {
       // taskboard write: a child started on the wrong composition does work that has
       // to be thrown away, and an explicit preset is the escape hatch for a role
       // outside the seven.
+      // AUDIT IS REFUSED AS A NAME, not merely unmapped. Unmapped alone would still let
+      // `role: "AUDIT", preset: "reviewer"` through, which is exactly the ambiguity: one label
+      // whose tool set depends on the call. The board keeps the rows it already has as
+      // history; new work must name the job.
+      if (normalizeRole(role) === 'audit') {
+        throw new Error(`delegate_task: "AUDIT" is two jobs, not one role. Use REVIEWER to judge a change (preset reviewer) or CRITIC to attack a running behaviour (preset critic); each keeps its own tool set, and an AUDIT name already on the board stays there as history.`)
+      }
       const preset = typeof args.preset === 'string' && args.preset !== '' ? args.preset : presetForRole(role)
       if (preset === undefined) {
         throw new Error(`delegate_task: role "${role}" names none of the seven tool compositions (${PRESET_IDS.join(', ')}). Reuse one of those role names (CRITIC/QA/TESTER map to the adversarial tester), or pass preset explicitly when the role is a genuine specialty.`)
@@ -588,6 +631,21 @@ export function apply(ctx, config = {}) {
           return undefined
         }
       })()
+      // A ROLE LABEL KEEPS ONE TOOL SET, AND A LEGACY ROW IS NOT A ROLE.
+      // Two measured lies this closes, both from ~/tasks/autolabel_pipeline (2026-11-11):
+      //   - `AUDIT` was delegated once as a reviewer and once as a critic; the second
+      //     registration rewrote the row's preset, so the catalog offered one role where two
+      //     specialties had worked and the next reviewer brief landed on critic tools.
+      //   - `DASHBOARD`/`BRIDGE`/`CORRECTIONS`/`FPS` rows predate presets, and continuing them
+      //     re-created the name on a composition nobody chose.
+      // Both are refused before a task row exists; forceRole is the explicit escape hatch.
+      const knownPreset = typeof knownAgent?.preset === 'string' ? knownAgent.preset.trim() : ''
+      if (knownAgent !== undefined && knownPreset === '' && args.forceRole !== true) {
+        throw new Error(`delegate_task: role "${knownAgent.role}" is a legacy row from before role presets - its child's tool set is unknown, so it cannot be reused. Name this work with one of the seven roles (${PRESET_IDS.join(', ')}), or pass forceRole: true with an explicit preset to re-compose it deliberately.`)
+      }
+      if (knownAgent !== undefined && knownPreset !== '' && knownPreset !== preset && args.forceRole !== true) {
+        throw new Error(`delegate_task: role "${knownAgent.role}" is already the [${knownPreset}] role in this workspace, and a role label keeps one tool set. ${knownPreset === 'reviewer' || preset === 'reviewer' ? 'REVIEWER judges a change while CRITIC attacks a running behaviour - use the role that owns this work. ' : ''}Pass forceRole: true only to deliberately re-compose the role.`)
+      }
       if (knownAgent === undefined && args.forceRole !== true) {
         let agents = []
         try {
@@ -771,7 +829,21 @@ export function apply(ctx, config = {}) {
             delivery: 'parent',
           })
           childId = activation.childId
-          taskboard.registerAgent(taskCwd, { role, label: role, sessionId: childId, taskId: task.id, chatSessionId: parent.id, preset })
+          // The ledger is the last word on identity: it refuses a label whose preset is already
+          // recorded, and a child started against a row it refused is the orphan this path
+          // exists to prevent. forceRole is passed through because the refusal above already
+          // decided the switch was deliberate.
+          const registered = taskboard.registerAgent(taskCwd, { role, label: role, sessionId: childId, taskId: task.id, chatSessionId: parent.id, preset, force: args.forceRole === true })
+          if (registered?.ok === false) {
+            try { ctx.subagents.interrupt?.(childId, { kind: 'ancestor', agent: parent }) } catch { /* reported, not hidden */ }
+            taskboard.update(taskCwd, {
+              id: task.id,
+              expectedRevision: taskboard.get(taskCwd, task.id)?.revision ?? task.revision,
+              chatId,
+              patch: { status: 'blocked', reason: `role "${role}" already runs the ${registered.recorded} composition`, result: { risks: [`role "${role}" is recorded with preset ${registered.recorded}, not ${preset}`] } },
+            })
+            return { ok: false, code: registered.code ?? 'preset_conflict', message: `delegate_task: the taskboard refused to register role "${role}" with preset "${preset}" (${registered.code ?? 'preset_conflict'}: recorded ${registered.recorded}); the child was interrupted. Delegate under the role that owns this work, or pass forceRole: true.` }
+          }
           if (reuseNote !== undefined) {
             try {
               ctx.logger?.warn?.(`delegate_task: role "${role}" re-created in this chat (${reuseNote})`)

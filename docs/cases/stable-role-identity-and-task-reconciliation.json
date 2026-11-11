@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 1,
+  "id": "stable-role-identity-and-task-reconciliation",
+  "title": "Stable role identity and task reconciliation",
+  "requirement": "In autolabel_pipeline and every workspace, a delegated role must have one explicit valid preset, the orchestrator must not offer ambiguous or preset-less legacy roles for reuse, and an active task whose child ended in error must not remain silently active.",
+  "kind": "scenario",
+  "status": "verified",
+  "source": "human",
+  "automated": true,
+  "reason": "",
+  "steps": [
+    "Run `node scripts/taskboard-role-proof.mjs`: it drives the real taskboard service (registerAgent/findAgent/childEnded/reconcile) and the orchestrator's renderRoleCatalog/presetForRole/canReuseAgent on a disposable board.",
+    "Register AUDIT with preset reviewer, then AUDIT with preset critic: the second call must be refused with `preset_conflict` and the row must keep `reviewer`/its session. `force: true` is the recorded exception.",
+    "Reset the board with a preset-less DASHBOARD row: `findAgent` must report `legacy: true`, `canReuseAgent` must be false, and an explicit `preset` must adopt it once with an `adoptedAt` history entry.",
+    "Render the catalog for BACKEND[backend] twice, AUDIT[reviewer] + AUDIT[critic], and DASHBOARD[legacy]: one line per pair, an 'ambiguous' sentence naming REVIEWER/CRITIC, and a separate 'Legacy roles (history only - do not reuse)' section.",
+    "Settle a linked child with stopReason `error`: the task must become `blocked` with that reason; stopReason `stop` must still become `review`.",
+    "Rewrite the board so a settled-child task is back in `active` next to one with a live child, then call `reconcile`: the stale row becomes `blocked`, the live row stays `active`, and a second call reports `fixed: 0`.",
+    "Prove the check can fail: extract the pre-fix modules (`git show HEAD:plugins/taskboard/taskboard.mjs`, `.../orchestrator.mjs`) and run the same script with --taskboard/--orchestrator pointing at them - it must exit 1 with the defect lines."
+  ],
+  "expected": "`node scripts/taskboard-role-proof.mjs` prints 15/15 checks passed and exits 0, and the same run against the pre-fix modules exits 1 with at least the preset_conflict, legacy, catalog and blocked-on-error lines failing. Operationally on autolabel_pipeline: every reusable role reports exactly one preset, AUDIT is split into REVIEWER and CRITIC, preset-less rows are marked legacy and refused for reuse with their tasks intact, and an active task whose child ended in error is blocked with that reason rather than left active.",
+  "tags": [
+    "owner-requirement",
+    "orchestrator",
+    "taskboard",
+    "roles",
+    "regression"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/taskboard/taskboard.mjs",
+      "sha256": "640c33ea27e642bd47131b8834628e8af747b6a2cff6bdb94db64866be460c45"
+    },
+    {
+      "path": "plugins/orchestrator/orchestrator.mjs",
+      "sha256": "9e971e717faefbacbec1f93a6194929ef31782b1899273f474e27bafd7219506"
+    },
+    {
+      "path": "scripts/taskboard-migrate.mjs",
+      "sha256": "968c7da6a123f3c405e0249fe0e6df76a875c0b1cfc7d529a1f7074f54fd7f9a"
+    }
+  ],
+  "linkedTaskId": "task-mwc5e85w-e52p1d",
+  "revision": 6,
+  "createdAt": "2026-11-11T13:27:36.094Z",
+  "updatedAt": "2026-11-11T13:35:15.662Z",
+  "createdBy": "orchestrator",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-11T13:27:36.094Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "Stable role identity and task reconciliation",
+        "requirement": "In autolabel_pipeline and every workspace, a delegated role must have one explicit valid preset, the orchestrator must not offer ambiguous or preset-less legacy roles for reuse, and an active task whose child ended in error must not remain silently active.",
+        "expected": "Every reusable role reports exactly one valid preset; ambiguous duplicates and legacy preset-less roles are visibly retired or blocked from reuse; failed children produce an explicit blocked/stale task state with evidence; historical tasks and results remain intact.",
+        "steps": [
+          "Open the autolabel_pipeline Tasks panel and inspect the role catalog.",
+          "Verify AUDIT is split into unambiguous REVIEWER and CRITIC identities with one preset each.",
+          "Verify custom roles resolve through the workspace role registry and cannot silently borrow backend.",
+          "Verify legacy preset-less roles are excluded from reuse while historical tasks remain readable.",
+          "Inspect an active task whose child stopped with error: it must be reconciled to blocked/stale or restarted, not left silently active.",
+          "Attempt a conflicting role/preset registration and confirm it is refused."
+        ],
+        "automated": false,
+        "reason": "Acceptance requires live taskboard, role registry, delegation and second-server UI behavior; the implementation task is not complete yet, so no runnable surface or observed verification exists.",
+        "status": "unverified"
+      }
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-11T13:33:15.852Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "Green run: working tree at /home/iustimov/dsh-kit. Red run: the same command (`node scripts/taskboard-role-proof.mjs`) in a detached git worktree of HEAD fc09cec at /tmp/pre-fix (the script copied in, node_modules symlinked), so the red is the same command against the pre-fix modules. One-time board repair ran separately: scripts/taskboard-migrate.mjs on ~/tasks/autolabel_pipeline/.dsh/taskboard.json, revision 1936 -> 1937, backup .dsh/backups/taskboard-2026-11-11T13-28-41-725Z-r1936.json, tasks 225 -> 225, done 211 and cancelled 5 unchanged, agents 13 -> 12, second run changed:false."
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-11T13:34:22.165Z",
+      "editedBy": "agent",
+      "action": "stale",
+      "reason": "surface files changed since lastVerified: plugins/orchestrator/orchestrator.mjs"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-11T13:34:31.020Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "Re-verified after the child-policy line about host-mounted tools changed plugins/orchestrator/orchestrator.mjs (case_drift had marked it stale). Red run is the same command in a detached git worktree of HEAD fc09cec (/tmp/pre-fix, removed afterwards): 4/15 checks passed, exit 1. Board repair evidence: scripts/taskboard-migrate.mjs on ~/tasks/autolabel_pipeline/.dsh/taskboard.json, revision 1936 -> 1937, backup .dsh/backups/taskboard-2026-11-11T13-28-41-725Z-r1936.json, tasks 225 -> 225, done 211 / cancelled 5 unchanged, agents 13 -> 12, second run changed:false. `make verify` is green for this change set; its only failing check is `tarball:matches-source` for plugins/test-cases, which another agent is editing concurrently (not touched here)."
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-11T13:35:15.662Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "Final re-verification after delegate_task started refusing AUDIT as a role name (with or without a preset) and the tool description was aligned; case_drift had marked the case stale on plugins/orchestrator/orchestrator.mjs. Red run remains the same command in a detached worktree of HEAD fc09cec: 4/15, exit 1. `make verify` passes 17/17 portability + documentation for this change set; its single failing check is `tarball:matches-source` for plugins/test-cases, which a concurrent agent is editing in the shared tree (not touched here)."
+    }
+  ],
+  "evidence": {
+    "redFirst": {
+      "command": "node scripts/taskboard-role-proof.mjs",
+      "output": "FAIL  a role label cannot switch presets  {\"ok\":true,...\"preset\":\"critic\"}\nFAIL  the refused switch left the row untouched  {\"preset\":\"critic\",\"sessionId\":\"sess-critic\"}\nPASS  force records the deliberate re-composition\nFAIL  a preset-less row reads as legacy  {\"preset\":null}\nPASS  a legacy session is never reused\nFAIL  an explicit preset upgrades a legacy row and records it\nFAIL  the catalog lists a role once per (name, preset)\nFAIL  two presets for one name are called out as ambiguous\nFAIL  legacy rows are in their own not-reusable section\nFAIL  AUDIT no longer resolves to a preset\nFAIL  a child that ended in error blocks the task instead of review  {\"status\":\"review\"}\nPASS  a child that finished still goes to review\nFAIL  reconcile settles the stale row  {\"now\":\"active\",\"reconciled\":{\"missing\":true}}\nPASS  reconcile never touches a running child  {\"now\":\"active\"}\nFAIL  reconcile is idempotent\n\n4/15 checks passed",
+      "exitCode": 1,
+      "at": "2026-11-11T13:35:15.661Z"
+    },
+    "green": {
+      "command": "node scripts/taskboard-role-proof.mjs",
+      "output": "PASS  a role label cannot switch presets  {\"ok\":false,\"code\":\"preset_conflict\",\"role\":\"AUDIT\",\"recorded\":\"reviewer\",\"requested\":\"critic\"}\nPASS  the refused switch left the row untouched  {\"preset\":\"reviewer\",\"sessionId\":\"sess-reviewer\"}\nPASS  force records the deliberate re-composition\nPASS  a preset-less row reads as legacy  {\"preset\":null,\"legacy\":true}\nPASS  a legacy session is never reused\nPASS  an explicit preset upgrades a legacy row and records it\nPASS  the catalog lists a role once per (name, preset)\nPASS  two presets for one name are called out as ambiguous\nPASS  legacy rows are in their own not-reusable section\nPASS  AUDIT no longer resolves to a preset\nPASS  a child that ended in error blocks the task instead of review  {\"status\":\"blocked\",\"reason\":\"child child-err ended with error\"}\nPASS  a child that finished still goes to review\nPASS  reconcile settles the stale row  {\"now\":\"blocked\",\"reconciled\":{\"ok\":true,\"checked\":2,\"fixed\":1,\"blocked\":1,\"review\":0,\"running\":1,\"unknown\":0,\"ids\":[\"task-mwc5s3ls-i4xv8h\"]}}\nPASS  reconcile never touches a running child  {\"now\":\"active\",\"running\":1}\nPASS  reconcile is idempotent\n\n15/15 checks passed",
+      "exitCode": 0,
+      "at": "2026-11-11T13:35:15.661Z"
+    },
+    "commit": null
+  },
+  "testPath": "scripts/taskboard-role-proof.mjs",
+  "runCommand": "node scripts/taskboard-role-proof.mjs",
+  "lastVerified": {
+    "at": "2026-11-11T13:35:15.661Z",
+    "command": "node scripts/taskboard-role-proof.mjs",
+    "exitCode": 0
+  },
+  "degraded": false,
+  "needsReverification": {
+    "at": "2026-11-11T13:34:22.165Z",
+    "changedFiles": [
+      "plugins/orchestrator/orchestrator.mjs"
+    ],
+    "reason": "surface files changed since lastVerified: plugins/orchestrator/orchestrator.mjs"
+  }
+}

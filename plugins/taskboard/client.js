@@ -1226,7 +1226,13 @@ window.__ModuleLoader__.load({
       }
       const casesAvailable = hasPanel('test-cases') || hasPanel('@cc/dsh-test-cases')
       const openCases = () => {
-        try { layout.selectPanel('test-cases') } catch { /* absent plugin: do nothing */ }
+        try {
+          // The panel is a global main slot; hand it the chat the human came from so it
+          // reads the same workspace instead of guessing the most recently updated one.
+          const owner = store.getSnapshot().sessionId
+          if (typeof owner === 'string' && owner !== '') sessionStorage.setItem('dsh:test-cases:session', owner)
+          layout.selectPanel('test-cases')
+        } catch { /* absent plugin: do nothing */ }
       }
       return h('div', { className: 'tb-root' },
         h('style', null, CSS),

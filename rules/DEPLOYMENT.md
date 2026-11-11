@@ -72,7 +72,12 @@ algorithm - with realistic non-trivial inputs and sequences, on a disposable cop
 scratch checkout, a copy of the data), and reports the smallest reproducible failure or what
 it tried and what stayed untested. It never fixes and never touches production data, and its
 preset carries no browser: UI crash testing stays with `ux`. `delegate_task` maps CRITIC,
-CRITIC-GENERAL, TESTER and QA to `critic`; AUDIT stays on `reviewer`.
+CRITIC-GENERAL, TESTER and QA to `critic`, and REVIEWER/REVIEW to `reviewer`. **AUDIT maps to
+neither**: it was the one name that meant both jobs, and the ledger collapsed the two rows that
+wore it (measured 2026-11-11 in `~/tasks/autolabel_pipeline`: `AUDIT [reviewer]` and
+`AUDIT [critic]` became one row whose preset the second delegation silently overwrote).
+`delegate_task` refuses AUDIT as a role name (with or without a preset) and answers with the
+choice - REVIEWER to judge a change, CRITIC to attack a running behaviour.
 `delegate_task` maps a role name to its preset and passes `agentPreset` in the start request; a
 provider without `capabilities.agentPreset` is refused before a child exists, because the child
 would silently inherit the orchestrator composition and the brief would promise work it cannot
@@ -83,6 +88,57 @@ only**. `standard` stays in the picker as the
 hands-on escape hatch, and a session with no recorded preset keeps every capability-gated tool,
 so an unknown composition is never silently degraded - except `design_map`, which fails closed
 because it is an ownership boundary, not a capability.
+
+#### 1.0.0 Role identity is a `(name, preset)` pair
+
+The taskboard's `agents[]` row is the record of a persistent specialist, and the pair is the
+identity: `registerAgent` refuses to record a second preset under a name that already has one
+(`preset_conflict`, the row untouched) unless the caller passes `force`, which is written into
+the row's `history` as a deliberate re-composition. A row with **no** preset predates the
+roster: it is marked `legacy` when read, it is never a reuse target (`delegate_task` refuses the
+name without `forceRole`), and the root policy lists it under *Legacy roles (history only - do
+not reuse)* instead of offering it for reuse. `scripts/taskboard-migrate.mjs` performs the
+one-time repair on a board written before this contract: it splits `AUDIT` into
+`REVIEWER`/`CRITIC` by the preset each row and task still records, marks preset-less rows
+legacy, merges duplicate rows, and settles `active` tasks whose children have all ended. It is
+idempotent, it copies the board into `.dsh/backups/` first, and it writes only if the file's
+revision and bytes are unchanged since its own read (compare-and-set); a board that moved under
+the run is refused with exit code 2 and no write. Usage:
+
+```
+node scripts/taskboard-migrate.mjs --board /path/to/.dsh/taskboard.json          # dry run, prints counts
+node scripts/taskboard-migrate.mjs --board /path/to/.dsh/taskboard.json --apply  # backup + CAS write
+```
+
+#### 1.0.0.1 Host-wide tools are explicit, and measured
+
+A preset is a plugin list, so anything the kit mounts at the HOST is inherited by every preset
+and is not part of the role's composition. Two kinds exist, and they are worth naming because a
+child's tool header looks far wider than its role:
+
+| source | rows | what a specialist sees |
+| --- | --- | --- |
+| the seven presets | a per-preset plugin row set (persona, instructions, time, shell where allowed, fs, fs-search, jobs, skills, skill tool, compaction, todo, web, present) | its role's tool set |
+| the host profile (`$DSH_HOME/cordis.patch.yml`, written by `scripts/dsh-mcp-sync.mjs`) | `mcp-client-godot-mcp` (`mcp__godot__*`), `mcp-client-playwright-mcp` (`mcp__playwright__*`), `hindsight` | inherited by every preset, including the reviewer |
+| kit rows mounted at the host | taskboard, test-cases, skills, research-first, proof-guard, rtk | inherited, but each gates its own role-only tools by `agent/preset` (`papers_*` research, `design_map` orchestrator, `babysitter_*` orchestrator, `diagram`/`presentation` orchestrator+ux) |
+
+Measured 2026-11-11 from the root session's child headers: backend 105 tools, ux 107,
+reviewer/critic/research 103, a legacy run-code-only role 1. The seven presets declare a per-preset plugin row set, so the difference is host-mounted, not role-granted. **The child policy now says
+this in one line**, so a specialist knows an `mcp__*` tool in its header came from the host and
+is not licence to do a job its role was given no tool for. Moving the MCP rows INTO the presets
+is technically possible (a preset is a plugin list) but each mounted MCP row starts its own
+server process per child session - a Chromium per UX child - so that placement is a cost
+decision for whoever owns the MCP bridge, not a free tightening. The alternative, if the owner
+wants the surface smaller, is to declare the row only in the presets that need it and disable
+the root row; the kit-side plumbing is `profile/mcp-servers.json` plus
+`scripts/dsh-mcp-sync.mjs`, both of which already build rows from a declaration.
+
+**A child that ends in error parks its task in `blocked`, not `review`.** `review` means "the
+runtime says the work finished"; a child that stopped with `stopReason: error` did not finish
+it, so the row is blocked with that stop reason as its reason. `reconcile` (the service method,
+and `applyOp {op: "reconcile"}` from the panel) settles the same way any `active` row whose
+linked children are all settled - and never touches a row that still has a child `active` or
+`paused`.
 
 #### 1.0.1 Who may change what
 

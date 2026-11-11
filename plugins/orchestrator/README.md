@@ -44,7 +44,18 @@ existing delegation depth and concurrency cap still apply.
 | `promptSections` | `true` | set false to ship only the tool |
 
 Every `delegate_task` call names a `role`; the optional `roleDescription` becomes the new
-child's responsibility line, and the optional `preset` overrides the role → preset mapping
-when the role is a genuine specialty outside the six (e.g. role `AUDIT` with preset
-`reviewer`). Roles are case-insensitive; one child session per role is the rule, not one
-child per task.
+child's responsibility line, and the optional `preset` is required when the role is a genuine
+specialty outside the six. Roles are case-insensitive; one child session per role is the rule,
+not one child per task.
+
+**A role label keeps one preset.** Three refusals, all before a task row exists:
+`preset_conflict` - the name is already recorded with another preset (pass `forceRole: true`
+only to deliberately re-compose it); a **legacy** row with no preset - the name is history, not
+a reuse target, and the refusal names the seven; and an unmapped new role - an explicit valid
+`preset` is required. `AUDIT` maps to nothing on purpose: it was the one label that meant both
+`reviewer` and `critic`, so the answer tells the caller to choose REVIEWER (judge a change) or
+CRITIC (attack a running behaviour) instead of guessing.
+
+The root policy catalog prints one line per `(name, preset)` pair, flags a name whose pairs
+disagree as ambiguous, and lists preset-less rows in their own *Legacy roles (history only - do
+not reuse)* section, so the model sees what it may reuse and what it may not.
