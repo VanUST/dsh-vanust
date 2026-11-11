@@ -39,8 +39,10 @@ window.__ModuleLoader__.load({
 .pr-hint{font-size:10.5px;color:var(--dsw-alias-label-secondary);display:flex;gap:10px;flex-wrap:wrap;min-height:15px}
 .pr-error{color:var(--dsw-alias-state-error-primary);font-weight:600;overflow-wrap:anywhere}
 .pr-note{color:var(--dsw-alias-label-secondary)}
-.pr-trigger{display:inline-flex;align-items:center;justify-content:center;border:1px solid transparent;background:transparent;color:var(--dsw-alias-label-primary);border-radius:7px;padding:4px;cursor:pointer}
+.pr-trigger{display:inline-flex;align-items:center;gap:4px;border:1px solid transparent;background:transparent;color:var(--dsw-alias-label-primary);border-radius:7px;padding:3px 7px;font:inherit;font-size:11.5px;font-weight:600;cursor:pointer;height:26px}
 .pr-trigger:hover{background:var(--dsw-alias-bg-layer-1)}
+.pr-trigger:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}
+.pr-trigger-label{white-space:nowrap}
 `
 
     function createStore(initial) {
@@ -154,7 +156,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function SidebarIcon({ layout, store, useSessions }) {
+    function HeaderTrigger({ layout, store, useSessions }) {
       const sessionsRaw = useSessions((snapshot) => snapshot.byId)
       const sessionsById = sessionsRaw !== null && typeof sessionsRaw === 'object' ? sessionsRaw : {}
       const open = () => {
@@ -164,7 +166,10 @@ window.__ModuleLoader__.load({
       }
       return h(React.Fragment, null,
         h('style', null, CSS),
-        h('button', { type: 'button', className: 'pr-trigger', onClick: open, title: 'Project rules', 'aria-label': 'Open the project rules editor' }, h(Icon, { size: 18 })),
+        h('button', { type: 'button', className: 'pr-trigger', onClick: open, title: 'Project rules', 'aria-label': 'Open the project rules editor' },
+          h(Icon, { size: 14 }),
+          h('span', { className: 'pr-trigger-label' }, 'Rules'),
+        ),
       )
     }
 
@@ -295,13 +300,12 @@ window.__ModuleLoader__.load({
           key: PANEL_ID,
           inject: () => ({ remote: ctx.remote, store }),
         }, RulesPage))
-        ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
-          name: 'sidebar.panellist',
+        ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
+          name: 'conversation.session.header.actions',
           id: PANEL_ID,
-          order: 40,
-          label: () => 'Rules',
+          order: 30,
           inject: () => ({ layout: ctx.layout, store }),
-        }, SidebarIcon))
+        }, HeaderTrigger))
       },
     }
   },

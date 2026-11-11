@@ -42,8 +42,10 @@ window.__ModuleLoader__.load({
 .dm-error{color:var(--dsw-alias-state-error-primary);font-weight:600;overflow-wrap:anywhere}
 .dm-note{color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}
 .dm-empty{padding:28px;text-align:center;color:var(--dsw-alias-label-secondary);font-size:12.5px}
-.dm-trigger{display:inline-flex;align-items:center;justify-content:center;border:1px solid transparent;background:transparent;color:var(--dsw-alias-label-primary);border-radius:7px;padding:4px;cursor:pointer}
+.dm-trigger{display:inline-flex;align-items:center;gap:4px;border:1px solid transparent;background:transparent;color:var(--dsw-alias-label-primary);border-radius:7px;padding:3px 7px;font:inherit;font-size:11.5px;font-weight:600;cursor:pointer;height:26px}
 .dm-trigger:hover{background:var(--dsw-alias-bg-layer-1)}
+.dm-trigger:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}
+.dm-trigger-label{white-space:nowrap}
 `
 
     function createStore(initial) {
@@ -157,7 +159,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function SidebarIcon({ layout, store, useSessions }) {
+    function HeaderTrigger({ layout, store, useSessions }) {
       const sessionsRaw = useSessions((snapshot) => snapshot.byId)
       const sessionsById = sessionsRaw !== null && typeof sessionsRaw === 'object' ? sessionsRaw : {}
       const open = () => {
@@ -167,7 +169,10 @@ window.__ModuleLoader__.load({
       }
       return h(React.Fragment, null,
         h('style', null, CSS),
-        h('button', { type: 'button', className: 'dm-trigger', onClick: open, title: 'Design map', 'aria-label': 'Open the design map' }, h(Icon, { size: 18 })),
+        h('button', { type: 'button', className: 'dm-trigger', onClick: open, title: 'Design map', 'aria-label': 'Open the design map' },
+          h(Icon, { size: 14 }),
+          h('span', { className: 'dm-trigger-label' }, 'Design map'),
+        ),
       )
     }
 
@@ -387,13 +392,12 @@ window.__ModuleLoader__.load({
           key: PANEL_ID,
           inject: () => ({ remote: ctx.remote, store }),
         }, DesignMapPage))
-        ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
-          name: 'sidebar.panellist',
+        ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
+          name: 'conversation.session.header.actions',
           id: PANEL_ID,
-          order: 30,
-          label: () => 'Design map',
+          order: 20,
           inject: () => ({ layout: ctx.layout, store }),
-        }, SidebarIcon))
+        }, HeaderTrigger))
       },
     }
   },
