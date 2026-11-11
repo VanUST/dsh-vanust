@@ -30,13 +30,19 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   file, and the file prints as it looks.
 - **`@cc/dsh-design-map`** — one Excalidraw scene, `design.excalidraw` at the project
   root, that the **orchestrator** and the human both edit. The orchestrator gets a
-  `design_map` tool over labelled boxes and arrows (positions are laid out for it), gated
-  per agent on `agentPreset === 'orchestrator'` - a delegated specialist never receives it,
+  `design_map` tool over a *visual* vocabulary: a node's `kind` chooses the shape (rectangle
+  service, ellipse store, diamond decision, dashed rectangle external), `layer` puts it in a
+  titled band, `edges[].label` names the flow on the arrow and `title` labels the map -
+  positions and routing are laid out for it. Every result carries `preview` (the real
+  geometry as text) and `health` (the validator's verdict), so the agent sees what it drew
+  and runs `layout` when a map is broken instead of editing blind. The tool is gated per
+  agent on `agentPreset === 'orchestrator'` - a delegated specialist never receives it,
   because a child must not rewrite the design it was asked to work inside; the human gets a
   **Design map** panel embedding the real MIT editor in an iframe `srcdoc` built from a
-  vendored frame, with no CDN. The panel reads through `workspaceFiles` and saves through
-  the `/design-map` command (not a tool, so it is never gated), one file carries one
-  revision counter, and a read returns `updatedAt`/`stale` for the orchestrator.
+  vendored frame, with no CDN, where every label and flow is an editable bound text. The
+  panel reads through `workspaceFiles` and saves through the `/design-map` command (not a
+  tool, so it is never gated), one file carries one revision counter, and a read returns
+  `updatedAt`/`stale` for the orchestrator.
 - **`@cc/dsh-test-cases`** — the observed test-case library in `docs/cases/`. Eight host tools (`case_record`, `case_update`, `case_verify`, `case_list`, `case_get`, `case_supersede`, `case_deprecate`, `case_drift`) over one JSON file per case: compare-and-set edits keep history, an automated case records its test path, exact run command and the observed red/green runs, a documented-only case keeps steps, expected behaviour and the reason it cannot be a test. A changed surface file or a missing test marks a case stale instead of deleting the requirement; the orchestrator gets only the intake subset (record a human requirement as unverified, read the library). The rule is observe first, then persist — no speculative tests.
 - **`@cc/dsh-project-rules`** — one workspace rules file, `.dsh/rules.md`, rendered as
   ONE system-prompt section for every agent and subagent and edited from a **Rules** panel

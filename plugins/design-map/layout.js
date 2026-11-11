@@ -37,6 +37,37 @@ const COLUMN_GAP = 120
 const ROW_GAP = NODE_GAP
 const SAFETY = 1.2
 
+/**
+ * The visual language. `kind` is what the agent means; the scene element type and
+ * colour are what the human sees. All three shapes accept a bound text label
+ * (Excalidraw 0.18.1 `ExcalidrawTextContainer`), so a label stays editable by
+ * double-click on every kind. `external` is a dashed rectangle: outside the system.
+ */
+export const SHAPE_TYPES = new Set(['rectangle', 'ellipse', 'diamond'])
+export const KIND_SPEC = {
+  service: { element: 'rectangle', color: '#e7f5ff', strokeStyle: 'solid' },
+  store: { element: 'ellipse', color: '#e6fcf5', strokeStyle: 'solid' },
+  decision: { element: 'diamond', color: '#fff9db', strokeStyle: 'solid' },
+  external: { element: 'rectangle', color: '#f1f3f5', strokeStyle: 'dashed' },
+}
+export const KIND_NAMES = Object.keys(KIND_SPEC)
+/** The rectangle a kind's label has to fit inside, as a fraction of the shape box. */
+const INSCRIBED = { rectangle: { x: 1, y: 1 }, ellipse: { x: Math.SQRT1_2, y: Math.SQRT1_2 }, diamond: { x: 0.5, y: 0.5 } }
+
+/** A layer band: the titled row the nodes of one layer sit in. */
+export const LANE = {
+  paddingX: 18,
+  paddingTop: 40,
+  paddingBottom: 20,
+  gap: 36,
+  titleSize: 17,
+  fill: '#f8f9fa',
+  stroke: '#adb5bd',
+  minHeight: 120,
+}
+/** The map title, drawn above everything. */
+export const TITLE = { fontSize: 30, top: 96, gapAfter: 26 }
+
 /** Arial/Helvetica advance widths per 1000 em for printable ASCII. */
 const ARIAL = {
   ' ': 278, '!': 278, '"': 355, '#': 556, $: 556, '%': 889, '&': 667, "'": 191,
@@ -53,18 +84,23 @@ const ARIAL = {
   '{': 334, '|': 260, '}': 334, '~': 584,
 }
 
-/** Advance width of one line in px, at TEXT.fontSize. */
-export function advance(line) {
+/** Advance width of one line in px, at an explicit font size. */
+export function advanceAt(line, fontSize) {
   let units = 0
   for (const char of String(line)) {
     const known = ARIAL[char]
     units += known !== undefined ? known : (char.codePointAt(0) > 0x2e80 ? 1000 : 600)
   }
-  return (units / 1000) * TEXT.fontSize
+  return (units / 1000) * fontSize
+}
+
+/** Advance width of one line in px, at the node label's font size. */
+export function advance(line) {
+  return advanceAt(line, TEXT.fontSize)
 }
 
 /** Greedy word wrap; long words are split by character. Empty input is one line. */
-export function wrapLabel(raw, maxWidth) {
+export function wrapLabel(raw, maxWidth, fontSize = TEXT.fontSize) {
   const text = String(raw ?? '').replace(/\r\n?/g, '\n').replace(/\t/g, '    ').trim()
   if (text === '') return ['']
   const out = []
@@ -74,12 +110,12 @@ export function wrapLabel(raw, maxWidth) {
     for (const word of paragraph.split(/(\s+)/)) {
       if (word === '' || /^\s+$/.test(word)) continue
       const next = line === '' ? word : `${line} ${word}`
-      if (advance(next) <= maxWidth) { line = next; continue }
+      if (advanceAt(next, fontSize) <= maxWidth) { line = next; continue }
       if (line !== '') { out.push(line); line = '' }
-      if (advance(word) <= maxWidth) { line = word; continue }
+      if (advanceAt(word, fontSize) <= maxWidth) { line = word; continue }
       let chunk = ''
       for (const char of word) {
-        if (chunk !== '' && advance(chunk + char) > maxWidth) { out.push(chunk); chunk = char }
+        if (chunk !== '' && advanceAt(chunk + char, fontSize) > maxWidth) { out.push(chunk); chunk = char }
         else chunk += char
       }
       line = chunk
@@ -102,19 +138,28 @@ export function lineWidth(line) {
  * Content-sized node. An explicit width/height is a floor, not a cap: a box can
  * never be smaller than its label. Returns the exact text height and the wrapped
  * text Excalidraw will keep (explicit newlines survive its own wrapping).
+ *
+ * A non-rectangle kind grows the box past the label: an ellipse's inscribed text
+ * rectangle is width/√2 by height/√2, a diamond's is half by half. Sizing from that
+ * inner box is what keeps a two-word label from spilling over the shape's edge.
  */
-export function measureNode(label, { width, height } = {}) {
-  const maxContent = (TEXT.maxNodeWidth - TEXT.padding * 2)
-  let lines = wrapLabel(label, Math.min(TEXT.maxTextWidth, maxContent) / SAFETY)
+export function measureNode(label, { width, height, kind } = {}) {
+  const name = kindOf(kind)
+  const spec = KIND_SPEC[name]
+  const inscribed = INSCRIBED[spec.element]
+  const pad = TEXT.padding
+  const innerMaxWidth = Math.min(TEXT.maxTextWidth, TEXT.maxNodeWidth * inscribed.x - pad * 2)
+  let lines = wrapLabel(label, innerMaxWidth / SAFETY)
   let textWidth = Math.max(...lines.map((line) => advance(line)))
-  let requested = Number.isFinite(width) ? width : textWidth * SAFETY + TEXT.padding * 2
+  let requested = Number.isFinite(width) ? width : (textWidth * SAFETY + pad * 2) / inscribed.x
   let nodeWidth = clamp(Math.ceil(requested), TEXT.minNodeWidth, TEXT.maxNodeWidth)
-  lines = wrapLabel(label, (nodeWidth - TEXT.padding * 2) / SAFETY)
+  lines = wrapLabel(label, Math.max(nodeWidth * inscribed.x - pad * 2, 1) / SAFETY)
   textWidth = Math.max(...lines.map((line) => advance(line)))
-  nodeWidth = clamp(Math.ceil(Math.max(nodeWidth, textWidth * SAFETY + TEXT.padding * 2)), TEXT.minNodeWidth, TEXT.maxNodeWidth)
   const textHeight = lines.length * TEXT.fontSize * TEXT.lineHeight
-  const needed = Math.ceil(textHeight + TEXT.padding * 2)
-  let nodeHeight = clamp(Math.max(needed, Number.isFinite(height) ? height : 0), TEXT.minNodeHeight, TEXT.maxNodeHeight)
+  const neededWidth = (textWidth * SAFETY + pad * 2) / inscribed.x
+  nodeWidth = clamp(Math.ceil(Math.max(nodeWidth, neededWidth)), TEXT.minNodeWidth, TEXT.maxNodeWidth)
+  const neededHeight = (textHeight + pad * 2) / inscribed.y
+  const nodeHeight = clamp(Math.ceil(Math.max(neededHeight, Number.isFinite(height) ? height : 0)), TEXT.minNodeHeight, TEXT.maxNodeHeight)
   return {
     text: lines.join('\n'),
     lines,
@@ -122,7 +167,15 @@ export function measureNode(label, { width, height } = {}) {
     textHeight,
     width: nodeWidth,
     height: nodeHeight,
+    kind: name,
+    element: spec.element,
+    inscribed,
   }
+}
+
+/** The canonical kind name; an unknown kind is a service, never a crash. */
+export function kindOf(kind) {
+  return KIND_SPEC[kind] !== undefined ? kind : 'service'
 }
 
 /** True when two rectangles are closer than `gap` on both axes. */
@@ -440,15 +493,13 @@ function rankNodes(ids, outgoing, edges) {
 }
 
 /**
- * Graph-aware, collision-free placement.
+ * Rank, order and column geometry shared by the graph and the lane layout.
  *
  * Ranks come from the graph with back edges removed, so even a cyclic scene reads
  * left to right; within a rank, nodes are ordered by the mean position of their
- * predecessors. A node with an explicit position is an obstacle and keeps it. Auto
- * nodes take the first free row in their column, `NODE_GAP` away from every
- * occupied rectangle.
+ * predecessors over three barycenter passes.
  */
-export function layoutGraph({ nodes, edges, obstacles = [], originX = 80, originY = 80, gap = NODE_GAP }) {
+function rankAndOrder(nodes, edges) {
   const byId = new Map(nodes.map((node) => [node.id, node]))
   const outgoing = new Map(nodes.map((node) => [node.id, []]))
   const incoming = new Map(nodes.map((node) => [node.id, []]))
@@ -483,8 +534,19 @@ export function layoutGraph({ nodes, edges, obstacles = [], originX = 80, origin
   const ranks = [...new Set(order.map((id) => rankOf.get(id)))].sort((a, b) => a - b)
   const columnWidth = new Map(ranks.map((r) => [r, Math.max(...order.filter((id) => rankOf.get(id) === r).map((id) => byId.get(id).width))]))
   const columnX = new Map()
-  let x = originX
+  let x = 0
   for (const r of ranks) { columnX.set(r, x); x += columnWidth.get(r) + COLUMN_GAP }
+  return { byId, rankOf, order, ranks, columnWidth, columnX, gridWidth: x - COLUMN_GAP }
+}
+
+/**
+ * Graph-aware, collision-free placement (the unlayered map).
+ *
+ * A node with an explicit position is an obstacle and keeps it; auto nodes take the
+ * first free row in their column, `NODE_GAP` away from every occupied rectangle.
+ */
+export function layoutGraph({ nodes, edges, obstacles = [], originX = 80, originY = 80, gap = NODE_GAP }) {
+  const { byId, rankOf, order, ranks, columnWidth, columnX } = rankAndOrder(nodes, edges)
   const placed = new Map()
   const occupied = obstacles.map((rect) => ({ ...rect }))
   for (const node of nodes) if (Number.isFinite(node.x) && Number.isFinite(node.y)) occupied.push({ id: node.id, x: node.x, y: node.y, width: node.width, height: node.height })
@@ -493,7 +555,7 @@ export function layoutGraph({ nodes, edges, obstacles = [], originX = 80, origin
     for (const id of order.filter((entry) => rankOf.get(entry) === r)) {
       const node = byId.get(id)
       if (Number.isFinite(node.x) && Number.isFinite(node.y)) { placed.set(id, { x: node.x, y: node.y }); continue }
-      const rect = { id, x: columnX.get(r), y, width: node.width, height: node.height }
+      const rect = { id, x: originX + columnX.get(r), y, width: node.width, height: node.height }
       let guard = 0
       while (occupied.some((other) => tooClose(rect, other, gap)) && guard < 400) {
         y = Math.max(...occupied.filter((other) => tooClose(rect, other, gap)).map((other) => other.y + other.height + gap), y + 8)
@@ -506,6 +568,117 @@ export function layoutGraph({ nodes, edges, obstacles = [], originX = 80, origin
     }
   }
   return placed
+}
+
+/**
+ * Keep a placed node from sitting on a box that is already there.
+ *
+ * In a lane the column is shared by every node of that rank, so a new node has to
+ * start below the lowest box already in its column and keep the gap. `occupied`
+ * holds every fixed rectangle of the resulting map, lane members or not.
+ */
+function freeRowBelow(occupied, rect, gap) {
+  let y = rect.y
+  let guard = 0
+  while (occupied.some((other) => tooClose({ ...rect, y }, other, gap)) && guard < 400) {
+    y = Math.max(...occupied.filter((other) => tooClose({ ...rect, y }, other, gap)).map((other) => other.y + other.height + gap), y + 8)
+    guard += 1
+  }
+  return y
+}
+
+/**
+ * Place nodes into labelled layer bands.
+ *
+ * The map becomes a grid: one column per graph rank (the same left-to-right flow as
+ * the unlayered layout) and one full-width band per layer, stacked in the declared
+ * order. A node that already has coordinates keeps them - an upsert must not move a
+ * human's box - and only nodes without a position are placed, below the boxes
+ * already in their cell. Each band is then sized around its members, so the band
+ * always encloses what it is a band for.
+ */
+export function placeLanes({ nodes, edges, lanes, obstacles = [], originX = 80, originY = 80, gap = 24, fixed = new Map() }) {
+  const { byId, rankOf, order, columnWidth, columnX, gridWidth } = rankAndOrder(nodes, edges)
+  const laneMembers = new Map(lanes.map((lane) => [lane.id, nodes.filter((node) => node.layer === lane.id)]))
+  const placed = new Map()
+  const occupied = obstacles.map((rect) => ({ ...rect }))
+  for (const node of nodes) {
+    if (node.layer === undefined || node.layer === null || !laneMembers.has(node.layer)) continue
+    if (Number.isFinite(node.x) && Number.isFinite(node.y)) occupied.push({ id: node.id, x: node.x, y: node.y, width: node.width, height: node.height })
+  }
+  const boxes = new Map()
+  const overflow = []
+  // A band an earlier write already owns is NOT moved by an upsert: only `layout`
+  // redraws it. Moving it would shift the ground under boxes the agent did not touch.
+  for (const lane of lanes) {
+    const prior = fixed.get(lane.id)
+    if (prior === undefined) continue
+    const box = { ...prior }
+    for (const id of order) {
+      const node = byId.get(id)
+      if (node === undefined || node.layer !== lane.id || Number.isFinite(node.x)) continue
+      const r = rankOf.get(id)
+      const wanted = originX + columnX.get(r) + (columnWidth.get(r) - node.width) / 2
+      const x = Math.min(Math.max(wanted, box.x + LANE.paddingX), box.x + box.width - LANE.paddingX - node.width)
+      const sameCell = [...byId.values()].filter((other) => other.layer === lane.id && rankOf.get(other.id) === r && other.id !== id)
+      const floor = Math.max(box.y + LANE.paddingTop, ...sameCell.map((other) => {
+        const at = placed.get(other.id) ?? other
+        return Number.isFinite(at.y) ? at.y + other.height + gap : Number.NEGATIVE_INFINITY
+      }))
+      const y = freeRowBelow(occupied, { id, x, y: floor, width: node.width, height: node.height }, gap)
+      if (y + node.height > box.y + box.height - LANE.paddingBottom + 0.5) {
+        // Growing a band is allowed only into the gap before the next one; pushing the
+        // next band down would move boxes this upsert was told not to touch.
+        const nextTop = [...fixed.values()].filter((other) => other.id !== lane.id && other.y > box.y).map((other) => other.y).sort((a, b) => a - b)[0] ?? Number.POSITIVE_INFINITY
+        const needed = y + node.height + LANE.paddingBottom
+        if (needed + LANE.gap <= nextTop) box.height = needed - box.y
+        else overflow.push(id)
+      }
+      placed.set(id, { x, y })
+      occupied.push({ id, x, y, width: node.width, height: node.height })
+    }
+    boxes.set(lane.id, box)
+  }
+  let cursorY = originY
+  for (const box of boxes.values()) cursorY = Math.max(cursorY, box.y + box.height + LANE.gap)
+  let left = originX
+  let right = originX + gridWidth
+  for (const lane of lanes) {
+    if (boxes.has(lane.id)) continue
+    const members = laneMembers.get(lane.id) ?? []
+    // An adopted band (its element was deleted by hand) takes its members' row back;
+    // a brand-new band stacks below the ones already placed.
+    const fixedYs = members.filter((node) => Number.isFinite(node.x) && Number.isFinite(node.y)).map((node) => node.y)
+    const laneTop = fixedYs.length > 0 ? Math.min(...fixedYs) - LANE.paddingTop : cursorY
+    let bottom = Math.max(laneTop + LANE.minHeight, ...members.filter((node) => Number.isFinite(node.y)).map((node) => node.y + node.height + LANE.paddingBottom))
+    for (const id of order) {
+      const node = byId.get(id)
+      if (node === undefined || node.layer !== lane.id) continue
+      if (Number.isFinite(node.x) && Number.isFinite(node.y)) {
+        placed.set(id, { x: node.x, y: node.y })
+        bottom = Math.max(bottom, node.y + node.height + LANE.paddingBottom)
+        continue
+      }
+      const r = rankOf.get(id)
+      const x = originX + columnX.get(r) + (columnWidth.get(r) - node.width) / 2
+      const y = freeRowBelow(occupied, { id, x, y: laneTop + LANE.paddingTop, width: node.width, height: node.height }, gap)
+      placed.set(id, { x, y })
+      occupied.push({ id, x, y, width: node.width, height: node.height })
+      bottom = Math.max(bottom, y + node.height + LANE.paddingBottom)
+    }
+    const box = { id: lane.id, y: laneTop, height: bottom - laneTop }
+    boxes.set(lane.id, box)
+    cursorY = laneTop + box.height + LANE.gap
+    for (const member of members) {
+      const at = placed.get(member.id) ?? member
+      if (Number.isFinite(at.x)) { left = Math.min(left, at.x); right = Math.max(right, at.x + member.width) }
+    }
+  }
+  for (const lane of lanes) {
+    const box = boxes.get(lane.id)
+    if (box.x === undefined) { box.x = left - LANE.paddingX; box.width = right - left + LANE.paddingX * 2 }
+  }
+  return { positions: placed, overflow, lanes: lanes.map((lane) => boxes.get(lane.id)).filter((box) => box !== undefined) }
 }
 
 /** Non-finite geometry anywhere is never renderable; the check is cheap and last. */
@@ -524,28 +697,36 @@ export function finiteIssues(elements) {
 }
 
 /**
- * Label clipping, rectangle overlap and arrow-through-rectangle.
+ * Label clipping, rectangle overlap, layer containment and arrow-through-rectangle.
  *
  * Clipping is checked on design-map nodes named by `nodeIds` (an upsert must not
- * police a human box it did not touch). Overlap and arrow crossings consider EVERY
- * live rectangle, including plain human shapes - the layout treats those as
- * obstacles, so validation must too. An arrow only skips its own two endpoints.
+ * police a human box it did not touch), and against the text rectangle a shape can
+ * actually hold: the full box for a rectangle, the inscribed half for a diamond.
+ * Overlap and arrow crossings consider every live rectangle EXCEPT a layer band -
+ * a band is a region its members sit in by design, and an arrow crossing a band
+ * border is not a collision. A design node inside another layer's band, or outside
+ * its own, is reported instead.
  */
 export function analyzeElements(elements, { gap = NODE_GAP, nodeIds = null, arrowIds = null } = {}) {
   const issues = finiteIssues(elements)
   const live = elements.filter((element) => element !== null && typeof element === 'object' && element.isDeleted !== true)
   const texts = new Map(live.filter((element) => element.type === 'text').map((element) => [element.id, element]))
-  const nodes = live.filter((element) => element.type === 'rectangle' && element.customData?.designMap?.kind === 'node')
-  const allRects = live.filter((element) => element.type === 'rectangle')
+  const lanes = live.filter((element) => element.type === 'rectangle' && element.customData?.designMap?.kind === 'layer')
+  const laneIds = new Set(lanes.map((lane) => lane.customData.designMap.layerId ?? lane.id))
+  const nodes = live.filter((element) => SHAPE_TYPES.has(element.type) && element.customData?.designMap?.kind === 'node')
+  const allRects = live.filter((element) => SHAPE_TYPES.has(element.type) && element.customData?.designMap?.kind !== 'layer')
   for (const node of nodes) {
     if (nodeIds !== null && !nodeIds.has(node.id)) continue
     const text = (node.boundElements ?? []).map((entry) => texts.get(entry.id)).find((entry) => entry !== undefined)
     if (text === undefined) continue
-    const lines = wrapLabel(text.originalText ?? text.text ?? '', (node.width - TEXT.padding * 2) / SAFETY)
-    const neededHeight = lines.length * TEXT.fontSize * TEXT.lineHeight + TEXT.padding * 2
-    const neededWidth = Math.max(...lines.map((line) => advance(line))) * SAFETY + TEXT.padding * 2
-    if (node.height + 0.5 < neededHeight) issues.push({ kind: 'clip', id: node.id, detail: `${node.id} is ${Math.round(node.height)}px tall; its label needs ${Math.ceil(neededHeight)}px` })
-    if (node.width + 0.5 < neededWidth) issues.push({ kind: 'clip', id: node.id, detail: `${node.id} is ${Math.round(node.width)}px wide; its longest line needs ${Math.ceil(neededWidth)}px` })
+    const inscribed = INSCRIBED[node.type] ?? INSCRIBED.rectangle
+    const innerWidth = node.width * inscribed.x
+    const innerHeight = node.height * inscribed.y
+    const lines = wrapLabel(text.originalText ?? text.text ?? '', Math.max(innerWidth - TEXT.padding * 2, 1) / SAFETY)
+    const neededHeight = (lines.length * TEXT.fontSize * TEXT.lineHeight + TEXT.padding * 2) / inscribed.y
+    const neededWidth = (Math.max(...lines.map((line) => advance(line))) * SAFETY + TEXT.padding * 2) / inscribed.x
+    if (node.height + 0.5 < neededHeight) issues.push({ kind: 'clip', id: node.id, detail: `${node.id} is ${Math.round(node.height)}px tall; its label needs ${Math.ceil(neededHeight)}px in a ${node.type}` })
+    if (node.width + 0.5 < neededWidth) issues.push({ kind: 'clip', id: node.id, detail: `${node.id} is ${Math.round(node.width)}px wide; its longest line needs ${Math.ceil(neededWidth)}px in a ${node.type}` })
   }
   for (let i = 0; i < allRects.length; i += 1) {
     for (let j = i + 1; j < allRects.length; j += 1) {
@@ -553,11 +734,31 @@ export function analyzeElements(elements, { gap = NODE_GAP, nodeIds = null, arro
       if (tooClose(allRects[i], allRects[j], gap)) issues.push({ kind: 'overlap', a: allRects[i].id, b: allRects[j].id, detail: `${allRects[i].id} and ${allRects[j].id} overlap or sit closer than ${gap}px` })
     }
   }
+  // Layer containment: a band must not overlap another band, a member must sit in
+  // its own band, and no design node may stand inside a band it does not belong to.
+  for (let i = 0; i < lanes.length; i += 1) {
+    for (let j = i + 1; j < lanes.length; j += 1) {
+      if (tooClose(lanes[i], lanes[j], gap)) issues.push({ kind: 'layer_overlap', a: lanes[i].id, b: lanes[j].id, detail: `${lanes[i].id} and ${lanes[j].id} overlap` })
+    }
+  }
+  for (const node of nodes) {
+    const layer = node.customData?.designMap?.layer
+    if (layer === undefined || layer === null) continue
+    if (!laneIds.has(layer)) { issues.push({ kind: 'layer_missing', id: node.id, detail: `${node.id} names layer "${layer}", which has no band` }); continue }
+    const band = lanes.find((lane) => (lane.customData.designMap.layerId ?? lane.id) === layer)
+    if (band === undefined) continue
+    if (!containsRect(band, node, 2)) issues.push({ kind: 'member_outside_layer', id: node.id, detail: `${node.id} sits outside the band of layer "${layer}"` })
+    for (const other of lanes) {
+      const otherId = other.customData.designMap.layerId ?? other.id
+      if (otherId === layer || !tooClose(other, node, -2)) continue
+      issues.push({ kind: 'foreign_in_layer', id: node.id, detail: `${node.id} belongs to "${layer}" but stands inside "${otherId}"` })
+    }
+  }
   // A boundElements entry that names no live element (or an arrow that no longer
   // binds back to this rectangle) is dangling and will break the next drag.
   const liveIds = new Set(live.map((element) => element.id))
   const arrowMap = new Map(live.filter((element) => element.type === 'arrow').map((element) => [element.id, element]))
-  for (const rectangle of allRects) {
+  for (const rectangle of live.filter((element) => SHAPE_TYPES.has(element.type) && element.customData?.designMap?.kind !== 'layer')) {
     for (const entry of rectangle.boundElements ?? []) {
       if (entry?.id === undefined || !liveIds.has(entry.id)) {
         issues.push({ kind: 'dangling', id: rectangle.id, detail: `${rectangle.id}.boundElements names missing ${String(entry?.id)}` })
@@ -580,4 +781,12 @@ export function analyzeElements(elements, { gap = NODE_GAP, nodeIds = null, arro
     }
   }
   return issues
+}
+
+/** `inner` sits inside `outer` with `slack` px of tolerance on every side. */
+function containsRect(outer, inner, slack = 0) {
+  return inner.x >= outer.x - slack &&
+    inner.y >= outer.y - slack &&
+    inner.x + inner.width <= outer.x + outer.width + slack &&
+    inner.y + inner.height <= outer.y + outer.height + slack
 }

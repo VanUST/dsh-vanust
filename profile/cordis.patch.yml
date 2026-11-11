@@ -75,12 +75,15 @@
       name: '@cc/dsh-diagrams'
 
 # ── design-map: one Excalidraw map the agent and the human both edit ─────────
-# One `design.excalidraw` at the project root. The agent writes nodes/edges with the
-# `design_map` tool; the human opens Design map in the sidebar and edits the same
-# scene in the real MIT Excalidraw editor (vendored frame, no CDN). The panel reads
-# through workspaceFiles and saves through `/design-map`, so the file the human sees
-# in the Files panel is the file the agent read. A read reports rev/updatedAt/stale,
-# which is how the orchestrator knows the map needs refreshing.
+# One `design.excalidraw` at the project root. The agent writes nodes/edges/layers with
+# the `design_map` tool; a node's kind picks the shape (rectangle/ellipse/diamond/dashed
+# rectangle), `layer` puts it in a titled band, an edge label rides the arrow and `title`
+# labels the map. The human opens Design map in the sidebar and edits the same scene in
+# the real MIT Excalidraw editor (vendored frame, no CDN): every label is a bound text.
+# The panel reads through workspaceFiles and saves through `/design-map`, so the file the
+# human sees in the Files panel is the file the agent read. Every result carries a text
+# `preview` of the real geometry and a `health` verdict, which is how the orchestrator
+# sees a broken map and repairs it with `layout`; a read reports rev/updatedAt/stale.
 - insert:
     - id: design-map
       name: '@cc/dsh-design-map'

@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "design-map-visual-vocabulary-and-agent-preview",
+  "title": "design-map visual vocabulary and agent preview",
+  "requirement": "The owner asked for the design map to be convenient for the agent — the agent must explicitly understand the visual representation it produces — and maximally convenient for the human to read and edit: a deliberate visual vocabulary (node kinds, layers, title, labelled flows) that the agent can reason about, a preview and health verdict in every tool result, and every label still editable in the real editor.",
+  "kind": "scenario",
+  "status": "unverified",
+  "source": "human",
+  "automated": false,
+  "reason": "Intake requirement recorded from chat before implementation; the observed proof is reports/design-map-v2/cases.mjs (53 assertions) and the screens under reports/design-map-v2/screens, not a case-library automated test.",
+  "steps": [
+    "Ask the orchestrator to write a design map with layers, kinds, a title and labelled flows.",
+    "Open the Design map panel and confirm the shapes, bands, title and arrow labels are visible.",
+    "Double-click a box and an arrow and edit their text.",
+    "Drag a box, then ask the orchestrator for an unrelated upsert; the dragged box and its band must not move.",
+    "Read the tool result: it must contain preview and health."
+  ],
+  "expected": "A design_map write/upsert can declare kind (service/store/decision/external -> rectangle/ellipse/diamond/dashed rectangle), layer + layers[] (titled bands), a title, and edge labels; the scene shows all of them in the real Excalidraw frame; every result returns a text preview of the real geometry and a health verdict; double-clicking a shape or an arrow edits its label; an upsert never moves a box or band the human placed.",
+  "tags": [
+    "design-map",
+    "agent-experience",
+    "readability"
+  ],
+  "surfaceFiles": [],
+  "linkedTaskId": "task-mwc8jac0-zzro1j",
+  "revision": 1,
+  "createdAt": "2026-11-11T15:12:07.033Z",
+  "updatedAt": "2026-11-11T15:12:07.033Z",
+  "createdBy": "orchestrator",
+  "createdByKind": "agent",
+  "history": [],
+  "evidence": {}
+}
