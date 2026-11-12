@@ -1,0 +1,19 @@
+{
+  "name": "@cc/dsh-run-code-projection",
+  "version": "0.1.1",
+  "description": "Bounds one run_code result in the model context: on tools/post-execute a result above minBytes is replaced by a banner naming a spill file inside the session workspace plus its head and tail, so the full text stays readable with the ordinary file tools while the middle stops being re-sent every step. Errors, short results, images and already-projected content pass through untouched.",
+  "type": "module",
+  "main": "run-code-projection.mjs",
+  "exports": {
+    ".": "./run-code-projection.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "run-code-projection.mjs",
+    "README.md"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
+  }
+}

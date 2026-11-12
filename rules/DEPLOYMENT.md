@@ -14,7 +14,7 @@ unless the `DSH_HOME` environment variable overrides it.
 
 ## 1. What this deployment is
 
-The upstream harness plus nineteen plugins, all pinned and installed from one kit repository:
+The upstream harness plus 21 plugins, all pinned and installed from one kit repository:
 
 | Piece | What it does |
 |---|---|
@@ -407,6 +407,70 @@ It never moves a directory written in the last 60 minutes (`--max-age-minutes`),
 fresh mtime means a live session. A clean store costs ~0.2 s and prints nothing; the summary
 line is `make session-doctor`. Quarantining does not delete the chat: it removes it from the
 listing, which is the difference between "invisible" and "gone".
+
+**Session budget — a deterministic handoff reminder, not a summary (`@cc/dsh-session-budget`).**
+A session that runs for a thousand steps is expensive, not broken: every step re-sends the
+derived history, and compaction then re-bills the prefix. Measured on this machine 2026-11-12:
+four sessions of 2 000+ steps carried 26% of two weeks' spend, and 25.6% of all steps ran above
+500 000 tokens of context — 40% of the money. The plugin counts completed steps through a
+`ctx.sessionProjections` fold over the append-only log, so a compaction's `{op:'replace'}`
+neither resets the count nor erases which thresholds already fired. At steps 300, 400 and 500 it
+appends ONE fixed `user/message` before the step runs — in the same request, because the
+`agent/pre-step` waterfall precedes request derivation — telling the agent to write
+`docs/handoffs/<date>-<slug>.md` and register it on the current task, and raises one detached
+desktop notification through `@cc/dsh-notify/core`. No model call, no daemon, no thrown turn:
+`thresholds` overrides the three steps, `notifyChildren: false` (the default) keeps a delegated
+child's reminder out of the human's popups, and `enabled: false` disables it without removing
+the row. Proof: `node plugins/session-budget/proof/proof.mjs` — 15 checks, exit 0.
+
+**Run-code projection — the bulk of a `run_code` result, moved out of the step
+(`@cc/dsh-run-code-projection`).** The tool that dominates this deployment's context is not bash
+but `run_code`: measured over this workspace's session logs, `run_code` produced 33.3 MB of the
+34.5 MB of tool output while `bash` produced 0.8 MB — which is why RTK, aimed at shell commands,
+filters almost nothing here. On the same `tools/post-execute` seam RTK uses, a successful
+`run_code` result above `minBytes` (8192) is replaced by a banner, the first `headBytes` (3072),
+the last `tailBytes` (1536), the elided byte count, and the exact path of the full text written
+inside the session workspace (`<cwd>/.dsh/spill/run_code-<callId>-<epoch>.txt`), so the middle is
+one `read` away instead of on every subsequent request. It runs after `next()`, so another
+policy's block or replacement stays authoritative, and it never touches errors, media, results
+below the threshold, text that already carries its banner, or a session without a workspace. A
+write failure logs once and returns the original result — the turn never sees an exception.
+Measured with the shipped policy over the stored logs: 5.56% of all tool-result bytes saved
+(87.6% of the `run_code` bytes it chose to project). Proof:
+`node plugins/run-code-projection/proof/proof.mjs` — 13 checks, exit 0.
+
+**PTC presentation — rolled back on this deployment, and why (`@deepseek-ai/dsh-agent-tool-presentation`).**
+Under `mode: ptc` the model sees one `run_code` transport plus a generated SDK instead of every
+tool schema, so several calls collapse into ONE step — and the step count, not the token price, is
+what multiplies this deployment's bill (measured 2026-11-12: 40 880 steps over 183 sessions,
+`$0.0021` each). It was enabled for `backend` and `research` and ROLLED BACK the same day, because
+the switch is unsafe for a session that already exists:
+
+1. A resumed session re-reads its preset, so its next request switches to PTC. The harness records
+   that as a `developer/message` carrying `tool-addition: run_code` plus one `tool-removal` per
+   previously announced tool (measured: 78 blocks in one message).
+2. The provider projection marks every tool ADDITION as `deferLoading: true`
+   (`dsh-llm/lib/index.js:763`, `toolDeclarations`) and the DeepSeek adapter forwards it as
+   `defer_loading: true` (`dsh-llm-deepseek/lib/index.js:1729`).
+3. When the added tool is the WHOLE new surface — which is exactly what a native→ptc switch is —
+   the request carries only deferred tools and the provider rejects it:
+   `INVALID_REQUEST: tools: at least one tool must have defer_loading=false. All tools cannot be
+   deferred.` Every step of that session then fails.
+
+A session CREATED under `ptc` should be fine (its first header declares `run_code`, so it is not an
+addition), but this machine's long-lived role sessions are exactly the unsafe case: the BACKEND
+role session was created before the change, so resuming it fails on the first request. Re-enable
+only after one of these holds:
+
+- the harness keeps at least one resident declaration when it defers additions (upstream fix in
+  `toolDeclarations`), or
+- role sessions are recreated before the preset flips (a new chat per role), and the deployment can
+  guarantee no pre-existing session is resumed under `ptc`.
+
+The shipped web-app bundle already offers a `ptc`-presentation preset (`id: ptc`, order 2) for
+experiments; it is untouched. Do NOT set `DSH_TOOLS_MODE`, which flips the whole process. The
+robust way to measure this later is a headless or disposable second-server run with FRESH sessions
+only — never by flipping a preset that existing sessions resume into.
 
 **Skills that grow — `@cc/dsh-skill-evolve` (in the profile, nothing to start).** Writes
 `<name>/SKILL.md` under `$DSH_HOME/skills`, which the harness's own `skill-filesystem`

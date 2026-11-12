@@ -1,7 +1,7 @@
 # USERGUIDE.md — setting up and starting the harness on a new machine
 
 This kit installs **DeepSeek Harness (dsh)** on any of your machines (2× Linux,
-1× Windows) plus the **nineteen** plugins this deployment adds beyond upstream:
+1× Windows) plus the **21** plugins this deployment adds beyond upstream:
 **`@cc/dsh-notify`** (raises a desktop notification — `notify-send`, a PowerShell toast or
 `osascript` — when an agent finishes a turn and when it asks you a question; silence it with
 `DSH_NOTIFY_DISABLED=1` in the server's environment),
@@ -551,6 +551,8 @@ Each is a decision, not a default; none is required for the harness to run.
 | Addition | What it buys | Switch on | Switch off |
 |---|---|---|---|
 | `@cc/dsh-rtk` | Compresses oversized shell results (`git log/diff`, test runners, `rg`, `find`) before the model reads them | Install the binary: `RTK_EDITION=oss sh <(curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh)` | Nothing to stop; remove the row to disable, or uninstall the binary and the plugin says it is absent |
+| `@cc/dsh-session-budget` | Reminds the agent (and you) at steps 300/400/500 to write a handoff note and continue in a new session, before the context gets expensive | Already in the profile; thresholds and notifications are config on the row (`thresholds`, `notify`, `notifyChildren`) | Remove the row, or set `enabled: false` — no state is kept outside the session log |
+| `@cc/dsh-run-code-projection` | Turns a `run_code` result above 8 KiB into a banner + head + tail with the full text in `.dsh/spill/` inside the workspace, so the bulk stops riding every step | Already in the profile; `minBytes`, `headBytes`, `tailBytes`, `minSavingRatio` and `spillDir` are config on the row | Remove the row, or set `enabled: false` — the spill files stay on disk |
 | `@cc/dsh-skill-evolve` | Skills grow: write, version, dedupe and archive `SKILL.md` under `$DSH_HOME/skills` | Already in the profile — four tools appear (`skill_evolve`, `skill_inventory`, `skill_grow`, `skill_forget`) | Remove the row; the library files stay |
 | Headroom proxy | Compresses model traffic itself (prompt payloads, tool results) — measured 19 955 → 8 208 input tokens on a 61 KB JSON result | `node scripts/headroom.mjs enable` then restart, or just `./start.sh` (it calls `ensure`); to launch `dsh web` directly instead, install `node scripts/headroom.mjs unit` as a systemd user service so the proxy is up regardless of who boots the harness | `node scripts/headroom.mjs disable --stop`, or `HEADROOM=0 ./start.sh` for one boot |
 | `@cc/dsh-babysitter` | Runs a deterministic babysitter process and tracks it as ONE taskboard task | `npm install -g @a5c-ai/babysitter`; rows in the profile | Remove the row; the CLI stays installed |

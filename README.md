@@ -1,6 +1,6 @@
 # dsh-kit
 
-Portable setup for **DeepSeek Harness (dsh)** plus the nineteen plugins this
+Portable setup for **DeepSeek Harness (dsh)** plus the 21 plugins this
 deployment needs beyond upstream, across all your machines (2× Linux, 1× Windows).
 `plugins/inventory.json` is the single source of truth for the set:
 
@@ -143,6 +143,20 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   simple command whose filter actually shrinks the text, and every replacement carries a banner
   naming the filter and how to get the full output back. Works with rtk absent — the prompt
   section says so and the listener no-ops.
+- **`@cc/dsh-session-budget`** — a deterministic handoff reminder at step thresholds. A session
+  projection folds completed steps out of the append-only log, so the count and the "already
+  reminded" marks survive compaction; at 300 (soft), 400 (soft) and 500 (hard) the plugin appends
+  one fixed `user/message` before the step runs — in the same request, because the pre-step
+  waterfall precedes request derivation — and raises one detached desktop notification through
+  `@cc/dsh-notify/core`. No model call, no daemon, no thrown turn: a failure is logged once.
+- **`@cc/dsh-run-code-projection`** — bounds what one `run_code` result costs the step. The tool is
+  not bash here: a program that prints a report hands the model tens of kilobytes in one
+  `tool/result`, and every later step re-sends them. On the same `tools/post-execute` seam RTK
+  uses, a result above 8 KiB becomes a banner, its first 3 KiB, its last 1.5 KiB, the elided byte
+  count, and the exact path of the full text written inside the session workspace — so the middle
+  is one `read` away instead of on every request. Errors, media, short results, already-projected
+  text and a result another policy replaced pass through untouched, and a failed write returns the
+  original result with one log line.
 - **`@cc/dsh-skill-evolve`** — makes the skill library grow instead of rot: `skill_evolve`
   writes a validated `SKILL.md` under `$DSH_HOME/skills` (keeping the previous body under
   `.history/`, and refusing to overwrite a human-authored skill without explicit consent),
@@ -158,7 +172,7 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
 
 **Third-party add-on: Hindsight memory.** `@vectorize-io/hindsight-coding-agents@0.8.2`
 is installed separately by its own command (`npx @vectorize-io/hindsight-coding-agents install dsh`),
-not from this repository, and is therefore not one of the nineteen in-repo plugins. It writes a
+not from this repository, and is therefore not one of the 21 in-repo plugins. It writes a
 row into `$DSH_HOME/cordis.patch.yml` (the home layer, shared by every profile) and a
 companion skill into `~/.agents/skills/hindsight-coding-agent`. Its settings live in
 `~/.hindsight/coding-agent.json`; this machine's file is enabled with `serverMode: daemon`
@@ -204,7 +218,7 @@ cd dsh-vanust               # the repository is dsh-vanust; the kit it contains 
 ```
 
 **What a clone alone gives you, stated exactly.** Everything the deployment
-installs is in the repository: the nineteen plugin tarballs, the canonical profile, the
+installs is in the repository: the 21 plugin tarballs, the canonical profile, the
 procedure and the pinned version in both installers. Every plugin's source is here
 too — `plugins/notify/`, `plugins/presentation/`, `plugins/diagrams/`,
 `plugins/work-modes/`, `plugins/godot-mcp/`, `plugins/skills/`, `plugins/flash-guard/`,
@@ -230,7 +244,7 @@ dsh-kit/
 │                              #   session-analysis`: every session, in seconds per question)
 ├── scripts/kit-update.mjs     # update path: hash drift check + convergence for an existing machine
 ├── plugins/inventory.json     # the shipped plugin set (the source of truth)
-├── plugins/*.tgz              # plugin tarballs: nineteen packages, including notify, presentation,
+├── plugins/*.tgz              # plugin tarballs: 21 packages, including notify, presentation,
 │                              #                  diagrams, work-modes, godot-mcp, skills, flash-guard,
 │                              #                  proof-guard, taskboard, orchestrator
 ├── plugins/notify/            # source of @cc/dsh-notify (desktop notifications; packed above)

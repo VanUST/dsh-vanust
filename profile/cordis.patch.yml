@@ -292,6 +292,37 @@
     - id: rtk
       name: '@cc/dsh-rtk'
 
+# ── session-budget: a deterministic handoff reminder at step thresholds ─────
+# A long session is not a failure, it is expensive: every step re-sends the whole
+# derived history and compaction re-bills the prefix. The fix is a HANDOFF note
+# written while the context is still affordable, not a summary written after it is
+# not. This row counts completed steps from the append-only log through a session
+# projection, so a compaction's surface rewrite neither resets the count nor
+# erases which thresholds already fired, and it appends ONE fixed user/message
+# before the step that crosses 300/400/500 - in the same request, because the
+# pre-step waterfall runs before the request is derived. The human gets one
+# detached desktop notification per crossing through @cc/dsh-notify/core. No model
+# call, no daemon: a failure is logged once and never thrown into the turn.
+- insert:
+    - id: session-budget
+      name: '@cc/dsh-session-budget'
+
+# ── run-code-projection: the bulk of a run_code result, moved out of the step ─
+# The tool that dominates this deployment's context is not bash but run_code: a
+# program that prints a report or a whole file hands the model tens of kilobytes
+# in one tool/result, and every later step re-sends them. This row listens on the
+# same tools/post-execute seam RTK uses, but for run_code: above 8 KiB the
+# model-facing text becomes a banner, the first 3 KiB, the last 1.5 KiB and the
+# exact path of the full text written INSIDE the session workspace, so the model
+# reads the middle back with ordinary file tools only when it needs it. Errors,
+# media, short results, already-projected text and a result another policy
+# replaced are never touched, and the banner always names the elided byte count.
+# Measured over this workspace's session logs with the same policy: 5.56% of all
+# tool-result bytes saved, which is the 5-7% the projection was designed for.
+- insert:
+    - id: run-code-projection
+      name: '@cc/dsh-run-code-projection'
+
 # ── skill-evolve: the skill library grows instead of rotting ────────────────
 # The harness already discovers `<name>/SKILL.md` under $DSH_HOME/skills and
 # re-reads a body on every load, so the missing half is discipline, not plumbing:
@@ -494,6 +525,9 @@
             config:
               - id: compaction-basic
                 name: '@deepseek-ai/dsh-compaction-basic'
+                config:
+                  thresholdRatio: 0.5
+                  retainRatio: 0.08
               - id: command-compact
                 name: '@deepseek-ai/dsh-command-compact'
               - id: tool-result-pruner
@@ -563,6 +597,9 @@
             config:
               - id: compaction-basic
                 name: '@deepseek-ai/dsh-compaction-basic'
+                config:
+                  thresholdRatio: 0.5
+                  retainRatio: 0.08
               - id: command-compact
                 name: '@deepseek-ai/dsh-command-compact'
               - id: tool-result-pruner
@@ -630,6 +667,9 @@
             config:
               - id: compaction-basic
                 name: '@deepseek-ai/dsh-compaction-basic'
+                config:
+                  thresholdRatio: 0.5
+                  retainRatio: 0.08
               - id: command-compact
                 name: '@deepseek-ai/dsh-command-compact'
               - id: tool-result-pruner
@@ -693,6 +733,9 @@
             config:
               - id: compaction-basic
                 name: '@deepseek-ai/dsh-compaction-basic'
+                config:
+                  thresholdRatio: 0.5
+                  retainRatio: 0.08
               - id: command-compact
                 name: '@deepseek-ai/dsh-command-compact'
               - id: tool-result-pruner
@@ -764,6 +807,9 @@
             config:
               - id: compaction-basic
                 name: '@deepseek-ai/dsh-compaction-basic'
+                config:
+                  thresholdRatio: 0.5
+                  retainRatio: 0.08
               - id: command-compact
                 name: '@deepseek-ai/dsh-command-compact'
               - id: tool-result-pruner
@@ -842,6 +888,9 @@
             config:
               - id: compaction-basic
                 name: '@deepseek-ai/dsh-compaction-basic'
+                config:
+                  thresholdRatio: 0.5
+                  retainRatio: 0.08
               - id: command-compact
                 name: '@deepseek-ai/dsh-command-compact'
               - id: tool-result-pruner
@@ -909,6 +958,9 @@
             config:
               - id: compaction-basic
                 name: '@deepseek-ai/dsh-compaction-basic'
+                config:
+                  thresholdRatio: 0.5
+                  retainRatio: 0.08
               - id: command-compact
                 name: '@deepseek-ai/dsh-command-compact'
               - id: tool-result-pruner

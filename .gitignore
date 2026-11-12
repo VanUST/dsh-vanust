@@ -37,3 +37,7 @@ server.pid
 # are what working on this machine left behind, not kit source.
 .reasonix/attachments/
 .reasonix/tasks/
+
+# Local analysis of the platform's usage export: a downloaded CSV, the scripts and the
+# chart. It is this machine's billing data, not kit source.
+.usage-analysis/

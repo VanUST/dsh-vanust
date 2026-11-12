@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "id": "ptc-switch-on-a-resumed-session-fails-with-defer-loading",
+  "title": "PTC switch on a resumed session fails with defer_loading",
+  "requirement": "Смена презентации инструментов у существующей сессии (native→ptc) не должна ломать её следующий запрос: поверхность из одного run_code обязана оставаться вызываемой.",
+  "kind": "regression",
+  "status": "unverified",
+  "source": "agent",
+  "automated": false,
+  "reason": "Воспроизведение требует живой сессии, созданной до смены презентации, и настоящего запроса к провайдеру: смена пресета в работающем деплое. Юнит-тест возможен только в исходниках гарнесса (dsh-llm/lib/index.js:763), которые не принадлежат этому репозиторию.",
+  "steps": [
+    "Включить @deepseek-ai/dsh-agent-tool-presentation mode: ptc в пресете preset-backend и применить профиль (kit-update --apply)",
+    "Перезапустить сервер web так, чтобы активная роль BACKEND уже существовала до изменения (сессия создана раньше)",
+    "Заделегировать задачу роли BACKEND — ребёнок возобновляется и на первом же запросе переключается на PTC",
+    "Прочитать сессию ребёнка: zstd -dc $DSH_HOME/sessions/--home-iustimov-dsh-kit--/<child>/session.v4.jsonl.zstd и найти последний request/header (один инструмент run_code) и developer/message с tool-addition run_code",
+    "Наблюдать assistant/attempt с finish.kind=error: 'tools: at least one tool must have defer_loading=false. All tools cannot be deferred. (request_id ...)', code INVALID_REQUEST, status 400"
+  ],
+  "expected": "Запрос в PTC-режиме принимается провайдером: активная поверхность из одного run_code объявлена как resident, defer_loading не выставлен у всех инструментов, шаг выполняется.",
+  "tags": [
+    "ptc",
+    "defer_loading",
+    "agent-preset",
+    "regression"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "profile/cordis.patch.yml",
+      "sha256": "aa2b034627e86f65f9a16fb79db0a347afe57fd2c803a460e96043b5540318ce"
+    }
+  ],
+  "linkedTaskId": "task-mwdm75j0-cozqvm",
+  "revision": 1,
+  "createdAt": "2026-11-12T14:19:31.492Z",
+  "updatedAt": "2026-11-12T14:19:31.492Z",
+  "createdBy": "orchestrator",
+  "createdByKind": "agent",
+  "history": [],
+  "evidence": {}
+}

@@ -1,0 +1,19 @@
+{
+  "name": "@cc/dsh-session-budget",
+  "version": "0.1.1",
+  "description": "Deterministic session-length reminder: a session projection counts completed steps from the append-only log, and at each threshold one fixed handoff message is appended to the next agent step (visible to the model in the same request) and the human gets a detached desktop notification. No model call, no daemon, and a failure is logged instead of thrown into the turn.",
+  "type": "module",
+  "main": "session-budget.mjs",
+  "exports": {
+    ".": "./session-budget.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "session-budget.mjs",
+    "README.md"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
+  }
+}

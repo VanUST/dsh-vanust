@@ -172,6 +172,24 @@
       "source": "plugins/test-cases",
       "pack": "scripts/pack-plugin.mjs",
       "mounted": true
+    },
+    {
+      "id": "session-budget",
+      "package": "@cc/dsh-session-budget",
+      "tarballPrefix": "cc-dsh-session-budget",
+      "provenance": "in-repo",
+      "source": "plugins/session-budget",
+      "pack": "scripts/pack-plugin.mjs",
+      "mounted": true
+    },
+    {
+      "id": "run-code-projection",
+      "package": "@cc/dsh-run-code-projection",
+      "tarballPrefix": "cc-dsh-run-code-projection",
+      "provenance": "in-repo",
+      "source": "plugins/run-code-projection",
+      "pack": "scripts/pack-plugin.mjs",
+      "mounted": true
     }
   ]
 }
