@@ -473,10 +473,18 @@ export function childRouteFor(ctx, args, defaults) {
  * @returns True when the recorded session can be messaged instead of starting a new one.
  */
 export function canReuseAgent(knownAgent, preset) {
-  return knownAgent !== undefined
-    && typeof knownAgent.sessionId === 'string'
-    && knownAgent.sessionId !== ''
-    && knownAgent.preset === preset
+  if (knownAgent === undefined) return false
+  if (typeof knownAgent.sessionId !== 'string' || knownAgent.sessionId === '') return false
+  if (knownAgent.preset !== preset) return false
+  // A ROLE'S SESSION IS A SOCKET, NOT A QUEUE. While it is still running a task, a second
+  // brief delivered to it is executed INSIDE the first task's turn: measured 2026-11-12, a
+  // ledger brief landed in the child working the stored band, and neither the timeline nor
+  // the interrupt could tell the two apart afterwards. A busy socket is not reused; the
+  // caller starts a fresh session and the role row keeps the old id in its history.
+  const busy = knownAgent.status === 'active'
+    && typeof knownAgent.currentTaskId === 'string'
+    && knownAgent.currentTaskId !== ''
+  return !busy
 }
 
 /**
@@ -490,6 +498,10 @@ export function canReuseAgent(knownAgent, preset) {
 export function reuseNoteFor(knownAgent, role, preset) {
   if (knownAgent === undefined || canReuseAgent(knownAgent, preset)) return undefined
   if (typeof knownAgent.sessionId !== 'string' || knownAgent.sessionId === '') return undefined
+  const busy = knownAgent.status === 'active'
+    && typeof knownAgent.currentTaskId === 'string'
+    && knownAgent.currentTaskId !== ''
+  if (busy) return `the existing ${role} session is still running task ${knownAgent.currentTaskId}; a fresh session was started instead of queueing a second brief into it`
   const previous = typeof knownAgent.preset === 'string' && knownAgent.preset !== '' ? knownAgent.preset : 'pre-preset'
   return `the existing ${role} session was created with the ${previous} composition, not ${preset}`
 }

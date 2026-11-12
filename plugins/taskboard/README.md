@@ -134,8 +134,9 @@ so a `subagent/end` after a Host or plugin reload still settles the task.
 without changing the status), `task_remove`. The orchestrator's
 `delegate_task` requires a `role` (e.g. `UX/UI`, `BACKEND`, `BUSINESS`, `RESEARCH`) and reuses
 that role's existing child session; it starts a child only when the role has none. The taskboard
-stores the role registry in `agents[]`. Pause/cancel/close interrupt linked children through
-`ctx.subagents`; a failed interrupt is reported per child and the task stays in its previous
+stores the role registry in `agents[]`. Pause/cancel/close interrupt the children the task HOLDS through
+`ctx.subagents` - a child whose lease belongs to another task is skipped and reported, never
+stopped; a failed interrupt is reported per child and the task stays in its previous
 state (fail closed). The hook passes the runtime's tagged authority — `{kind: 'ancestor',
 agent}` for a live ancestor, `{kind: 'user', parentSessionId}` for the human/client path — so
 both the orchestrator and the owner can stop a child. `task_stop` is the explicit forced-stop
@@ -143,7 +144,9 @@ primitive; it records the request on the timeline and leaves the status alone.
 
 `task_list` takes `scope: chat` (default) or `scope: workspace`; `task_get` reads any task by
 id, because knowing the id is the reason to look. A write from another chat is refused with
-`other_chat` for an agent and allowed for the human, who owns the board; the refusal exists
+`other_chat` for an agent and allowed for the human, who owns the board, and a ROOT agent
+may widen a note or an edit with `scope: 'workspace'` (the ledger is one per workspace; the
+timeline records the originating chat) while a child session cannot widen at all. The refusal exists
 so an id guessed or carried over from an earlier chat cannot silently rewrite work this chat
 cannot see.
 

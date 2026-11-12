@@ -64,7 +64,16 @@
  *     rewrites history it cannot see.
  *   - A write from another chat is refused with `other_chat` rather than landing on a
  *     board the caller cannot read; `task_get` still reads any task by id, because
- *     knowing the id is the reason to look.
+ *     knowing the id is the reason to look. A ROOT agent may widen a note or an edit to
+ *     another chat's task on purpose with `scope: 'workspace'` - one ledger per workspace,
+ *     a chat board is a view of it - and the timeline records which chat the write came
+ *     from. A child session cannot widen.
+ *   - ONE CHILD SERVES ONE TASK. `linkChild` transfers the lease: every other task loses
+ *     the id, its child row becomes `moved`, and the transfer is on that task's timeline.
+ *     The role row keeps `currentTaskId`; `interruptChildren` stops a child only when THIS
+ *     task holds its lease and reports the ones it left alone as `skipped`. Measured
+ *     2026-11-12: two tasks listed one child, and closing the first stopped the work the
+ *     second had been given.
  *   - A task is BORN OPEN (or blocked with a reason): `create` refuses any other starting
  *     status with `initial_status`, so `done` cannot be minted without an acceptance.
  *   - `task_cancel` is a lifecycle action, not a transition: it interrupts the children and
@@ -605,28 +614,67 @@ function createService(config, logger, hooks = {}) {
    * Whether a caller may write a task. An empty chatId is the unscoped path (a child
    * settling, a link the orchestrator makes without a session), the human owns the whole
    * board including rows no chat claims, and an agent owns exactly the chat it works in.
+   *
+   * `scope: 'workspace'` is the deliberate exception: a ROOT agent may write a task another
+   * chat created, because there is ONE ledger per workspace and a chat board is a view of
+   * it. Measured 2026-11-12: the orchestrator could READ an old canvas task from another
+   * chat and every write on it was refused with `other_chat`, so the directive that task
+   * needed could not be attached to the task that owns it. The scope is never inferred from
+   * the task - the caller asks for it, the tool layer refuses it for a child session, and
+   * the timeline records which chat the write came from.
    */
-  const writable = (task, chatId, actor) => {
+  const writable = (task, chatId, actor, scope) => {
     if (chatId === '' || actor === 'human') return true
+    if (scope === 'workspace') return true
     const owner = chatOf(task)
     return owner !== null && owner === chatId
   }
   const otherChat = (task) => ({ value: { ok: false, code: 'other_chat', chatId: chatOf(task) } })
 
   /**
-   * Interrupt every linked child of one task and report per-child outcomes.
+   * The task a child session currently serves.
+   *
+   * THE LEASE IS ON THE ROLE ROW, not on the task lists, because one child session can be
+   * handed to a second task while the first still names it. Measured 2026-11-12: a role's
+   * session was reused for a second brief (delegate_task returned `reused: true`), both
+   * tasks listed the same child, and closing the FIRST task stopped the child that was by
+   * then working the second one. `linkChild` now transfers the lease and rewrites both
+   * lists; this lookup is the authority for the interrupt path, with a newest-link fallback
+   * for rows written before the lease existed.
+   */
+  const leaseOf = (board, childId) => {
+    const agent = (board.agents ?? []).find((entry) => entry.sessionId === childId)
+    const taskId = typeof agent?.currentTaskId === 'string' ? agent.currentTaskId : ''
+    if (taskId !== '') return taskId
+    const owners = (board.tasks ?? []).filter((entry) => Array.isArray(entry.childSessionIds) && entry.childSessionIds.includes(childId))
+    if (owners.length === 0) return ''
+    return owners.reduce((newest, entry) => (String(entry.updatedAt ?? '') >= String(newest.updatedAt ?? '') ? entry : newest)).id
+  }
+
+  /**
+   * Interrupt the linked children this task actually OWNS and report per-child outcomes.
    *
    * The hook is the only path to the subagent runtime; it throws when the child cannot be
    * stopped, and the caller fails closed (the task keeps its previous status). Nothing is
-   * mutated here: a batch that writes other rows must not persist a half-stopped task.
+   * mutated here: a batch that writes other rows must not persist a half-stopped task. A
+   * child whose lease belongs to another task is SKIPPED and reported, never stopped: the
+   * stop exists to end work on THIS task, and killing a child that has since been handed
+   * another one is the 2026-11-12 defect that aborted a frame-deletion child when an
+   * unrelated schema task was closed.
    */
-  const interruptChildren = (task, requestedParent) => {
+  const interruptChildren = (task, requestedParent, board) => {
     const parentSessionId = typeof task.parentSessionId === 'string' && task.parentSessionId !== ''
       ? task.parentSessionId
       : (typeof requestedParent === 'string' ? requestedParent : '')
     const interrupted = []
     const errors = []
+    const skipped = []
     for (const childId of Array.isArray(task.childSessionIds) ? task.childSessionIds : []) {
+      const lease = leaseOf(board, childId)
+      if (lease !== '' && lease !== task.id) {
+        skipped.push({ childId, taskId: lease })
+        continue
+      }
       if (typeof hooks.interrupt !== 'function') {
         errors.push(childId + ': subagent service is unavailable')
         continue
@@ -638,7 +686,7 @@ function createService(config, logger, hooks = {}) {
         errors.push(childId + ': ' + (error instanceof Error ? error.message : String(error)))
       }
     }
-    return { parentSessionId, interrupted, errors }
+    return { parentSessionId, interrupted, errors, skipped }
   }
 
   /** Record a committed stop on the task's child rows and the workspace role rows. */
@@ -650,6 +698,9 @@ function createService(config, logger, hooks = {}) {
       const agent = (board.agents ?? []).find((entry) => entry.sessionId === childId)
       if (agent !== undefined) {
         agent.status = agentStatus
+        // A stopped child owns no task. Leaving currentTaskId behind would keep the role
+        // "busy" forever and force a fresh session on every later delegation.
+        agent.currentTaskId = null
         agent.updatedAt = now()
       }
     }
@@ -685,11 +736,11 @@ function createService(config, logger, hooks = {}) {
    */
   const cancelOne = (board, task, input, reason) => {
     const chatId = typeof input?.chatId === 'string' ? input.chatId : ''
-    if (!writable(task, chatId, input?.actor)) return { ok: false, code: 'other_chat', chatId: chatOf(task) }
+    if (!writable(task, chatId, input?.actor, input?.scope)) return { ok: false, code: 'other_chat', chatId: chatOf(task) }
     const from = displayStatus(task.status)
     if (from === 'cancelled') return { ok: true, task, interrupted: [], errors: [], note: 'already cancelled' }
     if (from === 'done') return { ok: false, code: 'terminal', task }
-    const { interrupted, errors } = interruptChildren(task, input?.parentSessionId)
+    const { interrupted, errors, skipped } = interruptChildren(task, input?.parentSessionId, board)
     if (errors.length > 0) return { ok: false, code: 'interrupt_failed', task, interrupted, errors }
     markChildren(board, task, 'sleeping', 'sleeping')
     task.status = 'cancelled'
@@ -699,7 +750,7 @@ function createService(config, logger, hooks = {}) {
     task.revision += 1
     task.updatedAt = now()
     timeline(task, 'cancelled', input?.actor === 'human' ? 'human' : 'orchestrator', note, { sessionIds: interrupted }, timelineLimit)
-    return { ok: true, task, interrupted, errors, note, changed: true }
+    return { ok: true, task, interrupted, errors, skipped, note, changed: true }
   }
 
   /**
@@ -710,7 +761,7 @@ function createService(config, logger, hooks = {}) {
    */
   const closeOne = (board, task, input, incoming) => {
     const chatId = typeof input?.chatId === 'string' ? input.chatId : ''
-    if (!writable(task, chatId, input?.actor)) return { ok: false, code: 'other_chat', chatId: chatOf(task) }
+    if (!writable(task, chatId, input?.actor, input?.scope)) return { ok: false, code: 'other_chat', chatId: chatOf(task) }
     const from = displayStatus(task.status)
     if (from === 'cancelled') return { ok: false, code: 'cancelled', task }
     if (from === 'done') return { ok: true, task, interrupted: [], errors: [], note: 'already done' }
@@ -718,7 +769,7 @@ function createService(config, logger, hooks = {}) {
     const next = fillResult(task.result, incoming)
     const refusal = acceptanceRefusal(next)
     if (refusal !== null) return { ok: false, code: refusal, task }
-    const { interrupted, errors } = interruptChildren(task, input?.parentSessionId)
+    const { interrupted, errors, skipped } = interruptChildren(task, input?.parentSessionId, board)
     if (errors.length > 0) return { ok: false, code: 'interrupt_failed', task, interrupted, errors }
     const recorded = JSON.stringify(next) !== JSON.stringify(task.result ?? {})
     task.result = Object.keys(next).length > 0 ? next : undefined
@@ -727,7 +778,7 @@ function createService(config, logger, hooks = {}) {
     task.revision += 1
     task.updatedAt = now()
     timeline(task, 'closed', input?.actor === 'human' ? 'human' : 'orchestrator', 'Closed as done' + (recorded ? '; result recorded at acceptance' : ''), { sessionIds: interrupted }, timelineLimit)
-    return { ok: true, task, interrupted, errors, changed: true, resultRecorded: recorded }
+    return { ok: true, task, interrupted, errors, skipped, changed: true, resultRecorded: recorded }
   }
 
   /** Compact list row; the board UI uses the full task document. */
@@ -810,6 +861,7 @@ function createService(config, logger, hooks = {}) {
             status: 'active',
             taskCount: 1,
             lastTaskId: input?.taskId ?? null,
+            currentTaskId: input?.taskId ?? null,
             generation: 1,
             history: [],
             ...(preset === '' ? {} : { preset }),
@@ -961,7 +1013,7 @@ function createService(config, logger, hooks = {}) {
       return mutate(cwd, (board) => {
         const task = board.tasks.find((entry) => entry.id === id)
         if (task === undefined) return { value: { ok: false, code: 'not_found' } }
-        if (!writable(task, chatId, input?.actor)) return otherChat(task)
+        if (!writable(task, chatId, input?.actor, input?.scope)) return otherChat(task)
         if (expected !== null && task.revision !== expected) {
           return { value: { ok: false, code: 'stale', task } }
         }
@@ -1022,7 +1074,8 @@ function createService(config, logger, hooks = {}) {
         if (JSON.stringify(task) === before) return { value: { ok: true, task } }
         task.revision += 1
         task.updatedAt = now()
-        timeline(task, 'edited', input?.actor === 'human' ? 'human' : 'orchestrator', 'Task edited', {}, timelineLimit)
+        const editedOrigin = input?.scope === 'workspace' && chatId !== '' && chatOf(task) !== chatId ? ` (from chat ${chatId})` : ''
+        timeline(task, 'edited', input?.actor === 'human' ? 'human' : 'orchestrator', 'Task edited' + editedOrigin, {}, timelineLimit)
         return { changed: true, value: { ok: true, task } }
       })
     },
@@ -1035,10 +1088,11 @@ function createService(config, logger, hooks = {}) {
       return mutate(cwd, (board) => {
         const task = board.tasks.find((entry) => entry.id === id)
         if (task === undefined) return { value: { ok: false, code: 'not_found' } }
-        if (!writable(task, chatId, input?.actor)) return otherChat(task)
+        if (!writable(task, chatId, input?.actor, input?.scope)) return otherChat(task)
         task.revision += 1
         task.updatedAt = now()
-        timeline(task, 'note', input?.actor === 'human' ? 'human' : 'orchestrator', text.slice(0, 1000), {}, timelineLimit)
+        const origin = input?.scope === 'workspace' && chatId !== '' && chatOf(task) !== chatId ? `[from chat ${chatId}] ` : ''
+        timeline(task, 'note', input?.actor === 'human' ? 'human' : 'orchestrator', (origin + text).slice(0, 1000), {}, timelineLimit)
         return { changed: true, value: { ok: true, task } }
       })
     },
@@ -1051,9 +1105,33 @@ function createService(config, logger, hooks = {}) {
       return mutate(cwd, (board) => {
         const task = board.tasks.find((entry) => entry.id === id)
         if (task === undefined) return { value: { ok: false, code: 'not_found' } }
-        if (!writable(task, chatId, input?.actor)) return otherChat(task)
+        if (!writable(task, chatId, input?.actor, input?.scope)) return otherChat(task)
+        // ONE CHILD SERVES ONE TASK. Linking a session that another task still lists would
+        // leave the old task able to interrupt work it no longer owns - the 2026-11-12
+        // frame-deletion abort. The link is therefore a LEASE TRANSFER: every other task
+        // loses the id, its child row is closed as `moved`, and the move is on its timeline
+        // so the old task does not read as "still delegated" with no visible reason.
+        const movedFrom = []
+        for (const other of board.tasks) {
+          if (other.id === task.id) continue
+          if (!Array.isArray(other.childSessionIds) || !other.childSessionIds.includes(childId)) continue
+          other.childSessionIds = other.childSessionIds.filter((value) => value !== childId)
+          const otherChildren = Array.isArray(other.children) ? other.children : []
+          const moved = otherChildren.find((child) => child.sessionId === childId)
+          if (moved !== undefined) Object.assign(moved, { status: 'moved', endedAt: now() })
+          other.children = otherChildren
+          other.revision += 1
+          other.updatedAt = now()
+          timeline(other, 'note', 'orchestrator', `Child session ${childId} was handed to task ${task.id}; this task no longer owns it and cannot stop it`, { sessionId: childId }, timelineLimit)
+          movedFrom.push(other.id)
+        }
         if (!task.childSessionIds.includes(childId)) task.childSessionIds.push(childId)
         const agent = (board.agents ?? []).find((entry) => entry.sessionId === childId)
+        if (agent !== undefined) {
+          agent.currentTaskId = task.id
+          agent.status = 'active'
+          agent.updatedAt = now()
+        }
         const label = typeof input?.label === 'string' && input.label !== '' ? input.label.slice(0, 200) : (agent?.label ?? 'child')
         const role = typeof input?.role === 'string' && input.role !== '' ? input.role.slice(0, 200) : (agent?.role ?? label)
         // A linked child IS the assignment. A task created inline stops being inline when a
@@ -1075,7 +1153,7 @@ function createService(config, logger, hooks = {}) {
         if (!links.some((entry) => entry.cwd === cwd && entry.id === id)) links.push({ cwd, id })
         childLinks.set(childId, links)
         writeLinks(childLinks)
-        return { changed: true, value: { ok: true, task } }
+        return { changed: true, value: { ok: true, task, movedFrom } }
       })
     },
     /** A linked child settled: move to review, never straight to done. */
@@ -1117,6 +1195,10 @@ function createService(config, logger, hooks = {}) {
           const agent = (board.agents ?? []).find((entry) => entry.sessionId === childId)
           if (agent !== undefined) {
             agent.status = 'sleeping'
+            // The child is free again. The lease is what the delegator reads to decide
+            // "reuse this role session or start a fresh one", so a settled child that kept
+            // a lease would force a new session on every later delegation.
+            agent.currentTaskId = null
             agent.updatedAt = now()
           }
           task.revision += 1
@@ -1152,16 +1234,16 @@ function createService(config, logger, hooks = {}) {
       return mutate(cwd, (board) => {
         const task = board.tasks.find((entry) => entry.id === id)
         if (task === undefined) return { value: { ok: false, code: 'not_found' } }
-        if (!writable(task, chatId, input?.actor)) return otherChat(task)
+        if (!writable(task, chatId, input?.actor, input?.scope)) return otherChat(task)
         if (['done', 'cancelled'].includes(displayStatus(task.status))) return { value: { ok: false, code: 'closed', task } }
-        const { interrupted, errors } = interruptChildren(task, requestedParent)
+        const { interrupted, errors, skipped } = interruptChildren(task, requestedParent, board)
         if (errors.length > 0) return { value: { ok: false, code: 'interrupt_failed', task, interrupted, errors } }
         markChildren(board, task, 'paused', 'paused')
         task.status = 'paused'
         task.revision += 1
         task.updatedAt = now()
         timeline(task, 'paused', input?.actor === 'human' ? 'human' : 'orchestrator', `Paused${interrupted.length === 0 ? '' : `; interrupted ${interrupted.length} child session(s)`}`, { sessionIds: interrupted }, timelineLimit)
-        return { changed: true, value: { ok: true, task, interrupted, errors } }
+        return { changed: true, value: { ok: true, task, interrupted, errors, skipped } }
       })
     },
     /** Resume tracking a paused task. Child sessions are not auto-prompted. */
@@ -1171,7 +1253,7 @@ function createService(config, logger, hooks = {}) {
       return mutate(cwd, (board) => {
         const task = board.tasks.find((entry) => entry.id === id)
         if (task === undefined) return { value: { ok: false, code: 'not_found' } }
-        if (!writable(task, chatId, input?.actor)) return otherChat(task)
+        if (!writable(task, chatId, input?.actor, input?.scope)) return otherChat(task)
         if (displayStatus(task.status) !== 'paused') return { value: { ok: false, code: 'not_paused', task } }
         task.status = 'active'
         const children = Array.isArray(task.children) ? task.children : []
@@ -1206,7 +1288,7 @@ function createService(config, logger, hooks = {}) {
         if (outcome.ok === false) return { value: outcome }
         return {
           changed: outcome.changed === true,
-          value: { ok: true, task: outcome.task, interrupted: outcome.interrupted, errors: outcome.errors, note: outcome.note },
+          value: { ok: true, task: outcome.task, interrupted: outcome.interrupted, errors: outcome.errors, ...(Array.isArray(outcome.skipped) && outcome.skipped.length === 0 ? {} : { skipped: outcome.skipped }), note: outcome.note },
         }
       })
     },
@@ -1256,6 +1338,7 @@ function createService(config, logger, hooks = {}) {
             task: outcome.task,
             interrupted: outcome.interrupted,
             errors: outcome.errors,
+            ...(Array.isArray(outcome.skipped) && outcome.skipped.length === 0 ? {} : { skipped: outcome.skipped }),
             ...(outcome.note === undefined ? {} : { note: outcome.note }),
             ...(outcome.resultRecorded === true ? { resultRecorded: true } : {}),
           },
@@ -1327,7 +1410,7 @@ function createService(config, logger, hooks = {}) {
       if (taskId !== '') {
         const task = board.tasks.find((entry) => entry.id === taskId)
         if (task === undefined) return { ok: false, code: 'not_found' }
-        if (!writable(task, chatId, input?.actor)) return { ok: false, code: 'other_chat', chatId: chatOf(task) }
+        if (!writable(task, chatId, input?.actor, input?.scope)) return { ok: false, code: 'other_chat', chatId: chatOf(task) }
         tasks.push(task)
         for (const childId of Array.isArray(task.childSessionIds) ? task.childSessionIds : []) addTarget(childId)
       }
@@ -1336,7 +1419,7 @@ function createService(config, logger, hooks = {}) {
         for (const task of board.tasks) {
           // A sessionId-only stop still must not write another chat's timeline. The runtime's
           // ancestor check is the authority for the stop itself; the ledger write is scoped.
-          if (!writable(task, chatId, input?.actor)) continue
+          if (!writable(task, chatId, input?.actor, input?.scope)) continue
           if (Array.isArray(task.childSessionIds) && task.childSessionIds.includes(sessionId) && !tasks.includes(task)) tasks.push(task)
         }
       }
@@ -1526,6 +1609,21 @@ export function apply(ctx, config = {}) {
     render: (_args, result) => [{ type: 'text', text: JSON.stringify(result) }],
   })
 
+  /**
+   * The `scope` a write tool may honour. Only a ROOT session may widen a write to another
+   * chat's task: the workspace ledger is shared, but a child must never edit outside the
+   * chat it works in. The refusal is a named code so the model can correct itself.
+   */
+  const workspaceScope = (args, exec) => {
+    if (args?.scope !== 'workspace') return {}
+    const id = typeof exec?.agent?.id === 'string' ? exec.agent.id : ''
+    const root = typeof rootOf === 'function' && id !== '' ? rootOf(id) : id
+    if (id !== '' && root !== '' && root !== id) {
+      return { refused: { ok: false, code: 'workspace_scope_child', message: 'a child session cannot write outside its own chat; ask the orchestrator to record this' } }
+    }
+    return { scope: 'workspace' }
+  }
+
   ctx.tools.register(defineTool({
     name: 'task_create',
     description: 'Create one workspace task with an objective, scope, non-scope and acceptance. The taskboard is the workspace ledger for work in flight: open a task for EVERY change you make, whether you do it inline or delegate it, and keep it moving through open/active/review/done. Delegation is one way to run a task, not the reason to create one. Every task carries a specialist role (with its preset) or is inline: pass role, or inline: true when you do the work yourself; a task with neither is refused with needs_role_or_inline. Returns the full task, including its id and revision.',
@@ -1593,9 +1691,12 @@ export function apply(ctx, config = {}) {
       resultDecisions: { type: 'array', items: { type: 'string' }, description: 'Decisions worth carrying forward.' },
       resultRisks: { type: 'array', items: { type: 'string' }, description: 'Known risks or unknowns.' },
       priority: { type: 'string', enum: PRIORITIES, description: 'low | normal | high.' },
+      scope: { type: 'string', enum: ['workspace'], description: "'workspace' lets a ROOT agent write a task another chat created (the ledger is one per workspace). Refused for child sessions." },
     },
     output: out(),
     execute(args, exec) {
+      const widened = workspaceScope(args, exec)
+      if (widened.refused !== undefined) return Promise.resolve(widened.refused)
       const patch = {}
       for (const key of ['status', 'title', 'objective', 'scope', 'nonScope', 'acceptance', 'priority', 'reason']) {
         if (args[key] !== undefined) patch[key] = args[key]
@@ -1609,7 +1710,7 @@ export function apply(ctx, config = {}) {
           risks: args.resultRisks,
         }
       }
-      const result = service.update(workingDir(exec.agent), { id: args.id, expectedRevision: args.expectedRevision, patch, chatId: rootOf(exec.agent?.id) })
+      const result = service.update(workingDir(exec.agent), { id: args.id, expectedRevision: args.expectedRevision, patch, scope: widened.scope, chatId: rootOf(exec.agent?.id) })
       return Promise.resolve(result)
     },
   }))
@@ -1620,10 +1721,13 @@ export function apply(ctx, config = {}) {
     parameters: {
       id: { type: 'string', required: true, description: 'Task id.' },
       text: { type: 'string', required: true, description: 'The note.' },
+      scope: { type: 'string', enum: ['workspace'], description: "'workspace' lets a ROOT agent note on a task another chat created (the ledger is one per workspace). Refused for child sessions." },
     },
     output: out(),
     execute(args, exec) {
-      return Promise.resolve(service.note(workingDir(exec.agent), { ...args, chatId: rootOf(exec.agent?.id) }))
+      const widened = workspaceScope(args, exec)
+      if (widened.refused !== undefined) return Promise.resolve(widened.refused)
+      return Promise.resolve(service.note(workingDir(exec.agent), { ...args, scope: widened.scope, chatId: rootOf(exec.agent?.id) }))
     },
   }))
 

@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "id": "a-child-session-serves-one-task",
+  "title": "A child session serves one task",
+  "requirement": "One child session serves one task at a time: handing it to a second task must transfer the lease so the first task can no longer stop it, a role whose session is still running must not receive a second brief, and a root agent must be able to write another chat's task on purpose without widening that right to children.",
+  "kind": "regression",
+  "status": "unverified",
+  "source": "human",
+  "automated": true,
+  "testPath": "scripts/taskboard-lease-proof.mjs",
+  "runCommand": "node scripts/taskboard-lease-proof.mjs",
+  "steps": [
+    "Создать две задачи и зарегистрировать роль с дочерней сессией, привязать её к первой задаче через linkChild",
+    "Привязать ту же сессию ко второй задаче; проверить, что первая задача потеряла id, её child row стала moved, а роль арендует вторую задачу",
+    "Закрыть первую задачу и убедиться, что interrupt не вызван, а skipped называет арендующую задачу",
+    "Закрыть вторую (арендующую) задачу и убедиться, что interrupt вызван именно для этой сессии",
+    "Проверить, что childEnded освобождает аренду, а canReuseAgent отказывает занятой сессии и разрешает свободной",
+    "Записать заметку и правку в задачу чужого чата без scope (other_chat) и с scope workspace (успех, в таймлайне указан чат-источник)"
+  ],
+  "expected": "linkChild transfers the lease (the first task no longer lists the child, its child row is moved, the role row leases the second task); closing the first task interrupts nothing and reports the skipped child; closing the owning task interrupts it; a settled child releases the lease; a busy role session is not reused and says why; a cross-chat note/update is refused with other_chat without the workspace scope and accepted (with the originating chat in the timeline) with it.",
+  "tags": [
+    "taskboard",
+    "delegation",
+    "lease",
+    "interrupt",
+    "cross-chat"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/taskboard/taskboard.mjs",
+      "sha256": "845293d0ecdbc06d410798ee3ee95dc9f8a172609c88e80f8d02543939748817"
+    },
+    {
+      "path": "plugins/orchestrator/orchestrator.mjs",
+      "sha256": "f1b6d8cce35628daa40bfeee08bde3a22f340b848d422803b5f466aa5ab64afb"
+    }
+  ],
+  "linkedTaskId": "task-mwdnodn1-u3hp2m",
+  "revision": 1,
+  "createdAt": "2026-11-12T14:55:18.455Z",
+  "updatedAt": "2026-11-12T14:55:18.455Z",
+  "createdBy": "orchestrator",
+  "createdByKind": "agent",
+  "history": [],
+  "evidence": {}
+}
