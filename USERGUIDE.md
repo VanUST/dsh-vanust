@@ -43,14 +43,20 @@ deployment policy on top: the orchestrator's root/child sections, twenty runtime
 flash-route guard. A repository's `AGENTS.md`/`CLAUDE.md` still reaches the model through
 the harness's own loader. The Tasks panel is the one new primary surface: open it from the
 sidebar, or from the **Tasks** header cell in a conversation. Its detail pane is
-hideable; Pause/Resume, Close and Remove act on the task, and Pause/Close interrupt
-linked child sessions. **The lifecycle is strict and the panel cannot talk its way around
+hideable; Pause/Resume, **Stop child**, Close and Remove act on the task, and
+Pause/Close/Stop interrupt linked child sessions. The orchestrator has the same authority:
+`task_cancel`, `task_pause` and `task_close` stop every linked child before changing the
+task, and `task_stop` force-stops a task's children (or one `sessionId`) without changing the
+status. Both of you can stop a subagent; the task only moves when the stop succeeds. **The lifecycle is strict and the panel cannot talk its way around
 it**: a task is `open`, `active`, `paused`, `in review`, `done`, `blocked` or `cancelled`.
 Moving one from Open to Active needs a specialist role with an owner or an `inline` task
 (work you or the orchestrator does itself); moving it to Review needs a result summary and
 at least one evidence item; Blocked needs the reason it waits on; and **Close** — the only
 door to Done — is enabled only for a task in review, because a finished task is not an
-accepted one. An illegal move is refused with a named code (`needs_role_or_inline`,
+accepted one; the orchestrator may supply the result in the same `task_close` call
+(`resultSummary` plus at least one `resultEvidence`), which fills only fields the task does
+not already have and never rewrites a recorded summary. `task_close` and `task_cancel` also
+accept `ids` and do a batch in one ledger write, reporting each task separately. An illegal move is refused with a named code (`needs_role_or_inline`,
 `needs_result`, `needs_evidence`, `needs_reason`, `needs_review`, `terminal`, `use_close`)
 shown in the detail pane. The old `proposed` and `ready` columns meant the same thing and
 are merged into Open: rows recorded before the merge still read as Open in the file's own

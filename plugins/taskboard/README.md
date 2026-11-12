@@ -82,9 +82,14 @@ linked children (fail closed, like `task_pause`), writes `cancelled`, records th
 decision on the result and as a timeline entry, and never rewrites a summary somebody wrote.
 `done` is not cancellable: an accepted task stays accepted.
 
-**`task_close` needs a result.** A linked child settling still moves its task to `review` — that
-is the runtime reporting that work finished — but closing refuses with `needs_result` until
-somebody wrote the summary. "The child finished" is a signal; the acceptance is a judgement.
+**`task_close` needs a result, and can take it in the same call.** A linked child settling still
+moves its task to `review` — that is the runtime reporting that work finished — but closing
+refuses until somebody wrote the summary and at least one evidence item (`needs_result` /
+`needs_evidence`). "The child finished" is a signal; the acceptance is a judgement. The result
+fields may ride the close itself (`resultSummary`, `resultEvidence`, ...), and they **fill only
+what is missing**: an existing summary or evidence list is never rewritten. `task_close` and
+`task_cancel` accept `ids` and perform a batch in one ledger write, returning a per-task result;
+a batch is partial by design and is never reported as a whole-batch success when one row failed.
 
 **The command registry is the human/client path; agents use the tools.** `delegate_task` and
 the model tools carry `expectedRevision` in their schema. The `/taskboard` command has only what
@@ -124,12 +129,17 @@ so a `subagent/end` after a Host or plugin reload still settles the task.
 
 `task_create`, `task_get`, `task_list`, `task_update` (compare-and-set on
 `expectedRevision`), `task_note`, `task_link`, and the lifecycle tools
-`task_pause`, `task_resume`, `task_close`, `task_cancel`, `task_remove`. The orchestrator's
+`task_pause`, `task_resume`, `task_close` (one task or `ids`, with the result in the same call),
+`task_cancel` (one task or `ids`), `task_stop` (force-stop a task's children or one session
+without changing the status), `task_remove`. The orchestrator's
 `delegate_task` requires a `role` (e.g. `UX/UI`, `BACKEND`, `BUSINESS`, `RESEARCH`) and reuses
 that role's existing child session; it starts a child only when the role has none. The taskboard
-stores the role registry in `agents[]`. Pause/close interrupt linked children through
+stores the role registry in `agents[]`. Pause/cancel/close interrupt linked children through
 `ctx.subagents`; a failed interrupt is reported per child and the task stays in its previous
-state (fail closed).
+state (fail closed). The hook passes the runtime's tagged authority — `{kind: 'ancestor',
+agent}` for a live ancestor, `{kind: 'user', parentSessionId}` for the human/client path — so
+both the orchestrator and the owner can stop a child. `task_stop` is the explicit forced-stop
+primitive; it records the request on the timeline and leaves the status alone.
 
 `task_list` takes `scope: chat` (default) or `scope: workspace`; `task_get` reads any task by
 id, because knowing the id is the reason to look. A write from another chat is refused with

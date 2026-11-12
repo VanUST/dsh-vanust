@@ -243,6 +243,44 @@ function resultOf(input, existing = undefined) {
   return Object.keys(result).length > 0 ? result : undefined
 }
 
+/**
+ * The acceptance gate: a result is a claim only when it says what was achieved and carries at
+ * least one piece of evidence. The same check guards a move to review and an acceptance, so a
+ * close cannot accept a result a review would have refused.
+ */
+function acceptanceRefusal(result) {
+  if (typeof result?.summary !== 'string' || result.summary.trim() === '') return 'needs_result'
+  if (!Array.isArray(result?.evidence) || result.evidence.length === 0) return 'needs_evidence'
+  return null
+}
+
+/**
+ * Fill the result fields supplied at acceptance, without rewriting anything already recorded.
+ *
+ * WHY FILL-ONLY. A batch cleanup accepts rows whose children already settled; their result is
+ * the only record of what happened, and a shared cleanup summary must not overwrite it. The
+ * same rule lets one call fill the 19 legacy rows that are in review with no result at all:
+ * the supplied summary lands only where there is none, and the evidence list is filled only
+ * when it is empty.
+ *
+ * @param existing - The task's stored result, if any.
+ * @param incoming - Result fields supplied with the close; absent means keep the stored result.
+ * @returns A new result object; the stored object is never mutated.
+ */
+function fillResult(existing, incoming) {
+  const base = existing !== null && typeof existing === 'object' ? { ...existing } : {}
+  const provided = resultOf(incoming)
+  if (provided === undefined) return base
+  if ((typeof base.summary !== 'string' || base.summary.trim() === '') && typeof provided.summary === 'string') {
+    base.summary = provided.summary
+  }
+  for (const key of ['evidence', 'artifacts', 'decisions', 'risks']) {
+    const current = Array.isArray(base[key]) ? base[key] : []
+    if (current.length === 0 && Array.isArray(provided[key]) && provided[key].length > 0) base[key] = provided[key]
+  }
+  return base
+}
+
 /** Append one timeline event and trim the oldest entries. */
 function timeline(task, kind, actor, text, extra = {}, limit = 120) {
   const entry = { at: now(), kind, actor, text: String(text).slice(0, 1000), ...extra }
@@ -304,8 +342,8 @@ function transitionRefusal(task, patch) {
   }
   if (to === 'review') {
     const result = patch.result !== undefined ? resultOf(patch.result, task.result) : task.result
-    if (typeof result?.summary !== 'string' || result.summary.trim() === '') return 'needs_result'
-    if (!Array.isArray(result?.evidence) || result.evidence.length === 0) return 'needs_evidence'
+    const refusal = acceptanceRefusal(result)
+    if (refusal !== null) return refusal
   }
   if (to === 'blocked') {
     const reason = typeof patch.reason === 'string' && patch.reason.trim() !== '' ? patch.reason.trim() : (typeof task.reason === 'string' ? task.reason.trim() : '')
@@ -326,6 +364,9 @@ const ACTIVE_STATUSES = ['open', 'active', 'paused', 'review', 'blocked']
 
 /** The row count past which the FILE, not the work, is the thing at risk. */
 const DEFAULT_MAX_ROWS = 1000
+
+/** The most ids one batch lifecycle call may carry. A cleanup batch is tens of rows, not thousands. */
+const MAX_BATCH = 100
 
 /** Every command operation that edits or removes a row, and therefore needs its revision. */
 const MUTATING_OPS = ['update', 'note', 'link', 'pause', 'resume', 'close', 'cancel', 'remove']
@@ -571,6 +612,123 @@ function createService(config, logger, hooks = {}) {
     return owner !== null && owner === chatId
   }
   const otherChat = (task) => ({ value: { ok: false, code: 'other_chat', chatId: chatOf(task) } })
+
+  /**
+   * Interrupt every linked child of one task and report per-child outcomes.
+   *
+   * The hook is the only path to the subagent runtime; it throws when the child cannot be
+   * stopped, and the caller fails closed (the task keeps its previous status). Nothing is
+   * mutated here: a batch that writes other rows must not persist a half-stopped task.
+   */
+  const interruptChildren = (task, requestedParent) => {
+    const parentSessionId = typeof task.parentSessionId === 'string' && task.parentSessionId !== ''
+      ? task.parentSessionId
+      : (typeof requestedParent === 'string' ? requestedParent : '')
+    const interrupted = []
+    const errors = []
+    for (const childId of Array.isArray(task.childSessionIds) ? task.childSessionIds : []) {
+      if (typeof hooks.interrupt !== 'function') {
+        errors.push(childId + ': subagent service is unavailable')
+        continue
+      }
+      try {
+        hooks.interrupt(childId, parentSessionId)
+        interrupted.push(childId)
+      } catch (error) {
+        errors.push(childId + ': ' + (error instanceof Error ? error.message : String(error)))
+      }
+    }
+    return { parentSessionId, interrupted, errors }
+  }
+
+  /** Record a committed stop on the task's child rows and the workspace role rows. */
+  const markChildren = (board, task, childStatus, agentStatus) => {
+    const children = Array.isArray(task.children) ? task.children : []
+    for (const childId of Array.isArray(task.childSessionIds) ? task.childSessionIds : []) {
+      const child = children.find((entry) => entry.sessionId === childId)
+      if (child !== undefined) child.status = childStatus
+      const agent = (board.agents ?? []).find((entry) => entry.sessionId === childId)
+      if (agent !== undefined) {
+        agent.status = agentStatus
+        agent.updatedAt = now()
+      }
+    }
+    task.children = children
+  }
+
+  /** The batch ids a close/cancel tool was given, deduplicated and bounded. */
+  const batchIds = (input) => {
+    const raw = Array.isArray(input?.ids) ? input.ids : (typeof input?.id === 'string' && input.id !== '' ? [input.id] : [])
+    const ids = []
+    for (const value of raw) {
+      if (typeof value !== 'string' || value.trim() === '') continue
+      const id = value.trim()
+      if (!ids.includes(id)) ids.push(id)
+    }
+    return ids
+  }
+
+  /** Per-task result entries, keyed by task id. */
+  const perTaskResults = (input) => {
+    const map = new Map()
+    if (!Array.isArray(input?.results)) return map
+    for (const entry of input.results) {
+      if (entry !== null && typeof entry === 'object' && typeof entry.id === 'string' && entry.id !== '') map.set(entry.id, entry)
+    }
+    return map
+  }
+
+  /**
+   * Cancel one task after its children stop. Returns a plain outcome so the single tool and a
+   * batch share one rule: a refused interrupt cancels nothing, and a task already cancelled is
+   * an accepted no-op.
+   */
+  const cancelOne = (board, task, input, reason) => {
+    const chatId = typeof input?.chatId === 'string' ? input.chatId : ''
+    if (!writable(task, chatId, input?.actor)) return { ok: false, code: 'other_chat', chatId: chatOf(task) }
+    const from = displayStatus(task.status)
+    if (from === 'cancelled') return { ok: true, task, interrupted: [], errors: [], note: 'already cancelled' }
+    if (from === 'done') return { ok: false, code: 'terminal', task }
+    const { interrupted, errors } = interruptChildren(task, input?.parentSessionId)
+    if (errors.length > 0) return { ok: false, code: 'interrupt_failed', task, interrupted, errors }
+    markChildren(board, task, 'sleeping', 'sleeping')
+    task.status = 'cancelled'
+    const note = reason === '' ? 'Cancelled with no reason given' : 'Cancelled: ' + reason
+    const result = resultOf({ decisions: [note] }, task.result)
+    if (result !== undefined) task.result = result
+    task.revision += 1
+    task.updatedAt = now()
+    timeline(task, 'cancelled', input?.actor === 'human' ? 'human' : 'orchestrator', note, { sessionIds: interrupted }, timelineLimit)
+    return { ok: true, task, interrupted, errors, note, changed: true }
+  }
+
+  /**
+   * Accept one task after checking its result. The result supplied at acceptance fills only
+   * missing fields; a summary already recorded is never rewritten. No board mutation happens
+   * until the result gate and the child stop both pass, so a batch can persist other rows
+   * without persisting a half-accepted one.
+   */
+  const closeOne = (board, task, input, incoming) => {
+    const chatId = typeof input?.chatId === 'string' ? input.chatId : ''
+    if (!writable(task, chatId, input?.actor)) return { ok: false, code: 'other_chat', chatId: chatOf(task) }
+    const from = displayStatus(task.status)
+    if (from === 'cancelled') return { ok: false, code: 'cancelled', task }
+    if (from === 'done') return { ok: true, task, interrupted: [], errors: [], note: 'already done' }
+    if (from !== 'review') return { ok: false, code: 'needs_review', task }
+    const next = fillResult(task.result, incoming)
+    const refusal = acceptanceRefusal(next)
+    if (refusal !== null) return { ok: false, code: refusal, task }
+    const { interrupted, errors } = interruptChildren(task, input?.parentSessionId)
+    if (errors.length > 0) return { ok: false, code: 'interrupt_failed', task, interrupted, errors }
+    const recorded = JSON.stringify(next) !== JSON.stringify(task.result ?? {})
+    task.result = Object.keys(next).length > 0 ? next : undefined
+    markChildren(board, task, 'sleeping', 'sleeping')
+    task.status = 'done'
+    task.revision += 1
+    task.updatedAt = now()
+    timeline(task, 'closed', input?.actor === 'human' ? 'human' : 'orchestrator', 'Closed as done' + (recorded ? '; result recorded at acceptance' : ''), { sessionIds: interrupted }, timelineLimit)
+    return { ok: true, task, interrupted, errors, changed: true, resultRecorded: recorded }
+  }
 
   /** Compact list row; the board UI uses the full task document. */
   const summary = (task) => {
@@ -996,29 +1154,9 @@ function createService(config, logger, hooks = {}) {
         if (task === undefined) return { value: { ok: false, code: 'not_found' } }
         if (!writable(task, chatId, input?.actor)) return otherChat(task)
         if (['done', 'cancelled'].includes(displayStatus(task.status))) return { value: { ok: false, code: 'closed', task } }
-        const parentSessionId = typeof task.parentSessionId === 'string' && task.parentSessionId !== '' ? task.parentSessionId : requestedParent
-        const interrupted = []
-        const errors = []
-        const children = Array.isArray(task.children) ? task.children : []
-        for (const childId of task.childSessionIds) {
-          const child = children.find((entry) => entry.sessionId === childId)
-          if (typeof hooks.interrupt !== 'function') {
-            errors.push(`${childId}: subagent service is unavailable`)
-            continue
-          }
-          try {
-            hooks.interrupt(childId, parentSessionId)
-            interrupted.push(childId)
-            if (child !== undefined) child.status = 'paused'
-            const agent = (board.agents ?? []).find((entry) => entry.sessionId === childId)
-            if (agent !== undefined) { agent.status = 'paused'; agent.updatedAt = now() }
-          } catch (error) {
-            errors.push(`${childId}: ${error.message}`)
-            if (child !== undefined) child.status = 'sleeping'
-          }
-        }
+        const { interrupted, errors } = interruptChildren(task, requestedParent)
         if (errors.length > 0) return { value: { ok: false, code: 'interrupt_failed', task, interrupted, errors } }
-        task.children = children
+        markChildren(board, task, 'paused', 'paused')
         task.status = 'paused'
         task.revision += 1
         task.updatedAt = now()
@@ -1060,99 +1198,188 @@ function createService(config, logger, hooks = {}) {
      */
     cancel(cwd, input) {
       const id = typeof input?.id === 'string' ? input.id : ''
-      const requestedParent = typeof input?.parentSessionId === 'string' && input.parentSessionId !== '' ? input.parentSessionId : ''
-      const chatId = typeof input?.chatId === 'string' ? input.chatId : ''
       const reason = typeof input?.reason === 'string' ? input.reason.trim().slice(0, 1000) : ''
       return mutate(cwd, (board) => {
         const task = board.tasks.find((entry) => entry.id === id)
         if (task === undefined) return { value: { ok: false, code: 'not_found' } }
-        if (!writable(task, chatId, input?.actor)) return otherChat(task)
-        const from = displayStatus(task.status)
-        if (from === 'cancelled') return { value: { ok: true, task, note: 'already cancelled' } }
-        // done is the one accepted state: abandoning it would reopen an acceptance.
-        if (from === 'done') return { value: { ok: false, code: 'terminal', task } }
-        const parentSessionId = typeof task.parentSessionId === 'string' && task.parentSessionId !== '' ? task.parentSessionId : requestedParent
-        const interrupted = []
-        const errors = []
-        const children = Array.isArray(task.children) ? task.children : []
-        for (const childId of task.childSessionIds) {
-          const child = children.find((entry) => entry.sessionId === childId)
-          if (typeof hooks.interrupt !== 'function') { errors.push(`${childId}: subagent service is unavailable`); continue }
-          try {
-            hooks.interrupt(childId, parentSessionId)
-            interrupted.push(childId)
-            if (child !== undefined) child.status = 'sleeping'
-            const agent = (board.agents ?? []).find((entry) => entry.sessionId === childId)
-            if (agent !== undefined) { agent.status = 'sleeping'; agent.updatedAt = now() }
-          } catch (error) {
-            errors.push(`${childId}: ${error.message}`)
-            if (child !== undefined) child.status = 'sleeping'
-          }
+        const outcome = cancelOne(board, task, input, reason)
+        if (outcome.ok === false) return { value: outcome }
+        return {
+          changed: outcome.changed === true,
+          value: { ok: true, task: outcome.task, interrupted: outcome.interrupted, errors: outcome.errors, note: outcome.note },
         }
-        if (errors.length > 0) return { value: { ok: false, code: 'interrupt_failed', task, interrupted, errors } }
-        task.children = children
-        task.status = 'cancelled'
-        // The result note says WHY the work was dropped, so a cancelled task is not a silent
-        // grave: it appends to the decisions the result already carries and never rewrites a
-        // summary somebody wrote.
-        const note = reason === '' ? 'Cancelled with no reason given' : `Cancelled: ${reason}`
-        const result = resultOf({ decisions: [note] }, task.result)
-        if (result !== undefined) task.result = result
-        task.revision += 1
-        task.updatedAt = now()
-        timeline(task, 'cancelled', input?.actor === 'human' ? 'human' : 'orchestrator', note, { sessionIds: interrupted }, timelineLimit)
-        return { changed: true, value: { ok: true, task, interrupted, errors, note } }
+      })
+    },
+    /**
+     * Cancel a batch of tasks in one ledger write, interrupting every linked child first.
+     *
+     * The batch is partial by design: one task that refuses (wrong chat, terminal, a child that
+     * will not stop) is reported in its own row and leaves the other rows' cancellations in
+     * place. The caller reads the per-task results; a whole batch is never reported as done
+     * when one row was refused.
+     */
+    cancelMany(cwd, input) {
+      const ids = batchIds(input)
+      if (ids.length === 0) return { ok: false, code: 'invalid', message: 'pass id or ids' }
+      if (ids.length > MAX_BATCH) return { ok: false, code: 'batch_too_large', max: MAX_BATCH }
+      const reason = typeof input?.reason === 'string' ? input.reason.trim().slice(0, 1000) : ''
+      return mutate(cwd, (board) => {
+        const items = []
+        let changed = false
+        for (const id of ids) {
+          const task = board.tasks.find((entry) => entry.id === id)
+          if (task === undefined) { items.push({ id, ok: false, code: 'not_found' }); continue }
+          const outcome = cancelOne(board, task, input, reason)
+          if (outcome.ok === false) {
+            items.push({ id, ok: false, code: outcome.code, status: outcome.task?.status, revision: outcome.task?.revision, interrupted: outcome.interrupted, errors: outcome.errors })
+            continue
+          }
+          if (outcome.changed === true) changed = true
+          items.push({ id, ok: true, status: outcome.task.status, revision: outcome.task.revision, interrupted: outcome.interrupted, errors: outcome.errors, note: outcome.note })
+        }
+        const failed = items.filter((entry) => entry.ok === false).length
+        return { changed, value: { ok: failed === 0, requested: ids.length, cancelled: items.length - failed, failed, results: items } }
       })
     },
     /** Close a task as done and interrupt its linked children; fail closed. */
     close(cwd, input) {
       const id = typeof input?.id === 'string' ? input.id : ''
-      const requestedParent = typeof input?.parentSessionId === 'string' && input.parentSessionId !== '' ? input.parentSessionId : ''
-      const chatId = typeof input?.chatId === 'string' ? input.chatId : ''
       return mutate(cwd, (board) => {
         const task = board.tasks.find((entry) => entry.id === id)
         if (task === undefined) return { value: { ok: false, code: 'not_found' } }
-        if (!writable(task, chatId, input?.actor)) return otherChat(task)
-        const from = displayStatus(task.status)
-        if (from === 'cancelled') return { value: { ok: false, code: 'cancelled', task } }
-        if (from === 'done') return { value: { ok: true, task } }
-        // ACCEPTANCE IS THE ONLY DOOR TO `done`. A task closes from review, which means a
-        // result was claimed and the evidence examined; an open or active task is cancelled
-        // instead of being declared accepted, and a blocked one is unblocked first.
-        if (from !== 'review') return { value: { ok: false, code: 'needs_review', task } }
-        // THE CHILD-SETTLE SIGNAL IS NOT AN ACCEPTANCE. A linked child ending still moves the
-        // task to review (that is the runtime reporting work finished), but the task only
-        // closes once somebody wrote down what was achieved: the orchestrator supplies the
-        // result, then accepts.
-        if (typeof task.result?.summary !== 'string' || task.result.summary.trim() === '') {
-          return { value: { ok: false, code: 'needs_result', task } }
+        const outcome = closeOne(board, task, input, input?.result)
+        if (outcome.ok === false) return { value: outcome }
+        return {
+          changed: outcome.changed === true,
+          value: {
+            ok: true,
+            task: outcome.task,
+            interrupted: outcome.interrupted,
+            errors: outcome.errors,
+            ...(outcome.note === undefined ? {} : { note: outcome.note }),
+            ...(outcome.resultRecorded === true ? { resultRecorded: true } : {}),
+          },
         }
-        const parentSessionId = typeof task.parentSessionId === 'string' && task.parentSessionId !== '' ? task.parentSessionId : requestedParent
-        const interrupted = []
-        const errors = []
-        const children = Array.isArray(task.children) ? task.children : []
-        for (const childId of task.childSessionIds) {
-          const child = children.find((entry) => entry.sessionId === childId)
-          if (typeof hooks.interrupt !== 'function') { errors.push(`${childId}: subagent service is unavailable`); continue }
-          try {
-            hooks.interrupt(childId, parentSessionId)
-            interrupted.push(childId)
-            if (child !== undefined) child.status = 'sleeping'
-            const agent = (board.agents ?? []).find((entry) => entry.sessionId === childId)
-            if (agent !== undefined) { agent.status = 'sleeping'; agent.updatedAt = now() }
-          } catch (error) {
-            errors.push(`${childId}: ${error.message}`)
-            if (child !== undefined) child.status = 'sleeping'
-          }
-        }
-        if (errors.length > 0) return { value: { ok: false, code: 'interrupt_failed', task, interrupted, errors } }
-        task.children = children
-        task.status = 'done'
-        task.revision += 1
-        task.updatedAt = now()
-        timeline(task, 'closed', input?.actor === 'human' ? 'human' : 'orchestrator', 'Closed as done', { sessionIds: interrupted }, timelineLimit)
-        return { changed: true, value: { ok: true, task, interrupted, errors } }
       })
+    },
+    /**
+     * Accept a batch of review tasks in one ledger write, filling missing results from the
+     * supplied shared or per-task result.
+     *
+     * The batch is partial by design: a row still missing a summary/evidence, a row that is not
+     * in review, or a row whose child will not stop is reported in its own entry and leaves the
+     * other rows' acceptances in place. It is never reported as a whole-batch success when one
+     * row was refused.
+     */
+    closeMany(cwd, input) {
+      const ids = batchIds(input)
+      if (ids.length === 0) return { ok: false, code: 'invalid', message: 'pass id or ids' }
+      if (ids.length > MAX_BATCH) return { ok: false, code: 'batch_too_large', max: MAX_BATCH }
+      const perTask = perTaskResults(input)
+      return mutate(cwd, (board) => {
+        const items = []
+        let changed = false
+        for (const id of ids) {
+          const task = board.tasks.find((entry) => entry.id === id)
+          if (task === undefined) { items.push({ id, ok: false, code: 'not_found' }); continue }
+          const outcome = closeOne(board, task, input, perTask.has(id) ? perTask.get(id) : input?.result)
+          if (outcome.ok === false) {
+            items.push({ id, ok: false, code: outcome.code, status: outcome.task?.status, revision: outcome.task?.revision, interrupted: outcome.interrupted, errors: outcome.errors })
+            continue
+          }
+          if (outcome.changed === true) changed = true
+          items.push({
+            id,
+            ok: true,
+            status: outcome.task.status,
+            revision: outcome.task.revision,
+            interrupted: outcome.interrupted,
+            errors: outcome.errors,
+            ...(outcome.note === undefined ? {} : { note: outcome.note }),
+            ...(outcome.resultRecorded === true ? { resultRecorded: true } : {}),
+          })
+        }
+        const failed = items.filter((entry) => entry.ok === false).length
+        return { changed, value: { ok: failed === 0, requested: ids.length, closed: items.length - failed, failed, results: items } }
+      })
+    },
+    /**
+     * Force-stop linked children without changing a task's lifecycle.
+     *
+     * This is the explicit stop primitive the orchestrator and the human panel both use: it
+     * takes a task id (all its linked children) or one session id, interrupts each through the
+     * subagent runtime, records why on every task that links one of them, and leaves the task
+     * status to the runtime's settle event. A child that has already settled is an accepted
+     * no-op at the runtime; a child the caller does not own is reported in errors.
+     */
+    stop(cwd, input) {
+      const taskId = typeof input?.id === 'string' ? input.id : ''
+      const sessionId = typeof input?.sessionId === 'string' ? input.sessionId : ''
+      const chatId = typeof input?.chatId === 'string' ? input.chatId : ''
+      const reason = typeof input?.reason === 'string' ? input.reason.trim().slice(0, 1000) : ''
+      if (taskId === '' && sessionId === '') return { ok: false, code: 'invalid', message: 'pass id or sessionId' }
+      const board = readBoard(pathFor(cwd))
+      const tasks = []
+      const targets = []
+      const addTarget = (id) => {
+        if (typeof id === 'string' && id !== '' && !targets.includes(id)) targets.push(id)
+      }
+      if (taskId !== '') {
+        const task = board.tasks.find((entry) => entry.id === taskId)
+        if (task === undefined) return { ok: false, code: 'not_found' }
+        if (!writable(task, chatId, input?.actor)) return { ok: false, code: 'other_chat', chatId: chatOf(task) }
+        tasks.push(task)
+        for (const childId of Array.isArray(task.childSessionIds) ? task.childSessionIds : []) addTarget(childId)
+      }
+      if (sessionId !== '') {
+        addTarget(sessionId)
+        for (const task of board.tasks) {
+          // A sessionId-only stop still must not write another chat's timeline. The runtime's
+          // ancestor check is the authority for the stop itself; the ledger write is scoped.
+          if (!writable(task, chatId, input?.actor)) continue
+          if (Array.isArray(task.childSessionIds) && task.childSessionIds.includes(sessionId) && !tasks.includes(task)) tasks.push(task)
+        }
+      }
+      if (targets.length === 0) return { ok: false, code: 'no_child', task: tasks[0] }
+      const parentFor = new Map()
+      for (const task of tasks) {
+        const parent = typeof task.parentSessionId === 'string' && task.parentSessionId !== ''
+          ? task.parentSessionId
+          : (typeof input?.parentSessionId === 'string' ? input.parentSessionId : '')
+        for (const childId of Array.isArray(task.childSessionIds) ? task.childSessionIds : []) {
+          if (targets.includes(childId) && !parentFor.has(childId)) parentFor.set(childId, parent)
+        }
+      }
+      const stopped = []
+      const errors = []
+      for (const childId of targets) {
+        const parent = parentFor.get(childId) || (typeof input?.parentSessionId === 'string' ? input.parentSessionId : '')
+        if (typeof hooks.interrupt !== 'function') { errors.push(childId + ': subagent service is unavailable'); continue }
+        try {
+          hooks.interrupt(childId, parent)
+          stopped.push(childId)
+        } catch (error) {
+          errors.push(childId + ': ' + (error instanceof Error ? error.message : String(error)))
+        }
+      }
+      if (tasks.length > 0) {
+        mutate(cwd, (current) => {
+          let changed = false
+          for (const task of tasks) {
+            const row = current.tasks.find((entry) => entry.id === task.id)
+            if (row === undefined) continue
+            row.revision += 1
+            row.updatedAt = now()
+            const text = 'Stop requested for ' + (stopped.length > 0 ? stopped.join(', ') : 'no live child')
+              + (reason === '' ? '' : ': ' + reason)
+              + (errors.length === 0 ? '' : '; errors: ' + errors.join('; '))
+            timeline(row, 'stop_requested', input?.actor === 'human' ? 'human' : 'orchestrator', text, { sessionIds: stopped }, timelineLimit)
+            changed = true
+          }
+          return { changed, value: { ok: true } }
+        })
+      }
+      return { ok: errors.length === 0, stopped, errors, ...(errors.length === 0 ? {} : { code: 'interrupt_failed' }) }
     },
     /** Remove a task from the ledger; linked child sessions keep running. */
     remove(cwd, input) {
@@ -1212,6 +1439,9 @@ function createService(config, logger, hooks = {}) {
       if (kind === 'resume') return this.resume(cwd, { ...op, chatId, actor })
       if (kind === 'close') return this.close(cwd, { ...op, chatId, parentSessionId: actorSessionId, actor })
       if (kind === 'cancel') return this.cancel(cwd, { ...op, chatId, parentSessionId: actorSessionId, actor })
+      // A forced stop is a timeline action, not a status transition: it takes no revision
+      // (it changes no task field) and leaves the status to the runtime's settle event.
+      if (kind === 'stop') return this.stop(cwd, { ...op, chatId, parentSessionId: actorSessionId, actor })
       if (kind === 'remove') return this.remove(cwd, { ...op, chatId, actor })
       if (kind === 'get') return { ok: true, task: this.get(cwd, op.id) }
       if (kind === 'list') return { ok: true, tasks: this.list(cwd, { chatId, all: op.all === true }) }
@@ -1260,8 +1490,24 @@ export function apply(ctx, config = {}) {
       const subagents = ctx.get('subagents')
       if (subagents === undefined || typeof subagents.interrupt !== 'function') throw new Error('subagent service is unavailable')
       if (typeof parentSessionId !== 'string' || parentSessionId === '') throw new Error('no parent session to authorize the interrupt')
-      const parent = ctx.get('agents')?.get(parentSessionId)
-      subagents.interrupt(childId, parent === undefined ? { kind: 'user', parentSessionId } : parent)
+      const agents = ctx.get('agents')
+      let parent = agents?.get(parentSessionId)
+      // A legacy task may not know its parent, and the human panel can act from another chat.
+      // The child's live session knows its direct creator, so use that exact agent when the
+      // recorded address does not resolve. This is still an agent in the child's ancestry; the
+      // chat check above already decided whether this caller may act on the task.
+      if (parent === undefined) {
+        const actualParentId = agents?.get(childId)?.session?.header?.parentSession
+        if (typeof actualParentId === 'string' && actualParentId !== '') parent = agents?.get(actualParentId)
+      }
+      // THE RUNTIME'S AUTHORITY IS A TAGGED UNION, NOT AN AGENT OBJECT. DSH 0.2.1-rc.2
+      // admits {kind:'ancestor', agent} for a live agent in the target's ancestry and
+      // {kind:'user', parentSessionId} for the human/client path. Passing the Agent itself
+      // made every live child UNAUTHORIZED, so cancel/pause/close always returned
+      // interrupt_failed - measured by scripts/taskboard-close-stop-proof.mjs.
+      subagents.interrupt(childId, parent === undefined
+        ? { kind: 'user', parentSessionId }
+        : { kind: 'ancestor', agent: parent })
     },
   })
   const board = ctx.provide('taskboard', service)
@@ -1418,24 +1664,84 @@ export function apply(ctx, config = {}) {
 
   ctx.tools.register(defineTool({
     name: 'task_cancel',
-    description: 'Cancel a task and best-effort interrupt its linked child sessions. Use it for work that will not be finished: a paused task and a task that still has children can ONLY be abandoned this way (an ordinary update is refused). The reason is recorded as a decision on the result and as a timeline entry. done is not cancellable (terminal): an accepted task stays accepted.',
+    description: 'Cancel one task or a batch (ids) and interrupt every linked child first. Use it for work that will not be finished: a paused task and a task that still has children can ONLY be abandoned this way (an ordinary update is refused). The reason is recorded as a decision on every result and as a timeline entry. A refused child stop cancels nothing and returns interrupt_failed; a batch reports each row separately and never claims a whole-batch success when one row was refused. done is terminal: an accepted task stays accepted.',
     parameters: {
-      id: { type: 'string', required: true, description: 'Task id.' },
-      reason: { type: 'string', description: 'Why the work is being dropped, in one line. It is kept on the result decisions and the timeline.' },
+      id: { type: 'string', description: 'Task id for a single cancel.' },
+      ids: { type: 'array', items: { type: 'string' }, description: 'Task ids for a batch cancel: one ledger write, per-task results, partial by design.' },
+      reason: { type: 'string', description: 'Why the work is being dropped, in one line. Shared by a batch and kept on every result and timeline.' },
     },
     output: out(),
     execute(args, exec) {
-      return Promise.resolve(service.cancel(workingDir(exec.agent), { ...args, parentSessionId: exec.agent?.id, chatId: rootOf(exec.agent?.id), actor: 'orchestrator' }))
+      const base = { parentSessionId: exec.agent?.id, chatId: rootOf(exec.agent?.id), actor: 'orchestrator' }
+      if (Array.isArray(args.ids)) {
+        return Promise.resolve(service.cancelMany(workingDir(exec.agent), { ...base, ids: args.ids, reason: args.reason }))
+      }
+      if (typeof args.id !== 'string' || args.id === '') return Promise.resolve({ ok: false, code: 'invalid', message: 'pass id or ids' })
+      return Promise.resolve(service.cancel(workingDir(exec.agent), { ...base, id: args.id, reason: args.reason }))
     },
   }))
 
   ctx.tools.register(defineTool({
     name: 'task_close',
-    description: 'Close a task as done and best-effort interrupt its linked child sessions. Use this for a deliberate acceptance or abandonment; child sessions remain available.',
-    parameters: { id: { type: 'string', required: true, description: 'Task id.' } },
+    description: 'Close one task or a batch (ids) as done. The result can arrive in the same call: resultSummary and at least one resultEvidence fill only fields that are missing, so a summary already recorded is never rewritten. A task that is not in review is refused (needs_review); a close with no summary or evidence is refused (needs_result/needs_evidence); a batch returns per-task results and never claims a whole-batch success when one row was refused.',
+    parameters: {
+      id: { type: 'string', description: 'Task id for a single close.' },
+      ids: { type: 'array', items: { type: 'string' }, description: 'Task ids for a batch close: one ledger write, per-task results, partial by design.' },
+      resultSummary: { type: 'string', description: 'What was achieved. Used only where the task has no summary yet; an existing summary is never rewritten.' },
+      resultEvidence: { type: 'array', items: { type: 'string' }, description: 'At least one command, output, file or observation proving the result. Used only where the task has no evidence yet.' },
+      resultArtifacts: { type: 'array', items: { type: 'string' }, description: 'Handoff or artifact paths.' },
+      resultDecisions: { type: 'array', items: { type: 'string' }, description: 'Decisions worth carrying forward.' },
+      resultRisks: { type: 'array', items: { type: 'string' }, description: 'Known risks or unknowns.' },
+      results: {
+        type: 'array',
+        description: 'Per-task results for a batch. Each entry overrides the shared result fields for that task id.',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            id: { type: 'string', required: true, description: 'Task id this result belongs to.' },
+            summary: { type: 'string', description: 'What was achieved for this task.' },
+            evidence: { type: 'array', items: { type: 'string' }, description: 'Evidence for this task.' },
+            artifacts: { type: 'array', items: { type: 'string' }, description: 'Artifact paths for this task.' },
+            decisions: { type: 'array', items: { type: 'string' }, description: 'Decisions for this task.' },
+            risks: { type: 'array', items: { type: 'string' }, description: 'Risks for this task.' },
+          },
+        },
+      },
+    },
     output: out(),
     execute(args, exec) {
-      return Promise.resolve(service.close(workingDir(exec.agent), { id: args.id, parentSessionId: exec.agent?.id, chatId: rootOf(exec.agent?.id), actor: 'orchestrator' }))
+      const result = {}
+      for (const key of ['summary', 'evidence', 'artifacts', 'decisions', 'risks']) {
+        const source = 'result' + key.slice(0, 1).toUpperCase() + key.slice(1)
+        if (args[source] !== undefined) result[key] = args[source]
+      }
+      const input = {
+        parentSessionId: exec.agent?.id,
+        chatId: rootOf(exec.agent?.id),
+        actor: 'orchestrator',
+        ...(Object.keys(result).length === 0 ? {} : { result }),
+        ...(Array.isArray(args.results) ? { results: args.results } : {}),
+      }
+      if (Array.isArray(args.ids)) return Promise.resolve(service.closeMany(workingDir(exec.agent), { ...input, ids: args.ids }))
+      if (typeof args.id !== 'string' || args.id === '') return Promise.resolve({ ok: false, code: 'invalid', message: 'pass id or ids' })
+      const single = Array.isArray(args.results) ? args.results.find((entry) => entry?.id === args.id) : undefined
+      const singleResult = single === undefined ? (Object.keys(result).length === 0 ? undefined : result) : single
+      return Promise.resolve(service.close(workingDir(exec.agent), { ...input, id: args.id, ...(singleResult === undefined ? {} : { result: singleResult }) }))
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'task_stop',
+    description: 'Force-stop a linked child session without changing the task status: pass id for every child linked to a task, or sessionId for one child. The child is interrupted through the subagent runtime (the same service the human panel uses); the reason goes on the timeline, and the task status is left to the runtime settle event. Use task_cancel/task_pause/task_close when the task itself should change state.',
+    parameters: {
+      id: { type: 'string', description: 'Task id whose linked children should stop.' },
+      sessionId: { type: 'string', description: 'One child session id to stop.' },
+      reason: { type: 'string', description: 'Why the stop is requested; recorded on every task that links the child.' },
+    },
+    output: out(),
+    execute(args, exec) {
+      return Promise.resolve(service.stop(workingDir(exec.agent), { ...args, parentSessionId: exec.agent?.id, chatId: rootOf(exec.agent?.id), actor: 'orchestrator' }))
     },
   }))
 

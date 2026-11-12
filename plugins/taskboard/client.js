@@ -787,6 +787,7 @@ window.__ModuleLoader__.load({
         ) : null,
         h('div', { className: 'tb-row' },
           h('button', { type: 'button', className: 'tb-btn', onClick: () => onAction(paused ? 'resume' : 'pause', task.id), disabled: busy || closed || !canEdit, title: paused ? 'Continue tracking this task; linked children are not re-prompted' : 'Hold this task and interrupt its linked children' }, paused ? 'Resume' : 'Pause'),
+          h('button', { type: 'button', className: 'tb-btn', onClick: () => onAction('stop', task.id), disabled: busy || closed || !canEdit || !(Array.isArray(task.childSessionIds) && task.childSessionIds.length > 0), title: Array.isArray(task.childSessionIds) && task.childSessionIds.length > 0 ? 'Force-stop the linked child agents without changing this task status' : 'This task has no linked child to stop' }, 'Stop child'),
           h('button', { type: 'button', className: 'tb-btn', onClick: () => onAction('cancel', task.id), disabled: busy || closed || !canEdit, title: 'Abandon this task and interrupt its linked children. The one door for a paused task or one that still has children' }, 'Cancel'),
           h('button', { type: 'button', className: 'tb-btn', onClick: () => onAction('close', task.id), disabled: busy || closed || !canEdit || task.status !== 'review', title: task.status === 'review' ? 'Accept this task as done' : 'Only a task in review can be accepted; moving work to review needs a result and evidence' }, 'Close'),
           h('button', { type: 'button', className: 'tb-btn danger', onClick: () => onAction('remove', task.id), disabled: busy || !canEdit }, 'Remove'),
@@ -1165,6 +1166,7 @@ window.__ModuleLoader__.load({
         if (kind === 'remove' && !window.confirm('Remove this task from the board? Its child sessions keep running; pause or close first if they should stop.')) return
         if (kind === 'close' && !window.confirm('Close this task as done and interrupt its linked child agents?')) return
         if (kind === 'cancel' && !window.confirm('Cancel this task and interrupt its linked child agents? It stays on the board as cancelled.')) return
+        if (kind === 'stop' && !window.confirm('Force-stop the linked child agents now? The task status stays as it is; the child is interrupted and the stop is recorded on the timeline.')) return
         // The command is a compare-and-set like the model tools: the panel must send the
         // revision it is acting on, or the host refuses (needs_revision) instead of silently
         // overwriting an edit that landed in between.

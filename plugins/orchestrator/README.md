@@ -22,6 +22,11 @@ shell-write tools, and a child cannot see the tools of another role. A provider 
 `capabilities.agentPreset` is refused before a child exists, because the child would
 silently inherit the orchestrator composition.
 
+The root policy also carries the stop contract: a task cancel/pause/close interrupts every
+linked child before the task changes state, `task_stop` force-stops a child without changing
+the status, and the owner has the same authority from the Tasks panel. A refused interrupt
+leaves the task where it was.
+
 The task is created before routing, so a failure leaves a visible blocked task
 rather than an invisible child. A reused child gets only the new task brief; a new
 child first gets a persistent role brief. **A role's existing session is reused only when

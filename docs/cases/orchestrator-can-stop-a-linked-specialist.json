@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "orchestrator-can-stop-a-linked-specialist",
+  "title": "Orchestrator can stop a linked specialist",
+  "requirement": "Cancelling a task, pausing it, closing it or an explicit forced stop must actually interrupt its linked subagent through the documented ctx.subagents authority; a refused interrupt leaves the task in its previous state.",
+  "kind": "scenario",
+  "status": "unverified",
+  "source": "human",
+  "automated": false,
+  "reason": "The owner stated the requirement in chat on 2026-11-12; the automated proof is scripts/taskboard-close-stop-proof.mjs and will be linked once it has a red-first run.",
+  "steps": [
+    "Link a live child session to a task.",
+    "Call task_cancel (or task_pause/task_close/task_stop).",
+    "Observe the authority passed to ctx.subagents.interrupt and the task state."
+  ],
+  "expected": "The child's current turn is cancelled; the task transitions only after the interrupt succeeds; a refused interrupt returns interrupt_failed with the task untouched.",
+  "tags": [
+    "owner-requirement",
+    "taskboard",
+    "subagent-stop"
+  ],
+  "surfaceFiles": [],
+  "linkedTaskId": "task-mwdk0s2c-2j0lhd",
+  "revision": 1,
+  "createdAt": "2026-11-12T12:58:59.145Z",
+  "updatedAt": "2026-11-12T12:58:59.145Z",
+  "createdBy": "orchestrator",
+  "createdByKind": "agent",
+  "history": [],
+  "evidence": {}
+}

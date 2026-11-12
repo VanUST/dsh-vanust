@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "taskboard-batch-close-with-result-in-one-call",
+  "title": "Taskboard batch close with result in one call",
+  "requirement": "The owner can accept a batch of review tasks in one task_close call, supplying the result and evidence in that same call; a close fills missing result fields and never rewrites a summary already recorded, and every refusal is reported per task.",
+  "kind": "scenario",
+  "status": "unverified",
+  "source": "human",
+  "automated": false,
+  "reason": "The owner stated the requirement in chat on 2026-11-12; the automated proof is scripts/taskboard-close-stop-proof.mjs and will be linked once it has a red-first run.",
+  "steps": [
+    "Create review tasks, some with a complete result and some without.",
+    "Call task_close once with ids plus resultSummary/resultEvidence (or a per-task results array).",
+    "Read the returned per-task results and the ledger."
+  ],
+  "expected": "Every task with review status and a complete result after the fill closes to done in one board write; a task still missing summary/evidence is refused by needs_result/needs_evidence and stays in review.",
+  "tags": [
+    "owner-requirement",
+    "taskboard",
+    "batch-close"
+  ],
+  "surfaceFiles": [],
+  "linkedTaskId": "task-mwdk0s2c-2j0lhd",
+  "revision": 1,
+  "createdAt": "2026-11-12T12:58:59.139Z",
+  "updatedAt": "2026-11-12T12:58:59.139Z",
+  "createdBy": "orchestrator",
+  "createdByKind": "agent",
+  "history": [],
+  "evidence": {}
+}
