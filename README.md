@@ -1,6 +1,6 @@
 # dsh-kit
 
-Portable setup for **DeepSeek Harness (dsh)** plus the 22 plugins this
+Portable setup for **DeepSeek Harness (dsh)** plus the 23 plugins this
 deployment needs beyond upstream, across all your machines (2× Linux, 1× Windows).
 `plugins/inventory.json` is the single source of truth for the set:
 
@@ -44,6 +44,23 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   tool, so it is never gated), one file carries one revision counter, and a read returns
   `updatedAt`/`stale` for the orchestrator.
 - **`@cc/dsh-test-cases`** — the observed test-case library in `docs/cases/`. Eight host tools (`case_record`, `case_update`, `case_verify`, `case_list`, `case_get`, `case_supersede`, `case_deprecate`, `case_drift`) over one JSON file per case: compare-and-set edits keep history, an automated case records its test path, exact run command and the observed red/green runs, a documented-only case keeps steps, expected behaviour and the reason it cannot be a test. A changed surface file or a missing test marks a case stale instead of deleting the requirement; the orchestrator gets only the intake subset (record a human requirement as unverified, read the library). The rule is observe first, then persist — no speculative tests.
+- **`@cc/dsh-analysis`** — analysis before decomposition. One repo-tracked
+  `docs/analysis/<initiative>.json` per initiative keeps the business outcome **separate**
+  from the requested solution, names the process, BR/FR/NFR with acceptance, architecture
+  and data ownership, contract impact, invariants, decisions, open questions, the design-map
+  revision and a trace of requirement → process → component → task → evidence. Writes are
+  compare-and-set on `rev` and atomic; a semantic fingerprint catches a hand edit. Four
+  root-only tools (`analysis_read`, `analysis_upsert`, `analysis_check`, `analysis_impact`)
+  check completeness rather than JSON shape. `delegate_task` reads the service through
+  `ctx.get('analysis')`, so a composition without the row keeps the legacy behaviour: an L0
+  question/local fix passes without a document, while L1/L2 are refused `analysis_required`
+  without a ready record and `analysis_stale` after an affected change or a moved design
+  map. A read-only **preset** (`RESEARCH`/`REVIEWER`/`CRITIC`) and a `taskId` attach with explicit `legacyAttach:true` are exempt; a write-capable preset behind a read-only role label is gated. A
+  monotonic completion guard refuses `task_close` while a traced requirement is still planned
+  and refuses `update_goal action:"complete"` while a linked `goalId` record is incomplete;
+  adding/removing a requirement, a breaking architecture edit or a bare `designRef` bump
+  reopens the record instead of silently clearing it. The trace lives only in the record; the
+  taskboard schema is unchanged.
 - **`@cc/dsh-project-rules`** — one workspace rules file, `.dsh/rules.md`, rendered as
   ONE system-prompt section for every agent and subagent and edited from a **Rules** panel
   by the **human alone**. The file is read-only for agents: a `tools/pre-execute` guard
@@ -183,7 +200,7 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
 
 **Third-party add-on: Hindsight memory.** `@vectorize-io/hindsight-coding-agents@0.8.2`
 is installed separately by its own command (`npx @vectorize-io/hindsight-coding-agents install dsh`),
-not from this repository, and is therefore not one of the 22 in-repo plugins. It writes a
+not from this repository, and is therefore not one of the 23 in-repo plugins. It writes a
 row into `$DSH_HOME/cordis.patch.yml` (the home layer, shared by every profile) and a
 companion skill into `~/.agents/skills/hindsight-coding-agent`. Its settings live in
 `~/.hindsight/coding-agent.json`; this machine's file is enabled with `serverMode: daemon`
@@ -229,7 +246,7 @@ cd dsh-vanust               # the repository is dsh-vanust; the kit it contains 
 ```
 
 **What a clone alone gives you, stated exactly.** Everything the deployment
-installs is in the repository: the 22 plugin tarballs, the canonical profile, the
+installs is in the repository: the 23 plugin tarballs, the canonical profile, the
 procedure and the pinned version in both installers. Every plugin's source is here
 too — `plugins/notify/`, `plugins/presentation/`, `plugins/diagrams/`,
 `plugins/work-modes/`, `plugins/godot-mcp/`, `plugins/skills/`, `plugins/flash-guard/`,
@@ -255,7 +272,7 @@ dsh-kit/
 │                              #   session-analysis`: every session, in seconds per question)
 ├── scripts/kit-update.mjs     # update path: hash drift check + convergence for an existing machine
 ├── plugins/inventory.json     # the shipped plugin set (the source of truth)
-├── plugins/*.tgz              # plugin tarballs: 22 packages, including notify, presentation,
+├── plugins/*.tgz              # plugin tarballs: 23 packages, including notify, presentation,
 │                              #                  diagrams, work-modes, godot-mcp, skills, flash-guard,
 │                              #                  proof-guard, taskboard, orchestrator
 ├── plugins/notify/            # source of @cc/dsh-notify (desktop notifications; packed above)
@@ -270,6 +287,7 @@ dsh-kit/
 ├── plugins/proof-guard/       # source of @cc/dsh-proof-guard (test-file PROOF header)
 ├── plugins/taskboard/         # source of @cc/dsh-taskboard (Host service, command, Web panel)
 ├── plugins/orchestrator/      # source of @cc/dsh-orchestrator (root/child policy + delegate_task)
+├── plugins/analysis/          # source of @cc/dsh-analysis (Analysis Record, check, impact, L0/L1/L2 gate)
 ├── plugins/papers/            # source of @cc/dsh-papers (arXiv/HF search, trending, PDF text)
 ├── plugins/rtk/               # source of @cc/dsh-rtk (rtk binary discovery + post-execute output seam)
 ├── plugins/skill-evolve/      # source of @cc/dsh-skill-evolve (SKILL.md write/version/dedupe/archive)

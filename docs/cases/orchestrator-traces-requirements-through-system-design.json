@@ -1,0 +1,196 @@
+{
+  "schemaVersion": 1,
+  "id": "orchestrator-traces-requirements-through-system-design",
+  "title": "Orchestrator traces requirements through system design",
+  "requirement": "Для нетривиального бизнес-запроса root-оркестратор должен до декомпозиции связать бизнес-результат, процесс, требования, глобальную архитектуру, системные контракты, задачи и последующие доказательства. Изменение требования должно запускать impact analysis, а не просто создавать ещё одну задачу.",
+  "kind": "scenario",
+  "status": "verified",
+  "source": "human",
+  "automated": true,
+  "reason": "",
+  "steps": [
+    "Run `node scripts/analysis-before-decomposition-proof.mjs` against the pre-round-4 scratch (the four fixes reverted): exit 1 (89/93; fresh attach, deferred status, trace mapping and draft trace removal fail).",
+    "Create a ready Analysis Record with businessOutcome separate from requestedSolution, process, BR/FR/NFR, architecture/data ownership, contract impact and a trace row per requirement.",
+    "Delegate L1/L2: analysis_required/stale; a read-only preset and explicit legacyAttach:true are exempt; a fresh attach without the flag and a write preset behind a role label are gated.",
+    "Change process/status/mapping/trace links on ready and draft records: impact/reopen or refusal. Trace mapping is in the semantic fingerprint; deferred/rejected status is a semantic change; a linked task cannot be erased at any status.",
+    "Close traced tasks: non-last closes, last is refused, a fully proven batch closes, a mixed batch is refused atomically, malformed records fail closed. A real second-server chat closed a proven task successfully.",
+    "Complete one proven and one explicitly deferred requirement; goal completion is refused until the linked record is completed."
+  ],
+  "expected": "93/93 checks pass and exit 0. L1/L2 are refused analysis_required without a ready record and analysis_stale after an affected change; read-only PRESETS and explicit legacyAttach:true are exempt; process/architecture/contract edits, requirement add/remove, deferred/rejected status changes, trace mapping changes, bare designRef bumps, trace-task unlinks and goalId unlinks all create impacts or refuse; hand edits need acceptHandEdit; the last outstanding task cannot close while planned (non-last can, a fully-proven batch closes); malformed records fail closed; linkTask honours expectedRev. A real second server observed both task_close denial and the allowed task_close after proof.",
+  "tags": [
+    "owner-requirement",
+    "orchestrator",
+    "analysis",
+    "architecture",
+    "traceability"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/analysis/analysis.mjs",
+      "sha256": "e5524516b191e4f95991d1848f6f2f15730157c9f0e4a876cd300846a8bc665b"
+    },
+    {
+      "path": "plugins/analysis/store.mjs",
+      "sha256": "36575e7cad7fff78f534926a27f4e4dd433f3046bb384a4ac727950a1b46351d"
+    },
+    {
+      "path": "plugins/orchestrator/orchestrator.mjs",
+      "sha256": "b3ccf48bcdf0b9e8df029cf595c19458b71c5b2fd8b4eba5a9a1257579948939"
+    }
+  ],
+  "linkedTaskId": "task-mwf3lroq-ii7skg",
+  "revision": 10,
+  "createdAt": "2026-11-13T14:55:20.590Z",
+  "updatedAt": "2026-11-13T16:28:57.859Z",
+  "createdBy": "orchestrator",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-13T14:55:20.590Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "Orchestrator traces requirements through system design",
+        "requirement": "Для нетривиального бизнес-запроса root-оркестратор должен до декомпозиции связать бизнес-результат, процесс, требования, глобальную архитектуру, системные контракты, задачи и последующие доказательства. Изменение требования должно запускать impact analysis, а не просто создавать ещё одну задачу.",
+        "expected": "До готового анализа L1/L2 delegation получает analysis_required, после изменения затронутой модели — analysis_stale. Готовая модель сохраняется между чатами и связывает каждое требование с процессом, компонентом, задачей и доказательством либо явным deferred/rejected статусом.",
+        "steps": [
+          "Создать L1/L2 инициативу без Analysis Record и попытаться делегировать реализацию",
+          "Заполнить бизнес-результат, requestedSolution, процесс, BR/FR/NFR, архитектурный impact и трассировку",
+          "Повторить делегирование и изменить требование после начала работы",
+          "Перечитать Analysis Record в новом чате и завершить инициативу с доказательством или явным deferral"
+        ],
+        "automated": false,
+        "reason": "Analysis Record, analysis tools and delegation gates do not exist yet; the implementing task will attach the real behavioral proof surface.",
+        "status": "unverified"
+      }
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-13T15:14:15.148Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "Red observed on the pre-implementation tree (44 checks, 6/44); the proof gained one check when the unknown-requirement fixture was added. Green on the implemented plugin + orchestrator gate. Harness uses the real store, the real delegate_task body and a real taskboard service; no model call or real child."
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-13T15:14:15.148Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "Orchestrator traces requirements through system design",
+        "requirement": "Для нетривиального бизнес-запроса root-оркестратор должен до декомпозиции связать бизнес-результат, процесс, требования, глобальную архитектуру, системные контракты, задачи и последующие доказательства. Изменение требования должно запускать impact analysis, а не просто создавать ещё одну задачу.",
+        "expected": "45/45 checks pass and exit 0. Before a ready record an L1 delegation is refused analysis_required with no task row; an affected mid-work change makes it analysis_stale; a new chat reads the same record and trace; completion separates proven from explicitly deferred and refuses an unresolved requirement.",
+        "steps": [
+          "Run `node scripts/analysis-before-decomposition-proof.mjs` against the tree without the analysis plugin: it exits 1 (red).",
+          "Create a ready Analysis Record with analysis_upsert: businessOutcome separate from requestedSolution, process, BR/FR/NFR with acceptance, architecture/data ownership, contract impact, invariants, decisions and a trace row per requirement.",
+          "Delegate an L1 task with no record: refused analysis_required, no task row and no child. Delegate again with analysisId + requirementIds: a child starts and the task id is appended to the requirement's trace.",
+          "Call analysis_impact after a requirement change: the record reopens as draft with a pending impact and the next delegation is refused analysis_stale; resolve with analysis_upsert(resolveImpacts) and re-check to delegate again.",
+          "Start a fresh harness over the same directory (new chat/restart) and read the record: same rev and the same traced task.",
+          "Try status completed while a requirement is still planned: completion_blocked. Mark one requirement proven with task+evidence and one explicitly deferred with a reason: the record completes and reports 1 proven / 1 deferred."
+        ],
+        "automated": true,
+        "testPath": "scripts/analysis-before-decomposition-proof.mjs",
+        "runCommand": "node scripts/analysis-before-decomposition-proof.mjs",
+        "reason": "",
+        "status": "verified"
+      }
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-13T15:45:26.520Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "Fix iteration after independent review. Red run observed on the pre-fix tree (52/67, 15 failures reproducing REVIEWER blockers and CRITIC P1-P5); green run on the fixed plugin + orchestrator. The proof grew from 67 to 70 checks when two acknowledgement checks were added after the restructure. Real store, real delegate_task, real taskboard; no model call or real child."
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-13T15:49:25.738Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "Fix iteration after independent review; goal guard reads the installed goal tool's real `action:\"complete\"` field (verified in docs/tool-catalog.md), not a guessed `status`. Red on the pre-fix tree 52/67 exit 1; green 70/70 exit 0. Repacked as @cc/dsh-analysis 0.1.2."
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-13T15:49:25.738Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "Orchestrator traces requirements through system design",
+        "requirement": "Для нетривиального бизнес-запроса root-оркестратор должен до декомпозиции связать бизнес-результат, процесс, требования, глобальную архитектуру, системные контракты, задачи и последующие доказательства. Изменение требования должно запускать impact analysis, а не просто создавать ещё одну задачу.",
+        "expected": "70/70 checks pass and exit 0. L1/L2 are refused analysis_required without a ready record and analysis_stale after an affected change; read-only RESEARCH/REVIEWER/CRITIC and a legacy taskId attach are exempt; a traced task cannot close while its requirement is planned; adding/removing a requirement, a breaking architecture edit and a bare designRef bump reopen the record; a deferred requirement cannot be delegated; goal completion is refused for an incomplete linked record.",
+        "steps": [
+          "Run `node scripts/analysis-before-decomposition-proof.mjs` against the tree without the analysis plugin or its fixes: it exits 1 (52/67 on the current tree).",
+          "Create a ready Analysis Record with analysis_upsert: businessOutcome separate from requestedSolution, process, BR/FR/NFR with acceptance, architecture/data ownership, contract impact and a trace row per requirement.",
+          "Delegate L1/L2 with and without analysisId: analysis_required before a ready record, child + traced task id after it, no task row and no child on refusal. A read-only RESEARCH/REVIEWER/CRITIC delegation and a legacy taskId attach with no changeClass start without a record.",
+          "Call analysis_impact after a requirement change: the record reopens as draft with a pending impact and delegation is refused analysis_stale; resolve with analysis_upsert and re-check to delegate again.",
+          "Attempt task_close on a task traced to a planned requirement: refused; prove the requirement with task evidence then close succeeds. Attempt update_goal complete while a record with that goalId is ready: refused.",
+          "Add, remove, and architecture/contract-edit requirements on ready records: each records a pending impact and reopens; removing a requirement that still has a traced task is refused requirement_has_tasks. A bare designRef bump reopens rather than clearing drift.",
+          "Start a fresh harness over the same directory (new chat/restart) and read the record: same rev and traced task. Complete one requirement proven and one explicitly deferred; completion reports 1 proven / 1 deferred."
+        ],
+        "automated": true,
+        "testPath": "scripts/analysis-before-decomposition-proof.mjs",
+        "runCommand": "node scripts/analysis-before-decomposition-proof.mjs",
+        "reason": "",
+        "status": "verified"
+      }
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-13T16:17:13.502Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "Round-3 fix after final REVIEWER/CRITIC. Red observed on the pre-fix tree (74/85, 11 failures; the proof grew to 87 when the batch checks were added). Green 87/87 on @cc/dsh-analysis 0.1.3 / @cc/dsh-orchestrator 0.1.42. Real second server additionally proved task_close through the installed guard pipeline (session session-12d0db34..., tool/result 'Error: analysis: ... last outstanding task ...')."
+    },
+    {
+      "revision": 8,
+      "at": "2026-11-13T16:17:13.502Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "Orchestrator traces requirements through system design",
+        "requirement": "Для нетривиального бизнес-запроса root-оркестратор должен до декомпозиции связать бизнес-результат, процесс, требования, глобальную архитектуру, системные контракты, задачи и последующие доказательства. Изменение требования должно запускать impact analysis, а не просто создавать ещё одну задачу.",
+        "expected": "87/87 checks pass and exit 0. L1/L2 are refused analysis_required without a ready record and analysis_stale after an affected change; read-only PRESETS (not forged role labels) and a taskId attach to a pre-existing task are exempt; a process/architecture/contract edit, requirement add/remove, bare designRef bump or trace-only task unlink reopens or refuses the record; a hand edit is refused until acceptHandEdit; the last outstanding task cannot close while its requirement is planned (a non-last task can, and a fully-proven batch closes); malformed records fail closed; goalId is a commitment and goal completion is refused until the linked record is completed; linkTask honours expectedRev.",
+        "steps": [
+          "Run `node scripts/analysis-before-decomposition-proof.mjs` against the pre-fix tree: exit 1 (74/85 at the time; the proof grew to 87 when the batch checks were added).",
+          "Create a ready Analysis Record with businessOutcome separate from requestedSolution, process, BR/FR/NFR, architecture/data ownership, contract impact and a trace row per requirement.",
+          "Delegate L1/L2 with and without analysisId: analysis_required/analysis_stale; a read-only preset is exempt but a write preset behind a README role label is gated; a taskId attach is exempt only for a task predating the contour.",
+          "Change requirement, process, architecture, designRef, trace task link or goalId on a ready record: impact/reopen or refusal (requirement_has_tasks, trace_task_removal, goal_link_locked); hand edit is fingerprint_mismatch until acceptHandEdit.",
+          "Close traced tasks: a non-last task on a planned requirement closes, the last is refused; a fully proven batch closes, a mixed batch is refused atomically with both tasks left in review; a malformed record fails closed.",
+          "Complete one requirement proven and one explicitly deferred; completion reports 1 proven / 1 deferred. Goal completion is refused until the linked record is completed."
+        ],
+        "automated": true,
+        "testPath": "scripts/analysis-before-decomposition-proof.mjs",
+        "runCommand": "node scripts/analysis-before-decomposition-proof.mjs",
+        "reason": "",
+        "status": "verified"
+      }
+    },
+    {
+      "revision": 9,
+      "at": "2026-11-13T16:28:57.859Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "Round-4 fixes: trace mapping in the semantic fingerprint/impact, deferred/rejected status as a semantic change, trace-task removal refused at any status, explicit legacyAttach:true instead of timestamp inference. Red is a scratch copy with those four fixes reverted (89/93). Green 93/93 on @cc/dsh-analysis 0.1.4 / @cc/dsh-orchestrator 0.1.43. A real second server additionally observed the positive task_close path: analysis_upsert rev2 ready with proven requirement + evidence, task_close ok:true status done."
+    }
+  ],
+  "evidence": {
+    "redFirst": {
+      "command": "node scripts/analysis-before-decomposition-proof.mjs",
+      "output": "FAIL  a fresh task attach with no class is refused analysis_required\nFAIL  deferring a requirement on a ready record records an impact  {status: ready, pending: 0}\nFAIL  a trace mapping change on a ready record records an impact  {status: ready, pending: 0}\nFAIL  removing a traced task from a draft record is also refused\n89/93 checks passed",
+      "exitCode": 1,
+      "at": "2026-11-13T16:28:57.858Z"
+    },
+    "green": {
+      "command": "node scripts/analysis-before-decomposition-proof.mjs",
+      "output": "PASS  a fresh task attach with no class is refused analysis_required\nPASS  deferring a requirement on a ready record records an impact\nPASS  a trace mapping change on a ready record records an impact\nPASS  removing a traced task from a draft record is also refused\nPASS  a read-only role with a write preset is gated\nPASS  goal completion fails closed when the linked record is malformed\nPASS  closing a non-last task on a planned requirement is allowed\nPASS  unlinking goalId on a ready record is refused\nPASS  a hand edit is refused until it is explicitly acknowledged\nPASS  linkTask refuses a stale expectedRev\nPASS  a batch close succeeds when every traced task is proven\n93/93 checks passed",
+      "exitCode": 0,
+      "at": "2026-11-13T16:28:57.858Z"
+    },
+    "commit": null
+  },
+  "testPath": "scripts/analysis-before-decomposition-proof.mjs",
+  "runCommand": "node scripts/analysis-before-decomposition-proof.mjs",
+  "lastVerified": {
+    "at": "2026-11-13T16:28:57.858Z",
+    "command": "node scripts/analysis-before-decomposition-proof.mjs",
+    "exitCode": 0
+  },
+  "degraded": false
+}

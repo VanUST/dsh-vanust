@@ -659,9 +659,14 @@ export function apply(ctx, config = {}) {
       timebox: { type: 'string', description: 'Optional timebox or stopping condition.' },
       parentTaskId: { type: 'string', description: 'Optional parent task id.' },
       taskId: { type: 'string', description: 'Attach this delegation to an existing task instead of creating a second one. The task must not be done, cancelled or paused, and its role must match.' },
+      legacyAttach: { type: 'boolean', description: 'Explicitly continue a task that predates the analysis contour without an Analysis Record. Only valid with taskId and with no changeClass/analysisId/requirementIds/architectureImpact. A fresh task attach without this flag is refused analysis_required.' },
       forceRole: { type: 'boolean', description: 'Allow a role name that resembles an existing one. Use only for a genuinely different specialty; naming the work with the existing role is almost always right.' },
       cwd: { type: 'string', description: 'Optional working directory; inherits the parent cwd.' },
       priority: { type: 'string', enum: ['low', 'normal', 'high'], description: 'Task priority.' },
+      changeClass: { type: 'string', enum: ['L0', 'L1', 'L2'], description: 'Proportional analysis gate. L0 = a question or a local fix with no contract/architecture change and no Analysis Record; L1 = a contained feature inside the existing components; L2 = a cross-component, contract or data change. L1/L2 need analysisId + requirementIds and a ready record; L0 passes without one. When the analysis service is not mounted this is ignored (legacy behaviour).' },
+      analysisId: { type: 'string', description: 'The Analysis Record initiative id in docs/analysis/<initiative>.json. Required for L1/L2; the gate refuses analysis_required when it is missing or not ready, and analysis_stale when an affected requirement or the design map moved.' },
+      requirementIds: { type: 'array', items: { type: 'string' }, description: 'The requirement ids this delegation implements, from the Analysis Record. The task is traced onto each one before the child starts.' },
+      architectureImpact: { type: 'boolean', description: 'True when this delegation changes architecture, data or a contract. The gate then also refuses analysis_stale when the design map moved past designRef.mapRev.' },
       provider: { type: 'string', description: 'Optional child route provider, paired with model. Omit for the configured default. Only a route enabled in Subagent model selection is accepted, and only when the default route is throttled or cannot do the job.' },
       model: { type: 'string', description: 'Optional child route model, paired with provider. Omit for the configured default. Highspeed variants are refused by the model guard.' },
     },
@@ -759,11 +764,57 @@ export function apply(ctx, config = {}) {
         }
       }
 
+      // A legacy attach is an EXPLICIT declaration for a task that predates the analysis
+      // contour. It is never inferred from omitted arguments or from a timestamp; the root
+      // must say legacyAttach: true on the attach call.
+      const attachId = typeof args.taskId === 'string' ? args.taskId.trim() : ''
+      const explicitAttach = args.changeClass !== undefined
+        || args.analysisId !== undefined
+        || args.requirementIds !== undefined
+        || args.architectureImpact === true
+      const legacyAttach = attachId !== '' && args.legacyAttach === true && !explicitAttach
+
+      // ANALYSIS BEFORE DECOMPOSITION, AND ONLY WHEN THE SERVICE IS MOUNTED.
+      // The analysis row is deliberately NOT in `inject`: a composition without it must keep
+      // the legacy delegation behaviour, so the gate is looked up here and skipped when absent.
+      // A refusal happens BEFORE any taskboard write: "no task row and no child" is the only
+      // answer that cannot leave work in flight. L0 is answered by the gate without reading a
+      // record, which is what keeps a local fix proportional.
+      let analysisGate
+      let analysisService
+      try {
+        analysisService = ctx.get('analysis')
+      } catch {
+        analysisService = undefined
+      }
+      if (analysisService !== undefined && typeof analysisService.gate === 'function') {
+        const gated = analysisService.gate(taskCwd, {
+          initiative: typeof args.analysisId === 'string' ? args.analysisId.trim() : '',
+          requirementIds: Array.isArray(args.requirementIds) ? args.requirementIds : [],
+          architectureImpact: args.architectureImpact === true,
+          changeClass: typeof args.changeClass === 'string' ? args.changeClass : undefined,
+          role,
+          preset,
+          legacyAttach,
+        })
+        if (gated?.ok !== true) {
+          return {
+            ok: false,
+            code: typeof gated?.code === 'string' && gated.code !== '' ? gated.code : 'analysis_required',
+            message: typeof gated?.message === 'string' && gated.message !== ''
+              ? gated.message
+              : 'delegate_task: the analysis gate refused this delegation; no task was created and no child was started.',
+            ...(Array.isArray(gated?.findings) && gated.findings.length > 0 ? { findings: gated.findings } : {}),
+            ...(gated?.rev === undefined ? {} : { analysisRev: gated.rev }),
+          }
+        }
+        analysisGate = gated
+      }
+
       // One piece of work is one row. The root usually creates the task first and then
       // delegates it; attaching keeps that pair from becoming two near-duplicate tasks.
       // Tasks belong to a chat now, so a task id from somebody else's board is refused
       // here, before a child is started against work this chat cannot see.
-      const attachId = typeof args.taskId === 'string' ? args.taskId.trim() : ''
       let task
       if (attachId !== '') {
         const existing = taskboard.get(taskCwd, attachId)
@@ -851,6 +902,42 @@ export function apply(ctx, config = {}) {
           patch: { status: 'blocked', reason: `subagent provider "${provider}" cannot select the "${preset}" preset`, result: { risks: [`subagent provider "${provider}" cannot select the "${preset}" preset`] } },
         })
         throw new Error(`delegate_task: subagent provider "${provider}" cannot select a preset, so the child would inherit the orchestrator tool set; use a provider that supports agentPreset`)
+      }
+
+      // THE TASK IS TRACED BEFORE THE CHILD EXISTS. The Analysis Record is the only trace
+      // store (the taskboard stays a lifecycle ledger), so the delegating path writes the
+      // task id onto each named requirement. A refused trace blocks the task and returns;
+      // a child must never work for a requirement the record does not know about.
+      let analysisLink
+      if (analysisGate?.analysisRequired === true) {
+        const requirementIds = (analysisGate.requirements ?? []).map((requirement) => requirement.id)
+        const linked = analysisService.linkTask(taskCwd, {
+          initiative: analysisGate.initiative,
+          requirementIds,
+          taskId: task.id,
+          role,
+          expectedRev: analysisGate.rev,
+        })
+        if (linked?.ok !== true) {
+          const code = typeof linked?.code === 'string' && linked.code !== '' ? linked.code : 'analysis_conflict'
+          try {
+            const current = taskboard.get(taskCwd, task.id)
+            taskboard.update(taskCwd, {
+              id: task.id,
+              expectedRevision: current?.revision ?? task.revision,
+              chatId,
+              patch: { status: 'blocked', reason: `analysis trace refused: ${code}`, result: { risks: [`analysis trace refused: ${code}`] } },
+            })
+          } catch {
+            // The task update is best-effort; the refusal below is the answer.
+          }
+          return {
+            ok: false,
+            code,
+            message: `delegate_task: the Analysis Record "${analysisGate.initiative}" refused the task trace (${code}); no child was started. Update the trace with analysis_upsert and try again.`,
+          }
+        }
+        analysisLink = linked
       }
 
       const brief = renderBrief(task, args, maxBriefChars)
@@ -977,6 +1064,14 @@ export function apply(ctx, config = {}) {
           reused,
           title: task.title,
           status: 'active',
+          ...(analysisGate?.analysisRequired === true
+            ? {
+                analysisId: analysisGate.initiative,
+                requirementIds: (analysisGate.requirements ?? []).map((requirement) => requirement.id),
+                analysisClass: analysisGate.class,
+                ...(analysisLink?.rev === undefined ? {} : { analysisRev: analysisLink.rev }),
+              }
+            : {}),
           ...(reuseNote === undefined ? {} : { roleRecreated: true, roleNote: reuseNote, carriedResults: knownAgent !== undefined }),
         }
       } catch (error) {

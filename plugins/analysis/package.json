@@ -1,0 +1,21 @@
+{
+  "name": "@cc/dsh-analysis",
+  "version": "0.1.4",
+  "description": "Analysis before decomposition: one repo-tracked Analysis Record per initiative with compare-and-set writes, an atomic store, a semantic fingerprint, a completeness checker, impact analysis and proportional L0/L1/L2 delegation gates. Root-only tools; the trace lives only in the record.",
+  "type": "module",
+  "main": "analysis.mjs",
+  "exports": {
+    ".": "./analysis.mjs",
+    "./store": "./store.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "analysis.mjs",
+    "store.mjs",
+    "README.md"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
+  }
+}

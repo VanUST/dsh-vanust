@@ -103,6 +103,25 @@
     - id: test-cases
       name: '@cc/dsh-test-cases'
 
+# ── analysis: analysis before decomposition ────────────────────────────────
+# One repo-tracked Analysis Record per initiative in docs/analysis/, with CAS on
+# `expectedRev`, an atomic temp-file + rename and a semantic fingerprint. Four
+# root-only tools (analysis_read / analysis_upsert / analysis_check /
+# analysis_impact) keep the business outcome separate from the requested solution
+# and trace each requirement through process -> component -> task -> evidence.
+# `delegate_task` reads the service through ctx.get('analysis') (it is NOT in the
+# orchestrator's inject, so an absent row keeps legacy delegation): L0 passes
+# without a document, L1/L2 are refused analysis_required without a ready record
+# and analysis_stale after an affected requirement or design-map change. The
+# trace lives ONLY here; the taskboard keeps its schema and designMapRev is a
+# reference into design.excalidraw.
+- insert:
+    - id: analysis
+      name: '@cc/dsh-analysis'
+      config:
+        dir: docs/analysis
+        designMapFile: design.excalidraw
+
 # ── project-rules: one cached prompt section the human edits ─────────────────
 # `.dsh/rules.md` becomes the `project:rules` section on every agent and subagent.
 # The text is frozen per turn and the previous string is kept when the bytes do not

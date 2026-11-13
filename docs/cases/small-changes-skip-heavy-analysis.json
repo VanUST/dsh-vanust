@@ -1,0 +1,188 @@
+{
+  "schemaVersion": 1,
+  "id": "small-changes-skip-heavy-analysis",
+  "title": "Small changes skip heavy analysis",
+  "requirement": "Глобальный архитектурный контекст должен учитываться пропорционально: вопрос или локальное L0 исправление не требует полного Analysis Record, тогда как L1/L2 изменения обязаны пройти analysis gate.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "human",
+  "automated": true,
+  "reason": "",
+  "steps": [
+    "Run `node scripts/analysis-before-decomposition-proof.mjs` against the pre-round-4 scratch: exit 1 (89/93; fresh attach, deferred status, trace mapping and draft trace removal fail).",
+    "Delegate L0 with no record: child starts. Delegate a read-only preset: exempt. Attach with explicit legacyAttach:true: exempt. Attach a fresh task without the flag, or use a write preset behind a read-only role label: analysis_required.",
+    "Delegate L1 without analysisId: analysis_required, no task row and no child. Deferred requirement: analysis_required.",
+    "Raise the design map: L1 architectureImpact:false starts, L2 architectureImpact:true is analysis_stale.",
+    "Trace a task, prove the requirement with evidence, then task_close succeeds in a real second-server chat; before proof it is guard_denied; corrupt the record and it fails closed."
+  ],
+  "expected": "93/93 checks pass and exit 0. L0 starts a child with no record; a read-only preset and explicit legacyAttach:true are exempt; a write preset behind a role label, a fresh attach without the flag and L1/L2 without a ready record are refused; deferred/rejected requirements are refused; a non-architecture L1 survives a moved map while architectureImpact:true is analysis_stale; a non-last traced task closes while the last is refused until proven; malformed records fail closed; a real second server closed a proven task successfully.",
+  "tags": [
+    "owner-requirement",
+    "orchestrator",
+    "analysis",
+    "proportionality"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/analysis/analysis.mjs",
+      "sha256": "e5524516b191e4f95991d1848f6f2f15730157c9f0e4a876cd300846a8bc665b"
+    },
+    {
+      "path": "plugins/analysis/store.mjs",
+      "sha256": "36575e7cad7fff78f534926a27f4e4dd433f3046bb384a4ac727950a1b46351d"
+    },
+    {
+      "path": "plugins/orchestrator/orchestrator.mjs",
+      "sha256": "b3ccf48bcdf0b9e8df029cf595c19458b71c5b2fd8b4eba5a9a1257579948939"
+    }
+  ],
+  "linkedTaskId": "task-mwf3lroq-ii7skg",
+  "revision": 10,
+  "createdAt": "2026-11-13T14:55:20.632Z",
+  "updatedAt": "2026-11-13T16:29:02.144Z",
+  "createdBy": "orchestrator",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-13T14:55:20.632Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "Small changes skip heavy analysis",
+        "requirement": "Глобальный архитектурный контекст должен учитываться пропорционально: вопрос или локальное L0 исправление не требует полного Analysis Record, тогда как L1/L2 изменения обязаны пройти analysis gate.",
+        "expected": "L0 не блокируется и не порождает тяжёлый документ; L1/L2 получают явный analysis_required до старта реализации.",
+        "steps": [
+          "Выполнить L0 локальное изменение без Analysis Record",
+          "Попытаться выполнить L1 и L2 без Analysis Record",
+          "Проверить, что класс и причина отказа видны вызывающей стороне"
+        ],
+        "automated": false,
+        "reason": "The L0/L1/L2 classification and gate surface are not implemented yet; this intake case will be replaced with the observed gate proof.",
+        "status": "unverified"
+      }
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-13T15:14:19.300Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "Same red-first run as the traceability case (6/44 on the pre-implementation tree, exit 1). The L0 check passes in the red run too, which is the point: L0 was never supposed to be gated; L1/L2 were."
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-13T15:14:19.300Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "Small changes skip heavy analysis",
+        "requirement": "Глобальный архитектурный контекст должен учитываться пропорционально: вопрос или локальное L0 исправление не требует полного Analysis Record, тогда как L1/L2 изменения обязаны пройти analysis gate.",
+        "expected": "The same proof exits 0 with 45/45 checks. An L0 delegation starts a child with no Analysis Record and creates no document; an L1 delegation without a ready record is refused analysis_required with no task row and no child; an L2 delegation with architectureImpact against a design map newer than designRef.mapRev is refused analysis_stale.",
+        "steps": [
+          "Run `node scripts/analysis-before-decomposition-proof.mjs` against the tree without the analysis plugin/gate: it exits 1 (red).",
+          "Delegate an L0 local fix with no Analysis Record and no analysisId: the child starts and no docs/analysis file is created.",
+          "Delegate an L1 task with no analysisId: refused analysis_required; the taskboard row count and the startActivation count are unchanged.",
+          "Write a ready Analysis Record, then raise the design map revision above designRef.mapRev and delegate an L2 task with architectureImpact: refused analysis_stale."
+        ],
+        "automated": true,
+        "testPath": "scripts/analysis-before-decomposition-proof.mjs",
+        "runCommand": "node scripts/analysis-before-decomposition-proof.mjs",
+        "reason": "",
+        "status": "verified"
+      }
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-13T15:45:30.787Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "Same red/green proof as the traceability case. The L0 and read-only/legacy exemptions pass on both runs, which is the point: only L1/L2 work was ever supposed to be gated. The pre-fix run failed the read-only/legacy/task_close checks because the scope exemptions did not exist."
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-13T15:49:29.623Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "Same proof and red/green run as the traceability case. The L0/read-only/legacy exemptions pass in both runs; only L1/L2 work is gated. Repacked as @cc/dsh-analysis 0.1.2."
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-13T15:49:29.623Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "Small changes skip heavy analysis",
+        "requirement": "Глобальный архитектурный контекст должен учитываться пропорционально: вопрос или локальное L0 исправление не требует полного Analysis Record, тогда как L1/L2 изменения обязаны пройти analysis gate.",
+        "expected": "70/70 checks pass and exit 0. An L0 delegation starts a child with no Analysis Record; a read-only RESEARCH/REVIEWER/CRITIC delegation and a legacy taskId attach are exempt; an L1 delegation without a ready record is refused analysis_required with no task row and no child; a deferred requirement is refused analysis_required; an L2 architectureImpact delegation against a moved design map is refused analysis_stale while an ordinary L1 survives; a traced task cannot be closed before its requirement is proven.",
+        "steps": [
+          "Run `node scripts/analysis-before-decomposition-proof.mjs` against the tree without the fixes: it exits 1 (52/67).",
+          "Delegate an L0 local fix with no Analysis Record and no analysisId: the child starts and no record is created. Delegate RESEARCH/REVIEWER/CRITIC with no changeClass: exempt. Attach a pre-existing taskId with no changeClass: exempt.",
+          "Delegate an L1 task with no analysisId: refused analysis_required; the taskboard row count and startActivation count are unchanged.",
+          "Write a ready Analysis Record, then raise the design map revision: an L1 architectureImpact:false delegation still starts, an L2 architectureImpact:true delegation is refused analysis_stale.",
+          "Try task_close on the traced task while its requirement is planned: guard_denied; prove the requirement with task evidence and close succeeds."
+        ],
+        "automated": true,
+        "testPath": "scripts/analysis-before-decomposition-proof.mjs",
+        "runCommand": "node scripts/analysis-before-decomposition-proof.mjs",
+        "reason": "",
+        "status": "verified"
+      }
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-13T16:17:17.065Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "Same round-3 red/green proof as the traceability case. L0/read-only-preset/pre-existing attach pass; forged role, fresh attach, unready L1/L2 and malformed records fail closed. Real second-server task_close guard denial is recorded in the traceability case."
+    },
+    {
+      "revision": 8,
+      "at": "2026-11-13T16:17:17.065Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "Small changes skip heavy analysis",
+        "requirement": "Глобальный архитектурный контекст должен учитываться пропорционально: вопрос или локальное L0 исправление не требует полного Analysis Record, тогда как L1/L2 изменения обязаны пройти analysis gate.",
+        "expected": "87/87 checks pass and exit 0. An L0 delegation starts a child with no Analysis Record; a read-only preset and a pre-existing taskId attach are exempt; a write preset behind a read-only role label and a fresh task attach are gated; L1/L2 without a ready record return analysis_required; a deferred requirement is refused; a non-architecture L1 survives a moved design map while architectureImpact:true returns analysis_stale; the last outstanding traced task is refused until its requirement is proven, and malformed records fail closed.",
+        "steps": [
+          "Run `node scripts/analysis-before-decomposition-proof.mjs` against the pre-fix tree: exit 1 (74/85 at the time; the proof grew to 87 after the batch checks).",
+          "Delegate an L0 local fix with no Analysis Record: child starts. Delegate a read-only preset with no changeClass: exempt. Attach a task created before the contour: exempt. Attach a fresh task with no class, or use a write preset behind a read-only role label: analysis_required.",
+          "Delegate an L1 task with no analysisId: analysis_required, no task row and no child. A deferred requirement is also analysis_required.",
+          "Raise the design map revision: an L1 architectureImpact:false delegation starts, an L2 architectureImpact:true delegation is analysis_stale.",
+          "Trace a task to a planned requirement and call task_close: guard_denied for the last outstanding task; a non-last task closes. Corrupt the record and retry: the guard fails closed."
+        ],
+        "automated": true,
+        "testPath": "scripts/analysis-before-decomposition-proof.mjs",
+        "runCommand": "node scripts/analysis-before-decomposition-proof.mjs",
+        "reason": "",
+        "status": "verified"
+      }
+    },
+    {
+      "revision": 9,
+      "at": "2026-11-13T16:29:02.144Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "Same round-4 red/green proof. L0/read-only-preset/explicit legacyAttach pass; forged role, fresh attach, unready L1/L2 and malformed records fail closed. The real second-server positive path closed a proven task successfully (session-0012afa2...); denial paths are recorded in the traceability case."
+    }
+  ],
+  "evidence": {
+    "redFirst": {
+      "command": "node scripts/analysis-before-decomposition-proof.mjs",
+      "output": "FAIL  a fresh task attach with no class is refused analysis_required\nFAIL  deferring a requirement on a ready record records an impact  {status: ready, pending: 0}\nFAIL  a trace mapping change on a ready record records an impact  {status: ready, pending: 0}\nFAIL  removing a traced task from a draft record is also refused\n89/93 checks passed",
+      "exitCode": 1,
+      "at": "2026-11-13T16:29:02.143Z"
+    },
+    "green": {
+      "command": "node scripts/analysis-before-decomposition-proof.mjs",
+      "output": "PASS  a fresh task attach with no class is refused analysis_required\nPASS  a pre-existing task attach is exempt\nPASS  legacyAttach:true is an explicit escape hatch\nPASS  deferring a requirement on a ready record records an impact\nPASS  a trace mapping change on a ready record records an impact\nPASS  removing a traced task from a draft record is also refused\nPASS  an L0 delegation without any record is not blocked\nPASS  a read-only preset is exempt regardless of the role label\nPASS  task_close fails closed when the traced record is malformed\n93/93 checks passed",
+      "exitCode": 0,
+      "at": "2026-11-13T16:29:02.143Z"
+    },
+    "commit": null
+  },
+  "testPath": "scripts/analysis-before-decomposition-proof.mjs",
+  "runCommand": "node scripts/analysis-before-decomposition-proof.mjs",
+  "lastVerified": {
+    "at": "2026-11-13T16:29:02.143Z",
+    "command": "node scripts/analysis-before-decomposition-proof.mjs",
+    "exitCode": 0
+  },
+  "degraded": false
+}

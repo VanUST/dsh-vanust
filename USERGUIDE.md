@@ -1,7 +1,7 @@
 # USERGUIDE.md — setting up and starting the harness on a new machine
 
 This kit installs **DeepSeek Harness (dsh)** on any of your machines (2× Linux,
-1× Windows) plus the **22** plugins this deployment adds beyond upstream:
+1× Windows) plus the **23** plugins this deployment adds beyond upstream:
 **`@cc/dsh-notify`** (raises a desktop notification — `notify-send`, a PowerShell toast or
 `osascript` — when an agent finishes a turn and when it asks you a question; silence it with
 `DSH_NOTIFY_DISABLED=1` in the server's environment),
@@ -29,6 +29,10 @@ header instead of staying in it unused), **`@cc/dsh-proof-guard`** (denies a tes
 without a `PROOF:` header),
 **`@cc/dsh-taskboard`** (the task ledger and the Tasks panel that replaces the subagent
 catalog; `@cc/dsh-client-ui-subagent` is disabled so the header has one cell),
+**`@cc/dsh-analysis`** (analysis before decomposition: one repo-tracked Analysis Record per
+initiative with a completeness checker and impact analysis; `delegate_task` refuses L1/L2
+without a ready record and `analysis_stale` after an affected change, while an L0 local fix
+needs no document — the record is the only trace store),
 **`@cc/dsh-orchestrator`** (root and child policy sections plus the root-only
 `delegate_task` tool: it lists the workspace's roles in the root policy, refuses a
 near-duplicate new role unless `forceRole` is passed, attaches to an existing task when

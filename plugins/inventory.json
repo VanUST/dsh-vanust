@@ -174,6 +174,15 @@
       "mounted": true
     },
     {
+      "id": "analysis",
+      "package": "@cc/dsh-analysis",
+      "tarballPrefix": "cc-dsh-analysis",
+      "provenance": "in-repo",
+      "source": "plugins/analysis",
+      "pack": "scripts/pack-plugin.mjs",
+      "mounted": true
+    },
+    {
       "id": "session-budget",
       "package": "@cc/dsh-session-budget",
       "tarballPrefix": "cc-dsh-session-budget",
