@@ -271,6 +271,11 @@ live session and is left alone.
   (`rows`, `cap`). The Host never evicts, deletes or rewrites a row to make space — a full
   board is answered by closing or cancelling what is finished, or by raising the cap in the
   profile.
+  **`maxTasks: 0` means UNLIMITED** and skips the work-in-flight check entirely: the row
+  guard is then the only limit, so a ledger with 400 actionable rows still accepts a new
+  task. It has to be spelled `0`; a negative, a string or a missing key keeps the 200
+  default, because a typo must not silently remove a cap. The kit's own profile mounts
+  `maxTasks: 0` for this workspace and keeps `maxRows: 1000` as the file guard.
 - The ledger has no cross-process file lock. Run one DSH host per workspace;
   a second host writing the same checkout can lose an update (the UI shows the
   `session/writer-held` failure instead of pretending it saved).

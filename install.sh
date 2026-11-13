@@ -19,7 +19,7 @@
 set -euo pipefail
 
 KIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DSH_VERSION="0.2.1-rc.2"        # pinned harness version
+DSH_VERSION="0.2.2-rc.3"        # pinned harness version
 PNPM_VERSION="11.7.0"           # matches the harness workspace toolchain
 DSH_HOME="${DSH_HOME:-$HOME/.npm/dsh}"
 

@@ -52,9 +52,12 @@
  *     listed. forceRole: true is the escape hatch for a genuinely new domain.
  *   - A specialist session belongs to the chat that created it: the subagent runtime
  *     only delivers to a direct child, so a later chat's message cannot reach it. The
- *     role is then re-created, the ledger keeps the superseded session ids in
- *     history[] with a generation counter, and the result says roleRecreated with the
- *     runtime's reason instead of reporting a reuse that did not happen.
+ *     role is resolved from THIS chat's roster row only (findAgent/registerAgent are
+ *     chat-scoped), so a foreign sleeping child is never a reuse candidate and never
+ *     messaged: the new chat starts its own child, its own row records the chat, the
+ *     earlier row keeps its session and history, and the policy catalog lists it as
+ *     history. When a session inside the SAME chat is busy or was built on another
+ *     composition, the role is re-created with the reason in the result.
  *   - A re-created specialist's brief carries the role's most recent results from the
  *     taskboard, and says the code must be re-read: a summary is a claim about the
  *     past, not a reading of the present.
@@ -163,56 +166,102 @@ export function roleMatches(left, right) {
  * context, so the model invents AUDIT where BACKEND already exists; refusing later is a
  * correction, listing first is a choice. The section is a provider, so the list is read
  * at assembly time and a role created a minute ago appears on the next turn.
+ *
+ * WHY THE CHAT SPLITS THE LIST. A specialist session is a direct child of the chat that
+ * started it, so a row from another chat is a NAME the new chat may reuse, not a session it
+ * can continue - offering it as reusable is what made a new chat aim a brief at an
+ * unreachable child. The name stays visible (inventing BACKEND-SAM beside BACKEND is the
+ * failure the catalog exists to prevent), but it sits under "earlier chats" with the rule
+ * stated, and the tasks it did stay readable as history.
+ *
+ * @param agents - Role rows from the taskboard (already annotated).
+ * @param options - `{ chatId, limit }`; a number is accepted as the old `limit` argument.
+ * @returns The catalog markdown for one chat's policy section.
  */
-export function renderRoleCatalog(agents, limit = 24) {
+export function renderRoleCatalog(agents, options = {}) {
+  const opts = typeof options === 'number' ? { limit: options } : (options ?? {})
+  const chatId = typeof opts.chatId === 'string' ? opts.chatId : ''
+  const limit = Number.isSafeInteger(opts.limit) && opts.limit > 0 ? opts.limit : 24
   const rows = Array.isArray(agents) ? agents.filter((agent) => agent !== null && typeof agent === 'object' && typeof agent.role === 'string') : []
   if (rows.length === 0) return '## Roles already in this workspace\n\nNone yet. The first delegation creates one.'
   // A ROLE IS A (NAME, PRESET) PAIR. The old catalog printed one line per row, so a name with
   // two presets looked like two roles (AUDIT [reviewer] and AUDIT [critic]) and a name written
   // twice looked like two specialists. One line per pair, and a name whose pairs disagree is
   // called out as ambiguous instead of being offered for reuse.
-  const seen = new Set()
-  const reusable = []
+  const ownerOf = (agent) => (typeof agent.chatSessionId === 'string' ? agent.chatSessionId : '')
+  const scoped = (agent) => chatId !== '' && ownerOf(agent) === chatId
+  // ONE SEEN-SET PER SECTION. The same (name, preset) is ONE line in this chat and ANOTHER
+  // line under earlier chats - the two rows are two specialists, and deduping across the
+  // heading boundary would hide this chat's own row behind somebody else's.
+  const seenMine = new Set()
+  const seenElsewhere = new Set()
+  const mine = []
+  const elsewhere = []
   const legacy = []
   const presets = new Map()
   for (const agent of rows) {
     const preset = typeof agent.preset === 'string' ? agent.preset.trim() : ''
     const key = `${normalizeRole(agent.role)}|${preset}`
+    const foreign = chatId !== '' && !scoped(agent)
+    const seen = foreign ? seenElsewhere : seenMine
     if (seen.has(key)) continue
     seen.add(key)
+    // A row with NO recorded owner predates chat scoping: it is history here, but calling it
+    // "another chat" would be a claim the ledger cannot support.
+    const line = agentLine(agent, preset, foreign && ownerOf(agent) !== '' ? { foreign: true } : {})
+    if (preset === '') { legacy.push(line); continue }
+    if (foreign) { elsewhere.push(line); continue }
     const label = normalizeRole(agent.role)
     presets.set(label, new Set([...(presets.get(label) ?? []), preset]))
-    const line = agentLine(agent, preset)
-    if (preset === '') legacy.push(line)
-    else reusable.push(line)
+    mine.push(line)
   }
   const ambiguous = [...presets].filter(([, set]) => set.size > 1).map(([label]) => {
-    const names = rows.filter((agent) => normalizeRole(agent.role) === label)
+    const names = rows.filter((agent) => normalizeRole(agent.role) === label && (chatId === '' || scoped(agent)))
     return names[0].role
   })
-  const sections = [['## Roles already in this workspace', '', 'Reuse one of these exact names. A new role is for a NEW domain, not for the same work in a new chat.', '', ...reusable.slice(0, limit)]]
+  const heading = chatId === '' ? '## Roles already in this workspace' : '## Roles in this chat'
+  const intro = chatId === ''
+    ? 'Reuse one of these exact names. A new role is for a NEW domain, not for the same work in a new chat.'
+    : 'Their specialist sessions belong to THIS chat, so a delegation here continues them. Reuse one of these exact names. A new role is for a NEW domain, not for the same work in a new chat.'
+  const sections = [[heading, '', intro, '', ...(mine.length > 0 ? mine.slice(0, limit) : ['None yet in this chat. The first delegation here creates one.'])]]
   if (ambiguous.length > 0) {
     sections[0].push(
       '',
       `A name with two presets is ambiguous - ${ambiguous.map((name) => `"${name}"`).join(', ')}. Split it: REVIEWER judges a change, CRITIC attacks a running behaviour; pass \`preset\` only for a genuinely new specialty.`,
     )
   }
+  if (elsewhere.length > 0) {
+    // A NAME, NOT A SESSION. These rows are the workspace's history: their children are
+    // direct children of OTHER chats and cannot be messaged from here. Delegating one of
+    // these names starts a fresh child with that name and preset; the old tasks stay as
+    // history for the human and for carry-forward.
+    sections.push([
+      '## Roles from earlier chats (history - their session is not reusable)',
+      '',
+      'These specialists belong to other chats. The subagent runtime only delivers to a direct child, so the session behind a row here cannot be continued from this chat: delegating one of these exact names starts a FRESH child with that name and preset, and their tasks remain readable as history.',
+      '',
+      ...elsewhere.slice(0, limit),
+    ])
+  }
   if (legacy.length > 0) {
     // HISTORY, NOT A TARGET. A row without a preset predates the roster: its child ran on a
     // composition the ledger cannot name, so reusing the session would run a new brief on an
     // unknown tool set. The tasks stay under the old name; the NAME is not offered again.
-    sections.push(['## Legacy roles (history only - do not reuse)', '', 'These roles predate role presets, so their child\'s tool set is unknown. Keep their tasks as history and name new work with one of the roles above; delegate_task refuses these names without forceRole.', '', ...legacy.slice(0, limit)])
+    sections.push(['## Legacy roles (history only - do not reuse)', '', 'These roles predate role presets, so their child\'s tool set is unknown. Keep their tasks as history and name new work with one of the roles above; a legacy row in THIS chat is refused without forceRole.', '', ...legacy.slice(0, limit)])
   }
   return sections.map((lines) => lines.join('\n')).join('\n\n')
 }
 
 /** One catalog line: the name, its preset, what it did and whether it can be reused. */
-function agentLine(agent, preset) {
+function agentLine(agent, preset, options = {}) {
   const count = Number.isSafeInteger(agent.taskCount) ? agent.taskCount : 0
   const generation = Number.isSafeInteger(agent.generation) && agent.generation > 1 ? `, generation ${agent.generation}` : ''
   const status = typeof agent.status === 'string' ? agent.status : 'unknown'
+  // `another chat` is the honest scope marker: the session behind that row is not reachable
+  // from the chat reading the catalog, however sleepable it looks.
+  const scope = options?.foreign === true ? ', another chat' : ''
   const flag = agent.conflict === true ? ', NAME COLLIDES - one of two rows' : agent.legacy === true ? ', no preset - not reusable' : ''
-  return `- ${agent.role}${preset === '' ? '' : ` [${preset}]`} - ${count} task${count === 1 ? '' : 's'}, ${status}${generation}${flag}`
+  return `- ${agent.role}${preset === '' ? '' : ` [${preset}]`} - ${count} task${count === 1 ? '' : 's'}, ${status}${generation}${scope}${flag}`
 }
 
 /**
@@ -356,7 +405,7 @@ A question never needs this ceremony. A change never skips the task.
 ## Delegation rules
 
 - Reuse a role from the catalog appended below this policy. \`delegate_task\` refuses a near-duplicate new role unless the work really is a new domain; \`forceRole: true\` overrides that refusal.
-- **The seven roles are the tool sets**: UX/UI, BACKEND, RESEARCH, REVIEWER, CRITIC, DOCS. The orchestrator is the eighth and is you. The role picks the child's preset, so the child literally has that role's tools - a BACKEND child cannot run \`papers_*\`, and you cannot run \`bash\` or edit a file at all. Choose the role by the work, not by seniority; a role outside the seven needs an explicit \`preset\` argument. Use REVIEWER to judge a change and CRITIC to attack a running behaviour: the critic breaks the algorithm or service on a disposable copy and reports the smallest reproducible failure, it never fixes and never touches production data - reach for it when "it works" is a claim rather than a measurement.
+- **The seven roles are the tool sets**: UX/UI, BACKEND, RESEARCH, REVIEWER, CRITIC, DOCS. The orchestrator is the eighth and is you. The role picks the child's preset, so the child literally has that role's tools - a BACKEND child cannot run \`papers_*\`, and you have no \`bash\` at all. You CAN read, create and edit files yourself: a small, self-evident change is yours to make, and delegating it only to satisfy a ritual wastes a child session. What you cannot do is run anything, so a change whose acceptance is a command's output - a build, a test, a lint, a migration, a scan - is delegated, or you make the edit and hand the proof to the role that owns the binary. Choose the role by the work, not by seniority; a role outside the seven needs an explicit \`preset\` argument. Use REVIEWER to judge a change and CRITIC to attack a running behaviour: the critic breaks the algorithm or service on a disposable copy and reports the smallest reproducible failure, it never fixes and never touches production data - reach for it when "it works" is a claim rather than a measurement.
 - Pass \`taskId\` when one of your own tasks is the work: the brief then attaches to that task instead of creating a second row for the same thing.
 - A specialist session belongs to the chat that created it. A later chat gets a new one, and the brief then carries the role's earlier results forward - say so in the brief you write, and never assume the child remembers.
 - Children run on the configured child route (flash by default), and that is the right default: volume work belongs on the cheap route. You may name a \`provider\`/\`model\` on \`delegate_task\` ONLY when the environment demands it - the default route is throttled, unavailable, or the task needs a capability only the other route has - and only a route listed in Subagent model selection is accepted. Never name a highspeed variant: highspeed routes are refused outright by the model guard.
@@ -390,6 +439,26 @@ You are a delegated specialist. Do exactly the task brief you received.
  * @param extra - Optional blocks. `carryForward` is what the role already finished.
  * @returns The brief text.
  */
+/**
+ * Build the `subagents.startActivation` spec for BOTH harness contracts.
+ *
+ * dsh 0.2.1-rc.2 reads the request as `spec.request.*` (`dsh-subagent` startActivation:
+ * `spec.request.parent`, `spec.request.maxDepth`, `spec.request.outputSchema`); dsh 0.2.2 reads
+ * the same fields at the TOP level (`spec.parent.id`, `spec.maxDepth`, `spec.outputSchema`,
+ * because `SubagentActivationSpec extends SubagentStartRequest`). Sending only one shape is a
+ * hard break on the other version — on 0.2.2 the nested form throws
+ * `Cannot read properties of undefined (reading 'id')` before a child exists.
+ *
+ * The duplicate is bounded to this one call: both readers ignore what they do not use, and the
+ * legacy `request` block is one deletion when the pin moves.
+ *
+ * @param spec - `{ provider, label, signal, delivery, request }`.
+ * @returns the spec for `ctx.subagents.startActivation`.
+ */
+export function activationSpec({ provider, label, signal, delivery, request }) {
+  return { provider, label, ...request, request, signal, delivery }
+}
+
 export function renderBrief(task, input, limit = 20000, extra = {}) {
   const list = (label, values) => {
     const entries = Array.isArray(values) ? values.filter((value) => typeof value === 'string' && value.trim() !== '') : []
@@ -635,12 +704,24 @@ export function apply(ctx, config = {}) {
         taskboard = undefined
       }
       if (taskboard === undefined) throw new Error('delegate_task: the taskboard is reloading; start a new conversation or retry')
+      // A ROLE BELONGS TO A CHAT, NOT TO THE WORKSPACE.
+      // A specialist session is a direct child of the chat that started it: the subagent
+      // runtime refuses delivery from any other chat, and the ledger row records its owner in
+      // `chatSessionId`. So the role this call may continue is THIS chat's row only. Measured
+      // 2026-11-13: a new chat resolved the workspace-global row, treated another chat's
+      // sleeping child as a reuse candidate, called `sendMessage` on it, and reported the
+      // runtime's refusal as if the role had died - while the same global row also refused a
+      // different preset and a similar name that belonged to somebody else's history.
+      // Everything below (reuse, preset conflict, legacy refusal, similar-name check) reads
+      // this chat's rows; the workspace history stays readable for the human and for
+      // carry-forward, which is the one place it is wanted.
+      const chatId = parent.id
       // A fresh chat does not know the ledger, so the model invents AUDIT where BACKEND
       // already exists. Refusing before a task exists is a correction; the catalog in the
       // policy section is the choice it should have seen. forceRole is the escape hatch.
       const knownAgent = (() => {
         try {
-          return taskboard.findAgent(taskCwd, role)
+          return taskboard.findAgent(taskCwd, role, chatId)
         } catch {
           return undefined
         }
@@ -663,7 +744,11 @@ export function apply(ctx, config = {}) {
       if (knownAgent === undefined && args.forceRole !== true) {
         let agents = []
         try {
-          agents = taskboard.agents(taskCwd)
+          // This chat's names only: a role another chat already uses is not a reason to refuse
+          // the name here - its specialist is unreachable from this chat, so the name is
+          // reused for a NEW child, and only a name this chat itself uses is "written
+          // differently".
+          agents = taskboard.agents(taskCwd, chatId)
         } catch {
           agents = []
         }
@@ -679,7 +764,6 @@ export function apply(ctx, config = {}) {
       // Tasks belong to a chat now, so a task id from somebody else's board is refused
       // here, before a child is started against work this chat cannot see.
       const attachId = typeof args.taskId === 'string' ? args.taskId.trim() : ''
-      const chatId = parent.id
       let task
       if (attachId !== '') {
         const existing = taskboard.get(taskCwd, attachId)
@@ -829,9 +913,21 @@ export function apply(ctx, config = {}) {
             }
           }
           childBrief = carryForward === '' ? brief : renderBrief(task, args, maxBriefChars, { carryForward })
-          const activation = await ctx.subagents.startActivation({
+          // THE ACTIVATION SPEC CARRIES BOTH SHAPES, ON PURPOSE.
+          // dsh 0.2.1 reads the request as `spec.request.*` (`dsh-subagent` startActivation:
+          // `spec.request.parent`, `spec.request.maxDepth`, `…outputSchema`); dsh 0.2.2 reads
+          // the same fields at the TOP level of the spec (`spec.parent.id`, `spec.maxDepth`).
+          // Sending only one shape is a hard break on the other version: on 0.2.2 the nested
+          // form throws `Cannot read properties of undefined (reading 'id')` before a child
+          // exists, and on 0.2.1 the flat form asks `manager.startExternal(spec)` for a parent
+          // it cannot see. The duplicate is bounded to the creation call, both readers ignore
+          // the fields they do not use, and the day the pin moves the legacy block is one
+          // deletion.
+          const activation = await ctx.subagents.startActivation(activationSpec({
             provider,
             label: role.slice(0, 160),
+            signal: exec.signal,
+            delivery: 'parent',
             request: {
               prompt: [{ type: 'text', text: `${roleBrief}\n\n${childBrief}` }],
               parent,
@@ -839,9 +935,7 @@ export function apply(ctx, config = {}) {
               ...(childCwd === taskCwd ? {} : { cwd: childCwd }),
               ...(agentOptions === undefined ? {} : { agentOptions }),
             },
-            signal: exec.signal,
-            delivery: 'parent',
-          })
+          }))
           childId = activation.childId
           // The ledger is the last word on identity: it refuses a label whose preset is already
           // recorded, and a child started against a row it refused is the orphan this path
@@ -923,11 +1017,11 @@ export function apply(ctx, config = {}) {
     const rootText = freezePerTurn(() => {
       try {
         const cwd = workingDir(agent)
-        // The role catalog is a workspace fact (a name to reuse across chats); the debt
-        // block is this chat's backlog, because that is what the human is watching and
-        // what this orchestrator can act on.
+        // The role catalog is another chat's roster until this chat splits it: the names are
+        // the workspace's, but only this chat's rows are sessions the policy may promise to
+        // continue. renderRoleCatalog does that split from the chatId.
         const chatId = agent?.session?.header?.id ?? agent?.id ?? ''
-        const catalog = renderRoleCatalog(ctx.taskboard.agents(cwd))
+        const catalog = renderRoleCatalog(ctx.taskboard.agents(cwd), { chatId })
         const debt = renderBoardDebt(ctx.taskboard.list(cwd, { chatId }))
         return [ROOT_POLICY, catalog, debt].filter((part) => part !== '').join('\n\n')
       } catch {

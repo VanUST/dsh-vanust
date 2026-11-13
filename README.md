@@ -1,6 +1,6 @@
 # dsh-kit
 
-Portable setup for **DeepSeek Harness (dsh)** plus the 21 plugins this
+Portable setup for **DeepSeek Harness (dsh)** plus the 22 plugins this
 deployment needs beyond upstream, across all your machines (2× Linux, 1× Windows).
 `plugins/inventory.json` is the single source of truth for the set:
 
@@ -77,13 +77,22 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   Vitest/fast-check property tests, pixelmatch/Argos visual goldens, an axe/keyboard
   audit, Maestro mobile flows and a JSON-log/Playwright-trace failure bundle. They
   register through `ctx.skills.register`; no `$DSH_HOME/skills` copy.
-- **`@cc/dsh-flash-guard`** — one `agent/request` waterfall: a delegated child's model
-  route is rewritten to the configured flash route, or refused, before dispatch. This is
-  the enforcement behind the Subagent model-selection allowlist; external providers are
-  the stated residual.
+- **`@cc/dsh-flash-guard`** — one `agent/request` waterfall that REFUSES a delegated
+  child's disallowed model route before dispatch. It no longer rewrites: dsh freezes the
+  route before that hook and a mutation there throws inside the turn, so the guard keeps
+  the policy (allowed routes, `deniedModels`, effort cap) and loses only the substitution.
+  This is the enforcement behind the Subagent model-selection allowlist; external providers
+  are the stated residual.
 - **`@cc/dsh-proof-guard`** — a `tools/pre-execute` waterfall that denies a write or edit to
   a test file unless it carries a `PROOF:` header naming the production behavior and the
   failure it prevents. `mode: warn` exists for a trial; this is friction, not proof.
+- **`@cc/dsh-tool-families`** (shipped and **mounted** by this profile) — the preset→tool-family policy. MCP tools are registered at the
+  host before a preset is chosen, so a preset cannot unregister them; this row expands a
+  per-preset deny table against the tool names the agent can see and calls the registry's
+  agent-scoped `tools.restrict`, so a family leaves the request header instead of being merely
+  refused at call time. Measured on a BACKEND child: 76,959 B of 114,989 B of tool schema
+  (67%) is a family the role never uses. `mcp__godot__*` is project-gated — kept only for a
+  session whose cwd holds `project.godot` — and `hindsight_*` is in no row at all.
 - **`@cc/dsh-taskboard`** — the task ledger and the dashboard that replaces the subagent
   catalog. One `.dsh/taskboard.json` per workspace holds objective, scope, non-scope,
   acceptance, status, results and a timeline; model tools and a `/taskboard` command share
@@ -112,7 +121,9 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   `profile/cordis.patch.yml`: `orchestrator`, `ux`, `backend`, `research`, `reviewer`,
   `critic`, `docs`.
   A role is its persona and its tool list, not a request in the brief: the orchestrator has no
-  shell and no write/edit tool at all, research has no shell, the reviewer and the critic have
+  shell, but it DOES carry `write`/`edit` (a small self-evident change is its own to make; a
+  change whose proof is a command's output still goes to a role that can run one), research has
+  no shell, the reviewer and the critic have
   their `write`/`edit` tools disabled (both keep `bash`, and a shell can write - the rule is
   the tool surface, not a jail). New
   chats default to the orchestrator; `standard` stays in the picker as the hands-on escape
@@ -172,7 +183,7 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
 
 **Third-party add-on: Hindsight memory.** `@vectorize-io/hindsight-coding-agents@0.8.2`
 is installed separately by its own command (`npx @vectorize-io/hindsight-coding-agents install dsh`),
-not from this repository, and is therefore not one of the 21 in-repo plugins. It writes a
+not from this repository, and is therefore not one of the 22 in-repo plugins. It writes a
 row into `$DSH_HOME/cordis.patch.yml` (the home layer, shared by every profile) and a
 companion skill into `~/.agents/skills/hindsight-coding-agent`. Its settings live in
 `~/.hindsight/coding-agent.json`; this machine's file is enabled with `serverMode: daemon`
@@ -218,13 +229,13 @@ cd dsh-vanust               # the repository is dsh-vanust; the kit it contains 
 ```
 
 **What a clone alone gives you, stated exactly.** Everything the deployment
-installs is in the repository: the 21 plugin tarballs, the canonical profile, the
+installs is in the repository: the 22 plugin tarballs, the canonical profile, the
 procedure and the pinned version in both installers. Every plugin's source is here
 too — `plugins/notify/`, `plugins/presentation/`, `plugins/diagrams/`,
 `plugins/work-modes/`, `plugins/godot-mcp/`, `plugins/skills/`, `plugins/flash-guard/`,
 `plugins/proof-guard/`, `plugins/taskboard/` and `plugins/orchestrator/`. Two things come from
 outside it, and both are steps the installer performs rather than files a clone could
-carry: the harness itself (`npm i -g @deepseek-ai/dsh@0.2.1-rc.2`, so npm must be
+carry: the harness itself (`npm i -g @deepseek-ai/dsh@0.2.2-rc.3`, so npm must be
 reachable) and your API credentials (per machine, configured at first run — never in
 the repository). The kit's own checks read the checkout only, so they run on a fresh
 clone with nothing else installed.
@@ -244,7 +255,7 @@ dsh-kit/
 │                              #   session-analysis`: every session, in seconds per question)
 ├── scripts/kit-update.mjs     # update path: hash drift check + convergence for an existing machine
 ├── plugins/inventory.json     # the shipped plugin set (the source of truth)
-├── plugins/*.tgz              # plugin tarballs: 21 packages, including notify, presentation,
+├── plugins/*.tgz              # plugin tarballs: 22 packages, including notify, presentation,
 │                              #                  diagrams, work-modes, godot-mcp, skills, flash-guard,
 │                              #                  proof-guard, taskboard, orchestrator
 ├── plugins/notify/            # source of @cc/dsh-notify (desktop notifications; packed above)
@@ -332,6 +343,6 @@ candidate and rebuild the plugins against its checkout first:
 for each plugin, and only then touch the live profile. Details: **`rules/DEPLOYMENT.md`**
 §3–4 and **`USERGUIDE.md`** §7 (the short version).
 
-**Versions:** harness pin `0.2.1-rc.2` · Node ≥ 24 · pnpm 11.7 (corepack).
+**Versions:** harness pin `0.2.2-rc.3` · Node ≥ 24 · pnpm 11.7 (corepack).
 
 **License:** MIT (see `LICENSE`); third-party attributions in `NOTICE`.

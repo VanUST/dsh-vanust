@@ -652,13 +652,29 @@ export function createTools(config = {}) {
   return { case_record: record, case_update: update, case_verify: verify, case_list: list, case_get: get, case_supersede: supersede, case_deprecate: deprecate, case_remove: remove, case_drift: drift }
 }
 
-/** Short prompt section: the rule that makes the library worth trusting. */
-const SECTION = [
+/** The full prompt section: the rule that makes the library worth trusting. */
+const SECTION_FULL = [
   'TEST CASES (docs/cases/, host tool family):',
   '  Explore with your own tools first and OBSERVE the behaviour, then persist the case. Never record a speculative test.',
   '  automated:true needs a real test file + exact runCommand, and case_verify needs the observed red run (non-zero exit) before the green one. Otherwise record automated:false with steps, expected and the reason it cannot be a test.',
   '  The library is compare-and-set: read the case (case_get), pass expectedRevision on every edit, and supersede/deprecate instead of deleting. A changed surface file or a missing test makes a case stale; it never erases the requirement.',
   '  Removal is the only destructive verb: case_remove accepts ONLY deprecated/superseded cases, with the revision and an audit line; active/open cases are refused.',
+].join('\n')
+
+/**
+ * The INTAKE section, for a role that was granted only record/list/get/drift.
+ *
+ * WHY TWO SECTIONS. The orchestrator records what the human states and reads the library; it
+ * cannot verify (no case_verify), edit (no case_update) or close (no supersede/deprecate). The
+ * full section named verbs it does not have and described a red-first ritual it cannot run, so
+ * the prompt was teaching an agent to call tools that are not registered — the one instruction
+ * a model cannot follow and cannot report. The text below names exactly what is on its surface.
+ */
+const SECTION_INTAKE = [
+  'TEST CASES (docs/cases/, intake subset):',
+  '  Your surface is intake only: case_record, case_list, case_get, case_drift. Recording is NOT verifying — you have no case_verify, case_update, case_supersede or case_deprecate, so never claim a case passed.',
+  '  When the human states a requirement, record it with case_record: source human, automated:false with a named reason (or a real testPath + runCommand when one exists), and linkedTaskId of the task that implements it. Leave the status unverified.',
+  '  Read with case_get (compare-and-set needs its revision) and case_list, and check staleness with case_drift. Verification belongs to the specialist that owns the work, in its own session.',
 ].join('\n')
 
 /**
@@ -681,8 +697,17 @@ export function apply(ctx, config = {}) {
     for (const toolName of allowed) {
       if (tools[toolName] !== undefined) agent.ctx.tools.register(tools[toolName])
     }
-    if (showSection && typeof agent?.ctx?.systemPrompt?.section === 'function') {
-      agent.ctx.systemPrompt.section({ name: 'deployment:test-cases', order: 123, text: SECTION })
+    // The section follows the SURFACE: a role with no case tool gets no case instructions, and
+    // an intake-only role gets the intake text. Measured before this: every preset, including
+    // one granted nothing, was told how to call case_verify.
+    const granted = allowed.filter((name) => tools[name] !== undefined)
+    if (showSection && granted.length > 0 && typeof agent?.ctx?.systemPrompt?.section === 'function') {
+      const canVerify = granted.includes('case_verify')
+      agent.ctx.systemPrompt.section({
+        name: 'deployment:test-cases',
+        order: 123,
+        text: canVerify ? SECTION_FULL : SECTION_INTAKE,
+      })
     }
   })
 

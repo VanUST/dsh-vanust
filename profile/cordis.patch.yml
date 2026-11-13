@@ -209,7 +209,11 @@
       config:
         provider: deepseek-official
         model: deepseek-flash
-        onViolation: rewrite
+        # Refuse, never rewrite: dsh freezes a child's route before `agent/request`, so a
+        # plugin that returns a different provider/model/effort now throws inside the turn
+        # (`dsh-agent-loop`: 'use agent.model.select() before step preparation'). The guard
+        # keeps the policy and loses only the substitution.
+        onViolation: refuse
         enforceRoot: false
         maxReasoningEffort: high
         allowedRoutes:
@@ -234,6 +238,54 @@
       config:
         mode: deny
 
+# ── tool-families: each preset gets only the tool families its job needs ────
+# MCP tools are registered at the HOST by the bridge rows above, before a preset is chosen,
+# so a preset cannot unregister them; the tools registry does have the seam
+# (`tools.restrict`, agent-scoped, re-derives the visible schema set), and this row is it.
+# Measured on a real BACKEND child (2026-11-13): of 114,989 B of tool schema, `mcp__godot__*`
+# was 60,679 B (52.8%) and `mcp__playwright__*` 16,280 B (14.2%), every kit tool ~20%.
+#
+# Two kinds of denial, because they answer different questions:
+#   deny        - this role never gets the family (the orchestrator does not drive browsers).
+#   projectDeny - the family is a PROJECT bridge, so it is kept only where the project is:
+#                 `mcp__godot__*` appears for a session whose cwd holds `project.godot`.
+#                 Registering it per preset instead would spawn one MCP bridge per agent.
+# `hindsight_*` is in no row on purpose: a memory tool a child can call is a capability, and
+# the automatic recall/write-back stays root-only inside the plugin.
+# `standard` (no preset) and any preset without a row keep their full surface.
+# The restriction is applied at `agent/created` and retried once at the first `agent/pre-step`
+# if the host layer had no names yet (both before that step's request header exists).
+- insert:
+    - id: tool-families
+      name: '@cc/dsh-tool-families'
+      config:
+        projectMarkers:
+          'mcp__godot__*': project.godot
+        families:
+          orchestrator:
+            # The orchestrator writes files and reads them; it does not get a shell. The
+            # persona says so and the tool list contradicted it: measured 2026-11-13 on a
+            # fresh root header (session-ed90220d, seq 1502) `bash` was one of 98 tools, so
+            # the role could have run anything the policy said it could not. `pwsh` is denied
+            # for the same reason and does not exist on this machine - the row is what makes
+            # the surface the same on Windows, where it would be registered.
+            deny: ['mcp__godot__*', 'bash', 'pwsh']
+          ux:
+            projectDeny: ['mcp__godot__*']
+          backend:
+            deny: ['mcp__playwright__*']
+            projectDeny: ['mcp__godot__*']
+          reviewer:
+            deny: ['mcp__playwright__*']
+            projectDeny: ['mcp__godot__*']
+          critic:
+            deny: ['mcp__playwright__*']
+            projectDeny: ['mcp__godot__*']
+          research:
+            deny: ['mcp__playwright__*', 'mcp__godot__*']
+          docs:
+            deny: ['mcp__playwright__*', 'mcp__godot__*']
+
 # ── taskboard: the workspace task ledger ───────────────────────────────────
 # One `.dsh/taskboard.json` per workspace, with objective, scope, non-scope,
 # acceptance, status, results and a timeline. Model tools and the `/taskboard`
@@ -246,7 +298,12 @@
       name: '@cc/dsh-taskboard'
       config:
         file: .dsh/taskboard.json
-        maxTasks: 200
+        # No cap on work in flight. `maxTasks: 0` is the plugin's explicit UNLIMITED, not a
+        # default: this workspace runs many long-lived role rows at once and the 200 cap
+        # turned "start one more task" into `board_full` with history on the board already
+        # holding the answer. The file guard below is what still bounds the ledger.
+        maxTasks: 0
+        maxRows: 1000
         timelineLimit: 120
 
 # ── orchestrator: the root agent plans, delegates and integrates ─────────────
@@ -483,27 +540,28 @@
       config:
         id: orchestrator
         name: Orchestrator
-        description: System designer. Decides what should exist, shapes the task and delegates it; reads code, never writes it.
+        description: System designer. Decides what should exist, shapes the task, writes and edits files itself, and delegates the work that needs a shell or a specialist's proof.
         order: 10
         plugins:
           - id: persona
             name: '@deepseek-ai/dsh-persona'
             config:
               prefix: |-
-                You are the orchestrator of this workspace and the project's system designer. You decide what should exist, what is worth building and how the parts fit; you never write or modify code yourself. Work flows through the taskboard: open the task, choose the specialist whose tools fit it, delegate with a self-contained brief, then judge the result. Keep the system-design map current whenever the design changes. A specialist that reports an architectural problem is telling you the task needs a different shape - reshape it instead of pressing for the local fix.  Ask the human only for decisions that are theirs. Your tools: the task board, delegation, read-only file search, web research and the design-map tool; you have NO shell, so static analysis, structural diffs, secret/dependency scans, link checks and page extraction are capabilities you can request from a role that owns the binary - never commands you can run yourself.
+                You are the orchestrator of this workspace and the project's system designer. You decide what should exist, what is worth building and how the parts fit, and you can create and edit files yourself. Work flows through the taskboard: open the task, choose the specialist whose tools fit it, delegate with a self-contained brief, then judge the result. Keep the system-design map current whenever the design changes. A specialist that reports an architectural problem is telling you the task needs a different shape - reshape it instead of pressing for the local fix.  Ask the human only for decisions that are theirs. Your tools: read, write and edit, file search, the task board, delegation, web research and the design-map tool. You have NO shell: you cannot run a build, a test, a linter, a migration or any command, so anything whose proof is a command's output (build, test, static analysis, structural diff, secret or dependency scan, link check, page extraction) still goes to the role that owns the binary - make the edit if the edit is the work, delegate the proof.
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
               maxBytes: 65536
           - id: time-context
             name: '@deepseek-ai/dsh-time-context'
-          # Read-only filesystem: the orchestrator must be able to inspect code and
-          # docs to judge a result, and must not be able to change them.
+          # The orchestrator writes its own files. The work kept stalling on "this is a
+          # two-line edit" that had to become a delegation; what the orchestrator still must
+          # not do is RUN anything, so bash stays out of this preset (it never had it).
           - id: tool-fs
             name: '@deepseek-ai/dsh-tool-fs'
             config:
-              write: false
-              edit: false
+              write: true
+              edit: true
           - id: tool-fs-search
             name: '@deepseek-ai/dsh-tool-fs-search'
             config:

@@ -1,0 +1,19 @@
+{
+  "name": "@cc/dsh-tool-families",
+  "version": "0.1.4",
+  "description": "Gives each agent preset only the tool families its job needs: one host row expands a per-preset deny policy against the tool names the agent can see and calls agent.ctx.tools.restrict, so a family (mcp__godot__*, mcp__playwright__*) leaves the request header instead of being merely refused at call time. A project-gated family is a bridge, not a role capability, so it is kept only where its project marker exists.",
+  "type": "module",
+  "main": "tool-families.mjs",
+  "exports": {
+    ".": "./tool-families.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "tool-families.mjs",
+    "README.md"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "id": "orchestrator-can-write-files",
+  "title": "Orchestrator can write files",
+  "requirement": "Оркестратор должен иметь возможность создавать и редактировать файлы напрямую; отсутствие write/edit часто блокировало работу.",
+  "kind": "scenario",
+  "status": "verified",
+  "source": "human",
+  "automated": false,
+  "reason": "Требование получено до реализации; реальная fresh-session проверка появится после изменения preset.",
+  "steps": [
+    "Открыть fresh orchestrator session после установки изменённого preset.",
+    "Проверить request/header: write/edit присутствуют, bash отсутствует.",
+    "Создать новый файл и применить edit; очистить fixture."
+  ],
+  "expected": "Fresh orchestrator session видит write и edit в request/header и может успешно создать и изменить файл в workspace; bash остаётся недоступным.",
+  "tags": [
+    "orchestrator",
+    "preset",
+    "write",
+    "edit"
+  ],
+  "surfaceFiles": [],
+  "linkedTaskId": "task-mwesykjl-raw3t1",
+  "revision": 2,
+  "createdAt": "2026-11-13T11:00:17.000Z",
+  "updatedAt": "2026-11-13T11:10:10.064Z",
+  "createdBy": "orchestrator",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-13T11:10:10.064Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "Both halves observed on a second server with the real kit profile, not on :3080 (never restarted). The same session also shows the preset-aware MCP policy live: godot 0 (30 tools denied) and playwright 24 for the orchestrator; a research session on the same build got 0 MCP families and kept 8 hindsight tools. bash/pwsh stay absent from the preset, so the \"no shell\" half of the requirement is proven by the same header."
+    }
+  ],
+  "evidence": {
+    "observation": {
+      "command": "second 0.2.1 server on :3081 (kit profile after converge) -> New session (preset orchestrator) -> prompt to create and edit reports/orchestrator-write-fixture.md; read the session's request/header and the file",
+      "output": "RED (before the preset change, session-60230a76, same server/profile):\n  tools: 78 | write: false | edit: false | bash: false | playwright: 24\n  the model could not create the fixture at all (no tool call was possible)\n\nGREEN (after write:true/edit:true, session-4d5b02f8):\n  tools: 80 | write: true | edit: true | bash: false | pwsh: false | playwright: 24 | godot: 0 | hindsight: 8\n  calls: [\"write\",\"read\",\"web_fetch\",\"web_fetch\",\"web_fetch\",\"write\",\"edit\",\"read\"]\n  file on disk after the turn: \"FIXTURE-1\\nFIXTURE-2\\n\"  (created by write, extended by edit)\n  fixture deleted afterwards",
+      "exitCode": 0,
+      "at": "2026-11-13T11:10:10.064Z"
+    },
+    "commit": null
+  },
+  "lastVerified": {
+    "at": "2026-11-13T11:10:10.064Z",
+    "command": "second 0.2.1 server on :3081 (kit profile after converge) -> New session (preset orchestrator) -> prompt to create and edit reports/orchestrator-write-fixture.md; read the session's request/header and the file",
+    "exitCode": 0
+  }
+}

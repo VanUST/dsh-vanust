@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "id": "orchestrator-header-carries-no-shell-tools",
+  "title": "Orchestrator header carries no shell tools",
+  "requirement": "The orchestrator preset must not receive a shell: its request header carries read/write/edit but no bash and no pwsh, so the host policy that says \"you have NO shell\" matches the tool surface. Other presets keep their deny lists unchanged.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": false,
+  "reason": "A real emitted header needs a booted server with an orchestrator-preset chat; the live :3080 may not be restarted and the probe server's new chat did not flush a session log inside the timebox. The observed proof instead runs the installed plugin's own decide() over the real composed config and the real 98 host-plane tool names from the live orchestrator header, which is the same decision the next boot applies.",
+  "steps": [
+    "Read the live orchestrator header: zstd -dc $DSH_HOME/sessions/--home-iustimov-dsh-kit--/session-ed90220d-.../session.v4.jsonl.zstd and take the last request/header tool names (98 names, `bash` present).",
+    "Add 'bash' and 'pwsh' to the orchestrator deny list in profile/cordis.patch.yml (tool-families row).",
+    "Run: node /tmp/proof-tool-families.mjs - it imports the installed @cc/dsh-tool-families decide()/normalizeConfig, composes the shipped config, and replays the real header names.",
+    "Confirm: deny=['bash'], surface 97, write/edit/read present, bash absent, pwsh absent; every other preset's deny list identical before/after.",
+    "Converge: the next `dsh` launch runs kit-update and writes the profile patch (kit-update --check plans write-profile-files)."
+  ],
+  "expected": "A fresh orchestrator request header carries read/write/edit and zero bash/pwsh entries: the tool-families row resolves `bash` into its deny list, `pwsh` is unmatched on Linux (denied by name on Windows), the surface drops exactly that one tool from 98 to 97, and every other preset's deny list is unchanged.",
+  "tags": [
+    "orchestrator",
+    "tool-families",
+    "shell",
+    "preset",
+    "header"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "profile/cordis.patch.yml",
+      "sha256": "bbc8b048e08cbe1bd7e35e119d19906e7f888a09fc6a7e6597c8cfefdf1933b7"
+    }
+  ],
+  "linkedTaskId": "task-mwewxkqs-03d6ag",
+  "revision": 2,
+  "createdAt": "2026-11-13T11:55:55.285Z",
+  "updatedAt": "2026-11-13T11:55:58.715Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-13T11:55:58.715Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "Red is the live header itself (session-ed90220d seq 1502, 98 tools, `bash` present, `pwsh` absent on Linux). Green is the decision the next boot applies. A real emitted header on a restarted server is the remaining check: after the next `dsh` launch, grep the newest request/header of a fresh orchestrator chat for bash. The probe server on :3082 loaded the overlay (its ux chat showed 0 mcp__godot__ tools, i.e. projectDeny was applied), so the composition path is exercised; only the orchestrator-preset chat could not be produced in the timebox (the new chat took the workspace's remembered `ux` preset)."
+    }
+  ],
+  "evidence": {
+    "observation": {
+      "command": "node /tmp/proof-tool-families.mjs",
+      "output": "real host-plane names: 98 (from session-ed90220d seq 1502)\nBEFORE: deny=[] unmatched=[\"mcp__godot__*\"] surface=98\n  write=true edit=true read=true bash=true pwsh=false\nAFTER : deny=[\"bash\"] unmatched=[\"mcp__godot__*\",\"pwsh\"] surface=97\n  write=true edit=true read=true bash=false pwsh=false\norchestrator lost: bash\npreset ux: identical=true deny=(none)\npreset backend: identical=true deny=mcp__playwright__browser_click,...\npreset reviewer: identical=true\npreset critic: identical=true\npreset research: identical=true\npreset docs: identical=true\nshipped orchestrator block: \"orchestrator:\" | has bash: true | has pwsh: true",
+      "exitCode": 0,
+      "at": "2026-11-13T11:55:58.715Z"
+    },
+    "commit": null
+  },
+  "lastVerified": {
+    "at": "2026-11-13T11:55:58.715Z",
+    "command": "node /tmp/proof-tool-families.mjs",
+    "exitCode": 0
+  }
+}

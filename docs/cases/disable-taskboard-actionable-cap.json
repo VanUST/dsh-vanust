@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "id": "disable-taskboard-actionable-cap",
+  "title": "Disable taskboard actionable cap",
+  "requirement": "Убрать hard block на 200 задач глобально по workspace: количество actionable задач не должно мешать созданию новой задачи.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "human",
+  "automated": true,
+  "reason": "Observed and encoded: the script fills a real 210-row board through the service, then checks the unlimited create, the 200 default for missing/invalid values, and the separate row guard.",
+  "steps": [
+    "Использовать ledger с минимум 200 non-terminal задачами и maxTasks=0.",
+    "Создать ещё одну задачу через общий taskboard service.",
+    "Проверить успешный create, сохранность истории и отдельное срабатывание board_rows_full при достижении maxRows."
+  ],
+  "expected": "При maxTasks=0 ledger с 200 и более actionable задачами принимает create без board_full; существующие rows/history не удаляются, а maxRows продолжает отдельно ограничивать размер файла.",
+  "tags": [
+    "taskboard",
+    "capacity",
+    "workspace",
+    "unlimited"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/taskboard/taskboard.mjs",
+      "sha256": "fb24e89394e9870432662366ed2b0c90a6d4ab428801d925c400eaeea5959ed3"
+    },
+    {
+      "path": "profile/cordis.patch.yml",
+      "sha256": "23df403fec56ccf0200d3c54ff37ef5e8ec9e15a7afb886afcbaa75b0e794654"
+    },
+    {
+      "path": "scripts/taskboard-limit-proof.mjs",
+      "sha256": "0de4dbbfc0e1a288c4bd2fdde4fc99781e8ea2af321142ae282259f1c25d50d3"
+    }
+  ],
+  "linkedTaskId": "task-mwesykjl-raw3t1",
+  "revision": 3,
+  "createdAt": "2026-11-13T10:23:09.672Z",
+  "updatedAt": "2026-11-13T10:26:18.115Z",
+  "createdBy": "orchestrator",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-13T10:23:09.672Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "Disable taskboard actionable cap",
+        "requirement": "Убрать hard block на 200 задач глобально по workspace: количество actionable задач не должно мешать созданию новой задачи.",
+        "expected": "При maxTasks=0 ledger с 200 и более actionable задачами принимает create без board_full; существующие rows/history не удаляются, а maxRows продолжает отдельно ограничивать размер файла.",
+        "steps": [
+          "Использовать ledger с минимум 200 non-terminal задачами и maxTasks=0.",
+          "Создать ещё одну задачу через общий taskboard service.",
+          "Проверить успешный create, сохранность истории и отдельное срабатывание board_rows_full при достижении maxRows."
+        ],
+        "automated": false,
+        "reason": "Требование получено во время текущей реализации; наблюдаемый proof ещё не выполнен и появится после изменения.",
+        "status": "unverified"
+      }
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-13T10:26:18.115Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "The red run is the same command against the previous module: `git show HEAD:plugins/taskboard/taskboard.mjs > plugins/taskboard/.old-taskboard.mjs` then `node scripts/taskboard-limit-proof.mjs --taskboard plugins/taskboard/.old-taskboard.mjs` — exit 1, 8/13, with `board_full` at row 201 (`{\"id\":null,\"code\":\"board_full\"}`). Green on taskboard 0.1.53, installed into the profile and byte-verified by kit-update. The live :3080 process still holds the previous module in memory; the change is effective at its next boot (profile row maxTasks: 0 + maxRows: 1000 already written)."
+    }
+  ],
+  "evidence": {
+    "redFirst": {
+      "command": "node scripts/taskboard-limit-proof.mjs",
+      "output": "Run against the PREVIOUS module (--taskboard plugins/taskboard/.old-taskboard.mjs, byte-identical to HEAD):\n[FAIL] the fixture board really holds 210 actionable rows — rows=200\n[FAIL] maxTasks: 0 accepts a create on a board with 210 actionable rows — {\"id\":null,\"code\":\"board_full\"}\n[FAIL] the accepted create APPENDS: 211 rows, every earlier row still there — rows=200\n[FAIL] a second create past the old cap also passes — id=none code=board_full\n[PASS] missing maxTasks still means the 200 default (board_full) — code=board_full active=200 cap=200\n[PASS] maxTasks: 5 refuses the sixth actionable row with board_full — code=board_full cap=5\n[PASS] maxRows still refuses with board_rows_full while maxTasks is unlimited — code=board_rows_full rows=10 cap=10\n[FAIL] raising the cap NEVER evicts: all 210 titles survive in order — rows=200 first=row 1 last=undefined\n\n8/13 checks passed\nexit=1",
+      "exitCode": 1,
+      "at": "2026-11-13T10:26:18.113Z"
+    },
+    "green": {
+      "command": "node scripts/taskboard-limit-proof.mjs",
+      "output": "[PASS] the fixture board really holds 210 actionable rows — rows=210\n[PASS] maxTasks: 0 accepts a create on a board with 210 actionable rows — {\"id\":\"task-mwetxygq-5d0b1u\",\"code\":null}\n[PASS] the accepted create APPENDS: 211 rows, every earlier row still there — rows=211\n[PASS] a second create past the old cap also passes — id=task-mwetxyhh-f1q93d code=none\n[PASS] missing maxTasks still means the 200 default (board_full) — code=board_full active=200 cap=200\n[PASS] maxTasks: null still means the 200 default (board_full)\n[PASS] maxTasks: \"300\" still means the 200 default (board_full)\n[PASS] maxTasks: -5 still means the 200 default (board_full)\n[PASS] maxTasks: 0.5 still means the 200 default (board_full)\n[PASS] maxTasks: 5 refuses the sixth actionable row with board_full — code=board_full cap=5\n[PASS] maxRows still refuses with board_rows_full while maxTasks is unlimited — code=board_rows_full rows=10 cap=10\n[PASS] the refused create did not touch the file — rows=10\n[PASS] raising the cap NEVER evicts: all 210 titles survive in order — rows=210 first=row 1 last=tail 4\n\n13/13 checks passed",
+      "exitCode": 0,
+      "at": "2026-11-13T10:26:18.113Z"
+    },
+    "commit": null
+  },
+  "testPath": "scripts/taskboard-limit-proof.mjs",
+  "runCommand": "node scripts/taskboard-limit-proof.mjs",
+  "lastVerified": {
+    "at": "2026-11-13T10:26:18.113Z",
+    "command": "node scripts/taskboard-limit-proof.mjs",
+    "exitCode": 0
+  },
+  "degraded": false
+}

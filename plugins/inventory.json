@@ -190,6 +190,15 @@
       "source": "plugins/run-code-projection",
       "pack": "scripts/pack-plugin.mjs",
       "mounted": true
+    },
+    {
+      "id": "tool-families",
+      "package": "@cc/dsh-tool-families",
+      "tarballPrefix": "cc-dsh-tool-families",
+      "provenance": "in-repo",
+      "source": "plugins/tool-families",
+      "pack": "scripts/pack-plugin.mjs",
+      "mounted": true
     }
   ]
 }

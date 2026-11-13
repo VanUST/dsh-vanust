@@ -5,13 +5,16 @@
  *   neither refuses a workflow script that asks for deepseek-v4-pro: the request
  *   reaches the loop with whatever route the script named. This plugin sits on
  *   the `agent/request` waterfall, the last place the frozen LlmCallConfig can
- *   be replaced before dispatch, and rewrites or refuses a child's route.
+ *   be replaced before dispatch, and REFUSES a child's disallowed route.
  *
  * INPUTS
  *   Config (all optional):
  *     provider / model       the fallback route. Default deepseek-official / deepseek-flash.
  *     allowedRoutes          exact {provider, model} pairs. Default: the fallback route.
- *     onViolation            "rewrite" (default) or "refuse".
+ *     onViolation            only "refuse". Any other value (including the old default
+ *                            "rewrite") is reported once and treated as "refuse", because dsh
+ *                            freezes the route before `agent/request`: a rewritten call throws
+ *                            inside the turn instead of redirecting it.
  *     enforceRoot            also apply to root agents. Default false, so the
  *                            human can still choose a stronger model for the
  *                            conversation itself.
@@ -35,7 +38,7 @@
  * BEHAVIOUR ON EDGE CASES
  *   - A malformed allowedRoutes entry is dropped with a warning; an empty list
  *     falls back to the configured route rather than disabling the guard.
- *   - An invalid onViolation value is treated as "rewrite" and reported once:
+ *   - Any onViolation value other than "refuse" is treated as "refuse" and reported once:
  *     refusing every request because of a typo would be worse than the typo.
  *   - An agent without a session/header is left alone; the guard cannot prove it
  *     is a child, and a refusal it cannot attribute would break unrelated work.
@@ -84,7 +87,10 @@ export function normalizeConfig(config = {}) {
         && typeof route.model === 'string' && route.model !== '')
       .map((route) => ({ provider: route.provider, model: route.model }))
     : []
-  const onViolation = config.onViolation === 'refuse' ? 'refuse' : 'rewrite'
+  // A rewrite is not an option on this harness any more (see the listener): the route is frozen
+  // before dispatch, so the only enforcement left is a refusal, and every other value — including
+  // the old default `rewrite` — is reported and treated as one.
+  const onViolation = 'refuse'
   const denyCandidates = Array.isArray(config.deniedModels)
     ? config.deniedModels.filter((pattern) => typeof pattern === 'string' && pattern.trim() !== '')
     : []
@@ -99,7 +105,7 @@ export function normalizeConfig(config = {}) {
     onViolation,
     enforceRoot: config.enforceRoot === true,
     maxReasoningEffort,
-    malformedOnViolation: config.onViolation !== undefined && config.onViolation !== 'refuse' && config.onViolation !== 'rewrite',
+    malformedOnViolation: config.onViolation !== undefined && config.onViolation !== 'refuse',
     droppedRoutes: Array.isArray(config.allowedRoutes) ? config.allowedRoutes.length - allowedRoutes.length : 0,
   }
 }
@@ -110,7 +116,8 @@ export function normalizeConfig(config = {}) {
  * @param call - The LlmCallConfig returned by `next()`.
  * @param agent - The requesting Agent.
  * @param policy - `normalizeConfig()` output.
- * @returns `{ action: 'allow' | 'rewrite' | 'refuse', call, reason?, denied? }`.
+ * @returns `{ action: 'allow' | 'refuse', call, reason?, denied? }` — a rewritten `call` is never
+ *   produced: the harness freezes the route before this hook, and a mutation here throws.
  */
 export function guardDecision(call, agent, policy) {
   const depth = Number(agent?.session?.header?.delegationDepth ?? 0)
@@ -131,17 +138,13 @@ export function guardDecision(call, agent, policy) {
   const capped = capEffort(call, policy.maxReasoningEffort)
   if (!applies) return { action: 'allow', call }
   if (!allowed) {
-    if (policy.onViolation === 'refuse') {
-      return {
-        action: 'refuse',
-        call,
-        reason: `flash-guard: ${key} is not allowed for delegated work; use ${policy.fallback.provider}/${policy.fallback.model}`,
-      }
-    }
+    // NEVER a rewrite: dsh freezes the route before `agent/request`, and a mutated result is a
+    // thrown turn (see the listener). `capped` is not returned either — the effort is part of the
+    // same frozen selection, so a refusal is the only honest answer.
     return {
-      action: 'rewrite',
-      call: { ...capped, provider: policy.fallback.provider, model: policy.fallback.model },
-      reason: `flash-guard: rewrote ${key} to ${policy.fallback.provider}/${policy.fallback.model}`,
+      action: 'refuse',
+      call,
+      reason: `flash-guard: ${key} is not allowed for delegated work; use ${policy.fallback.provider}/${policy.fallback.model}`,
     }
   }
   return { action: 'allow', call: capped }
@@ -193,7 +196,7 @@ export const inject = []
 export function apply(ctx, config = {}) {
   const policy = normalizeConfig(config)
   if (policy.malformedOnViolation) {
-    ctx.logger.warn(`flash-guard: onViolation ${JSON.stringify(config.onViolation)} is not "rewrite" or "refuse"; using "rewrite"`)
+    ctx.logger.warn(`flash-guard: onViolation ${JSON.stringify(config.onViolation)} is not "refuse"; using "refuse"`)
   }
   if (policy.droppedRoutes > 0) {
     ctx.logger.warn(`flash-guard: ignored ${policy.droppedRoutes} malformed allowedRoutes entr${policy.droppedRoutes === 1 ? 'y' : 'ies'}`)
@@ -203,6 +206,14 @@ export function apply(ctx, config = {}) {
     ctx.logger.warn(`flash-guard: ignored ${droppedDeny} malformed deniedModels entr${droppedDeny === 1 ? 'y' : 'ies'}`)
   }
   const warned = new Set()
+  // THE ROUTE IS FIXED BEFORE THIS HOOK RUNS. dsh 0.2.2 rejects a rewritten route here:
+  // `dsh-agent-loop` compares the waterfall's result with the step's frozen selection and
+  // throws `agent/request proposed "…" after step preparation fixed "…"; use agent.model.select()
+  // before step preparation`. A plugin that returns a different provider/model/effort is
+  // therefore no longer steering the child, it is killing the turn — worse than the routing it
+  // wanted to prevent, because the error lands mid-turn and after the task row was created.
+  // So this listener never mutates: a violation is REFUSED with the rule and the allowed routes
+  // named, which is the outcome the operator asked for anyway ("this child may not run there").
   ctx.on('agent/request', async (payload, next) => {
     const call = await next()
     const decision = guardDecision(call, payload?.agent, policy)
@@ -217,7 +228,6 @@ export function apply(ctx, config = {}) {
       warned.add(key)
       ctx.logger.warn(decision.reason)
     }
-    if (decision.action === 'refuse') throw new Error(decision.reason)
-    return decision.call
+    throw new Error(`${decision.reason} (a route is fixed before dispatch on this harness: choose the route with agent.model.select()/the subagent model-selection allowlist, never by rewriting it here)`)
   })
 }

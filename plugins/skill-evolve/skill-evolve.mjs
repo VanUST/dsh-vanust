@@ -67,7 +67,12 @@ const KEBAB = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const DEFAULT_MAX_BODY = 12000
 const DEFAULT_MIN_BODY = 80
 const DEFAULT_MAX_SKILLS = 200
-const MAX_DESCRIPTION = 500
+// The description is not documentation: the harness renders every skill's description as one
+// line of the catalog that sits in EVERY agent's system prefix, on every request. Measured
+// 2026-11-13: nine of 70 descriptions had grown past 250 characters (max 323) and the
+// per-preset tool surface was being trimmed in the same release for the same reason. 250
+// keeps a whole "when to use it" clause and stops a body paragraph from moving in.
+const MAX_DESCRIPTION = 250
 const MIN_DESCRIPTION = 8
 const HISTORY_DIR = '.history'
 const ARCHIVE_DIR = '.archive'

@@ -14,7 +14,7 @@ unless the `DSH_HOME` environment variable overrides it.
 
 ## 1. What this deployment is
 
-The upstream harness plus 21 plugins, all pinned and installed from one kit repository:
+The upstream harness plus 22 plugins, all pinned and installed from one kit repository:
 
 | Piece | What it does |
 |---|---|
@@ -29,10 +29,11 @@ The upstream harness plus 21 plugins, all pinned and installed from one kit repo
 | `@cc/dsh-godot-mcp` | keeps the deployment's MCP server list declarative and transportable: owns the canonical spec, resolves the `uvx` launcher the Godot AI bridge needs and the Godot project it starts in, and reports per declared server whether its tools are loadable. It implements no MCP itself — the harness's shipped `@deepseek-ai/dsh-mcp-client` bridge does the connecting, and `scripts/dsh-mcp-sync.mjs` writes the row that bridge loads into `$DSH_HOME/cordis.patch.yml`. **Two rows mount for this server and their ids must differ**: the plugin's own row is `id: godot-mcp` (the kit's convention is that a plugin row's id is its function name), while the bridge row the sync writes is `id: mcp-client-<server id>`. One composition has ONE loader-id namespace and the harness refuses the whole tree on a duplicate — `dsh web` fails to start with `duplicate loader entry id: godot-mcp`, which is what happened when a server id was used as the row id. Do not "tidy" the generated id back to the bare server id; `scripts/check-portability.mjs` fails when a generated id spells an authored one |
 | `@deepseek-ai/dsh-subagent` | the harness's subagent service, mounted with this profile's one setting: `maxActiveSubagents: 64` (harness default 8), `maxDepth` left at its default 1. It owns the concurrent-child pool, parent/child relationships and the capacity check that answers `ACTIVATION_LIMIT_REACHED`; `subagent`, `subagent_fork`, `workflow` and `delegate_task` all spawn through it. Raising the pool here is what makes removing `@cc/dsh-work-modes` a real removal rather than a move from a cap of 2 to a cap of 8. The volatile fields are also editable on Plugins → Subagent, but a value written in this profile patch takes precedence and a form write it would override is refused |
 | `@cc/dsh-skills` | registers twenty runtime skills through `ctx.skills.register`: `ponytail` (test paragraph patched to the proof rule), `grill-me`/`grilling`, `clear-writing`, `explain-webpage`, `explain-diagram` (adapted to the local `diagram` tool), `ui-builder`, `proof-not-tests`, `literature-review`, and five added 2026-10-26: `tests-that-could-fail`, `visual-explanations`, `ui-testing`, `ui-design-system`, `research-first`; and six added 2026-11-09 for UX/UI testing: `canvas-test-bridge`, `property-based-domain-tests`, `visual-golden-tests`, `a11y-keyboard-audit`, `maestro-mobile-flows`, `test-run-observability`. The tarball is the source of truth; no `$DSH_HOME/skills` copy |
-| `@cc/dsh-flash-guard` | one `agent/request` waterfall. A delegated child (`delegationDepth > 0` or a `parentSession` header) whose route is not in `allowedRoutes` is rewritten to `deepseek-official/deepseek-flash` or refused before dispatch. `enforceRoot: false` keeps the human's own model choice; external ACP/SDK/Claude Code providers bypass the seam and are the stated residual. A second, stricter rule covers routes nobody may run: a `deniedModels` match (`*highspeed*`) is **refused for root and child alike**, because silently substituting another model is how a "never use this" rule holds while the expensive route was already paid for |
+| `@cc/dsh-flash-guard` | one `agent/request` waterfall. A delegated child (`delegationDepth > 0` or a `parentSession` header) whose route is not in `allowedRoutes` is **refused** before dispatch — never rewritten, because dsh freezes the route before that hook and a mutated result throws inside the turn (`dsh-agent-loop`: "use agent.model.select() before step preparation"); on 0.2.1 the old rewrite still worked, so this is a deliberate behaviour change, and `onViolation: rewrite` is now reported and treated as `refuse`. `enforceRoot: false` keeps the human's own model choice; external ACP/SDK/Claude Code providers bypass the seam and are the stated residual. A second, stricter rule covers routes nobody may run: a `deniedModels` match (`*highspeed*`) is **refused for root and child alike**, because silently substituting another model is how a "never use this" rule holds while the expensive route was already paid for |
 | `@deepseek-ai/dsh-llm-pi-ai` | the harness's multi-provider LLM adapter, mounted dormant and activated by this profile's `providers` map. One extra route runs here: `kimi-coding`, the Kimi Code subscription endpoint (OpenAI-compatible, `https://api.kimi.com/coding/v1`), with exactly **two** models — `k3.1-pro` for planning, design, review and orchestration, and `kimi-for-coding` (K2.8 Preview) as the workhorse that stands in during DeepSeek peak hours. Neither highspeed variant is listed: they cost two to three times the tokens for latency this work does not need, and `deniedModels` refuses them if anything names one. Context windows come from the endpoint's own `GET /v1/models`; the key is only the credential reference `KIMI_CODING_API_KEY`, resolved per request from `$DSH_HOME/.credentials.yaml` |
 | `@deepseek-ai/dsh-tool-subagent/model-selection-settings` | the harness's own gate for a model-facing child route: `enabled: true` with exactly three routes (`deepseek-official/deepseek-flash`, `kimi-coding/k3.1-pro`, `kimi-coding/kimi-for-coding`). The `subagent` tool and the kit's `delegate_task` accept `provider`/`model` only for a route listed here, and the Plugins → Subagent page edits the same namespace. The list deliberately matches `flash-guard.allowedRoutes`; a route offered here and rewritten there would be a setting that lies to the operator |
 | `@cc/dsh-research-first` | one `tools/pre-execute` gate plus a `tools/result` observer. A successful `web_fetch`/`web_search` marks the session researched; creating a file that does not exist yet without one is refused, with the denial naming the lookup and the escape hatch. `research_waive({reason})` unlocks the session for offline work and logs the reason. `mode: deny` by default, `warn` for a trial, `allowPaths` for generated trees. It gates file creation, not design decisions inside an edit — that stays with the review |
+| `@cc/dsh-tool-families` | one `agent/created` listener: expands the row's per-preset deny table against the tool names the agent can see and calls the registry's agent-scoped `tools.restrict`, so a denied family (e.g. `mcp__playwright__*` for backend) leaves the request header. `projectDeny` families are kept only where their marker (`project.godot` for `mcp__godot__*`) exists in the session cwd; `standard` and any preset without a row keep everything; `hindsight_*` is never denied |
 | `@cc/dsh-proof-guard` | one `tools/pre-execute` waterfall on `write`/`edit`. A path matching the test conventions needs a `PROOF:` header (`Behavior:`, `Fails when:`, `Production path:`); a legacy file that already carries one is allowed. `mode: deny` is the default, `warn` the trial. Friction, not proof: a shell write and a fake header are outside it |
 | `@cc/dsh-taskboard` | the workspace task ledger and the Tasks panel. One `.dsh/taskboard.json` per workspace holds objective, scope, non-scope, acceptance, status, owner, results and a timeline; `task_create`/`task_get`/`task_list`/`task_update` (CAS)/`task_note`/`task_link` share one Host service with the `/taskboard` command. The client half reads through `workspaceFiles`, writes through `commands`, registers `main` key `tasks`, the `sidebar.panellist` entry and the `subagent-catalog` header cell. It replaces the subagent catalog; `@deepseek-ai/dsh-client-ui-subagent` is disabled in the profile so the header has one cell, and child sessions open from the task detail. Pause/Resume, **Stop child**, Close and Remove are lifecycle actions: pause/cancel/close interrupt linked children through `ctx.subagents` (the hook passes the runtime's tagged `{kind:'ancestor',agent}` or `{kind:'user',parentSessionId}` authority, so the orchestrator and the owner both can stop a child; a refused interrupt fails closed), `task_stop` force-stops a task's children or one session without changing the status, close marks done (with an optional result in the same call) and interrupts, remove deletes the ledger row and leaves children running. Each workspace keeps persistent `agents[]` roles (one child per role), and each linked child records the role plus active/sleeping/paused state for the panel roster. **A chat has its own board**: every task records `chatId`, the root session of the lineage that created it, so a delegated child's task lands on the parent chat's board; reads default to the caller's chat and `task_list` scope `workspace` (or the panel's All chats toggle) reads the whole history. A chatless row (written before `chatId`) is visible only in the workspace scope and writable only by the human; an agent write from another chat is refused with `other_chat` |
 | `@cc/dsh-orchestrator` | root-only policy section (`deployment:orchestrator-policy`), child-only section (`deployment:specialist-policy`) and a root-only `delegate_task` tool. The tool creates the task, renders a self-contained brief (objective, scope, non-scope, inputs, acceptance, output, proof, timebox), starts a child on the configured child route (flash by default) with `agentOptions`, and links the child id. `provider`/`model` are accepted only for a route enabled in Subagent model selection, so delegation can move to the Kimi workhorse when the default route is throttled; an unavailable route fails the call before the task row is written. The task is created before the child, so a failed start leaves a visible blocked task |
@@ -43,7 +44,7 @@ The harness owns the request pipeline and the user interface, but this kit now a
 a role roster and a deployment policy on top of it. `@deepseek-ai/dsh-agent-preset` declarations
 give each role its persona and its tool list; `@cc/dsh-orchestrator` registers a root policy
 section and a child specialist section on `agent/created`; `@cc/dsh-skills` registers twenty
-runtime skills; `@cc/dsh-flash-guard` rewrites or refuses a delegated child's model route. The
+runtime skills; `@cc/dsh-flash-guard` refuses a delegated child's disallowed model route. The
 earlier "no plugin contributes prompt text" stance is retired deliberately. A repository's
 `AGENTS.md`/`CLAUDE.md` still reaches the model through the upstream loader; the deployment
 policy is additional and scoped (root or child), not a replacement for the harness persona. The
@@ -57,9 +58,10 @@ Seven `@deepseek-ai/dsh-agent-preset` declarations sit in the profile patch, and
 `@deepseek-ai/dsh-agent-preset-registry` defaults new sessions to it:
 `preset-orchestrator`, `preset-ux`, `preset-backend`, `preset-research`, `preset-reviewer`,
 `preset-critic`, `preset-docs`. A preset is the persona AND the tool list, so the isolation is
-registration, not a brief: the orchestrator reads (`read`, `readImage`) and has no `write`,
-`edit`, `bash` or
-`pwsh` at all; the research role has no shell and cannot surgically edit; the reviewer can run
+registration, not a brief: the orchestrator reads and writes (`read`, `readImage`, `write`,
+`edit`) but has no `bash` or `pwsh` at all - it can change a file and cannot run anything, so a
+change whose acceptance is a command's output is delegated or handed to a role that owns the
+binary; the research role has no shell and cannot surgically edit; the reviewer can run
 and read, and its `write`/`edit` tools are disabled - but it HAS `tool-bash`, and **a shell
 can write**: "cannot write" means "cannot use the write/edit tools", not "cannot change a
 file". The same is true of the critic, whose `tool-fs` now carries `write: false` and
@@ -120,7 +122,7 @@ child's tool header looks far wider than its role:
 | --- | --- | --- |
 | the seven presets | a per-preset plugin row set (persona, instructions, time, shell where allowed, fs, fs-search, jobs, skills, skill tool, compaction, todo, web, present) | its role's tool set |
 | the host profile (`$DSH_HOME/cordis.patch.yml`, written by `scripts/dsh-mcp-sync.mjs`) | `mcp-client-godot-mcp` (`mcp__godot__*`), `mcp-client-playwright-mcp` (`mcp__playwright__*`), `hindsight` | inherited by every preset, including the reviewer |
-| kit rows mounted at the host | taskboard, test-cases, skills, research-first, proof-guard, rtk | inherited, but each gates its own role-only tools by `agent/preset` (`papers_*` research, `design_map` orchestrator, `babysitter_*` orchestrator, `diagram`/`presentation` orchestrator+ux) |
+| kit rows mounted at the host | taskboard, test-cases, skills, research-first, proof-guard, rtk, tool-families | inherited, but each gates its own role-only tools by `agent/preset` (`papers_*` research, `design_map` orchestrator, `babysitter_*` orchestrator, `diagram`/`presentation` orchestrator+ux) |
 
 Measured 2026-11-11 from the root session's child headers: backend 105 tools, ux 107,
 reviewer/critic/research 103, a legacy run-code-only role 1. The seven presets declare a per-preset plugin row set, so the difference is host-mounted, not role-granted. **The child policy now says
@@ -232,6 +234,38 @@ Config is read when the host loads the plugin, so a mode change takes effect onl
 `dsh web`. `hindsight_diagnose` reports the config file and the URL the live client is actually
 using; when they disagree, the session is still on the old mode.
 
+**Subagent tools need one pinned line, and the kit owns it.** `@vectorize-io/hindsight-coding-agents`
+0.8.7 — still the latest published, and `main` as of 2026-11-13 — answers
+`Hindsight memory is disabled for this workspace.` to every `hindsight_*` call from a subagent: the
+tool bodies use the same subagent-excluding resolver its lifecycle hooks use, where an excluded
+child session is deliberate (`origin === "subagent"`). The hooks must stay root-only — a second
+automatic recall per delegation and a fragment retain of a conversation the parent already stores
+is exactly what that guard prevents — but a CHILD that calls a memory tool is asking a question the
+parent's own recall cannot answer for it. `scripts/hindsight-subagent-tools.mjs` applies the
+one-line change (bind the caller's bank by `workspaceRoot(exec.agent)` in the tool body, nothing
+else) and keeps a `.pre-subagent-tools` backup:
+
+```bash
+node scripts/hindsight-subagent-tools.mjs --check    # 0 patched | 3 unpatched
+node scripts/hindsight-subagent-tools.mjs --apply    # idempotent; nothing else in the file changes
+node scripts/hindsight-subagent-tools.mjs --probe    # drives the installed module as a subagent
+```
+
+`scripts/kit-update.mjs --apply` runs the check on every convergence and the apply when the plugin
+is unpatched (`patch-hindsight-tools` in `kit.applied`), because a Hindsight reinstall overwrites the
+file and silently takes the child tools away again. A new upstream release is the real fix: re-run
+`--check`, and if it reports `unrecognized`, the line moved and the script must be updated rather
+than forced.
+
+**Refresh cadence is deliberately slower than upstream's default.** `pageRefreshEveryTurns` is 5 in
+`~/.hindsight/coding-agent.json` (upstream defaults to 1, "every turn"). The setting bounds the
+per-turn `listPages` call and the `<hindsight_page_refresh>` block that is appended when the roster
+changes; the first-turn `<hindsight_pages>` preamble and the tool guide are unaffected, and the
+plugin already skips an unchanged block, so the visible repetition is small either way. Measured on
+this deployment's root session of 2026-11-13: 73 steps produced 3 injections (one 12,455-character
+preamble plus two 3,542-character refreshes), which is why a cadence change is a cost trim and not a
+behaviour fix.
+
 **One bank per GitHub repository, shared across machines.** The bank a session writes to is
 `bankIdTemplate`, and its placeholders are `{gitProject}`, `{project}`, `{harness}`, `{channel}`
 and `{user}` — there is **no GitHub placeholder**, because the plugin resolves git locally and
@@ -271,7 +305,7 @@ the row as JSON and preserves it; if a boot lands between install and sync, repa
 `$DSH_HOME/cordis.patch.yml`; to disable it without uninstalling, add a profile/home patch
 row `- id: hindsight disabled: true`.
 
-Pinned harness version: **`0.2.1-rc.2`**. Node ≥ 24. The kit is the only source of the
+Pinned harness version: **`0.2.2-rc.3`**. Node ≥ 24. The kit is the only source of the
 deployment's own files; Hindsight is the documented third-party exception above, and a
 machine is otherwise a projection of the kit.
 
@@ -480,6 +514,13 @@ session's catalog without a restart. Keep the previous body in `.history/`, retr
 `replace: true` is passed on purpose. Because the library is plain files, making it shared
 between machines is `git init` in that directory — that is the "collective" half of
 SkillClaw without a server.
+
+**A description is a context budget, not documentation.** `MAX_DESCRIPTION` is 250
+characters: the harness renders one description line per skill into the catalog that sits in
+EVERY agent's system prefix on every request, so a paragraph there is paid by every role and
+every step. Nine of the 70 skills had grown past it (max 323) on 2026-11-13; the frontmatter
+description was trimmed and the bodies were not touched. A skill that needs more room says it
+in the body — the catalog only has to route to it.
 
 **Sharing that library across devices.** `git init` in `$DSH_HOME/skills`, commit the
 `SKILL.md` files, add a remote, and clone it into `$DSH_HOME/skills` on every other machine: the
@@ -696,7 +737,7 @@ cd ~/dsh-kit
 ```
 
 `install.sh` / `install.ps1` are idempotent: Node check → pinned `npm i -g
-@deepseek-ai/dsh@0.2.1-rc.2` → profile files under `$DSH_HOME/profiles/web` → every
+@deepseek-ai/dsh@0.2.2-rc.3` → profile files under `$DSH_HOME/profiles/web` → every
 `plugins/*.tgz` installed into that profile → `$DSH_HOME/DEPLOYMENT.md`.
 
 Two steps in that list are the HUMAN's, not yours: entering API credentials (the
@@ -772,6 +813,13 @@ live profile.
    harness upgrade rests on your own judgement and on the checks in section 4: install a
    candidate, run those checks against a checkout pinned to it, and only then converge a live
    profile.
+   **Never replace the installed harness while a `dsh web` server runs** (a manual
+   `npm i -g`, not only `kit-update`). The live process keeps the composition it composed at
+   boot while serving the new files, so the next page load dies with `Failed to load plugins`:
+   measured 2026-11-13, a 0.2.1-rc.2 process served a 0.2.2-rc.3 tree and `sidebar`/`chat`
+   stayed pending on `contextMenus`/`fileDrag`, rows that only 0.2.2 adds. `kit-update`
+   refuses a pin bump in that state (`harness.state action=blocked reason=web-server-running`);
+   the manual path has no such guard, so stop the server first and restart it after.
 2. **Bump a plugin's version before repacking it.** pnpm serves a `file:` dependency from
    the profile lockfile by path, so a repacked tarball with an unchanged filename does not
    land. The updater warns about it; the version bump is what makes it correct.

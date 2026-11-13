@@ -21,6 +21,9 @@
  *     file     ledger path relative to the session workspace. Default `.dsh/taskboard.json`.
  *     maxTasks tasks that can still be acted on (open, active, paused, review, blocked).
  *              Default 200. Terminal rows (done, cancelled) do not count against it.
+ *              `0` is UNLIMITED (explicitly: no work-in-flight cap at all); a negative,
+ *              a string or a missing value keeps the 200 default, and `maxRows` still
+ *              bounds the file.
  *     maxRows  hard row limit for the ledger file itself. Default 1000; a create past it is
  *              refused with `board_rows_full`, and nothing is evicted.
  *     timelineLimit maximum timeline entries per task. Default 120.
@@ -513,11 +516,17 @@ function annotateAgents(board, staleAfterMs = STALE_AFTER_MS) {
   // would run a brief on a composition nobody chose (`legacy`). Two rows with one name and two
   // presets is the AUDIT split that never happened - the old ledger keyed on the label alone
   // and let the later write win silently (`conflict`).
+  //
+  // WHY THE CHAT IS PART OF THE KEY. A specialist session belongs to the chat that started
+  // it, so the same role in two chats is two rows - the normal shape, not a collision. The
+  // name collides only when ONE chat holds two rows for it; counting rows across the whole
+  // board would flag every per-chat role the moment a second chat delegated.
   const byLabel = new Map()
   for (const row of rows) {
     const label = normalizeAgentRole(row?.role)
     if (label === '') continue
-    byLabel.set(label, (byLabel.get(label) ?? 0) + 1)
+    const key = `${label}|${typeof row?.chatSessionId === 'string' ? row.chatSessionId : ''}`
+    byLabel.set(key, (byLabel.get(key) ?? 0) + 1)
   }
   return rows.map((agent) => {
     const lastTaskId = typeof agent.lastTaskId === 'string' ? agent.lastTaskId : ''
@@ -525,7 +534,7 @@ function annotateAgents(board, staleAfterMs = STALE_AFTER_MS) {
     const updated = Date.parse(String(agent.updatedAt ?? agent.createdAt ?? ''))
     const stale = Number.isNaN(updated) ? false : nowMs - updated > staleAfterMs
     const legacy = typeof agent.preset !== 'string' || agent.preset.trim() === ''
-    const conflict = (byLabel.get(normalizeAgentRole(agent.role)) ?? 0) > 1
+    const conflict = (byLabel.get(`${normalizeAgentRole(agent.role)}|${typeof agent.chatSessionId === 'string' ? agent.chatSessionId : ''}`) ?? 0) > 1
     return {
       ...agent,
       ...(orphan ? { orphan: true } : {}),
@@ -547,7 +556,15 @@ function createService(config, logger, hooks = {}) {
   const file = typeof config.file === 'string' && config.file !== '' ? config.file : '.dsh/taskboard.json'
   // `maxTasks` keeps its name and its default (200) but counts tasks that can still be
   // ACTED ON; `maxRows` bounds the file itself, which grows forever without it.
-  const maxTasks = Number.isSafeInteger(config.maxTasks) && config.maxTasks > 0 ? config.maxTasks : 200
+  //
+  // `0` is UNLIMITED, and it has to be spelled `0`: a workspace that does not want a cap on
+  // work in flight says so explicitly, while every other unusable value (a negative, a
+  // string, `null`, a missing key) still falls back to 200. A cap that a typo removes
+  // silently is the failure this distinction exists to prevent. The file guard `maxRows`
+  // stays either way - "no cap on work" is not "no cap on the file".
+  const maxTasks = config.maxTasks === 0
+    ? Number.POSITIVE_INFINITY
+    : (Number.isSafeInteger(config.maxTasks) && config.maxTasks > 0 ? config.maxTasks : 200)
   const maxRows = Number.isSafeInteger(config.maxRows) && config.maxRows > 0 ? config.maxRows : DEFAULT_MAX_ROWS
   const timelineLimit = Number.isSafeInteger(config.timelineLimit) && config.timelineLimit > 0 ? config.timelineLimit : 120
   const staleAfterMs = Number.isSafeInteger(config.staleAfterMs) && config.staleAfterMs > 0 ? config.staleAfterMs : STALE_AFTER_MS
@@ -816,14 +833,33 @@ function createService(config, logger, hooks = {}) {
         .map(summary)
     },
     /** Persistent specialists for one workspace, with stale/orphan flags. */
-    agents(cwd) {
-      return annotateAgents(readBoard(pathFor(cwd)), staleAfterMs)
+    /**
+     * The roster, optionally for one chat.
+     *
+     * A specialist session belongs to the chat that started it (`chatSessionId`), so a caller
+     * that is about to continue a role must read only its own chat's rows: another chat's
+     * sleeping child is unreachable (the subagent runtime delivers to direct children only).
+     * Omitting `chatId` keeps the whole-board read the panel and the catalog use.
+     */
+    agents(cwd, chatId) {
+      const rows = annotateAgents(readBoard(pathFor(cwd)), staleAfterMs)
+      if (typeof chatId !== 'string' || chatId === '') return rows
+      return rows.filter((agent) => (typeof agent.chatSessionId === 'string' ? agent.chatSessionId : '') === chatId)
     },
-    /** Find one persistent specialist by role (case-insensitive). */
-    findAgent(cwd, role) {
+    /**
+     * Find one persistent specialist by role (case-insensitive), scoped to a chat when given.
+     *
+     * With a `chatId`, only a row that records THAT chat matches: a workspace-global lookup
+     * used to hand a new chat another chat's sleeping child as a reuse target, and the row's
+     * preset then refused the new chat's own composition.
+     */
+    findAgent(cwd, role, chatId) {
       const wanted = typeof role === 'string' ? role.trim().toLowerCase() : ''
       if (wanted === '') return undefined
-      return annotateAgents(readBoard(pathFor(cwd)), staleAfterMs).find((agent) => agent.role.trim().toLowerCase() === wanted)
+      const rows = annotateAgents(readBoard(pathFor(cwd)), staleAfterMs)
+      const scoped = typeof chatId === 'string' && chatId !== ''
+      return rows.find((agent) => agent.role.trim().toLowerCase() === wanted
+        && (!scoped || (typeof agent.chatSessionId === 'string' ? agent.chatSessionId : '') === chatId))
     },
     /** Create or update a persistent specialist role and its child session. */
     registerAgent(cwd, input) {
@@ -839,16 +875,28 @@ function createService(config, logger, hooks = {}) {
       const force = input?.force === true
       return mutate(cwd, (board) => {
         const agents = Array.isArray(board.agents) ? board.agents : []
-        const existing = agents.find((agent) => normalizeAgentRole(agent.role) === normalizeAgentRole(role))
+        // ONE ROW PER (NAME, CHAT). A specialist session is a direct child of the chat that
+        // started it, so the chat is part of a role's identity, not a property of it: the same
+        // name in chat B is a DIFFERENT specialist with its own session, its own preset and its
+        // own history. Matching by label alone made the second chat collide with the first -
+        // `preset_conflict` for a composition the first chat had chosen, or a repointed row
+        // that made the first chat's child unreachable. A caller that passes no chat (older
+        // tooling) keeps the old whole-board match.
+        const sameChat = (agent) => (typeof agent.chatSessionId === 'string' ? agent.chatSessionId : '') === chatSessionId
+        const existing = chatSessionId === ''
+          ? agents.find((agent) => normalizeAgentRole(agent.role) === normalizeAgentRole(role))
+          : agents.find((agent) => normalizeAgentRole(agent.role) === normalizeAgentRole(role) && sameChat(agent))
         const time = now()
-        // A ROLE LABEL OWNS ONE TOOL SET. Reusing the label with another preset used to
-        // overwrite the recorded composition in place, so `AUDIT [reviewer]` became
-        // `AUDIT [critic]` between two delegations and the catalog showed one role where two
-        // specialties had been used - measured in ~/tasks/autolabel_pipeline (2026-11-11,
+        // A ROLE LABEL OWNS ONE TOOL SET - WITHIN ONE CHAT. Reusing the label with another
+        // preset used to overwrite the recorded composition in place, so `AUDIT [reviewer]`
+        // became `AUDIT [critic]` between two delegations and the catalog showed one role where
+        // two specialties had been used - measured in ~/tasks/autolabel_pipeline (2026-11-11,
         // revision 1906): a reviewer row and a critic row collapsed into `AUDIT [critic]`.
-        // The ledger keeps ONE row per label and refuses the switch; splitting the label
-        // (REVIEWER / CRITIC, or a genuinely new name) is the caller's decision, and `force`
-        // is the recorded exception for correcting a row that was wrong.
+        // The ledger keeps ONE row per label per chat and refuses the switch inside it;
+        // splitting the label (REVIEWER / CRITIC, or a genuinely new name) is the caller's
+        // decision, and `force` is the recorded exception for correcting a row that was wrong.
+        // Another chat's row for the same label never blocks this chat: that row is history
+        // here, and its preset is that chat's choice.
         const recorded = typeof existing?.preset === 'string' ? existing.preset.trim() : ''
         if (existing !== undefined && recorded !== '' && preset !== '' && recorded !== preset && !force) {
           return { value: { ok: false, code: 'preset_conflict', role: existing.role, recorded, requested: preset } }
@@ -870,10 +918,10 @@ function createService(config, logger, hooks = {}) {
             updatedAt: time,
           })
         } else {
-          // A role is durable, the agent behind it is not: a specialist session belongs
-          // to the chat that created it, so a later chat gets a NEW child and this row is
-          // repointed. Keeping the superseded ids in the history array is what makes that
-          // visible - silently overwriting the field is how the ledger used to claim a
+          // A role is durable, the agent behind it is not: a fresh child (another chat, or the
+          // same chat after a busy session) is a NEW session, and this row - the row of ITS
+          // chat - is repointed. Keeping the superseded ids in the history array is what makes
+          // that visible; silently overwriting the field is how the ledger used to claim a
           // persistence the subagent runtime refuses.
           if (existing.sessionId !== sessionId) {
             const history = Array.isArray(existing.history) ? existing.history : []
@@ -963,8 +1011,11 @@ function createService(config, logger, hooks = {}) {
         //   board_rows_full - the ledger file itself is at its row limit (a scale guard, so a
         //                     board cannot grow without bound); nothing is ever deleted or
         //                     rewritten to make room.
+        //   maxTasks: 0 is UNLIMITED, so the work-in-flight check is skipped entirely rather
+        //   than compared against Infinity: a ledger with 400 actionable rows must accept a
+        //   401st, and the row guard below is the only limit left.
         const active = board.tasks.filter((task) => ACTIVE_STATUSES.includes(displayStatus(task?.status))).length
-        if (active >= maxTasks) {
+        if (Number.isFinite(maxTasks) && active >= maxTasks) {
           return { value: { ok: false, code: 'board_full', active, cap: maxTasks, message: `${active} of ${maxTasks} tasks can still be acted on; close or cancel what is finished, or raise maxTasks` } }
         }
         if (board.tasks.length >= maxRows) {

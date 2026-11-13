@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "id": "preset-aware-mcp-tool-families-leave-the-header",
+  "title": "Preset-aware MCP tool families leave the header",
+  "requirement": "Each preset must receive only the MCP tool families its job needs, and the restriction must remove schemas from the derived request header rather than merely refusing calls: Playwright only for standard/orchestrator/ux, Godot only for standard and backend/ux/reviewer/critic inside a Godot workspace, research/docs no MCP family, and Hindsight never hidden.",
+  "kind": "scenario",
+  "status": "verified",
+  "source": "human",
+  "automated": false,
+  "reason": "The proof is a live request/header from a real DSH web server (headless and browser sessions), which needs a second server plus a model turn per preset; there is no test file that can encode it without reimplementing the harness's header derivation.",
+  "steps": [
+    "Boot a second 0.2.1 server on :3081 with the kit profile (tool-families row mounted) and, for the research case, a temporary overlay setting agent-preset-registry default to research.",
+    "Create a fresh session in the dsh-kit workspace and send one trivial prompt so a request is derived.",
+    "Read the session log ($DSH_HOME/sessions/<slug>/<id>/session.v4.jsonl.zstd, zstd -dc) and inspect request/header -> data.header.tools[].",
+    "Count families: mcp__playwright__*, mcp__godot__*, any other mcp__*, hindsight_*."
+  ],
+  "expected": "A fresh orchestrator session's request/header keeps mcp__playwright__* and carries no mcp__godot__* outside a Godot checkout; a fresh research session carries NO mcp__ family at all; both keep all 8 hindsight_* tools.",
+  "tags": [
+    "preset-context",
+    "mcp",
+    "tool-families",
+    "request-header",
+    "context-economy"
+  ],
+  "surfaceFiles": [],
+  "revision": 2,
+  "createdAt": "2026-11-13T11:10:50.188Z",
+  "updatedAt": "2026-11-13T11:10:54.517Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-13T11:10:54.517Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "Godot live-kept could not be shown on the probe server: the Godot AI bridge binds a port :3080 already holds (`ATTACH_START_FAILED`), so godot was absent from every header. The Godot half is proven by the decision proof over the real 107-tool header (backend/ux/reviewer/critic keep it only where project.godot exists; orchestrator/research/docs never), not by a live header. Playwright removal and hindsight retention ARE live header evidence. Second server stopped, probe sessions deleted; :3080 untouched."
+    }
+  ],
+  "evidence": {
+    "observation": {
+      "command": "second 0.2.1 server :3081 with the kit profile -> fresh session -> request/header (zstd -dc <session>/session.v4.jsonl.zstd)",
+      "output": "RED (before the fix, same server, preset research): tools 75 | playwright 24 | godot 0 | hindsight 8  -- policy did not apply\n   then diagnosed: `tool-families: cannot get property \"tools\" without inject` (default export lacked inject)\n   and: the in-chat preset picker applies to the NEXT chat, so a clicking 'Research' session ran as orchestrator\n\nGREEN (tool-families 0.1.4 mounted in the profile):\n  orchestrator session: tools 80 | write true | edit true | bash false | playwright 24 | godot 0 | hindsight 8\n     server log: tool-families[debug:created]: preset=orchestrator host=83 deny=30 -> applied 30 deny name(s)\n  research session    : tools 52 | playwright 0 | godot 0 | mcp-other 0 | hindsight 8\n  decision proof (scripts/tool-families-proof.mjs --from-session ...): 44/44",
+      "exitCode": 0,
+      "at": "2026-11-13T11:10:54.516Z"
+    },
+    "commit": null
+  },
+  "lastVerified": {
+    "at": "2026-11-13T11:10:54.516Z",
+    "command": "second 0.2.1 server :3081 with the kit profile -> fresh session -> request/header (zstd -dc <session>/session.v4.jsonl.zstd)",
+    "exitCode": 0
+  }
+}

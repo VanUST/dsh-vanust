@@ -345,15 +345,46 @@ export async function notifyHuman(options) {
 }
 
 /**
+ * Read this session's projection state through whichever registration contract the host has.
+ *
+ * dsh 0.2.1-rc.2's `sessionProjections.register` is synchronous and the state is read with
+ * `stateOf(session, key)`. dsh 0.2.2 returns a THENABLE registration whose awaited handle owns
+ * `stateOf(session)`, and it deprecates the pair form (it logs `… stateOf(session, "key") is
+ * deprecated; read handle.stateOf(session) from an awaited registration`). Both are supported
+ * here because the kit's pin and the migration target are different versions for a while:
+ *   - a thenable registration is awaited ONCE (the promise is cached by the caller), then
+ *     `handle.stateOf(session)` is used on every later step;
+ *   - a host without a thenable registration (0.2.1) keeps the legacy pair read.
+ * A rejected registration falls back to the legacy read instead of failing the turn: the
+ * reminder is a cost nudge, never a reason for a step to fail.
+ *
+ * @param ctx - Cordis context carrying `sessionProjections`.
+ * @param session - the agent's session.
+ * @param handlePromise - cached `Promise<handle>` from `register`, or undefined on 0.2.1.
+ * @returns Projection state, or undefined when the host has none yet.
+ */
+async function readState(ctx, session, handlePromise) {
+  if (handlePromise !== undefined) {
+    try {
+      const handle = await handlePromise
+      if (handle !== undefined && handle !== null && typeof handle.stateOf === 'function') return handle.stateOf(session)
+    } catch {
+      // Fall through to the legacy read; a failed registration must not mute the reminder.
+    }
+  }
+  return ctx.sessionProjections.stateOf(session, PROJECTION_KEY)
+}
+
+/**
  * Inspect one step. It may throw — the listener wraps it — but every failure it can
  * anticipate (missing session, missing projection state, aborted turn) is a silent no-op.
  */
-function inspectStep(ctx, payload, config, warnOnce) {
+async function inspectStep(ctx, payload, config, warnOnce, handlePromise) {
   if (!config.enabled) return
   if (payload?.signal?.aborted === true) return
   const session = payload?.agent?.session
   if (session === undefined || session === null) return
-  const state = ctx.sessionProjections.stateOf(session, PROJECTION_KEY)
+  const state = await readState(ctx, session, handlePromise)
   if (state === undefined || state === null) return
   const ordinal = state.steps + 1
   const threshold = decideThreshold(ordinal, state.fired, config.thresholds)
@@ -389,14 +420,21 @@ export function apply(ctx, config = {}) {
       // A logger that throws must not turn a warning into a turn failure.
     }
   }
+  // The registration is awaited by the READER (see readState), not here: `apply` may not be
+  // async on every host, and a handle that resolves late is still a handle. A thenable
+  // registration is the 0.2.2 contract; anything else keeps the legacy pair read.
+  let handlePromise
   try {
-    ctx.sessionProjections.register(budgetProjectionDefinition)
+    const registration = ctx.sessionProjections.register(budgetProjectionDefinition)
+    if (registration !== undefined && registration !== null && typeof registration.then === 'function') {
+      handlePromise = Promise.resolve(registration).catch(() => undefined)
+    }
   } catch (error) {
     warnOnce('register', `could not register the projection unit: ${error instanceof Error ? error.message : String(error)}`)
   }
   ctx.on('agent/pre-step', async (payload, next) => {
     try {
-      inspectStep(ctx, payload, resolved, warnOnce)
+      await inspectStep(ctx, payload, resolved, warnOnce, handlePromise)
     } catch (error) {
       warnOnce(`inspect:${error instanceof Error ? error.name : 'unknown'}`, `step inspection failed: ${error instanceof Error ? error.message : String(error)}`)
     }

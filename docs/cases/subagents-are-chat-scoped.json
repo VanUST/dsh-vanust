@@ -1,0 +1,126 @@
+{
+  "schemaVersion": 1,
+  "id": "subagents-are-chat-scoped",
+  "title": "Subagents are chat-scoped",
+  "requirement": "Новая сессия/чат не должна вызывать или переиспользовать sleeping subagent, созданного другой сессией; для каждой новой сессии роли получают новые контексты.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "human",
+  "automated": true,
+  "reason": "",
+  "steps": [
+    "Build the pre-fix copy of the two modules (drop the chat scope from findAgent/agents/registerAgent/renderRoleCatalog) and run the proof against it: exit 1, chat B messages chat A's child.",
+    "Run `node scripts/taskboard-chat-scope-proof.mjs` against the working tree: the real taskboard service and the real delegate_task body over a disposable board with chat A's sleeping BACKEND child.",
+    "Chat B delegates BACKEND: no sendMessage to child A, one startActivation on chat B, one roster row per (role, chat).",
+    "Repeat in B (reuse child B), then delegate in A: A reuses child A and delivers to CHILD_A.",
+    "Chat D delegates BACKEND with preset reviewer: no preset_conflict, its own row, A's row and history unchanged.",
+    "Read the policy catalog for B and A: the foreign session is under 'Roles from earlier chats' with the not-reusable sentence and the 'another chat' marker; the unscoped roster still lists three BACKEND rows for the panel.",
+    "Settle the children and run a second harness over the same ledger (restart): both chats reuse their own sleeping child and no identity is rewritten."
+  ],
+  "expected": "Chat B creates its own child and never messages chat A's; a repeat delegation in A reuses only child A even after B delegated; the same role with another preset in a new chat is accepted with its own ledger row and A's history kept; the policy catalog lists a foreign session as history, not as reusable; a restart answers from the ledger with no identity rewritten.",
+  "tags": [
+    "subagents",
+    "chat-scope",
+    "sessions",
+    "reuse",
+    "proof"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/orchestrator/orchestrator.mjs",
+      "sha256": "0c2dfedf5ea3c413038d9822dd3fa2b5263d84eac6bde9d540ba85a16b7e88a5"
+    },
+    {
+      "path": "plugins/taskboard/taskboard.mjs",
+      "sha256": "6ca1864c9dfc986cbc191f9d014d9238178b21c3def77b1463aac3043e07fd05"
+    },
+    {
+      "path": "scripts/taskboard-chat-scope-proof.mjs",
+      "sha256": "9ad26ee511b743302fa0ac704712fb326ab79f53f459143c0810152bcef25d65"
+    }
+  ],
+  "linkedTaskId": "task-mwevdsqs-y4o6d6",
+  "revision": 6,
+  "createdAt": "2026-11-13T11:04:50.570Z",
+  "updatedAt": "2026-11-13T11:35:47.400Z",
+  "createdBy": "orchestrator",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-13T11:04:50.570Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "Subagents are chat-scoped",
+        "requirement": "Новая сессия/чат не должна вызывать или переиспользовать sleeping subagent, созданного другой сессией; для каждой новой сессии роли получают новые контексты.",
+        "expected": "Chat B с той же ролью создаёт новый child и не отправляет сообщение child из chat A; повторная delegation в chat A переиспользует только child A, а история старой роли сохраняется.",
+        "steps": [
+          "В chat A делегировать роль BACKEND и получить child A; дать ему settle.",
+          "В новом chat B делегировать ту же роль; проверить новый child B и отсутствие sendMessage к child A.",
+          "Повторить delegation в A и B; каждая сессия должна переиспользовать только своего child, ledger-history сохранена."
+        ],
+        "automated": false,
+        "reason": "Требование получено до реализации; нужен двухсессионный proof, который появится после изменения.",
+        "status": "unverified"
+      }
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-13T11:34:45.380Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "Red first: the SAME command run from a copy of the kit at /tmp/pre-kit with only the chat-scope expressions reverted in plugins/orchestrator/orchestrator.mjs and plugins/taskboard/taskboard.mjs (workspace-global findAgent/agents, one global row per label, chat-less catalog) exited 1 with 9/26; the shared working tree was never reverted. The failing lines are the acceptance defects: chat B sent {\"from\":\"session-chat-b\",\"to\":\"child-chat-a-backend\"}, the result reported the role as re-created with a \"not a child\" note, chat A's row was repointed to B's child, and the different-preset call threw preset_conflict."
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-13T11:35:10.721Z",
+      "editedBy": "agent",
+      "action": "stale",
+      "reason": "surface files changed since lastVerified: plugins/orchestrator/orchestrator.mjs"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-13T11:35:25.348Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "Re-verified after the final marker refinement (a row with no recorded owner is history but is NOT labelled \"another chat\"). Red first unchanged and re-observed with the same command from /tmp/pre-kit (only the chat-scope expressions reverted): 9/26, exit 1 - chat B messaged child-chat-a-backend, A's row was repointed to B's child, and the different-preset call threw preset_conflict. Live green needs the next boot: the installed profile still runs @cc/dsh-orchestrator 0.1.36 / @cc/dsh-taskboard 0.1.53 in memory, while the kit now holds 0.1.38 / 0.1.54 and `kit-update --check` plans install-plugins."
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-13T11:35:47.400Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "Final green after the header-comment edit (the module now states the chat-scoped resolution instead of the old \"re-created because the runtime refused\" wording) and the 0.1.39 repack. Red-first unchanged: the same command from /tmp/pre-kit with only the chat-scope expressions reverted, 9/26, exit 1. Live green needs the next boot: the installed profile still runs @cc/dsh-orchestrator 0.1.36 / @cc/dsh-taskboard 0.1.53 in memory; `kit-update --check` plans install-plugins for 0.1.39 / 0.1.54 on the next launch."
+    }
+  ],
+  "evidence": {
+    "redFirst": {
+      "command": "node scripts/taskboard-chat-scope-proof.mjs",
+      "output": "FAIL  chat B never messages chat A's child  [{\"from\":\"session-chat-b\",\"to\":\"child-chat-a-backend\"}]\nFAIL  the result does not report a dead role  {\"roleRecreated\":true,\"roleNote\":\"session \\\"child-chat-a-backend\\\" is not a child of \\\"session-chat-b\\\"\"}\nFAIL  the ledger keeps one row per (role, chat)  {\"a\":\"child-1\",\"b\":\"child-1\"}\nFAIL  chat A reuses chat A's child after B delegated  {\"childId\":\"child-2\",\"reused\":false}\nFAIL  A's reuse delivers to its own session\nFAIL  A's reuse starts no child  {\"started\":1}\nFAIL  A's row still records A's session and preset\nFAIL  a new chat may use the same role with another preset  {\"ok\":false,\"code\":\"threw\",\"message\":\"delegate_task: role \\\"BACKEND\\\" is already the [backend] role in this workspace, and a role label keeps one tool set. ...\"}\nFAIL  the old chat's role history is preserved\nFAIL  the new preset is recorded as its own row  {\"sessionId\":\"child-2\",\"preset\":\"backend\"}\nFAIL  chat B's reusable section holds only its own session  {\"mineLinesB\":[]}\nFAIL  chat A's catalog keeps B's and D's roles as history\nFAIL  the unscoped roster still exposes workspace history to the panel  [\"session-chat-a\"]\nFAIL  after a restart chat A still reuses its sleeping child  {\"childId\":\"child-2\",\"reused\":true}\nFAIL  after a restart chat B still reuses its own child  {\"childId\":\"child-3\",\"reused\":false}\nFAIL  a restart starts no extra child\nFAIL  the restart read the ledger instead of rewriting identities\n\n9/26 checks passed",
+      "exitCode": 1,
+      "at": "2026-11-13T11:38:00.000Z"
+    },
+    "green": {
+      "command": "node scripts/taskboard-chat-scope-proof.mjs",
+      "output": "PASS  chat B never messages chat A's child  []\nPASS  chat B creates its own child  {\"childId\":\"child-1\",\"reused\":false}\nPASS  chat B starts exactly one child on its own preset  [{\"childId\":\"child-1\",\"parentId\":\"session-chat-b\",\"preset\":\"backend\"}]\nPASS  the result does not report a dead role  {}\nPASS  the ledger keeps one row per (role, chat)  {\"a\":\"child-chat-a-backend\",\"b\":\"child-1\"}\nPASS  a repeat delegation in B reuses B's child  {\"reused\":true,\"to\":\"child-1\"}\nPASS  B's second delegation starts no child  {\"started\":0}\nPASS  chat A reuses chat A's child after B delegated  {\"childId\":\"child-chat-a-backend\",\"reused\":true}\nPASS  chat A's reuse delivers to its own session\nPASS  A's reuse starts no child  {\"started\":0}\nPASS  A's row still records A's session and preset\nPASS  a new chat may use the same role with another preset  {}\nPASS  the old chat's role history is preserved\nPASS  the new preset is recorded as its own row  {\"sessionId\":\"child-2\",\"preset\":\"reviewer\"}\nPASS  two chats on one role are not a name collision  {}\nPASS  chat B's catalog lists chat A's role under earlier chats\nPASS  chat B's catalog says a foreign session is not reusable\nPASS  chat B's reusable section holds only its own session  {\"mineLinesB\":[\"- BACKEND [backend] - 2 tasks, sleeping\"]}\nPASS  chat A's catalog lists its own role as reusable  {\"mineLinesA\":[\"- BACKEND [backend] - 4 tasks, active, generation 2\"]}\nPASS  chat A's catalog keeps B's and D's roles as history\nPASS  a legacy row is history in every chat\nPASS  the unscoped roster still exposes workspace history to the panel  [\"session-chat-a\",\"session-chat-b\",\"session-chat-d\"]\nPASS  after a restart chat A still reuses its sleeping child  {\"childId\":\"child-chat-a-backend\",\"reused\":true}\nPASS  after a restart chat B still reuses its own child  {\"childId\":\"child-1\",\"reused\":true}\nPASS  a restart starts no extra child\nPASS  the restart read the ledger instead of rewriting identities\n\n26/26 checks passed",
+      "exitCode": 0,
+      "at": "2026-11-13T11:44:00.000Z"
+    },
+    "commit": null
+  },
+  "testPath": "scripts/taskboard-chat-scope-proof.mjs",
+  "runCommand": "node scripts/taskboard-chat-scope-proof.mjs",
+  "lastVerified": {
+    "at": "2026-11-13T11:44:00.000Z",
+    "command": "node scripts/taskboard-chat-scope-proof.mjs",
+    "exitCode": 0
+  },
+  "degraded": false,
+  "needsReverification": {
+    "at": "2026-11-13T11:35:10.721Z",
+    "changedFiles": [
+      "plugins/orchestrator/orchestrator.mjs"
+    ],
+    "reason": "surface files changed since lastVerified: plugins/orchestrator/orchestrator.mjs"
+  }
+}

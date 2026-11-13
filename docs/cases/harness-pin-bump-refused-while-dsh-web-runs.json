@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "id": "harness-pin-bump-refused-while-dsh-web-runs",
+  "title": "Harness pin bump refused while dsh web runs",
+  "requirement": "The kit must never replace the globally installed harness while a `dsh web` server is running: the live process keeps the composition it composed at boot while serving the new files, so the browser fails with \"Failed to load plugins\". A pin bump in that state is refused and reported, not applied.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": false,
+  "reason": "The check needs a real running `dsh web` process and a pin that differs from the installed harness; automating it would either install a different harness on the machine or require stubbing the process table and npm install, and a stubbed install would not prove the refusal (the whole point is that no install happens).",
+  "steps": [
+    "Keep a `dsh web` server running (here :3080, pid 413264).",
+    "Create /tmp/kitguard/install.sh declaring a different DSH_VERSION pin (0.2.2-rc.4-guardproof) and a scratch home /tmp/guard-home.",
+    "Run: node scripts/kit-update.mjs --kit /tmp/kitguard --home /tmp/guard-home --apply --no-tools",
+    "Read the `harness.state` log line and confirm it is action=blocked with reason=web-server-running and the running pids."
+  ],
+  "expected": "`kit-update --apply` with a pin that differs from the installed version exits 0, prints `harness.state action=blocked ... reason=web-server-running pids=...` and installs nothing; no npm install -g runs.",
+  "tags": [
+    "deployment",
+    "harness-upgrade",
+    "client-plugins"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "scripts/kit-update.mjs",
+      "sha256": "75b1c6551670ff549928ee268c10ba9e11aa5cdbac1a7705d4aaa80eda656cd7"
+    },
+    {
+      "path": "rules/DEPLOYMENT.md",
+      "sha256": "a12a1eb2ed3cd33b3a72ab1181f4b67ae3081f6eec51901062c6de2a6f2b4b03"
+    }
+  ],
+  "linkedTaskId": "task-mwevuviy-m3ygjp",
+  "revision": 2,
+  "createdAt": "2026-11-13T11:27:11.436Z",
+  "updatedAt": "2026-11-13T11:27:14.504Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-13T11:27:14.504Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "Observed on this machine: the guard detected both the live :3080 server (413264) and the probe :3081 (422866) and installed nothing."
+    }
+  ],
+  "evidence": {
+    "observation": {
+      "command": "node scripts/kit-update.mjs --kit /tmp/kitguard --home /tmp/guard-home --apply --no-tools",
+      "output": "harness.installed have=0.2.2-rc.3 pin=0.2.2-rc.4-guardproof\nkit.drift reason=harness-only actions=install-harness\nwarn: harness 0.2.2-rc.3 -> 0.2.2-rc.4-guardproof not installed: dsh web is running (pid 413264, 422866)\nwarn:   a harness replaced under a live server keeps that server's OLD composition while serving the NEW client bundles, so the next page load fails with \"Failed to load plugins\"\nwarn:   stop the web server, then re-run this convergence; the next launch installs the pin and composes the new rows\nharness.state action=blocked have=0.2.2-rc.3 want=0.2.2-rc.4-guardproof reason=web-server-running pids=413264,422866",
+      "exitCode": 0,
+      "at": "2026-11-13T11:27:14.502Z"
+    },
+    "commit": null
+  },
+  "lastVerified": {
+    "at": "2026-11-13T11:27:14.502Z",
+    "command": "node scripts/kit-update.mjs --kit /tmp/kitguard --home /tmp/guard-home --apply --no-tools",
+    "exitCode": 0
+  }
+}

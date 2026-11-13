@@ -518,10 +518,43 @@ function installedHarnessVersion() {
 }
 
 /**
+ * PIDs of `dsh web` servers running on this machine, or null where the platform
+ * gives no way to ask. A harness replaced under a running server is the one
+ * upgrade that cannot be finished by the next boot: the live process keeps the
+ * composition it composed at boot (its Loader rows are in memory) while every
+ * file it serves and every `dsh.client` manifest it reads are the new ones. The
+ * browser then loads the new client packages, which inject services only the
+ * new rows provide (`contextMenus`, `fileDrag` in 0.2.2-rc.3), and boot dies
+ * with "Failed to load plugins / N required entries did not activate" until the
+ * server is restarted. Measured 2026-11-13 on this machine: a 0.2.1-rc.2
+ * process served a 0.2.2-rc.3 tree, sidebar and chat stayed pending and the
+ * whole client UI chain with them.
+ */
+function runningWebServers() {
+  if (process.platform !== 'linux') return null
+  const pids = []
+  for (const entry of readdirSync('/proc')) {
+    if (!/^\d+$/.test(entry)) continue
+    let cmdline
+    try { cmdline = readFileSync(`/proc/${entry}/cmdline`, 'utf8') } catch { continue }
+    const args = cmdline.split('\0').filter(Boolean)
+    const entryPoint = args.find((arg) => /(^|\/)bin\.js$/.test(arg) || /(^|\/)dsh$/.test(arg))
+    if (entryPoint !== undefined && args.includes('web')) pids.push(Number(entry))
+  }
+  return pids
+}
+
+/**
  * Install or repair the globally pinned harness when the machine's version
  * differs from the kit's `install.ps1`/`install.sh` pin. Both installers carry
  * the same literal, which is read here so a pin bump in the kit propagates
  * without editing this script.
+ *
+ * A pin bump is refused while a `dsh web` server runs: swapping the tree under
+ * a live server cannot be completed by any later step of this convergence (the
+ * composition it serves was fixed at boot), so doing it here would only replace
+ * a machine that says "restart required" with a browser that cannot load its
+ * plugins. The refusal leaves the state untouched and names the restart.
  */
 function convergeHarness({ want, enabled }) {
   if (!enabled) return { action: 'skipped' }
@@ -530,6 +563,13 @@ function convergeHarness({ want, enabled }) {
   if (!want) {
     warn('the kit declares no harness pin; leaving the installed harness alone')
     return { action: 'skipped', have, want }
+  }
+  const servers = runningWebServers()
+  if (servers !== null && servers.length > 0) {
+    warn(`harness ${have ?? 'absent'} -> ${want} not installed: dsh web is running (pid ${servers.join(', ')})`)
+    warn('  a harness replaced under a live server keeps that server\'s OLD composition while serving the NEW client bundles, so the next page load fails with "Failed to load plugins"')
+    warn('  stop the web server, then re-run this convergence; the next launch installs the pin and composes the new rows')
+    return { action: 'blocked', have, want, reason: 'web-server-running', pids: servers }
   }
   log('harness.installing', { want, have: have ?? 'absent' })
   const ok = runToolVisible('npm', ['install', '-g', '--no-audit', '--no-fund', `@deepseek-ai/dsh@${want}`])
@@ -590,6 +630,40 @@ function verifyInstalledBytes({ items, home, profile }) {
 /** Where the machine records what it last converged to. */
 function statePath(home) {
   return join(home, '.dsh-kit-state.json')
+}
+
+/**
+ * Ask the Hindsight subagent-tool patch script where the installed plugin stands.
+ *
+ * PURPOSE
+ *   Convergence, not a manual step. `@vectorize-io/hindsight-coding-agents` hands its
+ *   `hindsight_*` tool bodies the same subagent-excluding resolver its lifecycle hooks
+ *   use, so a delegated child that calls one gets "Hindsight memory is disabled for this
+ *   workspace." even with a live bank. No released version fixes it and no config key
+ *   separates the tool path from the hook path, so the kit ships a one-line patch
+ *   (scripts/hindsight-subagent-tools.mjs) and re-applies it after every reinstall.
+ * INPUTS
+ *   kit - kit root; the patch script lives in <kit>/scripts.
+ * OUTPUTS
+ *   The patch script's JSON report, or { state: 'script-missing' | 'error' }.
+ *   'unpatched' is a decision for the caller to act on, never a failure.
+ * KEYWORDS
+ *   hindsight, subagent, patch, idempotent, convergence
+ *
+ * Exit 3 is the script's "unpatched" answer, so this cannot go through `run()`: that
+ * helper turns every non-zero exit into null and would report a patchable machine as
+ * one the kit could not read.
+ */
+function inspectHindsightTools(kit, mode = '--check') {
+  const script = join(kit, 'scripts', 'hindsight-subagent-tools.mjs')
+  if (!existsSync(script)) return { state: 'script-missing', script }
+  const result = spawnSync(process.execPath, [script, mode, '--json'], { cwd: kit, encoding: 'utf8' })
+  try {
+    return JSON.parse((result.stdout ?? '').trim())
+  } catch {
+    const detail = (result.stderr || result.stdout || '').trim().split('\n').filter(Boolean).slice(-1)[0]
+    return { state: 'error', detail: detail ?? 'no output' }
+  }
 }
 
 /** Build the state record written after a successful apply. */
@@ -681,6 +755,14 @@ function main(argv) {
   }
   log('harness.installed', { have: installedHarness ?? 'absent', pin: harnessPin ?? 'none' })
 
+  // The Hindsight plugin lives OUTSIDE the profile (a file: row in the home patch layer,
+  // installed by its own installer), so its state is not part of the profile hashes. It is
+  // still kit state: a reinstall of the plugin reverts the patch, and a child agent silently
+  // loses every hindsight_* tool until the next boot converges it. Reported on every run.
+  const hindsight = inspectHindsightTools(kit)
+  if (hindsight.state === 'unpatched') plan.push({ action: 'patch-hindsight-tools', items: [hindsight.path] })
+  log('hindsight.tools', { state: hindsight.state ?? 'unknown', sha256: hindsight.sha256 ?? 'none' })
+
   if (!drift && plan.length === 0) {
     log('kit.current', { state: statePath(home) })
     // An apply that finds nothing to do still records the head it verified, or the
@@ -722,6 +804,19 @@ function main(argv) {
   log('files.installed', { items: writtenFiles })
   if (drift?.rules || items.rules.every((i) => i.hash)) applied.push('write-rules')
 
+  // The Hindsight patch is re-applied on every apply, not only when the pre-check said
+  // 'unpatched': the two runs are milliseconds apart and a plugin reinstall in between is
+  // unlikely, but "patched because we checked" is what makes the state record honest.
+  if (hindsight.state !== 'absent' && hindsight.state !== 'script-missing') {
+    const patched = inspectHindsightTools(kit, '--apply')
+    if (patched.state === 'patched') {
+      applied.push('patch-hindsight-tools')
+      log('hindsight.patched', { path: patched.path, sha256: patched.sha256 })
+    } else {
+      warn(`Hindsight subagent-tool patch did not apply (state: ${patched.state ?? patched.error ?? 'unknown'}); hindsight_* tools stay unavailable to subagents`)
+    }
+  }
+
   const stalePkgs = new Set()
   for (const id of drift?.plugins ?? []) {
     const item = items.plugins.find((p) => p.id === id)
@@ -751,7 +846,7 @@ function main(argv) {
   }
 
   const harnessResult = convergeHarness({ want: harnessPin, enabled: opts.harness })
-  if (harnessResult.action !== 'skipped' && harnessResult.action !== 'already-current') applied.push('install-harness')
+  if (harnessResult.action === 'installed') applied.push('install-harness')
   log('harness.state', harnessResult)
 
   // Provision the optional external binaries the features degrade without. Same shape as

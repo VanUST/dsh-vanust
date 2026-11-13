@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "id": "hindsight-works-in-subagents",
+  "title": "Hindsight works in subagents",
+  "requirement": "При сокращении tool surface по пресетам Hindsight должен оставаться доступным и реально работать у субагентов, а не только у root Agent.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "human",
+  "automated": false,
+  "reason": "Это новое требование владельца до реализации; наблюдаемого результата и существующего проверочного сценария пока нет.",
+  "steps": [
+    "Запустить субагента в workspace с включённым Hindsight.",
+    "Вызвать доступный Hindsight read/search tool от имени субагента.",
+    "Проверить, что возвращены данные текущего workspace, а не отказ 'Hindsight memory is disabled for this workspace'."
+  ],
+  "expected": "Субагент видит предусмотренные Hindsight tools и вызов возвращает результат из bank текущего workspace, а не сообщение о disabled workspace.",
+  "tags": [
+    "hindsight",
+    "subagents",
+    "preset-context"
+  ],
+  "surfaceFiles": [],
+  "linkedTaskId": "task-mwesykjl-raw3t1",
+  "revision": 2,
+  "createdAt": "2026-11-13T09:57:07.072Z",
+  "updatedAt": "2026-11-13T10:26:40.851Z",
+  "createdBy": "orchestrator",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-13T10:26:40.851Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "Root cause fixed at the source: the plugin's TOOL bodies used the same subagent-excluding resolver its lifecycle hooks use. One line changed (workspaceForAgent -> workspaceFor(workspaceRoot(...))) inside scripts/hindsight-subagent-tools.mjs, applied idempotently and re-applied by `scripts/kit-update.mjs --apply` (action `patch-hindsight-tools`); the hooks stay root-only, so automatic recall/write-back is not duplicated. Verified: probe red (48 chars, \"disabled\") before, green (9414 chars of real bank pages) after; also confirmed live red from this subagent session before the patch and root-origin still works. NOT yet observed live-green: the running :3080 process holds the old module in memory, so a real child on that server turns green only after its next boot. Upstream main (0.8.7 is latest) still has the guard, so this is a pinned local patch until an upstream fix ships."
+    }
+  ],
+  "evidence": {
+    "observation": {
+      "command": "node scripts/hindsight-subagent-tools.mjs --probe --cwd /home/iustimov/dsh-kit",
+      "output": "registered: 8 tool(s)\nprobe: hindsight_list_pages as a subagent returned 9414 char(s): {   \"items\": [     {       \"id\": \"kp-054b6f78bb304547846e734f197734be\",       \"name\": \"Component map\",       \"description\": \"From this project's commit history ...\nprobe: OK — the subagent read its own workspace bank\n\nsame command after `--revert` (unpatched plugin):\nregistered: 8 tool(s)\nprobe: hindsight_list_pages as a subagent returned 48 char(s): Hindsight memory is disabled for this workspace.\nprobe: FAILED — a subagent still gets the disabled answer\nexit=1\n\nlive observation on the running :3080 (this session IS a subagent, old module in memory):\nhindsight_search_pages(\"preset context budgeting\") -> \"Hindsight memory is disabled for this workspace.\"",
+      "exitCode": 0,
+      "at": "2026-11-13T10:26:40.850Z"
+    },
+    "commit": null
+  },
+  "lastVerified": {
+    "at": "2026-11-13T10:26:40.850Z",
+    "command": "node scripts/hindsight-subagent-tools.mjs --probe --cwd /home/iustimov/dsh-kit",
+    "exitCode": 0
+  }
+}

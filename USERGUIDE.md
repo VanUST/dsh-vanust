@@ -1,7 +1,7 @@
 # USERGUIDE.md — setting up and starting the harness on a new machine
 
 This kit installs **DeepSeek Harness (dsh)** on any of your machines (2× Linux,
-1× Windows) plus the **21** plugins this deployment adds beyond upstream:
+1× Windows) plus the **22** plugins this deployment adds beyond upstream:
 **`@cc/dsh-notify`** (raises a desktop notification — `notify-send`, a PowerShell toast or
 `osascript` — when an agent finishes a turn and when it asks you a question; silence it with
 `DSH_NOTIFY_DISABLED=1` in the server's environment),
@@ -24,7 +24,9 @@ ruling, literature review, and the 2026-11-09 UX/UI testing set: canvas bridge, 
 tests, visual goldens, a11y/keyboard audit, Maestro flows, run observability),
 **`@cc/dsh-flash-guard`** (rewrites or refuses a delegated child's model route unless it is
 the configured flash route),
-**`@cc/dsh-proof-guard`** (denies a test-file write without a `PROOF:` header),
+**`@cc/dsh-tool-families`** (per-preset MCP/tool families: a family leaves the request
+header instead of staying in it unused), **`@cc/dsh-proof-guard`** (denies a test-file write
+without a `PROOF:` header),
 **`@cc/dsh-taskboard`** (the task ledger and the Tasks panel that replaces the subagent
 catalog; `@cc/dsh-client-ui-subagent` is disabled so the header has one cell),
 **`@cc/dsh-orchestrator`** (root and child policy sections plus the root-only
@@ -91,8 +93,9 @@ child is reused across tasks and shows active/sleeping/paused state. The ledger 
 | `.dsh/taskboard.json` (task ledger) | any agent, in its own chat; another chat's row is refused `other_chat` | the whole board, in the Tasks panel |
 
 **Roles are presets, and a new chat starts as Orchestrator.** It designs the system, runs the
-taskboard and delegates; it has no shell and no `write`/`edit` tool, so it cannot implement
-anything itself. When work needs code, research, review or docs it delegates to a child that
+taskboard and delegates; it has **no shell**, so it cannot build, test or run anything, but it
+does have `write`/`edit` and makes small, self-evident changes itself. Anything whose proof is a
+command's output (build, test, lint, migration, scan) still goes to a child with a shell. When work needs code, research, review or docs it delegates to a child that
 has that role's persona and tools — UX/UI, Backend, Research, Reviewer, Critic, Docs — chosen
 from the preset picker in a new session. **Critic** is the adversary: give it the algorithm or
 service and it tries to break it — realistic non-trivial inputs, boundaries, out-of-order
@@ -151,7 +154,7 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 
 The installer does four things (idempotent; re-running upgrades to the pin):
 1. checks Node ≥ 24,
-2. `npm i -g @deepseek-ai/dsh@0.2.1-rc.2` (exact pin),
+2. `npm i -g @deepseek-ai/dsh@0.2.2-rc.3` (exact pin),
 3. writes `$DSH_HOME/profiles/web/{package.json,cordis.patch.yml,pnpm-workspace.yaml}`
    from the kit's canonical copies and installs every `plugins/*.tgz` into the
    profile,

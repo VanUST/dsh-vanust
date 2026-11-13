@@ -102,10 +102,10 @@ const PINS = {
   octocode: '0.29.2',
   // Code-search adoption hooks: the real Claude Code hooks bridge the pack mounts for
   // Serena activate/remind/cleanup, plus the wire-protocol package it imports. The bridge is
-  // NOT part of the installed harness tree on 0.2.1-rc.2 (its profile symlinks dangle), so the
+  // NOT part of the installed harness tree on 0.2.2-rc.3 (its profile symlinks dangle), so the
   // kit installs both into .tools and links the harness peers itself.
-  hooksClaudeCode: '0.2.1-rc.2',
-  hookProtocol: '0.2.1-rc.2',
+  hooksClaudeCode: '0.2.2-rc.3',
+  hookProtocol: '0.2.2-rc.3',
 }
 
 /** The OS token these release projects publish (`windows`, `darwin`, `linux`). */
@@ -688,7 +688,7 @@ function installNpmPrefix(directory) {
  *
  * WHY THIS EXISTS. `@deepseek-ai/dsh-hooks-claude-code` declares the harness packages it
  * imports as PEER dependencies, and npm does not install peers. On the installed harness
- * 0.2.1-rc.2 the profile's `@deepseek-ai/*` entries are dangling symlinks into a node_modules
+ * 0.2.2-rc.3 the profile's `@deepseek-ai/*` entries are dangling symlinks into a node_modules
  * tree that does not contain them, so a bare `npm install` of the bridge leaves
  * `Cannot find package '@deepseek-ai/dsh-hook-protocol'`. The kit therefore links the real
  * packages, resolved from the harness that is actually installed, next to the bridge.

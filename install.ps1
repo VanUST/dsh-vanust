@@ -17,7 +17,7 @@
 $ErrorActionPreference = 'Stop'
 
 $KIT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
-$DSH_VERSION = '0.2.1-rc.2'
+$DSH_VERSION = '0.2.2-rc.3'
 $PNPM_VERSION = '11.7.0'
 $DSH_HOME = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $env:USERPROFILE '.npm\dsh' }
 
