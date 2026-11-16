@@ -75,7 +75,8 @@
       name: '@cc/dsh-diagrams'
 
 # ── designmap: semantic YAML model → deterministic ELK scene → panel ───────
-# Replaces the 0.2.0 Excalidraw panel (its row is disabled at the end of this block).
+# The single design map. The 0.2.0 Excalidraw plugin was removed in this release; the
+# React Flow view below is the shipped renderer.
 # The model is two small YAML files (`designmap/model.yaml` for nodes/edges/groups,
 # `designmap/views.yaml` for views); ELK layered layout with groups and fixed-side
 # ports produces a deterministic scene JSON per view under `designmap/out/`. The agent
@@ -92,30 +93,6 @@
         dir: designmap
         presets:
           - orchestrator
-
-# ── design-map (0.2.0): retired, kept on disk for rollback ─────────────────
-# One Excalidraw map the agent and the human both edit
-# One `design.excalidraw` at the project root. The agent writes nodes/edges/layers with
-# the `design_map` tool; a node's kind picks the shape (rectangle/ellipse/diamond/dashed
-# rectangle), `layer` puts it in a titled band, an edge label rides the arrow and `title`
-# labels the map. The human opens Design map in the sidebar and edits the same scene in
-# the real MIT Excalidraw editor (vendored frame, no CDN): every label is a bound text.
-# The panel reads through workspaceFiles and saves through `/design-map`, so the file the
-# human sees in the Files panel is the file the agent read. Every result carries a text
-# `preview` of the real geometry and a `health` verdict, which is how the orchestrator
-# sees a broken map and repairs it with `layout`; a read reports rev/updatedAt/stale.
-- insert:
-    - id: design-map
-      name: '@cc/dsh-design-map'
-      config:
-        file: design.excalidraw
-
-# Retirement (M4), READY BUT NOT APPLIED: once the human has booted with both panels and
-# accepted the new one in :3080, retire the Excalidraw panel by uncommenting this row
-# (source, tarball and inventory row then serve only as rollback):
-# - id: design-map
-#   name: '@cc/dsh-design-map'
-#   disabled: true
 
 # ── test-cases: observed test cases persisted in docs/cases/ ────────────────
 # Eight schema-enforced host tools over a repo-tracked library: case_record,

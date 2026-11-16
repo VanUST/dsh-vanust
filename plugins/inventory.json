@@ -147,16 +147,6 @@
       "mounted": true
     },
     {
-      "id": "design-map",
-      "package": "@cc/dsh-design-map",
-      "tarballPrefix": "cc-dsh-design-map",
-      "provenance": "in-repo",
-      "source": "plugins/design-map",
-      "pack": "scripts/pack-plugin.mjs",
-      "mounted": true,
-      "note": "superseded by @cc/dsh-designmap (M4); source/tarball kept, loader row RETIRE-READY but not disabled until the new panel is accepted in :3080"
-    },
-    {
       "id": "project-rules",
       "package": "@cc/dsh-project-rules",
       "tarballPrefix": "cc-dsh-project-rules",
@@ -218,7 +208,7 @@
       "source": "plugins/designmap",
       "pack": "scripts/pack-plugin.mjs",
       "mounted": true,
-      "note": "M4 package, installed and ACTIVE in the live web profile (verified 2026-11-16 with 0.1.4). Two fixes made it bootable: the package entry is now dist/index.mjs (it used to point exports[\".\"] at the src/index.mjs library, which has no apply(), so the loader row never activated and reported 'failed to import'), and the host half ships pre-bundled so installing the tarball needs no npm registry - with real dependencies the kit boot spent 1m22s in pnpm retries per launch and could wipe the profile's plugin set on failure"
+      "note": "the only design map"
     }
   ]
 }
