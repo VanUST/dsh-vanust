@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-designmap",
-  "version": "0.1.4",
+  "version": "0.1.7",
   "description": "designmap: semantic YAML model, deterministic ELK layered layout with groups and ports, overlay merge with GC, lint, scene JSON per docs/designmap/SCENE-CONTRACT.md, plus the read-only @xyflow/react Web panel client bundle. The host half ships pre-bundled (zod, yaml, elkjs inlined) so installing the tarball needs no registry: the kit boot must never depend on one.",
   "type": "module",
   "main": "dist/index.mjs",

@@ -46,6 +46,39 @@ function firstSession(workspaces, sessionsById) {
   return candidates[0] === undefined ? null : sessionIdsOf(candidates[0])[0] ?? null
 }
 
+/**
+ * The panel must never fail silently. A thrown render used to leave the shell with a
+ * blank area and no message anywhere, which is indistinguishable from "no panel".
+ * This boundary shows the error in place and logs it, so a broken scene or a host
+ * mismatch is diagnosable from the page itself.
+ */
+class PanelBoundary extends React.Component {
+  constructor(props) {
+    super(props)
+    this.state = { error: null }
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error }
+  }
+
+  componentDidCatch(error, info) {
+    console.error('[designmap] panel render failed:', error, info?.componentStack ?? '')
+  }
+
+  render() {
+    if (this.state.error === null) return this.props.children
+    const message = String(this.state.error?.message ?? this.state.error)
+    return React.createElement(
+      'div',
+      { className: 'dmv', role: 'alert', 'data-designmap-error': 'true', style: { padding: 16, gap: 8 } },
+      React.createElement('h1', { className: 'dmv-title' }, 'Design map panel failed'),
+      React.createElement('p', null, 'The scene could not be drawn. The error is below and in the browser console.'),
+      React.createElement('pre', { style: { margin: 0, whiteSpace: 'pre-wrap', overflow: 'auto', font: '12px/1.5 ui-monospace, monospace' } }, message),
+    )
+  }
+}
+
 /** The panel mounted by the `main` slot: resolves the current session, then adapts remote. */
 function LivePanel({ remote, useSessions, useWorkspaces }) {
   const sessionsById = useSessions === undefined ? {} : useSessions((snapshot) => snapshot.byId)
@@ -55,7 +88,7 @@ function LivePanel({ remote, useSessions, useWorkspaces }) {
     [workspaces, sessionsById],
   )
   const host = React.useMemo(() => createRemoteHost({ remote, sessionId }), [remote, sessionId])
-  return React.createElement(DesignMapView, { host })
+  return React.createElement(PanelBoundary, null, React.createElement(DesignMapView, { host }))
 }
 
 /** Header button that selects the `main` slot panel by key. */
@@ -80,7 +113,7 @@ function HeaderTrigger({ layout }) {
   )
 }
 
-export const inject = ['slots', 'remote', 'remote.workspaceFiles', 'remote.session', 'layout']
+export const inject = ['slots', 'remote', 'remote.workspaceFiles', 'remote.commands', 'remote.session', 'layout']
 
 export function apply(ctx) {
   ctx.slots.inject('main', () =>

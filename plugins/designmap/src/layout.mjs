@@ -30,7 +30,7 @@ function portIds(edge, direction) {
 }
 
 function elkNode(node, direction) {
-  const size = nodeSize(node.label)
+  const size = nodeSize(node.label, node.type)
   return {
     id: node.id,
     width: size.w,
@@ -322,7 +322,7 @@ export async function layoutView({ nodes, groups, edges, direction, onLayoutDone
   }
   for (const node of nodes) {
     if (!nodeBoxes.has(node.id)) {
-      const size = nodeSize(node.label)
+      const size = nodeSize(node.label, node.type)
       nodeBoxes.set(node.id, { x: 0, y: 0, w: size.w, h: size.h })
     }
   }

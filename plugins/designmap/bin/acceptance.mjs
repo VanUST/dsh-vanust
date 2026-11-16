@@ -218,7 +218,7 @@ function demoInputs() {
 
 // 8. The corrected §8 severities must not change scene bytes; the bundle index exists.
 {
-  const GOLDEN_SCENE = 'sha256:3ec7cf040db5ee668a87e436a825249fa597e2757839c622c884e688f5207ec4'
+  const GOLDEN_SCENE = 'sha256:1adea6ca8275ee7c1dfe8be5e6e81446ae010d8594bd8d6fa6250a66e0a5d83a'
   const scene = await renderView({ ...demoInputs(), viewId: 'v.context' })
   record('sceneBytesUnchanged', { golden: GOLDEN_SCENE, actual: scene.sceneHash, equal: scene.sceneHash === GOLDEN_SCENE })
   require(scene.sceneHash === GOLDEN_SCENE, 'scene bytes changed for the demo fixture')

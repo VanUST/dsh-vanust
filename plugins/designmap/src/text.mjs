@@ -68,11 +68,21 @@ export function labelLength(label) {
   return String(label ?? '').replace(/\r?\n/gu, ' ').length
 }
 
+/**
+ * Width multiplier per shape. A rectangle uses its full width for text; an ellipse and a
+ * diamond only use the inscribed part of the box, so their boxes grow until that inscribed
+ * area fits the label. Without this the text of a `datastore` (ellipse) or `decision`
+ * (diamond) overran the outline - visible on the rendered map as letters crossing the edge.
+ */
+const SHAPE_WIDTH_FACTOR = { datastore: 1.45, decision: 1.9 }
+
 /** Final box for one node: text-aware width and height, minimum 44. */
-export function nodeSize(label) {
+export function nodeSize(label, type = 'service') {
   const lines = wrapLabel(label)
   const longest = lines.reduce((max, line) => Math.max(max, line.length), 0)
-  const width = Math.min(280, Math.max(140, 40 + longest * 7.4))
+  const base = Math.min(280, Math.max(140, 40 + longest * 7.4))
+  const factor = SHAPE_WIDTH_FACTOR[type] ?? 1
+  const width = Math.min(factor === 1 ? 280 : 400, base * factor)
   const height = Math.max(44, 16 + lines.length * 18)
   return { w: round2(width), h: round2(height), lines }
 }

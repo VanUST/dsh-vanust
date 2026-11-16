@@ -41,3 +41,10 @@ server.pid
 # Local analysis of the platform's usage export: a downloaded CSV, the scripts and the
 # chart. It is this machine's billing data, not kit source.
 .usage-analysis/
+
+# designmap generated artefacts. `designmap/model.yaml` and `views.yaml` are the living
+# document and belong in git; the rendered scenes, the event log and the manifest pin a
+# commit hash, so they are derived output and change on every render.
+designmap/out/
+designmap/logs/
+designmap/manifest.json

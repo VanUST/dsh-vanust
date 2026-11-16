@@ -9607,6 +9607,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
   const [sceneSet, setSceneSet] = import_react3.default.useState(initial);
   const [loading, setLoading] = import_react3.default.useState(initial === null);
   const [loadError, setLoadError] = import_react3.default.useState(null);
+  const [missing, setMissing] = import_react3.default.useState(false);
   const [current, setCurrent] = import_react3.default.useState(
     initial === null ? null : initial.views.find((view) => view.view.viewId === initial.rootId) ?? initial.views[0] ?? null
   );
@@ -9675,6 +9676,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
       const next = views.find((view) => view.view.viewId === preferredViewId) ?? views.find((view) => view.view.viewId === result.value.rootId) ?? views[0];
       setSceneSet(result.value);
       setCurrent(next);
+      setMissing(false);
       const mappedHistory = historyRef.current.map((entry) => views.find((view) => view.view.viewId === entry.viewId)?.view).filter((entry) => entry !== void 0);
       setHistory(mappedHistory.length > 0 ? mappedHistory : [next.view]);
       applyViewState(next, { preserveSelection });
@@ -9688,6 +9690,15 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     const result = await host.load();
     if (result?.ok !== true) {
       setLoadError(result?.error ?? { code: "load_failed", message: "The host did not return a scene set." });
+      setLoading(false);
+      return;
+    }
+    if (Array.isArray(result.value.views) && result.value.views.length === 0 && result.value.missing === true) {
+      setSceneSet(result.value);
+      setCurrent(null);
+      setMissing(true);
+      setQuery("");
+      setStatus(null);
       setLoading(false);
       return;
     }
@@ -10165,6 +10176,23 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
       "Loading design map\u2026"
     ] }) });
   }
+  if (missing && (current === null || scene === null)) {
+    return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dmv", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dmv-error", role: "status", "data-designmap-missing": "true", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("h2", { children: "No design map in this workspace yet" }),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("p", { children: [
+          "A workspace gets a map when the agent creates the model with ",
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("code", { children: "designmap_apply" }),
+          " and renders it with ",
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("code", { children: "designmap_render" }),
+          " (files land under ",
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("code", { children: "designmap/" }),
+          "). Nothing is wrong with the panel."
+        ] })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "dmv-btn", onClick: load, children: "Retry" })
+    ] }) });
+  }
   if (current === null || scene === null) {
     const message = loadError?.message ?? "The host returned no scene for this workspace.";
     return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dmv", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dmv-error", role: "alert", children: [
@@ -10345,7 +10373,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
           onNodeDragStop,
           onNodesChange,
           fitView: true,
-          fitViewOptions: { padding: 0.16, maxZoom: 1.5, duration: 0 },
+          fitViewOptions: { padding: 0.1, maxZoom: 1.5, duration: 0 },
           minZoom: 0.2,
           maxZoom: 2.5,
           nodesDraggable: editMode,
@@ -10546,7 +10574,16 @@ function createRemoteHost({ remote, sessionId, sceneDir = "designmap/out", viewI
   return {
     async load() {
       const listing = await remote.workspaceFiles.list(sessionId, sceneDir);
-      if (listing?.ok !== true) return listing ?? remoteFailure("list_failed", `Could not list ${sceneDir}`);
+      if (listing?.ok !== true) {
+        const failure = `${listing?.error?.code ?? ""} ${listing?.error?.message ?? ""}`;
+        if (/enoent|no entry|not found/i.test(failure)) {
+          return {
+            ok: true,
+            value: { views: [], rootId: null, missing: true, overlays: { rows: {}, path: "designmap/overlays.json" } }
+          };
+        }
+        return listing ?? remoteFailure("list_failed", `Could not list ${sceneDir}`);
+      }
       const entries = Array.isArray(listing.value?.entries) ? listing.value.entries : [];
       const files = entries.map((entry) => typeof entry === "string" ? entry : entry?.name).filter((name) => typeof name === "string" && name.endsWith(SCENE_SUFFIX)).sort();
       let manifest = null;
@@ -10826,7 +10863,20 @@ var CSS = `
 .dmv-flow .react-flow { background: var(--dmv-surface); }
 /* RF puts the edge-label portal before the node layer; labels are annotations and must
    stay readable when core's labelAt is close to a box. */
-.dmv-flow .react-flow__edgelabel-renderer { z-index: 3; }
+.dmv-flow .react-flow__edgelabel-renderer { z-index: 5; }
+/* React Flow ships light chrome. Every surface here inherits the host theme, so the
+   controls and the minimap frame stop reading as white stickers on a dark page. */
+.dmv-flow .react-flow__controls { border: 1px solid var(--dmv-line); border-radius: 8px; overflow: hidden; box-shadow: none; }
+.dmv-flow .react-flow__controls-button {
+  background: var(--dmv-surface-2);
+  border-bottom: 1px solid var(--dmv-line);
+  color: var(--dmv-ink);
+  fill: currentColor;
+}
+.dmv-flow .react-flow__controls-button:hover { background: var(--dmv-surface-3); }
+.dmv-flow .react-flow__controls-button svg { fill: currentColor; }
+.dmv-flow .react-flow__minimap { background: var(--dmv-surface-2); }
+.dmv-flow .react-flow__minimap-mask { fill: var(--dmv-surface-3); opacity: 0.45; }
 .dmv-flow .react-flow__minimap { border: 1px solid var(--dmv-line); border-radius: 8px; overflow: hidden; }
 @media (max-width: 760px) {
   .dmv-legend { display: none; }
@@ -10938,13 +10988,15 @@ var CSS = `
 .dmv-edge-label {
   position: absolute;
   transform-origin: top left;
-  background: color-mix(in srgb, var(--dmv-surface) 96%, transparent);
+  /* The plate must be opaque: a translucent one let the edge line and any node
+     underneath show through the glyphs, which is unreadable on a dark theme. */
+  background: var(--dmv-surface);
   border: 1px solid var(--dmv-line);
   border-radius: 4px;
   padding: 1px 4px;
   font-size: 10px;
   font-weight: 650;
-  color: #1e293b;
+  color: var(--dmv-ink);
   white-space: nowrap;
   pointer-events: none;
 }
@@ -11047,6 +11099,29 @@ function firstSession(workspaces, sessionsById) {
   }
   return candidates[0] === void 0 ? null : sessionIdsOf(candidates[0])[0] ?? null;
 }
+var PanelBoundary = class extends import_react5.default.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  componentDidCatch(error, info) {
+    console.error("[designmap] panel render failed:", error, info?.componentStack ?? "");
+  }
+  render() {
+    if (this.state.error === null) return this.props.children;
+    const message = String(this.state.error?.message ?? this.state.error);
+    return import_react5.default.createElement(
+      "div",
+      { className: "dmv", role: "alert", "data-designmap-error": "true", style: { padding: 16, gap: 8 } },
+      import_react5.default.createElement("h1", { className: "dmv-title" }, "Design map panel failed"),
+      import_react5.default.createElement("p", null, "The scene could not be drawn. The error is below and in the browser console."),
+      import_react5.default.createElement("pre", { style: { margin: 0, whiteSpace: "pre-wrap", overflow: "auto", font: "12px/1.5 ui-monospace, monospace" } }, message)
+    );
+  }
+};
 function LivePanel({ remote, useSessions, useWorkspaces }) {
   const sessionsById = useSessions === void 0 ? {} : useSessions((snapshot) => snapshot.byId);
   const workspaces = useWorkspaces === void 0 ? [] : useWorkspaces((snapshot) => snapshot.items);
@@ -11055,7 +11130,7 @@ function LivePanel({ remote, useSessions, useWorkspaces }) {
     [workspaces, sessionsById]
   );
   const host = import_react5.default.useMemo(() => createRemoteHost({ remote, sessionId }), [remote, sessionId]);
-  return import_react5.default.createElement(DesignMapView, { host });
+  return import_react5.default.createElement(PanelBoundary, null, import_react5.default.createElement(DesignMapView, { host }));
 }
 function HeaderTrigger({ layout }) {
   return import_react5.default.createElement(
@@ -11077,7 +11152,7 @@ function HeaderTrigger({ layout }) {
     import_react5.default.createElement("span", null, "Design map")
   );
 }
-var inject = ["slots", "remote", "remote.workspaceFiles", "remote.session", "layout"];
+var inject = ["slots", "remote", "remote.workspaceFiles", "remote.commands", "remote.session", "layout"];
 function apply(ctx) {
   ctx.slots.inject(
     "main",

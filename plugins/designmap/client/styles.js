@@ -157,7 +157,20 @@ export const CSS = `
 .dmv-flow .react-flow { background: var(--dmv-surface); }
 /* RF puts the edge-label portal before the node layer; labels are annotations and must
    stay readable when core's labelAt is close to a box. */
-.dmv-flow .react-flow__edgelabel-renderer { z-index: 3; }
+.dmv-flow .react-flow__edgelabel-renderer { z-index: 5; }
+/* React Flow ships light chrome. Every surface here inherits the host theme, so the
+   controls and the minimap frame stop reading as white stickers on a dark page. */
+.dmv-flow .react-flow__controls { border: 1px solid var(--dmv-line); border-radius: 8px; overflow: hidden; box-shadow: none; }
+.dmv-flow .react-flow__controls-button {
+  background: var(--dmv-surface-2);
+  border-bottom: 1px solid var(--dmv-line);
+  color: var(--dmv-ink);
+  fill: currentColor;
+}
+.dmv-flow .react-flow__controls-button:hover { background: var(--dmv-surface-3); }
+.dmv-flow .react-flow__controls-button svg { fill: currentColor; }
+.dmv-flow .react-flow__minimap { background: var(--dmv-surface-2); }
+.dmv-flow .react-flow__minimap-mask { fill: var(--dmv-surface-3); opacity: 0.45; }
 .dmv-flow .react-flow__minimap { border: 1px solid var(--dmv-line); border-radius: 8px; overflow: hidden; }
 @media (max-width: 760px) {
   .dmv-legend { display: none; }
@@ -269,13 +282,15 @@ export const CSS = `
 .dmv-edge-label {
   position: absolute;
   transform-origin: top left;
-  background: color-mix(in srgb, var(--dmv-surface) 96%, transparent);
+  /* The plate must be opaque: a translucent one let the edge line and any node
+     underneath show through the glyphs, which is unreadable on a dark theme. */
+  background: var(--dmv-surface);
   border: 1px solid var(--dmv-line);
   border-radius: 4px;
   padding: 1px 4px;
   font-size: 10px;
   font-weight: 650;
-  color: #1e293b;
+  color: var(--dmv-ink);
   white-space: nowrap;
   pointer-events: none;
 }

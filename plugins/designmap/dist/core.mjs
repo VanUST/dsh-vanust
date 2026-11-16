@@ -35,7 +35,7 @@ import {
   severityOf,
   summariseLint,
   wrapLabel
-} from "./chunk-WGJRRXLS.mjs";
+} from "./chunk-PQZSNEMC.mjs";
 import {
   EMPTY_MODEL,
   EMPTY_VIEWS,

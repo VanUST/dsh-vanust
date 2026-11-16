@@ -137,7 +137,19 @@ export function createRemoteHost({ remote, sessionId, sceneDir = 'designmap/out'
   return {
     async load() {
       const listing = await remote.workspaceFiles.list(sessionId, sceneDir)
-      if (listing?.ok !== true) return listing ?? remoteFailure('list_failed', `Could not list ${sceneDir}`)
+      if (listing?.ok !== true) {
+        // A workspace without a model has no scene directory yet. That is an empty
+        // state, not a failure: reporting ENOENT as "could not load" made a fresh
+        // workspace look broken.
+        const failure = `${listing?.error?.code ?? ''} ${listing?.error?.message ?? ''}`
+        if (/enoent|no entry|not found/i.test(failure)) {
+          return {
+            ok: true,
+            value: { views: [], rootId: null, missing: true, overlays: { rows: {}, path: 'designmap/overlays.json' } },
+          }
+        }
+        return listing ?? remoteFailure('list_failed', `Could not list ${sceneDir}`)
+      }
       const entries = Array.isArray(listing.value?.entries) ? listing.value.entries : []
       const files = entries
         .map((entry) => (typeof entry === 'string' ? entry : entry?.name))

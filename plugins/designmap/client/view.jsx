@@ -237,6 +237,7 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
   const [sceneSet, setSceneSet] = React.useState(initial)
   const [loading, setLoading] = React.useState(initial === null)
   const [loadError, setLoadError] = React.useState(null)
+  const [missing, setMissing] = React.useState(false)
   const [current, setCurrent] = React.useState(
     initial === null ? null : initial.views.find((view) => view.view.viewId === initial.rootId) ?? initial.views[0] ?? null,
   )
@@ -315,6 +316,7 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
         views[0]
       setSceneSet(result.value)
       setCurrent(next)
+      setMissing(false)
       const mappedHistory = historyRef.current
         .map((entry) => views.find((view) => view.view.viewId === entry.viewId)?.view)
         .filter((entry) => entry !== undefined)
@@ -331,6 +333,15 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
     const result = await host.load()
     if (result?.ok !== true) {
       setLoadError(result?.error ?? { code: 'load_failed', message: 'The host did not return a scene set.' })
+      setLoading(false)
+      return
+    }
+    if (Array.isArray(result.value.views) && result.value.views.length === 0 && result.value.missing === true) {
+      setSceneSet(result.value)
+      setCurrent(null)
+      setMissing(true)
+      setQuery('')
+      setStatus(null)
       setLoading(false)
       return
     }
@@ -852,6 +863,24 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
     )
   }
 
+  if (missing && (current === null || scene === null)) {
+    return (
+      <div className="dmv">
+        <div className="dmv-error" role="status" data-designmap-missing="true">
+          <div>
+            <h2>No design map in this workspace yet</h2>
+            <p>
+              A workspace gets a map when the agent creates the model with <code>designmap_apply</code> and renders it
+              with <code>designmap_render</code> (files land under <code>designmap/</code>). Nothing is wrong with the
+              panel.
+            </p>
+          </div>
+          <button type="button" className="dmv-btn" onClick={load}>Retry</button>
+        </div>
+      </div>
+    )
+  }
+
   if (current === null || scene === null) {
     const message = loadError?.message ?? 'The host returned no scene for this workspace.'
     return (
@@ -1060,7 +1089,7 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
               onNodeDragStop={onNodeDragStop}
               onNodesChange={onNodesChange}
               fitView
-              fitViewOptions={{ padding: 0.16, maxZoom: 1.5, duration: 0 }}
+              fitViewOptions={{ padding: 0.1, maxZoom: 1.5, duration: 0 }}
               minZoom={0.2}
               maxZoom={2.5}
               nodesDraggable={editMode}

@@ -135,6 +135,6 @@ test('two runs remain byte-identical and match the new golden hash', async () =>
   const second = await renderDemo()
   assert.equal(first.sceneJson, second.sceneJson)
   assert.equal(first.sceneHash, second.sceneHash)
-  assert.equal(first.sceneHash, 'sha256:3ec7cf040db5ee668a87e436a825249fa597e2757839c622c884e688f5207ec4')
+  assert.equal(first.sceneHash, 'sha256:1adea6ca8275ee7c1dfe8be5e6e81446ae010d8594bd8d6fa6250a66e0a5d83a')
   console.log(`golden demo hash=${first.sceneHash} bytes=${first.bytes}`)
 })

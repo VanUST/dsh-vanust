@@ -96707,10 +96707,13 @@ function sceneLabel(label) {
 function labelLength(label) {
   return String(label ?? "").replace(/\r?\n/gu, " ").length;
 }
-function nodeSize(label) {
+var SHAPE_WIDTH_FACTOR = { datastore: 1.45, decision: 1.9 };
+function nodeSize(label, type = "service") {
   const lines = wrapLabel(label);
   const longest = lines.reduce((max, line) => Math.max(max, line.length), 0);
-  const width = Math.min(280, Math.max(140, 40 + longest * 7.4));
+  const base = Math.min(280, Math.max(140, 40 + longest * 7.4));
+  const factor = SHAPE_WIDTH_FACTOR[type] ?? 1;
+  const width = Math.min(factor === 1 ? 280 : 400, base * factor);
   const height = Math.max(44, 16 + lines.length * 18);
   return { w: round2(width), h: round2(height), lines };
 }
@@ -96723,7 +96726,7 @@ function portIds(edge, direction) {
   return direction === "TB" ? { outSide: "SOUTH", inSide: "NORTH" } : { outSide: "EAST", inSide: "WEST" };
 }
 function elkNode(node, direction) {
-  const size = nodeSize(node.label);
+  const size = nodeSize(node.label, node.type);
   return {
     id: node.id,
     width: size.w,
@@ -96954,7 +96957,7 @@ async function layoutView({ nodes, groups, edges, direction, onLayoutDone }) {
   }
   for (const node of nodes) {
     if (!nodeBoxes.has(node.id)) {
-      const size = nodeSize(node.label);
+      const size = nodeSize(node.label, node.type);
       nodeBoxes.set(node.id, { x: 0, y: 0, w: size.w, h: size.h });
     }
   }

@@ -286,6 +286,14 @@ Fix (`src/layout.mjs`, `src/render.mjs`, `src/lint.mjs`):
 Intended output change: the demo scene hash moves from
 `sha256:2c5fa9e8504900080e0ca3905d90f95e82e08c57c7ebb27d26a1a1d06b1fa280` (3314 B) to
 **`sha256:3ec7cf040db5ee668a87e436a825249fa597e2757839c622c884e688f5207ec4` (3329 B)**.
+
+### 3c. Shape-aware node widths (0.1.7)
+
+A rendered `datastore` (ellipse) showed its label crossing the outline: the box was sized
+as if a rectangle used its full width for text, but an ellipse uses only the inscribed
+area. `nodeSize(label, type)` now multiplies the text width by 1.45 for an ellipse and 1.9
+for a diamond, capped at 400 px. Intended scene change for the demo fixture:
+`sha256:3ec7cf04…` (3329 B) -> **`sha256:1adea6ca8275ee7c1dfe8be5e6e81446ae010d8594bd8d6fa6250a66e0a5d83a`**.
 Only edge geometry changed; nodes, groups, canvas recomputation and all other bytes are
 untouched by the fix. The old hash stays recorded above as the pre-fix value; the
 golden is updated in `test/geometry.test.mjs` and `bin/acceptance.mjs`.
