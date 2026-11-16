@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "agent-tool-call-checks-become-runnable-autotests",
+  "title": "Agent tool-call checks become runnable autotests",
+  "requirement": "The checks an agent performs by calling tools (a Playwright UX/UI walk, a benchmark run read for p95/throughput) must become autotests the library executes and gates on - with typed metric thresholds and captured artifacts - instead of record-only claims that a run happened.",
+  "kind": "scenario",
+  "status": "unverified",
+  "source": "human",
+  "automated": false,
+  "reason": "No execution layer exists yet: the requirement is captured from the owner's request and specified in docs/CASE-LIBRARY-DESIGN.md; the automated checks it asks for are the deliverable, not an existing surface to run.",
+  "steps": [
+    "Implement phases P0-P3 of docs/CASE-LIBRARY-DESIGN.md (honesty pass, runner, typed checks, suite/gate).",
+    "Run a benchmark case whose driver reports p95 212 ms against a 250 ms threshold (expect verified) and one reporting 260 ms (expect failing with the delta).",
+    "Run a UI driver whose summary reports one serious axe violation (expect failing) and one with zero (expect verified).",
+    "Close a task whose linked case is failing and observe the refusal naming the case."
+  ],
+  "expected": "A case_run executes the stored command; a typed check such as p95 <= 250 ms or axe violations <= 0 marks the case verified or failing from the measured value; a suite gates task close (and make verify) on a failing case; the design is docs/CASE-LIBRARY-DESIGN.md.",
+  "tags": [
+    "owner-requirement",
+    "test-cases",
+    "automation",
+    "ux",
+    "benchmark"
+  ],
+  "surfaceFiles": [],
+  "linkedTaskId": "task-mwjdj2do-h9z8dy",
+  "revision": 1,
+  "createdAt": "2026-11-16T14:45:34.602Z",
+  "updatedAt": "2026-11-16T14:45:34.602Z",
+  "createdBy": "orchestrator",
+  "createdByKind": "agent",
+  "history": [],
+  "evidence": {}
+}

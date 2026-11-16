@@ -1865,10 +1865,11 @@ export function createService(config = {}, logger = undefined) {
    */
   const gate = (cwd, input = {}) => {
     const klass = input.changeClass
-    // READ-ONLY WORK IS EXEMPT. A research/review/critic child reads and reports; it changes
-    // no product bytes, so it must not require the heavy document. The orchestrator passes the
-    // resolved role and preset; an unrecognised name stays gated (fail closed).
-    const readOnly = new Set(['research', 'reviewer', 'critic'])
+    // READ-ONLY WORK IS EXEMPT. A research/review/critic/gatherer child reads and reports; it
+    // changes no product bytes, so it must not require the heavy document. The orchestrator
+    // passes the resolved role and preset; an unrecognised name stays gated (fail closed). The
+    // exemption is the composition, not the label: `gatherer` has no write or edit tool at all.
+    const readOnly = new Set(['research', 'reviewer', 'critic', 'gatherer'])
     const explicit = klass !== undefined
       || asString(input.initiative) !== ''
       || asStringArray(input.requirementIds).length > 0

@@ -48,7 +48,7 @@ endif
 CORPUS   ?= .cache/session-analysis/corpus.json
 ANALYSIS ?= .cache/session-analysis/analysis.json
 
-.PHONY: help usage usage-check usage-gate session-corpus session-analysis notify-selftest session-doctor verify
+.PHONY: help usage usage-check usage-gate session-corpus session-analysis notify-selftest session-doctor verify cases
 
 help:
 	@echo "make usage                    - newest usage export in ~/Downloads, write and open the report"
@@ -61,6 +61,8 @@ help:
 	@echo "make session-analysis         - the corpus, then the behaviour and cost figures cut from it"
 	@echo "make session-doctor           - report session logs the OS refuses to read (the UI shows no history)"
 	@echo "make verify                   - run every check the kit ships"
+	@echo "make cases                    - execute the automated cases in docs/cases; exit 1 when one is not verified"
+	@echo "  TAG=<tag> ARGS=<cli args>   - e.g. make cases TAG=benchmark, or ARGS=\"--id <case>\""
 
 usage:
 	@$(NODE) $(ANALYTICS) $(EXPORT_ARG) $(OPEN_ARG)
@@ -108,6 +110,13 @@ provision-apply:
 verify:
 	node scripts/check-portability.mjs
 	node scripts/check-documentation.mjs
+
+# The case library's own entry point. `make verify` is the packaging/doc gate; this target RUNS
+# the product: every automated case (or a TAG/ARGS subset) is executed by the same runner the
+# host tool uses, the measured result is written back, and a case that is not verified exits 1.
+# Artifacts land under docs/cases/runs/ (gitignored).
+cases:
+	@$(NODE) plugins/test-cases/bin/cases.mjs suite $(if $(TAG),--tag $(TAG),) $(ARGS)
 
 # The session corpus: one pass over every stored session log (~2 min for ~1,000 logs), producing a
 # single JSON the questions can be answered from in seconds instead of re-reading ~1 GB of zstd on

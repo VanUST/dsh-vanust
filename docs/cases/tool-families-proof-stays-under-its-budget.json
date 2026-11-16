@@ -1,0 +1,370 @@
+{
+  "schemaVersion": 1,
+  "id": "tool-families-proof-stays-under-its-budget",
+  "title": "Tool-families proof stays under its budget",
+  "requirement": "A benchmark run must be gated on its metric, not only its exit code: the preset tool-family proof completes within 60 s with no failing check, and a regression is detected from the measured duration and pass counts.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "human",
+  "automated": true,
+  "testPath": "docs/cases/drivers/tool-families-benchmark.mjs",
+  "runCommand": "node docs/cases/drivers/tool-families-benchmark.mjs",
+  "steps": [
+    "Run node docs/cases/drivers/tool-families-benchmark.mjs: it runs scripts/tool-families-proof.mjs, measures wall time and parses the proof's N/M checks-passed line into CASE_SUMMARY metrics {durationMs, checks, total, failures}.",
+    "case_run evaluates failures == 0, checks >= 1 and durationMs <= 60000.",
+    "For the red: run with mode red and control break-budget; the driver reports 999999 ms and exits non-zero."
+  ],
+  "expected": "The proof finishes in under 60 s with failures = 0 and at least one passed check; the negative control reports an over-budget duration and exits non-zero.",
+  "tags": [
+    "owner-requirement",
+    "benchmark",
+    "tool-families",
+    "metric"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "docs/cases/drivers/tool-families-benchmark.mjs",
+      "sha256": "74069ae2c0d1a54bcd8cb45206b2b85e753e7ae009a1f78f3349a3db591d964d"
+    },
+    {
+      "path": "scripts/tool-families-proof.mjs",
+      "sha256": "c716c30bdf4cdaf30fbf8e3a249328fff4bc3f390e8045b69ac1310db2a12271"
+    }
+  ],
+  "revision": 6,
+  "createdAt": "2026-11-16T15:03:29.134Z",
+  "updatedAt": "2026-11-16T15:05:40.897Z",
+  "createdBy": "orchestrator",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-16T15:03:29.134Z",
+      "editedBy": "human",
+      "snapshot": {
+        "title": "Tool-families proof stays under its budget",
+        "requirement": "A benchmark run must be gated on its metric, not only its exit code: the preset tool-family proof completes within 60 s with no failing check, and a regression is detected from the measured duration and pass counts.",
+        "expected": "The proof finishes in under 60 s with failures = 0 and at least one passed check; the negative control reports an over-budget duration and exits non-zero.",
+        "steps": [
+          "Run node docs/cases/drivers/tool-families-benchmark.mjs: it runs scripts/tool-families-proof.mjs, measures wall time and parses the proof's N/M checks-passed line into CASE_SUMMARY metrics {durationMs, checks, total, failures}.",
+          "case_run evaluates failures == 0, checks >= 1 and durationMs <= 60000.",
+          "For the red: run with mode red and control break-budget; the driver reports 999999 ms and exits non-zero."
+        ],
+        "automated": true,
+        "testPath": "docs/cases/drivers/tool-families-benchmark.mjs",
+        "runCommand": "node docs/cases/drivers/tool-families-benchmark.mjs",
+        "status": "unverified",
+        "checks": [],
+        "negativeControl": null
+      }
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-16T15:04:14.966Z",
+      "editedBy": "agent",
+      "action": "ran-needs-red",
+      "reason": "1 run(s), 1 passed; no red run recorded, so the case is not verified"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-16T15:04:15.120Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"break-budget\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-16T15:04:15.275Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-16T15:05:40.897Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "checks": [
+    {
+      "name": "failing checks",
+      "metric": "failures",
+      "op": "==",
+      "threshold": 0
+    },
+    {
+      "name": "checks passed",
+      "metric": "checks",
+      "op": ">=",
+      "threshold": 1
+    },
+    {
+      "name": "wall time",
+      "metric": "durationMs",
+      "op": "<=",
+      "threshold": 60000,
+      "unit": "ms"
+    }
+  ],
+  "negativeControl": "break-budget",
+  "lastVerified": {
+    "at": "2026-11-16T15:05:40.897Z",
+    "command": "node docs/cases/drivers/tool-families-benchmark.mjs",
+    "exitCode": 0,
+    "runId": "mwjeb890-3xain-1",
+    "source": "runner",
+    "commit": null
+  },
+  "runs": [
+    {
+      "runId": "mwje9dxl-jz9ae-1",
+      "at": "2026-11-16T15:04:14.960Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 147,
+      "commandSha256": "199f154b23c857a988d569b1963a8c2adfda89804d049322692f467107ff7bb4",
+      "head": "366dfed8b44419f06cceb7bae63f7aeea1a95d26",
+      "dirty": true,
+      "stdout": "docs/cases/runs/tool-families-proof-stays-under-its-budget/mwje9dxl-jz9ae-1/stdout.log",
+      "stderr": "docs/cases/runs/tool-families-proof-stays-under-its-budget/mwje9dxl-jz9ae-1/stderr.log",
+      "summary": "docs/cases/runs/tool-families-proof-stays-under-its-budget/mwje9dxl-jz9ae-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "durationMs": 84,
+        "checks": 47,
+        "total": 47,
+        "failures": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "failing checks",
+          "metric": "failures",
+          "op": "==",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        },
+        {
+          "name": "checks passed",
+          "metric": "checks",
+          "op": ">=",
+          "measured": 47,
+          "threshold": 1,
+          "pass": true
+        },
+        {
+          "name": "wall time",
+          "metric": "durationMs",
+          "op": "<=",
+          "unit": "ms",
+          "measured": 84,
+          "threshold": 60000,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mwje9e2k-5ev7y-1",
+      "at": "2026-11-16T15:04:15.115Z",
+      "mode": "red",
+      "control": "break-budget",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 121,
+      "commandSha256": "199f154b23c857a988d569b1963a8c2adfda89804d049322692f467107ff7bb4",
+      "head": "366dfed8b44419f06cceb7bae63f7aeea1a95d26",
+      "dirty": true,
+      "stdout": "docs/cases/runs/tool-families-proof-stays-under-its-budget/mwje9e2k-5ev7y-1/stdout.log",
+      "stderr": "docs/cases/runs/tool-families-proof-stays-under-its-budget/mwje9e2k-5ev7y-1/stderr.log",
+      "summary": "docs/cases/runs/tool-families-proof-stays-under-its-budget/mwje9e2k-5ev7y-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "durationMs": 999999,
+        "checks": 47,
+        "total": 47,
+        "failures": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        },
+        {
+          "name": "failing checks",
+          "metric": "failures",
+          "op": "==",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        },
+        {
+          "name": "checks passed",
+          "metric": "checks",
+          "op": ">=",
+          "measured": 47,
+          "threshold": 1,
+          "pass": true
+        },
+        {
+          "name": "wall time",
+          "metric": "durationMs",
+          "op": "<=",
+          "unit": "ms",
+          "measured": 999999,
+          "threshold": 60000,
+          "pass": false,
+          "reason": "999999 is not <= 60000"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwje9e6t-rcbda-1",
+      "at": "2026-11-16T15:04:15.270Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 124,
+      "commandSha256": "199f154b23c857a988d569b1963a8c2adfda89804d049322692f467107ff7bb4",
+      "head": "366dfed8b44419f06cceb7bae63f7aeea1a95d26",
+      "dirty": true,
+      "stdout": "docs/cases/runs/tool-families-proof-stays-under-its-budget/mwje9e6t-rcbda-1/stdout.log",
+      "stderr": "docs/cases/runs/tool-families-proof-stays-under-its-budget/mwje9e6t-rcbda-1/stderr.log",
+      "summary": "docs/cases/runs/tool-families-proof-stays-under-its-budget/mwje9e6t-rcbda-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "durationMs": 68,
+        "checks": 47,
+        "total": 47,
+        "failures": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "failing checks",
+          "metric": "failures",
+          "op": "==",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        },
+        {
+          "name": "checks passed",
+          "metric": "checks",
+          "op": ">=",
+          "measured": 47,
+          "threshold": 1,
+          "pass": true
+        },
+        {
+          "name": "wall time",
+          "metric": "durationMs",
+          "op": "<=",
+          "unit": "ms",
+          "measured": 68,
+          "threshold": 60000,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mwjeb890-3xain-1",
+      "at": "2026-11-16T15:05:40.888Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 122,
+      "commandSha256": "199f154b23c857a988d569b1963a8c2adfda89804d049322692f467107ff7bb4",
+      "head": "366dfed8b44419f06cceb7bae63f7aeea1a95d26",
+      "dirty": true,
+      "stdout": "docs/cases/runs/tool-families-proof-stays-under-its-budget/mwjeb890-3xain-1/stdout.log",
+      "stderr": "docs/cases/runs/tool-families-proof-stays-under-its-budget/mwjeb890-3xain-1/stderr.log",
+      "summary": "docs/cases/runs/tool-families-proof-stays-under-its-budget/mwjeb890-3xain-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "durationMs": 62,
+        "checks": 47,
+        "total": 47,
+        "failures": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "failing checks",
+          "metric": "failures",
+          "op": "==",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        },
+        {
+          "name": "checks passed",
+          "metric": "checks",
+          "op": ">=",
+          "measured": 47,
+          "threshold": 1,
+          "pass": true
+        },
+        {
+          "name": "wall time",
+          "metric": "durationMs",
+          "op": "<=",
+          "unit": "ms",
+          "measured": 62,
+          "threshold": 60000,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-16T15:04:15.120Z",
+    "runId": "mwje9e2k-5ev7y-1",
+    "exitCode": 1,
+    "control": "break-budget",
+    "command": "node docs/cases/drivers/tool-families-benchmark.mjs",
+    "source": "negative-control"
+  }
+}

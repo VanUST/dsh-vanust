@@ -1,16 +1,21 @@
 /**
  * PURPOSE
  *   Turn a test that a role actually performed into durable, reproducible knowledge in the
- *   repository: one case per observed requirement, stored under `docs/cases/`, editable only
- *   through this tool so the schema (and the evidence trail) cannot drift.
+ *   repository - and EXECUTE it: one case per observed requirement, stored under `docs/cases/`,
+ *   written only through this tool family so the schema and the evidence trail cannot drift.
  *
  *   The deployment rule used to be "no autotests". The honest rule is "no SPECULATIVE tests":
- *   explore with the role's own tools, reproduce the behaviour, observe it fail before the fix
- *   if it is a regression, and only then persist the case. A case is either AUTOMATED (a real
- *   test file plus the exact command that ran it, with a red run and a green run recorded) or
- *   DOCUMENTED-ONLY (steps, expected outcome and a named reason why it cannot be a test). The
- *   business requirement survives either way; a missing test or a changed surface file makes the
- *   case STALE, never deleted.
+ *   explore with the role's own tools, reproduce the behaviour, and only then persist the case.
+ *   A case is either AUTOMATED (a real test file plus the exact command that runs it) or
+ *   DOCUMENTED-ONLY (steps, expected outcome and a named reason why it cannot be a test). An
+ *   automated case is RUN by `case_run`, which records the MEASUREMENT (exit code, duration,
+ *   the driver's CASE_SUMMARY metrics/hashes/artifacts, the declared checks), while `case_verify`
+ *   is the manual report and is stamped `source: manual`. A green run with no recorded red is a
+ *   measurement, not a verification; the measured red is a negative control. Every run keeps
+ *   stdout/stderr and artifacts under `docs/cases/runs/` (gitignored, last 20 per case).
+ *
+ *   The business requirement survives either way; a missing test or a changed surface file makes
+ *   the case STALE, never deleted.
  *
  * INPUTS
  *   Config (all optional):
@@ -19,42 +24,55 @@
  *     shownInPrompt - whether to contribute a short status section. Default true.
  *
  * OUTPUTS
- *   Eight host tools (registered per agent according to the role policy):
- *     case_record, case_update, case_verify, case_list, case_get, case_supersede,
- *     case_deprecate, case_drift.
+ *   Twelve host tools (registered per agent according to the role policy):
+ *     case_record, case_update, case_verify, case_run, case_suite, case_gate, case_list,
+ *     case_get, case_supersede, case_deprecate, case_remove, case_drift.
+ *   A `cases` service (ctx.provide) with `gateForTask`, consumed by the taskboard's close gate.
+ *   One `/test-cases` command for the client panel, over the same tool objects.
  *   Every refusal is a value `{ ok:false, code, message }` with a stable code, never a throw;
- *   the model gets the same word the future client panel will show.
+ *   the model gets the same word the client panel shows.
  *
  * KEYWORDS
- *   test cases, case library, red-first, documented-only, drift, stale, compare-and-set,
- *   supersede, deprecate, requirement intake, docs/cases
+ *   test cases, case library, case runner, typed checks, metrics, baseline, flaky, artifacts,
+ *   red-first, negative control, drift, stale, compare-and-set, supersede, deprecate,
+ *   requirement intake, docs/cases
  *
  * BEHAVIOUR ON EDGE CASES
  *   - automated:true without testPath + runCommand -> `AUTOMATED_REQUIRES_TEST`.
- *   - automated:false without a reason -> `DOCUMENTED_REQUIRES_REASON`.
- *   - case_update/case_verify/case_supersede/case_deprecate without the current revision ->
- *     `REVISION_CONFLICT` carrying the current revision; the file is not touched.
- *   - automated verification without an observed red run -> `RED_FIRST_REQUIRED`.
- *   - verification without a command/output/exit -> `EVIDENCE_REQUIRED`.
- *   - a superseded/deprecated case is CLOSED: edits and verifications refuse `CASE_CLOSED`.
- *   - drift on an automated case whose test file is gone degrades it to automated:false with a
- *     reason and status stale; the requirement stays.
+ *   - automated:false without a reason -> `DOCUMENTED_REQUIRES_REASON`; checks on a
+ *     documented-only case -> `CHECKS_REQUIRE_AUTOMATED`.
+ *   - case_update/case_verify/case_run/case_supersede/case_deprecate without the current
+ *     revision -> `REVISION_CONFLICT` carrying the current revision; the file is not touched.
+ *   - automated manual verification without an observed red run -> `RED_FIRST_REQUIRED`;
+ *     verification without a command/output/exit -> `EVIDENCE_REQUIRED`.
+ *   - case_run on a documented-only/degraded/missing-test case -> `NOT_AUTOMATED` or
+ *     `TEST_REQUIRED`; a red run without a control -> `NEGATIVE_CONTROL_REQUIRED`; a control
+ *     that exits 0 -> `NEGATIVE_CONTROL_DID_NOT_FAIL`.
+ *   - a declared check whose metric is absent from the summary FAILS (`metric_missing`), it does
+ *     not pass; `runs>1` with a mixed outcome is recorded as `flaky`.
+ *   - a superseded/deprecated case is CLOSED: edits, runs and verifications refuse `CASE_CLOSED`.
+ *   - drift on a FLAGGABLE case (verified/failing/flaky) whose test file is gone degrades it to
+ *     automated:false with a reason and status stale; an unverified case reports the change
+ *     without claiming a regression, and the requirement stays.
  */
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { driftFor, fileHash, slugify } from './lib/schema.mjs'
+import { normalizeChecks } from './lib/checks.mjs'
+import { recordRun, runAttempts, shellExec, spawnExec } from './lib/runner.mjs'
+import { Refusal, appendAudit, libraryDir, readCase, readCases, removeCaseFile, safeCaseId, writeCase } from './lib/store.mjs'
 
-export { driftFor, slugify }
+export { driftFor, slugify, safeCaseId, readCase, writeCase }
 
 export const name = 'test-cases'
 export const inject = ['tools', 'systemPrompt', 'commands']
 
-/** Tools every tester role gets: the full library, including evidence. */
-const ALL_TOOLS = ['case_record', 'case_update', 'case_verify', 'case_list', 'case_get', 'case_supersede', 'case_deprecate', 'case_remove', 'case_drift']
-/** The root intake set: record a human requirement and read the library, never claim a run. */
-const INTAKE_TOOLS = ['case_record', 'case_list', 'case_get', 'case_drift']
+/** Tools every tester role gets: the full library, including execution and evidence. */
+const ALL_TOOLS = ['case_record', 'case_update', 'case_verify', 'case_run', 'case_suite', 'case_gate', 'case_list', 'case_get', 'case_supersede', 'case_deprecate', 'case_remove', 'case_drift']
+/** The root intake set: record a human requirement, read the library and check the gate; never claim a run. */
+const INTAKE_TOOLS = ['case_record', 'case_list', 'case_get', 'case_drift', 'case_gate']
 
 /**
  * Per-preset tool policy.
@@ -76,112 +94,13 @@ export const DEFAULT_ROLE_TOOLS = {
   research: ALL_TOOLS,
 }
 
-const STATUSES = ['unverified', 'verified', 'failing', 'stale', 'superseded', 'deprecated']
+const STATUSES = ['unverified', 'verified', 'failing', 'flaky', 'stale', 'superseded', 'deprecated']
 const KINDS = ['regression', 'scenario']
 const CLOSED = new Set(['superseded', 'deprecated'])
-
-/** A refusal is a value with a stable code; the tool layer never sees an exception. */
-class Refusal extends Error {
-  constructor(code, message, extra = {}) {
-    super(message)
-    this.code = code
-    this.extra = extra
-  }
-}
 
 /** Resolve the session workspace the same way the other host plugins do. */
 function workingDir(agent) {
   return agent?.session?.header?.cwd ?? process.cwd()
-}
-
-/** Absolute library root for a workspace. */
-function libraryDir(cwd, config) {
-  const dir = typeof config?.dir === 'string' && config.dir !== '' ? config.dir : 'docs/cases'
-  return join(cwd, ...dir.split('/').filter(Boolean))
-}
-
-/** Case ids are file names: one lowercase kebab segment, never a path. */
-const CASE_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
-
-/**
- * Validate a requested case id.
- *
- * A case id is a FILE NAME, not a path. The first version joined the raw string, so
- * `id: "../outside"` read a JSON file outside the library and a crafted `record.id` wrote one
- * there. The grammar allows no slash, dot or separator, and the caller's id is checked against
- * the stored `record.id` on read, so a renamed file cannot smuggle a different id in.
- *
- * @param id - The requested id (any value).
- * @returns The id when valid.
- */
-export function safeCaseId(id) {
-  if (typeof id !== 'string' || !CASE_ID.test(id)) {
-    throw new Refusal('INVALID_CASE_ID', `"${String(id).slice(0, 80)}" is not a case id; expected ^[a-z0-9]+(-[a-z0-9]+)*$`)
-  }
-  return id
-}
-
-/**
- * Resolve a case path inside the library, refusing a symlink that leaves it.
- *
- * @param dir - Library root.
- * @param id - Validated id.
- * @returns Absolute path (the file may not exist yet).
- */
-function casePath(dir, id) {
-  safeCaseId(id)
-  const path = join(dir, `${id}.json`)
-  let realDir
-  try {
-    realDir = realpathSync(dir)
-  } catch {
-    return join(dir, `${id}.json`)
-  }
-  try {
-    const realFile = realpathSync(path)
-    if (realFile !== join(realDir, `${id}.json`)) {
-      throw new Refusal('CASE_OUTSIDE_LIBRARY', `case "${id}" resolves outside the library (${realFile})`)
-    }
-    return realFile
-  } catch (error) {
-    if (error instanceof Refusal) throw error
-    // The file does not exist yet (or the symlink is dangling): the validated join is the path.
-    return join(realDir, `${id}.json`)
-  }
-}
-
-/** Read one case file; a missing file is a refusal, not an empty case. */
-export function readCase(dir, id) {
-  const path = casePath(dir, id)
-  if (!existsSync(path)) throw new Refusal('CASE_NOT_FOUND', `no case "${id}" in ${dir}`)
-  let record
-  try {
-    record = JSON.parse(readFileSync(path, 'utf8'))
-  } catch (error) {
-    throw new Refusal('CASE_UNREADABLE', `${path}: ${error.message}`)
-  }
-  if (record === null || typeof record !== 'object' || Array.isArray(record)) {
-    throw new Refusal('CASE_UNREADABLE', `${path}: not a case object`)
-  }
-  if (record.id !== id) {
-    throw new Refusal('CASE_ID_MISMATCH', `${path} holds id "${String(record.id).slice(0, 80)}", not "${id}"`)
-  }
-  return { record, path }
-}
-
-/** Atomic write: a reader never sees a half-written case, and a write failure is a refusal. */
-export function writeCase(dir, record) {
-  safeCaseId(record?.id)
-  const path = casePath(dir, record.id)
-  const temp = `${path}.${process.pid}.tmp`
-  try {
-    mkdirSync(dir, { recursive: true })
-    writeFileSync(temp, `${JSON.stringify(record, null, 2)}\n`, 'utf8')
-    renameSync(temp, path)
-  } catch (error) {
-    throw new Refusal('CASE_WRITE_FAILED', `${path}: ${error.message}`)
-  }
-  return path
 }
 
 /** Validate the fields the library cannot work without. */
@@ -217,12 +136,18 @@ function checkRevision(record, expectedRevision) {
   if (CLOSED.has(record.status)) throw new Refusal('CASE_CLOSED', `case "${record.id}" is ${record.status}; record a new case instead`)
 }
 
-/** The normalised view a list returns. */
+/** The normalised view a list returns. Light on purpose: the detail carries the runs. */
 function summary(record) {
+  const runs = Array.isArray(record.runs) ? record.runs : []
+  const last = runs.length > 0 ? runs[runs.length - 1] : null
   return {
     id: record.id, title: record.title, kind: record.kind, status: record.status,
     source: record.source, automated: record.automated, revision: record.revision,
     tags: record.tags, lastVerified: record.lastVerified ?? null,
+    provenance: record.lastVerified?.source ?? null,
+    runs: runs.length,
+    lastRun: last === null ? null : { runId: last.runId, at: last.at, exitCode: last.exitCode, passed: last.passed, mode: last.mode },
+    baseline: record.baseline?.metrics ?? null,
     updatedAt: record.updatedAt, surfaceFiles: (record.surfaceFiles ?? []).map((entry) => entry.path),
   }
 }
@@ -243,20 +168,13 @@ const OUTPUT = {
 }
 
 /**
- * Decide whether a recorded verification is admissible, and what the case becomes.
+ * Decide whether a MANUAL verification is admissible, and what the case becomes.
  *
- * The rules are enforced HERE, once, so neither the tool nor a future panel path can accept a
- * weaker claim:
- *  - a degraded case (its test disappeared) cannot be verified by observation; it needs a real
- *    test back (TEST_REQUIRED), otherwise a lost test would silently turn into a green case;
- *  - an automated case needs its test file present, a red run and a green run of EXACTLY its
- *    runCommand (COMMAND_MISMATCH), and the red run must have failed (RED_FIRST_REQUIRED);
- *  - a documented-only pass must be a green observation (EVIDENCE_NOT_GREEN).
- *
- * @param record - Stored case.
- * @param args - `{ passed, evidence, redFirst?, commit? }`.
- * @param workspace - Session workspace (test existence is checked against it).
- * @returns `{ evidence, status, lastVerified }`.
+ * This is the reported half of the evidence: a human or an agent typed what it observed, so the
+ * result is stamped `source: 'manual'` and the tool surfaces say so. `case_run` is the measured
+ * half: it executes the stored command and the plugin produces the numbers. The rules here are
+ * unchanged on purpose - a manual automated pass still needs the observed red run, exactly the
+ * case's runCommand, and a green exit - but nothing here is called a measurement.
  */
 export function verificationPlan(record, args, workspace) {
   if (typeof args.passed !== 'boolean') throw new Refusal('EVIDENCE_REQUIRED', 'passed must be true or false')
@@ -281,19 +199,71 @@ export function verificationPlan(record, args, workspace) {
       }
       if (red.exitCode === 0) throw new Refusal('RED_FIRST_REQUIRED', 'red-first evidence must show the test FAILING (non-zero exit) before the fix')
       if (evidence.exitCode !== 0) throw new Refusal('EVIDENCE_NOT_GREEN', 'the green run must have exitCode 0')
-      return { evidence: { redFirst: red, green: evidence, commit: args.commit ?? null }, status: 'verified', lastVerified: { at: evidence.at, command: evidence.command, exitCode: 0 } }
+      return {
+        evidence: { run: { ...evidence, passed: true, source: 'manual' }, redFirst: { ...red, source: 'manual' }, commit: args.commit ?? null, source: 'manual' },
+        redFirst: { ...red, source: 'manual' },
+        status: 'verified',
+        lastVerified: { at: evidence.at, command: evidence.command, exitCode: 0, source: 'manual', commit: args.commit ?? null },
+      }
     }
-    return { evidence: { redFirst: null, green: evidence, commit: args.commit ?? null }, status: 'failing', lastVerified: null }
+    return {
+      evidence: { run: { ...evidence, passed: false, source: 'manual' }, redFirst: null, commit: args.commit ?? null, source: 'manual' },
+      redFirst: null,
+      status: 'failing',
+      lastVerified: null,
+    }
   }
   if (args.passed === true && evidence.exitCode !== 0) {
     throw new Refusal('EVIDENCE_NOT_GREEN', 'a documented-only pass must be a green observation (exitCode 0)')
   }
-  return { evidence: { observation: evidence, commit: args.commit ?? null }, status: args.passed ? 'verified' : 'failing', lastVerified: args.passed ? { at: evidence.at, command: evidence.command, exitCode: evidence.exitCode } : null }
+  return {
+    evidence: { observation: { ...evidence, passed: args.passed === true, source: 'manual' }, commit: args.commit ?? null, source: 'manual' },
+    redFirst: null,
+    status: args.passed ? 'verified' : 'failing',
+    lastVerified: args.passed ? { at: evidence.at, command: evidence.command, exitCode: evidence.exitCode, source: 'manual', commit: args.commit ?? null } : null,
+  }
 }
 
-/** Build the eight tools against one config. */
-export function createTools(config = {}) {
+/**
+ * The one blocker rule: an AUTOMATED case that is linked to this task (or is this case) and is
+ * not verified blocks acceptance. Documented-only cases never block, and a case with no link to
+ * the task is somebody else's requirement.
+ */
+function blockersFor(rows, { taskId, id } = {}) {
+  const blockers = []
+  const errors = []
+  for (const row of rows) {
+    if (row.record === undefined) {
+      errors.push({ id: row.id, code: row.error })
+      continue
+    }
+    const record = row.record
+    if (id !== undefined && record.id !== id) continue
+    if (taskId !== undefined && record.linkedTaskId !== taskId) continue
+    if (record.automated !== true) continue
+    if (record.status === 'verified') continue
+    blockers.push({ id: record.id, status: record.status, provenance: record.lastVerified?.source ?? null, lastVerified: record.lastVerified ?? null })
+  }
+  return { blockers, errors }
+}
+
+/** The read-only gate the taskboard consumes (ctx.provide('cases', …)). */
+export function gateForTask(cwd, taskId, config = {}) {
+  const rows = readCases(libraryDir(cwd, config))
+  const { blockers, errors } = blockersFor(rows, { taskId })
+  return { ok: blockers.length === 0, blockers, errors }
+}
+
+/**
+ * Build the twelve tools against one config.
+ *
+ * `env.shell` is the harness execution seam when the host mounted it; without it (tests, the
+ * CLI) the runner falls back to its own `sh -c` executor. Either way the command comes from the
+ * case, not from the caller.
+ */
+export function createTools(config = {}, env = {}) {
   const dirFor = (agent) => libraryDir(workingDir(agent), config)
+  const executor = env.shell !== undefined && env.shell !== null ? shellExec(env.shell) : spawnExec()
 
   const record = defineTool({
     name: 'case_record',
@@ -313,6 +283,20 @@ export function createTools(config = {}) {
       surfaceFiles: { type: 'array', items: { type: 'string' }, description: 'Repository-relative files whose change invalidates this verification.' },
       source: { type: 'string', enum: ['human', 'agent'], description: 'Who stated the requirement. Default agent.' },
       linkedTaskId: { type: 'string', description: 'Optional taskboard task that implements this requirement.' },
+      checks: {
+        type: 'array',
+        description: 'Typed checks case_run evaluates from the driver\'s CASE_SUMMARY: {name?, metric, op?, threshold?|expected?|baseline?, band?, unit?}. A check with none of threshold/expected/baseline is refused.',
+        items: {
+          type: 'object', additionalProperties: false,
+          properties: {
+            name: { type: 'string' }, metric: { type: 'string' },
+            op: { type: 'string', enum: ['<=', '>=', '<', '>', '==', '!='] },
+            threshold: { type: 'number' }, expected: { type: 'string' },
+            baseline: { type: 'boolean' }, band: { type: 'number' }, unit: { type: 'string' },
+          },
+        },
+      },
+      negativeControl: { type: 'string', description: 'Driver control name for a measured red: the driver must break its own assertion when it receives CASE_NEGATIVE_CONTROL.' },
     },
     output: OUTPUT,
     execute: (args, exec) => guarded(() => {
@@ -325,6 +309,10 @@ export function createTools(config = {}) {
         throw new Refusal('DOCUMENTED_REQUIRES_REASON', 'automated:false needs a `reason` naming why this case cannot be a test')
       }
       const source = args.source === 'human' ? 'human' : 'agent'
+      const checks = normalizeChecks(args.checks)
+      if (automated !== true && checks.length > 0) {
+        throw new Refusal('CHECKS_REQUIRE_AUTOMATED', 'checks are evaluated by case_run; a documented-only case has no command to run')
+      }
       if (Array.isArray(args.steps) && args.steps.filter((step) => typeof step === 'string' && step.trim() !== '').length === 0) {
         throw new Refusal('INVALID_CASE', '`steps` must not be empty; a case without reproduction steps cannot be rerun')
       }
@@ -349,6 +337,8 @@ export function createTools(config = {}) {
         tags: Array.isArray(args.tags) ? args.tags.filter((tag) => typeof tag === 'string' && tag !== '') : [],
         surfaceFiles: (Array.isArray(args.surfaceFiles) ? args.surfaceFiles : []).filter((path) => typeof path === 'string' && path !== '').map((path) => ({ path, sha256: fileHash(join(workspace, path)) ?? '' })),
         ...(typeof args.linkedTaskId === 'string' && args.linkedTaskId !== '' ? { linkedTaskId: args.linkedTaskId } : {}),
+        ...(checks.length > 0 ? { checks } : {}),
+        ...(typeof args.negativeControl === 'string' && args.negativeControl !== '' ? { negativeControl: args.negativeControl } : {}),
         revision: 1,
         createdAt: now,
         updatedAt: now,
@@ -373,6 +363,20 @@ export function createTools(config = {}) {
       automated: { type: 'boolean' }, testPath: { type: 'string' }, runCommand: { type: 'string' }, reason: { type: 'string' },
       fixture: { type: 'string' }, tags: { type: 'array', items: { type: 'string' } },
       surfaceFiles: { type: 'array', items: { type: 'string' } },
+      negativeControl: { type: 'string', description: 'Driver control name for a measured red (pass an empty string to clear it).' },
+      checks: {
+        type: 'array',
+        description: 'Replace the typed checks case_run evaluates (an empty array clears them).',
+        items: {
+          type: 'object', additionalProperties: false,
+          properties: {
+            name: { type: 'string' }, metric: { type: 'string' },
+            op: { type: 'string', enum: ['<=', '>=', '<', '>', '==', '!='] },
+            threshold: { type: 'number' }, expected: { type: 'string' },
+            baseline: { type: 'boolean' }, band: { type: 'number' }, unit: { type: 'string' },
+          },
+        },
+      },
     },
     output: OUTPUT,
     execute: (args, exec) => guarded(() => {
@@ -391,6 +395,11 @@ export function createTools(config = {}) {
       }
       if (Array.isArray(args.tags)) next.tags = args.tags.filter((tag) => typeof tag === 'string')
       if (Array.isArray(args.surfaceFiles)) next.surfaceFiles = args.surfaceFiles.filter((path) => typeof path === 'string').map((path) => ({ path, sha256: fileHash(join(workspace, path)) ?? '' }))
+      if (Array.isArray(args.checks)) next.checks = normalizeChecks(args.checks)
+      if (typeof args.negativeControl === 'string') {
+        if (args.negativeControl === '') delete next.negativeControl
+        else next.negativeControl = args.negativeControl
+      }
       if (typeof args.automated === 'boolean') next.automated = args.automated
       if (next.automated === true && (typeof next.testPath !== 'string' || next.testPath.trim() === '' || typeof next.runCommand !== 'string' || next.runCommand.trim() === '')) {
         throw new Refusal('AUTOMATED_REQUIRES_TEST', 'automated:true needs testPath and runCommand')
@@ -398,24 +407,34 @@ export function createTools(config = {}) {
       if (next.automated === false && (typeof next.reason !== 'string' || next.reason === '')) {
         throw new Refusal('DOCUMENTED_REQUIRES_REASON', 'automated:false needs a reason')
       }
+      if (next.automated !== true && Array.isArray(next.checks) && next.checks.length > 0) {
+        throw new Refusal('CHECKS_REQUIRE_AUTOMATED', 'checks are evaluated by case_run; a documented-only case has no command to run')
+      }
       // Attribution comes from the INVOCATION, not from a caller-supplied field: a tool call is
       // an agent edit, the panel command passes actor 'human'. `source` records who stated the
       // requirement; it is not evidence that a human edited this revision.
       const editedBy = exec.actor === 'human' ? 'human' : 'agent'
       next.revision = existing.revision + 1
       next.updatedAt = new Date().toISOString()
-      next.history = [...(existing.history ?? []), { revision: existing.revision, at: existing.updatedAt, editedBy, snapshot: { title: existing.title, requirement: existing.requirement, expected: existing.expected, steps: existing.steps, automated: existing.automated, testPath: existing.testPath, runCommand: existing.runCommand, reason: existing.reason, status: existing.status } }]
+      next.history = [...(existing.history ?? []), { revision: existing.revision, at: existing.updatedAt, editedBy, snapshot: { title: existing.title, requirement: existing.requirement, expected: existing.expected, steps: existing.steps, automated: existing.automated, testPath: existing.testPath, runCommand: existing.runCommand, reason: existing.reason, status: existing.status, checks: existing.checks ?? [], negativeControl: existing.negativeControl ?? null } }]
       // ANY change to the requirement or the automation/test binding invalidates the previous
       // verification: the evidence no longer covers the case. The case goes stale and its
       // evidence is dropped, so a later verify must produce red+green again.
-      const automationChanged = next.automated !== existing.automated
+      const bindingChanged = next.automated !== existing.automated
         || next.testPath !== existing.testPath
         || next.runCommand !== existing.runCommand
-      if (next.requirement !== existing.requirement || automationChanged) {
-        next.status = next.status === 'verified' || next.status === 'failing' ? 'stale' : next.status
+      const checksChanged = JSON.stringify(next.checks ?? []) !== JSON.stringify(existing.checks ?? [])
+      if (next.requirement !== existing.requirement || bindingChanged || checksChanged) {
+        next.status = next.status === 'verified' || next.status === 'failing' || next.status === 'flaky' ? 'stale' : next.status
         next.lastVerified = null
         next.evidence = {}
-        if (automationChanged) next.degraded = next.automated === true ? false : existing.degraded === true
+        // A changed command or test invalidates the recorded red as well: it was observed against
+        // bytes this case no longer names. A changed threshold does not (the driver still breaks
+        // the same assertion), so the red survives a checks-only edit.
+        if (bindingChanged) {
+          delete next.redFirst
+          next.degraded = next.automated === true ? false : existing.degraded === true
+        }
       }
       const path = writeCase(dir, next)
       return { ok: true, case: summary(next), path: relative(workspace, path) }
@@ -424,7 +443,7 @@ export function createTools(config = {}) {
 
   const verify = defineTool({
     name: 'case_verify',
-    description: 'Record an OBSERVED run of a case. Automated cases need a red-first run (exitCode != 0) and a green run (exitCode 0) of runCommand; documented-only cases record the observation command/output. On success the case is verified, lastVerified is set and surface hashes are re-snapshotted. Refuses to invent a pass.',
+    description: 'Record a MANUAL observation of a case: what you ran and what you saw, stamped source "manual" so it is never presented as a measurement. Automated cases need a red-first run (exitCode != 0) and a green run (exitCode 0) of runCommand; documented-only cases record the observation command/output. Use case_run to execute the stored command instead. Refuses to invent a pass.',
     parameters: {
       id: { type: 'string', required: true },
       expectedRevision: { type: 'number', required: true },
@@ -445,14 +464,139 @@ export function createTools(config = {}) {
       record.evidence = plan.evidence
       record.status = plan.status
       record.lastVerified = plan.lastVerified
+      if (plan.redFirst !== null) record.redFirst = plan.redFirst
       if (plan.status === 'verified') {
         record.surfaceFiles = (record.surfaceFiles ?? []).map((entry) => ({ path: entry.path, sha256: fileHash(join(workspace, entry.path)) ?? entry.sha256 }))
       }
       record.revision += 1
       record.updatedAt = new Date().toISOString()
-      record.history = [...(record.history ?? []), { revision: record.revision - 1, at: record.updatedAt, editedBy: 'agent', action: plan.status === 'verified' ? 'verified' : 'failed', notes: args.notes ?? null }]
+      record.history = [...(record.history ?? []), { revision: record.revision - 1, at: record.updatedAt, editedBy: exec.actor === 'human' ? 'human' : 'agent', action: plan.status === 'verified' ? 'verified-manual' : 'failed-manual', notes: args.notes ?? null }]
       const path = writeCase(dir, record)
       return { ok: true, case: summary(record), evidence: record.evidence, path: relative(workspace, path) }
+    }),
+  })
+
+  /**
+   * EXECUTE the case. The command comes from the RECORD, never from the caller, so a run cannot
+   * be aimed at a different command; the measurement (exit code, duration, checks, artifacts)
+   * is what the plugin records, not a transcript the model typed.
+   */
+  const run = defineTool({
+    name: 'case_run',
+    description: 'Execute a case\'s STORED runCommand and record the measured result: exit code, duration, stdout/stderr under docs/cases/runs/, the driver\'s CASE_SUMMARY checks and its artifacts. A green run with no recorded red is a measurement but NOT a verification (needsRed); mode "red" runs the negative control (CASE_NEGATIVE_CONTROL) and must FAIL. Only this measured evidence reaches status verified; case_verify is the manual report.',
+    parameters: {
+      id: { type: 'string', required: true },
+      expectedRevision: { type: 'number', required: true, description: 'The revision you read. A mismatch is refused, so two runs cannot race a record.' },
+      mode: { type: 'string', enum: ['green', 'red'], description: 'green (default) executes the case; red executes its negative control and must FAIL.' },
+      runs: { type: 'number', description: 'Repeat the command 1-5 times. A mixed outcome is recorded as flaky; the metrics keep the series with median/p95. Default 1.' },
+      timeoutMs: { type: 'number', description: 'Per-run timeout in ms (1000-600000, default 120000). A timeout is a failed run.' },
+      control: { type: 'string', description: 'Red only: the control name passed as CASE_NEGATIVE_CONTROL. The driver must break its own assertion when it sees it.' },
+      setBaseline: { type: 'boolean', description: 'Seed the ratchet from this passing run: every numeric metric\'s median becomes the baseline.' },
+      commit: { type: 'string', description: 'Optional commit you attribute the run to; HEAD and dirty state are recorded automatically.' },
+    },
+    output: OUTPUT,
+    execute: (args, exec) => guarded(async () => {
+      requireStrings(args, ['id'])
+      const dir = dirFor(exec.agent)
+      const workspace = workingDir(exec.agent)
+      const { record } = readCase(dir, args.id)
+      checkRevision(record, args.expectedRevision)
+      if (record.automated !== true) throw new Refusal('NOT_AUTOMATED', `case "${record.id}" is documented-only; it has no command to run`)
+      if (record.degraded === true) throw new Refusal('TEST_REQUIRED', 'this case was degraded because its test disappeared; restore the test first')
+      if (typeof record.runCommand !== 'string' || record.runCommand.trim() === '') throw new Refusal('TEST_REQUIRED', 'automated case needs a runCommand')
+      if (typeof record.testPath !== 'string' || record.testPath === '' || !existsSync(join(workspace, record.testPath))) {
+        throw new Refusal('TEST_REQUIRED', `automated case needs its test file present: ${typeof record.testPath === 'string' && record.testPath !== '' ? record.testPath : '(no testPath)'}`)
+      }
+      const mode = args.mode === 'red' ? 'red' : 'green'
+      const control = typeof args.control === 'string' && args.control !== '' ? args.control : (typeof record.negativeControl === 'string' ? record.negativeControl : '')
+      if (mode === 'red' && control === '') {
+        throw new Refusal('NEGATIVE_CONTROL_REQUIRED', 'a red run needs a control: pass control, or record negativeControl on the case (the driver breaks its own assertion when it receives CASE_NEGATIVE_CONTROL)')
+      }
+      const attempt = await runAttempts({
+        workspace,
+        dir,
+        record,
+        runId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+        runs: args.runs,
+        timeoutMs: args.timeoutMs,
+        mode,
+        control,
+        exec: executor,
+      })
+      if (mode === 'red' && attempt.controlHeld !== true) {
+        throw new Refusal('NEGATIVE_CONTROL_DID_NOT_FAIL', 'the negative control exited 0 (or timed out); a red run must FAIL for the control to prove the check can fail')
+      }
+      const folded = recordRun(record, { workspace, attempt, mode, setBaseline: args.setBaseline === true, commit: typeof args.commit === 'string' ? args.commit : null })
+      const path = writeCase(dir, folded.record)
+      return { ok: true, case: summary(folded.record), verdict: folded.verdict, path: relative(workspace, path) }
+    }),
+  })
+
+  /**
+   * Run every automated case that matches a filter, record each, and write the report a gate or a
+   * CI job reads. The suite is a WRITER: it moves every case it ran to its measured status.
+   */
+  const suite = defineTool({
+    name: 'case_suite',
+    description: 'Execute every automated case matching a filter (tag/kind/status), record each run, write docs/cases/runs/suites/<suiteId>.json and return the per-case verdicts. A case that is not verified makes the suite not green; the report is the artifact a gate or a CI job reads.',
+    parameters: {
+      tag: { type: 'string' }, kind: { type: 'string', enum: KINDS }, status: { type: 'string', enum: STATUSES },
+      runs: { type: 'number', description: 'Runs per case, 1-5. Default 1.' },
+      timeoutMs: { type: 'number' }, commit: { type: 'string' },
+    },
+    output: OUTPUT,
+    execute: (args, exec) => guarded(async () => {
+      const dir = dirFor(exec.agent)
+      const workspace = workingDir(exec.agent)
+      const rows = readCases(dir)
+      const candidates = rows.filter((row) => row.record !== undefined
+        && row.record.automated === true
+        && !CLOSED.has(row.record.status)
+        && (args.tag === undefined || (row.record.tags ?? []).includes(args.tag))
+        && (args.kind === undefined || row.record.kind === args.kind)
+        && (args.status === undefined || row.record.status === args.status))
+      if (candidates.length === 0) throw new Refusal('EMPTY_SUITE', 'no automated case matches this filter')
+      const suiteId = `suite-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
+      const results = []
+      for (const row of candidates) {
+        const record = row.record
+        const attempt = await runAttempts({ workspace, dir, record, runId: `${suiteId}-${record.id}`, runs: args.runs, timeoutMs: args.timeoutMs, exec: executor })
+        const folded = recordRun(record, { workspace, attempt, commit: typeof args.commit === 'string' ? args.commit : null })
+        writeCase(dir, folded.record)
+        results.push({ id: record.id, status: folded.verdict.status, runId: folded.verdict.runId, passed: folded.verdict.passed, flaky: folded.verdict.flaky, needsRed: folded.verdict.needsRed === true, checks: folded.verdict.checks })
+      }
+      const failed = results.filter((entry) => entry.status !== 'verified')
+      const reportDir = join(dir, 'runs', 'suites')
+      const reportPath = join(reportDir, `${suiteId}.json`)
+      mkdirSync(reportDir, { recursive: true })
+      writeFileSync(reportPath, `${JSON.stringify({ suiteId, at: new Date().toISOString(), filter: { tag: args.tag ?? null, kind: args.kind ?? null, status: args.status ?? null }, checked: results.length, verified: results.length - failed.length, failed: failed.length, cases: results }, null, 2)}\n`, 'utf8')
+      try {
+        const reports = readdirSync(reportDir).filter((name) => name.endsWith('.json')).sort()
+        for (const name of reports.slice(0, Math.max(0, reports.length - 50))) rmSync(join(reportDir, name), { force: true })
+      } catch {
+        // Derived reports; a failed prune is not a failed suite.
+      }
+      return { ok: true, suiteId, checked: results.length, verified: results.length - failed.length, failed: failed.length, green: failed.length === 0, cases: results, report: relative(workspace, reportPath) }
+    }),
+  })
+
+  /**
+   * The read-only verdict the taskboard also enforces on close: an AUTOMATED case linked to the
+   * task that is not verified blocks acceptance. Documented-only cases never block.
+   */
+  const gate = defineTool({
+    name: 'case_gate',
+    description: 'Read-only verdict for a task or a case: which linked AUTOMATED cases are not verified (status + provenance). The taskboard refuses task_close on the same rule; use this before accepting work. Documented-only cases never block.',
+    parameters: {
+      taskId: { type: 'string', description: 'Check every automated case linked to this task id.' },
+      id: { type: 'string', description: 'Check one case.' },
+    },
+    output: OUTPUT,
+    execute: (args, exec) => guarded(() => {
+      if (typeof args.taskId !== 'string' && typeof args.id !== 'string') throw new Refusal('INVALID_CASE', 'pass taskId or id')
+      const rows = readCases(dirFor(exec.agent))
+      const verdict = blockersFor(rows, { taskId: args.taskId, id: args.id })
+      return { ok: verdict.blockers.length === 0, taskId: args.taskId ?? null, caseId: args.id ?? null, checked: rows.length, ...verdict }
     }),
   })
 
@@ -465,26 +609,18 @@ export function createTools(config = {}) {
     },
     output: OUTPUT,
     execute: (args, exec) => guarded(() => {
-      const dir = dirFor(exec.agent)
-      if (!existsSync(dir)) return { ok: true, cases: [], total: 0 }
-      const cases = []
-      for (const file of readdirSync(dir)) {
-        if (!file.endsWith('.json')) continue
-        try {
-          const record = JSON.parse(readFileSync(join(dir, file), 'utf8'))
-          if (typeof record.id !== 'string' || !Array.isArray(record.history)) continue
-          cases.push(record)
-        } catch {
-          // A malformed file is reported by case_drift, not silently listed.
-        }
-      }
+      const rows = readCases(dirFor(exec.agent))
+      const cases = rows.filter((row) => row.record !== undefined).map((row) => row.record)
+      const counts = {}
+      for (const record of cases) counts[record.status] = (counts[record.status] ?? 0) + 1
       const filtered = cases.filter((record) => (args.status === undefined || record.status === args.status)
         && (args.kind === undefined || record.kind === args.kind)
         && (args.source === undefined || record.source === args.source)
         && (args.automated === undefined || record.automated === args.automated)
         && (args.tag === undefined || (record.tags ?? []).includes(args.tag)))
       filtered.sort((a, b) => String(a.id).localeCompare(String(b.id)))
-      return { ok: true, total: filtered.length, cases: filtered.map(summary) }
+      const unreadable = rows.filter((row) => row.error !== undefined).map((row) => ({ id: row.id, code: row.error }))
+      return { ok: true, total: filtered.length, library: cases.length, counts, cases: filtered.map(summary), unreadable }
     }),
   })
 
@@ -580,7 +716,10 @@ export function createTools(config = {}) {
         const statusChanged = result.status !== null && result.status !== record.status
         // Idempotent: a case already stale (or already degraded) with the same files unchanged
         // is not rewritten, so repeated drift runs do not churn revisions.
-        if (missingTest && !alreadyDegraded) {
+        // A status of null means the case is not in a state that can go stale (unverified,
+        // superseded, deprecated). A missing test is still reported in the finding, but it must
+        // not rewrite a record that never verified anything.
+        if (missingTest && result.status !== null && !alreadyDegraded) {
           record.automated = false
           record.degraded = true
           record.reason = `test file missing: ${record.testPath}; degraded to documented-only on ${now}`
@@ -642,27 +781,27 @@ export function createTools(config = {}) {
       const removedBy = args.removedBy === 'human' || exec.actor === 'human' ? 'human' : 'agent'
       const audit = { at: new Date().toISOString(), id: record.id, title: record.title, status: record.status, revision: record.revision, removedBy }
       // Audit first: a failed audit write must not destroy the only copy of the record.
-      mkdirSync(dir, { recursive: true })
-      appendFileSync(join(dir, '.removed.jsonl'), `${JSON.stringify(audit)}\n`, 'utf8')
-      unlinkSync(path)
+      appendAudit(dir, '.removed.jsonl', audit)
+      removeCaseFile(dir, record.id)
       return { ok: true, removed: audit, path: relative(workspace, path) }
     }),
   })
 
-  return { case_record: record, case_update: update, case_verify: verify, case_list: list, case_get: get, case_supersede: supersede, case_deprecate: deprecate, case_remove: remove, case_drift: drift }
+  return { case_record: record, case_update: update, case_verify: verify, case_run: run, case_suite: suite, case_gate: gate, case_list: list, case_get: get, case_supersede: supersede, case_deprecate: deprecate, case_remove: remove, case_drift: drift }
 }
 
 /** The full prompt section: the rule that makes the library worth trusting. */
 const SECTION_FULL = [
   'TEST CASES (docs/cases/, host tool family):',
   '  Explore with your own tools first and OBSERVE the behaviour, then persist the case. Never record a speculative test.',
-  '  automated:true needs a real test file + exact runCommand, and case_verify needs the observed red run (non-zero exit) before the green one. Otherwise record automated:false with steps, expected and the reason it cannot be a test.',
-  '  The library is compare-and-set: read the case (case_get), pass expectedRevision on every edit, and supersede/deprecate instead of deleting. A changed surface file or a missing test makes a case stale; it never erases the requirement.',
-  '  Removal is the only destructive verb: case_remove accepts ONLY deprecated/superseded cases, with the revision and an audit line; active/open cases are refused.',
+  '  case_run EXECUTES an automated case\'s stored runCommand and records the MEASUREMENT (exit code, duration, checks, artifacts under docs/cases/runs/). Declare checks on the case - {metric, op, threshold} reads the driver\'s CASE_SUMMARY JSON, {baseline: true} ratchets against the recorded baseline, runs>1 gives median/p95 and records a mixed outcome as flaky.',
+  '  A green run on a case with no recorded red is a measurement, not a verification: record the negative control with case_run mode:"red" (the driver breaks its own assertion on CASE_NEGATIVE_CONTROL), or use case_verify, which is the MANUAL report and is stamped source manual.',
+  '  case_suite runs a filtered set and writes a report; case_gate reads whether the automated cases linked to a task are verified (the taskboard refuses task_close on the same rule).',
+  '  The library is compare-and-set: read the case (case_get), pass expectedRevision on every edit/run, and supersede/deprecate instead of deleting. A changed surface file or a missing test makes a case stale; it never erases the requirement.',
 ].join('\n')
 
 /**
- * The INTAKE section, for a role that was granted only record/list/get/drift.
+ * The INTAKE section, for a role that was granted only record/list/get/drift/gate.
  *
  * WHY TWO SECTIONS. The orchestrator records what the human states and reads the library; it
  * cannot verify (no case_verify), edit (no case_update) or close (no supersede/deprecate). The
@@ -672,9 +811,9 @@ const SECTION_FULL = [
  */
 const SECTION_INTAKE = [
   'TEST CASES (docs/cases/, intake subset):',
-  '  Your surface is intake only: case_record, case_list, case_get, case_drift. Recording is NOT verifying — you have no case_verify, case_update, case_supersede or case_deprecate, so never claim a case passed.',
-  '  When the human states a requirement, record it with case_record: source human, automated:false with a named reason (or a real testPath + runCommand when one exists), and linkedTaskId of the task that implements it. Leave the status unverified.',
-  '  Read with case_get (compare-and-set needs its revision) and case_list, and check staleness with case_drift. Verification belongs to the specialist that owns the work, in its own session.',
+  '  Your surface is intake only: case_record, case_list, case_get, case_drift, case_gate. Recording is NOT verifying - you have no case_run, case_verify or case_update, so never claim a case passed.',
+  '  When the human states a requirement, record it with case_record: source human, automated:false with a named reason (or a real testPath + runCommand + checks when one exists), and linkedTaskId of the task that implements it. Leave the status unverified.',
+  '  Read with case_get (compare-and-set needs its revision) and case_list; case_gate is the same verdict the taskboard enforces on task_close. Verification belongs to the specialist that owns the work, in its own session.',
 ].join('\n')
 
 /**
@@ -684,7 +823,20 @@ const SECTION_INTAKE = [
  * @param config - See the file contract.
  */
 export function apply(ctx, config = {}) {
-  const tools = createTools(config)
+  // The harness executor when the host mounted it (sandbox, caps, timeout); the runner falls back
+  // to its own sh -c when it is absent (tests, a bare profile). The command still comes from the
+  // case, never from the caller.
+  let shell
+  try {
+    shell = ctx.get('shell')
+  } catch {
+    shell = undefined
+  }
+  const tools = createTools(config, { shell })
+  // THE TASKBOARD'S READ. A workspace without this row keeps its legacy close behaviour: the
+  // taskboard looks the service up with ctx.get('cases') and skips the gate when it is absent.
+  const providedCases = ctx.provide('cases', { gateForTask: (cwd, taskId) => gateForTask(cwd, taskId, config) })
+  if (typeof ctx.effect === 'function') ctx.effect(() => providedCases)
   const policy = config.roles !== null && typeof config.roles === 'object' ? config.roles : DEFAULT_ROLE_TOOLS
   const showSection = config.shownInPrompt !== false
   ctx.on('agent/created', ({ agent }) => {
@@ -702,11 +854,11 @@ export function apply(ctx, config = {}) {
     // one granted nothing, was told how to call case_verify.
     const granted = allowed.filter((name) => tools[name] !== undefined)
     if (showSection && granted.length > 0 && typeof agent?.ctx?.systemPrompt?.section === 'function') {
-      const canVerify = granted.includes('case_verify')
+      const canRun = granted.includes('case_run')
       agent.ctx.systemPrompt.section({
         name: 'deployment:test-cases',
         order: 123,
-        text: canVerify ? SECTION_FULL : SECTION_INTAKE,
+        text: canRun ? SECTION_FULL : SECTION_INTAKE,
       })
     }
   })
@@ -716,7 +868,8 @@ export function apply(ctx, config = {}) {
   // the same schema, CAS and writer); it never edits docs/cases/ itself.
   const COMMANDS = {
     list: 'case_list', detail: 'case_get', get: 'case_get', update: 'case_update',
-    verify: 'case_verify', deprecate: 'case_deprecate', remove: 'case_remove', drift: 'case_drift',
+    verify: 'case_verify', run: 'case_run', suite: 'case_suite', gate: 'case_gate',
+    deprecate: 'case_deprecate', remove: 'case_remove', drift: 'case_drift',
   }
   ctx.commands.register({
     name: 'test-cases',
@@ -730,7 +883,7 @@ export function apply(ctx, config = {}) {
         return { kind: 'error', text: 'test-cases: expected a JSON operation' }
       }
       const toolName = COMMANDS[op?.op]
-      if (toolName === undefined) return { kind: 'error', text: 'test-cases: unknown op (list | detail | update | verify | deprecate | remove | drift)' }
+      if (toolName === undefined) return { kind: 'error', text: 'test-cases: unknown op (list | detail | update | verify | run | suite | gate | deprecate | remove | drift)' }
       const args = { ...op }
       delete args.op
       try {

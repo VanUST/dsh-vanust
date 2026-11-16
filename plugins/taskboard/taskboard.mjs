@@ -1377,6 +1377,11 @@ function createService(config, logger, hooks = {}) {
     /** Close a task as done and interrupt its linked children; fail closed. */
     close(cwd, input) {
       const id = typeof input?.id === 'string' ? input.id : ''
+      // THE CASE GATE. An optional consumer: a workspace without the test-cases row keeps the
+      // legacy close. A linked AUTOMATED case that is not verified stops the acceptance, and the
+      // refusal names it, so a red case cannot be closed away.
+      const gate = typeof hooks.beforeClose === 'function' ? hooks.beforeClose(cwd, id) : undefined
+      if (gate !== undefined && gate !== null && gate.ok === false) return gate
       return mutate(cwd, (board) => {
         const task = board.tasks.find((entry) => entry.id === id)
         if (task === undefined) return { value: { ok: false, code: 'not_found' } }
@@ -1416,6 +1421,11 @@ function createService(config, logger, hooks = {}) {
         for (const id of ids) {
           const task = board.tasks.find((entry) => entry.id === id)
           if (task === undefined) { items.push({ id, ok: false, code: 'not_found' }); continue }
+          const gate = typeof hooks.beforeClose === 'function' ? hooks.beforeClose(cwd, id) : undefined
+          if (gate !== undefined && gate !== null && gate.ok === false) {
+            items.push({ id, ok: false, code: gate.code ?? 'cases_not_green', message: gate.message, ...(Array.isArray(gate.blockers) ? { blockers: gate.blockers } : {}) })
+            continue
+          }
           const outcome = closeOne(board, task, input, perTask.has(id) ? perTask.get(id) : input?.result)
           if (outcome.ok === false) {
             items.push({ id, ok: false, code: outcome.code, status: outcome.task?.status, revision: outcome.task?.revision, interrupted: outcome.interrupted, errors: outcome.errors })
@@ -1642,6 +1652,36 @@ export function apply(ctx, config = {}) {
       subagents.interrupt(childId, parent === undefined
         ? { kind: 'user', parentSessionId }
         : { kind: 'ancestor', agent: parent })
+    },
+    /**
+     * The case gate, when the test-cases plugin is mounted.
+     *
+     * The service is looked up on every close instead of injected: a profile without the row
+     * keeps the legacy behaviour, and a case library that cannot be read fails CLOSED (a gate
+     * that cannot see its evidence must not answer "green").
+     */
+    beforeClose(cwd, id) {
+      let cases
+      try {
+        cases = ctx.get('cases')
+      } catch {
+        cases = undefined
+      }
+      if (cases === undefined || cases === null || typeof cases.gateForTask !== 'function') return undefined
+      let gate
+      try {
+        gate = cases.gateForTask(cwd, id)
+      } catch (error) {
+        return { ok: false, code: 'cases_unreadable', message: `the case library could not be read: ${error?.message ?? error}` }
+      }
+      if (gate === undefined || gate === null || gate.ok !== false) return undefined
+      const names = Array.isArray(gate.blockers) ? gate.blockers.map((entry) => `${entry.id} (${entry.status}${entry.provenance === 'manual' ? ', reported manually' : ''})`) : []
+      return {
+        ok: false,
+        code: 'cases_not_green',
+        message: `linked automated case(s) are not verified: ${names.join(', ') || 'unknown'}; run them with case_run or fix the case before accepting the task`,
+        blockers: gate.blockers,
+      }
     },
   })
   const board = ctx.provide('taskboard', service)

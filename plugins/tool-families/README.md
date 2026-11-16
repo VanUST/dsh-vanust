@@ -57,6 +57,6 @@ tool is logged and skipped.
 ## Verification
 
 `node scripts/tool-families-proof.mjs` runs the decision table over a synthetic tool list for
-every preset (`standard`, the seven roles, an unknown preset) and prints the deny list, the kept
+every preset (`standard`, the eight presets, an unknown preset) and prints the deny list, the kept
 project-gated families and the bytes that would leave the header. A second server proves the
 same effect in a real `request/header` — see `rules/DEPLOYMENT.md`.

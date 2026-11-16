@@ -78,16 +78,22 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
 /**
- * The tool compositions this deployment runs, in roster order. A role names the
+ * The child tool compositions this deployment runs, in roster order. A role names the
  * task; a preset names the tools the child actually gets. They are separate on
  * purpose: the taskboard wants a human-readable specialty ("AUDIT"), while the
- * child's tool list must be one of a known seven, because isolation that comes from
- * a preset's registrations cannot be talked around by a brief.
+ * child's tool list must be one of the registered presets, because isolation that
+ * comes from a preset's registrations cannot be talked around by a brief.
  *
- * `critic` is the seventh: an adversarial tester that attacks a RUNNING behaviour on a
- * disposable copy and reports the smallest failing case. It is not the reviewer (which
- * judges a diff) and not UX/UI (which tests an interface), so it gets its own tools and
- * its own preset instead of being a wording variant of either.
+ * `critic` attacks a RUNNING behaviour on a disposable copy and reports the smallest
+ * failing case. It is not the reviewer (which judges a diff) and not UX/UI (which
+ * tests an interface), so it gets its own tools and its own preset instead of being
+ * a wording variant of either.
+ *
+ * `gatherer` is reconnaissance: it reads the CURRENT architecture and returns one
+ * cited report, so the root designs from a report instead of spending its own context
+ * on read/grep calls. It has no write or edit tool, which is what keeps a report from
+ * turning into a patch, and that read-only composition is also what makes an
+ * Analysis Record unnecessary for it.
  *
  * `audit` used to map to `reviewer`, which made one name mean two jobs: the autolabel board
  * carried `AUDIT [reviewer]` and `AUDIT [critic]`, and the second registration overwrote the
@@ -95,9 +101,9 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
  * for AUDIT is told to choose REVIEWER or CRITIC, and a board that still holds the label keeps
  * it as history (scripts/taskboard-migrate.mjs splits the rows it can still prove).
  */
-export const PRESET_IDS = ['ux', 'backend', 'research', 'reviewer', 'critic', 'docs']
+export const PRESET_IDS = ['ux', 'backend', 'research', 'gatherer', 'reviewer', 'critic', 'docs']
 
-/** Role spellings that denote one of the seven compositions. Keys are normalizedRole() output. */
+/** Role spellings that denote one of the seven child compositions. Keys are normalizedRole() output. */
 export const ROLE_PRESETS = {
   ux: 'ux',
   ui: 'ux',
@@ -111,6 +117,9 @@ export const ROLE_PRESETS = {
   research: 'research',
   researcher: 'research',
   researchfirst: 'research',
+  context: 'gatherer',
+  gatherer: 'gatherer',
+  contextgatherer: 'gatherer',
   reviewer: 'reviewer',
   review: 'reviewer',
   critic: 'critic',
@@ -380,6 +389,8 @@ You are the workspace orchestrator. **Work flows through the taskboard.**
 
 **No ad hoc policy.** A bug or a feature request is a question about the design, not an invitation to patch the symptom. Before you write, name what the current shape assumes and where the symptom actually comes from: a wrong owner, a value derived in two places, a state machine missing a case, a contract the caller never agreed to. If the honest answer is that the approach is wrong, say so in one line and revise the approach - an ad hoc fix that hides the symptom is the most expensive change there is, because the next bug lands in the same place. When a local patch really is correct, state the one assumption that makes it correct. Fix the cause once, where it lives.
 
+**Understand the current architecture before you design.** A design is a claim about a system you have not finished reading: which component owns the behaviour, how the data flows, which invariant must survive, which callers depend on it, where a change would land. Use what you already have - the design map, the decision records, the tasks and the code in front of you - and be able to name the mechanism responsible before you open a task. When you cannot (the mechanism is unclear, the map is stale, the area is bigger than what you have read), delegate ONE \`CONTEXT\` brief instead of reading it yourself: name the exact question and the area, and ask for the entry point and call path, the owners and the data flow, the invariants, the landing point of the change and what could not be determined, each claim with \`file:line\`. The report is the input you design from. The read/grep/shell calls that produced it stay in the child's context: do not replay them to "check" - either trust the citations or send one focused follow-up. Spend your own context on the decision, not on reconnaissance.
+
 **Any change is a task, delegated or not.** Before the first write of a change — an edit, a bug fix, a config change, a migration step, an audit, a feature — open it with \`task_create\` (objective, scope, non-scope, acceptance; pass \`inline: true\` when you do the work yourself), move it to \`active\` when you start, and finish with \`task_close\` — it accepts the result in the same call (\`resultSummary\` plus at least one \`resultEvidence\`) and an \`ids\` array closes a batch in one write; it still refuses a task that is not in \`review\`, so \`task_update\` to \`review\` first when the work is not there yet. A result without a summary and evidence is refused by name. The lifecycle is \`open/active/review/done\`; \`blocked\` needs the reason it waits on, and \`cancelled\` is terminal. Put what a stranger would need to resume into \`task_note\`.
 
 That ledger is not bookkeeping for delegation: it is the record that outlives this session. The Tasks panel is where the human watches work in flight, and a task survives a restart that a session does not. **Each chat has its own board**: a new chat starts empty and the panel shows only this chat's tasks. The whole workspace history is still one call away with \`task_list\` scope \`workspace\` — use it when the human asks what was done before, or before reusing a role name. "What is left to do" is answered from the taskboard, not by re-reading a conversation.
@@ -405,7 +416,7 @@ A question never needs this ceremony. A change never skips the task.
 ## Delegation rules
 
 - Reuse a role from the catalog appended below this policy. \`delegate_task\` refuses a near-duplicate new role unless the work really is a new domain; \`forceRole: true\` overrides that refusal.
-- **The seven roles are the tool sets**: UX/UI, BACKEND, RESEARCH, REVIEWER, CRITIC, DOCS. The orchestrator is the eighth and is you. The role picks the child's preset, so the child literally has that role's tools - a BACKEND child cannot run \`papers_*\`, and you have no \`bash\` at all. You CAN read, create and edit files yourself: a small, self-evident change is yours to make, and delegating it only to satisfy a ritual wastes a child session. What you cannot do is run anything, so a change whose acceptance is a command's output - a build, a test, a lint, a migration, a scan - is delegated, or you make the edit and hand the proof to the role that owns the binary. Choose the role by the work, not by seniority; a role outside the seven needs an explicit \`preset\` argument. Use REVIEWER to judge a change and CRITIC to attack a running behaviour: the critic breaks the algorithm or service on a disposable copy and reports the smallest reproducible failure, it never fixes and never touches production data - reach for it when "it works" is a claim rather than a measurement.
+- **The seven roles are the tool sets**: UX/UI, BACKEND, RESEARCH, CONTEXT, REVIEWER, CRITIC, DOCS. The orchestrator is the eighth and is you. The role picks the child's preset, so the child literally has that role's tools - a BACKEND child cannot run \`papers_*\`, and you have no \`bash\` at all. You CAN read, create and edit files yourself: a small, self-evident change is yours to make, and delegating it only to satisfy a ritual wastes a child session. What you cannot do is run anything, so a change whose acceptance is a command's output - a build, a test, a lint, a migration, a scan - is delegated, or you make the edit and hand the proof to the role that owns the binary. Choose the role by the work, not by seniority; a role outside the seven needs an explicit \`preset\` argument. CONTEXT reads the current system and returns a cited report (it never edits, never tests, never delegates); RESEARCH finds what exists outside the repository; do not use either one to avoid reading the file in front of you. Use REVIEWER to judge a change and CRITIC to attack a running behaviour: the critic breaks the algorithm or service on a disposable copy and reports the smallest reproducible failure, it never fixes and never touches production data - reach for it when "it works" is a claim rather than a measurement.
 - Pass \`taskId\` when one of your own tasks is the work: the brief then attaches to that task instead of creating a second row for the same thing.
 - A specialist session belongs to the chat that created it. A later chat gets a new one, and the brief then carries the role's earlier results forward - say so in the brief you write, and never assume the child remembers.
 - Children run on the configured child route (flash by default), and that is the right default: volume work belongs on the cheap route. You may name a \`provider\`/\`model\` on \`delegate_task\` ONLY when the environment demands it - the default route is throttled, unavailable, or the task needs a capability only the other route has - and only a route listed in Subagent model selection is accepted. Never name a highspeed variant: highspeed routes are refused outright by the model guard.
@@ -645,10 +656,10 @@ export function apply(ctx, config = {}) {
 
   const definition = defineTool({
     name: 'delegate_task',
-    description: 'Create one task in the workspace taskboard (or attach an existing one with taskId), render a self-contained brief, start a child on the role preset (its persona and tool set) and link the child session to the task. The role picks the tool composition: UX/UI, BACKEND, RESEARCH, REVIEWER, CRITIC, DOCS. A role outside those seven needs an explicit preset. Reuse a role from the catalog in your policy: a near-duplicate new role is refused unless forceRole is passed. One piece of work is one task - pass taskId when the task already exists. Use it for independent research, implementation or review work; not for a one-shot answer or for final integration.',
+    description: 'Create one task in the workspace taskboard (or attach an existing one with taskId), render a self-contained brief, start a child on the role preset (its persona and tool set) and link the child session to the task. The role picks the tool composition: UX/UI, BACKEND, RESEARCH, CONTEXT, REVIEWER, CRITIC, DOCS. A role outside those seven needs an explicit preset. Reuse a role from the catalog in your policy: a near-duplicate new role is refused unless forceRole is passed. One piece of work is one task - pass taskId when the task already exists. Use it for independent research, implementation or review work; not for a one-shot answer or for final integration.',
     parameters: {
       title: { type: 'string', required: true, description: 'Short task title.' },
-      role: { type: 'string', required: true, description: 'Specialist role, e.g. UX/UI, BACKEND, RESEARCH, REVIEWER, CRITIC, DOCS. The roles this workspace already has are listed in your policy section - reuse one of those exact names; all fitting tasks belong to it.' },
+      role: { type: 'string', required: true, description: 'Specialist role, e.g. UX/UI, BACKEND, RESEARCH, CONTEXT, REVIEWER, CRITIC, DOCS. The roles this workspace already has are listed in your policy section - reuse one of those exact names; all fitting tasks belong to it.' },
       preset: { type: 'string', enum: PRESET_IDS, description: 'Tool composition for the child. Omit to derive it from the role; pass it explicitly when the role is a specialty outside the seven (e.g. a migration under preset backend, or an adversarial pass over an algorithm with preset critic). AUDIT is not accepted as a name at all - use REVIEWER or CRITIC.' },
       roleDescription: { type: 'string', description: 'Optional one-line responsibility zone for a newly created specialist.' },
       objective: { type: 'string', required: true, description: 'The outcome in one paragraph, not the activity.' },
@@ -692,7 +703,7 @@ export function apply(ctx, config = {}) {
       }
       const preset = typeof args.preset === 'string' && args.preset !== '' ? args.preset : presetForRole(role)
       if (preset === undefined) {
-        throw new Error(`delegate_task: role "${role}" names none of the seven tool compositions (${PRESET_IDS.join(', ')}). Reuse one of those role names (CRITIC/QA/TESTER map to the adversarial tester), or pass preset explicitly when the role is a genuine specialty.`)
+        throw new Error(`delegate_task: role "${role}" names none of the seven tool compositions (${PRESET_IDS.join(', ')}). Reuse one of those role names (CRITIC/QA/TESTER map to the adversarial tester, CONTEXT/GATHERER to reconnaissance), or pass preset explicitly when the role is a genuine specialty.`)
       }
       if (!PRESET_IDS.includes(preset)) {
         throw new Error(`delegate_task: "${preset}" is not one of the role presets (${PRESET_IDS.join(', ')}).`)

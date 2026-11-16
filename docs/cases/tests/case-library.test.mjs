@@ -28,6 +28,13 @@ test('driftFor marks a case stale when a recorded surface file changed', () => {
   assert.deepEqual(result.changedFiles, ['docs/cases/fixtures/surface.txt'])
 })
 
+test('driftFor does not mark an UNVERIFIED case stale when a surface file changed', () => {
+  const record = { status: 'unverified', automated: false, surfaceFiles: [{ path: 'docs/cases/fixtures/surface.txt', sha256: 'aa' }] }
+  const result = driftFor(record, process.cwd(), { hash: () => 'bb' })
+  assert.equal(result.status, null)
+  assert.deepEqual(result.changedFiles, ['docs/cases/fixtures/surface.txt'])
+})
+
 test('driftFor marks an automated case stale when its test file is missing', () => {
   const record = { status: 'verified', automated: true, testPath: 'docs/cases/tests/does-not-exist.test.mjs', surfaceFiles: [] }
   const result = driftFor(record, process.cwd(), { hash: () => null })

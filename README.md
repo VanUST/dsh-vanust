@@ -64,7 +64,7 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   `ctx.get('analysis')`, so a composition without the row keeps the legacy behaviour: an L0
   question/local fix passes without a document, while L1/L2 are refused `analysis_required`
   without a ready record and `analysis_stale` after an affected change or a moved design
-  map. A read-only **preset** (`RESEARCH`/`REVIEWER`/`CRITIC`) and a `taskId` attach with explicit `legacyAttach:true` are exempt; a write-capable preset behind a read-only role label is gated. A
+  map. A read-only **preset** (`RESEARCH`/`CONTEXT`/`REVIEWER`/`CRITIC`) and a `taskId` attach with explicit `legacyAttach:true` are exempt; a write-capable preset behind a read-only role label is gated. A
   monotonic completion guard refuses `task_close` while a traced requirement is still planned
   and refuses `update_goal action:"complete"` while a linked `goalId` record is incomplete;
   adding/removing a requirement, a breaking architecture edit or a bare `designRef` bump
@@ -143,15 +143,18 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   brief (objective, scope, non-scope, inputs, acceptance, output, proof, timebox), starts a
   child on the role's **agent preset** and links the child id. It applies to every preset; no
   preset is duplicated.
-- **Role presets** — seven `@deepseek-ai/dsh-agent-preset` declarations in
-  `profile/cordis.patch.yml`: `orchestrator`, `ux`, `backend`, `research`, `reviewer`,
-  `critic`, `docs`.
+- **Role presets** — eight `@deepseek-ai/dsh-agent-preset` declarations in
+  `profile/cordis.patch.yml`: `orchestrator`, `ux`, `backend`, `research`, `gatherer`,
+  `reviewer`, `critic`, `docs`.
   A role is its persona and its tool list, not a request in the brief: the orchestrator has no
   shell, but it DOES carry `write`/`edit` (a small self-evident change is its own to make; a
   change whose proof is a command's output still goes to a role that can run one), research has
   no shell, the reviewer and the critic have
   their `write`/`edit` tools disabled (both keep `bash`, and a shell can write - the rule is
-  the tool surface, not a jail). New
+  the tool surface, not a jail). **`gatherer`** (`CONTEXT`) is reconnaissance for the
+  orchestrator: read/grep/glob/bash with no write or edit tool, it maps the current
+  architecture and algorithm and returns one `file:line`-cited report, so the root designs from
+  the report instead of filling its own context with the reading. New
   chats default to the orchestrator; `standard` stays in the picker as the hands-on escape
   hatch. The kit's role-specific tools gate on the same id (`papers_*` research,
   `babysitter_*` orchestrator, `diagram`/`presentation` orchestrator + UX).

@@ -81,8 +81,8 @@ delegation behaviour.
 | `L1` | A contained feature. Needs `analysisId`, `requirementIds` and a `ready` record. |
 | `L2` | Cross-component, contract or data change. Same, plus `architectureImpact: true` checks the design-map revision. |
 
-**Exempt:** a read-only **preset** (`research`, `reviewer`, `critic`) and a `taskId` attach
-with an explicit `legacyAttach: true`, with no `changeClass`/`analysisId`. The role label
+**Exempt:** a read-only **preset** (`research`, `gatherer`, `reviewer`, `critic`) and a `taskId`
+attach with an explicit `legacyAttach: true`, with no `changeClass`/`analysisId`. The role label
 never exempts a write-capable preset, and an explicit class/record opts back in. There is no
 timestamp inference: a fresh attach without the flag is refused.
 

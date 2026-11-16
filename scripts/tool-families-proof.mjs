@@ -105,11 +105,12 @@ const POLICY = normalizeConfig({
     reviewer: { deny: ['mcp__playwright__*'], projectDeny: ['mcp__godot__*'] },
     critic: { deny: ['mcp__playwright__*'], projectDeny: ['mcp__godot__*'] },
     research: { deny: ['mcp__playwright__*', 'mcp__godot__*'] },
+    gatherer: { deny: ['mcp__playwright__*'], projectDeny: ['mcp__godot__*'] },
     docs: { deny: ['mcp__playwright__*', 'mcp__godot__*'] },
   },
 })
 
-const PRESETS = [undefined, 'orchestrator', 'ux', 'backend', 'reviewer', 'critic', 'research', 'docs', 'a-preset-nobody-wrote']
+const PRESETS = [undefined, 'orchestrator', 'ux', 'backend', 'reviewer', 'critic', 'research', 'gatherer', 'docs', 'a-preset-nobody-wrote']
 const WORKSPACES = [
   { label: 'dsh-kit', marker: false },
   { label: 'godot-project', marker: true },

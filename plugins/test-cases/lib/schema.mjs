@@ -60,6 +60,13 @@ export function driftFor(record, workspace, options = {}) {
   if (record.status === 'superseded' || record.status === 'deprecated') {
     return { status: null, changedFiles: [], missingTest: false, reason: null }
   }
+  // ONLY A VERIFIED (or failed) CASE CAN GO STALE. A changed surface on an `unverified` case is
+  // not a regression against anything the case ever claimed: nothing was verified, so "stale"
+  // would be a lie about history. The change is still REPORTED (changedFiles), it just does not
+  // move the status.
+  if (!['verified', 'failing', 'flaky'].includes(record.status)) {
+    return { status: null, changedFiles, missingTest, reason: null }
+  }
   if (missingTest) return { status: 'stale', changedFiles, missingTest, reason: `test file missing: ${record.testPath}; the case degrades to documented-only` }
   if (changedFiles.length > 0) return { status: 'stale', changedFiles, missingTest, reason: `surface files changed since lastVerified: ${changedFiles.join(', ')}` }
   return { status: null, changedFiles, missingTest, reason: null }

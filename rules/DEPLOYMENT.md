@@ -24,7 +24,7 @@ The upstream harness plus 23 plugins, all pinned and installed from one kit repo
 | `@cc/dsh-diagrams` | one tool, `diagram`, that renders a JSON diagram spec into a standalone HTML file whose SVG is inline: flow and state (flowcharts, algorithm illustrations), layered architecture, and sequence diagrams. The agent describes nodes and relationships and the plugin computes the geometry — layered ranking with cycle breaking, edge routing with detours, and label placement — in a dependency-free engine. The Sidebar document preview displays it, so the file the user prints is the file the agent wrote |
 | `@cc/dsh-designmap` | **M4 redesign, replaces `@cc/dsh-design-map`** (whose loader row the kit patch now disables with `disabled: true`; its source, tarball and inventory row stay for rollback). Semantic `designmap/model.yaml` + `designmap/views.yaml` → zod-strict validation → ELK layered layout → overlay merge + GC → lint → `designmap/out/<viewId>.scene.json` + `index.json`. Seven `designmap_*` tools (status/scan/apply/render/lint/open/export) gated to the **orchestrator** preset by default; the read-only panel reads through `workspaceFiles` and writes only through `/designmap op:'overlay'`, which the host guards with a strict allow-list and lands in `designmap/overlays.json`. SVG export is canonical; PNG is optional and needs an external converter (`rsvg-convert`/ImageMagick) or refuses with `png_converter_missing`. Package packed by `scripts/pack-plugin.mjs --dir plugins/designmap`; the host half ships pre-bundled (`dist/`, with the pinned `elkjs`/`yaml`/`zod` inlined and no runtime `dependencies`), so installing the tarball needs no npm registry and a `dsh web` boot stays offline — with real dependencies the boot spent 1m22s in pnpm retries and could leave the profile with no plugin set. Installed and active in the live web profile (0.1.4) |
 | `@cc/dsh-design-map` (0.2.0, retired) | one Excalidraw scene, `design.excalidraw` at the project root, that the **orchestrator** and the human both edit. The orchestrator gets `design_map` (read/write/upsert/remove over labelled boxes and arrows; missing positions are laid out for it) and the human opens **Design map** in the sidebar. The tool is registered per agent on `agent/created` and ONLY for the `orchestrator` preset: a specialist child has no `design_map`, and an unknown preset gets none either (an ownership boundary fails closed). The `/design-map` command is not gated - it is the human's panel path. The panel embeds the real MIT Excalidraw editor in an iframe `srcdoc` built from a vendored 3.4 MB frame (no CDN), reads the scene through `workspaceFiles` and saves through the `/design-map` command; every save is stamped with `rev`, `updatedAt` and `updatedBy` at the scene root, and a read returns `ageMs`/`stale` so the orchestrator knows when the map must be refreshed. One document, one revision counter, no second store |
-| `@cc/dsh-test-cases` | the observed test-case library in `docs/cases/`: eight host tools (`case_record`, `case_update`, `case_verify`, `case_list`, `case_get`, `case_supersede`, `case_deprecate`, `case_drift`) over one schema-validated JSON file per case. Compare-and-set on `revision` with `history`; automated cases carry `testPath`, `runCommand` and the observed red-first (non-zero exit) + green runs; documented-only cases carry `steps`, `expected` and a named `reason`; `case_drift` rehashes recorded surface files and degrades a missing test to documented-only, marking the case `stale` rather than deleting the requirement. Tools are registered per agent on `agent/created`: the `orchestrator` gets only the intake subset (`case_record` with `source:human`, `case_list`, `case_get`, `case_drift`), the tester presets get all eight, and a preset not listed gets all eight so the library stays usable outside the orchestrated presets. The rule is observe first, then persist - no speculative tests |
+| `@cc/dsh-test-cases` | the observed test-case library in `docs/cases/`, which now EXECUTES: twelve host tools (`case_record`, `case_update`, `case_verify`, `case_run`, `case_suite`, `case_gate`, `case_list`, `case_get`, `case_supersede`, `case_deprecate`, `case_remove`, `case_drift`) over one schema-validated JSON file per case. `case_run` invokes the STORED `runCommand` through `ctx.shell` when the host mounts it (sandbox, caps, timeout) and records the measurement: exit code, duration, `commandSha256`, `head`/`dirty`, the driver's `CASE_SUMMARY` metrics/hashes/artifacts under `docs/cases/runs/`, and the case's declared `checks` (`{metric, op, threshold}`; a missing metric FAILS; `baseline: true` is a ratchet seeded only from a passing run; `runs` keeps median/p95 and records a mixed outcome as `flaky`). A green run with no recorded red is a measurement, not a verification: the measured red is `case_run {mode:'red'}` with a driver negative control (`CASE_NEGATIVE_CONTROL` must exit non-zero), while `case_verify` is the manual report stamped `source:manual`. `case_suite` runs a filtered set and writes a report; `case_gate` and the `cases` service expose the verdict, and the taskboard refuses `task_close` with `cases_not_green` when a linked automated case is not verified. Compare-and-set on `revision` with `history`; `case_drift` rehashes recorded surface files and degrades a missing test, but only `verified`/`failing`/`flaky` can go `stale`. The `orchestrator` gets intake plus `case_gate`, the tester presets get all twelve, and a preset not listed gets all twelve. CLI: `node plugins/test-cases/bin/cases.mjs`, `make cases` |
 | `@cc/dsh-analysis` | analysis before decomposition. One repo-tracked `docs/analysis/<initiative>.json` per initiative, written with compare-and-set `expectedRev` and temp-file + rename, carrying the business outcome **separate** from the requested solution, the process, BR/FR/NFR with acceptance, architecture and data ownership, contract impact, invariants, decisions, open questions, the design-map revision and a requirement → process → component → task → evidence trace. Four root-only tools (`analysis_read`, `analysis_upsert`, `analysis_check`, `analysis_impact`); the checker looks past JSON shape (missing acceptance, component/data ownership, contract impact, unresolved trace, proven-without-evidence, deferred-without-reason, design drift, a hand-edited fingerprint) and `analysis_impact` marks a mid-work change stale. `delegate_task` reads the service through `ctx.get('analysis')` rather than `inject`, so an absent row keeps legacy delegation: L0 passes without a record, L1/L2 are refused `analysis_required` without a ready one and `analysis_stale` after an affected change or a moved design map. A read-only preset (`RESEARCH`/`REVIEWER`/`CRITIC`) and a `taskId` attach with explicit `legacyAttach:true` are exempt (the role label never exempts a write-capable preset); a monotonic completion guard refuses `task_close` for the last outstanding task of a still-planned requirement or a proven task without evidence, fails closed on an unreadable record, and refuses `update_goal action:"complete"` while a linked `goalId`/`goalHistory` record is incomplete; batches are atomic; adding/removing a requirement, a process/architecture edit, a bare `designRef` bump or a hand edit (until `acceptHandEdit`) reopens or refuses the record. The trace lives only in the record; the taskboard schema and the design-map layout are unchanged |
 | `@cc/dsh-project-rules` | one workspace file, `.dsh/rules.md` (gitignored), rendered as the single prompt section `project:rules` at order 12 on every agent and subagent. The **Rules** panel edits it - **the human only**: a `tools/pre-execute` guard refuses an agent's `write`/`edit` of the resolved path and a `bash`/`pwsh` command naming it, both with the code `rules_human_only`, while the panel's command path is untouched. Guardrail, not jail: a shell command can spell a path the string match cannot follow, so the boundary is enforced by the guard where it can be and by review where it cannot. Typing is local React state, Save writes the file atomically through `/project-rules`, and the save deliberately does not touch the in-memory section. Each agent re-reads the file only at its own `turn/start` and **keeps the previous string when the bytes are unchanged**; an empty file renders no section. That is what makes the editor cache-safe: a dirty draft, a keystroke or a save mid-turn cannot change the system prompt of the turn already in flight, and an untouched file cannot churn the prefix between turns |
 | `@cc/dsh-work-modes` | **not mounted** since 2026-11-05. It refused a third concurrent `subagent` child per session (its default limit is 2, which was the cap an operator hit). The cap was removed deliberately; the package and its tarball stay in the kit and `plugins/inventory.json` records `mounted: false`, so re-enabling it is one profile row. The ceiling now comes from the harness pool: the `subagent` row in `profile/cordis.patch.yml` sets `maxActiveSubagents: 64` (the harness default is 8) and leaves `maxDepth` at 1 |
@@ -56,10 +56,11 @@ outside that seam.
 
 ### 1.0 The role presets — tool sets, not prompts
 
-Seven `@deepseek-ai/dsh-agent-preset` declarations sit in the profile patch, and
+Eight `@deepseek-ai/dsh-agent-preset` declarations sit in the profile patch, and
 `@deepseek-ai/dsh-agent-preset-registry` defaults new sessions to it:
-`preset-orchestrator`, `preset-ux`, `preset-backend`, `preset-research`, `preset-reviewer`,
-`preset-critic`, `preset-docs`. A preset is the persona AND the tool list, so the isolation is
+`preset-orchestrator`, `preset-ux`, `preset-backend`, `preset-research`, `preset-gatherer`,
+`preset-reviewer`, `preset-critic`, `preset-docs`. A preset is the persona AND the tool list, so
+the isolation is
 registration, not a brief: the orchestrator reads and writes (`read`, `readImage`, `write`,
 `edit`) but has no `bash` or `pwsh` at all - it can change a file and cannot run anything, so a
 change whose acceptance is a command's output is delegated or handed to a role that owns the
@@ -70,13 +71,28 @@ file". The same is true of the critic, whose `tool-fs` now carries `write: false
 `edit: false` for the same reason (its persona says never fix). The backend, ux and docs roles
 have the full shell and filesystem.
 
-**`critic` is the seventh, and it is a different job from `reviewer`.** The reviewer judges a
+**`gatherer` is reconnaissance, and it exists to keep the root's context for the design.** The
+orchestrator can read and write, but "how does this actually work today?" answered by the root's
+own read/grep calls fills the window the design decision needs - and the next design step still
+starts from a guess. `CONTEXT` is a child with `read`, `grep`, `glob` and a shell, and **no
+`write` or `edit` tool**, so a report cannot turn into a patch; its persona requires `file:line`
+citations, separates seen from inferred, and asks for one compact report instead of a transcript.
+`ROOT_POLICY` states the rule: name the mechanism responsible before opening a task, and when the
+understanding is missing, delegate one `CONTEXT` brief with the exact question and design from its
+report - the tool calls stay in the child's context and are not replayed by the root. The same
+read-only composition is what exempts it from the Analysis Record gate (`store.mjs` `readOnly`
+set: `research`, `gatherer`, `reviewer`, `critic`), so reconnaissance never needs an L1/L2
+document. Its `tool-families` row denies the browser and project-gates the Godot family: the
+gatherer reads code, it does not drive an interface.
+
+**`critic` is the seventh child role, and it is a different job from `reviewer`.** The reviewer judges a
 diff and does not write; the critic attacks a RUNNING behaviour - a service, a CLI, an
 algorithm - with realistic non-trivial inputs and sequences, on a disposable copy (`/tmp`, a
 scratch checkout, a copy of the data), and reports the smallest reproducible failure or what
 it tried and what stayed untested. It never fixes and never touches production data, and its
 preset carries no browser: UI crash testing stays with `ux`. `delegate_task` maps CRITIC,
-CRITIC-GENERAL, TESTER and QA to `critic`, and REVIEWER/REVIEW to `reviewer`. **AUDIT maps to
+CRITIC-GENERAL, TESTER and QA to `critic`, CONTEXT/GATHERER to `gatherer`, and REVIEWER/REVIEW to
+`reviewer`. **AUDIT maps to
 neither**: it was the one name that meant both jobs, and the ledger collapsed the two rows that
 wore it (measured 2026-11-11 in `~/tasks/autolabel_pipeline`: `AUDIT [reviewer]` and
 `AUDIT [critic]` became one row whose preset the second delegation silently overwrote).
@@ -122,12 +138,12 @@ child's tool header looks far wider than its role:
 
 | source | rows | what a specialist sees |
 | --- | --- | --- |
-| the seven presets | a per-preset plugin row set (persona, instructions, time, shell where allowed, fs, fs-search, jobs, skills, skill tool, compaction, todo, web, present) | its role's tool set |
+| the eight presets | a per-preset plugin row set (persona, instructions, time, shell where allowed, fs, fs-search, jobs, skills, skill tool, compaction, todo, web, present) | its role's tool set |
 | the host profile (`$DSH_HOME/cordis.patch.yml`, written by `scripts/dsh-mcp-sync.mjs`) | `mcp-client-godot-mcp` (`mcp__godot__*`), `mcp-client-playwright-mcp` (`mcp__playwright__*`), `hindsight` | inherited by every preset, including the reviewer |
 | kit rows mounted at the host | taskboard, test-cases, skills, research-first, proof-guard, rtk, tool-families | inherited, but each gates its own role-only tools by `agent/preset` (`papers_*` research, `design_map` orchestrator, `babysitter_*` orchestrator, `diagram`/`presentation` orchestrator+ux) |
 
 Measured 2026-11-11 from the root session's child headers: backend 105 tools, ux 107,
-reviewer/critic/research 103, a legacy run-code-only role 1. The seven presets declare a per-preset plugin row set, so the difference is host-mounted, not role-granted. **The child policy now says
+reviewer/critic/research 103, a legacy run-code-only role 1. The eight presets declare a per-preset plugin row set, so the difference is host-mounted, not role-granted. **The child policy now says
 this in one line**, so a specialist knows an `mcp__*` tool in its header came from the host and
 is not licence to do a job its role was given no tool for. Moving the MCP rows INTO the presets
 is technically possible (a preset is a plugin list) but each mounted MCP row starts its own
@@ -684,7 +700,7 @@ pack saves tokens or time. Evidence and the full tables:
 [integration.md](../reports/code-search/integration.md) (local run artifacts; `reports/` is
 gitignored, so these links exist in this checkout, not in an installed copy).
 
-**The role toolchain — seven presets, nine pinned binaries, and two roles that cannot run them.**
+**The role toolchain — eight presets, nine pinned binaries, and two roles that cannot run them.**
 Provisioning also installs the CLIs the role personas name. Each pin is the project's own latest
 release measured on 2026-11-10; the release date, licence, last-commit date and the exact proof
 command for every row are recorded in `.dsh/research/role-toolchain-install.md`.

@@ -14,7 +14,7 @@ window.__ModuleLoader__.load({
 
     const PANEL_ID = 'test-cases'
     const PKG = '@cc/dsh-test-cases'
-    const STATUSES = ['unverified', 'verified', 'failing', 'stale', 'superseded', 'deprecated']
+    const STATUSES = ['unverified', 'verified', 'failing', 'flaky', 'stale', 'superseded', 'deprecated']
     const KINDS = ['regression', 'scenario']
 
     const CSS = `
@@ -138,8 +138,9 @@ window.__ModuleLoader__.load({
     const REMOVABLE = new Set(['deprecated', 'superseded'])
     const STATUS_MEANING = {
       unverified: 'Unverified — recorded but not yet proven.',
-      verified: 'Verified — a run or observation is recorded.',
-      failing: 'Failing — the last recorded run did not pass.',
+      verified: 'Verified — a measured run (or a manual observation) is recorded.',
+      failing: 'Failing — the last measured run did not pass.',
+      flaky: 'Flaky — repeated runs disagreed; a hard gate needs a stable check.',
       stale: 'Stale — a surface file or test changed; re-verify. The requirement still stands.',
       superseded: 'Superseded — replaced by a newer case.',
       deprecated: 'Deprecated — retired; it can be removed permanently.',
@@ -147,8 +148,12 @@ window.__ModuleLoader__.load({
     function statusClass(status) {
       if (status === 'verified') return 'verified'
       if (status === 'stale') return 'stale'
+      if (status === 'flaky') return 'stale'
       if (status === 'failing') return 'failing'
       return 'muted'
+    }
+    function provenanceOf(item) {
+      return item?.provenance ?? item?.lastVerified?.source ?? null
     }
     function splitList(value) {
       return String(value ?? '').split(/[\n,]/).map((entry) => entry.trim()).filter((entry) => entry !== '')
@@ -176,6 +181,7 @@ window.__ModuleLoader__.load({
         h('span', { className: 'tc-badge' }, item.kind),
         h('span', { className: 'tc-badge' }, item.source),
         h('span', { className: 'tc-badge' }, item.automated ? 'automated' : 'documented'),
+        provenanceOf(item) ? h('span', { className: 'tc-badge', title: provenanceOf(item) === 'runner' ? 'Measured: case_run executed the command' : 'Reported: a manual verification typed the result' }, provenanceOf(item) === 'runner' ? 'measured' : 'reported') : null,
         h('span', { title: item.lastVerified?.at ?? 'never verified' }, item.lastVerified ? `verified ${shortAge(item.lastVerified.at)}` : 'never verified'),
       )
     }
@@ -364,6 +370,24 @@ window.__ModuleLoader__.load({
         await loadDetail(detail.id); await loadList(filters)
       }
 
+      const runNow = async () => {
+        if (detail === null) return
+        setBusy(true); setError(''); setNotice(''); setConflict('')
+        const result = await runOp(remote, sessionId, { op: 'run', id: detail.id, expectedRevision: detail.revision })
+        setBusy(false)
+        if (!result.ok) {
+          if (/REVISION_CONFLICT/.test(result.error)) setConflict(result.error)
+          else setError(result.error)
+          return
+        }
+        const verdict = result.value?.verdict ?? {}
+        const checks = Array.isArray(verdict.checks) ? verdict.checks : []
+        const passedChecks = checks.filter((check) => check.pass === true).length
+        setNotice(verdict.needsRed === true
+          ? `Ran. Measured, but a red run is still required before the case can be verified.`
+          : `Ran: ${verdict.status ?? 'recorded'} · ${passedChecks}/${checks.length} checks passed${verdict.flaky === true ? ' · flaky' : ''}.`)
+        await loadDetail(detail.id); await loadList(filters)
+      }
       const change = (key) => (event) => setForm({ ...form, [key]: event.target.type === 'checkbox' ? event.target.checked : event.target.value })
       const vchange = (key) => (event) => setVerifyForm({ ...verifyForm, [key]: event.target.type === 'checkbox' ? event.target.checked : event.target.value })
       const filterChange = (key) => (event) => setFilters({ ...filters, [key]: event.target.value })
@@ -404,8 +428,9 @@ window.__ModuleLoader__.load({
       )
 
       const detailActions = detail === null ? null : h('div', { className: 'tc-actions' },
-        h('button', { type: 'button', className: 'tc-btn primary', onClick: beginEdit, disabled: !canWrite || detail.status === 'deprecated' || detail.status === 'superseded' }, 'Edit'),
-        h('button', { type: 'button', className: 'tc-btn', onClick: beginVerify, disabled: !canWrite || detail.status === 'deprecated' || detail.status === 'superseded' }, 'Verify / record run'),
+        h('button', { type: 'button', className: 'tc-btn primary', onClick: runNow, disabled: !canWrite || busy || detail.automated !== true || detail.status === 'deprecated' || detail.status === 'superseded', title: detail.automated === true ? 'Execute the stored runCommand now and record the measurement' : 'A documented-only case has no command to run' }, busy ? 'Running…' : 'Run'),
+        h('button', { type: 'button', className: 'tc-btn', onClick: beginEdit, disabled: !canWrite || detail.status === 'deprecated' || detail.status === 'superseded' }, 'Edit'),
+        h('button', { type: 'button', className: 'tc-btn', onClick: beginVerify, disabled: !canWrite || detail.status === 'deprecated' || detail.status === 'superseded' }, 'Record manual run'),
         h('button', { type: 'button', className: 'tc-btn', onClick: checkDrift, disabled: busy }, busy ? 'Checking…' : 'Check drift'),
         h('button', { type: 'button', className: 'tc-btn danger', onClick: () => { setDeprecateReason(''); setView('deprecate'); setError(''); setNotice('') }, disabled: !canWrite || detail.status === 'deprecated' || detail.status === 'superseded' }, 'Deprecate'),
         h('button', { type: 'button', className: 'tc-btn danger', onClick: () => { setRemoveConfirmed(false); setView('remove'); setError(''); setNotice('') }, disabled: !canWrite, title: REMOVABLE.has(detail.status) ? 'Permanently remove this terminal case' : 'Only deprecated or superseded cases can be removed' }, 'Remove…'),
@@ -441,7 +466,7 @@ window.__ModuleLoader__.load({
           conflictBanner,
           h('button', { type: 'button', className: 'tc-btn', onClick: () => setView('detail') }, '← Back to detail'),
           h('h2', { className: 'tc-h2', style: { marginTop: 10 } }, `Verify: ${detail.title}`),
-          h('p', { className: 'tc-hint' }, 'The host records exactly what you ran. Automated cases also need the observed failing run (non-zero exit) before the green one.'),
+          h('p', { className: 'tc-hint' }, 'Manual report: the fields below are typed by a human and stamped "reported", never "measured". Use Run on the case detail to execute the stored command instead. Automated cases also need the observed failing run (non-zero exit) before the green one.'),
           h('div', { className: 'tc-form' },
             h('label', { className: 'tc-label', style: { display: 'flex', flexDirection: 'row', gap: 8, alignItems: 'center' } }, h('input', { type: 'checkbox', checked: verifyForm.passed, onChange: vchange('passed') }), 'Passed (expected outcome observed)'),
             h('label', { className: 'tc-label' }, 'Command', h('input', { className: 'tc-input', value: verifyForm.command, onChange: vchange('command'), 'aria-label': 'Command' })),
@@ -497,6 +522,7 @@ window.__ModuleLoader__.load({
           h(StatusBadge, { status: detail.status, detailed: true }),
           h(Badges, { item: detail, omitStatus: true }),
           detail.status === 'stale' ? h('div', { className: 'tc-banner', style: { marginTop: 10 } }, 'Stale: a recorded surface file or the automated test changed after the last verification. The requirement still stands; re-verify or run drift.') : null,
+          detail.status === 'flaky' ? h('div', { className: 'tc-banner', style: { marginTop: 10 } }, 'Flaky: repeated runs disagreed. A flaky check is not a gate; stabilise it or run it with more repeats.') : null,
           detail.deprecateReason ? h('div', { className: 'tc-banner' }, `Deprecated: ${detail.deprecateReason}`) : null,
           detail.supersededBy ? h('div', { className: 'tc-banner' }, `Superseded by ${detail.supersededBy}.`) : null,
           detailActions,
@@ -513,12 +539,26 @@ window.__ModuleLoader__.load({
                 ? h(React.Fragment, null, h('p', { className: 'tc-p' }, detail.testPath ?? '—'), h('pre', { className: 'tc-code', tabIndex: 0 }, detail.runCommand ?? '—'))
                 : h(React.Fragment, null, h('p', { className: 'tc-hint' }, 'Cannot be a test because:'), h(LongText, { text: detail.reason ?? '', label: 'reason' }))),
             h('div', { className: 'tc-card' }, h('h4', null, 'Last verified'),
-              detail.lastVerified ? h(React.Fragment, null, h('p', { className: 'tc-p' }, shortAge(detail.lastVerified.at)), h('pre', { className: 'tc-code', tabIndex: 0 }, `${detail.lastVerified.command ?? ''}\nexit ${detail.lastVerified.exitCode ?? '—'}`)) : h('p', { className: 'tc-hint' }, 'Never verified.')),
+              detail.lastVerified ? h(React.Fragment, null, h('p', { className: 'tc-p' }, shortAge(detail.lastVerified.at)), h('pre', { className: 'tc-code', tabIndex: 0 }, `${detail.lastVerified.command ?? ''}\nexit ${detail.lastVerified.exitCode ?? '—'} · ${detail.lastVerified.source === 'runner' ? 'measured' : 'reported manually'}`)) : h('p', { className: 'tc-hint' }, 'Never verified.')),
           ),
-          h('h3', { className: 'tc-h3' }, 'Evidence'),
+          h('h3', { className: 'tc-h3' }, 'Last measured run'),
+          h('div', { className: 'tc-card' },
+            detail.lastRun
+              ? h(React.Fragment, null,
+                h('p', { className: 'tc-p' }, `${detail.lastRun.mode === 'red' ? 'negative control' : 'run'} ${detail.lastRun.runId} · exit ${detail.lastRun.exitCode ?? '—'}${detail.lastRun.timedOut ? ' · timed out' : ''} · ${detail.lastRun.durationMs ?? '—'} ms · ${shortAge(detail.lastRun.at)}`),
+                h('ul', { className: 'tc-history', style: { marginTop: 6 } }, (detail.lastRun.checks ?? []).map((check, index) => h('li', { key: index },
+                  h('span', { className: `tc-badge ${check.pass ? 'verified' : 'failing'}` }, check.pass ? 'PASS' : 'FAIL'),
+                  h('span', null, `${check.name}: ${check.measured ?? '—'} ${check.op} ${check.expected ?? check.threshold ?? '—'}${check.unit ? ` ${check.unit}` : ''}`),
+                  check.reason ? h('span', { className: 'tc-hint', style: { width: '100%' } }, check.reason) : null))),
+                (detail.lastRun.artifacts ?? []).length > 0 ? h('p', { className: 'tc-hint' }, `artifacts: ${detail.lastRun.artifacts.map((entry) => entry.path).join(', ')}`) : null,
+                detail.baseline ? h('p', { className: 'tc-hint' }, `baseline: ${Object.entries(detail.baseline).map(([key, value]) => `${key}=${value}`).join(', ')}`) : null,
+              )
+              : h('p', { className: 'tc-hint' }, 'No measured run yet. Use Run to execute the stored command. A documented-only case keeps its manual evidence below.'),
+          ),
+          h('h3', { className: 'tc-h3' }, 'Manual evidence'),
           h('div', { className: 'tc-grid' },
-            h(EvidenceCard, { title: 'Green / observation', value: detail.evidence?.green ?? detail.evidence?.observation }),
-            h(EvidenceCard, { title: 'Red-first', value: detail.evidence?.redFirst }),
+            h(EvidenceCard, { title: 'Reported run / observation', value: detail.evidence?.run ?? detail.evidence?.green ?? detail.evidence?.observation }),
+            h(EvidenceCard, { title: 'Red-first (manual)', value: detail.evidence?.redFirst }),
           ),
           h('h3', { className: 'tc-h3' }, 'Surface drift'),
           h('div', { className: 'tc-card' },

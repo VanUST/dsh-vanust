@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "context-gatherer-preset-for-reconnaissance",
+  "title": "Context gatherer preset for reconnaissance",
+  "requirement": "The orchestrator must be able to obtain the current architecture/algorithm understanding without spending its own context: a read-only context-gatherer preset (CONTEXT role) inspects the code and returns one cited report, and ROOT_POLICY requires delegating reconnaissance when understanding is missing and designing from that report.",
+  "kind": "scenario",
+  "status": "unverified",
+  "source": "human",
+  "automated": false,
+  "reason": "The preset is a profile declaration activated by a harness restart; the roster was proven on a second server (:3081 with an overlay), but the child's real tool header was not measured because this session did not spawn a CONTEXT child in the restarted deployment.",
+  "steps": [
+    "Activate the changed kit profile in a harness (restart with ./start.sh so kit-update converges profile/cordis.patch.yml and the repacked plugins).",
+    "Open the composer preset picker and confirm Context gatherer is listed between Research and Reviewer.",
+    "From an orchestrator chat, delegate one CONTEXT brief and read the child session's agent-preset/selected and request/header tools from session.v4.jsonl.zstd."
+  ],
+  "expected": "The harness roster lists a Context gatherer preset; a delegation with role CONTEXT resolves preset gatherer without an explicit preset; the child has read/grep/glob/bash and no write or edit tool; the root policy states the architecture-first rule and the report-only delegation.",
+  "tags": [
+    "owner-requirement",
+    "orchestrator",
+    "context",
+    "preset"
+  ],
+  "surfaceFiles": [],
+  "linkedTaskId": "task-mwjd9jlc-m6h3z1",
+  "revision": 1,
+  "createdAt": "2026-11-16T14:45:34.529Z",
+  "updatedAt": "2026-11-16T14:45:34.529Z",
+  "createdBy": "orchestrator",
+  "createdByKind": "agent",
+  "history": [],
+  "evidence": {}
+}

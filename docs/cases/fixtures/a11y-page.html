@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Case panel fixture</title>
+  <style>
+    :root { color-scheme: light; }
+    body { margin: 0; background: #ffffff; color: #111827; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    main { max-width: 42rem; padding: 24px; }
+    h1 { font-size: 1.4rem; margin: 0 0 8px; }
+    p { margin: 0 0 16px; color: #374151; }
+    label { display: block; font-weight: 600; margin: 12px 0 4px; }
+    input { width: 100%; max-width: 20rem; padding: 6px 8px; font: inherit; border: 1px solid #9ca3af; border-radius: 6px; }
+    button { margin-top: 12px; padding: 8px 12px; font: inherit; font-weight: 600; color: #ffffff; background: #1d4ed8; border: 1px solid #1d4ed8; border-radius: 6px; cursor: pointer; }
+    button:focus-visible { outline: 2px solid #111827; outline-offset: 2px; }
+    .result { margin-top: 16px; border: 1px solid #d1d5db; border-radius: 6px; padding: 8px 10px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Case panel fixture</h1>
+    <p>A clean page used by the accessibility case: every control has a name, every input a label, and the text meets the contrast rule.</p>
+    <form>
+      <label for="query">Query</label>
+      <input id="query" name="query" type="search" autocomplete="off">
+    </form>
+    <button type="button" id="run-check">Run check</button>
+    <p class="result" id="result" role="status">No check has run yet.</p>
+  </main>
+</body>
+</html>

@@ -48,3 +48,7 @@ server.pid
 designmap/out/
 designmap/logs/
 designmap/manifest.json
+
+# Case-run evidence: logs, driver summaries and artifacts. The CASE files are the source of
+# truth and stay in git; a run is derived output and is pruned by the runner (last 20 per case).
+docs/cases/runs/

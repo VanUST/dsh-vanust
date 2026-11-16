@@ -11,14 +11,15 @@ On `agent/created`, the plugin registers:
 - a child-only section (`deployment:specialist-policy`) that tells a delegated
   child to do exactly its brief and return evidence;
 - a root-only `delegate_task` tool that requires an explicit persistent `role`
-  (`UX/UI`, `BACKEND`, `RESEARCH`, `REVIEWER`, `DOCS`), creates a taskboard task, renders
+  (`UX/UI`, `BACKEND`, `RESEARCH`, `CONTEXT`, `REVIEWER`, `CRITIC`, `DOCS`), creates a taskboard task, renders
   the brief, and starts the child **with the role's preset** (`agentPreset` in the start
   request). The taskboard records the role and the preset; the child id is linked to the
   task. One specialist can carry many tasks.
 
 The preset decides what the child can actually do, so the role is not a prompt request: the
-orchestrator has no `bash`, `write` or `edit` tool, the research and reviewer roles have no
-shell-write tools, and a child cannot see the tools of another role. A provider without
+orchestrator has no `bash` (it does carry `write`/`edit`), the research role has no shell, the
+reviewer and critic have their `write`/`edit` tools disabled, the gatherer has no `write` or
+`edit` at all, and a child cannot see the tools of another role. A provider without
 `capabilities.agentPreset` is refused before a child exists, because the child would
 silently inherit the orchestrator composition.
 
@@ -50,7 +51,7 @@ existing delegation depth and concurrency cap still apply.
 
 Every `delegate_task` call names a `role`; the optional `roleDescription` becomes the new
 child's responsibility line, and the optional `preset` is required when the role is a genuine
-specialty outside the six. Roles are case-insensitive; one child session per role is the rule,
+specialty outside the seven. Roles are case-insensitive; one child session per role is the rule,
 not one child per task.
 
 **A role label keeps one preset.** Three refusals, all before a task row exists:

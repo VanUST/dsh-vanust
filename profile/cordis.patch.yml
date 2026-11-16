@@ -306,6 +306,13 @@
             projectDeny: ['mcp__godot__*']
           research:
             deny: ['mcp__playwright__*', 'mcp__godot__*']
+          gatherer:
+            # Reconnaissance reads code with read/grep/glob/bash. It has no business driving a
+            # browser or a Godot editor, and those two families are the biggest blocks a child
+            # header carries; the gatherer's whole point is a cheap context that comes back as
+            # one report instead of filling the root's window.
+            deny: ['mcp__playwright__*']
+            projectDeny: ['mcp__godot__*']
           docs:
             deny: ['mcp__playwright__*', 'mcp__godot__*']
 
@@ -537,12 +544,12 @@
         model: k3.1-pro
       - provider: kimi-coding
         model: kimi-for-coding
-# ── roles: the seven compositions this deployment runs ─────────────────────
+# ── roles: the eight compositions this deployment runs ─────────────────────
 # A role is an agent preset, not a prompt request: the preset IS the tool list and
 # the persona, so a backend specialist cannot run `papers_*` because nothing
-# registered it, and the orchestrator cannot edit code because it has no `edit` or
-# `write` tool at all. Isolation that lives in a registration cannot be talked
-# around by a brief that says "please don't".
+# registered it, and the orchestrator cannot run a command because it has no `bash`
+# tool at all (it does carry `write`/`edit`). Isolation that lives in a
+# registration cannot be talked around by a brief that says "please don't".
 #
 # The orchestrator is the default preset: every new chat starts as the system
 # designer, and implementation is delegated to a specialist with the tools for it.
@@ -836,6 +843,79 @@
               searchTimeoutMs: 60000
           - id: present
             name: '@deepseek-ai/dsh-tool-present'
+
+    # ── gatherer: read the current system, return one cited report ───────────
+    # The orchestrator's reconnaissance child. "How does this actually work today?"
+    # used to be answered by the ROOT's own read/grep calls: the answers filled the
+    # window the design decision needed, and the next design step still started from
+    # a guess. This preset moves those calls into a child and returns one report the
+    # orchestrator can design from. Read-only by construction: no write, no edit, so a
+    # report cannot turn into a patch. bash stays because `git log`, `rg` and `wc` are
+    # how an architecture is actually measured (a shell can still write - see
+    # DEPLOYMENT 1.0 for the same caveat on reviewer/critic); there is no web: current
+    # external state is RESEARCH's job, and this role describes THIS repository.
+    - id: preset-gatherer
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: gatherer
+        name: Context gatherer
+        description: Reads the current architecture, algorithm and decisions and returns one cited report for the orchestrator to design from. Read-only; never edits and never delegates.
+        order: 45
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |-
+                You are the context gatherer for this workspace. Your job is to replace a guess with a reading: describe the CURRENT architecture and algorithm of the part you were asked about, so the orchestrator can design against it without spending its own context on reconnaissance. Read the code, the design map, the decision records and the git history that bear on the question. Answer the question that was asked, not the one you find more interesting, and cover: the entry point and the call path, who owns which state and which component is allowed to change it, the data flow in and out, the invariants the code actually enforces, where a change of the stated kind would land, and what would break. Cite `file:line` for every claim, and keep what you SAW in the code apart from what you INFER. Run read-only commands only (`git log`, `rg`, `wc`, `ls`): you have no write or edit tool, so a report cannot turn into a patch, and you never modify the workspace or its data. When the repository cannot answer the question, name the missing file, document or decision instead of inventing the design. Return one compact report, not a transcript of your reading: the tool calls stay in your context, the conclusions go back.
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              write: false
+              edit: false
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+            disabled: !!js process.platform !== 'win32'
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+                config:
+                  thresholdRatio: 0.5
+                  retainRatio: 0.08
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
 
     # ── reviewer: independent, runs the change, edits nothing ────────────────
     - id: preset-reviewer

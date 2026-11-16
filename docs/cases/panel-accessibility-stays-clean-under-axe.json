@@ -1,0 +1,415 @@
+{
+  "schemaVersion": 1,
+  "id": "panel-accessibility-stays-clean-under-axe",
+  "title": "Panel accessibility stays clean under axe",
+  "requirement": "A UX/UI accessibility check must be a measured number rather than an opinion: the case fixture page keeps zero axe violations and zero serious/critical violations, measured in the kit's pinned Chromium, with the axe report and a screenshot kept as artifacts.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "human",
+  "automated": true,
+  "testPath": "docs/cases/drivers/panel-a11y.mjs",
+  "runCommand": "node docs/cases/drivers/panel-a11y.mjs",
+  "steps": [
+    "Run node docs/cases/drivers/panel-a11y.mjs: it loads docs/cases/fixtures/a11y-page.html in the pinned Chromium, injects the pinned axe-core, writes CASE_SUMMARY with {violations, serious} and the page hash, and saves axe.json + page.png under CASE_ARTIFACTS.",
+    "case_run evaluates the declared checks (serious <= 0, violations <= 0).",
+    "For the red: run with mode red and control break-a11y; the driver appends an unnamed button and must exit non-zero after the scan reports it."
+  ],
+  "expected": "The fixture page reports zero axe violations and zero serious/critical ones; the negative control records one serious button-name violation and exits non-zero, which is what proves the check can fail.",
+  "tags": [
+    "owner-requirement",
+    "ux",
+    "a11y",
+    "axe",
+    "ui"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "docs/cases/drivers/panel-a11y.mjs",
+      "sha256": "dff21d6c236e40599ab0dbd633d9f39b639007c5d653e26d81cbf0e686b4f565"
+    },
+    {
+      "path": "docs/cases/fixtures/a11y-page.html",
+      "sha256": "6046dabdd0a7d2592926abb772a9d2d761fb647a1985588cc544617b1081ed44"
+    }
+  ],
+  "revision": 7,
+  "createdAt": "2026-11-16T15:03:25.017Z",
+  "updatedAt": "2026-11-16T15:05:15.809Z",
+  "createdBy": "orchestrator",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-16T15:03:34.499Z",
+      "editedBy": "agent",
+      "action": "ran-needs-red",
+      "reason": "1 run(s), 1 passed; no red run recorded, so the case is not verified"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-16T15:03:34.499Z",
+      "editedBy": "human",
+      "snapshot": {
+        "title": "Panel accessibility stays clean under axe",
+        "requirement": "A UX/UI accessibility check must be a measured number rather than an opinion: the case fixture page keeps zero axe violations and zero serious/critical violations, measured in the kit's pinned Chromium, with the axe report and a screenshot kept as artifacts.",
+        "expected": "The fixture page reports zero axe violations and zero serious/critical ones; the negative control records one serious button-name violation and exits non-zero, which is what proves the check can fail.",
+        "steps": [
+          "Run node docs/cases/drivers/panel-a11y.mjs: it loads docs/cases/fixtures/a11y-page.html in the pinned Chromium, injects the pinned axe-core, writes CASE_SUMMARY with {violations, serious} and the page hash, and saves axe.json + page.png under CASE_ARTIFACTS.",
+          "case_run evaluates the declared checks (serious <= 0, violations <= 0).",
+          "For the red: run with mode red and control break-a11y; the driver appends an unnamed button and must exit non-zero after the scan reports it."
+        ],
+        "automated": true,
+        "testPath": "docs/cases/drivers/panel-a11y.mjs",
+        "runCommand": "node docs/cases/drivers/panel-a11y.mjs",
+        "status": "unverified",
+        "checks": [],
+        "negativeControl": null
+      }
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-16T15:04:11.898Z",
+      "editedBy": "agent",
+      "action": "ran-needs-red",
+      "reason": "1 run(s), 1 passed; no red run recorded, so the case is not verified"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-16T15:04:13.388Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"break-a11y\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-16T15:04:14.787Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-16T15:05:15.809Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mwje8h84-63ht3-1",
+      "at": "2026-11-16T15:03:34.487Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 2058,
+      "commandSha256": "75020b835ca383b1da7f4b18f8724bbfbfed5dcf1c715c7f4b2d48f5b2c42e49",
+      "head": "366dfed8b44419f06cceb7bae63f7aeea1a95d26",
+      "dirty": true,
+      "stdout": "docs/cases/runs/panel-accessibility-stays-clean-under-axe/mwje8h84-63ht3-1/stdout.log",
+      "stderr": "docs/cases/runs/panel-accessibility-stays-clean-under-axe/mwje8h84-63ht3-1/stderr.log",
+      "summary": "docs/cases/runs/panel-accessibility-stays-clean-under-axe/mwje8h84-63ht3-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "violations": 0,
+        "serious": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": [
+        {
+          "path": "docs/cases/runs/panel-accessibility-stays-clean-under-axe/mwje8h84-63ht3-1/axe.json",
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "bytes": 3
+        },
+        {
+          "path": "docs/cases/runs/panel-accessibility-stays-clean-under-axe/mwje8h84-63ht3-1/page.png",
+          "sha256": "aef4cc4cd23c51f804a9cd405bd238ad01cc54c4977e6c03b871241ce9f9a8dc",
+          "bytes": 26624
+        }
+      ]
+    },
+    {
+      "runId": "mwje9ajv-y9385-1",
+      "at": "2026-11-16T15:04:11.888Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 1451,
+      "commandSha256": "75020b835ca383b1da7f4b18f8724bbfbfed5dcf1c715c7f4b2d48f5b2c42e49",
+      "head": "366dfed8b44419f06cceb7bae63f7aeea1a95d26",
+      "dirty": true,
+      "stdout": "docs/cases/runs/panel-accessibility-stays-clean-under-axe/mwje9ajv-y9385-1/stdout.log",
+      "stderr": "docs/cases/runs/panel-accessibility-stays-clean-under-axe/mwje9ajv-y9385-1/stderr.log",
+      "summary": "docs/cases/runs/panel-accessibility-stays-clean-under-axe/mwje9ajv-y9385-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "violations": 0,
+        "serious": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "axe serious/critical",
+          "metric": "serious",
+          "op": "<=",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        },
+        {
+          "name": "axe violations",
+          "metric": "violations",
+          "op": "<=",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": [
+        {
+          "path": "docs/cases/runs/panel-accessibility-stays-clean-under-axe/mwje9ajv-y9385-1/axe.json",
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "bytes": 3
+        },
+        {
+          "path": "docs/cases/runs/panel-accessibility-stays-clean-under-axe/mwje9ajv-y9385-1/page.png",
+          "sha256": "aef4cc4cd23c51f804a9cd405bd238ad01cc54c4977e6c03b871241ce9f9a8dc",
+          "bytes": 26624
+        }
+      ]
+    },
+    {
+      "runId": "mwje9bpc-iqjtd-1",
+      "at": "2026-11-16T15:04:13.375Z",
+      "mode": "red",
+      "control": "break-a11y",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 1451,
+      "commandSha256": "75020b835ca383b1da7f4b18f8724bbfbfed5dcf1c715c7f4b2d48f5b2c42e49",
+      "head": "366dfed8b44419f06cceb7bae63f7aeea1a95d26",
+      "dirty": true,
+      "stdout": "docs/cases/runs/panel-accessibility-stays-clean-under-axe/mwje9bpc-iqjtd-1/stdout.log",
+      "stderr": "docs/cases/runs/panel-accessibility-stays-clean-under-axe/mwje9bpc-iqjtd-1/stderr.log",
+      "summary": "docs/cases/runs/panel-accessibility-stays-clean-under-axe/mwje9bpc-iqjtd-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "violations": 1,
+        "serious": 1
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        },
+        {
+          "name": "axe serious/critical",
+          "metric": "serious",
+          "op": "<=",
+          "measured": 1,
+          "threshold": 0,
+          "pass": false,
+          "reason": "1 is not <= 0"
+        },
+        {
+          "name": "axe violations",
+          "metric": "violations",
+          "op": "<=",
+          "measured": 1,
+          "threshold": 0,
+          "pass": false,
+          "reason": "1 is not <= 0"
+        }
+      ],
+      "passed": false,
+      "artifacts": [
+        {
+          "path": "docs/cases/runs/panel-accessibility-stays-clean-under-axe/mwje9bpc-iqjtd-1/axe.json",
+          "sha256": "6aad7ff676db275c4bfa2e4e3162b2726f297cadf83a786a00697f2d767c555d",
+          "bytes": 3044
+        },
+        {
+          "path": "docs/cases/runs/panel-accessibility-stays-clean-under-axe/mwje9bpc-iqjtd-1/page.png",
+          "sha256": "69a37b5120b1a34fa67fcf14ed32624697b940a3972aaebe3a294b7a511ef0f2",
+          "bytes": 26898
+        }
+      ]
+    },
+    {
+      "runId": "mwje9cuq-6vf3p-1",
+      "at": "2026-11-16T15:04:14.778Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 1365,
+      "commandSha256": "75020b835ca383b1da7f4b18f8724bbfbfed5dcf1c715c7f4b2d48f5b2c42e49",
+      "head": "366dfed8b44419f06cceb7bae63f7aeea1a95d26",
+      "dirty": true,
+      "stdout": "docs/cases/runs/panel-accessibility-stays-clean-under-axe/mwje9cuq-6vf3p-1/stdout.log",
+      "stderr": "docs/cases/runs/panel-accessibility-stays-clean-under-axe/mwje9cuq-6vf3p-1/stderr.log",
+      "summary": "docs/cases/runs/panel-accessibility-stays-clean-under-axe/mwje9cuq-6vf3p-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "violations": 0,
+        "serious": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "axe serious/critical",
+          "metric": "serious",
+          "op": "<=",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        },
+        {
+          "name": "axe violations",
+          "metric": "violations",
+          "op": "<=",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": [
+        {
+          "path": "docs/cases/runs/panel-accessibility-stays-clean-under-axe/mwje9cuq-6vf3p-1/axe.json",
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "bytes": 3
+        },
+        {
+          "path": "docs/cases/runs/panel-accessibility-stays-clean-under-axe/mwje9cuq-6vf3p-1/page.png",
+          "sha256": "aef4cc4cd23c51f804a9cd405bd238ad01cc54c4977e6c03b871241ce9f9a8dc",
+          "bytes": 26624
+        }
+      ]
+    },
+    {
+      "runId": "suite-mwjeanz3-uj0he-panel-accessibility-stays-clean-under-axe-1",
+      "at": "2026-11-16T15:05:15.796Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 1314,
+      "commandSha256": "75020b835ca383b1da7f4b18f8724bbfbfed5dcf1c715c7f4b2d48f5b2c42e49",
+      "head": "366dfed8b44419f06cceb7bae63f7aeea1a95d26",
+      "dirty": true,
+      "stdout": "docs/cases/runs/panel-accessibility-stays-clean-under-axe/suite-mwjeanz3-uj0he-panel-accessibility-stays-clean-under-axe-1/stdout.log",
+      "stderr": "docs/cases/runs/panel-accessibility-stays-clean-under-axe/suite-mwjeanz3-uj0he-panel-accessibility-stays-clean-under-axe-1/stderr.log",
+      "summary": "docs/cases/runs/panel-accessibility-stays-clean-under-axe/suite-mwjeanz3-uj0he-panel-accessibility-stays-clean-under-axe-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "violations": 0,
+        "serious": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "axe serious/critical",
+          "metric": "serious",
+          "op": "<=",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        },
+        {
+          "name": "axe violations",
+          "metric": "violations",
+          "op": "<=",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": [
+        {
+          "path": "docs/cases/runs/panel-accessibility-stays-clean-under-axe/suite-mwjeanz3-uj0he-panel-accessibility-stays-clean-under-axe-1/axe.json",
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "bytes": 3
+        },
+        {
+          "path": "docs/cases/runs/panel-accessibility-stays-clean-under-axe/suite-mwjeanz3-uj0he-panel-accessibility-stays-clean-under-axe-1/page.png",
+          "sha256": "aef4cc4cd23c51f804a9cd405bd238ad01cc54c4977e6c03b871241ce9f9a8dc",
+          "bytes": 26624
+        }
+      ]
+    }
+  ],
+  "lastVerified": {
+    "at": "2026-11-16T15:05:15.809Z",
+    "command": "node docs/cases/drivers/panel-a11y.mjs",
+    "exitCode": 0,
+    "runId": "suite-mwjeanz3-uj0he-panel-accessibility-stays-clean-under-axe-1",
+    "source": "runner",
+    "commit": null
+  },
+  "checks": [
+    {
+      "name": "axe serious/critical",
+      "metric": "serious",
+      "op": "<=",
+      "threshold": 0
+    },
+    {
+      "name": "axe violations",
+      "metric": "violations",
+      "op": "<=",
+      "threshold": 0
+    }
+  ],
+  "negativeControl": "break-a11y",
+  "redFirst": {
+    "at": "2026-11-16T15:04:13.388Z",
+    "runId": "mwje9bpc-iqjtd-1",
+    "exitCode": 1,
+    "control": "break-a11y",
+    "command": "node docs/cases/drivers/panel-a11y.mjs",
+    "source": "negative-control"
+  }
+}
