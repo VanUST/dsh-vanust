@@ -290,12 +290,27 @@ export function sceneToElements(scene, { overlays = {}, editMode = false, look =
   return elements
 }
 
-/** Relative luminance of a `#rrggbb` colour, for choosing the Excalidraw theme. */
+/** Parse a CSS colour (`#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb(...)`) into 0..255 channels. */
+export function parseColour(colour) {
+  const value = String(colour ?? '').trim()
+  const hex = /^#([0-9a-f]{3,8})$/iu.exec(value)
+  if (hex !== null) {
+    const digits = hex[1]
+    const expand = digits.length <= 4
+      ? digits.slice(0, 3).split('').map(digit => parseInt(`${digit}${digit}`, 16))
+      : [0, 2, 4].map(offset => parseInt(digits.slice(offset, offset + 2), 16))
+    return expand.every(Number.isFinite) ? expand : null
+  }
+  const rgb = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/iu.exec(value)
+  if (rgb !== null) return [rgb[1], rgb[2], rgb[3]].map(part => Math.round(Number(part)))
+  return null
+}
+
+/** Relative luminance below 0.35 means a dark colour that needs a light on-colour. */
 export function isDarkSurface(colour) {
-  const match = /^#?([0-9a-f]{6})$/iu.exec(String(colour ?? '').trim())
-  if (match === null) return false
-  const value = parseInt(match[1], 16)
-  const [r, g, b] = [(value >> 16) & 255, (value >> 8) & 255, value & 255].map(channel => {
+  const channels = parseColour(colour)
+  if (channels === null) return false
+  const [r, g, b] = channels.map(channel => {
     const unit = channel / 255
     return unit <= 0.03928 ? unit / 12.92 : ((unit + 0.055) / 1.055) ** 2.4
   })

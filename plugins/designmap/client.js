@@ -9737,6 +9737,27 @@ function sceneToElements(scene, { overlays = {}, editMode = false, look = DEFAUL
   }
   return elements;
 }
+function parseColour(colour) {
+  const value2 = String(colour ?? "").trim();
+  const hex2 = /^#([0-9a-f]{3,8})$/iu.exec(value2);
+  if (hex2 !== null) {
+    const digits = hex2[1];
+    const expand = digits.length <= 4 ? digits.slice(0, 3).split("").map((digit) => parseInt(`${digit}${digit}`, 16)) : [0, 2, 4].map((offset) => parseInt(digits.slice(offset, offset + 2), 16));
+    return expand.every(Number.isFinite) ? expand : null;
+  }
+  const rgb3 = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/iu.exec(value2);
+  if (rgb3 !== null) return [rgb3[1], rgb3[2], rgb3[3]].map((part) => Math.round(Number(part)));
+  return null;
+}
+function isDarkSurface(colour) {
+  const channels = parseColour(colour);
+  if (channels === null) return false;
+  const [r, g, b] = channels.map((channel) => {
+    const unit = channel / 255;
+    return unit <= 0.03928 ? unit / 12.92 : ((unit + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.35;
+}
 function sceneToAppState(look = DEFAULT_LOOK) {
   return {
     viewBackgroundColor: look.surface,
@@ -10125,6 +10146,8 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
         muted: pick("--dmv-muted", "#475569"),
         line: pick("--dmv-line", "#e2e8f0")
       };
+      const accent = pick("--dmv-accent", "#2563eb");
+      element2.style.setProperty("--dmv-accent-ink", isDarkSurface(accent) ? "#ffffff" : "#0b0f14");
       setLook((previous) => previous !== null && previous.surface === next.surface && previous.surface2 === next.surface2 && previous.ink === next.ink && previous.muted === next.muted && previous.line === next.line ? previous : next);
     };
     read();
@@ -10885,7 +10908,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
         )
       ] }) : null,
       /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dmv-actions", children: [
-        canWrite ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: `dmv-btn${editMode ? " primary" : ""}`, "aria-pressed": editMode, onClick: toggleEdit, children: editMode ? "Editing overlays" : "Edit overlays" }) : null,
+        canWrite ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: `dmv-btn${editMode ? " primary" : ""}`, "aria-pressed": editMode, onClick: toggleEdit, children: editMode ? "Done editing" : "Edit overlays" }) : null,
         editMode ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
           /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "dmv-btn", onClick: undo, disabled: undoStack.length === 0, title: "Undo the last overlay change", children: "\u21B6 Undo" }),
           /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "dmv-btn", onClick: resetView, disabled: rowsOnView === 0, title: "Remove every overlay row of this view", children: "Reset view" })
@@ -11375,7 +11398,7 @@ var CSS = `
   white-space: nowrap;
 }
 .dmv-btn:hover { background: var(--dmv-surface-3); }
-.dmv-btn.primary { background: var(--dmv-accent); border-color: var(--dmv-accent); color: #ffffff; }
+.dmv-btn.primary { background: var(--dmv-accent); border-color: var(--dmv-accent); color: var(--dmv-accent-ink, #ffffff); }
 .dmv-btn.primary:hover { filter: brightness(1.06); }
 .dmv-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .dmv-selected .dmv-node { box-shadow: 0 0 0 3px color-mix(in srgb, var(--dmv-accent) 45%, transparent); }

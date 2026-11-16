@@ -1,5 +1,5 @@
 {
-  "builtAt": "2026-11-16T13:56:41.749Z",
+  "builtAt": "2026-11-16T14:01:43.963Z",
   "esbuild": "0.25.12",
   "xyflow": "12.12.1",
   "react": "18.3.1",
@@ -15,41 +15,11 @@
     "web-worker"
   ],
   "sizes": {
-    "clientCjs": 508576,
-    "clientBundle": 508846,
-    "seedBundle": 257917,
-    "hostBundle": 3224222
+    "clientCjs": 509713,
+    "clientBundle": 509983,
+    "seedBundle": 257917
   },
-  "hostFiles": [
-    [
-      "dist/chunk-LYKNJJ67.mjs",
-      269254
-    ],
-    [
-      "dist/chunk-MQWKWIN2.mjs",
-      191964
-    ],
-    [
-      "dist/chunk-YOF4EFVQ.mjs",
-      2714512
-    ],
-    [
-      "dist/core.mjs",
-      2419
-    ],
-    [
-      "dist/index.mjs",
-      44750
-    ],
-    [
-      "dist/schema.mjs",
-      753
-    ],
-    [
-      "dist/workspace.mjs",
-      570
-    ]
-  ],
+  "hostFiles": null,
   "vendoredLoader": {
     "sha256": "fc491b97b5d923446faf9ebff238dba6d1f8a55b03e8bf71bea90355ee33bec6",
     "bytes": 25831

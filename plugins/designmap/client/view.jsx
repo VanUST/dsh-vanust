@@ -48,6 +48,7 @@ import {
   searchSceneNodes,
 } from './scene.js'
 import { ExcalidrawCanvas } from './canvas.jsx'
+import { isDarkSurface } from './excalidraw.js'
 
 const NODE_TYPES = { scene: SceneNode }
 const EDGE_TYPES = { sceneEdge: SceneEdge }
@@ -289,6 +290,11 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
         muted: pick('--dmv-muted', '#475569'),
         line: pick('--dmv-line', '#e2e8f0'),
       }
+      // The host's brand colour is often a BRIGHT accent in a dark theme, so a primary
+      // button painted with it cannot assume a white label: derive the on-accent ink
+      // from the accent itself or the label disappears (a blank white box in the header).
+      const accent = pick('--dmv-accent', '#2563eb')
+      element.style.setProperty('--dmv-accent-ink', isDarkSurface(accent) ? '#ffffff' : '#0b0f14')
       setLook((previous) => (previous !== null
         && previous.surface === next.surface
         && previous.surface2 === next.surface2
@@ -1140,7 +1146,7 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
         <div className="dmv-actions">
           {canWrite ? (
             <button type="button" className={`dmv-btn${editMode ? ' primary' : ''}`} aria-pressed={editMode} onClick={toggleEdit}>
-              {editMode ? 'Editing overlays' : 'Edit overlays'}
+              {editMode ? 'Done editing' : 'Edit overlays'}
             </button>
           ) : null}
           {editMode ? (

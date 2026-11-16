@@ -97,7 +97,7 @@ export const CSS = `
   white-space: nowrap;
 }
 .dmv-btn:hover { background: var(--dmv-surface-3); }
-.dmv-btn.primary { background: var(--dmv-accent); border-color: var(--dmv-accent); color: #ffffff; }
+.dmv-btn.primary { background: var(--dmv-accent); border-color: var(--dmv-accent); color: var(--dmv-accent-ink, #ffffff); }
 .dmv-btn.primary:hover { filter: brightness(1.06); }
 .dmv-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .dmv-selected .dmv-node { box-shadow: 0 0 0 3px color-mix(in srgb, var(--dmv-accent) 45%, transparent); }
