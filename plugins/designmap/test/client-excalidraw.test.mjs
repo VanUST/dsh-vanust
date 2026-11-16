@@ -56,8 +56,8 @@ test('edges keep the core polyline and stay unbound, so the editor cannot re-rou
     assert.equal(arrow.x, first.x)
     assert.equal(arrow.y, first.y)
     edge.points.forEach((point, index) => {
-      assert.equal(Math.round((arrow.x + arrow.points[index].x) * 100) / 100, point.x)
-      assert.equal(Math.round((arrow.y + arrow.points[index].y) * 100) / 100, point.y)
+      assert.equal(Math.round((arrow.x + arrow.points[index][0]) * 100) / 100, point.x)
+      assert.equal(Math.round((arrow.y + arrow.points[index][1]) * 100) / 100, point.y)
     })
   }
 })

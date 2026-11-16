@@ -1,5 +1,5 @@
 {
-  "builtAt": "2026-11-16T12:44:45.161Z",
+  "builtAt": "2026-11-16T13:15:33.083Z",
   "esbuild": "0.25.12",
   "xyflow": "12.12.1",
   "react": "18.3.1",
@@ -15,8 +15,8 @@
     "web-worker"
   ],
   "sizes": {
-    "clientCjs": 483119,
-    "clientBundle": 483389,
+    "clientCjs": 496410,
+    "clientBundle": 496680,
     "seedBundle": 257917,
     "hostBundle": 3212178
   },

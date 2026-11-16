@@ -155,7 +155,9 @@ export function sceneToElements(scene, { overlays = {}, editMode = false } = {})
   for (const edge of scene.edges) {
     const first = edge.points[0]
     const last = edge.points[edge.points.length - 1]
-    const points = edge.points.map((point) => ({ x: point.x - first.x, y: point.y - first.y }))
+    // Excalidraw points are [x, y] TUPLES, not objects; an object here crashes its
+    // bounding-box maths on the first render.
+    const points = edge.points.map((point) => [point.x - first.x, point.y - first.y])
     const arrowId = `${EDGE_PREFIX}${edge.id}`
     const labelId = `${LABEL_PREFIX}${edge.id}`
     elements.push(

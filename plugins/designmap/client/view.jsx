@@ -47,6 +47,7 @@ import {
   paletteFor,
   searchSceneNodes,
 } from './scene.js'
+import { ExcalidrawCanvas } from './canvas.jsx'
 
 const NODE_TYPES = { scene: SceneNode }
 const EDGE_TYPES = { sceneEdge: SceneEdge }
@@ -250,6 +251,27 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
   const [positions, setPositions] = React.useState({})
   const [colours, setColours] = React.useState({})
   const [overlays, setOverlays] = React.useState({})
+  // The Excalidraw canvas is the drawing surface; React Flow stays as the fallback when
+  // the frame cannot load, so a frame failure degrades to a working read-only map.
+  const [canvasFailed, setCanvasFailed] = React.useState(false)
+  const onCanvasDelta = React.useCallback(
+    async (delta) => {
+      for (const [nodeId, row] of Object.entries(delta)) {
+        const result = await host.writeOverlay({ action: 'upsert', nodeId, ...row })
+        if (result?.ok === true) {
+          setOverlays((previous) => ({ ...previous, [nodeId]: { ...(previous[nodeId] ?? {}), ...row } }))
+          setStatus({ kind: 'info', code: 'overlay.written', message: `Saved ${Object.keys(row).join('+')} for ${nodeId}.` })
+        } else {
+          setStatus({
+            kind: 'error',
+            code: result?.error?.code ?? 'overlay_write_failed',
+            message: result?.error?.message ?? 'The host refused the overlay write.',
+          })
+        }
+      }
+    },
+    [host],
+  )
   const [undoStack, setUndoStack] = React.useState([])
   const [pendingCount, setPendingCount] = React.useState(0)
 
@@ -1076,6 +1098,14 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
               <h2>{scene.title || current.view.title || 'Empty view'}</h2>
               <p>This view has no nodes. Render the model to populate it; this panel only draws what core produced.</p>
             </div>
+          ) : !canvasFailed ? (
+            <ExcalidrawCanvas
+              scene={scene}
+              overlays={overlays}
+              editMode={editMode}
+              onDelta={onCanvasDelta}
+              onFallback={() => setCanvasFailed(true)}
+            />
           ) : (
             <ReactFlow
               nodes={flowNodes}

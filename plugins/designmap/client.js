@@ -39,15 +39,15 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 var require_use_sync_external_store_shim_production = __commonJS({
   "node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js"(exports) {
     "use strict";
-    var React3 = require("react");
+    var React4 = require("react");
     function is(x, y) {
       return x === y && (0 !== x || 1 / x === 1 / y) || x !== x && y !== y;
     }
     var objectIs = "function" === typeof Object.is ? Object.is : is;
-    var useState2 = React3.useState;
-    var useEffect2 = React3.useEffect;
-    var useLayoutEffect2 = React3.useLayoutEffect;
-    var useDebugValue2 = React3.useDebugValue;
+    var useState2 = React4.useState;
+    var useEffect2 = React4.useEffect;
+    var useLayoutEffect2 = React4.useLayoutEffect;
+    var useDebugValue2 = React4.useDebugValue;
     function useSyncExternalStore$2(subscribe, getSnapshot) {
       var value2 = getSnapshot(), _useState = useState2({ inst: { value: value2, getSnapshot } }), inst = _useState[0].inst, forceUpdate = _useState[1];
       useLayoutEffect2(
@@ -84,7 +84,7 @@ var require_use_sync_external_store_shim_production = __commonJS({
       return getSnapshot();
     }
     var shim = "undefined" === typeof window || "undefined" === typeof window.document || "undefined" === typeof window.document.createElement ? useSyncExternalStore$1 : useSyncExternalStore$2;
-    exports.useSyncExternalStore = void 0 !== React3.useSyncExternalStore ? React3.useSyncExternalStore : shim;
+    exports.useSyncExternalStore = void 0 !== React4.useSyncExternalStore ? React4.useSyncExternalStore : shim;
   }
 });
 
@@ -104,17 +104,17 @@ var require_shim = __commonJS({
 var require_with_selector_production = __commonJS({
   "node_modules/use-sync-external-store/cjs/use-sync-external-store-shim/with-selector.production.js"(exports) {
     "use strict";
-    var React3 = require("react");
+    var React4 = require("react");
     var shim = require_shim();
     function is(x, y) {
       return x === y && (0 !== x || 1 / x === 1 / y) || x !== x && y !== y;
     }
     var objectIs = "function" === typeof Object.is ? Object.is : is;
     var useSyncExternalStore = shim.useSyncExternalStore;
-    var useRef2 = React3.useRef;
-    var useEffect2 = React3.useEffect;
-    var useMemo2 = React3.useMemo;
-    var useDebugValue2 = React3.useDebugValue;
+    var useRef2 = React4.useRef;
+    var useEffect2 = React4.useEffect;
+    var useMemo2 = React4.useMemo;
+    var useDebugValue2 = React4.useDebugValue;
     exports.useSyncExternalStoreWithSelector = function(subscribe, getSnapshot, getServerSnapshot, selector2, isEqual) {
       var instRef = useRef2(null);
       if (null === instRef.current) {
@@ -190,13 +190,13 @@ __export(entry_exports, {
   inject: () => inject
 });
 module.exports = __toCommonJS(entry_exports);
-var import_react5 = __toESM(require("react"), 1);
+var import_react6 = __toESM(require("react"), 1);
 
 // node_modules/@xyflow/react/dist/style.css
 var style_default = "/* this gets exported as style.css and can be used for the default theming */\n/* these are the necessary styles for React/Svelte Flow, they get used by base.css and style.css */\n.react-flow {\n  direction: ltr;\n\n  --xy-edge-stroke-default: #b1b1b7;\n  --xy-edge-stroke-width-default: 1;\n  --xy-edge-stroke-selected-default: #555;\n\n  --xy-connectionline-stroke-default: #b1b1b7;\n  --xy-connectionline-stroke-width-default: 1;\n\n  --xy-attribution-background-color-default: rgba(255, 255, 255, 0.5);\n\n  --xy-minimap-background-color-default: #fff;\n  --xy-minimap-mask-background-color-default: rgba(240, 240, 240, 0.6);\n  --xy-minimap-mask-stroke-color-default: transparent;\n  --xy-minimap-mask-stroke-width-default: 1;\n  --xy-minimap-node-background-color-default: #e2e2e2;\n  --xy-minimap-node-stroke-color-default: transparent;\n  --xy-minimap-node-stroke-width-default: 2;\n\n  --xy-background-color-default: transparent;\n  --xy-background-pattern-dots-color-default: #91919a;\n  --xy-background-pattern-lines-color-default: #eee;\n  --xy-background-pattern-cross-color-default: #e2e2e2;\n  background-color: var(--xy-background-color, var(--xy-background-color-default));\n  --xy-node-color-default: inherit;\n  --xy-node-border-default: 1px solid #1a192b;\n  --xy-node-background-color-default: #fff;\n  --xy-node-group-background-color-default: rgba(240, 240, 240, 0.25);\n  --xy-node-boxshadow-hover-default: 0 1px 4px 1px rgba(0, 0, 0, 0.08);\n  --xy-node-boxshadow-selected-default: 0 0 0 0.5px #1a192b;\n  --xy-node-border-radius-default: 3px;\n\n  --xy-handle-background-color-default: #1a192b;\n  --xy-handle-border-color-default: #fff;\n\n  --xy-selection-background-color-default: rgba(0, 89, 220, 0.08);\n  --xy-selection-border-default: 1px dotted rgba(0, 89, 220, 0.8);\n\n  --xy-controls-button-background-color-default: #fefefe;\n  --xy-controls-button-background-color-hover-default: #f4f4f4;\n  --xy-controls-button-color-default: inherit;\n  --xy-controls-button-color-hover-default: inherit;\n  --xy-controls-button-border-color-default: #eee;\n  --xy-controls-box-shadow-default: 0 0 2px 1px rgba(0, 0, 0, 0.08);\n\n  --xy-edge-label-background-color-default: #ffffff;\n  --xy-edge-label-color-default: inherit;\n  --xy-resize-background-color-default: #3367d9;\n}\n.react-flow.dark {\n  --xy-edge-stroke-default: #3e3e3e;\n  --xy-edge-stroke-width-default: 1;\n  --xy-edge-stroke-selected-default: #727272;\n\n  --xy-connectionline-stroke-default: #b1b1b7;\n  --xy-connectionline-stroke-width-default: 1;\n\n  --xy-attribution-background-color-default: rgba(150, 150, 150, 0.25);\n\n  --xy-minimap-background-color-default: #141414;\n  --xy-minimap-mask-background-color-default: rgba(60, 60, 60, 0.6);\n  --xy-minimap-mask-stroke-color-default: transparent;\n  --xy-minimap-mask-stroke-width-default: 1;\n  --xy-minimap-node-background-color-default: #2b2b2b;\n  --xy-minimap-node-stroke-color-default: transparent;\n  --xy-minimap-node-stroke-width-default: 2;\n\n  --xy-background-color-default: #141414;\n  --xy-background-pattern-dots-color-default: #555;\n  --xy-background-pattern-lines-color-default: #333;\n  --xy-background-pattern-cross-color-default: #333;\n  --xy-node-color-default: #f8f8f8;\n  --xy-node-border-default: 1px solid #3c3c3c;\n  --xy-node-background-color-default: #1e1e1e;\n  --xy-node-group-background-color-default: rgba(240, 240, 240, 0.25);\n  --xy-node-boxshadow-hover-default: 0 1px 4px 1px rgba(255, 255, 255, 0.08);\n  --xy-node-boxshadow-selected-default: 0 0 0 0.5px #999;\n\n  --xy-handle-background-color-default: #bebebe;\n  --xy-handle-border-color-default: #1e1e1e;\n\n  --xy-selection-background-color-default: rgba(200, 200, 220, 0.08);\n  --xy-selection-border-default: 1px dotted rgba(200, 200, 220, 0.8);\n\n  --xy-controls-button-background-color-default: #2b2b2b;\n  --xy-controls-button-background-color-hover-default: #3e3e3e;\n  --xy-controls-button-color-default: #f8f8f8;\n  --xy-controls-button-color-hover-default: #fff;\n  --xy-controls-button-border-color-default: #5b5b5b;\n  --xy-controls-box-shadow-default: 0 0 2px 1px rgba(0, 0, 0, 0.08);\n\n  --xy-edge-label-background-color-default: #141414;\n  --xy-edge-label-color-default: #f8f8f8;\n}\n.react-flow__background {\n  background-color: var(--xy-background-color-props, var(--xy-background-color, var(--xy-background-color-default)));\n  pointer-events: none;\n  z-index: -1;\n}\n.react-flow__container {\n  position: absolute;\n  width: 100%;\n  height: 100%;\n  top: 0;\n  left: 0;\n}\n.react-flow__pane {\n  z-index: 1;\n  touch-action: none;\n}\n.react-flow__pane.draggable {\n    cursor: grab;\n  }\n.react-flow__pane.dragging {\n    cursor: grabbing;\n  }\n.react-flow__pane.selection {\n    cursor: pointer;\n  }\n.react-flow__viewport {\n  transform-origin: 0 0;\n  z-index: 2;\n  pointer-events: none;\n}\n.react-flow__renderer {\n  z-index: 4;\n}\n.react-flow__selection {\n  z-index: 6;\n}\n.react-flow__nodesselection-rect:focus,\n.react-flow__nodesselection-rect:focus-visible {\n  outline: none;\n}\n.react-flow__edge-path {\n  stroke: var(--xy-edge-stroke, var(--xy-edge-stroke-default));\n  stroke-width: var(--xy-edge-stroke-width, var(--xy-edge-stroke-width-default));\n  fill: none;\n}\n.react-flow__connection-path {\n  stroke: var(--xy-connectionline-stroke, var(--xy-connectionline-stroke-default));\n  stroke-width: var(--xy-connectionline-stroke-width, var(--xy-connectionline-stroke-width-default));\n  fill: none;\n}\n.react-flow .react-flow__edges {\n  position: absolute;\n}\n.react-flow .react-flow__edges svg {\n    overflow: visible;\n    position: absolute;\n    pointer-events: none;\n  }\n.react-flow__edge {\n  pointer-events: visibleStroke;\n}\n.react-flow__edge.selectable {\n    cursor: pointer;\n  }\n.react-flow__edge.animated path {\n    stroke-dasharray: 5;\n    animation: dashdraw 0.5s linear infinite;\n  }\n.react-flow__edge.animated path.react-flow__edge-interaction {\n    stroke-dasharray: none;\n    animation: none;\n  }\n.react-flow__edge.inactive {\n    pointer-events: none;\n  }\n.react-flow__edge.selected,\n  .react-flow__edge:focus,\n  .react-flow__edge:focus-visible {\n    outline: none;\n  }\n.react-flow__edge.selected .react-flow__edge-path,\n  .react-flow__edge.selectable:focus .react-flow__edge-path,\n  .react-flow__edge.selectable:focus-visible .react-flow__edge-path {\n    stroke: var(--xy-edge-stroke-selected, var(--xy-edge-stroke-selected-default));\n  }\n.react-flow__edge-textwrapper {\n    pointer-events: all;\n  }\n.react-flow__edge .react-flow__edge-text {\n    pointer-events: none;\n    -webkit-user-select: none;\n       -moz-user-select: none;\n            user-select: none;\n  }\n/* Arrowhead marker styles - use CSS custom properties as default */\n.react-flow__arrowhead polyline {\n  stroke: var(--xy-edge-stroke, var(--xy-edge-stroke-default));\n}\n.react-flow__arrowhead polyline.arrowclosed {\n  fill: var(--xy-edge-stroke, var(--xy-edge-stroke-default));\n}\n.react-flow__connection {\n  pointer-events: none;\n}\n.react-flow__connection .animated {\n    stroke-dasharray: 5;\n    animation: dashdraw 0.5s linear infinite;\n  }\nsvg.react-flow__connectionline {\n  z-index: 1001;\n  overflow: visible;\n  position: absolute;\n}\n.react-flow__nodes {\n  pointer-events: none;\n  transform-origin: 0 0;\n}\n.react-flow__node {\n  position: absolute;\n  -webkit-user-select: none;\n     -moz-user-select: none;\n          user-select: none;\n  pointer-events: all;\n  transform-origin: 0 0;\n  box-sizing: border-box;\n  cursor: default;\n}\n.react-flow__node.selectable {\n    cursor: pointer;\n  }\n.react-flow__node.draggable {\n    cursor: grab;\n    pointer-events: all;\n  }\n.react-flow__node.draggable.dragging {\n      cursor: grabbing;\n    }\n.react-flow__nodesselection {\n  z-index: 3;\n  transform-origin: left top;\n  pointer-events: none;\n}\n.react-flow__nodesselection-rect {\n    position: absolute;\n    pointer-events: all;\n    cursor: grab;\n  }\n.react-flow__handle {\n  position: absolute;\n  pointer-events: none;\n  min-width: 5px;\n  min-height: 5px;\n  width: 6px;\n  height: 6px;\n  background-color: var(--xy-handle-background-color, var(--xy-handle-background-color-default));\n  border: 1px solid var(--xy-handle-border-color, var(--xy-handle-border-color-default));\n  border-radius: 100%;\n}\n.react-flow__handle.connectingfrom {\n    pointer-events: all;\n  }\n.react-flow__handle.connectionindicator {\n    pointer-events: all;\n    cursor: crosshair;\n  }\n.react-flow__handle-bottom {\n    top: auto;\n    left: 50%;\n    bottom: 0;\n    transform: translate(-50%, 50%);\n  }\n.react-flow__handle-top {\n    top: 0;\n    left: 50%;\n    transform: translate(-50%, -50%);\n  }\n.react-flow__handle-left {\n    top: 50%;\n    left: 0;\n    transform: translate(-50%, -50%);\n  }\n.react-flow__handle-right {\n    top: 50%;\n    right: 0;\n    transform: translate(50%, -50%);\n  }\n.react-flow__edgeupdater {\n  cursor: move;\n  pointer-events: all;\n}\n.react-flow__pane.selection .react-flow__panel {\n  pointer-events: none;\n}\n.react-flow__panel {\n  position: absolute;\n  z-index: 5;\n  margin: 15px;\n}\n.react-flow__panel.top {\n    top: 0;\n  }\n.react-flow__panel.bottom {\n    bottom: 0;\n  }\n.react-flow__panel.top.center, .react-flow__panel.bottom.center {\n      left: 50%;\n      transform: translateX(-15px) translateX(-50%);\n    }\n.react-flow__panel.left {\n    left: 0;\n  }\n.react-flow__panel.right {\n    right: 0;\n  }\n.react-flow__panel.left.center, .react-flow__panel.right.center {\n      top: 50%;\n      transform: translateY(-15px) translateY(-50%);\n    }\n.react-flow__attribution {\n  font-size: 10px;\n  background: var(--xy-attribution-background-color, var(--xy-attribution-background-color-default));\n  padding: 2px 3px;\n  margin: 0;\n}\n.react-flow__attribution a {\n    text-decoration: none;\n    color: #999;\n  }\n@keyframes dashdraw {\n  from {\n    stroke-dashoffset: 10;\n  }\n}\n.react-flow__edgelabel-renderer {\n  position: absolute;\n  width: 100%;\n  height: 100%;\n  pointer-events: none;\n  -webkit-user-select: none;\n     -moz-user-select: none;\n          user-select: none;\n  left: 0;\n  top: 0;\n}\n.react-flow__viewport-portal {\n  position: absolute;\n  width: 100%;\n  height: 100%;\n  left: 0;\n  top: 0;\n  -webkit-user-select: none;\n     -moz-user-select: none;\n          user-select: none;\n}\n.react-flow__minimap {\n  background: var(\n    --xy-minimap-background-color-props,\n    var(--xy-minimap-background-color, var(--xy-minimap-background-color-default))\n  );\n}\n.react-flow__minimap-svg {\n    display: block;\n  }\n.react-flow__minimap-mask {\n    fill: var(\n      --xy-minimap-mask-background-color-props,\n      var(--xy-minimap-mask-background-color, var(--xy-minimap-mask-background-color-default))\n    );\n    stroke: var(\n      --xy-minimap-mask-stroke-color-props,\n      var(--xy-minimap-mask-stroke-color, var(--xy-minimap-mask-stroke-color-default))\n    );\n    stroke-width: var(\n      --xy-minimap-mask-stroke-width-props,\n      var(--xy-minimap-mask-stroke-width, var(--xy-minimap-mask-stroke-width-default))\n    );\n  }\n.react-flow__minimap-node {\n    fill: var(\n      --xy-minimap-node-background-color-props,\n      var(--xy-minimap-node-background-color, var(--xy-minimap-node-background-color-default))\n    );\n    stroke: var(\n      --xy-minimap-node-stroke-color-props,\n      var(--xy-minimap-node-stroke-color, var(--xy-minimap-node-stroke-color-default))\n    );\n    stroke-width: var(\n      --xy-minimap-node-stroke-width-props,\n      var(--xy-minimap-node-stroke-width, var(--xy-minimap-node-stroke-width-default))\n    );\n  }\n.react-flow__background-pattern.dots {\n    fill: var(\n      --xy-background-pattern-color-props,\n      var(--xy-background-pattern-color, var(--xy-background-pattern-dots-color-default))\n    );\n  }\n.react-flow__background-pattern.lines {\n    stroke: var(\n      --xy-background-pattern-color-props,\n      var(--xy-background-pattern-color, var(--xy-background-pattern-lines-color-default))\n    );\n  }\n.react-flow__background-pattern.cross {\n    stroke: var(\n      --xy-background-pattern-color-props,\n      var(--xy-background-pattern-color, var(--xy-background-pattern-cross-color-default))\n    );\n  }\n.react-flow__controls {\n  display: flex;\n  flex-direction: column;\n  box-shadow: var(--xy-controls-box-shadow, var(--xy-controls-box-shadow-default));\n}\n.react-flow__controls.horizontal {\n    flex-direction: row;\n  }\n.react-flow__controls-button {\n    display: flex;\n    justify-content: center;\n    align-items: center;\n    height: 26px;\n    width: 26px;\n    padding: 4px;\n    border: none;\n    background: var(--xy-controls-button-background-color, var(--xy-controls-button-background-color-default));\n    border-bottom: 1px solid\n      var(\n        --xy-controls-button-border-color-props,\n        var(--xy-controls-button-border-color, var(--xy-controls-button-border-color-default))\n      );\n    color: var(\n      --xy-controls-button-color-props,\n      var(--xy-controls-button-color, var(--xy-controls-button-color-default))\n    );\n    cursor: pointer;\n    -webkit-user-select: none;\n       -moz-user-select: none;\n            user-select: none;\n  }\n.react-flow__controls-button svg {\n      width: 100%;\n      max-width: 12px;\n      max-height: 12px;\n      fill: currentColor;\n    }\n.react-flow__edge.updating .react-flow__edge-path {\n      stroke: #777;\n    }\n.react-flow__edge-text {\n    font-size: 10px;\n  }\n.react-flow__node.selectable:focus,\n  .react-flow__node.selectable:focus-visible {\n    outline: none;\n  }\n.react-flow__node-input,\n.react-flow__node-default,\n.react-flow__node-output,\n.react-flow__node-group {\n  padding: 10px;\n  border-radius: var(--xy-node-border-radius, var(--xy-node-border-radius-default));\n  width: 150px;\n  font-size: 12px;\n  color: var(--xy-node-color, var(--xy-node-color-default));\n  text-align: center;\n  border: var(--xy-node-border, var(--xy-node-border-default));\n  background-color: var(--xy-node-background-color, var(--xy-node-background-color-default));\n}\n.react-flow__node-input.selectable:hover, .react-flow__node-default.selectable:hover, .react-flow__node-output.selectable:hover, .react-flow__node-group.selectable:hover {\n      box-shadow: var(--xy-node-boxshadow-hover, var(--xy-node-boxshadow-hover-default));\n    }\n.react-flow__node-input.selectable.selected,\n    .react-flow__node-input.selectable:focus,\n    .react-flow__node-input.selectable:focus-visible,\n    .react-flow__node-default.selectable.selected,\n    .react-flow__node-default.selectable:focus,\n    .react-flow__node-default.selectable:focus-visible,\n    .react-flow__node-output.selectable.selected,\n    .react-flow__node-output.selectable:focus,\n    .react-flow__node-output.selectable:focus-visible,\n    .react-flow__node-group.selectable.selected,\n    .react-flow__node-group.selectable:focus,\n    .react-flow__node-group.selectable:focus-visible {\n      box-shadow: var(--xy-node-boxshadow-selected, var(--xy-node-boxshadow-selected-default));\n    }\n.react-flow__node-group {\n  background-color: var(--xy-node-group-background-color, var(--xy-node-group-background-color-default));\n}\n.react-flow__nodesselection-rect,\n.react-flow__selection {\n  background: var(--xy-selection-background-color, var(--xy-selection-background-color-default));\n  border: var(--xy-selection-border, var(--xy-selection-border-default));\n}\n.react-flow__nodesselection-rect:focus,\n  .react-flow__nodesselection-rect:focus-visible,\n  .react-flow__selection:focus,\n  .react-flow__selection:focus-visible {\n    outline: none;\n  }\n.react-flow__controls-button:hover {\n      background: var(\n        --xy-controls-button-background-color-hover-props,\n        var(--xy-controls-button-background-color-hover, var(--xy-controls-button-background-color-hover-default))\n      );\n      color: var(\n        --xy-controls-button-color-hover-props,\n        var(--xy-controls-button-color-hover, var(--xy-controls-button-color-hover-default))\n      );\n    }\n.react-flow__controls-button:disabled {\n      pointer-events: none;\n    }\n.react-flow__controls-button:disabled svg {\n        fill-opacity: 0.4;\n      }\n.react-flow__controls-button:last-child {\n    border-bottom: none;\n  }\n.react-flow__controls.horizontal .react-flow__controls-button {\n    border-bottom: none;\n    border-right: 1px solid\n      var(\n        --xy-controls-button-border-color-props,\n        var(--xy-controls-button-border-color, var(--xy-controls-button-border-color-default))\n      );\n  }\n.react-flow__controls.horizontal .react-flow__controls-button:last-child {\n    border-right: none;\n  }\n.react-flow__resize-control {\n  position: absolute;\n}\n.react-flow__resize-control.left,\n.react-flow__resize-control.right {\n  cursor: ew-resize;\n}\n.react-flow__resize-control.top,\n.react-flow__resize-control.bottom {\n  cursor: ns-resize;\n}\n.react-flow__resize-control.top.left,\n.react-flow__resize-control.bottom.right {\n  cursor: nwse-resize;\n}\n.react-flow__resize-control.bottom.left,\n.react-flow__resize-control.top.right {\n  cursor: nesw-resize;\n}\n/* handle styles */\n.react-flow__resize-control.handle {\n  width: 5px;\n  height: 5px;\n  border: 1px solid #fff;\n  border-radius: 1px;\n  background-color: var(--xy-resize-background-color, var(--xy-resize-background-color-default));\n  translate: -50% -50%;\n}\n.react-flow__resize-control.handle.left {\n  left: 0;\n  top: 50%;\n}\n.react-flow__resize-control.handle.right {\n  left: 100%;\n  top: 50%;\n}\n.react-flow__resize-control.handle.top {\n  left: 50%;\n  top: 0;\n}\n.react-flow__resize-control.handle.bottom {\n  left: 50%;\n  top: 100%;\n}\n.react-flow__resize-control.handle.top.left {\n  left: 0;\n}\n.react-flow__resize-control.handle.bottom.left {\n  left: 0;\n}\n.react-flow__resize-control.handle.top.right {\n  left: 100%;\n}\n.react-flow__resize-control.handle.bottom.right {\n  left: 100%;\n}\n/* line styles */\n.react-flow__resize-control.line {\n  border-color: var(--xy-resize-background-color, var(--xy-resize-background-color-default));\n  border-width: 0;\n  border-style: solid;\n}\n.react-flow__resize-control.line.left,\n.react-flow__resize-control.line.right {\n  width: 1px;\n  transform: translate(-50%, 0);\n  top: 0;\n  height: 100%;\n}\n.react-flow__resize-control.line.left {\n  left: 0;\n  border-left-width: 1px;\n}\n.react-flow__resize-control.line.right {\n  left: 100%;\n  border-right-width: 1px;\n}\n.react-flow__resize-control.line.top,\n.react-flow__resize-control.line.bottom {\n  height: 1px;\n  transform: translate(0, -50%);\n  left: 0;\n  width: 100%;\n}\n.react-flow__resize-control.line.top {\n  top: 0;\n  border-top-width: 1px;\n}\n.react-flow__resize-control.line.bottom {\n  border-bottom-width: 1px;\n  top: 100%;\n}\n.react-flow__edge-textbg {\n  fill: var(--xy-edge-label-background-color, var(--xy-edge-label-background-color-default));\n}\n.react-flow__edge-text {\n  fill: var(--xy-edge-label-color, var(--xy-edge-label-color-default));\n}\n";
 
 // client/view.jsx
-var import_react3 = __toESM(require("react"), 1);
+var import_react4 = __toESM(require("react"), 1);
 
 // node_modules/@xyflow/react/dist/esm/index.js
 var import_jsx_runtime = require("react/jsx-runtime");
@@ -2973,8 +2973,8 @@ Transform.prototype = {
   applyY: function(y) {
     return y * this.k + this.y;
   },
-  invert: function(location) {
-    return [(location[0] - this.x) / this.k, (location[1] - this.y) / this.k];
+  invert: function(location2) {
+    return [(location2[0] - this.x) / this.k, (location2[1] - this.y) / this.k];
   },
   invertX: function(x) {
     return (x - this.x) / this.k;
@@ -3413,9 +3413,9 @@ var oppositePosition = {
   [Position.Top]: Position.Bottom,
   [Position.Bottom]: Position.Top
 };
-var isEdgeBase = (element) => !!element && typeof element === "object" && "id" in element && "source" in element && "target" in element;
-var isNodeBase = (element) => !!element && typeof element === "object" && "id" in element && "position" in element && !("source" in element) && !("target" in element);
-var isInternalNodeBase = (element) => !!element && typeof element === "object" && "id" in element && "internals" in element && !("source" in element) && !("target" in element);
+var isEdgeBase = (element2) => !!element2 && typeof element2 === "object" && "id" in element2 && "source" in element2 && "target" in element2;
+var isNodeBase = (element2) => !!element2 && typeof element2 === "object" && "id" in element2 && "position" in element2 && !("source" in element2) && !("target" in element2);
+var isInternalNodeBase = (element2) => !!element2 && typeof element2 === "object" && "id" in element2 && "internals" in element2 && !("source" in element2) && !("target" in element2);
 var getNodePositionWithOrigin = (node, nodeOrigin = [0, 0]) => {
   const { width, height } = getNodeDimensions(node);
   const origin = node.origin ?? nodeOrigin;
@@ -3877,7 +3877,7 @@ var getDimensions = (node) => ({
   width: node.offsetWidth,
   height: node.offsetHeight
 });
-var getHostForElement = (element) => element?.getRootNode?.() || window?.document;
+var getHostForElement = (element2) => element2?.getRootNode?.() || window?.document;
 var inputTags = ["INPUT", "SELECT", "TEXTAREA"];
 function isInputDOMNode(event) {
   const target = event.composedPath?.()?.[0] || event.target;
@@ -6536,10 +6536,10 @@ function applyChanges(changes, elements) {
       }
     }
   }
-  for (const element of elements) {
-    const changes2 = changesMap.get(element.id);
+  for (const element2 of elements) {
+    const changes2 = changesMap.get(element2.id);
     if (!changes2) {
-      updatedElements.push(element);
+      updatedElements.push(element2);
       continue;
     }
     if (changes2[0].type === "remove") {
@@ -6549,7 +6549,7 @@ function applyChanges(changes, elements) {
       updatedElements.push({ ...changes2[0].item });
       continue;
     }
-    const updatedElement = { ...element };
+    const updatedElement = { ...element2 };
     for (const change of changes2) {
       applyChange(change, updatedElement);
     }
@@ -6566,37 +6566,37 @@ function applyChanges(changes, elements) {
   }
   return updatedElements;
 }
-function applyChange(change, element) {
+function applyChange(change, element2) {
   switch (change.type) {
     case "select": {
-      element.selected = change.selected;
+      element2.selected = change.selected;
       break;
     }
     case "position": {
       if (typeof change.position !== "undefined") {
-        element.position = change.position;
+        element2.position = change.position;
       }
       if (typeof change.dragging !== "undefined") {
-        element.dragging = change.dragging;
+        element2.dragging = change.dragging;
       }
       break;
     }
     case "dimensions": {
       if (typeof change.dimensions !== "undefined") {
-        element.measured = {
+        element2.measured = {
           ...change.dimensions
         };
         if (change.setAttributes) {
           if (change.setAttributes === true || change.setAttributes === "width") {
-            element.width = change.dimensions.width;
+            element2.width = change.dimensions.width;
           }
           if (change.setAttributes === true || change.setAttributes === "height") {
-            element.height = change.dimensions.height;
+            element2.height = change.dimensions.height;
           }
         }
       }
       if (typeof change.resizing === "boolean") {
-        element.resizing = change.resizing;
+        element2.resizing = change.resizing;
       }
       break;
     }
@@ -6659,8 +6659,8 @@ function addEdge2(edgeParams, edges, options = {}) {
     onError: options.onError ?? defaultOnError
   });
 }
-var isNode = (element) => isNodeBase(element);
-var isEdge = (element) => isEdgeBase(element);
+var isNode = (element2) => isNodeBase(element2);
+var isEdge = (element2) => isEdgeBase(element2);
 function fixedForwardRef(render) {
   return (0, import_react2.forwardRef)(render);
 }
@@ -9475,27 +9475,352 @@ function groupAriaLabel(group) {
   return `Group ${group.label || group.id}, double-click or press Enter to open`;
 }
 
-// client/view.jsx
+// client/canvas.jsx
+var import_react3 = __toESM(require("react"), 1);
+
+// client/frame.js
+var PKG = "@cc/dsh-designmap";
+var FRAME_FILE = "client.frame.js";
+var FRAME_SOURCE = "design-map-frame";
+var PANEL_SOURCE = "design-map-panel";
+async function loadFrameText(fetchImpl = globalThis.fetch) {
+  const boot = globalThis.__DSH_BOOT__;
+  const entry = (boot?.entries ?? []).find((row) => row?.id === PKG);
+  const rev = entry === void 0 ? null : new URL(entry.url, location.href).searchParams.get("rev");
+  const url = `/plugins/${PKG}/${FRAME_FILE}${rev === null ? "" : `?rev=${encodeURIComponent(rev)}`}`;
+  const response = await fetchImpl(url, { credentials: "same-origin" });
+  if (!response.ok) throw new Error(`excalidraw frame HTTP ${response.status}`);
+  return response.text();
+}
+function frameDocument(script) {
+  const safe = script.replaceAll("<\/script", "<\\/script");
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+html,body,#root{height:100%;margin:0;background:#fff;overflow:hidden}
+.App-toolbar,.HintViewer,.App-menu,.layer-ui__wrapper__top-right,.dropdown-menu-button{display:none!important}
+</style></head><body><div id="root"></div><script>${safe}<\/script></body></html>`;
+}
+
+// client/excalidraw.js
+var SHAPE = {
+  frontend: "rectangle",
+  service: "rectangle",
+  worker: "rectangle",
+  queue: "rectangle",
+  external: "rectangle",
+  datastore: "ellipse",
+  decision: "diamond"
+};
+var DEFAULT_LOOK = {
+  frontend: { fill: "#dbeafe", stroke: "#2563eb" },
+  service: { fill: "#e0e7ff", stroke: "#4338ca" },
+  worker: { fill: "#dcfce7", stroke: "#15803d" },
+  datastore: { fill: "#fef3c7", stroke: "#b45309" },
+  queue: { fill: "#fce7f3", stroke: "#be185d" },
+  external: { fill: "#f1f5f9", stroke: "#475569" }
+};
+var NODE_PREFIX = "dm:node:";
+var EDGE_PREFIX = "dm:edge:";
+var GROUP_PREFIX = "dm:group:";
+var LABEL_PREFIX = "dm:label:";
+var seed = 1;
+var nextSeed = () => seed = seed * 16807 % 2147483647;
+function element(type, id2, fields) {
+  return {
+    id: id2,
+    type,
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+    angle: 0,
+    strokeColor: "#1e1e1e",
+    backgroundColor: "transparent",
+    fillStyle: "solid",
+    strokeWidth: 2,
+    strokeStyle: "solid",
+    roughness: 0,
+    opacity: 100,
+    groupIds: [],
+    frameId: null,
+    roundness: null,
+    seed: nextSeed(),
+    version: 1,
+    versionNonce: nextSeed(),
+    isDeleted: false,
+    boundElements: [],
+    updated: 1,
+    link: null,
+    locked: false,
+    ...fields
+  };
+}
+var LINE_HEIGHT = 1.25;
+var FONT_SIZE = 13;
+function sceneToElements(scene, { overlays = {}, editMode = false } = {}) {
+  const elements = [];
+  for (const group of scene.groups ?? []) {
+    elements.push(
+      element("rectangle", `${GROUP_PREFIX}${group.id}`, {
+        x: group.x,
+        y: group.y,
+        width: group.w,
+        height: group.h,
+        strokeStyle: "dashed",
+        strokeColor: "#7c8aa5",
+        backgroundColor: "transparent",
+        strokeWidth: 1,
+        locked: true,
+        customData: { designmap: { kind: "group", groupId: group.id } }
+      })
+    );
+  }
+  for (const node of scene.nodes) {
+    const row = overlays[node.id] ?? {};
+    const look = DEFAULT_LOOK[node.type] ?? DEFAULT_LOOK.service;
+    const x = typeof row.x === "number" ? row.x : node.x;
+    const y = typeof row.y === "number" ? row.y : node.y;
+    const fill = typeof row.fill === "string" ? row.fill : look.fill;
+    const stroke = typeof row.stroke === "string" ? row.stroke : look.stroke;
+    const lines = String(node.label).split("\n");
+    const textHeight = Math.max(node.h - 12, lines.length * FONT_SIZE * LINE_HEIGHT);
+    const shape = SHAPE[node.type] ?? "rectangle";
+    const nodeId = `${NODE_PREFIX}${node.id}`;
+    const textId = `${LABEL_PREFIX}${node.id}`;
+    elements.push(
+      element(shape, nodeId, {
+        x,
+        y,
+        width: node.w,
+        height: node.h,
+        strokeColor: stroke,
+        backgroundColor: fill,
+        strokeStyle: node.type === "external" ? "dashed" : "solid",
+        roundness: shape === "rectangle" ? { type: 3 } : null,
+        locked: !editMode,
+        boundElements: [{ type: "text", id: textId }],
+        customData: { designmap: { kind: "node", nodeId: node.id } }
+      })
+    );
+    elements.push(
+      element("text", textId, {
+        x: x + 8,
+        y: y + (node.h - textHeight) / 2,
+        width: Math.max(24, node.w - 16),
+        height: textHeight,
+        text: node.label,
+        originalText: node.label,
+        fontSize: FONT_SIZE,
+        fontFamily: 2,
+        textAlign: "center",
+        verticalAlign: "middle",
+        containerId: nodeId,
+        lineHeight: LINE_HEIGHT,
+        locked: true,
+        customData: { designmap: { kind: "node-label", nodeId: node.id } }
+      })
+    );
+  }
+  for (const edge of scene.edges) {
+    const first = edge.points[0];
+    const last = edge.points[edge.points.length - 1];
+    const points = edge.points.map((point) => [point.x - first.x, point.y - first.y]);
+    const arrowId = `${EDGE_PREFIX}${edge.id}`;
+    const labelId = `${LABEL_PREFIX}${edge.id}`;
+    elements.push(
+      element("arrow", arrowId, {
+        x: first.x,
+        y: first.y,
+        width: last.x - first.x,
+        height: last.y - first.y,
+        points,
+        strokeColor: "#64748b",
+        strokeStyle: edge.kind === "async" ? "dashed" : edge.kind === "data" ? "dotted" : "solid",
+        strokeWidth: 1.6,
+        startArrowhead: null,
+        endArrowhead: "arrow",
+        // Unbound on purpose: a bound arrow would be re-routed by the editor.
+        startBinding: null,
+        endBinding: null,
+        locked: true,
+        customData: { designmap: { kind: "edge", edgeId: edge.id } }
+      })
+    );
+    if (typeof edge.label === "string" && edge.label !== "") {
+      elements.push(
+        element("text", labelId, {
+          x: edge.labelAt.x,
+          y: edge.labelAt.y,
+          width: Math.max(24, edge.label.length * 6.2),
+          height: 14,
+          text: edge.label,
+          originalText: edge.label,
+          fontSize: 10,
+          fontFamily: 2,
+          textAlign: "center",
+          verticalAlign: "middle",
+          lineHeight: LINE_HEIGHT,
+          locked: true,
+          customData: { designmap: { kind: "edge-label", edgeId: edge.id } }
+        })
+      );
+    }
+  }
+  return elements;
+}
+function sceneToAppState() {
+  return {
+    viewBackgroundColor: "#ffffff",
+    currentItemStrokeColor: "#4338ca",
+    currentItemBackgroundColor: "#e0e7ff",
+    currentItemFontFamily: 2,
+    gridSize: 20
+  };
+}
+var round2 = (value2) => Math.round(value2 * 100) / 100;
+function overlayDelta(baseline, elements) {
+  const drawn = /* @__PURE__ */ new Map();
+  for (const entry of baseline) {
+    const meta = entry?.customData?.designmap;
+    if (meta?.kind === "node") drawn.set(meta.nodeId, entry);
+  }
+  const delta = {};
+  for (const entry of elements ?? []) {
+    const meta = entry?.customData?.designmap;
+    if (meta?.kind !== "node") continue;
+    if (entry.isDeleted === true) continue;
+    const base = drawn.get(meta.nodeId);
+    if (base === void 0) continue;
+    const row = {};
+    if (Math.abs(entry.x - base.x) > 0.5) row.x = round2(entry.x);
+    if (Math.abs(entry.y - base.y) > 0.5) row.y = round2(entry.y);
+    if (entry.backgroundColor !== base.backgroundColor) row.fill = entry.backgroundColor;
+    if (entry.strokeColor !== base.strokeColor) row.stroke = entry.strokeColor;
+    if (Object.keys(row).length > 0) delta[meta.nodeId] = row;
+  }
+  return delta;
+}
+
+// client/canvas.jsx
 var import_jsx_runtime2 = require("react/jsx-runtime");
+function ExcalidrawCanvas({ scene, overlays, editMode, onDelta, onStatus, onFallback }) {
+  const iframeRef = import_react3.default.useRef(null);
+  const baselineRef = import_react3.default.useRef([]);
+  const readyRef = import_react3.default.useRef(false);
+  const loadedRef = import_react3.default.useRef(false);
+  const [srcDoc, setSrcDoc] = import_react3.default.useState(null);
+  const [failure, setFailure] = import_react3.default.useState(null);
+  const post = import_react3.default.useCallback((message) => {
+    iframeRef.current?.contentWindow?.postMessage({ source: PANEL_SOURCE, ...message }, "*");
+  }, []);
+  const framedAppState = import_react3.default.useCallback(() => {
+    const base = sceneToAppState();
+    const frame2 = iframeRef.current;
+    const width = frame2?.clientWidth ?? 0;
+    const height = frame2?.clientHeight ?? 0;
+    const canvas = scene.canvas ?? { x: 0, y: 0, width: 0, height: 0 };
+    if (width === 0 || height === 0 || canvas.width === 0 || canvas.height === 0) return base;
+    const margin = 24;
+    const zoom3 = Math.max(0.05, Math.min(1.5, Math.min((width - margin * 2) / canvas.width, (height - margin * 2) / canvas.height)));
+    const centreX = canvas.x + canvas.width / 2;
+    const centreY = canvas.y + canvas.height / 2;
+    return { ...base, zoom: { value: zoom3 }, scrollX: width / 2 - centreX * zoom3, scrollY: height / 2 - centreY * zoom3 };
+  }, [scene]);
+  const elementsFor = import_react3.default.useCallback(
+    () => sceneToElements(scene, { overlays, editMode }),
+    [scene, overlays, editMode]
+  );
+  import_react3.default.useEffect(() => {
+    let alive = true;
+    loadFrameText().then((text) => {
+      if (!alive) return;
+      baselineRef.current = elementsFor();
+      setSrcDoc(frameDocument(text));
+    }).catch((error) => {
+      if (!alive) return;
+      setFailure(error);
+      onFallback?.(error);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [elementsFor, onFallback]);
+  import_react3.default.useEffect(() => {
+    if (srcDoc === null || !readyRef.current) return;
+    const elements = elementsFor();
+    baselineRef.current = elements;
+    post({ type: "load", scene: { elements, appState: framedAppState() } });
+  }, [srcDoc, elementsFor, post]);
+  import_react3.default.useEffect(() => {
+    const onMessage = (event) => {
+      if (event.source !== iframeRef.current?.contentWindow) return;
+      const data = event.data;
+      if (data === null || typeof data !== "object" || data.source !== FRAME_SOURCE) return;
+      if (data.type === "ready") {
+        readyRef.current = true;
+        const elements = elementsFor();
+        baselineRef.current = elements;
+        post({ type: "load", scene: { elements, appState: framedAppState() } });
+        return;
+      }
+      if (data.type === "loaded") {
+        loadedRef.current = true;
+        return;
+      }
+      if (data.type === "change") {
+        if (!loadedRef.current) return;
+        const delta = overlayDelta(baselineRef.current, data.elements ?? []);
+        if (Object.keys(delta).length > 0) onDelta?.(delta);
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [elementsFor, onDelta, post]);
+  if (failure !== null) {
+    return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dmv-error", role: "alert", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("h2", { children: "Excalidraw canvas unavailable" }),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { children: failure.message })
+    ] }) });
+  }
+  if (srcDoc === null) {
+    return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dmv-loading", role: "status", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "pulse", "aria-hidden": "true" }),
+      "Loading the canvas\u2026"
+    ] });
+  }
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+    "iframe",
+    {
+      ref: iframeRef,
+      className: "dmv-excalidraw",
+      title: "Design map canvas",
+      srcDoc,
+      sandbox: "allow-scripts",
+      onLoad: () => onStatus?.({ kind: "info", code: "canvas_ready", message: "Excalidraw canvas loaded." })
+    }
+  );
+}
+
+// client/view.jsx
+var import_jsx_runtime3 = require("react/jsx-runtime");
 var NODE_TYPES = { scene: SceneNode };
 var EDGE_TYPES = { sceneEdge: SceneEdge };
 var FOCUSABLE_SELECTOR = ".react-flow__node, .react-flow__edge, button, input, a";
 var DEBOUNCE_MS = 500;
 var OVERLAY_FIELDS = ["x", "y", "fill", "stroke"];
-var round2 = (value2) => Math.round(value2 * 100) / 100;
+var round22 = (value2) => Math.round(value2 * 100) / 100;
 function SceneNode({ data }) {
   const node = data.node;
   const base = paletteFor(node.type);
   const fill = data.fill ?? base.fill;
   const stroke = data.stroke ?? base.stroke;
   const shape = node.type === "datastore" ? "shape-ellipse" : node.type === "external" ? "shape-dashed" : "";
-  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: `dmv-node ${shape}`, style: { background: fill, borderColor: stroke }, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Handle, { type: "target", position: Position.Left, isConnectable: false, style: { opacity: 0, pointerEvents: "none" } }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Handle, { type: "source", position: Position.Right, isConnectable: false, style: { opacity: 0, pointerEvents: "none" } }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dmv-node-label", children: node.label }),
-    node.stale === true ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dmv-stale", title: "Source changed since this scene was rendered", children: "stale" }) : null,
-    data.edited === true ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dmv-edited", title: "This node has an overlay row", children: "edited" }) : null,
-    node.source ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dmv-open-hint", "aria-hidden": "true", children: "\u2197" }) : null
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: `dmv-node ${shape}`, style: { background: fill, borderColor: stroke }, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Handle, { type: "target", position: Position.Left, isConnectable: false, style: { opacity: 0, pointerEvents: "none" } }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Handle, { type: "source", position: Position.Right, isConnectable: false, style: { opacity: 0, pointerEvents: "none" } }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dmv-node-label", children: node.label }),
+    node.stale === true ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dmv-stale", title: "Source changed since this scene was rendered", children: "stale" }) : null,
+    data.edited === true ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dmv-edited", title: "This node has an overlay row", children: "edited" }) : null,
+    node.source ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dmv-open-hint", "aria-hidden": "true", children: "\u2197" }) : null
   ] });
 }
 function SceneEdge({ id: id2, data, markerEnd, style: style2 }) {
@@ -9513,56 +9838,56 @@ function SceneEdge({ id: id2, data, markerEnd, style: style2 }) {
     y: point.y + (index2 === 0 ? dy : 0) + (index2 === last ? ty : 0)
   }));
   const path = points.map((point, index2) => `${index2 === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
-  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(BaseEdge, { id: `${id2}-path`, path, markerEnd, style: style2, interactionWidth: 12 }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(EdgeLabelRenderer, { children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dmv-edge-label", style: { transform: `translate(${data.labelAt.x}px, ${data.labelAt.y}px)` }, children: data.label }) })
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(BaseEdge, { id: `${id2}-path`, path, markerEnd, style: style2, interactionWidth: 12 }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(EdgeLabelRenderer, { children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dmv-edge-label", style: { transform: `translate(${data.labelAt.x}px, ${data.labelAt.y}px)` }, children: data.label }) })
   ] });
 }
 function Legend({ scene, editor, editMode }) {
   const nodeTypes = legendNodeTypes(scene);
   const edgeKinds = legendEdgeKinds(scene);
-  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("aside", { className: "dmv-legend", "aria-label": editor === null ? "Legend" : "Legend and node editor", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("h2", { children: "Legend" }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("ul", { children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("aside", { className: "dmv-legend", "aria-label": editor === null ? "Legend" : "Legend and node editor", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { children: "Legend" }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("ul", { children: [
       nodeTypes.map((type) => {
         const look = paletteFor(type);
         const shape = type === "datastore" ? "ellipse" : type === "external" ? "dashed" : "";
-        return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("li", { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: `swatch ${shape}`, style: { background: look.fill, borderColor: look.stroke } }),
+        return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("li", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: `swatch ${shape}`, style: { background: look.fill, borderColor: look.stroke } }),
           type
         ] }, type);
       }),
       edgeKinds.map((kind) => {
         const look = edgeStyleFor(kind);
         const lineStyle = kind === "async" ? "dashed" : kind === "data" ? "dotted" : "solid";
-        return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("li", { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "line", style: { borderTopColor: look.stroke, borderTopStyle: lineStyle } }),
+        return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("li", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "line", style: { borderTopColor: look.stroke, borderTopStyle: lineStyle } }),
           kind
         ] }, kind);
       })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "hint", children: editMode ? "Drag a node or click to select it; arrow keys nudge 8 px. Changes save after 500 ms." : "Double-click a group to open it. Click a node to open its source." }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "hint", children: editMode ? "Drag a node or click to select it; arrow keys nudge 8 px. Changes save after 500 ms." : "Double-click a group to open it. Click a node to open its source." }),
     editor
   ] });
 }
 function NodeInspector({ node, colours, overlayRow, pending, onColour, onReset, onOpen }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("section", { className: "dmv-inspector", "aria-label": "Selected node", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("h2", { children: "Selected node" }),
-    node === null ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "dmv-inspector-hint", children: "Select a node on the canvas to recolour or reset it." }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("p", { className: "dmv-inspector-name", children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("section", { className: "dmv-inspector", "aria-label": "Selected node", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { children: "Selected node" }),
+    node === null ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "dmv-inspector-hint", children: "Select a node on the canvas to recolour or reset it." }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("p", { className: "dmv-inspector-name", children: [
         node.label,
         " ",
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("code", { children: node.id })
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("code", { children: node.id })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("p", { className: "dmv-inspector-hint", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("p", { className: "dmv-inspector-hint", children: [
         overlayRow ? "Overlay row present" : "No overlay row",
         " \xB7 ",
         pending ? "saving\u2026" : "saved"
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: "dmv-inspector-hint", children: "Arrow keys nudge 8 px (Shift 1 px)." }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dmv-swatches", role: "group", "aria-label": "Node colour", children: Object.entries(PALETTE).map(([type, look]) => {
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "dmv-inspector-hint", children: "Arrow keys nudge 8 px (Shift 1 px)." }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dmv-swatches", role: "group", "aria-label": "Node colour", children: Object.entries(PALETTE).map(([type, look]) => {
         const pressed = colours !== void 0 && colours.fill === look.fill && colours.stroke === look.stroke;
-        return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
           "button",
           {
             type: "button",
@@ -9572,22 +9897,22 @@ function NodeInspector({ node, colours, overlayRow, pending, onColour, onReset, 
             "aria-pressed": pressed,
             title: `${type} colours`,
             onClick: () => onColour(type),
-            children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dmv-visually-hidden", children: type })
+            children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dmv-visually-hidden", children: type })
           },
           type
         );
       }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dmv-inspector-actions", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "dmv-btn", onClick: onOpen, disabled: !node.source, children: "Open source" }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "dmv-btn", onClick: onReset, disabled: !overlayRow, children: "Reset node" })
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dmv-inspector-actions", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "dmv-btn", onClick: onOpen, disabled: !node.source, children: "Open source" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "dmv-btn", onClick: onReset, disabled: !overlayRow, children: "Reset node" })
       ] })
     ] })
   ] });
 }
 function Breadcrumb({ history, onNavigate }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("nav", { className: "dmv-crumbs", "aria-label": "View breadcrumb", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("ol", { className: "dmv-crumb-list", children: history.map((view, index2) => {
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("nav", { className: "dmv-crumbs", "aria-label": "View breadcrumb", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("ol", { className: "dmv-crumb-list", children: history.map((view, index2) => {
     const current = index2 === history.length - 1;
-    return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("li", { children: current ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dmv-crumb", "aria-current": "page", children: view.title || view.viewId }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "dmv-crumb", onClick: () => onNavigate(view), title: `Go to ${view.title || view.viewId}`, children: view.title || view.viewId }) }, `${view.viewId}-${index2}`);
+    return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("li", { children: current ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dmv-crumb", "aria-current": "page", children: view.title || view.viewId }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "dmv-crumb", onClick: () => onNavigate(view), title: `Go to ${view.title || view.viewId}`, children: view.title || view.viewId }) }, `${view.viewId}-${index2}`);
   }) }) });
 }
 var plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
@@ -9604,37 +9929,56 @@ function shortHash(value2) {
 }
 var shortCommit = (value2) => typeof value2 !== "string" || value2 === "" ? "not recorded" : value2.slice(0, 7);
 function DesignMapView({ host, initial = null, title = "Design map" }) {
-  const [sceneSet, setSceneSet] = import_react3.default.useState(initial);
-  const [loading, setLoading] = import_react3.default.useState(initial === null);
-  const [loadError, setLoadError] = import_react3.default.useState(null);
-  const [missing, setMissing] = import_react3.default.useState(false);
-  const [current, setCurrent] = import_react3.default.useState(
+  const [sceneSet, setSceneSet] = import_react4.default.useState(initial);
+  const [loading, setLoading] = import_react4.default.useState(initial === null);
+  const [loadError, setLoadError] = import_react4.default.useState(null);
+  const [missing, setMissing] = import_react4.default.useState(false);
+  const [current, setCurrent] = import_react4.default.useState(
     initial === null ? null : initial.views.find((view) => view.view.viewId === initial.rootId) ?? initial.views[0] ?? null
   );
-  const [history, setHistory] = import_react3.default.useState(initial === null ? [] : current === null ? [] : [current.view]);
-  const [query, setQuery] = import_react3.default.useState("");
-  const [status, setStatus] = import_react3.default.useState(null);
-  const [zoom3, setZoom] = import_react3.default.useState(1);
-  const [editMode, setEditMode] = import_react3.default.useState(false);
-  const [selectedId, setSelectedId] = import_react3.default.useState(null);
-  const [positions, setPositions] = import_react3.default.useState({});
-  const [colours, setColours] = import_react3.default.useState({});
-  const [overlays, setOverlays] = import_react3.default.useState({});
-  const [undoStack, setUndoStack] = import_react3.default.useState([]);
-  const [pendingCount, setPendingCount] = import_react3.default.useState(0);
-  const flowRef = import_react3.default.useRef(null);
-  const searchRef = import_react3.default.useRef(null);
-  const viewTitleRef = import_react3.default.useRef(null);
-  const previousViewId = import_react3.default.useRef(null);
-  const pendingRef = import_react3.default.useRef(/* @__PURE__ */ new Map());
-  const currentRef = import_react3.default.useRef(current);
-  const historyRef = import_react3.default.useRef(history);
-  const overlaysRef = import_react3.default.useRef(overlays);
-  const positionsRef = import_react3.default.useRef(positions);
-  const coloursRef = import_react3.default.useRef(colours);
-  const editRef = import_react3.default.useRef(editMode);
-  const undoRef = import_react3.default.useRef(undoStack);
-  const lastWriteRef = import_react3.default.useRef(null);
+  const [history, setHistory] = import_react4.default.useState(initial === null ? [] : current === null ? [] : [current.view]);
+  const [query, setQuery] = import_react4.default.useState("");
+  const [status, setStatus] = import_react4.default.useState(null);
+  const [zoom3, setZoom] = import_react4.default.useState(1);
+  const [editMode, setEditMode] = import_react4.default.useState(false);
+  const [selectedId, setSelectedId] = import_react4.default.useState(null);
+  const [positions, setPositions] = import_react4.default.useState({});
+  const [colours, setColours] = import_react4.default.useState({});
+  const [overlays, setOverlays] = import_react4.default.useState({});
+  const [canvasFailed, setCanvasFailed] = import_react4.default.useState(false);
+  const onCanvasDelta = import_react4.default.useCallback(
+    async (delta) => {
+      for (const [nodeId, row] of Object.entries(delta)) {
+        const result = await host.writeOverlay({ action: "upsert", nodeId, ...row });
+        if (result?.ok === true) {
+          setOverlays((previous) => ({ ...previous, [nodeId]: { ...previous[nodeId] ?? {}, ...row } }));
+          setStatus({ kind: "info", code: "overlay.written", message: `Saved ${Object.keys(row).join("+")} for ${nodeId}.` });
+        } else {
+          setStatus({
+            kind: "error",
+            code: result?.error?.code ?? "overlay_write_failed",
+            message: result?.error?.message ?? "The host refused the overlay write."
+          });
+        }
+      }
+    },
+    [host]
+  );
+  const [undoStack, setUndoStack] = import_react4.default.useState([]);
+  const [pendingCount, setPendingCount] = import_react4.default.useState(0);
+  const flowRef = import_react4.default.useRef(null);
+  const searchRef = import_react4.default.useRef(null);
+  const viewTitleRef = import_react4.default.useRef(null);
+  const previousViewId = import_react4.default.useRef(null);
+  const pendingRef = import_react4.default.useRef(/* @__PURE__ */ new Map());
+  const currentRef = import_react4.default.useRef(current);
+  const historyRef = import_react4.default.useRef(history);
+  const overlaysRef = import_react4.default.useRef(overlays);
+  const positionsRef = import_react4.default.useRef(positions);
+  const coloursRef = import_react4.default.useRef(colours);
+  const editRef = import_react4.default.useRef(editMode);
+  const undoRef = import_react4.default.useRef(undoStack);
+  const lastWriteRef = import_react4.default.useRef(null);
   currentRef.current = current;
   historyRef.current = history;
   overlaysRef.current = overlays;
@@ -9642,7 +9986,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
   coloursRef.current = colours;
   editRef.current = editMode;
   undoRef.current = undoStack;
-  const emit = import_react3.default.useCallback(
+  const emit = import_react4.default.useCallback(
     (event) => {
       try {
         host.onEvent?.(event);
@@ -9651,7 +9995,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     },
     [host]
   );
-  const applyViewState = import_react3.default.useCallback((entry, { preserveSelection = false } = {}) => {
+  const applyViewState = import_react4.default.useCallback((entry, { preserveSelection = false } = {}) => {
     const rows = overlaysRef.current;
     const nextPositions = {};
     const nextColours = {};
@@ -9667,7 +10011,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     setColours(nextColours);
     if (!preserveSelection) setSelectedId(null);
   }, []);
-  const adoptLoaded = import_react3.default.useCallback(
+  const adoptLoaded = import_react4.default.useCallback(
     (result, preferredViewId = null, { preserveSelection = false } = {}) => {
       const rows = result.value.overlays?.rows ?? {};
       overlaysRef.current = rows;
@@ -9684,7 +10028,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     },
     [applyViewState]
   );
-  const load = import_react3.default.useCallback(async () => {
+  const load = import_react4.default.useCallback(async () => {
     setLoading(true);
     setLoadError(null);
     const result = await host.load();
@@ -9707,7 +10051,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     setStatus(null);
     setLoading(false);
   }, [host, adoptLoaded]);
-  import_react3.default.useEffect(() => {
+  import_react4.default.useEffect(() => {
     if (initial !== null) return;
     let alive = true;
     (async () => {
@@ -9729,14 +10073,14 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
   const scene = current?.scene ?? null;
   const meta = current?.meta ?? {};
   const canWrite = host.canWrite !== false;
-  const matches = import_react3.default.useMemo(() => scene === null ? [] : searchSceneNodes(scene.nodes, query), [scene, query]);
-  const matchIds = import_react3.default.useMemo(() => new Set(matches.map((node) => node.id)), [matches]);
-  const fit = import_react3.default.useCallback(() => {
+  const matches = import_react4.default.useMemo(() => scene === null ? [] : searchSceneNodes(scene.nodes, query), [scene, query]);
+  const matchIds = import_react4.default.useMemo(() => new Set(matches.map((node) => node.id)), [matches]);
+  const fit = import_react4.default.useCallback(() => {
     const instance = flowRef.current;
     if (instance === null) return;
     requestAnimationFrame(() => instance.fitView({ padding: 0.16, maxZoom: 1.5, duration: 0 }));
   }, []);
-  import_react3.default.useEffect(() => {
+  import_react4.default.useEffect(() => {
     fit();
     const viewId = current?.view.viewId ?? null;
     if (previousViewId.current !== null && previousViewId.current !== viewId) {
@@ -9744,11 +10088,11 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     }
     previousViewId.current = viewId;
   }, [current?.view.viewId, fit]);
-  const onInit = import_react3.default.useCallback((instance) => {
+  const onInit = import_react4.default.useCallback((instance) => {
     flowRef.current = instance;
     requestAnimationFrame(() => instance.fitView({ padding: 0.16, maxZoom: 1.5, duration: 0 }));
   }, []);
-  const revertNode = import_react3.default.useCallback((nodeId, before) => {
+  const revertNode = import_react4.default.useCallback((nodeId, before) => {
     const node = currentRef.current?.scene.nodes.find((entry) => entry.id === nodeId);
     if (node === void 0) return;
     setPositions((previous) => ({
@@ -9766,7 +10110,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
       return next;
     });
   }, []);
-  const writeNow = import_react3.default.useCallback(
+  const writeNow = import_react4.default.useCallback(
     async (nodeId, payload, before) => {
       const result = await host.writeOverlay({ action: "upsert", nodeId, ...payload });
       if (result?.ok !== true) {
@@ -9795,7 +10139,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     },
     [host, revertNode]
   );
-  const scheduleWrite = import_react3.default.useCallback(
+  const scheduleWrite = import_react4.default.useCallback(
     (nodeId, patch) => {
       if (!editRef.current) return;
       const existing = pendingRef.current.get(nodeId);
@@ -9812,7 +10156,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     },
     [writeNow]
   );
-  const flushPending = import_react3.default.useCallback(async () => {
+  const flushPending = import_react4.default.useCallback(async () => {
     const entries = [...pendingRef.current.entries()];
     for (const [nodeId, entry] of entries) {
       clearTimeout(entry.timer);
@@ -9821,7 +10165,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     }
     setPendingCount(0);
   }, [writeNow]);
-  const refreshInPlace = import_react3.default.useCallback(
+  const refreshInPlace = import_react4.default.useCallback(
     async ({ render = true } = {}) => {
       if (render && typeof host.renderViews === "function") {
         const rendered = await host.renderViews();
@@ -9848,7 +10192,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     },
     [host, adoptLoaded]
   );
-  const openSource = import_react3.default.useCallback(
+  const openSource = import_react4.default.useCallback(
     async (node) => {
       emit({ type: "openSource", nodeId: node.id });
       if (typeof node.source !== "string" || node.source === "") {
@@ -9868,7 +10212,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     },
     [host, emit]
   );
-  const findChild = import_react3.default.useCallback(
+  const findChild = import_react4.default.useCallback(
     (groupId) => {
       if (sceneSet === null || current === null) return null;
       return sceneSet.views.find(
@@ -9877,7 +10221,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     },
     [sceneSet, current, history]
   );
-  const drill = import_react3.default.useCallback(
+  const drill = import_react4.default.useCallback(
     async (group) => {
       if (sceneSet === null || current === null) return;
       await flushPending();
@@ -9900,7 +10244,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     },
     [sceneSet, current, findChild, flushPending, emit, applyViewState]
   );
-  const navigate = import_react3.default.useCallback(
+  const navigate = import_react4.default.useCallback(
     async (view) => {
       if (current === null || view.viewId === current.view.viewId) return;
       await flushPending();
@@ -9919,7 +10263,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     },
     [current, history, sceneSet, flushPending, emit, applyViewState]
   );
-  const toggleEdit = import_react3.default.useCallback(async () => {
+  const toggleEdit = import_react4.default.useCallback(async () => {
     if (editRef.current) {
       await flushPending();
       editRef.current = false;
@@ -9932,7 +10276,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
       setStatus({ kind: "info", code: "editing", message: "Edit mode: drag a node or pick a colour; writes debounce 500 ms." });
     }
   }, [flushPending]);
-  const changeColour = import_react3.default.useCallback(
+  const changeColour = import_react4.default.useCallback(
     (node, type) => {
       if (!editRef.current || node === null) return;
       const look = paletteFor(type);
@@ -9943,7 +10287,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     },
     [scheduleWrite, emit]
   );
-  const resetNode = import_react3.default.useCallback(async () => {
+  const resetNode = import_react4.default.useCallback(async () => {
     if (!editRef.current || selectedId === null || current === null) return;
     await flushPending();
     const before = overlaysRef.current[selectedId] ?? null;
@@ -9967,7 +10311,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     await refreshInPlace();
     setStatus({ kind: "ok", code: "nodeReset", message: `Reset overlay for ${selectedId}; the layout position is back.` });
   }, [current, selectedId, flushPending, emit, host, refreshInPlace]);
-  const resetView = import_react3.default.useCallback(async () => {
+  const resetView = import_react4.default.useCallback(async () => {
     if (!editRef.current || current === null) return;
     await flushPending();
     const beforeRows = {};
@@ -9995,7 +10339,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     await refreshInPlace();
     setStatus({ kind: "ok", code: "viewReset", message: `Reset ${Object.keys(beforeRows).length} overlay row${Object.keys(beforeRows).length === 1 ? "" : "s"} on ${current.view.viewId}.` });
   }, [current, flushPending, emit, host, refreshInPlace]);
-  const undo = import_react3.default.useCallback(async () => {
+  const undo = import_react4.default.useCallback(async () => {
     const entry = undoRef.current[undoRef.current.length - 1];
     if (entry === void 0) return;
     await flushPending();
@@ -10022,37 +10366,37 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     await refreshInPlace();
     setStatus({ kind: "ok", code: "undo", message: "Undid the last overlay change." });
   }, [flushPending, host, refreshInPlace]);
-  const onNodesChange = import_react3.default.useCallback((changes) => {
+  const onNodesChange = import_react4.default.useCallback((changes) => {
     if (!editRef.current) return;
     const moves = changes.filter((change) => change.type === "position" && change.position !== void 0);
     if (moves.length === 0) return;
     setPositions((previous) => {
       const next = { ...previous };
-      for (const change of moves) next[change.id] = { x: round2(change.position.x), y: round2(change.position.y) };
+      for (const change of moves) next[change.id] = { x: round22(change.position.x), y: round22(change.position.y) };
       return next;
     });
   }, []);
-  const onNodeDragStart = import_react3.default.useCallback((_event, node) => {
+  const onNodeDragStart = import_react4.default.useCallback((_event, node) => {
     if (!editRef.current) return;
     setSelectedId(node.id);
   }, []);
-  const onNodeDragStop = import_react3.default.useCallback(
+  const onNodeDragStop = import_react4.default.useCallback(
     (_event, node) => {
       if (!editRef.current) return;
-      emit({ type: "nodeMoved", nodeId: node.id, x: round2(node.position.x), y: round2(node.position.y) });
-      setPositions((previous) => ({ ...previous, [node.id]: { x: round2(node.position.x), y: round2(node.position.y) } }));
-      scheduleWrite(node.id, { x: round2(node.position.x), y: round2(node.position.y) });
+      emit({ type: "nodeMoved", nodeId: node.id, x: round22(node.position.x), y: round22(node.position.y) });
+      setPositions((previous) => ({ ...previous, [node.id]: { x: round22(node.position.x), y: round22(node.position.y) } }));
+      scheduleWrite(node.id, { x: round22(node.position.x), y: round22(node.position.y) });
       setStatus({ kind: "info", code: "nodeMoved", message: `Queued position for ${node.id} (500 ms debounce).` });
     },
     [emit, scheduleWrite]
   );
-  const nudgeSelected = import_react3.default.useCallback(
+  const nudgeSelected = import_react4.default.useCallback(
     (dx, dy) => {
       if (!editRef.current || selectedId === null) return;
       const node = currentRef.current?.scene.nodes.find((entry) => entry.id === selectedId);
       if (node === void 0) return;
       const currentPosition = positionsRef.current[selectedId] ?? { x: node.x, y: node.y };
-      const next = { x: round2(currentPosition.x + dx), y: round2(currentPosition.y + dy) };
+      const next = { x: round22(currentPosition.x + dx), y: round22(currentPosition.y + dy) };
       setPositions((previous) => ({ ...previous, [selectedId]: next }));
       emit({ type: "nodeMoved", nodeId: selectedId, x: next.x, y: next.y });
       scheduleWrite(selectedId, next);
@@ -10060,7 +10404,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     },
     [selectedId, emit, scheduleWrite]
   );
-  const onNodeClick = import_react3.default.useCallback(
+  const onNodeClick = import_react4.default.useCallback(
     (_event, node) => {
       if (editRef.current) {
         setSelectedId(node.id);
@@ -10071,7 +10415,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     },
     [openSource]
   );
-  import_react3.default.useEffect(() => {
+  import_react4.default.useEffect(() => {
     const onKeyDown = (event) => {
       const active = document.activeElement;
       const tag = active?.tagName;
@@ -10103,7 +10447,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [openSource, selectedId, nudgeSelected]);
-  import_react3.default.useEffect(() => {
+  import_react4.default.useEffect(() => {
     const onEscape = (event) => {
       if (event.key !== "Escape" || query === "") return;
       event.preventDefault();
@@ -10113,7 +10457,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     window.addEventListener("keydown", onEscape);
     return () => window.removeEventListener("keydown", onEscape);
   }, [query]);
-  const focusMatch = import_react3.default.useCallback(
+  const focusMatch = import_react4.default.useCallback(
     (index2 = 0) => {
       const node = matches[index2];
       if (node === void 0) {
@@ -10126,8 +10470,8 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
       }
       setStatus({ kind: "info", code: "match", message: `Jumped to ${node.label} (${node.id}).` });
       window.setTimeout(() => {
-        const element = [...document.querySelectorAll(".react-flow__node")].find((candidate) => candidate.getAttribute("data-id") === node.id);
-        element?.focus?.();
+        const element2 = [...document.querySelectorAll(".react-flow__node")].find((candidate) => candidate.getAttribute("data-id") === node.id);
+        element2?.focus?.();
       }, 240);
     },
     [matches, query]
@@ -10143,7 +10487,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
       searchRef.current?.focus();
     }
   };
-  import_react3.default.useEffect(() => {
+  import_react4.default.useEffect(() => {
     window.__M2__ = {
       getState: () => ({
         editMode: editRef.current,
@@ -10171,36 +10515,36 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     };
   }, [host, selectedId, flushPending, refreshInPlace]);
   if (loading) {
-    return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dmv", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dmv-loading", role: "status", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "pulse", "aria-hidden": "true" }),
+    return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dmv", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dmv-loading", role: "status", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "pulse", "aria-hidden": "true" }),
       "Loading design map\u2026"
     ] }) });
   }
   if (missing && (current === null || scene === null)) {
-    return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dmv", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dmv-error", role: "status", "data-designmap-missing": "true", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("h2", { children: "No design map in this workspace yet" }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("p", { children: [
+    return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dmv", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dmv-error", role: "status", "data-designmap-missing": "true", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { children: "No design map in this workspace yet" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("p", { children: [
           "A workspace gets a map when the agent creates the model with ",
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("code", { children: "designmap_apply" }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("code", { children: "designmap_apply" }),
           " and renders it with ",
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("code", { children: "designmap_render" }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("code", { children: "designmap_render" }),
           " (files land under ",
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("code", { children: "designmap/" }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("code", { children: "designmap/" }),
           "). Nothing is wrong with the panel."
         ] })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "dmv-btn", onClick: load, children: "Retry" })
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "dmv-btn", onClick: load, children: "Retry" })
     ] }) });
   }
   if (current === null || scene === null) {
     const message = loadError?.message ?? "The host returned no scene for this workspace.";
-    return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dmv", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dmv-error", role: "alert", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("h2", { children: "Design map could not load" }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { children: message })
+    return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dmv", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dmv-error", role: "alert", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { children: "Design map could not load" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { children: message })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "dmv-btn", onClick: load, children: "Retry" })
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "dmv-btn", onClick: load, children: "Retry" })
     ] }) });
   }
   let sceneError = null;
@@ -10210,7 +10554,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     sceneError = error;
   }
   if (sceneError !== null) {
-    return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dmv", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dmv-error", role: "alert", children: [
+    return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dmv", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dmv-error", role: "alert", children: [
       "Invalid scene: ",
       sceneError.message
     ] }) });
@@ -10270,13 +10614,13 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
   });
   const groups = scene.groups.map((group) => {
     const hasChild = findChild(group.id) !== null;
-    return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+    return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
       "div",
       {
         className: "dmv-group",
         "data-group-id": group.id,
         style: { left: group.x, top: group.y, width: group.w, height: group.h },
-        children: hasChild ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+        children: hasChild ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
           "button",
           {
             type: "button",
@@ -10292,7 +10636,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
               " \u2197"
             ]
           }
-        ) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dmv-group-title", children: group.label || group.id })
+        ) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dmv-group-title", children: group.label || group.id })
       },
       group.id
     );
@@ -10309,33 +10653,33 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
   };
   const canvasLabel = `${scene.title || current.view.title || scene.viewId}: ${scene.nodes.length} nodes, ${scene.edges.length} edges, ${staleNodes.length} stale. ${editMode ? "Edit mode." : "Read-only design map."}`;
   const defaultStatus = editMode ? "Editing: drag a node or choose a colour; writes debounce 500 ms. Reset node/view or undo from here." : "Read-only. Click a node to open its source; double-click a group to drill in.";
-  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dmv", "data-edit-mode": editMode ? "true" : "false", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("header", { className: "dmv-top", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dmv-ident", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("h1", { className: "dmv-title", children: title }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dmv-view-title", title: scene.title, ref: viewTitleRef, tabIndex: -1, children: scene.title || current.view.title || scene.viewId })
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dmv", "data-edit-mode": editMode ? "true" : "false", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("header", { className: "dmv-top", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dmv-ident", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h1", { className: "dmv-title", children: title }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dmv-view-title", title: scene.title, ref: viewTitleRef, tabIndex: -1, children: scene.title || current.view.title || scene.viewId })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dmv-chips", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dmv-chip level", children: scene.level }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: `dmv-chip${viewStale ? " stale" : ""}`, children: staleLabel }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: `dmv-chip${editMode ? " editing" : " readonly"}`, children: editMode ? "edit mode" : "read-only" }),
-        pendingCount > 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "dmv-chip pending", role: "status", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dmv-chips", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dmv-chip level", children: scene.level }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: `dmv-chip${viewStale ? " stale" : ""}`, children: staleLabel }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: `dmv-chip${editMode ? " editing" : " readonly"}`, children: editMode ? "edit mode" : "read-only" }),
+        pendingCount > 0 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "dmv-chip pending", role: "status", children: [
           "saving ",
           pendingCount,
           "\u2026"
         ] }) : null
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dmv-spacer" }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dmv-actions", children: [
-        canWrite ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: `dmv-btn${editMode ? " primary" : ""}`, "aria-pressed": editMode, onClick: toggleEdit, children: editMode ? "Editing overlays" : "Edit overlays" }) : null,
-        editMode ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "dmv-btn", onClick: undo, disabled: undoStack.length === 0, title: "Undo the last overlay change", children: "\u21B6 Undo" }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "dmv-btn", onClick: resetView, disabled: rowsOnView === 0, title: "Remove every overlay row of this view", children: "Reset view" })
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dmv-spacer" }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dmv-actions", children: [
+        canWrite ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: `dmv-btn${editMode ? " primary" : ""}`, "aria-pressed": editMode, onClick: toggleEdit, children: editMode ? "Editing overlays" : "Edit overlays" }) : null,
+        editMode ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "dmv-btn", onClick: undo, disabled: undoStack.length === 0, title: "Undo the last overlay change", children: "\u21B6 Undo" }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "dmv-btn", onClick: resetView, disabled: rowsOnView === 0, title: "Remove every overlay row of this view", children: "Reset view" })
         ] }) : null
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dmv-search", role: "search", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("label", { className: "dmv-visually-hidden", htmlFor: "dmv-search", children: "Search nodes by label or id" }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dmv-search", role: "search", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("label", { className: "dmv-visually-hidden", htmlFor: "dmv-search", children: "Search nodes by label or id" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
           "input",
           {
             id: "dmv-search",
@@ -10350,16 +10694,25 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
             "aria-describedby": "dmv-search-count"
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { id: "dmv-search-count", className: "dmv-search-count", "aria-live": "polite", children: query.trim() === "" ? "" : matches.length })
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { id: "dmv-search-count", className: "dmv-search-count", "aria-live": "polite", children: query.trim() === "" ? "" : matches.length })
       ] })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Breadcrumb, { history: historyForBar, onNavigate: navigate }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("h2", { className: "dmv-visually-hidden", children: canvasLabel }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("section", { className: "dmv-stage", "aria-label": "Design map canvas", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dmv-flow", onDoubleClick: onStageDoubleClick, children: empty2 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dmv-empty", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("h2", { children: scene.title || current.view.title || "Empty view" }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { children: "This view has no nodes. Render the model to populate it; this panel only draws what core produced." })
-      ] }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Breadcrumb, { history: historyForBar, onNavigate: navigate }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { className: "dmv-visually-hidden", children: canvasLabel }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("section", { className: "dmv-stage", "aria-label": "Design map canvas", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dmv-flow", onDoubleClick: onStageDoubleClick, children: empty2 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dmv-empty", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { children: scene.title || current.view.title || "Empty view" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { children: "This view has no nodes. Render the model to populate it; this panel only draws what core produced." })
+      ] }) : !canvasFailed ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+        ExcalidrawCanvas,
+        {
+          scene,
+          overlays,
+          editMode,
+          onDelta: onCanvasDelta,
+          onFallback: () => setCanvasFailed(true)
+        }
+      ) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
         index,
         {
           nodes: flowNodes,
@@ -10385,9 +10738,9 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
           colorMode: "light",
           proOptions: { hideAttribution: false },
           children: [
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Background, { variant: BackgroundVariant.Dots, gap: 18, size: 1.1, color: "#cbd5e1" }),
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Controls, { showInteractive: false, position: "bottom-left" }),
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Background, { variant: BackgroundVariant.Dots, gap: 18, size: 1.1, color: "#cbd5e1" }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Controls, { showInteractive: false, position: "bottom-left" }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
               MiniMap,
               {
                 position: "bottom-right",
@@ -10401,16 +10754,16 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
                 "aria-label": "Minimap"
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ViewportPortal, { children: groups })
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ViewportPortal, { children: groups })
           ]
         }
       ) }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
         Legend,
         {
           scene,
           editMode,
-          editor: editMode ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+          editor: editMode ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
             NodeInspector,
             {
               node: selectedNode,
@@ -10425,44 +10778,44 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
         }
       )
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dmv-status", "data-kind": status?.kind ?? "idle", role: status?.kind === "error" ? "alert" : "status", children: [
-      status === null ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: defaultStatus }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { children: [
-        status.code ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("code", { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dmv-status", "data-kind": status?.kind ?? "idle", role: status?.kind === "error" ? "alert" : "status", children: [
+      status === null ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: defaultStatus }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { children: [
+        status.code ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("code", { children: [
           status.code,
           ": "
         ] }) : null,
         status.message
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dmv-spacer" }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dmv-spacer" }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { children: [
         "zoom ",
         zoom3.toFixed(2)
       ] })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("footer", { className: "dmv-foot", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("dl", { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "pair", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("dt", { children: "Generated" }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("dd", { children: formatTimestamp(meta.generatedAt) })
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("footer", { className: "dmv-foot", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("dl", { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "pair", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dt", { children: "Generated" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dd", { children: formatTimestamp(meta.generatedAt) })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "pair", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("dt", { children: "Commit" }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("dd", { title: meta.commit ?? "", children: shortCommit(meta.commit) })
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "pair", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dt", { children: "Commit" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dd", { title: meta.commit ?? "", children: shortCommit(meta.commit) })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "pair", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("dt", { children: "Scene" }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("dd", { title: meta.scenePath ?? "", children: shortHash(meta.sceneHash) })
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "pair", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dt", { children: "Scene" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dd", { title: meta.scenePath ?? "", children: shortHash(meta.sceneHash) })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "pair", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("dt", { children: "View" }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("dd", { children: `${scene.viewId} \xB7 ${plural(scene.nodes.length, "node")} \xB7 ${plural(scene.edges.length, "edge")}` })
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "pair", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dt", { children: "View" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dd", { children: `${scene.viewId} \xB7 ${plural(scene.nodes.length, "node")} \xB7 ${plural(scene.edges.length, "edge")}` })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: `pair${viewStale ? " warn" : ""}`, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("dt", { children: "Stale" }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("dd", { children: viewStale ? `${plural(staleNodes.length, "node")} stale` : "none" })
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: `pair${viewStale ? " warn" : ""}`, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dt", { children: "Stale" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dd", { children: viewStale ? `${plural(staleNodes.length, "node")} stale` : "none" })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "pair", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("dt", { children: "Overlays" }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("dd", { children: `${plural(rowsOnView, "node")} \xB7 ${pendingCount > 0 ? "saving\u2026" : "saved"}` })
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "pair", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dt", { children: "Overlays" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dd", { children: `${plural(rowsOnView, "node")} \xB7 ${pendingCount > 0 ? "saving\u2026" : "saved"}` })
       ] })
     ] }) })
   ] });
@@ -10882,6 +11235,8 @@ var CSS = `
   .dmv-legend { display: none; }
 }
 .dmv-stage .react-flow__attribution { font-size: 9px; opacity: 0.55; }
+/* The Excalidraw frame fills the stage; it draws and edits, the panel owns the chrome. */
+.dmv-excalidraw { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; background: #ffffff; }
 .dmv-stage .react-flow__node { border-radius: var(--dmv-radius-s); }
 .dmv-stage .react-flow__node:focus-visible { outline: var(--dmv-focus); outline-offset: 2px; }
 .dmv-stage .react-flow__handle { opacity: 0; pointer-events: none; }
@@ -11080,10 +11435,10 @@ var CSS = `
 function injectStyleOnce(key, css) {
   if (typeof document === "undefined") return;
   if (document.querySelector(`style[data-designmap-style="${key}"]`) !== null) return;
-  const element = document.createElement("style");
-  element.setAttribute("data-designmap-style", key);
-  element.textContent = css;
-  document.head.append(element);
+  const element2 = document.createElement("style");
+  element2.setAttribute("data-designmap-style", key);
+  element2.textContent = css;
+  document.head.append(element2);
 }
 injectStyleOnce("xyflow", style_default);
 injectStyleOnce("designmap", CSS);
@@ -11099,7 +11454,7 @@ function firstSession(workspaces, sessionsById) {
   }
   return candidates[0] === void 0 ? null : sessionIdsOf(candidates[0])[0] ?? null;
 }
-var PanelBoundary = class extends import_react5.default.Component {
+var PanelBoundary = class extends import_react6.default.Component {
   constructor(props) {
     super(props);
     this.state = { error: null };
@@ -11113,27 +11468,27 @@ var PanelBoundary = class extends import_react5.default.Component {
   render() {
     if (this.state.error === null) return this.props.children;
     const message = String(this.state.error?.message ?? this.state.error);
-    return import_react5.default.createElement(
+    return import_react6.default.createElement(
       "div",
       { className: "dmv", role: "alert", "data-designmap-error": "true", style: { padding: 16, gap: 8 } },
-      import_react5.default.createElement("h1", { className: "dmv-title" }, "Design map panel failed"),
-      import_react5.default.createElement("p", null, "The scene could not be drawn. The error is below and in the browser console."),
-      import_react5.default.createElement("pre", { style: { margin: 0, whiteSpace: "pre-wrap", overflow: "auto", font: "12px/1.5 ui-monospace, monospace" } }, message)
+      import_react6.default.createElement("h1", { className: "dmv-title" }, "Design map panel failed"),
+      import_react6.default.createElement("p", null, "The scene could not be drawn. The error is below and in the browser console."),
+      import_react6.default.createElement("pre", { style: { margin: 0, whiteSpace: "pre-wrap", overflow: "auto", font: "12px/1.5 ui-monospace, monospace" } }, message)
     );
   }
 };
 function LivePanel({ remote, useSessions, useWorkspaces }) {
   const sessionsById = useSessions === void 0 ? {} : useSessions((snapshot) => snapshot.byId);
   const workspaces = useWorkspaces === void 0 ? [] : useWorkspaces((snapshot) => snapshot.items);
-  const sessionId = import_react5.default.useMemo(
+  const sessionId = import_react6.default.useMemo(
     () => firstSession(workspaces, sessionsById !== null && typeof sessionsById === "object" ? sessionsById : {}),
     [workspaces, sessionsById]
   );
-  const host = import_react5.default.useMemo(() => createRemoteHost({ remote, sessionId }), [remote, sessionId]);
-  return import_react5.default.createElement(PanelBoundary, null, import_react5.default.createElement(DesignMapView, { host }));
+  const host = import_react6.default.useMemo(() => createRemoteHost({ remote, sessionId }), [remote, sessionId]);
+  return import_react6.default.createElement(PanelBoundary, null, import_react6.default.createElement(DesignMapView, { host }));
 }
 function HeaderTrigger({ layout }) {
-  return import_react5.default.createElement(
+  return import_react6.default.createElement(
     "button",
     {
       type: "button",
@@ -11142,14 +11497,14 @@ function HeaderTrigger({ layout }) {
       title: "Open the design map",
       "aria-label": "Open the design map"
     },
-    import_react5.default.createElement(
+    import_react6.default.createElement(
       "svg",
       { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", "aria-hidden": "true" },
-      import_react5.default.createElement("rect", { x: 3.5, y: 4.5, width: 7, height: 6, rx: 1.5, stroke: "currentColor", strokeWidth: 1.7 }),
-      import_react5.default.createElement("rect", { x: 13.5, y: 13.5, width: 7, height: 6, rx: 1.5, stroke: "currentColor", strokeWidth: 1.7 }),
-      import_react5.default.createElement("path", { d: "M10.5 7.5h3a3 3 0 0 1 3 3v3", stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round" })
+      import_react6.default.createElement("rect", { x: 3.5, y: 4.5, width: 7, height: 6, rx: 1.5, stroke: "currentColor", strokeWidth: 1.7 }),
+      import_react6.default.createElement("rect", { x: 13.5, y: 13.5, width: 7, height: 6, rx: 1.5, stroke: "currentColor", strokeWidth: 1.7 }),
+      import_react6.default.createElement("path", { d: "M10.5 7.5h3a3 3 0 0 1 3 3v3", stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round" })
     ),
-    import_react5.default.createElement("span", null, "Design map")
+    import_react6.default.createElement("span", null, "Design map")
   );
 }
 var inject = ["slots", "remote", "remote.workspaceFiles", "remote.commands", "remote.session", "layout"];

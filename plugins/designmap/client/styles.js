@@ -176,6 +176,8 @@ export const CSS = `
   .dmv-legend { display: none; }
 }
 .dmv-stage .react-flow__attribution { font-size: 9px; opacity: 0.55; }
+/* The Excalidraw frame fills the stage; it draws and edits, the panel owns the chrome. */
+.dmv-excalidraw { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; background: #ffffff; }
 .dmv-stage .react-flow__node { border-radius: var(--dmv-radius-s); }
 .dmv-stage .react-flow__node:focus-visible { outline: var(--dmv-focus); outline-offset: 2px; }
 .dmv-stage .react-flow__handle { opacity: 0; pointer-events: none; }
