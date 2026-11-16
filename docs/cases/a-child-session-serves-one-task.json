@@ -4,7 +4,7 @@
   "title": "A child session serves one task",
   "requirement": "One child session serves one task at a time: handing it to a second task must transfer the lease so the first task can no longer stop it, a role whose session is still running must not receive a second brief, and a root agent must be able to write another chat's task on purpose without widening that right to children.",
   "kind": "regression",
-  "status": "unverified",
+  "status": "stale",
   "source": "human",
   "automated": true,
   "testPath": "scripts/taskboard-lease-proof.mjs",
@@ -36,11 +36,27 @@
     }
   ],
   "linkedTaskId": "task-mwdnodn1-u3hp2m",
-  "revision": 1,
+  "revision": 2,
   "createdAt": "2026-11-12T14:55:18.455Z",
-  "updatedAt": "2026-11-12T14:55:18.455Z",
+  "updatedAt": "2026-11-13T15:20:17.382Z",
   "createdBy": "orchestrator",
   "createdByKind": "agent",
-  "history": [],
-  "evidence": {}
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-13T15:20:17.382Z",
+      "editedBy": "agent",
+      "action": "stale",
+      "reason": "surface files changed since lastVerified: plugins/taskboard/taskboard.mjs, plugins/orchestrator/orchestrator.mjs"
+    }
+  ],
+  "evidence": {},
+  "needsReverification": {
+    "at": "2026-11-13T15:20:17.382Z",
+    "changedFiles": [
+      "plugins/taskboard/taskboard.mjs",
+      "plugins/orchestrator/orchestrator.mjs"
+    ],
+    "reason": "surface files changed since lastVerified: plugins/taskboard/taskboard.mjs, plugins/orchestrator/orchestrator.mjs"
+  }
 }

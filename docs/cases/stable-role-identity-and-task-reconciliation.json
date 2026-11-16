@@ -4,7 +4,7 @@
   "title": "Stable role identity and task reconciliation",
   "requirement": "In autolabel_pipeline and every workspace, a delegated role must have one explicit valid preset, the orchestrator must not offer ambiguous or preset-less legacy roles for reuse, and an active task whose child ended in error must not remain silently active.",
   "kind": "scenario",
-  "status": "verified",
+  "status": "stale",
   "source": "human",
   "automated": true,
   "reason": "",
@@ -40,9 +40,9 @@
     }
   ],
   "linkedTaskId": "task-mwc5e85w-e52p1d",
-  "revision": 6,
+  "revision": 7,
   "createdAt": "2026-11-11T13:27:36.094Z",
-  "updatedAt": "2026-11-11T13:35:15.662Z",
+  "updatedAt": "2026-11-13T15:20:17.406Z",
   "createdBy": "orchestrator",
   "createdByKind": "agent",
   "history": [
@@ -94,6 +94,13 @@
       "editedBy": "agent",
       "action": "verified",
       "notes": "Final re-verification after delegate_task started refusing AUDIT as a role name (with or without a preset) and the tool description was aligned; case_drift had marked the case stale on plugins/orchestrator/orchestrator.mjs. Red run remains the same command in a detached worktree of HEAD fc09cec: 4/15, exit 1. `make verify` passes 17/17 portability + documentation for this change set; its single failing check is `tarball:matches-source` for plugins/test-cases, which a concurrent agent is editing in the shared tree (not touched here)."
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-13T15:20:17.406Z",
+      "editedBy": "agent",
+      "action": "stale",
+      "reason": "surface files changed since lastVerified: plugins/taskboard/taskboard.mjs, plugins/orchestrator/orchestrator.mjs"
     }
   ],
   "evidence": {
@@ -120,10 +127,11 @@
   },
   "degraded": false,
   "needsReverification": {
-    "at": "2026-11-11T13:34:22.165Z",
+    "at": "2026-11-13T15:20:17.406Z",
     "changedFiles": [
+      "plugins/taskboard/taskboard.mjs",
       "plugins/orchestrator/orchestrator.mjs"
     ],
-    "reason": "surface files changed since lastVerified: plugins/orchestrator/orchestrator.mjs"
+    "reason": "surface files changed since lastVerified: plugins/taskboard/taskboard.mjs, plugins/orchestrator/orchestrator.mjs"
   }
 }

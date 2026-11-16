@@ -4,7 +4,7 @@
   "title": "Orchestrator header carries no shell tools",
   "requirement": "The orchestrator preset must not receive a shell: its request header carries read/write/edit but no bash and no pwsh, so the host policy that says \"you have NO shell\" matches the tool surface. Other presets keep their deny lists unchanged.",
   "kind": "regression",
-  "status": "verified",
+  "status": "stale",
   "source": "agent",
   "automated": false,
   "reason": "A real emitted header needs a booted server with an orchestrator-preset chat; the live :3080 may not be restarted and the probe server's new chat did not flush a session log inside the timebox. The observed proof instead runs the installed plugin's own decide() over the real composed config and the real 98 host-plane tool names from the live orchestrator header, which is the same decision the next boot applies.",
@@ -30,9 +30,9 @@
     }
   ],
   "linkedTaskId": "task-mwewxkqs-03d6ag",
-  "revision": 2,
+  "revision": 3,
   "createdAt": "2026-11-13T11:55:55.285Z",
-  "updatedAt": "2026-11-13T11:55:58.715Z",
+  "updatedAt": "2026-11-13T15:20:17.396Z",
   "createdBy": "backend",
   "createdByKind": "agent",
   "history": [
@@ -42,6 +42,13 @@
       "editedBy": "agent",
       "action": "verified",
       "notes": "Red is the live header itself (session-ed90220d seq 1502, 98 tools, `bash` present, `pwsh` absent on Linux). Green is the decision the next boot applies. A real emitted header on a restarted server is the remaining check: after the next `dsh` launch, grep the newest request/header of a fresh orchestrator chat for bash. The probe server on :3082 loaded the overlay (its ux chat showed 0 mcp__godot__ tools, i.e. projectDeny was applied), so the composition path is exercised; only the orchestrator-preset chat could not be produced in the timebox (the new chat took the workspace's remembered `ux` preset)."
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-13T15:20:17.396Z",
+      "editedBy": "agent",
+      "action": "stale",
+      "reason": "surface files changed since lastVerified: profile/cordis.patch.yml"
     }
   ],
   "evidence": {
@@ -57,5 +64,12 @@
     "at": "2026-11-13T11:55:58.715Z",
     "command": "node /tmp/proof-tool-families.mjs",
     "exitCode": 0
+  },
+  "needsReverification": {
+    "at": "2026-11-13T15:20:17.396Z",
+    "changedFiles": [
+      "profile/cordis.patch.yml"
+    ],
+    "reason": "surface files changed since lastVerified: profile/cordis.patch.yml"
   }
 }

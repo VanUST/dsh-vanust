@@ -4,7 +4,7 @@
   "title": "Disable taskboard actionable cap",
   "requirement": "Убрать hard block на 200 задач глобально по workspace: количество actionable задач не должно мешать созданию новой задачи.",
   "kind": "regression",
-  "status": "verified",
+  "status": "stale",
   "source": "human",
   "automated": true,
   "reason": "Observed and encoded: the script fills a real 210-row board through the service, then checks the unlimited create, the 200 default for missing/invalid values, and the separate row guard.",
@@ -35,9 +35,9 @@
     }
   ],
   "linkedTaskId": "task-mwesykjl-raw3t1",
-  "revision": 3,
+  "revision": 4,
   "createdAt": "2026-11-13T10:23:09.672Z",
-  "updatedAt": "2026-11-13T10:26:18.115Z",
+  "updatedAt": "2026-11-13T15:20:17.391Z",
   "createdBy": "orchestrator",
   "createdByKind": "agent",
   "history": [
@@ -65,6 +65,13 @@
       "editedBy": "agent",
       "action": "verified",
       "notes": "The red run is the same command against the previous module: `git show HEAD:plugins/taskboard/taskboard.mjs > plugins/taskboard/.old-taskboard.mjs` then `node scripts/taskboard-limit-proof.mjs --taskboard plugins/taskboard/.old-taskboard.mjs` — exit 1, 8/13, with `board_full` at row 201 (`{\"id\":null,\"code\":\"board_full\"}`). Green on taskboard 0.1.53, installed into the profile and byte-verified by kit-update. The live :3080 process still holds the previous module in memory; the change is effective at its next boot (profile row maxTasks: 0 + maxRows: 1000 already written)."
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-13T15:20:17.391Z",
+      "editedBy": "agent",
+      "action": "stale",
+      "reason": "surface files changed since lastVerified: plugins/taskboard/taskboard.mjs, profile/cordis.patch.yml"
     }
   ],
   "evidence": {
@@ -89,5 +96,13 @@
     "command": "node scripts/taskboard-limit-proof.mjs",
     "exitCode": 0
   },
-  "degraded": false
+  "degraded": false,
+  "needsReverification": {
+    "at": "2026-11-13T15:20:17.391Z",
+    "changedFiles": [
+      "plugins/taskboard/taskboard.mjs",
+      "profile/cordis.patch.yml"
+    ],
+    "reason": "surface files changed since lastVerified: plugins/taskboard/taskboard.mjs, profile/cordis.patch.yml"
+  }
 }

@@ -4,7 +4,7 @@
   "title": "Subagents are chat-scoped",
   "requirement": "Новая сессия/чат не должна вызывать или переиспользовать sleeping subagent, созданного другой сессией; для каждой новой сессии роли получают новые контексты.",
   "kind": "regression",
-  "status": "verified",
+  "status": "stale",
   "source": "human",
   "automated": true,
   "reason": "",
@@ -40,9 +40,9 @@
     }
   ],
   "linkedTaskId": "task-mwevdsqs-y4o6d6",
-  "revision": 6,
+  "revision": 7,
   "createdAt": "2026-11-13T11:04:50.570Z",
-  "updatedAt": "2026-11-13T11:35:47.400Z",
+  "updatedAt": "2026-11-13T15:20:17.409Z",
   "createdBy": "orchestrator",
   "createdByKind": "agent",
   "history": [
@@ -91,6 +91,13 @@
       "editedBy": "agent",
       "action": "verified",
       "notes": "Final green after the header-comment edit (the module now states the chat-scoped resolution instead of the old \"re-created because the runtime refused\" wording) and the 0.1.39 repack. Red-first unchanged: the same command from /tmp/pre-kit with only the chat-scope expressions reverted, 9/26, exit 1. Live green needs the next boot: the installed profile still runs @cc/dsh-orchestrator 0.1.36 / @cc/dsh-taskboard 0.1.53 in memory; `kit-update --check` plans install-plugins for 0.1.39 / 0.1.54 on the next launch."
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-13T15:20:17.409Z",
+      "editedBy": "agent",
+      "action": "stale",
+      "reason": "surface files changed since lastVerified: plugins/orchestrator/orchestrator.mjs"
     }
   ],
   "evidence": {
@@ -117,7 +124,7 @@
   },
   "degraded": false,
   "needsReverification": {
-    "at": "2026-11-13T11:35:10.721Z",
+    "at": "2026-11-13T15:20:17.409Z",
     "changedFiles": [
       "plugins/orchestrator/orchestrator.mjs"
     ],

@@ -4,7 +4,7 @@
   "title": "PTC switch on a resumed session fails with defer_loading",
   "requirement": "Смена презентации инструментов у существующей сессии (native→ptc) не должна ломать её следующий запрос: поверхность из одного run_code обязана оставаться вызываемой.",
   "kind": "regression",
-  "status": "unverified",
+  "status": "stale",
   "source": "agent",
   "automated": false,
   "reason": "Воспроизведение требует живой сессии, созданной до смены презентации, и настоящего запроса к провайдеру: смена пресета в работающем деплое. Юнит-тест возможен только в исходниках гарнесса (dsh-llm/lib/index.js:763), которые не принадлежат этому репозиторию.",
@@ -29,11 +29,26 @@
     }
   ],
   "linkedTaskId": "task-mwdm75j0-cozqvm",
-  "revision": 1,
+  "revision": 2,
   "createdAt": "2026-11-12T14:19:31.492Z",
-  "updatedAt": "2026-11-12T14:19:31.492Z",
+  "updatedAt": "2026-11-13T15:20:17.400Z",
   "createdBy": "orchestrator",
   "createdByKind": "agent",
-  "history": [],
-  "evidence": {}
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-13T15:20:17.400Z",
+      "editedBy": "agent",
+      "action": "stale",
+      "reason": "surface files changed since lastVerified: profile/cordis.patch.yml"
+    }
+  ],
+  "evidence": {},
+  "needsReverification": {
+    "at": "2026-11-13T15:20:17.400Z",
+    "changedFiles": [
+      "profile/cordis.patch.yml"
+    ],
+    "reason": "surface files changed since lastVerified: profile/cordis.patch.yml"
+  }
 }
