@@ -1,5 +1,5 @@
 {
-  "builtAt": "2026-11-16T13:15:33.083Z",
+  "builtAt": "2026-11-16T13:56:41.749Z",
   "esbuild": "0.25.12",
   "xyflow": "12.12.1",
   "react": "18.3.1",
@@ -15,23 +15,23 @@
     "web-worker"
   ],
   "sizes": {
-    "clientCjs": 496410,
-    "clientBundle": 496680,
+    "clientCjs": 508576,
+    "clientBundle": 508846,
     "seedBundle": 257917,
-    "hostBundle": 3212178
+    "hostBundle": 3224222
   },
   "hostFiles": [
     [
-      "dist/chunk-4ICSANU7.mjs",
-      191248
-    ],
-    [
-      "dist/chunk-IJKYG2AC.mjs",
+      "dist/chunk-LYKNJJ67.mjs",
       269254
     ],
     [
-      "dist/chunk-PQZSNEMC.mjs",
-      2704010
+      "dist/chunk-MQWKWIN2.mjs",
+      191964
+    ],
+    [
+      "dist/chunk-YOF4EFVQ.mjs",
+      2714512
     ],
     [
       "dist/core.mjs",
@@ -39,7 +39,7 @@
     ],
     [
       "dist/index.mjs",
-      43924
+      44750
     ],
     [
       "dist/schema.mjs",

@@ -7,12 +7,12 @@
  */
 
 export const PALETTE = Object.freeze({
-  frontend: { fill: '#dbeafe', stroke: '#2563eb' },
-  service: { fill: '#e0e7ff', stroke: '#4338ca' },
-  worker: { fill: '#dcfce7', stroke: '#16a34a' },
-  datastore: { fill: '#fef3c7', stroke: '#d97706' },
-  queue: { fill: '#fce7f3', stroke: '#db2777' },
-  external: { fill: '#f1f5f9', stroke: '#64748b' },
+  frontend: { fill: '#bfdbfe', stroke: '#1d4ed8' },
+  service: { fill: '#c7d2fe', stroke: '#4338ca' },
+  worker: { fill: '#bbf7d0', stroke: '#15803d' },
+  datastore: { fill: '#fde68a', stroke: '#b45309' },
+  queue: { fill: '#fbcfe8', stroke: '#be185d' },
+  external: { fill: '#e2e8f0', stroke: '#475569' },
 })
 
 export const EDGE_STYLE = Object.freeze({

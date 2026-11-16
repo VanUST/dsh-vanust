@@ -93,14 +93,6 @@ export const lintCases = [
     overlays: { $version: 1, 'svc.a': { fill: '#ff0000' } },
   },
   {
-    name: 'a label that cannot leave overlapping boxes is a warning',
-    rule: 'label_over_node',
-    severity: 'warning',
-    model: model({ nodes: [node('svc.a'), node('db.b')], edges: [edge('e.a.b', 'svc.a', 'db.b')] }),
-    views: view(),
-    overlays: { $version: 1, 'svc.a': { x: 100, y: 100 }, 'db.b': { x: 120, y: 100 } },
-  },
-  {
     name: 'a 26-node view is a too-large error and render refuses',
     rule: 'view_too_large',
     severity: 'error',
@@ -128,6 +120,57 @@ export const lintCases = [
       )),
     }),
     views: view(),
+  },
+]
+
+/**
+ * Defensive scene rules: the placements these catch can only reach a scene when a human
+ * overlay (or a foreign producer) put geometry where the layout would never put it, so
+ * they are driven through `lintScene` on a crafted scene rather than through `renderView`.
+ */
+const defensiveScene = (edges) => ({
+  schemaVersion: 1,
+  viewId: 'v.defensive',
+  title: 'Defensive',
+  level: 'context',
+  direction: 'LR',
+  canvas: { x: 0, y: 0, width: 400, height: 200 },
+  nodes: [
+    { id: 'svc.a', type: 'service', label: 'A', group: null, x: 20, y: 40, w: 140, h: 44, stale: false, source: null },
+    { id: 'svc.b', type: 'service', label: 'B', group: null, x: 240, y: 40, w: 140, h: 44, stale: false, source: null },
+  ],
+  groups: [],
+  edges,
+})
+
+const plateOverNode = { x: 60, y: 50, w: 80, h: 25 }
+const sharedPlate = { x: 100, y: 55, w: 80, h: 25 }
+
+export const sceneLintCases = [
+  {
+    name: 'a plate over a node is a warning (a human overlay can create it)',
+    rule: 'label_over_node',
+    severity: 'warning',
+    scene: defensiveScene([
+      { id: 'e.a.b', from: 'svc.a', to: 'svc.b', kind: 'sync', label: 'calls', points: [{ x: 160, y: 62 }, { x: 240, y: 62 }], labelBox: plateOverNode, labelAt: { x: plateOverNode.x, y: plateOverNode.y } },
+    ]),
+  },
+  {
+    name: 'an edge body through a node is a warning',
+    rule: 'edge_through_node',
+    severity: 'warning',
+    scene: defensiveScene([
+      { id: 'e.a.b', from: 'svc.a', to: 'svc.b', kind: 'sync', label: 'calls', points: [{ x: 160, y: 62 }, { x: 300, y: 62 }], labelBox: { x: 20, y: 10, w: 80, h: 25 }, labelAt: { x: 20, y: 10 } },
+    ]),
+  },
+  {
+    name: 'two plates sharing most of a rectangle are a warning',
+    rule: 'label_label_overlap',
+    severity: 'warning',
+    scene: defensiveScene([
+      { id: 'e.a.b', from: 'svc.a', to: 'svc.b', kind: 'sync', label: 'calls', points: [{ x: 160, y: 62 }, { x: 240, y: 62 }], labelBox: plateOverNode, labelAt: { x: plateOverNode.x, y: plateOverNode.y } },
+      { id: 'e.b.a', from: 'svc.b', to: 'svc.a', kind: 'sync', label: 'answers', points: [{ x: 240, y: 70 }, { x: 160, y: 70 }], labelBox: sharedPlate, labelAt: { x: sharedPlate.x, y: sharedPlate.y } },
+    ]),
   },
 ]
 

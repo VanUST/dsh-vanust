@@ -131,7 +131,20 @@ export function reattachEdges(nodes, edges, overlaidIds) {
 /** Bounding box of node boxes, group boxes and edge points, with the contract's 40 px margin. */
 export function recomputeCanvas(nodes, groups, edges) {
   const boxes = [...nodes, ...groups]
-  const points = [...edges].flatMap(edge => [...edge.points, edge.labelAt])
+  // An edge contributes its polyline AND its label plate: the plate is drawn, so a plate
+  // near the outer boundary must widen the canvas or the fit would clip it.
+  const points = []
+  for (const edge of edges) {
+    points.push(...edge.points)
+    if (edge.labelBox !== undefined) {
+      points.push(
+        { x: edge.labelBox.x, y: edge.labelBox.y },
+        { x: edge.labelBox.x + edge.labelBox.w, y: edge.labelBox.y + edge.labelBox.h },
+      )
+    } else if (edge.labelAt !== undefined) {
+      points.push(edge.labelAt)
+    }
+  }
   let minX = Infinity
   let minY = Infinity
   let maxX = -Infinity

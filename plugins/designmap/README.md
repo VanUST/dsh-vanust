@@ -7,8 +7,9 @@ and the M3 host plugin exposes that pipeline to agents and to the panel:
 model.yaml + views.yaml + overlays.json
   → zod-strict validation
   → canonical sort by semantic id
-  → ELK layered layout (groups, ports)
+  → ELK layered layout (groups, ports), with the label plates RESERVED as edge labels
   → overlay merge after layout, with GC
+  → label plates placed against the final boxes, then validated as rectangles
   → lint
   → scene JSON (docs/designmap/SCENE-CONTRACT.md)
 ```
@@ -28,6 +29,9 @@ node bin/render.mjs <designmapDir> [viewId] [--write] [--log]
 node bin/render.mjs <designmapDir> --index   # every scene + out/index.json
 node bin/acceptance.mjs         # M0 acceptance report
 node bin/living-doc.mjs         # M3 loop on a throw-away git repo (status→scan→apply→render→lint→export)
+node bin/audit-scene.mjs <designmapDir>          # visual-consistency audit, exit 1 on a collision
+node bin/audit-scene.mjs --scene <scene.json>    # audit one scene file (negative control)
+node bin/audit-scene.mjs fixtures/readability --write-set harness/scenes/readability
 node bin/tool-contract.mjs      # tool names + schema refusals via the installed dsh-tools validator
 ```
 
@@ -247,6 +251,8 @@ delete `plugins/design-map/` without an explicit owner decision (M4 non-scope).
 | INV-EMPTY | a missing `model.yaml` is the empty document; an empty view yields `nodes: []` and a zero canvas |
 | NFR-2 | apply validates the whole next document (including references) before writing; a refusal writes nothing |
 | FR-4 | overlay GC warnings, never a render failure |
+| INV-LABEL | every plate is a rectangle in the scene (`edges[].labelBox`); `placementIssues` tests it against node boxes and other plates with a 2 px gap, and the layout refuses `label_collision` when no free spot exists |
+| INV-EDGE | every edge segment is clipped against every node box interior; a body through a node refuses `edge_through_node` at layout time and warns in the scene lint |
 | FR-9 | `src/log.mjs` emits `tool.enter/exit`, `model.diff`, `layout.done`, `merge.applied/gc`, `lint.result`, `render.done`, `overlay.write`; null-safe serialization |
 
 `layout.done` carries `{ms, nodes}`. `render.done` carries `{viewId, nodes, edges,
@@ -270,7 +276,9 @@ mapped to rule ids in `src/lint.mjs`:
 | stale against manifest | `stale_node` | warning |
 | colour outside the type palette | `colour_out_of_palette` | info |
 | (scene contract) non-finite geometry | `non_finite_geometry` | error |
-| (defensive) edge label anchor on/inside a node box | `label_over_node` | warning |
+| edge label plate overlaps a node box | `label_over_node` | warning (layout refuses first) |
+| two edge label plates overlap | `label_label_overlap` | warning (layout refuses first) |
+| an edge body passes through a node box | `edge_through_node` | warning (layout refuses first) |
 
 A `dangling_group` (node/view points at a missing group) is also an error: the model
 cannot be addressed. Error findings make `render` refuse and carry the findings in
@@ -278,16 +286,65 @@ cannot be addressed. Error findings make `render` refuse and carry the findings 
 in the render result. A single-node view has no orphan finding (the "no edge" rule is
 meaningless for a one-node context view).
 
+## Readability: label plates, theme, zoom and the audit
+
+The map is read, not just parsed, so geometry is checked before a scene is written and
+the panel draws what the check approved:
+
+- **One owner per label.** `edgeLabelSize` in `src/text.mjs` is the only place a plate's
+  size is computed; the scene carries `edges[].labelBox` and `edges[].labelLines`, and the
+  Excalidraw adapter draws a plate of exactly that rectangle with a bound text inside.
+  Before this, core placed an anchor and the client measured the text, so the validator
+  saw a point while a rectangle was drawn: on the repository's own map 5 of 9 labels sat
+  inside node boxes and every check reported clean.
+- **Room is reserved, then validated.** Each edge label is handed to ELK as an edge label
+  with its real size (elkjs 0.12.1 reserves corridor width for it; a label without
+  `text` reserves the width but reports position 0,0 — that is why the text is passed).
+  The plate is then placed on its edge against the final boxes, and a crowded view retries
+  with 1.45x/2x spacing before `render` refuses `label_collision` / `edge_through_node`.
+- **The panel looks native.** The canvas is a separate document, so the panel passes the
+  host theme's surface/ink/line into it: `viewBackgroundColor` is the host surface and the
+  Excalidraw theme stays LIGHT on purpose (its dark theme inverts the whole canvas with a
+  CSS filter, turning the palette into its negative). Edge labels are chips on the panel
+  surface, group bands are tinted and titled, and type is shape + palette + stroke style.
+- **The chrome tells the truth.** The legend is a bar under the canvas (a wide map needs
+  the width), with per-type and per-kind counts; the status line shows the real Excalidraw
+  zoom; `Fit` re-frames the scene and the canvas re-frames itself when the panel resizes
+  (an empty viewport is re-fitted, a panned one is left alone); a view switcher appears
+  when the workspace has more than one root view.
+- **The audit can fail.** `bin/audit-scene.mjs` renders a workspace and reports plate-node,
+  plate-plate and edge-node collisions, plates outside the canvas, minimum clearance and
+  node density, exiting 1 on any collision. `fixtures/readability` holds the dense (20
+  nodes), cyclic and multiline scenes used for acceptance; the pre-fix harness scenes
+  under `harness/scenes/m0` and `harness/scenes/fixture` are kept as a red control — the
+  audit reports 4 and 3 labels over nodes on them.
+
 ## Verified external APIs
 
 Every external call in this package is covered by `docs/designmap/API-TESTS-CORE.md`:
 
 - elkjs 0.12.1: layered with `hierarchyHandling=INCLUDE_CHILDREN`, ports with
   `FIXED_SIDE`; raw result projection (drop `$H`); parent-relative child coordinates are
-  offset explicitly; `org.eclipse.elk.position` is NOT used (fixed-layout only).
+  offset explicitly; `org.eclipse.elk.position` is NOT used (fixed-layout only); an edge
+  `labels[]` entry reserves corridor space but its returned `x/y` is a label-band position,
+  not the drawn one (measured: labels without `text` come back at 0,0), so the plate is
+  placed by core instead of trusting that position.
 - zod 4.6.7: `z.strictObject` everywhere (a plain `z.object` would strip `x/y/fill`).
 - yaml 2.9.1: emitter pinned (`lineWidth: 0`) so long labels are not folded; `|` block
   scalars are normalised on read.
+
+## Known limitations
+
+- A long feedback edge (a back edge in the layered graph) is routed around the whole map;
+  the repository's `HTTP + SSE` edge is the visible example. The route is valid, it just
+  reads as a frame around the map. A feedback-edge policy is an open question.
+- When a human drags a node in edit mode, the edge endpoints are re-anchored but the
+  polyline is not re-routed, so a moved node can put an edge body through another box. The
+  scene lint reports `edge_through_node` as a warning; the map stays openable.
+- Recolouring a node is only reachable from the React Flow fallback today: the vendored
+  Excalidraw frame reports `elements` + a projected `appState` without
+  `selectedElementIds`, so the panel cannot map a canvas selection to the NodeInspector.
+  Moving a node works in both renderers.
 
 ## Seams that stay open
 

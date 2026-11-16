@@ -21,8 +21,9 @@ import { parseModel, parseOps, parseViews } from '../src/schema.mjs'
 import { createLogger } from '../src/log.mjs'
 import { lintScene, summariseLint } from '../src/lint.mjs'
 import { sha256 } from '../src/canonical.mjs'
-import { lintCases, nonFiniteScene, badOverlays } from '../fixtures/lint-cases.mjs'
+import { lintCases, nonFiniteScene, badOverlays, sceneLintCases } from '../fixtures/lint-cases.mjs'
 import { perfFixture } from '../fixtures/perf.mjs'
+import { auditScene } from './audit-scene.mjs'
 
 const fixture = name => fileURLToPath(new URL(`../fixtures/${name}`, import.meta.url))
 const report = { checks: {}, ok: true }
@@ -176,8 +177,52 @@ function demoInputs() {
   }
   const nonFinite = summariseLint(lintScene(nonFiniteScene)).findings.find(item => item.rule === 'non_finite_geometry')
   outcomes.push({ rule: 'non_finite_geometry', severity: nonFinite?.severity ?? null, expected: 'error', refused: 'lint_scene' })
+  for (const entry of sceneLintCases) {
+    const finding = summariseLint(lintScene(entry.scene)).findings.find(item => item.rule === entry.rule)
+    outcomes.push({ rule: entry.rule, severity: finding?.severity ?? null, expected: entry.severity, refused: 'lint_scene' })
+  }
   record('lintRules', outcomes)
   require(outcomes.every(item => item.severity === item.expected), 'a lint rule did not fire at its stated severity')
+}
+
+// 6b. Readability: every fixture view is collision-free, and the audit can fail.
+{
+  const roots = ['demo', 'readability']
+  const rows = []
+  for (const name of roots) {
+    const workspace = createWorkspace(fixture(name))
+    for (const view of workspace.readViews().views.views) {
+      const result = await renderView({
+        model: workspace.readModel().model,
+        views: workspace.readViews().views,
+        overlays: workspace.readOverlays().overlays,
+        viewId: view.id,
+      })
+      const row = auditScene(result.scene)
+      rows.push({ fixture: name, ...row })
+    }
+  }
+  // Negative control: the same audit MUST see a plate placed inside a node.
+  const clean = await renderView({ ...demoInputs(), viewId: 'v.context' })
+  const broken = structuredClone(clean.scene)
+  const victim = broken.nodes[0]
+  broken.edges[0].labelBox = { x: victim.x + 4, y: victim.y + 4, w: broken.edges[0].labelBox.w, h: broken.edges[0].labelBox.h }
+  const brokenRow = auditScene(broken)
+  record('readability', {
+    views: rows.map(row => ({
+      fixture: row.fixture,
+      viewId: row.viewId,
+      canvas: row.canvas,
+      nodes: row.nodes,
+      labels: row.labels,
+      collisions: row.collisions,
+      clearance: row.clearance,
+      clean: row.clean,
+    })),
+    negativeControl: { viewId: brokenRow.viewId, clean: brokenRow.clean, collisions: brokenRow.collisions },
+  })
+  require(rows.every(row => row.clean), 'a fixture view has a visual collision (labels over nodes, plates over each other, or edges through nodes)')
+  require(brokenRow.clean === false && brokenRow.collisions.label_over_node >= 1, 'the readability audit does not catch a plate inside a node')
 }
 
 // 7. Bad overlays are ignored with merge.gc warnings; render still succeeds.
@@ -218,7 +263,7 @@ function demoInputs() {
 
 // 8. The corrected §8 severities must not change scene bytes; the bundle index exists.
 {
-  const GOLDEN_SCENE = 'sha256:1adea6ca8275ee7c1dfe8be5e6e81446ae010d8594bd8d6fa6250a66e0a5d83a'
+  const GOLDEN_SCENE = 'sha256:8b32911c7c898ef2f594669534545797ec9deb3ce2dcf6463c0bc0a7efd14262'
   const scene = await renderView({ ...demoInputs(), viewId: 'v.context' })
   record('sceneBytesUnchanged', { golden: GOLDEN_SCENE, actual: scene.sceneHash, equal: scene.sceneHash === GOLDEN_SCENE })
   require(scene.sceneHash === GOLDEN_SCENE, 'scene bytes changed for the demo fixture')

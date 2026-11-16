@@ -76,6 +76,73 @@ export function labelLength(label) {
  */
 const SHAPE_WIDTH_FACTOR = { datastore: 1.45, decision: 1.9 }
 
+/* ------------------------------------------------------------------ */
+/* Edge labels: the chip the scene draws, sized here and nowhere else. */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Edge-label typography. The scene carries the resulting `labelBox`; the renderer draws
+ * a plate of exactly that size with a bound text inside, so it must never re-measure.
+ * The advance estimate is deliberately conservative (0.62 em, wider than Helvetica's
+ * average) and the plate carries padding, which keeps the drawn glyphs inside the box
+ * even when Excalidraw's own metrics differ by a few percent.
+ */
+export const EDGE_LABEL_FONT_SIZE = 11
+export const EDGE_LABEL_LINE_HEIGHT = 15
+export const EDGE_LABEL_PAD_X = 9
+export const EDGE_LABEL_PAD_Y = 5
+export const EDGE_LABEL_MAX_TEXT_WIDTH = 90
+const EDGE_LABEL_ADVANCE_EM = 0.62
+
+/** Estimated text width for a run of text at one font size. */
+export function textWidth(text, fontSize) {
+  return String(text ?? '').length * fontSize * EDGE_LABEL_ADVANCE_EM
+}
+
+/**
+ * Wrap an edge label to at most three plate-sized lines. A two-word label that fits on
+ * one line stays on one line; a long one loses the third line rather than growing the
+ * corridor of the view without bound.
+ */
+export function wrapEdgeLabel(label) {
+  const text = String(label ?? '').trim()
+  if (text === '') return ['']
+  if (textWidth(text, EDGE_LABEL_FONT_SIZE) <= EDGE_LABEL_MAX_TEXT_WIDTH) return [text]
+  const perLine = Math.max(1, Math.floor(EDGE_LABEL_MAX_TEXT_WIDTH / (EDGE_LABEL_FONT_SIZE * EDGE_LABEL_ADVANCE_EM)))
+  const words = text.split(/\s+/u)
+  const lines = []
+  let current = ''
+  for (const word of words) {
+    const candidate = current === '' ? word : `${current} ${word}`
+    if (current !== '' && candidate.length > perLine) {
+      lines.push(current)
+      current = word
+    } else {
+      current = candidate
+    }
+    while (current.length > perLine) {
+      lines.push(current.slice(0, perLine))
+      current = current.slice(perLine)
+    }
+  }
+  if (current !== '') lines.push(current)
+  return lines.slice(0, MAX_LINES)
+}
+
+/**
+ * The scene's edge-label box: one owner, one formula.
+ * @returns `{w, h, lines}` in scene units.
+ */
+export function edgeLabelSize(label) {
+  const lines = wrapEdgeLabel(label)
+  const widest = lines.reduce((max, line) => Math.max(max, textWidth(line, EDGE_LABEL_FONT_SIZE)), 0)
+  return {
+    w: Math.max(28, Math.ceil(widest) + EDGE_LABEL_PAD_X * 2),
+    h: lines.length * EDGE_LABEL_LINE_HEIGHT + EDGE_LABEL_PAD_Y * 2,
+    lines,
+  }
+}
+
 /** Final box for one node: text-aware width and height, minimum 44. */
 export function nodeSize(label, type = 'service') {
   const lines = wrapLabel(label)

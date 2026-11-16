@@ -14,6 +14,7 @@ import { dirname, join } from 'node:path'
 import { createHostService, createFileLogger } from '../src/host.mjs'
 import { createHostTools } from '../src/tools.mjs'
 import { createCommandHandler } from '../src/command.mjs'
+import { PALETTE } from '../src/palette.mjs'
 
 const keep = process.argv.includes('--keep')
 const root = mkdtempSync(join(tmpdir(), 'designmap-living-'))
@@ -54,7 +55,7 @@ views:
     include: []
     parent: null
 `
-const OVERLAYS = { $version: 1, 'svc.checkout.api': { x: 40, y: 30, fill: '#2563eb', stroke: '#4338ca' } }
+const OVERLAYS = { $version: 1, 'svc.checkout.api': { x: 40, y: 30, fill: PALETTE.frontend.stroke, stroke: PALETTE.frontend.stroke } }
 
 git('init', '-q')
 git('config', 'user.email', 'designmap@example.test')
@@ -143,7 +144,7 @@ const exported = await call('designmap_export', { viewId: 'v.context' })
 const svg = readFileSync(join(root, exported.svgPath), 'utf8')
 check('export_ok', exported.ok === true && exported.svgPath === 'designmap/out/v.context.svg', { hash: exported.hash, bytes: exported.bytes })
 check('export_has_overlay_position', svg.includes('<rect x="40" y="30"'))
-check('export_has_overlay_colour', svg.includes('fill="#2563eb"') && svg.includes('stroke="#4338ca"'))
+check('export_has_overlay_colour', svg.includes(`fill="${PALETTE.frontend.stroke}"`) && svg.includes(`stroke="${PALETTE.frontend.stroke}"`))
 check('export_has_labels', ['Checkout API', 'Orders DB', 'refund'].every(label => svg.includes(label)))
 check('export_is_closed_svg', svg.startsWith('<svg ') && svg.trimEnd().endsWith('</svg>') && !svg.includes('NaN') && !svg.includes('undefined'))
 check('export_group_balance', (svg.match(/<g /gu) ?? []).length === (svg.match(/<\/g>/gu) ?? []).length)

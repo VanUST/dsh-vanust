@@ -14,7 +14,7 @@ import assert from 'node:assert/strict'
 import { renderView } from '../src/render.mjs'
 import { findByRule, lintScene, summariseLint } from '../src/lint.mjs'
 import { DesignmapRefusal } from '../src/schema.mjs'
-import { lintCases, nonFiniteScene } from '../fixtures/lint-cases.mjs'
+import { lintCases, nonFiniteScene, sceneLintCases } from '../fixtures/lint-cases.mjs'
 
 for (const entry of lintCases) {
   test(`${entry.rule} fires at severity ${entry.severity}: ${entry.name}`, async () => {
@@ -39,6 +39,16 @@ for (const entry of lintCases) {
     const matching = findByRule(result.lint.findings, entry.rule)
     assert.equal(matching.length >= 1, true, `expected ${entry.rule} in ${JSON.stringify(result.lint.rules)}`)
     assert.equal(matching[0].severity, entry.severity)
+  })
+}
+
+for (const entry of sceneLintCases) {
+  test(`${entry.rule} fires at severity ${entry.severity} on a crafted scene: ${entry.name}`, () => {
+    const lint = summariseLint(lintScene(entry.scene))
+    const matching = findByRule(lint.findings, entry.rule)
+    assert.equal(matching.length >= 1, true, `expected ${entry.rule} in ${JSON.stringify(lint.rules)}`)
+    assert.equal(matching[0].severity, entry.severity)
+    assert.equal(lint.ok, true, 'a warning must not block the scene')
   })
 }
 

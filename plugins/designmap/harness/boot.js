@@ -4,7 +4,7 @@
 (() => {
   const params = new URLSearchParams(window.location.search)
   const requested = params.get('set')
-  const set = requested === 'm0' || requested === 'empty' || requested === 'm2' ? requested : 'fixture'
+  const set = requested === 'm0' || requested === 'empty' || requested === 'm2' || requested === 'repo' || requested === 'readability' ? requested : 'fixture'
   const ID = '@cc/dsh-designmap'
   const bridge = {
     ready: false,

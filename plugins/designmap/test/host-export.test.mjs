@@ -15,11 +15,12 @@ import { readFileSync, existsSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { createHostService, findPngConverter } from '../src/host.mjs'
+import { PALETTE } from '../src/palette.mjs'
 import { makeRepo } from './host-helpers.mjs'
 
 const OVERLAYS = {
   $version: 1,
-  'svc.checkout.api': { x: 40, y: 30, fill: '#2563eb', stroke: '#4338ca' },
+  'svc.checkout.api': { x: 40, y: 30, fill: PALETTE.frontend.fill, stroke: PALETTE.service.stroke },
 }
 
 test('export reflects overlay position and colour and carries the labels', async () => {
@@ -42,8 +43,8 @@ test('export reflects overlay position and colour and carries the labels', async
     // Overlay geometry and accepted colours, on the node group.
     assert.match(svg, /data-node-id="svc\.checkout\.api"/u)
     assert.match(svg, /<rect x="40" y="30" width="140"/u)
-    assert.match(svg, /fill="#2563eb"/u)
-    assert.match(svg, /stroke="#4338ca"/u)
+    assert.ok(svg.includes(`fill="${PALETTE.frontend.fill}"`))
+    assert.ok(svg.includes(`stroke="${PALETTE.service.stroke}"`))
     // Labels: nodes and the edge label.
     assert.ok(svg.includes('Checkout API'))
     assert.ok(svg.includes('Orders DB'))
@@ -65,7 +66,7 @@ test('an out-of-palette overlay colour is ignored by the export', async () => {
     assert.equal(svg.includes('#ff0000'), false)
     assert.equal(svg.includes('#00ff00'), false)
     // The service palette entry is used instead.
-    assert.ok(svg.includes('#e0e7ff'))
+    assert.ok(svg.includes(PALETTE.service.fill))
     assert.ok(svg.includes('#4338ca'))
   } finally {
     repo.cleanup()
@@ -116,7 +117,7 @@ test('export without overlays uses the layout position and palette', async () =>
     const node = rendered.scene.nodes.find(candidate => candidate.id === 'db.orders')
     const svg = readFileSync(join(repo.root, exported.svgPath), 'utf8')
     assert.ok(svg.includes(`<rect x="${node.x}" y="${node.y}"`))
-    assert.ok(svg.includes('#fef3c7'))
+    assert.ok(svg.includes(PALETTE.datastore.fill))
   } finally {
     repo.cleanup()
   }

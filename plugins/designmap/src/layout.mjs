@@ -17,7 +17,7 @@
 import ELK from 'elkjs'
 import { round2 } from './canonical.mjs'
 import { REFUSALS, DesignmapRefusal } from './schema.mjs'
-import { nodeSize } from './text.mjs'
+import { edgeLabelSize, nodeSize } from './text.mjs'
 
 const elk = new ELK()
 
@@ -81,6 +81,164 @@ export function pointOnBoxBoundary(point, box, eps = 0.01) {
 export function pointInBox(point, box, margin = 0) {
   return point.x > box.x - margin && point.x < box.x + box.w + margin
     && point.y > box.y - margin && point.y < box.y + box.h + margin
+}
+
+/* ------------------------------------------------------------------ */
+/* Rectangle geometry: the one place a visual collision is decided.    */
+/* ------------------------------------------------------------------ */
+
+/** Minimum clearance kept around a label plate, in scene units. */
+export const LABEL_GAP = 2
+
+/**
+ * Whether two rectangles come closer than `gap` (touching counts as colliding).
+ * The scene needs its own predicate rather than point-in-box checks: a label is drawn
+ * as a plate with width and height, so a point test missed every real overlap.
+ */
+export function boxesOverlap(left, right, gap = 0) {
+  return left.x < right.x + right.w + gap
+    && right.x < left.x + left.w + gap
+    && left.y < right.y + right.h + gap
+    && right.y < left.y + left.h + gap
+}
+
+/**
+ * Whether a segment passes through the INTERIOR of a box (a segment that only touches
+ * the boundary, as an arrow endpoint does, is not a crossing). The box is shrunk by
+ * `shrink` and the segment is clipped against it (Liang-Barsky); a non-empty interval
+ * means the line really crosses the body.
+ */
+export function segmentHitsBox(start, end, box, shrink = 0.5) {
+  const left = box.x + shrink
+  const top = box.y + shrink
+  const right = box.x + box.w - shrink
+  const bottom = box.y + box.h - shrink
+  if (right <= left || bottom <= top) return false
+  const dx = end.x - start.x
+  const dy = end.y - start.y
+  let low = 0
+  let high = 1
+  const clip = (direction, distance) => {
+    if (direction === 0) return distance >= 0
+    const ratio = distance / direction
+    if (direction < 0) {
+      if (ratio > high) return false
+      if (ratio > low) low = ratio
+    } else {
+      if (ratio < low) return false
+      if (ratio < high) high = ratio
+    }
+    return true
+  }
+  if (!clip(-dx, start.x - left)) return false
+  if (!clip(dx, right - start.x)) return false
+  if (!clip(-dy, start.y - top)) return false
+  if (!clip(dy, bottom - start.y)) return false
+  return high > low
+}
+
+/**
+ * The label box an edge is drawn with. Core always emits `labelBox`; an older scene (or
+ * a harness fixture) only carries `labelAt`, so the size is derived from the same metric
+ * here instead of in the renderer.
+ */
+export function labelBoxOf(edge) {
+  const box = edge.labelBox
+  if (box !== undefined && box !== null && [box.x, box.y, box.w, box.h].every(Number.isFinite)) return box
+  const size = edgeLabelSize(edge.label ?? '')
+  const at = edge.labelAt ?? { x: 0, y: 0 }
+  return { x: at.x, y: at.y, w: size.w, h: size.h }
+}
+
+/**
+ * Every visual collision a scene would show, as lint-shaped issues.
+ * Labels are checked against nodes and against each other, never against a group band:
+ * a label inside its own band is correct. Edges are checked against node bodies only.
+ */
+export function placementIssues({ nodes, edges }) {
+  const issues = []
+  const labelled = edges.filter(edge => String(edge.label ?? '') !== '')
+  const boxes = labelled.map(edge => ({ id: edge.id, box: labelBoxOf(edge) }))
+  for (const entry of boxes) {
+    for (const node of nodes) {
+      if (boxesOverlap(entry.box, node, LABEL_GAP)) {
+        issues.push({ rule: 'label_over_node', fields: { id: entry.id, nodeId: node.id, nodes: [node.id] } })
+      }
+    }
+  }
+  for (let left = 0; left < boxes.length; left += 1) {
+    for (let right = left + 1; right < boxes.length; right += 1) {
+      if (boxesOverlap(boxes[left].box, boxes[right].box, LABEL_GAP)) {
+        issues.push({ rule: 'label_label_overlap', fields: { ids: [boxes[left].id, boxes[right].id] } })
+      }
+    }
+  }
+  for (const edge of edges) {
+    const points = edge.points ?? []
+    for (let index = 1; index < points.length; index += 1) {
+      for (const node of nodes) {
+        if (segmentHitsBox(points[index - 1], points[index], node)) {
+          issues.push({ rule: 'edge_through_node', fields: { id: edge.id, nodeId: node.id } })
+        }
+      }
+    }
+  }
+  return issues
+}
+
+/** Points every `step` scene units along a polyline, both ends included. */
+export function samplePolyline(points, step = 6) {
+  if (points.length === 0) return []
+  const samples = []
+  for (let index = 1; index < points.length; index += 1) {
+    const from = points[index - 1]
+    const to = points[index]
+    const length = Math.hypot(to.x - from.x, to.y - from.y)
+    const count = Math.max(2, Math.ceil(length / step))
+    for (let offset = 0; offset < count; offset += 1) {
+      const ratio = offset / count
+      samples.push({ x: from.x + (to.x - from.x) * ratio, y: from.y + (to.y - from.y) * ratio })
+    }
+  }
+  samples.push({ ...points[points.length - 1] })
+  return samples
+}
+
+/**
+ * Place one label plate without a visual collision.
+ *
+ * The preferred anchor is the box the layout reserved (ELK's edge label). The search
+ * then walks the polyline outwards and tries the plate above and below each sample;
+ * the first box that clears every obstacle wins. `null` means the scene has no room for
+ * this label — the caller decides whether that refuses the render (layout) or only warns
+ * (a human's overlay created the overlap).
+ */
+export function placeEdgeLabel({ points = [], preferred = null, size, obstacles }) {
+  const width = size.w
+  const height = size.h
+  const candidates = []
+  const offer = (x, y) => candidates.push({ x: round2(x), y: round2(y) })
+  if (preferred !== null) {
+    offer(preferred.x, preferred.y)
+    offer(preferred.x, preferred.y - (height + 6))
+    offer(preferred.x, preferred.y + (height + 6))
+  }
+  const anchor = preferred === null
+    ? polylineMidpoint(points)
+    : { x: preferred.x + width / 2, y: preferred.y + height / 2 }
+  const samples = samplePolyline(points).sort((left, right) => (
+    Math.hypot(left.x - anchor.x, left.y - anchor.y) - Math.hypot(right.x - anchor.x, right.y - anchor.y)
+  ))
+  for (const sample of samples) {
+    offer(sample.x - width / 2, sample.y - height - 3)
+    offer(sample.x - width / 2, sample.y + 3)
+  }
+  if (candidates.length === 0) candidates.push({ x: anchor.x, y: anchor.y })
+  for (const candidate of candidates) {
+    const box = { x: round2(candidate.x), y: round2(candidate.y), w: width, h: height }
+    if (obstacles.every(obstacle => !boxesOverlap(box, obstacle, LABEL_GAP))) return box
+  }
+  return null
 }
 
 /**
@@ -208,18 +366,43 @@ export function edgeLabelAnchor(points, label) {
   return placeLabelOutside(points, [], label).labelAt
 }
 
+/** Default gaps. `scaledSpacing` grows them on a retry when a view stays crowded. */
+export const DEFAULT_SPACING = Object.freeze({
+  nodeNode: 24,
+  edgeNode: 8,
+  edgeEdge: 4,
+  betweenLayers: 12,
+  groupNodeNode: 16,
+  groupBetweenLayers: 20,
+})
+
+/** The spacing scales layoutView tries, in order, before it gives up. */
+export const SPACING_SCALES = Object.freeze([1, 1.45, 2])
+
+/** One spacing table scaled for a retry (rounded so the scene stays deterministic). */
+export function scaledSpacing(scale) {
+  const scaled = {}
+  for (const [key, value] of Object.entries(DEFAULT_SPACING)) scaled[key] = round2(value * scale)
+  return scaled
+}
+
 /** Build the ELK graph: groups become ELK children containing their members. */
-export function buildElkGraph({ nodes, groups, edges, direction }) {
+export function buildElkGraph({ nodes, groups, edges, direction, labelSizes = new Map(), spacing = DEFAULT_SPACING }) {
   const graph = {
     id: 'root',
     layoutOptions: {
       'elk.algorithm': 'layered',
       'elk.direction': direction === 'TB' ? 'DOWN' : 'RIGHT',
       'elk.hierarchyHandling': 'INCLUDE_CHILDREN',
-      'elk.spacing.nodeNode': '32',
-      'elk.spacing.edgeNode': '16',
-      'elk.spacing.edgeEdge': '8',
-      'elk.layered.spacing.nodeNodeBetweenLayers': '48',
+      'elk.spacing.nodeNode': String(spacing.nodeNode),
+      'elk.spacing.edgeNode': String(spacing.edgeNode),
+      'elk.spacing.edgeEdge': String(spacing.edgeEdge),
+      'elk.layered.spacing.nodeNodeBetweenLayers': String(spacing.betweenLayers),
+      // Label space is reserved by ELK itself: the edge carries a label of the plate's
+      // real size, and layered layout widens the corridor between layers to fit it.
+      'elk.spacing.labelNode': '8',
+      'elk.spacing.labelEdge': '4',
+      'elk.spacing.labelLabel': '4',
       'elk.padding': '[top=8,left=8,bottom=8,right=8]',
     },
     children: [],
@@ -244,8 +427,8 @@ export function buildElkGraph({ nodes, groups, edges, direction }) {
         // The band reserves room for its label: the renderer draws it at the top-left
         // of the box, so the padding is a contract of the geometry, not a style value.
         'elk.padding': '[top=34,left=16,bottom=16,right=16]',
-        'elk.spacing.nodeNode': '24',
-        'elk.layered.spacing.nodeNodeBetweenLayers': '40',
+        'elk.spacing.nodeNode': String(spacing.groupNodeNode),
+        'elk.layered.spacing.nodeNodeBetweenLayers': String(spacing.groupBetweenLayers),
       },
       children: members.get(group.id).map(node => entries.get(node.id)),
     })
@@ -259,10 +442,16 @@ export function buildElkGraph({ nodes, groups, edges, direction }) {
     if (edge.from === edge.to) continue // ELK layered rejects self-loops; drawn locally.
     const sourcePort = attachPorts(source, edge, 'src', direction)
     const targetPort = attachPorts(target, edge, 'tgt', direction)
+    const size = labelSizes.get(edge.id)
     graph.edges.push({
       id: edge.id,
       sources: [sourcePort],
       targets: [targetPort],
+      // The plate's REAL size goes to ELK. This is what makes the layout reserve room:
+      // without it the label is placed afterwards into a corridor it cannot fit.
+      // `text` is load-bearing: elkjs 0.12.1 reserves space for a label without text but
+      // returns (0,0) as its position, which would drop every plate at the canvas origin.
+      ...(size === undefined ? {} : { labels: [{ id: `${edge.id}:label`, text: edge.label, width: size.w, height: size.h }] }),
     })
   }
   return graph
@@ -270,18 +459,25 @@ export function buildElkGraph({ nodes, groups, edges, direction }) {
 
 /**
  * Lay out one view and return scene-ready geometry.
- * @returns {{nodes: Map<string, {x,y,w,h}>, groups: Map<string, {x,y,w,h}>,
- *            edges: Map<string, {points, labelAt}>, ms: number, nodeCount: number}}
+ *
+ * Labels are part of the search, not an afterthought: `labelSizes` carries the plate size
+ * of every edge, ELK reserves room for it and returns the box it reserved; the remaining
+ * placement pass only moves a plate when the reserved box is still crowded (for example
+ * after a group band squeezed the corridor).
+ *
+ * @returns {{nodes: Map, groups: Map, edges: Map, issues: Array, ms: number, nodeCount: number}}
+ *   `issues` are visual collisions the caller must either fix (retry with a larger
+ *   spacing scale) or refuse to write.
  */
-export async function layoutView({ nodes, groups, edges, direction, onLayoutDone }) {
+export async function layoutView({ nodes, groups, edges, direction, labelSizes = new Map(), spacingScale = 1, onLayoutDone }) {
   const started = performance.now()
   if (nodes.length === 0) {
     const ms = performance.now() - started
     onLayoutDone?.({ ms: round2(ms), nodes: 0 })
-    return { nodes: new Map(), groups: new Map(), edges: new Map(), ms, nodeCount: 0 }
+    return { nodes: new Map(), groups: new Map(), edges: new Map(), issues: [], ms, nodeCount: 0 }
   }
 
-  const graph = buildElkGraph({ nodes, groups, edges, direction })
+  const graph = buildElkGraph({ nodes, groups, edges, direction, labelSizes, spacing: scaledSpacing(spacingScale) })
   const result = await elk.layout(graph)
   const ms = performance.now() - started
   onLayoutDone?.({ ms: round2(ms), nodes: nodes.length })
@@ -348,8 +544,50 @@ export async function layoutView({ nodes, groups, edges, direction, onLayoutDone
     }
     const rounded = points.map(point => ({ x: round2(point.x), y: round2(point.y) }))
     const snapped = snapEdgeToBoxes(rounded, sourceBox, targetBox)
-    const { labelAt } = placeLabelOutside(snapped, [...nodeBoxes.values()], edge.label)
-    edgeGeometry.set(edge.id, { points: snapped, labelAt })
+    // ELK RESERVES the room for the label but its reported label position is not the
+    // drawn one: with fixed-side ports on a layered graph it lands in a label band far
+    // from the edge (measured, elkjs 0.12.1). The reservation is what this layout needs,
+    // so the plate is placed here, on the edge, inside that reserved space.
+    edgeGeometry.set(edge.id, { points: snapped })
+  }
+
+  // One deterministic pass over the edges (sorted by id): every plate is tested against
+  // the node boxes and the plates already placed, so the result does not depend on the
+  // order ELK returned its labels in.
+  const issues = []
+  const nodeList = [...nodeBoxes.entries()].map(([id, box]) => ({ id, ...box }))
+  const obstacles = [...nodeBoxes.values()]
+  for (const edge of [...edges].sort((left, right) => (left.id < right.id ? -1 : 1))) {
+    const geometry = edgeGeometry.get(edge.id)
+    if (geometry === undefined) continue
+    const size = labelSizes.get(edge.id) ?? edgeLabelSize(edge.label ?? '')
+    const box = placeEdgeLabel({ points: geometry.points, preferred: geometry.preferred, size, obstacles })
+    if (box === null) {
+      // Keep the plate at the reserved position (or at the line's midpoint) so the
+      // refusal can name the edge, and let the caller retry or refuse.
+      const fallback = geometry.preferred ?? {
+        x: round2(polylineMidpoint(geometry.points).x - size.w / 2),
+        y: round2(polylineMidpoint(geometry.points).y - size.h / 2),
+        w: size.w,
+        h: size.h,
+      }
+      geometry.labelBox = { x: round2(fallback.x), y: round2(fallback.y), w: size.w, h: size.h }
+      issues.push({ rule: 'label_collision', fields: { id: edge.id, edgeId: edge.id, box: geometry.labelBox } })
+    } else {
+      geometry.labelBox = box
+      obstacles.push(box)
+    }
+  }
+  const provisionalEdges = [...edgeGeometry.entries()].map(([id, geometry]) => ({
+    id,
+    label: edges.find(edge => edge.id === id)?.label ?? '',
+    points: geometry.points,
+    labelBox: geometry.labelBox,
+  }))
+  // Edge bodies crossing a node are a routing defect, not a label problem; they are
+  // reported by the same pass so one retry can fix both.
+  for (const issue of placementIssues({ nodes: nodeList, edges: provisionalEdges })) {
+    if (issue.rule === 'edge_through_node') issues.push(issue)
   }
 
   for (const box of [...nodeBoxes.values(), ...groupBoxes.values()]) {
@@ -360,12 +598,12 @@ export async function layoutView({ nodes, groups, edges, direction, onLayoutDone
     }
   }
   for (const [id, geometry] of edgeGeometry) {
-    for (const point of [...geometry.points, geometry.labelAt]) {
+    for (const point of [...geometry.points, geometry.labelBox]) {
       if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) {
         throw new DesignmapRefusal(REFUSALS.nonFiniteGeometry, 'layout produced non-finite edge geometry', { id, point })
       }
     }
   }
 
-  return { nodes: nodeBoxes, groups: groupBoxes, edges: edgeGeometry, ms, nodeCount: nodes.length }
+  return { nodes: nodeBoxes, groups: groupBoxes, edges: edgeGeometry, issues, ms, nodeCount: nodes.length }
 }

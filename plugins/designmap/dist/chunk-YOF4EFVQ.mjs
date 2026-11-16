@@ -7,7 +7,7 @@ import {
   sha256,
   sortById,
   toJson
-} from "./chunk-IJKYG2AC.mjs";
+} from "./chunk-LYKNJJ67.mjs";
 import {
   DesignmapRefusal,
   REFUSALS,
@@ -18,7 +18,7 @@ import {
   parseOps,
   parseViews,
   sceneSchema
-} from "./chunk-4ICSANU7.mjs";
+} from "./chunk-MQWKWIN2.mjs";
 
 // node_modules/elkjs/lib/elk-api.js
 var require_elk_api = __commonJS({
@@ -96708,6 +96708,48 @@ function labelLength(label) {
   return String(label ?? "").replace(/\r?\n/gu, " ").length;
 }
 var SHAPE_WIDTH_FACTOR = { datastore: 1.45, decision: 1.9 };
+var EDGE_LABEL_FONT_SIZE = 11;
+var EDGE_LABEL_LINE_HEIGHT = 15;
+var EDGE_LABEL_PAD_X = 9;
+var EDGE_LABEL_PAD_Y = 5;
+var EDGE_LABEL_MAX_TEXT_WIDTH = 90;
+var EDGE_LABEL_ADVANCE_EM = 0.62;
+function textWidth(text, fontSize) {
+  return String(text ?? "").length * fontSize * EDGE_LABEL_ADVANCE_EM;
+}
+function wrapEdgeLabel(label) {
+  const text = String(label ?? "").trim();
+  if (text === "") return [""];
+  if (textWidth(text, EDGE_LABEL_FONT_SIZE) <= EDGE_LABEL_MAX_TEXT_WIDTH) return [text];
+  const perLine = Math.max(1, Math.floor(EDGE_LABEL_MAX_TEXT_WIDTH / (EDGE_LABEL_FONT_SIZE * EDGE_LABEL_ADVANCE_EM)));
+  const words = text.split(/\s+/u);
+  const lines = [];
+  let current = "";
+  for (const word of words) {
+    const candidate = current === "" ? word : `${current} ${word}`;
+    if (current !== "" && candidate.length > perLine) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = candidate;
+    }
+    while (current.length > perLine) {
+      lines.push(current.slice(0, perLine));
+      current = current.slice(perLine);
+    }
+  }
+  if (current !== "") lines.push(current);
+  return lines.slice(0, MAX_LINES);
+}
+function edgeLabelSize(label) {
+  const lines = wrapEdgeLabel(label);
+  const widest = lines.reduce((max, line) => Math.max(max, textWidth(line, EDGE_LABEL_FONT_SIZE)), 0);
+  return {
+    w: Math.max(28, Math.ceil(widest) + EDGE_LABEL_PAD_X * 2),
+    h: lines.length * EDGE_LABEL_LINE_HEIGHT + EDGE_LABEL_PAD_Y * 2,
+    lines
+  };
+}
 function nodeSize(label, type = "service") {
   const lines = wrapLabel(label);
   const longest = lines.reduce((max, line) => Math.max(max, line.length), 0);
@@ -96760,13 +96802,116 @@ function fallbackPoints(fromBox, toBox) {
     { x: round2(toBox.x), y: round2(toBox.y + toBox.h / 2) }
   ];
 }
-function pointOnBoxBoundary(point, box, eps = 0.01) {
-  const onVertical = (Math.abs(point.x - box.x) <= eps || Math.abs(point.x - (box.x + box.w)) <= eps) && point.y >= box.y - eps && point.y <= box.y + box.h + eps;
-  const onHorizontal = (Math.abs(point.y - box.y) <= eps || Math.abs(point.y - (box.y + box.h)) <= eps) && point.x >= box.x - eps && point.x <= box.x + box.w + eps;
-  return onVertical || onHorizontal;
-}
 function pointInBox(point, box, margin = 0) {
   return point.x > box.x - margin && point.x < box.x + box.w + margin && point.y > box.y - margin && point.y < box.y + box.h + margin;
+}
+var LABEL_GAP = 2;
+function boxesOverlap(left, right, gap = 0) {
+  return left.x < right.x + right.w + gap && right.x < left.x + left.w + gap && left.y < right.y + right.h + gap && right.y < left.y + left.h + gap;
+}
+function segmentHitsBox(start, end, box, shrink = 0.5) {
+  const left = box.x + shrink;
+  const top = box.y + shrink;
+  const right = box.x + box.w - shrink;
+  const bottom = box.y + box.h - shrink;
+  if (right <= left || bottom <= top) return false;
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  let low = 0;
+  let high = 1;
+  const clip = (direction, distance) => {
+    if (direction === 0) return distance >= 0;
+    const ratio = distance / direction;
+    if (direction < 0) {
+      if (ratio > high) return false;
+      if (ratio > low) low = ratio;
+    } else {
+      if (ratio < low) return false;
+      if (ratio < high) high = ratio;
+    }
+    return true;
+  };
+  if (!clip(-dx, start.x - left)) return false;
+  if (!clip(dx, right - start.x)) return false;
+  if (!clip(-dy, start.y - top)) return false;
+  if (!clip(dy, bottom - start.y)) return false;
+  return high > low;
+}
+function labelBoxOf(edge) {
+  const box = edge.labelBox;
+  if (box !== void 0 && box !== null && [box.x, box.y, box.w, box.h].every(Number.isFinite)) return box;
+  const size = edgeLabelSize(edge.label ?? "");
+  const at = edge.labelAt ?? { x: 0, y: 0 };
+  return { x: at.x, y: at.y, w: size.w, h: size.h };
+}
+function placementIssues({ nodes, edges }) {
+  const issues = [];
+  const labelled = edges.filter((edge) => String(edge.label ?? "") !== "");
+  const boxes = labelled.map((edge) => ({ id: edge.id, box: labelBoxOf(edge) }));
+  for (const entry of boxes) {
+    for (const node of nodes) {
+      if (boxesOverlap(entry.box, node, LABEL_GAP)) {
+        issues.push({ rule: "label_over_node", fields: { id: entry.id, nodeId: node.id, nodes: [node.id] } });
+      }
+    }
+  }
+  for (let left = 0; left < boxes.length; left += 1) {
+    for (let right = left + 1; right < boxes.length; right += 1) {
+      if (boxesOverlap(boxes[left].box, boxes[right].box, LABEL_GAP)) {
+        issues.push({ rule: "label_label_overlap", fields: { ids: [boxes[left].id, boxes[right].id] } });
+      }
+    }
+  }
+  for (const edge of edges) {
+    const points = edge.points ?? [];
+    for (let index = 1; index < points.length; index += 1) {
+      for (const node of nodes) {
+        if (segmentHitsBox(points[index - 1], points[index], node)) {
+          issues.push({ rule: "edge_through_node", fields: { id: edge.id, nodeId: node.id } });
+        }
+      }
+    }
+  }
+  return issues;
+}
+function samplePolyline(points, step = 6) {
+  if (points.length === 0) return [];
+  const samples = [];
+  for (let index = 1; index < points.length; index += 1) {
+    const from = points[index - 1];
+    const to = points[index];
+    const length = Math.hypot(to.x - from.x, to.y - from.y);
+    const count = Math.max(2, Math.ceil(length / step));
+    for (let offset = 0; offset < count; offset += 1) {
+      const ratio = offset / count;
+      samples.push({ x: from.x + (to.x - from.x) * ratio, y: from.y + (to.y - from.y) * ratio });
+    }
+  }
+  samples.push({ ...points[points.length - 1] });
+  return samples;
+}
+function placeEdgeLabel({ points = [], preferred = null, size, obstacles }) {
+  const width = size.w;
+  const height = size.h;
+  const candidates = [];
+  const offer = (x, y) => candidates.push({ x: round2(x), y: round2(y) });
+  if (preferred !== null) {
+    offer(preferred.x, preferred.y);
+    offer(preferred.x, preferred.y - (height + 6));
+    offer(preferred.x, preferred.y + (height + 6));
+  }
+  const anchor = preferred === null ? polylineMidpoint(points) : { x: preferred.x + width / 2, y: preferred.y + height / 2 };
+  const samples = samplePolyline(points).sort((left, right) => Math.hypot(left.x - anchor.x, left.y - anchor.y) - Math.hypot(right.x - anchor.x, right.y - anchor.y));
+  for (const sample of samples) {
+    offer(sample.x - width / 2, sample.y - height - 3);
+    offer(sample.x - width / 2, sample.y + 3);
+  }
+  if (candidates.length === 0) candidates.push({ x: anchor.x, y: anchor.y });
+  for (const candidate of candidates) {
+    const box = { x: round2(candidate.x), y: round2(candidate.y), w: width, h: height };
+    if (obstacles.every((obstacle) => !boxesOverlap(box, obstacle, LABEL_GAP))) return box;
+  }
+  return null;
 }
 function snapPointToBox(box, point, toward) {
   const centreX = box.x + box.w / 2;
@@ -96855,17 +97000,36 @@ function placeLabelOutside(points, boxes, label) {
 function edgeLabelAnchor(points, label) {
   return placeLabelOutside(points, [], label).labelAt;
 }
-function buildElkGraph({ nodes, groups, edges, direction }) {
+var DEFAULT_SPACING = Object.freeze({
+  nodeNode: 24,
+  edgeNode: 8,
+  edgeEdge: 4,
+  betweenLayers: 12,
+  groupNodeNode: 16,
+  groupBetweenLayers: 20
+});
+var SPACING_SCALES = Object.freeze([1, 1.45, 2]);
+function scaledSpacing(scale) {
+  const scaled = {};
+  for (const [key, value] of Object.entries(DEFAULT_SPACING)) scaled[key] = round2(value * scale);
+  return scaled;
+}
+function buildElkGraph({ nodes, groups, edges, direction, labelSizes = /* @__PURE__ */ new Map(), spacing = DEFAULT_SPACING }) {
   const graph = {
     id: "root",
     layoutOptions: {
       "elk.algorithm": "layered",
       "elk.direction": direction === "TB" ? "DOWN" : "RIGHT",
       "elk.hierarchyHandling": "INCLUDE_CHILDREN",
-      "elk.spacing.nodeNode": "32",
-      "elk.spacing.edgeNode": "16",
-      "elk.spacing.edgeEdge": "8",
-      "elk.layered.spacing.nodeNodeBetweenLayers": "48",
+      "elk.spacing.nodeNode": String(spacing.nodeNode),
+      "elk.spacing.edgeNode": String(spacing.edgeNode),
+      "elk.spacing.edgeEdge": String(spacing.edgeEdge),
+      "elk.layered.spacing.nodeNodeBetweenLayers": String(spacing.betweenLayers),
+      // Label space is reserved by ELK itself: the edge carries a label of the plate's
+      // real size, and layered layout widens the corridor between layers to fit it.
+      "elk.spacing.labelNode": "8",
+      "elk.spacing.labelEdge": "4",
+      "elk.spacing.labelLabel": "4",
       "elk.padding": "[top=8,left=8,bottom=8,right=8]"
     },
     children: [],
@@ -96889,8 +97053,8 @@ function buildElkGraph({ nodes, groups, edges, direction }) {
         // The band reserves room for its label: the renderer draws it at the top-left
         // of the box, so the padding is a contract of the geometry, not a style value.
         "elk.padding": "[top=34,left=16,bottom=16,right=16]",
-        "elk.spacing.nodeNode": "24",
-        "elk.layered.spacing.nodeNodeBetweenLayers": "40"
+        "elk.spacing.nodeNode": String(spacing.groupNodeNode),
+        "elk.layered.spacing.nodeNodeBetweenLayers": String(spacing.groupBetweenLayers)
       },
       children: members.get(group.id).map((node) => entries.get(node.id))
     });
@@ -96903,22 +97067,28 @@ function buildElkGraph({ nodes, groups, edges, direction }) {
     if (edge.from === edge.to) continue;
     const sourcePort = attachPorts(source, edge, "src", direction);
     const targetPort = attachPorts(target, edge, "tgt", direction);
+    const size = labelSizes.get(edge.id);
     graph.edges.push({
       id: edge.id,
       sources: [sourcePort],
-      targets: [targetPort]
+      targets: [targetPort],
+      // The plate's REAL size goes to ELK. This is what makes the layout reserve room:
+      // without it the label is placed afterwards into a corridor it cannot fit.
+      // `text` is load-bearing: elkjs 0.12.1 reserves space for a label without text but
+      // returns (0,0) as its position, which would drop every plate at the canvas origin.
+      ...size === void 0 ? {} : { labels: [{ id: `${edge.id}:label`, text: edge.label, width: size.w, height: size.h }] }
     });
   }
   return graph;
 }
-async function layoutView({ nodes, groups, edges, direction, onLayoutDone }) {
+async function layoutView({ nodes, groups, edges, direction, labelSizes = /* @__PURE__ */ new Map(), spacingScale = 1, onLayoutDone }) {
   const started = performance.now();
   if (nodes.length === 0) {
     const ms2 = performance.now() - started;
     onLayoutDone?.({ ms: round2(ms2), nodes: 0 });
-    return { nodes: /* @__PURE__ */ new Map(), groups: /* @__PURE__ */ new Map(), edges: /* @__PURE__ */ new Map(), ms: ms2, nodeCount: 0 };
+    return { nodes: /* @__PURE__ */ new Map(), groups: /* @__PURE__ */ new Map(), edges: /* @__PURE__ */ new Map(), issues: [], ms: ms2, nodeCount: 0 };
   }
-  const graph = buildElkGraph({ nodes, groups, edges, direction });
+  const graph = buildElkGraph({ nodes, groups, edges, direction, labelSizes, spacing: scaledSpacing(spacingScale) });
   const result = await elk.layout(graph);
   const ms = performance.now() - started;
   onLayoutDone?.({ ms: round2(ms), nodes: nodes.length });
@@ -96982,8 +97152,38 @@ async function layoutView({ nodes, groups, edges, direction, onLayoutDone }) {
     }
     const rounded = points.map((point) => ({ x: round2(point.x), y: round2(point.y) }));
     const snapped = snapEdgeToBoxes(rounded, sourceBox, targetBox);
-    const { labelAt } = placeLabelOutside(snapped, [...nodeBoxes.values()], edge.label);
-    edgeGeometry.set(edge.id, { points: snapped, labelAt });
+    edgeGeometry.set(edge.id, { points: snapped });
+  }
+  const issues = [];
+  const nodeList = [...nodeBoxes.entries()].map(([id, box]) => ({ id, ...box }));
+  const obstacles = [...nodeBoxes.values()];
+  for (const edge of [...edges].sort((left, right) => left.id < right.id ? -1 : 1)) {
+    const geometry = edgeGeometry.get(edge.id);
+    if (geometry === void 0) continue;
+    const size = labelSizes.get(edge.id) ?? edgeLabelSize(edge.label ?? "");
+    const box = placeEdgeLabel({ points: geometry.points, preferred: geometry.preferred, size, obstacles });
+    if (box === null) {
+      const fallback = geometry.preferred ?? {
+        x: round2(polylineMidpoint(geometry.points).x - size.w / 2),
+        y: round2(polylineMidpoint(geometry.points).y - size.h / 2),
+        w: size.w,
+        h: size.h
+      };
+      geometry.labelBox = { x: round2(fallback.x), y: round2(fallback.y), w: size.w, h: size.h };
+      issues.push({ rule: "label_collision", fields: { id: edge.id, edgeId: edge.id, box: geometry.labelBox } });
+    } else {
+      geometry.labelBox = box;
+      obstacles.push(box);
+    }
+  }
+  const provisionalEdges = [...edgeGeometry.entries()].map(([id, geometry]) => ({
+    id,
+    label: edges.find((edge) => edge.id === id)?.label ?? "",
+    points: geometry.points,
+    labelBox: geometry.labelBox
+  }));
+  for (const issue of placementIssues({ nodes: nodeList, edges: provisionalEdges })) {
+    if (issue.rule === "edge_through_node") issues.push(issue);
   }
   for (const box of [...nodeBoxes.values(), ...groupBoxes.values()]) {
     for (const value of [box.x, box.y, box.w, box.h]) {
@@ -96993,13 +97193,13 @@ async function layoutView({ nodes, groups, edges, direction, onLayoutDone }) {
     }
   }
   for (const [id, geometry] of edgeGeometry) {
-    for (const point of [...geometry.points, geometry.labelAt]) {
+    for (const point of [...geometry.points, geometry.labelBox]) {
       if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) {
         throw new DesignmapRefusal(REFUSALS.nonFiniteGeometry, "layout produced non-finite edge geometry", { id, point });
       }
     }
   }
-  return { nodes: nodeBoxes, groups: groupBoxes, edges: edgeGeometry, ms, nodeCount: nodes.length };
+  return { nodes: nodeBoxes, groups: groupBoxes, edges: edgeGeometry, issues, ms, nodeCount: nodes.length };
 }
 
 // src/lint.mjs
@@ -97016,9 +97216,13 @@ var LINT_RULES = Object.freeze({
   colour_out_of_palette: { severity: "info", message: "an overlay colour is outside the palette" },
   view_too_large: { severity: "error", message: "the view has more than 25 nodes" },
   view_large: { severity: "warning", message: "the view has more than 15 nodes" },
-  // Defensive rule added with the F1 geometry fix: an anchor inside a node box means
-  // label placement was impossible (overlapping boxes) and the regression must be visible.
-  label_over_node: { severity: "warning", message: "an edge label anchor falls inside a node box" }
+  // Defensive rules added with the readability fix: a plate is a rectangle, so it can
+  // collide even when its anchor point is outside every box; an edge body can cross a
+  // node. Layout refuses these before a write, but the scene lint must see them too
+  // (after a human's overlay move the same geometry is only a warning).
+  label_over_node: { severity: "warning", message: "an edge label plate overlaps a node box" },
+  label_label_overlap: { severity: "warning", message: "two edge label plates overlap" },
+  edge_through_node: { severity: "warning", message: "an edge body passes through a node box" }
 });
 function finding(rule, fields = {}) {
   const definition = LINT_RULES[rule];
@@ -97068,7 +97272,7 @@ function lintModel(model, views = { views: [] }) {
   }
   return sortFindings(findings);
 }
-function boxesOverlap(left, right) {
+function boxesOverlap2(left, right) {
   return left.x < right.x + right.w && right.x < left.x + left.w && left.y < right.y + right.h && right.y < left.y + left.h;
 }
 function lintScene(scene, { merge = { gc: [] }, staleNodeIds = [] } = {}) {
@@ -97086,15 +97290,14 @@ function lintScene(scene, { merge = { gc: [] }, staleNodeIds = [] } = {}) {
   }
   for (const edge of scene.edges) {
     if (edge.label === "") findings.push(finding("edge_label_missing", { id: edge.id }));
-    const covered = scene.nodes.filter((node) => pointInBox(edge.labelAt, node) || pointOnBoxBoundary(edge.labelAt, node));
-    if (covered.length > 0) {
-      findings.push(finding("label_over_node", { id: edge.id, nodes: covered.map((node) => node.id), nodeId: covered[0].id }));
-    }
+  }
+  for (const issue of placementIssues({ nodes: scene.nodes, edges: scene.edges })) {
+    findings.push(finding(issue.rule, issue.fields));
   }
   const nodes = [...scene.nodes].sort((left, right) => left.id < right.id ? -1 : 1);
   for (let left = 0; left < nodes.length; left += 1) {
     for (let right = left + 1; right < nodes.length; right += 1) {
-      if (boxesOverlap(nodes[left], nodes[right])) {
+      if (boxesOverlap2(nodes[left], nodes[right])) {
         findings.push(finding("node_overlap", { ids: [nodes[left].id, nodes[right].id] }));
       }
     }
@@ -97137,12 +97340,12 @@ function severityOf(rule) {
 
 // src/palette.mjs
 var PALETTE = Object.freeze({
-  frontend: { fill: "#dbeafe", stroke: "#2563eb" },
-  service: { fill: "#e0e7ff", stroke: "#4338ca" },
-  worker: { fill: "#dcfce7", stroke: "#16a34a" },
-  datastore: { fill: "#fef3c7", stroke: "#d97706" },
-  queue: { fill: "#fce7f3", stroke: "#db2777" },
-  external: { fill: "#f1f5f9", stroke: "#64748b" }
+  frontend: { fill: "#bfdbfe", stroke: "#1d4ed8" },
+  service: { fill: "#c7d2fe", stroke: "#4338ca" },
+  worker: { fill: "#bbf7d0", stroke: "#15803d" },
+  datastore: { fill: "#fde68a", stroke: "#b45309" },
+  queue: { fill: "#fbcfe8", stroke: "#be185d" },
+  external: { fill: "#e2e8f0", stroke: "#475569" }
 });
 var PALETTE_COLOURS = Object.freeze(
   [...new Set(Object.values(PALETTE).flatMap((entry) => [entry.fill, entry.stroke]))]
@@ -97249,7 +97452,18 @@ function reattachEdges(nodes, edges, overlaidIds) {
 }
 function recomputeCanvas(nodes, groups, edges) {
   const boxes = [...nodes, ...groups];
-  const points = [...edges].flatMap((edge) => [...edge.points, edge.labelAt]);
+  const points = [];
+  for (const edge of edges) {
+    points.push(...edge.points);
+    if (edge.labelBox !== void 0) {
+      points.push(
+        { x: edge.labelBox.x, y: edge.labelBox.y },
+        { x: edge.labelBox.x + edge.labelBox.w, y: edge.labelBox.y + edge.labelBox.h }
+      );
+    } else if (edge.labelAt !== void 0) {
+      points.push(edge.labelAt);
+    }
+  }
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
@@ -97283,7 +97497,9 @@ var REFUSAL_BY_RULE = Object.freeze({
   non_finite_geometry: REFUSALS.nonFiniteGeometry,
   edge_label_missing: REFUSALS.missingEdgeLabel,
   orphan_node: REFUSALS.orphanNode,
-  view_too_large: REFUSALS.viewTooLarge
+  view_too_large: REFUSALS.viewTooLarge,
+  label_collision: REFUSALS.labelCollision,
+  edge_through_node: REFUSALS.edgeThroughNode
 });
 function matchesPattern(pattern, id) {
   if (pattern === "*") return true;
@@ -97323,13 +97539,34 @@ async function renderView({ model, views, overlays = {}, viewId, staleNodeIds = 
     });
   }
   const selected = selectView(model, view);
-  const layout = await layoutView({
-    nodes: selected.nodes.map((node) => ({ id: node.id, label: node.label, group: node.group ?? null, type: node.type })),
-    groups: selected.groups.map((group) => ({ id: group.id, label: group.label })),
-    edges: selected.edges.map((edge) => ({ id: edge.id, from: edge.from, to: edge.to, kind: edge.kind, label: edge.label })),
-    direction: view.direction,
-    onLayoutDone: ({ ms, nodes }) => logger?.log("layout.done", { ms, nodes, viewId })
-  });
+  const labelSizes = new Map(selected.edges.map((edge) => [edge.id, edgeLabelSize(edge.label)]));
+  let layout = null;
+  for (const spacingScale of SPACING_SCALES) {
+    layout = await layoutView({
+      nodes: selected.nodes.map((node) => ({ id: node.id, label: node.label, group: node.group ?? null, type: node.type })),
+      groups: selected.groups.map((group) => ({ id: group.id, label: group.label })),
+      edges: selected.edges.map((edge) => ({ id: edge.id, from: edge.from, to: edge.to, kind: edge.kind, label: edge.label })),
+      direction: view.direction,
+      labelSizes,
+      spacingScale,
+      onLayoutDone: ({ ms, nodes }) => logger?.log("layout.done", { ms, nodes, viewId, spacingScale })
+    });
+    if (layout.issues.length === 0) break;
+    logger?.log("layout.retry", {
+      viewId,
+      spacingScale,
+      issues: layout.issues.length,
+      rules: [...new Set(layout.issues.map((entry) => entry.rule))].sort()
+    });
+  }
+  if (layout.issues.length > 0) {
+    const blocking2 = layout.issues.find((entry) => entry.rule === "label_collision");
+    throw new DesignmapRefusal(
+      REFUSAL_BY_RULE[blocking2?.rule] ?? REFUSALS.labelCollision,
+      blocking2 === void 0 ? "layout could not route an edge without crossing a node" : "layout could not place every edge label without a collision",
+      { viewId, issues: layout.issues, spacingScale: SPACING_SCALES.at(-1) }
+    );
+  }
   const stale = new Set(staleNodeIds);
   const sceneNodes = sortById(selected.nodes.map((node) => {
     const box = layout.nodes.get(node.id) ?? { x: 0, y: 0, ...nodeSize(node.label) };
@@ -97351,24 +97588,33 @@ async function renderView({ model, views, overlays = {}, viewId, staleNodeIds = 
     return { id: group.id, label: group.label ?? "", x: round2(box.x), y: round2(box.y), w: round2(box.w), h: round2(box.h) };
   }));
   const sceneEdges = sortById(selected.edges.map((edge) => {
-    const geometry = layout.edges.get(edge.id) ?? { points: [], labelAt: { x: 0, y: 0 } };
+    const geometry = layout.edges.get(edge.id) ?? { points: [], labelBox: { x: 0, y: 0, w: 0, h: 0 } };
+    const labelBox = geometry.labelBox ?? { x: 0, y: 0, w: 0, h: 0 };
     return {
       id: edge.id,
       from: edge.from,
       to: edge.to,
       kind: edge.kind,
       label: edge.label ?? "",
+      labelLines: (labelSizes.get(edge.id) ?? edgeLabelSize(edge.label ?? "")).lines,
       points: geometry.points,
-      labelAt: geometry.labelAt
+      labelBox,
+      // Compatibility anchor: the plate's top-left corner. New consumers use labelBox.
+      labelAt: { x: labelBox.x, y: labelBox.y }
     };
   }));
   const merge = mergeOverlays(sceneNodes, overlays);
   const mergedNodes = sortById(merge.nodes);
   const reattachedEdges = reattachEdges(mergedNodes, sceneEdges, new Set(merge.rows.keys()));
-  const mergedEdges = reattachedEdges.map((edge) => ({
-    ...edge,
-    labelAt: placeLabelOutside(edge.points, mergedNodes, edge.label).labelAt
-  }));
+  const mergedEdges = [];
+  const labelObstacles = [...mergedNodes];
+  for (const edge of reattachedEdges) {
+    const size = labelSizes.get(edge.id) ?? edgeLabelSize(edge.label);
+    const placed = placeEdgeLabel({ points: edge.points, preferred: edge.labelBox, size, obstacles: labelObstacles });
+    const labelBox = placed ?? { ...edge.labelBox, w: size.w, h: size.h };
+    if (placed !== null) labelObstacles.push(placed);
+    mergedEdges.push({ ...edge, labelBox, labelAt: { x: labelBox.x, y: labelBox.y } });
+  }
   const canvas = recomputeCanvas(mergedNodes, sceneGroups, mergedEdges);
   const scene = {
     schemaVersion: 1,
@@ -97552,7 +97798,11 @@ export {
   wrapLabel,
   sceneLabel,
   labelLength,
+  EDGE_LABEL_FONT_SIZE,
+  EDGE_LABEL_LINE_HEIGHT,
+  wrapEdgeLabel,
   nodeSize,
+  labelBoxOf,
   buildElkGraph,
   layoutView,
   LINT_RULES,

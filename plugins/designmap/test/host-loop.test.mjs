@@ -16,10 +16,11 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createHostService, createFileLogger } from '../src/host.mjs'
+import { PALETTE } from '../src/palette.mjs'
 import { createHostTools } from '../src/tools.mjs'
 import { makeRepo, stubDefineTool } from './host-helpers.mjs'
 
-const OVERLAYS = { $version: 1, 'svc.checkout.api': { x: 40, y: 30, fill: '#2563eb', stroke: '#4338ca' } }
+const OVERLAYS = { $version: 1, 'svc.checkout.api': { x: 40, y: 30, fill: PALETTE.frontend.stroke, stroke: PALETTE.frontend.stroke } }
 
 test('living-doc loop on a real edit: status -> scan -> apply -> render -> lint, overlay survives', async () => {
   const repo = makeRepo({ overlays: OVERLAYS })
@@ -108,7 +109,7 @@ test('living-doc loop on a real edit: status -> scan -> apply -> render -> lint,
     assert.deepEqual(exported.colours, ['svc.checkout.api'])
     const svg = readFileSync(join(repo.root, exported.svgPath), 'utf8')
     assert.match(svg, /<rect x="40" y="30" width="140"/u)
-    assert.ok(svg.includes('fill="#2563eb"'))
+    assert.ok(svg.includes(`fill="${PALETTE.frontend.stroke}"`))
     assert.ok(svg.includes('refund'))
 
     // 8. Every step is visible in the JSONL log.

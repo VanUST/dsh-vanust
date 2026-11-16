@@ -22,7 +22,7 @@
  * `warning`/`info` render and are reported.
  */
 import { labelLength } from './text.mjs'
-import { pointInBox, pointOnBoxBoundary } from './layout.mjs'
+import { placementIssues } from './layout.mjs'
 
 export const LINT_RULES = Object.freeze({
   duplicate_id: { severity: 'error', message: 'the same semantic id is declared twice' },
@@ -37,9 +37,13 @@ export const LINT_RULES = Object.freeze({
   colour_out_of_palette: { severity: 'info', message: 'an overlay colour is outside the palette' },
   view_too_large: { severity: 'error', message: 'the view has more than 25 nodes' },
   view_large: { severity: 'warning', message: 'the view has more than 15 nodes' },
-  // Defensive rule added with the F1 geometry fix: an anchor inside a node box means
-  // label placement was impossible (overlapping boxes) and the regression must be visible.
-  label_over_node: { severity: 'warning', message: 'an edge label anchor falls inside a node box' },
+  // Defensive rules added with the readability fix: a plate is a rectangle, so it can
+  // collide even when its anchor point is outside every box; an edge body can cross a
+  // node. Layout refuses these before a write, but the scene lint must see them too
+  // (after a human's overlay move the same geometry is only a warning).
+  label_over_node: { severity: 'warning', message: 'an edge label plate overlaps a node box' },
+  label_label_overlap: { severity: 'warning', message: 'two edge label plates overlap' },
+  edge_through_node: { severity: 'warning', message: 'an edge body passes through a node box' },
 })
 
 function finding(rule, fields = {}) {
@@ -118,12 +122,12 @@ export function lintScene(scene, { merge = { gc: [] }, staleNodeIds = [] } = {})
   }
   for (const edge of scene.edges) {
     if (edge.label === '') findings.push(finding('edge_label_missing', { id: edge.id }))
-    // The anchor must be clearly outside: touching a side counts as covered, because the
-    // fallback emits the polyline midpoint there when no free span exists.
-    const covered = scene.nodes.filter(node => pointInBox(edge.labelAt, node) || pointOnBoxBoundary(edge.labelAt, node))
-    if (covered.length > 0) {
-      findings.push(finding('label_over_node', { id: edge.id, nodes: covered.map(node => node.id), nodeId: covered[0].id }))
-    }
+  }
+  // The plate's rectangle and the edge's body are what the human sees; test those, not
+  // the anchor point (which is why the previous validator reported a clean map while
+  // five of nine labels sat inside boxes).
+  for (const issue of placementIssues({ nodes: scene.nodes, edges: scene.edges })) {
+    findings.push(finding(issue.rule, issue.fields))
   }
   const nodes = [...scene.nodes].sort((left, right) => (left.id < right.id ? -1 : 1))
   for (let left = 0; left < nodes.length; left += 1) {

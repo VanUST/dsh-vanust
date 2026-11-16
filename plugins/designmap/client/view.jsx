@@ -108,41 +108,57 @@ function SceneEdge({ id, data, markerEnd, style }) {
   )
 }
 
-function Legend({ scene, editor, editMode }) {
+function Legend({ scene, editMode, zoom, onFit }) {
   const nodeTypes = legendNodeTypes(scene)
   const edgeKinds = legendEdgeKinds(scene)
+  const nodeCounts = React.useMemo(() => {
+    const counts = new Map()
+    for (const node of scene.nodes) counts.set(node.type, (counts.get(node.type) ?? 0) + 1)
+    return counts
+  }, [scene])
+  const edgeCounts = React.useMemo(() => {
+    const counts = new Map()
+    for (const edge of scene.edges) counts.set(edge.kind, (counts.get(edge.kind) ?? 0) + 1)
+    return counts
+  }, [scene])
   return (
-    <aside className="dmv-legend" aria-label={editor === null ? 'Legend' : 'Legend and node editor'}>
-      <h2>Legend</h2>
-      <ul>
+    <div className="dmv-legend-bar" role="group" aria-label="Legend">
+      <span className="dmv-legend-title">Legend</span>
+      <ul className="dmv-legend-group">
         {nodeTypes.map((type) => {
           const look = paletteFor(type)
-          const shape = type === 'datastore' ? 'ellipse' : type === 'external' ? 'dashed' : ''
+          const shape = type === 'datastore' ? 'ellipse' : type === 'external' ? 'dashed' : type === 'decision' ? 'diamond' : ''
           return (
-            <li key={type}>
-              <span className={`swatch ${shape}`} style={{ background: look.fill, borderColor: look.stroke }} />
-              {type}
-            </li>
-          )
-        })}
-        {edgeKinds.map((kind) => {
-          const look = edgeStyleFor(kind)
-          const lineStyle = kind === 'async' ? 'dashed' : kind === 'data' ? 'dotted' : 'solid'
-          return (
-            <li key={kind}>
-              <span className="line" style={{ borderTopColor: look.stroke, borderTopStyle: lineStyle }} />
-              {kind}
+            <li key={type} className="dmv-legend-item">
+              <span className={`dmv-glyph ${shape}`} style={{ background: look.fill, borderColor: look.stroke }} aria-hidden="true" />
+              <span>{type}</span>
+              <b>{nodeCounts.get(type) ?? 0}</b>
             </li>
           )
         })}
       </ul>
-      <p className="hint">
-        {editMode
-          ? 'Drag a node or click to select it; arrow keys nudge 8 px. Changes save after 500 ms.'
-          : 'Double-click a group to open it. Click a node to open its source.'}
-      </p>
-      {editor}
-    </aside>
+      <span className="dmv-legend-sep" aria-hidden="true" />
+      <ul className="dmv-legend-group">
+        {edgeKinds.map((kind) => {
+          const look = edgeStyleFor(kind)
+          const lineStyle = kind === 'async' ? 'dashed' : kind === 'data' ? 'dotted' : 'solid'
+          return (
+            <li key={kind} className="dmv-legend-item">
+              <span className="dmv-wire" style={{ borderTopColor: look.stroke, borderTopStyle: lineStyle }} aria-hidden="true" />
+              <span>{kind}</span>
+              <b>{edgeCounts.get(kind) ?? 0}</b>
+            </li>
+          )
+        })}
+      </ul>
+      <span className="dmv-spacer" />
+      {editMode ? <span className="dmv-legend-hint">drag a node to move it</span> : null}
+      {onFit === undefined ? null : (
+        <button type="button" className="dmv-btn dmv-fit" onClick={onFit} title="Fit the whole map in the canvas">
+          ⤢ Fit{Number.isFinite(zoom) ? ` · ${zoom.toFixed(2)}×` : ''}
+        </button>
+      )}
+    </div>
   )
 }
 
@@ -246,6 +262,9 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
   const [query, setQuery] = React.useState('')
   const [status, setStatus] = React.useState(null)
   const [zoom, setZoom] = React.useState(1)
+  const [zoomSource, setZoomSource] = React.useState('flow')
+  const [fitSignal, setFitSignal] = React.useState(0)
+  const [look, setLook] = React.useState(null)
   const [editMode, setEditMode] = React.useState(false)
   const [selectedId, setSelectedId] = React.useState(null)
   const [positions, setPositions] = React.useState({})
@@ -254,6 +273,47 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
   // The Excalidraw canvas is the drawing surface; React Flow stays as the fallback when
   // the frame cannot load, so a frame failure degrades to a working read-only map.
   const [canvasFailed, setCanvasFailed] = React.useState(false)
+  const rootRef = React.useRef(null)
+
+  /** The canvas is a separate document: its colours come from the panel's live theme. */
+  React.useEffect(() => {
+    const read = () => {
+      const element = rootRef.current
+      if (element === null) return
+      const styles = getComputedStyle(element)
+      const pick = (name, fallback) => (styles.getPropertyValue(name) ?? '').trim() || fallback
+      const next = {
+        surface: pick('--dmv-surface', '#ffffff'),
+        surface2: pick('--dmv-surface-2', '#f8fafc'),
+        ink: pick('--dmv-ink', '#0f172a'),
+        muted: pick('--dmv-muted', '#475569'),
+        line: pick('--dmv-line', '#e2e8f0'),
+      }
+      setLook((previous) => (previous !== null
+        && previous.surface === next.surface
+        && previous.surface2 === next.surface2
+        && previous.ink === next.ink
+        && previous.muted === next.muted
+        && previous.line === next.line
+        ? previous
+        : next))
+    }
+    read()
+    const media = window.matchMedia?.('(prefers-color-scheme: dark)')
+    media?.addEventListener?.('change', read)
+    const observer = typeof MutationObserver === 'undefined' ? null : new MutationObserver(read)
+    observer?.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme', 'style'] })
+    return () => {
+      media?.removeEventListener?.('change', read)
+      observer?.disconnect()
+    }
+  }, [])
+
+  const onCanvasViewport = React.useCallback((viewport) => {
+    if (!Number.isFinite(viewport?.zoom)) return
+    setZoom(viewport.zoom)
+    setZoomSource('canvas')
+  }, [])
   const onCanvasDelta = React.useCallback(
     async (delta) => {
       for (const [nodeId, row] of Object.entries(delta)) {
@@ -400,10 +460,16 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
   const matchIds = React.useMemo(() => new Set(matches.map((node) => node.id)), [matches])
 
   const fit = React.useCallback(() => {
+    // The canvas frames itself from the scene's canvas box; React Flow only exists as the
+    // fallback, so the same control drives whichever surface is mounted.
+    if (!canvasFailed) {
+      setFitSignal((value) => value + 1)
+      return
+    }
     const instance = flowRef.current
     if (instance === null) return
     requestAnimationFrame(() => instance.fitView({ padding: 0.16, maxZoom: 1.5, duration: 0 }))
-  }, [])
+  }, [canvasFailed])
 
   React.useEffect(() => {
     fit()
@@ -1038,7 +1104,7 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
     : 'Read-only. Click a node to open its source; double-click a group to drill in.'
 
   return (
-    <div className="dmv" data-edit-mode={editMode ? 'true' : 'false'}>
+    <div className="dmv" data-edit-mode={editMode ? 'true' : 'false'} ref={rootRef}>
       <header className="dmv-top">
         <div className="dmv-ident">
           <h1 className="dmv-title">{title}</h1>
@@ -1053,6 +1119,24 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
           {pendingCount > 0 ? <span className="dmv-chip pending" role="status">saving {pendingCount}…</span> : null}
         </div>
         <span className="dmv-spacer" />
+        {sceneSet !== null && sceneSet.views.length > 1 ? (
+          <label className="dmv-viewswitch">
+            <span className="dmv-visually-hidden">View</span>
+            <select
+              value={scene.viewId}
+              onChange={(event) => {
+                const target = sceneSet.views.find((entry) => entry.view.viewId === event.target.value)
+                if (target !== undefined) navigate(target.view)
+              }}
+            >
+              {sceneSet.views.map((entry) => (
+                <option key={entry.view.viewId} value={entry.view.viewId}>
+                  {entry.view.title || entry.view.viewId}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         <div className="dmv-actions">
           {canWrite ? (
             <button type="button" className={`dmv-btn${editMode ? ' primary' : ''}`} aria-pressed={editMode} onClick={toggleEdit}>
@@ -1089,7 +1173,9 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
           </span>
         </div>
       </header>
-      <Breadcrumb history={historyForBar} onNavigate={navigate} />
+      {/* One crumb is the view title the header already shows; the bar earns its row
+          only when a drill-down path exists. */}
+      {historyForBar.length > 1 ? <Breadcrumb history={historyForBar} onNavigate={navigate} /> : null}
       <h2 className="dmv-visually-hidden">{canvasLabel}</h2>
       <section className="dmv-stage" aria-label="Design map canvas">
         <div className="dmv-flow" onDoubleClick={onStageDoubleClick}>
@@ -1103,8 +1189,11 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
               scene={scene}
               overlays={overlays}
               editMode={editMode}
+              look={look}
+              fitSignal={fitSignal}
               onDelta={onCanvasDelta}
               onFallback={() => setCanvasFailed(true)}
+              onViewport={onCanvasViewport}
             />
           ) : (
             <ReactFlow
@@ -1148,24 +1237,26 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
             </ReactFlow>
           )}
         </div>
-        <Legend
-          scene={scene}
-          editMode={editMode}
-          editor={
-            editMode ? (
-              <NodeInspector
-                node={selectedNode}
-                colours={selectedColours}
-                overlayRow={selectedRow}
-                pending={pendingCount > 0}
-                onColour={(type) => changeColour(selectedNode, type)}
-                onReset={resetNode}
-                onOpen={() => (selectedNode === null ? undefined : openSource(selectedNode))}
-              />
-            ) : null
-          }
-        />
+        {editMode && !canvasFailed ? (
+          <div className="dmv-inspector-pop">
+            <NodeInspector
+              node={selectedNode}
+              colours={selectedColours}
+              overlayRow={selectedRow}
+              pending={pendingCount > 0}
+              onColour={(type) => changeColour(selectedNode, type)}
+              onReset={resetNode}
+              onOpen={() => (selectedNode === null ? undefined : openSource(selectedNode))}
+            />
+          </div>
+        ) : null}
       </section>
+      <Legend
+        scene={scene}
+        editMode={editMode}
+        zoom={zoom}
+        onFit={fit}
+      />
       <div className="dmv-status" data-kind={status?.kind ?? 'idle'} role={status?.kind === 'error' ? 'alert' : 'status'}>
         {status === null ? (
           <span>{defaultStatus}</span>
@@ -1176,7 +1267,7 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
           </span>
         )}
         <span className="dmv-spacer" />
-        <span>zoom {zoom.toFixed(2)}</span>
+        <span title={zoomSource === 'canvas' ? 'current Excalidraw canvas zoom' : 'current React Flow zoom'}>zoom {zoom.toFixed(2)}</span>
       </div>
       <footer className="dmv-foot">
         <dl>

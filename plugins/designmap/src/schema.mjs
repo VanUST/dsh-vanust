@@ -154,7 +154,14 @@ export const sceneSchema = z.strictObject({
     to: ID,
     kind: z.enum(EDGE_KINDS),
     label: z.string(),
+    // The wrapped lines the plate draws: core owns the wrap, so the renderer never
+    // re-measures or re-wraps the text it shows.
+    labelLines: z.array(z.string()),
     points: z.array(pointSchema),
+    // The plate the renderer draws: core owns both its size and its place, so the
+    // validator can see exactly what is drawn. `labelAt` is the plate's top-left corner,
+    // kept for older consumers and for the SVG text anchor.
+    labelBox: z.strictObject({ x: z.number(), y: z.number(), w: z.number(), h: z.number() }),
     labelAt: pointSchema,
   })),
 })
@@ -172,6 +179,10 @@ export const REFUSALS = Object.freeze({
   missingEdgeLabel: 'missing_edge_label',
   orphanNode: 'orphan_node',
   viewTooLarge: 'view_too_large',
+  // A layout that cannot place every label plate without a visual collision refuses;
+  // it never writes a scene whose labels sit on top of boxes.
+  labelCollision: 'label_collision',
+  edgeThroughNode: 'edge_through_node',
 })
 
 /** An Error carrying a stable code and the zod issues that caused it. */

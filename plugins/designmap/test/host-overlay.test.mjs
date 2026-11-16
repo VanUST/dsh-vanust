@@ -18,6 +18,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createCommandHandler } from '../src/command.mjs'
 import { createHostService, createFileLogger } from '../src/host.mjs'
+import { PALETTE } from '../src/palette.mjs'
 import { TOOL_SPECS } from '../src/tools.mjs'
 import { makeRepo } from './host-helpers.mjs'
 
@@ -60,11 +61,11 @@ test('upsert stores x/y/fill/stroke, a render reflects the position, and only ov
 
     const written = await handler(invocation(JSON.stringify({
       op: 'overlay', action: 'upsert', nodeId: 'svc.checkout.api',
-      x: 40, y: 30, fill: '#2563eb', stroke: '#4338ca',
+      x: 40, y: 30, fill: PALETTE.frontend.stroke, stroke: PALETTE.frontend.stroke,
     })))
     assert.equal(written.kind, 'success', written.text)
     const row = readOverlays(repo)['svc.checkout.api']
-    assert.deepEqual(row, { x: 40, y: 30, fill: '#2563eb', stroke: '#4338ca' })
+    assert.deepEqual(row, { x: 40, y: 30, fill: PALETTE.frontend.stroke, stroke: PALETTE.frontend.stroke })
 
     const overlaysAfterWrite = hashOf(overlaysPath(repo))
     const rendered = await handler(invocation(JSON.stringify({ op: 'render', viewId: 'v.context' })))
@@ -87,10 +88,10 @@ test('a partial upsert merges into the existing row instead of replacing it', as
     const { handler, invocation } = harness(repo)
     const send = payload => handler(invocation(JSON.stringify({ op: 'overlay', ...payload })))
 
-    assert.equal((await send({ action: 'upsert', nodeId: 'db.orders', x: 10, y: 20, fill: '#e0e7ff' })).kind, 'success')
+    assert.equal((await send({ action: 'upsert', nodeId: 'db.orders', x: 10, y: 20, fill: PALETTE.service.fill })).kind, 'success')
     assert.equal((await send({ action: 'upsert', nodeId: 'db.orders', x: 55 })).kind, 'success')
 
-    assert.deepEqual(readOverlays(repo)['db.orders'], { x: 55, y: 20, fill: '#e0e7ff' })
+    assert.deepEqual(readOverlays(repo)['db.orders'], { x: 55, y: 20, fill: PALETTE.service.fill })
   } finally {
     repo.cleanup()
   }

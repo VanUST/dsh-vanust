@@ -9,10 +9,10 @@
  */
 import { DesignmapRefusal, REFUSALS, sceneSchema } from './schema.mjs'
 import { round2, sha256, sortById, toJson } from './canonical.mjs'
-import { layoutView, placeLabelOutside } from './layout.mjs'
+import { layoutView, placeEdgeLabel, SPACING_SCALES } from './layout.mjs'
 import { lintModel, lintScene, summariseLint } from './lint.mjs'
 import { mergeOverlays, recomputeCanvas, reattachEdges } from './overlays.mjs'
-import { nodeSize, sceneLabel } from './text.mjs'
+import { edgeLabelSize, nodeSize, sceneLabel } from './text.mjs'
 
 const REFUSAL_BY_RULE = Object.freeze({
   duplicate_id: REFUSALS.duplicateId,
@@ -22,6 +22,8 @@ const REFUSAL_BY_RULE = Object.freeze({
   edge_label_missing: REFUSALS.missingEdgeLabel,
   orphan_node: REFUSALS.orphanNode,
   view_too_large: REFUSALS.viewTooLarge,
+  label_collision: REFUSALS.labelCollision,
+  edge_through_node: REFUSALS.edgeThroughNode,
 })
 
 /** Match one view `include` pattern: `*` is the only wildcard. */
@@ -83,13 +85,40 @@ export async function renderView({ model, views, overlays = {}, viewId, staleNod
   }
 
   const selected = selectView(model, view)
-  const layout = await layoutView({
-    nodes: selected.nodes.map(node => ({ id: node.id, label: node.label, group: node.group ?? null, type: node.type })),
-    groups: selected.groups.map(group => ({ id: group.id, label: group.label })),
-    edges: selected.edges.map(edge => ({ id: edge.id, from: edge.from, to: edge.to, kind: edge.kind, label: edge.label })),
-    direction: view.direction,
-    onLayoutDone: ({ ms, nodes }) => logger?.log('layout.done', { ms, nodes, viewId }),
-  })
+  // One size per edge, computed once from the text metric: the layout, the validator and
+  // the renderer all use this number, so a plate can never be drawn bigger than reserved.
+  const labelSizes = new Map(selected.edges.map(edge => [edge.id, edgeLabelSize(edge.label)]))
+  let layout = null
+  for (const spacingScale of SPACING_SCALES) {
+    layout = await layoutView({
+      nodes: selected.nodes.map(node => ({ id: node.id, label: node.label, group: node.group ?? null, type: node.type })),
+      groups: selected.groups.map(group => ({ id: group.id, label: group.label })),
+      edges: selected.edges.map(edge => ({ id: edge.id, from: edge.from, to: edge.to, kind: edge.kind, label: edge.label })),
+      direction: view.direction,
+      labelSizes,
+      spacingScale,
+      onLayoutDone: ({ ms, nodes }) => logger?.log('layout.done', { ms, nodes, viewId, spacingScale }),
+    })
+    if (layout.issues.length === 0) break
+    logger?.log('layout.retry', {
+      viewId,
+      spacingScale,
+      issues: layout.issues.length,
+      rules: [...new Set(layout.issues.map(entry => entry.rule))].sort(),
+    })
+  }
+  if (layout.issues.length > 0) {
+    // A layout that cannot place its labels without covering a box is a defect, not a
+    // warning: refuse to write the scene and name the edges the retries could not place.
+    const blocking = layout.issues.find(entry => entry.rule === 'label_collision')
+    throw new DesignmapRefusal(
+      REFUSAL_BY_RULE[blocking?.rule] ?? REFUSALS.labelCollision,
+      blocking === undefined
+        ? 'layout could not route an edge without crossing a node'
+        : 'layout could not place every edge label without a collision',
+      { viewId, issues: layout.issues, spacingScale: SPACING_SCALES.at(-1) },
+    )
+  }
 
   const stale = new Set(staleNodeIds)
   const sceneNodes = sortById(selected.nodes.map(node => {
@@ -112,15 +141,19 @@ export async function renderView({ model, views, overlays = {}, viewId, staleNod
     return { id: group.id, label: group.label ?? '', x: round2(box.x), y: round2(box.y), w: round2(box.w), h: round2(box.h) }
   }))
   const sceneEdges = sortById(selected.edges.map(edge => {
-    const geometry = layout.edges.get(edge.id) ?? { points: [], labelAt: { x: 0, y: 0 } }
+    const geometry = layout.edges.get(edge.id) ?? { points: [], labelBox: { x: 0, y: 0, w: 0, h: 0 } }
+    const labelBox = geometry.labelBox ?? { x: 0, y: 0, w: 0, h: 0 }
     return {
       id: edge.id,
       from: edge.from,
       to: edge.to,
       kind: edge.kind,
       label: edge.label ?? '',
+      labelLines: (labelSizes.get(edge.id) ?? edgeLabelSize(edge.label ?? '')).lines,
       points: geometry.points,
-      labelAt: geometry.labelAt,
+      labelBox,
+      // Compatibility anchor: the plate's top-left corner. New consumers use labelBox.
+      labelAt: { x: labelBox.x, y: labelBox.y },
     }
   }))
 
@@ -130,11 +163,21 @@ export async function renderView({ model, views, overlays = {}, viewId, staleNod
   // edges[].points); nodes without an overlay row keep their layout geometry.
   const reattachedEdges = reattachEdges(mergedNodes, sceneEdges, new Set(merge.rows.keys()))
   // Labels are placed last, against the FINAL boxes: an overlay-moved node changes both
-  // the free spans of its incident edges and the boxes the anchor must avoid.
-  const mergedEdges = reattachedEdges.map(edge => ({
-    ...edge,
-    labelAt: placeLabelOutside(edge.points, mergedNodes, edge.label).labelAt,
-  }))
+  // the free spans of its incident edges and the boxes the plate must avoid. The layout's
+  // plate position stays the preferred anchor, so an unmoved map keeps the reserved
+  // geometry byte-for-byte.
+  const mergedEdges = []
+  const labelObstacles = [...mergedNodes]
+  for (const edge of reattachedEdges) {
+    const size = labelSizes.get(edge.id) ?? edgeLabelSize(edge.label)
+    const placed = placeEdgeLabel({ points: edge.points, preferred: edge.labelBox, size, obstacles: labelObstacles })
+    const labelBox = placed ?? { ...edge.labelBox, w: size.w, h: size.h }
+    // A plate the search could not move carries no free space; the scene lint reports it
+    // as a warning instead of refusing, because the overlap came from a human overlay and
+    // the map must stay openable.
+    if (placed !== null) labelObstacles.push(placed)
+    mergedEdges.push({ ...edge, labelBox, labelAt: { x: labelBox.x, y: labelBox.y } })
+  }
   const canvas = recomputeCanvas(mergedNodes, sceneGroups, mergedEdges)
   const scene = {
     schemaVersion: 1,

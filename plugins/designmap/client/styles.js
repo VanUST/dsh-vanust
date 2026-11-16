@@ -66,6 +66,19 @@ export const CSS = `
 .dmv-chip.stale { color: var(--dmv-warn); border-color: color-mix(in srgb, var(--dmv-warn) 40%, var(--dmv-line)); background: color-mix(in srgb, var(--dmv-warn) 8%, var(--dmv-surface)); font-weight: 600; }
 .dmv-chip.readonly { color: var(--dmv-ok); border-color: color-mix(in srgb, var(--dmv-ok) 35%, var(--dmv-line)); background: color-mix(in srgb, var(--dmv-ok) 7%, var(--dmv-surface)); }
 .dmv-spacer { flex: 1 1 24px; }
+.dmv-viewswitch select {
+  border: 1px solid var(--dmv-line);
+  border-radius: var(--dmv-radius-s);
+  background: var(--dmv-surface-2);
+  color: var(--dmv-ink);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 550;
+  padding: 3px 8px;
+  max-width: 26ch;
+  cursor: pointer;
+}
+.dmv-viewswitch select:hover { background: var(--dmv-surface-3); }
 .dmv-actions { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .dmv-btn {
   display: inline-flex;
@@ -152,7 +165,7 @@ export const CSS = `
 .dmv-crumb[aria-current="page"] { color: var(--dmv-ink); background: var(--dmv-surface); border-color: var(--dmv-line); cursor: default; font-weight: 650; }
 .dmv-crumb-hint { color: var(--dmv-muted); font-size: 10.5px; }
 
-.dmv-stage { flex: 1; min-height: 0; display: flex; background: var(--dmv-surface); }
+.dmv-stage { flex: 1; min-height: 0; display: flex; background: var(--dmv-surface); position: relative; }
 .dmv-flow { position: relative; flex: 1; min-width: 0; }
 .dmv-flow .react-flow { background: var(--dmv-surface); }
 /* RF puts the edge-label portal before the node layer; labels are annotations and must
@@ -177,7 +190,7 @@ export const CSS = `
 }
 .dmv-stage .react-flow__attribution { font-size: 9px; opacity: 0.55; }
 /* The Excalidraw frame fills the stage; it draws and edits, the panel owns the chrome. */
-.dmv-excalidraw { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; background: #ffffff; }
+.dmv-excalidraw { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
 .dmv-stage .react-flow__node { border-radius: var(--dmv-radius-s); }
 .dmv-stage .react-flow__node:focus-visible { outline: var(--dmv-focus); outline-offset: 2px; }
 .dmv-stage .react-flow__handle { opacity: 0; pointer-events: none; }
@@ -271,6 +284,47 @@ export const CSS = `
 .dmv-legend .swatch.dashed { border-style: dashed; }
 .dmv-legend .line { width: 16px; border-top: 2px solid #475569; flex: none; }
 .dmv-legend .hint { margin-top: 6px; padding-top: 5px; border-top: 1px solid var(--dmv-line); font-size: 9.5px; line-height: 1.4; }
+
+/* The legend is a bar under the canvas, not a side rail: a wide map needs every pixel of
+   width, and the legend is a reading aid for the same map, not a separate column. */
+.dmv-legend-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 5px 12px;
+  border-top: 1px solid var(--dmv-line);
+  background: var(--dmv-surface-2);
+  overflow-x: auto;
+  font-size: 10.5px;
+  color: var(--dmv-muted);
+}
+.dmv-legend-title { text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; font-size: 9.5px; color: var(--dmv-muted); }
+.dmv-legend-group { display: flex; align-items: center; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.dmv-legend-item { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.dmv-legend-item b { font-weight: 650; color: var(--dmv-ink); font-variant-numeric: tabular-nums; }
+.dmv-glyph { width: 11px; height: 11px; border-radius: 3px; border: 1.5px solid; display: inline-block; flex: none; }
+.dmv-glyph.ellipse { border-radius: 50%; }
+.dmv-glyph.dashed { border-style: dashed; }
+.dmv-glyph.diamond { transform: rotate(45deg); border-radius: 2px; }
+.dmv-wire { width: 18px; border-top: 2px solid; display: inline-block; flex: none; }
+.dmv-legend-sep { width: 1px; height: 14px; background: var(--dmv-line); flex: none; }
+.dmv-legend-hint { font-size: 10px; color: var(--dmv-muted); }
+.dmv-fit { font-size: 10.5px; padding: 2px 8px; }
+.dmv-inspector-pop {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  width: 220px;
+  max-height: 60%;
+  overflow: auto;
+  background: var(--dmv-surface);
+  border: 1px solid var(--dmv-line);
+  border-radius: var(--dmv-radius-l);
+  padding: 10px 12px;
+  box-shadow: 0 8px 24px rgb(15 23 42 / 0.14);
+  z-index: 6;
+}
 .dmv-inspector { margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--dmv-line); }
 .dmv-inspector h2 { margin: 0 0 5px; font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--dmv-muted); font-weight: 700; }
 .dmv-inspector-name { margin: 0 0 2px; color: var(--dmv-ink); font-weight: 650; font-size: 11.5px; overflow-wrap: anywhere; }

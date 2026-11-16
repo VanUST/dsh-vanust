@@ -1,0 +1,610 @@
+{
+  "schemaVersion": 1,
+  "id": "designmap-readability",
+  "rev": 9,
+  "status": "draft",
+  "createdAt": "2026-11-16T13:30:42.307Z",
+  "updatedAt": "2026-11-16T13:33:02.098Z",
+  "updatedBy": "agent",
+  "title": "Design map readability: one owner for label geometry, validated scene, themed canvas",
+  "requestedSolution": "Починить читаемость карты в корне: геометрию подписи ребра считает и проверяет core (labelBox в сцене), место под подпись резервирует ELK, линт проверяет прямоугольники (подпись-узел, подпись-подпись, ребро-узел) и рендер отказывает при коллизии; полотно Excalidraw рисует подписи плашками, подхватывает тему хоста, показывает реальный зум; приёмка — скриншоты в браузере на реальной, dense, cyclic и multiline картах.",
+  "businessOutcome": {
+    "problem": "Карта нечитаема: на реальном виде v.context 5 из 9 подписей рёбер лежат внутри прямоугольников узлов, потому что проверяется только точка привязки подписи, а не её прямоугольник; подписи 10 px без подложки рисуются поверх линий; длинное обратное ребро (1243 px) обрамляет карту рамкой; полотно Excalidraw всегда белое и не следует теме хоста; зум панели (React Flow) не связан с зумом полотна; тип узла различается только оттенком заливки.",
+    "outcome": "Карту читают с первого взгляда: ни одна подпись не пересекает узел, группу или другую подпись, рёбра не проходят сквозь узлы, а будущая карта с коллизией не сохраняется — рендер отказывает с кодом label_collision. Полотно и подписи живут в теме хоста, подписи потоков читаются на плашке, тип узла виден по форме, панель показывает реальный зум полотна.",
+    "successMetrics": [
+      "На реальной карте и на dense/cyclic/multiline сценах: 0 пересечений подпись-узел, подпись-подпись и ребро-узел по команде bin/audit-scene.mjs",
+      "Проверка краснеет на заведомо сломанной сцене (негативный контроль), а не только зеленеет на хорошей",
+      "Скриншоты панели 1440x900 и 1280x720 в светлой и тёмной теме показывают читаемую карту без коллизий",
+      "Повторный render тех же model+overlays даёт байт-идентичный scene"
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CURRENT",
+        "name": "Карта рисуется без проверки визуальной геометрии",
+        "actors": [
+          "agent",
+          "human",
+          "designmap core",
+          "Excalidraw canvas"
+        ],
+        "steps": [
+          "Агент правит semantic model (nodes/edges/views) инструментами designmap_*",
+          "core раскладывает ELK layered и ставит labelAt по точке на полилинии, проверяя только точку",
+          "render пишет scene JSON; линт не видит прямоугольник подписи и ребро сквозь узел",
+          "Excalidraw-адаптер меряет текст сам (10 px, 6.2 px/символ) и рисует подпись без подложки",
+          "Человек видит подписи поверх узлов и линий; зум панели не связан с полотном"
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-TARGET",
+        "name": "Сцена проходит визуальную проверку до записи",
+        "actors": [
+          "agent",
+          "human",
+          "designmap core",
+          "Excalidraw canvas"
+        ],
+        "steps": [
+          "core считает размер подписи один раз (edgeLabelSize) и передаёт её ELK как edge label",
+          "ELK резервирует место в коридоре между слоями и возвращает прямоугольник подписи",
+          "core проверяет прямоугольники: подпись-узел, подпись-подпись, ребро-узел; при коллизии повторяет layout с большими зазорами, затем отказывает label_collision",
+          "scene несёт labelBox; рендерер рисует плашку и текст ровно в этом прямоугольнике",
+          "Панель передаёт тему хоста в полотно, показывает реальный зум и вписать; легенда показывает формы и стили"
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "BR-1",
+      "kind": "BR",
+      "text": "Карту читают с первого взгляда: ни одна подпись ребра не пересекает узел, группу или другую подпись, и ни одно ребро не проходит сквозь узел.",
+      "acceptance": [
+        "На реальном ввиде и на dense/cyclic/multiline сценах 0 пересечений по проверке bin/audit-scene.mjs",
+        "Человек видит подписи на подложке, а не поверх линий"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "BR-2",
+      "kind": "BR",
+      "text": "Тип узла и вид потока понятны без объяснений: форма и цвет кодируют тип, стиль линии — вид потока, подпись ребра читается на плашке; полотно и подписи живут в теме хоста (светлой и тёмной).",
+      "acceptance": [
+        "Легенда показывает формы типов, стили линий и количество",
+        "Скриншоты в светлой и тёмной теме без белого листа и без нечитаемых подписей"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "BR-3",
+      "kind": "BR",
+      "text": "Панель говорит правду о полотне: зум в статус-строке — реальный зум Excalidraw, есть действие «вписать», карта центрирована и целиком видна.",
+      "acceptance": [
+        "После загрузки карта вписана с полями, зум в статусе совпадает с полотном",
+        "Кнопка вписать возвращает карту к полному виду"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR-1",
+      "kind": "FR",
+      "text": "Сцена — единственный владелец геометрии подписи: edges[].labelBox {x,y,w,h} считает core одним метрическим правилом, рендерер рисует плашку и текст ровно в этом прямоугольнике без пересчёта размера.",
+      "acceptance": [
+        "SCENE-CONTRACT.md и схема сцены описывают labelBox",
+        "Клиент не вычисляет ширину подписи из длины строки (кроме fallback для старых сцен)"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR-2",
+      "kind": "FR",
+      "text": "Место под подпись резервирует раскладка: label передаётся ELK как edge label с реальным размером; если после раскладки остаётся коллизия — детерминированный повтор с большими зазорами, затем отказ label_collision.",
+      "acceptance": [
+        "ELK расширяет коридор между слоями под ширину подписи",
+        "Сцена, где раскладка не может разместить подпись, не сохраняется: код label_collision"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR-3",
+      "kind": "FR",
+      "text": "Проверка визуальной геометрии есть на обоих уровнях: раскладка перед записью валит рендер кодами label_collision/edge_through_node, если чистую сцену получить не удалось; линт сцены проверяет те же прямоугольники и сегменты правилами label_over_node, label_label_overlap, edge_through_node — после ручных overlays это warning, чтобы карта не перестала открываться.",
+      "acceptance": [
+        "Правила есть в таблице линта и валят раскладку до записи",
+        "Негативный контроль: сцена, которую раскладка не может сделать чистой, получает отказ; сцена с ручным overlays — warning и рендер"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR-4",
+      "kind": "FR",
+      "text": "Приёмка автоматизирована: bin/audit-scene.mjs проверяет коллизии и плотность сцены, фикстуры dense (20+ узлов), cyclic и multiline рендерятся через core и показываются в браузере 1440x900 и 1280x720 в двух темах.",
+      "acceptance": [
+        "audit выходит с кодом 1 на сломанной сцене и 0 на всех фикстурах",
+        "Скриншоты панели приложены к доказательствам"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR-5",
+      "kind": "FR",
+      "text": "Поставка: README плагина, SCENE-CONTRACT.md, кейс владельца в docs/cases/, собранный client.js и пакет @cc/dsh-designmap 0.1.13, коммит.",
+      "acceptance": [
+        "Пакет собран и версия поднята",
+        "Документация и кейс описывают новые правила и отказ"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "NFR-1",
+      "kind": "NFR",
+      "text": "Детерминированность и скорость: повторный render тех же model+overlays даёт байт-идентичный scene; раскладка 25 узлов с подписями укладывается в 1500 мс.",
+      "acceptance": [
+        "Повторные рендеры совпадают по sha256",
+        "layout.done на perf-фикстуре ≤ 1500 мс"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "NFR-2",
+      "kind": "NFR",
+      "text": "Инвариант неразрушимости: путь записи модели не может выпустить сцену, где подпись пересекает узел/другую подпись или ребро проходит сквозь узел — либо сцена чистая, либо запись отклонена.",
+      "acceptance": [
+        "Раскладка валит запись при коллизии",
+        "Нет тихой подгонки координат"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "NFR-3",
+      "kind": "NFR",
+      "text": "Обратная совместимость в рамках пакета: сцена без labelBox (старые out/ и harness-фикстуры) не ломает панель и экспорт — клиент и SVG используют fallback.",
+      "acceptance": [
+        "Панель рисует старую сцену без labelBox",
+        "Тест на fallback зелёный"
+      ],
+      "status": "planned"
+    }
+  ],
+  "architecture": {
+    "contractImpact": "additive",
+    "components": [
+      {
+        "id": "C-CORE",
+        "name": "designmap-core",
+        "responsibility": "Метрики текста, ELK layered раскладка с edge labels, проверка прямоугольников, сцена с labelBox, линт, SVG-экспорт",
+        "owner": "BACKEND",
+        "owns": [
+          "D-SCENE",
+          "D-LOG"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "C-CLIENT",
+        "name": "Панель (Excalidraw-адаптер и оболочка)",
+        "responsibility": "Рисует сцену: плашки подписей, тема хоста, группы, легенда, реальный зум и вписать; пишет только overlays",
+        "owner": "UX/UI",
+        "owns": [
+          "D-OVL"
+        ],
+        "dependsOn": [
+          "C-CORE"
+        ]
+      },
+      {
+        "id": "C-TOOLS",
+        "name": "Агентские инструменты designmap_*",
+        "responsibility": "scan/apply/render/lint/status/open/export, отказ при коллизии, JSONL-логи",
+        "owner": "BACKEND",
+        "owns": [
+          "D-MODEL"
+        ],
+        "dependsOn": [
+          "C-CORE"
+        ]
+      },
+      {
+        "id": "C-ACCEPT",
+        "name": "Приёмка и аудит читаемости",
+        "responsibility": "bin/audit-scene.mjs, фикстуры dense/cyclic/multiline, негативный контроль, браузерные скриншоты",
+        "owner": "BACKEND",
+        "owns": [
+          "D-FIXTURES"
+        ],
+        "dependsOn": [
+          "C-CORE",
+          "C-CLIENT"
+        ]
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "D-SCENE",
+      "name": "designmap/out/*.scene.json",
+      "owner": "C-CORE",
+      "ownerComponentId": "C-CORE",
+      "description": "Детерминированная сцена: узлы, группы, рёбра с точками и labelBox"
+    },
+    {
+      "id": "D-OVL",
+      "name": "designmap/overlays.json",
+      "owner": "C-CLIENT",
+      "ownerComponentId": "C-CLIENT",
+      "description": "Ручные позиции и цвета человека, по семантическому ID"
+    },
+    {
+      "id": "D-MODEL",
+      "name": "designmap/model.yaml + views.yaml",
+      "owner": "C-TOOLS",
+      "ownerComponentId": "C-TOOLS",
+      "description": "Семантическая модель, пишется только apply"
+    },
+    {
+      "id": "D-FIXTURES",
+      "name": "plugins/designmap/fixtures + harness/scenes",
+      "owner": "C-ACCEPT",
+      "ownerComponentId": "C-ACCEPT",
+      "description": "Сцены приёмки: dense, cyclic, multiline, сломанная"
+    },
+    {
+      "id": "D-LOG",
+      "name": "designmap/logs/events.jsonl",
+      "owner": "C-CORE",
+      "ownerComponentId": "C-CORE",
+      "description": "Структурный лог layout/lint/render"
+    }
+  ],
+  "contracts": [
+    {
+      "id": "CT-SCENE",
+      "name": "Scene JSON core↔renderer",
+      "between": [
+        "C-CORE",
+        "C-CLIENT"
+      ],
+      "change": "additive",
+      "description": "edges[] получает labelBox {x,y,w,h}: core — единственный владелец размера и места подписи, рендерер и SVG рисуют его как есть; labelAt остаётся top-left для совместимости и старых сцен без labelBox (fallback в клиенте)."
+    },
+    {
+      "id": "CT-LINT",
+      "name": "Таблица правил линта и коды отказа",
+      "between": [
+        "C-CORE",
+        "C-TOOLS"
+      ],
+      "change": "additive",
+      "description": "label_over_node становится error, добавляются label_label_overlap и edge_through_node (error) и код отказа label_collision; отказ приходит с findings, запись не выполняется."
+    }
+  ],
+  "invariants": [
+    {
+      "id": "INV-LABEL",
+      "text": "В выпущенной сцене ни один labelBox не пересекает прямоугольник узла, группы или другого labelBox и не примыкает к нему без зазора.",
+      "scope": "designmap/out/*.scene.json, рендер и экспорт"
+    },
+    {
+      "id": "INV-EDGE",
+      "text": "Внутренняя часть сегмента ребра не проходит сквозь прямоугольник узла; касание границы в точке привязки — не пересечение.",
+      "scope": "designmap/out/*.scene.json, рендер"
+    },
+    {
+      "id": "INV-DET",
+      "text": "Повторный render тех же model+overlays даёт байт-идентичный scene JSON (sha256 совпадает).",
+      "scope": "render pipeline"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "DEC-ELK-LABEL",
+      "decision": "Подпись ребра — edge label в ELK layered: место резервирует раскладка, а не постобработка в существующем коридоре.",
+      "rationale": "На реальной карте 5 из 9 подписей лежат в узлах, потому что свободного места в коридоре 48 px нет: подпись 90-120 px не помещается между слоями. Двигать подпись в тесном коридоре бессмысленно — надо расширить коридор.",
+      "alternatives": [
+        "Оставить placeLabelOutside и подбирать координаты",
+        "Рисовать подписи HTML-оверлеем поверх iframe"
+      ]
+    },
+    {
+      "id": "DEC-BOX",
+      "decision": "labelBox {x,y,w,h} — часть контракта сцены; core — единственный владелец, рендерер рисует прямоугольник как есть.",
+      "rationale": "Сегодня место подписи (core) и её размер (клиент, 6.2 px/символ) считают два разных владельца; проверка видит точку, а рисуется прямоугольник — отсюда слепой валидатор.",
+      "alternatives": [
+        "Мерить текст в рендерере и проверять по его метрике (два владельца)",
+        "Оставить labelAt и запретить длинные подписи"
+      ]
+    },
+    {
+      "id": "DEC-REFUSE",
+      "decision": "Коллизия подписи или ребра сквозь узел — отказ рендера с кодом label_collision / edge_through_node, а не предупреждение.",
+      "rationale": "Владелец требует, чтобы карта не выглядела сломанной; тихая подгонка скрывает дефект от агента и человека.",
+      "alternatives": [
+        "Warning и рендер как есть",
+        "Автоматически двигать узлы после раскладки"
+      ]
+    },
+    {
+      "id": "DEC-CHIP",
+      "decision": "Подпись ребра рисуется плашкой (заливка поверхности + рамка линии) с bound-текстом внутри, шрифт 11 px, а не свободным текстом 10 px.",
+      "rationale": "Подпись без подложки поверх линии нечитаема; bound-текст гарантирует, что текст не выйдет за проверенный прямоугольник.",
+      "alternatives": [
+        "Свободный текст с обводкой",
+        "Подписи только в легенде/тултипе"
+      ]
+    },
+    {
+      "id": "DEC-THEME",
+      "decision": "Полотно берёт тему хоста через appState (theme, viewBackgroundColor) и цвета чернил из CSS панели; Excalidraw остаётся основой рисования, React Flow — fallback.",
+      "rationale": "Владелец явно выбрал Excalidraw как основу карты; текущее белое полотно в тёмной теме выглядит чужим, а подписи теряются.",
+      "alternatives": [
+        "Вернуть React Flow как основной рендерер",
+        "Оставить белое полотно всегда"
+      ]
+    },
+    {
+      "id": "DEC-ZOOM",
+      "decision": "Зум полотна приходит из событий change (appState.zoom) и показывается в статус-строке; есть кнопка «вписать», центрирующая по корректной формуле Excalidraw.",
+      "rationale": "Сейчас панель показывает зум React Flow (1.00), даже когда нарисовано другое; это подрывает доверие к панели.",
+      "alternatives": [
+        "Скрыть зум в режиме Excalidraw"
+      ]
+    }
+  ],
+  "openQuestions": [
+    {
+      "id": "OQ-SELECT",
+      "question": "Как выбирать узел в Excalidraw-полотне, чтобы NodeInspector (перекраска/сброс) оставался доступен в режиме правок? Мост кадра отдаёт только elements + appState без selectedElementIds.",
+      "owner": "UX/UI",
+      "blocks": false,
+      "answer": "Вне этой инициативы: перекраска через Excalidraw-полотно — отдельный дефект после замены рендерера; сейчас фиксируется как известный пробел, не ломая визуальную правку."
+    },
+    {
+      "id": "OQ-FEEDBACK",
+      "question": "Обратное ребро web→host остаётся длинным U-образным обходом вокруг карты (1243 px). Нужна ли отдельная политика для feedback-рёбер (порты/направление/стиль)?",
+      "owner": "BACKEND",
+      "blocks": false,
+      "answer": ""
+    }
+  ],
+  "sizing": {
+    "class": "L2",
+    "reasons": [
+      "Меняется контракт сцены core↔renderer: edges[].labelBox становится частью контракта",
+      "Меняется таблица правил линта: новые ошибки label_over_node/label_label_overlap/edge_through_node",
+      "Затрагиваются рендеринг (Excalidraw-адаптер), панель (тема, зум, легенда), экспорт SVG и приёмка",
+      "Правится раскладка (ELK edge labels, повторы с зазорами, отказ)"
+    ]
+  },
+  "designRef": {
+    "mapRev": 30,
+    "at": "2026-11-16T13:31:00.000Z",
+    "source": "design.excalidraw"
+  },
+  "goalId": "goal-6217cbdd-f769-4f3e-91bd-15571f90a3c8",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "BR-1",
+      "processId": "P-TARGET",
+      "componentId": "C-CORE",
+      "contractIds": [
+        "CT-SCENE"
+      ],
+      "dataIds": [
+        "D-SCENE"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "BR-2",
+      "processId": "P-TARGET",
+      "componentId": "C-CLIENT",
+      "contractIds": [
+        "CT-SCENE"
+      ],
+      "dataIds": [
+        "D-OVL"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "BR-3",
+      "processId": "P-TARGET",
+      "componentId": "C-CLIENT",
+      "contractIds": [],
+      "dataIds": [
+        "D-OVL"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR-1",
+      "processId": "P-TARGET",
+      "componentId": "C-CORE",
+      "contractIds": [
+        "CT-SCENE"
+      ],
+      "dataIds": [
+        "D-SCENE"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR-2",
+      "processId": "P-TARGET",
+      "componentId": "C-CORE",
+      "contractIds": [
+        "CT-SCENE"
+      ],
+      "dataIds": [
+        "D-SCENE"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR-3",
+      "processId": "P-TARGET",
+      "componentId": "C-CORE",
+      "contractIds": [
+        "CT-LINT"
+      ],
+      "dataIds": [
+        "D-SCENE"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR-4",
+      "processId": "P-TARGET",
+      "componentId": "C-ACCEPT",
+      "contractIds": [
+        "CT-SCENE",
+        "CT-LINT"
+      ],
+      "dataIds": [
+        "D-FIXTURES"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR-5",
+      "processId": "P-TARGET",
+      "componentId": "C-TOOLS",
+      "contractIds": [
+        "CT-SCENE",
+        "CT-LINT"
+      ],
+      "dataIds": [
+        "D-MODEL"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "NFR-1",
+      "processId": "P-TARGET",
+      "componentId": "C-CORE",
+      "contractIds": [
+        "CT-SCENE"
+      ],
+      "dataIds": [
+        "D-SCENE"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "NFR-2",
+      "processId": "P-TARGET",
+      "componentId": "C-CORE",
+      "contractIds": [
+        "CT-LINT"
+      ],
+      "dataIds": [
+        "D-SCENE"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "NFR-3",
+      "processId": "P-TARGET",
+      "componentId": "C-CLIENT",
+      "contractIds": [
+        "CT-SCENE"
+      ],
+      "dataIds": [
+        "D-OVL"
+      ],
+      "status": "planned",
+      "tasks": []
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "b2c42fe609946e16be0976ee9f4c8f7d870e34cad25ec5fc76ea6efac61492ed",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-16T13:30:42.307Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-16T13:31:00.755Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-16T13:31:13.866Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: BR-1 added, BR-2 added, BR-3 added, FR-1 added, FR-2 added, FR-3 added, FR-4 added, FR-5 added, NFR-1 added, NFR-2 added, NFR-3 added"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-16T13:31:21.669Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-16T13:31:27.069Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-16T13:31:35.196Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-16T13:31:40.082Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 8,
+      "at": "2026-11-16T13:31:52.429Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 9,
+      "at": "2026-11-16T13:33:02.098Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR-2 changed, FR-3 changed, NFR-2 changed; impacts: 3"
+    }
+  ]
+}

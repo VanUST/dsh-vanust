@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "id": "design-map-readable-no-label-over-a-node-audit-can-fail",
+  "title": "Design map readable: no label over a node, audit can fail",
+  "requirement": "The owner requires the Design map to be visually readable: elements must not overlap each other (labels over nodes, labels over labels, edges through nodes), the map must be expressive and legible in the panel's light and dark themes, and a visual-consistency check must exist instead of silently emitting a broken map.",
+  "kind": "regression",
+  "status": "unverified",
+  "source": "human",
+  "automated": true,
+  "testPath": "plugins/designmap/test/readability.test.mjs",
+  "runCommand": "cd plugins/designmap && node --test test/readability.test.mjs",
+  "steps": [
+    "Render the repository map and the fixtures/readability dense (20 nodes), cyclic and multiline views through core (renderView).",
+    "Run bin/audit-scene.mjs on each view and on the pre-fix harness scenes: the new views report 0 collisions and exit 0; harness/scenes/m0 and harness/scenes/fixture report 4 and 3 labels over nodes and exit 1.",
+    "Move a rendered plate inside a node and run the audit again: it reports label_over_node and exits 1 (negative control).",
+    "Check the panel in a browser at 1280x720 and 1440x900 in light and dark themes: label chips, theme canvas, real zoom, legend counts."
+  ],
+  "expected": "Every rendered view has zero collisions (label plate over a node, two plates over each other, edge body through a node), zero plates outside the canvas; the audit exits 0 on the demo and readability fixtures and exits 1 on the pre-fix harness scenes and on a scene whose plate is moved inside a node. A layout that cannot place a plate refuses render with label_collision instead of emitting the overlapping scene.",
+  "tags": [
+    "designmap",
+    "readability",
+    "layout",
+    "visual-consistency"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/designmap/src/layout.mjs",
+      "sha256": "2a12f0024cd61b2d7dba7993dfd28f5876c0eadb54e0aad1cda1b61b4258a203"
+    },
+    {
+      "path": "plugins/designmap/src/lint.mjs",
+      "sha256": "efe4d1097d354d3d2414a5de14df57c71a0e4259983ed86a2e84b0166421e1e7"
+    },
+    {
+      "path": "plugins/designmap/src/render.mjs",
+      "sha256": "78ad76c10d8820125b5a347e53f8d2d480592037ee43f404a84c6182b1035ffc"
+    },
+    {
+      "path": "plugins/designmap/src/text.mjs",
+      "sha256": "71d23d7e6d71128e309e10a73c38ecb9d887b342872e7c4fb3607f4ab866cfba"
+    },
+    {
+      "path": "plugins/designmap/client/excalidraw.js",
+      "sha256": "f0cd85b7337ea945f3398bace6f12e53c74016a6795233590d374b55806b675b"
+    },
+    {
+      "path": "plugins/designmap/bin/audit-scene.mjs",
+      "sha256": "59ade56d4f322af4744d8a7b5a704e41a48b62f81db8d769b3872c5389e439eb"
+    }
+  ],
+  "linkedTaskId": "task-mwjbs32u-pakwvu",
+  "revision": 1,
+  "createdAt": "2026-11-16T13:57:03.431Z",
+  "updatedAt": "2026-11-16T13:57:03.431Z",
+  "createdBy": "orchestrator",
+  "createdByKind": "agent",
+  "history": [],
+  "evidence": {}
+}

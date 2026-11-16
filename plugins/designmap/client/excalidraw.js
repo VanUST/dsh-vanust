@@ -31,20 +31,39 @@ const SHAPE = {
   decision: 'diamond',
 }
 
+/** Stroke style per type: dashed external, dotted queue, solid everything else. */
+const STROKE_STYLE = {
+  external: 'dashed',
+  queue: 'dotted',
+}
+
+/**
+ * The panel theme, read from the host CSS aliases. The canvas is a separate document, so
+ * every colour it needs is passed in explicitly; the defaults keep the harness usable.
+ */
+export const DEFAULT_LOOK = Object.freeze({
+  surface: '#ffffff',
+  surface2: '#f8fafc',
+  ink: '#0f172a',
+  muted: '#475569',
+  line: '#e2e8f0',
+})
+
 /** Fallback palette, mirrored from client/scene.js so the adapter stands alone. */
-const DEFAULT_LOOK = {
-  frontend: { fill: '#dbeafe', stroke: '#2563eb' },
-  service: { fill: '#e0e7ff', stroke: '#4338ca' },
-  worker: { fill: '#dcfce7', stroke: '#15803d' },
-  datastore: { fill: '#fef3c7', stroke: '#b45309' },
-  queue: { fill: '#fce7f3', stroke: '#be185d' },
-  external: { fill: '#f1f5f9', stroke: '#475569' },
+const NODE_LOOK = {
+  frontend: { fill: '#bfdbfe', stroke: '#1d4ed8' },
+  service: { fill: '#c7d2fe', stroke: '#4338ca' },
+  worker: { fill: '#bbf7d0', stroke: '#15803d' },
+  datastore: { fill: '#fde68a', stroke: '#b45309' },
+  queue: { fill: '#fbcfe8', stroke: '#be185d' },
+  external: { fill: '#e2e8f0', stroke: '#475569' },
 }
 
 export const NODE_PREFIX = 'dm:node:'
 export const EDGE_PREFIX = 'dm:edge:'
 export const GROUP_PREFIX = 'dm:group:'
 export const LABEL_PREFIX = 'dm:label:'
+export const CHIP_PREFIX = 'dm:chip:'
 
 let seed = 1
 const nextSeed = () => (seed = (seed * 16807) % 2147483647)
@@ -81,12 +100,36 @@ function element(type, id, fields) {
   }
 }
 
-const LINE_HEIGHT = 1.25
-const FONT_SIZE = 13
+const NODE_FONT_SIZE = 13
+const NODE_LINE_HEIGHT = 1.25
+const EDGE_FONT_SIZE = 11
+const EDGE_LINE_HEIGHT = 1.25
+const GROUP_FONT_SIZE = 12
+/** Node ink is deliberately theme-independent: the type palette fills are light. */
+const NODE_INK = '#1f2937'
 
-/** Elements for one scene, with overlay rows applied and `editMode` deciding locking. */
-export function sceneToElements(scene, { overlays = {}, editMode = false } = {}) {
+/**
+ * The plate of an edge label. The scene owns the rectangle; a pre-labelBox scene (an old
+ * harness fixture) still renders via the same local metric core used before the contract
+ * change, and this is the ONLY place the client estimates a width.
+ */
+export function labelPlate(edge) {
+  const box = edge.labelBox
+  if (box !== undefined && box !== null && [box.x, box.y, box.w, box.h].every(Number.isFinite)) return box
+  const lines = Array.isArray(edge.labelLines) && edge.labelLines.length > 0 ? edge.labelLines : [String(edge.label ?? '')]
+  const longest = lines.reduce((max, line) => Math.max(max, line.length), 0)
+  const at = edge.labelAt ?? { x: 0, y: 0 }
+  return { x: at.x, y: at.y, w: Math.max(28, Math.ceil(longest * 6.82) + 18), h: lines.length * 15 + 10 }
+}
+
+/**
+ * Elements for one scene, with overlay rows applied and `editMode` deciding locking.
+ * The plate (chip) of an edge label carries a bound text, so Excalidraw keeps the text
+ * inside the rectangle the validator approved instead of letting it grow past it.
+ */
+export function sceneToElements(scene, { overlays = {}, editMode = false, look = DEFAULT_LOOK } = {}) {
   const elements = []
+  const theme = { ...DEFAULT_LOOK, ...look }
 
   for (const group of scene.groups ?? []) {
     elements.push(
@@ -96,24 +139,46 @@ export function sceneToElements(scene, { overlays = {}, editMode = false } = {})
         width: group.w,
         height: group.h,
         strokeStyle: 'dashed',
-        strokeColor: '#7c8aa5',
-        backgroundColor: 'transparent',
+        strokeColor: theme.line,
+        backgroundColor: theme.surface2,
         strokeWidth: 1,
+        roundness: { type: 3 },
         locked: true,
         customData: { designmap: { kind: 'group', groupId: group.id } },
       }),
     )
+    if (String(group.label ?? '') !== '') {
+      const titleId = `${GROUP_PREFIX}${group.id}:title`
+      elements.push(
+        element('text', titleId, {
+          x: group.x + 12,
+          y: group.y + 9,
+          width: Math.max(40, group.w - 24),
+          height: 18,
+          text: group.label,
+          originalText: group.label,
+          fontSize: GROUP_FONT_SIZE,
+          fontFamily: 2,
+          textAlign: 'left',
+          verticalAlign: 'top',
+          lineHeight: 1.25,
+          strokeColor: theme.muted,
+          locked: true,
+          customData: { designmap: { kind: 'group-label', groupId: group.id } },
+        }),
+      )
+    }
   }
 
   for (const node of scene.nodes) {
     const row = overlays[node.id] ?? {}
-    const look = DEFAULT_LOOK[node.type] ?? DEFAULT_LOOK.service
+    const look2 = NODE_LOOK[node.type] ?? NODE_LOOK.service
     const x = typeof row.x === 'number' ? row.x : node.x
     const y = typeof row.y === 'number' ? row.y : node.y
-    const fill = typeof row.fill === 'string' ? row.fill : look.fill
-    const stroke = typeof row.stroke === 'string' ? row.stroke : look.stroke
+    const fill = typeof row.fill === 'string' ? row.fill : look2.fill
+    const stroke = typeof row.stroke === 'string' ? row.stroke : look2.stroke
     const lines = String(node.label).split('\n')
-    const textHeight = Math.max(node.h - 12, lines.length * FONT_SIZE * LINE_HEIGHT)
+    const textHeight = Math.max(node.h - 12, lines.length * NODE_FONT_SIZE * NODE_LINE_HEIGHT)
     const shape = SHAPE[node.type] ?? 'rectangle'
     const nodeId = `${NODE_PREFIX}${node.id}`
     const textId = `${LABEL_PREFIX}${node.id}`
@@ -125,7 +190,8 @@ export function sceneToElements(scene, { overlays = {}, editMode = false } = {})
         height: node.h,
         strokeColor: stroke,
         backgroundColor: fill,
-        strokeStyle: node.type === 'external' ? 'dashed' : 'solid',
+        strokeStyle: STROKE_STYLE[node.type] ?? 'solid',
+        strokeWidth: 1.6,
         roundness: shape === 'rectangle' ? { type: 3 } : null,
         locked: !editMode,
         boundElements: [{ type: 'text', id: textId }],
@@ -140,12 +206,13 @@ export function sceneToElements(scene, { overlays = {}, editMode = false } = {})
         height: textHeight,
         text: node.label,
         originalText: node.label,
-        fontSize: FONT_SIZE,
+        fontSize: NODE_FONT_SIZE,
         fontFamily: 2,
         textAlign: 'center',
         verticalAlign: 'middle',
         containerId: nodeId,
-        lineHeight: LINE_HEIGHT,
+        lineHeight: NODE_LINE_HEIGHT,
+        strokeColor: NODE_INK,
         locked: true,
         customData: { designmap: { kind: 'node-label', nodeId: node.id } },
       }),
@@ -159,7 +226,6 @@ export function sceneToElements(scene, { overlays = {}, editMode = false } = {})
     // bounding-box maths on the first render.
     const points = edge.points.map((point) => [point.x - first.x, point.y - first.y])
     const arrowId = `${EDGE_PREFIX}${edge.id}`
-    const labelId = `${LABEL_PREFIX}${edge.id}`
     elements.push(
       element('arrow', arrowId, {
         x: first.x,
@@ -167,9 +233,9 @@ export function sceneToElements(scene, { overlays = {}, editMode = false } = {})
         width: last.x - first.x,
         height: last.y - first.y,
         points,
-        strokeColor: '#64748b',
+        strokeColor: theme.muted,
         strokeStyle: edge.kind === 'async' ? 'dashed' : edge.kind === 'data' ? 'dotted' : 'solid',
-        strokeWidth: 1.6,
+        strokeWidth: 1.4,
         startArrowhead: null,
         endArrowhead: 'arrow',
         // Unbound on purpose: a bound arrow would be re-routed by the editor.
@@ -180,19 +246,40 @@ export function sceneToElements(scene, { overlays = {}, editMode = false } = {})
       }),
     )
     if (typeof edge.label === 'string' && edge.label !== '') {
+      const plate = labelPlate(edge)
+      const chipId = `${CHIP_PREFIX}${edge.id}`
+      const textId = `${LABEL_PREFIX}${edge.id}`
+      const lines = Array.isArray(edge.labelLines) && edge.labelLines.length > 0 ? edge.labelLines : [edge.label]
       elements.push(
-        element('text', labelId, {
-          x: edge.labelAt.x,
-          y: edge.labelAt.y,
-          width: Math.max(24, edge.label.length * 6.2),
-          height: 14,
-          text: edge.label,
-          originalText: edge.label,
-          fontSize: 10,
+        element('rectangle', chipId, {
+          x: plate.x,
+          y: plate.y,
+          width: plate.w,
+          height: plate.h,
+          strokeColor: theme.line,
+          backgroundColor: theme.surface2,
+          strokeWidth: 1,
+          roundness: { type: 3 },
+          locked: true,
+          boundElements: [{ type: 'text', id: textId }],
+          customData: { designmap: { kind: 'edge-label-chip', edgeId: edge.id } },
+        }),
+      )
+      elements.push(
+        element('text', textId, {
+          x: plate.x + 5,
+          y: plate.y + 5,
+          width: Math.max(24, plate.w - 10),
+          height: Math.max(14, plate.h - 10),
+          text: lines.join('\n'),
+          originalText: lines.join('\n'),
+          fontSize: EDGE_FONT_SIZE,
           fontFamily: 2,
           textAlign: 'center',
           verticalAlign: 'middle',
-          lineHeight: LINE_HEIGHT,
+          containerId: chipId,
+          lineHeight: EDGE_LINE_HEIGHT,
+          strokeColor: theme.ink,
           locked: true,
           customData: { designmap: { kind: 'edge-label', edgeId: edge.id } },
         }),
@@ -203,10 +290,30 @@ export function sceneToElements(scene, { overlays = {}, editMode = false } = {})
   return elements
 }
 
-/** The appState a scene wants: a light canvas with a grid the human can see. */
-export function sceneToAppState() {
+/** Relative luminance of a `#rrggbb` colour, for choosing the Excalidraw theme. */
+export function isDarkSurface(colour) {
+  const match = /^#?([0-9a-f]{6})$/iu.exec(String(colour ?? '').trim())
+  if (match === null) return false
+  const value = parseInt(match[1], 16)
+  const [r, g, b] = [(value >> 16) & 255, (value >> 8) & 255, value & 255].map(channel => {
+    const unit = channel / 255
+    return unit <= 0.03928 ? unit / 12.92 : ((unit + 0.055) / 1.055) ** 2.4
+  })
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.35
+}
+
+/**
+ * The appState a scene wants: the host surface painted as the canvas background.
+ *
+ * `theme` stays LIGHT on purpose. Excalidraw's dark theme inverts the whole canvas with
+ * a CSS filter, which turns our explicit palette (chosen to be readable on the host
+ * surface) into its negative; painting the host surface as the background and keeping
+ * the editor's theme neutral is what makes the panel look native in both themes.
+ */
+export function sceneToAppState(look = DEFAULT_LOOK) {
   return {
-    viewBackgroundColor: '#ffffff',
+    viewBackgroundColor: look.surface,
+    theme: 'light',
     currentItemStrokeColor: '#4338ca',
     currentItemBackgroundColor: '#e0e7ff',
     currentItemFontFamily: 2,

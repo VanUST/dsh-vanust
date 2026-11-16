@@ -84,7 +84,7 @@ const CHECKS = [
     pattern: /\.replace\(\/\\\\\/g,\s*['"]\/['"]\)/,
     why: 'splitting on a backslash is a no-op on Linux and hides a real separator assumption',
     paths: ['plugins'],
-    allow: ['plugins/design-map/client.frame.js'],
+    allow: ['plugins/designmap/client.frame.js'],
     allowReason:
       'the vendored Excalidraw frame is generated minified code; the matched sequence is inside a Vite env string constant, not a separator assumption in kit source',
   },
@@ -104,7 +104,14 @@ const CHECKS = [
     // made the panel render check crash on Windows while passing on the platform it was
     // written on.
     paths: ['plugins', 'scripts'],
-    allow: [],
+    // Vendored, generated build outputs copied byte-for-byte from the DSH client loader
+    // so the static harness and the render spike run the REAL loader. They are not kit
+    // source, and the match is the loader's own generated `import(...)` call.
+    allow: [
+      'plugins/designmap/harness/vendor/dsh-client-modules.client.js',
+      'scripts/designmap-render-spike/public/vendor/dsh-client-modules.client.js',
+    ],
+    allowReason: "vendored DSH client-loader build, not kit source: the match is the loader's generated module factory",
   },
   {
     id: 'no-url-pathname-as-path',
@@ -117,7 +124,10 @@ const CHECKS = [
     paths: ['plugins', 'scripts'],
     // The one legitimate use: this value is the `url` of a synthetic HTTP request, never a
     // filesystem path. Anything else that property is used for reaches `fileURLToPath`.
-    allow: [],
+    // Both dev servers resolve a request path through an `inside(root, target)` guard
+    // before touching the filesystem, never through `fileURLToPath`.
+    allow: ['plugins/designmap/harness/serve.mjs', 'scripts/designmap-render-spike/serve.mjs'],
+    allowReason: 'an HTTP request path from `new URL(request.url)`, guarded by an inside(root) check; never a file URL',
   },
   {
     id: 'no-hand-built-file-url',

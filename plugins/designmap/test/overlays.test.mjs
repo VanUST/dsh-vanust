@@ -13,6 +13,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { renderView } from '../src/render.mjs'
+import { PALETTE } from '../src/palette.mjs'
 import { badOverlays } from '../fixtures/lint-cases.mjs'
 
 const model = {
@@ -101,8 +102,8 @@ test('a moved node keeps its incident edge endpoints on its box boundary', async
 })
 
 test('a palette colour is accepted and reported in the merge envelope, not the scene', async () => {
-  const result = await renderView({ model, views, overlays: { 'svc.a': { fill: '#dbeafe' } }, viewId: 'v.overlays' })
-  assert.deepEqual([...result.merge.colours.entries()], [['svc.a', { fill: '#dbeafe' }]])
+  const result = await renderView({ model, views, overlays: { 'svc.a': { fill: PALETTE.frontend.fill } }, viewId: 'v.overlays' })
+  assert.deepEqual([...result.merge.colours.entries()], [[ 'svc.a', { fill: PALETTE.frontend.fill } ]])
   assert.equal(result.merge.gc.length, 0)
-  assert.equal(result.sceneJson.includes('#dbeafe'), false)
+  assert.equal(result.sceneJson.includes(PALETTE.frontend.fill), false)
 })

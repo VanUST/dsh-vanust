@@ -60,8 +60,10 @@ the same `model.yaml` + `views.yaml` + `overlays.json` must produce byte-identic
       "to": "db.orders",
       "kind": "sync",
       "label": "SQL / reads",
+      "labelLines": ["SQL / reads"],
       "points": [{ "x": 400, "y": 142 }, { "x": 520, "y": 142 }],
-      "labelAt": { "x": 460, "y": 130 }
+      "labelBox": { "x": 413, "y": 114, "w": 94, "h": 25 },
+      "labelAt": { "x": 413, "y": 114 }
     }
   ]
 }
@@ -89,8 +91,21 @@ the same `model.yaml` + `views.yaml` + `overlays.json` must produce byte-identic
 | `edges[].from/to` | node ids present in this scene's `nodes[]` (otherwise it is a dangling-edge lint error and `render` refuses) |
 | `edges[].kind` | `sync \| async \| data`; the renderer picks the line style from it |
 | `edges[].label` | required in the model; empty becomes a lint error and the renderer draws nothing, it does not invent text |
+| `edges[].labelLines` | the wrapped lines core draws, at most 3; the renderer joins them with `\n` and must not re-wrap |
 | `edges[].points` | at least 2 points, first = source boundary, last = target boundary; intermediate points are ELK bend points |
-| `edges[].labelAt` | top-left anchor of the label baseline; core computes it, the renderer renders at it. Placement rule: the anchor sits on the **longest free span** of the polyline (sampled ~2 px) that lies outside every node box of the view, recomputed **after** the overlay merge so a moved node re-places its incident labels. When no free span exists, the polyline midpoint is used and lint reports `label_over_node` at severity warning — the scene is still emitted, the renderer must not reject it |
+| `edges[].labelBox` | **the label plate**: the rectangle the renderer draws (usually a chip with a bound text inside). Core owns both its size and its place — the size comes from one metric (`edgeLabelSize`: 0.62 em advance, wrap at 90 px, 9/5 px padding) and the place is chosen against the FINAL node boxes after the overlay merge. A renderer must draw this rectangle, not re-measure the text |
+| `edges[].labelAt` | the plate's top-left corner (`{x: labelBox.x, y: labelBox.y}`), kept for older consumers and for the SVG text anchor |
+
+### Visual collisions are refused, not warned
+
+Every plate is tested against every node box and against every other plate
+(`src/layout.mjs` `placementIssues`, `LABEL_GAP = 2`), and every edge segment against the
+interior of every node box. The layout retries with larger spacing when a view is crowded
+and then **refuses the render** with `label_collision` or `edge_through_node` instead of
+emitting a scene whose labels sit on top of boxes. After a human's overlay move the same
+geometry can still happen (the human placed the node); the scene lint then reports
+`label_over_node` / `label_label_overlap` / `edge_through_node` as warnings so the map
+stays openable and the defect stays visible instead of silent.
 
 The scene is **the whole presentation geometry**. The renderer may choose colours,
 fonts, stroke widths, icons and the label's exact baseline from a `type`/`kind` table,

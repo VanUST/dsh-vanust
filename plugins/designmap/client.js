@@ -9405,12 +9405,12 @@ var NodeResizeControl = (0, import_react2.memo)(ResizeControl);
 
 // client/scene.js
 var PALETTE = Object.freeze({
-  frontend: { fill: "#dbeafe", stroke: "#2563eb" },
-  service: { fill: "#e0e7ff", stroke: "#4338ca" },
-  worker: { fill: "#dcfce7", stroke: "#16a34a" },
-  datastore: { fill: "#fef3c7", stroke: "#d97706" },
-  queue: { fill: "#fce7f3", stroke: "#db2777" },
-  external: { fill: "#f1f5f9", stroke: "#64748b" }
+  frontend: { fill: "#bfdbfe", stroke: "#1d4ed8" },
+  service: { fill: "#c7d2fe", stroke: "#4338ca" },
+  worker: { fill: "#bbf7d0", stroke: "#15803d" },
+  datastore: { fill: "#fde68a", stroke: "#b45309" },
+  queue: { fill: "#fbcfe8", stroke: "#be185d" },
+  external: { fill: "#e2e8f0", stroke: "#475569" }
 });
 var EDGE_STYLE = Object.freeze({
   sync: { stroke: "#475569", strokeWidth: 1.6, strokeDasharray: void 0, label: "sync" },
@@ -9492,10 +9492,11 @@ async function loadFrameText(fetchImpl = globalThis.fetch) {
   if (!response.ok) throw new Error(`excalidraw frame HTTP ${response.status}`);
   return response.text();
 }
-function frameDocument(script) {
+function frameDocument(script, look = { surface: "#ffffff" }) {
   const safe = script.replaceAll("<\/script", "<\\/script");
+  const background = /^#[0-9a-f]{3,8}$/iu.test(String(look?.surface ?? "")) ? look.surface : "#ffffff";
   return `<!doctype html><html><head><meta charset="utf-8"><style>
-html,body,#root{height:100%;margin:0;background:#fff;overflow:hidden}
+html,body,#root{height:100%;margin:0;background:${background};overflow:hidden}
 .App-toolbar,.HintViewer,.App-menu,.layer-ui__wrapper__top-right,.dropdown-menu-button{display:none!important}
 </style></head><body><div id="root"></div><script>${safe}<\/script></body></html>`;
 }
@@ -9510,18 +9511,30 @@ var SHAPE = {
   datastore: "ellipse",
   decision: "diamond"
 };
-var DEFAULT_LOOK = {
-  frontend: { fill: "#dbeafe", stroke: "#2563eb" },
-  service: { fill: "#e0e7ff", stroke: "#4338ca" },
-  worker: { fill: "#dcfce7", stroke: "#15803d" },
-  datastore: { fill: "#fef3c7", stroke: "#b45309" },
-  queue: { fill: "#fce7f3", stroke: "#be185d" },
-  external: { fill: "#f1f5f9", stroke: "#475569" }
+var STROKE_STYLE = {
+  external: "dashed",
+  queue: "dotted"
+};
+var DEFAULT_LOOK = Object.freeze({
+  surface: "#ffffff",
+  surface2: "#f8fafc",
+  ink: "#0f172a",
+  muted: "#475569",
+  line: "#e2e8f0"
+});
+var NODE_LOOK = {
+  frontend: { fill: "#bfdbfe", stroke: "#1d4ed8" },
+  service: { fill: "#c7d2fe", stroke: "#4338ca" },
+  worker: { fill: "#bbf7d0", stroke: "#15803d" },
+  datastore: { fill: "#fde68a", stroke: "#b45309" },
+  queue: { fill: "#fbcfe8", stroke: "#be185d" },
+  external: { fill: "#e2e8f0", stroke: "#475569" }
 };
 var NODE_PREFIX = "dm:node:";
 var EDGE_PREFIX = "dm:edge:";
 var GROUP_PREFIX = "dm:group:";
 var LABEL_PREFIX = "dm:label:";
+var CHIP_PREFIX = "dm:chip:";
 var seed = 1;
 var nextSeed = () => seed = seed * 16807 % 2147483647;
 function element(type, id2, fields) {
@@ -9554,10 +9567,23 @@ function element(type, id2, fields) {
     ...fields
   };
 }
-var LINE_HEIGHT = 1.25;
-var FONT_SIZE = 13;
-function sceneToElements(scene, { overlays = {}, editMode = false } = {}) {
+var NODE_FONT_SIZE = 13;
+var NODE_LINE_HEIGHT = 1.25;
+var EDGE_FONT_SIZE = 11;
+var EDGE_LINE_HEIGHT = 1.25;
+var GROUP_FONT_SIZE = 12;
+var NODE_INK = "#1f2937";
+function labelPlate(edge) {
+  const box = edge.labelBox;
+  if (box !== void 0 && box !== null && [box.x, box.y, box.w, box.h].every(Number.isFinite)) return box;
+  const lines = Array.isArray(edge.labelLines) && edge.labelLines.length > 0 ? edge.labelLines : [String(edge.label ?? "")];
+  const longest = lines.reduce((max, line) => Math.max(max, line.length), 0);
+  const at = edge.labelAt ?? { x: 0, y: 0 };
+  return { x: at.x, y: at.y, w: Math.max(28, Math.ceil(longest * 6.82) + 18), h: lines.length * 15 + 10 };
+}
+function sceneToElements(scene, { overlays = {}, editMode = false, look = DEFAULT_LOOK } = {}) {
   const elements = [];
+  const theme = { ...DEFAULT_LOOK, ...look };
   for (const group of scene.groups ?? []) {
     elements.push(
       element("rectangle", `${GROUP_PREFIX}${group.id}`, {
@@ -9566,23 +9592,45 @@ function sceneToElements(scene, { overlays = {}, editMode = false } = {}) {
         width: group.w,
         height: group.h,
         strokeStyle: "dashed",
-        strokeColor: "#7c8aa5",
-        backgroundColor: "transparent",
+        strokeColor: theme.line,
+        backgroundColor: theme.surface2,
         strokeWidth: 1,
+        roundness: { type: 3 },
         locked: true,
         customData: { designmap: { kind: "group", groupId: group.id } }
       })
     );
+    if (String(group.label ?? "") !== "") {
+      const titleId = `${GROUP_PREFIX}${group.id}:title`;
+      elements.push(
+        element("text", titleId, {
+          x: group.x + 12,
+          y: group.y + 9,
+          width: Math.max(40, group.w - 24),
+          height: 18,
+          text: group.label,
+          originalText: group.label,
+          fontSize: GROUP_FONT_SIZE,
+          fontFamily: 2,
+          textAlign: "left",
+          verticalAlign: "top",
+          lineHeight: 1.25,
+          strokeColor: theme.muted,
+          locked: true,
+          customData: { designmap: { kind: "group-label", groupId: group.id } }
+        })
+      );
+    }
   }
   for (const node of scene.nodes) {
     const row = overlays[node.id] ?? {};
-    const look = DEFAULT_LOOK[node.type] ?? DEFAULT_LOOK.service;
+    const look2 = NODE_LOOK[node.type] ?? NODE_LOOK.service;
     const x = typeof row.x === "number" ? row.x : node.x;
     const y = typeof row.y === "number" ? row.y : node.y;
-    const fill = typeof row.fill === "string" ? row.fill : look.fill;
-    const stroke = typeof row.stroke === "string" ? row.stroke : look.stroke;
+    const fill = typeof row.fill === "string" ? row.fill : look2.fill;
+    const stroke = typeof row.stroke === "string" ? row.stroke : look2.stroke;
     const lines = String(node.label).split("\n");
-    const textHeight = Math.max(node.h - 12, lines.length * FONT_SIZE * LINE_HEIGHT);
+    const textHeight = Math.max(node.h - 12, lines.length * NODE_FONT_SIZE * NODE_LINE_HEIGHT);
     const shape = SHAPE[node.type] ?? "rectangle";
     const nodeId = `${NODE_PREFIX}${node.id}`;
     const textId = `${LABEL_PREFIX}${node.id}`;
@@ -9594,7 +9642,8 @@ function sceneToElements(scene, { overlays = {}, editMode = false } = {}) {
         height: node.h,
         strokeColor: stroke,
         backgroundColor: fill,
-        strokeStyle: node.type === "external" ? "dashed" : "solid",
+        strokeStyle: STROKE_STYLE[node.type] ?? "solid",
+        strokeWidth: 1.6,
         roundness: shape === "rectangle" ? { type: 3 } : null,
         locked: !editMode,
         boundElements: [{ type: "text", id: textId }],
@@ -9609,12 +9658,13 @@ function sceneToElements(scene, { overlays = {}, editMode = false } = {}) {
         height: textHeight,
         text: node.label,
         originalText: node.label,
-        fontSize: FONT_SIZE,
+        fontSize: NODE_FONT_SIZE,
         fontFamily: 2,
         textAlign: "center",
         verticalAlign: "middle",
         containerId: nodeId,
-        lineHeight: LINE_HEIGHT,
+        lineHeight: NODE_LINE_HEIGHT,
+        strokeColor: NODE_INK,
         locked: true,
         customData: { designmap: { kind: "node-label", nodeId: node.id } }
       })
@@ -9625,7 +9675,6 @@ function sceneToElements(scene, { overlays = {}, editMode = false } = {}) {
     const last = edge.points[edge.points.length - 1];
     const points = edge.points.map((point) => [point.x - first.x, point.y - first.y]);
     const arrowId = `${EDGE_PREFIX}${edge.id}`;
-    const labelId = `${LABEL_PREFIX}${edge.id}`;
     elements.push(
       element("arrow", arrowId, {
         x: first.x,
@@ -9633,9 +9682,9 @@ function sceneToElements(scene, { overlays = {}, editMode = false } = {}) {
         width: last.x - first.x,
         height: last.y - first.y,
         points,
-        strokeColor: "#64748b",
+        strokeColor: theme.muted,
         strokeStyle: edge.kind === "async" ? "dashed" : edge.kind === "data" ? "dotted" : "solid",
-        strokeWidth: 1.6,
+        strokeWidth: 1.4,
         startArrowhead: null,
         endArrowhead: "arrow",
         // Unbound on purpose: a bound arrow would be re-routed by the editor.
@@ -9646,19 +9695,40 @@ function sceneToElements(scene, { overlays = {}, editMode = false } = {}) {
       })
     );
     if (typeof edge.label === "string" && edge.label !== "") {
+      const plate = labelPlate(edge);
+      const chipId = `${CHIP_PREFIX}${edge.id}`;
+      const textId = `${LABEL_PREFIX}${edge.id}`;
+      const lines = Array.isArray(edge.labelLines) && edge.labelLines.length > 0 ? edge.labelLines : [edge.label];
       elements.push(
-        element("text", labelId, {
-          x: edge.labelAt.x,
-          y: edge.labelAt.y,
-          width: Math.max(24, edge.label.length * 6.2),
-          height: 14,
-          text: edge.label,
-          originalText: edge.label,
-          fontSize: 10,
+        element("rectangle", chipId, {
+          x: plate.x,
+          y: plate.y,
+          width: plate.w,
+          height: plate.h,
+          strokeColor: theme.line,
+          backgroundColor: theme.surface2,
+          strokeWidth: 1,
+          roundness: { type: 3 },
+          locked: true,
+          boundElements: [{ type: "text", id: textId }],
+          customData: { designmap: { kind: "edge-label-chip", edgeId: edge.id } }
+        })
+      );
+      elements.push(
+        element("text", textId, {
+          x: plate.x + 5,
+          y: plate.y + 5,
+          width: Math.max(24, plate.w - 10),
+          height: Math.max(14, plate.h - 10),
+          text: lines.join("\n"),
+          originalText: lines.join("\n"),
+          fontSize: EDGE_FONT_SIZE,
           fontFamily: 2,
           textAlign: "center",
           verticalAlign: "middle",
-          lineHeight: LINE_HEIGHT,
+          containerId: chipId,
+          lineHeight: EDGE_LINE_HEIGHT,
+          strokeColor: theme.ink,
           locked: true,
           customData: { designmap: { kind: "edge-label", edgeId: edge.id } }
         })
@@ -9667,9 +9737,10 @@ function sceneToElements(scene, { overlays = {}, editMode = false } = {}) {
   }
   return elements;
 }
-function sceneToAppState() {
+function sceneToAppState(look = DEFAULT_LOOK) {
   return {
-    viewBackgroundColor: "#ffffff",
+    viewBackgroundColor: look.surface,
+    theme: "light",
     currentItemStrokeColor: "#4338ca",
     currentItemBackgroundColor: "#e0e7ff",
     currentItemFontFamily: 2,
@@ -9702,39 +9773,79 @@ function overlayDelta(baseline, elements) {
 
 // client/canvas.jsx
 var import_jsx_runtime2 = require("react/jsx-runtime");
-function ExcalidrawCanvas({ scene, overlays, editMode, onDelta, onStatus, onFallback }) {
+function fitViewport2({ canvas, width, height, margin = 18 }) {
+  if (width <= 0 || height <= 0 || canvas.width <= 0 || canvas.height <= 0) {
+    return { zoom: 1, scrollX: 0, scrollY: 0 };
+  }
+  const usableWidth = Math.max(1, width - margin * 2);
+  const usableHeight = Math.max(1, height - margin * 2);
+  const zoom3 = Math.max(0.05, Math.min(1.5, Math.min(usableWidth / canvas.width, usableHeight / canvas.height)));
+  const centreX = canvas.x + canvas.width / 2;
+  const centreY = canvas.y + canvas.height / 2;
+  return {
+    zoom: zoom3,
+    scrollX: width / (2 * zoom3) - centreX,
+    scrollY: height / (2 * zoom3) - centreY
+  };
+}
+function ExcalidrawCanvas({
+  scene,
+  overlays,
+  editMode,
+  look,
+  fitSignal = 0,
+  onDelta,
+  onStatus,
+  onFallback,
+  onViewport
+}) {
+  const theme = look ?? DEFAULT_LOOK;
   const iframeRef = import_react3.default.useRef(null);
   const baselineRef = import_react3.default.useRef([]);
   const readyRef = import_react3.default.useRef(false);
   const loadedRef = import_react3.default.useRef(false);
+  const viewportRef = import_react3.default.useRef(null);
+  const appliedFitRef = import_react3.default.useRef(null);
+  const viewRef = import_react3.default.useRef(null);
+  const fitRef = import_react3.default.useRef(fitSignal);
+  const lookRef = import_react3.default.useRef(theme);
+  lookRef.current = theme;
   const [srcDoc, setSrcDoc] = import_react3.default.useState(null);
   const [failure, setFailure] = import_react3.default.useState(null);
   const post = import_react3.default.useCallback((message) => {
     iframeRef.current?.contentWindow?.postMessage({ source: PANEL_SOURCE, ...message }, "*");
   }, []);
-  const framedAppState = import_react3.default.useCallback(() => {
-    const base = sceneToAppState();
+  const fittedAppState = import_react3.default.useCallback(() => {
     const frame2 = iframeRef.current;
     const width = frame2?.clientWidth ?? 0;
     const height = frame2?.clientHeight ?? 0;
-    const canvas = scene.canvas ?? { x: 0, y: 0, width: 0, height: 0 };
-    if (width === 0 || height === 0 || canvas.width === 0 || canvas.height === 0) return base;
-    const margin = 24;
-    const zoom3 = Math.max(0.05, Math.min(1.5, Math.min((width - margin * 2) / canvas.width, (height - margin * 2) / canvas.height)));
-    const centreX = canvas.x + canvas.width / 2;
-    const centreY = canvas.y + canvas.height / 2;
-    return { ...base, zoom: { value: zoom3 }, scrollX: width / 2 - centreX * zoom3, scrollY: height / 2 - centreY * zoom3 };
-  }, [scene]);
+    const viewport = fitViewport2({ canvas: scene.canvas ?? { x: 0, y: 0, width: 0, height: 0 }, width, height });
+    viewportRef.current = viewport;
+    appliedFitRef.current = viewport;
+    onViewport?.({ zoom: viewport.zoom });
+    return {
+      ...sceneToAppState(lookRef.current),
+      zoom: { value: viewport.zoom },
+      scrollX: viewport.scrollX,
+      scrollY: viewport.scrollY
+    };
+  }, [scene, onViewport]);
+  const currentAppState = import_react3.default.useCallback(() => {
+    const base = sceneToAppState(lookRef.current);
+    const viewport = viewportRef.current;
+    if (viewport === null) return base;
+    return { ...base, zoom: { value: viewport.zoom }, scrollX: viewport.scrollX, scrollY: viewport.scrollY };
+  }, []);
   const elementsFor = import_react3.default.useCallback(
-    () => sceneToElements(scene, { overlays, editMode }),
-    [scene, overlays, editMode]
+    () => sceneToElements(scene, { overlays, editMode, look: theme }),
+    [scene, overlays, editMode, theme]
   );
   import_react3.default.useEffect(() => {
     let alive = true;
     loadFrameText().then((text) => {
       if (!alive) return;
       baselineRef.current = elementsFor();
-      setSrcDoc(frameDocument(text));
+      setSrcDoc(frameDocument(text, lookRef.current));
     }).catch((error) => {
       if (!alive) return;
       setFailure(error);
@@ -9748,8 +9859,36 @@ function ExcalidrawCanvas({ scene, overlays, editMode, onDelta, onStatus, onFall
     if (srcDoc === null || !readyRef.current) return;
     const elements = elementsFor();
     baselineRef.current = elements;
-    post({ type: "load", scene: { elements, appState: framedAppState() } });
-  }, [srcDoc, elementsFor, post]);
+    const viewChanged = viewRef.current !== scene.viewId;
+    viewRef.current = scene.viewId;
+    post({ type: "load", scene: { elements, appState: viewChanged ? fittedAppState() : currentAppState() } });
+  }, [srcDoc, elementsFor, post, scene.viewId, fittedAppState, currentAppState]);
+  import_react3.default.useEffect(() => {
+    if (srcDoc === null || !readyRef.current || fitRef.current === fitSignal) return;
+    fitRef.current = fitSignal;
+    post({ type: "load", scene: { elements: baselineRef.current, appState: fittedAppState() } });
+  }, [fitSignal, srcDoc, post, fittedAppState]);
+  import_react3.default.useEffect(() => {
+    const frame2 = iframeRef.current;
+    if (frame2 === null || typeof ResizeObserver === "undefined") return void 0;
+    let timer2 = null;
+    const observer = new ResizeObserver(() => {
+      clearTimeout(timer2);
+      timer2 = setTimeout(() => {
+        if (!readyRef.current) return;
+        const current = viewportRef.current;
+        const fit = appliedFitRef.current;
+        if (current === null || fit === null) return;
+        if (Math.abs(current.zoom - fit.zoom) > 0.01) return;
+        post({ type: "load", scene: { elements: baselineRef.current, appState: fittedAppState() } });
+      }, 120);
+    });
+    observer.observe(frame2);
+    return () => {
+      clearTimeout(timer2);
+      observer.disconnect();
+    };
+  }, [srcDoc, post, fittedAppState]);
   import_react3.default.useEffect(() => {
     const onMessage = (event) => {
       if (event.source !== iframeRef.current?.contentWindow) return;
@@ -9759,7 +9898,8 @@ function ExcalidrawCanvas({ scene, overlays, editMode, onDelta, onStatus, onFall
         readyRef.current = true;
         const elements = elementsFor();
         baselineRef.current = elements;
-        post({ type: "load", scene: { elements, appState: framedAppState() } });
+        viewRef.current = scene.viewId;
+        post({ type: "load", scene: { elements, appState: fittedAppState() } });
         return;
       }
       if (data.type === "loaded") {
@@ -9767,6 +9907,12 @@ function ExcalidrawCanvas({ scene, overlays, editMode, onDelta, onStatus, onFall
         return;
       }
       if (data.type === "change") {
+        const rawZoom = data.appState?.zoom;
+        const zoomValue = typeof rawZoom === "number" ? rawZoom : rawZoom?.value;
+        if (Number.isFinite(zoomValue)) {
+          viewportRef.current = { zoom: zoomValue, scrollX: data.appState.scrollX, scrollY: data.appState.scrollY };
+          onViewport?.({ zoom: zoomValue });
+        }
         if (!loadedRef.current) return;
         const delta = overlayDelta(baselineRef.current, data.elements ?? []);
         if (Object.keys(delta).length > 0) onDelta?.(delta);
@@ -9774,7 +9920,7 @@ function ExcalidrawCanvas({ scene, overlays, editMode, onDelta, onStatus, onFall
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [elementsFor, onDelta, post]);
+  }, [elementsFor, onDelta, post, fittedAppState, scene.viewId, onViewport]);
   if (failure !== null) {
     return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dmv-error", role: "alert", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { children: [
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("h2", { children: "Excalidraw canvas unavailable" }),
@@ -9795,6 +9941,7 @@ function ExcalidrawCanvas({ scene, overlays, editMode, onDelta, onStatus, onFall
       title: "Design map canvas",
       srcDoc,
       sandbox: "allow-scripts",
+      style: { background: theme.surface },
       onLoad: () => onStatus?.({ kind: "info", code: "canvas_ready", message: "Excalidraw canvas loaded." })
     }
   );
@@ -9843,31 +9990,46 @@ function SceneEdge({ id: id2, data, markerEnd, style: style2 }) {
     /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(EdgeLabelRenderer, { children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dmv-edge-label", style: { transform: `translate(${data.labelAt.x}px, ${data.labelAt.y}px)` }, children: data.label }) })
   ] });
 }
-function Legend({ scene, editor, editMode }) {
+function Legend({ scene, editMode, zoom: zoom3, onFit }) {
   const nodeTypes = legendNodeTypes(scene);
   const edgeKinds = legendEdgeKinds(scene);
-  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("aside", { className: "dmv-legend", "aria-label": editor === null ? "Legend" : "Legend and node editor", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { children: "Legend" }),
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("ul", { children: [
-      nodeTypes.map((type) => {
-        const look = paletteFor(type);
-        const shape = type === "datastore" ? "ellipse" : type === "external" ? "dashed" : "";
-        return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("li", { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: `swatch ${shape}`, style: { background: look.fill, borderColor: look.stroke } }),
-          type
-        ] }, type);
-      }),
-      edgeKinds.map((kind) => {
-        const look = edgeStyleFor(kind);
-        const lineStyle = kind === "async" ? "dashed" : kind === "data" ? "dotted" : "solid";
-        return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("li", { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "line", style: { borderTopColor: look.stroke, borderTopStyle: lineStyle } }),
-          kind
-        ] }, kind);
-      })
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "hint", children: editMode ? "Drag a node or click to select it; arrow keys nudge 8 px. Changes save after 500 ms." : "Double-click a group to open it. Click a node to open its source." }),
-    editor
+  const nodeCounts = import_react4.default.useMemo(() => {
+    const counts = /* @__PURE__ */ new Map();
+    for (const node of scene.nodes) counts.set(node.type, (counts.get(node.type) ?? 0) + 1);
+    return counts;
+  }, [scene]);
+  const edgeCounts = import_react4.default.useMemo(() => {
+    const counts = /* @__PURE__ */ new Map();
+    for (const edge of scene.edges) counts.set(edge.kind, (counts.get(edge.kind) ?? 0) + 1);
+    return counts;
+  }, [scene]);
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dmv-legend-bar", role: "group", "aria-label": "Legend", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dmv-legend-title", children: "Legend" }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("ul", { className: "dmv-legend-group", children: nodeTypes.map((type) => {
+      const look = paletteFor(type);
+      const shape = type === "datastore" ? "ellipse" : type === "external" ? "dashed" : type === "decision" ? "diamond" : "";
+      return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("li", { className: "dmv-legend-item", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: `dmv-glyph ${shape}`, style: { background: look.fill, borderColor: look.stroke }, "aria-hidden": "true" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: type }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("b", { children: nodeCounts.get(type) ?? 0 })
+      ] }, type);
+    }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dmv-legend-sep", "aria-hidden": "true" }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("ul", { className: "dmv-legend-group", children: edgeKinds.map((kind) => {
+      const look = edgeStyleFor(kind);
+      const lineStyle = kind === "async" ? "dashed" : kind === "data" ? "dotted" : "solid";
+      return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("li", { className: "dmv-legend-item", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dmv-wire", style: { borderTopColor: look.stroke, borderTopStyle: lineStyle }, "aria-hidden": "true" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: kind }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("b", { children: edgeCounts.get(kind) ?? 0 })
+      ] }, kind);
+    }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dmv-spacer" }),
+    editMode ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dmv-legend-hint", children: "drag a node to move it" }) : null,
+    onFit === void 0 ? null : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { type: "button", className: "dmv-btn dmv-fit", onClick: onFit, title: "Fit the whole map in the canvas", children: [
+      "\u2922 Fit",
+      Number.isFinite(zoom3) ? ` \xB7 ${zoom3.toFixed(2)}\xD7` : ""
+    ] })
   ] });
 }
 function NodeInspector({ node, colours, overlayRow, pending, onColour, onReset, onOpen }) {
@@ -9940,12 +10102,46 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
   const [query, setQuery] = import_react4.default.useState("");
   const [status, setStatus] = import_react4.default.useState(null);
   const [zoom3, setZoom] = import_react4.default.useState(1);
+  const [zoomSource, setZoomSource] = import_react4.default.useState("flow");
+  const [fitSignal, setFitSignal] = import_react4.default.useState(0);
+  const [look, setLook] = import_react4.default.useState(null);
   const [editMode, setEditMode] = import_react4.default.useState(false);
   const [selectedId, setSelectedId] = import_react4.default.useState(null);
   const [positions, setPositions] = import_react4.default.useState({});
   const [colours, setColours] = import_react4.default.useState({});
   const [overlays, setOverlays] = import_react4.default.useState({});
   const [canvasFailed, setCanvasFailed] = import_react4.default.useState(false);
+  const rootRef = import_react4.default.useRef(null);
+  import_react4.default.useEffect(() => {
+    const read = () => {
+      const element2 = rootRef.current;
+      if (element2 === null) return;
+      const styles = getComputedStyle(element2);
+      const pick = (name, fallback) => (styles.getPropertyValue(name) ?? "").trim() || fallback;
+      const next = {
+        surface: pick("--dmv-surface", "#ffffff"),
+        surface2: pick("--dmv-surface-2", "#f8fafc"),
+        ink: pick("--dmv-ink", "#0f172a"),
+        muted: pick("--dmv-muted", "#475569"),
+        line: pick("--dmv-line", "#e2e8f0")
+      };
+      setLook((previous) => previous !== null && previous.surface === next.surface && previous.surface2 === next.surface2 && previous.ink === next.ink && previous.muted === next.muted && previous.line === next.line ? previous : next);
+    };
+    read();
+    const media = window.matchMedia?.("(prefers-color-scheme: dark)");
+    media?.addEventListener?.("change", read);
+    const observer = typeof MutationObserver === "undefined" ? null : new MutationObserver(read);
+    observer?.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-theme", "style"] });
+    return () => {
+      media?.removeEventListener?.("change", read);
+      observer?.disconnect();
+    };
+  }, []);
+  const onCanvasViewport = import_react4.default.useCallback((viewport) => {
+    if (!Number.isFinite(viewport?.zoom)) return;
+    setZoom(viewport.zoom);
+    setZoomSource("canvas");
+  }, []);
   const onCanvasDelta = import_react4.default.useCallback(
     async (delta) => {
       for (const [nodeId, row] of Object.entries(delta)) {
@@ -10076,10 +10272,14 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
   const matches = import_react4.default.useMemo(() => scene === null ? [] : searchSceneNodes(scene.nodes, query), [scene, query]);
   const matchIds = import_react4.default.useMemo(() => new Set(matches.map((node) => node.id)), [matches]);
   const fit = import_react4.default.useCallback(() => {
+    if (!canvasFailed) {
+      setFitSignal((value2) => value2 + 1);
+      return;
+    }
     const instance = flowRef.current;
     if (instance === null) return;
     requestAnimationFrame(() => instance.fitView({ padding: 0.16, maxZoom: 1.5, duration: 0 }));
-  }, []);
+  }, [canvasFailed]);
   import_react4.default.useEffect(() => {
     fit();
     const viewId = current?.view.viewId ?? null;
@@ -10279,10 +10479,10 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
   const changeColour = import_react4.default.useCallback(
     (node, type) => {
       if (!editRef.current || node === null) return;
-      const look = paletteFor(type);
-      emit({ type: "colorChanged", nodeId: node.id, fill: look.fill, stroke: look.stroke });
-      setColours((previous) => ({ ...previous, [node.id]: { fill: look.fill, stroke: look.stroke } }));
-      scheduleWrite(node.id, { fill: look.fill, stroke: look.stroke });
+      const look2 = paletteFor(type);
+      emit({ type: "colorChanged", nodeId: node.id, fill: look2.fill, stroke: look2.stroke });
+      setColours((previous) => ({ ...previous, [node.id]: { fill: look2.fill, stroke: look2.stroke } }));
+      scheduleWrite(node.id, { fill: look2.fill, stroke: look2.stroke });
       setStatus({ kind: "info", code: "colorChanged", message: `Queued ${type} colours for ${node.id} (500 ms debounce).` });
     },
     [scheduleWrite, emit]
@@ -10594,7 +10794,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     };
   });
   const flowEdges = scene.edges.map((edge) => {
-    const look = edgeStyleFor(edge.kind);
+    const look2 = edgeStyleFor(edge.kind);
     return {
       id: edge.id,
       source: edge.from,
@@ -10608,8 +10808,8 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
         origin: { from: sceneById.get(edge.from), to: sceneById.get(edge.to) }
       },
       ariaLabel: edgeAriaLabel(edge),
-      markerEnd: { type: MarkerType.ArrowClosed, color: look.stroke, width: 16, height: 16 },
-      style: { stroke: look.stroke, strokeWidth: look.strokeWidth, strokeDasharray: look.strokeDasharray }
+      markerEnd: { type: MarkerType.ArrowClosed, color: look2.stroke, width: 16, height: 16 },
+      style: { stroke: look2.stroke, strokeWidth: look2.strokeWidth, strokeDasharray: look2.strokeDasharray }
     };
   });
   const groups = scene.groups.map((group) => {
@@ -10653,7 +10853,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
   };
   const canvasLabel = `${scene.title || current.view.title || scene.viewId}: ${scene.nodes.length} nodes, ${scene.edges.length} edges, ${staleNodes.length} stale. ${editMode ? "Edit mode." : "Read-only design map."}`;
   const defaultStatus = editMode ? "Editing: drag a node or choose a colour; writes debounce 500 ms. Reset node/view or undo from here." : "Read-only. Click a node to open its source; double-click a group to drill in.";
-  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dmv", "data-edit-mode": editMode ? "true" : "false", children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dmv", "data-edit-mode": editMode ? "true" : "false", ref: rootRef, children: [
     /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("header", { className: "dmv-top", children: [
       /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dmv-ident", children: [
         /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h1", { className: "dmv-title", children: title }),
@@ -10670,6 +10870,20 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
         ] }) : null
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dmv-spacer" }),
+      sceneSet !== null && sceneSet.views.length > 1 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: "dmv-viewswitch", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dmv-visually-hidden", children: "View" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+          "select",
+          {
+            value: scene.viewId,
+            onChange: (event) => {
+              const target = sceneSet.views.find((entry) => entry.view.viewId === event.target.value);
+              if (target !== void 0) navigate(target.view);
+            },
+            children: sceneSet.views.map((entry) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("option", { value: entry.view.viewId, children: entry.view.title || entry.view.viewId }, entry.view.viewId))
+          }
+        )
+      ] }) : null,
       /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dmv-actions", children: [
         canWrite ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: `dmv-btn${editMode ? " primary" : ""}`, "aria-pressed": editMode, onClick: toggleEdit, children: editMode ? "Editing overlays" : "Edit overlays" }) : null,
         editMode ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
@@ -10697,7 +10911,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
         /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { id: "dmv-search-count", className: "dmv-search-count", "aria-live": "polite", children: query.trim() === "" ? "" : matches.length })
       ] })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Breadcrumb, { history: historyForBar, onNavigate: navigate }),
+    historyForBar.length > 1 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Breadcrumb, { history: historyForBar, onNavigate: navigate }) : null,
     /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { className: "dmv-visually-hidden", children: canvasLabel }),
     /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("section", { className: "dmv-stage", "aria-label": "Design map canvas", children: [
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dmv-flow", onDoubleClick: onStageDoubleClick, children: empty2 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dmv-empty", children: [
@@ -10709,8 +10923,11 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
           scene,
           overlays,
           editMode,
+          look,
+          fitSignal,
           onDelta: onCanvasDelta,
-          onFallback: () => setCanvasFailed(true)
+          onFallback: () => setCanvasFailed(true),
+          onViewport: onCanvasViewport
         }
       ) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
         index,
@@ -10758,26 +10975,28 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
           ]
         }
       ) }),
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-        Legend,
+      editMode && !canvasFailed ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dmv-inspector-pop", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+        NodeInspector,
         {
-          scene,
-          editMode,
-          editor: editMode ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-            NodeInspector,
-            {
-              node: selectedNode,
-              colours: selectedColours,
-              overlayRow: selectedRow,
-              pending: pendingCount > 0,
-              onColour: (type) => changeColour(selectedNode, type),
-              onReset: resetNode,
-              onOpen: () => selectedNode === null ? void 0 : openSource(selectedNode)
-            }
-          ) : null
+          node: selectedNode,
+          colours: selectedColours,
+          overlayRow: selectedRow,
+          pending: pendingCount > 0,
+          onColour: (type) => changeColour(selectedNode, type),
+          onReset: resetNode,
+          onOpen: () => selectedNode === null ? void 0 : openSource(selectedNode)
         }
-      )
+      ) }) : null
     ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+      Legend,
+      {
+        scene,
+        editMode,
+        zoom: zoom3,
+        onFit: fit
+      }
+    ),
     /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dmv-status", "data-kind": status?.kind ?? "idle", role: status?.kind === "error" ? "alert" : "status", children: [
       status === null ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: defaultStatus }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { children: [
         status.code ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("code", { children: [
@@ -10787,7 +11006,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
         status.message
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dmv-spacer" }),
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { title: zoomSource === "canvas" ? "current Excalidraw canvas zoom" : "current React Flow zoom", children: [
         "zoom ",
         zoom3.toFixed(2)
       ] })
@@ -11125,6 +11344,19 @@ var CSS = `
 .dmv-chip.stale { color: var(--dmv-warn); border-color: color-mix(in srgb, var(--dmv-warn) 40%, var(--dmv-line)); background: color-mix(in srgb, var(--dmv-warn) 8%, var(--dmv-surface)); font-weight: 600; }
 .dmv-chip.readonly { color: var(--dmv-ok); border-color: color-mix(in srgb, var(--dmv-ok) 35%, var(--dmv-line)); background: color-mix(in srgb, var(--dmv-ok) 7%, var(--dmv-surface)); }
 .dmv-spacer { flex: 1 1 24px; }
+.dmv-viewswitch select {
+  border: 1px solid var(--dmv-line);
+  border-radius: var(--dmv-radius-s);
+  background: var(--dmv-surface-2);
+  color: var(--dmv-ink);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 550;
+  padding: 3px 8px;
+  max-width: 26ch;
+  cursor: pointer;
+}
+.dmv-viewswitch select:hover { background: var(--dmv-surface-3); }
 .dmv-actions { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .dmv-btn {
   display: inline-flex;
@@ -11211,7 +11443,7 @@ var CSS = `
 .dmv-crumb[aria-current="page"] { color: var(--dmv-ink); background: var(--dmv-surface); border-color: var(--dmv-line); cursor: default; font-weight: 650; }
 .dmv-crumb-hint { color: var(--dmv-muted); font-size: 10.5px; }
 
-.dmv-stage { flex: 1; min-height: 0; display: flex; background: var(--dmv-surface); }
+.dmv-stage { flex: 1; min-height: 0; display: flex; background: var(--dmv-surface); position: relative; }
 .dmv-flow { position: relative; flex: 1; min-width: 0; }
 .dmv-flow .react-flow { background: var(--dmv-surface); }
 /* RF puts the edge-label portal before the node layer; labels are annotations and must
@@ -11236,7 +11468,7 @@ var CSS = `
 }
 .dmv-stage .react-flow__attribution { font-size: 9px; opacity: 0.55; }
 /* The Excalidraw frame fills the stage; it draws and edits, the panel owns the chrome. */
-.dmv-excalidraw { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; background: #ffffff; }
+.dmv-excalidraw { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
 .dmv-stage .react-flow__node { border-radius: var(--dmv-radius-s); }
 .dmv-stage .react-flow__node:focus-visible { outline: var(--dmv-focus); outline-offset: 2px; }
 .dmv-stage .react-flow__handle { opacity: 0; pointer-events: none; }
@@ -11330,6 +11562,47 @@ var CSS = `
 .dmv-legend .swatch.dashed { border-style: dashed; }
 .dmv-legend .line { width: 16px; border-top: 2px solid #475569; flex: none; }
 .dmv-legend .hint { margin-top: 6px; padding-top: 5px; border-top: 1px solid var(--dmv-line); font-size: 9.5px; line-height: 1.4; }
+
+/* The legend is a bar under the canvas, not a side rail: a wide map needs every pixel of
+   width, and the legend is a reading aid for the same map, not a separate column. */
+.dmv-legend-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 5px 12px;
+  border-top: 1px solid var(--dmv-line);
+  background: var(--dmv-surface-2);
+  overflow-x: auto;
+  font-size: 10.5px;
+  color: var(--dmv-muted);
+}
+.dmv-legend-title { text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; font-size: 9.5px; color: var(--dmv-muted); }
+.dmv-legend-group { display: flex; align-items: center; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.dmv-legend-item { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.dmv-legend-item b { font-weight: 650; color: var(--dmv-ink); font-variant-numeric: tabular-nums; }
+.dmv-glyph { width: 11px; height: 11px; border-radius: 3px; border: 1.5px solid; display: inline-block; flex: none; }
+.dmv-glyph.ellipse { border-radius: 50%; }
+.dmv-glyph.dashed { border-style: dashed; }
+.dmv-glyph.diamond { transform: rotate(45deg); border-radius: 2px; }
+.dmv-wire { width: 18px; border-top: 2px solid; display: inline-block; flex: none; }
+.dmv-legend-sep { width: 1px; height: 14px; background: var(--dmv-line); flex: none; }
+.dmv-legend-hint { font-size: 10px; color: var(--dmv-muted); }
+.dmv-fit { font-size: 10.5px; padding: 2px 8px; }
+.dmv-inspector-pop {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  width: 220px;
+  max-height: 60%;
+  overflow: auto;
+  background: var(--dmv-surface);
+  border: 1px solid var(--dmv-line);
+  border-radius: var(--dmv-radius-l);
+  padding: 10px 12px;
+  box-shadow: 0 8px 24px rgb(15 23 42 / 0.14);
+  z-index: 6;
+}
 .dmv-inspector { margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--dmv-line); }
 .dmv-inspector h2 { margin: 0 0 5px; font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--dmv-muted); font-weight: 700; }
 .dmv-inspector-name { margin: 0 0 2px; color: var(--dmv-ink); font-weight: 650; font-size: 11.5px; overflow-wrap: anywhere; }

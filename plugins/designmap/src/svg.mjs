@@ -7,6 +7,8 @@
  * ids generated at export time. The output is one standalone `<svg>` document.
  */
 import { paletteFor } from './palette.mjs'
+import { labelBoxOf } from './layout.mjs'
+import { EDGE_LABEL_FONT_SIZE, EDGE_LABEL_LINE_HEIGHT, wrapEdgeLabel } from './text.mjs'
 
 function escapeXml(value) {
   return String(value)
@@ -62,7 +64,16 @@ export function sceneToSvg(scene, { colours = new Map() } = {}) {
     parts.push(`<g class="edge" data-edge-id="${escapeXml(edge.id)}" data-kind="${escapeXml(edge.kind)}">`)
     parts.push(`<polyline points="${points}" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#designmap-arrow)"/>`)
     if (edge.label !== '') {
-      parts.push(`<text x="${num(edge.labelAt.x)}" y="${num(edge.labelAt.y)}" font-family="Inter, system-ui, sans-serif" font-size="12" fill="#334155">${escapeXml(edge.label)}</text>`)
+      // The plate is the scene's labelBox: the same rectangle the panel draws, so an
+      // export never disagrees with the map about where a label is or how big it is.
+      const box = labelBoxOf(edge)
+      const lines = Array.isArray(edge.labelLines) && edge.labelLines.length > 0 ? edge.labelLines : wrapEdgeLabel(edge.label)
+      const centreX = box.x + box.w / 2
+      const startY = box.y + box.h / 2 - ((lines.length - 1) * EDGE_LABEL_LINE_HEIGHT) / 2
+      parts.push(`<g class="edge-label" data-edge-id="${escapeXml(edge.id)}">`)
+      parts.push(`<rect x="${num(box.x)}" y="${num(box.y)}" width="${num(box.w)}" height="${num(box.h)}" rx="4" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>`)
+      parts.push(`<text x="${num(centreX)}" y="${num(startY)}" text-anchor="middle" dominant-baseline="middle" font-family="Inter, system-ui, sans-serif" font-size="${EDGE_LABEL_FONT_SIZE}" fill="#334155">${lines.map((line, index) => `<tspan x="${num(centreX)}" y="${num(startY + index * EDGE_LABEL_LINE_HEIGHT)}">${escapeXml(line)}</tspan>`).join('')}</text>`)
+      parts.push('</g>')
     }
     parts.push('</g>')
   }

@@ -21,7 +21,20 @@ const PKG = resolve(HERE, '..')
 const REPO = resolve(PKG, '..', '..')
 const SCENES = join(HERE, 'scenes')
 const WORKSPACE = join(HERE, 'workspace')
-const DESIGNMAP = join(WORKSPACE, 'designmap')
+const DESIGNMAP = process.env.M1_DESIGNMAP === undefined ? join(WORKSPACE, 'designmap') : resolve(process.env.M1_DESIGNMAP)
+/** Scene sets: the pinned fixtures, and `repo` = this repository's own rendered designmap. */
+const SETS = () => ({
+  fixture: join(SCENES, 'fixture'),
+  m0: join(SCENES, 'm0'),
+  empty: join(SCENES, 'empty'),
+  readability: join(SCENES, 'readability'),
+  repo: join(REPO, 'designmap', 'out'),
+})
+const setDir = (requested) => {
+  const sets = SETS()
+  const set = Object.hasOwn(sets, requested ?? '') ? requested : 'fixture'
+  return { set, dir: sets[set] }
+}
 const PORT = Number(process.env.M1_PORT ?? 4320)
 
 const hostFor = () => {
@@ -56,7 +69,7 @@ const json = (response, status, value) => {
 const fail = (response, code, message, details) => json(response, 200, { ok: false, error: { code, message, ...(details === undefined ? {} : { details }) } })
 
 async function readIndex(set) {
-  const text = await readFile(join(SCENES, set, 'index.json'), 'utf8')
+  const text = await readFile(join(SETS()[set], 'index.json'), 'utf8')
   return JSON.parse(text)
 }
 
@@ -65,8 +78,18 @@ function inside(root, target) {
 }
 
 async function serveStatic(response, pathname) {
-  const target = normalize(join(HERE, pathname === '/harness' ? '/harness/index.html' : pathname))
-  const allowed = inside(HERE, target) || inside(PKG, target)
+  // The panel loads the vendored frame through the shell's `/plugins/<pkg>/<file>` route;
+  // the harness has no plugin router, so it maps that one route onto the package itself.
+  const pluginPrefix = '/plugins/@cc/dsh-designmap/'
+  const repoPrefix = '/scenes/repo/'
+  const target = pathname.startsWith(pluginPrefix)
+    ? normalize(join(PKG, pathname.slice(pluginPrefix.length)))
+    : pathname.startsWith(repoPrefix)
+      ? normalize(join(REPO, 'designmap', 'out', pathname.slice(repoPrefix.length)))
+      : normalize(join(HERE, pathname === '/harness' ? '/harness/index.html' : pathname))
+  const allowed = (pathname.startsWith(pluginPrefix) && inside(PKG, target))
+    || (pathname.startsWith(repoPrefix) && inside(REPO, target))
+    || inside(HERE, target)
   if (!allowed) return false
   try {
     const info = await stat(target)
@@ -90,7 +113,7 @@ createServer(async (request, response) => {
       if (await serveStatic(response, pathname)) return
       return void response.writeHead(404).end('not found')
     }
-    if (pathname.startsWith('/scenes/')) {
+    if (pathname.startsWith('/scenes/') || pathname.startsWith('/plugins/')) {
       if (await serveStatic(response, pathname)) return
       return void response.writeHead(404).end('not found')
     }
@@ -164,8 +187,7 @@ createServer(async (request, response) => {
     }
 
     if (pathname === '/stub/list') {
-      const requested = url.searchParams.get('set')
-      const set = requested === 'm0' || requested === 'empty' ? requested : 'fixture'
+      const { set } = setDir(url.searchParams.get('set'))
       const dir = url.searchParams.get('dir') ?? ''
       if (dir !== 'designmap/out') return json(response, 200, { ok: true, value: { entries: [] } })
       const index = await readIndex(set)
@@ -175,8 +197,7 @@ createServer(async (request, response) => {
     }
 
     if (pathname === '/stub/read') {
-      const requested = url.searchParams.get('set')
-      const set = requested === 'm0' || requested === 'empty' ? requested : 'fixture'
+      const { set, dir } = setDir(url.searchParams.get('set'))
       const path = url.searchParams.get('path') ?? ''
       if (!path.startsWith('designmap/out/')) {
         console.log(`200 /stub/read missing ${path}`)
@@ -184,7 +205,7 @@ createServer(async (request, response) => {
       }
       const name = path.slice('designmap/out/'.length)
       if (!/^[A-Za-z0-9._-]+\.scene\.json$/.test(name)) return fail(response, 'workspace-file/not-found', `no entry at "${path}"`, { path })
-      const text = await readFile(join(SCENES, set, name), 'utf8')
+      const text = await readFile(join(dir, name), 'utf8')
       console.log(`200 /stub/read ${set}/${name} ${Buffer.byteLength(text)}B`)
       return json(response, 200, {
         ok: true,

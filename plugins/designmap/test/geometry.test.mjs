@@ -2,22 +2,22 @@
  * PROOF:
  * Behavior: the scene's edge geometry satisfies CT-SCENE — the first point lies on the
  *   source node boundary and the last on the target boundary (<= 0.01 px, within the
- *   rectangle side), and no edge label anchor falls inside a node box on its view; an
- *   overlay-moved node re-anchors its incident edges and re-places their labels. When
- *   placement is impossible (overlapping boxes) the anchor is still emitted and the
- *   `label_over_node` warning makes the regression visible.
- * Fails when: ELK port offsets leak into the scene (8 px outside / 14 px short), a label
- *   anchor sits inside a node box, a moved node keeps stale edge endpoints or labels, or
- *   the fallback is silent.
- * Production path: src/layout.mjs snapEdgeToBoxes/placeLabelOutside -> src/render.mjs
- *   (labels recomputed after overlay merge) -> src/lint.mjs label_over_node.
+ *   rectangle side), and NO edge-label plate (its full rectangle, not its anchor) meets a
+ *   node box, another plate, or lets an edge body cross a node; an overlay-moved node
+ *   re-anchors its incident edges and re-places their labels.
+ * Fails when: ELK port offsets leak into the scene (8 px outside / 14 px short), a plate
+ *   touches a node, two plates overlap, an edge body crosses a node, a moved node keeps
+ *   stale edge endpoints or labels, or the placement search silently gives up.
+ * Production path: src/layout.mjs placeEdgeLabel/placementIssues -> src/render.mjs
+ *   (retry with a larger spacing, then refuse label_collision) -> src/lint.mjs.
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
 import { createWorkspace } from '../src/workspace.mjs'
 import { renderView } from '../src/render.mjs'
-import { findByRule } from '../src/lint.mjs'
+import { findByRule, lintScene, summariseLint } from '../src/lint.mjs'
+import { boxesOverlap, placeEdgeLabel, segmentHitsBox } from '../src/layout.mjs'
 import { perfFixture } from '../fixtures/perf.mjs'
 import { lintCases } from '../fixtures/lint-cases.mjs'
 
@@ -55,13 +55,31 @@ function onBoxBoundary(point, box) {
   return onVertical || onHorizontal
 }
 
-function labelBoxes(scene) {
+/**
+ * Every visual collision the scene would show: plate-node, plate-plate, edge-node.
+ * `bodies` is false for an overlay-moved scene: a human may drag a node so that an edge
+ * body now crosses a box, and that is reported as a warning (the map stays openable),
+ * not handled by the placement pass.
+ */
+function visualCollisions(scene, { bodies = true } = {}) {
   const hits = []
   for (const edge of scene.edges) {
     for (const node of scene.nodes) {
-      if (edge.labelAt.x > node.x && edge.labelAt.x < node.x + node.w
-        && edge.labelAt.y > node.y && edge.labelAt.y < node.y + node.h) {
-        hits.push({ edgeId: edge.id, nodeId: node.id, labelAt: edge.labelAt })
+      if (boxesOverlap(edge.labelBox, node)) hits.push({ kind: 'label_over_node', edgeId: edge.id, nodeId: node.id })
+    }
+    if (!bodies) continue
+    for (let index = 1; index < edge.points.length; index += 1) {
+      for (const node of scene.nodes) {
+        if (segmentHitsBox(edge.points[index - 1], edge.points[index], node)) {
+          hits.push({ kind: 'edge_through_node', edgeId: edge.id, nodeId: node.id })
+        }
+      }
+    }
+  }
+  for (let left = 0; left < scene.edges.length; left += 1) {
+    for (let right = left + 1; right < scene.edges.length; right += 1) {
+      if (boxesOverlap(scene.edges[left].labelBox, scene.edges[right].labelBox)) {
+        hits.push({ kind: 'label_label_overlap', edgeIds: [scene.edges[left].id, scene.edges[right].id] })
       }
     }
   }
@@ -90,17 +108,32 @@ test('every edge endpoint lands on its node boundary in the 25-node fixture', as
   console.log(`perf25 edges checked: ${scene.edges.length}`)
 })
 
-test('no edge label anchor falls inside a node box (demo and 25-node fixture)', async () => {
+test('no label plate, plate pair or edge body collides (demo and 25-node fixture)', async () => {
   const demoScene = (await renderDemo()).scene
   const perfScene = (await renderView({ ...perfFixture, overlays: {}, viewId: 'v.flow' })).scene
-  assert.deepEqual(labelBoxes(demoScene), [])
-  assert.deepEqual(labelBoxes(perfScene), [])
+  assert.deepEqual(visualCollisions(demoScene), [])
+  assert.deepEqual(visualCollisions(perfScene), [])
+  console.log(`collision check: demo ${demoScene.edges.length} labels, perf25 ${perfScene.edges.length} labels`)
+})
+
+test('every scene edge carries a labelBox that matches the core metric', async () => {
+  const { scene } = await renderDemo()
+  for (const edge of scene.edges) {
+    assert.ok(edge.labelBox, `${edge.id}: no labelBox`)
+    assert.ok(edge.labelBox.w >= 28 && edge.labelBox.h >= 20, `${edge.id}: implausible plate ${JSON.stringify(edge.labelBox)}`)
+    assert.equal(edge.labelAt.x, edge.labelBox.x)
+    assert.equal(edge.labelAt.y, edge.labelBox.y)
+  }
 })
 
 test('an overlay-moved node re-anchors incident edges and re-places their labels', async () => {
   const moved = await renderDemo({ $version: 1, 'svc.checkout.api': { x: 600, y: 300 } })
   assertEdgeBoundaries('demo+moved', moved.scene)
-  assert.deepEqual(labelBoxes(moved.scene), [])
+  // Plates are placed against the FINAL boxes; an edge body may now cross a box because
+  // the human moved an endpoint, and that case is a scene warning, not a placement bug.
+  assert.deepEqual(visualCollisions(moved.scene, { bodies: false }), [])
+  const through = moved.lint.findings.filter(entry => entry.rule === 'edge_through_node')
+  console.log(`moved scene: ${through.length} edge-through-node warning(s), ${moved.lint.counts.warning} warning(s) total`)
   const api = moved.scene.nodes.find(node => node.id === 'svc.checkout.api')
   assert.deepEqual({ x: api.x, y: api.y }, { x: 600, y: 300 })
   const incident = moved.scene.edges.filter(edge => edge.from === 'svc.checkout.api' || edge.to === 'svc.checkout.api')
@@ -111,23 +144,12 @@ test('an overlay-moved node re-anchors incident edges and re-places their labels
   }
 })
 
-test('a label that cannot leave the boxes is emitted and reported as label_over_node', async () => {
-  const entry = lintCases.find(item => item.rule === 'label_over_node')
-  assert.ok(entry, 'fixture missing the label_over_node case')
-  const result = await renderView({
-    model: entry.model,
-    views: entry.views,
-    overlays: entry.overlays,
-    viewId: entry.views.views[0].id,
-  })
-  const finding = findByRule(result.lint.findings, 'label_over_node')
-  assert.equal(finding.length >= 1, true)
-  assert.equal(finding[0].severity, 'warning')
-  // The anchor is still emitted at the fallback midpoint (the renderer draws it) and it
-  // touches a box; the warning is what makes the regression visible.
-  const anchor = result.scene.edges[0].labelAt
-  assert.equal(Number.isFinite(anchor.x), true)
-  assert.equal(result.scene.nodes.some(node => onBoxBoundary(anchor, node)), true)
+test('the placement search reports no free spot when every candidate is covered', () => {
+  const points = [{ x: 0, y: 50 }, { x: 200, y: 50 }]
+  const size = { w: 100, h: 25 }
+  assert.notEqual(placeEdgeLabel({ points, preferred: null, size, obstacles: [] }), null)
+  // One obstacle covering the whole neighbourhood leaves nowhere for the plate.
+  assert.equal(placeEdgeLabel({ points, preferred: null, size, obstacles: [{ x: -1000, y: -1000, w: 4000, h: 4000 }] }), null)
 })
 
 test('two runs remain byte-identical and match the new golden hash', async () => {
@@ -135,6 +157,6 @@ test('two runs remain byte-identical and match the new golden hash', async () =>
   const second = await renderDemo()
   assert.equal(first.sceneJson, second.sceneJson)
   assert.equal(first.sceneHash, second.sceneHash)
-  assert.equal(first.sceneHash, 'sha256:1adea6ca8275ee7c1dfe8be5e6e81446ae010d8594bd8d6fa6250a66e0a5d83a')
+  assert.equal(first.sceneHash, 'sha256:8b32911c7c898ef2f594669534545797ec9deb3ce2dcf6463c0bc0a7efd14262')
   console.log(`golden demo hash=${first.sceneHash} bytes=${first.bytes}`)
 })

@@ -6074,7 +6074,14 @@ var sceneSchema = strictObject({
     to: ID,
     kind: _enum(EDGE_KINDS),
     label: string2(),
+    // The wrapped lines the plate draws: core owns the wrap, so the renderer never
+    // re-measures or re-wraps the text it shows.
+    labelLines: array(string2()),
     points: array(pointSchema),
+    // The plate the renderer draws: core owns both its size and its place, so the
+    // validator can see exactly what is drawn. `labelAt` is the plate's top-left corner,
+    // kept for older consumers and for the SVG text anchor.
+    labelBox: strictObject({ x: number2(), y: number2(), w: number2(), h: number2() }),
     labelAt: pointSchema
   }))
 });
@@ -6089,7 +6096,11 @@ var REFUSALS = Object.freeze({
   duplicateId: "duplicate_id",
   missingEdgeLabel: "missing_edge_label",
   orphanNode: "orphan_node",
-  viewTooLarge: "view_too_large"
+  viewTooLarge: "view_too_large",
+  // A layout that cannot place every label plate without a visual collision refuses;
+  // it never writes a scene whose labels sit on top of boxes.
+  labelCollision: "label_collision",
+  edgeThroughNode: "edge_through_node"
 });
 var DesignmapRefusal = class extends Error {
   constructor(code, message, details = {}) {

@@ -33,10 +33,11 @@ export async function loadFrameText(fetchImpl = globalThis.fetch) {
  * a full drawing toolbar would let the human create elements that carry no semantic id and
  * would therefore be silently dropped on the next render.
  */
-export function frameDocument(script) {
+export function frameDocument(script, look = { surface: '#ffffff' }) {
   const safe = script.replaceAll('</script', '<\\/script')
+  const background = /^#[0-9a-f]{3,8}$/iu.test(String(look?.surface ?? '')) ? look.surface : '#ffffff'
   return `<!doctype html><html><head><meta charset="utf-8"><style>
-html,body,#root{height:100%;margin:0;background:#fff;overflow:hidden}
+html,body,#root{height:100%;margin:0;background:${background};overflow:hidden}
 .App-toolbar,.HintViewer,.App-menu,.layer-ui__wrapper__top-right,.dropdown-menu-button{display:none!important}
 </style></head><body><div id="root"></div><script>${safe}</script></body></html>`
 }

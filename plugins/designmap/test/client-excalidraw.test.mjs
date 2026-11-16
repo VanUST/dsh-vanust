@@ -14,7 +14,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
-import { sceneToElements, overlayDelta, NODE_PREFIX, EDGE_PREFIX } from '../client/excalidraw.js'
+import { sceneToElements, overlayDelta, labelPlate, NODE_PREFIX, EDGE_PREFIX, CHIP_PREFIX, LABEL_PREFIX } from '../client/excalidraw.js'
 import { createWorkspace } from '../src/workspace.mjs'
 import { renderView } from '../src/render.mjs'
 
@@ -60,6 +60,37 @@ test('edges keep the core polyline and stay unbound, so the editor cannot re-rou
       assert.equal(Math.round((arrow.y + arrow.points[index][1]) * 100) / 100, point.y)
     })
   }
+})
+
+test('an edge label is a plate of the scene labelBox with a bound text inside it', () => {
+  const elements = sceneToElements(scene)
+  for (const edge of scene.edges) {
+    const chip = elements.find((entry) => entry.id === `${CHIP_PREFIX}${edge.id}`)
+    assert.ok(chip, `missing label plate for ${edge.id}`)
+    assert.equal(chip.type, 'rectangle')
+    assert.deepEqual({ x: chip.x, y: chip.y, w: chip.width, h: chip.height }, edge.labelBox)
+    assert.equal(chip.locked, true)
+    const text = elements.find((entry) => entry.id === `${LABEL_PREFIX}${edge.id}`)
+    assert.equal(text.type, 'text')
+    assert.equal(text.containerId, chip.id)
+    assert.equal(text.text, edge.labelLines.join('\n'))
+    assert.equal(chip.boundElements[0].id, text.id)
+    // The text must not stick out of the validated plate.
+    assert.ok(text.x >= chip.x && text.y >= chip.y)
+    assert.ok(text.x + text.width <= chip.x + chip.width && text.y + text.height <= chip.y + chip.height)
+  }
+})
+
+test('a pre-labelBox scene still gets a plate from the same metric (fallback)', () => {
+  const legacy = structuredClone(scene)
+  delete legacy.edges[0].labelBox
+  delete legacy.edges[0].labelLines
+  const plate = labelPlate(legacy.edges[0])
+  assert.ok(plate.w >= 28 && plate.h >= 10)
+  assert.equal(plate.x, legacy.edges[0].labelAt.x)
+  const elements = sceneToElements(legacy)
+  const chip = elements.find((entry) => entry.id === `${CHIP_PREFIX}${legacy.edges[0].id}`)
+  assert.equal(chip.width, plate.w)
 })
 
 test('read-only locks the structure; edit mode unlocks only node bodies', () => {

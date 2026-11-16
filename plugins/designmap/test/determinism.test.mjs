@@ -40,7 +40,7 @@ test('the scene carries the documented key order and no volatile fields', async 
   const { scene, sceneJson } = await renderView({ ...inputs(), viewId: 'v.context' })
   assert.deepEqual(Object.keys(scene), ['schemaVersion', 'viewId', 'title', 'level', 'direction', 'canvas', 'nodes', 'groups', 'edges'])
   assert.deepEqual(Object.keys(scene.nodes[0]), ['id', 'type', 'label', 'group', 'x', 'y', 'w', 'h', 'stale', 'source'])
-  assert.deepEqual(Object.keys(scene.edges[0]), ['id', 'from', 'to', 'kind', 'label', 'points', 'labelAt'])
+  assert.deepEqual(Object.keys(scene.edges[0]), ['id', 'from', 'to', 'kind', 'label', 'labelLines', 'points', 'labelBox', 'labelAt'])
   assert.equal(/"generatedAt"|"commit"|"updatedAt"/u.test(sceneJson), false)
   assert.equal(sceneJson.includes('$H'), false)
   assert.equal(sceneJson.includes(demo), false)
