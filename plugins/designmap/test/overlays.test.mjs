@@ -42,7 +42,8 @@ test('tolerated bad overlay rows are GC warnings, render still succeeds', async 
   for (const code of ['unknown_node', 'non_finite_coordinate', 'negative_coordinate', 'colour_out_of_palette', 'unknown_key']) {
     assert.ok(codes.includes(code), `expected merge.gc to carry ${code}; got ${JSON.stringify(codes)}`)
   }
-  assert.equal(result.merge.gc.every(entry => entry.severity === 'warning'), true)
+  // The palette finding is informational now: a human may pick any hex from the canvas.
+  assert.equal(result.merge.gc.every(entry => ['warning', 'info'].includes(entry.severity)), true)
 
   const cleanNodes = new Map(clean.scene.nodes.map(node => [node.id, node]))
   const overlayNodes = new Map(result.scene.nodes.map(node => [node.id, node]))
@@ -55,9 +56,10 @@ test('tolerated bad overlay rows are GC warnings, render still succeeds', async 
   // The valid row applied.
   assert.equal(overlayNodes.get('ext.d').x, 30)
   assert.equal(overlayNodes.get('ext.d').y, 30)
-  // Colours never enter the scene bytes; the palette refusal keeps them out entirely.
+  // Colours never enter the scene bytes; they travel in merge.colours, and a human hex
+  // outside the type palette is applied (reported as info, not dropped).
   assert.equal(result.sceneJson.includes('#123456'), false)
-  assert.equal(result.merge.colours.has('queue.c'), false)
+  assert.equal(result.merge.colours.has('queue.c'), true)
   // Canvas is recomputed around the merged position.
   assert.notDeepEqual(result.scene.canvas, clean.scene.canvas)
   assert.ok(result.scene.canvas.x <= 30)

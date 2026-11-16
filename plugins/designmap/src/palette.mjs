@@ -21,6 +21,11 @@ export const PALETTE_COLOURS = Object.freeze(
   [...new Set(Object.values(PALETTE).flatMap(entry => [entry.fill, entry.stroke]))],
 )
 
+/** Whether a colour string is a plain hex colour the canvas can draw. */
+export function isHexColour(colour) {
+  return typeof colour === 'string' && /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/iu.test(colour.trim())
+}
+
 /** Whether a colour string is in the palette (case-insensitive hex). */
 export function inPalette(colour) {
   if (typeof colour !== 'string') return false

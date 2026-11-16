@@ -56,18 +56,15 @@ test('export reflects overlay position and colour and carries the labels', async
   }
 })
 
-test('an out-of-palette overlay colour is ignored by the export', async () => {
+test('an arbitrary hex overlay colour is applied (the palette is a default, not a gate)', async () => {
   const repo = makeRepo({ overlays: { $version: 1, 'svc.checkout.api': { fill: '#ff0000', stroke: '#00ff00' } } })
   try {
     const service = createHostService({ designmapDir: repo.designmapDir, repoRoot: repo.root })
     const exported = await service.exportSvg({ viewId: 'v.context' })
-    assert.deepEqual(exported.colours, [])
+    assert.deepEqual(exported.colours, ['svc.checkout.api'])
     const svg = readFileSync(join(repo.root, exported.svgPath), 'utf8')
-    assert.equal(svg.includes('#ff0000'), false)
-    assert.equal(svg.includes('#00ff00'), false)
-    // The service palette entry is used instead.
-    assert.ok(svg.includes(PALETTE.service.fill))
-    assert.ok(svg.includes('#4338ca'))
+    assert.ok(svg.includes('#ff0000'))
+    assert.ok(svg.includes('#00ff00'))
   } finally {
     repo.cleanup()
   }

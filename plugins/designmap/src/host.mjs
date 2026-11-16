@@ -29,10 +29,16 @@ import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { sceneToSvg } from './svg.mjs'
 import { sha256 } from './canonical.mjs'
-import { inPalette } from './palette.mjs'
+import { inPalette, isHexColour } from './palette.mjs'
 import { selectView } from './render.mjs'
 
 export const LOG_FILE = 'events.jsonl'
+
+/** Annotation layer limits and the element types the Excalidraw canvas can produce. */
+const MAX_ANNOTATIONS = 200
+
+/** Element types a human annotation may use (the drawing tools the canvas offers). */
+const ANNOTATION_TYPES = new Set(['rectangle', 'ellipse', 'diamond', 'arrow', 'line', 'text', 'freedraw'])
 
 const DEFAULT_SCAN_ROOTS = ['src']
 const DEFAULT_SCAN_EXTENSIONS = ['.ts', '.tsx', '.js', '.mjs', '.py', '.go', '.sql']
@@ -399,6 +405,53 @@ export function createHostService({ designmapDir, repoRoot, git, clock = () => n
   }
 
   /**
+   * The human's annotation layer (free drawings, notes, highlights), written whole by
+   * the panel. It is NOT the model and NOT the scene: elements are validated into a
+   * closed shape, a forged `customData.designmap` is refused (it would let a drawing
+   * masquerade as scene geometry), and nothing here is ever read by render.
+   */
+  const annotate = (payload = {}) => {
+    const elements = payload.elements
+    if (!Array.isArray(elements)) {
+      throw new DesignmapRefusal('invalid_annotation', 'annotate needs an elements array', { type: typeof elements })
+    }
+    if (elements.length > MAX_ANNOTATIONS) {
+      throw new DesignmapRefusal('annotation_limit', `annotate accepts at most ${MAX_ANNOTATIONS} elements`, { count: elements.length, max: MAX_ANNOTATIONS })
+    }
+    const cleaned = elements.map((element, index) => {
+      if (element === null || typeof element !== 'object' || Array.isArray(element)) {
+        throw new DesignmapRefusal('invalid_annotation', `annotation ${index} is not an object`, { index })
+      }
+      if (!ANNOTATION_TYPES.has(element.type)) {
+        throw new DesignmapRefusal('invalid_annotation', `annotation ${index} has unsupported type "${String(element.type)}"`, { index, type: element.type })
+      }
+      for (const axis of ['x', 'y', 'width', 'height']) {
+        if (!Number.isFinite(element[axis])) {
+          throw new DesignmapRefusal('invalid_annotation', `annotation ${index} ${axis} must be a finite number`, { index, field: axis })
+        }
+      }
+      if (element.customData?.designmap !== undefined) {
+        throw new DesignmapRefusal('annotation_forbidden_fields', `annotation ${index} carries designmap customData`, { index })
+      }
+      if (Array.isArray(element.points) && (element.points.length > 4096 || element.points.some(point => !Array.isArray(point) || point.length !== 2 || !point.every(Number.isFinite)))) {
+        throw new DesignmapRefusal('invalid_annotation', `annotation ${index} has invalid points`, { index })
+      }
+      const copy = structuredClone(element)
+      delete copy.customData
+      delete copy.link
+      delete copy.isDeleted
+      delete copy.locked
+      // A human element must never bind itself into a scene element (a note glued inside
+      // a node chip would move with the model the human does not own).
+      if (typeof copy.containerId === 'string' && copy.containerId.startsWith('dm:')) delete copy.containerId
+      return copy
+    })
+    const written = workspace.writeAnnotations(cleaned)
+    logger?.log('annotate.write', { elements: cleaned.length, bytes: Buffer.byteLength(written.text) })
+    return { ok: true, elements: cleaned.length, bytes: Buffer.byteLength(written.text), annotationsPath: relative(root, written.path) || written.path, hash: written.hash }
+  }
+
+  /**
    * Human overlay write path (M2's panel, carried by the /designmap command):
    * upsert one node's visual keys, reset one node, or reset every node on a view.
    * Agent tools never expose this — it is the human's edit path.
@@ -439,8 +492,8 @@ export function createHostService({ designmapDir, repoRoot, git, clock = () => n
       for (const colour of ['fill', 'stroke']) {
         const value = row[colour]
         if (value === undefined) continue
-        if (!inPalette(value)) {
-          throw new DesignmapRefusal('colour_out_of_palette', `overlay ${colour} "${String(value)}" is outside the palette`, { colour, value })
+        if (!isHexColour(value)) {
+          throw new DesignmapRefusal('invalid_colour', `overlay ${colour} "${String(value)}" is not a hex colour`, { colour, value })
         }
         kept[colour] = value
       }
@@ -599,6 +652,7 @@ export function createHostService({ designmapDir, repoRoot, git, clock = () => n
     scan,
     apply,
     overlay,
+    annotate,
     render,
     lint,
     open,

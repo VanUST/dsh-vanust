@@ -82,6 +82,13 @@ export function viewsYaml(views) {
   return YAML.stringify(canonicalViews(views), YAML_OPTIONS)
 }
 
+/** One annotation element with sorted keys, so a human edit makes a reviewable diff. */
+function stableElement(element) {
+  const stable = {}
+  for (const key of Object.keys(element).sort()) stable[key] = element[key]
+  return stable
+}
+
 function writeAtomic(path, text) {
   mkdirSync(dirname(path), { recursive: true })
   const temporary = `${path}.tmp-${process.pid}`
@@ -90,9 +97,9 @@ function writeAtomic(path, text) {
 }
 
 /**
- * A workspace directory: `designmap/model.yaml`, `views.yaml`, `overlays.json` and
- * `designmap/out/<viewId>.scene.json`. A missing model or views file is the empty
- * document, never an error (INV-EMPTY).
+ * A workspace directory: `designmap/model.yaml`, `views.yaml`, `overlays.json`,
+ * `annotations.json` and `designmap/out/<viewId>.scene.json`. A missing model or views
+ * file is the empty document, never an error (INV-EMPTY).
  */
 export function createWorkspace(root) {
   const dir = resolve(root)
@@ -101,6 +108,7 @@ export function createWorkspace(root) {
     model: join(dir, 'model.yaml'),
     views: join(dir, 'views.yaml'),
     overlays: join(dir, 'overlays.json'),
+    annotations: join(dir, 'annotations.json'),
     out: join(dir, 'out'),
     index: join(dir, 'out', 'index.json'),
   }
@@ -131,6 +139,30 @@ export function createWorkspace(root) {
         return { overlays: {}, text, hash: sha256(text), missing: false, malformed: error.message }
       }
       return { overlays, text, hash: sha256(text), missing: false }
+    },
+    /**
+     * The human's annotation layer: free Excalidraw elements, kept OUT of the model and
+     * the scene. A malformed file is a human edit gone wrong: ignore it with a
+     * warning-shaped value (like overlays), never fail the panel.
+     */
+    readAnnotations() {
+      const text = readText(paths.annotations)
+      if (text === null) return { elements: [], text: null, hash: null, missing: true }
+      let document
+      try {
+        document = JSON.parse(text)
+      } catch (error) {
+        return { elements: [], text, hash: sha256(text), missing: false, malformed: error.message }
+      }
+      const elements = Array.isArray(document?.elements) ? document.elements : []
+      return { elements, text, hash: sha256(text), missing: false }
+    },
+    /** Write annotations.json in a stable form: schemaVersion first, elements in draw order. */
+    writeAnnotations(elements) {
+      const document = { schemaVersion: 1, elements: elements.map(stableElement) }
+      const text = `${JSON.stringify(document, null, 2)}\n`
+      writeAtomic(paths.annotations, text)
+      return { path: paths.annotations, text, hash: sha256(text) }
     },
     writeModel(model) {
       const text = modelYaml(model)

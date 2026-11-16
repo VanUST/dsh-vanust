@@ -9492,12 +9492,13 @@ async function loadFrameText(fetchImpl = globalThis.fetch) {
   if (!response.ok) throw new Error(`excalidraw frame HTTP ${response.status}`);
   return response.text();
 }
-function frameDocument(script, look = { surface: "#ffffff" }) {
+function frameDocument(script, look = { surface: "#ffffff" }, { editing = false } = {}) {
   const safe = script.replaceAll("<\/script", "<\\/script");
   const background = /^#[0-9a-f]{3,8}$/iu.test(String(look?.surface ?? "")) ? look.surface : "#ffffff";
+  const chrome = editing ? ".HintViewer{display:none!important}" : ".App-toolbar,.HintViewer,.App-menu,.layer-ui__wrapper__top-right,.dropdown-menu-button{display:none!important}";
   return `<!doctype html><html><head><meta charset="utf-8"><style>
 html,body,#root{height:100%;margin:0;background:${background};overflow:hidden}
-.App-toolbar,.HintViewer,.App-menu,.layer-ui__wrapper__top-right,.dropdown-menu-button{display:none!important}
+${chrome}
 </style></head><body><div id="root"></div><script>${safe}<\/script></body></html>`;
 }
 
@@ -9567,6 +9568,7 @@ function element(type, id2, fields) {
     ...fields
   };
 }
+var ANNOTATION_TYPES = /* @__PURE__ */ new Set(["rectangle", "ellipse", "diamond", "arrow", "line", "text", "freedraw"]);
 var NODE_FONT_SIZE = 13;
 var NODE_LINE_HEIGHT = 1.25;
 var EDGE_FONT_SIZE = 11;
@@ -9581,7 +9583,40 @@ function labelPlate(edge) {
   const at = edge.labelAt ?? { x: 0, y: 0 };
   return { x: at.x, y: at.y, w: Math.max(28, Math.ceil(longest * 6.82) + 18), h: lines.length * 15 + 10 };
 }
-function sceneToElements(scene, { overlays = {}, editMode = false, look = DEFAULT_LOOK } = {}) {
+function annotationElements(annotations, { editMode = false } = {}) {
+  const list = [];
+  for (const raw of Array.isArray(annotations) ? annotations : []) {
+    if (raw === null || typeof raw !== "object" || !ANNOTATION_TYPES.has(raw.type)) continue;
+    const id2 = typeof raw.id === "string" && raw.id !== "" ? raw.id : `annotation-${nextSeed()}`;
+    const safe = { ...raw };
+    delete safe.customData;
+    list.push(element(raw.type, id2, {
+      ...safe,
+      id: id2,
+      isDeleted: false,
+      locked: !editMode,
+      boundElements: Array.isArray(raw.boundElements) ? raw.boundElements : []
+    }));
+  }
+  return list;
+}
+function freeElements(elements) {
+  const list = [];
+  for (const entry of Array.isArray(elements) ? elements : []) {
+    if (entry === null || typeof entry !== "object" || entry.isDeleted === true) continue;
+    if (entry.customData?.designmap !== void 0) continue;
+    if (!ANNOTATION_TYPES.has(entry.type)) continue;
+    if (![entry.x, entry.y, entry.width, entry.height].every(Number.isFinite)) continue;
+    const copy = { ...entry };
+    delete copy.locked;
+    delete copy.customData;
+    delete copy.link;
+    if (typeof copy.containerId === "string" && copy.containerId.startsWith("dm:")) delete copy.containerId;
+    list.push(copy);
+  }
+  return list;
+}
+function sceneToElements(scene, { overlays = {}, editMode = false, look = DEFAULT_LOOK, annotations = [] } = {}) {
   const elements = [];
   const theme = { ...DEFAULT_LOOK, ...look };
   for (const group of scene.groups ?? []) {
@@ -9735,6 +9770,7 @@ function sceneToElements(scene, { overlays = {}, editMode = false, look = DEFAUL
       );
     }
   }
+  elements.push(...annotationElements(annotations, { editMode }));
   return elements;
 }
 function parseColour(colour) {
@@ -9814,8 +9850,10 @@ function ExcalidrawCanvas({
   overlays,
   editMode,
   look,
+  annotations = [],
   fitSignal = 0,
   onDelta,
+  onAnnotate,
   onStatus,
   onFallback,
   onViewport
@@ -9829,6 +9867,10 @@ function ExcalidrawCanvas({
   const appliedFitRef = import_react3.default.useRef(null);
   const viewRef = import_react3.default.useRef(null);
   const fitRef = import_react3.default.useRef(fitSignal);
+  const frameTextRef = import_react3.default.useRef(null);
+  const builtModeRef = import_react3.default.useRef(null);
+  const annotationsRef = import_react3.default.useRef(annotations);
+  annotationsRef.current = annotations;
   const lookRef = import_react3.default.useRef(theme);
   lookRef.current = theme;
   const [srcDoc, setSrcDoc] = import_react3.default.useState(null);
@@ -9858,15 +9900,20 @@ function ExcalidrawCanvas({
     return { ...base, zoom: { value: viewport.zoom }, scrollX: viewport.scrollX, scrollY: viewport.scrollY };
   }, []);
   const elementsFor = import_react3.default.useCallback(
-    () => sceneToElements(scene, { overlays, editMode, look: theme }),
+    // Annotations are read from a ref on purpose: the human's own elements are already on
+    // the canvas, so a write landing back as state must not trigger another full load
+    // (that would reset the selection and can interrupt a stroke in progress).
+    () => sceneToElements(scene, { overlays, editMode, look: theme, annotations: annotationsRef.current }),
     [scene, overlays, editMode, theme]
   );
   import_react3.default.useEffect(() => {
     let alive = true;
     loadFrameText().then((text) => {
       if (!alive) return;
+      frameTextRef.current = text;
+      builtModeRef.current = editMode;
       baselineRef.current = elementsFor();
-      setSrcDoc(frameDocument(text, lookRef.current));
+      setSrcDoc(frameDocument(text, lookRef.current, { editing: editMode }));
     }).catch((error) => {
       if (!alive) return;
       setFailure(error);
@@ -9876,6 +9923,13 @@ function ExcalidrawCanvas({
       alive = false;
     };
   }, [elementsFor, onFallback]);
+  import_react3.default.useEffect(() => {
+    if (frameTextRef.current === null || builtModeRef.current === editMode) return;
+    builtModeRef.current = editMode;
+    readyRef.current = false;
+    loadedRef.current = false;
+    setSrcDoc(frameDocument(frameTextRef.current, lookRef.current, { editing: editMode }));
+  }, [editMode]);
   import_react3.default.useEffect(() => {
     if (srcDoc === null || !readyRef.current) return;
     const elements = elementsFor();
@@ -9920,7 +9974,8 @@ function ExcalidrawCanvas({
         const elements = elementsFor();
         baselineRef.current = elements;
         viewRef.current = scene.viewId;
-        post({ type: "load", scene: { elements, appState: fittedAppState() } });
+        const appState = viewportRef.current === null ? fittedAppState() : currentAppState();
+        post({ type: "load", scene: { elements, appState } });
         return;
       }
       if (data.type === "loaded") {
@@ -9937,6 +9992,8 @@ function ExcalidrawCanvas({
         if (!loadedRef.current) return;
         const delta = overlayDelta(baselineRef.current, data.elements ?? []);
         if (Object.keys(delta).length > 0) onDelta?.(delta);
+        const human = freeElements(data.elements ?? []);
+        if (JSON.stringify(human) !== JSON.stringify(annotationsRef.current)) onAnnotate?.(human);
       }
     };
     window.addEventListener("message", onMessage);
@@ -10140,6 +10197,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
   const [look, setLook] = import_react4.default.useState(null);
   const [editMode, setEditMode] = import_react4.default.useState(false);
   const [selectedId, setSelectedId] = import_react4.default.useState(null);
+  const [annotations, setAnnotations] = import_react4.default.useState([]);
   const [positions, setPositions] = import_react4.default.useState({});
   const [colours, setColours] = import_react4.default.useState({});
   const [overlays, setOverlays] = import_react4.default.useState({});
@@ -10172,6 +10230,20 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
       observer?.disconnect();
     };
   }, []);
+  const annotationTimer = import_react4.default.useRef(null);
+  const onCanvasAnnotate = import_react4.default.useCallback((elements) => {
+    setAnnotations(elements);
+    clearTimeout(annotationTimer.current);
+    annotationTimer.current = setTimeout(async () => {
+      const result = await host.writeAnnotations?.(elements);
+      if (result?.ok === true) {
+        setStatus({ kind: "info", code: "annotations.written", message: `Saved ${elements.length} annotation${elements.length === 1 ? "" : "s"}.` });
+      } else {
+        setStatus({ kind: "error", code: result?.error?.code ?? "annotations_write_failed", message: result?.error?.message ?? "The host refused the annotation write." });
+      }
+    }, 700);
+  }, [host]);
+  import_react4.default.useEffect(() => () => clearTimeout(annotationTimer.current), []);
   const onCanvasViewport = import_react4.default.useCallback((viewport) => {
     if (!Number.isFinite(viewport?.zoom)) return;
     setZoom(viewport.zoom);
@@ -10247,6 +10319,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
       const rows = result.value.overlays?.rows ?? {};
       overlaysRef.current = rows;
       setOverlays(rows);
+      setAnnotations(Array.isArray(result.value.annotations) ? result.value.annotations : []);
       const views = result.value.views;
       const next = views.find((view) => view.view.viewId === preferredViewId) ?? views.find((view) => view.view.viewId === result.value.rootId) ?? views[0];
       setSceneSet(result.value);
@@ -10888,7 +10961,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     if (group !== void 0 && findChild(group.id) !== null) drill(group);
   };
   const canvasLabel = `${scene.title || current.view.title || scene.viewId}: ${scene.nodes.length} nodes, ${scene.edges.length} edges, ${staleNodes.length} stale. ${editMode ? "Edit mode." : "Read-only design map."}`;
-  const defaultStatus = editMode ? "Editing: drag a node or choose a colour; writes debounce 500 ms. Reset node/view or undo from here." : "Read-only. Click a node to open its source; double-click a group to drill in.";
+  const defaultStatus = editMode ? "Editing: move or recolour a node, draw a highlight or add a note with the toolbar; annotations save automatically." : "Read-only. Click a node to open its source; double-click a group to drill in.";
   return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dmv", "data-edit-mode": editMode ? "true" : "false", ref: rootRef, children: [
     /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("header", { className: "dmv-top", children: [
       /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dmv-ident", children: [
@@ -10960,8 +11033,10 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
           overlays,
           editMode,
           look,
+          annotations,
           fitSignal,
           onDelta: onCanvasDelta,
+          onAnnotate: onCanvasAnnotate,
           onFallback: () => setCanvasFailed(true),
           onViewport: onCanvasViewport
         }
@@ -11011,7 +11086,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
           ]
         }
       ) }),
-      editMode && !canvasFailed ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dmv-inspector-pop", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+      editMode && canvasFailed ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dmv-inspector-pop", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
         NodeInspector,
         {
           node: selectedNode,
@@ -11214,6 +11289,16 @@ function createRemoteHost({ remote, sessionId, sceneDir = "designmap/out", viewI
           index2 = null;
         }
       }
+      let annotations = [];
+      const annotationsRead = await readWholeText(remote, sessionId, "designmap/annotations.json");
+      if (annotationsRead.ok === true) {
+        try {
+          const parsed = JSON.parse(annotationsRead.value);
+          if (Array.isArray(parsed?.elements)) annotations = parsed.elements.filter((element2) => element2 !== null && typeof element2 === "object");
+        } catch {
+          annotations = [];
+        }
+      }
       let overlays = {};
       const overlaysRead = await readWholeText(remote, sessionId, "designmap/overlays.json");
       if (overlaysRead.ok === true) {
@@ -11276,7 +11361,8 @@ function createRemoteHost({ remote, sessionId, sceneDir = "designmap/out", viewI
         value: {
           views,
           rootId: root2.view.viewId,
-          overlays: { rows: overlays, path: "designmap/overlays.json" }
+          overlays: { rows: overlays, path: "designmap/overlays.json" },
+          annotations
         }
       };
     },
@@ -11285,6 +11371,10 @@ function createRemoteHost({ remote, sessionId, sceneDir = "designmap/out", viewI
       const valid = validateOverlayPayload(payload);
       if (valid.ok !== true) return valid;
       return executeCommand(remote, sessionId, { op: "overlay", ...payload });
+    },
+    async writeAnnotations(elements) {
+      if (!Array.isArray(elements)) return remoteFailure("invalid_annotation", "Annotations are an array of elements.");
+      return executeCommand(remote, sessionId, { op: "annotate", elements });
     },
     async renderViews(payload = {}) {
       return executeCommand(remote, sessionId, { op: "render", ...payload });

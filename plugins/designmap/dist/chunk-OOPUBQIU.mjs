@@ -7,7 +7,7 @@ import {
   sha256,
   sortById,
   toJson
-} from "./chunk-LYKNJJ67.mjs";
+} from "./chunk-45OXK2TV.mjs";
 import {
   DesignmapRefusal,
   REFUSALS,
@@ -96802,9 +96802,6 @@ function fallbackPoints(fromBox, toBox) {
     { x: round2(toBox.x), y: round2(toBox.y + toBox.h / 2) }
   ];
 }
-function pointInBox(point, box, margin = 0) {
-  return point.x > box.x - margin && point.x < box.x + box.w + margin && point.y > box.y - margin && point.y < box.y + box.h + margin;
-}
 var LABEL_GAP = 2;
 function boxesOverlap(left, right, gap = 0) {
   return left.x < right.x + right.w + gap && right.x < left.x + left.w + gap && left.y < right.y + right.h + gap && right.y < left.y + left.h + gap;
@@ -96955,50 +96952,6 @@ function polylineMidpoint(points) {
     remaining -= lengths[index];
   }
   return points[0];
-}
-function placeLabelOutside(points, boxes, label) {
-  if (points.length === 0) return { labelAt: { x: 0, y: 0 }, outside: true };
-  const width = Math.min(String(label ?? "").length, 40) * 7.4;
-  const inflated = boxes.map((box) => ({ x: box.x - 4, y: box.y - 4, w: box.w + 8, h: box.h + 8 }));
-  const outside = (point) => !inflated.some((box) => pointInBox(point, box));
-  const anchorOutside = (point) => !boxes.some((box) => pointInBox(point, box));
-  const samples = [];
-  for (let index = 1; index < points.length; index += 1) {
-    const from = points[index - 1];
-    const to = points[index];
-    const length = Math.hypot(to.x - from.x, to.y - from.y);
-    const steps = Math.max(2, Math.ceil(length / 2));
-    for (let step = 0; step < steps; step += 1) {
-      const ratio = step / steps;
-      samples.push({ x: from.x + (to.x - from.x) * ratio, y: from.y + (to.y - from.y) * ratio });
-    }
-  }
-  samples.push({ ...points[points.length - 1] });
-  let best = null;
-  let run = [];
-  for (const sample of samples) {
-    if (outside(sample)) {
-      run.push(sample);
-      if (best === null || run.length > best.length) best = [...run];
-    } else {
-      run = [];
-    }
-  }
-  if (best !== null && best.length > 0) {
-    const middle2 = best[Math.floor(best.length / 2)];
-    const candidates = [
-      { x: middle2.x - width / 2, y: middle2.y - 16 },
-      { x: middle2.x - width / 2, y: middle2.y + 4 },
-      { x: middle2.x, y: middle2.y }
-    ];
-    const chosen = candidates.find((candidate) => anchorOutside(candidate)) ?? middle2;
-    return { labelAt: { x: round2(chosen.x), y: round2(chosen.y) }, outside: anchorOutside(chosen) };
-  }
-  const middle = polylineMidpoint(points);
-  return { labelAt: { x: round2(middle.x), y: round2(middle.y) }, outside: false };
-}
-function edgeLabelAnchor(points, label) {
-  return placeLabelOutside(points, [], label).labelAt;
 }
 var DEFAULT_SPACING = Object.freeze({
   nodeNode: 24,
@@ -97350,6 +97303,9 @@ var PALETTE = Object.freeze({
 var PALETTE_COLOURS = Object.freeze(
   [...new Set(Object.values(PALETTE).flatMap((entry) => [entry.fill, entry.stroke]))]
 );
+function isHexColour(colour) {
+  return typeof colour === "string" && /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/iu.test(colour.trim());
+}
 function inPalette(colour) {
   if (typeof colour !== "string") return false;
   const normalised = colour.toLowerCase();
@@ -97405,9 +97361,12 @@ function mergeOverlays(sceneNodes, raw) {
         for (const colour of ["fill", "stroke"]) {
           const value = row[colour];
           if (value === void 0) continue;
-          if (!inPalette(value)) {
-            gc.push({ code: "colour_out_of_palette", severity: "warning", nodeId, colour, message: `overlay ${colour} "${String(value)}" for "${nodeId}" is outside the palette; ignored` });
+          if (!isHexColour(value)) {
+            gc.push({ code: "invalid_colour", severity: "warning", nodeId, colour, message: `overlay ${colour} "${String(value)}" for "${nodeId}" is not a hex colour; ignored` });
             continue;
+          }
+          if (!inPalette(value)) {
+            gc.push({ code: "colour_out_of_palette", severity: "info", nodeId, colour, message: `overlay ${colour} "${String(value)}" for "${nodeId}" is outside the type palette; used anyway` });
           }
           kept[colour] = value;
         }
@@ -97447,7 +97406,7 @@ function reattachEdges(nodes, edges, overlaidIds) {
     const points = edge.points.map((point) => ({ ...point }));
     if (sourceMoved) points[0] = boundaryPoint(byId.get(edge.from), points[1]);
     if (targetMoved) points[points.length - 1] = boundaryPoint(byId.get(edge.to), points[points.length - 2]);
-    return { ...edge, points, labelAt: edgeLabelAnchor(points, edge.label) };
+    return { ...edge, points };
   });
 }
 function recomputeCanvas(nodes, groups, edges) {
@@ -97560,10 +97519,10 @@ async function renderView({ model, views, overlays = {}, viewId, staleNodeIds = 
     });
   }
   if (layout.issues.length > 0) {
-    const blocking2 = layout.issues.find((entry) => entry.rule === "label_collision");
+    const blocking2 = layout.issues[0];
     throw new DesignmapRefusal(
-      REFUSAL_BY_RULE[blocking2?.rule] ?? REFUSALS.labelCollision,
-      blocking2 === void 0 ? "layout could not route an edge without crossing a node" : "layout could not place every edge label without a collision",
+      REFUSAL_BY_RULE[blocking2.rule] ?? REFUSALS.labelCollision,
+      blocking2.rule === "edge_through_node" ? "layout could not route an edge without crossing a node" : "layout could not place every edge label without a collision",
       { viewId, issues: layout.issues, spacingScale: SPACING_SCALES.at(-1) }
     );
   }
@@ -97813,6 +97772,7 @@ export {
   severityOf,
   PALETTE,
   PALETTE_COLOURS,
+  isHexColour,
   inPalette,
   paletteFor,
   mergeOverlays,

@@ -279,6 +279,7 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
   const [look, setLook] = React.useState(null)
   const [editMode, setEditMode] = React.useState(false)
   const [selectedId, setSelectedId] = React.useState(null)
+  const [annotations, setAnnotations] = React.useState([])
   const [positions, setPositions] = React.useState({})
   const [colours, setColours] = React.useState({})
   const [overlays, setOverlays] = React.useState({})
@@ -325,6 +326,23 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
       observer?.disconnect()
     }
   }, [])
+
+  const annotationTimer = React.useRef(null)
+  const onCanvasAnnotate = React.useCallback((elements) => {
+    // The canvas hands back the human's own layer; the write is debounced so a drag or a
+    // stroke does not produce one command per change event.
+    setAnnotations(elements)
+    clearTimeout(annotationTimer.current)
+    annotationTimer.current = setTimeout(async () => {
+      const result = await host.writeAnnotations?.(elements)
+      if (result?.ok === true) {
+        setStatus({ kind: 'info', code: 'annotations.written', message: `Saved ${elements.length} annotation${elements.length === 1 ? '' : 's'}.` })
+      } else {
+        setStatus({ kind: 'error', code: result?.error?.code ?? 'annotations_write_failed', message: result?.error?.message ?? 'The host refused the annotation write.' })
+      }
+    }, 700)
+  }, [host])
+  React.useEffect(() => () => clearTimeout(annotationTimer.current), [])
 
   const onCanvasViewport = React.useCallback((viewport) => {
     if (!Number.isFinite(viewport?.zoom)) return
@@ -408,6 +426,7 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
       const rows = result.value.overlays?.rows ?? {}
       overlaysRef.current = rows
       setOverlays(rows)
+      setAnnotations(Array.isArray(result.value.annotations) ? result.value.annotations : [])
       const views = result.value.views
       const next =
         views.find((view) => view.view.viewId === preferredViewId) ??
@@ -1118,7 +1137,7 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
 
   const canvasLabel = `${scene.title || current.view.title || scene.viewId}: ${scene.nodes.length} nodes, ${scene.edges.length} edges, ${staleNodes.length} stale. ${editMode ? 'Edit mode.' : 'Read-only design map.'}`
   const defaultStatus = editMode
-    ? 'Editing: drag a node or choose a colour; writes debounce 500 ms. Reset node/view or undo from here.'
+    ? 'Editing: move or recolour a node, draw a highlight or add a note with the toolbar; annotations save automatically.'
     : 'Read-only. Click a node to open its source; double-click a group to drill in.'
 
   return (
@@ -1208,8 +1227,10 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
               overlays={overlays}
               editMode={editMode}
               look={look}
+              annotations={annotations}
               fitSignal={fitSignal}
               onDelta={onCanvasDelta}
+              onAnnotate={onCanvasAnnotate}
               onFallback={() => setCanvasFailed(true)}
               onViewport={onCanvasViewport}
             />
@@ -1255,7 +1276,9 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
             </ReactFlow>
           )}
         </div>
-        {editMode && !canvasFailed ? (
+        {/* The React Flow fallback keeps the inspector; the Excalidraw canvas brings its
+            own properties panel, so this card would be a dead control there. */}
+        {editMode && canvasFailed ? (
           <div className="dmv-inspector-pop">
             <NodeInspector
               node={selectedNode}

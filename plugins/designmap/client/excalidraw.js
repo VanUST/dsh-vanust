@@ -100,6 +100,9 @@ function element(type, id, fields) {
   }
 }
 
+/** Element types the human annotation layer may contain (mirrors the host whitelist). */
+export const ANNOTATION_TYPES = new Set(['rectangle', 'ellipse', 'diamond', 'arrow', 'line', 'text', 'freedraw'])
+
 const NODE_FONT_SIZE = 13
 const NODE_LINE_HEIGHT = 1.25
 const EDGE_FONT_SIZE = 11
@@ -123,11 +126,56 @@ export function labelPlate(edge) {
 }
 
 /**
+ * The human annotation layer as Excalidraw elements: free drawings and notes, drawn
+ * ABOVE the scene (array order is z-order). They carry no `customData.designmap` — that
+ * absence is exactly what marks an element as the human's layer in both directions.
+ */
+export function annotationElements(annotations, { editMode = false } = {}) {
+  const list = []
+  for (const raw of Array.isArray(annotations) ? annotations : []) {
+    if (raw === null || typeof raw !== 'object' || !ANNOTATION_TYPES.has(raw.type)) continue
+    const id = typeof raw.id === 'string' && raw.id !== '' ? raw.id : `annotation-${nextSeed()}`
+    const safe = { ...raw }
+    delete safe.customData
+    list.push(element(raw.type, id, {
+      ...safe,
+      id,
+      isDeleted: false,
+      locked: !editMode,
+      boundElements: Array.isArray(raw.boundElements) ? raw.boundElements : [],
+    }))
+  }
+  return list
+}
+
+/**
+ * The elements of the canvas that belong to the human's layer: everything without
+ * `customData.designmap` (that marker is how scene elements are recognised), not deleted,
+ * with the mode-dependent and host-stripped fields removed so a write is reviewable.
+ */
+export function freeElements(elements) {
+  const list = []
+  for (const entry of Array.isArray(elements) ? elements : []) {
+    if (entry === null || typeof entry !== 'object' || entry.isDeleted === true) continue
+    if (entry.customData?.designmap !== undefined) continue
+    if (!ANNOTATION_TYPES.has(entry.type)) continue
+    if (![entry.x, entry.y, entry.width, entry.height].every(Number.isFinite)) continue
+    const copy = { ...entry }
+    delete copy.locked
+    delete copy.customData
+    delete copy.link
+    if (typeof copy.containerId === 'string' && copy.containerId.startsWith('dm:')) delete copy.containerId
+    list.push(copy)
+  }
+  return list
+}
+
+/**
  * Elements for one scene, with overlay rows applied and `editMode` deciding locking.
  * The plate (chip) of an edge label carries a bound text, so Excalidraw keeps the text
  * inside the rectangle the validator approved instead of letting it grow past it.
  */
-export function sceneToElements(scene, { overlays = {}, editMode = false, look = DEFAULT_LOOK } = {}) {
+export function sceneToElements(scene, { overlays = {}, editMode = false, look = DEFAULT_LOOK, annotations = [] } = {}) {
   const elements = []
   const theme = { ...DEFAULT_LOOK, ...look }
 
@@ -287,6 +335,8 @@ export function sceneToElements(scene, { overlays = {}, editMode = false, look =
     }
   }
 
+  // The human's layer is drawn last: above the scene, and locked outside edit mode.
+  elements.push(...annotationElements(annotations, { editMode }))
   return elements
 }
 

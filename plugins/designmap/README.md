@@ -333,6 +333,33 @@ Every external call in this package is covered by `docs/designmap/API-TESTS-CORE
 - yaml 2.9.1: emitter pinned (`lineWidth: 0`) so long labels are not folded; `|` block
   scalars are normalised on read.
 
+## Human editing: native tools, annotations kept beside the model
+
+The map is the agent's document, but the human can mark it up:
+
+- **Edit mode** rebuilds the frame so Excalidraw's own tools appear (selection, colour,
+  shapes, arrow/line, pen, text, eraser, library). Read-only hides the chrome again. That
+  rebuild re-sends the CURRENT viewport, so the map does not jump.
+- **Node moves and colours stay overlays.** A drag writes `{x,y}`, the native properties
+  panel writes `{fill,stroke}` — the same `overlays.json` rows the panel always wrote.
+  Any hex colour is accepted now; a colour outside the type palette is an informational
+  finding (`colour_out_of_palette`), not a refusal, because the human picks from the
+  canvas tools. The palette stays the default.
+- **Everything else the human draws is an annotation.** `client/excalidraw.js`
+  `freeElements` takes every canvas element WITHOUT `customData.designmap`; the panel
+  debounces 700 ms and writes the whole layer through `/designmap op:'annotate'` into
+  `designmap/annotations.json` (`{schemaVersion:1, elements:[…]}`, sorted keys, draw
+  order preserved). The host validates it (`src/host.mjs annotate`): element type in
+  rectangle/ellipse/diamond/arrow/line/text/freedraw, finite geometry, at most 200
+  elements, `customData`/`link` stripped, `customData.designmap` REFUSED (a drawing may
+  never masquerade as scene geometry), `containerId` into a `dm:` element dropped.
+  `render` never reads the file and `model.yaml` is byte-identical after a write.
+- **Annotations are drawn above the scene**, locked in read-only and free in edit mode;
+  a malformed file is ignored with a warning. They are not part of the SVG export (the
+  export is the scene; a human note is a note on the map).
+- New shapes start unfilled, so a highlight does not hide the map until the human picks
+  a fill (and can lower opacity in the Excalidraw panel).
+
 ## Known limitations
 
 - A long feedback edge (a back edge in the layered graph) is routed around the whole map;
@@ -341,10 +368,10 @@ Every external call in this package is covered by `docs/designmap/API-TESTS-CORE
 - When a human drags a node in edit mode, the edge endpoints are re-anchored but the
   polyline is not re-routed, so a moved node can put an edge body through another box. The
   scene lint reports `edge_through_node` as a warning; the map stays openable.
-- Recolouring a node is only reachable from the React Flow fallback today: the vendored
-  Excalidraw frame reports `elements` + a projected `appState` without
-  `selectedElementIds`, so the panel cannot map a canvas selection to the NodeInspector.
-  Moving a node works in both renderers.
+- The Excalidraw frame's font (Excalifont) is fetched from a CDN by the vendored bundle;
+  offline, the canvas falls back to a system font. The bridge itself reports `elements` +
+  a projected `appState` without `selectedElementIds`, which is why recolouring goes
+  through the native properties panel instead of the panel's own NodeInspector.
 
 ## Seams that stay open
 

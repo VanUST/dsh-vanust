@@ -28,16 +28,22 @@ export async function loadFrameText(fetchImpl = globalThis.fetch) {
 /**
  * The iframe document: a bare root the frame bundle mounts into, plus the chrome rules.
  *
- * Excalidraw's editing chrome (toolbar, library, hints) is hidden: the panel already owns
- * the only allowed edits (move a node, recolour it) through its own controls, and offering
- * a full drawing toolbar would let the human create elements that carry no semantic id and
- * would therefore be silently dropped on the next render.
+ * In read-only the editing chrome (toolbar, menu, hints) is hidden: the map is a document.
+ * In edit mode the chrome is the human's editing UI (colour, shapes, text, pen), and what
+ * they draw is persisted as a separate annotation layer — never as scene geometry.
  */
-export function frameDocument(script, look = { surface: '#ffffff' }) {
+export function frameDocument(script, look = { surface: '#ffffff' }, { editing = false } = {}) {
   const safe = script.replaceAll('</script', '<\\/script')
   const background = /^#[0-9a-f]{3,8}$/iu.test(String(look?.surface ?? '')) ? look.surface : '#ffffff'
+  // Read-only keeps the editor chrome out of the way. Edit mode gives the human the
+  // native Excalidraw tools (colour, shapes, text, pen) — that IS the editing UI, so only
+  // the hint popups are hidden there. The frame CSS is fixed when the document is built,
+  // which is why the panel rebuilds the frame when the mode changes.
+  const chrome = editing
+    ? '.HintViewer{display:none!important}'
+    : '.App-toolbar,.HintViewer,.App-menu,.layer-ui__wrapper__top-right,.dropdown-menu-button{display:none!important}'
   return `<!doctype html><html><head><meta charset="utf-8"><style>
 html,body,#root{height:100%;margin:0;background:${background};overflow:hidden}
-.App-toolbar,.HintViewer,.App-menu,.layer-ui__wrapper__top-right,.dropdown-menu-button{display:none!important}
+${chrome}
 </style></head><body><div id="root"></div><script>${safe}</script></body></html>`
 }

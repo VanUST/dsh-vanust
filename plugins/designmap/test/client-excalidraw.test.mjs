@@ -14,7 +14,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
-import { sceneToElements, overlayDelta, labelPlate, NODE_PREFIX, EDGE_PREFIX, CHIP_PREFIX, LABEL_PREFIX } from '../client/excalidraw.js'
+import { sceneToElements, overlayDelta, labelPlate, freeElements, NODE_PREFIX, EDGE_PREFIX, CHIP_PREFIX, LABEL_PREFIX } from '../client/excalidraw.js'
 import { createWorkspace } from '../src/workspace.mjs'
 import { renderView } from '../src/render.mjs'
 
@@ -91,6 +91,35 @@ test('a pre-labelBox scene still gets a plate from the same metric (fallback)', 
   const elements = sceneToElements(legacy)
   const chip = elements.find((entry) => entry.id === `${CHIP_PREFIX}${legacy.edges[0].id}`)
   assert.equal(chip.width, plate.w)
+})
+
+const NOTE = { id: 'note-1', type: 'text', x: 20, y: 30, width: 140, height: 24, text: 'remember this', fontSize: 14, fontFamily: 2, textAlign: 'left', verticalAlign: 'top', strokeColor: '#e5e7eb', backgroundColor: 'transparent', fillStyle: 'solid', strokeWidth: 1, strokeStyle: 'solid', roughness: 0, opacity: 100, angle: 0, seed: 1, version: 1, versionNonce: 2, groupIds: [], boundElements: [] }
+
+test('the human annotation layer is drawn above the scene and locked outside edit mode', () => {
+  const readOnly = sceneToElements(scene, { annotations: [NOTE] })
+  const note = readOnly.find((entry) => entry.id === 'note-1')
+  assert.ok(note, 'annotation element missing')
+  assert.equal(note.locked, true)
+  assert.equal(note.customData, undefined)
+  assert.equal(readOnly.at(-1).id, 'note-1', 'annotations must be drawn last (above the scene)')
+  const editing = sceneToElements(scene, { annotations: [NOTE], editMode: true })
+  assert.equal(editing.find((entry) => entry.id === 'note-1').locked, false)
+  // A scene element is never part of the human layer.
+  assert.deepEqual(freeElements(editing).filter((entry) => entry.id.startsWith('dm:')), [])
+})
+
+test('freeElements keeps exactly the human layer and strips mode-only fields', () => {
+  const canvas = sceneToElements(scene, { annotations: [NOTE], editMode: true })
+  const human = freeElements(canvas)
+  assert.deepEqual(human.map((entry) => entry.id), ['note-1'])
+  assert.equal('locked' in human[0], false)
+  assert.equal('customData' in human[0], false)
+  // A forged designmap marker is not the human layer and is never written back.
+  const forged = { ...NOTE, id: 'forged', customData: { designmap: { kind: 'node', nodeId: 'x' } } }
+  assert.deepEqual(freeElements([...canvas, forged]).map((entry) => entry.id), ['note-1'])
+  // A note glued into a scene element loses the binding.
+  const glued = { ...NOTE, id: 'glued', containerId: 'dm:node:svc.checkout.api' }
+  assert.equal('containerId' in freeElements([glued])[0], false)
 })
 
 test('read-only locks the structure; edit mode unlocks only node bodies', () => {

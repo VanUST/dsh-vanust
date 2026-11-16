@@ -176,11 +176,31 @@ keyed by semantic node id, exactly as in the spec, so a human can read it:
   previous layout, and the overlay must survive a layout change.
 - Rows are written by the renderer through the host (debounce 500 ms) and by nothing
   else — an agent tool that tries to write this file is refused (INV-LAYERS, NFR-4).
-- Unknown node ids, negative or non-finite coordinates, and colours outside the type
-  palette are reported in `merge.gc` / lint and then ignored: overlays can never make
-  `render` fail (FR-4).
+- Unknown node ids, negative or non-finite coordinates, and colours that are not a hex
+  colour are reported in `merge.gc` / lint and then ignored: overlays can never make
+  `render` fail (FR-4). Any valid hex is applied — the human picks colours from the
+  drawing tools — and one outside the type palette is an informational
+  `colour_out_of_palette` finding, not a refusal.
 - `merge` applies `x`/`y` **after** layout, then recomputes the canvas; it never moves
   a node that has no overlay entry.
+
+## The annotation layer (human drawings, NOT the scene)
+
+`designmap/annotations.json` is the human's own layer, written only by the panel through
+`/designmap op:'annotate'` and never read by `render` or by the SVG export:
+
+```json
+{ "schemaVersion": 1, "elements": [ { "id": "Rn9i0X…", "type": "text", "x": 341.98, "y": 385.47, "width": 226.6, "height": 25, "text": "revisit this edge", "fontSize": 20 } ] }
+```
+
+Rules: `elements` is an array of Excalidraw elements in draw order; the host accepts only
+rectangle, ellipse, diamond, arrow, line, text and freedraw, requires finite
+`x/y/width/height`, caps the layer at 200 elements, strips `customData`/`link`, drops a
+`containerId` that points into the scene, and REFUSES an element carrying
+`customData.designmap` (`annotation_forbidden_fields`) — that marker is how scene elements
+are recognised, and a drawing must never be able to claim it. The panel draws the layer
+above the scene, locked in read-only and editable in edit mode. A malformed file is
+ignored with a warning.
 
 ## Renderer events
 

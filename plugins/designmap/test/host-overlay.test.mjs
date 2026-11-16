@@ -143,7 +143,7 @@ test('invalid overlay input is refused by code and leaves overlays.json byte-ide
       [{ action: 'upsert', nodeId: 'ghost.node', x: 1 }, 'unknown_node'],
       [{ action: 'upsert', nodeId: 'db.orders', x: 'abc' }, 'invalid_coordinate'],
       [{ action: 'upsert', nodeId: 'db.orders', y: -5 }, 'negative_coordinate'],
-      [{ action: 'upsert', nodeId: 'db.orders', fill: '#123456' }, 'colour_out_of_palette'],
+      [{ action: 'upsert', nodeId: 'db.orders', fill: 'not-a-colour' }, 'invalid_colour'],
       [{ action: 'upsert', nodeId: 'db.orders' }, 'invalid_overlay'],
       [{ action: 'teleport', nodeId: 'db.orders' }, 'invalid_overlay'],
       [{ action: 'resetView', viewId: 'v.nope' }, 'unknown_view'],

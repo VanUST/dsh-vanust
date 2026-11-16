@@ -140,7 +140,7 @@ createServer(async (request, response) => {
 
     if (pathname === '/stub/fs/read') {
       const raw = url.searchParams.get('path') ?? ''
-      if (raw !== 'designmap/out/index.json' && raw !== 'designmap/overlays.json' && raw !== 'designmap/manifest.json' && !/^designmap\/out\/[A-Za-z0-9._-]+\.scene\.json$/.test(raw)) {
+      if (raw !== 'designmap/out/index.json' && raw !== 'designmap/overlays.json' && raw !== 'designmap/manifest.json' && raw !== 'designmap/annotations.json' && !/^designmap\/out\/[A-Za-z0-9._-]+\.scene\.json$/.test(raw)) {
         return fail(response, 'workspace-file/not-found', `no entry at "${raw}"`, { path: raw })
       }
       const file = join(WORKSPACE, raw)
@@ -199,6 +199,23 @@ createServer(async (request, response) => {
     if (pathname === '/stub/read') {
       const { set, dir } = setDir(url.searchParams.get('set'))
       const path = url.searchParams.get('path') ?? ''
+      // The derived files (index, overlays, manifest, annotations) belong to the workspace,
+      // not to the pinned scene set: read them from DESIGNMAP so a set + a workspace can be
+      // combined (the edit-mode proof needs the real command path and the real scenes).
+      if (['designmap/out/index.json', 'designmap/overlays.json', 'designmap/manifest.json', 'designmap/annotations.json'].includes(path)) {
+        try {
+          const file = join(DESIGNMAP, path.replace(/^designmap\//u, ''))
+          const text = await readFile(file, 'utf8')
+          console.log(`200 /stub/read workspace ${path} ${Buffer.byteLength(text)}B`)
+          return json(response, 200, {
+            ok: true,
+            value: { text, absolutePath: file, version: 'harness-workspace', offset: 1, lines: text.split('\n').length, eof: true },
+          })
+        } catch {
+          console.log(`200 /stub/read missing ${path}`)
+          return fail(response, 'workspace-file/not-found', `no entry at "${path}"`, { path })
+        }
+      }
       if (!path.startsWith('designmap/out/')) {
         console.log(`200 /stub/read missing ${path}`)
         return fail(response, 'workspace-file/not-found', `no entry at "${path}"`, { path })

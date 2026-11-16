@@ -4,18 +4,18 @@ import {
   EDGE_LABEL_LINE_HEIGHT,
   applyToWorkspace,
   createLogger,
-  inPalette,
+  isHexColour,
   labelBoxOf,
   paletteFor,
   renderAll,
   renderView,
   selectView,
   wrapEdgeLabel
-} from "./chunk-YOF4EFVQ.mjs";
+} from "./chunk-OOPUBQIU.mjs";
 import {
   createWorkspace,
   sha256
-} from "./chunk-LYKNJJ67.mjs";
+} from "./chunk-45OXK2TV.mjs";
 import {
   DIRECTIONS,
   DesignmapRefusal,
@@ -237,6 +237,8 @@ function sceneToSvg(scene, { colours = /* @__PURE__ */ new Map() } = {}) {
 
 // src/host.mjs
 var LOG_FILE = "events.jsonl";
+var MAX_ANNOTATIONS = 200;
+var ANNOTATION_TYPES = /* @__PURE__ */ new Set(["rectangle", "ellipse", "diamond", "arrow", "line", "text", "freedraw"]);
 var DEFAULT_SCAN_ROOTS = ["src"];
 var DEFAULT_SCAN_EXTENSIONS = [".ts", ".tsx", ".js", ".mjs", ".py", ".go", ".sql"];
 var TYPE_RULES = [
@@ -547,6 +549,44 @@ function createHostService({ designmapDir, repoRoot, git, clock = () => /* @__PU
     if (!exists) return { ok: false, code: "source_missing", nodeId, source: node.source, message: `source "${node.source}" does not exist` };
     return { ok: true, nodeId, source: node.source, absolute, line: null };
   };
+  const annotate = (payload = {}) => {
+    const elements = payload.elements;
+    if (!Array.isArray(elements)) {
+      throw new DesignmapRefusal("invalid_annotation", "annotate needs an elements array", { type: typeof elements });
+    }
+    if (elements.length > MAX_ANNOTATIONS) {
+      throw new DesignmapRefusal("annotation_limit", `annotate accepts at most ${MAX_ANNOTATIONS} elements`, { count: elements.length, max: MAX_ANNOTATIONS });
+    }
+    const cleaned = elements.map((element, index) => {
+      if (element === null || typeof element !== "object" || Array.isArray(element)) {
+        throw new DesignmapRefusal("invalid_annotation", `annotation ${index} is not an object`, { index });
+      }
+      if (!ANNOTATION_TYPES.has(element.type)) {
+        throw new DesignmapRefusal("invalid_annotation", `annotation ${index} has unsupported type "${String(element.type)}"`, { index, type: element.type });
+      }
+      for (const axis of ["x", "y", "width", "height"]) {
+        if (!Number.isFinite(element[axis])) {
+          throw new DesignmapRefusal("invalid_annotation", `annotation ${index} ${axis} must be a finite number`, { index, field: axis });
+        }
+      }
+      if (element.customData?.designmap !== void 0) {
+        throw new DesignmapRefusal("annotation_forbidden_fields", `annotation ${index} carries designmap customData`, { index });
+      }
+      if (Array.isArray(element.points) && (element.points.length > 4096 || element.points.some((point) => !Array.isArray(point) || point.length !== 2 || !point.every(Number.isFinite)))) {
+        throw new DesignmapRefusal("invalid_annotation", `annotation ${index} has invalid points`, { index });
+      }
+      const copy = structuredClone(element);
+      delete copy.customData;
+      delete copy.link;
+      delete copy.isDeleted;
+      delete copy.locked;
+      if (typeof copy.containerId === "string" && copy.containerId.startsWith("dm:")) delete copy.containerId;
+      return copy;
+    });
+    const written = workspace.writeAnnotations(cleaned);
+    logger?.log("annotate.write", { elements: cleaned.length, bytes: Buffer.byteLength(written.text) });
+    return { ok: true, elements: cleaned.length, bytes: Buffer.byteLength(written.text), annotationsPath: relative2(root, written.path) || written.path, hash: written.hash };
+  };
   const overlay = (payload = {}) => {
     const model = workspace.readModel().model;
     const viewsDoc = workspace.readViews().views;
@@ -578,8 +618,8 @@ function createHostService({ designmapDir, repoRoot, git, clock = () => /* @__PU
       for (const colour of ["fill", "stroke"]) {
         const value = row[colour];
         if (value === void 0) continue;
-        if (!inPalette(value)) {
-          throw new DesignmapRefusal("colour_out_of_palette", `overlay ${colour} "${String(value)}" is outside the palette`, { colour, value });
+        if (!isHexColour(value)) {
+          throw new DesignmapRefusal("invalid_colour", `overlay ${colour} "${String(value)}" is not a hex colour`, { colour, value });
         }
         kept[colour] = value;
       }
@@ -724,6 +764,7 @@ function createHostService({ designmapDir, repoRoot, git, clock = () => /* @__PU
     scan,
     apply: apply2,
     overlay,
+    annotate,
     render,
     lint,
     open,
@@ -870,7 +911,7 @@ function agentCwd(agent) {
 }
 
 // src/command.mjs
-var OPS = ["status", "scan", "apply", "render", "lint", "open", "export", "overlay"];
+var OPS = ["status", "scan", "apply", "render", "lint", "open", "export", "overlay", "annotate"];
 var OVERLAY_FIELDS = ["action", "nodeId", "viewId", "row", "x", "y", "fill", "stroke"];
 function overlayPayload(op) {
   const payload = {};
@@ -919,6 +960,9 @@ function createCommandHandler({ hostFor }) {
           break;
         case "overlay":
           value = service.overlay(overlayPayload(op));
+          break;
+        case "annotate":
+          value = service.annotate({ elements: op.elements });
           break;
         default:
           return { kind: "error", text: `designmap: unknown op (${OPS.join(" | ")})` };

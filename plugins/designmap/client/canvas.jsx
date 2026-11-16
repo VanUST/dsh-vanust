@@ -14,7 +14,7 @@
  */
 import React from 'react'
 import { loadFrameText, frameDocument, FRAME_SOURCE, PANEL_SOURCE } from './frame.js'
-import { sceneToElements, sceneToAppState, overlayDelta, DEFAULT_LOOK } from './excalidraw.js'
+import { sceneToElements, sceneToAppState, overlayDelta, freeElements, DEFAULT_LOOK } from './excalidraw.js'
 
 /** Excalidraw maps a scene point to the screen as `(point + scroll) * zoom`. */
 export function fitViewport({ canvas, width, height, margin = 18 }) {
@@ -38,8 +38,10 @@ export function ExcalidrawCanvas({
   overlays,
   editMode,
   look,
+  annotations = [],
   fitSignal = 0,
   onDelta,
+  onAnnotate,
   onStatus,
   onFallback,
   onViewport,
@@ -53,6 +55,10 @@ export function ExcalidrawCanvas({
   const appliedFitRef = React.useRef(null)
   const viewRef = React.useRef(null)
   const fitRef = React.useRef(fitSignal)
+  const frameTextRef = React.useRef(null)
+  const builtModeRef = React.useRef(null)
+  const annotationsRef = React.useRef(annotations)
+  annotationsRef.current = annotations
   const lookRef = React.useRef(theme)
   lookRef.current = theme
   const [srcDoc, setSrcDoc] = React.useState(null)
@@ -90,7 +96,10 @@ export function ExcalidrawCanvas({
   }, [])
 
   const elementsFor = React.useCallback(
-    () => sceneToElements(scene, { overlays, editMode, look: theme }),
+    // Annotations are read from a ref on purpose: the human's own elements are already on
+    // the canvas, so a write landing back as state must not trigger another full load
+    // (that would reset the selection and can interrupt a stroke in progress).
+    () => sceneToElements(scene, { overlays, editMode, look: theme, annotations: annotationsRef.current }),
     [scene, overlays, editMode, theme],
   )
 
@@ -100,8 +109,10 @@ export function ExcalidrawCanvas({
     loadFrameText()
       .then((text) => {
         if (!alive) return
+        frameTextRef.current = text
+        builtModeRef.current = editMode
         baselineRef.current = elementsFor()
-        setSrcDoc(frameDocument(text, lookRef.current))
+        setSrcDoc(frameDocument(text, lookRef.current, { editing: editMode }))
       })
       .catch((error) => {
         if (!alive) return
@@ -110,6 +121,17 @@ export function ExcalidrawCanvas({
       })
     return () => { alive = false }
   }, [elementsFor, onFallback])
+
+  // The chrome (toolbar/properties) is decided by the frame document, so switching modes
+  // rebuilds the frame from the cached bundle. The ready handler re-sends the CURRENT
+  // viewport, so the map does not jump when the human enters edit mode.
+  React.useEffect(() => {
+    if (frameTextRef.current === null || builtModeRef.current === editMode) return
+    builtModeRef.current = editMode
+    readyRef.current = false
+    loadedRef.current = false
+    setSrcDoc(frameDocument(frameTextRef.current, lookRef.current, { editing: editMode }))
+  }, [editMode])
 
   // Send the scene whenever it, the overlays, the mode or the theme change. A new view
   // is framed; anything else keeps the viewport the human is looking through.
@@ -164,7 +186,8 @@ export function ExcalidrawCanvas({
         const elements = elementsFor()
         baselineRef.current = elements
         viewRef.current = scene.viewId
-        post({ type: 'load', scene: { elements, appState: fittedAppState() } })
+        const appState = viewportRef.current === null ? fittedAppState() : currentAppState()
+        post({ type: 'load', scene: { elements, appState } })
         return
       }
       if (data.type === 'loaded') { loadedRef.current = true; return }
@@ -180,6 +203,8 @@ export function ExcalidrawCanvas({
         if (!loadedRef.current) return
         const delta = overlayDelta(baselineRef.current, data.elements ?? [])
         if (Object.keys(delta).length > 0) onDelta?.(delta)
+        const human = freeElements(data.elements ?? [])
+        if (JSON.stringify(human) !== JSON.stringify(annotationsRef.current)) onAnnotate?.(human)
       }
     }
     window.addEventListener('message', onMessage)

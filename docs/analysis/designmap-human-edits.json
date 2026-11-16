@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "designmap-human-edits",
-  "rev": 2,
-  "status": "draft",
+  "rev": 4,
+  "status": "ready",
   "createdAt": "2026-11-16T14:02:58.138Z",
-  "updatedAt": "2026-11-16T14:03:06.020Z",
+  "updatedAt": "2026-11-16T14:05:35.951Z",
   "updatedBy": "agent",
   "title": "Human visual edits: native Excalidraw tools plus an annotation layer beside the model",
   "requestedSolution": "Оставить человеку минимальное визуальное редактирование карты: в edit mode включить нативные инструменты Excalidraw (перенос, цвет, фигуры/выделения, текст, перо) и хранить всё, что человек создал, в отдельном слое designmap/annotations.json — панель пишет его через /designmap op:'annotate', хост валидирует элементы и никогда не пропускает их в модель или сцену.",
@@ -158,10 +158,87 @@
       "description": "Семантическая модель, пишется только apply; annotations её не касаются"
     }
   ],
-  "contracts": [],
-  "invariants": [],
-  "decisions": [],
-  "openQuestions": [],
+  "contracts": [
+    {
+      "id": "CT-ANNOTATIONS",
+      "name": "Слой аннотаций человека",
+      "between": [
+        "C-CLIENT",
+        "C-TOOLS"
+      ],
+      "change": "additive",
+      "description": "Новый файл-слой designmap/annotations.json {schemaVersion:1, elements[]}: панель пишет его целиком через /designmap op:'annotate', хост валидирует элементы и не пропускает поля модели; панель читает его при load и рисует поверх сцены; модель, сцена и render его не читают."
+    }
+  ],
+  "invariants": [
+    {
+      "id": "INV-NO-MODEL",
+      "text": "Ни один annotation-элемент не несёт customData.designmap, и ни model.yaml, ни scene, ни render не читают annotations.json: правка человека никогда не становится моделью или геометрией сцены.",
+      "scope": "annotations.json, render, model"
+    },
+    {
+      "id": "INV-PERSIST",
+      "text": "Слой человека переживает render и перезагрузку; битый annotations.json игнорируется с предупреждением и не ломает панель.",
+      "scope": "annotations.json, панель"
+    },
+    {
+      "id": "INV-LOCK",
+      "text": "В read-only annotation-элементы залочены и не редактируются; в edit mode они свободны, а элементы сцены (кроме тел узлов) остаются залоченными.",
+      "scope": "панель, read-only/edit mode"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "DEC-NATIVE",
+      "decision": "В edit mode человек получает нативные инструменты Excalidraw (перенос, цвет, фигуры/выделение, текст, перо), read-only их скрывает.",
+      "rationale": "Свой тулбар повторил бы Excalidraw хуже и дороже; владелец просит именно минимальное визуальное редактирование на том полотне, которое уже выбрано основой.",
+      "alternatives": [
+        "Собственный тулбар панели с кнопками цвет/текст/фигура",
+        "Оставить только переносы"
+      ]
+    },
+    {
+      "id": "DEC-SEPARATE",
+      "decision": "Слой человека — отдельный designmap/annotations.json, а не overlays.json.",
+      "rationale": "У overlays строгая схема «один ряд на семантический ID + x/y/fill/stroke» и свой GC; свободные элементы (заметки, фигуры) другой формы и другого владельца, и смешивание сломало бы валидацию обоих.",
+      "alternatives": [
+        "Хранить свободные элементы в overlays.json рядом с рядами узлов"
+      ]
+    },
+    {
+      "id": "DEC-RECREATE",
+      "decision": "При смене режима кадр пересоздаётся (frameDocument с другим CSS) и получает текущий viewport, а не fit.",
+      "rationale": "CSS кадра фиксируется при создании документа, мост кадра не принимает команду «покажи тулбар»; пересоздание — единственный путь без правки 3.4 МБ вендоренного бандла. Viewport берём текущий, чтобы карта не прыгала.",
+      "alternatives": [
+        "Патчить vendored client.frame.js",
+        "Скрывать/показывать chrome через postMessage"
+      ]
+    },
+    {
+      "id": "DEC-EXTRACT",
+      "decision": "Слой человека извлекается из change-события как «элементы без customData.designmap»; отдельного моста выделения не нужно.",
+      "rationale": "Мост уже отдаёт все elements; отсутствие selectedElementIds было причиной недоступной перекраски, но нативный chrome снимает эту проблему целиком.",
+      "alternatives": [
+        "Отдавать selectedElementIds через мост кадра и рисовать свой инспектор"
+      ]
+    }
+  ],
+  "openQuestions": [
+    {
+      "id": "OQ-EXPORT",
+      "question": "Должен ли SVG-экспорт включать слой человека?",
+      "owner": "BACKEND",
+      "blocks": false,
+      "answer": "Вне MVP: слой человека — пометки на карте, не часть сцены; если понадобится, это отдельное решение и отдельный флаг экспорта."
+    },
+    {
+      "id": "OQ-LABEL-TEXT",
+      "question": "Может ли человек в нативном режиме отредактировать подпись узла (bound text), и что тогда?",
+      "owner": "UX/UI",
+      "blocks": false,
+      "answer": "Подписи залочены: если редактор всё же откроет текст, правка не пишется (overlayDelta берёт только тела узлов), и подпись вернётся при следующем load — приемлемо, но проверить в браузере."
+    }
+  ],
   "sizing": {
     "class": "L2",
     "reasons": [
@@ -178,9 +255,74 @@
   },
   "goalId": "goal-13893dad-f4ee-487c-ba80-d433336c8890",
   "goalHistory": [],
-  "trace": [],
+  "trace": [
+    {
+      "requirementId": "BR-1",
+      "processId": "P-TARGET",
+      "componentId": "C-CLIENT",
+      "contractIds": [
+        "CT-ANNOTATIONS"
+      ],
+      "dataIds": [
+        "D-ANNOTATIONS"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR-1",
+      "processId": "P-TARGET",
+      "componentId": "C-CLIENT",
+      "contractIds": [],
+      "dataIds": [
+        "D-ANNOTATIONS"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR-2",
+      "processId": "P-TARGET",
+      "componentId": "C-CLIENT",
+      "contractIds": [
+        "CT-ANNOTATIONS"
+      ],
+      "dataIds": [
+        "D-ANNOTATIONS",
+        "D-OVL"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR-3",
+      "processId": "P-TARGET",
+      "componentId": "C-TOOLS",
+      "contractIds": [
+        "CT-ANNOTATIONS"
+      ],
+      "dataIds": [
+        "D-ANNOTATIONS"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "NFR-1",
+      "processId": "P-TARGET",
+      "componentId": "C-CLIENT",
+      "contractIds": [
+        "CT-ANNOTATIONS"
+      ],
+      "dataIds": [
+        "D-ANNOTATIONS"
+      ],
+      "status": "planned",
+      "tasks": []
+    }
+  ],
   "pendingImpacts": [],
-  "fingerprint": "24fc3731790a3bcdbff506516cf7165c55243aa15ccb88cb7745b0ddfaa805f9",
+  "fingerprint": "fc81c931baa29d1ffbf13b97b2af56e2b431ebec4b2c06152fe9185ef2aedbe3",
   "history": [
     {
       "revision": 1,
@@ -197,6 +339,22 @@
       "action": "upsert",
       "status": "draft",
       "summary": "requirements: BR-1 added, FR-1 added, FR-2 added, FR-3 added, NFR-1 added"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-16T14:05:31.405Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-16T14:05:35.951Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
     }
   ]
 }

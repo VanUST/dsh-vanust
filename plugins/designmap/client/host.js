@@ -178,6 +178,17 @@ export function createRemoteHost({ remote, sessionId, sceneDir = 'designmap/out'
         }
       }
 
+      let annotations = []
+      const annotationsRead = await readWholeText(remote, sessionId, 'designmap/annotations.json')
+      if (annotationsRead.ok === true) {
+        try {
+          const parsed = JSON.parse(annotationsRead.value)
+          if (Array.isArray(parsed?.elements)) annotations = parsed.elements.filter(element => element !== null && typeof element === 'object')
+        } catch {
+          annotations = []
+        }
+      }
+
       let overlays = {}
       const overlaysRead = await readWholeText(remote, sessionId, 'designmap/overlays.json')
       if (overlaysRead.ok === true) {
@@ -258,6 +269,7 @@ export function createRemoteHost({ remote, sessionId, sceneDir = 'designmap/out'
           views,
           rootId: root.view.viewId,
           overlays: { rows: overlays, path: 'designmap/overlays.json' },
+          annotations,
         },
       }
     },
@@ -268,6 +280,11 @@ export function createRemoteHost({ remote, sessionId, sceneDir = 'designmap/out'
       const valid = validateOverlayPayload(payload)
       if (valid.ok !== true) return valid
       return executeCommand(remote, sessionId, { op: 'overlay', ...payload })
+    },
+
+    async writeAnnotations(elements) {
+      if (!Array.isArray(elements)) return remoteFailure('invalid_annotation', 'Annotations are an array of elements.')
+      return executeCommand(remote, sessionId, { op: 'annotate', elements })
     },
 
     async renderViews(payload = {}) {

@@ -42,19 +42,19 @@
         return json(`/stub/open?path=${encodeURIComponent(request.path)}`)
       },
     },
-    commands: workspaceMode
-      ? {
-          execute: async (_sessionId, line) => {
-            bridge.commands.push(line)
-            const response = await fetch('/stub/command', {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ line }),
-            })
-            return response.json()
-          },
-        }
-      : undefined,
+    // Available in every mode: the panel's edit mode needs the command path, and the
+    // scene source (a pinned set or the workspace) is independent of it.
+    commands: {
+      execute: async (_sessionId, line) => {
+        bridge.commands.push(line)
+        const response = await fetch('/stub/command', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ line }),
+        })
+        return response.json()
+      },
+    },
   }
 
   const boot = {

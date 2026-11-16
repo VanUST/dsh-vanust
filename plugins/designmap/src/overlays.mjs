@@ -11,7 +11,7 @@
  * renderer), so `fill`/`stroke` are validated here and returned in `colours` for the
  * tool envelope; they never enter the scene bytes.
  */
-import { inPalette } from './palette.mjs'
+import { inPalette, isHexColour } from './palette.mjs'
 import { round2 } from './canonical.mjs'
 
 const ALLOWED_KEYS = ['x', 'y', 'fill', 'stroke']
@@ -68,9 +68,15 @@ export function mergeOverlays(sceneNodes, raw) {
         for (const colour of ['fill', 'stroke']) {
           const value = row[colour]
           if (value === undefined) continue
-          if (!inPalette(value)) {
-            gc.push({ code: 'colour_out_of_palette', severity: 'warning', nodeId, colour, message: `overlay ${colour} "${String(value)}" for "${nodeId}" is outside the palette; ignored` })
+          if (!isHexColour(value)) {
+            gc.push({ code: 'invalid_colour', severity: 'warning', nodeId, colour, message: `overlay ${colour} "${String(value)}" for "${nodeId}" is not a hex colour; ignored` })
             continue
+          }
+          // The human picks colours from the drawing tools, so any hex is legitimate.
+          // Outside the type palette it is still applied; the palette is a default, not
+          // a gate, and the finding is informational.
+          if (!inPalette(value)) {
+            gc.push({ code: 'colour_out_of_palette', severity: 'info', nodeId, colour, message: `overlay ${colour} "${String(value)}" for "${nodeId}" is outside the type palette; used anyway` })
           }
           kept[colour] = value
         }
