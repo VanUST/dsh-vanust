@@ -339,15 +339,24 @@ export const CSS = `
   position: absolute;
   transform-origin: top left;
   /* The plate must be opaque: a translucent one let the edge line and any node
-     underneath show through the glyphs, which is unreadable on a dark theme. */
+     underneath show through the glyphs, which is unreadable on a dark theme.
+     Width/height come inline from the scene's labelBox — the same rectangle core
+     validated — so the fallback never draws a bigger label than the check approved. */
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
   background: var(--dmv-surface);
   border: 1px solid var(--dmv-line);
-  border-radius: 4px;
-  padding: 1px 4px;
-  font-size: 10px;
-  font-weight: 650;
+  border-radius: 6px;
+  padding: 0 2px;
+  font-size: 10.5px;
+  line-height: 1.25;
+  font-weight: 600;
   color: var(--dmv-ink);
-  white-space: nowrap;
+  white-space: pre-line;
+  overflow: hidden;
   pointer-events: none;
 }
 

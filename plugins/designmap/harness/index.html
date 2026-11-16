@@ -93,7 +93,7 @@
   <script>
     (() => {
       const requested = new URLSearchParams(location.search).get('set')
-      const set = requested === 'm0' || requested === 'empty' || requested === 'm2' || requested === 'repo' || requested === 'readability' ? requested : 'fixture'
+      const set = requested === 'm0' || requested === 'empty' || requested === 'm2' || requested === 'repo' || requested === 'readability' ? requested : 'repo'
       if (set === 'm2') {
         const button = document.getElementById('regenerate')
         const status = document.getElementById('regen-status')

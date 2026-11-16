@@ -32,7 +32,7 @@ const SETS = () => ({
 })
 const setDir = (requested) => {
   const sets = SETS()
-  const set = Object.hasOwn(sets, requested ?? '') ? requested : 'fixture'
+  const set = Object.hasOwn(sets, requested ?? '') ? requested : 'repo'
   return { set, dir: sets[set] }
 }
 const PORT = Number(process.env.M1_PORT ?? 4320)

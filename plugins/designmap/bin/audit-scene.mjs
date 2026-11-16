@@ -15,12 +15,11 @@
  *                                                     # also emit a harness scene set
  *   --json                                             # machine-readable report only
  */
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createWorkspace } from '../src/workspace.mjs'
 import { renderView } from '../src/render.mjs'
-import { renderAll } from '../src/index-file.mjs'
 import { labelBoxOf, placementIssues } from '../src/layout.mjs'
 import { DesignmapRefusal } from '../src/schema.mjs'
 
@@ -136,19 +135,22 @@ async function main({ first, rest, scenePath, writeSet, asJson }) {
 
   if (writeSet !== null) {
     // A harness scene set: the browser proof needs the same bytes the audit judged.
+    // Rendered in memory on purpose - a diagnostic command must never write into the
+    // workspace it is reading.
     const directory = resolve(writeSet)
-    mkdirSync(join(directory), { recursive: true })
-    const result = await renderAll({ workspace })
-    const index = { root: views[0]?.id ?? null, views: [] }
-    for (const entry of result.rendered) {
-      const scene = entry.scene
-      writeFileSync(join(directory, `${scene.viewId}.scene.json`), JSON.stringify(scene))
+    mkdirSync(directory, { recursive: true })
+    const index = { root: views.views[0]?.id ?? null, views: [] }
+    const model = workspace.readModel().model
+    const overlays = workspace.readOverlays().overlays
+    for (const view of views.views) {
+      const result = await renderView({ model, views, overlays, viewId: view.id })
+      writeFileSync(join(directory, `${view.id}.scene.json`), result.sceneJson)
       index.views.push({
-        viewId: scene.viewId,
-        file: `${scene.viewId}.scene.json`,
-        parentGroupId: scene.parent ?? null,
-        title: scene.title,
-        level: scene.level,
+        viewId: view.id,
+        file: `${view.id}.scene.json`,
+        parentGroupId: null,
+        title: view.title,
+        level: view.level,
         meta: {
           generatedAt: new Date().toISOString(),
           commit: null,
@@ -157,7 +159,6 @@ async function main({ first, rest, scenePath, writeSet, asJson }) {
       })
     }
     writeFileSync(join(directory, 'index.json'), `${JSON.stringify(index, null, 2)}\n`)
-    rmSync(join(workspaceRoot, 'out'), { recursive: true, force: true })
     report.wroteSet = directory
   }
 

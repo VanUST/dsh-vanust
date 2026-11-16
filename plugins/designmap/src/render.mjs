@@ -110,10 +110,13 @@ export async function renderView({ model, views, overlays = {}, viewId, staleNod
   if (layout.issues.length > 0) {
     // A layout that cannot place its labels without covering a box is a defect, not a
     // warning: refuse to write the scene and name the edges the retries could not place.
-    const blocking = layout.issues.find(entry => entry.rule === 'label_collision')
+    // The refusal code must name the defect that actually blocked the layout: a view
+    // whose only problem is a routed-through body is not a label collision, and callers
+    // branch on this code.
+    const blocking = layout.issues[0]
     throw new DesignmapRefusal(
-      REFUSAL_BY_RULE[blocking?.rule] ?? REFUSALS.labelCollision,
-      blocking === undefined
+      REFUSAL_BY_RULE[blocking.rule] ?? REFUSALS.labelCollision,
+      blocking.rule === 'edge_through_node'
         ? 'layout could not route an edge without crossing a node'
         : 'layout could not place every edge label without a collision',
       { viewId, issues: layout.issues, spacingScale: SPACING_SCALES.at(-1) },

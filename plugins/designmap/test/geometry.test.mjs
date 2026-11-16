@@ -144,6 +144,34 @@ test('an overlay-moved node re-anchors incident edges and re-places their labels
   }
 })
 
+test('a layout that cannot place a self-loop label refuses with label_collision', async () => {
+  // A self-loop is not routed by ELK (layered rejects it), so its plate is placed on the
+  // locally drawn loop; a long label cannot leave the source box and the gate must refuse
+  // instead of writing the overlapping scene. This is the reachable red for the branch.
+  const model = {
+    schemaVersion: 1,
+    groups: [],
+    nodes: [
+      { id: 'svc.a', type: 'service', label: 'A', group: null, source: null },
+      { id: 'svc.b', type: 'service', label: 'B', group: null, source: null },
+    ],
+    edges: [
+      { id: 'e.a.b', from: 'svc.a', to: 'svc.b', kind: 'sync', label: 'calls' },
+      { id: 'e.a.a', from: 'svc.a', to: 'svc.a', kind: 'async', label: 'retries every failed row forever' },
+    ],
+  }
+  const views = { schemaVersion: 1, views: [{ id: 'v.loop', title: 'Loop', level: 'context', direction: 'LR', include: [], parent: null }] }
+  await assert.rejects(
+    renderView({ model, views, overlays: {}, viewId: 'v.loop' }),
+    (error) => {
+      assert.equal(error.code, 'label_collision')
+      assert.equal(error.details.issues.some(issue => issue.rule === 'label_collision'), true)
+      assert.equal(error.details.spacingScale, 2)
+      return true
+    },
+  )
+})
+
 test('the placement search reports no free spot when every candidate is covered', () => {
   const points = [{ x: 0, y: 50 }, { x: 200, y: 50 }]
   const size = { w: 100, h: 25 }

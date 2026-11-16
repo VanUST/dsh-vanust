@@ -13,7 +13,6 @@
  */
 import { inPalette } from './palette.mjs'
 import { round2 } from './canonical.mjs'
-import { edgeLabelAnchor } from './layout.mjs'
 
 const ALLOWED_KEYS = ['x', 'y', 'fill', 'stroke']
 
@@ -124,7 +123,9 @@ export function reattachEdges(nodes, edges, overlaidIds) {
     const points = edge.points.map(point => ({ ...point }))
     if (sourceMoved) points[0] = boundaryPoint(byId.get(edge.from), points[1])
     if (targetMoved) points[points.length - 1] = boundaryPoint(byId.get(edge.to), points[points.length - 2])
-    return { ...edge, points, labelAt: edgeLabelAnchor(points, edge.label) }
+    // The plate is placed by render against the FINAL node boxes; this path only has to
+    // keep the edge endpoints on the moved boundary.
+    return { ...edge, points }
   })
 }
 

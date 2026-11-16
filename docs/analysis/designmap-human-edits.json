@@ -1,0 +1,202 @@
+{
+  "schemaVersion": 1,
+  "id": "designmap-human-edits",
+  "rev": 2,
+  "status": "draft",
+  "createdAt": "2026-11-16T14:02:58.138Z",
+  "updatedAt": "2026-11-16T14:03:06.020Z",
+  "updatedBy": "agent",
+  "title": "Human visual edits: native Excalidraw tools plus an annotation layer beside the model",
+  "requestedSolution": "Оставить человеку минимальное визуальное редактирование карты: в edit mode включить нативные инструменты Excalidraw (перенос, цвет, фигуры/выделения, текст, перо) и хранить всё, что человек создал, в отдельном слое designmap/annotations.json — панель пишет его через /designmap op:'annotate', хост валидирует элементы и никогда не пропускает их в модель или сцену.",
+  "businessOutcome": {
+    "problem": "Карта сейчас только читается человеком: в edit mode работают лишь переносы узлов, перекраска недоступна (мост кадра не отдаёт выделение), а заметок/выделений нет вообще. Любая визуальная пометка человека либо некуда записать, либо потеряется при рерердире.",
+    "outcome": "Человек может доработать карту руками: подвинуть/перекрасить узел, обвести и подсветить область, написать заметку — и всё это переживает реререндер и следуют за моделью",
+    "successMetrics": [
+      "В браузере: человек перекрашивает узел, пишет заметку и рисует прямоугольное выделение, рерердер и перезагрузка страницы сохраняют всё",
+      "Ни одна правка человека не попадает в model.yaml/scene: правка живёт в отдельном файле-слое",
+      "Поддельный annotation-элемент с designmap-customData отклоняется, а не становится геометрией сцены"
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CURRENT",
+        "name": "Human edits are either impossible or ephemeral",
+        "actors": [
+          "human",
+          "designmap panel",
+          "Excalidraw frame"
+        ],
+        "steps": [
+          "edit mode разблокирует только тела узлов; инструменты Excalidraw скрыты CSS кадра",
+          "перекраска недоступна: выделение на канвасе не доходит до панели",
+          "нарисованное человеком некуда сохранить: change event отдаёт elements, но панель берёт только узлы",
+          "после рерердера или перезагрузки любые пометки исчезли бы"
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-TARGET",
+        "name": "Human annotations live beside the model",
+        "actors": [
+          "human",
+          "designmap panel",
+          "Excalidraw frame",
+          "host command"
+        ],
+        "steps": [
+          "в edit mode кадр показывает нативные инструменты Excalidraw (цвет, фигуры, текст, перо)",
+          "панель отдаёт нативные элементы сцены как раньше; новые элементы без designmap-метки — это слой человека",
+          "слой человека пишется целиком в designmap/annotations.json через /designmap op:'annotate' (валидация и лимиты на хосте)",
+          "load показывает annotations поверх сцены (в read-only — только для чтения), рерердер и перезагрузка их сохраняют",
+          "модель и сцена annotations.json не читают: правка человека никогда не становится моделью"
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "BR-1",
+      "kind": "BR",
+      "text": "Человек может доработать карту руками: подвинуть и перекрасить узел, обвести/подсветить область, написать текстовую заметку — и всё это переживает рерердер и перезагрузку.",
+      "acceptance": [
+        "В браузере: перекраска, заметка и выделение видны после reload",
+        "Скриншот edit mode с нативным тулбаром"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR-1",
+      "kind": "FR",
+      "text": "Edit mode отдаёт человеку нативные инструменты Excalidraw (перенос, цвет, фигуры, текст, перо); read-only скрывает chrome и блокирует слой человека.",
+      "acceptance": [
+        "Edit mode показывает тулбар и панель свойств",
+        "Read-only их не показывает и слой человека залочен"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR-2",
+      "kind": "FR",
+      "text": "Слой человека отдельный: designmap/annotations.json {schemaVersion, elements}; панель читает его при load и рисует поверх сцены; модель и сцена его не читают.",
+      "acceptance": [
+        "annotations.json появляется после первой правки",
+        "Панель рисует его элементы поверх сцены в обоих режимах"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR-3",
+      "kind": "FR",
+      "text": "Запись слоя идёт через /designmap op:'annotate'; хост валидирует элементы (белый список типов, конечная геометрия, лимит 200), вычищает designmap-customData и не пропускает поля модели.",
+      "acceptance": [
+        "Поддельный элемент с designmap.customData отклоняется",
+        "Невалидная геометрия и >200 элементов отклоняются с кодом"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "NFR-1",
+      "kind": "NFR",
+      "text": "Пересоздание кадра при смене режима и рерердер сцены не теряют annotations человека и не сбрасывают текущий viewport без нужды.",
+      "acceptance": [
+        "Переключение режима не теряет annotations и не сбрасывает вид (по возможности)",
+        "Рерердер сцены сохраняет слой"
+      ],
+      "status": "planned"
+    }
+  ],
+  "architecture": {
+    "contractImpact": "additive",
+    "components": [
+      {
+        "id": "C-CLIENT",
+        "name": "Панель (Excalidraw-адаптер и оболочка)",
+        "responsibility": "Нативный chrome в edit mode, отрисовка слоя человека поверх сцены, извлечение и запись annotations",
+        "owner": "UX/UI",
+        "owns": [
+          "D-ANNOTATIONS",
+          "D-OVL"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "C-TOOLS",
+        "name": "Команда /designmap и host service",
+        "responsibility": "op:'annotate' + annotate(payload), валидация элементов, atomic write annotations.json, логирование; модель не трогает",
+        "owner": "BACKEND",
+        "owns": [
+          "D-MODEL"
+        ],
+        "dependsOn": [
+          "C-CLIENT"
+        ]
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "D-ANNOTATIONS",
+      "name": "designmap/annotations.json",
+      "owner": "C-CLIENT",
+      "ownerComponentId": "C-CLIENT",
+      "description": "Слой человека: free Excalidraw elements (заметки, фигуры, выделения, текст), не сцена и не модель"
+    },
+    {
+      "id": "D-OVL",
+      "name": "designmap/overlays.json",
+      "owner": "C-CLIENT",
+      "ownerComponentId": "C-CLIENT",
+      "description": "Ручные позиции и цвета человека, по семантическому ID"
+    },
+    {
+      "id": "D-MODEL",
+      "name": "designmap/model.yaml + views.yaml",
+      "owner": "C-TOOLS",
+      "ownerComponentId": "C-TOOLS",
+      "description": "Семантическая модель, пишется только apply; annotations её не касаются"
+    }
+  ],
+  "contracts": [],
+  "invariants": [],
+  "decisions": [],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L2",
+    "reasons": [
+      "Меняется контракт правок человека: появляется второй слой (annotations) рядом с overlays.json",
+      "Меняется команда /designmap (новый op annotate) и валидация на хосте",
+      "Затрагивается кадр Excalidraw (нативный chrome в edit mode, пересоздание кадра) и панель",
+      "Данные нового слоя должны переживать load/render и не попадать в сцену"
+    ]
+  },
+  "designRef": {
+    "mapRev": 30,
+    "at": "2026-11-16T14:05:00.000Z",
+    "source": "design.excalidraw"
+  },
+  "goalId": "goal-13893dad-f4ee-487c-ba80-d433336c8890",
+  "goalHistory": [],
+  "trace": [],
+  "pendingImpacts": [],
+  "fingerprint": "24fc3731790a3bcdbff506516cf7165c55243aa15ccb88cb7745b0ddfaa805f9",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-16T14:02:58.138Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-16T14:03:06.020Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: BR-1 added, FR-1 added, FR-2 added, FR-3 added, NFR-1 added"
+    }
+  ]
+}

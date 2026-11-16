@@ -81,7 +81,10 @@ function SceneNode({ data }) {
 
 /** An edge drawn exactly through core's `points`; its label sits at core's `labelAt`.
  *  While a node is dragged, its incident endpoints follow the live position so the
- *  edge does not detach; the polyline is offset, never re-routed. */
+ *  edge does not detach; the polyline is offset, never re-routed. The label plate is
+ *  core's `labelBox` rectangle (same contract as the Excalidraw renderer): the fallback
+ *  must not re-measure or re-wrap, or a frame failure would quietly break the geometry
+ *  the scene was validated against. */
 function SceneEdge({ id, data, markerEnd, style }) {
   const nodes = useNodes()
   const live = (nodeId) => nodes.find((node) => node.id === nodeId)?.position
@@ -101,8 +104,16 @@ function SceneEdge({ id, data, markerEnd, style }) {
     <>
       <BaseEdge id={`${id}-path`} path={path} markerEnd={markerEnd} style={style} interactionWidth={12} />
       <EdgeLabelRenderer>
-        <div className="dmv-edge-label" style={{ transform: `translate(${data.labelAt.x}px, ${data.labelAt.y}px)` }}>
-          {data.label}
+        <div
+          className="dmv-edge-label"
+          style={{
+            transform: `translate(${data.labelBox.x}px, ${data.labelBox.y}px)`,
+            width: `${data.labelBox.w}px`,
+            height: `${data.labelBox.h}px`,
+          }}
+          title={data.label}
+        >
+          {data.labelLines.join('\n')}
         </div>
       </EdgeLabelRenderer>
     </>
@@ -1050,7 +1061,8 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
       data: {
         points: edge.points,
         label: edge.label,
-        labelAt: edge.labelAt,
+        labelBox: edge.labelBox,
+        labelLines: edge.labelLines,
         kind: edge.kind,
         origin: { from: sceneById.get(edge.from), to: sceneById.get(edge.to) },
       },

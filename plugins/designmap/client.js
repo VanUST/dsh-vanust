@@ -10008,7 +10008,19 @@ function SceneEdge({ id: id2, data, markerEnd, style: style2 }) {
   const path = points.map((point, index2) => `${index2 === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
   return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(BaseEdge, { id: `${id2}-path`, path, markerEnd, style: style2, interactionWidth: 12 }),
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(EdgeLabelRenderer, { children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dmv-edge-label", style: { transform: `translate(${data.labelAt.x}px, ${data.labelAt.y}px)` }, children: data.label }) })
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(EdgeLabelRenderer, { children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+      "div",
+      {
+        className: "dmv-edge-label",
+        style: {
+          transform: `translate(${data.labelBox.x}px, ${data.labelBox.y}px)`,
+          width: `${data.labelBox.w}px`,
+          height: `${data.labelBox.h}px`
+        },
+        title: data.label,
+        children: data.labelLines.join("\n")
+      }
+    ) })
   ] });
 }
 function Legend({ scene, editMode, zoom: zoom3, onFit }) {
@@ -10826,7 +10838,8 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
       data: {
         points: edge.points,
         label: edge.label,
-        labelAt: edge.labelAt,
+        labelBox: edge.labelBox,
+        labelLines: edge.labelLines,
         kind: edge.kind,
         origin: { from: sceneById.get(edge.from), to: sceneById.get(edge.to) }
       },
@@ -11640,15 +11653,24 @@ var CSS = `
   position: absolute;
   transform-origin: top left;
   /* The plate must be opaque: a translucent one let the edge line and any node
-     underneath show through the glyphs, which is unreadable on a dark theme. */
+     underneath show through the glyphs, which is unreadable on a dark theme.
+     Width/height come inline from the scene's labelBox \u2014 the same rectangle core
+     validated \u2014 so the fallback never draws a bigger label than the check approved. */
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
   background: var(--dmv-surface);
   border: 1px solid var(--dmv-line);
-  border-radius: 4px;
-  padding: 1px 4px;
-  font-size: 10px;
-  font-weight: 650;
+  border-radius: 6px;
+  padding: 0 2px;
+  font-size: 10.5px;
+  line-height: 1.25;
+  font-weight: 600;
   color: var(--dmv-ink);
-  white-space: nowrap;
+  white-space: pre-line;
+  overflow: hidden;
   pointer-events: none;
 }
 
