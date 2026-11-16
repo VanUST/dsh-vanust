@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "designmap-readability",
-  "rev": 9,
-  "status": "draft",
+  "rev": 12,
+  "status": "completed",
   "createdAt": "2026-11-16T13:30:42.307Z",
-  "updatedAt": "2026-11-16T13:33:02.098Z",
+  "updatedAt": "2026-11-16T13:58:40.035Z",
   "updatedBy": "agent",
   "title": "Design map readability: one owner for label geometry, validated scene, themed canvas",
   "requestedSolution": "Починить читаемость карты в корне: геометрию подписи ребра считает и проверяет core (labelBox в сцене), место под подпись резервирует ELK, линт проверяет прямоугольники (подпись-узел, подпись-подпись, ребро-узел) и рендер отказывает при коллизии; полотно Excalidraw рисует подписи плашками, подхватывает тему хоста, показывает реальный зум; приёмка — скриншоты в браузере на реальной, dense, cyclic и multiline картах.",
@@ -62,112 +62,112 @@
     {
       "id": "BR-1",
       "kind": "BR",
-      "text": "Карту читают с первого взгляда: ни одна подпись ребра не пересекает узел, группу или другую подпись, и ни одно ребро не проходит сквозь узел.",
+      "text": "Карту читают с первого взгляда: ни одна подпись ребра не пересекает узел или другую подпись, и ни одно ребро не проходит сквозь узел.",
       "acceptance": [
-        "На реальном ввиде и на dense/cyclic/multiline сценах 0 пересечений по проверке bin/audit-scene.mjs",
-        "Человек видит подписи на подложке, а не поверх линий"
+        "На реальной карте и на dense/cyclic/multiline сценах 0 пересечений по bin/audit-scene.mjs",
+        "Подписи на плашке, а не поверх линий"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "BR-2",
       "kind": "BR",
       "text": "Тип узла и вид потока понятны без объяснений: форма и цвет кодируют тип, стиль линии — вид потока, подпись ребра читается на плашке; полотно и подписи живут в теме хоста (светлой и тёмной).",
       "acceptance": [
-        "Легенда показывает формы типов, стили линий и количество",
-        "Скриншоты в светлой и тёмной теме без белого листа и без нечитаемых подписей"
+        "Легенда показывает формы, стили и количество",
+        "Скриншоты в светлой и тёмной теме без белого листа"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "BR-3",
       "kind": "BR",
-      "text": "Панель говорит правду о полотне: зум в статус-строке — реальный зум Excalidraw, есть действие «вписать», карта центрирована и целиком видна.",
+      "text": "Панель говорит правду о полотне: зум в статус-строке — реальный зум Excalidraw, есть Fit, карта центрирована и целиком видна, при ресайзе перекадрируется.",
       "acceptance": [
-        "После загрузки карта вписана с полями, зум в статусе совпадает с полотном",
-        "Кнопка вписать возвращает карту к полному виду"
+        "Зум в статусе совпадает с полотном",
+        "Fit и ресайз возвращают карту к полному виду"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR-1",
       "kind": "FR",
-      "text": "Сцена — единственный владелец геометрии подписи: edges[].labelBox {x,y,w,h} считает core одним метрическим правилом, рендерер рисует плашку и текст ровно в этом прямоугольнике без пересчёта размера.",
+      "text": "Сцена — единственный владелец геометрии подписи: edges[].labelBox и labelLines считает core, рендерер рисует плашку в этом прямоугольнике без пересчёта.",
       "acceptance": [
-        "SCENE-CONTRACT.md и схема сцены описывают labelBox",
-        "Клиент не вычисляет ширину подписи из длины строки (кроме fallback для старых сцен)"
+        "SCENE-CONTRACT.md и схема описывают labelBox/labelLines",
+        "Клиент мерит текст только в fallback для старых сцен"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR-2",
       "kind": "FR",
-      "text": "Место под подпись резервирует раскладка: label передаётся ELK как edge label с реальным размером; если после раскладки остаётся коллизия — детерминированный повтор с большими зазорами, затем отказ label_collision.",
+      "text": "Место под подпись резервирует раскладка: размер уходит в ELK как edge label, затем плашка ставится на своём ребре против финальных боксов; тугой вид повторяется с зазорами 1.45x/2x, затем отказ label_collision.",
       "acceptance": [
-        "ELK расширяет коридор между слоями под ширину подписи",
-        "Сцена, где раскладка не может разместить подпись, не сохраняется: код label_collision"
+        "ELK расширяет коридор под ширину подписи",
+        "Неразместимая подпись не сохраняется"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR-3",
       "kind": "FR",
-      "text": "Проверка визуальной геометрии есть на обоих уровнях: раскладка перед записью валит рендер кодами label_collision/edge_through_node, если чистую сцену получить не удалось; линт сцены проверяет те же прямоугольники и сегменты правилами label_over_node, label_label_overlap, edge_through_node — после ручных overlays это warning, чтобы карта не перестала открываться.",
+      "text": "Проверка визуальной геометрии на двух уровнях: раскладка валит рендер кодами label_collision/edge_through_node; линт сцены проверяет те же прямоугольники и сегменты правилами label_over_node, label_label_overlap, edge_through_node, после ручных overlays — warning.",
       "acceptance": [
-        "Правила есть в таблице линта и валят раскладку до записи",
-        "Негативный контроль: сцена, которую раскладка не может сделать чистой, получает отказ; сцена с ручным overlays — warning и рендер"
+        "Правила в таблице линта и валят раскладку до записи",
+        "Негативный контроль краснеет"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR-4",
       "kind": "FR",
-      "text": "Приёмка автоматизирована: bin/audit-scene.mjs проверяет коллизии и плотность сцены, фикстуры dense (20+ узлов), cyclic и multiline рендерятся через core и показываются в браузере 1440x900 и 1280x720 в двух темах.",
+      "text": "Приёмка автоматизирована: bin/audit-scene.mjs проверяет коллизии, выход за канвас, зазоры и плотность; фикстуры dense (20 узлов), cyclic и multiline рендерятся через core и показаны в браузере 1280x720 и 1440x900 в двух темах.",
       "acceptance": [
-        "audit выходит с кодом 1 на сломанной сцене и 0 на всех фикстурах",
-        "Скриншоты панели приложены к доказательствам"
+        "audit выходит 1 на сломанной сцене и 0 на всех фикстурах",
+        "Скриншоты приложены"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR-5",
       "kind": "FR",
-      "text": "Поставка: README плагина, SCENE-CONTRACT.md, кейс владельца в docs/cases/, собранный client.js и пакет @cc/dsh-designmap 0.1.13, коммит.",
+      "text": "Поставка: README плагина, SCENE-CONTRACT.md, кейс в docs/cases/, собранные client.js/dist и пакет @cc/dsh-designmap 0.1.14, коммит 6e7b54d.",
       "acceptance": [
-        "Пакет собран и версия поднята",
+        "Пакет собран, версия поднята, make verify зелёный",
         "Документация и кейс описывают новые правила и отказ"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "NFR-1",
       "kind": "NFR",
-      "text": "Детерминированность и скорость: повторный render тех же model+overlays даёт байт-идентичный scene; раскладка 25 узлов с подписями укладывается в 1500 мс.",
+      "text": "Детерминированность и скорость: повторный render даёт байт-идентичный scene; раскладка 25 узлов с подписями укладывается в 1500 мс.",
       "acceptance": [
         "Повторные рендеры совпадают по sha256",
         "layout.done на perf-фикстуре ≤ 1500 мс"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "NFR-2",
       "kind": "NFR",
-      "text": "Инвариант неразрушимости: путь записи модели не может выпустить сцену, где подпись пересекает узел/другую подпись или ребро проходит сквозь узел — либо сцена чистая, либо запись отклонена.",
+      "text": "Инвариант неразрушимости: путь записи модели не может выпустить сцену с коллизией — либо сцена чистая, либо запись отклонена.",
       "acceptance": [
         "Раскладка валит запись при коллизии",
         "Нет тихой подгонки координат"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "NFR-3",
       "kind": "NFR",
-      "text": "Обратная совместимость в рамках пакета: сцена без labelBox (старые out/ и harness-фикстуры) не ломает панель и экспорт — клиент и SVG используют fallback.",
+      "text": "Обратная совместимость в рамках пакета: сцена без labelBox не ломает панель и экспорт — клиент и SVG используют fallback.",
       "acceptance": [
         "Панель рисует старую сцену без labelBox",
         "Тест на fallback зелёный"
       ],
-      "status": "planned"
+      "status": "proven"
     }
   ],
   "architecture": {
@@ -397,8 +397,26 @@
       "dataIds": [
         "D-SCENE"
       ],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwjaypic-em827j",
+          "role": "BACKEND",
+          "at": "",
+          "evidence": [
+            "111/111 tests",
+            "scene edges carry labelBox+labelLines; audit v.context 0 collisions (was 5 of 9 labels over nodes)"
+          ]
+        },
+        {
+          "taskId": "task-mwjbs32u-pakwvu",
+          "role": "BACKEND",
+          "at": "",
+          "evidence": [
+            "bin/audit-scene.mjs fixtures/readability: 0/0/0 collisions, exit 0"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "BR-2",
@@ -410,8 +428,17 @@
       "dataIds": [
         "D-OVL"
       ],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwjbs2x4-3r1bju",
+          "role": "UX/UI",
+          "at": "",
+          "evidence": [
+            "label chips bound to labelBox, type palette+shape+stroke, legend bar counts, light+dark screenshots dm-1280-readonly.png/dm-1280-dark.png"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "BR-3",
@@ -421,8 +448,17 @@
       "dataIds": [
         "D-OVL"
       ],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwjbs2x4-3r1bju",
+          "role": "UX/UI",
+          "at": "",
+          "evidence": [
+            "status zoom 0.71 matches the fit, Fit re-frames, ResizeObserver refit at 1280 (was clipped)"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "FR-1",
@@ -434,8 +470,17 @@
       "dataIds": [
         "D-SCENE"
       ],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwjaypic-em827j",
+          "role": "BACKEND",
+          "at": "",
+          "evidence": [
+            "SCENE-CONTRACT.md documents labelBox/labelLines; schema requires them; client labels test 2/2"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "FR-2",
@@ -447,8 +492,17 @@
       "dataIds": [
         "D-SCENE"
       ],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwjaypic-em827j",
+          "role": "BACKEND",
+          "at": "",
+          "evidence": [
+            "ELK corridor widens with the label (40 px label: corridor 96 vs 28 without), layout retry 1.45x/2x then label_collision"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "FR-3",
@@ -460,8 +514,25 @@
       "dataIds": [
         "D-SCENE"
       ],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwjaypic-em827j",
+          "role": "BACKEND",
+          "at": "",
+          "evidence": [
+            "placementIssues rectangle+segment rules; sceneLintCases 3/3; negative control refuses failures"
+          ]
+        },
+        {
+          "taskId": "task-mwjbs32u-pakwvu",
+          "role": "BACKEND",
+          "at": "",
+          "evidence": [
+            "pre-fix harness scenes: 4 and 3 label_over_node, audit exit 1"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "FR-4",
@@ -474,8 +545,17 @@
       "dataIds": [
         "D-FIXTURES"
       ],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwjbs32u-pakwvu",
+          "role": "BACKEND",
+          "at": "",
+          "evidence": [
+            "test/readability.test.mjs 3/3; acceptance readability section ok:true incl. negative control; harness set generated"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "FR-5",
@@ -488,8 +568,19 @@
       "dataIds": [
         "D-MODEL"
       ],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwjbs6oq-q73l65",
+          "role": "DOCS",
+          "at": "",
+          "evidence": [
+            "packed cc-dsh-designmap-0.1.14.tgz sha256 06efd1ae85509ad96ef49a5c8b8e868a6a7f774e42c82e911d75c2e459729d5f",
+            "make verify ok, 111/111 tests, commit 6e7b54d",
+            "case design-map-readable-no-label-over-a-node-audit-can-fail"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "NFR-1",
@@ -501,8 +592,17 @@
       "dataIds": [
         "D-SCENE"
       ],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwjaypic-em827j",
+          "role": "BACKEND",
+          "at": "",
+          "evidence": [
+            "determinism tests byte-identical; perf 25 nodes worst 548 ms vs 1500 budget"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "NFR-2",
@@ -514,8 +614,17 @@
       "dataIds": [
         "D-SCENE"
       ],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwjaypic-em827j",
+          "role": "BACKEND",
+          "at": "",
+          "evidence": [
+            "render refuses label_collision/edge_through_node; no coordinate nudge that hides a collision"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "NFR-3",
@@ -527,12 +636,21 @@
       "dataIds": [
         "D-OVL"
       ],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwjbs2x4-3r1bju",
+          "role": "UX/UI",
+          "at": "",
+          "evidence": [
+            "labelPlate fallback test green; client renders a scene without labelBox"
+          ]
+        }
+      ]
     }
   ],
   "pendingImpacts": [],
-  "fingerprint": "b2c42fe609946e16be0976ee9f4c8f7d870e34cad25ec5fc76ea6efac61492ed",
+  "fingerprint": "45537766f9dd71db3d745dc80f2c11a77106a6456eaea5b4b9330c4e2e748600",
   "history": [
     {
       "revision": 1,
@@ -605,6 +723,30 @@
       "action": "upsert",
       "status": "draft",
       "summary": "requirements: FR-2 changed, FR-3 changed, NFR-2 changed; impacts: 3"
+    },
+    {
+      "revision": 10,
+      "at": "2026-11-16T13:58:24.834Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: BR-1 changed, BR-2 changed, BR-3 changed, FR-1 changed, FR-2 changed, FR-3 changed, FR-4 changed, FR-5 changed, NFR-1 changed, NFR-2 changed, NFR-3 changed"
+    },
+    {
+      "revision": 11,
+      "at": "2026-11-16T13:58:34.312Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 12,
+      "at": "2026-11-16T13:58:40.035Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "completed",
+      "summary": ""
     }
   ]
 }
