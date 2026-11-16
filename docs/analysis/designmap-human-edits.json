@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "designmap-human-edits",
-  "rev": 4,
-  "status": "ready",
+  "rev": 6,
+  "status": "completed",
   "createdAt": "2026-11-16T14:02:58.138Z",
-  "updatedAt": "2026-11-16T14:05:35.951Z",
+  "updatedAt": "2026-11-16T14:18:02.327Z",
   "updatedBy": "agent",
   "title": "Human visual edits: native Excalidraw tools plus an annotation layer beside the model",
   "requestedSolution": "Оставить человеку минимальное визуальное редактирование карты: в edit mode включить нативные инструменты Excalidraw (перенос, цвет, фигуры/выделения, текст, перо) и хранить всё, что человек создал, в отдельном слое designmap/annotations.json — панель пишет его через /designmap op:'annotate', хост валидирует элементы и никогда не пропускает их в модель или сцену.",
@@ -64,7 +64,7 @@
         "В браузере: перекраска, заметка и выделение видны после reload",
         "Скриншот edit mode с нативным тулбаром"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR-1",
@@ -74,7 +74,7 @@
         "Edit mode показывает тулбар и панель свойств",
         "Read-only их не показывает и слой человека залочен"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR-2",
@@ -84,7 +84,7 @@
         "annotations.json появляется после первой правки",
         "Панель рисует его элементы поверх сцены в обоих режимах"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR-3",
@@ -94,7 +94,7 @@
         "Поддельный элемент с designmap.customData отклоняется",
         "Невалидная геометрия и >200 элементов отклоняются с кодом"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "NFR-1",
@@ -104,7 +104,7 @@
         "Переключение режима не теряет annotations и не сбрасывает вид (по возможности)",
         "Рерердер сцены сохраняет слой"
       ],
-      "status": "planned"
+      "status": "proven"
     }
   ],
   "architecture": {
@@ -266,8 +266,18 @@
       "dataIds": [
         "D-ANNOTATIONS"
       ],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwjc553r-92wndj",
+          "role": "UX/UI",
+          "at": "",
+          "evidence": [
+            "browser 1440x900: note + outline highlight + node colour #b2f2bb + node drag persisted and survived reload (docs/designmap/screenshots/dm-edit-annotations.png, dm-note-persisted.png, dm-edits-after-reload.png)",
+            "118/118 tests, acceptance ok:true"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "FR-1",
@@ -277,8 +287,17 @@
       "dataIds": [
         "D-ANNOTATIONS"
       ],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwjc553r-92wndj",
+          "role": "UX/UI",
+          "at": "",
+          "evidence": [
+            "edit mode shows the Excalidraw toolbar + properties panel (dm-edit-native-toolbar.png); read-only hides them; mode switch rebuilds the frame and keeps the viewport"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "FR-2",
@@ -291,8 +310,18 @@
         "D-ANNOTATIONS",
         "D-OVL"
       ],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwjc553r-92wndj",
+          "role": "UX/UI",
+          "at": "",
+          "evidence": [
+            "annotations.json {schemaVersion:1, elements:[...]} written by the panel and rendered above the scene after reload",
+            "render/model never read it (host-annotate test: model.yaml byte-identical, no out/ written)"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "FR-3",
@@ -304,8 +333,18 @@
       "dataIds": [
         "D-ANNOTATIONS"
       ],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwjc553r-92wndj",
+          "role": "BACKEND",
+          "at": "",
+          "evidence": [
+            "test/host-annotate.test.mjs 4/4: round-trip, forged designmap customData refused, bad type/NaN/>200 refused, stable hash",
+            "command path: /designmap op:'annotate' -> success / invalid_annotation"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "NFR-1",
@@ -317,12 +356,21 @@
       "dataIds": [
         "D-ANNOTATIONS"
       ],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwjc553r-92wndj",
+          "role": "UX/UI",
+          "at": "",
+          "evidence": [
+            "edit -> read-only -> reload kept the note, highlight and recolour; the frame rebuild re-sends the current viewport"
+          ]
+        }
+      ]
     }
   ],
   "pendingImpacts": [],
-  "fingerprint": "fc81c931baa29d1ffbf13b97b2af56e2b431ebec4b2c06152fe9185ef2aedbe3",
+  "fingerprint": "3a9407b2d39cb0f008eb4948ae132da62d05e0c1e1985df0fb63ad3c7380ea2d",
   "history": [
     {
       "revision": 1,
@@ -354,6 +402,22 @@
       "editedBy": "agent",
       "action": "upsert",
       "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-16T14:17:56.084Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-16T14:18:02.327Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "completed",
       "summary": ""
     }
   ]
