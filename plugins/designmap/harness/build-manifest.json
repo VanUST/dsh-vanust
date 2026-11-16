@@ -1,0 +1,57 @@
+{
+  "builtAt": "2026-11-16T12:27:03.177Z",
+  "esbuild": "0.25.12",
+  "xyflow": "12.12.1",
+  "react": "18.3.1",
+  "external": [
+    "react",
+    "react-dom",
+    "react-dom/client",
+    "react/jsx-runtime"
+  ],
+  "hostExternal": [
+    "@deepseek-ai/cordis",
+    "@deepseek-ai/dsh-tools",
+    "web-worker"
+  ],
+  "sizes": {
+    "clientCjs": 479126,
+    "clientBundle": 479396,
+    "seedBundle": 257917,
+    "hostBundle": 3211963
+  },
+  "hostFiles": [
+    [
+      "dist/chunk-4ICSANU7.mjs",
+      191248
+    ],
+    [
+      "dist/chunk-IJKYG2AC.mjs",
+      269254
+    ],
+    [
+      "dist/chunk-WGJRRXLS.mjs",
+      2703795
+    ],
+    [
+      "dist/core.mjs",
+      2419
+    ],
+    [
+      "dist/index.mjs",
+      43924
+    ],
+    [
+      "dist/schema.mjs",
+      753
+    ],
+    [
+      "dist/workspace.mjs",
+      570
+    ]
+  ],
+  "vendoredLoader": {
+    "sha256": "fc491b97b5d923446faf9ebff238dba6d1f8a55b03e8bf71bea90355ee33bec6",
+    "bytes": 25831
+  }
+}

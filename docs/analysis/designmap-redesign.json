@@ -1,0 +1,1097 @@
+{
+  "schemaVersion": 1,
+  "id": "designmap-redesign",
+  "rev": 20,
+  "status": "completed",
+  "createdAt": "2026-11-16T10:26:42.397Z",
+  "updatedAt": "2026-11-16T11:44:02.136Z",
+  "updatedBy": "agent",
+  "title": "Design map v1: semantic model, ELK layout, custom renderer, living doc",
+  "requestedSolution": "Заменить текущую Excalidraw-панель design-map на связку: семантическая YAML-модель (model.yaml/views.yaml, zod), чистый пакет designmap-core (валидация → каноническая сортировка → ELK layered layout → merge overlays → lint → scene JSON), кастомный рендерер панели на @xyflow/react (fallback plain SVG), инструменты агента (scan/apply/render/status/open/export/lint) с manifest и stale-детектом, JSONL-логи, SVG-экспорт. Работа идёт по этапам M0–M4 с приёмкой по логам; сначала fetch-first API-тесты по §12, затем код.",
+  "businessOutcome": {
+    "problem": "Текущая карта рисуется агентом как геометрия Excalidraw: раскладка получается спагетти, один большой холст нечитаем, ручные правки человека теряются при регенерации, агент не видит результат, карта молча устаревает относительно кода.",
+    "outcome": "Живой документ проекта: модель семантики — источник истины, layout детерминирован и читаем по уровням C4, ручные визуальные правки переживают регенерацию, человек понимает тип и поток без объяснений, а устаревание относительно кода видно агенту и человеку.",
+    "successMetrics": [
+      "Один render на одних model+overlays даёт байт-идентичный scene (идемпотентность)",
+      "После правки исходника status называет устаревшие узлы, а после apply+render lint чист",
+      "Ручные позиции/цвета переживают apply и повторный render без потерь",
+      "Отказ невалидной модели оставляет файлы байт-идентичными",
+      "В реальной панели каждое ребро подписано, видны легенда, breadcrumb и переход к исходнику"
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CURRENT",
+        "name": "Агент рисует геометрию в Excalidraw",
+        "actors": [
+          "orchestrator",
+          "human",
+          "design-map plugin"
+        ],
+        "steps": [
+          "Агент присылает узлы/рёбра и допускает координаты раскладки",
+          "Плагин строит элементы Excalidraw, размеры и позиции идут из одного большого холста",
+          "Человек правит сцену в панели Excalidraw",
+          "Модель живёт в единственном design.excalidraw и не знает о коде"
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-TARGET",
+        "name": "Семантика → layout → рендер",
+        "actors": [
+          "orchestrator",
+          "human",
+          "designmap-core"
+        ],
+        "steps": [
+          "Агент пишет только семантические ops в model/views",
+          "designmap-core валидирует zod-схемой и раскладывает ELK layered детерминированно",
+          "Merge накладывает визуальные overlays человека по семантическому ID",
+          "Рендерер рисует scene JSON и отдаёт только события; структура меняется только агентом",
+          "status сравнивает manifest-хэши с кодом и подсвечивает stale-узлы"
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "BR-1",
+      "kind": "BR",
+      "text": "Карта — живой документ: модель семантики является источником истины, агент обновляет её по запросу, а человек видит, где карта разошлась с кодом.",
+      "acceptance": [
+        "status на модели, чей manifest.commit отстаёт от HEAD, возвращает stale=true и перечисляет устаревшие узлы",
+        "Цикл scan → подтверждение → apply → render → lint выполнен на реальном изменении исходника"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "BR-2",
+      "kind": "BR",
+      "text": "Человек понимает тип узла и смысл потока без объяснений: тип кодируется формой+иконкой+цветом, подпись ребра обязательна, есть легенда, breadcrumb и переход к исходнику.",
+      "acceptance": [
+        "В реальной панели у каждого ребра есть подпись, видны легенда и breadcrumb",
+        "Клик по узлу открывает source.file в редакторе клиента"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "BR-3",
+      "kind": "BR",
+      "text": "Визуальные правки человека (позиция, цвет) сохраняются при регенерации из модели и не конфликтуют со структурными изменениями.",
+      "acceptance": [
+        "После drag/recolor и повторного apply позиции и цвета совпадают с overlays.json",
+        "Удалённый из модели узел исчезает из сцены, а его overlay-ключ собирается GC с warn-логом"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-1",
+      "kind": "FR",
+      "text": "Семантическая модель YAML с иммутабельными ID (schemaVersion, nodes, edges) и views (context|container|component|flow, include/parent/direction), валидируемая zod-схемой.",
+      "acceptance": [
+        "Невалидная модель отклоняется целиком с точным путём ошибки",
+        "Переименование label не меняет ID; переименование узла = remove+add"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-2",
+      "kind": "FR",
+      "text": "Инструменты агента принимают только семантику (upsert/remove node|edge|view), идемпотентны, а координаты и цвета отклоняются схемой инструмента.",
+      "acceptance": [
+        "op с x/y/fill отклоняется схемой инструмента, а не промптом",
+        "Повторный apply того же набора ops даёт applied=0/skipped=N и не меняет файлы"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-3",
+      "kind": "FR",
+      "text": "ELK layered layout (иерархия групп, порты) раскладывает канонически отсортированные узлы; один вход даёт один выход.",
+      "acceptance": [
+        "Два прогона render на одной модели дают байт-идентичный scene JSON",
+        "Каноническая сортировка по ID сохраняется в out/ и в diff PR"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-4",
+      "kind": "FR",
+      "text": "Слой overlays накладывается после layout по семантическому ID; неизвестные ключи игнорируются с warn, новые узлы встают без сдвига существующих.",
+      "acceptance": [
+        "Невалидный overlay-ключ не роняет render (NaN, отрицательная координата, неизвестный ID)",
+        "Новый узел получает свободную позицию, существующие не двигаются"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-5",
+      "kind": "FR",
+      "text": "Кастомный рендерер панели: pan/zoom, drill-down, поиск, minimap, легенда, breadcrumb, stale-бейджи, открытие исходника; режим правки — drag/recolor с debounce 500 мс, reset узла/вида, undo.",
+      "acceptance": [
+        "Read-only по умолчанию; режим правки — явный toggle",
+        "Drag пишет только дельту (nodeId+x/y) в overlays.json с debounce 500 мс"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-6",
+      "kind": "FR",
+      "text": "Линт сцены по таблице правил (размер вида 15/25, ребро без подписи, висячий узел, dangling from/to, дубликат ID, длина label, перекрытие после merge, stale, цвет вне палитры) с severities.",
+      "acceptance": [
+        "lint report входит в результат render и apply",
+        "Каждое правило проверено на seeded-модели с ожидаемой severity"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-7",
+      "kind": "FR",
+      "text": "Scene JSON — единственный контракт core↔renderer: узлы с x/y/w/h/типом/label/stale-флагом, рёбра с точками/подписью/kind; рендерер не содержит логики раскладки.",
+      "acceptance": [
+        "Рендерер получает только scene JSON и отправляет события nodeMoved/colorChanged/drillDown/openSource",
+        "Замена рендерера не требует правок core"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-8",
+      "kind": "FR",
+      "text": "Экспорт вида в текущем состоянии (с overlays) в SVG, PNG опционально.",
+      "acceptance": [
+        "Экспорт учитывает позиции и цвета overlays",
+        "Файл открывается как SVG с ожидаемыми узлами и подписями"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-9",
+      "kind": "FR",
+      "text": "Структурные JSONL-логи tool.enter/exit, model.diff, layout.done, merge.applied/gc, lint.result, overlay.write, render.done; null-safe и с агрегацией в циклах.",
+      "acceptance": [
+        "Приёмка этапов опирается на строки логов, а не на факт «скомпилировалось»",
+        "В логах нет падений сериализации на null/undefined"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-10",
+      "kind": "FR",
+      "text": "Каждый внешний API (загрузка чанка в клиент DSH, elkjs, @xyflow/react, транспорт инструментов) подтверждён исполняемым API-тестом до кода фичи.",
+      "acceptance": [
+        "API-тесты выполнены и их вывод приложен до начала M0",
+        "Ни один выбор стека не остаётся на непроверенном API"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "NFR-1",
+      "kind": "NFR",
+      "text": "Повторный render при неизменных model+overlays даёт байт-идентичный scene; layout.done логирует ms и nodes.",
+      "acceptance": [
+        "Хэш scene совпадает в двух прогонах и в golden-тесте"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "NFR-2",
+      "kind": "NFR",
+      "text": "Невалидная запись модели отклоняется целиком и оставляет файлы байт-идентичными; пустая или отсутствующая модель — валидная пустая сцена с empty-state, не crash.",
+      "acceptance": [
+        "После отказа файлы совпадают с прежними по хэшу",
+        "Отсутствие designmap/model.yaml даёт пустую сцену и empty-state"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "NFR-3",
+      "kind": "NFR",
+      "text": "Layout+merge+lint вида на 25 узлов укладывается в 1500 мс на этой машине, взаимодействие панели не блокируется.",
+      "acceptance": [
+        "layout.done.ms ≤ 1500 на seeded-виде 25 узлов"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "NFR-4",
+      "kind": "NFR",
+      "text": "model/overlays/out — три слоя с разными владельцами: модель пишет только apply, overlays — только рендерер, out не редактируется руками.",
+      "acceptance": [
+        "Инструмент агента не может писать overlays/out",
+        "Рендерер не пишет model/views"
+      ],
+      "status": "proven"
+    }
+  ],
+  "architecture": {
+    "contractImpact": "breaking",
+    "components": [
+      {
+        "id": "C-CORE",
+        "name": "designmap-core",
+        "responsibility": "zod-валидация модели и views, YAML-парсинг, каноническая сортировка, ELK layered layout, merge overlays, lint, diff, scene JSON и SVG",
+        "owner": "BACKEND",
+        "owns": [
+          "D-SCENE"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "C-HOST",
+        "name": "designmap host plugin",
+        "responsibility": "Инструменты агента designmap_*, файловые операции model/views/manifest/logs, stale-детект, транспорт к панели",
+        "owner": "BACKEND",
+        "owns": [
+          "D-MODEL",
+          "D-MANIFEST",
+          "D-LOGS"
+        ],
+        "dependsOn": [
+          "C-CORE"
+        ]
+      },
+      {
+        "id": "C-RENDERER",
+        "name": "designmap client renderer",
+        "responsibility": "Панель клиента: scene JSON → SVG/React Flow, pan/zoom, drill-down, поиск, легенда, breadcrumb, stale-бейджи, запись overlays",
+        "owner": "UX/UI",
+        "owns": [
+          "D-OVERLAYS"
+        ],
+        "dependsOn": [
+          "C-CORE"
+        ]
+      },
+      {
+        "id": "C-PROOF",
+        "name": "API-first proof and review",
+        "responsibility": "Исполняемые API-тесты §12, red/green доказательства этапов и независимая проверка контрактов",
+        "owner": "REVIEWER",
+        "owns": [],
+        "dependsOn": [
+          "C-CORE",
+          "C-HOST",
+          "C-RENDERER"
+        ]
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "D-MODEL",
+      "name": "Семантическая модель",
+      "owner": "BACKEND",
+      "ownerComponentId": "C-HOST",
+      "description": "designmap/model.yaml + views.yaml: узлы/рёбра/группы/source-ссылки и виды; пишет только apply"
+    },
+    {
+      "id": "D-OVERLAYS",
+      "name": "Визуальные правки человека",
+      "owner": "UX/UI",
+      "ownerComponentId": "C-RENDERER",
+      "description": "designmap/overlays.json: только позиция и цвета по семантическому ID; пишет только рендерер"
+    },
+    {
+      "id": "D-SCENE",
+      "name": "Сцена вида",
+      "owner": "BACKEND",
+      "ownerComponentId": "C-CORE",
+      "description": "designmap/out/: scene JSON и SVG-экспорт; генерируется, руками не редактируется"
+    },
+    {
+      "id": "D-MANIFEST",
+      "name": "Manifest карты",
+      "owner": "BACKEND",
+      "ownerComponentId": "C-HOST",
+      "description": "designmap/manifest.json: commit, generatedAt, sourceHashes по узлам"
+    },
+    {
+      "id": "D-LOGS",
+      "name": "Структурные логи",
+      "owner": "BACKEND",
+      "ownerComponentId": "C-HOST",
+      "description": "designmap/logs/*.jsonl: tool.enter/exit, model.diff, layout.done, merge.applied/gc, lint.result, overlay.write, render.done"
+    }
+  ],
+  "contracts": [
+    {
+      "id": "CT-MODEL",
+      "name": "Семантическая модель",
+      "between": [
+        "C-HOST",
+        "C-CORE"
+      ],
+      "change": "breaking",
+      "description": "design.excalidraw как единственный источник заменяется YAML-моделью с иммутабельными семантическими ID; старый файл не импортируется в v1"
+    },
+    {
+      "id": "CT-SCENE",
+      "name": "Scene JSON",
+      "between": [
+        "C-CORE",
+        "C-RENDERER"
+      ],
+      "change": "additive",
+      "description": "Новый контракт: узлы с x/y/w/h/типом/label/stale, рёбра с точками/подписью/kind; единственный вход рендерера"
+    },
+    {
+      "id": "CT-OVERLAY",
+      "name": "Overlays",
+      "between": [
+        "C-RENDERER",
+        "C-CORE"
+      ],
+      "change": "additive",
+      "description": "designmap/overlays.json {nodeId: {x,y,fill,stroke}}; merge по ID после layout, GC неизвестных ключей с warn"
+    },
+    {
+      "id": "CT-TOOLS",
+      "name": "Инструменты агента designmap_*",
+      "between": [
+        "C-HOST",
+        "C-CORE"
+      ],
+      "change": "breaking",
+      "description": "Вместо design_map(op) появляются отдельные инструменты scan/apply/render/status/open/export/lint с семантическими ops; координаты и цвета не принимаются"
+    },
+    {
+      "id": "CT-MANIFEST",
+      "name": "Manifest и stale-детект",
+      "between": [
+        "C-HOST",
+        "C-CORE"
+      ],
+      "change": "additive",
+      "description": "manifest.json {commit, generatedAt, sourceHashes}; status сравнивает с HEAD и помечает устаревшие узлы"
+    }
+  ],
+  "invariants": [
+    {
+      "id": "INV-ID",
+      "text": "Семантический ID назначается один раз и иммутабелен; label меняется свободно, переименование = remove+add.",
+      "scope": "model.yaml, views.yaml"
+    },
+    {
+      "id": "INV-NO-GEO",
+      "text": "Семантические ops агента не содержат координат и цветов; ограничение обеспечено схемой инструмента, не промптом.",
+      "scope": "designmap_apply"
+    },
+    {
+      "id": "INV-LAYERS",
+      "text": "model, overlays и out не смешиваются: модель пишет только apply, overlays — только рендерер, out генерируется.",
+      "scope": "designmap/*"
+    },
+    {
+      "id": "INV-IDEMPOTENT",
+      "text": "Одинаковые model+overlays дают байт-идентичный scene JSON.",
+      "scope": "designmap_render"
+    },
+    {
+      "id": "INV-EMPTY",
+      "text": "Пустая или отсутствующая модель — валидная пустая сцена с empty-state, а не падение.",
+      "scope": "render/status"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "DEC-SEM",
+      "decision": "Агент пишет только семантику; координаты и цвета запрещены схемой инструментов, раскладку считает core.",
+      "rationale": "Спагетти прошлой версии возникло именно из-за того, что геометрию выбирал агент.",
+      "alternatives": [
+        "Оставить координаты агенту и линтить результат"
+      ]
+    },
+    {
+      "id": "DEC-ELK",
+      "decision": "Раскладкой владеет elkjs layered (иерархия групп, порты) внутри designmap-core.",
+      "rationale": "Один детерминированный layout-пайплайн вместо локальных сдвигов координат.",
+      "alternatives": [
+        "Свой наивный layered-алгоритм",
+        "Ручные координаты в модели"
+      ]
+    },
+    {
+      "id": "DEC-YAML",
+      "decision": "Модель — собственный YAML со стабильными семантическими ID (zod-схема, schemaVersion).",
+      "rationale": "Свой минимальный формат дешевле парсинга чужого DSL и даёт стабильные ID у рёбер, которых нет в Mermaid.",
+      "alternatives": [
+        "Mermaid",
+        "LikeC4",
+        "D2"
+      ]
+    },
+    {
+      "id": "DEC-RF",
+      "decision": "Рендерер — @xyflow/react в клиенте DSH; fallback на plain SVG с собственным pan/zoom, если API-тест не подтвердит загрузку вендоренного чанка.",
+      "rationale": "Контракт scene JSON позволяет заменить рендерер без правок core, а выбор подтверждается API-тестом до кода.",
+      "alternatives": [
+        "Оставить вендоренный Excalidraw",
+        "Сразу plain SVG"
+      ]
+    },
+    {
+      "id": "DEC-OVERLAY",
+      "decision": "Ручные правки человека — только визуал, в overlays.json, merge по семантическому ID после layout.",
+      "rationale": "Модель остаётся источником истины, а правки человека не конфликтуют со структурой.",
+      "alternatives": [
+        "Разрешить править модель из панели"
+      ]
+    },
+    {
+      "id": "DEC-PROPOSE",
+      "decision": "scan предлагает ops, apply выполняется только после подтверждения человеком; авто-apply запрещён.",
+      "rationale": "Живой документ не должен меняться без решения человека.",
+      "alternatives": [
+        "Авто-apply по расписанию"
+      ]
+    },
+    {
+      "id": "DEC-NAMES",
+      "decision": "Инструменты называются designmap_scan/apply/render/status/open/export/lint (snake_case DSH), по одному на контракт §5.",
+      "rationale": "Разные входы/выходы и разные точки отказа; один design_map с op смешивает контракты.",
+      "alternatives": [
+        "Один design_map с op-переключателем"
+      ]
+    },
+    {
+      "id": "DEC-COEXIST",
+      "decision": "Новый пакет @cc/dsh-designmap ставится рядом с @cc/dsh-design-map 0.2.0; старая панель выводится после приёмки M1–M3.",
+      "rationale": "Редизайн не должен ломать работающую панель и требовать рестарта текущего клиента.",
+      "alternatives": [
+        "Переписать 0.2.0 на месте"
+      ]
+    }
+  ],
+  "openQuestions": [
+    {
+      "id": "OQ-API",
+      "question": "Транспорт инструментов designmap_* и способ загрузки вендоренного чанка @xyflow/react в клиенте DSH.",
+      "owner": "BACKEND",
+      "blocks": false,
+      "answer": "Транспорт: инструменты агента — defineTool (parameters + execute) на orchestrator-пресете + команда /designmap для панели (remote.commands.execute), не MCP. Загрузка React Flow: панель собирает @xyflow/react в свой client.js через esbuild с react external; посторонний external не проходит таблицу модулей. Оба факта доказаны исполняемыми API-тестами."
+    },
+    {
+      "id": "OQ-MIGRATE",
+      "question": "Что делать с существующим design.excalidraw после релиза новой панели.",
+      "owner": "orchestrator",
+      "blocks": false,
+      "answer": "v1: оставить файл без авто-импорта; решение об удалении принимается после приёмки M3"
+    }
+  ],
+  "sizing": {
+    "class": "L2",
+    "reasons": [
+      "Меняется контракт модели: design.excalidraw заменяется YAML-моделью с новыми ID",
+      "Появляется новый пакет core и новый рендерер клиента",
+      "Меняется контракт инструментов агента (breaking)",
+      "Затрагиваются данные, рендеринг, логирование и приёмка этапов"
+    ]
+  },
+  "designRef": {
+    "mapRev": 30,
+    "at": "2026-11-16T10:22:19.000Z",
+    "source": "design.excalidraw"
+  },
+  "goalId": "goal-3215351c-2c2e-4c70-ada6-2f4bc9022d66",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "BR-1",
+      "processId": "P-TARGET",
+      "componentId": "C-HOST",
+      "contractIds": [
+        "CT-MANIFEST"
+      ],
+      "dataIds": [
+        "D-MANIFEST",
+        "D-MODEL"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwj4eqpl-a6043y",
+          "role": "BACKEND",
+          "at": "2026-11-16T11:09:00.000Z",
+          "evidence": [
+            "living-doc loop 31/31"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "BR-2",
+      "processId": "P-TARGET",
+      "componentId": "C-RENDERER",
+      "contractIds": [
+        "CT-SCENE"
+      ],
+      "dataIds": [
+        "D-SCENE"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwj4eqgt-rx37sd",
+          "role": "ORCHESTRATOR",
+          "at": "2026-11-16T11:14:00.000Z",
+          "evidence": [
+            "orchestrator opened the panel in Chromium: 6 nodes / 5 labelled edges, legend, breadcrumb, stale chip + badges, footer, 0 console messages; m1-verified-context.png"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "BR-3",
+      "processId": "P-TARGET",
+      "componentId": "C-RENDERER",
+      "contractIds": [
+        "CT-OVERLAY"
+      ],
+      "dataIds": [
+        "D-OVERLAYS"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwj4eql4-49ja0b",
+          "role": "UX/UI",
+          "at": "2026-11-16T11:34:00.000Z",
+          "evidence": [
+            "drag ext.stripe -> after 900 ms one overlays.json row; regenerate keeps 726.61,102.07 with rgb(224,231,255)/rgb(67,56,202); reset node/view restore; orchestrator re-checked the m2 harness in Chromium (EDITED badges, 'overlays 2 nodes · saved')"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-1",
+      "processId": "P-TARGET",
+      "componentId": "C-CORE",
+      "contractIds": [
+        "CT-MODEL"
+      ],
+      "dataIds": [
+        "D-MODEL"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwj4eqc2-6uznd6",
+          "role": "BACKEND",
+          "at": "2026-11-16T10:43:00.000Z",
+          "evidence": [
+            "schema refusals with exact paths"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-2",
+      "processId": "P-TARGET",
+      "componentId": "C-HOST",
+      "contractIds": [
+        "CT-TOOLS"
+      ],
+      "dataIds": [
+        "D-MODEL"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwj4eqpl-a6043y",
+          "role": "BACKEND",
+          "at": "2026-11-16T11:09:00.000Z",
+          "evidence": [
+            "tool contract: installed validator names ops[0].value.x|y|fill; re-apply 0/2 unchanged"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-3",
+      "processId": "P-TARGET",
+      "componentId": "C-CORE",
+      "contractIds": [
+        "CT-SCENE"
+      ],
+      "dataIds": [
+        "D-SCENE"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwj4d9ka-tcvwpx",
+          "role": "BACKEND",
+          "at": "2026-11-16T10:27:19.000Z",
+          "evidence": [
+            "projected elk scene sha256 83633f98… equal"
+          ]
+        },
+        {
+          "taskId": "task-mwj4eqc2-6uznd6",
+          "role": "BACKEND",
+          "at": "2026-11-16T10:58:00.000Z",
+          "evidence": [
+            "two CLI renders sha256:2c5fa9e8…"
+          ]
+        },
+        {
+          "taskId": "task-mwj64d96-0lymbb",
+          "role": "BACKEND",
+          "at": "2026-11-16T11:22:00.000Z",
+          "evidence": [
+            "geometry test: 4 demo + 26 perf25 edges on boundary; sha256:3ec7cf04… 3329 B twice"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-4",
+      "processId": "P-TARGET",
+      "componentId": "C-CORE",
+      "contractIds": [
+        "CT-OVERLAY"
+      ],
+      "dataIds": [
+        "D-OVERLAYS"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwj4eqc2-6uznd6",
+          "role": "BACKEND",
+          "at": "2026-11-16T10:58:00.000Z",
+          "evidence": [
+            "overlays gc 6 warnings, applied 3, render succeeds"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-5",
+      "processId": "P-TARGET",
+      "componentId": "C-RENDERER",
+      "contractIds": [
+        "CT-SCENE",
+        "CT-OVERLAY"
+      ],
+      "dataIds": [
+        "D-SCENE",
+        "D-OVERLAYS"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwj4eql4-49ja0b",
+          "role": "UX/UI",
+          "at": "2026-11-16T11:34:00.000Z",
+          "evidence": [
+            "read-only default; explicit toggle; drag + arrow-nudge + palette recolour; one debounced write; reset node/view; undo; axe 0 violations both modes with negative control; orchestrator confirmed toggle/palette/hint in Chromium"
+          ]
+        },
+        {
+          "taskId": "task-mwj6dnbp-djk8gi",
+          "role": "BACKEND",
+          "at": "2026-11-16T11:27:00.000Z",
+          "evidence": [
+            "overlay command transports only overlay fields to the guarded domain call; suite 93/93"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-6",
+      "processId": "P-TARGET",
+      "componentId": "C-CORE",
+      "contractIds": [
+        "CT-SCENE"
+      ],
+      "dataIds": [
+        "D-SCENE"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwj4eqc2-6uznd6",
+          "role": "BACKEND",
+          "at": "2026-11-16T10:58:00.000Z",
+          "evidence": [
+            "lint per §8: 7 error rules refuse, 4 warn, 1 info; label_over_node"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-7",
+      "processId": "P-TARGET",
+      "componentId": "C-CORE",
+      "contractIds": [
+        "CT-SCENE"
+      ],
+      "dataIds": [
+        "D-SCENE"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwj4eqc2-6uznd6",
+          "role": "BACKEND",
+          "at": "2026-11-16T10:43:00.000Z",
+          "evidence": [
+            "scene reproduces contract field order; index deterministic"
+          ]
+        },
+        {
+          "taskId": "task-mwj4eqgt-rx37sd",
+          "role": "UX/UI",
+          "at": "2026-11-16T10:45:00.000Z",
+          "evidence": [
+            "one bundle renders fixture/m0/empty; drillDown/openSource/viewChanged"
+          ]
+        },
+        {
+          "taskId": "task-mwj64d96-0lymbb",
+          "role": "BACKEND",
+          "at": "2026-11-16T11:22:00.000Z",
+          "evidence": [
+            "edge endpoints on the boundary, labels outside boxes"
+          ]
+        },
+        {
+          "taskId": "task-mwj4eql4-49ja0b",
+          "role": "UX/UI",
+          "at": "2026-11-16T11:34:00.000Z",
+          "evidence": [
+            "edit mode emits nodeMoved/colorChanged; the panel holds no layout code"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-8",
+      "processId": "P-TARGET",
+      "componentId": "C-HOST",
+      "contractIds": [
+        "CT-SCENE"
+      ],
+      "dataIds": [
+        "D-SCENE"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwj4eqpl-a6043y",
+          "role": "BACKEND",
+          "at": "2026-11-16T11:09:00.000Z",
+          "evidence": [
+            "export SVG 2213 B sha256:6b7c047c…, XML parsed"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-9",
+      "processId": "P-TARGET",
+      "componentId": "C-HOST",
+      "contractIds": [
+        "CT-TOOLS"
+      ],
+      "dataIds": [
+        "D-LOGS"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwj4eqpl-a6043y",
+          "role": "BACKEND",
+          "at": "2026-11-16T11:09:00.000Z",
+          "evidence": [
+            "logs/events.jsonl all spec events; null-safe"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-10",
+      "processId": "P-TARGET",
+      "componentId": "C-PROOF",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwj4d9ka-tcvwpx",
+          "role": "BACKEND",
+          "at": "2026-11-16T10:43:00.000Z",
+          "evidence": [
+            "core spike report"
+          ]
+        },
+        {
+          "taskId": "task-mwj4da1o-lik5t8",
+          "role": "UX/UI",
+          "at": "2026-11-16T10:45:00.000Z",
+          "evidence": [
+            "render spike report"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "NFR-1",
+      "processId": "P-TARGET",
+      "componentId": "C-CORE",
+      "contractIds": [
+        "CT-SCENE"
+      ],
+      "dataIds": [
+        "D-SCENE"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwj4eqc2-6uznd6",
+          "role": "BACKEND",
+          "at": "2026-11-16T10:58:00.000Z",
+          "evidence": [
+            "byte-identical scene + golden test"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "NFR-2",
+      "processId": "P-TARGET",
+      "componentId": "C-HOST",
+      "contractIds": [
+        "CT-TOOLS"
+      ],
+      "dataIds": [
+        "D-MODEL"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwj4eqc2-6uznd6",
+          "role": "BACKEND",
+          "at": "2026-11-16T10:58:00.000Z",
+          "evidence": [
+            "refusal leaves hashes unchanged; empty model"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "NFR-3",
+      "processId": "P-TARGET",
+      "componentId": "C-CORE",
+      "contractIds": [
+        "CT-SCENE"
+      ],
+      "dataIds": [
+        "D-SCENE"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwj4eqc2-6uznd6",
+          "role": "BACKEND",
+          "at": "2026-11-16T10:58:00.000Z",
+          "evidence": [
+            "perf25 65.72 ms (F1 round 90.53) <= 1500"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "NFR-4",
+      "processId": "P-TARGET",
+      "componentId": "C-CORE",
+      "contractIds": [
+        "CT-TOOLS"
+      ],
+      "dataIds": [
+        "D-MODEL",
+        "D-OVERLAYS",
+        "D-SCENE"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwj4eqpl-a6043y",
+          "role": "ORCHESTRATOR",
+          "at": "2026-11-16T11:20:00.000Z",
+          "evidence": [
+            "overlay command writes only overlays.json; no designmap_overlay tool"
+          ]
+        }
+      ]
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "0102e5d76433d3b75ea4ea09b56c7c6cd3399222f17ff57bdce21cd274289ff9",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-16T10:26:42.397Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-16T10:26:56.550Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-16T10:27:19.610Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwj4d9ka-tcvwpx -> FR-10, FR-3"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-16T10:27:20.239Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwj4da1o-lik5t8 -> FR-10"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-16T10:42:58.297Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwj4eqc2-6uznd6 -> FR-1, FR-2, FR-3, FR-4, FR-6, FR-7, NFR-1, NFR-2, NFR-3"
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-16T10:45:23.020Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwj4eqgt-rx37sd -> BR-2, FR-5, FR-7"
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-16T10:45:51.544Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "impacts: 1"
+    },
+    {
+      "revision": 8,
+      "at": "2026-11-16T10:45:54.994Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 9,
+      "at": "2026-11-16T10:54:42.954Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwj4eqc2-6uznd6 -> FR-6, FR-7"
+    },
+    {
+      "revision": 10,
+      "at": "2026-11-16T10:58:07.886Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwj4eqc2-6uznd6 -> FR-7"
+    },
+    {
+      "revision": 11,
+      "at": "2026-11-16T10:59:46.408Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 12,
+      "at": "2026-11-16T11:00:21.688Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwj4eqpl-a6043y -> BR-1, FR-8, FR-9, NFR-4"
+    },
+    {
+      "revision": 13,
+      "at": "2026-11-16T11:11:17.205Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 14,
+      "at": "2026-11-16T11:16:02.789Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 15,
+      "at": "2026-11-16T11:16:23.726Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwj64d96-0lymbb -> FR-7, FR-3"
+    },
+    {
+      "revision": 16,
+      "at": "2026-11-16T11:16:24.469Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwj4eql4-49ja0b -> BR-3, FR-5, FR-7"
+    },
+    {
+      "revision": 17,
+      "at": "2026-11-16T11:23:24.844Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 18,
+      "at": "2026-11-16T11:23:36.683Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwj6dnbp-djk8gi -> FR-5"
+    },
+    {
+      "revision": 19,
+      "at": "2026-11-16T11:36:03.370Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 20,
+      "at": "2026-11-16T11:44:02.136Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "completed",
+      "summary": ""
+    }
+  ]
+}

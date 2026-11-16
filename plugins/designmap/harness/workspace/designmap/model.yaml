@@ -1,0 +1,51 @@
+schemaVersion: 1
+groups:
+  - id: grp.checkout
+    label: Checkout
+nodes:
+  - id: svc.checkout.api
+    type: service
+    label: Checkout API
+    group: grp.checkout
+    source: src/checkout/api.ts
+  - id: svc.checkout.worker
+    type: worker
+    label: Reserve stock worker
+    group: grp.checkout
+    source: src/checkout/worker.ts
+  - id: db.orders
+    type: datastore
+    label: Orders DB
+    group: null
+    source: src/orders/schema.sql
+  - id: queue.payments
+    type: queue
+    label: Payments queue
+    group: null
+    source: null
+  - id: ext.stripe
+    type: external
+    label: Stripe
+    group: null
+    source: null
+edges:
+  - id: e.api.worker
+    from: svc.checkout.api
+    to: svc.checkout.worker
+    kind: async
+    label: reserve stock
+  - id: e.api.db
+    from: svc.checkout.api
+    to: db.orders
+    kind: data
+    label: SQL / reads
+  - id: e.worker.payments
+    from: svc.checkout.worker
+    to: queue.payments
+    kind: async
+    label: order.created
+  - id: e.payments.stripe
+    from: queue.payments
+    to: ext.stripe
+    kind: sync
+    label: charge

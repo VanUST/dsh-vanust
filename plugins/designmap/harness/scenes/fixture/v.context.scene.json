@@ -1,0 +1,220 @@
+{
+  "schemaVersion": 1,
+  "viewId": "v.context",
+  "title": "Checkout \u2014 context",
+  "level": "context",
+  "direction": "LR",
+  "canvas": {
+    "x": 0,
+    "y": 0,
+    "width": 960,
+    "height": 300
+  },
+  "nodes": [
+    {
+      "id": "ui.checkout",
+      "type": "frontend",
+      "label": "Checkout UI",
+      "group": "grp.checkout",
+      "x": 24,
+      "y": 64,
+      "w": 140,
+      "h": 44,
+      "stale": false,
+      "source": "plugins/designmap/package.json"
+    },
+    {
+      "id": "svc.checkout.api",
+      "type": "service",
+      "label": "Checkout API",
+      "group": "grp.checkout",
+      "x": 220,
+      "y": 52,
+      "w": 150,
+      "h": 44,
+      "stale": false,
+      "source": "plugins/designmap/src/palette.mjs"
+    },
+    {
+      "id": "svc.reserve.worker",
+      "type": "worker",
+      "label": "Reserve stock worker",
+      "group": "grp.checkout",
+      "x": 220,
+      "y": 140,
+      "w": 186,
+      "h": 44,
+      "stale": true,
+      "source": "src/checkout/worker.ts"
+    },
+    {
+      "id": "db.orders",
+      "type": "datastore",
+      "label": "Orders DB",
+      "group": null,
+      "x": 640,
+      "y": 52,
+      "w": 140,
+      "h": 44,
+      "stale": false,
+      "source": null
+    },
+    {
+      "id": "queue.payments",
+      "type": "queue",
+      "label": "Payments queue",
+      "group": null,
+      "x": 500,
+      "y": 160,
+      "w": 150,
+      "h": 44,
+      "stale": false,
+      "source": null
+    },
+    {
+      "id": "ext.stripe",
+      "type": "external",
+      "label": "Stripe",
+      "group": null,
+      "x": 720,
+      "y": 160,
+      "w": 120,
+      "h": 44,
+      "stale": false,
+      "source": null
+    }
+  ],
+  "groups": [
+    {
+      "id": "grp.checkout",
+      "label": "Checkout",
+      "x": 8,
+      "y": 8,
+      "w": 420,
+      "h": 200
+    }
+  ],
+  "edges": [
+    {
+      "id": "e.ui.api",
+      "from": "ui.checkout",
+      "to": "svc.checkout.api",
+      "kind": "sync",
+      "label": "POST /checkout",
+      "points": [
+        {
+          "x": 164,
+          "y": 86
+        },
+        {
+          "x": 192,
+          "y": 86
+        },
+        {
+          "x": 192,
+          "y": 74
+        },
+        {
+          "x": 220,
+          "y": 74
+        }
+      ],
+      "labelAt": {
+        "x": 166,
+        "y": 38
+      }
+    },
+    {
+      "id": "e.api.worker",
+      "from": "svc.checkout.api",
+      "to": "svc.reserve.worker",
+      "kind": "async",
+      "label": "reserve stock",
+      "points": [
+        {
+          "x": 295,
+          "y": 96
+        },
+        {
+          "x": 295,
+          "y": 140
+        }
+      ],
+      "labelAt": {
+        "x": 299,
+        "y": 108
+      }
+    },
+    {
+      "id": "e.api.db",
+      "from": "svc.checkout.api",
+      "to": "db.orders",
+      "kind": "data",
+      "label": "SQL / reads",
+      "points": [
+        {
+          "x": 370,
+          "y": 74
+        },
+        {
+          "x": 640,
+          "y": 74
+        }
+      ],
+      "labelAt": {
+        "x": 455,
+        "y": 56
+      }
+    },
+    {
+      "id": "e.worker.queue",
+      "from": "svc.reserve.worker",
+      "to": "queue.payments",
+      "kind": "async",
+      "label": "order.created",
+      "points": [
+        {
+          "x": 406,
+          "y": 162
+        },
+        {
+          "x": 450,
+          "y": 162
+        },
+        {
+          "x": 450,
+          "y": 182
+        },
+        {
+          "x": 500,
+          "y": 182
+        }
+      ],
+      "labelAt": {
+        "x": 408,
+        "y": 168
+      }
+    },
+    {
+      "id": "e.queue.stripe",
+      "from": "queue.payments",
+      "to": "ext.stripe",
+      "kind": "sync",
+      "label": "charge",
+      "points": [
+        {
+          "x": 650,
+          "y": 182
+        },
+        {
+          "x": 720,
+          "y": 182
+        }
+      ],
+      "labelAt": {
+        "x": 660,
+        "y": 164
+      }
+    }
+  ]
+}

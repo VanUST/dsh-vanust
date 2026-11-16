@@ -1,0 +1,57 @@
+{
+  "name": "@cc/dsh-designmap",
+  "version": "0.1.4",
+  "description": "designmap: semantic YAML model, deterministic ELK layered layout with groups and ports, overlay merge with GC, lint, scene JSON per docs/designmap/SCENE-CONTRACT.md, plus the read-only @xyflow/react Web panel client bundle. The host half ships pre-bundled (zod, yaml, elkjs inlined) so installing the tarball needs no registry: the kit boot must never depend on one.",
+  "type": "module",
+  "main": "dist/index.mjs",
+  "exports": {
+    ".": "./dist/index.mjs",
+    "./core": "./dist/core.mjs",
+    "./schema": "./dist/schema.mjs",
+    "./workspace": "./dist/workspace.mjs",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "client.js",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "render": "node bin/render.mjs",
+    "build": "node build-client.mjs",
+    "build:client": "node build-client.mjs --client-only",
+    "build:host": "node build-client.mjs --host-only"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/dsh-tools": "^0.2.0-rc.2"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@xyflow/react": "12.12.1",
+    "elkjs": "0.12.1",
+    "esbuild": "0.25.12",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "yaml": "2.9.1",
+    "zod": "4.6.7"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-api-gateway",
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-api-workspace-controller",
+        "@deepseek-ai/dsh-api-workspace-files",
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ]
+    }
+  }
+}

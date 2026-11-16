@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 1,
+  "viewId": "v.spike",
+  "title": "Checkout \u2014 renderer spike",
+  "level": "container",
+  "direction": "LR",
+  "canvas": {
+    "x": 0,
+    "y": 0,
+    "width": 760,
+    "height": 380
+  },
+  "nodes": [
+    {
+      "id": "svc.checkout.api",
+      "type": "service",
+      "label": "Checkout API",
+      "group": null,
+      "x": 40,
+      "y": 40,
+      "w": 180,
+      "h": 52,
+      "stale": false,
+      "source": "src/checkout/api.ts"
+    },
+    {
+      "id": "svc.checkout.worker",
+      "type": "worker",
+      "label": "Order worker",
+      "group": null,
+      "x": 340,
+      "y": 40,
+      "w": 180,
+      "h": 52,
+      "stale": true,
+      "source": "src/checkout/worker.ts"
+    },
+    {
+      "id": "db.orders",
+      "type": "datastore",
+      "label": "Orders DB",
+      "group": null,
+      "x": 170,
+      "y": 240,
+      "w": 180,
+      "h": 52,
+      "stale": false,
+      "source": null
+    }
+  ],
+  "groups": [],
+  "edges": [
+    {
+      "id": "e.api.worker",
+      "from": "svc.checkout.api",
+      "to": "svc.checkout.worker",
+      "kind": "async",
+      "label": "order.created",
+      "points": [
+        {
+          "x": 220,
+          "y": 66
+        },
+        {
+          "x": 340,
+          "y": 66
+        }
+      ],
+      "labelAt": {
+        "x": 240,
+        "y": 48
+      }
+    },
+    {
+      "id": "e.worker.db",
+      "from": "svc.checkout.worker",
+      "to": "db.orders",
+      "kind": "data",
+      "label": "INSERT orders",
+      "points": [
+        {
+          "x": 430,
+          "y": 92
+        },
+        {
+          "x": 430,
+          "y": 180
+        },
+        {
+          "x": 260,
+          "y": 180
+        },
+        {
+          "x": 260,
+          "y": 240
+        }
+      ],
+      "labelAt": {
+        "x": 330,
+        "y": 166
+      }
+    }
+  ]
+}

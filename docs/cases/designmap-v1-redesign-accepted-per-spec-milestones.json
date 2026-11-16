@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "designmap-v1-redesign-accepted-per-spec-milestones",
+  "title": "designmap v1 redesign accepted per spec milestones",
+  "requirement": "Owner spec \"Design Map — дизайн фичи v1\": replace the geometry-drawing Excalidraw design map with a living document — semantic YAML model (immutable ids, zod) as source of truth, ELK deterministic layout, overlays for human visual edits that survive regeneration, a custom renderer panel in the DSH client (read-only by default, drill-down/search/legend/breadcrumb/stale badges), agent tools scan/apply/render/status/open/export with manifest-based stale detection, structured JSONL logs, SVG export — delivered as milestones M0 core, M1 read-only renderer, M2 edit mode, M3 living doc, M4 export+polish, with API tests before code (§12) and acceptance by log evidence.",
+  "kind": "scenario",
+  "status": "unverified",
+  "source": "human",
+  "automated": false,
+  "reason": "The requirement is a multi-milestone redesign (core package + client renderer + tools), so no single test file can encode it; each milestone is proven separately by the M0-M4 tasks with their own executable evidence, and this intake case is the traceable owner statement they answer to.",
+  "steps": [
+    "Run the §12 API tests for elkjs, zod, yaml, @xyflow/react and the DSH client chunk transport before any feature code",
+    "M0: build designmap-core and prove determinism, refusal, empty model and lint per rule in Node",
+    "M1: render a scene read-only in a real browser with navigation, legend, breadcrumb and stale badges",
+    "M2: drag/recolour in edit mode, then regenerate and confirm overlays survive",
+    "M3: run status -> scan -> apply -> render -> lint on a real source edit and read every step in logs/*.jsonl",
+    "M4: export SVG in the current state, pack the plugin, document what was not verified"
+  ],
+  "expected": "Each milestone's acceptance is demonstrated by its own command output and logs: M0 byte-identical scene across runs and per-rule lint; M1 render.done with zero runtime errors; M2 merge.applied confirming saved positions after regeneration; M3 status logging staleNodes after a source edit; M4 SVG export from the current scene.",
+  "tags": [
+    "designmap",
+    "owner-requirement",
+    "redesign",
+    "living-doc"
+  ],
+  "surfaceFiles": [],
+  "linkedTaskId": "task-mwj4eqc2-6uznd6",
+  "revision": 1,
+  "createdAt": "2026-11-16T10:28:36.024Z",
+  "updatedAt": "2026-11-16T10:28:36.024Z",
+  "createdBy": "orchestrator",
+  "createdByKind": "agent",
+  "history": [],
+  "evidence": {}
+}

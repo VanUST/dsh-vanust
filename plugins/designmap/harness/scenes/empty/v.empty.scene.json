@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "viewId": "v.empty",
+  "title": "Nothing mapped yet",
+  "level": "context",
+  "direction": "LR",
+  "canvas": {
+    "x": 0,
+    "y": 0,
+    "width": 0,
+    "height": 0
+  },
+  "nodes": [],
+  "groups": [],
+  "edges": []
+}

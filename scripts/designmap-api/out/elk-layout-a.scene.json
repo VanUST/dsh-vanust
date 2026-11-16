@@ -1,0 +1,129 @@
+{
+  "canvas": {
+    "x": 0,
+    "y": 0,
+    "w": 621,
+    "h": 119
+  },
+  "nodes": [
+    {
+      "id": "svc.checkout.api",
+      "parent": "grp.checkout",
+      "x": 32,
+      "y": 24,
+      "w": 160,
+      "h": 44,
+      "ports": [
+        {
+          "id": "svc.checkout.api.in",
+          "x": -8,
+          "y": 18,
+          "w": 8,
+          "h": 8
+        },
+        {
+          "id": "svc.checkout.api.out",
+          "x": 160,
+          "y": 18,
+          "w": 8,
+          "h": 8
+        }
+      ]
+    },
+    {
+      "id": "svc.checkout.worker",
+      "parent": "grp.checkout",
+      "x": 228,
+      "y": 24,
+      "w": 160,
+      "h": 44,
+      "ports": [
+        {
+          "id": "svc.checkout.worker.in",
+          "x": -8,
+          "y": 18,
+          "w": 8,
+          "h": 8
+        }
+      ]
+    },
+    {
+      "id": "db.orders",
+      "parent": "root",
+      "x": 453,
+      "y": 64,
+      "w": 160,
+      "h": 44,
+      "ports": [
+        {
+          "id": "db.orders.in",
+          "x": -8,
+          "y": 18,
+          "w": 8,
+          "h": 8
+        }
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "id": "root",
+      "parent": null,
+      "x": 0,
+      "y": 0,
+      "w": 621,
+      "h": 119,
+      "ports": []
+    },
+    {
+      "id": "grp.checkout",
+      "parent": "root",
+      "x": 8,
+      "y": 8,
+      "w": 412,
+      "h": 103,
+      "ports": []
+    }
+  ],
+  "edges": [
+    {
+      "id": "e.api.worker",
+      "parent": "grp.checkout",
+      "start": {
+        "x": 200,
+        "y": 46
+      },
+      "end": {
+        "x": 220,
+        "y": 46
+      },
+      "bends": [],
+      "fromPort": "svc.checkout.api.out",
+      "toPort": "svc.checkout.worker.in"
+    },
+    {
+      "id": "e.api.db",
+      "parent": "root",
+      "start": {
+        "x": 208,
+        "y": 54
+      },
+      "end": {
+        "x": 445,
+        "y": 86
+      },
+      "bends": [
+        {
+          "x": 218,
+          "y": 54
+        },
+        {
+          "x": 218,
+          "y": 86
+        }
+      ],
+      "fromPort": "svc.checkout.api.out",
+      "toPort": "db.orders.in"
+    }
+  ]
+}

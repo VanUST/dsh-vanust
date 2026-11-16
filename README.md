@@ -43,6 +43,15 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   panel reads through `workspaceFiles` and saves through the `/design-map` command (not a
   tool, so it is never gated), one file carries one revision counter, and a read returns
   `updatedAt`/`stale` for the orchestrator.
+- **`@cc/dsh-designmap`** *(M4, replaces `@cc/dsh-design-map`)* — semantic
+  `designmap/model.yaml` + `designmap/views.yaml` rendered by a deterministic ELK
+  layered layout into `designmap/out/<viewId>.scene.json` and `out/index.json`, with a
+  zod-strict contract, overlay merge + GC and lint. Seven `designmap_*` host tools cover
+  status/scan/apply/render/lint/open/export; the human edits only the visual layer
+  (`designmap/overlays.json`) through `/designmap op:'overlay'`, and the read-only
+  sidebar panel renders the same scene (`client.js`). SVG is canonical; PNG is optional
+  and needs an external converter. The 0.2.0 Excalidraw panel is disabled in the profile
+  patch (files kept for rollback). The vision loop is deliberately not shipped.
 - **`@cc/dsh-test-cases`** — the observed test-case library in `docs/cases/`. Eight host tools (`case_record`, `case_update`, `case_verify`, `case_list`, `case_get`, `case_supersede`, `case_deprecate`, `case_drift`) over one JSON file per case: compare-and-set edits keep history, an automated case records its test path, exact run command and the observed red/green runs, a documented-only case keeps steps, expected behaviour and the reason it cannot be a test. A changed surface file or a missing test marks a case stale instead of deleting the requirement; the orchestrator gets only the intake subset (record a human requirement as unverified, read the library). The rule is observe first, then persist — no speculative tests.
 - **`@cc/dsh-analysis`** — analysis before decomposition. One repo-tracked
   `docs/analysis/<initiative>.json` per initiative keeps the business outcome **separate**
@@ -278,7 +287,8 @@ dsh-kit/
 ├── plugins/notify/            # source of @cc/dsh-notify (desktop notifications; packed above)
 ├── plugins/presentation/      # source of @cc/dsh-presentation (deck tool; no client half by design)
 ├── plugins/diagrams/          # source of @cc/dsh-diagrams (scheme tool; own layout engine, no client half)
-├── plugins/design-map/       # source of @cc/dsh-design-map (Host tool + command + Excalidraw panel)
+├── plugins/designmap/        # source of @cc/dsh-designmap (M4: YAML model → ELK scene → panel)
+├── plugins/design-map/       # source of @cc/dsh-design-map (0.2.0, retired in the profile patch)
 ├── plugins/project-rules/    # source of @cc/dsh-project-rules (one frozen rules section + editor panel)
 ├── plugins/work-modes/        # source of @cc/dsh-work-modes (packed into its tarball above)
 ├── plugins/godot-mcp/         # source of @cc/dsh-godot-mcp (packed into its tarball above)

@@ -1,0 +1,19 @@
+{
+  "name": "@cc/dsh-designmap-api-spike",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Executable API tests for the designmap v1 stack: elkjs layout/determinism/options, zod 4 strict schemas, yaml round-trip. No feature code lives here.",
+  "type": "module",
+  "scripts": {
+    "elk": "node elk-layout.mjs",
+    "elk:options": "node elk-options.mjs",
+    "elk:browser": "node elk-browser.mjs",
+    "zod": "node zod-strict.mjs",
+    "yaml": "node yaml-roundtrip.mjs"
+  },
+  "dependencies": {
+    "elkjs": "0.12.1",
+    "yaml": "2.9.1",
+    "zod": "4.6.7"
+  }
+}

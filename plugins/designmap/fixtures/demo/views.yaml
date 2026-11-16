@@ -1,0 +1,14 @@
+schemaVersion: 1
+views:
+  - id: v.context
+    title: Checkout — context
+    level: context
+    direction: LR
+    include: []
+    parent: null
+  - id: v.checkout
+    title: Checkout internals
+    level: component
+    direction: TB
+    include: []
+    parent: grp.checkout

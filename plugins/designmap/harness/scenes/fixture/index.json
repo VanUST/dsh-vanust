@@ -1,0 +1,41 @@
+{
+  "root": "v.context",
+  "views": [
+    {
+      "viewId": "v.context",
+      "file": "v.context.scene.json",
+      "parentGroupId": null,
+      "title": "Checkout \u2014 context",
+      "level": "context",
+      "meta": {
+        "generatedAt": "2026-11-16T10:45:00.000Z",
+        "commit": "3f2a9c1b7d4e",
+        "stale": {
+          "stale": true,
+          "commitBehind": 2,
+          "staleNodes": [
+            "svc.reserve.worker"
+          ]
+        }
+      }
+    },
+    {
+      "viewId": "v.checkout",
+      "file": "v.checkout.scene.json",
+      "parentGroupId": "grp.checkout",
+      "title": "Checkout internals",
+      "level": "component",
+      "meta": {
+        "generatedAt": "2026-11-16T10:45:00.000Z",
+        "commit": "3f2a9c1b7d4e",
+        "stale": {
+          "stale": true,
+          "commitBehind": 2,
+          "staleNodes": [
+            "svc.reserve.worker"
+          ]
+        }
+      }
+    }
+  ]
+}

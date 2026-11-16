@@ -1,0 +1,187 @@
+{
+  "schemaVersion": 1,
+  "viewId": "v.context",
+  "title": "Checkout — context",
+  "level": "context",
+  "direction": "LR",
+  "canvas": {
+    "x": -32,
+    "y": -32,
+    "width": 938.61,
+    "height": 218.07
+  },
+  "nodes": [
+    {
+      "id": "db.orders",
+      "type": "datastore",
+      "label": "Orders DB",
+      "group": null,
+      "x": 620,
+      "y": 36,
+      "w": 140,
+      "h": 44,
+      "stale": true,
+      "source": "src/orders/schema.sql"
+    },
+    {
+      "id": "ext.stripe",
+      "type": "external",
+      "label": "Stripe",
+      "group": null,
+      "x": 726.61,
+      "y": 102.07,
+      "w": 140,
+      "h": 44,
+      "stale": false,
+      "source": null
+    },
+    {
+      "id": "queue.payments",
+      "type": "queue",
+      "label": "Payments queue",
+      "group": null,
+      "x": 493,
+      "y": 96,
+      "w": 143.6,
+      "h": 44,
+      "stale": false,
+      "source": null
+    },
+    {
+      "id": "svc.checkout.api",
+      "type": "service",
+      "label": "Checkout API",
+      "group": "grp.checkout",
+      "x": 24,
+      "y": 44.33,
+      "w": 140,
+      "h": 44,
+      "stale": true,
+      "source": "src/checkout/api.ts"
+    },
+    {
+      "id": "svc.checkout.worker",
+      "type": "worker",
+      "label": "Reserve stock worker",
+      "group": "grp.checkout",
+      "x": 220,
+      "y": 53,
+      "w": 188,
+      "h": 44,
+      "stale": true,
+      "source": "src/checkout/worker.ts"
+    }
+  ],
+  "groups": [
+    {
+      "id": "grp.checkout",
+      "label": "Checkout",
+      "x": 8,
+      "y": 8,
+      "w": 424,
+      "h": 105
+    }
+  ],
+  "edges": [
+    {
+      "id": "e.api.db",
+      "from": "svc.checkout.api",
+      "to": "db.orders",
+      "kind": "data",
+      "label": "SQL / reads",
+      "points": [
+        {
+          "x": 164,
+          "y": 59.44
+        },
+        {
+          "x": 182,
+          "y": 57.67
+        },
+        {
+          "x": 182,
+          "y": 42
+        },
+        {
+          "x": 620,
+          "y": 55.8
+        }
+      ],
+      "labelAt": {
+        "x": 236.86,
+        "y": 29.01
+      }
+    },
+    {
+      "id": "e.api.worker",
+      "from": "svc.checkout.api",
+      "to": "svc.checkout.worker",
+      "kind": "async",
+      "label": "reserve stock",
+      "points": [
+        {
+          "x": 164,
+          "y": 66.76
+        },
+        {
+          "x": 220,
+          "y": 69.84
+        }
+      ],
+      "labelAt": {
+        "x": 192.97,
+        "y": 68.35
+      }
+    },
+    {
+      "id": "e.payments.stripe",
+      "from": "queue.payments",
+      "to": "ext.stripe",
+      "kind": "sync",
+      "label": "charge",
+      "points": [
+        {
+          "x": 636.6,
+          "y": 118
+        },
+        {
+          "x": 726.61,
+          "y": 121.41
+        }
+      ],
+      "labelAt": {
+        "x": 659.41,
+        "y": 103.71
+      }
+    },
+    {
+      "id": "e.worker.payments",
+      "from": "svc.checkout.worker",
+      "to": "queue.payments",
+      "kind": "async",
+      "label": "order.created",
+      "points": [
+        {
+          "x": 408,
+          "y": 75
+        },
+        {
+          "x": 447,
+          "y": 75
+        },
+        {
+          "x": 447,
+          "y": 118
+        },
+        {
+          "x": 493,
+          "y": 118
+        }
+      ],
+      "labelAt": {
+        "x": 398.9,
+        "y": 104.41
+      }
+    }
+  ]
+}

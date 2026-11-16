@@ -74,7 +74,27 @@
     - id: diagrams
       name: '@cc/dsh-diagrams'
 
-# ── design-map: one Excalidraw map the agent and the human both edit ─────────
+# ── designmap: semantic YAML model → deterministic ELK scene → panel ───────
+# Replaces the 0.2.0 Excalidraw panel (its row is disabled at the end of this block).
+# The model is two small YAML files (`designmap/model.yaml` for nodes/edges/groups,
+# `designmap/views.yaml` for views); ELK layered layout with groups and fixed-side
+# ports produces a deterministic scene JSON per view under `designmap/out/`. The agent
+# reads and edits the living document through seven `designmap_*` host tools; the human
+# sees the same scene in the read-only sidebar panel and edits only the visual layer
+# (x/y/fill/stroke in `designmap/overlays.json`) through `/designmap op:'overlay'`.
+# The panel reads scenes/index through the read-only workspaceFiles API; every write is
+# the command's. SVG export is canonical, PNG is optional and needs an external
+# converter; the vision loop is deliberately not shipped.
+- insert:
+    - id: designmap
+      name: '@cc/dsh-designmap'
+      config:
+        dir: designmap
+        presets:
+          - orchestrator
+
+# ── design-map (0.2.0): retired, kept on disk for rollback ─────────────────
+# One Excalidraw map the agent and the human both edit
 # One `design.excalidraw` at the project root. The agent writes nodes/edges/layers with
 # the `design_map` tool; a node's kind picks the shape (rectangle/ellipse/diamond/dashed
 # rectangle), `layer` puts it in a titled band, an edge label rides the arrow and `title`
@@ -89,6 +109,13 @@
       name: '@cc/dsh-design-map'
       config:
         file: design.excalidraw
+
+# Retirement (M4), READY BUT NOT APPLIED: once the human has booted with both panels and
+# accepted the new one in :3080, retire the Excalidraw panel by uncommenting this row
+# (source, tarball and inventory row then serve only as rollback):
+# - id: design-map
+#   name: '@cc/dsh-design-map'
+#   disabled: true
 
 # ── test-cases: observed test cases persisted in docs/cases/ ────────────────
 # Eight schema-enforced host tools over a repo-tracked library: case_record,

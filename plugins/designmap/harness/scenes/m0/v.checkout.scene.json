@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "viewId": "v.checkout",
+  "title": "Checkout internals",
+  "level": "component",
+  "direction": "TB",
+  "canvas": {
+    "x": -32,
+    "y": -32,
+    "width": 300,
+    "height": 274
+  },
+  "nodes": [
+    {
+      "id": "svc.checkout.api",
+      "type": "service",
+      "label": "Checkout API",
+      "group": "grp.checkout",
+      "x": 48,
+      "y": 42,
+      "w": 140,
+      "h": 44,
+      "stale": false,
+      "source": "src/checkout/api.ts"
+    },
+    {
+      "id": "svc.checkout.worker",
+      "type": "worker",
+      "label": "Reserve stock worker",
+      "group": "grp.checkout",
+      "x": 24,
+      "y": 142,
+      "w": 188,
+      "h": 44,
+      "stale": false,
+      "source": "src/checkout/worker.ts"
+    }
+  ],
+  "groups": [
+    {
+      "id": "grp.checkout",
+      "label": "Checkout",
+      "x": 8,
+      "y": 8,
+      "w": 220,
+      "h": 194
+    }
+  ],
+  "edges": [
+    {
+      "id": "e.api.worker",
+      "from": "svc.checkout.api",
+      "to": "svc.checkout.worker",
+      "kind": "async",
+      "label": "reserve stock",
+      "points": [
+        {
+          "x": 115.16,
+          "y": 86
+        },
+        {
+          "x": 117.2,
+          "y": 142
+        }
+      ],
+      "labelAt": {
+        "x": 68.12,
+        "y": 98.97
+      }
+    }
+  ]
+}
