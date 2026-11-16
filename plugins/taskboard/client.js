@@ -923,16 +923,28 @@ window.__ModuleLoader__.load({
 
     function TaskList({ tasks, selectedId, onSelect, chatId, presets, sessionsById = {} }) {
       if (tasks.length === 0) return h('div', { className: 'tb-listwrap', role: 'region', 'aria-label': 'Task list' }, h('div', { className: 'tb-empty' }, 'No tasks match this filter.'))
+      // MOST CURRENT FIRST. The list is a "what changed" read, so it orders by the last
+      // activity instead of the ledger's creation order: a task touched a minute ago sits
+      // above one created yesterday, whatever its status. The board (kanban) keeps the
+      // ledger order on purpose - columns are a state map, not a timeline. Ties fall back to
+      // createdAt, then id, so the order is stable for two rows written in the same second;
+      // a legacy row without updatedAt sorts last rather than jumping to the top.
+      const ordered = tasks.slice().sort((left, right) => {
+        const byUpdate = String(right.updatedAt ?? '').localeCompare(String(left.updatedAt ?? ''))
+        if (byUpdate !== 0) return byUpdate
+        const byCreated = String(right.createdAt ?? '').localeCompare(String(left.createdAt ?? ''))
+        return byCreated !== 0 ? byCreated : String(left.id).localeCompare(String(right.id))
+      })
       return h('div', { className: 'tb-listwrap', role: 'region', 'aria-label': 'Task list' },
         h('div', { className: 'tb-listhead', 'aria-hidden': true },
           h('span', null, 'Status'),
           h('span', null, 'Role'),
           h('span', null, 'Task'),
           h('span', null, 'Owner'),
-          h('span', null, 'Updated'),
+          h('span', { title: 'Newest activity first' }, 'Updated'),
         ),
         h('div', { className: 'tb-list', role: 'list' },
-          tasks.map((task) => {
+          ordered.map((task) => {
             const children = normalizeChildren(task, sessionsById)
             const assignment = assignmentOf(task)
             const selected = task.id === selectedId
