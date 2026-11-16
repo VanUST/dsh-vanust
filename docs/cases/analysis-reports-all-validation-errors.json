@@ -37,9 +37,9 @@
     }
   ],
   "linkedTaskId": "task-mwj27220-stljsf",
-  "revision": 7,
+  "revision": 8,
   "createdAt": "2026-11-16T09:27:00.317Z",
-  "updatedAt": "2026-11-16T10:06:55.093Z",
+  "updatedAt": "2026-11-16T10:07:49.027Z",
   "createdBy": "orchestrator",
   "createdByKind": "agent",
   "history": [
@@ -95,22 +95,29 @@
       "editedBy": "agent",
       "action": "verified",
       "notes": "Green on 0.1.8 (129/129). Red is the same command in a hardlinked /tmp copy with the committed 0.1.4 store/analysis bytes: the aggregate call returned only an enum finding and the later failure surfaced on a subsequent call (26 FAIL total, exit 1). The current source returns all independent paths in one findings[]."
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-16T10:07:49.027Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "Verified on committed 0.1.8 (21f18ff); proof 129/129 post-commit. Red is the same command against committed 0.1.4 bytes (103/129, 26 FAIL)."
     }
   ],
   "evidence": {
     "redFirst": {
       "command": "node scripts/analysis-before-decomposition-proof.mjs",
-      "output": "FAIL  all independent validation errors are returned in one response  {\"code\":\"invalid_record\"}\nFAIL  unknown nested keys are rejected with exact paths  {}\n103/129 checks passed\n(26 FAIL total; cwd /tmp/schema-publish-red, committed 0.1.4 plugin bytes, current proof)",
+      "output": "FAIL  all independent validation errors are returned in one response  {\"code\":\"invalid_record\"}\n103/129 checks passed\n(26 FAIL total; cwd /tmp/schema-publish-red, committed 0.1.4 plugin bytes, current proof)",
       "exitCode": 1,
       "at": "2026-11-16T10:09:00.000Z"
     },
     "green": {
       "command": "node scripts/analysis-before-decomposition-proof.mjs",
-      "output": "PASS  all independent validation errors are returned in one response  {\"code\":\"invalid_record\",\"findings\":[{\"code\":\"invalid_enum\",\"path\":\"contracts[0].change\"},{\"code\":\"missing_field\",\"path\":\"decisions[0].decision\"},{\"code\":\"invalid_reference\",\"path\":\"trace[0].requirementId\"},{\"code\":\"invalid_reference\",\"path\":\"data[0].ownerComponentId\"},{\"code\":\"ownership_conflict\",\"path\":\"data[0].ownerComponentId\"}]}\nPASS  trimmed duplicates are refused in every id-bearing section in one response\n129/129 checks passed",
+      "output": "PASS  all independent validation errors are returned in one response\nPASS  trimmed duplicates are refused in every id-bearing section in one response\n129/129 checks passed",
       "exitCode": 0,
       "at": "2026-11-16T10:09:00.000Z"
     },
-    "commit": null
+    "commit": "21f18fff2d4a41651db1fb4588b811c1d0f0bcc8"
   },
   "testPath": "scripts/analysis-before-decomposition-proof.mjs",
   "runCommand": "node scripts/analysis-before-decomposition-proof.mjs",

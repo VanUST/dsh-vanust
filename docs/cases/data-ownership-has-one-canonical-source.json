@@ -37,9 +37,9 @@
     }
   ],
   "linkedTaskId": "task-mwj27220-stljsf",
-  "revision": 7,
+  "revision": 8,
   "createdAt": "2026-11-16T09:27:00.421Z",
-  "updatedAt": "2026-11-16T10:06:55.157Z",
+  "updatedAt": "2026-11-16T10:07:49.096Z",
   "createdBy": "orchestrator",
   "createdByKind": "agent",
   "history": [
@@ -95,22 +95,29 @@
       "editedBy": "agent",
       "action": "verified",
       "notes": "Green on 0.1.8 (129/129): ownerComponentId canonical, owns derived, conflict/ambiguity refused, ambiguous legacy reads with warning but gate/link fail closed until resolution. Red is the same command in a hardlinked /tmp copy with the committed 0.1.4 store/analysis bytes (no ownerComponentId at all): 26 FAIL total, exit 1."
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-16T10:07:49.096Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "Verified on committed 0.1.8 (21f18ff); proof 129/129 post-commit. Red is the same command against committed 0.1.4 bytes (103/129, 26 FAIL); surface hashes re-snapshotted on the committed files."
     }
   ],
   "evidence": {
     "redFirst": {
       "command": "node scripts/analysis-before-decomposition-proof.mjs",
-      "output": "FAIL  ownerComponentId is canonical and owns is derived  {\"data\":[{\"id\":\"D-1\",\"name\":\"record\",\"owner\":\"BACKEND\",\"description\":\"\"}],...}\nFAIL  a unique legacy owns is projected to ownerComponentId  {\"data\":[{\"id\":\"D-1\",\"owner\":\"BACKEND\",...}]}\nFAIL  conflicting canonical/legacy ownership is rejected  {}\nFAIL  ambiguous legacy ownership is rejected  {}\n103/129 checks passed\n(26 FAIL total; cwd /tmp/schema-publish-red, committed 0.1.4 plugin bytes, current proof)",
+      "output": "FAIL  ownerComponentId is canonical and owns is derived\nFAIL  a unique legacy owns is projected to ownerComponentId\nFAIL  conflicting canonical/legacy ownership is rejected\nFAIL  ambiguous legacy ownership is rejected\n103/129 checks passed\n(26 FAIL total; cwd /tmp/schema-publish-red, committed 0.1.4 plugin bytes, current proof)",
       "exitCode": 1,
       "at": "2026-11-16T10:09:00.000Z"
     },
     "green": {
       "command": "node scripts/analysis-before-decomposition-proof.mjs",
-      "output": "PASS  ownerComponentId is canonical and owns is derived  {\"data\":[{\"id\":\"D-1\",\"ownerComponentId\":\"C-1\"}],\"components\":[{\"id\":\"C-1\",\"owns\":[\"D-1\"]}]}\nPASS  a unique legacy owns is projected to ownerComponentId\nPASS  conflicting canonical/legacy ownership is rejected\nPASS  ambiguous legacy ownership is rejected\nPASS  the delegation gate fails closed while ownership is ambiguous\nPASS  after the canonical owner is resolved the read, gate and link all work\n129/129 checks passed",
+      "output": "PASS  ownerComponentId is canonical and owns is derived\nPASS  a unique legacy owns is projected to ownerComponentId\nPASS  conflicting canonical/legacy ownership is rejected\nPASS  ambiguous legacy ownership is rejected\nPASS  the delegation gate fails closed while ownership is ambiguous\nPASS  after the canonical owner is resolved the read, gate and link all work\n129/129 checks passed",
       "exitCode": 0,
       "at": "2026-11-16T10:09:00.000Z"
     },
-    "commit": null
+    "commit": "21f18fff2d4a41651db1fb4588b811c1d0f0bcc8"
   },
   "testPath": "scripts/analysis-before-decomposition-proof.mjs",
   "runCommand": "node scripts/analysis-before-decomposition-proof.mjs",
