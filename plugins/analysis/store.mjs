@@ -54,6 +54,41 @@ export const REQUIREMENT_STATUSES = ['planned', 'proven', 'deferred', 'rejected'
 export const TRACE_STATUSES = ['planned', 'in_progress', 'proven', 'deferred', 'rejected']
 export const CONTRACT_CHANGES = ['none', 'additive', 'breaking']
 
+/**
+ * Semantic content limits. They are enforced on WRITE and never repaired by truncation: an
+ * over-limit value is refused with `limit_exceeded` carrying path/max/actual, so a successful
+ * write cannot silently lose bytes and a UTF-16 slice can never split a surrogate pair.
+ */
+export const LIMITS = Object.freeze({
+  title: 200,
+  requestedSolution: 8000,
+  outcomeText: 4000,
+  successMetrics: 20,
+  processName: 200,
+  processActors: 20,
+  processSteps: 50,
+  requirementText: 4000,
+  acceptance: 30,
+  reason: 1000,
+  name: 200,
+  responsibility: 1000,
+  owner: 120,
+  ownerComponentId: 200,
+  description: 1000,
+  invariantText: 2000,
+  invariantScope: 400,
+  decision: 2000,
+  rationale: 2000,
+  alternatives: 10,
+  question: 2000,
+  answer: 2000,
+  sizingReasons: 20,
+  taskRole: 80,
+  evidence: 20,
+  goalId: 120,
+  goalHistory: 50,
+})
+
 /** The fields that decide whether an analysis is still the analysis the caller read. */
 const SEMANTIC_FIELDS = [
   'title',
@@ -135,6 +170,43 @@ export function fingerprintOf(record) {
   return createHash('sha256').update(JSON.stringify(canonical(semanticSlice(record)))).digest('hex')
 }
 
+/**
+ * Versioned recognition of fingerprints written by an earlier plugin version.
+ *
+ * 0.1.4 normalized `data[]` without `ownerComponentId`, so its stored hash covers a record
+ * where the canonical owner does not exist yet. The view below reconstructs exactly that
+ * semantic shape, so a genuine old record is recognised as LEGACY instead of being called a
+ * hand edit. Recognition is deterministic and version-labelled; the next successful write
+ * seals the current fingerprint and records a `migrate` history entry.
+ */
+export const LEGACY_FINGERPRINT_VERSIONS = ['0.1.4']
+
+function legacySemanticView(record) {
+  const copy = JSON.parse(JSON.stringify(record))
+  for (const row of copy.data ?? []) delete row.ownerComponentId
+  return copy
+}
+
+/**
+ * Which fingerprint the stored document actually carries.
+ * `{matches, legacy, version}`: `matches` means "written by a known version, not a hand edit".
+ */
+export function fingerprintStatusOf(record) {
+  const stored = asString(record.fingerprint)
+  if (stored === '') return { matches: false, legacy: false, version: '' }
+  if (stored === fingerprintOf(record)) return { matches: true, legacy: false, version: '' }
+  for (const version of LEGACY_FINGERPRINT_VERSIONS) {
+    if (stored === fingerprintOf(legacySemanticView(record))) return { matches: true, legacy: true, version }
+  }
+  return { matches: false, legacy: false, version: '' }
+}
+
+/** Legacy `components[].owns` with more than one owner and no canonical owner. */
+function ambiguousOwnershipOf(record) {
+  return record.data.some((data) => (data.ownerComponentId ?? '') === ''
+    && record.architecture.components.filter((component) => component.owns.includes(data.id)).length > 1)
+}
+
 function requirementSpecHash(requirement) {
   // planned and proven are the same ANALYSIS; deferred/rejected are a scope decision and
   // therefore a semantic change. The reason is part of that decision.
@@ -181,9 +253,9 @@ function uniqueIds(rows, path) {
 function normalizeBusinessOutcome(value) {
   const raw = value === undefined ? {} : objectAt(value, 'businessOutcome')
   return {
-    problem: asString(raw.problem).slice(0, 4000),
-    outcome: asString(raw.outcome).slice(0, 4000),
-    successMetrics: asStringArray(raw.successMetrics).slice(0, 20),
+    problem: asString(raw.problem),
+    outcome: asString(raw.outcome),
+    successMetrics: asStringArray(raw.successMetrics),
   }
 }
 
@@ -194,9 +266,9 @@ function normalizeProcessList(value, path) {
     if (id === '') invalid('needs an id', `${path}[${at}]`)
     return {
       id,
-      name: asString(raw.name).slice(0, 200) || id,
-      actors: asStringArray(raw.actors).slice(0, 20),
-      steps: asStringArray(raw.steps).slice(0, 50),
+      name: asString(raw.name) || id,
+      actors: asStringArray(raw.actors),
+      steps: asStringArray(raw.steps),
     }
   })
 }
@@ -213,10 +285,10 @@ function normalizeRequirements(value) {
     return {
       id,
       kind,
-      text: asString(raw.text).slice(0, 4000),
-      acceptance: asStringArray(raw.acceptance).slice(0, 30),
+      text: asString(raw.text),
+      acceptance: asStringArray(raw.acceptance),
       status,
-      ...(asString(raw.reason) === '' ? {} : { reason: asString(raw.reason).slice(0, 1000) }),
+      ...(asString(raw.reason) === '' ? {} : { reason: asString(raw.reason) }),
     }
   })
   uniqueIds(rows, 'requirements')
@@ -231,9 +303,9 @@ function normalizeArchitecture(value) {
     if (id === '') invalid('needs an id', `architecture.components[${at}]`)
     return {
       id,
-      name: asString(item.name).slice(0, 200) || id,
-      responsibility: asString(item.responsibility).slice(0, 1000),
-      owner: asString(item.owner).slice(0, 120),
+      name: asString(item.name) || id,
+      responsibility: asString(item.responsibility),
+      owner: asString(item.owner),
       owns: asStringArray(item.owns),
       dependsOn: asStringArray(item.dependsOn),
     }
@@ -251,11 +323,13 @@ function normalizeData(value) {
     const raw = objectAt(entry, `data[${at}]`)
     const id = asString(raw.id)
     if (id === '') invalid('needs an id', `data[${at}]`)
+    const ownerComponentId = asString(raw.ownerComponentId)
     return {
       id,
-      name: asString(raw.name).slice(0, 200) || id,
-      owner: asString(raw.owner).slice(0, 120),
-      description: asString(raw.description).slice(0, 1000),
+      name: asString(raw.name) || id,
+      owner: asString(raw.owner),
+      ...(ownerComponentId === '' ? {} : { ownerComponentId }),
+      description: asString(raw.description),
     }
   })
   uniqueIds(rows, 'data')
@@ -270,10 +344,10 @@ function normalizeContracts(value) {
     const change = asString(raw.change)
     return {
       id,
-      name: asString(raw.name).slice(0, 200) || id,
+      name: asString(raw.name) || id,
       between: asStringArray(raw.between),
       change: CONTRACT_CHANGES.includes(change) ? change : '',
-      description: asString(raw.description).slice(0, 1000),
+      description: asString(raw.description),
     }
   })
   uniqueIds(rows, 'contracts')
@@ -285,7 +359,7 @@ function normalizeInvariants(value) {
     const raw = objectAt(entry, `invariants[${at}]`)
     const id = asString(raw.id)
     if (id === '') invalid('needs an id', `invariants[${at}]`)
-    return { id, text: asString(raw.text).slice(0, 2000), scope: asString(raw.scope).slice(0, 400) }
+    return { id, text: asString(raw.text), scope: asString(raw.scope) }
   })
   uniqueIds(rows, 'invariants')
   return rows
@@ -298,9 +372,9 @@ function normalizeDecisions(value) {
     if (id === '') invalid('needs an id', `decisions[${at}]`)
     return {
       id,
-      decision: asString(raw.decision).slice(0, 2000),
-      rationale: asString(raw.rationale).slice(0, 2000),
-      alternatives: asStringArray(raw.alternatives).slice(0, 10),
+      decision: asString(raw.decision),
+      rationale: asString(raw.rationale),
+      alternatives: asStringArray(raw.alternatives),
     }
   })
   uniqueIds(rows, 'decisions')
@@ -314,10 +388,10 @@ function normalizeOpenQuestions(value) {
     if (id === '') invalid('needs an id', `openQuestions[${at}]`)
     return {
       id,
-      question: asString(raw.question).slice(0, 2000),
-      owner: asString(raw.owner).slice(0, 120),
+      question: asString(raw.question),
+      owner: asString(raw.owner),
       blocks: raw.blocks === true,
-      answer: asString(raw.answer).slice(0, 2000),
+      answer: asString(raw.answer),
     }
   })
   uniqueIds(rows, 'openQuestions')
@@ -328,7 +402,7 @@ function normalizeSizing(value) {
   const raw = value === undefined ? {} : objectAt(value, 'sizing')
   const klass = raw.class === undefined || raw.class === null ? '' : asString(raw.class)
   if (klass !== '' && !CHANGE_CLASSES.includes(klass)) invalid(`class must be one of ${CHANGE_CLASSES.join(', ')}`, 'sizing.class')
-  return { class: klass, reasons: asStringArray(raw.reasons).slice(0, 20) }
+  return { class: klass, reasons: asStringArray(raw.reasons) }
 }
 
 function normalizeDesignRef(value) {
@@ -336,9 +410,11 @@ function normalizeDesignRef(value) {
   const raw = objectAt(value, 'designRef')
   const mapRev = raw.mapRev
   if (!Number.isSafeInteger(mapRev) || mapRev < 0) invalid('mapRev must be a non-negative integer', 'designRef.mapRev')
+  const at = asString(raw.at)
+  if (at !== '' && Number.isNaN(Date.parse(at))) invalid('at must be a parseable ISO timestamp', 'designRef.at')
   return {
     mapRev,
-    at: asString(raw.at),
+    at,
     source: asString(raw.source) || 'design.excalidraw',
   }
 }
@@ -356,9 +432,9 @@ function normalizeTrace(value) {
       if (taskId === '') invalid('needs a taskId', `trace[${at}].tasks[${taskAt}]`)
       return {
         taskId,
-        role: asString(item.role).slice(0, 80),
+        role: asString(item.role),
         at: asString(item.at),
-        evidence: asStringArray(item.evidence).slice(0, 20),
+        evidence: asStringArray(item.evidence),
       }
     })
     return {
@@ -369,7 +445,7 @@ function normalizeTrace(value) {
       dataIds: asStringArray(raw.dataIds),
       status,
       tasks,
-      ...(asString(raw.reason) === '' ? {} : { reason: asString(raw.reason).slice(0, 1000) }),
+      ...(asString(raw.reason) === '' ? {} : { reason: asString(raw.reason) }),
     }
   })
   return rows
@@ -401,8 +477,351 @@ function normalizeImpacts(value) {
   }).filter((entry) => entry !== null)
 }
 
+
+/**
+ * Strict, aggregate validation of one caller-supplied record shape.
+ *
+ * It walks every nested section, rejects unknown keys and invalid types/enums with the
+ * exact JSON path, and collects every independent finding before anything is written. It
+ * does not replace the semantic readiness check: missing acceptance, ownership roles and
+ * unresolved trace are findings there, not structural projection errors.
+ */
+const TOP_LEVEL_KEYS = new Set([
+  'schemaVersion', 'id', 'rev', 'status', 'createdAt', 'updatedAt', 'updatedBy',
+  'title', 'requestedSolution', 'businessOutcome', 'process', 'requirements',
+  'architecture', 'data', 'contracts', 'invariants', 'decisions', 'openQuestions',
+  'sizing', 'designRef', 'goalId', 'goalHistory', 'trace', 'pendingImpacts',
+  'fingerprint', 'history',
+])
+
+export function validateStrict(raw, options = {}) {
+  const findings = []
+  const add = (code, path, message, extra) => findings.push({ code, path, message, severity: 'error', ...(extra === undefined ? {} : extra) })
+  if (!plainObject(raw)) {
+    add('invalid_type', '', 'the record must be a JSON object')
+    return { ok: false, findings }
+  }
+  for (const key of Object.keys(raw)) {
+    if (!TOP_LEVEL_KEYS.has(key)) add('unknown_key', key, `unknown top-level key "${key}"`)
+  }
+  const keys = (value, path, allowed) => {
+    if (!plainObject(value)) {
+      add('invalid_type', path, 'must be an object')
+      return null
+    }
+    for (const key of Object.keys(value)) {
+      if (!allowed.includes(key)) add('unknown_key', path === '' ? key : `${path}.${key}`, `unknown key "${key}"`)
+    }
+    return value
+  }
+  const object = (parent, key, path) => {
+    const value = parent[key]
+    if (value === undefined || value === null) return null
+    if (!plainObject(value)) {
+      add('invalid_type', path, 'must be an object')
+      return null
+    }
+    return value
+  }
+  const list = (parent, key, path) => {
+    const value = parent[key]
+    if (value === undefined) return []
+    if (!Array.isArray(value)) {
+      add('invalid_type', path, 'must be an array')
+      return []
+    }
+    return value
+  }
+  const enforcing = options.enforceLimits !== false
+  const string = (parent, key, path, required = false, max = 0) => {
+    const value = parent[key]
+    if (value === undefined) {
+      if (required && options.requireContent !== false) add('missing_field', path, 'is required')
+      return ''
+    }
+    if (typeof value !== 'string') {
+      add('invalid_type', path, 'must be a string')
+      return ''
+    }
+    const text = value.trim()
+    if (text === '' && required && options.requireContent !== false) add('missing_field', path, 'must not be empty')
+    if (max > 0 && enforcing && text.length > max) {
+      add('limit_exceeded', path, `must be at most ${max} UTF-16 code units (got ${text.length})`, { max, actual: text.length })
+    }
+    return text
+  }
+  const strings = (parent, key, path, max = 0) => {
+    const value = parent[key]
+    if (value === undefined) return []
+    if (!Array.isArray(value)) {
+      add('invalid_type', path, 'must be an array of strings')
+      return []
+    }
+    for (let at = 0; at < value.length; at += 1) {
+      if (typeof value[at] !== 'string') add('invalid_type', `${path}[${at}]`, 'must be a string')
+    }
+    if (max > 0 && enforcing && value.length > max) {
+      add('limit_exceeded', path, `must have at most ${max} items (got ${value.length})`, { max, actual: value.length })
+    }
+    return value.filter((entry) => typeof entry === 'string')
+  }
+  const unique = (rows, path) => {
+    const seen = new Set()
+    for (let at = 0; at < rows.length; at += 1) {
+      // Ids are compared AFTER the same trim the normalizer applies, so " REQ-1 " and
+      // "REQ-1" are the duplicate they become on write, reported in this same response.
+      const id = typeof rows[at]?.id === 'string' ? rows[at].id.trim() : ''
+      if (id === '') continue
+      if (seen.has(id)) add('duplicate_id', `${path}[${at}].id`, `duplicate id "${id}"`)
+      seen.add(id)
+    }
+    return seen
+  }
+
+  // title and requestedSolution are semantic content too: same limit rule, same refusal.
+  string(raw, 'title', 'title', false, LIMITS.title)
+  string(raw, 'requestedSolution', 'requestedSolution', false, LIMITS.requestedSolution)
+  const status = raw.status === undefined ? 'draft' : string(raw, 'status', 'status')
+  if (!RECORD_STATUSES.includes(status)) add('invalid_enum', 'status', `status must be one of ${RECORD_STATUSES.join(', ')}`)
+  if (raw.id !== undefined && string(raw, 'id', 'id') === '') add('missing_field', 'id', 'must not be empty')
+
+  // businessOutcome
+  const business = object(raw, 'businessOutcome', 'businessOutcome')
+  if (business !== null) {
+    keys(business, 'businessOutcome', ['problem', 'outcome', 'successMetrics'])
+    string(business, 'problem', 'businessOutcome.problem', false, LIMITS.outcomeText)
+    string(business, 'outcome', 'businessOutcome.outcome', false, LIMITS.outcomeText)
+    strings(business, 'successMetrics', 'businessOutcome.successMetrics', LIMITS.successMetrics)
+  }
+
+  // process {current,target}
+  const process = object(raw, 'process', 'process')
+  const processIds = new Set()
+  if (process !== null) {
+    keys(process, 'process', ['current', 'target'])
+    for (const section of ['current', 'target']) {
+      const rows = list(process, section, `process.${section}`)
+      for (let at = 0; at < rows.length; at += 1) {
+        const path = `process.${section}[${at}]`
+        const item = keys(rows[at], path, ['id', 'name', 'actors', 'steps'])
+        if (item === null) continue
+        const id = string(item, 'id', `${path}.id`, true)
+        if (id !== '') {
+          if (processIds.has(id)) add('duplicate_id', `${path}.id`, `duplicate process id "${id}" across process.current/process.target`)
+          processIds.add(id)
+        }
+        string(item, 'name', `${path}.name`, true, LIMITS.processName)
+        strings(item, 'actors', `${path}.actors`, LIMITS.processActors)
+        strings(item, 'steps', `${path}.steps`, LIMITS.processSteps)
+      }
+    }
+  }
+
+  // requirements
+  const requirementIds = new Set()
+  const requirements = list(raw, 'requirements', 'requirements')
+  for (let at = 0; at < requirements.length; at += 1) {
+    const path = `requirements[${at}]`
+    const item = keys(requirements[at], path, ['id', 'kind', 'text', 'acceptance', 'status', 'reason'])
+    if (item === null) continue
+    const id = string(item, 'id', `${path}.id`, true)
+    if (id !== '') requirementIds.add(id)
+    const kind = string(item, 'kind', `${path}.kind`, true).toUpperCase()
+    if (kind !== '' && !REQUIREMENT_KINDS.includes(kind)) add('invalid_enum', `${path}.kind`, `kind must be one of ${REQUIREMENT_KINDS.join(', ')}`)
+    string(item, 'text', `${path}.text`, false, LIMITS.requirementText)
+    strings(item, 'acceptance', `${path}.acceptance`, LIMITS.acceptance)
+    const reqStatus = item.status === undefined ? 'planned' : string(item, 'status', `${path}.status`)
+    if (!REQUIREMENT_STATUSES.includes(reqStatus)) add('invalid_enum', `${path}.status`, `status must be one of ${REQUIREMENT_STATUSES.join(', ')}`)
+    string(item, 'reason', `${path}.reason`, false, LIMITS.reason)
+  }
+  unique(requirements, 'requirements')
+
+  // architecture components
+  const componentIds = new Set()
+  const components = []
+  const architecture = object(raw, 'architecture', 'architecture')
+  if (architecture !== null) {
+    keys(architecture, 'architecture', ['contractImpact', 'components'])
+    const impact = architecture.contractImpact === undefined ? '' : string(architecture, 'contractImpact', 'architecture.contractImpact')
+    if (impact !== '' && !CONTRACT_CHANGES.includes(impact)) add('invalid_enum', 'architecture.contractImpact', `contractImpact must be one of ${CONTRACT_CHANGES.join(', ')} or empty`)
+    const rows = list(architecture, 'components', 'architecture.components')
+    for (let at = 0; at < rows.length; at += 1) {
+      const path = `architecture.components[${at}]`
+      const item = keys(rows[at], path, ['id', 'name', 'responsibility', 'owner', 'owns', 'dependsOn'])
+      if (item === null) continue
+      const id = string(item, 'id', `${path}.id`, true)
+      if (id !== '') componentIds.add(id)
+      string(item, 'name', `${path}.name`, false, LIMITS.name)
+      string(item, 'responsibility', `${path}.responsibility`, false, LIMITS.responsibility)
+      string(item, 'owner', `${path}.owner`, false, LIMITS.owner)
+      const owns = strings(item, 'owns', `${path}.owns`)
+      const dependsOn = strings(item, 'dependsOn', `${path}.dependsOn`)
+      components.push({ id, owns, dependsOn })
+    }
+    unique(rows, 'architecture.components')
+  }
+
+  // data
+  const dataIds = new Set()
+  const dataItems = []
+  const dataRows = list(raw, 'data', 'data')
+  for (let at = 0; at < dataRows.length; at += 1) {
+    const path = `data[${at}]`
+    const item = keys(dataRows[at], path, ['id', 'name', 'owner', 'ownerComponentId', 'description'])
+    if (item === null) continue
+    const id = string(item, 'id', `${path}.id`, true)
+    if (id !== '') dataIds.add(id)
+    string(item, 'name', `${path}.name`, false, LIMITS.name)
+    string(item, 'owner', `${path}.owner`, false, LIMITS.owner)
+    const ownerComponentId = string(item, 'ownerComponentId', `${path}.ownerComponentId`, false, LIMITS.ownerComponentId)
+    string(item, 'description', `${path}.description`, false, LIMITS.description)
+    dataItems.push({ id, ownerComponentId })
+  }
+  unique(dataRows, 'data')
+
+  // contracts: removed is deliberately not an enum value.
+  const contractIds = new Set()
+  const contracts = list(raw, 'contracts', 'contracts')
+  for (let at = 0; at < contracts.length; at += 1) {
+    const path = `contracts[${at}]`
+    const item = keys(contracts[at], path, ['id', 'name', 'between', 'change', 'description'])
+    if (item === null) continue
+    const id = string(item, 'id', `${path}.id`, true)
+    if (id !== '') contractIds.add(id)
+    string(item, 'name', `${path}.name`, false, LIMITS.name)
+    strings(item, 'between', `${path}.between`)
+    const change = string(item, 'change', `${path}.change`, true)
+    if (change === 'removed') {
+      add('invalid_enum', `${path}.change`, 'change:"removed" is not supported; use change:"breaking" and describe the removal in description')
+    } else if (change !== '' && !CONTRACT_CHANGES.includes(change)) {
+      add('invalid_enum', `${path}.change`, `change must be one of ${CONTRACT_CHANGES.join(', ')}`)
+    }
+    string(item, 'description', `${path}.description`, false, LIMITS.description)
+  }
+  unique(contracts, 'contracts')
+
+  // invariants
+  const invariants = list(raw, 'invariants', 'invariants')
+  for (let at = 0; at < invariants.length; at += 1) {
+    const path = `invariants[${at}]`
+    const item = keys(invariants[at], path, ['id', 'text', 'scope'])
+    if (item === null) continue
+    string(item, 'id', `${path}.id`, true)
+    string(item, 'text', `${path}.text`, true, LIMITS.invariantText)
+    string(item, 'scope', `${path}.scope`, false, LIMITS.invariantScope)
+  }
+  unique(invariants, 'invariants')
+
+  // decisions
+  const decisions = list(raw, 'decisions', 'decisions')
+  for (let at = 0; at < decisions.length; at += 1) {
+    const path = `decisions[${at}]`
+    const item = keys(decisions[at], path, ['id', 'decision', 'rationale', 'alternatives'])
+    if (item === null) continue
+    string(item, 'id', `${path}.id`, true)
+    string(item, 'decision', `${path}.decision`, true, LIMITS.decision)
+    string(item, 'rationale', `${path}.rationale`, true, LIMITS.rationale)
+    strings(item, 'alternatives', `${path}.alternatives`, LIMITS.alternatives)
+  }
+  unique(decisions, 'decisions')
+
+  // openQuestions
+  const questions = list(raw, 'openQuestions', 'openQuestions')
+  for (let at = 0; at < questions.length; at += 1) {
+    const path = `openQuestions[${at}]`
+    const item = keys(questions[at], path, ['id', 'question', 'owner', 'blocks', 'answer'])
+    if (item === null) continue
+    string(item, 'id', `${path}.id`, true)
+    string(item, 'question', `${path}.question`, true, LIMITS.question)
+    string(item, 'owner', `${path}.owner`, false, LIMITS.owner)
+    if (item.blocks !== undefined && typeof item.blocks !== 'boolean') add('invalid_type', `${path}.blocks`, 'must be a boolean')
+    string(item, 'answer', `${path}.answer`, false, LIMITS.answer)
+  }
+  unique(questions, 'openQuestions')
+
+  // sizing
+  const sizing = object(raw, 'sizing', 'sizing')
+  if (sizing !== null) {
+    keys(sizing, 'sizing', ['class', 'reasons'])
+    const klass = sizing.class === undefined || sizing.class === null ? '' : string(sizing, 'class', 'sizing.class')
+    if (klass !== '' && !CHANGE_CLASSES.includes(klass)) add('invalid_enum', 'sizing.class', `class must be one of ${CHANGE_CLASSES.join(', ')}`)
+    strings(sizing, 'reasons', 'sizing.reasons', LIMITS.sizingReasons)
+  }
+
+  // designRef: mapRev is the drift key; at is a validated timestamp when supplied.
+  const designRef = object(raw, 'designRef', 'designRef')
+  if (designRef !== null) {
+    keys(designRef, 'designRef', ['mapRev', 'at', 'source'])
+    if (!Number.isSafeInteger(designRef.mapRev) || designRef.mapRev < 0) add('invalid_type', 'designRef.mapRev', 'must be a non-negative integer')
+    const at = string(designRef, 'at', 'designRef.at')
+    if (at !== '' && Number.isNaN(Date.parse(at))) add('invalid_timestamp', 'designRef.at', 'must be a parseable ISO timestamp')
+    string(designRef, 'source', 'designRef.source')
+  }
+
+  // goalId / goalHistory
+  string(raw, 'goalId', 'goalId', false, LIMITS.goalId)
+  strings(raw, 'goalHistory', 'goalHistory', LIMITS.goalHistory)
+
+  // trace
+  const trace = list(raw, 'trace', 'trace')
+  for (let at = 0; at < trace.length; at += 1) {
+    const path = `trace[${at}]`
+    const item = keys(trace[at], path, ['requirementId', 'processId', 'componentId', 'contractIds', 'dataIds', 'status', 'tasks', 'reason'])
+    if (item === null) continue
+    const requirementId = string(item, 'requirementId', `${path}.requirementId`, true)
+    if (requirementId !== '' && !requirementIds.has(requirementId)) add('invalid_reference', `${path}.requirementId`, `unknown requirementId "${requirementId}"`)
+    const processId = string(item, 'processId', `${path}.processId`)
+    if (processId !== '' && !processIds.has(processId)) add('invalid_reference', `${path}.processId`, `unknown processId "${processId}"`)
+    const componentId = string(item, 'componentId', `${path}.componentId`)
+    if (componentId !== '' && !componentIds.has(componentId)) add('invalid_reference', `${path}.componentId`, `unknown componentId "${componentId}"`)
+    for (const id of strings(item, 'contractIds', `${path}.contractIds`)) {
+      if (!contractIds.has(id)) add('invalid_reference', `${path}.contractIds`, `unknown contract id "${id}"`)
+    }
+    for (const id of strings(item, 'dataIds', `${path}.dataIds`)) {
+      if (!dataIds.has(id)) add('invalid_reference', `${path}.dataIds`, `unknown data id "${id}"`)
+    }
+    const traceStatus = item.status === undefined ? 'planned' : string(item, 'status', `${path}.status`)
+    if (!TRACE_STATUSES.includes(traceStatus)) add('invalid_enum', `${path}.status`, `status must be one of ${TRACE_STATUSES.join(', ')}`)
+    string(item, 'reason', `${path}.reason`, false, LIMITS.reason)
+    const tasks = list(item, 'tasks', `${path}.tasks`)
+    for (let taskAt = 0; taskAt < tasks.length; taskAt += 1) {
+      const taskPath = `${path}.tasks[${taskAt}]`
+      const task = keys(tasks[taskAt], taskPath, ['taskId', 'role', 'at', 'evidence'])
+      if (task === null) continue
+      string(task, 'taskId', `${taskPath}.taskId`, true)
+      string(task, 'role', `${taskPath}.role`, false, LIMITS.taskRole)
+      string(task, 'at', `${taskPath}.at`)
+      strings(task, 'evidence', `${taskPath}.evidence`, LIMITS.evidence)
+    }
+  }
+
+  // ownership: data.ownerComponentId is canonical, component.owns is legacy input/projection.
+  for (const component of components) {
+    for (const owned of component.owns) {
+      if (!dataIds.has(owned)) add('invalid_reference', `architecture.components[${components.indexOf(component)}].owns`, `unknown owned data "${owned}"`)
+    }
+    for (const dependency of component.dependsOn) {
+      if (!componentIds.has(dependency)) add('invalid_reference', `architecture.components[${components.indexOf(component)}].dependsOn`, `unknown dependency "${dependency}"`)
+    }
+  }
+  for (const data of dataItems) {
+    const legacyOwners = components.filter((component) => component.owns.includes(data.id)).map((component) => component.id)
+    if (data.ownerComponentId !== '' && !componentIds.has(data.ownerComponentId)) {
+      add('invalid_reference', `data[${dataItems.indexOf(data)}].ownerComponentId`, `unknown component id "${data.ownerComponentId}"`)
+    }
+    if (data.ownerComponentId !== '' && legacyOwners.length > 0 && (legacyOwners.length !== 1 || legacyOwners[0] !== data.ownerComponentId)) {
+      add('ownership_conflict', `data[${dataItems.indexOf(data)}].ownerComponentId`, `data "${data.id}" says ownerComponentId "${data.ownerComponentId}" but legacy owns says ${legacyOwners.join(', ')}`)
+    }
+    if (data.ownerComponentId === '' && legacyOwners.length > 1 && options.allowAmbiguousOwnership !== true) {
+      add('ownership_ambiguous', `data[${dataItems.indexOf(data)}].id`, `data "${data.id}" has multiple legacy owners: ${legacyOwners.join(', ')}`)
+    }
+  }
+
+  return { ok: findings.length === 0, findings }
+}
+
 /** Validate and normalize one stored document. Throws AnalysisError on a structural defect. */
-export function normalizeRecord(raw, initiative) {
+export function normalizeRecord(raw, initiative, options = {}) {
   const input = objectAt(raw, 'record')
   if (input.id !== undefined && asString(input.id) !== initiative) invalid(`id "${asString(input.id)}" does not match the file name "${initiative}"`, 'id')
   const process = input.process === undefined ? {} : objectAt(input.process, 'process')
@@ -417,8 +836,8 @@ export function normalizeRecord(raw, initiative) {
     createdAt: asString(input.createdAt),
     updatedAt: asString(input.updatedAt),
     updatedBy: asString(input.updatedBy) || 'agent',
-    title: asString(input.title).slice(0, 200),
-    requestedSolution: asString(input.requestedSolution).slice(0, 8000),
+    title: asString(input.title),
+    requestedSolution: asString(input.requestedSolution),
     businessOutcome: normalizeBusinessOutcome(input.businessOutcome),
     process: { current, target },
     requirements: normalizeRequirements(input.requirements),
@@ -430,8 +849,8 @@ export function normalizeRecord(raw, initiative) {
     openQuestions: normalizeOpenQuestions(input.openQuestions),
     sizing: normalizeSizing(input.sizing),
     designRef: normalizeDesignRef(input.designRef),
-    goalId: asString(input.goalId).slice(0, 120),
-    goalHistory: [...new Set(asStringArray(input.goalHistory))].slice(0, 50),
+    goalId: asString(input.goalId),
+    goalHistory: [...new Set(asStringArray(input.goalHistory))],
     trace: normalizeTrace(input.trace),
     pendingImpacts: normalizeImpacts(input.pendingImpacts),
     fingerprint: asString(input.fingerprint),
@@ -460,6 +879,32 @@ export function normalizeRecord(raw, initiative) {
     for (const owned of record.architecture.components[at].owns) {
       if (!dataIds.has(owned)) invalid(`unknown owned data "${owned}"`, `architecture.components[${at}].owns`)
     }
+  }
+  // data.ownerComponentId is canonical; components[].owns is legacy input and a derived
+  // projection. A unique legacy owner migrates losslessly; a conflict or two owners is an
+  // invalid record on WRITE (the aggregate validator reports it with the exact path). On
+  // READ an older ambiguous record stays legible and byte-faithful, so it is not silently
+  // assigned an owner and its stored fingerprint still matches.
+  const ambiguous = record.data.some((data) => (data.ownerComponentId ?? '') === '' && record.architecture.components.filter((component) => component.owns.includes(data.id)).length > 1)
+  if (options.allowAmbiguousOwnership === true && ambiguous) return record
+  for (const data of record.data) {
+    const legacyOwners = record.architecture.components
+      .filter((component) => component.owns.includes(data.id))
+      .map((component) => component.id)
+    const canonicalOwner = data.ownerComponentId ?? ''
+    if (canonicalOwner !== '' && !componentIds.has(canonicalOwner)) {
+      invalid(`unknown ownerComponentId "${canonicalOwner}"`, `data[${record.data.indexOf(data)}].ownerComponentId`)
+    }
+    if (canonicalOwner !== '' && legacyOwners.length > 0 && (legacyOwners.length !== 1 || legacyOwners[0] !== canonicalOwner)) {
+      invalid('canonical ownerComponentId contradicts legacy owns', `data[${record.data.indexOf(data)}].ownerComponentId`)
+    }
+    if (canonicalOwner === '' && legacyOwners.length > 1) {
+      invalid('legacy owns has more than one owner', `data[${record.data.indexOf(data)}].id`)
+    }
+    if (canonicalOwner === '' && legacyOwners.length === 1) data.ownerComponentId = legacyOwners[0]
+  }
+  for (const component of record.architecture.components) {
+    component.owns = record.data.filter((data) => (data.ownerComponentId ?? '') === component.id).map((data) => data.id)
   }
   return record
 }
@@ -544,6 +989,10 @@ export function checkRecord(record, context = {}) {
   for (let at = 0; at < record.data.length; at += 1) {
     const item = record.data[at]
     if (item.owner === '') addFinding(findings, 'missing_data_ownership', 'error', `data[${at}].owner`, `data "${item.id}" has no owner`)
+    const legacyOwners = record.architecture.components.filter((component) => component.owns.includes(item.id))
+    if ((item.ownerComponentId ?? '') === '' && legacyOwners.length > 1) {
+      addFinding(findings, 'ownership_ambiguous_compat', 'warning', `data[${at}]`, `legacy data "${item.id}" has multiple owners (${legacyOwners.map((component) => component.id).join(', ')}); read-compatible, but resolve it to one ownerComponentId before editing`)
+    }
   }
   if (record.architecture.contractImpact === '') {
     addFinding(findings, 'missing_contract_impact', 'error', 'architecture.contractImpact', 'state the contract impact, even when it is "none"')
@@ -588,6 +1037,9 @@ export function checkRecord(record, context = {}) {
   if (context.fingerprintMatches === false) {
     addFinding(findings, 'fingerprint_mismatch', 'error', 'fingerprint', 'the semantic contents no longer match the recorded fingerprint; the file was edited outside analysis_upsert')
   }
+  if (context.legacyFingerprint === true) {
+    addFinding(findings, 'legacy_fingerprint', 'warning', 'fingerprint', `the stored fingerprint matches the ${context.legacyVersion || 'legacy'} algorithm; the record is recognised as legacy, and the next analysis_upsert migrates it to the current schema`)
+  }
   if (context?.design?.exists === true && record.designRef !== null && context.design.rev > record.designRef.mapRev) {
     // A moved map is a warning for ordinary work: only an architecture-affecting delegation
     // (or an explicit analysis_impact on the design) has to wait for the analysis to catch up.
@@ -628,6 +1080,7 @@ export function completionOf(record, readiness = checkRecord(record)) {
   const errors = findings.filter((finding) => finding.severity === 'error').length
   return {
     ok: readiness.ok && errors === 0,
+    state: readiness.ok && errors === 0 ? 'complete' : 'in_progress',
     counts,
     findings,
     errors,
@@ -798,8 +1251,23 @@ export function createService(config = {}, logger = undefined) {
     } catch (error) {
       return { exists: true, ok: false, code: 'malformed', message: `${path} is not readable JSON: ${error.message}`, path }
     }
+    // Reading never writes, so content limits are not enforced here: a record stored by an
+    // earlier version (or before a limit existed) stays legible rather than becoming
+    // unreadable. Every WRITE path validates with the limits enforced.
+    const validation = validateStrict(raw, { allowAmbiguousOwnership: true, requireContent: false, enforceLimits: false })
+    if (!validation.ok) {
+      return { exists: true, ok: false, code: 'invalid_record', message: validation.findings[0]?.message ?? 'invalid record', findings: validation.findings, path }
+    }
     try {
-      return { exists: true, ok: true, record: normalizeRecord(raw, initiative), path }
+      const record = normalizeRecord(raw, initiative, { allowAmbiguousOwnership: true })
+      return {
+        exists: true,
+        ok: true,
+        record,
+        path,
+        fingerprint: fingerprintStatusOf(record),
+        ambiguousOwnership: ambiguousOwnershipOf(record),
+      }
     } catch (error) {
       return { exists: true, ok: false, code: error?.code ?? 'invalid_record', message: error?.message ?? String(error), path }
     }
@@ -812,8 +1280,8 @@ export function createService(config = {}, logger = undefined) {
     renameSync(temp, path)
   }
 
-  const staleOf = (record, design, fingerprintMatches) => {
-    if (!fingerprintMatches) return { code: 'fingerprint_mismatch', message: 'the semantic contents no longer match the recorded fingerprint' }
+  const staleOf = (record, design, fingerprintState) => {
+    if (!fingerprintState.matches) return { code: 'fingerprint_mismatch', message: 'the semantic contents no longer match the recorded fingerprint' }
     if (record.pendingImpacts.length > 0) {
       return { code: 'pending_impact', message: `${record.pendingImpacts.length} unresolved impact(s): ${record.pendingImpacts.map((impact) => impact.id || impact.change).join(', ')}` }
     }
@@ -823,9 +1291,9 @@ export function createService(config = {}, logger = undefined) {
     return null
   }
 
-  const describe = (record, design) => {
-    const fingerprintMatches = record.fingerprint !== '' && record.fingerprint === fingerprintOf(record)
-    const check = checkRecord(record, { design, fingerprintMatches })
+  const describe = (record, design, fingerprintState = fingerprintStatusOf(record)) => {
+    const fingerprintMatches = fingerprintState.matches
+    const check = checkRecord(record, { design, fingerprintMatches, legacyFingerprint: fingerprintState.legacy, legacyVersion: fingerprintState.version })
     const completion = completionOf(record, check)
     return {
       rev: record.rev,
@@ -833,8 +1301,10 @@ export function createService(config = {}, logger = undefined) {
       updatedAt: record.updatedAt,
       fingerprint: record.fingerprint,
       fingerprintMatches,
-      stale: staleOf(record, design, fingerprintMatches),
+      legacyFingerprint: fingerprintState.legacy ? { recognized: true, version: fingerprintState.version } : null,
+      stale: staleOf(record, design, fingerprintState),
       design: { currentRev: design.rev, designRefRev: record.designRef?.mapRev ?? null, drift: record.designRef !== null && design.rev > record.designRef.mapRev },
+      readiness: check,
       check,
       completion,
     }
@@ -851,7 +1321,8 @@ export function createService(config = {}, logger = undefined) {
       exists: true,
       initiative,
       record: loaded.record,
-      ...describe(loaded.record, design),
+      ambiguousOwnership: loaded.ambiguousOwnership === true,
+      ...describe(loaded.record, design, loaded.fingerprint),
     }
   }
 
@@ -875,10 +1346,40 @@ export function createService(config = {}, logger = undefined) {
         class: loaded.record.sizing.class,
         title: loaded.record.title,
         updatedAt: loaded.record.updatedAt,
-        stale: staleOf(loaded.record, designOf(cwd), loaded.record.fingerprint !== '' && loaded.record.fingerprint === fingerprintOf(loaded.record)),
+        legacyFingerprint: loaded.fingerprint?.legacy === true ? { recognized: true, version: loaded.fingerprint.version } : null,
+        ambiguousOwnership: loaded.ambiguousOwnership === true,
+        stale: staleOf(loaded.record, designOf(cwd), loaded.fingerprint ?? { matches: false }),
       })
     }
     return { ok: true, records }
+  }
+
+  /**
+   * Independent readiness findings for a structurally invalid patch. Structural and semantic
+   * defects are reported in the SAME response, but a semantic finding inside a structurally
+   * broken subtree is dropped: it is a cascade of that defect, not new information.
+   */
+  const independentSemanticFindings = (cwd, merged, structural) => {
+    let normalized
+    try {
+      normalized = normalizeRecord(merged, merged.id)
+    } catch {
+      return []
+    }
+    const check = checkRecord(normalized, { design: designOf(cwd), fingerprintMatches: true })
+    const broken = structural.map((finding) => finding.path).filter((path) => typeof path === 'string' && path !== '')
+    const suppressed = (path) => broken.some((prefix) => path === prefix || path.startsWith(`${prefix}.`) || path.startsWith(`${prefix}[`))
+    const seen = new Set(structural.map((finding) => `${finding.code}@${finding.path}`))
+    const extra = []
+    for (const finding of check.findings) {
+      if (finding.severity !== 'error' || finding.code === 'fingerprint_mismatch') continue
+      if (suppressed(finding.path)) continue
+      const key = `${finding.code}@${finding.path}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      extra.push({ ...finding, source: 'semantic' })
+    }
+    return extra
   }
 
   const upsert = (cwd, input = {}) => {
@@ -886,6 +1387,7 @@ export function createService(config = {}, logger = undefined) {
     const loaded = load(cwd, initiative)
     if (loaded.exists && !loaded.ok) return { ok: false, code: loaded.code, message: loaded.message }
     const exists = loaded.exists === true
+    const fingerprintState = loaded.fingerprint ?? { matches: false, legacy: false, version: '' }
     const current = exists ? loaded.record : emptyRecord(initiative, timestamp())
     if (exists) {
       if (!Number.isSafeInteger(input.expectedRev)) return { ok: false, code: 'needs_revision', currentRev: current.rev, message: `an edit of "${initiative}" needs the expectedRev it read (current rev ${current.rev})` }
@@ -893,8 +1395,10 @@ export function createService(config = {}, logger = undefined) {
     } else if (input.expectedRev !== undefined && input.expectedRev !== null && input.expectedRev !== 0) {
       return { ok: false, code: 'needs_revision', currentRev: 0, message: `"${initiative}" does not exist yet; create it without expectedRev or with 0` }
     }
-    // A hand edit must be acknowledged, not silently blessed by the next write.
-    if (exists && current.fingerprint !== fingerprintOf(current) && input.acceptHandEdit !== true) {
+    // A hand edit must be acknowledged, not silently blessed by the next write. A fingerprint
+    // written by a known earlier version is NOT a hand edit: it is recognised as legacy and
+    // this write migrates it (history action "migrate").
+    if (exists && fingerprintState.matches !== true && input.acceptHandEdit !== true) {
       return {
         ok: false,
         code: 'fingerprint_mismatch',
@@ -933,6 +1437,20 @@ export function createService(config = {}, logger = undefined) {
     merged.updatedBy = input.by === 'human' ? 'human' : 'agent'
     merged.pendingImpacts = current.pendingImpacts
     merged.history = current.history
+    const validation = validateStrict(merged)
+    if (!validation.ok) {
+      // Structural and SEMANTIC findings come back in one response. A semantic finding that
+      // sits inside a structurally broken subtree is suppressed: it is a cascade of the same
+      // defect, not independent information.
+      const findings = [...validation.findings, ...independentSemanticFindings(cwd, merged, validation.findings)]
+      return {
+        ok: false,
+        code: 'invalid_record',
+        currentRev: current.rev,
+        findings,
+        message: `"${initiative}" has ${findings.length} validation finding(s); first: ${findings[0].path}: ${findings[0].message}`,
+      }
+    }
     let next
     try {
       next = normalizeRecord(merged, initiative)
@@ -1047,6 +1565,7 @@ export function createService(config = {}, logger = undefined) {
     if (next.status === 'ready' && next.designRef === null) {
       next.designRef = { mapRev: design.rev, at: now, source: designMapFile }
     }
+    if (next.designRef !== null && next.designRef.at === '') next.designRef.at = now
     next.fingerprint = fingerprintOf(next)
     const readiness = checkRecord(next, { design, fingerprintMatches: true })
     const completion = completionOf(next, readiness)
@@ -1056,17 +1575,20 @@ export function createService(config = {}, logger = undefined) {
     if (next.status === 'completed' && !completion.ok) {
       return { ok: false, code: 'completion_blocked', currentRev: current.rev, findings: [...readiness.findings, ...completion.findings], message: `"${initiative}" cannot be completed: ${completion.findings.find((finding) => finding.severity === 'error')?.message ?? completion.message}` }
     }
+    const migrating = exists && fingerprintState.legacy === true
     next.history = [...next.history, {
       revision: next.rev,
       at: now,
       editedBy: next.updatedBy,
-      action: exists ? 'upsert' : 'create',
+      action: migrating ? 'migrate' : (exists ? 'upsert' : 'create'),
       status: next.status,
-      summary: input.acceptHandEdit === true
-        ? 'accepted a hand edit'
-        : (changes.length > 0
-          ? `requirements: ${changes.map((change) => `${change.id} ${change.kind}`).join(', ')}${semanticImpacts.length > 0 ? `; impacts: ${semanticImpacts.length}` : ''}`
-          : (semanticImpacts.length > 0 ? `impacts: ${semanticImpacts.length}` : '')),
+      summary: migrating
+        ? `migrated the ${fingerprintState.version} semantic fingerprint to the current schema${semanticImpacts.length > 0 ? `; impacts: ${semanticImpacts.length}` : ''}`
+        : (input.acceptHandEdit === true
+          ? 'accepted a hand edit'
+          : (changes.length > 0
+            ? `requirements: ${changes.map((change) => `${change.id} ${change.kind}`).join(', ')}${semanticImpacts.length > 0 ? `; impacts: ${semanticImpacts.length}` : ''}`
+            : (semanticImpacts.length > 0 ? `impacts: ${semanticImpacts.length}` : ''))),
     }].slice(-historyLimit)
     write(loaded.path, next)
     return {
@@ -1074,6 +1596,7 @@ export function createService(config = {}, logger = undefined) {
       created: !exists,
       rev: next.rev,
       record: next,
+      readiness: checkRecord(next, { design, fingerprintMatches: true }),
       check: checkRecord(next, { design, fingerprintMatches: true }),
       completion: completionOf(next, checkRecord(next, { design, fingerprintMatches: true })),
     }
@@ -1096,6 +1619,7 @@ export function createService(config = {}, logger = undefined) {
       fingerprintMatches: described.fingerprintMatches,
       stale: described.stale,
       findings,
+      readiness: described.check,
       check: described.check,
       completion: described.completion,
     }
@@ -1107,7 +1631,8 @@ export function createService(config = {}, logger = undefined) {
     if (!loaded.ok) return { ok: false, code: loaded.code === 'malformed' ? 'analysis_required' : loaded.code, message: loaded.message }
     if (!loaded.exists) return { ok: false, code: 'analysis_required', message: `no Analysis Record "${initiative}" to receive an impact` }
     const record = loaded.record
-    if (record.fingerprint !== fingerprintOf(record)) return { ok: false, code: 'fingerprint_mismatch', currentRev: record.rev, message: `the Analysis Record "${initiative}" was edited outside analysis_upsert; repair it before recording an impact` }
+    const fingerprintState = loaded.fingerprint ?? { matches: false }
+    if (fingerprintState.matches !== true) return { ok: false, code: 'fingerprint_mismatch', currentRev: record.rev, message: `the Analysis Record "${initiative}" was edited outside analysis_upsert; repair it before recording an impact` }
     if (!Number.isSafeInteger(input.expectedRev)) return { ok: false, code: 'needs_revision', currentRev: record.rev, message: `analysis_impact needs the expectedRev it read (current rev ${record.rev})` }
     if (input.expectedRev !== record.rev) return { ok: false, code: 'stale', currentRev: record.rev, message: `expected rev ${input.expectedRev}, the record is at rev ${record.rev}` }
     const change = asString(input.change)
@@ -1178,7 +1703,11 @@ export function createService(config = {}, logger = undefined) {
     if (Number.isSafeInteger(input.expectedRev) && input.expectedRev !== record.rev) {
       return { ok: false, code: 'stale', currentRev: record.rev, message: `linkTask read rev ${input.expectedRev}, the record is at rev ${record.rev}` }
     }
-    if (record.fingerprint !== fingerprintOf(record)) return { ok: false, code: 'analysis_stale', message: `the Analysis Record "${initiative}" no longer matches its semantic fingerprint` }
+    const fingerprintState = loaded.fingerprint ?? { matches: false }
+    if (fingerprintState.matches !== true) return { ok: false, code: 'analysis_stale', message: `the Analysis Record "${initiative}" no longer matches its semantic fingerprint` }
+    if (loaded.ambiguousOwnership === true) {
+      return { ok: false, code: 'analysis_stale', message: `the Analysis Record "${initiative}" has unresolved legacy data ownership; resolve data[].ownerComponentId to one owner before linking a task` }
+    }
     if (record.pendingImpacts.length > 0) return { ok: false, code: 'analysis_stale', message: `the Analysis Record "${initiative}" has ${record.pendingImpacts.length} unresolved impact(s)` }
     if (record.status !== 'ready') return { ok: false, code: 'analysis_required', message: `the Analysis Record "${initiative}" is ${record.status}, not ready` }
     const unavailable = requirementIds.filter((id) => {
@@ -1193,13 +1722,15 @@ export function createService(config = {}, logger = undefined) {
     for (const row of next.trace) {
       if (!requirementIds.includes(row.requirementId)) continue
       if (!row.tasks.some((task) => task.taskId === taskId)) {
-        row.tasks.push({ taskId, role: asString(input.role).slice(0, 80), at: now, evidence: [] })
+        row.tasks.push({ taskId, role: asString(input.role), at: now, evidence: [] })
       }
     }
     next.rev = record.rev + 1
     next.updatedAt = now
     next.updatedBy = 'agent'
-    next.fingerprint = fingerprintOf(next)
+    // Linking a task is trace-only and moves no semantic bytes, so the stored fingerprint is
+    // left exactly as written. Re-sealing it here would silently "migrate" a recognised legacy
+    // record as a side effect of an operational link; semantic writes do that explicitly.
     next.history = [...record.history, {
       revision: next.rev,
       at: now,
@@ -1224,7 +1755,7 @@ export function createService(config = {}, logger = undefined) {
       const loaded = load(cwd, initiative)
       if (loaded.exists !== true) continue
       if (loaded.ok === true) {
-        records.push({ initiative, record: loaded.record })
+        records.push({ initiative, record: loaded.record, fingerprint: loaded.fingerprint, ambiguousOwnership: loaded.ambiguousOwnership })
         continue
       }
       let text = ''
@@ -1253,17 +1784,20 @@ export function createService(config = {}, logger = undefined) {
     const closingIds = new Set(closing.length > 0 ? closing : [id])
     const isOpenTask = typeof options.isOpenTask === 'function' ? options.isOpenTask : () => true
     const found = []
-    for (const { initiative, record } of records) {
+    for (const { initiative, record, fingerprint, ambiguousOwnership } of records) {
       for (const row of record.trace) {
         const task = row.tasks.find((entry) => entry.taskId === id)
-        if (task !== undefined) found.push({ initiative, record, row, task })
+        if (task !== undefined) found.push({ initiative, record, fingerprint, ambiguousOwnership, row, task })
       }
     }
     if (found.length === 0) return { ok: true, traced: false }
-    for (const { initiative, record, row, task } of found) {
+    for (const { initiative, record, fingerprint, ambiguousOwnership, row, task } of found) {
       if (record.status === 'completed') continue
-      if (record.fingerprint !== fingerprintOf(record)) {
+      if (fingerprint?.matches !== true) {
         return { ok: false, code: 'analysis_stale', message: `task "${id}" is traced to "${initiative}", whose record was edited outside analysis_upsert; repair it before closing the task` }
+      }
+      if (ambiguousOwnership === true) {
+        return { ok: false, code: 'analysis_stale', message: `task "${id}" is traced to "${initiative}", whose legacy data ownership is ambiguous; resolve data[].ownerComponentId before closing the task` }
       }
       if (record.pendingImpacts.length > 0) {
         return { ok: false, code: 'analysis_stale', message: `task "${id}" is traced to "${initiative}", which has ${record.pendingImpacts.length} unresolved impact(s); resolve them before closing the task` }
@@ -1305,10 +1839,13 @@ export function createService(config = {}, logger = undefined) {
         return { ok: false, code: 'analysis_stale', message: `goal "${id}" may be linked in the unreadable record "${entry.initiative}" (${entry.code}); repair the record before completing the goal` }
       }
     }
-    for (const { initiative, record } of records) {
+    for (const { initiative, record, fingerprint, ambiguousOwnership } of records) {
       if (record.goalId !== id && !record.goalHistory.includes(id)) continue
-      if (record.fingerprint !== fingerprintOf(record)) {
+      if (fingerprint?.matches !== true) {
         return { ok: false, code: 'analysis_stale', message: `goal "${id}" is linked to "${initiative}", whose record was edited outside analysis_upsert` }
+      }
+      if (ambiguousOwnership === true) {
+        return { ok: false, code: 'analysis_stale', message: `goal "${id}" is linked to "${initiative}", whose legacy data ownership is ambiguous; resolve data[].ownerComponentId before completing the goal` }
       }
       if (record.pendingImpacts.length > 0) {
         return { ok: false, code: 'analysis_stale', message: `goal "${id}" is linked to "${initiative}", which has ${record.pendingImpacts.length} unresolved impact(s)` }
@@ -1366,9 +1903,19 @@ export function createService(config = {}, logger = undefined) {
     if (!loaded.exists) return { ok: false, code: 'analysis_required', message: `no Analysis Record "${normalized}" in ${storeDir(cwd)}; write one with analysis_upsert before delegating ${effective} work` }
     const record = loaded.record
     const design = designOf(cwd)
-    const fingerprintMatches = record.fingerprint !== '' && record.fingerprint === fingerprintOf(record)
-    if (!fingerprintMatches) {
+    const fingerprintState = loaded.fingerprint ?? { matches: false }
+    if (fingerprintState.matches !== true) {
       return { ok: false, code: 'analysis_stale', rev: record.rev, message: `the Analysis Record "${normalized}" no longer matches its semantic fingerprint; re-run analysis_upsert after inspecting the hand edit` }
+    }
+    // An older record may READ with ambiguous legacy ownership, but a delegation cannot start
+    // against it: the canonical owner is unknown, so the gate fails closed until it is resolved.
+    if (loaded.ambiguousOwnership === true) {
+      return {
+        ok: false,
+        code: 'analysis_stale',
+        rev: record.rev,
+        message: `the Analysis Record "${normalized}" has unresolved legacy data ownership (data without data[].ownerComponentId owned by several components); read is compatible, but resolve the canonical owner before delegating`,
+      }
     }
     if (record.pendingImpacts.length > 0) {
       return {

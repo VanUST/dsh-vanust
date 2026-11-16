@@ -1,0 +1,497 @@
+{
+  "schemaVersion": 1,
+  "id": "analysis-record-schema-integrity",
+  "rev": 6,
+  "status": "ready",
+  "createdAt": "2026-11-16T09:25:23.234Z",
+  "updatedAt": "2026-11-16T09:54:00.271Z",
+  "updatedBy": "agent",
+  "title": "Analysis Record schema integrity",
+  "requestedSolution": "Исправить strict nested schema, aggregate validation, ownership и readiness/completion по подтверждённому отзыву; делегировать реализацию и независимые проверки без publish/restart текущего клиента.",
+  "businessOutcome": {
+    "problem": "Analysis Record может стать ready после молчаливой потери nested-полей или неверного enum, владение данными имеет два расходящихся представления, а fail-fast заставляет чинить по одной ошибке за раунд.",
+    "outcome": "Любой недопустимый или неоднозначный ввод отклоняется без записи, все независимые ошибки видны за один вызов, существующие корректные записи сохраняют читаемость, а агент получает полный и однозначный Analysis Record.",
+    "successMetrics": [
+      "Ни один unknown nested key или invalid enum не приводит к успешной записи",
+      "Один вызов с несколькими независимыми дефектами возвращает все применимые findings",
+      "Ownership имеет одно каноническое направление и проверку конфликтов",
+      "Red-first сценарии отзыва воспроизводятся на прежних bytes и закрыты на новых"
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CURRENT",
+        "name": "Projection-based normalization",
+        "actors": [
+          "orchestrator"
+        ],
+        "steps": [
+          "Проецировать только известные поля",
+          "Бросить первую структурную ошибку",
+          "Проверить semantic completeness"
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-STRICT",
+        "name": "Strict lossless validation",
+        "actors": [
+          "orchestrator"
+        ],
+        "steps": [
+          "Проверить known keys и типы до нормализации",
+          "Собрать независимые ошибки",
+          "Не писать при любом error"
+        ]
+      },
+      {
+        "id": "P-OWNERSHIP",
+        "name": "Canonical data ownership",
+        "actors": [
+          "orchestrator"
+        ],
+        "steps": [
+          "Записать ownerComponentId у данных",
+          "Вычислить component owns как projection",
+          "Отклонить конфликт legacy и canonical форм"
+        ]
+      },
+      {
+        "id": "P-REPORT",
+        "name": "Explicit analysis state",
+        "actors": [
+          "orchestrator"
+        ],
+        "steps": [
+          "Различать readiness и completion",
+          "Вернуть findings и состояние без записи",
+          "Сохранить документированную миграцию"
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "BR-1",
+      "kind": "BR",
+      "text": "Analysis Record не должен объявлять готовность ценой потери переданного бизнес- или системного смысла.",
+      "acceptance": [
+        "Любой неизвестный nested key даёт invalid_record с точным path и не создаёт/не изменяет файл"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR-1",
+      "kind": "FR",
+      "text": "Strict schema отклоняет unknown keys, неверные типы, invalid enum и пустые обязательные поля во всех nested секциях.",
+      "acceptance": [
+        "decisions {id,text}, process {id,text}, contracts change:removed и пустой decision отклоняются по имени поля",
+        "Сообщение для removed рекомендует breaking + description",
+        "Нормализация не превращает неверное значение в пустое"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR-2",
+      "kind": "FR",
+      "text": "Aggregate validation возвращает все независимые ошибки за один вызов без каскадного шума от отсутствующих ссылок.",
+      "acceptance": [
+        "Фикстура с ошибками в decisions, contracts, data и trace возвращает их в одном ответе",
+        "При любом error отсутствует запись; существующий файл byte-identical",
+        "Повторный вызов после исправления не открывает ранее скрытые независимые ошибки"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR-3",
+      "kind": "FR",
+      "text": "Связь component ↔ data имеет одного канонического владельца и обратную совместимость с прежними записями.",
+      "acceptance": [
+        "data.ownerComponentId ссылается на существующий component id и является canonical",
+        "components[].owns вычисляется из data либо принимается только как legacy input с явным migration behavior",
+        "Одинаковые canonical/legacy сведения не дублируют источник правды; конфликт отклоняется",
+        "data.owner при необходимости остаётся отдельной ролью, а не вторым системным владельцем"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR-4",
+      "kind": "FR",
+      "text": "Tool schema, README и ответы явно различают readiness, completion и migration.",
+      "acceptance": [
+        "Свежая ready запись сообщает completion in_progress с planned count, а не непонятный второй error",
+        "designRef.at автоматически заполняется при захвате и валидируется при вводе, но drift использует только mapRev",
+        "Документация содержит точные nested shapes и смысл processId"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "NFR-1",
+      "kind": "NFR",
+      "text": "Исправления сохраняют CAS, атомарность, fingerprint/impact semantics, существующие gate behavior и читаемость допустимых старых записей.",
+      "acceptance": [
+        "93 ранее существующих checks либо остаются green, либо обновлены только по сознательно изменённому контракту",
+        "make verify и legacy taskboard proofs green",
+        "Отсутствует регрессия read-only/L0/legacyAttach и completion guards"
+      ],
+      "status": "planned"
+    }
+  ],
+  "architecture": {
+    "contractImpact": "breaking",
+    "components": [
+      {
+        "id": "C-STORE",
+        "name": "Analysis Record store",
+        "responsibility": "Strict validation, canonical record, ownership projection, CAS/atomic persistence",
+        "owner": "BACKEND",
+        "owns": [
+          "D-RECORD",
+          "D-FINDINGS"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "C-TOOLS",
+        "name": "Analysis tools and contract docs",
+        "responsibility": "Explicit tool schema, readiness/completion response and migration guidance",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": [
+          "C-STORE"
+        ]
+      },
+      {
+        "id": "C-PROOF",
+        "name": "Behavioral proof and adversarial review",
+        "responsibility": "Red-first regression, mutation and compatibility evidence",
+        "owner": "REVIEWER",
+        "owns": [],
+        "dependsOn": [
+          "C-STORE"
+        ]
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "D-RECORD",
+      "name": "Canonical Analysis Record",
+      "owner": "BACKEND",
+      "ownerComponentId": "C-STORE",
+      "description": "Normalized lossless record; system data owner is C-STORE in the target contract"
+    },
+    {
+      "id": "D-FINDINGS",
+      "name": "Validation findings",
+      "owner": "BACKEND",
+      "ownerComponentId": "C-STORE",
+      "description": "Stable machine-readable paths/codes for all independent input defects"
+    }
+  ],
+  "contracts": [
+    {
+      "id": "CT-INPUT",
+      "name": "analysis_upsert nested input",
+      "between": [
+        "C-TOOLS",
+        "C-STORE"
+      ],
+      "change": "breaking",
+      "description": "Unknown keys and invalid values now fail; previously projected fields are no longer silently dropped"
+    },
+    {
+      "id": "CT-OWNERSHIP",
+      "name": "component-data ownership",
+      "between": [
+        "C-STORE",
+        "D-RECORD"
+      ],
+      "change": "breaking",
+      "description": "data.ownerComponentId becomes canonical; legacy owns input requires deterministic compatibility/conflict rules"
+    }
+  ],
+  "invariants": [
+    {
+      "id": "INV-NO-LOSS",
+      "text": "No successful write may discard caller-supplied semantic content.",
+      "scope": "all analysis writes"
+    },
+    {
+      "id": "INV-ATOMIC",
+      "text": "Any validation error leaves the previous record byte-identical.",
+      "scope": "analysis_upsert"
+    },
+    {
+      "id": "INV-CANONICAL-OWNER",
+      "text": "Exactly one stored direction owns the component-data relationship.",
+      "scope": "normalized Analysis Record"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "DEC-STRICT",
+      "decision": "Reject unknown nested keys and invalid enums before projection.",
+      "rationale": "A successful response must never hide semantic data loss.",
+      "alternatives": [
+        "Сохранять текущую projection и полагаться на echo record"
+      ]
+    },
+    {
+      "id": "DEC-OWNER",
+      "decision": "Make data.ownerComponentId canonical and treat components[].owns only as a derived/legacy representation.",
+      "rationale": "The data entity is the stable owner of the relationship; role ownership remains a separate field.",
+      "alternatives": [
+        "Оставить два независимых направления",
+        "Сделать components[].owns canonical"
+      ]
+    },
+    {
+      "id": "DEC-AGGREGATE",
+      "decision": "Collect all independent structural and semantic findings before refusing a write.",
+      "rationale": "Seven one-error rounds provide no additional safety and obscure the real input contract.",
+      "alternatives": [
+        "Fail fast on the first exception"
+      ]
+    },
+    {
+      "id": "DEC-REMOVAL",
+      "decision": "Reject change:removed and recommend breaking + description.",
+      "rationale": "The existing enum describes impact, not a separate removal operation.",
+      "alternatives": [
+        "Добавить removed в enum без необходимости"
+      ]
+    }
+  ],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L2",
+    "reasons": [
+      "Меняется входной и хранимый контракт Analysis Record",
+      "Затрагиваются validation, persistence, ownership, tool docs и proof",
+      "Нужна совместимость и adversarial проверка"
+    ]
+  },
+  "designRef": {
+    "mapRev": 30,
+    "at": "2026-11-16T09:24:44.830Z",
+    "source": "design.excalidraw"
+  },
+  "goalId": "goal-c0ba0417-b989-4116-a29f-14ff44b01b7d",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "BR-1",
+      "processId": "P-STRICT",
+      "componentId": "C-STORE",
+      "contractIds": [
+        "CT-INPUT"
+      ],
+      "dataIds": [
+        "D-RECORD"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "taskId": "task-mwj27220-stljsf",
+          "role": "BACKEND",
+          "at": "2026-11-16T09:27:41.732Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwj2ydz0-jxok0k",
+          "role": "SCHEMA",
+          "at": "2026-11-16T09:47:45.867Z",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-1",
+      "processId": "P-STRICT",
+      "componentId": "C-STORE",
+      "contractIds": [
+        "CT-INPUT"
+      ],
+      "dataIds": [
+        "D-RECORD",
+        "D-FINDINGS"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "taskId": "task-mwj27220-stljsf",
+          "role": "BACKEND",
+          "at": "2026-11-16T09:27:41.732Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwj2ydz0-jxok0k",
+          "role": "SCHEMA",
+          "at": "2026-11-16T09:47:45.867Z",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-2",
+      "processId": "P-STRICT",
+      "componentId": "C-STORE",
+      "contractIds": [
+        "CT-INPUT"
+      ],
+      "dataIds": [
+        "D-FINDINGS"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "taskId": "task-mwj27220-stljsf",
+          "role": "BACKEND",
+          "at": "2026-11-16T09:27:41.732Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwj2ydz0-jxok0k",
+          "role": "SCHEMA",
+          "at": "2026-11-16T09:47:45.867Z",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-3",
+      "processId": "P-OWNERSHIP",
+      "componentId": "C-STORE",
+      "contractIds": [
+        "CT-OWNERSHIP"
+      ],
+      "dataIds": [
+        "D-RECORD"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "taskId": "task-mwj27220-stljsf",
+          "role": "BACKEND",
+          "at": "2026-11-16T09:27:41.732Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwj2ydz0-jxok0k",
+          "role": "SCHEMA",
+          "at": "2026-11-16T09:47:45.867Z",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-4",
+      "processId": "P-REPORT",
+      "componentId": "C-TOOLS",
+      "contractIds": [
+        "CT-INPUT"
+      ],
+      "dataIds": [
+        "D-FINDINGS"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "taskId": "task-mwj27220-stljsf",
+          "role": "BACKEND",
+          "at": "2026-11-16T09:27:41.732Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwj2ydz0-jxok0k",
+          "role": "SCHEMA",
+          "at": "2026-11-16T09:47:45.867Z",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "requirementId": "NFR-1",
+      "processId": "P-REPORT",
+      "componentId": "C-PROOF",
+      "contractIds": [
+        "CT-INPUT",
+        "CT-OWNERSHIP"
+      ],
+      "dataIds": [
+        "D-RECORD",
+        "D-FINDINGS"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "taskId": "task-mwj27220-stljsf",
+          "role": "BACKEND",
+          "at": "2026-11-16T09:27:41.732Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwj2ydz0-jxok0k",
+          "role": "SCHEMA",
+          "at": "2026-11-16T09:47:45.867Z",
+          "evidence": []
+        }
+      ]
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "bb824d2e09de1466f496ddd4906cf72971ca73a6dfdeb47268cf2ed0b1b3cac2",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-16T09:25:23.234Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-16T09:25:59.307Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "impacts: 1"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-16T09:27:41.732Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwj27220-stljsf -> BR-1, FR-1, FR-2, FR-3, FR-4, NFR-1"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-16T09:45:41.421Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwj27220-stljsf -> BR-1, FR-1, FR-2, FR-3, FR-4, NFR-1"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-16T09:47:45.867Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwj2ydz0-jxok0k -> BR-1, FR-1, FR-2, FR-3, FR-4, NFR-1"
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-16T09:54:00.271Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "impacts: 1"
+    }
+  ]
+}

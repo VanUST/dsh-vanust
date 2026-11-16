@@ -927,15 +927,15 @@
     "gridSize": 20,
     "theme": "light",
     "scrollX": 85.00003051757812,
-    "scrollY": 160.40103149414062,
+    "scrollY": 267.54389046162976,
     "zoom": {
       "value": 0.8
     }
   },
   "files": {},
   "designMap": {
-    "rev": 28,
-    "updatedAt": "2026-11-11T10:07:37.722Z",
+    "rev": 30,
+    "updatedAt": "2026-11-16T09:24:44.830Z",
     "updatedBy": "human",
     "title": "dsh-kit architecture and code search"
   }

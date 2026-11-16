@@ -1,0 +1,132 @@
+{
+  "schemaVersion": 1,
+  "id": "analysis-reports-all-validation-errors",
+  "title": "Analysis reports all validation errors",
+  "requirement": "Несколько независимых ошибок Analysis Record должны возвращаться одним списком за один вызов, без серии fail-fast раундов и без частичной записи.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "human",
+  "automated": true,
+  "reason": "Automated by the behavioral proof; the red run below is against the previous committed store bytes.",
+  "steps": [
+    "Call analysis_upsert once with independent defects in decisions, contracts, data ownership and trace references.",
+    "Assert one invalid_record response contains findings for decisions[0].decision, contracts[0].change, data[0].ownerComponentId and trace[0].requirementId.",
+    "Assert no record file was created and no rev changed.",
+    "Run the same proof against a scratch copy with the strict validation call removed and observe red."
+  ],
+  "expected": "All independent errors are returned in a single findings[] response; no partial file and no cascading repeat rounds.",
+  "tags": [
+    "owner-requirement",
+    "orchestrator",
+    "analysis",
+    "validation",
+    "atomicity"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/analysis/store.mjs",
+      "sha256": "cb92ad1b4d80893494e0ca059e8fe159f6f355049c6b9fd5c61a4052215a4044"
+    },
+    {
+      "path": "plugins/analysis/analysis.mjs",
+      "sha256": "81988f3967088b92b3141f89895a7ce5437f8ebbe6475c975534522029855a8a"
+    },
+    {
+      "path": "scripts/analysis-before-decomposition-proof.mjs",
+      "sha256": "dd7000100a5ab94934cf827f50de2c5b4b6b32caf15c1e1919dc99b2982e83a3"
+    }
+  ],
+  "linkedTaskId": "task-mwj27220-stljsf",
+  "revision": 7,
+  "createdAt": "2026-11-16T09:27:00.317Z",
+  "updatedAt": "2026-11-16T10:06:55.093Z",
+  "createdBy": "orchestrator",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-16T09:27:00.317Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "Analysis reports all validation errors",
+        "requirement": "Несколько независимых ошибок Analysis Record должны возвращаться одним списком за один вызов, без серии fail-fast раундов и без частичной записи.",
+        "expected": "Первый ответ содержит все применимые ошибки с path/code; при ошибке rev и bytes не меняются; после исправления не появляются новые ранее скрытые независимые ошибки.",
+        "steps": [
+          "Передать одновременно ошибки в decisions, contracts, data ownership и trace links",
+          "Проверить, что все независимые findings присутствуют в первом ответе",
+          "Исправить все и повторить; проверить, что отказ не создал/не изменил файл"
+        ],
+        "automated": false,
+        "reason": "Aggregate validation ещё не реализована; после red-first воспроизведения будет добавлена реальная behavioral проверка.",
+        "status": "unverified"
+      }
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-16T09:35:17.505Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "One invalid_record response carries decisions[0].decision, contracts[0].change, data[0].ownerComponentId and trace[0].requirementId; no file and no rev. Red in the HEAD worktree returned only the first/partial error (or accepted the write)."
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-16T09:35:51.138Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "Green on 0.1.6. One invalid_record carries decisions[0].decision, contracts[0].change, data[0].ownerComponentId and trace[0].requirementId; no file and no rev. Red on the HEAD worktree returned only the first/partial error or accepted the write."
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-16T09:36:51.077Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "Green on 0.1.7. One invalid_record carries decisions[0].decision, contracts[0].change, data[0].ownerComponentId and trace[0].requirementId; no file and no rev. Red on the HEAD worktree returned only the first/partial error or accepted the write."
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-16T09:57:39.409Z",
+      "editedBy": "agent",
+      "action": "stale",
+      "reason": "surface files changed since lastVerified: plugins/analysis/store.mjs, plugins/analysis/analysis.mjs, scripts/analysis-before-decomposition-proof.mjs"
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-16T10:06:55.093Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "Green on 0.1.8 (129/129). Red is the same command in a hardlinked /tmp copy with the committed 0.1.4 store/analysis bytes: the aggregate call returned only an enum finding and the later failure surfaced on a subsequent call (26 FAIL total, exit 1). The current source returns all independent paths in one findings[]."
+    }
+  ],
+  "evidence": {
+    "redFirst": {
+      "command": "node scripts/analysis-before-decomposition-proof.mjs",
+      "output": "FAIL  all independent validation errors are returned in one response  {\"code\":\"invalid_record\"}\nFAIL  unknown nested keys are rejected with exact paths  {}\n103/129 checks passed\n(26 FAIL total; cwd /tmp/schema-publish-red, committed 0.1.4 plugin bytes, current proof)",
+      "exitCode": 1,
+      "at": "2026-11-16T10:09:00.000Z"
+    },
+    "green": {
+      "command": "node scripts/analysis-before-decomposition-proof.mjs",
+      "output": "PASS  all independent validation errors are returned in one response  {\"code\":\"invalid_record\",\"findings\":[{\"code\":\"invalid_enum\",\"path\":\"contracts[0].change\"},{\"code\":\"missing_field\",\"path\":\"decisions[0].decision\"},{\"code\":\"invalid_reference\",\"path\":\"trace[0].requirementId\"},{\"code\":\"invalid_reference\",\"path\":\"data[0].ownerComponentId\"},{\"code\":\"ownership_conflict\",\"path\":\"data[0].ownerComponentId\"}]}\nPASS  trimmed duplicates are refused in every id-bearing section in one response\n129/129 checks passed",
+      "exitCode": 0,
+      "at": "2026-11-16T10:09:00.000Z"
+    },
+    "commit": null
+  },
+  "testPath": "scripts/analysis-before-decomposition-proof.mjs",
+  "runCommand": "node scripts/analysis-before-decomposition-proof.mjs",
+  "lastVerified": {
+    "at": "2026-11-16T10:09:00.000Z",
+    "command": "node scripts/analysis-before-decomposition-proof.mjs",
+    "exitCode": 0
+  },
+  "degraded": false,
+  "needsReverification": {
+    "at": "2026-11-16T09:57:39.409Z",
+    "changedFiles": [
+      "plugins/analysis/store.mjs",
+      "plugins/analysis/analysis.mjs",
+      "scripts/analysis-before-decomposition-proof.mjs"
+    ],
+    "reason": "surface files changed since lastVerified: plugins/analysis/store.mjs, plugins/analysis/analysis.mjs, scripts/analysis-before-decomposition-proof.mjs"
+  }
+}

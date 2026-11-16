@@ -97,6 +97,16 @@ try {
   analysisImportError = error instanceof Error ? error.message : String(error)
 }
 
+// The store sits next to the analysis module under proof; the legacy-fingerprint fixtures need
+// its real `fingerprintOf`, so the proof never re-implements the hashing it is testing.
+let storeModule = {}
+try {
+  storeModule = await import(pathToFileURL(join(dirname(analysisModulePath), 'store.mjs')).href)
+} catch {
+  storeModule = {}
+}
+const fingerprintOf = storeModule.fingerprintOf
+
 const logger = { warn() {}, info() {}, debug() {} }
 let seq = 0
 
@@ -266,6 +276,114 @@ try {
 
   const call = (name, args) => a.call(root.tools, name, args, root.agent)
   const delegate = (args) => a.delegate(root.tools, root.agent, args)
+
+  // ── 36. Strict nested schema, aggregate findings, canonical ownership ───────
+  const schemaInit = await call('analysis_upsert', { initiative: 'schema-proof', patch: readyRecord({ status: 'ready', title: 'Schema proof' }) })
+  check('the schema fixture is ready', schemaInit?.ok === true, { code: schemaInit?.code, findings: schemaInit?.findings })
+  const schemaBytesBefore = readFileSync(recordPath('schema-proof'), 'utf8')
+  const schemaRevBefore = schemaInit?.rev
+  const unknownNested = await call('analysis_upsert', {
+    initiative: 'schema-proof', expectedRev: schemaRevBefore,
+    patch: {
+      decisions: [{ id: 'D-X', text: 'decision text' }],
+      process: { target: [{ id: 'P-1', text: 'process text' }] },
+    },
+  })
+  const unknownPaths = (unknownNested?.findings ?? []).map((finding) => finding.path)
+  check('unknown nested keys are rejected with exact paths', unknownNested?.ok === false && unknownNested?.code === 'invalid_record' && unknownPaths.includes('decisions[0].text') && unknownPaths.includes('process.target[0].text'), { code: unknownNested?.code, findings: unknownNested?.findings })
+  check('a rejected validation leaves the file byte-identical and the rev unchanged', readFileSync(recordPath('schema-proof'), 'utf8') === schemaBytesBefore && (await call('analysis_read', { initiative: 'schema-proof' }))?.rev === schemaRevBefore)
+
+  const removedContract = await call('analysis_upsert', {
+    initiative: 'schema-proof', expectedRev: schemaRevBefore,
+    patch: { architecture: { contractImpact: 'breaking', components: [{ id: 'C-1', name: 'analysis store', responsibility: 'persist', owner: 'BACKEND', owns: [], dependsOn: [] }] }, contracts: [{ id: 'CT-1', name: 'removal', between: [], change: 'removed', description: 'remove it' }] },
+  })
+  check('change:removed is rejected with the breaking recommendation', removedContract?.ok === false && (removedContract?.findings ?? []).some((finding) => finding.path === 'contracts[0].change' && /breaking/i.test(finding.message) && /description/i.test(finding.message)), { code: removedContract?.code, findings: removedContract?.findings })
+
+  const emptyDecision = await call('analysis_upsert', {
+    initiative: 'schema-proof', expectedRev: schemaRevBefore,
+    patch: { decisions: [{ id: 'D-EMPTY', decision: '', rationale: '' }] },
+  })
+  check('empty required decision/rationale is rejected', emptyDecision?.ok === false && (emptyDecision?.findings ?? []).some((finding) => finding.path === 'decisions[0].decision') && (emptyDecision?.findings ?? []).some((finding) => finding.path === 'decisions[0].rationale'), { code: emptyDecision?.code, findings: emptyDecision?.findings })
+
+  const aggregate = await call('analysis_upsert', {
+    initiative: 'schema-aggregate',
+    patch: readyRecord({
+      status: 'draft',
+      title: 'Aggregate proof',
+      decisions: [{ id: 'D-1', decision: '', rationale: '' }],
+      contracts: [{ id: 'CT-1', name: 'bad', between: [], change: 'removed', description: 'bad' }],
+      data: [{ id: 'D-1', name: 'record', owner: 'BACKEND', ownerComponentId: 'C-MISSING' }],
+      trace: [{ requirementId: 'REQ-MISSING', processId: 'P-1', componentId: 'C-1', status: 'planned', tasks: [] }],
+    }),
+  })
+  const aggregatePaths = (aggregate?.findings ?? []).map((finding) => finding.path)
+  check(
+    'all independent validation errors are returned in one response',
+    aggregate?.ok === false && aggregate?.code === 'invalid_record' &&
+      aggregatePaths.includes('decisions[0].decision') &&
+      aggregatePaths.includes('contracts[0].change') &&
+      aggregatePaths.includes('data[0].ownerComponentId') &&
+      aggregatePaths.includes('trace[0].requirementId'),
+    { code: aggregate?.code, findings: aggregate?.findings },
+  )
+  check('an aggregate rejection creates no file', !existsSync(recordPath('schema-aggregate')))
+
+  const canonical = await call('analysis_upsert', {
+    initiative: 'ownership-canonical',
+    patch: readyRecord({
+      status: 'ready',
+      title: 'Canonical ownership',
+      architecture: { contractImpact: 'none', components: [{ id: 'C-1', name: 'analysis store', responsibility: 'persist', owner: 'BACKEND', owns: [], dependsOn: [] }] },
+      data: [{ id: 'D-1', name: 'record', owner: 'BACKEND', ownerComponentId: 'C-1' }],
+    }),
+  })
+  const canonicalRead = await call('analysis_read', { initiative: 'ownership-canonical' })
+  check('ownerComponentId is canonical and owns is derived', canonical?.ok === true && canonicalRead?.record?.data?.[0]?.ownerComponentId === 'C-1' && JSON.stringify(canonicalRead?.record?.architecture?.components?.[0]?.owns) === JSON.stringify(['D-1']), { code: canonical?.code, findings: canonical?.findings, data: canonicalRead?.record?.data, components: canonicalRead?.record?.architecture?.components })
+
+  const legacyOwnership = await call('analysis_upsert', { initiative: 'ownership-legacy', patch: readyRecord({ status: 'ready', title: 'Legacy ownership' }) })
+  const legacyOwnershipRead = await call('analysis_read', { initiative: 'ownership-legacy' })
+  check('a unique legacy owns is projected to ownerComponentId', legacyOwnership?.ok === true && legacyOwnershipRead?.record?.data?.[0]?.ownerComponentId === 'C-1', { code: legacyOwnership?.code, data: legacyOwnershipRead?.record?.data })
+
+  const ownershipConflict = await call('analysis_upsert', {
+    initiative: 'ownership-conflict',
+    patch: readyRecord({
+      status: 'draft',
+      title: 'Ownership conflict',
+      architecture: { contractImpact: 'none', components: [
+        { id: 'C-1', name: 'one', responsibility: 'one', owner: 'BACKEND', owns: ['D-1'], dependsOn: [] },
+        { id: 'C-2', name: 'two', responsibility: 'two', owner: 'BACKEND', owns: [], dependsOn: [] },
+      ] },
+      data: [{ id: 'D-1', name: 'record', owner: 'BACKEND', ownerComponentId: 'C-2' }],
+    }),
+  })
+  check('conflicting canonical/legacy ownership is rejected', ownershipConflict?.ok === false && (ownershipConflict?.findings ?? []).some((finding) => finding.code === 'ownership_conflict'), { code: ownershipConflict?.code, findings: ownershipConflict?.findings })
+
+  const ownershipAmbiguous = await call('analysis_upsert', {
+    initiative: 'ownership-ambiguous',
+    patch: readyRecord({
+      status: 'draft',
+      title: 'Ownership ambiguous',
+      architecture: { contractImpact: 'none', components: [
+        { id: 'C-1', name: 'one', responsibility: 'one', owner: 'BACKEND', owns: ['D-1'], dependsOn: [] },
+        { id: 'C-2', name: 'two', responsibility: 'two', owner: 'BACKEND', owns: ['D-1'], dependsOn: [] },
+      ] },
+    }),
+  })
+  check('ambiguous legacy ownership is rejected', ownershipAmbiguous?.ok === false && (ownershipAmbiguous?.findings ?? []).some((finding) => finding.code === 'ownership_ambiguous'), { code: ownershipAmbiguous?.code, findings: ownershipAmbiguous?.findings })
+
+  const schemaCheck = await call('analysis_check', { initiative: 'schema-proof' })
+  const schemaRead = await call('analysis_read', { initiative: 'schema-proof' })
+  check(
+    'readiness and completion are explicit and distinct',
+    schemaCheck?.readiness?.ok === true && schemaCheck?.completion?.state === 'in_progress' && schemaCheck?.completion?.counts?.planned === 2 && schemaCheck?.ok === true,
+    { readiness: schemaCheck?.readiness, completion: schemaCheck?.completion, ok: schemaCheck?.ok },
+  )
+  check('a captured designRef has a concrete timestamp', schemaRead?.record?.designRef?.at !== undefined && !Number.isNaN(Date.parse(schemaRead?.record?.designRef?.at ?? '')), { designRef: schemaRead?.record?.designRef })
+  const badDesignAt = await call('analysis_upsert', {
+    initiative: 'design-at-proof',
+    patch: readyRecord({ status: 'ready', title: 'Design at proof', designRef: { mapRev: 7, at: 'not-a-date', source: 'design.excalidraw' } }),
+  })
+  check('an invalid designRef.at is rejected', badDesignAt?.ok === false && (badDesignAt?.findings ?? []).some((finding) => finding.path === 'designRef.at'), { code: badDesignAt?.code, findings: badDesignAt?.findings })
 
   // ── 1. A record keeps the business outcome apart from the requested solution ─
   const created = await call('analysis_upsert', {
@@ -897,6 +1015,315 @@ try {
     'a mixed batch is refused atomically and leaves both tasks in review',
     partialInit?.ok === true && partialResolved?.ok === true && partialClose?.ok === false && partialStatuses[0] === 'review' && partialStatuses[1] === 'review',
     { code: partialClose?.code, message: partialClose?.message, statuses: partialStatuses },
+  )
+
+
+  // ── 37. No silent loss: over-limit content is refused, never sliced ─────────
+  const lossRefused = await call('analysis_upsert', {
+    initiative: 'loss-refused',
+    patch: readyRecord({
+      status: 'draft',
+      title: 'T'.repeat(250),
+      requestedSolution: 'S'.repeat(8100),
+      businessOutcome: { problem: 'p', outcome: 'o', successMetrics: Array.from({ length: 25 }, (_, at) => `m-${at}`) },
+      requirements: [{ id: 'REQ-1', kind: 'FR', text: 'r', acceptance: Array.from({ length: 35 }, (_, at) => `a-${at}`) }],
+      trace: [{ requirementId: 'REQ-1', processId: 'P-1', componentId: 'C-1', status: 'planned', tasks: [] }],
+    }),
+  })
+  const limitFindings = (lossRefused?.findings ?? []).filter((finding) => finding.code === 'limit_exceeded')
+  const limitOf = (path) => limitFindings.find((finding) => finding.path === path)
+  check(
+    'an over-limit write is refused before normalize with limit_exceeded path/max/actual',
+    lossRefused?.ok === false && lossRefused?.code === 'invalid_record' &&
+      limitOf('title')?.max === 200 && limitOf('title')?.actual === 250 &&
+      limitOf('requestedSolution')?.max === 8000 && limitOf('requestedSolution')?.actual === 8100 &&
+      limitOf('businessOutcome.successMetrics')?.max === 20 && limitOf('businessOutcome.successMetrics')?.actual === 25 &&
+      limitOf('requirements[0].acceptance')?.max === 30 && limitOf('requirements[0].acceptance')?.actual === 35,
+    { code: lossRefused?.code, findings: limitFindings },
+  )
+  check('a refused over-limit record is not created', !existsSync(recordPath('loss-refused')))
+
+  const boundaryText = `${'a'.repeat(3998)}\u{1F600}`
+  const lossBoundary = await call('analysis_upsert', {
+    initiative: 'loss-boundary',
+    patch: readyRecord({
+      status: 'draft',
+      title: 'T'.repeat(200),
+      requestedSolution: 'S'.repeat(8000),
+      businessOutcome: { problem: 'p', outcome: 'o', successMetrics: Array.from({ length: 20 }, (_, at) => `m-${at}`) },
+      requirements: [{ id: 'REQ-1', kind: 'FR', text: boundaryText, acceptance: Array.from({ length: 30 }, (_, at) => `a-${at}`) }],
+      trace: [{ requirementId: 'REQ-1', processId: 'P-1', componentId: 'C-1', status: 'planned', tasks: [] }],
+    }),
+  })
+  const boundaryRead = await call('analysis_read', { initiative: 'loss-boundary' })
+  const boundaryStored = readStored('loss-boundary')
+  check(
+    'a successful boundary write keeps every code unit and never splits a surrogate pair',
+    lossBoundary?.ok === true &&
+      boundaryRead?.record?.title?.length === 200 &&
+      boundaryRead?.record?.requestedSolution?.length === 8000 &&
+      boundaryRead?.record?.businessOutcome?.successMetrics?.length === 20 &&
+      boundaryRead?.record?.requirements?.[0]?.acceptance?.length === 30 &&
+      boundaryRead?.record?.requirements?.[0]?.text === boundaryText &&
+      boundaryStored?.requirements?.[0]?.text === boundaryText &&
+      !/[\uD800-\uDBFF]$/.test(boundaryStored?.requirements?.[0]?.text ?? ''),
+    { code: lossBoundary?.code, textLength: boundaryStored?.requirements?.[0]?.text?.length, findings: lossBoundary?.findings },
+  )
+
+  const splitText = `${'a'.repeat(3999)}\u{1F600}`
+  const lossUnicode = await call('analysis_upsert', {
+    initiative: 'loss-unicode',
+    patch: readyRecord({
+      status: 'draft',
+      title: 'Unicode loss',
+      requirements: [{ id: 'REQ-1', kind: 'FR', text: splitText, acceptance: ['a'] }],
+      trace: [{ requirementId: 'REQ-1', processId: 'P-1', componentId: 'C-1', status: 'planned', tasks: [] }],
+    }),
+  })
+  check(
+    'an over-limit Unicode value is refused, not sliced into a lone surrogate',
+    lossUnicode?.ok === false &&
+      (lossUnicode?.findings ?? []).some((finding) => finding.code === 'limit_exceeded' && finding.path === 'requirements[0].text' && finding.max === 4000 && finding.actual === 4001) &&
+      !existsSync(recordPath('loss-unicode')),
+    { code: lossUnicode?.code, findings: lossUnicode?.findings },
+  )
+
+  const lossAtomic = await call('analysis_upsert', { initiative: 'loss-atomic', patch: readyRecord({ status: 'draft', title: 'Atomic loss' }) })
+  const lossAtomicBytes = readFileSync(recordPath('loss-atomic'), 'utf8')
+  const lossAtomicRefused = await call('analysis_upsert', { initiative: 'loss-atomic', expectedRev: lossAtomic?.rev, patch: { title: 'X'.repeat(201) } })
+  const lossAtomicRead = await call('analysis_read', { initiative: 'loss-atomic' })
+  check(
+    'a refused over-limit edit leaves the bytes and the rev unchanged',
+    lossAtomic?.ok === true && lossAtomicRefused?.ok === false &&
+      readFileSync(recordPath('loss-atomic'), 'utf8') === lossAtomicBytes &&
+      lossAtomicRead?.rev === lossAtomic?.rev,
+    { code: lossAtomicRefused?.code, rev: lossAtomicRead?.rev },
+  )
+
+  // ── 38. Aggregate validation: trim duplicates, process ids, semantic findings ─
+  const duplicateRefused = await call('analysis_upsert', {
+    initiative: 'dup-refused',
+    patch: readyRecord({
+      status: 'draft',
+      requirements: [
+        { id: ' REQ-1 ', kind: 'FR', text: 'a', acceptance: ['x'] },
+        { id: 'REQ-1', kind: 'FR', text: 'b', acceptance: ['x'] },
+      ],
+      contracts: [{ id: 'CT-1', name: 'x', between: [], change: 'removed', description: 'x' }],
+      trace: [{ requirementId: 'REQ-1', processId: 'P-1', componentId: 'C-1', status: 'planned', tasks: [] }],
+    }),
+  })
+  const duplicatePaths = (duplicateRefused?.findings ?? []).map((finding) => `${finding.code}@${finding.path}`)
+  check(
+    'a duplicate-after-trim id and an independent enum error come back in one response',
+    duplicateRefused?.ok === false && duplicateRefused?.code === 'invalid_record' &&
+      duplicatePaths.includes('duplicate_id@requirements[1].id') &&
+      duplicatePaths.includes('invalid_enum@contracts[0].change'),
+    { code: duplicateRefused?.code, findings: duplicatePaths },
+  )
+  check('the duplicate refusal creates no file', !existsSync(recordPath('dup-refused')))
+
+  const duplicateProcess = await call('analysis_upsert', {
+    initiative: 'dup-process',
+    patch: readyRecord({
+      status: 'draft',
+      process: { current: [{ id: 'P-1', name: 'current' }], target: [{ id: ' P-1 ', name: 'target' }] },
+      trace: [{ requirementId: 'REQ-1', processId: 'P-1', componentId: 'C-1', status: 'planned', tasks: [] }],
+    }),
+  })
+  check(
+    'a process id duplicated across current and target is refused in the first response',
+    duplicateProcess?.ok === false &&
+      (duplicateProcess?.findings ?? []).some((finding) => finding.code === 'duplicate_id' && finding.path === 'process.target[0].id'),
+    { code: duplicateProcess?.code, findings: duplicateProcess?.findings },
+  )
+
+  const duplicateSections = await call('analysis_upsert', {
+    initiative: 'dup-sections',
+    patch: readyRecord({
+      status: 'draft',
+      data: [{ id: ' D-1 ', name: 'a', owner: 'BACKEND' }, { id: 'D-1', name: 'b', owner: 'BACKEND' }],
+      contracts: [{ id: ' CT-1 ', name: 'c', between: [], change: 'none' }, { id: 'CT-1', name: 'd', between: [], change: 'none' }],
+      invariants: [{ id: ' I-1 ', text: 'i' }, { id: 'I-1', text: 'j' }],
+      decisions: [{ id: ' DEC-1 ', decision: 'd', rationale: 'r' }, { id: 'DEC-1', decision: 'e', rationale: 'r' }],
+      openQuestions: [{ id: ' Q-1 ', question: 'q' }, { id: 'Q-1', question: 'r' }],
+      trace: [{ requirementId: 'REQ-1', processId: 'P-1', componentId: 'C-1', status: 'planned', tasks: [] }],
+    }),
+  })
+  const duplicateSectionPaths = (duplicateSections?.findings ?? []).map((finding) => `${finding.code}@${finding.path}`)
+  check(
+    'trimmed duplicates are refused in every id-bearing section in one response',
+    duplicateSections?.ok === false && duplicateSections?.code === 'invalid_record' &&
+      duplicateSectionPaths.includes('duplicate_id@data[1].id') &&
+      duplicateSectionPaths.includes('duplicate_id@contracts[1].id') &&
+      duplicateSectionPaths.includes('duplicate_id@invariants[1].id') &&
+      duplicateSectionPaths.includes('duplicate_id@decisions[1].id') &&
+      duplicateSectionPaths.includes('duplicate_id@openQuestions[1].id'),
+    { code: duplicateSections?.code, findings: duplicateSectionPaths },
+  )
+
+  const aggregateSemantic = await call('analysis_upsert', {
+    initiative: 'agg-semantic',
+    patch: readyRecord({
+      status: 'draft',
+      requestedSolution: '',
+      businessOutcome: { problem: '', outcome: '' },
+      process: { current: [], target: [{ id: 'P-1', name: 'target', bogus: true }] },
+    }),
+  })
+  const aggregateCodes = (aggregateSemantic?.findings ?? []).map((finding) => finding.code)
+  check(
+    'structural and independent semantic findings are returned in one response',
+    aggregateSemantic?.ok === false &&
+      aggregateSemantic?.code === 'invalid_record' &&
+      aggregateCodes.includes('unknown_key') &&
+      aggregateCodes.includes('missing_requested_solution') &&
+      aggregateCodes.includes('missing_business_problem') &&
+      (aggregateSemantic?.findings ?? []).some((finding) => finding.source === 'semantic'),
+    { code: aggregateSemantic?.code, findings: (aggregateSemantic?.findings ?? []).map((finding) => `${finding.code}@${finding.path}${finding.source ? `:${finding.source}` : ''}`) },
+  )
+
+  const aggregateSuppress = await call('analysis_upsert', {
+    initiative: 'agg-suppress',
+    patch: readyRecord({
+      status: 'draft',
+      requirements: [{ id: 'REQ-1', kind: 'FR', text: 'r', acceptance: 'not-an-array' }],
+      trace: [{ requirementId: 'REQ-1', processId: 'P-1', componentId: 'C-1', status: 'planned', tasks: [] }],
+    }),
+  })
+  const suppressFindings = aggregateSuppress?.findings ?? []
+  check(
+    'a semantic finding inside a structurally broken subtree is suppressed, not cascaded',
+    aggregateSuppress?.ok === false &&
+      suppressFindings.some((finding) => finding.code === 'invalid_type' && finding.path === 'requirements[0].acceptance') &&
+      !suppressFindings.some((finding) => finding.code === 'missing_acceptance'),
+    { code: aggregateSuppress?.code, findings: suppressFindings.map((finding) => `${finding.code}@${finding.path}`) },
+  )
+
+  // ── 39. Ambiguous legacy ownership: read compatible, gates fail closed ──────
+  const ownershipInit = await call('analysis_upsert', { initiative: 'ownership-gate', patch: readyRecord({ status: 'ready', title: 'Ownership gate' }) })
+  const ownershipFile = recordPath('ownership-gate')
+  const ownershipRaw = readStored('ownership-gate')
+  ownershipRaw.architecture.components = [
+    { id: 'C-1', name: 'one', responsibility: 'one', owner: 'BACKEND', owns: ['D-1'], dependsOn: [] },
+    { id: 'C-2', name: 'two', responsibility: 'two', owner: 'BACKEND', owns: ['D-1'], dependsOn: [] },
+  ]
+  for (const row of ownershipRaw.data) delete row.ownerComponentId
+  ownershipRaw.fingerprint = fingerprintOf(ownershipRaw)
+  writeFileSync(ownershipFile, `${JSON.stringify(ownershipRaw, null, 2)}\n`)
+  const ownershipRead = await call('analysis_read', { initiative: 'ownership-gate' })
+  check(
+    'an ambiguous legacy record still reads, with an explicit compatibility warning',
+    ownershipInit?.ok === true && ownershipRead?.ok === true &&
+      ownershipRead?.ambiguousOwnership === true &&
+      ownershipRead?.fingerprintMatches === true &&
+      (ownershipRead?.readiness?.findings ?? []).some((finding) => finding.code === 'ownership_ambiguous_compat' && finding.severity === 'warning'),
+    { ambiguous: ownershipRead?.ambiguousOwnership, fingerprintMatches: ownershipRead?.fingerprintMatches, findings: ownershipRead?.readiness?.findings },
+  )
+  const ownershipGate = a.analysis.gate(dir, { changeClass: 'L1', initiative: 'ownership-gate', requirementIds: ['REQ-1'] })
+  check('the delegation gate fails closed while ownership is ambiguous', ownershipGate?.ok === false && ownershipGate?.code === 'analysis_stale', { code: ownershipGate?.code, message: ownershipGate?.message })
+  const ownershipBytes = readFileSync(ownershipFile, 'utf8')
+  const ownershipLink = a.analysis.linkTask(dir, { initiative: 'ownership-gate', requirementIds: ['REQ-1'], taskId: 'task-ownership-ambiguous', role: 'BACKEND', expectedRev: ownershipRead?.rev })
+  check('linkTask fails closed while ownership is ambiguous and writes nothing', ownershipLink?.ok === false && ownershipLink?.code === 'analysis_stale' && readFileSync(ownershipFile, 'utf8') === ownershipBytes, { code: ownershipLink?.code, message: ownershipLink?.message })
+  const ownershipResolved = await call('analysis_upsert', {
+    initiative: 'ownership-gate',
+    expectedRev: ownershipRead?.rev,
+    resolveImpacts: 'all',
+    patch: {
+      data: [{ id: 'D-1', name: 'docs/analysis/<initiative>.json', owner: 'BACKEND', ownerComponentId: 'C-1', description: 'one repo-tracked record per initiative' }],
+      architecture: {
+        contractImpact: 'none',
+        components: [
+          { id: 'C-1', name: 'one', responsibility: 'one', owner: 'BACKEND', owns: ['D-1'], dependsOn: [] },
+          { id: 'C-2', name: 'two', responsibility: 'two', owner: 'BACKEND', owns: [], dependsOn: [] },
+        ],
+      },
+      status: 'ready',
+    },
+  })
+  const ownershipAfter = await call('analysis_read', { initiative: 'ownership-gate' })
+  const ownershipGateAfter = a.analysis.gate(dir, { changeClass: 'L1', initiative: 'ownership-gate', requirementIds: ['REQ-1'] })
+  const ownershipLinkAfter = a.analysis.linkTask(dir, { initiative: 'ownership-gate', requirementIds: ['REQ-2'], taskId: 'task-ownership-resolved', role: 'BACKEND', expectedRev: ownershipAfter?.rev })
+  check(
+    'after the canonical owner is resolved the read, gate and link all work',
+    ownershipResolved?.ok === true && ownershipAfter?.ambiguousOwnership === false &&
+      ownershipAfter?.record?.data?.[0]?.ownerComponentId === 'C-1' &&
+      JSON.stringify(ownershipAfter?.record?.architecture?.components?.map((component) => component.owns)) === JSON.stringify([['D-1'], []]) &&
+      ownershipGateAfter?.ok === true && ownershipGateAfter?.analysisRequired === true &&
+      ownershipLinkAfter?.ok === true,
+    { code: ownershipResolved?.code, ambiguous: ownershipAfter?.ambiguousOwnership, gate: ownershipGateAfter?.code, link: ownershipLinkAfter?.code },
+  )
+
+  // ── 40. A genuine 0.1.4 record is legacy, not a hand edit ───────────────────
+  const legacyInit = await call('analysis_upsert', { initiative: 'legacy-proof', patch: readyRecord({ status: 'ready', title: 'Legacy proof' }) })
+  const legacyFile = recordPath('legacy-proof')
+  const legacyRaw = readStored('legacy-proof')
+  legacyRaw.goalId = 'goal-legacy-proof'
+  for (const row of legacyRaw.data) delete row.ownerComponentId
+  legacyRaw.fingerprint = fingerprintOf(legacyRaw)
+  writeFileSync(legacyFile, `${JSON.stringify(legacyRaw, null, 2)}\n`)
+  const legacyRead = await call('analysis_read', { initiative: 'legacy-proof' })
+  check(
+    'a genuine 0.1.4 record is recognised as legacy, not as a hand edit',
+    legacyInit?.ok === true && legacyRead?.ok === true &&
+      legacyRead?.fingerprintMatches === true &&
+      legacyRead?.legacyFingerprint?.recognized === true &&
+      legacyRead?.legacyFingerprint?.version === '0.1.4' &&
+      legacyRead?.stale === null &&
+      (legacyRead?.readiness?.findings ?? []).some((finding) => finding.code === 'legacy_fingerprint' && finding.severity === 'warning'),
+    { fingerprintMatches: legacyRead?.fingerprintMatches, legacy: legacyRead?.legacyFingerprint, stale: legacyRead?.stale, findings: legacyRead?.readiness?.findings },
+  )
+  const legacyGate = a.analysis.gate(dir, { changeClass: 'L1', initiative: 'legacy-proof', requirementIds: ['REQ-1'] })
+  check('a recognised legacy record still gates a delegation', legacyGate?.ok === true && legacyGate?.analysisRequired === true, { code: legacyGate?.code, message: legacyGate?.message })
+  const legacyLink = a.analysis.linkTask(dir, { initiative: 'legacy-proof', requirementIds: ['REQ-1'], taskId: 'task-legacy-proof', role: 'BACKEND', expectedRev: legacyRead?.rev })
+  check('a recognised legacy record accepts a task link', legacyLink?.ok === true && legacyLink?.rev === (legacyRead?.rev ?? 0) + 1, { code: legacyLink?.code, rev: legacyLink?.rev })
+  const legacyClose = a.analysis.taskCloseRefusal(dir, 'task-legacy-proof')
+  const legacyGoal = a.analysis.goalRefusal(dir, 'goal-legacy-proof')
+  check(
+    'the close and goal guards reach the legacy record and refuse on analysis, not on the fingerprint',
+    legacyClose?.code === 'analysis_incomplete' && legacyGoal?.code === 'analysis_incomplete',
+    { close: { code: legacyClose?.code, message: legacyClose?.message }, goal: { code: legacyGoal?.code, message: legacyGoal?.message } },
+  )
+  const legacyAfterLink = await call('analysis_read', { initiative: 'legacy-proof' })
+  const legacyMigrated = await call('analysis_upsert', { initiative: 'legacy-proof', expectedRev: legacyAfterLink?.rev, patch: { title: 'Legacy proof' } })
+  const legacyStored = readStored('legacy-proof')
+  const legacyHistory = (legacyMigrated?.record?.history ?? []).slice(-1)[0] ?? {}
+  check(
+    'the next write migrates the legacy fingerprint deterministically and records it',
+    legacyMigrated?.ok === true && legacyMigrated?.record?.status === 'ready' &&
+      legacyHistory.action === 'migrate' && /0\.1\.4/.test(legacyHistory.summary ?? '') &&
+      legacyStored.fingerprint === fingerprintOf(legacyStored),
+    { code: legacyMigrated?.code, history: legacyHistory, fingerprintSealed: legacyStored.fingerprint === fingerprintOf(legacyStored) },
+  )
+  const legacyTamper = readStored('legacy-proof')
+  legacyTamper.title = 'hand edit after migration'
+  writeFileSync(legacyFile, `${JSON.stringify(legacyTamper, null, 2)}\n`)
+  const legacyTampered = await call('analysis_upsert', { initiative: 'legacy-proof', expectedRev: legacyMigrated?.rev, patch: { title: 'Legacy proof' } })
+  check('a real hand edit after migration is still refused', legacyTampered?.ok === false && legacyTampered?.code === 'fingerprint_mismatch', { code: legacyTampered?.code, message: legacyTampered?.message })
+
+  // ── 41. The canonical record was migrated through the service, not hand-typed ─
+  const canonicalPath = join(KIT, 'docs', 'analysis', 'analysis-record-schema-integrity.json')
+  const canonicalStored = existsSync(canonicalPath) ? JSON.parse(readFileSync(canonicalPath, 'utf8')) : null
+  const canonicalData = new Map((canonicalStored?.data ?? []).map((row) => [row.id, row]))
+  const canonicalComponents = new Map((canonicalStored?.architecture?.components ?? []).map((row) => [row.id, row]))
+  check(
+    'the canonical Analysis Record names C-STORE as system owner, is ready and carries the current fingerprint',
+    canonicalStored !== null &&
+      canonicalStored.status === 'ready' &&
+      canonicalData.get('D-RECORD')?.ownerComponentId === 'C-STORE' &&
+      canonicalData.get('D-FINDINGS')?.ownerComponentId === 'C-STORE' &&
+      JSON.stringify(canonicalComponents.get('C-STORE')?.owns) === JSON.stringify(['D-RECORD', 'D-FINDINGS']) &&
+      JSON.stringify(canonicalComponents.get('C-TOOLS')?.owns) === JSON.stringify([]) &&
+      JSON.stringify(canonicalComponents.get('C-PROOF')?.owns) === JSON.stringify([]) &&
+      (canonicalStored.pendingImpacts ?? []).length === 0 &&
+      canonicalStored.fingerprint === fingerprintOf(canonicalStored),
+    {
+      status: canonicalStored?.status,
+      owners: [...canonicalData.values()].map((row) => `${row.id}:${row.ownerComponentId ?? '-'}`),
+      owns: [...canonicalComponents.values()].map((row) => `${row.id}:${JSON.stringify(row.owns)}`),
+      pending: canonicalStored?.pendingImpacts?.length,
+      fingerprintCurrent: canonicalStored === null ? null : canonicalStored.fingerprint === fingerprintOf(canonicalStored),
+    },
   )
 
 } finally {
