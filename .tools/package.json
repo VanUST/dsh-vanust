@@ -6,7 +6,7 @@
     "@axe-core/playwright": "4.14.0",
     "pixelmatch": "8.0.0",
     "playwright-core": "1.65.0",
-    "@deepseek-ai/dsh-hooks-claude-code": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-hook-protocol": "0.2.1-rc.2"
+    "@deepseek-ai/dsh-hooks-claude-code": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-hook-protocol": "0.2.2-rc.3"
   }
 }
