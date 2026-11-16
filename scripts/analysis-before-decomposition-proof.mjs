@@ -1307,9 +1307,9 @@ try {
   const canonicalData = new Map((canonicalStored?.data ?? []).map((row) => [row.id, row]))
   const canonicalComponents = new Map((canonicalStored?.architecture?.components ?? []).map((row) => [row.id, row]))
   check(
-    'the canonical Analysis Record names C-STORE as system owner, is ready and carries the current fingerprint',
+    'the canonical Analysis Record names C-STORE as system owner, is terminal (ready or completed) and carries the current fingerprint',
     canonicalStored !== null &&
-      canonicalStored.status === 'ready' &&
+      (canonicalStored.status === 'ready' || canonicalStored.status === 'completed') &&
       canonicalData.get('D-RECORD')?.ownerComponentId === 'C-STORE' &&
       canonicalData.get('D-FINDINGS')?.ownerComponentId === 'C-STORE' &&
       JSON.stringify(canonicalComponents.get('C-STORE')?.owns) === JSON.stringify(['D-RECORD', 'D-FINDINGS']) &&
@@ -1323,6 +1323,29 @@ try {
       owns: [...canonicalComponents.values()].map((row) => `${row.id}:${JSON.stringify(row.owns)}`),
       pending: canonicalStored?.pendingImpacts?.length,
       fingerprintCurrent: canonicalStored === null ? null : canonicalStored.fingerprint === fingerprintOf(canonicalStored),
+    },
+  )
+
+  // ── 42. The terminal record and its goal agree: completion is honest, not premature ─
+  const terminalService = analysisModule === undefined ? null : analysisModule.createService({ dir: 'docs/analysis', designMapFile: 'design.excalidraw' })
+  const terminalRead = terminalService === null ? null : terminalService.read(KIT, { initiative: 'analysis-record-schema-integrity' })
+  const terminalGoal = terminalService === null ? null : terminalService.goalRefusal(KIT, canonicalStored?.goalId ?? '')
+  check(
+    'the canonical record is completed with evidence and its linked goal is completable',
+    canonicalStored !== null &&
+      canonicalStored.status === 'completed' &&
+      terminalRead?.completion?.state === 'complete' &&
+      terminalRead?.completion?.counts?.planned === 0 &&
+      terminalRead?.completion?.counts?.proven === canonicalStored.requirements.length &&
+      terminalRead?.fingerprintMatches === true &&
+      terminalGoal?.ok === true && terminalGoal?.linked === true,
+    {
+      status: canonicalStored?.status,
+      completion: terminalRead?.completion?.state,
+      counts: terminalRead?.completion?.counts,
+      goalId: canonicalStored?.goalId,
+      goal: terminalGoal,
+      findings: terminalRead?.completion?.findings,
     },
   )
 

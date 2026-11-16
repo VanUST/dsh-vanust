@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "analysis-record-schema-integrity",
-  "rev": 6,
-  "status": "ready",
+  "rev": 7,
+  "status": "completed",
   "createdAt": "2026-11-16T09:25:23.234Z",
-  "updatedAt": "2026-11-16T09:54:00.271Z",
+  "updatedAt": "2026-11-16T10:10:11.061Z",
   "updatedBy": "agent",
   "title": "Analysis Record schema integrity",
   "requestedSolution": "Исправить strict nested schema, aggregate validation, ownership и readiness/completion по подтверждённому отзыву; делегировать реализацию и независимые проверки без publish/restart текущего клиента.",
@@ -80,7 +80,7 @@
       "acceptance": [
         "Любой неизвестный nested key даёт invalid_record с точным path и не создаёт/не изменяет файл"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR-1",
@@ -91,7 +91,7 @@
         "Сообщение для removed рекомендует breaking + description",
         "Нормализация не превращает неверное значение в пустое"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR-2",
@@ -102,7 +102,7 @@
         "При любом error отсутствует запись; существующий файл byte-identical",
         "Повторный вызов после исправления не открывает ранее скрытые независимые ошибки"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR-3",
@@ -114,7 +114,7 @@
         "Одинаковые canonical/legacy сведения не дублируют источник правды; конфликт отклоняется",
         "data.owner при необходимости остаётся отдельной ролью, а не вторым системным владельцем"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR-4",
@@ -125,7 +125,7 @@
         "designRef.at автоматически заполняется при захвате и валидируется при вводе, но drift использует только mapRev",
         "Документация содержит точные nested shapes и смысл processId"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "NFR-1",
@@ -136,7 +136,7 @@
         "make verify и legacy taskboard proofs green",
         "Отсутствует регрессия read-only/L0/legacyAttach и completion guards"
       ],
-      "status": "planned"
+      "status": "proven"
     }
   ],
   "architecture": {
@@ -292,19 +292,25 @@
       "dataIds": [
         "D-RECORD"
       ],
-      "status": "planned",
+      "status": "proven",
       "tasks": [
         {
           "taskId": "task-mwj27220-stljsf",
           "role": "BACKEND",
           "at": "2026-11-16T09:27:41.732Z",
-          "evidence": []
+          "evidence": [
+            "proof check 37: over-limit content refused with limit_exceeded path/max/actual, nothing written",
+            "red 103/129 exit 1 on committed 0.1.4 bytes; green 129/129 exit 0 on 0.1.8"
+          ]
         },
         {
           "taskId": "task-mwj2ydz0-jxok0k",
           "role": "SCHEMA",
           "at": "2026-11-16T09:47:45.867Z",
-          "evidence": []
+          "evidence": [
+            "proof check 37: over-limit content refused with limit_exceeded path/max/actual, nothing written",
+            "red 103/129 exit 1 on committed 0.1.4 bytes; green 129/129 exit 0 on 0.1.8"
+          ]
         }
       ]
     },
@@ -319,19 +325,25 @@
         "D-RECORD",
         "D-FINDINGS"
       ],
-      "status": "planned",
+      "status": "proven",
       "tasks": [
         {
           "taskId": "task-mwj27220-stljsf",
           "role": "BACKEND",
           "at": "2026-11-16T09:27:41.732Z",
-          "evidence": []
+          "evidence": [
+            "proof check 34: unknown nested keys, change:removed, empty decision, invalid designRef.at refused",
+            "case analysis-rejects-unknown-nested-fields verified on 21f18ff"
+          ]
         },
         {
           "taskId": "task-mwj2ydz0-jxok0k",
           "role": "SCHEMA",
           "at": "2026-11-16T09:47:45.867Z",
-          "evidence": []
+          "evidence": [
+            "proof check 34: unknown nested keys, change:removed, empty decision, invalid designRef.at refused",
+            "case analysis-rejects-unknown-nested-fields verified on 21f18ff"
+          ]
         }
       ]
     },
@@ -345,19 +357,25 @@
       "dataIds": [
         "D-FINDINGS"
       ],
-      "status": "planned",
+      "status": "proven",
       "tasks": [
         {
           "taskId": "task-mwj27220-stljsf",
           "role": "BACKEND",
           "at": "2026-11-16T09:27:41.732Z",
-          "evidence": []
+          "evidence": [
+            "proof checks 38: trimmed/process duplicates and independent semantic findings in the first response",
+            "case analysis-reports-all-validation-errors verified on 21f18ff"
+          ]
         },
         {
           "taskId": "task-mwj2ydz0-jxok0k",
           "role": "SCHEMA",
           "at": "2026-11-16T09:47:45.867Z",
-          "evidence": []
+          "evidence": [
+            "proof checks 38: trimmed/process duplicates and independent semantic findings in the first response",
+            "case analysis-reports-all-validation-errors verified on 21f18ff"
+          ]
         }
       ]
     },
@@ -371,19 +389,25 @@
       "dataIds": [
         "D-RECORD"
       ],
-      "status": "planned",
+      "status": "proven",
       "tasks": [
         {
           "taskId": "task-mwj27220-stljsf",
           "role": "BACKEND",
           "at": "2026-11-16T09:27:41.732Z",
-          "evidence": []
+          "evidence": [
+            "proof check 39: canonical ownerComponentId, ambiguity fails gate/link closed, resolution works",
+            "case data-ownership-has-one-canonical-source verified on 21f18ff"
+          ]
         },
         {
           "taskId": "task-mwj2ydz0-jxok0k",
           "role": "SCHEMA",
           "at": "2026-11-16T09:47:45.867Z",
-          "evidence": []
+          "evidence": [
+            "proof check 39: canonical ownerComponentId, ambiguity fails gate/link closed, resolution works",
+            "case data-ownership-has-one-canonical-source verified on 21f18ff"
+          ]
         }
       ]
     },
@@ -397,19 +421,25 @@
       "dataIds": [
         "D-FINDINGS"
       ],
-      "status": "planned",
+      "status": "proven",
       "tasks": [
         {
           "taskId": "task-mwj27220-stljsf",
           "role": "BACKEND",
           "at": "2026-11-16T09:27:41.732Z",
-          "evidence": []
+          "evidence": [
+            "proof check 36: readiness vs completion, designRef.at captured and validated",
+            "record migrated through the service to rev 6; README/analysis.mjs 0.1.8 in commit 21f18ff"
+          ]
         },
         {
           "taskId": "task-mwj2ydz0-jxok0k",
           "role": "SCHEMA",
           "at": "2026-11-16T09:47:45.867Z",
-          "evidence": []
+          "evidence": [
+            "proof check 36: readiness vs completion, designRef.at captured and validated",
+            "record migrated through the service to rev 6; README/analysis.mjs 0.1.8 in commit 21f18ff"
+          ]
         }
       ]
     },
@@ -425,25 +455,31 @@
         "D-RECORD",
         "D-FINDINGS"
       ],
-      "status": "planned",
+      "status": "proven",
       "tasks": [
         {
           "taskId": "task-mwj27220-stljsf",
           "role": "BACKEND",
           "at": "2026-11-16T09:27:41.732Z",
-          "evidence": []
+          "evidence": [
+            "129/129 checks; make verify 17/17 + documentation ok; legacy proofs 26/27/13/15/40/43 exit 0",
+            "commits 21f18ff and bf418ef pushed; remote main bf418ef; real hand edit still refused"
+          ]
         },
         {
           "taskId": "task-mwj2ydz0-jxok0k",
           "role": "SCHEMA",
           "at": "2026-11-16T09:47:45.867Z",
-          "evidence": []
+          "evidence": [
+            "129/129 checks; make verify 17/17 + documentation ok; legacy proofs 26/27/13/15/40/43 exit 0",
+            "commits 21f18ff and bf418ef pushed; remote main bf418ef; real hand edit still refused"
+          ]
         }
       ]
     }
   ],
   "pendingImpacts": [],
-  "fingerprint": "bb824d2e09de1466f496ddd4906cf72971ca73a6dfdeb47268cf2ed0b1b3cac2",
+  "fingerprint": "7b725cf3696fb76da1fbacf702476e56a122f3af8750c3fc189774d66042f406",
   "history": [
     {
       "revision": 1,
@@ -492,6 +528,14 @@
       "action": "upsert",
       "status": "ready",
       "summary": "impacts: 1"
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-16T10:10:11.061Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "completed",
+      "summary": ""
     }
   ]
 }
