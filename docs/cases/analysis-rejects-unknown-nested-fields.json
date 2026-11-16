@@ -33,13 +33,13 @@
     },
     {
       "path": "scripts/analysis-before-decomposition-proof.mjs",
-      "sha256": "dd7000100a5ab94934cf827f50de2c5b4b6b32caf15c1e1919dc99b2982e83a3"
+      "sha256": "1919f703a98541c565d250c0331428d6e7f0a9826b8bb54b778384fc786bfc1d"
     }
   ],
   "linkedTaskId": "task-mwj27220-stljsf",
-  "revision": 8,
+  "revision": 9,
   "createdAt": "2026-11-16T09:27:00.237Z",
-  "updatedAt": "2026-11-16T10:07:48.947Z",
+  "updatedAt": "2026-11-16T10:10:48.339Z",
   "createdBy": "orchestrator",
   "createdByKind": "agent",
   "history": [
@@ -102,27 +102,34 @@
       "editedBy": "agent",
       "action": "verified",
       "notes": "Verified on committed @cc/dsh-analysis 0.1.8 (commit 21f18ff); proof 129/129 post-commit. Red remains the same command against the committed 0.1.4 plugin bytes in a hardlinked /tmp copy (103/129, 26 FAIL)."
+    },
+    {
+      "revision": 8,
+      "at": "2026-11-16T10:10:48.339Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "Re-verified after the terminal-lifecycle proof change (checks 41/42). Green on committed 0.1.8 + completed record, commit e157e74, 130/130. Red is the same command in a hardlinked /tmp copy with only plugins/analysis/{store,analysis}.mjs replaced by committed 0.1.4 bytes (4ca505b): 103/130, 27 FAIL, including all original-case checks."
     }
   ],
   "evidence": {
     "redFirst": {
       "command": "node scripts/analysis-before-decomposition-proof.mjs",
-      "output": "FAIL  unknown nested keys are rejected with exact paths  {}\nFAIL  a rejected validation leaves the file byte-identical and the rev unchanged\nFAIL  change:removed is rejected with the breaking recommendation  {\"code\":\"stale\"}\nFAIL  empty required decision/rationale is rejected  {\"code\":\"stale\"}\nFAIL  an invalid designRef.at is rejected  {}\n103/129 checks passed\n(26 FAIL total; cwd /tmp/schema-publish-red, committed 0.1.4 plugin bytes, current proof)",
+      "output": "FAIL  unknown nested keys are rejected with exact paths  {}\nFAIL  a rejected validation leaves the file byte-identical and the rev unchanged\nFAIL  change:removed is rejected with the breaking recommendation  {\"code\":\"stale\"}\nFAIL  empty required decision/rationale is rejected  {\"code\":\"stale\"}\nFAIL  an invalid designRef.at is rejected  {}\n103/130 checks passed\n(27 FAIL total; cwd /tmp/lifecycle-red, committed 0.1.4 plugin bytes, current 130-check proof)",
       "exitCode": 1,
-      "at": "2026-11-16T10:09:00.000Z"
+      "at": "2026-11-16T10:12:00.000Z"
     },
     "green": {
       "command": "node scripts/analysis-before-decomposition-proof.mjs",
-      "output": "PASS  unknown nested keys are rejected with exact paths\nPASS  a rejected validation leaves the file byte-identical and the rev unchanged\nPASS  change:removed is rejected with the breaking recommendation\nPASS  empty required decision/rationale is rejected\nPASS  an invalid designRef.at is rejected\n129/129 checks passed",
+      "output": "PASS  unknown nested keys are rejected with exact paths\nPASS  a rejected validation leaves the file byte-identical and the rev unchanged\nPASS  change:removed is rejected with the breaking recommendation\nPASS  empty required decision/rationale is rejected\nPASS  an invalid designRef.at is rejected\nPASS  the canonical Analysis Record names C-STORE as system owner, is terminal (ready or completed) and carries the current fingerprint\nPASS  the canonical record is completed with evidence and its linked goal is completable\n130/130 checks passed",
       "exitCode": 0,
-      "at": "2026-11-16T10:09:00.000Z"
+      "at": "2026-11-16T10:12:00.000Z"
     },
-    "commit": "21f18fff2d4a41651db1fb4588b811c1d0f0bcc8"
+    "commit": "e157e74fa6993aeac4c683bf4cc7fa05a031dcfa"
   },
   "testPath": "scripts/analysis-before-decomposition-proof.mjs",
   "runCommand": "node scripts/analysis-before-decomposition-proof.mjs",
   "lastVerified": {
-    "at": "2026-11-16T10:09:00.000Z",
+    "at": "2026-11-16T10:12:00.000Z",
     "command": "node scripts/analysis-before-decomposition-proof.mjs",
     "exitCode": 0
   },

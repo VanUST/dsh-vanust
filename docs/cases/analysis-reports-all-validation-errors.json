@@ -33,13 +33,13 @@
     },
     {
       "path": "scripts/analysis-before-decomposition-proof.mjs",
-      "sha256": "dd7000100a5ab94934cf827f50de2c5b4b6b32caf15c1e1919dc99b2982e83a3"
+      "sha256": "1919f703a98541c565d250c0331428d6e7f0a9826b8bb54b778384fc786bfc1d"
     }
   ],
   "linkedTaskId": "task-mwj27220-stljsf",
-  "revision": 8,
+  "revision": 9,
   "createdAt": "2026-11-16T09:27:00.317Z",
-  "updatedAt": "2026-11-16T10:07:49.027Z",
+  "updatedAt": "2026-11-16T10:10:48.412Z",
   "createdBy": "orchestrator",
   "createdByKind": "agent",
   "history": [
@@ -102,27 +102,34 @@
       "editedBy": "agent",
       "action": "verified",
       "notes": "Verified on committed 0.1.8 (21f18ff); proof 129/129 post-commit. Red is the same command against committed 0.1.4 bytes (103/129, 26 FAIL)."
+    },
+    {
+      "revision": 8,
+      "at": "2026-11-16T10:10:48.412Z",
+      "editedBy": "agent",
+      "action": "verified",
+      "notes": "Re-verified after checks 41/42. Green on committed 0.1.8 + completed record (e157e74), 130/130. Red is the same command against committed 0.1.4 bytes: 103/130, 27 FAIL."
     }
   ],
   "evidence": {
     "redFirst": {
       "command": "node scripts/analysis-before-decomposition-proof.mjs",
-      "output": "FAIL  all independent validation errors are returned in one response  {\"code\":\"invalid_record\"}\n103/129 checks passed\n(26 FAIL total; cwd /tmp/schema-publish-red, committed 0.1.4 plugin bytes, current proof)",
+      "output": "FAIL  all independent validation errors are returned in one response  {\"code\":\"invalid_record\"}\nFAIL  a semantic finding inside a structurally broken subtree is suppressed, not cascaded\n103/130 checks passed\n(27 FAIL total; cwd /tmp/lifecycle-red, committed 0.1.4 plugin bytes, current 130-check proof)",
       "exitCode": 1,
-      "at": "2026-11-16T10:09:00.000Z"
+      "at": "2026-11-16T10:12:00.000Z"
     },
     "green": {
       "command": "node scripts/analysis-before-decomposition-proof.mjs",
-      "output": "PASS  all independent validation errors are returned in one response\nPASS  trimmed duplicates are refused in every id-bearing section in one response\n129/129 checks passed",
+      "output": "PASS  all independent validation errors are returned in one response\nPASS  trimmed duplicates are refused in every id-bearing section in one response\nPASS  a semantic finding inside a structurally broken subtree is suppressed, not cascaded\nPASS  the canonical record is completed with evidence and its linked goal is completable\n130/130 checks passed",
       "exitCode": 0,
-      "at": "2026-11-16T10:09:00.000Z"
+      "at": "2026-11-16T10:12:00.000Z"
     },
-    "commit": "21f18fff2d4a41651db1fb4588b811c1d0f0bcc8"
+    "commit": "e157e74fa6993aeac4c683bf4cc7fa05a031dcfa"
   },
   "testPath": "scripts/analysis-before-decomposition-proof.mjs",
   "runCommand": "node scripts/analysis-before-decomposition-proof.mjs",
   "lastVerified": {
-    "at": "2026-11-16T10:09:00.000Z",
+    "at": "2026-11-16T10:12:00.000Z",
     "command": "node scripts/analysis-before-decomposition-proof.mjs",
     "exitCode": 0
   },
