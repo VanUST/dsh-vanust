@@ -3,7 +3,9 @@ import {
   EDGE_LABEL_FONT_SIZE,
   EDGE_LABEL_LINE_HEIGHT,
   applyToWorkspace,
+  boxesWithinGap,
   createLogger,
+  findFreeSpot,
   isHexColour,
   labelBoxOf,
   paletteFor,
@@ -11,7 +13,7 @@ import {
   renderView,
   selectView,
   wrapEdgeLabel
-} from "./chunk-OOPUBQIU.mjs";
+} from "./chunk-APSIGH2O.mjs";
 import {
   createWorkspace,
   sha256
@@ -464,6 +466,125 @@ function createHostService({ designmapDir, repoRoot, git, clock = () => /* @__PU
     generatedAt: now(),
     commit: staleReport.head
   });
+  const panelViews = async ({ viewId } = {}) => {
+    const staleReport = status();
+    const viewsDoc = workspace.readViews().views;
+    if (viewId !== void 0 && !viewsDoc.views.some((view) => view.id === viewId)) {
+      throw new DesignmapRefusal(REFUSALS.unknownView, `unknown view "${String(viewId)}"`, { viewId });
+    }
+    const model = workspace.readModel().model;
+    const overlays = workspace.readOverlays().overlays;
+    const ids = viewId === void 0 ? viewsDoc.views.map((view) => view.id) : [viewId];
+    const rows = [];
+    for (const id of ids) {
+      const view = viewsDoc.views.find((candidate) => candidate.id === id);
+      const result = await renderView({
+        model,
+        views: viewsDoc,
+        overlays,
+        viewId: id,
+        staleNodeIds: staleReport.staleNodeIds,
+        logger
+      });
+      rows.push({
+        view: { viewId: id, title: view.title ?? "", level: view.level, parentGroupId: view.parent ?? null },
+        scene: result.scene,
+        meta: {
+          generatedAt: now(),
+          commit: staleReport.head,
+          sceneHash: result.sceneHash,
+          scenePath: relative2(root, workspace.scenePath(id)) || workspace.scenePath(id),
+          stale: {
+            stale: staleReport.stale,
+            commitBehind: staleReport.commitBehind,
+            staleNodes: staleReport.staleNodeIds
+          },
+          lint: result.lint
+        }
+      });
+    }
+    const index = workspace.readIndex().index;
+    const indexRows = Array.isArray(index?.views) ? index.views : [];
+    const rootRow = indexRows.find((row) => row.parent === null && row.level === "context") ?? indexRows.find((row) => row.parent === null) ?? null;
+    const rootId = rows.find((row) => row.view.viewId === rootRow?.viewId)?.view.viewId ?? rows.find((row) => row.view.level === "context")?.view.viewId ?? rows[0]?.view.viewId ?? null;
+    const annotations = workspace.readAnnotations().elements;
+    logger?.log("panel.views", { views: rows.length, viewId: viewId ?? null });
+    return {
+      ok: true,
+      views: rows,
+      rootId,
+      overlays: { rows: overlays, path: "designmap/overlays.json" },
+      annotations,
+      stale: {
+        stale: staleReport.stale,
+        commitBehind: staleReport.commitBehind,
+        staleNodes: staleReport.staleNodes
+      },
+      generatedAt: now(),
+      commit: staleReport.head
+    };
+  };
+  const OVERLAY_GAP = 8;
+  const viewForNode = (model, viewsDoc, nodeId, viewId) => {
+    if (viewId !== void 0) return viewsDoc.views.find((view) => view.id === viewId) ?? null;
+    return viewsDoc.views.find((view) => selectView(model, view).nodes.some((node) => node.id === nodeId)) ?? null;
+  };
+  const autoPlace = async ({ nodeId, x, y, viewId, overlays }) => {
+    const model = workspace.readModel().model;
+    const viewsDoc = workspace.readViews().views;
+    const view = viewForNode(model, viewsDoc, nodeId, viewId);
+    if (view === null) return null;
+    const result = await renderView({
+      model,
+      views: viewsDoc,
+      overlays,
+      viewId: view.id,
+      staleNodeIds: [],
+      logger
+    });
+    const self = result.scene.nodes.find((node) => node.id === nodeId);
+    if (self === void 0) return null;
+    const requested = { x: x ?? self.x, y: y ?? self.y, w: self.w, h: self.h };
+    const obstacles = result.scene.nodes.filter((node) => node.id !== nodeId).map((node) => ({ x: node.x, y: node.y, w: node.w, h: node.h }));
+    const collides = obstacles.some((obstacle) => boxesWithinGap(requested, obstacle, OVERLAY_GAP));
+    if (!collides) return { x: requested.x, y: requested.y, moved: false, from: requested };
+    const placed = findFreeSpot({ box: requested, obstacles, gap: OVERLAY_GAP });
+    if (placed === null) return { x: requested.x, y: requested.y, moved: false, from: requested, unresolved: true };
+    return { ...placed, moved: placed.x !== requested.x || placed.y !== requested.y, from: requested };
+  };
+  const label = ({ kind = "node", id, label: next } = {}) => {
+    if (kind !== "node" && kind !== "edge") {
+      throw new DesignmapRefusal("invalid_label_target", `label target must be node or edge, got "${String(kind)}"`, { kind });
+    }
+    if (typeof id !== "string" || id === "") {
+      throw new DesignmapRefusal("invalid_label_target", "label needs a node or edge id", { kind, id });
+    }
+    if (typeof next !== "string") {
+      throw new DesignmapRefusal("invalid_label", "label must be a string", { kind, id, type: typeof next });
+    }
+    const text = next.trim();
+    if (text === "") {
+      const code = kind === "edge" ? REFUSALS.missingEdgeLabel : "invalid_label";
+      throw new DesignmapRefusal(code, `${kind} "${id}" cannot have an empty label`, { kind, id });
+    }
+    if (text.length > 200) {
+      throw new DesignmapRefusal("invalid_label", `label for "${id}" is longer than 200 characters`, { kind, id, length: text.length });
+    }
+    const model = workspace.readModel().model;
+    let row;
+    if (kind === "node") {
+      const node = model.nodes.find((candidate) => candidate.id === id);
+      if (node === void 0) throw new DesignmapRefusal("unknown_node", `unknown node "${id}"`, { id });
+      row = { ...node, label: text };
+    } else {
+      const edge = model.edges.find((candidate) => candidate.id === id);
+      if (edge === void 0) throw new DesignmapRefusal("unknown_edge", `unknown edge "${id}"`, { id });
+      row = { ...edge, label: text };
+    }
+    const result = apply2([{ kind, action: "upsert", value: row }]);
+    logger?.log("label.write", { kind, id, length: text.length });
+    return { ok: true, kind, id, label: text, applied: result.applied, written: result.written, manifest: result.manifest, diff: result.diff };
+  };
   const render = async ({ viewId, logger: inner, write = true } = {}) => {
     const staleReport = status();
     const viewsDoc = workspace.readViews().views;
@@ -587,7 +708,7 @@ function createHostService({ designmapDir, repoRoot, git, clock = () => /* @__PU
     logger?.log("annotate.write", { elements: cleaned.length, bytes: Buffer.byteLength(written.text) });
     return { ok: true, elements: cleaned.length, bytes: Buffer.byteLength(written.text), annotationsPath: relative2(root, written.path) || written.path, hash: written.hash };
   };
-  const overlay = (payload = {}) => {
+  const overlay = async (payload = {}) => {
     const model = workspace.readModel().model;
     const viewsDoc = workspace.readViews().views;
     const read = workspace.readOverlays();
@@ -634,10 +755,30 @@ function createHostService({ designmapDir, repoRoot, git, clock = () => /* @__PU
       if (Object.keys(kept).length === 0) {
         throw new DesignmapRefusal("invalid_overlay", "overlay upsert needs at least one of x/y/fill/stroke", { nodeId });
       }
+      let placement = null;
+      if (kept.x !== void 0 || kept.y !== void 0) {
+        placement = await autoPlace({ nodeId, x: kept.x, y: kept.y, viewId: payload.viewId, overlays: current });
+        if (placement !== null && placement.moved) {
+          kept.x = placement.x;
+          kept.y = placement.y;
+        }
+      }
+      const before = current[nodeId] ?? null;
       current[nodeId] = { ...current[nodeId] ?? {}, ...kept };
       const written = workspace.writeOverlays(current);
-      logger?.log("overlay.write", { action, nodeId, keys: Object.keys(kept).sort(), rows: Object.keys(current).length });
-      return { ok: true, action, nodeId, keys: Object.keys(kept).sort(), rows: Object.keys(current).length, overlaysPath: relative2(root, written.path) || written.path };
+      logger?.log("overlay.write", { action, nodeId, keys: Object.keys(kept).sort(), rows: Object.keys(current).length, autoPlaced: placement?.moved === true });
+      return {
+        ok: true,
+        action,
+        nodeId,
+        keys: Object.keys(kept).sort(),
+        row: current[nodeId],
+        before,
+        adjusted: placement?.moved === true ? { x: kept.x, y: kept.y, from: placement.from } : null,
+        finding: placement?.unresolved === true ? { code: "overlap_unresolved", severity: "warning", nodeId, message: `no free position found for "${nodeId}"; the overlap stays and the scene lint reports it` } : placement?.moved === true ? { code: "overlap_adjusted", severity: "info", nodeId, from: placement.from, to: { x: kept.x, y: kept.y }, message: `"${nodeId}" was placed ${Math.round(placement.x - placement.from.x)},${Math.round(placement.y - placement.from.y)} px aside to keep it clear of the other nodes` } : null,
+        rows: Object.keys(current).length,
+        overlaysPath: relative2(root, written.path) || written.path
+      };
     }
     if (action === "replace") {
       const nodeId = payload.nodeId;
@@ -764,6 +905,8 @@ function createHostService({ designmapDir, repoRoot, git, clock = () => /* @__PU
     scan,
     apply: apply2,
     overlay,
+    label,
+    views: panelViews,
     annotate,
     render,
     lint,
@@ -911,7 +1054,7 @@ function agentCwd(agent) {
 }
 
 // src/command.mjs
-var OPS = ["status", "scan", "apply", "render", "lint", "open", "export", "overlay", "annotate"];
+var OPS = ["status", "scan", "apply", "render", "lint", "open", "export", "overlay", "annotate", "views", "label"];
 var OVERLAY_FIELDS = ["action", "nodeId", "viewId", "row", "x", "y", "fill", "stroke"];
 function overlayPayload(op) {
   const payload = {};
@@ -959,10 +1102,16 @@ function createCommandHandler({ hostFor }) {
           value = await service.exportView({ viewId: op.viewId, format: op.format });
           break;
         case "overlay":
-          value = service.overlay(overlayPayload(op));
+          value = await service.overlay(overlayPayload(op));
           break;
         case "annotate":
           value = service.annotate({ elements: op.elements });
+          break;
+        case "views":
+          value = await service.views({ viewId: op.viewId });
+          break;
+        case "label":
+          value = service.label({ kind: op.kind, id: op.id, label: op.label });
           break;
         default:
           return { kind: "error", text: `designmap: unknown op (${OPS.join(" | ")})` };

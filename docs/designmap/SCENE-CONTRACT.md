@@ -113,9 +113,14 @@ but it must not move a node, resize a box, re-route an edge or wrap a label.
 
 ## The view index
 
-The panel reads files through a read-only workspace API and cannot list a directory,
-so `designmap/out/index.json` is its only way to discover the views. Core writes it
-next to the scenes; two runs over the same workspace produce byte-identical bytes.
+`designmap/out/index.json` is the discovery surface for the agent's `render`/`export`
+artifacts and for any consumer that reads files: core writes it next to the scenes, and
+two runs over the same workspace produce byte-identical bytes. The **panel does not read
+it**: the client cannot list a directory, and it must not merge overlays itself, so it
+asks the host command for `op:'views'`, which renders every view WITH the stored overlays
+(`renderView` with `write:false`) and returns `{views:[{view,scene,meta}], rootId,
+overlays, annotations}`. The response carries `meta.lint`, so the panel shows the layout
+verdict without a second call.
 
 ```json
 {
@@ -176,6 +181,14 @@ keyed by semantic node id, exactly as in the spec, so a human can read it:
   previous layout, and the overlay must survive a layout change.
 - Rows are written by the renderer through the host (debounce 500 ms) and by nothing
   else — an agent tool that tries to write this file is refused (INV-LAYERS, NFR-4).
+- A position upsert that would put the node on (or within `OVERLAY_GAP = 8` px of) another
+  node is **auto-placed**: the host renders the view with the current rows, treats the
+  requested box as the node's effective box (a one-axis drag takes the other axis from the
+  scene), asks `findFreeSpot` for the nearest free cell on a 16 px ring grid with
+  non-negative coordinates, and stores both axes. The result carries `adjusted` and an
+  `overlap_adjusted` finding; when no free cell exists inside the bounded search the row is
+  stored unchanged with `overlap_unresolved` and the scene lint reports the overlap. No
+  other row and no model byte changes (INV-AUTOPLACE).
 - Unknown node ids, negative or non-finite coordinates, and colours that are not a hex
   colour are reported in `merge.gc` / lint and then ignored: overlays can never make
   `render` fail (FR-4). Any valid hex is applied — the human picks colours from the
@@ -212,12 +225,15 @@ The renderer emits exactly these, and the host is the only writer:
 | `colorChanged` | `{ nodeId, fill?, stroke? }` | upsert the colour keys, `overlay.write` log |
 | `nodeReset` | `{ nodeId }` | drop that node's overlay row |
 | `viewReset` | `{ viewId }` | drop every overlay row of the nodes on that view |
+| `labelChanged` | `{ kind: 'node'\|'edge', id }` | `op:'label'` → `apply` on `model.yaml` + manifest rebuild; an empty edge label is refused `missing_edge_label` |
 | `drillDown` | `{ groupId }` | `render` the child view |
 | `openSource` | `{ nodeId }` | host resolves `source` and opens it; a missing source is a structured refusal |
 | `viewChanged` | `{ viewId }` | `render` that view |
 
 No event carries a scene, a model or a layout request. Read-only mode emits only
-`drillDown`, `openSource`, `viewChanged`.
+`drillDown`, `openSource`, `viewChanged`. After a human's move/colour/label the panel
+re-requests `op:'views'` and adopts the fresh scene (the viewport and selection are kept);
+the editor's own route for a bound arrow is never persisted.
 
 ## Tool result envelope
 

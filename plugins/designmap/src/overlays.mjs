@@ -135,6 +135,51 @@ export function reattachEdges(nodes, edges, overlaidIds) {
   })
 }
 
+/**
+ * Do two boxes come closer than `gap`? The panel's drag must not merely avoid an exact
+ * intersection: two boxes touching at an edge would draw as one glued block, so the
+ * auto-placement treats anything closer than the gap as occupied.
+ */
+export function boxesWithinGap(left, right, gap = 0) {
+  return left.x < right.x + right.w + gap
+    && right.x < left.x + left.w + gap
+    && left.y < right.y + right.h + gap
+    && right.y < left.y + left.h + gap
+}
+
+/**
+ * Nearest position for `box` that keeps at least `gap` from every obstacle.
+ *
+ * Search is a square ring walk on a `step` grid around the requested position, so the
+ * answer is close to where the human dropped the node (the first free cell on the
+ * nearest ring, ordered by distance inside the ring). `x`/`y` stay non-negative
+ * because the overlay schema refuses negative coordinates — a candidate outside the
+ * canvas would be written only to be ignored by merge, which would look like a lost
+ * drop. Returns `null` when no free cell exists inside the bounded search.
+ */
+export function findFreeSpot({ box, obstacles, gap = 8, step = 16, maxRings = 128 }) {
+  if (box === undefined || box === null || ![box.x, box.y, box.w, box.h].every(Number.isFinite)) return null
+  const list = Array.isArray(obstacles) ? obstacles : []
+  for (let ring = 0; ring <= maxRings; ring += 1) {
+    const offsets = []
+    for (let dx = -ring; dx <= ring; dx += 1) {
+      for (let dy = -ring; dy <= ring; dy += 1) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== ring) continue
+        offsets.push([dx, dy])
+      }
+    }
+    offsets.sort((left, right) => (left[0] * left[0] + left[1] * left[1]) - (right[0] * right[0] + right[1] * right[1]))
+    for (const [dx, dy] of offsets) {
+      const x = round2(box.x + dx * step)
+      const y = round2(box.y + dy * step)
+      if (x < 0 || y < 0) continue
+      const candidate = { ...box, x, y }
+      if (!list.some(obstacle => boxesWithinGap(candidate, obstacle, gap))) return { x, y }
+    }
+  }
+  return null
+}
+
 /** Bounding box of node boxes, group boxes and edge points, with the contract's 40 px margin. */
 export function recomputeCanvas(nodes, groups, edges) {
   const boxes = [...nodes, ...groups]

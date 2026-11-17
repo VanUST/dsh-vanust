@@ -31,6 +31,7 @@ import { sceneToSvg } from './svg.mjs'
 import { sha256 } from './canonical.mjs'
 import { inPalette, isHexColour } from './palette.mjs'
 import { selectView } from './render.mjs'
+import { boxesWithinGap, findFreeSpot } from './overlays.mjs'
 
 export const LOG_FILE = 'events.jsonl'
 
@@ -315,6 +316,168 @@ export function createHostService({ designmapDir, repoRoot, git, clock = () => n
     commit: staleReport.head,
   })
 
+  /**
+   * The panel's read path: every view RENDERED WITH the stored overlays, in the shape the
+   * client's `load` already consumes (`{views:[{view,scene,meta}], rootId, overlays, annotations}`).
+   *
+   * This exists because reading `out/*.scene.json` and merging overlays in the browser made
+   * two geometry owners: the node moved, the arrows and label plates did not. The render
+   * pipeline already re-anchors edge endpoints and re-places plates for overlaid nodes, so
+   * the panel must draw that scene, not its own merge. Nothing is written: `write:false`
+   * keeps `out/` as the artifact the agent's `render` owns.
+   */
+  const panelViews = async ({ viewId } = {}) => {
+    const staleReport = status()
+    const viewsDoc = workspace.readViews().views
+    if (viewId !== undefined && !viewsDoc.views.some(view => view.id === viewId)) {
+      throw new DesignmapRefusal(REFUSALS.unknownView, `unknown view "${String(viewId)}"`, { viewId })
+    }
+    const model = workspace.readModel().model
+    const overlays = workspace.readOverlays().overlays
+    const ids = viewId === undefined ? viewsDoc.views.map(view => view.id) : [viewId]
+    const rows = []
+    for (const id of ids) {
+      const view = viewsDoc.views.find(candidate => candidate.id === id)
+      const result = await renderView({
+        model,
+        views: viewsDoc,
+        overlays,
+        viewId: id,
+        staleNodeIds: staleReport.staleNodeIds,
+        logger,
+      })
+      rows.push({
+        view: { viewId: id, title: view.title ?? '', level: view.level, parentGroupId: view.parent ?? null },
+        scene: result.scene,
+        meta: {
+          generatedAt: now(),
+          commit: staleReport.head,
+          sceneHash: result.sceneHash,
+          scenePath: relative(root, workspace.scenePath(id)) || workspace.scenePath(id),
+          stale: {
+            stale: staleReport.stale,
+            commitBehind: staleReport.commitBehind,
+            staleNodes: staleReport.staleNodeIds,
+          },
+          lint: result.lint,
+        },
+      })
+    }
+    const index = workspace.readIndex().index
+    const indexRows = Array.isArray(index?.views) ? index.views : []
+    const rootRow = indexRows.find(row => row.parent === null && row.level === 'context') ?? indexRows.find(row => row.parent === null) ?? null
+    const rootId =
+      rows.find(row => row.view.viewId === rootRow?.viewId)?.view.viewId ??
+      rows.find(row => row.view.level === 'context')?.view.viewId ??
+      rows[0]?.view.viewId ??
+      null
+    const annotations = workspace.readAnnotations().elements
+    logger?.log('panel.views', { views: rows.length, viewId: viewId ?? null })
+    return {
+      ok: true,
+      views: rows,
+      rootId,
+      overlays: { rows: overlays, path: 'designmap/overlays.json' },
+      annotations,
+      stale: {
+        stale: staleReport.stale,
+        commitBehind: staleReport.commitBehind,
+        staleNodes: staleReport.staleNodes,
+      },
+      generatedAt: now(),
+      commit: staleReport.head,
+    }
+  }
+
+  /** Distance an auto-placed node keeps from its neighbours (see findFreeSpot). */
+  const OVERLAY_GAP = 8
+
+  /**
+   * The overlay row is global, but a node's box comes from one view's layout. The panel
+   * sends the view it is looking at; a script can omit it and get the first view that
+   * draws the node.
+   */
+  const viewForNode = (model, viewsDoc, nodeId, viewId) => {
+    if (viewId !== undefined) return viewsDoc.views.find(view => view.id === viewId) ?? null
+    return viewsDoc.views.find(view => selectView(model, view).nodes.some(node => node.id === nodeId)) ?? null
+  }
+
+  /**
+   * Auto-placement for a human move: when the requested top-left would put the node on
+   * (or too close to) another node, the nearest free cell wins. Returns
+   * `{x, y, moved, from}` or `null` when the node is not drawn by any view or no free
+   * cell was found — in both cases the caller writes the requested row and the scene
+   * lint reports the overlap as a warning instead of silently losing the drop.
+   */
+  const autoPlace = async ({ nodeId, x, y, viewId, overlays }) => {
+    const model = workspace.readModel().model
+    const viewsDoc = workspace.readViews().views
+    const view = viewForNode(model, viewsDoc, nodeId, viewId)
+    if (view === null) return null
+    const result = await renderView({
+      model,
+      views: viewsDoc,
+      overlays,
+      viewId: view.id,
+      staleNodeIds: [],
+      logger,
+    })
+    const self = result.scene.nodes.find(node => node.id === nodeId)
+    if (self === undefined) return null
+    // The effective box of a one-axis move is the requested axis plus the scene's other
+    // axis: a drag that only changed x can still land on a neighbour, and the rule must
+    // see the box the human actually sees.
+    const requested = { x: x ?? self.x, y: y ?? self.y, w: self.w, h: self.h }
+    const obstacles = result.scene.nodes
+      .filter(node => node.id !== nodeId)
+      .map(node => ({ x: node.x, y: node.y, w: node.w, h: node.h }))
+    const collides = obstacles.some(obstacle => boxesWithinGap(requested, obstacle, OVERLAY_GAP))
+    if (!collides) return { x: requested.x, y: requested.y, moved: false, from: requested }
+    const placed = findFreeSpot({ box: requested, obstacles, gap: OVERLAY_GAP })
+    if (placed === null) return { x: requested.x, y: requested.y, moved: false, from: requested, unresolved: true }
+    return { ...placed, moved: placed.x !== requested.x || placed.y !== requested.y, from: requested }
+  }
+
+  /**
+   * The human's label edit path: a label is a MODEL field, so it goes through `apply`
+   * (whole-document validation, manifest rebuild) and never through the overlay file.
+   * An empty edge label is refused here with the lint rule's own code, because it would
+   * make every render refuse after the write; the model stays byte-identical.
+   */
+  const label = ({ kind = 'node', id, label: next } = {}) => {
+    if (kind !== 'node' && kind !== 'edge') {
+      throw new DesignmapRefusal('invalid_label_target', `label target must be node or edge, got "${String(kind)}"`, { kind })
+    }
+    if (typeof id !== 'string' || id === '') {
+      throw new DesignmapRefusal('invalid_label_target', 'label needs a node or edge id', { kind, id })
+    }
+    if (typeof next !== 'string') {
+      throw new DesignmapRefusal('invalid_label', 'label must be a string', { kind, id, type: typeof next })
+    }
+    const text = next.trim()
+    if (text === '') {
+      const code = kind === 'edge' ? REFUSALS.missingEdgeLabel : 'invalid_label'
+      throw new DesignmapRefusal(code, `${kind} "${id}" cannot have an empty label`, { kind, id })
+    }
+    if (text.length > 200) {
+      throw new DesignmapRefusal('invalid_label', `label for "${id}" is longer than 200 characters`, { kind, id, length: text.length })
+    }
+    const model = workspace.readModel().model
+    let row
+    if (kind === 'node') {
+      const node = model.nodes.find(candidate => candidate.id === id)
+      if (node === undefined) throw new DesignmapRefusal('unknown_node', `unknown node "${id}"`, { id })
+      row = { ...node, label: text }
+    } else {
+      const edge = model.edges.find(candidate => candidate.id === id)
+      if (edge === undefined) throw new DesignmapRefusal('unknown_edge', `unknown edge "${id}"`, { id })
+      row = { ...edge, label: text }
+    }
+    const result = apply([{ kind, action: 'upsert', value: row }])
+    logger?.log('label.write', { kind, id, length: text.length })
+    return { ok: true, kind, id, label: text, applied: result.applied, written: result.written, manifest: result.manifest, diff: result.diff }
+  }
+
   const render = async ({ viewId, logger: inner, write = true } = {}) => {
     const staleReport = status()
     const viewsDoc = workspace.readViews().views
@@ -456,7 +619,7 @@ export function createHostService({ designmapDir, repoRoot, git, clock = () => n
    * upsert one node's visual keys, reset one node, or reset every node on a view.
    * Agent tools never expose this — it is the human's edit path.
    */
-  const overlay = (payload = {}) => {
+  const overlay = async (payload = {}) => {
     const model = workspace.readModel().model
     const viewsDoc = workspace.readViews().views
     const read = workspace.readOverlays()
@@ -509,10 +672,40 @@ export function createHostService({ designmapDir, repoRoot, git, clock = () => n
       if (Object.keys(kept).length === 0) {
         throw new DesignmapRefusal('invalid_overlay', 'overlay upsert needs at least one of x/y/fill/stroke', { nodeId })
       }
+      // A move becomes a collision-free move before it is stored: the nearest free cell
+      // is found against the scene the core would draw (current overlays), so the panel,
+      // the agent's render and a script all see the same rule. A colour-only upsert has
+      // no position and skips this.
+      let placement = null
+      if (kept.x !== undefined || kept.y !== undefined) {
+        placement = await autoPlace({ nodeId, x: kept.x, y: kept.y, viewId: payload.viewId, overlays: current })
+        if (placement !== null && placement.moved) {
+          // A corrected position is stored in full: the row now owns both axes, which is
+          // exactly what a completed drag means for the person who made it.
+          kept.x = placement.x
+          kept.y = placement.y
+        }
+      }
+      const before = current[nodeId] ?? null
       current[nodeId] = { ...(current[nodeId] ?? {}), ...kept }
       const written = workspace.writeOverlays(current)
-      logger?.log('overlay.write', { action, nodeId, keys: Object.keys(kept).sort(), rows: Object.keys(current).length })
-      return { ok: true, action, nodeId, keys: Object.keys(kept).sort(), rows: Object.keys(current).length, overlaysPath: relative(root, written.path) || written.path }
+      logger?.log('overlay.write', { action, nodeId, keys: Object.keys(kept).sort(), rows: Object.keys(current).length, autoPlaced: placement?.moved === true })
+      return {
+        ok: true,
+        action,
+        nodeId,
+        keys: Object.keys(kept).sort(),
+        row: current[nodeId],
+        before,
+        adjusted: placement?.moved === true ? { x: kept.x, y: kept.y, from: placement.from } : null,
+        finding: placement?.unresolved === true
+          ? { code: 'overlap_unresolved', severity: 'warning', nodeId, message: `no free position found for "${nodeId}"; the overlap stays and the scene lint reports it` }
+          : placement?.moved === true
+            ? { code: 'overlap_adjusted', severity: 'info', nodeId, from: placement.from, to: { x: kept.x, y: kept.y }, message: `"${nodeId}" was placed ${Math.round(placement.x - placement.from.x)},${Math.round(placement.y - placement.from.y)} px aside to keep it clear of the other nodes` }
+            : null,
+        rows: Object.keys(current).length,
+        overlaysPath: relative(root, written.path) || written.path,
+      }
     }
 
     if (action === 'replace') {
@@ -652,6 +845,8 @@ export function createHostService({ designmapDir, repoRoot, git, clock = () => n
     scan,
     apply,
     overlay,
+    label,
+    views: panelViews,
     annotate,
     render,
     lint,

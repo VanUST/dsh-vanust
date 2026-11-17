@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "design-map-drop-never-leaves-an-overlap",
+  "title": "Design map drop never leaves an overlap",
+  "requirement": "Владелец: хотелось бы, чтобы правила раскладки соблюдались автоматически — например, без пересечений визуальных элементов.",
+  "kind": "regression",
+  "status": "unverified",
+  "source": "human",
+  "automated": false,
+  "reason": "Требование владельца о правилах раскладки; проверяется в браузере и в файле слоя настроек, автопрогон будет в задаче доказательства, поэтому кейс записан как ручной.",
+  "steps": [
+    "Открыть панель «Карта дизайна», включить режим правки",
+    "Перетащить узел так, чтобы его центр оказался поверх другого узла",
+    "Отпустить и посмотреть на карту и строку состояния",
+    "Проверить designmap/overlays.json и нажать Undo"
+  ],
+  "expected": "Пересечения не остаётся: узел ставится в ближайшее свободное место, в панели появляется сообщение о корректировке, в designmap/overlays.json меняется только строка этого узла, Undo возвращает прежнюю позицию.",
+  "tags": [
+    "designmap",
+    "layout",
+    "overlap"
+  ],
+  "surfaceFiles": [],
+  "linkedTaskId": "task-mwkidjih-78jzrk",
+  "revision": 1,
+  "createdAt": "2026-11-17T09:47:52.604Z",
+  "updatedAt": "2026-11-17T09:47:52.604Z",
+  "createdBy": "orchestrator",
+  "createdByKind": "agent",
+  "history": [],
+  "evidence": {}
+}

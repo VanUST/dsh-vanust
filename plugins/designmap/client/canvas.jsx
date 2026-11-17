@@ -61,10 +61,15 @@ export function ExcalidrawCanvas({
   annotationsRef.current = annotations
   const lookRef = React.useRef(theme)
   lookRef.current = theme
+  // A `change` that Excalidraw emits AFTER we replaced the scene describes the OLD canvas
+  // (a drag whose onChange was scheduled before the load). Writing it back would undo the
+  // host's fresh render — the undo/reset race — so changes are ignored briefly after a load.
+  const suppressUntilRef = React.useRef(0)
   const [srcDoc, setSrcDoc] = React.useState(null)
   const [failure, setFailure] = React.useState(null)
 
   const post = React.useCallback((message) => {
+    if (message?.type === 'load') suppressUntilRef.current = Date.now() + 600
     iframeRef.current?.contentWindow?.postMessage({ source: PANEL_SOURCE, ...message }, '*')
   }, [])
 
@@ -199,8 +204,10 @@ export function ExcalidrawCanvas({
           onViewport?.({ zoom: zoomValue })
         }
         // Before the first load the frame reports its empty canvas; saving that would
-        // erase every overlay row.
+        // erase every overlay row. A change that lands right after a load describes the
+        // pre-load canvas, not a human edit.
         if (!loadedRef.current) return
+        if (Date.now() < suppressUntilRef.current) return
         const delta = overlayDelta(baselineRef.current, data.elements ?? [])
         if (Object.keys(delta).length > 0) onDelta?.(delta)
         const human = freeElements(data.elements ?? [])

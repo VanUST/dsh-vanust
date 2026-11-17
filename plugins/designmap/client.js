@@ -9495,7 +9495,16 @@ async function loadFrameText(fetchImpl = globalThis.fetch) {
 function frameDocument(script, look = { surface: "#ffffff" }, { editing = false } = {}) {
   const safe = script.replaceAll("<\/script", "<\\/script");
   const background = /^#[0-9a-f]{3,8}$/iu.test(String(look?.surface ?? "")) ? look.surface : "#ffffff";
-  const chrome = editing ? ".HintViewer{display:none!important}" : ".App-toolbar,.HintViewer,.App-menu,.layer-ui__wrapper__top-right,.dropdown-menu-button{display:none!important}";
+  const editorChrome = [
+    ".HintViewer",
+    ".dropdown-menu-button",
+    ".layer-ui__wrapper__top-right",
+    ".help-icon",
+    ".zoom-button",
+    'button[aria-label="Undo"]',
+    'button[aria-label="Redo"]'
+  ].join(",");
+  const chrome = editing ? `${editorChrome}{display:none!important}` : `.App-toolbar,.App-menu,.layer-ui__wrapper__top-right,.dropdown-menu-button,.help-icon,.zoom-button,.HintViewer{display:none!important}`;
   return `<!doctype html><html><head><meta charset="utf-8"><style>
 html,body,#root{height:100%;margin:0;background:${background};overflow:hidden}
 ${chrome}
@@ -9657,11 +9666,19 @@ function sceneToElements(scene, { overlays = {}, editMode = false, look = DEFAUL
       );
     }
   }
+  const bindable = /* @__PURE__ */ new Map();
+  for (const edge of scene.edges) {
+    for (const nodeId of [edge.from, edge.to]) {
+      const list = bindable.get(nodeId) ?? [];
+      list.push(edge.id);
+      bindable.set(nodeId, list);
+    }
+  }
   for (const node of scene.nodes) {
     const row = overlays[node.id] ?? {};
     const look2 = NODE_LOOK[node.type] ?? NODE_LOOK.service;
-    const x = typeof row.x === "number" ? row.x : node.x;
-    const y = typeof row.y === "number" ? row.y : node.y;
+    const x = node.x;
+    const y = node.y;
     const fill = typeof row.fill === "string" ? row.fill : look2.fill;
     const stroke = typeof row.stroke === "string" ? row.stroke : look2.stroke;
     const lines = String(node.label).split("\n");
@@ -9669,6 +9686,7 @@ function sceneToElements(scene, { overlays = {}, editMode = false, look = DEFAUL
     const shape = SHAPE[node.type] ?? "rectangle";
     const nodeId = `${NODE_PREFIX}${node.id}`;
     const textId = `${LABEL_PREFIX}${node.id}`;
+    const arrows = (bindable.get(node.id) ?? []).map((edgeId) => ({ type: "arrow", id: `${EDGE_PREFIX}${edgeId}` }));
     elements.push(
       element(shape, nodeId, {
         x,
@@ -9681,7 +9699,7 @@ function sceneToElements(scene, { overlays = {}, editMode = false, look = DEFAUL
         strokeWidth: 1.6,
         roundness: shape === "rectangle" ? { type: 3 } : null,
         locked: !editMode,
-        boundElements: [{ type: "text", id: textId }],
+        boundElements: [{ type: "text", id: textId }, ...arrows],
         customData: { designmap: { kind: "node", nodeId: node.id } }
       })
     );
@@ -9700,6 +9718,9 @@ function sceneToElements(scene, { overlays = {}, editMode = false, look = DEFAUL
         containerId: nodeId,
         lineHeight: NODE_LINE_HEIGHT,
         strokeColor: NODE_INK,
+        // Locked: an editable label takes the pointer for the text and a drag started on it
+        // never reaches the node. The label is renamed in the panel's Labels inspector, which
+        // writes the model op; the canvas stays a geometry surface.
         locked: true,
         customData: { designmap: { kind: "node-label", nodeId: node.id } }
       })
@@ -9722,9 +9743,11 @@ function sceneToElements(scene, { overlays = {}, editMode = false, look = DEFAUL
         strokeWidth: 1.4,
         startArrowhead: null,
         endArrowhead: "arrow",
-        // Unbound on purpose: a bound arrow would be re-routed by the editor.
-        startBinding: null,
-        endBinding: null,
+        // Bound at both ends (Excalidraw 0.18 binding: {elementId, focus, gap} + the
+        // node's boundElements entry). `focus` 0 aims at the box centre, so the endpoint
+        // slides along the boundary as the node moves; the bends stay put.
+        startBinding: { elementId: `${NODE_PREFIX}${edge.from}`, focus: 0, gap: 1 },
+        endBinding: { elementId: `${NODE_PREFIX}${edge.to}`, focus: 0, gap: 1 },
         locked: true,
         customData: { designmap: { kind: "edge", edgeId: edge.id } }
       })
@@ -9795,9 +9818,10 @@ function isDarkSurface(colour) {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.35;
 }
 function sceneToAppState(look = DEFAULT_LOOK) {
+  const dark = isDarkSurface(look.surface);
   return {
     viewBackgroundColor: look.surface,
-    theme: "light",
+    theme: dark ? "dark" : "light",
     currentItemStrokeColor: "#4338ca",
     currentItemBackgroundColor: "#e0e7ff",
     currentItemFontFamily: 2,
@@ -9873,9 +9897,11 @@ function ExcalidrawCanvas({
   annotationsRef.current = annotations;
   const lookRef = import_react3.default.useRef(theme);
   lookRef.current = theme;
+  const suppressUntilRef = import_react3.default.useRef(0);
   const [srcDoc, setSrcDoc] = import_react3.default.useState(null);
   const [failure, setFailure] = import_react3.default.useState(null);
   const post = import_react3.default.useCallback((message) => {
+    if (message?.type === "load") suppressUntilRef.current = Date.now() + 600;
     iframeRef.current?.contentWindow?.postMessage({ source: PANEL_SOURCE, ...message }, "*");
   }, []);
   const fittedAppState = import_react3.default.useCallback(() => {
@@ -9990,6 +10016,7 @@ function ExcalidrawCanvas({
           onViewport?.({ zoom: zoomValue });
         }
         if (!loadedRef.current) return;
+        if (Date.now() < suppressUntilRef.current) return;
         const delta = overlayDelta(baselineRef.current, data.elements ?? []);
         if (Object.keys(delta).length > 0) onDelta?.(delta);
         const human = freeElements(data.elements ?? []);
@@ -10080,7 +10107,65 @@ function SceneEdge({ id: id2, data, markerEnd, style: style2 }) {
     ) })
   ] });
 }
-function Legend({ scene, editMode, zoom: zoom3, onFit }) {
+var ICON = Object.freeze({
+  width: 13,
+  height: 13,
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.8,
+  strokeLinecap: "round",
+  strokeLinejoin: "round",
+  "aria-hidden": "true"
+});
+function IconUndo() {
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("svg", { ...ICON, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("path", { d: "M9 14 4 9l5-5" }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("path", { d: "M4 9h10a6 6 0 0 1 0 12h-3" })
+  ] });
+}
+function IconFit() {
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("svg", { ...ICON, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("path", { d: "M4 9V4h5" }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("path", { d: "M20 9V4h-5" }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("path", { d: "M4 15v5h5" }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("path", { d: "M20 15v5h-5" })
+  ] });
+}
+function IconReset() {
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("svg", { ...ICON, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("path", { d: "M4 12a8 8 0 1 0 2.34-5.66" }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("path", { d: "M4 4v5h5" })
+  ] });
+}
+function IconPencil() {
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("svg", { ...ICON, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("path", { d: "M4 20h4L18 10l-4-4L4 16v4Z" }) });
+}
+function IconCheck() {
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("svg", { ...ICON, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("path", { d: "m5 13 4 4L19 7" }) });
+}
+function IconTag() {
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("svg", { ...ICON, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("path", { d: "M20 12 12 20 4 12V4h8l8 8Z" }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("circle", { cx: "8.5", cy: "8.5", r: "1" })
+  ] });
+}
+function colourSummary(scene, overlays, type) {
+  const fallback = paletteFor(type);
+  const seen = /* @__PURE__ */ new Map();
+  for (const node of scene.nodes) {
+    if (node.type !== type) continue;
+    const row = overlays?.[node.id] ?? {};
+    const fill = typeof row.fill === "string" ? row.fill : fallback.fill;
+    const stroke = typeof row.stroke === "string" ? row.stroke : fallback.stroke;
+    const key = `${fill}|${stroke}`;
+    const entry = seen.get(key) ?? { fill, stroke, count: 0 };
+    entry.count += 1;
+    seen.set(key, entry);
+  }
+  return [...seen.values()].sort((left, right) => left.fill < right.fill ? -1 : left.fill > right.fill ? 1 : 0);
+}
+function Legend({ scene, overlays, editMode, zoom: zoom3, onFit }) {
   const nodeTypes = legendNodeTypes(scene);
   const edgeKinds = legendEdgeKinds(scene);
   const nodeCounts = import_react4.default.useMemo(() => {
@@ -10096,12 +10181,17 @@ function Legend({ scene, editMode, zoom: zoom3, onFit }) {
   return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dmv-legend-bar", role: "group", "aria-label": "Legend", children: [
     /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dmv-legend-title", children: "Legend" }),
     /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("ul", { className: "dmv-legend-group", children: nodeTypes.map((type) => {
-      const look = paletteFor(type);
+      const colours = colourSummary(scene, overlays, type);
+      const mixed = colours.length > 1;
+      const primary = colours[0] ?? paletteFor(type);
       const shape = type === "datastore" ? "ellipse" : type === "external" ? "dashed" : type === "decision" ? "diamond" : "";
-      return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("li", { className: "dmv-legend-item", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: `dmv-glyph ${shape}`, style: { background: look.fill, borderColor: look.stroke }, "aria-hidden": "true" }),
+      const swatch = mixed ? { background: `linear-gradient(135deg, ${colours[0].fill} 0 50%, ${colours[1].fill} 50% 100%)`, borderColor: colours[0].stroke } : { background: primary.fill, borderColor: primary.stroke };
+      const detail = colours.map((entry) => `${entry.fill} \xD7 ${entry.count}`).join(", ");
+      return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("li", { className: "dmv-legend-item", title: `${type}: ${nodeCounts.get(type) ?? 0} node(s) \u2014 ${detail}`, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: `dmv-glyph ${shape}${mixed ? " mixed" : ""}`, style: swatch, "aria-hidden": "true" }),
         /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: type }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("b", { children: nodeCounts.get(type) ?? 0 })
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("b", { children: nodeCounts.get(type) ?? 0 }),
+        mixed ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dmv-legend-mixed", title: `${colours.length} colours: ${detail}`, children: "mixed" }) : null
       ] }, type);
     }) }),
     /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dmv-legend-sep", "aria-hidden": "true" }),
@@ -10115,11 +10205,66 @@ function Legend({ scene, editMode, zoom: zoom3, onFit }) {
       ] }, kind);
     }) }),
     /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dmv-spacer" }),
-    editMode ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dmv-legend-hint", children: "drag a node to move it" }) : null,
-    onFit === void 0 ? null : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { type: "button", className: "dmv-btn dmv-fit", onClick: onFit, title: "Fit the whole map in the canvas", children: [
-      "\u2922 Fit",
-      Number.isFinite(zoom3) ? ` \xB7 ${zoom3.toFixed(2)}\xD7` : ""
+    editMode ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dmv-legend-hint", children: "drag a node to move it; double-click its label to rename it" }) : null,
+    onFit === void 0 ? null : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { type: "button", className: "dmv-btn dmv-fit", onClick: onFit, title: "Fit the whole map in the canvas", "aria-label": `Fit the whole map, current zoom ${Number.isFinite(zoom3) ? zoom3.toFixed(2) : "1"} times`, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(IconFit, {}),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { children: [
+        "Fit",
+        Number.isFinite(zoom3) ? ` \xB7 ${zoom3.toFixed(2)}\xD7` : ""
+      ] })
     ] })
+  ] });
+}
+function LabelRow({ kind, id: id2, label, onSave }) {
+  const [value2, setValue] = import_react4.default.useState(label);
+  import_react4.default.useEffect(() => setValue(label), [label]);
+  const commit = () => {
+    const text = value2.trim();
+    if (text === label) return;
+    onSave(kind, id2, text).then((saved) => {
+      if (saved !== true) setValue(label);
+    });
+  };
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("li", { className: "dmv-label-row", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dmv-label-kind", title: kind, children: kind === "node" ? "node" : "edge" }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("code", { className: "dmv-label-id", title: id2, children: id2 }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+      "input",
+      {
+        className: "dmv-label-input",
+        value: value2,
+        "aria-label": `${kind} label ${id2}`,
+        onChange: (event) => setValue(event.target.value),
+        onKeyDown: (event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+          if (event.key === "Escape") {
+            setValue(label);
+            event.currentTarget.blur();
+          }
+        },
+        onBlur: commit
+      }
+    )
+  ] });
+}
+function LabelEditor({ scene, query, onSave }) {
+  const rows = [
+    ...scene.nodes.map((node) => ({ kind: "node", id: node.id, label: node.label })),
+    ...scene.edges.map((edge) => ({ kind: "edge", id: edge.id, label: edge.label }))
+  ];
+  const needle = query.trim().toLowerCase();
+  const visible = needle === "" ? rows : rows.filter((row) => row.id.toLowerCase().includes(needle) || row.label.toLowerCase().includes(needle));
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("section", { className: "dmv-labels", "aria-label": "Labels", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("header", { className: "dmv-labels-head", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { children: "Labels" }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { children: "Rename a node or an edge. The edit is written to the model and re-rendered." }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "dmv-labels-count", children: [
+        visible.length,
+        " of ",
+        rows.length
+      ] })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("ul", { className: "dmv-labels-list", children: visible.map((row) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(LabelRow, { ...row, onSave }, `${row.kind}:${row.id}:${row.label}`)) })
   ] });
 }
 function NodeInspector({ node, colours, overlayRow, pending, onColour, onReset, onOpen }) {
@@ -10202,12 +10347,12 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
   const [colours, setColours] = import_react4.default.useState({});
   const [overlays, setOverlays] = import_react4.default.useState({});
   const [canvasFailed, setCanvasFailed] = import_react4.default.useState(false);
-  const rootRef = import_react4.default.useRef(null);
-  import_react4.default.useEffect(() => {
+  const [labelsOpen, setLabelsOpen] = import_react4.default.useState(false);
+  const [rootEl, setRootEl] = import_react4.default.useState(null);
+  import_react4.default.useLayoutEffect(() => {
+    if (rootEl === null) return void 0;
     const read = () => {
-      const element2 = rootRef.current;
-      if (element2 === null) return;
-      const styles = getComputedStyle(element2);
+      const styles = getComputedStyle(rootEl);
       const pick = (name, fallback) => (styles.getPropertyValue(name) ?? "").trim() || fallback;
       const next = {
         surface: pick("--dmv-surface", "#ffffff"),
@@ -10217,7 +10362,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
         line: pick("--dmv-line", "#e2e8f0")
       };
       const accent = pick("--dmv-accent", "#2563eb");
-      element2.style.setProperty("--dmv-accent-ink", isDarkSurface(accent) ? "#ffffff" : "#0b0f14");
+      rootEl.style.setProperty("--dmv-accent-ink", isDarkSurface(accent) ? "#ffffff" : "#0b0f14");
       setLook((previous) => previous !== null && previous.surface === next.surface && previous.surface2 === next.surface2 && previous.ink === next.ink && previous.muted === next.muted && previous.line === next.line ? previous : next);
     };
     read();
@@ -10225,11 +10370,12 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     media?.addEventListener?.("change", read);
     const observer = typeof MutationObserver === "undefined" ? null : new MutationObserver(read);
     observer?.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-theme", "style"] });
+    observer?.observe(document.body, { attributes: true, attributeFilter: ["class", "data-ds-dark-theme", "style"] });
     return () => {
       media?.removeEventListener?.("change", read);
       observer?.disconnect();
     };
-  }, []);
+  }, [rootEl]);
   const annotationTimer = import_react4.default.useRef(null);
   const onCanvasAnnotate = import_react4.default.useCallback((elements) => {
     setAnnotations(elements);
@@ -10249,24 +10395,6 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     setZoom(viewport.zoom);
     setZoomSource("canvas");
   }, []);
-  const onCanvasDelta = import_react4.default.useCallback(
-    async (delta) => {
-      for (const [nodeId, row] of Object.entries(delta)) {
-        const result = await host.writeOverlay({ action: "upsert", nodeId, ...row });
-        if (result?.ok === true) {
-          setOverlays((previous) => ({ ...previous, [nodeId]: { ...previous[nodeId] ?? {}, ...row } }));
-          setStatus({ kind: "info", code: "overlay.written", message: `Saved ${Object.keys(row).join("+")} for ${nodeId}.` });
-        } else {
-          setStatus({
-            kind: "error",
-            code: result?.error?.code ?? "overlay_write_failed",
-            message: result?.error?.message ?? "The host refused the overlay write."
-          });
-        }
-      }
-    },
-    [host]
-  );
   const [undoStack, setUndoStack] = import_react4.default.useState([]);
   const [pendingCount, setPendingCount] = import_react4.default.useState(0);
   const flowRef = import_react4.default.useRef(null);
@@ -10282,6 +10410,8 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
   const editRef = import_react4.default.useRef(editMode);
   const undoRef = import_react4.default.useRef(undoStack);
   const lastWriteRef = import_react4.default.useRef(null);
+  const refreshSceneRef = import_react4.default.useRef(() => {
+  });
   currentRef.current = current;
   historyRef.current = history;
   overlaysRef.current = overlays;
@@ -10304,7 +10434,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     const nextColours = {};
     for (const node of entry.scene.nodes) {
       const row = rows[node.id];
-      nextPositions[node.id] = row?.x !== void 0 && row?.y !== void 0 ? { x: row.x, y: row.y } : { x: node.x, y: node.y };
+      nextPositions[node.id] = { x: node.x, y: node.y };
       if (row !== void 0 && (row.fill !== void 0 || row.stroke !== void 0)) {
         const base = paletteFor(node.type);
         nextColours[node.id] = { fill: row.fill ?? base.fill, stroke: row.stroke ?? base.stroke };
@@ -10443,6 +10573,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
       });
       lastWriteRef.current = { at: Date.now(), nodeId, payload, result: result.value };
       setStatus({ kind: "ok", code: "overlay.write", message: `Saved ${OVERLAY_FIELDS.filter((key) => payload[key] !== void 0).join("/")} for ${nodeId}.` });
+      refreshSceneRef.current();
       return result;
     },
     [host, revertNode]
@@ -10474,18 +10605,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     setPendingCount(0);
   }, [writeNow]);
   const refreshInPlace = import_react4.default.useCallback(
-    async ({ render = true } = {}) => {
-      if (render && typeof host.renderViews === "function") {
-        const rendered = await host.renderViews();
-        if (rendered?.ok !== true) {
-          setStatus({
-            kind: "error",
-            code: rendered?.error?.code ?? "render_failed",
-            message: rendered?.error?.message ?? "The host could not re-render the scene."
-          });
-          return rendered;
-        }
-      }
+    async () => {
       const result = await host.load();
       if (result?.ok !== true) {
         setStatus({
@@ -10499,6 +10619,70 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
       return result;
     },
     [host, adoptLoaded]
+  );
+  const refreshTimer = import_react4.default.useRef(null);
+  const refreshScene = import_react4.default.useCallback(() => {
+    if (refreshTimer.current !== null) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(() => {
+      refreshTimer.current = null;
+      refreshInPlace();
+    }, 140);
+  }, [refreshInPlace]);
+  import_react4.default.useEffect(() => () => clearTimeout(refreshTimer.current), []);
+  refreshSceneRef.current = refreshScene;
+  const saveLabel = import_react4.default.useCallback(
+    async (kind, id2, text) => {
+      const result = await host.writeLabel?.({ kind, id: id2, label: text });
+      if (result?.ok !== true) {
+        setStatus({
+          kind: "error",
+          code: result?.error?.code ?? "label_write_failed",
+          message: result?.error?.message ?? (kind === "edge" ? "An edge label cannot be empty." : "The host refused the label edit.")
+        });
+        return false;
+      }
+      setStatus({ kind: "ok", code: "label.written", message: `Label of ${kind} \u201C${id2}\u201D saved to the model.` });
+      emit({ type: "labelChanged", kind, id: id2 });
+      await refreshInPlace();
+      return true;
+    },
+    [host, emit, refreshInPlace]
+  );
+  const onCanvasDelta = import_react4.default.useCallback(
+    async (delta) => {
+      const viewId = currentRef.current?.view.viewId;
+      for (const [nodeId, row] of Object.entries(delta)) {
+        const before = overlaysRef.current[nodeId] ?? null;
+        const result = await host.writeOverlay({ action: "upsert", nodeId, viewId, ...row });
+        if (result?.ok !== true) {
+          setStatus({
+            kind: "error",
+            code: result?.error?.code ?? "overlay_write_failed",
+            message: result?.error?.message ?? "The host refused the overlay write."
+          });
+          continue;
+        }
+        const value2 = result.value ?? {};
+        const stored = value2.row ?? { ...before ?? {}, ...row };
+        setOverlays((previous) => {
+          const next = { ...previous, [nodeId]: stored };
+          overlaysRef.current = next;
+          return next;
+        });
+        setUndoStack((previous) => {
+          const next = [...previous, { kind: "upsert", nodeId, before, after: stored }];
+          undoRef.current = next;
+          return next;
+        });
+        if (value2.finding?.code === "overlap_adjusted") {
+          setStatus({ kind: "info", code: "overlap_adjusted", message: `\u201C${nodeId}\u201D moved to the nearest free spot, so it no longer overlaps another node.` });
+        } else {
+          setStatus({ kind: "info", code: "overlay.written", message: `Saved ${Object.keys(row).join(" + ")} for \u201C${nodeId}\u201D.` });
+        }
+      }
+      refreshScene();
+    },
+    [host, refreshScene]
   );
   const openSource = import_react4.default.useCallback(
     async (node) => {
@@ -10581,7 +10765,7 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     } else {
       editRef.current = true;
       setEditMode(true);
-      setStatus({ kind: "info", code: "editing", message: "Edit mode: drag a node or pick a colour; writes debounce 500 ms." });
+      setStatus({ kind: "info", code: "editing", message: "Edit mode: drag a node, recolour it, or double-click its label to rename it. Each change is re-rendered by the host." });
     }
   }, [flushPending]);
   const changeColour = import_react4.default.useCallback(
@@ -10868,6 +11052,12 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     ] }) });
   }
   const staleNodes = scene.nodes.filter((node) => node.stale === true);
+  const lint = meta.lint ?? null;
+  const lintCounts = lint?.counts ?? null;
+  const lintFindings = Array.isArray(lint?.findings) ? lint.findings : [];
+  const lintBad = (lintCounts?.error ?? 0) > 0;
+  const lintTotal = (lintCounts?.error ?? 0) + (lintCounts?.warning ?? 0);
+  const lintTitle = lintFindings.slice(0, 10).map((entry) => `${entry.rule}${entry.id ? ` (${entry.id})` : entry.ids ? ` (${entry.ids.join(" / ")})` : ""}: ${entry.message}`).join("\n");
   const viewStale = meta.stale?.stale === true || staleNodes.length > 0;
   const commitBehind = Number(meta.stale?.commitBehind ?? 0);
   const staleLabel = viewStale ? commitBehind > 0 ? `stale \xB7 ${commitBehind} commit${commitBehind === 1 ? "" : "s"} behind` : "stale \xB7 sources changed" : "fresh";
@@ -10961,8 +11151,8 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
     if (group !== void 0 && findChild(group.id) !== null) drill(group);
   };
   const canvasLabel = `${scene.title || current.view.title || scene.viewId}: ${scene.nodes.length} nodes, ${scene.edges.length} edges, ${staleNodes.length} stale. ${editMode ? "Edit mode." : "Read-only design map."}`;
-  const defaultStatus = editMode ? "Editing: move or recolour a node, draw a highlight or add a note with the toolbar; annotations save automatically." : "Read-only. Click a node to open its source; double-click a group to drill in.";
-  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dmv", "data-edit-mode": editMode ? "true" : "false", ref: rootRef, children: [
+  const defaultStatus = editMode ? "Editing: move or recolour a node, double-click a label to rename it, or draw a highlight with the toolbar; annotations save automatically." : "Read-only. Click a node to open its source; double-click a group to drill in.";
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dmv", "data-edit-mode": editMode ? "true" : "false", ref: setRootEl, children: [
     /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("header", { className: "dmv-top", children: [
       /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dmv-ident", children: [
         /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h1", { className: "dmv-title", children: title }),
@@ -10976,6 +11166,16 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
           "saving ",
           pendingCount,
           "\u2026"
+        ] }) : null,
+        lintTotal > 0 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: `dmv-chip lint${lintBad ? " bad" : ""}`, title: lintTitle, role: "status", children: [
+          "layout: ",
+          lintCounts.error,
+          " error",
+          lintCounts.error === 1 ? "" : "s",
+          " \xB7 ",
+          lintCounts.warning,
+          " warning",
+          lintCounts.warning === 1 ? "" : "s"
         ] }) : null
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dmv-spacer" }),
@@ -10994,10 +11194,33 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
         )
       ] }) : null,
       /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dmv-actions", children: [
-        canWrite ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: `dmv-btn${editMode ? " primary" : ""}`, "aria-pressed": editMode, onClick: toggleEdit, children: editMode ? "Done editing" : "Edit overlays" }) : null,
+        canWrite ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
+          "button",
+          {
+            type: "button",
+            className: `dmv-btn${editMode ? " primary" : ""}`,
+            "aria-pressed": editMode,
+            onClick: toggleEdit,
+            title: editMode ? "Leave edit mode (writes are saved)" : "Edit positions, colours and labels",
+            children: [
+              editMode ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(IconCheck, {}) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(IconPencil, {}),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: editMode ? "Done editing" : "Edit map" })
+            ]
+          }
+        ) : null,
         editMode ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "dmv-btn", onClick: undo, disabled: undoStack.length === 0, title: "Undo the last overlay change", children: "\u21B6 Undo" }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: "dmv-btn", onClick: resetView, disabled: rowsOnView === 0, title: "Remove every overlay row of this view", children: "Reset view" })
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { type: "button", className: "dmv-btn", onClick: undo, disabled: undoStack.length === 0, title: "Undo the last change", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(IconUndo, {}),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: "Undo" })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { type: "button", className: "dmv-btn", onClick: resetView, disabled: rowsOnView === 0, title: "Remove every position and colour change of this view", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(IconReset, {}),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: "Reset view" })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { type: "button", className: `dmv-btn${labelsOpen ? " primary" : ""}`, "aria-pressed": labelsOpen, onClick: () => setLabelsOpen((value2) => !value2), title: "Rename nodes and edges", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(IconTag, {}),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: "Labels" })
+          ] })
         ] }) : null
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dmv-search", role: "search", children: [
@@ -11099,10 +11322,12 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
         }
       ) }) : null
     ] }),
+    editMode && labelsOpen ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(LabelEditor, { scene, query, onSave: saveLabel }) : null,
     /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
       Legend,
       {
         scene,
+        overlays,
         editMode,
         zoom: zoom3,
         onFit: fit
@@ -11152,46 +11377,11 @@ function DesignMapView({ host, initial = null, title = "Design map" }) {
 }
 
 // client/host.js
-var SCENE_SUFFIX = ".scene.json";
 var OVERLAY_ACTIONS = /* @__PURE__ */ new Set(["upsert", "replace", "resetNode", "resetView"]);
 var OVERLAY_KEYS = /* @__PURE__ */ new Set(["action", "nodeId", "viewId", "row", "x", "y", "fill", "stroke"]);
 var ROW_KEYS = /* @__PURE__ */ new Set(["x", "y", "fill", "stroke"]);
 function remoteFailure(code, message) {
   return { ok: false, error: { code, message } };
-}
-async function readWholeText(remote, sessionId, path) {
-  let offset = 1;
-  let text = "";
-  for (let page = 0; page < 50; page += 1) {
-    const result = await remote.workspaceFiles.read(sessionId, path, { offset, limit: 2e3 });
-    if (result?.ok !== true) return result ?? remoteFailure("read_failed", `No result for ${path}`);
-    const value2 = result.value;
-    if (value2 === null || value2 === void 0) return remoteFailure("read_failed", `Empty result for ${path}`);
-    text += value2.text;
-    if (value2.eof === true) return { ok: true, value: text };
-    if (!(value2.lines > 0)) return remoteFailure("read_failed", `${path} does not advance`);
-    offset = value2.offset + value2.lines;
-    text += "\n";
-  }
-  return remoteFailure("read_failed", `${path} is too large to read`);
-}
-async function sceneHash(text) {
-  try {
-    const bytes = new TextEncoder().encode(text);
-    const digest = await crypto.subtle.digest("SHA-256", bytes);
-    const hex2 = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-    return `sha256:${hex2}`;
-  } catch {
-    return null;
-  }
-}
-function mergeMeta(base, override) {
-  if (override === null || typeof override !== "object") return base;
-  return {
-    ...base,
-    ...override,
-    stale: { ...base.stale, ...override.stale ?? {} }
-  };
 }
 function parseCommandFailure(outcome) {
   const text = typeof outcome?.text === "string" ? outcome.text : String(outcome?.text ?? "");
@@ -11243,128 +11433,65 @@ function validateOverlayPayload(payload) {
   }
   return { ok: true };
 }
-function createRemoteHost({ remote, sessionId, sceneDir = "designmap/out", viewIndex = null }) {
+function createRemoteHost({ remote, sessionId }) {
   if (remote === void 0 || remote === null) throw new Error("designmap: the host remote service is unavailable");
   if (typeof sessionId !== "string" || sessionId === "") {
     return {
       load: async () => remoteFailure("no_session", "Open a conversation to load the design map."),
+      refreshView: async () => remoteFailure("no_session", "Open a conversation to edit the design map."),
       openSource: async () => remoteFailure("no_session", "Open a conversation to open source files."),
       writeOverlay: async () => remoteFailure("no_session", "Open a conversation to edit the design map."),
+      writeLabel: async () => remoteFailure("no_session", "Open a conversation to edit the design map."),
+      writeAnnotations: async () => remoteFailure("no_session", "Open a conversation to save annotations."),
       renderViews: async () => remoteFailure("no_session", "Open a conversation to render the design map.")
     };
   }
-  const fallbackEntries = Array.isArray(viewIndex?.views) ? viewIndex.views : [];
   return {
-    async load() {
-      const listing = await remote.workspaceFiles.list(sessionId, sceneDir);
-      if (listing?.ok !== true) {
-        const failure = `${listing?.error?.code ?? ""} ${listing?.error?.message ?? ""}`;
-        if (/enoent|no entry|not found/i.test(failure)) {
-          return {
-            ok: true,
-            value: { views: [], rootId: null, missing: true, overlays: { rows: {}, path: "designmap/overlays.json" } }
-          };
-        }
-        return listing ?? remoteFailure("list_failed", `Could not list ${sceneDir}`);
+    /**
+     * The panel's read path: the host renders every view WITH the stored visual layer
+     * (`op:'views'`, renderView write:false) and this adapter hands that payload to the
+     * view untouched. The panel used to list `out/*.scene.json` and merge overlays in the
+     * browser, which gave the map two geometry owners: a moved node kept its old arrows
+     * and label plates. Nothing here computes geometry.
+     */
+    async load({ viewId } = {}) {
+      const result = await executeCommand(remote, sessionId, { op: "views", ...viewId === void 0 ? {} : { viewId } });
+      if (result?.ok !== true) return result;
+      const payload = result.value;
+      if (payload === null || typeof payload !== "object" || !Array.isArray(payload.views)) {
+        return remoteFailure("command_result_invalid", "The designmap command returned no views.");
       }
-      const entries = Array.isArray(listing.value?.entries) ? listing.value.entries : [];
-      const files = entries.map((entry) => typeof entry === "string" ? entry : entry?.name).filter((name) => typeof name === "string" && name.endsWith(SCENE_SUFFIX)).sort();
-      let manifest = null;
-      const manifestRead = await readWholeText(remote, sessionId, "designmap/manifest.json");
-      if (manifestRead.ok === true) {
-        try {
-          manifest = JSON.parse(manifestRead.value);
-        } catch {
-          manifest = null;
-        }
-      }
-      let index2 = null;
-      const indexPath = `${sceneDir}/index.json`;
-      const indexRead = await readWholeText(remote, sessionId, indexPath);
-      if (indexRead.ok === true) {
-        try {
-          const parsed = JSON.parse(indexRead.value);
-          if (parsed?.schemaVersion === 1 && Array.isArray(parsed.views)) index2 = parsed;
-        } catch {
-          index2 = null;
-        }
-      }
-      let annotations = [];
-      const annotationsRead = await readWholeText(remote, sessionId, "designmap/annotations.json");
-      if (annotationsRead.ok === true) {
-        try {
-          const parsed = JSON.parse(annotationsRead.value);
-          if (Array.isArray(parsed?.elements)) annotations = parsed.elements.filter((element2) => element2 !== null && typeof element2 === "object");
-        } catch {
-          annotations = [];
-        }
-      }
-      let overlays = {};
-      const overlaysRead = await readWholeText(remote, sessionId, "designmap/overlays.json");
-      if (overlaysRead.ok === true) {
-        try {
-          const parsed = JSON.parse(overlaysRead.value);
-          if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
-            for (const [key, row] of Object.entries(parsed)) {
-              if (key === "$version") continue;
-              if (row !== null && typeof row === "object" && !Array.isArray(row)) overlays[key] = row;
-            }
+      if (payload.views.length === 0) {
+        return {
+          ok: true,
+          value: {
+            views: [],
+            rootId: null,
+            missing: true,
+            overlays: { rows: payload.overlays?.rows ?? {}, path: "designmap/overlays.json" },
+            annotations: Array.isArray(payload.annotations) ? payload.annotations : []
           }
-        } catch {
-          overlays = {};
-        }
-      }
-      const views = [];
-      for (const name of files) {
-        const path = `${sceneDir}/${name}`;
-        const read = await readWholeText(remote, sessionId, path);
-        if (read.ok !== true) continue;
-        let scene;
-        try {
-          scene = JSON.parse(read.value);
-        } catch {
-          continue;
-        }
-        if (scene?.schemaVersion !== 1) continue;
-        const viewId = typeof scene.viewId === "string" && scene.viewId !== "" ? scene.viewId : name.slice(0, -SCENE_SUFFIX.length);
-        const indexed = index2?.views.find((entry) => entry?.viewId === viewId) ?? fallbackEntries.find((entry) => entry?.viewId === viewId) ?? null;
-        const fallback = fallbackEntries.find((entry) => entry?.viewId === viewId) ?? null;
-        const staleNodes = Array.isArray(scene.nodes) ? scene.nodes.filter((node) => node?.stale === true).map((node) => node.id) : [];
-        const baseMeta = {
-          generatedAt: typeof manifest?.generatedAt === "string" ? manifest.generatedAt : null,
-          commit: typeof manifest?.commit === "string" ? manifest.commit : null,
-          sceneHash: typeof indexed?.sceneHash === "string" ? indexed.sceneHash : await sceneHash(read.value),
-          scenePath: path,
-          stale: { stale: staleNodes.length > 0, commitBehind: 0, staleNodes },
-          lint: null
         };
-        views.push({
-          view: {
-            viewId,
-            title: typeof scene.title === "string" ? scene.title : viewId,
-            level: typeof scene.level === "string" ? scene.level : "context",
-            parentGroupId: typeof indexed?.parent === "string" ? indexed.parent : typeof indexed?.parentGroupId === "string" ? indexed.parentGroupId : typeof fallback?.parentGroupId === "string" ? fallback.parentGroupId : null
-          },
-          scene,
-          meta: mergeMeta(baseMeta, fallback?.meta ?? null)
-        });
       }
-      if (views.length === 0) {
-        return remoteFailure("no_scenes", `No ${SCENE_SUFFIX} files under ${sceneDir}. Render the model first.`);
+      return { ok: true, value: payload };
+    },
+    /** Re-render one view after a human edit. Same command, one view, still no writes. */
+    async refreshView(viewId) {
+      return this.load({ viewId });
+    },
+    /**
+     * A label is a model field, so the human's edit goes through the host's `label` op
+     * (apply + manifest), never through overlays.json.
+     */
+    async writeLabel({ kind, id: id2, label } = {}) {
+      if (kind !== "node" && kind !== "edge") {
+        return remoteFailure("invalid_label_target", "The label target must be a node or an edge.");
       }
-      const requested = typeof viewIndex?.rootId === "string" ? viewIndex.rootId : null;
-      const roots = index2?.views ?? [];
-      const rootRow = roots.find((row) => row.parent === null && row.level === "context") ?? roots.find((row) => row.parent === null) ?? null;
-      const root2 = views.find((entry) => entry.view.viewId === requested) ?? views.find((entry) => entry.view.viewId === rootRow?.viewId) ?? views.find((entry) => entry.view.level === "context") ?? views.find((entry) => entry.view.viewId === "v.context") ?? views[0];
-      return {
-        ok: true,
-        value: {
-          views,
-          rootId: root2.view.viewId,
-          overlays: { rows: overlays, path: "designmap/overlays.json" },
-          annotations
-        }
-      };
+      if (typeof id2 !== "string" || id2 === "") return remoteFailure("invalid_label_target", "The label target needs an id.");
+      if (typeof label !== "string" || label.trim() === "") {
+        return kind === "edge" ? remoteFailure("missing_edge_label", "An edge must keep a label; the model refuses an empty one.") : remoteFailure("invalid_label", "A node label must not be empty.");
+      }
+      return executeCommand(remote, sessionId, { op: "label", kind, id: id2, label });
     },
     validateOverlayPayload,
     async writeOverlay(payload) {
@@ -11416,7 +11543,12 @@ var CSS = `
   --dmv-ink: var(--dsw-alias-label-primary, #0f172a);
   --dmv-muted: var(--dsw-alias-label-secondary, #64748b);
   --dmv-line: var(--dsw-alias-border-l1, #e2e8f0);
-  --dmv-accent: var(--dsw-alias-brand-primary, #2563eb);
+  /* The primary button's FILL is the shell's primary-button fill, not its brand text
+     colour: in the dark theme brand-primary is near-white, so using it as a fill made a
+     white button whose white label disappeared. The label follows the inverted token and
+     the panel re-derives it from the resolved fill as a fallback. */
+  --dmv-accent: var(--dsw-alias-button-primary-fill, var(--dsw-alias-brand-primary, #2563eb));
+  --dmv-accent-ink: var(--dsw-alias-label-primary-inverted, #ffffff);
   --dmv-warn: var(--dsw-alias-state-warn-primary, #92400e);
   --dmv-danger: var(--dsw-alias-state-error-primary, #b91c1c);
   --dmv-ok: var(--dsw-alias-state-success-primary, #15803d);
@@ -11467,6 +11599,8 @@ var CSS = `
 .dmv-chip.level { color: var(--dmv-ink); font-weight: 600; }
 .dmv-chip.editing { color: var(--dmv-accent); border-color: color-mix(in srgb, var(--dmv-accent) 40%, var(--dmv-line)); background: color-mix(in srgb, var(--dmv-accent) 8%, var(--dmv-surface)); font-weight: 600; }
 .dmv-chip.pending { color: var(--dmv-warn); border-color: color-mix(in srgb, var(--dmv-warn) 35%, var(--dmv-line)); }
+.dmv-chip.lint { color: var(--dmv-warn); border-color: color-mix(in srgb, var(--dmv-warn) 40%, var(--dmv-line)); background: color-mix(in srgb, var(--dmv-warn) 8%, var(--dmv-surface)); font-weight: 600; }
+.dmv-chip.lint.bad { color: var(--dmv-danger); border-color: color-mix(in srgb, var(--dmv-danger) 40%, var(--dmv-line)); background: color-mix(in srgb, var(--dmv-danger) 8%, var(--dmv-surface)); }
 .dmv-chip.stale { color: var(--dmv-warn); border-color: color-mix(in srgb, var(--dmv-warn) 40%, var(--dmv-line)); background: color-mix(in srgb, var(--dmv-warn) 8%, var(--dmv-surface)); font-weight: 600; }
 .dmv-chip.readonly { color: var(--dmv-ok); border-color: color-mix(in srgb, var(--dmv-ok) 35%, var(--dmv-line)); background: color-mix(in srgb, var(--dmv-ok) 7%, var(--dmv-surface)); }
 .dmv-spacer { flex: 1 1 24px; }
@@ -11502,6 +11636,7 @@ var CSS = `
 }
 .dmv-btn:hover { background: var(--dmv-surface-3); }
 .dmv-btn.primary { background: var(--dmv-accent); border-color: var(--dmv-accent); color: var(--dmv-accent-ink, #ffffff); }
+.dmv-btn svg { flex: none; }
 .dmv-btn.primary:hover { filter: brightness(1.06); }
 .dmv-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .dmv-selected .dmv-node { box-shadow: 0 0 0 3px color-mix(in srgb, var(--dmv-accent) 45%, transparent); }
@@ -11706,6 +11841,28 @@ var CSS = `
 .dmv-legend-title { text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; font-size: 9.5px; color: var(--dmv-muted); }
 .dmv-legend-group { display: flex; align-items: center; gap: 10px; margin: 0; padding: 0; list-style: none; }
 .dmv-legend-item { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.dmv-labels { flex: none; display: flex; flex-direction: column; max-height: 220px; border-top: 1px solid var(--dmv-line); background: var(--dmv-surface); }
+.dmv-labels-head { display: flex; align-items: baseline; gap: 10px; padding: 7px 16px 3px; flex-wrap: wrap; }
+.dmv-labels-head h2 { margin: 0; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--dmv-muted); }
+.dmv-labels-head p { margin: 0; font-size: 11px; color: var(--dmv-muted); }
+.dmv-labels-count { margin-left: auto; font-size: 10.5px; color: var(--dmv-muted); font-variant-numeric: tabular-nums; }
+.dmv-labels-list { list-style: none; margin: 0; padding: 4px 16px 10px; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 4px 14px; }
+.dmv-label-row { display: grid; grid-template-columns: 34px minmax(80px, 1fr) 1.3fr; align-items: center; gap: 6px; min-width: 0; }
+.dmv-label-kind { font-size: 9.5px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; color: var(--dmv-muted); }
+.dmv-label-id { font-size: 10.5px; color: var(--dmv-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dmv-label-input { min-width: 0; height: 25px; border: 1px solid var(--dmv-line); border-radius: 4px; padding: 0 6px; background: var(--dmv-surface-2); color: var(--dmv-ink); font: inherit; font-size: 11.5px; }
+.dmv-label-input:focus-visible { outline: 2px solid var(--dmv-accent); outline-offset: 1px; }
+.dmv-legend-mixed {
+  display: inline-flex;
+  align-items: center;
+  border: 1px dashed var(--dmv-line);
+  border-radius: 999px;
+  padding: 0 5px;
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--dmv-muted);
+  background: var(--dmv-surface-2);
+}
 .dmv-legend-item b { font-weight: 650; color: var(--dmv-ink); font-variant-numeric: tabular-nums; }
 .dmv-glyph { width: 11px; height: 11px; border-radius: 3px; border: 1.5px solid; display: inline-block; flex: none; }
 .dmv-glyph.ellipse { border-radius: 50%; }

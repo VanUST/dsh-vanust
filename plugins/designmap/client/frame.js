@@ -35,13 +35,24 @@ export async function loadFrameText(fetchImpl = globalThis.fetch) {
 export function frameDocument(script, look = { surface: '#ffffff' }, { editing = false } = {}) {
   const safe = script.replaceAll('</script', '<\\/script')
   const background = /^#[0-9a-f]{3,8}$/iu.test(String(look?.surface ?? '')) ? look.surface : '#ffffff'
-  // Read-only keeps the editor chrome out of the way. Edit mode gives the human the
-  // native Excalidraw tools (colour, shapes, text, pen) — that IS the editing UI, so only
-  // the hint popups are hidden there. The frame CSS is fixed when the document is built,
-  // which is why the panel rebuilds the frame when the mode changes.
+  // Read-only hides the whole editing chrome: the map is a document. Edit mode keeps the
+  // drawing tools (the annotation layer) and hides the editor's own entry points: the panel
+  // owns undo, fit, zoom and the document identity, so a hamburger menu, a Library link, a
+  // Help "?" and a second undo/redo pair only add unlabelled icons — the "unclear glyphs"
+  // the owner reported. The frame CSS is fixed when the document is built, which is why the
+  // panel rebuilds the frame when the mode changes.
+  const editorChrome = [
+    '.HintViewer',
+    '.dropdown-menu-button',
+    '.layer-ui__wrapper__top-right',
+    '.help-icon',
+    '.zoom-button',
+    'button[aria-label="Undo"]',
+    'button[aria-label="Redo"]',
+  ].join(',')
   const chrome = editing
-    ? '.HintViewer{display:none!important}'
-    : '.App-toolbar,.HintViewer,.App-menu,.layer-ui__wrapper__top-right,.dropdown-menu-button{display:none!important}'
+    ? `${editorChrome}{display:none!important}`
+    : `.App-toolbar,.App-menu,.layer-ui__wrapper__top-right,.dropdown-menu-button,.help-icon,.zoom-button,.HintViewer{display:none!important}`
   return `<!doctype html><html><head><meta charset="utf-8"><style>
 html,body,#root{height:100%;margin:0;background:${background};overflow:hidden}
 ${chrome}

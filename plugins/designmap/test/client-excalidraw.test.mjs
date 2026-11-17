@@ -44,13 +44,23 @@ test('every scene node becomes a shape, a bound label and a semantic id', () => 
   }
 })
 
-test('edges keep the core polyline and stay unbound, so the editor cannot re-route them', () => {
+test('edges keep the core polyline and bind to their nodes, so a drag carries them', () => {
   const elements = sceneToElements(scene)
   for (const edge of scene.edges) {
     const arrow = elements.find((entry) => entry.id === `${EDGE_PREFIX}${edge.id}`)
     assert.equal(arrow.type, 'arrow')
-    assert.equal(arrow.startBinding, null)
-    assert.equal(arrow.endBinding, null)
+    // Excalidraw 0.18 binding: the arrow names both node elements and the node lists the
+    // arrow in boundElements. That is what makes the arrow follow a dragged node.
+    assert.deepEqual(arrow.startBinding, { elementId: `${NODE_PREFIX}${edge.from}`, focus: 0, gap: 1 })
+    assert.deepEqual(arrow.endBinding, { elementId: `${NODE_PREFIX}${edge.to}`, focus: 0, gap: 1 })
+    for (const nodeId of [edge.from, edge.to]) {
+      const node = elements.find((entry) => entry.id === `${NODE_PREFIX}${nodeId}`)
+      assert.equal(
+        node.boundElements.some((bound) => bound.type === 'arrow' && bound.id === arrow.id),
+        true,
+        `${nodeId} must list ${arrow.id} in boundElements`,
+      )
+    }
     assert.equal(arrow.points.length, edge.points.length)
     const first = edge.points[0]
     assert.equal(arrow.x, first.x)
@@ -125,10 +135,16 @@ test('freeElements keeps exactly the human layer and strips mode-only fields', (
 test('read-only locks the structure; edit mode unlocks only node bodies', () => {
   const readOnly = sceneToElements(scene)
   assert.equal(readOnly.filter((entry) => entry.customData?.designmap?.kind === 'node' && entry.locked === false).length, 0)
+  assert.equal(readOnly.filter((entry) => entry.customData?.designmap?.kind === 'node-label' && entry.locked === false).length, 0)
+
   const editing = sceneToElements(scene, { editMode: true })
+  // Only the node body is draggable. An editable label would take the pointer on the node's
+  // middle and a drag started there would never reach the node, so labels are renamed in
+  // the panel's Labels inspector and stay locked on the canvas.
   assert.equal(editing.filter((entry) => entry.customData?.designmap?.kind === 'node' && entry.locked === false).length, scene.nodes.length)
   for (const entry of editing) {
-    if (entry.customData?.designmap?.kind !== 'node') assert.equal(entry.locked, true, `${entry.id} must stay locked`)
+    if (entry.customData?.designmap?.kind === 'node') continue
+    assert.equal(entry.locked, true, `${entry.id} must stay locked`)
   }
 })
 
@@ -159,11 +175,14 @@ test('an unchanged canvas produces no delta, and a deleted or foreign element is
   assert.deepEqual(overlayDelta(baseline, edited), {})
 })
 
-test('an overlay row moves the drawn shape without touching the scene', () => {
-  const elements = sceneToElements(scene, { overlays: { [scene.nodes[0].id]: { x: 10, y: 20, fill: '#000000' } } })
-  const shape = elements.find((entry) => entry.id === `${NODE_PREFIX}${scene.nodes[0].id}`)
-  assert.equal(shape.x, 10)
-  assert.equal(shape.y, 20)
+test('the scene position wins; the overlay row only supplies colour (one geometry owner)', () => {
+  const node = scene.nodes[0]
+  const elements = sceneToElements(scene, { overlays: { [node.id]: { x: 10, y: 20, fill: '#000000' } } })
+  const shape = elements.find((entry) => entry.id === `${NODE_PREFIX}${node.id}`)
+  // The host already merged the position into the scene; re-applying the row here was the
+  // second geometry owner that left the arrows behind.
+  assert.equal(shape.x, node.x)
+  assert.equal(shape.y, node.y)
   assert.equal(shape.backgroundColor, '#000000')
   assert.equal(shape.strokeColor !== undefined, true)
 })

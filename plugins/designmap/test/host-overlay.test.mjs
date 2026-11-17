@@ -88,10 +88,13 @@ test('a partial upsert merges into the existing row instead of replacing it', as
     const { handler, invocation } = harness(repo)
     const send = payload => handler(invocation(JSON.stringify({ op: 'overlay', ...payload })))
 
-    assert.equal((await send({ action: 'upsert', nodeId: 'db.orders', x: 10, y: 20, fill: PALETTE.service.fill })).kind, 'success')
+    const first = await send({ action: 'upsert', nodeId: 'db.orders', x: 10, y: 20, fill: PALETTE.service.fill })
+    assert.equal(first.kind, 'success', first.text)
+    // The position may have been auto-placed; the partial upsert must keep its y.
+    const placed = JSON.parse(first.text).row.y
     assert.equal((await send({ action: 'upsert', nodeId: 'db.orders', x: 55 })).kind, 'success')
 
-    assert.deepEqual(readOverlays(repo)['db.orders'], { x: 55, y: 20, fill: PALETTE.service.fill })
+    assert.deepEqual(readOverlays(repo)['db.orders'], { x: 55, y: placed, fill: PALETTE.service.fill })
   } finally {
     repo.cleanup()
   }
@@ -136,7 +139,8 @@ test('invalid overlay input is refused by code and leaves overlays.json byte-ide
   try {
     const { handler, invocation } = harness(repo)
     const send = payload => handler(invocation(JSON.stringify({ op: 'overlay', ...payload })))
-    await send({ action: 'upsert', nodeId: 'db.orders', x: 3, y: 4 })
+    const placed = await send({ action: 'upsert', nodeId: 'db.orders', x: 3, y: 4 })
+    const placedRow = JSON.parse(placed.text).row
     const before = hashOf(overlaysPath(repo))
 
     const cases = [
@@ -157,7 +161,7 @@ test('invalid overlay input is refused by code and leaves overlays.json byte-ide
     assert.equal(hashOf(overlaysPath(repo)), before, 'a refused write must not change overlays.json')
     const stored = readOverlays(repo)
     assert.equal(stored['$version'], 1)
-    assert.deepEqual(stored['db.orders'], { x: 3, y: 4 })
+    assert.deepEqual(stored['db.orders'], placedRow)
   } finally {
     repo.cleanup()
   }
@@ -168,8 +172,8 @@ test('a NaN coordinate is refused at the service boundary, and no overlay tool e
   try {
     const { logger } = createFileLogger(repo.designmapDir)
     const service = createHostService({ designmapDir: repo.designmapDir, repoRoot: repo.root, logger })
-    assert.throws(
-      () => service.overlay({ action: 'upsert', nodeId: 'db.orders', x: Number.NaN }),
+    await assert.rejects(
+      service.overlay({ action: 'upsert', nodeId: 'db.orders', x: Number.NaN }),
       error => error.code === 'invalid_coordinate',
     )
 

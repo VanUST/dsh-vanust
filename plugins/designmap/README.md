@@ -93,8 +93,11 @@ renderer.
 ## Output bundle and `index.json`
 
 `renderAll({ workspace })` renders every view, writes `out/<viewId>.scene.json` and
-then `out/index.json` — the panel reads files through a read-only workspace API and
-cannot list a directory, so the index is its only discovery surface:
+then `out/index.json`. The panel does **not** read these files: it asks the host command
+for `op:'views'`, which re-renders every view WITH the stored overlays and returns the
+same envelope shape (no `out/` write), so the arrows and label plates in the panel are the
+core's, not a client-side merge. The index remains the artifact the agent's `render` and
+`export` write and the shape other consumers (CLI, SVG) agree on:
 
 ```json
 {
@@ -202,8 +205,8 @@ or human confirming the batch.
 
 | Layer | Reads | Writes |
 |---|---|---|
-| Panel (`client.js`) | `designmap/out/index.json` + scene JSON through the read-only workspaceFiles API | **nothing directly**; every edit goes through the command |
-| `/designmap` command (panel path, human) | host service | `overlays.json` only for `op:'overlay'`; `out/` for render/export; `manifest.json` for apply |
+| Panel (`client.js`) | `op:'views'` through the command (scenes rendered with overlays); annotations via `workspaceFiles` | **nothing directly**; every edit goes through the command |
+| `/designmap` command (panel path, human) | host service | `overlays.json` for `op:'overlay'` (auto-placed); `model.yaml` + `manifest.json` for `op:'label'` (apply); `out/` for render/export |
 | Agent tools (`designmap_*`) | model/views/overlays/scenes | `model.yaml` + `views.yaml` + `manifest.json` via `designmap_apply`; `out/` via render/export |
 | Core (`src/*.mjs`) | files given to it | only when called through the host; the core never writes `overlays.json` |
 
@@ -342,9 +345,26 @@ The map is the agent's document, but the human can mark it up:
   rebuild re-sends the CURRENT viewport, so the map does not jump.
 - **Node moves and colours stay overlays.** A drag writes `{x,y}`, the native properties
   panel writes `{fill,stroke}` — the same `overlays.json` rows the panel always wrote.
+  A move that lands on (or within 8 px of) another node is auto-placed into the nearest
+  free cell by the host, which stores both axes and returns `adjusted` plus an
+  `overlap_adjusted` finding the panel shows; Undo restores the previous row.
   Any hex colour is accepted now; a colour outside the type palette is an informational
   finding (`colour_out_of_palette`), not a refusal, because the human picks from the
-  canvas tools. The palette stays the default.
+  canvas tools. The palette stays the default. The legend is built from the scene and the
+  rows, so it shows the actual colour of each type and marks a type whose nodes disagree
+  with `mixed`.
+- **Arrows are bound to their nodes.** `sceneToElements` gives each arrow
+  `startBinding`/`endBinding` and lists it in the node's `boundElements`, so a drag moves
+  the bound endpoint with the box (the bends stay). The editor's route is never stored:
+  after the drop the panel asks the host for `op:'views'` again and the core's route,
+  plate placement and lint replace it. A `change` that arrives right after a load is
+  ignored for 600 ms, because it describes the pre-load canvas and would undo the fresh
+  render (the undo/reset race).
+- **Labels are renamed in the panel, not on the canvas.** A locked label still swallows a
+  pointer-down, so an editable one would make the middle of every node undraggable; the
+  `Labels` inspector lists the view's nodes and edges and writes `op:'label'`, which goes
+  through `apply` (an empty edge label is refused as `missing_edge_label`) and re-renders
+  the view.
 - **Everything else the human draws is an annotation.** `client/excalidraw.js`
   `freeElements` takes every canvas element WITHOUT `customData.designmap`; the panel
   debounces 700 ms and writes the whole layer through `/designmap op:'annotate'` into

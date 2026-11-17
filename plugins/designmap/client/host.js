@@ -13,50 +13,12 @@
  * repeats that refusal (src/host.mjs), so a crafted payload is refused twice.
  */
 
-const SCENE_SUFFIX = '.scene.json'
 const OVERLAY_ACTIONS = new Set(['upsert', 'replace', 'resetNode', 'resetView'])
 const OVERLAY_KEYS = new Set(['action', 'nodeId', 'viewId', 'row', 'x', 'y', 'fill', 'stroke'])
 const ROW_KEYS = new Set(['x', 'y', 'fill', 'stroke'])
 
 function remoteFailure(code, message) {
   return { ok: false, error: { code, message } }
-}
-
-async function readWholeText(remote, sessionId, path) {
-  let offset = 1
-  let text = ''
-  for (let page = 0; page < 50; page += 1) {
-    const result = await remote.workspaceFiles.read(sessionId, path, { offset, limit: 2000 })
-    if (result?.ok !== true) return result ?? remoteFailure('read_failed', `No result for ${path}`)
-    const value = result.value
-    if (value === null || value === undefined) return remoteFailure('read_failed', `Empty result for ${path}`)
-    text += value.text
-    if (value.eof === true) return { ok: true, value: text }
-    if (!(value.lines > 0)) return remoteFailure('read_failed', `${path} does not advance`)
-    offset = value.offset + value.lines
-    text += '\n'
-  }
-  return remoteFailure('read_failed', `${path} is too large to read`)
-}
-
-async function sceneHash(text) {
-  try {
-    const bytes = new TextEncoder().encode(text)
-    const digest = await crypto.subtle.digest('SHA-256', bytes)
-    const hex = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
-    return `sha256:${hex}`
-  } catch {
-    return null
-  }
-}
-
-function mergeMeta(base, override) {
-  if (override === null || typeof override !== 'object') return base
-  return {
-    ...base,
-    ...override,
-    stale: { ...base.stale, ...(override.stale ?? {}) },
-  }
 }
 
 function parseCommandFailure(outcome) {
@@ -117,161 +79,73 @@ export function validateOverlayPayload(payload) {
  * @param {object} options
  * @param {object} options.remote - the client remote service (`ctx.remote`).
  * @param {string} options.sessionId - session whose workspace root anchors relative paths.
- * @param {string} [options.sceneDir] - directory core writes scenes/index to.
- * @param {object} [options.viewIndex] - fallback navigation metadata for a workspace
- *   without out/index.json: `{rootId?, views?: [{viewId, parentGroupId?, title?, level?, meta?}]}`.
  */
-export function createRemoteHost({ remote, sessionId, sceneDir = 'designmap/out', viewIndex = null }) {
+export function createRemoteHost({ remote, sessionId }) {
   if (remote === undefined || remote === null) throw new Error('designmap: the host remote service is unavailable')
   if (typeof sessionId !== 'string' || sessionId === '') {
     return {
       load: async () => remoteFailure('no_session', 'Open a conversation to load the design map.'),
+      refreshView: async () => remoteFailure('no_session', 'Open a conversation to edit the design map.'),
       openSource: async () => remoteFailure('no_session', 'Open a conversation to open source files.'),
       writeOverlay: async () => remoteFailure('no_session', 'Open a conversation to edit the design map.'),
+      writeLabel: async () => remoteFailure('no_session', 'Open a conversation to edit the design map.'),
+      writeAnnotations: async () => remoteFailure('no_session', 'Open a conversation to save annotations.'),
       renderViews: async () => remoteFailure('no_session', 'Open a conversation to render the design map.'),
     }
   }
 
-  const fallbackEntries = Array.isArray(viewIndex?.views) ? viewIndex.views : []
-
   return {
-    async load() {
-      const listing = await remote.workspaceFiles.list(sessionId, sceneDir)
-      if (listing?.ok !== true) {
-        // A workspace without a model has no scene directory yet. That is an empty
-        // state, not a failure: reporting ENOENT as "could not load" made a fresh
-        // workspace look broken.
-        const failure = `${listing?.error?.code ?? ''} ${listing?.error?.message ?? ''}`
-        if (/enoent|no entry|not found/i.test(failure)) {
-          return {
-            ok: true,
-            value: { views: [], rootId: null, missing: true, overlays: { rows: {}, path: 'designmap/overlays.json' } },
-          }
-        }
-        return listing ?? remoteFailure('list_failed', `Could not list ${sceneDir}`)
+    /**
+     * The panel's read path: the host renders every view WITH the stored visual layer
+     * (`op:'views'`, renderView write:false) and this adapter hands that payload to the
+     * view untouched. The panel used to list `out/*.scene.json` and merge overlays in the
+     * browser, which gave the map two geometry owners: a moved node kept its old arrows
+     * and label plates. Nothing here computes geometry.
+     */
+    async load({ viewId } = {}) {
+      const result = await executeCommand(remote, sessionId, { op: 'views', ...(viewId === undefined ? {} : { viewId }) })
+      if (result?.ok !== true) return result
+      const payload = result.value
+      if (payload === null || typeof payload !== 'object' || !Array.isArray(payload.views)) {
+        return remoteFailure('command_result_invalid', 'The designmap command returned no views.')
       }
-      const entries = Array.isArray(listing.value?.entries) ? listing.value.entries : []
-      const files = entries
-        .map((entry) => (typeof entry === 'string' ? entry : entry?.name))
-        .filter((name) => typeof name === 'string' && name.endsWith(SCENE_SUFFIX))
-        .sort()
-
-      let manifest = null
-      const manifestRead = await readWholeText(remote, sessionId, 'designmap/manifest.json')
-      if (manifestRead.ok === true) {
-        try {
-          manifest = JSON.parse(manifestRead.value)
-        } catch {
-          manifest = null
-        }
-      }
-
-      let index = null
-      const indexPath = `${sceneDir}/index.json`
-      const indexRead = await readWholeText(remote, sessionId, indexPath)
-      if (indexRead.ok === true) {
-        try {
-          const parsed = JSON.parse(indexRead.value)
-          if (parsed?.schemaVersion === 1 && Array.isArray(parsed.views)) index = parsed
-        } catch {
-          index = null
-        }
-      }
-
-      let annotations = []
-      const annotationsRead = await readWholeText(remote, sessionId, 'designmap/annotations.json')
-      if (annotationsRead.ok === true) {
-        try {
-          const parsed = JSON.parse(annotationsRead.value)
-          if (Array.isArray(parsed?.elements)) annotations = parsed.elements.filter(element => element !== null && typeof element === 'object')
-        } catch {
-          annotations = []
-        }
-      }
-
-      let overlays = {}
-      const overlaysRead = await readWholeText(remote, sessionId, 'designmap/overlays.json')
-      if (overlaysRead.ok === true) {
-        try {
-          const parsed = JSON.parse(overlaysRead.value)
-          if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
-            for (const [key, row] of Object.entries(parsed)) {
-              if (key === '$version') continue
-              if (row !== null && typeof row === 'object' && !Array.isArray(row)) overlays[key] = row
-            }
-          }
-        } catch {
-          overlays = {}
-        }
-      }
-
-      const views = []
-      for (const name of files) {
-        const path = `${sceneDir}/${name}`
-        const read = await readWholeText(remote, sessionId, path)
-        if (read.ok !== true) continue
-        let scene
-        try {
-          scene = JSON.parse(read.value)
-        } catch {
-          continue
-        }
-        if (scene?.schemaVersion !== 1) continue
-        const viewId = typeof scene.viewId === 'string' && scene.viewId !== '' ? scene.viewId : name.slice(0, -SCENE_SUFFIX.length)
-        const indexed =
-          index?.views.find((entry) => entry?.viewId === viewId) ??
-          fallbackEntries.find((entry) => entry?.viewId === viewId) ??
-          null
-        const fallback = fallbackEntries.find((entry) => entry?.viewId === viewId) ?? null
-        const staleNodes = Array.isArray(scene.nodes) ? scene.nodes.filter((node) => node?.stale === true).map((node) => node.id) : []
-        const baseMeta = {
-          generatedAt: typeof manifest?.generatedAt === 'string' ? manifest.generatedAt : null,
-          commit: typeof manifest?.commit === 'string' ? manifest.commit : null,
-          sceneHash: typeof indexed?.sceneHash === 'string' ? indexed.sceneHash : await sceneHash(read.value),
-          scenePath: path,
-          stale: { stale: staleNodes.length > 0, commitBehind: 0, staleNodes },
-          lint: null,
-        }
-        views.push({
-          view: {
-            viewId,
-            title: typeof scene.title === 'string' ? scene.title : viewId,
-            level: typeof scene.level === 'string' ? scene.level : 'context',
-            parentGroupId:
-              typeof indexed?.parent === 'string'
-                ? indexed.parent
-                : typeof indexed?.parentGroupId === 'string'
-                  ? indexed.parentGroupId
-                  : typeof fallback?.parentGroupId === 'string'
-                    ? fallback.parentGroupId
-                    : null,
+      if (payload.views.length === 0) {
+        return {
+          ok: true,
+          value: {
+            views: [],
+            rootId: null,
+            missing: true,
+            overlays: { rows: payload.overlays?.rows ?? {}, path: 'designmap/overlays.json' },
+            annotations: Array.isArray(payload.annotations) ? payload.annotations : [],
           },
-          scene,
-          meta: mergeMeta(baseMeta, fallback?.meta ?? null),
-        })
+        }
       }
+      return { ok: true, value: payload }
+    },
 
-      if (views.length === 0) {
-        return remoteFailure('no_scenes', `No ${SCENE_SUFFIX} files under ${sceneDir}. Render the model first.`)
+    /** Re-render one view after a human edit. Same command, one view, still no writes. */
+    async refreshView(viewId) {
+      return this.load({ viewId })
+    },
+
+    /**
+     * A label is a model field, so the human's edit goes through the host's `label` op
+     * (apply + manifest), never through overlays.json.
+     */
+    async writeLabel({ kind, id, label } = {}) {
+      if (kind !== 'node' && kind !== 'edge') {
+        return remoteFailure('invalid_label_target', 'The label target must be a node or an edge.')
       }
-      const requested = typeof viewIndex?.rootId === 'string' ? viewIndex.rootId : null
-      const roots = index?.views ?? []
-      const rootRow = roots.find((row) => row.parent === null && row.level === 'context') ?? roots.find((row) => row.parent === null) ?? null
-      const root =
-        views.find((entry) => entry.view.viewId === requested) ??
-        views.find((entry) => entry.view.viewId === rootRow?.viewId) ??
-        views.find((entry) => entry.view.level === 'context') ??
-        views.find((entry) => entry.view.viewId === 'v.context') ??
-        views[0]
-      return {
-        ok: true,
-        value: {
-          views,
-          rootId: root.view.viewId,
-          overlays: { rows: overlays, path: 'designmap/overlays.json' },
-          annotations,
-        },
+      if (typeof id !== 'string' || id === '') return remoteFailure('invalid_label_target', 'The label target needs an id.')
+      if (typeof label !== 'string' || label.trim() === '') {
+        // An empty edge label would make every render refuse (the lint treats it as an
+        // error), so the panel refuses it by the same code before it leaves the page.
+        return kind === 'edge'
+          ? remoteFailure('missing_edge_label', 'An edge must keep a label; the model refuses an empty one.')
+          : remoteFailure('invalid_label', 'A node label must not be empty.')
       }
+      return executeCommand(remote, sessionId, { op: 'label', kind, id, label })
     },
 
     validateOverlayPayload,

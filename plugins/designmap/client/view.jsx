@@ -120,7 +120,56 @@ function SceneEdge({ id, data, markerEnd, style }) {
   )
 }
 
-function Legend({ scene, editMode, zoom, onFit }) {
+/** One stroke icon family for the panel chrome: 13 px, currentColor, no external assets. */
+const ICON = Object.freeze({
+  width: 13,
+  height: 13,
+  viewBox: '0 0 24 24',
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 1.8,
+  strokeLinecap: 'round',
+  strokeLinejoin: 'round',
+  'aria-hidden': 'true',
+})
+
+function IconUndo() {
+  return <svg {...ICON}><path d="M9 14 4 9l5-5" /><path d="M4 9h10a6 6 0 0 1 0 12h-3" /></svg>
+}
+function IconFit() {
+  return <svg {...ICON}><path d="M4 9V4h5" /><path d="M20 9V4h-5" /><path d="M4 15v5h5" /><path d="M20 15v5h-5" /></svg>
+}
+function IconReset() {
+  return <svg {...ICON}><path d="M4 12a8 8 0 1 0 2.34-5.66" /><path d="M4 4v5h5" /></svg>
+}
+function IconPencil() {
+  return <svg {...ICON}><path d="M4 20h4L18 10l-4-4L4 16v4Z" /></svg>
+}
+function IconCheck() {
+  return <svg {...ICON}><path d="m5 13 4 4L19 7" /></svg>
+}
+function IconTag() {
+  return <svg {...ICON}><path d="M20 12 12 20 4 12V4h8l8 8Z" /><circle cx="8.5" cy="8.5" r="1" /></svg>
+}
+
+/** Distinct actual colours (overlay row or type palette) for every node of one type. */
+export function colourSummary(scene, overlays, type) {
+  const fallback = paletteFor(type)
+  const seen = new Map()
+  for (const node of scene.nodes) {
+    if (node.type !== type) continue
+    const row = overlays?.[node.id] ?? {}
+    const fill = typeof row.fill === 'string' ? row.fill : fallback.fill
+    const stroke = typeof row.stroke === 'string' ? row.stroke : fallback.stroke
+    const key = `${fill}|${stroke}`
+    const entry = seen.get(key) ?? { fill, stroke, count: 0 }
+    entry.count += 1
+    seen.set(key, entry)
+  }
+  return [...seen.values()].sort((left, right) => (left.fill < right.fill ? -1 : left.fill > right.fill ? 1 : 0))
+}
+
+function Legend({ scene, overlays, editMode, zoom, onFit }) {
   const nodeTypes = legendNodeTypes(scene)
   const edgeKinds = legendEdgeKinds(scene)
   const nodeCounts = React.useMemo(() => {
@@ -138,13 +187,23 @@ function Legend({ scene, editMode, zoom, onFit }) {
       <span className="dmv-legend-title">Legend</span>
       <ul className="dmv-legend-group">
         {nodeTypes.map((type) => {
-          const look = paletteFor(type)
+          // The legend describes what is ON the map, not the palette: a recoloured node
+          // changes its type's swatch, and two colours inside one type say "mixed" instead
+          // of pretending a colour that no node has.
+          const colours = colourSummary(scene, overlays, type)
+          const mixed = colours.length > 1
+          const primary = colours[0] ?? paletteFor(type)
           const shape = type === 'datastore' ? 'ellipse' : type === 'external' ? 'dashed' : type === 'decision' ? 'diamond' : ''
+          const swatch = mixed
+            ? { background: `linear-gradient(135deg, ${colours[0].fill} 0 50%, ${colours[1].fill} 50% 100%)`, borderColor: colours[0].stroke }
+            : { background: primary.fill, borderColor: primary.stroke }
+          const detail = colours.map((entry) => `${entry.fill} × ${entry.count}`).join(', ')
           return (
-            <li key={type} className="dmv-legend-item">
-              <span className={`dmv-glyph ${shape}`} style={{ background: look.fill, borderColor: look.stroke }} aria-hidden="true" />
+            <li key={type} className="dmv-legend-item" title={`${type}: ${nodeCounts.get(type) ?? 0} node(s) — ${detail}`}>
+              <span className={`dmv-glyph ${shape}${mixed ? ' mixed' : ''}`} style={swatch} aria-hidden="true" />
               <span>{type}</span>
               <b>{nodeCounts.get(type) ?? 0}</b>
+              {mixed ? <span className="dmv-legend-mixed" title={`${colours.length} colours: ${detail}`}>mixed</span> : null}
             </li>
           )
         })}
@@ -164,13 +223,78 @@ function Legend({ scene, editMode, zoom, onFit }) {
         })}
       </ul>
       <span className="dmv-spacer" />
-      {editMode ? <span className="dmv-legend-hint">drag a node to move it</span> : null}
+      {editMode ? <span className="dmv-legend-hint">drag a node to move it; double-click its label to rename it</span> : null}
       {onFit === undefined ? null : (
-        <button type="button" className="dmv-btn dmv-fit" onClick={onFit} title="Fit the whole map in the canvas">
-          ⤢ Fit{Number.isFinite(zoom) ? ` · ${zoom.toFixed(2)}×` : ''}
+        <button type="button" className="dmv-btn dmv-fit" onClick={onFit} title="Fit the whole map in the canvas" aria-label={`Fit the whole map, current zoom ${Number.isFinite(zoom) ? zoom.toFixed(2) : '1'} times`}>
+          <IconFit />
+          <span>Fit{Number.isFinite(zoom) ? ` · ${zoom.toFixed(2)}×` : ''}</span>
         </button>
       )}
     </div>
+  )
+}
+
+/**
+ * The human's label editor. A label is a model field, so the panel must not fake it: each
+ * row writes through the host's `label` op (apply), and an edge label may not be empty.
+ * Renaming lives here, not on the canvas, because an editable canvas label takes the
+ * pointer and a drag started on the node's middle never reaches the node.
+ */
+function LabelRow({ kind, id, label, onSave }) {
+  const [value, setValue] = React.useState(label)
+  React.useEffect(() => setValue(label), [label])
+  const commit = () => {
+    const text = value.trim()
+    if (text === label) return
+    // An empty label is sent too: the host answers with its named refusal
+    // (`missing_edge_label` / `invalid_label`) and the panel shows it, instead of
+    // silently reverting the field.
+    onSave(kind, id, text).then((saved) => {
+      if (saved !== true) setValue(label)
+    })
+  }
+  return (
+    <li className="dmv-label-row">
+      <span className="dmv-label-kind" title={kind}>{kind === 'node' ? 'node' : 'edge'}</span>
+      <code className="dmv-label-id" title={id}>{id}</code>
+      <input
+        className="dmv-label-input"
+        value={value}
+        aria-label={`${kind} label ${id}`}
+        onChange={(event) => setValue(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') event.currentTarget.blur()
+          if (event.key === 'Escape') {
+            setValue(label)
+            event.currentTarget.blur()
+          }
+        }}
+        onBlur={commit}
+      />
+    </li>
+  )
+}
+
+function LabelEditor({ scene, query, onSave }) {
+  const rows = [
+    ...scene.nodes.map((node) => ({ kind: 'node', id: node.id, label: node.label })),
+    ...scene.edges.map((edge) => ({ kind: 'edge', id: edge.id, label: edge.label })),
+  ]
+  const needle = query.trim().toLowerCase()
+  const visible = needle === '' ? rows : rows.filter((row) => row.id.toLowerCase().includes(needle) || row.label.toLowerCase().includes(needle))
+  return (
+    <section className="dmv-labels" aria-label="Labels">
+      <header className="dmv-labels-head">
+        <h2>Labels</h2>
+        <p>Rename a node or an edge. The edit is written to the model and re-rendered.</p>
+        <span className="dmv-labels-count">{visible.length} of {rows.length}</span>
+      </header>
+      <ul className="dmv-labels-list">
+        {visible.map((row) => (
+          <LabelRow key={`${row.kind}:${row.id}:${row.label}`} {...row} onSave={onSave} />
+        ))}
+      </ul>
+    </section>
   )
 }
 
@@ -286,14 +410,19 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
   // The Excalidraw canvas is the drawing surface; React Flow stays as the fallback when
   // the frame cannot load, so a frame failure degrades to a working read-only map.
   const [canvasFailed, setCanvasFailed] = React.useState(false)
-  const rootRef = React.useRef(null)
+  const [labelsOpen, setLabelsOpen] = React.useState(false)
+  // The theme is read from the MOUNTED root, not from a ref captured once at mount: the
+  // first render is the loading state, so `.dmv` did not exist yet and the read silently
+  // returned. That is why the dark theme kept a light canvas and a white-on-white primary
+  // button. A state-set callback ref makes the read run when the element actually exists,
+  // and the observers watch the attributes the shell really toggles (`body[data-ds-dark-theme]`).
+  const [rootEl, setRootEl] = React.useState(null)
 
   /** The canvas is a separate document: its colours come from the panel's live theme. */
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
+    if (rootEl === null) return undefined
     const read = () => {
-      const element = rootRef.current
-      if (element === null) return
-      const styles = getComputedStyle(element)
+      const styles = getComputedStyle(rootEl)
       const pick = (name, fallback) => (styles.getPropertyValue(name) ?? '').trim() || fallback
       const next = {
         surface: pick('--dmv-surface', '#ffffff'),
@@ -302,11 +431,10 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
         muted: pick('--dmv-muted', '#475569'),
         line: pick('--dmv-line', '#e2e8f0'),
       }
-      // The host's brand colour is often a BRIGHT accent in a dark theme, so a primary
-      // button painted with it cannot assume a white label: derive the on-accent ink
-      // from the accent itself or the label disappears (a blank white box in the header).
+      // The shell's primary fill is a light surface in the dark theme and a near-black
+      // one in the light theme; the label must follow the fill, never assume white.
       const accent = pick('--dmv-accent', '#2563eb')
-      element.style.setProperty('--dmv-accent-ink', isDarkSurface(accent) ? '#ffffff' : '#0b0f14')
+      rootEl.style.setProperty('--dmv-accent-ink', isDarkSurface(accent) ? '#ffffff' : '#0b0f14')
       setLook((previous) => (previous !== null
         && previous.surface === next.surface
         && previous.surface2 === next.surface2
@@ -321,11 +449,12 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
     media?.addEventListener?.('change', read)
     const observer = typeof MutationObserver === 'undefined' ? null : new MutationObserver(read)
     observer?.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme', 'style'] })
+    observer?.observe(document.body, { attributes: true, attributeFilter: ['class', 'data-ds-dark-theme', 'style'] })
     return () => {
       media?.removeEventListener?.('change', read)
       observer?.disconnect()
     }
-  }, [])
+  }, [rootEl])
 
   const annotationTimer = React.useRef(null)
   const onCanvasAnnotate = React.useCallback((elements) => {
@@ -349,24 +478,6 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
     setZoom(viewport.zoom)
     setZoomSource('canvas')
   }, [])
-  const onCanvasDelta = React.useCallback(
-    async (delta) => {
-      for (const [nodeId, row] of Object.entries(delta)) {
-        const result = await host.writeOverlay({ action: 'upsert', nodeId, ...row })
-        if (result?.ok === true) {
-          setOverlays((previous) => ({ ...previous, [nodeId]: { ...(previous[nodeId] ?? {}), ...row } }))
-          setStatus({ kind: 'info', code: 'overlay.written', message: `Saved ${Object.keys(row).join('+')} for ${nodeId}.` })
-        } else {
-          setStatus({
-            kind: 'error',
-            code: result?.error?.code ?? 'overlay_write_failed',
-            message: result?.error?.message ?? 'The host refused the overlay write.',
-          })
-        }
-      }
-    },
-    [host],
-  )
   const [undoStack, setUndoStack] = React.useState([])
   const [pendingCount, setPendingCount] = React.useState(0)
 
@@ -383,6 +494,7 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
   const editRef = React.useRef(editMode)
   const undoRef = React.useRef(undoStack)
   const lastWriteRef = React.useRef(null)
+  const refreshSceneRef = React.useRef(() => {})
   currentRef.current = current
   historyRef.current = history
   overlaysRef.current = overlays
@@ -408,9 +520,10 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
     const nextColours = {}
     for (const node of entry.scene.nodes) {
       const row = rows[node.id]
-      // The overlay position is the human's visual state; until the host re-renders, the
-      // scene still carries the layout position, so the panel displays the overlay row.
-      nextPositions[node.id] = row?.x !== undefined && row?.y !== undefined ? { x: row.x, y: row.y } : { x: node.x, y: node.y }
+      // The scene arrives with the visual layer already merged (the host renders it), so
+      // its position is the only one that counts. Re-applying the overlay row here was the
+      // second geometry owner: the node moved while the arrows kept the old endpoints.
+      nextPositions[node.id] = { x: node.x, y: node.y }
       if (row !== undefined && (row.fill !== undefined || row.stroke !== undefined)) {
         const base = paletteFor(node.type)
         nextColours[node.id] = { fill: row.fill ?? base.fill, stroke: row.stroke ?? base.stroke }
@@ -566,6 +679,8 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
       })
       lastWriteRef.current = { at: Date.now(), nodeId, payload, result: result.value }
       setStatus({ kind: 'ok', code: 'overlay.write', message: `Saved ${OVERLAY_FIELDS.filter((key) => payload[key] !== undefined).join('/')} for ${nodeId}.` })
+      // The scene must be re-rendered by the host or the arrows keep the old endpoints.
+      refreshSceneRef.current()
       return result
     },
     [host, revertNode],
@@ -599,19 +714,13 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
     setPendingCount(0)
   }, [writeNow])
 
+  /**
+   * Ask the host for the scenes again: `op:'views'` re-renders every view WITH the stored
+   * visual layer (no files written), so a moved node comes back with re-anchored arrows and
+   * re-placed label plates. The viewport and selection survive because adapters keep them.
+   */
   const refreshInPlace = React.useCallback(
-    async ({ render = true } = {}) => {
-      if (render && typeof host.renderViews === 'function') {
-        const rendered = await host.renderViews()
-        if (rendered?.ok !== true) {
-          setStatus({
-            kind: 'error',
-            code: rendered?.error?.code ?? 'render_failed',
-            message: rendered?.error?.message ?? 'The host could not re-render the scene.',
-          })
-          return rendered
-        }
-      }
+    async () => {
       const result = await host.load()
       if (result?.ok !== true) {
         setStatus({
@@ -625,6 +734,81 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
       return result
     },
     [host, adoptLoaded],
+  )
+
+  // Consecutive canvas changes (a drag reports one change, a label edit one per keystroke)
+  // collapse into one host round-trip instead of one per event.
+  const refreshTimer = React.useRef(null)
+  const refreshScene = React.useCallback(() => {
+    if (refreshTimer.current !== null) clearTimeout(refreshTimer.current)
+    refreshTimer.current = setTimeout(() => {
+      refreshTimer.current = null
+      refreshInPlace()
+    }, 140)
+  }, [refreshInPlace])
+  React.useEffect(() => () => clearTimeout(refreshTimer.current), [])
+  refreshSceneRef.current = refreshScene
+
+  /** Rename through the model: the host applies it and re-renders, never the overlay file. */
+  const saveLabel = React.useCallback(
+    async (kind, id, text) => {
+      const result = await host.writeLabel?.({ kind, id, label: text })
+      if (result?.ok !== true) {
+        setStatus({
+          kind: 'error',
+          code: result?.error?.code ?? 'label_write_failed',
+          message: result?.error?.message ?? (kind === 'edge' ? 'An edge label cannot be empty.' : 'The host refused the label edit.'),
+        })
+        return false
+      }
+      setStatus({ kind: 'ok', code: 'label.written', message: `Label of ${kind} “${id}” saved to the model.` })
+      emit({ type: 'labelChanged', kind, id })
+      await refreshInPlace()
+      return true
+    },
+    [host, emit, refreshInPlace],
+  )
+
+  /**
+   * A canvas edit: write the visual delta, then re-render from the host. `viewId` travels
+   * with the write so the host can auto-place the node in the view the human is looking at,
+   * and the adjusted row it returns is what the panel stores and shows.
+   */
+  const onCanvasDelta = React.useCallback(
+    async (delta) => {
+      const viewId = currentRef.current?.view.viewId
+      for (const [nodeId, row] of Object.entries(delta)) {
+        const before = overlaysRef.current[nodeId] ?? null
+        const result = await host.writeOverlay({ action: 'upsert', nodeId, viewId, ...row })
+        if (result?.ok !== true) {
+          setStatus({
+            kind: 'error',
+            code: result?.error?.code ?? 'overlay_write_failed',
+            message: result?.error?.message ?? 'The host refused the overlay write.',
+          })
+          continue
+        }
+        const value = result.value ?? {}
+        const stored = value.row ?? { ...(before ?? {}), ...row }
+        setOverlays((previous) => {
+          const next = { ...previous, [nodeId]: stored }
+          overlaysRef.current = next
+          return next
+        })
+        setUndoStack((previous) => {
+          const next = [...previous, { kind: 'upsert', nodeId, before, after: stored }]
+          undoRef.current = next
+          return next
+        })
+        if (value.finding?.code === 'overlap_adjusted') {
+          setStatus({ kind: 'info', code: 'overlap_adjusted', message: `“${nodeId}” moved to the nearest free spot, so it no longer overlaps another node.` })
+        } else {
+          setStatus({ kind: 'info', code: 'overlay.written', message: `Saved ${Object.keys(row).join(' + ')} for “${nodeId}”.` })
+        }
+      }
+      refreshScene()
+    },
+    [host, refreshScene],
   )
 
   const openSource = React.useCallback(
@@ -714,7 +898,7 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
     } else {
       editRef.current = true
       setEditMode(true)
-      setStatus({ kind: 'info', code: 'editing', message: 'Edit mode: drag a node or pick a colour; writes debounce 500 ms.' })
+      setStatus({ kind: 'info', code: 'editing', message: 'Edit mode: drag a node, recolour it, or double-click its label to rename it. Each change is re-rendered by the host.' })
     }
   }, [flushPending])
 
@@ -1035,6 +1219,17 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
   }
 
   const staleNodes = scene.nodes.filter((node) => node.stale === true)
+  // The host renders WITH the visual layer, and its render carries the layout check. The
+  // panel shows the verdict instead of letting a crossed edge or an overlap pass silently.
+  const lint = meta.lint ?? null
+  const lintCounts = lint?.counts ?? null
+  const lintFindings = Array.isArray(lint?.findings) ? lint.findings : []
+  const lintBad = (lintCounts?.error ?? 0) > 0
+  const lintTotal = (lintCounts?.error ?? 0) + (lintCounts?.warning ?? 0)
+  const lintTitle = lintFindings
+    .slice(0, 10)
+    .map((entry) => `${entry.rule}${entry.id ? ` (${entry.id})` : entry.ids ? ` (${entry.ids.join(' / ')})` : ''}: ${entry.message}`)
+    .join('\n')
   const viewStale = meta.stale?.stale === true || staleNodes.length > 0
   const commitBehind = Number(meta.stale?.commitBehind ?? 0)
   const staleLabel = viewStale ? (commitBehind > 0 ? `stale · ${commitBehind} commit${commitBehind === 1 ? '' : 's'} behind` : 'stale · sources changed') : 'fresh'
@@ -1137,11 +1332,11 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
 
   const canvasLabel = `${scene.title || current.view.title || scene.viewId}: ${scene.nodes.length} nodes, ${scene.edges.length} edges, ${staleNodes.length} stale. ${editMode ? 'Edit mode.' : 'Read-only design map.'}`
   const defaultStatus = editMode
-    ? 'Editing: move or recolour a node, draw a highlight or add a note with the toolbar; annotations save automatically.'
+    ? 'Editing: move or recolour a node, double-click a label to rename it, or draw a highlight with the toolbar; annotations save automatically.'
     : 'Read-only. Click a node to open its source; double-click a group to drill in.'
 
   return (
-    <div className="dmv" data-edit-mode={editMode ? 'true' : 'false'} ref={rootRef}>
+    <div className="dmv" data-edit-mode={editMode ? 'true' : 'false'} ref={setRootEl}>
       <header className="dmv-top">
         <div className="dmv-ident">
           <h1 className="dmv-title">{title}</h1>
@@ -1154,6 +1349,11 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
           <span className={`dmv-chip${viewStale ? ' stale' : ''}`}>{staleLabel}</span>
           <span className={`dmv-chip${editMode ? ' editing' : ' readonly'}`}>{editMode ? 'edit mode' : 'read-only'}</span>
           {pendingCount > 0 ? <span className="dmv-chip pending" role="status">saving {pendingCount}…</span> : null}
+          {lintTotal > 0 ? (
+            <span className={`dmv-chip lint${lintBad ? ' bad' : ''}`} title={lintTitle} role="status">
+              layout: {lintCounts.error} error{lintCounts.error === 1 ? '' : 's'} · {lintCounts.warning} warning{lintCounts.warning === 1 ? '' : 's'}
+            </span>
+          ) : null}
         </div>
         <span className="dmv-spacer" />
         {sceneSet !== null && sceneSet.views.length > 1 ? (
@@ -1176,17 +1376,30 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
         ) : null}
         <div className="dmv-actions">
           {canWrite ? (
-            <button type="button" className={`dmv-btn${editMode ? ' primary' : ''}`} aria-pressed={editMode} onClick={toggleEdit}>
-              {editMode ? 'Done editing' : 'Edit overlays'}
+            <button
+              type="button"
+              className={`dmv-btn${editMode ? ' primary' : ''}`}
+              aria-pressed={editMode}
+              onClick={toggleEdit}
+              title={editMode ? 'Leave edit mode (writes are saved)' : 'Edit positions, colours and labels'}
+            >
+              {editMode ? <IconCheck /> : <IconPencil />}
+              <span>{editMode ? 'Done editing' : 'Edit map'}</span>
             </button>
           ) : null}
           {editMode ? (
             <>
-              <button type="button" className="dmv-btn" onClick={undo} disabled={undoStack.length === 0} title="Undo the last overlay change">
-                ↶ Undo
+              <button type="button" className="dmv-btn" onClick={undo} disabled={undoStack.length === 0} title="Undo the last change">
+                <IconUndo />
+                <span>Undo</span>
               </button>
-              <button type="button" className="dmv-btn" onClick={resetView} disabled={rowsOnView === 0} title="Remove every overlay row of this view">
-                Reset view
+              <button type="button" className="dmv-btn" onClick={resetView} disabled={rowsOnView === 0} title="Remove every position and colour change of this view">
+                <IconReset />
+                <span>Reset view</span>
+              </button>
+              <button type="button" className={`dmv-btn${labelsOpen ? ' primary' : ''}`} aria-pressed={labelsOpen} onClick={() => setLabelsOpen((value) => !value)} title="Rename nodes and edges">
+                <IconTag />
+                <span>Labels</span>
               </button>
             </>
           ) : null}
@@ -1292,8 +1505,12 @@ export function DesignMapView({ host, initial = null, title = 'Design map' }) {
           </div>
         ) : null}
       </section>
+      {editMode && labelsOpen ? (
+        <LabelEditor scene={scene} query={query} onSave={saveLabel} />
+      ) : null}
       <Legend
         scene={scene}
+        overlays={overlays}
         editMode={editMode}
         zoom={zoom}
         onFit={fit}

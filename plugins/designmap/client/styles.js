@@ -12,7 +12,12 @@ export const CSS = `
   --dmv-ink: var(--dsw-alias-label-primary, #0f172a);
   --dmv-muted: var(--dsw-alias-label-secondary, #64748b);
   --dmv-line: var(--dsw-alias-border-l1, #e2e8f0);
-  --dmv-accent: var(--dsw-alias-brand-primary, #2563eb);
+  /* The primary button's FILL is the shell's primary-button fill, not its brand text
+     colour: in the dark theme brand-primary is near-white, so using it as a fill made a
+     white button whose white label disappeared. The label follows the inverted token and
+     the panel re-derives it from the resolved fill as a fallback. */
+  --dmv-accent: var(--dsw-alias-button-primary-fill, var(--dsw-alias-brand-primary, #2563eb));
+  --dmv-accent-ink: var(--dsw-alias-label-primary-inverted, #ffffff);
   --dmv-warn: var(--dsw-alias-state-warn-primary, #92400e);
   --dmv-danger: var(--dsw-alias-state-error-primary, #b91c1c);
   --dmv-ok: var(--dsw-alias-state-success-primary, #15803d);
@@ -63,6 +68,8 @@ export const CSS = `
 .dmv-chip.level { color: var(--dmv-ink); font-weight: 600; }
 .dmv-chip.editing { color: var(--dmv-accent); border-color: color-mix(in srgb, var(--dmv-accent) 40%, var(--dmv-line)); background: color-mix(in srgb, var(--dmv-accent) 8%, var(--dmv-surface)); font-weight: 600; }
 .dmv-chip.pending { color: var(--dmv-warn); border-color: color-mix(in srgb, var(--dmv-warn) 35%, var(--dmv-line)); }
+.dmv-chip.lint { color: var(--dmv-warn); border-color: color-mix(in srgb, var(--dmv-warn) 40%, var(--dmv-line)); background: color-mix(in srgb, var(--dmv-warn) 8%, var(--dmv-surface)); font-weight: 600; }
+.dmv-chip.lint.bad { color: var(--dmv-danger); border-color: color-mix(in srgb, var(--dmv-danger) 40%, var(--dmv-line)); background: color-mix(in srgb, var(--dmv-danger) 8%, var(--dmv-surface)); }
 .dmv-chip.stale { color: var(--dmv-warn); border-color: color-mix(in srgb, var(--dmv-warn) 40%, var(--dmv-line)); background: color-mix(in srgb, var(--dmv-warn) 8%, var(--dmv-surface)); font-weight: 600; }
 .dmv-chip.readonly { color: var(--dmv-ok); border-color: color-mix(in srgb, var(--dmv-ok) 35%, var(--dmv-line)); background: color-mix(in srgb, var(--dmv-ok) 7%, var(--dmv-surface)); }
 .dmv-spacer { flex: 1 1 24px; }
@@ -98,6 +105,7 @@ export const CSS = `
 }
 .dmv-btn:hover { background: var(--dmv-surface-3); }
 .dmv-btn.primary { background: var(--dmv-accent); border-color: var(--dmv-accent); color: var(--dmv-accent-ink, #ffffff); }
+.dmv-btn svg { flex: none; }
 .dmv-btn.primary:hover { filter: brightness(1.06); }
 .dmv-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .dmv-selected .dmv-node { box-shadow: 0 0 0 3px color-mix(in srgb, var(--dmv-accent) 45%, transparent); }
@@ -302,6 +310,28 @@ export const CSS = `
 .dmv-legend-title { text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; font-size: 9.5px; color: var(--dmv-muted); }
 .dmv-legend-group { display: flex; align-items: center; gap: 10px; margin: 0; padding: 0; list-style: none; }
 .dmv-legend-item { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.dmv-labels { flex: none; display: flex; flex-direction: column; max-height: 220px; border-top: 1px solid var(--dmv-line); background: var(--dmv-surface); }
+.dmv-labels-head { display: flex; align-items: baseline; gap: 10px; padding: 7px 16px 3px; flex-wrap: wrap; }
+.dmv-labels-head h2 { margin: 0; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--dmv-muted); }
+.dmv-labels-head p { margin: 0; font-size: 11px; color: var(--dmv-muted); }
+.dmv-labels-count { margin-left: auto; font-size: 10.5px; color: var(--dmv-muted); font-variant-numeric: tabular-nums; }
+.dmv-labels-list { list-style: none; margin: 0; padding: 4px 16px 10px; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 4px 14px; }
+.dmv-label-row { display: grid; grid-template-columns: 34px minmax(80px, 1fr) 1.3fr; align-items: center; gap: 6px; min-width: 0; }
+.dmv-label-kind { font-size: 9.5px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; color: var(--dmv-muted); }
+.dmv-label-id { font-size: 10.5px; color: var(--dmv-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dmv-label-input { min-width: 0; height: 25px; border: 1px solid var(--dmv-line); border-radius: 4px; padding: 0 6px; background: var(--dmv-surface-2); color: var(--dmv-ink); font: inherit; font-size: 11.5px; }
+.dmv-label-input:focus-visible { outline: 2px solid var(--dmv-accent); outline-offset: 1px; }
+.dmv-legend-mixed {
+  display: inline-flex;
+  align-items: center;
+  border: 1px dashed var(--dmv-line);
+  border-radius: 999px;
+  padding: 0 5px;
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--dmv-muted);
+  background: var(--dmv-surface-2);
+}
 .dmv-legend-item b { font-weight: 650; color: var(--dmv-ink); font-variant-numeric: tabular-nums; }
 .dmv-glyph { width: 11px; height: 11px; border-radius: 3px; border: 1.5px solid; display: inline-block; flex: none; }
 .dmv-glyph.ellipse { border-radius: 50%; }

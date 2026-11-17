@@ -9,15 +9,18 @@
  * overlay delta the React Flow view writes.
  *
  * Two Excalidraw details make that faithful:
- *   - edges are UNBOUND arrows carrying our points. A bound arrow is re-routed by
- *     Excalidraw when a shape moves, which would silently replace the core layout;
- *     an unbound arrow keeps its points.
+ *   - edges are BOUND arrows carrying the core's points. Binding ({elementId, focus, gap},
+ *     plus the node's boundElements entry) makes the editor move the bound endpoint with
+ *     the box while keeping the bends, so the arrow follows the cursor during a drag. The
+ *     editor's route is never stored: after the drop the panel asks the host to render the
+ *     view again and the core's route replaces it.
  *   - every element we create carries `customData.designmap`, so a canvas change maps
  *     back to a semantic id instead of to a positional guess.
  *
- * Locking is the edit policy: node bodies are unlocked only in edit mode, labels,
- * arrows and group bands stay locked, so the only edits the canvas can produce are the
- * ones the overlay contract allows (move a node, recolour it).
+ * Locking is the edit policy: node bodies and their labels are unlocked in edit mode, so
+ * a node drags from anywhere on its box; arrows and group bands stay locked. The only
+ * edits the canvas can produce are the ones the contracts allow: move a node, recolour it,
+ * and edit a label (which travels as a model op through `labelDelta`, never as an overlay).
  */
 
 /** Node type → Excalidraw shape. The type is still shown by colour and label. */
@@ -218,11 +221,26 @@ export function sceneToElements(scene, { overlays = {}, editMode = false, look =
     }
   }
 
+  // A bound arrow is re-routed by Excalidraw when its node moves, which is exactly the
+  // live feedback the map wants while the human drags: the arrow keeps its bends and its
+  // bound endpoint follows the box. The panel then asks the host for the exact route, so
+  // the editor's approximation never becomes the stored geometry.
+  const bindable = new Map()
+  for (const edge of scene.edges) {
+    for (const nodeId of [edge.from, edge.to]) {
+      const list = bindable.get(nodeId) ?? []
+      list.push(edge.id)
+      bindable.set(nodeId, list)
+    }
+  }
+
   for (const node of scene.nodes) {
     const row = overlays[node.id] ?? {}
     const look2 = NODE_LOOK[node.type] ?? NODE_LOOK.service
-    const x = typeof row.x === 'number' ? row.x : node.x
-    const y = typeof row.y === 'number' ? row.y : node.y
+    // The scene already carries the merged position (render merged the overlay), so the
+    // client must NOT re-apply the row: that was the second geometry owner.
+    const x = node.x
+    const y = node.y
     const fill = typeof row.fill === 'string' ? row.fill : look2.fill
     const stroke = typeof row.stroke === 'string' ? row.stroke : look2.stroke
     const lines = String(node.label).split('\n')
@@ -230,6 +248,7 @@ export function sceneToElements(scene, { overlays = {}, editMode = false, look =
     const shape = SHAPE[node.type] ?? 'rectangle'
     const nodeId = `${NODE_PREFIX}${node.id}`
     const textId = `${LABEL_PREFIX}${node.id}`
+    const arrows = (bindable.get(node.id) ?? []).map((edgeId) => ({ type: 'arrow', id: `${EDGE_PREFIX}${edgeId}` }))
     elements.push(
       element(shape, nodeId, {
         x,
@@ -242,7 +261,7 @@ export function sceneToElements(scene, { overlays = {}, editMode = false, look =
         strokeWidth: 1.6,
         roundness: shape === 'rectangle' ? { type: 3 } : null,
         locked: !editMode,
-        boundElements: [{ type: 'text', id: textId }],
+        boundElements: [{ type: 'text', id: textId }, ...arrows],
         customData: { designmap: { kind: 'node', nodeId: node.id } },
       }),
     )
@@ -261,6 +280,9 @@ export function sceneToElements(scene, { overlays = {}, editMode = false, look =
         containerId: nodeId,
         lineHeight: NODE_LINE_HEIGHT,
         strokeColor: NODE_INK,
+        // Locked: an editable label takes the pointer for the text and a drag started on it
+        // never reaches the node. The label is renamed in the panel's Labels inspector, which
+        // writes the model op; the canvas stays a geometry surface.
         locked: true,
         customData: { designmap: { kind: 'node-label', nodeId: node.id } },
       }),
@@ -286,9 +308,11 @@ export function sceneToElements(scene, { overlays = {}, editMode = false, look =
         strokeWidth: 1.4,
         startArrowhead: null,
         endArrowhead: 'arrow',
-        // Unbound on purpose: a bound arrow would be re-routed by the editor.
-        startBinding: null,
-        endBinding: null,
+        // Bound at both ends (Excalidraw 0.18 binding: {elementId, focus, gap} + the
+        // node's boundElements entry). `focus` 0 aims at the box centre, so the endpoint
+        // slides along the boundary as the node moves; the bends stay put.
+        startBinding: { elementId: `${NODE_PREFIX}${edge.from}`, focus: 0, gap: 1 },
+        endBinding: { elementId: `${NODE_PREFIX}${edge.to}`, focus: 0, gap: 1 },
         locked: true,
         customData: { designmap: { kind: 'edge', edgeId: edge.id } },
       }),
@@ -376,9 +400,14 @@ export function isDarkSurface(colour) {
  * the editor's theme neutral is what makes the panel look native in both themes.
  */
 export function sceneToAppState(look = DEFAULT_LOOK) {
+  // The editor's own chrome follows the panel surface. The previous comment claimed dark
+  // theme inverts the canvas; in Excalidraw 0.18 theme only picks UI tokens and the default
+  // canvas colour, and every element here carries an explicit colour — so a dark panel gets
+  // a dark editor instead of a light island with a white toolbar.
+  const dark = isDarkSurface(look.surface)
   return {
     viewBackgroundColor: look.surface,
-    theme: 'light',
+    theme: dark ? 'dark' : 'light',
     currentItemStrokeColor: '#4338ca',
     currentItemBackgroundColor: '#e0e7ff',
     currentItemFontFamily: 2,

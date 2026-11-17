@@ -79,18 +79,21 @@ test('the overlay op forwards only visual fields; the domain guard still refuses
     })))
     assert.equal(result.kind, 'success', result.text)
     const stored = JSON.parse(readFileSync(join(repo.designmapDir, 'overlays.json'), 'utf8'))
-    assert.deepEqual(stored['db.orders'], { x: 12, y: 34 })
+    // Auto-placement may move the dropped row; the stored row still holds only visual keys.
+    assert.deepEqual(Object.keys(stored['db.orders']).sort(), ['x', 'y'])
+    assert.equal(Number.isFinite(stored['db.orders'].x), true)
+    assert.equal(Number.isFinite(stored['db.orders'].y), true)
     assert.equal('type' in stored['db.orders'], false)
     assert.equal('op' in stored, false)
 
     // Defense in depth stays capable of failing at the domain boundary.
     const service = createHostService({ designmapDir: repo.designmapDir, repoRoot: repo.root })
-    assert.throws(
-      () => service.overlay({ action: 'upsert', nodeId: 'db.orders', type: 'service' }),
+    await assert.rejects(
+      service.overlay({ action: 'upsert', nodeId: 'db.orders', type: 'service' }),
       error => error.code === 'model_fields_forbidden' && /type/u.test(error.message),
     )
-    assert.throws(
-      () => service.overlay({ action: 'replace', nodeId: 'db.orders', row: { x: 1, y: 2, label: 'evil' } }),
+    await assert.rejects(
+      service.overlay({ action: 'replace', nodeId: 'db.orders', row: { x: 1, y: 2, label: 'evil' } }),
       error => error.code === 'model_fields_forbidden' && /label/u.test(error.message),
     )
   } finally {

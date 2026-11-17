@@ -1,0 +1,769 @@
+{
+  "schemaVersion": 1,
+  "id": "designmap-edit-loop",
+  "rev": 2,
+  "status": "completed",
+  "createdAt": "2026-11-17T09:47:03.064Z",
+  "updatedAt": "2026-11-17T10:13:58.522Z",
+  "updatedBy": "agent",
+  "title": "Карта дизайна: один пересчёт геометрии для человека и агента",
+  "requestedSolution": "Убрать двойного владельца геометрии в панели @cc/dsh-designmap: панель должна получать сцену, уже отрендеренную с временным слоем настроек (overlays.json), а не накладывать позиции в клиенте; после каждой правки слоя перерисовывать текущий вид на хосте и принимать свежую сцену; привязать стрелки к узлам, чтобы они следовали за курсором, а после отпускания получать точный маршрут из хоста; собирать легенду по фактическим цветам; применять тему панели после монтирования и заменить непонятные глифы иконками; автоматически ставить перетаскиваемый узел в свободное место с сообщением и Undo; дать человеку правку подписей узлов и рёбер через модель с проверкой apply.",
+  "businessOutcome": {
+    "problem": "Панель карты дизайна показывает две несогласованные картинки одной карты: сцена приходит из designmap/out без правок человека, а временный слой настроек (designmap/overlays.json) накладывается только в клиенте. Из-за этого узел уезжает, а его стрелки и плашки подписей остаются на старом месте, легенда показывает тип-цвета палитры вместо фактических, а в тёмной теме основная кнопка и холст теряют контраст. Агенту и человеку не на что опереться: агент правит модель, человек — слой настроек, но общего пересчёта и проверки раскладки между ними нет.",
+    "outcome": "Одна карта для обеих сторон: каждая правка человека проходит тот же render и ту же проверку раскладки, что и правка агента. Стрелки и подписи стоят по правилам раскладки, легенда соответствует нарисованному, контролы читаемы в обеих темах, пересечения не появляются молча, а подписи можно править из панели, не теряя модель.",
+    "successMetrics": [
+      "После перетаскивания узла первый и последний конец каждого инцидентного ребра лежат на границе узла, а плашка подписи не пересекает узлы",
+      "После перекрашивания узла легенда показывает фактический цвет типа или метку «разные», когда цвета внутри типа разошлись",
+      "В тёмной теме контраст основной кнопки не ниже 4.5:1, а холст оформлен осознанно; в светлой теме поведение не меняется",
+      "Перетаскивание поверх другого узла не оставляет пересечения: узел ставится в ближайшее свободное место, в панели видно сообщение, Undo возвращает прежнюю позицию",
+      "Правка подписи узла или ребра из панели доезжает до model.yaml, проходит проверку apply и видна агенту в designmap_read",
+      "Две перерисовки подряд на одних model+overlays дают байт-идентичную сцену"
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CURRENT",
+        "name": "Два владельца геометрии",
+        "actors": [
+          "человек",
+          "агент",
+          "панель"
+        ],
+        "steps": [
+          "Хост рендерит вид из model.yaml в designmap/out/*.scene.json",
+          "Панель читает этот файл и отдельно overlays.json",
+          "Клиент подставляет позиции узлов из overlays, но концы рёбер и подписи берёт из файла",
+          "Перетаскивание пишет строку в overlays.json и больше ничего не пересчитывает",
+          "Легенда строится из статической палитры типов",
+          "Проверка раскладки выполняется только при render на стороне агента"
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-TARGET",
+        "name": "Один render для обеих сторон",
+        "actors": [
+          "человек",
+          "агент",
+          "хост",
+          "панель"
+        ],
+        "steps": [
+          "Панель просит у хоста все виды, отрендеренные с текущим слоем настроек, одной командой (операция views; renderView с write:false)",
+          "Клиент рисует полученную сцену как есть, без собственного наложения позиций",
+          "Перетаскивание или перекраска пишут строку в overlays.json; хост при необходимости ставит узел в ближайшее свободное место и возвращает скорректированную строку с замечанием",
+          "Панель перерисовывает текущий вид и принимает свежую сцену: концы рёбер на границах, подписи переставлены, вид pan/zoom сохранён",
+          "Стрелки привязаны к узлам в редакторе, поэтому во время drag следуют за курсором, а после drop получают точный маршрут из хоста",
+          "Легенда собирается из сцены и слоя настроек; проверка раскладки показывается плашкой",
+          "Правка подписи идёт в модель через команду label, проверяется apply и перерисовывает вид"
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "BR-1",
+      "kind": "BR",
+      "text": "Карта дизайна остаётся одним живым документом: правки человека и агента проходят через одну геометрию и одну проверку раскладки, без двух несогласованных слоёв.",
+      "acceptance": [
+        "После drag/recolour панель получает сцену от хоста, а не собирает её из out/ и overlays.json в клиенте",
+        "Сцена, которую видит человек, совпадает со сценой, которую агент получает через designmap_render (тот же вид, те же концы рёбер и подписи)"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "BR-2",
+      "kind": "BR",
+      "text": "Карта читается без объяснений в обеих темах: контролы подписаны, легенда соответствует нарисованному, а не статической палитре.",
+      "acceptance": [
+        "В тёмной теме основная кнопка панели имеет контраст метки не ниже 4.5:1 по измерению в браузере",
+        "Легенда показывает фактический цвет и пересчитывает счётчики после перекрашивания"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "BR-3",
+      "kind": "BR",
+      "text": "Пересечения не появляются молча: перетаскивание поверх узла оставляет карту без пересечений и сообщает, что позиция скорректирована.",
+      "acceptance": [
+        "Перетаскивание узла на другой узел не оставляет двух пересекающихся прямоугольников в сцене",
+        "В панели появляется сообщение о корректировке, а Undo возвращает прежнюю строку слоя настроек"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-1",
+      "kind": "FR",
+      "text": "Панель получает сцены, уже отрендеренные с временным слоем настроек, одной операцией команды (views) и не накладывает позиции в клиенте.",
+      "acceptance": [
+        "Команда views возвращает виды с применёнными overlays и замечаниями проверки",
+        "В клиенте нет пути, который меняет позицию узла из overlays перед отрисовкой"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-2",
+      "kind": "FR",
+      "text": "После правки слоя настроек панель перерисовывает текущий вид на хосте и принимает свежую сцену, сохраняя pan/zoom.",
+      "acceptance": [
+        "После drag сцена приходит из хоста, и концы инцидентных рёбер лежат на границах узла",
+        "После перерисовки масштаб и смещение вида не сбрасываются"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-3",
+      "kind": "FR",
+      "text": "Стрелки привязаны к узлам в редакторе: во время перетаскивания следуют за узлом, после отпускания получают точный маршрут из хоста.",
+      "acceptance": [
+        "Во время drag конец стрелки остаётся на узле (проверка в браузере)",
+        "После drop маршрут совпадает с renderView для того же вида"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-4",
+      "kind": "FR",
+      "text": "Правка слоя настроек, ставящая узел на другой узел, автоматически переносит его в ближайшее свободное место, возвращает скорректированную строку и замечание.",
+      "acceptance": [
+        "Запрос overlay с пересекающейся позицией возвращает скорректированные x/y и замечание",
+        "Скорректированная строка не пересекается ни с одним другим узлом; остальные строки и модель байт-идентичны",
+        "Отрицательные координаты при поиске свободного места не появляются"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-5",
+      "kind": "FR",
+      "text": "Легенда строится по сцене и слою настроек: тип, фактический цвет, счётчики и метка «разные», когда цвета внутри типа разошлись.",
+      "acceptance": [
+        "Перекрашивание узла меняет плашку цвета его типа",
+        "При двух цветах внутри одного типа легенда показывает метку «разные» и перечень цветов",
+        "Счётчики типов и рёбер совпадают с числом элементов сцены"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-6",
+      "kind": "FR",
+      "text": "Тема панели применяется после монтирования и следует смене темы оболочки; основная кнопка контрастна, а непонятные глифы заменены иконками с подписями.",
+      "acceptance": [
+        "При загрузке в тёмной теме --dmv-accent-ink вычислен, холст и контролы оформлены по теме",
+        "Переключение темы оболочки при открытой панели обновляет цвета панели",
+        "Кнопки Undo, Fit и основная кнопка имеют доступное имя и видимую иконку или подпись"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-7",
+      "kind": "FR",
+      "text": "Человек правит подписи узлов и рёбер из панели; правка идёт в модель через команду label (apply) и проверяется.",
+      "acceptance": [
+        "Правка подписи узла видна в model.yaml и в сцене после перерисовки",
+        "Пустая подпись ребра отклоняется с названной ошибкой, файлы остаются байт-идентичными",
+        "Структурные правки (добавить/удалить узел или ребро) из панели недоступны"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "NFR-1",
+      "kind": "NFR",
+      "text": "Перерисовка одного вида после правки укладывается в 1500 мс на 25 узлах на этой машине.",
+      "acceptance": [
+        "Замер renderView на 25-узловом виде ≤ 1500 мс"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "NFR-2",
+      "kind": "NFR",
+      "text": "Одинаковые model+overlays дают байт-идентичную сцену; авто-постановка меняет только строку отредактированного узла.",
+      "acceptance": [
+        "Две перерисовки подряд дают одинаковый hash сцены",
+        "После авто-постановки в overlays.json изменилась только строка отредактированного узла"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "NFR-3",
+      "kind": "NFR",
+      "text": "На одну правку человека приходится не больше двух команд хоста (debounce 500 мс), без трафика на каждый кадр перетаскивания.",
+      "acceptance": [
+        "Один drag порождает одну запись overlay и одну перерисовку",
+        "Во время drag команды хосту не отправляются"
+      ],
+      "status": "proven"
+    }
+  ],
+  "architecture": {
+    "contractImpact": "additive",
+    "components": [
+      {
+        "id": "C-HOST",
+        "name": "designmap host plugin",
+        "responsibility": "Команда /designmap и инструменты агента: чтение модели и слоя настроек, render вида без записи out/, авто-постановка узла при правке слоя, правка подписи через apply, структурные логи",
+        "owner": "BACKEND",
+        "owns": [
+          "D-MODEL",
+          "D-LOGS"
+        ],
+        "dependsOn": [
+          "C-CORE"
+        ]
+      },
+      {
+        "id": "C-CORE",
+        "name": "designmap core (layout/merge/lint)",
+        "responsibility": "Единственный владелец геометрии: ELK-layout, merge слоя настроек, перепривязка концов рёбер, размещение плашек подписей, проверка раскладки, scene JSON",
+        "owner": "BACKEND",
+        "owns": [
+          "D-SCENE"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "C-RENDERER",
+        "name": "designmap client panel",
+        "responsibility": "Панель клиента: загрузка сцены через команду, перерисовка после правки, привязка стрелок в редакторе, легенда по фактическим цветам, тема и иконки, плашка проверки, правка подписей",
+        "owner": "UX/UI",
+        "owns": [
+          "D-OVERLAYS"
+        ],
+        "dependsOn": [
+          "C-CORE",
+          "C-HOST"
+        ]
+      },
+      {
+        "id": "C-PROOF",
+        "name": "Проверка и доказательство",
+        "responsibility": "Тесты хоста и клиента, браузерное доказательство в песочнице и на втором сервере, запись кейсов",
+        "owner": "REVIEWER",
+        "owns": [],
+        "dependsOn": [
+          "C-HOST",
+          "C-RENDERER",
+          "C-CORE"
+        ]
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "D-MODEL",
+      "name": "Семантическая модель",
+      "owner": "BACKEND",
+      "ownerComponentId": "C-HOST",
+      "description": "designmap/model.yaml и views.yaml: узлы, рёбра, группы, подписи; пишет агент через designmap_apply и человек через команду label (apply)"
+    },
+    {
+      "id": "D-OVERLAYS",
+      "name": "Временный слой настроек",
+      "owner": "UX/UI",
+      "ownerComponentId": "C-RENDERER",
+      "description": "designmap/overlays.json: только позиция и цвета по семантическому ID; пишет команда overlay, авто-постановка корректирует только строку отредактированного узла"
+    },
+    {
+      "id": "D-SCENE",
+      "name": "Сцена вида",
+      "owner": "BACKEND",
+      "ownerComponentId": "C-CORE",
+      "description": "designmap/out/: сгенерированная сцена; панель получает её через render с write:false, файлы не правятся руками"
+    },
+    {
+      "id": "D-LOGS",
+      "name": "Структурные логи",
+      "owner": "BACKEND",
+      "ownerComponentId": "C-HOST",
+      "description": "designmap/logs/*.jsonl: tool.enter/exit, overlay.write, render.done, lint.result"
+    }
+  ],
+  "contracts": [
+    {
+      "id": "CT-SCENE",
+      "name": "Scene JSON",
+      "between": [
+        "C-CORE",
+        "C-RENDERER"
+      ],
+      "change": "additive",
+      "description": "Формат не меняется; смысл уточняется: панель получает сцену, уже отрендеренную с временным слоем настроек, и не меняет позиции на клиенте"
+    },
+    {
+      "id": "CT-OVERLAY",
+      "name": "Временный слой настроек",
+      "between": [
+        "C-RENDERER",
+        "C-CORE"
+      ],
+      "change": "additive",
+      "description": "upsert может вернуть скорректированную позицию (авто-постановка) и замечание; остальные строки и модель не меняются"
+    },
+    {
+      "id": "CT-PANEL-RPC",
+      "name": "Команда панели",
+      "between": [
+        "C-HOST",
+        "C-RENDERER"
+      ],
+      "change": "additive",
+      "description": "Новые операции команды /designmap: views (все виды, отрендеренные с overlays, без записи out/) и label (правка подписи узла или ребра через apply)"
+    },
+    {
+      "id": "CT-MODEL",
+      "name": "Семантическая модель",
+      "between": [
+        "C-HOST",
+        "C-CORE"
+      ],
+      "change": "none",
+      "description": "Схема модели не меняется: подпись остаётся полем узла или ребра, правка идёт существующим apply"
+    }
+  ],
+  "invariants": [
+    {
+      "id": "INV-ONE-GEOMETRY",
+      "text": "Геометрию рисует только render: клиент не двигает узлы и концы рёбер и не вычисляет раскладку.",
+      "scope": "designmap/client, designmap host"
+    },
+    {
+      "id": "INV-AUTOPLACE",
+      "text": "Авто-постановка меняет только строку отредактированного узла; модель и остальные строки слоя настроек остаются байт-идентичными.",
+      "scope": "designmap/overlays.json"
+    },
+    {
+      "id": "INV-COLOUR",
+      "text": "Цвета живут только во временном слое настроек; байты сцены не зависят от цвета.",
+      "scope": "designmap/overlays.json, designmap/out"
+    },
+    {
+      "id": "INV-LABEL",
+      "text": "Правка подписи — операция над моделью через apply; при отказе файлы модели и видов байт-идентичны.",
+      "scope": "designmap/model.yaml"
+    },
+    {
+      "id": "INV-IDEMPOTENT",
+      "text": "Одинаковые model+overlays дают байт-идентичную сцену.",
+      "scope": "render"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "DEC-RENDER-OWNER",
+      "decision": "Панель читает сцену через команду хоста (views/render с write:false), которая рендерит вид с уже применённым слоем настроек; клиентский merge позиций удаляется.",
+      "rationale": "Геометрия дублировалась в двух местах; перепривязка концов рёбер и проверка раскладки живут в core, поэтому только render даёт согласованную картинку.",
+      "alternatives": [
+        "Оставить загрузку из out/ и добавить клиентский reattach",
+        "Пересчитывать геометрию в клиенте"
+      ]
+    },
+    {
+      "id": "DEC-BIND",
+      "decision": "Стрелки привязываются к узлам в редакторе (startBinding/endBinding), а после отпускания хост перерисовывает точный маршрут.",
+      "rationale": "Привязка даёт живое следование без трафика на каждый кадр; render после drop возвращает маршрут, который учитывает препятствия.",
+      "alternatives": [
+        "Только перерисовка после drop",
+        "Пересчёт на хосте на каждом кадре"
+      ]
+    },
+    {
+      "id": "DEC-AUTOPLACE",
+      "decision": "Авто-постановка в свободное место выполняется на хосте при upsert слоя настроек и возвращает скорректированную строку и замечание.",
+      "rationale": "Правило пересечений должно жить в одном месте и действовать одинаково для человека, агента и скрипта; клиентский snap разошёлся бы с render.",
+      "alternatives": [
+        "Клиентский snap после drag",
+        "Отказ в записи пересекающейся позиции"
+      ]
+    },
+    {
+      "id": "DEC-LEGEND",
+      "decision": "Легенда по типам показывает фактический цвет и метку «разные», когда цвета узлов одного типа разошлись.",
+      "rationale": "Форма и имя кодируют тип и не меняются, а цвет — выбор человека; легенда не должна утверждать то, чего нет на карте.",
+      "alternatives": [
+        "Отдельный цветовой ключ",
+        "Сделать цвет свойством типа"
+      ]
+    },
+    {
+      "id": "DEC-LABEL",
+      "decision": "Человек правит подписи узлов и рёбер из панели через команду label, которая идёт в apply; структура остаётся за агентом.",
+      "rationale": "Подпись — семантическое поле модели, поэтому правка должна пройти валидацию и записаться как операция над моделью, а не как геометрия.",
+      "alternatives": [
+        "Редактировать текст в Excalidraw и терять его",
+        "Разрешить человеку структурные операции"
+      ]
+    },
+    {
+      "id": "DEC-CHROME",
+      "decision": "Панель владеет собственными контролами: иконки с подписями и явные кнопки, а служебные контролы Excalidraw (меню, библиотека, справка) скрыты.",
+      "rationale": "Владелец видит непонятные значки; встроенный интерфейс редактора не описывает карту и не должен конкурировать с панелью.",
+      "alternatives": [
+        "Оставить интерфейс редактора как есть"
+      ]
+    }
+  ],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L2",
+    "reasons": [
+      "Меняется путь чтения сцены панелью (из out/ + клиентский merge → команда хоста) и добавляются операции команды views и label",
+      "Меняется правило записи слоя настроек (авто-постановка) и путь правки подписи (модель через apply)",
+      "Затронуты хост, core-пересчёт, клиентская панель и проверка; правки человека и агента должны сойтись на одной сцене"
+    ]
+  },
+  "designRef": {
+    "mapRev": 30,
+    "at": "2026-11-17T09:45:00.000Z",
+    "source": "design.excalidraw"
+  },
+  "goalId": "goal-2b103515-14c6-42a6-97c3-c45caeea6efa",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "BR-1",
+      "processId": "P-TARGET",
+      "componentId": "C-RENDERER",
+      "contractIds": [
+        "CT-SCENE"
+      ],
+      "dataIds": [
+        "D-SCENE"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkidjnb-0if0k7",
+          "role": "ORCHESTRATOR",
+          "at": "",
+          "evidence": [
+            "node --test test/*.test.mjs -> 125/125 pass",
+            "живой :3081 с пакетом 0.1.16: панель отдаёт «Edit map» и сцену, загруженную через op:'views'",
+            "reports/designmap-bugs/live-dark-edit-mode.png"
+          ]
+        },
+        {
+          "taskId": "task-mwkidjih-78jzrk",
+          "role": "ORCHESTRATOR",
+          "at": "",
+          "evidence": [
+            "test/host-edit-loop.test.mjs: views рендерит с overlays и ничего не пишет в out/"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "BR-2",
+      "processId": "P-TARGET",
+      "componentId": "C-RENDERER",
+      "contractIds": [
+        "CT-SCENE"
+      ],
+      "dataIds": [
+        "D-SCENE"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkidjnb-0if0k7",
+          "role": "ORCHESTRATOR",
+          "at": "",
+          "evidence": [
+            "тёмная тема: accent #f9fafb / ink #0b0f14, контраст 18.39:1 (getComputedStyle в живом :3081)",
+            "reports/designmap-bugs/live-dark-edit-mode.png",
+            "reports/designmap-bugs/legend-zoom2.png"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "BR-3",
+      "processId": "P-TARGET",
+      "componentId": "C-RENDERER",
+      "contractIds": [
+        "CT-OVERLAY"
+      ],
+      "dataIds": [
+        "D-OVERLAYS"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkidre7-a56xb1",
+          "role": "ORCHESTRATOR",
+          "at": "",
+          "evidence": [
+            "браузер: drop поверх узла -> «overlap_adjusted…», строка (485.99,96), пересечения нет; Undo -> «undo: Undid the last overlay change.», строка (196.5,160)",
+            "reports/designmap-bugs/auto-proof-after.png / auto-proof-undo2.png",
+            "test/host-edit-loop.test.mjs: авто-постановка, только строка узла"
+          ]
+        },
+        {
+          "taskId": "task-mwkidjih-78jzrk",
+          "role": "ORCHESTRATOR",
+          "at": "",
+          "evidence": [
+            "test/host-edit-loop.test.mjs: an overlay move onto another node is auto-placed (обе оси, один только x)"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-1",
+      "processId": "P-TARGET",
+      "componentId": "C-HOST",
+      "contractIds": [
+        "CT-PANEL-RPC"
+      ],
+      "dataIds": [
+        "D-SCENE"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkidjih-78jzrk",
+          "role": "ORCHESTRATOR",
+          "at": "",
+          "evidence": [
+            "test/host-edit-loop.test.mjs: views с overlays и без записи out/",
+            "src/host.mjs panelViews + command.mjs op:'views'"
+          ]
+        },
+        {
+          "taskId": "task-mwkidjnb-0if0k7",
+          "role": "ORCHESTRATOR",
+          "at": "",
+          "evidence": [
+            "client/host.js load через команду; test/client-host.test.mjs"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-2",
+      "processId": "P-TARGET",
+      "componentId": "C-RENDERER",
+      "contractIds": [
+        "CT-SCENE"
+      ],
+      "dataIds": [
+        "D-SCENE"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkidjnb-0if0k7",
+          "role": "ORCHESTRATOR",
+          "at": "",
+          "evidence": [
+            "reports/designmap-bugs/after-fix-drop2.png: после drop hash сцены сменился, статус overlay.written, вид сохранён",
+            "лог песочницы: overlay -> success, затем views -> success"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-3",
+      "processId": "P-TARGET",
+      "componentId": "C-RENDERER",
+      "contractIds": [
+        "CT-SCENE"
+      ],
+      "dataIds": [
+        "D-SCENE"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkidjnb-0if0k7",
+          "role": "ORCHESTRATOR",
+          "at": "",
+          "evidence": [
+            "reports/designmap-bugs/after-fix-mid-drag.png: во время drag стрелки идут за Task queue",
+            "reports/designmap-bugs/after-fix-after-drop.png"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-4",
+      "processId": "P-TARGET",
+      "componentId": "C-HOST",
+      "contractIds": [
+        "CT-OVERLAY"
+      ],
+      "dataIds": [
+        "D-OVERLAYS"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkidjih-78jzrk",
+          "role": "ORCHESTRATOR",
+          "at": "",
+          "evidence": [
+            "test/host-edit-loop.test.mjs: авто-постановка обеих осей и одноосевого drag; только строка узла; x,y ≥ 0",
+            "живой :3081 / песочница: overlap_adjusted"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-5",
+      "processId": "P-TARGET",
+      "componentId": "C-RENDERER",
+      "contractIds": [
+        "CT-SCENE"
+      ],
+      "dataIds": [
+        "D-OVERLAYS"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkidjnb-0if0k7",
+          "role": "ORCHESTRATOR",
+          "at": "",
+          "evidence": [
+            "reports/designmap-bugs/legend-zoom.png (datastore по факту синий) и legend-zoom2.png (после перекраски — зелёный); метка mixed у service"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-6",
+      "processId": "P-TARGET",
+      "componentId": "C-RENDERER",
+      "contractIds": [
+        "CT-SCENE"
+      ],
+      "dataIds": [
+        "D-SCENE"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkidjnb-0if0k7",
+          "role": "ORCHESTRATOR",
+          "at": "",
+          "evidence": [
+            "живой :3081, тёмная тема: accent #f9fafb, ink #0b0f14, кнопка #f9fafb/#0b0f14, контраст 18.39; холст #151517",
+            "переключение темы на открытой панели: light #0f1115/#ffffff, surface #fff, обратно dark восстановлено",
+            "4 SVG-иконки в действиях; reports/designmap-bugs/live-dark-edit-mode.png"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-7",
+      "processId": "P-TARGET",
+      "componentId": "C-HOST",
+      "contractIds": [
+        "CT-PANEL-RPC"
+      ],
+      "dataIds": [
+        "D-MODEL"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkidjnb-0if0k7",
+          "role": "ORCHESTRATOR",
+          "at": "",
+          "evidence": [
+            "test/host-edit-loop.test.mjs: label через apply, пустая подпись ребра — missing_edge_label, файлы байт-идентичны",
+            "песочница: Labels inspector переименовал узел (label: Task queue в model.yaml) и показал missing_edge_label; reports/designmap-bugs/labels-final.png",
+            "в живом :3081 панель показывает «Labels»; структурных кнопок нет"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "NFR-1",
+      "processId": "P-TARGET",
+      "componentId": "C-CORE",
+      "contractIds": [
+        "CT-SCENE"
+      ],
+      "dataIds": [
+        "D-SCENE"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkidjih-78jzrk",
+          "role": "ORCHESTRATOR",
+          "at": "",
+          "evidence": [
+            "node --test test/*.test.mjs: perf25 в бюджете 1500 мс (layout.done), 125/125 pass"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "NFR-2",
+      "processId": "P-TARGET",
+      "componentId": "C-CORE",
+      "contractIds": [
+        "CT-SCENE"
+      ],
+      "dataIds": [
+        "D-SCENE"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkidjih-78jzrk",
+          "role": "ORCHESTRATOR",
+          "at": "",
+          "evidence": [
+            "test/host-edit-loop.test.mjs: два views подряд дают одинаковый meta.sceneHash; после авто-постановки меняется только строка узла"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "NFR-3",
+      "processId": "P-TARGET",
+      "componentId": "C-RENDERER",
+      "contractIds": [
+        "CT-PANEL-RPC"
+      ],
+      "dataIds": [
+        "D-OVERLAYS"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkidjnb-0if0k7",
+          "role": "ORCHESTRATOR",
+          "at": "",
+          "evidence": [
+            "лог песочницы: один drag -> один overlay upsert + один views; во время drag команд нет"
+          ]
+        }
+      ]
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "f9a55964ed9091a9aadf1c38251ae827a270339862184ef75a77abbd1d389509",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-17T09:47:03.064Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-17T10:13:58.522Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "completed",
+      "summary": ""
+    }
+  ]
+}

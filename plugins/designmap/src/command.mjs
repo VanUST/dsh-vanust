@@ -12,7 +12,7 @@
  */
 import { DesignmapRefusal } from './schema.mjs'
 
-const OPS = ['status', 'scan', 'apply', 'render', 'lint', 'open', 'export', 'overlay', 'annotate']
+const OPS = ['status', 'scan', 'apply', 'render', 'lint', 'open', 'export', 'overlay', 'annotate', 'views', 'label']
 
 /**
  * The overlay op's domain payload.
@@ -55,8 +55,10 @@ export function createCommandHandler({ hostFor }) {
         case 'lint': value = await service.lint({ viewId: op.viewId }); break
         case 'open': value = service.open({ nodeId: op.nodeId }); break
         case 'export': value = await service.exportView({ viewId: op.viewId, format: op.format }); break
-        case 'overlay': value = service.overlay(overlayPayload(op)); break
+        case 'overlay': value = await service.overlay(overlayPayload(op)); break
         case 'annotate': value = service.annotate({ elements: op.elements }); break
+        case 'views': value = await service.views({ viewId: op.viewId }); break
+        case 'label': value = service.label({ kind: op.kind, id: op.id, label: op.label }); break
         default: return { kind: 'error', text: `designmap: unknown op (${OPS.join(' | ')})` }
       }
       return { kind: 'success', text: JSON.stringify(value) }
