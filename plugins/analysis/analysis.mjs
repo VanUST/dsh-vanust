@@ -140,13 +140,14 @@ export function apply(ctx, config = {}) {
 
   const upsertTool = defineTool({
     name: 'analysis_upsert',
-    description: 'Create or edit one Analysis Record with compare-and-set and an atomic write. The patch may carry title, requestedSolution, businessOutcome {problem,outcome,successMetrics}, process {current,target}, requirements [{id,kind:BR|FR|NFR,text,acceptance,status:planned|proven|deferred|rejected,reason}], architecture {contractImpact:none|additive|breaking,components[{id,name,responsibility,owner,owns,dependsOn}]}, data [{id,name,owner,ownerComponentId,description}], contracts [{id,name,between,change:none|additive|breaking,description}], invariants, decisions [{id,decision,rationale,alternatives}], openQuestions, sizing {class:L0|L1|L2,reasons}, designRef {mapRev,at,source}, goalId and trace. Trace rows are {requirementId,processId,componentId,contractIds,dataIds,status,tasks[{taskId,role,evidence}],reason}. Validation is strict, aggregate and lossless: unknown nested keys, wrong types, invalid enums, empty required decision/rationale and empty required ids are refused as invalid_record with findings[] containing the exact path; over-limit content is refused as limit_exceeded with path/max/actual and is NEVER truncated (content is measured in UTF-16 code units, so a surrogate pair is never split); all independent structural errors plus the independent readiness findings come back in one call, a cascade inside a structurally broken subtree is suppressed, ids are compared after trim, and nothing is written. contracts[].change:removed is refused; use breaking and describe the removal. data[].ownerComponentId is the canonical system owner; components[].owns is legacy input and a derived projection, with a unique legacy owns migrated and conflicts refused. An ambiguous legacy record reads with an ownership_ambiguous_compat warning, but the gate and task link fail closed until one owner is named. A fingerprint stored by 0.1.4 is recognised as legacy (not a hand edit) and the next write migrates it with a migrate history entry; a real hand edit is still refused until acceptHandEdit:true. designRef.at is filled on capture and must be a parseable ISO timestamp when supplied. An existing record needs expectedRev; a stale one is refused. status:"ready" is accepted only when analysis_check has no errors; status:"completed" only when every requirement is proven with task+evidence or explicitly deferred/rejected with a reason. Adding/removing a requirement, changing a requirement to/from deferred/rejected, changing a trace mapping, editing the process/business outcome/architecture/data/contracts/invariants/decisions/open questions/sizing or moving designRef all reopen a ready record and record a pending impact unless resolveImpacts clears it; a requirement with traced tasks cannot be removed (mark it rejected/deferred instead) and a task link cannot be erased from a ready record. goalId is a commitment: it cannot be detached from a ready/completed record.',
+    description: 'Create or edit one Analysis Record with compare-and-set. The patch may carry title, requestedSolution, businessOutcome, process, requirements [{id,kind,text,acceptance,status,reason}], architecture, data, decisions, contracts, trace and links. An unknown key is invalid_record and nothing is written. With the project-state core, requirements mirror into REQ (criteria + criteriaHash) and a proven requirement needs a TEST with a red→green pair (evidence_required).',
     parameters: {
       initiative: { type: 'string', required: true, description: 'Initiative id; also the file name in docs/analysis/.' },
       expectedRev: { type: 'integer', description: 'The revision you read. Required for an existing record; omit or 0 for a new one.' },
       patch: { type: 'object', additionalProperties: true, description: 'Fields to create or replace. Arrays replace; businessOutcome/process/architecture/sizing/designRef merge one level.' },
       resolveImpacts: { type: 'json', description: "Optional: 'all' or an array of pending impact ids to resolve after updating the record." },
       acceptHandEdit: { type: 'boolean', description: 'Acknowledge a semantic fingerprint mismatch caused by editing the file outside analysis_upsert. Without this every write to a hand-edited record is refused.' },
+      waiver: { type: 'object', additionalProperties: false, description: 'Explicit waiver of evidence_required: {reason, by: "human"}; written to the state journal.', properties: { reason: { type: 'string' }, by: { type: 'string' } } },
       allowDuplicate: { type: 'boolean', description: 'With project-state mounted, every requirement is mirrored into a REQ. A new requirement that looks like an existing REQ is refused with req_duplicate_candidates until this is true AND duplicateReview carries the reason for accepting the duplicate.' },
       duplicateReview: { type: 'string', description: 'The reason the duplicate candidates were reviewed and the new requirement is still distinct (required with allowDuplicate:true).' },
       by: { type: 'string', enum: ['agent', 'human'], description: 'Author recorded on the revision. Default agent.' },
@@ -168,7 +169,15 @@ export function apply(ctx, config = {}) {
         // FR11: a requirement marked proven needs a TEST with a passed red→green pair; the
         // record is not written when that evidence is missing (the REQ keeps its status).
         const evidence = await precheckEvidence(core, { cwd, initiative: args.initiative, requirements: patchRequirements })
-        if (evidence.ok === false) return evidence
+        if (evidence.ok === false) {
+          // FR8: an explicit waiver is the only way past the evidence gate, and it is recorded.
+          if (args.waiver === undefined) return evidence
+          if (args.waiver === null || typeof args.waiver !== 'object' || typeof args.waiver.reason !== 'string' || args.waiver.reason.trim() === '' || args.waiver.by !== 'human') {
+            return { ok: false, code: 'waiver_required', message: 'evidence_required is waived only with {reason, by: "human"}; both fields are required' }
+          }
+          const state = typeof core.open === 'function' ? core.open(cwd) : core
+          if (typeof state.journal === 'function') await state.journal({ code: 'evidence_required', reason: String(args.waiver.reason).slice(0, 1000), by: 'human', initiative: args.initiative, requirementId: evidence.requirementId })
+        }
         const result = service.upsert(cwd, {
           initiative: args.initiative,
           expectedRev: args.expectedRev,
@@ -191,7 +200,7 @@ export function apply(ctx, config = {}) {
 
   const checkTool = defineTool({
     name: 'analysis_check',
-    description: 'Run the completeness checker over one Analysis Record. The response separates readiness from completion: readiness covers missing business outcome/requested solution/process/acceptance, component and data role ownership, contract impact, unresolved trace, proven without task/evidence, deferred without reason, blocking questions, design drift and fingerprint; completion reports state:"complete"|"in_progress", counts and the planned requirements, and with forCompletion:true enforces the completion gate. A fresh ready record is readiness.ok:true and completion.state:"in_progress", not a second readiness error.',
+    description: 'Run the completeness checker over one Analysis Record: readiness (missing business outcome, solution, process, acceptance, ownership, contract impact, trace) apart from completion (requirements without tasks or evidence). Read-only; returns findings with paths.',
     parameters: {
       initiative: { type: 'string', required: true, description: 'Initiative id to check.' },
       forCompletion: { type: 'boolean', description: 'Also enforce the completion gate: every requirement proven with evidence or explicitly deferred/rejected.' },

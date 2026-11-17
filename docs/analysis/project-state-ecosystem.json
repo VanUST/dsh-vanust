@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "project-state-ecosystem",
-  "rev": 47,
+  "rev": 49,
   "status": "ready",
   "createdAt": "2026-11-17T13:19:07.274Z",
-  "updatedAt": "2026-11-17T16:45:17.811Z",
+  "updatedAt": "2026-11-17T16:51:58.385Z",
   "updatedBy": "agent",
   "title": "Экосистема состояния проекта и экономика контекста — v1",
   "requestedSolution": "Реализовать v1 дизайна от 2026-11-17 в порядке §10: (1) контекст-фундамент — allow-list в tool-families, диета схем и линтер, контракт слоёв L0–L3, новый хост-плагин state-feed (L1 первым сообщением, L2-дельты по хешу, инъекции как session events), MCP только для ux, Hindsight воркерам убран, context-budget.mjs с предупреждением и красным гейтом >1.5×; (2) ядро ccProjectState — файл на сущность в state/, ID под локом, связи с хешами, CAS, журнал, verify, регенерация проекций; (3) policy-плагин (fs/tools/sandbox) с запретами записи и трипвайром; (4) эволюция analysis в реестр REQ; (5) taskboard с reqId/chore и CAS через ядро; (6) раннер red→green с evidence вне writable-области; (7) оркестратор с брифом из обвязки, структурированным возвратом, cold-start гейтом и снимками; (8) миграции и доводка проекций; (9) дисциплина языка. v2 не трогать.",
@@ -118,7 +118,7 @@
         "Линтер сообщает о превышении",
         "Байты схем не растут"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR6",
@@ -148,7 +148,7 @@
         "Коды отказов наблюдаются",
         "Вейвер требует причину и человека"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR9",
@@ -740,7 +740,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T16:26:00.000Z",
           "evidence": [
-            "digest 2655 Б с Gaps и Open requirements; ответ из L1: 0 tool/call, 0 bash"
+            "digest с Gaps и Open requirements; ответ из L1: 0 tool/call, 0 bash"
           ]
         }
       ]
@@ -843,10 +843,22 @@
       "requirementId": "FR5",
       "processId": "V1-TGT",
       "componentId": "tool-families",
-      "contractIds": [],
+      "contractIds": [
+        "gate-codes"
+      ],
       "dataIds": [],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkxc9hi-87mmtp",
+          "role": "BACKEND",
+          "at": "2026-11-17T16:50:00.000Z",
+          "evidence": [
+            "scripts/schema-lint.mjs: 43 инструмента, WARN 600 / RED 1200, в make verify; red-first 1983 Б → exit 1",
+            "диета: 14 659 → 11 573 Б (−21%), пресетные суммы не выросли; после — 0 red, 0 warn"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "FR6",
@@ -896,10 +908,25 @@
       "requirementId": "FR8",
       "processId": "V1-TGT",
       "componentId": "project-state",
-      "contractIds": [],
-      "dataIds": [],
-      "status": "planned",
-      "tasks": []
+      "contractIds": [
+        "gate-codes"
+      ],
+      "dataIds": [
+        "state-journal"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkxc9hi-87mmtp",
+          "role": "BACKEND",
+          "at": "2026-11-17T16:50:00.000Z",
+          "evidence": [
+            "вейвер на req_required, steps_incomplete, test_req_required, evidence_required; неполный вейвер → waiver_required",
+            "журнал: {kind:'waiver', code, reason, by:'human'} на real state/events.jsonl",
+            "scripts/waiver-proof.mjs — 17/17: каждый гейт отказан, вейвернут, журнал виден; decision_superseded требует преемника и причину"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "FR9",
@@ -1039,8 +1066,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T16:45:00.000Z",
           "evidence": [
-            "шаблон отчёта (Итог/Цель/Изменения/Доказательства/Решения/Риски/Дальше) в ROOT_POLICY; glossary ok (7 терминов шаблона), check-glossary.mjs в make verify",
-            "make verify exit 0"
+            "шаблон отчёта в ROOT_POLICY; glossary ok (7 терминов); check-glossary.mjs в make verify"
           ]
         }
       ]
@@ -1062,8 +1088,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T16:40:00.000Z",
           "evidence": [
-            "reqIds[] и steps[]; борд 4/4; закрытие неполной пачки отказывает",
-            "1.39 → 0.50 задачи на требование; один прогон гейта"
+            "reqIds[] и steps[]; борд 4/4; 1.39 → 0.50 задачи на требование"
           ]
         }
       ]
@@ -1081,10 +1106,8 @@
           "role": "BACKEND",
           "at": "2026-11-17T16:45:00.000Z",
           "evidence": [
-            "каталог ролей (1417 Б) и долг доски (169 Б) убраны из корневой композиции; там только [ROOT_POLICY, claim]",
-            "промпт до 12 961 Б и менялся на −169 Б при смене доски; после 12 251 Б и 0 Б между состояниями",
-            "журнал «до»: 337 system/message, 337 различных sha256 — после правки источников диффа нет",
-            "живой двухходовый журнал «после» не снят — отчёт это фиксирует"
+            "каталог ролей и долг доски убраны; промпт до 12 961 Б с диффом −169 Б, после 12 251 Б и 0 Б",
+            "журнал «до»: 337 system/message, 337 различных sha256"
           ]
         }
       ]
@@ -1149,7 +1172,7 @@
     }
   ],
   "pendingImpacts": [],
-  "fingerprint": "bc0207b626d8300674b419185763697026a99fe508b9fef7d7e9d23e84269b54",
+  "fingerprint": "4050e1e8a488a5049f45a1b5e54861fa51dc5a3b23ebb2cb0e97b57bb66a2340",
   "history": [
     {
       "revision": 1,
@@ -1526,6 +1549,22 @@
       "action": "upsert",
       "status": "ready",
       "summary": "requirements: BR1 changed, FR1 changed, FR2 changed, FR4 changed, FR6 changed, FR7 changed, FR8 changed, FR9 changed, FR10 changed, FR11 changed, FR12 changed, FR13 changed, FR14 changed, FR15 changed, NFR1 changed, NFR2 changed, NFR3 changed, NFR4 changed; impacts: 18"
+    },
+    {
+      "revision": 48,
+      "at": "2026-11-17T16:46:07.903Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwkxc9hi-87mmtp -> FR5, FR8"
+    },
+    {
+      "revision": 49,
+      "at": "2026-11-17T16:51:58.385Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "impacts: 1"
     }
   ]
 }

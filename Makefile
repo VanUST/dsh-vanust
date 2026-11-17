@@ -111,6 +111,7 @@ verify:
 	node scripts/check-portability.mjs
 	node scripts/check-documentation.mjs
 	node scripts/check-glossary.mjs
+	node scripts/schema-lint.mjs
 	node scripts/context-budget.mjs
 
 # The case library's own entry point. `make verify` is the packaging/doc gate; this target RUNS

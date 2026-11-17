@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-test-cases",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "description": "A repo-tracked library of observed test cases (docs/cases/): twelve schema-enforced tools that record a requirement, EXECUTE the stored check (case_run: exit code, duration, typed metric/count/hash checks from the driver CASE_SUMMARY, artifacts, repeated runs with median/p95/flaky and a baseline ratchet), record a measured negative-control red, run a suite, gate task close, and keep compare-and-set history and surface-file drift.",
   "type": "module",
   "main": "test-cases.mjs",

@@ -686,7 +686,7 @@ export function apply(ctx, config = {}) {
 
   const definition = defineTool({
     name: 'delegate_task',
-    description: 'Create one task in the workspace taskboard (or attach an existing one with taskId), render a self-contained brief, start a child on the role preset (its persona and tool set) and link the child session to the task. The role picks the tool composition: UX/UI, BACKEND, RESEARCH, CONTEXT, REVIEWER, CRITIC, DOCS. A role outside those seven needs an explicit preset. Reuse a role from the catalog in your policy: a near-duplicate new role is refused unless forceRole is passed. One piece of work is one task - pass taskId when the task already exists. Use it for independent research, implementation or review work; not for a one-shot answer or for final integration.',
+    description: 'Create one task (or attach taskId), render a self-contained brief, start a child on the role preset and link its session. Roles: UX/UI, BACKEND, RESEARCH, CONTEXT, REVIEWER, CRITIC, DOCS; another role needs an explicit preset. A near-duplicate new role is refused unless forceRole. Pass provider/model only when the default route cannot do the work.',
     parameters: {
       title: { type: 'string', required: true, description: 'Short task title.' },
       role: { type: 'string', required: true, description: 'Specialist role, e.g. UX/UI, BACKEND, RESEARCH, CONTEXT, REVIEWER, CRITIC, DOCS. The roles this workspace already has are listed in your policy section - reuse one of those exact names; all fitting tasks belong to it.' },

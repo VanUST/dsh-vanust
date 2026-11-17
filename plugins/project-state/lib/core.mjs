@@ -269,6 +269,16 @@ export function createStateService(options = {}) {
       }
     },
 
+    /**
+     * Append one journal record (the FR8 waiver trail): the code that was waived, the reason
+     * and the human. Public so a gate that accepted an explicit waiver leaves the decision in
+     * the state journal.
+     */
+    async journal(event) {
+      if (event === null || typeof event !== 'object') return fail('journal_invalid', 'event must be an object')
+      return appendJournal({ kind: 'waiver', ...event })
+    },
+
     /** Create one entity and append its event to the journal. */
     async create(kind, input = {}) {
       const clean = normaliseKind(kind)
@@ -318,6 +328,21 @@ export function createStateService(options = {}) {
 
     /** Compare-and-set update: a stale `expectedRevision` refuses and writes nothing. */
     async update(id, patch = {}) {
+      // LIFE-8 (owner: FR8): a decision is replaced only by a named successor and a stated
+      // reason; a decision cannot be dropped without one.
+      if (patch && patch.status === 'superseded') {
+        const current = await service.get(id)
+        if (current?.ok !== false && current.kind === 'decision') {
+          const successor = typeof patch.supersededBy === 'string' ? patch.supersededBy.trim() : ''
+          const reason = typeof patch.reason === 'string' ? patch.reason.trim() : ''
+          if (successor === '' || reason === '') {
+            return fail('decision_superseded', 'superseding a decision needs supersededBy (the successor id) and reason')
+          }
+          if (successor === id) return fail('decision_superseded', 'a decision cannot supersede itself')
+          const target = await service.get(successor)
+          if (target?.ok === false) return fail('decision_superseded', `successor ${successor} does not exist`)
+        }
+      }
       const match = ID_PATTERN.exec(String(id))
       if (match === null) return fail('id_invalid', `id "${id}" is not a typed id`)
       const kind = KIND_BY_PREFIX[match[1]]
@@ -334,7 +359,7 @@ export function createStateService(options = {}) {
             return fail('revision_conflict', `expected revision ${expected}, file has ${current.revision}`)
           }
           const next = { ...current, revision: expected + 1, updatedAt: now() }
-          for (const field of ['title', 'status', 'ownerRole', 'reqId', 'command', 'choreReason', 'criteriaHash', 'boardId', 'testPath', 'frozenHash', 'caseId', 'stepsDone']) {
+          for (const field of ['title', 'status', 'ownerRole', 'reqId', 'command', 'choreReason', 'criteriaHash', 'boardId', 'testPath', 'frozenHash', 'caseId', 'stepsDone', 'supersededBy', 'reason']) {
             if (patch[field] !== undefined) next[field] = patch[field]
           }
           if (patch.analysisRef !== undefined && patch.analysisRef !== null && typeof patch.analysisRef === 'object') {

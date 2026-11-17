@@ -268,6 +268,24 @@ function acceptanceRefusal(result) {
 }
 
 /**
+ * FR8: an explicit waiver turns a lifecycle refusal into an accepted, RECORDED decision.
+ * A waiver is `{reason, by: 'human'}`: both fields are required, and only the human may waive.
+ * A missing waiver leaves the gate's own code; a malformed one is `waiver_required`.
+ */
+export function validWaiver(waiver) {
+  return waiver !== null && typeof waiver === 'object'
+    && typeof waiver.reason === 'string' && waiver.reason.trim() !== ''
+    && waiver.by === 'human'
+}
+
+/** The refusal caused by a MALFORMED waiver, or null (absent keeps the gate's own code). */
+export function waiverRefusal(code, waiver) {
+  if (waiver === undefined) return null
+  if (validWaiver(waiver)) return null
+  return { ok: false, code: 'waiver_required', message: `${code} is waived only with {reason, by:'human'}; both fields are required` }
+}
+
+/**
  * Fill the result fields supplied at acceptance, without rewriting anything already recorded.
  *
  * WHY FILL-ONLY. A batch cleanup accepts rows whose children already settled; their result is
@@ -354,6 +372,13 @@ function transitionRefusal(task, patch) {
     if (!inline && (role === '' || !owned)) return 'needs_role_or_inline'
   }
   if (to === 'review') {
+    // FR15/FR8: the batch gate. A task whose steps are not all done cannot claim review
+    // unless an explicit waiver says why.
+    const done = Number.isSafeInteger(patch.stepsDone) ? patch.stepsDone : (Number.isSafeInteger(task.stepsDone) ? task.stepsDone : 0)
+    if (Array.isArray(task.steps) && task.steps.length > 0 && done < task.steps.length) {
+      if (patch.waiver === undefined) return 'steps_incomplete'
+      return validWaiver(patch.waiver) ? null : 'waiver_required'
+    }
     const result = patch.result !== undefined ? resultOf(patch.result, task.result) : task.result
     const refusal = acceptanceRefusal(result)
     if (refusal !== null) return refusal
@@ -1005,7 +1030,10 @@ function createService(config, logger, hooks = {}) {
       const chore = input?.chore === true
       const choreReason = typeof input?.choreReason === 'string' ? input.choreReason.trim() : ''
       if (typeof hooks.mirrorActive === 'function' && hooks.mirrorActive() && reqIds.length === 0 && !(chore && choreReason !== '')) {
-        return { ok: false, code: 'req_required', message: 'a task needs reqIds (the REQs it covers) or reqId (one REQ), or chore:true with a non-empty choreReason' }
+        if (input?.waiver === undefined) return { ok: false, code: 'req_required', message: 'a task needs reqIds (the REQs it covers) or reqId (one REQ), or chore:true with a non-empty choreReason; or an explicit waiver {reason, by: "human"}' }
+        const waived = waiverRefusal('req_required', input.waiver)
+        if (waived !== null) return waived
+        if (validWaiver(input?.waiver) && typeof hooks.waive === 'function') hooks.waive(cwd, 'req_required', input.waiver, { title })
       }
       // A TASK IS BORN OPEN. `done` means accepted and `cancelled` means abandoned: neither can
       // be a starting point, and `paused`/`active`/`review` each claim something that has not
@@ -1058,6 +1086,7 @@ function createService(config, logger, hooks = {}) {
           ...(steps.length > 0 && Number.isSafeInteger(input?.stepsDone) ? { stepsDone: Math.max(0, Math.min(steps.length, input.stepsDone)) } : {}),
           ...(chore ? { chore: true } : {}),
           ...(choreReason === '' ? {} : { choreReason: choreReason.slice(0, 1000) }),
+          ...(validWaiver(input?.waiver) ? { waiver: { reason: String(input.waiver.reason).slice(0, 1000), by: 'human' } } : {}),
           ...(chatId === '' ? {} : { chatId }),
           ...(typeof input?.parentSessionId === 'string' && input.parentSessionId !== '' ? { parentSessionId: input.parentSessionId } : {}),
           ...(typeof input?.parentId === 'string' && input.parentId !== '' ? { parentId: input.parentId } : {}),
@@ -1093,6 +1122,7 @@ function createService(config, logger, hooks = {}) {
         const patch = input?.patch !== null && typeof input?.patch === 'object' ? input.patch : input
         const refusal = transitionRefusal(task, patch)
         if (refusal !== null) return { value: { ok: false, code: refusal, task } }
+        if (validWaiver(patch.waiver) && typeof hooks.waive === 'function') hooks.waive(cwd, 'steps_incomplete', patch.waiver, { id })
         if (typeof patch.title === 'string' && patch.title.trim() === '') return { value: { ok: false, code: 'empty_title', task } }
         // The status a legacy row MEANS. A patch that names it is not a transition, so the
         // row's bytes are left alone rather than normalized by an unrelated save.
@@ -1710,6 +1740,16 @@ export function apply(ctx, config = {}) {
   }
   const service = createService(config, ctx.logger, {
     rootOf,
+    /**
+     * FR8: the waiver trail. A gate that accepted an explicit waiver writes the code, the
+     * reason and the human into the state journal; without a core the waive is a no-op.
+     */
+    waive(cwd, code, waiver, meta = {}) {
+      const core = coreOf()
+      if (core === undefined || core === null || typeof core.journal !== 'function') return
+      const state = typeof core.open === 'function' ? core.open(cwd) : core
+      Promise.resolve(state.journal({ code, reason: String(waiver?.reason ?? ''), by: 'human', ...meta })).catch(() => {})
+    },
     mirror: scheduleMirror,
     mirrorActive: () => coreOf() !== undefined,
     interrupt(childId, parentSessionId) {
@@ -1817,6 +1857,7 @@ export function apply(ctx, config = {}) {
       priority: { type: 'string', enum: PRIORITIES, description: 'low | normal | high.' },
       reqId: { type: 'string', description: 'The REQ this task implements (REQ-001). Required with the project-state core, unless reqIds or chore+choreReason is given.' },
       reqIds: { type: 'array', items: { type: 'string' }, description: 'Several REQs this one task covers (a batch). The requirement gate accepts a non-empty reqIds.' },
+      waiver: { type: 'object', additionalProperties: false, description: 'Explicit waiver of a lifecycle gate: {reason, by: "human"}. Both fields are required; the waiver is written to the state journal.', properties: { reason: { type: 'string' }, by: { type: 'string' } } },
       steps: { type: 'array', items: { type: 'string' }, description: 'The steps of the batch, in order; the board shows how many are done.' },
       stepsDone: { type: 'integer', description: 'How many of steps are done (0..steps.length).' },
       chore: { type: 'boolean', description: 'true when the work is justified housekeeping rather than a requirement; needs a non-empty choreReason.' },
@@ -1880,6 +1921,7 @@ export function apply(ctx, config = {}) {
       resultRisks: { type: 'array', items: { type: 'string' }, description: 'Known risks or unknowns.' },
       priority: { type: 'string', enum: PRIORITIES, description: 'low | normal | high.' },
       reqIds: { type: 'array', items: { type: 'string' }, description: 'Several REQs this task covers; a batch edits the list in place instead of creating another task.' },
+      waiver: { type: 'object', additionalProperties: false, description: 'Explicit waiver: {reason, by: "human"} for a lifecycle refusal (steps_incomplete, req_required).', properties: { reason: { type: 'string' }, by: { type: 'string' } } },
       steps: { type: 'array', items: { type: 'string' }, description: 'The steps of the batch, in order.' },
       stepsDone: { type: 'integer', description: 'How many steps are done (0..steps.length); the board shows the progress.' },
       chore: { type: 'boolean' }, choreReason: { type: 'string' },
@@ -1890,7 +1932,7 @@ export function apply(ctx, config = {}) {
       const widened = workspaceScope(args, exec)
       if (widened.refused !== undefined) return Promise.resolve(widened.refused)
       const patch = {}
-      for (const key of ['status', 'title', 'objective', 'scope', 'nonScope', 'acceptance', 'priority', 'reason', 'reqId', 'reqIds', 'steps', 'stepsDone', 'chore', 'choreReason']) {
+      for (const key of ['status', 'title', 'objective', 'scope', 'nonScope', 'acceptance', 'priority', 'reason', 'reqId', 'reqIds', 'steps', 'stepsDone', 'chore', 'choreReason', 'waiver']) {
         if (args[key] !== undefined) patch[key] = args[key]
       }
       if (args.resultSummary !== undefined || args.resultEvidence !== undefined || args.resultArtifacts !== undefined || args.resultDecisions !== undefined || args.resultRisks !== undefined) {

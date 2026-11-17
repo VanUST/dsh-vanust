@@ -28,6 +28,8 @@ export function hasRequirement(task) {
   if (reqId !== '') return true
   // FR15: a batch task names its requirements in reqIds; one of them is enough.
   if (Array.isArray(task?.reqIds) && task.reqIds.some((id) => String(id).trim() !== '')) return true
+  // FR8: a requirement-less task may exist only with an explicit, recorded waiver.
+  if (task?.waiver !== undefined && task.waiver !== null && typeof task.waiver === 'object' && task.waiver.by === 'human' && typeof task.waiver.reason === 'string' && task.waiver.reason.trim() !== '') return true
   const reason = typeof task?.choreReason === 'string' ? task.choreReason.trim() : ''
   return task?.chore === true && reason !== ''
 }

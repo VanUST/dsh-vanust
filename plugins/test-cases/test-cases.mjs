@@ -361,6 +361,11 @@ export function gateForTask(cwd, taskId, config = {}) {
  * CLI) the runner falls back to its own `sh -c` executor. Either way the command comes from the
  * case, not from the caller.
  */
+/** FR8: a waiver is complete only with a reason and the human. */
+export function validWaiver(waiver) {
+  return waiver !== null && typeof waiver === 'object' && typeof waiver.reason === 'string' && waiver.reason.trim() !== '' && waiver.by === 'human'
+}
+
 export function createTools(config = {}, env = {}) {
   /** Mirror one written case into the project state, when the core is mounted. */
   const mirror = async (agent, record) => {
@@ -394,6 +399,7 @@ export function createTools(config = {}, env = {}) {
       linkedTaskId: { type: 'string', description: 'Optional taskboard task that implements this requirement.' },
       reqId: { type: 'string', description: 'The REQ this test protects (REQ-001). Required: a test without a requirement proves nothing the register can close.' },
       authorRole: { type: 'string', description: 'The role that authored the test (orchestrator for acceptance tests, backend for implementation tests). Required: the author of an acceptance test must not be its implementer.' },
+      waiver: { type: 'object', additionalProperties: false, description: 'Explicit waiver of test_req_required: {reason, by: "human"}; written to the state journal.', properties: { reason: { type: 'string' }, by: { type: 'string' } } },
       checks: {
         type: 'array',
         description: 'Typed checks case_run evaluates from the driver\'s CASE_SUMMARY: {name?, metric, op?, threshold?|expected?|baseline?, band?, unit?}. A check with none of threshold/expected/baseline is refused.',
@@ -419,7 +425,9 @@ export function createTools(config = {}, env = {}) {
       const reqId = typeof args.reqId === 'string' ? args.reqId.trim() : ''
       const authorRole = typeof args.authorRole === 'string' ? args.authorRole.trim() : ''
       if (reqId === '' || authorRole === '') {
-        throw new Refusal('TEST_REQ_REQUIRED', 'a case needs reqId (the REQ it protects) and authorRole (who wrote it); pass both')
+        if (args.waiver === undefined) throw new Refusal('TEST_REQ_REQUIRED', 'a case needs reqId (the REQ it protects) and authorRole (who wrote it); pass both, or an explicit waiver {reason, by: "human"}')
+        if (!validWaiver(args.waiver)) throw new Refusal('WAIVER_REQUIRED', 'a waiver needs {reason, by: "human"}; both fields are required')
+        if (typeof env.waive === 'function') await env.waive(exec.agent, 'test_req_required', args.waiver, { caseId: slugify(args.title) })
       }
       if (automated) {
         requireStrings(args, ['testPath', 'runCommand'])
@@ -988,7 +996,17 @@ export function apply(ctx, config = {}) {
     mirrorQueue.set(cwd, previous.then(run, run))
     return mirrorQueue.get(cwd)
   }
-  const tools = createTools(config, { shell, mirror: (agent, record) => scheduleMirror(agent, record) })
+  const waive = async (agent, code, waiver, meta = {}) => {
+    const core = coreOf()
+    if (core === undefined || core === null || typeof core.journal !== 'function') return
+    try {
+      const state = typeof core.open === 'function' ? core.open(workingDir(agent)) : core
+      await state.journal({ code, reason: String(waiver?.reason ?? ''), by: 'human', ...meta })
+    } catch {
+      // The waiver is recorded on a best-effort basis; the operation already passed its gate.
+    }
+  }
+  const tools = createTools(config, { shell, waive, mirror: (agent, record) => scheduleMirror(agent, record) })
   // THE TASKBOARD'S READ. A workspace without this row keeps its legacy close behaviour: the
   // taskboard looks the service up with ctx.get('cases') and skips the gate when it is absent.
   const providedCases = ctx.provide('cases', {

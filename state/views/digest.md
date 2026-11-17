@@ -2,12 +2,12 @@
 
 GENERATED — DO NOT EDIT.
 
-REQ 103 · TASK 226 · TEST 51 · event 380
+REQ 103 · TASK 229 · TEST 51 · event 383
 
 ## Gaps
 
 - REQ without TASK: 103 (REQ-001, REQ-002, REQ-003, REQ-004, REQ-005, REQ-006, REQ-007, REQ-008, REQ-009, REQ-010, …)
-- TASK without reqId: 226
+- TASK without reqId: 229
 - TEST without reqId: 51
 
 ## Open requirements (7)
@@ -20,7 +20,7 @@ REQ 103 · TASK 226 · TEST 51 · event 380
 - REQ-086 proposed: Промпт неизменен внутри хода; между ходами только реестровые разделы.
 - REQ-103 proposed: Задача — единица приёмки, а не микро-шаг: работа батчится, проверка гоняется пачкой.
 
-## Open work (77)
+## Open work (78)
 
 - TASK-050 open: Fix audit P0/P1: notify display, proof-guard edits, skill-evolve registry, cleanup
 - TASK-052 open: Sandboxed shell for read-only roles, artifact_write, and MCP placed by role
@@ -32,6 +32,7 @@ REQ 103 · TASK 226 · TEST 51 · event 380
 - TASK-061 open: Case library: exploratory testing persisted as reproducible cases
 - TASK-072 open: Auto-converge the kit on every dsh boot
 - TASK-226 open: V4.1: батчинг работы — задача как пачка шагов, проверка на границе (FR15)
+- TASK-229 open: V6.2: pack-plugin не должен удалять тарболы соседних плагинов по общему префиксу
 - TASK-094 active: Test cases panel proof, round 2
 - TASK-113 active: Create and extend orchestrator write fixture
 - TASK-184 active: Документ для ревью: харнесс, пресеты, плагины и системные промпты
@@ -45,6 +46,5 @@ REQ 103 · TASK 226 · TEST 51 · event 380
 - TASK-015 review: Activate skill-evolve, babysitter and rtk
 - TASK-021 review: babysitter: release-gate
 - TASK-022 review: babysitter: probe-nonlinear
-- TASK-024 review: Reclaim ~102 GB of Docker disk on the PC
-- … and 53 more
+- … and 54 more
 

@@ -256,12 +256,14 @@ if (!existsSync(packedPath)) {
 // Remove every OTHER tarball for this package. The profile installs `plugins/*.tgz`,
 // so two versions present at once means the install depends on glob order — a
 // difference nobody would think to look for. The prefix is taken from the packed
-// filename so it always matches the name npm actually produced.
+// filename so it always matches the name npm actually produced. A bare prefix match
+// is not enough: `cc-dsh-project-state` is a prefix of `cc-dsh-project-state-panel`,
+// so packing the core deleted the panel's tarball. Require a version digit after it.
 const packedPrefix = packedName.slice(0, -`-${target}.tgz`.length)
+const ownTarball = new RegExp(`^${packedPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-\\d[^/]*\\.tgz$`)
 const removed = []
 for (const entry of readdirSync(join(KIT, 'plugins'))) {
-  if (!entry.startsWith(`${packedPrefix}-`) || !entry.endsWith('.tgz')) continue
-  if (entry === packedName) continue
+  if (entry === packedName || !ownTarball.test(entry)) continue
   unlinkSync(join(KIT, 'plugins', entry))
   removed.push(entry)
 }
