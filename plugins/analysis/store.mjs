@@ -9,7 +9,9 @@
  * INPUTS
  *   Config (all optional):
  *     dir            store directory relative to the session workspace. Default 'docs/analysis'.
- *     designMapFile  design-map scene relative to the workspace. Default 'design.excalidraw'.
+ *     designMapFile  design-map file whose `rev` the record references, relative to the
+ *                    workspace. Default 'designmap/manifest.json' (written by @cc/dsh-designmap);
+ *                    a legacy 'design.excalidraw' scene is still read, for a rollback configuration.
  *     historyLimit   retained history entries. Default 50.
  *   The service is created by `analysis.mjs` and provided as `analysis`.
  *
@@ -415,7 +417,7 @@ function normalizeDesignRef(value) {
   return {
     mapRev,
     at,
-    source: asString(raw.source) || 'design.excalidraw',
+    source: asString(raw.source) || 'designmap/manifest.json',
   }
 }
 
@@ -1223,7 +1225,7 @@ function affectedOf(record, input) {
  */
 export function createService(config = {}, logger = undefined) {
   const dirName = asString(config.dir) || 'docs/analysis'
-  const designMapFile = asString(config.designMapFile) || 'design.excalidraw'
+  const designMapFile = asString(config.designMapFile) || 'designmap/manifest.json'
   const historyLimit = Number.isSafeInteger(config.historyLimit) && config.historyLimit > 0 ? config.historyLimit : 50
   const storeDir = (cwd) => (isAbsolute(dirName) ? dirName : resolve(cwd, dirName))
   const recordPath = (cwd, initiative) => join(storeDir(cwd), `${initiative}.json`)
@@ -1233,11 +1235,15 @@ export function createService(config = {}, logger = undefined) {
     const path = isAbsolute(designMapFile) ? designMapFile : resolve(cwd, designMapFile)
     if (!existsSync(path)) return { exists: false, rev: 0, path }
     try {
-      const scene = JSON.parse(readFileSync(path, 'utf8'))
-      const rev = scene?.designMap?.rev
+      const document = JSON.parse(readFileSync(path, 'utf8'))
+      // `designmap/manifest.json` keeps the revision at the top level. The retired
+      // `design.excalidraw` scene keeps it under `designMap`; reading both shapes keeps an
+      // explicitly configured old path working, while the default and the profile name the
+      // manifest, which is the only file designmap still advances.
+      const rev = Number.isSafeInteger(document?.rev) ? document.rev : document?.designMap?.rev
       return { exists: true, rev: Number.isSafeInteger(rev) && rev >= 0 ? rev : 0, path }
     } catch {
-      // A broken scene is the design map's own problem; the analysis does not pretend it moved.
+      // A broken map file is the design map's own problem; the analysis does not pretend it moved.
       return { exists: true, rev: 0, path, error: 'malformed design map' }
     }
   }

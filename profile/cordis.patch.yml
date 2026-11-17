@@ -118,13 +118,15 @@
 # without a document, L1/L2 are refused analysis_required without a ready record
 # and analysis_stale after an affected requirement or design-map change. The
 # trace lives ONLY here; the taskboard keeps its schema and designMapRev is a
-# reference into design.excalidraw.
+# reference into `designmap/manifest.json`, the file @cc/dsh-designmap advances on a
+# semantic model change (the retired `design.excalidraw` scene is a rollback file and
+# changes no longer move the revision).
 - insert:
     - id: analysis
       name: '@cc/dsh-analysis'
       config:
         dir: docs/analysis
-        designMapFile: design.excalidraw
+        designMapFile: designmap/manifest.json
 
 # ── project-rules: one cached prompt section the human edits ─────────────────
 # `.dsh/rules.md` becomes the `project:rules` section on every agent and subagent.
@@ -286,13 +288,14 @@
           'mcp__godot__*': project.godot
         families:
           orchestrator:
-            # The orchestrator writes files and reads them; it does not get a shell. The
-            # persona says so and the tool list contradicted it: measured 2026-11-13 on a
-            # fresh root header (session-ed90220d, seq 1502) `bash` was one of 98 tools, so
-            # the role could have run anything the policy said it could not. `pwsh` is denied
-            # for the same reason and does not exist on this machine - the row is what makes
-            # the surface the same on Windows, where it would be registered.
-            deny: ['mcp__godot__*', 'bash', 'pwsh']
+            # The orchestrator writes files and reads them; it does not get a shell and does
+            # not drive a browser. The persona and the family table both say so, and the tool
+            # list contradicted them: measured 2026-11-13 on a fresh root header
+            # (session-ed90220d, seq 1502) `bash` was one of 98 tools, and a 2026-11-10 root
+            # session on this preset carried the Playwright family. `pwsh` is denied for the
+            # same reason and does not exist on this machine - the row is what makes the
+            # surface the same on Windows, where it would be registered.
+            deny: ['mcp__godot__*', 'mcp__playwright__*', 'bash', 'pwsh']
           ux:
             projectDeny: ['mcp__godot__*']
           backend:

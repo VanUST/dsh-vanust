@@ -61,6 +61,7 @@ const modulePath = (name, fallback) => (value(name) !== '' ? resolve(value(name)
 const analysisModulePath = modulePath('--analysis', 'plugins/analysis/analysis.mjs')
 const orchestratorModulePath = modulePath('--orchestrator', 'plugins/orchestrator/orchestrator.mjs')
 const taskboardModulePath = modulePath('--taskboard', 'plugins/taskboard/taskboard.mjs')
+const designmapModulePath = modulePath('--designmap', 'plugins/designmap/src/host.mjs')
 const dir = value('--dir') !== '' ? resolve(value('--dir')) : mkdtempSync(join(tmpdir(), 'analysis-proof-'))
 const keep = argv.includes('--keep')
 mkdirSync(dir, { recursive: true })
@@ -86,15 +87,34 @@ const writeDesign = (rev) => writeFileSync(designPath, `${JSON.stringify({
   designMap: { rev, updatedAt: '2026-11-13T00:00:00.000Z', updatedBy: 'human', title: 'proof map' },
 }, null, 2)}\n`)
 writeDesign(7)
+/** The revision of the mounted designmap plugin's manifest, which is now the default source. */
+const writeManifestRev = (rev) => {
+  mkdirSync(join(dir, 'designmap'), { recursive: true })
+  writeFileSync(join(dir, 'designmap', 'manifest.json'), `${JSON.stringify({
+    schemaVersion: 1,
+    rev,
+    commit: null,
+    generatedAt: '2026-11-17T00:00:00.000Z',
+    modelHash: `sha256:${'0'.repeat(64)}`,
+    sourceHashes: {},
+  }, null, 2)}\n`)
+}
 
 const { createService: createTaskboard } = await import(pathToFileURL(taskboardModulePath).href)
 const { apply: applyOrchestrator } = await import(pathToFileURL(orchestratorModulePath).href)
 let analysisModule
 let analysisImportError
+let createDesignmapHost
 try {
   analysisModule = await import(pathToFileURL(analysisModulePath).href)
 } catch (error) {
   analysisImportError = error instanceof Error ? error.message : String(error)
+}
+
+try {
+  ({ createHostService: createDesignmapHost } = await import(pathToFileURL(designmapModulePath).href))
+} catch {
+  createDesignmapHost = undefined
 }
 
 // The store sits next to the analysis module under proof; the legacy-fingerprint fixtures need
@@ -157,7 +177,7 @@ function harness(options = {}) {
     subagents,
   }
   if (analysisModule !== undefined && options.analysis !== false) {
-    analysisModule.apply(ctx, { dir: 'docs/analysis', designMapFile: 'design.excalidraw' })
+    analysisModule.apply(ctx, options.analysisConfig ?? { dir: 'docs/analysis', designMapFile: 'design.excalidraw' })
   }
   if (options.orchestrator !== false) applyOrchestrator(ctx, {})
   /**
@@ -691,6 +711,78 @@ try {
   })
   check('architecture work against a moved map is refused analysis_stale', arch?.ok === false && arch?.code === 'analysis_stale', { code: arch?.code, message: arch?.message })
   writeDesign(7)
+
+  // ── 17b. The default design-map source is designmap/manifest.json ──────────
+  // The analysis used to read design.excalidraw, which the designmap plugin no longer
+  // advances. The default and the profile point at designmap/manifest.json, whose `rev`
+  // moves only on a semantic model change (the old scene is only a seed). This is the
+  // consumed half of that contract; the producer half is proved in
+  // plugins/designmap/test/manifest-rev.test.mjs.
+  writeManifestRev(30)
+  // A second composition over the same record directory, mounted exactly as the profile does
+  // it after this change: NO designMapFile, so the plugin's own default answers. The tool is
+  // then the caller, so the check below is `analysis_check`, not a service shortcut.
+  const manifestHarness = harness({ analysisConfig: { dir: 'docs/analysis' } })
+  const manifestRoot = manifestHarness.agentFor('chat-manifest')
+  const manifestInit = await manifestHarness.call(manifestRoot.tools, 'analysis_upsert', { initiative: 'manifest-drift-proof', patch: readyRecord({ status: 'ready', title: 'Manifest drift proof' }) }, manifestRoot.agent)
+  check(
+    'a ready record captures the revision from designmap/manifest.json by default',
+    manifestInit?.ok === true && manifestInit?.record?.designRef?.mapRev === 30 && manifestInit?.record?.designRef?.source === 'designmap/manifest.json',
+    { code: manifestInit?.code, designRef: manifestInit?.record?.designRef },
+  )
+  const manifestStill = await manifestHarness.call(manifestRoot.tools, 'analysis_check', { initiative: 'manifest-drift-proof' }, manifestRoot.agent)
+  check(
+    'an unchanged designmap manifest is not drift',
+    manifestStill?.ok === true && (manifestStill?.findings ?? []).every((finding) => finding.code !== 'design_drift'),
+    { codes: (manifestStill?.findings ?? []).map((finding) => finding.code) },
+  )
+  writeManifestRev(31)
+  const manifestMoved = await manifestHarness.call(manifestRoot.tools, 'analysis_check', { initiative: 'manifest-drift-proof' }, manifestRoot.agent)
+  const drift = (manifestMoved?.findings ?? []).find((finding) => finding.code === 'design_drift')
+  check(
+    'a moved designmap manifest is reported as design_drift',
+    drift !== undefined && /rev 31/.test(drift.message) && manifestMoved?.stale?.code === 'design_drift',
+    { code: drift?.code, message: drift?.message, stale: manifestMoved?.stale },
+  )
+
+  // ── 17c. Producer → consumer: a REAL designmap apply moves the analysis record ──
+  // 17b proves the consumer against a hand-written manifest. This runs the mounted plugin's
+  // own apply on a real git repository: the manifest it writes continues the retired scene's
+  // numbering (30 → 31), and the record that recorded 30 is reported as drifted.
+  {
+    const chainDir = join(dir, 'chain')
+    mkdirSync(join(chainDir, 'designmap'), { recursive: true })
+    writeFileSync(join(chainDir, 'designmap', 'model.yaml'), `schemaVersion: 1
+groups: []
+nodes:
+  - {id: svc.a, type: service, label: A, group: null, source: null}
+edges: []
+`)
+    writeFileSync(join(chainDir, 'designmap', 'views.yaml'), `schemaVersion: 1
+views:
+  - {id: v.context, title: Context, level: context, direction: LR, include: [], parent: null}
+`)
+    writeFileSync(join(chainDir, 'design.excalidraw'), `${JSON.stringify({ type: 'excalidraw', version: 2, designMap: { rev: 30 } }, null, 2)}\n`)
+    // No git repository is needed: the manifest's `commit` is null outside one, and the
+    // revision depends on the model content, not on the commit.
+    const chainService = analysisModule.createService({ dir: 'docs/analysis' }, logger)
+    const chainInit = chainService.upsert(chainDir, {
+      initiative: 'chain-drift-proof',
+      patch: readyRecord({ status: 'ready', title: 'Chain drift proof', designRef: { mapRev: 30, at: '2026-11-17T00:00:00.000Z', source: 'designmap/manifest.json' } }),
+    })
+    check('the old-revision record is ready before the model edit', chainInit?.ok === true, { code: chainInit?.code, findings: chainInit?.findings })
+    const beforeEdit = chainService.check(chainDir, { initiative: 'chain-drift-proof' })
+    check('before the model edit the map reports no drift', (beforeEdit?.findings ?? []).every((finding) => finding.code !== 'design_drift'), { codes: (beforeEdit?.findings ?? []).map((finding) => finding.code) })
+    check('the designmap plugin under proof is importable', createDesignmapHost !== undefined, designmapModulePath)
+    if (createDesignmapHost !== undefined) {
+      const host = createDesignmapHost({ designmapDir: join(chainDir, 'designmap'), repoRoot: chainDir })
+      const applied = host.apply([{ kind: 'node', action: 'upsert', value: { id: 'svc.b', type: 'service', label: 'B', group: null, source: null } }])
+      check('the real designmap apply continues the old numbering: first change is rev 31', applied?.ok === true && applied?.manifest?.rev === 31, { rev: applied?.manifest?.rev, written: applied?.written })
+      const afterEdit = chainService.check(chainDir, { initiative: 'chain-drift-proof' })
+      const chainDrift = (afterEdit?.findings ?? []).find((finding) => finding.code === 'design_drift')
+      check('analysis_check reports design_drift after the real model edit', chainDrift !== undefined && /rev 31/.test(chainDrift.message), { code: chainDrift?.code, message: chainDrift?.message })
+    }
+  }
 
   // ── 18. Adding/removing requirements and architecture edits reopen the record ─
   const changeInit = await call('analysis_upsert', { initiative: 'change-proof', patch: readyRecord({ status: 'ready', title: 'Change proof' }) })

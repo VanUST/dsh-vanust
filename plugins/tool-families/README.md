@@ -24,7 +24,7 @@ process per chat.
     projectMarkers:
       'mcp__godot__*': project.godot      # kept only where this file exists in the session cwd
     families:
-      orchestrator: { deny: ['mcp__godot__*', 'bash', 'pwsh'] }
+      orchestrator: { deny: ['mcp__godot__*', 'mcp__playwright__*', 'bash', 'pwsh'] }
       ux:           { deny: ['mcp__godot__*'] }
       backend:      { deny: ['mcp__playwright__*', 'mcp__godot__*'] }
       reviewer:     { deny: ['mcp__playwright__*', 'mcp__godot__*'] }
@@ -68,6 +68,23 @@ logged and skipped.
 under `orchestrator` and then switched to `backend` kept the orchestrator restriction and was
 offered all 24 `mcp__playwright__*` tools that the backend row denies — the header still said
 `orchestrator`, and the one-shot `settled` flag never recomputed.
+
+## Policy facts for a prompt owner
+
+The row publishes a `toolFamilies` service (`ctx.provide`, optional for the consumer) so a
+prompt that describes a role's tool set does not hard-code the claim:
+
+- `presetFor(session)` — the preset in force, resolved exactly as the restriction is (the
+  registry projection, then a selection remembered from a blank session, then the header);
+- `factsFor(agent)` — `{ preset, removed, kept }` once a restriction is installed, `null`
+  before that. `removed` holds only the patterns that really took tools out of that agent's
+  view, so a pattern that matched nothing (a Windows-only `pwsh` on Linux, a bridge that is
+  down) is never quoted; `kept` names the project-gated families kept for the cwd.
+
+The orchestrator's root policy reads `removed` and checks it against the set the agent can see
+when the prompt is assembled, then freezes the sentence for the session (`INV-GENERATED`,
+`INV-PROMPT-FROZEN` in `docs/analysis/kit-integrity-p0.json`). A composition without this row
+gets `undefined` from `ctx.get('toolFamilies')` and must assert nothing instead of guessing.
 
 ## Verification
 

@@ -21,7 +21,10 @@
  *   refresh the policy block once per turn). The task and child link are the taskboard's
  *   durable records. The root tool is removed with the agent, and the sections
  *   are removed with it too. The root policy carries the workspace's existing
- *   roles, read from the ledger once per turn.
+ *   roles, read from the ledger once per turn, and one sentence about the session's
+ *   actual tool set, taken from the policy owner (`toolFamilies`) and frozen for the
+ *   session. The root policy section is rendered only for the preset it describes
+ *   (`POLICY_PRESET`); every other root gets no section.
  *
  * KEYWORDS
  *   orchestrator, delegate_task, task brief, scope, non-scope, flash child,
@@ -378,6 +381,24 @@ export const name = 'orchestrator'
 /** All four services are required; the taskboard row must be mounted first. */
 export const inject = ['tools', 'subagents', 'systemPrompt', 'taskboard']
 
+/**
+ * The preset this root policy describes.
+ *
+ * A preset IS a role: its own tool list and its own persona. The orchestrator policy is a
+ * statement about this one role, so a root running another preset (`cordis`, `backend`, the
+ * hands-on `standard`) must not receive it - the fix for a policy applied to "any root" is a
+ * gate by preset, not a more cautious wording.
+ *
+ * THE GATE RUNS AT PROMPT ASSEMBLY, NOT AT `agent/created`. A preset selected on a blank
+ * session is committed before the first message, while the creation header still carries the
+ * default (measured 2026-11-17: the registry projection answered nothing at `agent/created`
+ * and the header said `orchestrator` after the user had chosen `cordis`). A decision taken in
+ * the listener would therefore describe a role the session does not run. The section is
+ * registered once and renders empty for every other preset; an empty section is omitted from
+ * the system message.
+ */
+export const POLICY_PRESET = 'orchestrator'
+
 /** Root policy: short enough to read every turn, specific enough to act on. */
 const ROOT_POLICY = `## Orchestration policy (deployment)
 
@@ -416,7 +437,7 @@ A question never needs this ceremony. A change never skips the task.
 ## Delegation rules
 
 - Reuse a role from the catalog appended below this policy. \`delegate_task\` refuses a near-duplicate new role unless the work really is a new domain; \`forceRole: true\` overrides that refusal.
-- **The seven roles are the tool sets**: UX/UI, BACKEND, RESEARCH, CONTEXT, REVIEWER, CRITIC, DOCS. The orchestrator is the eighth and is you. The role picks the child's preset, so the child literally has that role's tools - a BACKEND child cannot run \`papers_*\`, and you have no \`bash\` at all. You CAN read, create and edit files yourself: a small, self-evident change is yours to make, and delegating it only to satisfy a ritual wastes a child session. What you cannot do is run anything, so a change whose acceptance is a command's output - a build, a test, a lint, a migration, a scan - is delegated, or you make the edit and hand the proof to the role that owns the binary. Choose the role by the work, not by seniority; a role outside the seven needs an explicit \`preset\` argument. CONTEXT reads the current system and returns a cited report (it never edits, never tests, never delegates); RESEARCH finds what exists outside the repository; do not use either one to avoid reading the file in front of you. Use REVIEWER to judge a change and CRITIC to attack a running behaviour: the critic breaks the algorithm or service on a disposable copy and reports the smallest reproducible failure, it never fixes and never touches production data - reach for it when "it works" is a claim rather than a measurement.
+- **The seven roles are the tool sets**: UX/UI, BACKEND, RESEARCH, CONTEXT, REVIEWER, CRITIC, DOCS. The orchestrator is the eighth and is you. The role picks the child's preset, so the child literally has that role's tools - a BACKEND child cannot run \`papers_*\`. You CAN read, create and edit files yourself: a small, self-evident change is yours to make, and delegating it only to satisfy a ritual wastes a child session. A change whose acceptance is a command's output - a build, a test, a lint, a migration, a scan - is delegated, or you make the edit and hand the proof to the role that owns the binary. Choose the role by the work, not by seniority; a role outside the seven needs an explicit \`preset\` argument. CONTEXT reads the current system and returns a cited report (it never edits, never tests, never delegates); RESEARCH finds what exists outside the repository; do not use either one to avoid reading the file in front of you. Use REVIEWER to judge a change and CRITIC to attack a running behaviour: the critic breaks the algorithm or service on a disposable copy and reports the smallest reproducible failure, it never fixes and never touches production data - reach for it when "it works" is a claim rather than a measurement.
 - Pass \`taskId\` when one of your own tasks is the work: the brief then attaches to that task instead of creating a second row for the same thing.
 - A specialist session belongs to the chat that created it. A later chat gets a new one, and the brief then carries the role's earlier results forward - say so in the brief you write, and never assume the child remembers.
 - Children run on the configured child route (flash by default), and that is the right default: volume work belongs on the cheap route. You may name a \`provider\`/\`model\` on \`delegate_task\` ONLY when the environment demands it - the default route is throttled, unavailable, or the task needs a capability only the other route has - and only a route listed in Subagent model selection is accepted. Never name a highspeed variant: highspeed routes are refused outright by the model guard.
@@ -1115,6 +1136,84 @@ export function apply(ctx, config = {}) {
     },
   })
 
+  /**
+   * The preset a session actually runs.
+   *
+   * The policy owner answers first: `toolFamilies` resolves a selection made after creation,
+   * including one committed while the session was still blank, which is exactly the case a
+   * registration-time read gets wrong. Without that row the harness's projection is the next
+   * authority, and the creation header is only the last fallback.
+   */
+  const presetOf = (agent) => {
+    try {
+      const fromPolicy = ctx.get?.('toolFamilies')?.presetFor?.(agent?.session)
+      if (typeof fromPolicy === 'string' && fromPolicy.trim() !== '') return fromPolicy
+    } catch {
+      // A composition without the policy owner falls through to the projection.
+    }
+    try {
+      const fromProjection = ctx.get?.('agentPresets')?.presetForSession?.(agent?.session)
+      if (typeof fromProjection === 'string' && fromProjection.trim() !== '') return fromProjection
+    } catch {
+      // A bare headless assembly has no projection.
+    }
+    const fromHeader = agent?.session?.header?.agentPreset
+    return typeof fromHeader === 'string' && fromHeader.trim() !== '' ? fromHeader : undefined
+  }
+
+  /**
+   * The one sentence about the tool set this session really has.
+   *
+   * WHY IT IS DERIVED. The policy used to deny every shell tool in a literal sentence, and a
+   * root whose preset this policy does not describe read the same sentence about a session
+   * that DID carry `bash` (109 tools, measured 2026-11-17). The facts belong to the policy
+   * owner (`toolFamilies.factsFor`): `removed` is measured against the host tool list when the
+   * restriction is installed, so a pattern that matched nothing is never quoted and this
+   * plugin does not read the tool registry a second time. Without the service it asserts
+   * nothing.
+   *
+   * @returns A short markdown block, or '' when there is nothing true to say.
+   */
+  const toolSetClaim = (agent) => {
+    let facts
+    try {
+      facts = ctx.get?.('toolFamilies')?.factsFor?.(agent)
+    } catch {
+      return ''
+    }
+    if (facts === null || facts === undefined) return ''
+    // The facts are about the preset the policy was APPLIED with. A switch that has not been
+    // recomputed yet would make this a claim about another role.
+    if (facts.preset !== POLICY_PRESET) return ''
+    const removed = (Array.isArray(facts.removed) ? facts.removed : []).filter((pattern) => typeof pattern === 'string' && pattern.trim() !== '')
+    if (removed.length === 0) return ''
+    return [
+      '## Your tool set (deployment)',
+      '',
+      `The deployment's family policy removed ${removed.map((pattern) => `\`${pattern}\``).join(', ')} from this session's tool set before its first request, so it is not in the request header. This line is fixed for the session: if a task needs one of those families, delegate it to the role that owns it.`,
+    ].join('\n')
+  }
+
+  /**
+   * Freeze the policy facts per agent for the life of the session.
+   *
+   * The catalog and the board debt are re-read every turn on purpose; the tool-set claim is
+   * not, because the tools a session was given do not change and a prompt whose prefix
+   * changes is re-billed from the first changed byte. The memo also covers the preset gate:
+   * a session switched to another preset after its first prompt keeps the text it started
+   * with, which is the invariant the prompt owns (`INV-PROMPT-FROZEN`).
+   */
+  const policySessions = new WeakMap()
+  const policyFor = (agent) => {
+    const memo = policySessions.get(agent)
+    if (memo !== undefined) return memo
+    const preset = presetOf(agent)
+    const described = preset === POLICY_PRESET
+    const record = { preset, described, claim: described ? toolSetClaim(agent) : '' }
+    policySessions.set(agent, record)
+    return record
+  }
+
   ctx.on('agent/created', ({ agent }) => {
     // Lineage, not depth alone: a subagent child can report depth 0 and still name its
     // parent (see isRootAgent).
@@ -1132,7 +1231,7 @@ export function apply(ctx, config = {}) {
         const chatId = agent?.session?.header?.id ?? agent?.id ?? ''
         const catalog = renderRoleCatalog(ctx.taskboard.agents(cwd), { chatId })
         const debt = renderBoardDebt(ctx.taskboard.list(cwd, { chatId }))
-        return [ROOT_POLICY, catalog, debt].filter((part) => part !== '').join('\n\n')
+        return [ROOT_POLICY, policyFor(agent).claim, catalog, debt].filter((part) => part !== '').join('\n\n')
       } catch {
         return ROOT_POLICY
       }
@@ -1148,7 +1247,10 @@ export function apply(ctx, config = {}) {
       agent.ctx.systemPrompt.section({
         name: isRoot ? 'deployment:orchestrator-policy' : 'deployment:specialist-policy',
         order: Number.isFinite(base) ? base + (isRoot ? 1 : 2) : (isRoot ? 121 : 122),
-        text: isRoot ? () => rootText.text() : CHILD_POLICY,
+        // Only the preset this policy describes gets the text. The decision is taken when the
+        // prompt is assembled (inside rootText), not when the section is registered; see
+        // POLICY_PRESET. An empty string removes the section from the system message.
+        text: isRoot ? () => (policyFor(agent).described ? rootText.text() : '') : CHILD_POLICY,
       })
     }
     if (isRoot) {

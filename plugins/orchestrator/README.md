@@ -7,7 +7,17 @@ On `agent/created`, the plugin registers:
 
 - a root-only prompt section (`deployment:orchestrator-policy`) that classifies a
   request as one-shot or initiative, requires a goal and a task graph for an
-  initiative, and states the delegation, model and proof rules;
+  initiative, and states the delegation, model and proof rules. **The section belongs to one
+  preset** (`POLICY_PRESET`, `orchestrator`): a root running another composition (`cordis`,
+  `backend`, the hands-on `standard`) renders no policy text, because a preset is the role and
+  the wording is a statement about this role. The gate is evaluated when the prompt is
+  assembled, not when the section is registered, so a preset selected on a blank session
+  before the first message is honoured;
+- the section's sentence about the session's tool set is **derived, not written**: the plugin
+  asks the `@cc/dsh-tool-families` service which family patterns actually removed tools from
+  this agent, checks them against the tools the agent can see, and states the removal. Without
+  that row it asserts nothing. The sentence is frozen for the session, so a changed registry
+  does not rewrite the prompt prefix;
 - a child-only section (`deployment:specialist-policy`) that tells a delegated
   child to do exactly its brief and return evidence;
 - a root-only `delegate_task` tool that requires an explicit persistent `role`

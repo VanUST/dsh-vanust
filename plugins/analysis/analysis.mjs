@@ -9,7 +9,9 @@
  * INPUTS
  *   Config (all optional):
  *     dir            record directory relative to the session workspace. Default 'docs/analysis'.
- *     designMapFile  design-map scene relative to the workspace. Default 'design.excalidraw'.
+ *     designMapFile  design-map file whose `rev` the record references, relative to the
+ *                    workspace. Default 'designmap/manifest.json'; a legacy
+ *                    'design.excalidraw' scene is still read for a rollback configuration.
  *     promptSection  false turns the short root policy off. Default true.
  *
  * OUTPUTS

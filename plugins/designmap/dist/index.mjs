@@ -15,8 +15,10 @@ import {
   wrapEdgeLabel
 } from "./chunk-APSIGH2O.mjs";
 import {
+  canonicalModel,
   createWorkspace,
-  sha256
+  sha256,
+  toJson
 } from "./chunk-45OXK2TV.mjs";
 import {
   DIRECTIONS,
@@ -41,6 +43,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 var MANIFEST_FILE = "manifest.json";
 var MANIFEST_SCHEMA_VERSION = 1;
+var SEED_SCENE_FILE = "design.excalidraw";
 function hashFile(path) {
   if (!existsSync(path)) return null;
   return `sha256:${createHash("sha256").update(readFileSync(path)).digest("hex")}`;
@@ -61,11 +64,37 @@ function sourceHashes(model, repoRoot) {
   }
   return hashes;
 }
-function buildManifest({ model, repoRoot, commit, generatedAt }) {
+function modelContentHash(model) {
+  return sha256(toJson(canonicalModel(model)));
+}
+function seedRevision(repoRoot) {
+  const path = join(repoRoot, SEED_SCENE_FILE);
+  if (!existsSync(path)) return 0;
+  try {
+    const rev = JSON.parse(readFileSync(path, "utf8"))?.designMap?.rev;
+    return Number.isSafeInteger(rev) && rev >= 0 ? rev : 0;
+  } catch {
+    return 0;
+  }
+}
+function nextRevision({ previous, modelHash, changed = false, seed = () => 0 }) {
+  const previousRev = Number.isSafeInteger(previous?.rev) && previous.rev >= 0 ? previous.rev : null;
+  if (previousRev === null) return seed() + (changed ? 1 : 0);
+  if (typeof previous?.modelHash === "string" && previous.modelHash !== "") {
+    return previous.modelHash === modelHash ? previousRev : previousRev + 1;
+  }
+  return previousRev + (changed ? 1 : 0);
+}
+function buildManifest({ model, repoRoot, commit, generatedAt, previous = null, changed = false }) {
+  const modelHash = modelContentHash(model);
   return {
     schemaVersion: MANIFEST_SCHEMA_VERSION,
+    // The retired scene is read ONLY when there is no revision to continue: an ordinary
+    // apply must not touch it at all.
+    rev: nextRevision({ previous, modelHash, changed, seed: () => seedRevision(repoRoot) }),
     commit: commit ?? null,
     generatedAt,
+    modelHash,
     sourceHashes: sourceHashes(model, repoRoot)
   };
 }
@@ -84,7 +113,9 @@ function sameManifestContent(left, right) {
   if (left === null || right === null) return left === right;
   const strip = (manifest) => JSON.stringify({
     schemaVersion: manifest.schemaVersion,
+    rev: manifest.rev ?? 0,
     commit: manifest.commit ?? null,
+    modelHash: manifest.modelHash ?? null,
     sourceHashes: Object.fromEntries(Object.entries(manifest.sourceHashes ?? {}).sort(([a], [b]) => a < b ? -1 : 1))
   });
   return strip(left) === strip(right);
@@ -434,7 +465,8 @@ function createHostService({ designmapDir, repoRoot, git, clock = () => /* @__PU
     const result = applyToWorkspace(workspace, resolved, { logger: inner ?? logger });
     const model = workspace.readModel().model;
     const headCommit = head();
-    const manifest = buildManifest({ model, repoRoot: root, commit: headCommit, generatedAt: now() });
+    const previous = readManifest(dir).manifest;
+    const manifest = buildManifest({ model, repoRoot: root, commit: headCommit, generatedAt: now(), previous, changed: result.written.model });
     const written = writeManifest(dir, manifest);
     return {
       ok: true,
@@ -443,7 +475,7 @@ function createHostService({ designmapDir, repoRoot, git, clock = () => /* @__PU
       ops: result.ops,
       diff: result.diff,
       written: { model: result.written.model, views: result.written.views, manifest: written.written },
-      manifest: { commit: manifest.commit, generatedAt: manifest.generatedAt, nodes: Object.keys(manifest.sourceHashes).length }
+      manifest: { rev: manifest.rev, commit: manifest.commit, generatedAt: manifest.generatedAt, nodes: Object.keys(manifest.sourceHashes).length }
     };
   };
   const envelopeFor = (result, staleReport) => ({

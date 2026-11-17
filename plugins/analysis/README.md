@@ -43,9 +43,11 @@ written through the service only.
   where a task carries its id, role and evidence. `delegate_task` appends the task id before
   the child starts.
 - `designRef` — `{mapRev, at, source}` captured when the record becomes `ready`; `at` is
-  filled on capture and must be a parseable ISO timestamp when supplied. Drift compares
-  only `mapRev`. A bare `designRef` bump reopens the record and records an impact; it does
-  not clear drift by itself.
+  filled on capture and must be a parseable ISO timestamp when supplied. `source` defaults
+  to `designmap/manifest.json`, whose `rev` the mounted designmap plugin advances on a
+  semantic model change (the retired `design.excalidraw` scene is still readable for a
+  rollback configuration). Drift compares only `mapRev`. A bare `designRef` bump reopens
+  the record and records an impact; it does not clear drift by itself.
 - `goalId` / `goalHistory` — a commitment, not a label. `update_goal action:"complete"` is
   refused while a record that names the goal now or in its history is not `completed`; a
   linked record cannot be detached while it is ready/completed.
@@ -115,7 +117,7 @@ A monotonic `tools.guard` on every agent (root and child) refuses:
 | key | default | meaning |
 |---|---|---|
 | `dir` | `docs/analysis` | store directory relative to the session workspace |
-| `designMapFile` | `design.excalidraw` | scene whose `designMap.rev` is referenced |
+| `designMapFile` | `designmap/manifest.json` | design-map file whose `rev` is referenced; the manifest written by `@cc/dsh-designmap` (a legacy `design.excalidraw` scene is still read) |
 | `historyLimit` | `50` | retained revision entries |
 | `promptSection` | `true` | register the short root policy section |
 

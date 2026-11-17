@@ -1,0 +1,585 @@
+{
+  "schemaVersion": 1,
+  "id": "kit-integrity-p0",
+  "rev": 9,
+  "status": "completed",
+  "createdAt": "2026-11-17T12:23:37.823Z",
+  "updatedAt": "2026-11-17T12:56:04.849Z",
+  "updatedBy": "agent",
+  "title": "Целостность кита перед экосистемой состояния (P0)",
+  "requestedSolution": "Закрыть расхождения §8.2–8.7 обзора харнесса (reports/harness-review/, docs/HARNESS-OVERVIEW.md): политика оркестратора применяется по пресету, утверждения о возможностях выводятся из фактического набора, Playwright снимается с оркестратора, ревизия карты дизайна читается из designmap/manifest.json, README называет двенадцать инструментов test-cases; плюс аудит на компонент ratchet (не интегрировать, при обнаружении требовать удаления). Новых архитектурных сущностей P0 не вводит.",
+  "businessOutcome": {
+    "problem": "Кит описывает себя текстом, который не выводится из фактической поверхности: политика оркестратора обещает любому корню «you have no bash», Playwright обещан снятым, но остаётся в наборе orchestrator, ревизия карты дизайна, за которой следит анализ, больше не обновляется, README расходится с собственным пакетом.",
+    "outcome": "Утверждения кита выводятся из его собственной политики и фактического набора инструментов сессии; поверхность orchestrator совпадает с обещанием; упаковка воспроизводима из исходников; сигнал «карта ушла вперёд» снова срабатывает от правки designmap. Без этого новые условия приёмки экосистемы состояния опирались бы на неверные факты.",
+    "successMetrics": [
+      "`make verify` — exit 0 на каждом прогоне P0",
+      "0 инструментов `mcp__playwright__*` в заголовке первого запроса свежей сессии orchestrator на втором сервере",
+      "0 утверждений о возможностях, которых у сессии нет",
+      "правка семантической модели карты дизайна двигает ревизию, которую читает анализ"
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P0-CUR",
+        "name": "Проверка утверждений кита",
+        "actors": [
+          "оркестратор",
+          "владелец"
+        ],
+        "steps": [
+          "Ревью харнесса находит расхождение текста с фактическим набором инструментов",
+          "Исполнитель правит текст вручную",
+          "Расхождение возвращается при следующей смене набора"
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P0-TGT",
+        "name": "Проверка утверждений кита",
+        "actors": [
+          "оркестратор",
+          "владелец"
+        ],
+        "steps": [
+          "Утверждение о возможностях собирается из фактического набора инструментов при первой сборке промпта и замораживается на сессию",
+          "Раздел политики регистрируется по пресету, который он описывает",
+          "Проверка падает на старых байтах и проходит на новых — на подставном контексте и на втором сервере"
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "BR1",
+      "kind": "BR",
+      "text": "Установка кита из тарболов воспроизводит рабочее дерево: пакет в тарболе и исходник совпадают, версия поднята.",
+      "acceptance": [
+        "`node scripts/check-portability.mjs` — 17/17, включая tarball:matches-source и tarball:version-bumped, exit 0",
+        "`make verify` — exit 0"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR1",
+      "kind": "FR",
+      "text": "Текст политики оркестратора не утверждает возможностей, которых у сессии нет: факты о снятых семействах собираются из фактического набора инструментов сессии и замораживаются на сессию.",
+      "acceptance": [
+        "На сессии orchestrator текст называет снятое семейство, а не обещает отсутствие shell литералом",
+        "На корне с пресетом, где shell есть, промпт не утверждает обратное",
+        "Текст одинаков на всех шагах сессии (по журналу)"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR2",
+      "kind": "FR",
+      "text": "Семейство `mcp__playwright__*` снимается с пресета orchestrator.",
+      "acceptance": [
+        "Строка orchestrator в `profile/cordis.patch.yml` снимает `mcp__playwright__*`",
+        "`node scripts/tool-families-proof.mjs` утверждает «playwright removed for orchestrator» и проходит",
+        "Свежая сессия orchestrator на втором сервере не содержит `mcp__playwright__*` в заголовке первого запроса"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR3",
+      "kind": "FR",
+      "text": "Раздел политики оркестратора регистрируется по пресету, а не по признаку «любой корень».",
+      "acceptance": [
+        "Корневая сессия с пресетом `cordis` не содержит раздел `deployment:orchestrator-policy` в системном сообщении",
+        "Корневая сессия с пресетом `orchestrator` содержит его"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR4",
+      "kind": "FR",
+      "text": "Сессия, созданная или переключённая на пресет, получает набор инструментов этого пресета с первого заголовка запроса; смешанного набора двух пресетов нет.",
+      "acceptance": [
+        "Свежая сессия на втором сервере: пресет выбран до первого сообщения, заголовок первого запроса соответствует пресету",
+        "`node scripts/tool-families-proof.mjs` — 62/62, exit 0"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR5",
+      "kind": "FR",
+      "text": "Ревизия карты дизайна движется при изменении семантической модели, и запись анализа читает её из `designmap/manifest.json`.",
+      "acceptance": [
+        "`designmap_apply` поднимает `rev` в `designmap/manifest.json` только при изменении содержимого",
+        "Повторное применение с тем же содержимым ревизию не двигает",
+        "Запись анализа со старой ревизией получает находку расхождения карты",
+        "Существующие записи (`mapRev: 30`) не становятся расходящимися из-за смены источника"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR6",
+      "kind": "FR",
+      "text": "README описывает инструменты test-cases так, как они зарегистрированы: двенадцать, а не восемь.",
+      "acceptance": [
+        "`README.md` называет двенадцать инструментов и совпадает с регистрациями плагина",
+        "`node scripts/check-documentation.mjs` — зелёный"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR7",
+      "kind": "FR",
+      "text": "В ките и установленном профиле нет компонента ratchet; при обнаружении — отчёт владельцу и задача на удаление, не интеграция.",
+      "acceptance": [
+        "Поиск по киту и `~/.npm/dsh` не находит компонента ratchet",
+        "История git показывает, что ratchet заменён человеческими спецификациями (`0914fcd`)"
+      ],
+      "status": "proven"
+    }
+  ],
+  "architecture": {
+    "contractImpact": "breaking",
+    "components": [
+      {
+        "id": "tool-families",
+        "name": "@cc/dsh-tool-families",
+        "responsibility": "владеет политикой семейств инструментов по пресетам и применяет её к агенту; отдаёт факты политики потребителю",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": []
+      },
+      {
+        "id": "orchestrator",
+        "name": "@cc/dsh-orchestrator",
+        "responsibility": "владеет текстом политики корня; регистрирует раздел по пресету и берёт утверждения из фактического набора",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": [
+          "tool-families"
+        ]
+      },
+      {
+        "id": "designmap",
+        "name": "@cc/dsh-designmap",
+        "responsibility": "владеет моделью карты дизайна и её списком файлов сборки, включая ревизию семантической модели",
+        "owner": "kit",
+        "owns": [
+          "designmap-manifest"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "analysis",
+        "name": "@cc/dsh-analysis",
+        "responsibility": "ведёт записи анализа и сверяет ревизию карты дизайна",
+        "owner": "kit",
+        "owns": [
+          "analysis-records"
+        ],
+        "dependsOn": [
+          "designmap"
+        ]
+      },
+      {
+        "id": "profile",
+        "name": "profile/cordis.patch.yml",
+        "responsibility": "объявляет строки хоста, пресеты и политику семейств",
+        "owner": "kit",
+        "owns": [
+          "profile-config"
+        ],
+        "dependsOn": [
+          "tool-families",
+          "orchestrator"
+        ]
+      },
+      {
+        "id": "docs",
+        "name": "README.md и docs/",
+        "responsibility": "описывает фактический состав пакетов",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": []
+      },
+      {
+        "id": "packaging",
+        "name": "scripts/check-portability.mjs и check-documentation.mjs",
+        "responsibility": "проверяют, что тарболы совпадают с исходниками, а документы — с фактическим составом",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": []
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "designmap-manifest",
+      "name": "designmap/manifest.json",
+      "owner": "designmap",
+      "ownerComponentId": "designmap",
+      "description": "коммит, хеши исходников узлов и ревизия семантической модели; пишет только designmap"
+    },
+    {
+      "id": "profile-config",
+      "name": "profile/cordis.patch.yml",
+      "owner": "kit",
+      "ownerComponentId": "profile",
+      "description": "состав хоста и политика пресетов"
+    },
+    {
+      "id": "analysis-records",
+      "name": "docs/analysis/*.json",
+      "owner": "analysis",
+      "ownerComponentId": "analysis",
+      "description": "записи анализа с зафиксированной ревизией карты"
+    }
+  ],
+  "contracts": [
+    {
+      "id": "tool-families-facts",
+      "name": "факты политики для потребителя",
+      "between": [
+        "tool-families",
+        "orchestrator"
+      ],
+      "change": "additive",
+      "description": "tool-families отдаёт политику пресета как сервис; оркестратор берёт из неё утверждения, а при отсутствии сервиса не утверждает ничего"
+    },
+    {
+      "id": "design-ref-source",
+      "name": "источник ревизии карты",
+      "between": [
+        "designmap",
+        "analysis"
+      ],
+      "change": "breaking",
+      "description": "источником `designRef` становится `designmap/manifest.json` с полем `rev`; чтение `design.excalidraw` остаётся только для начального значения"
+    },
+    {
+      "id": "orchestrator-surface",
+      "name": "поверхность пресета orchestrator",
+      "between": [
+        "profile",
+        "orchestrator"
+      ],
+      "change": "breaking",
+      "description": "семейство `mcp__playwright__*` снимается с оркестратора; раздел политики перечисляет снятое вместо обещания «нет shell»"
+    },
+    {
+      "id": "readme-tool-count",
+      "name": "описание инструментов в README",
+      "between": [
+        "docs",
+        "test-cases"
+      ],
+      "change": "additive",
+      "description": "README перечисляет двенадцать инструментов вместо восьми"
+    }
+  ],
+  "invariants": [
+    {
+      "id": "INV-PROMPT-FROZEN",
+      "text": "Текст политики, попавший в системный промпт, не меняется в течение сессии",
+      "scope": "orchestrator"
+    },
+    {
+      "id": "INV-ONE-OWNER",
+      "text": "Список снятых семейств владеет только tool-families; ревизию карты пишет только designmap",
+      "scope": "kit"
+    },
+    {
+      "id": "INV-GENERATED",
+      "text": "Утверждение о наборе инструментов выводится из политики или реестра, а не пишется литералом",
+      "scope": "orchestrator"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "D1",
+      "decision": "Раздел политики оркестратора регистрируется только для сессии с пресетом, который он описывает",
+      "rationale": "Утверждение о роли верно для роли; корень на другом пресете — другая роль с другим набором",
+      "alternatives": [
+        "оставить раздел для любого корня и сделать текст нейтральным",
+        "регистрировать для списка пресетов из конфига"
+      ]
+    },
+    {
+      "id": "D2",
+      "decision": "Утверждение о возможностях собирается из фактического набора инструментов сессии при первой сборке промпта и замораживается",
+      "rationale": "Реестр знает настоящий набор после ограничения; заморозка сохраняет неизменность промпта и префикс-кэш",
+      "alternatives": [
+        "читать конфигурацию политики",
+        "убрать утверждение вовсе"
+      ]
+    },
+    {
+      "id": "D3",
+      "decision": "Ревизия карты продолжает нумерацию старой сцены (30), а `designmap/manifest.json` становится единственным источником после первого переключения",
+      "rationale": "Записи анализа уже зафиксировали ревизию 30; переключение источника не должно объявлять их расходящимися",
+      "alternatives": [
+        "начать с 1 и мигрировать записи",
+        "считать ревизией хеш содержимого"
+      ]
+    }
+  ],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L2",
+    "reasons": [
+      "меняет поверхность пресета orchestrator и источник ревизии карты",
+      "трогает четыре плагина, профиль и документы",
+      "меняет контракт промпта и анализа"
+    ]
+  },
+  "designRef": {
+    "mapRev": 30,
+    "at": "2026-11-16T09:24:44.830Z",
+    "source": "design.excalidraw"
+  },
+  "goalId": "goal-30a0180d-57a8-4709-b47f-3210411bb82a",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "BR1",
+      "processId": "P0-TGT",
+      "componentId": "packaging",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwknzcmm-x8j01x",
+          "role": "orchestrator",
+          "at": "2026-11-17T12:24:39.838Z",
+          "evidence": [
+            "node scripts/check-portability.mjs → 17/17, exit 0",
+            "make verify → exit 0"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR1",
+      "processId": "P0-TGT",
+      "componentId": "orchestrator",
+      "contractIds": [
+        "tool-families-facts"
+      ],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwko0l2j-gqluze",
+          "role": "BACKEND",
+          "at": "2026-11-17T12:44:00.000Z",
+          "evidence": [
+            "node scripts/orchestrator-policy-proof.mjs → 19/19, exit 0; на байтах 0.1.48 → 7/19, exit 1",
+            "второй сервер :3081: системное сообщение оркестратора содержит «removed `mcp__playwright__*` from this session's tool set»; у корня, переключённого на cordis, раздела нет",
+            "grep «you have no `bash` at all» по plugins/scripts/profile → пусто; факты только из toolFamilies.factsFor"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR2",
+      "processId": "P0-TGT",
+      "componentId": "tool-families",
+      "contractIds": [
+        "orchestrator-surface"
+      ],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwko0l2j-gqluze",
+          "role": "BACKEND",
+          "at": "2026-11-17T12:44:00.000Z",
+          "evidence": [
+            "node scripts/tool-families-proof.mjs → 68/68, exit 0, «playwright removed for preset orchestrator»; на байтах 0.1.8 → 62/68, exit 1",
+            "второй сервер :3081: корень orchestrator — 67 инструментов, mcp__playwright__* = 0",
+            "profile/cordis.patch.yml:296 deny содержит mcp__playwright__*"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR3",
+      "processId": "P0-TGT",
+      "componentId": "orchestrator",
+      "contractIds": [
+        "orchestrator-surface"
+      ],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwko0l2j-gqluze",
+          "role": "BACKEND",
+          "at": "2026-11-17T12:44:00.000Z",
+          "evidence": [
+            "node scripts/orchestrator-policy-proof.mjs → 19/19: раздел пуст для cordis/backend/standard, полный — для orchestrator",
+            "второй сервер :3081, session-23d462e2: сессия создана под orchestrator, переключена на cordis до первого сообщения — раздела «## Orchestration policy» в системном сообщении нет"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR4",
+      "processId": "P0-TGT",
+      "componentId": "tool-families",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwknzcrw-vejtoi",
+          "role": "orchestrator",
+          "at": "2026-11-17T12:24:40.018Z",
+          "evidence": [
+            "node scripts/tool-families-proof.mjs → 62/62, exit 0",
+            "второй сервер :3081: шапка первого запроса 67 инструментов, playwright 0, bash есть"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR5",
+      "processId": "P0-TGT",
+      "componentId": "designmap",
+      "contractIds": [
+        "design-ref-source"
+      ],
+      "dataIds": [
+        "designmap-manifest"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwko195o-a1q0nu",
+          "role": "BACKEND",
+          "at": "2026-11-17T12:55:14.845Z",
+          "evidence": [
+            "cd plugins/designmap && node --test test/*.test.mjs → tests 132 / pass 132 / fail 0, exit 0",
+            "node scripts/analysis-before-decomposition-proof.mjs → 138/138, exit 0; на байтах analysis 0.1.9 → 135/138, exit 1; со старым производителем designmap 0.1.17 → 136/138, exit 1",
+            "manifest.mjs: rev = nextRevision(previous, modelContentHash, seed из design.excalidraw только когда rev нет); buildManifest пишет rev + modelHash",
+            "store.mjs:1228 — default `designmap/manifest.json`, читает `document.rev`, legacy `designMap.rev` ещё понимает; правило расхождения — `design.rev > mapRev`, поэтому записи с 30 не дрейфуют, пока карта не поднялась выше",
+            "make verify → exit 0 (17/17 + documentation ok); тарболы designmap 0.1.19 sha256 8a85d621…, analysis 0.1.10 sha256 8d983366…"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR6",
+      "processId": "P0-TGT",
+      "componentId": "docs",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwknzd3h-4gll5n",
+          "role": "orchestrator",
+          "at": "2026-11-17T12:24:40.382Z",
+          "evidence": [
+            "README.md:55 — двенадцать инструментов",
+            "check-documentation → exit 0"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR7",
+      "processId": "P0-TGT",
+      "componentId": "packaging",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwknzcym-rtkk7u",
+          "role": "orchestrator",
+          "at": "2026-11-17T12:24:40.196Z",
+          "evidence": [
+            "find/grep по киту и ~/.npm/dsh → компонента нет",
+            "git show 0914fcd (2026-09-30) — ratchet заменён человеческими спецификациями"
+          ]
+        }
+      ]
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "1282b72fffb23b3136547e776fa212a94ddd641f77fb72f949ea1262455ef380",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-17T12:23:37.823Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-17T12:23:43.655Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-17T12:24:08.786Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-17T12:25:06.495Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwko0l2j-gqluze -> FR1, FR2, FR3"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-17T12:25:19.762Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-17T12:28:05.778Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwko0l2j-gqluze -> FR1, FR2, FR3"
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-17T12:47:01.249Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "impacts: 1"
+    },
+    {
+      "revision": 8,
+      "at": "2026-11-17T12:47:31.027Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwko195o-a1q0nu -> FR5"
+    },
+    {
+      "revision": 9,
+      "at": "2026-11-17T12:56:04.849Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "completed",
+      "summary": ""
+    }
+  ]
+}

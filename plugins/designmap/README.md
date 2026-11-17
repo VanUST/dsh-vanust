@@ -141,15 +141,25 @@ repeats the refusal with `["ops",0,"value","x"]` for direct callers.
 `manifest.json`:
 
 ```json
-{ "schemaVersion": 1, "commit": "<HEAD>", "generatedAt": "…",
+{ "schemaVersion": 1, "rev": 31, "commit": "<HEAD>", "generatedAt": "…",
+  "modelHash": "sha256:…",
   "sourceHashes": { "svc.checkout.api": "sha256:…", "db.orders": null } }
 ```
 
-Written by apply only, and only when `commit` or `sourceHashes` change (a no-op apply
-leaves it byte-identical). A node without `source` is absent; a missing file hashes to
-null. `status` compares the manifest commit with HEAD (`commitBehind`) and each node
-hash with the file on disk (`source_changed` / `source_missing` / `not_in_manifest`).
-A missing manifest is `stale: true` with `manifest_missing`, never an error.
+Written by apply only, and only when the semantic model, the commit or the source hashes
+change (a no-op apply leaves it byte-identical). A node without `source` is absent; a
+missing file hashes to null. `status` compares the manifest commit with HEAD
+(`commitBehind`) and each node hash with the file on disk (`source_changed` /
+`source_missing` / `not_in_manifest`). A missing manifest is `stale: true` with
+`manifest_missing`, never an error.
+
+`rev` is the design-map revision the Analysis Record references (`designRef.mapRev`). It is
+a **monotonic counter of semantic model content**: it rises by one only when the canonical
+model differs from the previous `modelHash`, so a repeated apply, a re-render, an overlay
+move or a `views.yaml`-only edit does not move it. The retired `design.excalidraw` scene's
+`designMap.rev` (30) seeds the first manifest, so the migration continues at 31 and records
+written against rev 30 are not reported as drifted. `design.excalidraw` is read only for
+that seed; nothing writes it back.
 
 Logs: every tool/command call appends JSONL to `designmap/logs/events.jsonl` —
 `tool.enter`, `tool.exit`, `model.diff`, `layout.done`, `merge.applied`, `merge.gc`,

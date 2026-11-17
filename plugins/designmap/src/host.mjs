@@ -282,7 +282,11 @@ export function createHostService({ designmapDir, repoRoot, git, clock = () => n
     const result = applyToWorkspace(workspace, resolved, { logger: inner ?? logger })
     const model = workspace.readModel().model
     const headCommit = head()
-    const manifest = buildManifest({ model, repoRoot: root, commit: headCommit, generatedAt: now() })
+    // The revision continues from the manifest already on disk; the content hash decides
+    // whether it moves (see src/manifest.mjs). Read it BEFORE writing: writeManifest compares
+    // against the same file, so the order is the previous state and then the next one.
+    const previous = readManifest(dir).manifest
+    const manifest = buildManifest({ model, repoRoot: root, commit: headCommit, generatedAt: now(), previous, changed: result.written.model })
     const written = writeManifest(dir, manifest)
     return {
       ok: true,
@@ -291,7 +295,7 @@ export function createHostService({ designmapDir, repoRoot, git, clock = () => n
       ops: result.ops,
       diff: result.diff,
       written: { model: result.written.model, views: result.written.views, manifest: written.written },
-      manifest: { commit: manifest.commit, generatedAt: manifest.generatedAt, nodes: Object.keys(manifest.sourceHashes).length },
+      manifest: { rev: manifest.rev, commit: manifest.commit, generatedAt: manifest.generatedAt, nodes: Object.keys(manifest.sourceHashes).length },
     }
   }
 

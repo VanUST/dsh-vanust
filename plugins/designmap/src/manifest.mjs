@@ -4,18 +4,36 @@
  * under the map?".
  *
  * Shape (owner spec / SCENE-CONTRACT stale rule):
- *   { schemaVersion: 1, commit, generatedAt, sourceHashes: { nodeId: "sha256:…" | null } }
+ *   { schemaVersion, rev, commit, generatedAt, modelHash,
+ *     sourceHashes: { nodeId: "sha256:…" | null } }
  *
  * A node without a `source` is absent from `sourceHashes`; a node whose source file is
  * missing maps to null. The file is written atomically and only when its content
  * actually changes, so an idempotent re-apply leaves it byte-identical.
+ *
+ * `rev` IS THE DESIGN MAP REVISION the analysis record references (`designRef.mapRev`).
+ * It is a MONOTONIC COUNTER OF SEMANTIC MODEL CONTENT, not of writes: it rises by one only
+ * when the canonical model differs from the one the previous manifest recorded, so a
+ * repeated `designmap_apply`, a re-render, an overlay move or a views-only edit does not
+ * move it. `modelHash` is that content hash, and it is what makes the decision reviewable.
+ *
+ * WHY THE OLD SCENE SEEDS IT. The map used to live in `design.excalidraw`, whose
+ * `designMap.rev` had reached 30 when this plugin took over; analysis records already stored
+ * `mapRev: 30`. Starting the counter at 1 would make every one of them look drifted, so the
+ * first manifest continues from that scene (D3 in docs/analysis/kit-integrity-p0.json).
+ * `design.excalidraw` is READ here and nowhere else, only to seed this one value; nothing
+ * writes it back.
  */
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { canonicalModel, sha256, toJson } from './canonical.mjs'
 
 export const MANIFEST_FILE = 'manifest.json'
 export const MANIFEST_SCHEMA_VERSION = 1
+
+/** The retired scene whose `designMap.rev` seeds the first manifest revision. */
+export const SEED_SCENE_FILE = 'design.excalidraw'
 
 /** SHA-256 of a file's bytes as `sha256:<hex>`, or null when the file is absent. */
 export function hashFile(path) {
@@ -43,12 +61,63 @@ export function sourceHashes(model, repoRoot) {
   return hashes
 }
 
-/** Build the manifest for `model` at `commit`. */
-export function buildManifest({ model, repoRoot, commit, generatedAt }) {
+/** Content hash of the canonical (semantic) model: the key the revision moves on. */
+export function modelContentHash(model) {
+  return sha256(toJson(canonicalModel(model)))
+}
+
+/**
+ * The revision the retired `design.excalidraw` reached, read once to continue its numbering.
+ *
+ * A missing/malformed scene is 0: the map starts its own numbering from 1 on the first change.
+ */
+export function seedRevision(repoRoot) {
+  const path = join(repoRoot, SEED_SCENE_FILE)
+  if (!existsSync(path)) return 0
+  try {
+    const rev = JSON.parse(readFileSync(path, 'utf8'))?.designMap?.rev
+    return Number.isSafeInteger(rev) && rev >= 0 ? rev : 0
+  } catch {
+    // A broken legacy scene is not a revision: the manifest starts from 0.
+    return 0
+  }
+}
+
+/**
+ * Next revision for `model`.
+ *
+ * With a previous manifest the content hash decides: same hash keeps `rev`, a different hash
+ * bumps it by one. `changed` is only the fallback for a manifest written before `modelHash`
+ * existed (upgrade), where the apply engine's own "model written" answer is the only signal.
+ *
+ * @param options.seed - lazy legacy seed, called only when there is no previous revision.
+ */
+export function nextRevision({ previous, modelHash, changed = false, seed = () => 0 }) {
+  const previousRev = Number.isSafeInteger(previous?.rev) && previous.rev >= 0 ? previous.rev : null
+  if (previousRev === null) return seed() + (changed ? 1 : 0)
+  if (typeof previous?.modelHash === 'string' && previous.modelHash !== '') {
+    return previous.modelHash === modelHash ? previousRev : previousRev + 1
+  }
+  return previousRev + (changed ? 1 : 0)
+}
+
+/**
+ * Build the manifest for `model` at `commit`.
+ *
+ * @param options.previous - the manifest on disk before this apply, or null.
+ * @param options.changed - did this apply write the model? Only used when `previous` predates
+ *   `modelHash`; the hash is the authority otherwise.
+ */
+export function buildManifest({ model, repoRoot, commit, generatedAt, previous = null, changed = false }) {
+  const modelHash = modelContentHash(model)
   return {
     schemaVersion: MANIFEST_SCHEMA_VERSION,
+    // The retired scene is read ONLY when there is no revision to continue: an ordinary
+    // apply must not touch it at all.
+    rev: nextRevision({ previous, modelHash, changed, seed: () => seedRevision(repoRoot) }),
     commit: commit ?? null,
     generatedAt,
+    modelHash,
     sourceHashes: sourceHashes(model, repoRoot),
   }
 }
@@ -71,7 +140,9 @@ export function sameManifestContent(left, right) {
   if (left === null || right === null) return left === right
   const strip = manifest => JSON.stringify({
     schemaVersion: manifest.schemaVersion,
+    rev: manifest.rev ?? 0,
     commit: manifest.commit ?? null,
+    modelHash: manifest.modelHash ?? null,
     sourceHashes: Object.fromEntries(Object.entries(manifest.sourceHashes ?? {}).sort(([a], [b]) => (a < b ? -1 : 1))),
   })
   return strip(left) === strip(right)

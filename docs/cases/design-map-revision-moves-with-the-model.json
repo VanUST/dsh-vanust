@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "design-map-revision-moves-with-the-model",
+  "title": "design map revision moves with the model",
+  "requirement": "Правка семантической модели карты дизайна двигает ревизию, которую читает запись анализа, поэтому условие «карта ушла вперёд» срабатывает от реальной правки.",
+  "kind": "regression",
+  "status": "unverified",
+  "source": "human",
+  "automated": false,
+  "reason": "Проверка опирается на живой сервис карты дизайна и на запись анализа; автоматический прогон появится вместе с изменением designmap/analysis в задаче P0.4.",
+  "steps": [
+    "Прочитать `rev` в `designmap/manifest.json` и `designRef.mapRev` в записи анализа.",
+    "Применить `designmap_apply` с изменением модели и снова прочитать `rev`.",
+    "Повторить то же применение и убедиться, что файл списка сборки не изменился.",
+    "Прогнать `analysis_check` для записи со старой ревизией и посмотреть, сообщает ли она расхождение карты."
+  ],
+  "expected": "`designmap_apply` поднимает `rev` в `designmap/manifest.json` при изменении модели и не двигает его при повторном применении того же содержимого; запись анализа со старой ревизией после правки модели сообщает расхождение карты, а на неизменённой карте — нет.",
+  "tags": [
+    "designmap",
+    "analysis",
+    "drift"
+  ],
+  "surfaceFiles": [],
+  "linkedTaskId": "task-mwko195o-a1q0nu",
+  "revision": 1,
+  "createdAt": "2026-11-17T12:25:44.412Z",
+  "updatedAt": "2026-11-17T12:25:44.412Z",
+  "createdBy": "orchestrator",
+  "createdByKind": "agent",
+  "history": [],
+  "evidence": {}
+}

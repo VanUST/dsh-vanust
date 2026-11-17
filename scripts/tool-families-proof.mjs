@@ -6,7 +6,7 @@
  *   preset, in both workspace kinds (a plain repository and a Godot checkout), and assert the
  *   contract the deployment agreed on:
  *
- *     Playwright  → standard, orchestrator, ux
+ *     Playwright  → standard, ux
  *     Godot       → standard, and backend/ux/reviewer/critic ONLY in a Godot workspace
  *     research/docs → no MCP family at all
  *     hindsight   → never removed, for any preset
@@ -99,7 +99,7 @@ const { normalizeConfig, decide, removedBytes, apply } = await import(pathToFile
 const POLICY_RAW = {
   projectMarkers: { 'mcp__godot__*': 'project.godot' },
   families: {
-    orchestrator: { deny: ['mcp__godot__*'] },
+    orchestrator: { deny: ['mcp__godot__*', 'mcp__playwright__*', 'bash', 'pwsh'] },
     ux: { projectDeny: ['mcp__godot__*'] },
     backend: { deny: ['mcp__playwright__*'], projectDeny: ['mcp__godot__*'] },
     reviewer: { deny: ['mcp__playwright__*'], projectDeny: ['mcp__godot__*'] },
@@ -153,7 +153,7 @@ for (const workspace of WORKSPACES) {
 const row = (workspace, preset) => table.find((entry) => entry.workspace === workspace && entry.preset === preset)
 
 // ── the contract ──────────────────────────────────────────────────────────────
-const playwrightKept = ['orchestrator', 'ux']
+const playwrightKept = ['ux']
 const godotInGodot = ['backend', 'ux', 'reviewer', 'critic']
 
 check(
@@ -219,14 +219,23 @@ const lifecycleCtx = () => {
   const infos = []
   const projection = new Map()
   const liveAgents = new Map()
+  const provided = new Map()
   const ctx = {
     on(event, handler) {
       (handlers[event] ??= []).push(handler)
     },
+    provide(name, service) {
+      provided.set(name, service)
+      return service
+    },
+    effect(fn) {
+      fn()
+      return () => {}
+    },
     get(name) {
       if (name === 'agentPresets') return { presetForSession: (session) => projection.get(session?.id) }
       if (name === 'agents') return { get: (id) => liveAgents.get(id) }
-      return undefined
+      return provided.get(name)
     },
     tools: { schemas: () => fakeSchemas },
     logger: { info: (message) => infos.push(String(message)) },
@@ -234,7 +243,7 @@ const lifecycleCtx = () => {
   // `ctx.root` is the root context: the row and the registry are siblings, and Cordis raises an
   // event upward, so a sibling's own `on` never sees the other's emission.
   ctx.root = ctx
-  return { ctx, liveAgents, handlers, restricts, lifted, infos, projection }
+  return { ctx, liveAgents, handlers, restricts, lifted, infos, projection, provided }
 }
 const fakeAgent = (env, creationPreset) => ({
   session: { id: 'probe-session', header: { agentPreset: creationPreset, cwd: KIT } },
@@ -267,8 +276,8 @@ const agent = fakeAgent(env, 'orchestrator')
 await created(env, agent)
 check('created under orchestrator installs exactly one restriction', env.restricts.length === 1, `restricts=${env.restricts.length}`)
 check(
-  'the created restriction is the orchestrator deny (godot gone, playwright kept)',
-  env.restricts[0].deny.some((name) => name.startsWith('mcp__godot__')) && !env.restricts[0].deny.some((name) => name.startsWith('mcp__playwright__')),
+  'the created restriction is the orchestrator deny (godot and playwright gone, bash gone)',
+  env.restricts[0].deny.some((name) => name.startsWith('mcp__godot__')) && env.restricts[0].deny.some((name) => name.startsWith('mcp__playwright__')) && env.restricts[0].deny.includes('bash'),
   `deny=${env.restricts[0].deny.length}`,
 )
 env.projection.set('probe-session', 'backend')
@@ -329,6 +338,48 @@ check(
   'an unmatched pattern is a retry, not an applied restriction',
   unmatchedEnv.restricts.length === 0 && unmatchedEnv.lifted.length === 0,
   `restricts=${unmatchedEnv.restricts.length} (next() called: ${firstTry}/${secondTry})`,
+)
+
+// ── policy facts: what the prompt owner is allowed to quote ─────────────────────
+// A consumer that writes "this role has no <family>" must not hard-code the claim: the policy
+// owns the facts. `ctx.provide('toolFamilies', …)` is the additive, optional contract; without
+// it the consumer asserts nothing. The red-first case is the previous plugin build, which
+// published no service at all.
+console.log('\npolicy facts: the service the prompt owner reads')
+const factsEnv = lifecycleCtx()
+apply(factsEnv.ctx, POLICY_RAW)
+const factsService = factsEnv.provided.get('toolFamilies')
+check('apply publishes the `toolFamilies` service', factsService !== undefined && typeof factsService.factsFor === 'function' && typeof factsService.presetFor === 'function')
+const factsAgent = fakeAgent(factsEnv, 'orchestrator')
+check('factsFor is null before the policy is applied to an agent', factsService?.factsFor(factsAgent) === null)
+await created(factsEnv, factsAgent)
+const facts = factsService?.factsFor(factsAgent)
+const removed = Array.isArray(facts?.removed) ? facts.removed : []
+check(
+  'the facts name the preset the policy was applied with',
+  facts?.preset === 'orchestrator',
+  `preset=${facts?.preset}`,
+)
+check(
+  'the facts list only the patterns that really removed tools: playwright, godot and bash, never an unmatched pwsh',
+  ['mcp__playwright__*', 'mcp__godot__*', 'bash'].every((pattern) => removed.includes(pattern)) && !removed.includes('pwsh'),
+  `removed=${removed.join(',')}`,
+)
+check(
+  'presetFor follows the projection for a session (a selection after creation wins)',
+  (() => {
+    factsEnv.projection.set('switch-session', 'backend')
+    return factsService?.presetFor({ id: 'switch-session', header: { agentPreset: 'orchestrator' } }) === 'backend'
+  })(),
+)
+const factsOther = fakeAgent(factsEnv, 'backend')
+factsEnv.projection.set('probe-session', 'backend')
+await created(factsEnv, factsOther)
+const backendFacts = factsService?.factsFor(factsOther)
+check(
+  'a different preset gets its own facts, not the orchestrator ones',
+  backendFacts?.preset === 'backend' && !(backendFacts?.removed ?? []).includes('bash'),
+  `preset=${backendFacts?.preset} removed=${(backendFacts?.removed ?? []).join(',')}`,
 )
 
 const passed = results.filter((r) => r.ok).length

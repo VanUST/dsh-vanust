@@ -111,6 +111,34 @@ The scene is **the whole presentation geometry**. The renderer may choose colour
 fonts, stroke widths, icons and the label's exact baseline from a `type`/`kind` table,
 but it must not move a node, resize a box, re-route an edge or wrap a label.
 
+## The manifest and the map revision
+
+`designmap/manifest.json` is written by `apply` next to `model.yaml`: the commit and per-node
+source hashes the model was last synced with, plus the **revision** an Analysis Record
+references (`designRef.mapRev`).
+
+```json
+{
+  "schemaVersion": 1,
+  "rev": 31,
+  "commit": "a1b2c3d",
+  "generatedAt": "2026-11-16T10:00:00.000Z",
+  "modelHash": "sha256:…",
+  "sourceHashes": { "svc.checkout.api": "sha256:…", "db.orders": null }
+}
+```
+
+| Field | Rule |
+|---|---|
+| `schemaVersion` | integer, `1` in v1; an unknown version is refused by a consumer, not guessed |
+| `rev` | non-negative integer. **It is a monotonic counter of semantic model content, not of writes**: `rev` rises by one only when the canonical model differs from the `modelHash` the previous manifest recorded. A repeated apply, a re-render, an overlay move or a `views.yaml`-only edit leaves it unchanged, and a no-op apply leaves the whole file byte-identical. The retired `design.excalidraw` scene's `designMap.rev` (30) seeds the first manifest, so the first semantic change after the migration is 31 and records written against rev 30 do not become drifted |
+| `modelHash` | `sha256:` of the canonical model JSON (`src/canonical.mjs`): the content key `rev` moves on. Reformatting or reordering `model.yaml` without changing the model does not move it |
+| `commit` | the git commit the model was synced with, or `null` outside a repository |
+| `generatedAt` | when the manifest content was last changed; a no-op apply does not rewrite it |
+| `sourceHashes` | one entry per node with a `source`; `null` when that file is missing. Computed from the tree at apply time, not from the model content |
+
+`design.excalidraw` is read **only** to seed `rev`; nothing writes it back after the migration.
+
 ## The view index
 
 `designmap/out/index.json` is the discovery surface for the agent's `render`/`export`

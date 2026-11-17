@@ -51,6 +51,9 @@
  *   prefix. On a preset CHANGE it lifts the previous restriction (the disposer returned by
  *   `restrict`) and installs the new one, so the earlier preset's denies are not left in
  *   force: `dsh-tools` intersects restrictions, so stacking two calls would keep both.
+ *   A `toolFamilies` service (`ctx.provide`, optional for the consumer) publishes the policy
+ *   facts: the preset in force for a session and the patterns that actually removed tools
+ *   from one agent, so a prompt owner states the session's real tool set instead of a literal.
  *   No tool, no prompt section, no session event.
  *
  * KEYWORDS
@@ -125,19 +128,23 @@ export function normalizeConfig(raw = {}) {
  * @param preset - `agent.session.header.agentPreset`, may be undefined (standard).
  * @param options.visible - every tool name the agent can currently see.
  * @param options.hostHas - predicate: does `cwd` contain the project marker?
- * @returns { deny, families, keptProjectGated, unmatched } — `deny` holds exact names only.
+ * @returns { deny, patterns, matched, keptProjectDeny, unmatched } — `deny` holds exact names
+ *   only; `matched` names the patterns that really removed a tool, so a consumer can quote
+ *   what the policy did instead of inferring it from the config.
  */
 export function decide(config, preset, { visible = [], hostHas = () => false } = {}) {
-  if (config.disabled) return { deny: [], patterns: [], keptProjectDeny: [], unmatched: [] }
+  if (config.disabled) return { deny: [], patterns: [], matched: [], keptProjectDeny: [], unmatched: [] }
   const entry = preset === undefined || preset === null ? undefined : config.families[preset]
-  if (entry === undefined) return { deny: [], patterns: [], keptProjectDeny: [], unmatched: [] }
+  if (entry === undefined) return { deny: [], patterns: [], matched: [], keptProjectDeny: [], unmatched: [] }
 
   const denied = []
   const keptProjectDeny = []
+  const matched = []
   const unmatched = []
   const add = (pattern) => {
     const hits = visible.filter((name) => matches(name, pattern))
     if (hits.length === 0) unmatched.push(pattern)
+    else matched.push(pattern)
     for (const name of hits) if (!denied.includes(name)) denied.push(name)
   }
   for (const pattern of entry.deny ?? []) add(pattern)
@@ -150,7 +157,7 @@ export function decide(config, preset, { visible = [], hostHas = () => false } =
     }
     add(pattern)
   }
-  return { deny: denied, patterns: [...(entry.deny ?? []), ...(entry.projectDeny ?? [])], keptProjectDeny, unmatched }
+  return { deny: denied, patterns: [...(entry.deny ?? []), ...(entry.projectDeny ?? [])], matched, keptProjectDeny, unmatched }
 }
 
 /** Schema bytes of the denied tools — the number that makes the saving reviewable. */
@@ -307,7 +314,12 @@ export function apply(ctx, config = {}) {
       const entry = resolved.families[preset] ?? {}
       if (current !== undefined) lift(`preset changed to "${preset}"`)
       const dispose = tools.restrict({ deny: decision.deny, ...(entry.allow?.length ? { allow: entry.allow } : {}) })
-      applied.set(agent, { preset, dispose: typeof dispose === 'function' ? dispose : undefined })
+      applied.set(agent, {
+        preset,
+        dispose: typeof dispose === 'function' ? dispose : undefined,
+        matched: decision.matched,
+        keptProjectDeny: decision.keptProjectDeny,
+      })
       ctx.logger?.info?.(
         `tool-families: preset "${preset}" denied ${decision.deny.length} tool(s) (${bytes} B of schema) via ${decision.patterns.join(', ')}`
           + `${current !== undefined ? ` [recomputed from "${current.preset}"]` : ''}`
@@ -349,6 +361,44 @@ export function apply(ctx, config = {}) {
       if (live !== undefined && live !== null) applyTo(live, 'selected', preset)
       else remember(sessionId, preset)
     })
+  }
+
+  /**
+   * The policy facts a prompt owner can quote, published as the `toolFamilies` service.
+   *
+   * WHY THIS IS A SERVICE AND NOT A LITERAL IN THE CONSUMER. A prompt that says "you have no
+   * `bash`" is a claim about the POLICY, and the policy lives here; the same prompt is read by
+   * a root whose preset this row does not describe, where the claim is false (measured
+   * 2026-11-17: a `cordis` root carried `bash` among 109 tools while the orchestrator policy
+   * still said it had none). The consumer also needs the actual set: `removed` is the patterns
+   * that really took tools out of this agent's view, not the configured list, so a pattern that
+   * matched nothing (a Windows-only `pwsh` on Linux, a bridge that is down) is never quoted.
+   *
+   * The service is OPTIONAL for a consumer: `ctx.get('toolFamilies')` returns undefined in a
+   * composition without this row, and the consumer must then assert nothing rather than guess.
+   */
+  const service = {
+    /** The preset in force for a session, resolved exactly as the restriction is. */
+    presetFor(session) {
+      return resolvePreset({ session })
+    },
+    /**
+     * What this policy removed from one agent's view.
+     *
+     * @returns `{ preset, removed, kept }` once a restriction is installed, `null` before that
+     *   (or when the preset has no row): a consumer that gets `null` says nothing.
+     */
+    factsFor(agent) {
+      const record = applied.get(agent)
+      if (record === undefined) return null
+      return { preset: record.preset, removed: [...record.matched], kept: [...record.keptProjectDeny] }
+    },
+  }
+  try {
+    const provided = ctx.provide?.('toolFamilies', service)
+    if (typeof provided === 'function') ctx.effect?.(() => provided)
+  } catch {
+    // A context without service provisioning still restricts; it just publishes no facts.
   }
 
   ctx.on('agent/created', ({ agent }) => {
