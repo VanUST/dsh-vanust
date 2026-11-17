@@ -230,6 +230,9 @@ export const CSS = `
 .dmv-node .dmv-node-label { overflow-wrap: anywhere; }
 .dmv-node .dmv-open-hint { position: absolute; top: 2px; right: 4px; font-size: 10px; color: var(--dmv-muted); opacity: 0; }
 .dmv-node:hover .dmv-open-hint, .dmv-node:focus-within .dmv-open-hint { opacity: 1; }
+/* SceneCanvas has no header or legend; it fills the host panel's own box. */
+.dmv-canvas-only { min-height: 0; }
+.dmv-canvas-only .dmv-stage { min-height: 0; }
 .dmv-node .dmv-stale {
   position: absolute;
   top: -7px;

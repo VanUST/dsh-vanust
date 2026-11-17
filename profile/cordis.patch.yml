@@ -559,6 +559,18 @@
     - id: project-state
       name: '@cc/dsh-project-state'
 
+# ── project-state-panel: four read-only modes over the state projections ──────
+# One client-only panel (the host row registers nothing) over `state/views/index.json`: the
+# business requirements, the task board, the design map and tests/traceability share one
+# selection, so picking a requirement filters the other modes. It writes nothing and runs no
+# write command: the map is designmap's read-only `views` op drawn by designmap's own React
+# Flow scene renderer, and every action that changes state stays in the Tasks, Cases and
+# Design map panels and in the state core. The panel reads `state/` and the analysis records
+# through the read-only workspaceFiles API.
+- insert:
+    - id: project-state-panel
+      name: '@cc/dsh-project-state-panel'
+
 # ── state-feed: L1 once, L2 by hash ─────────────────────────────────────────
 # Writes the project state into the CONVERSATION through agent.inject(): one L1 user message
 # on a root session (digest + plan + last snapshot), then one aggregated L2 delta at a turn

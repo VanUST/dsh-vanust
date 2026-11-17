@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "id": "project-state-panel-four-read-only-modes-over-one-selection",
+  "title": "Project state panel: four read-only modes over one selection",
+  "requirement": "The project state panel is one read-only lens over the generated state projections: business requirements, the task board, the design map and tests/traceability share one selection, so picking a requirement filters the other modes; a task shows its requirement and tests, a test shows its requirement and evidence, and a design-map node shows the requirements traced to its component. The map is drawn by the existing designmap renderer and the panel writes nothing.",
+  "kind": "scenario",
+  "status": "unverified",
+  "source": "agent",
+  "automated": false,
+  "reason": "The proof needs a live DSH web server on a second port, an isolated DSH_HOME and a seeded workspace, plus a real Chromium session; it is not a hermetic test, and the server is torn down after the run. The exact commands, fixture scripts, logs and screenshots are in reports/project-state-panel/ (PROOF.md, proof-panel.mjs, browser-log2.json, state-before.sha, state-after.sha, screens/).",
+  "steps": [
+    "Copy the real state/, designmap/ and docs/analysis/ into /tmp/state-panel-fixture/workspace; do not write state/ in the kit.",
+    "Take sha256 of every file under state/ (find state -type f | sort | xargs sha256sum).",
+    "Create an isolated DSH_HOME with a copy of profiles/web, install the packed designmap 0.1.21 and project-state-panel 0.1.5 into its node_modules, and start: DSH_HOME=/tmp/state-panel-fixture/home dsh --profile web --patch /tmp/state-panel-fixture/panel-overlay.yml --port 3091 --no-open (cwd /tmp/state-panel-fixture/workspace).",
+    "Create a session in that workspace via session/create {request:{cwd}} and open the State panel from the sidebar or the conversation header.",
+    "Select REQ-001 in Requirements, switch to Board, open TASK-128, open Links, follow TEST-003, open Overview and read the red/green pair.",
+    "Open Tests & trace -> Trace matrix; then Design map, click Analysis record, open Links, follow REQ-080.",
+    "Resize to 760x900 and check scrollWidth equals clientWidth; run axe scoped to .ps-root; press Escape and check focus returns to the opener.",
+    "Recompute the state/ hashes and compare: they must be identical (the panel wrote nothing)."
+  ],
+  "expected": "On a second DSH server pointed at a copy of the real state/ (102 REQ, 223 TASK, 49 TEST): the header shows those counts and index.json v1; selecting REQ-001 yields 1 task and 1 test, the TASK-128 drawer shows REQ-001 and TEST-003, the TEST-003 drawer shows its requirement, the evidence TASK-128 and a recorded RED exit 1 / GREEN exit 0 pair; the map has 9 nodes and 4 nodes traced to requirements, and following Analysis record -> REQ-080 switches to Requirements with the filter set; axe scoped to the panel reports 0 violations; the sha256 of all 483 files under state/ is identical before and after the browser sweep.",
+  "tags": [
+    "ux",
+    "panel",
+    "read-only",
+    "state",
+    "designmap"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/project-state-panel/client.js",
+      "sha256": "6cd60bd7d7f9f705dca8bb6954772389ac03bdc016a0226c396a08e75fdfdf20"
+    },
+    {
+      "path": "plugins/designmap/client/view.jsx",
+      "sha256": "b86170c33ed431a5da23ef2116e595a328e4b97f35a8792b3ad4aebd84326abc"
+    },
+    {
+      "path": "plugins/project-state/lib/views.mjs",
+      "sha256": "15bd7074a099e66fa616d3f49796926d431dcab121d0c41fa3207d91bcc1c370"
+    },
+    {
+      "path": "state/views/index.json",
+      "sha256": "2404d9b18ed8ce5580fb18c30508424ca095ec671aac9cbb6e92f9125fa72465"
+    }
+  ],
+  "linkedTaskId": "task-mwkq732m-ganepf",
+  "revision": 1,
+  "createdAt": "2026-11-17T16:17:51.846Z",
+  "updatedAt": "2026-11-17T16:17:51.846Z",
+  "createdBy": "ux",
+  "createdByKind": "agent",
+  "history": [],
+  "evidence": {}
+}

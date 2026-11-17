@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "project-state-ecosystem",
-  "rev": 36,
+  "rev": 39,
   "status": "ready",
   "createdAt": "2026-11-17T13:19:07.274Z",
-  "updatedAt": "2026-11-17T15:50:29.917Z",
+  "updatedAt": "2026-11-17T16:20:11.575Z",
   "updatedBy": "agent",
   "title": "Экосистема состояния проекта и экономика контекста — v1",
   "requestedSolution": "Реализовать v1 дизайна от 2026-11-17 в порядке §10: (1) контекст-фундамент — allow-list в tool-families, диета схем и линтер, контракт слоёв L0–L3, новый хост-плагин state-feed (L1 первым сообщением, L2-дельты по хешу, инъекции как session events), MCP только для ux, Hindsight воркерам убран, context-budget.mjs с предупреждением и красным гейтом >1.5×; (2) ядро ccProjectState — файл на сущность в state/, ID под локом, связи с хешами, CAS, журнал, verify, регенерация проекций; (3) policy-плагин (fs/tools/sandbox) с запретами записи и трипвайром; (4) эволюция analysis в реестр REQ; (5) taskboard с reqId/chore и CAS через ядро; (6) раннер red→green с evidence вне writable-области; (7) оркестратор с брифом из обвязки, структурированным возвратом, cold-start гейтом и снимками; (8) миграции и доводка проекций; (9) дисциплина языка. v2 не трогать.",
@@ -200,7 +200,7 @@
         "Каждая запись анализа имеет REQ-эквивалент",
         "Задачи перенесены без потери истории"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR14",
@@ -282,7 +282,7 @@
       {
         "id": "analysis",
         "name": "@cc/dsh-analysis",
-        "responsibility": "эволюция в реестр REQ: REQ первичен, дедуп-кандидаты, digest для L1, гейт evidence_required",
+        "responsibility": "реестр REQ: зеркалирование, дедуп, digest для L1, гейт evidence_required",
         "owner": "kit",
         "owns": [
           "analysis-records"
@@ -319,11 +319,22 @@
       {
         "id": "delegation-brief",
         "name": "@cc/dsh-delegation-brief",
-        "responsibility": "рендерит бриф из реестра (критерии дословно, решения, кейсы, формат возврата) с детерминированным briefHash и разбирает возврат по замороженным критериям; гейт только у корня с пресетом orchestrator",
+        "responsibility": "бриф из реестра с детерминированным briefHash; разбор возврата по замороженным критериям; только у корня с пресетом orchestrator",
         "owner": "kit",
         "owns": [],
         "dependsOn": [
           "project-state"
+        ]
+      },
+      {
+        "id": "project-state-panel",
+        "name": "@cc/dsh-project-state-panel",
+        "responsibility": "клиентская панель: четыре режима (требования, доска, карта, кейсы и трассировка) над одним фильтром; read-only; карта через экспортированный SceneCanvas designmap",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": [
+          "project-state",
+          "designmap"
         ]
       },
       {
@@ -332,7 +343,9 @@
         "responsibility": "allow-list вместо deny-only; бюджеты инструментов рядом с политикой",
         "owner": "kit",
         "owns": [],
-        "dependsOn": []
+        "dependsOn": [
+          "tool-families"
+        ]
       },
       {
         "id": "context-budget",
@@ -347,7 +360,7 @@
       {
         "id": "orchestrator",
         "name": "@cc/dsh-orchestrator",
-        "responsibility": "политика ролей, статический раздел про бриф, снимки состояния",
+        "responsibility": "политика ролей, статический раздел про бриф",
         "owner": "kit",
         "owns": [],
         "dependsOn": [
@@ -367,6 +380,14 @@
           "tool-families",
           "orchestrator"
         ]
+      },
+      {
+        "id": "designmap",
+        "name": "@cc/dsh-designmap",
+        "responsibility": "геометрия карты и рендерер сцены (React Flow); панель переиспользует экспортированный SceneCanvas, второго владельца геометрии нет",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": []
       },
       {
         "id": "docs",
@@ -678,9 +699,13 @@
     {
       "requirementId": "BR1",
       "processId": "V1-TGT",
-      "componentId": "project-state",
-      "contractIds": [],
-      "dataIds": [],
+      "componentId": "project-state-panel",
+      "contractIds": [
+        "state-service-api"
+      ],
+      "dataIds": [
+        "state-views"
+      ],
       "status": "planned",
       "tasks": [
         {
@@ -937,17 +962,19 @@
           "taskId": "task-mwkuvwyx-sr1ydm",
           "role": "BACKEND",
           "at": "2026-11-17T15:40:00.000Z",
-          "evidence": []
+          "evidence": [
+            "бриф и возврат реализованы; живой пруф на ослабленном гейте переделан в V1.11b"
+          ]
         },
         {
           "taskId": "task-mwkv6sqc-j2gept",
           "role": "BACKEND",
           "at": "2026-11-17T15:48:00.000Z",
           "evidence": [
-            "delegation-brief 7/7; make verify exit 0 (моя проверка)",
-            "гейт строгий: presetOf(ctx, agent) !== 'orchestrator' → return (index.mjs:160); тест «без именованного пресета — ни инструмента, ни раздела»",
-            "критерии дословно, два рендера байт-идентичны; отказы cold_start_required/feature_required/criteria_missing; возврат: brief_stale/return_unmapped/return_invalid",
-            "живой пруф не снят — отчёт v111-delegation-brief.md это фиксирует"
+            "delegation-brief 7/7; make verify exit 0",
+            "гейт строгий: presetOf !== 'orchestrator' → return (index.mjs:160)",
+            "критерии дословно; отказы; возврат по критериям",
+            "живой пруф не снят — отчёт фиксирует"
           ]
         }
       ]
@@ -956,10 +983,27 @@
       "requirementId": "FR13",
       "processId": "V1-TGT",
       "componentId": "analysis",
-      "contractIds": [],
-      "dataIds": [],
-      "status": "planned",
-      "tasks": []
+      "contractIds": [
+        "state-service-api"
+      ],
+      "dataIds": [
+        "analysis-records",
+        "state-entities"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkvdnfd-fc7laq",
+          "role": "BACKEND",
+          "at": "2026-11-17T16:05:00.000Z",
+          "evidence": [
+            "state-migrate.mjs: REQ 102 / TASK 223 / TEST 49; источники только читаются",
+            "повторный прогон: 0 созданных, 374 пропущенных, sha256 483 файлов state/ совпали (моя проверка: exit 0, digest тот же)",
+            "проекции непустые: digest REQ 102 · TASK 223 · TEST 49 · event 374; verify() 0 битых ссылок",
+            "make verify exit 0 после перепаковки designmap 0.1.21 и панели 0.1.5"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "FR14",
@@ -1039,7 +1083,7 @@
     }
   ],
   "pendingImpacts": [],
-  "fingerprint": "f4faae77e1ed752c4818dea906ea38752296282fe3f2e7789adf91b1444e7b08",
+  "fingerprint": "9734561db8cbc3e0eed542c24d009bb98861e34397f562c21ab230a13712b57f",
   "history": [
     {
       "revision": 1,
@@ -1328,6 +1372,30 @@
       "action": "upsert",
       "status": "ready",
       "summary": "requirements: FR12 changed; impacts: 2"
+    },
+    {
+      "revision": 37,
+      "at": "2026-11-17T15:50:53.354Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 38,
+      "at": "2026-11-17T15:51:13.395Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwkvdnfd-fc7laq -> FR13"
+    },
+    {
+      "revision": 39,
+      "at": "2026-11-17T16:20:11.575Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "impacts: 1"
     }
   ]
 }

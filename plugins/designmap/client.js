@@ -185,6 +185,7 @@ var require_with_selector = __commonJS({
 var entry_exports = {};
 __export(entry_exports, {
   DesignMapView: () => DesignMapView,
+  SceneCanvas: () => SceneCanvas,
   apply: () => apply,
   createRemoteHost: () => createRemoteHost,
   inject: () => inject
@@ -10325,6 +10326,126 @@ function shortHash(value2) {
   return `${value2.startsWith("sha256:") ? "sha256:" : ""}${bare.slice(0, 12)}\u2026`;
 }
 var shortCommit = (value2) => typeof value2 !== "string" || value2 === "" ? "not recorded" : value2.slice(0, 7);
+function SceneCanvas({ scene, overlays = {}, highlight = null, dim = false, overlay = null, onNodeClick, label = "Design map canvas" }) {
+  const [zoom3, setZoom] = import_react4.default.useState(1);
+  const sceneById = import_react4.default.useMemo(() => new Map(scene.nodes.map((node) => [node.id, { x: node.x, y: node.y }])), [scene]);
+  const flowNodes = scene.nodes.map((node) => {
+    const row = overlays[node.id] ?? {};
+    const base = paletteFor(node.type);
+    const highlighted = highlight === null || highlight.has(node.id);
+    return {
+      id: node.id,
+      type: "scene",
+      position: { x: node.x, y: node.y },
+      data: {
+        node,
+        fill: row.fill ?? base.fill,
+        stroke: row.stroke ?? base.stroke
+      },
+      ariaLabel: nodeAriaLabel(node),
+      draggable: false,
+      selectable: false,
+      className: highlighted ? "dmv-selected" : "",
+      style: { width: node.w, height: node.h, ...dim === true && !highlighted ? { opacity: 0.3 } : {} },
+      width: node.w,
+      height: node.h
+    };
+  });
+  const flowEdges = scene.edges.map((edge) => {
+    const look = edgeStyleFor(edge.kind);
+    return {
+      id: edge.id,
+      source: edge.from,
+      target: edge.to,
+      type: "sceneEdge",
+      data: {
+        points: edge.points,
+        label: edge.label,
+        labelBox: edge.labelBox,
+        labelLines: edge.labelLines,
+        kind: edge.kind,
+        origin: { from: sceneById.get(edge.from), to: sceneById.get(edge.to) }
+      },
+      ariaLabel: edgeAriaLabel(edge),
+      markerEnd: { type: MarkerType.ArrowClosed, color: look.stroke, width: 16, height: 16 },
+      style: { stroke: look.stroke, strokeWidth: look.strokeWidth, strokeDasharray: look.strokeDasharray }
+    };
+  });
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dmv dmv-canvas-only", "data-edit-mode": "false", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { className: "dmv-visually-hidden", children: label }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("section", { className: "dmv-stage", "aria-label": label, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dmv-flow", children: scene.nodes.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dmv-empty", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { children: scene.title || scene.viewId || "Empty view" }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { children: "This view has no nodes; only the scene the host rendered is drawn here." })
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
+      index,
+      {
+        nodes: flowNodes,
+        edges: flowEdges,
+        nodeTypes: NODE_TYPES,
+        edgeTypes: EDGE_TYPES,
+        onMove: (_event, viewport) => setZoom(viewport.zoom),
+        onNodeClick: (_event, node) => onNodeClick?.(node.data.node),
+        fitView: true,
+        fitViewOptions: { padding: 0.1, maxZoom: 1.5, duration: 0 },
+        minZoom: 0.2,
+        maxZoom: 2.5,
+        nodesDraggable: false,
+        nodesConnectable: false,
+        elementsSelectable: false,
+        panOnDrag: true,
+        zoomOnScroll: true,
+        zoomOnDoubleClick: false,
+        colorMode: "light",
+        proOptions: { hideAttribution: false },
+        children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Background, { variant: BackgroundVariant.Dots, gap: 18, size: 1.1, color: "#cbd5e1" }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Controls, { showInteractive: false, position: "bottom-left" }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+            MiniMap,
+            {
+              position: "bottom-right",
+              pannable: true,
+              zoomable: true,
+              nodeColor: (node) => paletteFor(node.data?.node?.type).stroke,
+              nodeStrokeWidth: 3,
+              maskColor: "rgba(148, 163, 184, 0.18)",
+              bgColor: "var(--dmv-surface)",
+              style: { width: 150, height: 100 },
+              "aria-label": "Minimap"
+            }
+          ),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(ViewportPortal, { children: [
+            scene.groups.map((group) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+              "div",
+              {
+                className: "dmv-group",
+                "data-group-id": group.id,
+                style: { left: group.x, top: group.y, width: group.w, height: group.h },
+                children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dmv-group-title", children: group.label || group.id })
+              },
+              group.id
+            )),
+            overlay
+          ] })
+        ]
+      },
+      scene.viewId
+    ) }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dmv-status", "data-kind": "idle", role: "status", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { children: [
+      "Read-only scene: ",
+      scene.nodes.length,
+      " node",
+      scene.nodes.length === 1 ? "" : "s",
+      " \xB7 ",
+      scene.edges.length,
+      " edge",
+      scene.edges.length === 1 ? "" : "s",
+      " \xB7 zoom ",
+      Number.isFinite(zoom3) ? zoom3.toFixed(2) : "1",
+      "\xD7. Geometry comes from the designmap renderer; this panel never writes it."
+    ] }) })
+  ] });
+}
 function DesignMapView({ host, initial = null, title = "Design map" }) {
   const [sceneSet, setSceneSet] = import_react4.default.useState(initial);
   const [loading, setLoading] = import_react4.default.useState(initial === null);
@@ -11761,6 +11882,9 @@ var CSS = `
 .dmv-node .dmv-node-label { overflow-wrap: anywhere; }
 .dmv-node .dmv-open-hint { position: absolute; top: 2px; right: 4px; font-size: 10px; color: var(--dmv-muted); opacity: 0; }
 .dmv-node:hover .dmv-open-hint, .dmv-node:focus-within .dmv-open-hint { opacity: 1; }
+/* SceneCanvas has no header or legend; it fills the host panel's own box. */
+.dmv-canvas-only { min-height: 0; }
+.dmv-canvas-only .dmv-stage { min-height: 0; }
 .dmv-node .dmv-stale {
   position: absolute;
   top: -7px;

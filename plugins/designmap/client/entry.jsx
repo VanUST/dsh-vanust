@@ -11,11 +11,11 @@
  */
 import React from 'react'
 import flowCss from '@xyflow/react/dist/style.css'
-import { DesignMapView } from './view.jsx'
+import { DesignMapView, SceneCanvas } from './view.jsx'
 import { createRemoteHost } from './host.js'
 import { CSS } from './styles.js'
 
-export { DesignMapView, createRemoteHost }
+export { DesignMapView, SceneCanvas, createRemoteHost }
 
 function injectStyleOnce(key, css) {
   if (typeof document === 'undefined') return

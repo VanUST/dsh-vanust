@@ -1,0 +1,40 @@
+{
+  "name": "@cc/dsh-project-state-panel",
+  "version": "0.1.5",
+  "description": "Project state panel: one read-only panel over the generated state projections with four modes — business requirements, the task board, the design map and tests/traceability — sharing one selection. It reads state/views/index.json and the state entity frontmatter; the design map is drawn by the existing designmap React Flow renderer, so it owns no geometry and writes nothing.",
+  "type": "module",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.mjs",
+    "client.js",
+    "README.md"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-api-gateway",
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-api-workspace-controller",
+        "@deepseek-ai/dsh-api-workspace-files",
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ],
+      "external": [
+        "@cc/dsh-designmap"
+      ]
+    }
+  }
+}

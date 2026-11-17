@@ -386,6 +386,139 @@ function shortHash(value) {
 
 const shortCommit = (value) => (typeof value !== 'string' || value === '' ? 'not recorded' : value.slice(0, 7))
 
+/**
+ * The read-only React Flow scene renderer, for a host panel that draws the SAME scene
+ * without the edit affordances of `DesignMapView`.
+ *
+ * It owns no geometry: every node position, edge path and label plate is the one in the
+ * scene JSON the designmap host rendered. The caller may pass a `highlight` set (nodes that
+ * stay at full strength while the rest dim) and an `overlay` node rendered inside the same
+ * viewport (a host panel's own annotations, positioned from the scene's node geometry), and
+ * receives the clicked scene node. There is no write path, no drag, no palette, no label
+ * editor and no annotation surface here — that is what keeps a second panel from becoming a
+ * second editor of the map.
+ */
+export function SceneCanvas({ scene, overlays = {}, highlight = null, dim = false, overlay = null, onNodeClick, label = 'Design map canvas' }) {
+  const [zoom, setZoom] = React.useState(1)
+  const sceneById = React.useMemo(() => new Map(scene.nodes.map((node) => [node.id, { x: node.x, y: node.y }])), [scene])
+
+  const flowNodes = scene.nodes.map((node) => {
+    const row = overlays[node.id] ?? {}
+    const base = paletteFor(node.type)
+    const highlighted = highlight === null || highlight.has(node.id)
+    return {
+      id: node.id,
+      type: 'scene',
+      position: { x: node.x, y: node.y },
+      data: {
+        node,
+        fill: row.fill ?? base.fill,
+        stroke: row.stroke ?? base.stroke,
+      },
+      ariaLabel: nodeAriaLabel(node),
+      draggable: false,
+      selectable: false,
+      className: highlighted ? 'dmv-selected' : '',
+      style: { width: node.w, height: node.h, ...(dim === true && !highlighted ? { opacity: 0.3 } : {}) },
+      width: node.w,
+      height: node.h,
+    }
+  })
+
+  const flowEdges = scene.edges.map((edge) => {
+    const look = edgeStyleFor(edge.kind)
+    return {
+      id: edge.id,
+      source: edge.from,
+      target: edge.to,
+      type: 'sceneEdge',
+      data: {
+        points: edge.points,
+        label: edge.label,
+        labelBox: edge.labelBox,
+        labelLines: edge.labelLines,
+        kind: edge.kind,
+        origin: { from: sceneById.get(edge.from), to: sceneById.get(edge.to) },
+      },
+      ariaLabel: edgeAriaLabel(edge),
+      markerEnd: { type: MarkerType.ArrowClosed, color: look.stroke, width: 16, height: 16 },
+      style: { stroke: look.stroke, strokeWidth: look.strokeWidth, strokeDasharray: look.strokeDasharray },
+    }
+  })
+
+  return (
+    <div className="dmv dmv-canvas-only" data-edit-mode="false">
+      <h2 className="dmv-visually-hidden">{label}</h2>
+      <section className="dmv-stage" aria-label={label}>
+        <div className="dmv-flow">
+          {scene.nodes.length === 0 ? (
+            <div className="dmv-empty">
+              <h2>{scene.title || scene.viewId || 'Empty view'}</h2>
+              <p>This view has no nodes; only the scene the host rendered is drawn here.</p>
+            </div>
+          ) : (
+            <ReactFlow
+              key={scene.viewId}
+              nodes={flowNodes}
+              edges={flowEdges}
+              nodeTypes={NODE_TYPES}
+              edgeTypes={EDGE_TYPES}
+              onMove={(_event, viewport) => setZoom(viewport.zoom)}
+              onNodeClick={(_event, node) => onNodeClick?.(node.data.node)}
+              fitView
+              fitViewOptions={{ padding: 0.1, maxZoom: 1.5, duration: 0 }}
+              minZoom={0.2}
+              maxZoom={2.5}
+              nodesDraggable={false}
+              nodesConnectable={false}
+              elementsSelectable={false}
+              panOnDrag
+              zoomOnScroll
+              zoomOnDoubleClick={false}
+              colorMode="light"
+              proOptions={{ hideAttribution: false }}
+            >
+              <Background variant={BackgroundVariant.Dots} gap={18} size={1.1} color="#cbd5e1" />
+              <Controls showInteractive={false} position="bottom-left" />
+              <MiniMap
+                position="bottom-right"
+                pannable
+                zoomable
+                nodeColor={(node) => paletteFor(node.data?.node?.type).stroke}
+                nodeStrokeWidth={3}
+                maskColor="rgba(148, 163, 184, 0.18)"
+                bgColor="var(--dmv-surface)"
+                style={{ width: 150, height: 100 }}
+                aria-label="Minimap"
+              />
+              <ViewportPortal>
+                {scene.groups.map((group) => (
+                  <div
+                    key={group.id}
+                    className="dmv-group"
+                    data-group-id={group.id}
+                    style={{ left: group.x, top: group.y, width: group.w, height: group.h }}
+                  >
+                    <span className="dmv-group-title">{group.label || group.id}</span>
+                  </div>
+                ))}
+                {overlay}
+              </ViewportPortal>
+            </ReactFlow>
+          )}
+        </div>
+      </section>
+      <div className="dmv-status" data-kind="idle" role="status">
+        <span>
+          Read-only scene: {scene.nodes.length} node{scene.nodes.length === 1 ? '' : 's'} · {scene.edges.length} edge
+          {scene.edges.length === 1 ? '' : 's'} · zoom {Number.isFinite(zoom) ? zoom.toFixed(2) : '1'}×. Geometry comes from
+          the designmap renderer; this panel never writes it.
+        </span>
+      </div>
+    </div>
+  )
+}
+
 export function DesignMapView({ host, initial = null, title = 'Design map' }) {
   const [sceneSet, setSceneSet] = React.useState(initial)
   const [loading, setLoading] = React.useState(initial === null)

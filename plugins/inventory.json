@@ -12,6 +12,16 @@
       "mounted": true
     },
     {
+      "id": "project-state-panel",
+      "package": "@cc/dsh-project-state-panel",
+      "tarballPrefix": "cc-dsh-project-state-panel",
+      "provenance": "in-repo",
+      "source": "plugins/project-state-panel",
+      "pack": "scripts/pack-plugin.mjs",
+      "mounted": true,
+      "note": "read-only lens; four modes over state/views"
+    },
+    {
       "id": "state-feed",
       "package": "@cc/dsh-state-feed",
       "tarballPrefix": "cc-dsh-state-feed",

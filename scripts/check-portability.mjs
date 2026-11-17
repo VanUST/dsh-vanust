@@ -61,6 +61,19 @@ import { gunzipSync } from 'node:zlib'
 const KIT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 /**
+ * Is `name` a versioned tarball of the package whose tarball prefix is `prefix`?
+ *
+ * The character after the prefix separator must be a version digit. A plain
+ * `startsWith(prefix + '-')` also claims a SIBLING package whose name happens to extend the
+ * prefix — `cc-dsh-project-state-panel-0.1.1.tgz` under `cc-dsh-project-state` — and then the
+ * inventory reports two versions of the shorter package and cannot find one version of the
+ * longer one. The tarball name has carried the version directly after the prefix since the
+ * first pack, so the digit is the discriminator, not a guess.
+ */
+const isVersionOf = (name, prefix) =>
+  name.endsWith('.tgz') && name.startsWith(`${prefix}-`) && /^\d/.test(name.slice(prefix.length + 1))
+
+/**
  * One check: what it looks for, why it matters, and where it may look.
  *
  * `paths` are kit-relative. `allow` lists kit-relative files exempt from the
@@ -664,9 +677,7 @@ for (const spec of CHECKS) {
       if (typeof row.pack !== 'string' || !existsSync(join(KIT, row.pack))) {
         problems.push(`${id}: packing entry point ${JSON.stringify(row.pack)} does not exist`)
       }
-      const versions = readdirSync(pluginDir).filter(
-        (name) => name.startsWith(`${row.tarballPrefix}-`) && name.endsWith('.tgz'),
-      )
+      const versions = readdirSync(pluginDir).filter((name) => isVersionOf(name, row.tarballPrefix))
       if (versions.length !== 1) {
         problems.push(
           `${id}: expected exactly one plugins/${row.tarballPrefix}-*.tgz, found ${versions.length}` +
@@ -771,7 +782,7 @@ for (const spec of CHECKS) {
   for (const row of inventory?.plugins ?? []) {
     if (typeof row.source !== 'string' || typeof row.tarballPrefix !== 'string') continue
     const versions = readdirSync(pluginDir).filter(
-      (name) => name.startsWith(`${row.tarballPrefix}-`) && name.endsWith('.tgz'),
+      (name) => isVersionOf(name, row.tarballPrefix),
     )
     // Anything other than exactly one tarball is the inventory check's finding.
     if (versions.length !== 1) continue
@@ -851,7 +862,7 @@ for (const spec of CHECKS) {
   for (const row of inventory?.plugins ?? []) {
     if (typeof row.source !== 'string' || typeof row.tarballPrefix !== 'string') continue
     const versions = readdirSync(pluginDir).filter(
-      (name) => name.startsWith(`${row.tarballPrefix}-`) && name.endsWith('.tgz'),
+      (name) => isVersionOf(name, row.tarballPrefix),
     )
     if (versions.length !== 1) continue
     const currentPath = join(pluginDir, versions[0])
