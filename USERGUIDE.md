@@ -1,7 +1,7 @@
 # USERGUIDE.md — setting up and starting the harness on a new machine
 
 This kit installs **DeepSeek Harness (dsh)** on any of your machines (2× Linux,
-1× Windows) plus the **24** plugins this deployment adds beyond upstream:
+1× Windows) plus the **25** plugins this deployment adds beyond upstream:
 **`@cc/dsh-notify`** (raises a desktop notification — `notify-send`, a PowerShell toast or
 `osascript` — when an agent finishes a turn and when it asks you a question; silence it with
 `DSH_NOTIFY_DISABLED=1` in the server's environment),
@@ -27,6 +27,9 @@ the configured flash route),
 **`@cc/dsh-tool-families`** (per-preset MCP/tool families: a family leaves the request
 header instead of staying in it unused), **`@cc/dsh-proof-guard`** (denies a test-file write
 without a `PROOF:` header),
+**`@cc/dsh-state-feed`** (delivers the state into the conversation: L1 once as the first
+message of a root session, L2 as one aggregated delta at a turn boundary when the projection
+hash changed; workers and stateless workspaces get nothing),
 **`@cc/dsh-project-state`** (the state core, `ccProjectState`: the single writer of `state/` —
 REQ/DECISION/TASK/TEST files, IDs under a lock, links with a content hash, CAS, journal replay,
 `verify()`; no model tool yet),

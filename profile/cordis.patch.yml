@@ -559,6 +559,16 @@
     - id: project-state
       name: '@cc/dsh-project-state'
 
+# ── state-feed: L1 once, L2 by hash ─────────────────────────────────────────
+# Writes the project state into the CONVERSATION through agent.inject(): one L1 user message
+# on a root session (digest + plan + last snapshot), then one aggregated L2 delta at a turn
+# boundary only when the sha256 of digest+board+snapshot changed. A delegated worker and a
+# workspace without state/ get nothing. The harness journals every injected message as
+# user/message, so "model-visible means logged" needs no second mechanism.
+- insert:
+    - id: state-feed
+      name: '@cc/dsh-state-feed'
+
 - insert:
     - id: taskboard
       name: '@cc/dsh-taskboard'

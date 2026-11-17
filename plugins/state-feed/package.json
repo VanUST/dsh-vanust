@@ -1,0 +1,20 @@
+{
+  "name": "@cc/dsh-state-feed",
+  "version": "0.1.1",
+  "description": "Delivers the project state into the conversation: L1 once as the first model-visible message of a root session (digest + plan + last snapshot) and L2 as one aggregated delta at a turn boundary only when the projection hash changed. Injections go through agent.inject(), so the harness logs them as user/message; a delegated worker and a workspace without state/ receive nothing.",
+  "type": "module",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.mjs",
+    "lib/",
+    "README.md"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
+  }
+}

@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "project-state-ecosystem",
-  "rev": 24,
+  "rev": 26,
   "status": "ready",
   "createdAt": "2026-11-17T13:19:07.274Z",
-  "updatedAt": "2026-11-17T15:00:59.704Z",
+  "updatedAt": "2026-11-17T15:14:17.935Z",
   "updatedBy": "agent",
   "title": "Экосистема состояния проекта и экономика контекста — v1",
   "requestedSolution": "Реализовать v1 дизайна от 2026-11-17 в порядке §10: (1) контекст-фундамент — allow-list в tool-families, диета схем и линтер, контракт слоёв L0–L3, новый хост-плагин state-feed (L1 первым сообщением, L2-дельты по хешу, инъекции как session events), MCP только для ux, Hindsight воркерам убран, context-budget.mjs с предупреждением и красным гейтом >1.5×; (2) ядро ccProjectState — файл на сущность в state/, ID под локом, связи с хешами, CAS, журнал, verify, регенерация проекций; (3) policy-плагин (fs/tools/sandbox) с запретами записи и трипвайром; (4) эволюция analysis в реестр REQ; (5) taskboard с reqId/chore и CAS через ядро; (6) раннер red→green с evidence вне writable-области; (7) оркестратор с брифом из обвязки, структурированным возвратом, cold-start гейтом и снимками; (8) миграции и доводка проекций; (9) дисциплина языка. v2 не трогать.",
@@ -81,22 +81,22 @@
     {
       "id": "FR2",
       "kind": "FR",
-      "text": "Бюджеты контекста объявлены per-preset и проверяются по журналам.",
+      "text": "Бюджеты контекста per-preset проверяются по журналам.",
       "acceptance": [
-        "Считает число инструментов, байты схем, промпта, напоминаний",
-        "WARN — код 0, >1.5× — код 1 (негативный контроль)",
-        "PTC — своя база режима",
-        "Нативные судятся и по числу инструментов"
+        "Считает инструменты и байты",
+        "WARN/1.5× RED с негативным контролем",
+        "PTC — своя база",
+        "Нативные — и по числу"
       ],
       "status": "proven"
     },
     {
       "id": "FR3",
       "kind": "FR",
-      "text": "MCP-семейства нативны только для ux; у воркеров Hindsight только чтение или отсутствует.",
+      "text": "MCP только ux; Hindsight у воркеров только чтение или нет.",
       "acceptance": [
-        "Воркер не получает mcp__playwright__* и mcp__godot__* вне Godot-проекта",
-        "У воркера нет пишущих инструментов Hindsight"
+        "Воркер без Playwright/Godot",
+        "У воркера нет пишущего Hindsight"
       ],
       "status": "proven"
     },
@@ -105,11 +105,11 @@
       "kind": "FR",
       "text": "Состояние доставляется слоями L1+L2, а не промптом.",
       "acceptance": [
-        "L1 приходит один раз и не редактируется",
-        "L2 при смене хеша, агрегируется по ходу",
+        "L1 один раз и не редактируется",
+        "L2 по смене хеша, агрегируется по ходу",
         "Каждая инъекция — session event"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR5",
@@ -134,7 +134,7 @@
     {
       "id": "FR7",
       "kind": "FR",
-      "text": "Проекции views/ генерируются детерминированно из состояния, включая машиночитаемый index.json связей.",
+      "text": "Проекции views/ генерируются детерминированно, включая index.json.",
       "acceptance": [
         "Повторная регенерация даёт тот же байт",
         "Правка views/ вручную обнаруживается verify()"
@@ -146,7 +146,7 @@
       "kind": "FR",
       "text": "Гейты lifecycle отказывают с кодом и пишут вейвер в журнал.",
       "acceptance": [
-        "Наблюдаются перечисленные коды отказов",
+        "Наблюдаются коды отказов",
         "Вейвер требует причину и человека"
       ],
       "status": "planned"
@@ -165,7 +165,7 @@
     {
       "id": "FR10",
       "kind": "FR",
-      "text": "TASK связан с REQ или chore+причина; CAS через ядро; борд — проекция.",
+      "text": "TASK связан с REQ или chore+причина; CAS через ядро.",
       "acceptance": [
         "TASK → active без reqId и без chore+причины отказывает",
         "Борд регенерируется из состояния"
@@ -175,7 +175,7 @@
     {
       "id": "FR11",
       "kind": "FR",
-      "text": "TEST с reqId и authorRole; критерии заморожены; evidence вне writable-области.",
+      "text": "TEST с reqId и authorRole; evidence вне writable-области.",
       "acceptance": [
         "REQ → verified без red→green отказывает",
         "Тавтологичный тест не проходит red-фазу"
@@ -236,17 +236,17 @@
     {
       "id": "NFR3",
       "kind": "NFR",
-      "text": "L2-дельта ≤ ~300 токенов, агрегируется по ходу.",
+      "text": "L2-дельта ≤ ~300 токенов и агрегируется по ходу.",
       "acceptance": [
         "Дельта в пороге",
         "Событий больше, чем дельт"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "NFR4",
       "kind": "NFR",
-      "text": "Структурированные логи и docs-first во всех новых компонентах.",
+      "text": "Структурированные логи и docs-first.",
       "acceptance": [
         "Компонент пишет JSON-логи и имеет PURPOSE/INPUTS/OUTPUTS/KEYWORDS",
         "Успех подтверждается логами"
@@ -690,7 +690,7 @@
           "at": "2026-11-17T13:35:00.000Z",
           "evidence": [
             "proof 92/92 exit 0; на 0.1.10 15/92 exit 1",
-            "восемь живых сессий: чужие семейства сняты"
+            "восемь живых сессий"
           ]
         }
       ]
@@ -722,9 +722,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T14:52:00.000Z",
           "evidence": [
-            "context-budget.mjs → 0 red, exit 0",
-            "негативный контроль → 1 red, exit 1",
-            "make verify exit 0"
+            "0 red exit 0; негативный контроль 1 red exit 1; make verify exit 0"
           ]
         }
       ]
@@ -744,7 +742,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T14:28:00.000Z",
           "evidence": [
-            "v13/headers.json: Playwright 24 только у ux; Godot 0; Hindsight 4 read только у orchestrator, у воркеров 0; task_* 2"
+            "v13/headers.json: Playwright 24 только ux; Godot 0; Hindsight 4 read только корень"
           ]
         }
       ]
@@ -753,10 +751,25 @@
       "requirementId": "FR4",
       "processId": "V1-TGT",
       "componentId": "state-feed",
-      "contractIds": [],
-      "dataIds": [],
-      "status": "planned",
-      "tasks": []
+      "contractIds": [
+        "layer-contract"
+      ],
+      "dataIds": [
+        "state-views"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwktlmsi-4xniyu",
+          "role": "BACKEND",
+          "at": "2026-11-17T15:10:00.000Z",
+          "evidence": [
+            "unit 6/6 exit 0 (L1 один раз, no-op, L2 по хешу, агрегация)",
+            "живая сессия 5bf2b43d: state-feed seq 12 до человеческого seq 13; L2 seq 37 (341 Б)",
+            "инъекции видны как user/message с source.kind state-feed"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "FR5",
@@ -786,8 +799,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T14:44:00.000Z",
           "evidence": [
-            "8/8 тестов; ID под локом; CAS; replay; verify",
-            "make verify exit 0"
+            "8/8; ID под локом; CAS; replay; verify; make verify"
           ]
         }
       ]
@@ -807,9 +819,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T14:58:00.000Z",
           "evidence": [
-            "12/12 тестов exit 0 (детерминизм, view_modified, полнота индекса, граница digest)",
-            "demo: index.json 755 Б, digest 213 Б, board 201, traceability 342, snapshot 144; повторная регенерация — те же байты",
-            "make verify exit 0; тарбол project-state 0.1.2"
+            "12/12; детерминизм; view_modified; index.json; make verify"
           ]
         }
       ]
@@ -901,7 +911,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T13:35:00.000Z",
           "evidence": [
-            "восемь сессий: ровно один request/header"
+            "восемь сессий: один request/header"
           ]
         }
       ]
@@ -910,10 +920,21 @@
       "requirementId": "NFR3",
       "processId": "V1-TGT",
       "componentId": "state-feed",
-      "contractIds": [],
+      "contractIds": [
+        "layer-contract"
+      ],
       "dataIds": [],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwktlmsi-4xniyu",
+          "role": "BACKEND",
+          "at": "2026-11-17T15:10:00.000Z",
+          "evidence": [
+            "L2 341 Б при лимите 1200 Б; второе изменение в том же ходу не инжектится"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "NFR4",
@@ -928,14 +949,14 @@
           "role": "BACKEND",
           "at": "2026-11-17T14:44:00.000Z",
           "evidence": [
-            "PURPOSE/INPUTS/OUTPUTS/KEYWORDS; verify/replay read-only; 8/8 и make verify"
+            "docs-first; verify/replay read-only; тесты и make verify"
           ]
         }
       ]
     }
   ],
   "pendingImpacts": [],
-  "fingerprint": "5758668e95ca52bae702a74daac954d179d243db38eda52fc9e8042ca2cd27f0",
+  "fingerprint": "7f49d553efe5e84b38b013b2564ab2e74073156f9a98f7f834deb390ff88246a",
   "history": [
     {
       "revision": 1,
@@ -1128,6 +1149,22 @@
       "action": "upsert",
       "status": "ready",
       "summary": "requirements: FR2 changed, FR7 changed; impacts: 3"
+    },
+    {
+      "revision": 25,
+      "at": "2026-11-17T15:01:26.585Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwktlmsi-4xniyu -> FR4, NFR3"
+    },
+    {
+      "revision": 26,
+      "at": "2026-11-17T15:14:17.935Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "requirements: FR2 changed, FR3 changed, FR4 changed, FR7 changed, FR8 changed, FR10 changed, FR11 changed, NFR3 changed, NFR4 changed; impacts: 10"
     }
   ]
 }

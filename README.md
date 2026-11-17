@@ -1,6 +1,6 @@
 # dsh-kit
 
-Portable setup for **DeepSeek Harness (dsh)** plus the 24 plugins this
+Portable setup for **DeepSeek Harness (dsh)** plus the 25 plugins this
 deployment needs beyond upstream, across all your machines (2× Linux, 1× Windows).
 `plugins/inventory.json` is the single source of truth for the set:
 
@@ -119,6 +119,12 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   refused at call time. Measured on a BACKEND child: 76,959 B of 114,989 B of tool schema
   (67%) is a family the role never uses. `mcp__godot__*` is project-gated — kept only for a
   session whose cwd holds `project.godot` — and `hindsight_*` is in no row at all.
+- **`@cc/dsh-state-feed`** (mounted, no model tool) — delivery of the state into the
+  conversation: one L1 user message on a root session (`digest.md` + `plan.yaml` + the last
+  `snapshot.md`), then one aggregated L2 delta at a turn boundary only when the sha256 of
+  `digest.md + board.md + snapshot.md` changed (≤ 1200 B). A delegated worker and a workspace
+  without `state/` receive nothing. Every injection goes through `agent.inject()`, so the
+  harness journals it as `user/message` (`source.kind: "state-feed"`).
 - **`@cc/dsh-project-state`** (mounted, no model tool) — the state core. One host row publishes
   `ccProjectState`, the single writer of `state/` in a workspace: REQ/DECISION/TASK/TEST files
   with a YAML frontmatter and a body, typed sequential IDs allocated under `state/.lock`, links
@@ -224,7 +230,7 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
 
 **Third-party add-on: Hindsight memory.** `@vectorize-io/hindsight-coding-agents@0.8.2`
 is installed separately by its own command (`npx @vectorize-io/hindsight-coding-agents install dsh`),
-not from this repository, and is therefore not one of the 24 in-repo plugins. It writes a
+not from this repository, and is therefore not one of the 25 in-repo plugins. It writes a
 row into `$DSH_HOME/cordis.patch.yml` (the home layer, shared by every profile) and a
 companion skill into `~/.agents/skills/hindsight-coding-agent`. Its settings live in
 `~/.hindsight/coding-agent.json`; this machine's file is enabled with `serverMode: daemon`
@@ -270,7 +276,7 @@ cd dsh-vanust               # the repository is dsh-vanust; the kit it contains 
 ```
 
 **What a clone alone gives you, stated exactly.** Everything the deployment
-installs is in the repository: the 24 plugin tarballs, the canonical profile, the
+installs is in the repository: the 25 plugin tarballs, the canonical profile, the
 procedure and the pinned version in both installers. Every plugin's source is here
 too — `plugins/notify/`, `plugins/presentation/`, `plugins/diagrams/`,
 `plugins/work-modes/`, `plugins/godot-mcp/`, `plugins/skills/`, `plugins/flash-guard/`,
@@ -296,7 +302,7 @@ dsh-kit/
 │                              #   session-analysis`: every session, in seconds per question)
 ├── scripts/kit-update.mjs     # update path: hash drift check + convergence for an existing machine
 ├── plugins/inventory.json     # the shipped plugin set (the source of truth)
-├── plugins/*.tgz              # plugin tarballs: 24 packages, including notify, presentation,
+├── plugins/*.tgz              # plugin tarballs: 25 packages, including notify, presentation,
 │                              #                  diagrams, work-modes, godot-mcp, skills, flash-guard,
 │                              #                  proof-guard, taskboard, orchestrator
 ├── plugins/notify/            # source of @cc/dsh-notify (desktop notifications; packed above)
@@ -369,7 +375,7 @@ verified on and the procedure for reproducing that verification are `rules/DEPLO
   `plugins/papers/`.
   `plugins/inventory.json` is the set.
 - **Reviewer's overview** — `docs/HARNESS-OVERVIEW.md`: the harness composition, all 8 kit
-  presets and the 4 built-in presets with their personas, the 24 plugins, the system-prompt
+  presets and the 4 built-in presets with their personas, the 25 plugins, the system-prompt
   section map with its source files, and the discrepancies a reviewer should check.
 - **Design rationale** — `docs/` carries the analysis notes this kit was built from
   (`docs/HARNESS-COMPACTION-REVIEW.md`, `docs/SESSION-CONTEXT.md`); they are readings, not

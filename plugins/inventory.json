@@ -12,6 +12,15 @@
       "mounted": true
     },
     {
+      "id": "state-feed",
+      "package": "@cc/dsh-state-feed",
+      "tarballPrefix": "cc-dsh-state-feed",
+      "provenance": "in-repo",
+      "source": "plugins/state-feed",
+      "pack": "scripts/pack-plugin.mjs",
+      "mounted": true
+    },
+    {
       "id": "presentation",
       "package": "@cc/dsh-presentation",
       "tarballPrefix": "cc-dsh-presentation",
