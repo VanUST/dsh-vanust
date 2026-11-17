@@ -1,29 +1,29 @@
 {
   "schemaVersion": 1,
   "id": "ptc-wave3-audit-close",
-  "rev": 6,
-  "status": "ready",
+  "rev": 7,
+  "status": "completed",
   "createdAt": "2026-11-17T11:48:53.105Z",
-  "updatedAt": "2026-11-17T12:02:53.925Z",
+  "updatedAt": "2026-11-17T12:09:46.459Z",
   "updatedBy": "agent",
-  "title": "PTC: свежие gatherer/reviewer, docs/critic и закрытие пробелов аудита",
-  "requestedSolution": "Владелец: делать пункты 2-3-4, перезагрузит потом. То есть перепроверить gatherer/reviewer с tool-families 0.1.8 (журналы волны 1 — до фикса), перевести docs и critic, закрыть пробелы аудита (babysitter-selftest, proof-матрица, tarball designmap, godot) и запушить изменения; живой :3080 не трогать.",
+  "title": "PTC волна 3, удаление babysitter и закрытие аудита",
+  "requestedSolution": "Владелец: делать пункты 2-3-4, перезагрузит потом; babysitter убрать целиком, он им не пользуется. Перепроверить gatherer/reviewer с tool-families 0.1.8, перевести docs и critic, удалить babysitter со всеми точками проводки и перепаковать orchestrator, закрыть пробелы аудита и запушить; живой :3080 не трогать.",
   "businessOutcome": {
-    "problem": "Аудит нашёл настоящий дефект babysitter: прогон создаёт задачу со status:'active', а taskboard принимает только open/blocked, поэтому задача не привязывается. Владелец решил не чинить плагин, а убрать его целиком: он им не пользуется. Удаление затрагивает исходники, tarball, selftest, инвентарь, provisioning, start/install-скрипты и документы; счётчик плагинов 24→23. Параллельно остаются PTC-волна docs/critic и свежая перепроверка gatherer/reviewer с 0.1.8.",
-    "outcome": "Плагин babysitter удалён из кита вместе с tarball, selftest и всеми точками проводки; счётчики 23; упоминаний в supply-документах нет; PTC-волны gatherer/reviewer/docs/critic проверены; матрица proof отражает 23 плагина; коммит отправлен в origin/main; :3080 не перезапускался.",
+    "problem": "Волна 1 доказана на tool-families 0.1.5 и содержит 24 mcp__playwright__*; её журналы не описывают текущую поверхность. docs и critic оставались native. Аудит нашёл дефект babysitter (taskboard initial_status) и 10 плагинов без собственного прогона; владелец решил babysitter удалить, а не чинить. Отчёт аудита лежит в gitignored reports/.",
+    "outcome": "Шесть PTC-пресетов проверены свежими сессиями; gatherer/reviewer/docs/critic без запрещённых MCP. babysitter удалён целиком: 23 плагина, 30 смонтированных строк, orchestrator 0.1.48 без обучающего промпта. Матрица proof для 23 плагинов лежит в docs/PLUGIN-PROOFS.md, designmap 0.1.17 совпадает с исходником, Godot отмечен unverified. Документы и кейсы обновлены; коммит d76a30f запушен в origin/main; :3080 не перезапускался.",
     "successMetrics": [
-      "gatherer и reviewer в свежих сессиях с 0.1.8: header [run_code], SDK 54/59, mcp__playwright__* 0, bash есть, задача выполнена, 0 INVALID_REQUEST/CODE_RUN_FAILED",
-      "docs и critic: ряды tool-executor-ptc, свежие сессии, задачи, цена/оговорки, 0 или названные ошибки",
-      "plugins/babysitter/, cc-dsh-babysitter-*.tgz и scripts/babysitter-selftest.mjs отсутствуют; inventory 23; README/USERGUIDE/DEPLOYMENT/NOTICE/HARNESS-OVERVIEW/PLUGIN-PROOFS без supply-упоминаний; make verify 23 зелёный",
-      "designmap 0.1.17 tarball = source (check-portability 17/17); godot — unverified с причиной",
-      "docs/PTC-MODE-ANALYSIS.md §4.4/§4.7 и rules/DEPLOYMENT.md обновлены; кейсы записаны; git push origin main; :3080 жив"
+      "gatherer/reviewer с 0.1.8: header [run_code], SDK 59/65, mcp__playwright__* 0, godot 0, bash; задачи 24/PASS; 0 INVALID_REQUEST/CODE_RUN_FAILED",
+      "docs/critic: ряды tool-executor-ptc (1212/1137); docs — journal 7b2f546b, SDK 67, playwright 0, $0.00326; critic — SDK 65, playwright 0, ответ 42, 0 errors (длинная атака — риск)",
+      "babysitter удалён: нет plugins/babysitter, tarballs, selftest, .babysitter tracked; inventory 23; README/USERGUIDE 23; profile row/DEPLOYMENT section сняты; orchestrator 0.1.48",
+      "docs/PLUGIN-PROOFS.md — 23 строки; designmap 0.1.17 = source (check-portability 17/17); godot unverified",
+      "commit d76a30f pushed (396d8ef..d76a30f); check-documentation 23, provision 19/19, analysis 130/130, make verify 0; :3080 жив"
     ]
   },
   "process": {
     "current": [
       {
         "id": "P-CURRENT",
-        "name": "Четыре PTC-пресета, старые доказательства",
+        "name": "Четыре PTC-пресета, старые доказательства, babysitter с дефектом",
         "actors": [
           "gatherer",
           "reviewer",
@@ -33,14 +33,14 @@
         "steps": [
           "gatherer/reviewer доказаны на 0.1.5 до фикса",
           "docs и critic native",
-          "аудит-пробелы в gitignored reports/"
+          "babysitter 24-й плагин, задача не создаётся (initial_status); аудит-пробелы в gitignored reports/"
         ]
       }
     ],
     "target": [
       {
         "id": "P-TARGET",
-        "name": "Шесть PTC-пресетов и закрытый аудит",
+        "name": "Шесть PTC-пресетов, babysitter удалён, аудит закрыт",
         "actors": [
           "gatherer",
           "reviewer",
@@ -52,7 +52,7 @@
         "steps": [
           "свежая перепроверка gatherer/reviewer с 0.1.8",
           "docs/critic на PTC с проверкой",
-          "proof-матрица в docs/, babysitter-selftest зелёный, designmap tarball = source",
+          "babysitter удалён, proof-матрица 23, designmap tarball = source",
           "коммит и пуш; :3080 не тронут"
         ]
       }
@@ -64,47 +64,44 @@
       "kind": "FR",
       "text": "Свежие сессии gatherer и reviewer с tool-families 0.1.8 не объявляют запрещённые mcp__playwright__* и выполняют задачу через run_code.",
       "acceptance": [
-        "header [run_code]; SDK gatherer 54 и reviewer 59; mcp__playwright__* 0 в полном system/message (не только ToolArgsMap); bash есть",
-        "задача выполнена, ответ проверяем; 0 INVALID_REQUEST/CODE_RUN_FAILED",
-        "доказательство: второй сервер, свежие сессии, копии журналов"
+        "header [run_code]; SDK gatherer 59 и reviewer 65 (рост от хостового outline, не MCP); mcp__playwright__* 0 в полном system/message; godot 0; bash есть",
+        "задача выполнена (24 / PASS 6/0), 0 INVALID_REQUEST/CODE_RUN_FAILED",
+        "второй сервер, свежие сессии, копии журналов"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR-2",
       "kind": "FR",
       "text": "Пресеты docs и critic монтируют tool-executor-ptc и проверены свежими сессиями; ограничения роли соблюдены.",
       "acceptance": [
-        "ряды tool-executor-ptc в preset-docs и preset-critic; остальные не меняются",
-        "docs: свежая сессия, SDK с инструментами роли, мелкая правка/проверка; цена и оговорка про мелкие правки",
-        "critic: свежая сессия, атака/проба с фоном или timeoutMs; долгий вызов не роняет программу без объяснения; 0 или названные ошибки"
+        "ряды tool-executor-ptc в preset-docs (1212) и preset-critic (1137); остальные не меняются",
+        "docs: journal 7b2f546b — header [run_code], SDK 67, playwright 0, 0 errors, PASS; цена 18161/43520/232 = 0.00326; первый прогон 68493e86 (усечённый слой) отброшен",
+        "critic: session f3856e88 — SDK 65, playwright 0, ответ 42, 0 errors; длинная атака не прогонялась — названный риск"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR-3",
       "kind": "FR",
       "text": "Плагин babysitter удалён из кита целиком: исходники, tarball, selftest, инвентарь, provisioning, start/install, документы и профильный ряд; счётчики 23.",
       "acceptance": [
-        "plugins/babysitter/ отсутствует, tarball cc-dsh-babysitter-*.tgz отсутствует, scripts/babysitter-selftest.mjs отсутствует",
-        "plugins/inventory.json без строки babysitter (23); README.md и USERGUIDE.md называют 23 плагина; NOTICE без атрибуции @a5c-ai/babysitter",
-        "grep -rni babysitter по supply-файлам (profile, plugins, scripts, install/start, README, USERGUIDE, NOTICE, rules/DEPLOYMENT, docs/HARNESS-OVERVIEW, docs/PLUGIN-PROOFS) не даёт ссылок на плагин/CLI; reports/, docs/analysis/, docs/cases/ — исторический снимок, их не переписываем",
-        "docs/PLUGIN-PROOFS.md — 23 строки, babysitter убран или помечен «удалён»; godot — unverified с причиной",
-        "make verify зелёный (check-documentation + check-portability 17/17 после удаления профильного ряда), provision-tools --check без babysitter"
+        "plugins/babysitter, tarballs 0.1.6/0.1.7, selftest и 5 .babysitter tracked удалены; inventory 23, tarballs 23; README/USERGUIDE 23; NOTICE/install/start/kit-update/provision/.gitignore без babysitter",
+        "profile row снят; DEPLOYMENT section и счётчик 24→23; orchestrator 0.1.48 без обучающего промпта; HARNESS-OVERVIEW/PLUGIN-PROOFS 23; grep supply без ссылок (кроме исторических пометок)",
+        "check-documentation green 23; check-portability 17/17; provision-tools 19/19; make verify 0; designmap 0.1.17 = source; godot unverified"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR-4",
       "kind": "FR",
       "text": "Документы и кейсы обновлены; изменения закоммичены и запушены в origin/main; :3080 не перезапускался.",
       "acceptance": [
-        "docs/PTC-MODE-ANALYSIS.md §4.4/§4.7 и rules/DEPLOYMENT.md отражают 0.1.8, docs/critic и удаление babysitter",
-        "кейсы свежих gatherer/reviewer и docs/critic записаны или обновлены",
-        "git push origin main успешен; commit hash и вывод пуша",
+        "docs/PTC-MODE-ANALYSIS.md §4.4/§4.7, rules/DEPLOYMENT.md §PTC; PTC-кейсы (fresh/resume/tool-families) в docs/cases",
+        "commit d76a30f; push 396d8ef..d76a30f main -> main",
         ":3080 pid 3160705 жив; установленный профиль не менялся"
       ],
-      "status": "planned"
+      "status": "proven"
     }
   ],
   "architecture": {
@@ -192,7 +189,7 @@
     },
     {
       "id": "INV-ROLLBACK",
-      "text": "Откат волны 3 — удаление двух рядов; откат selftest/матрицы — обычный revert",
+      "text": "Откат волны 3 — удаление двух рядов; откат удаления babysitter — revert коммита, тарбол 0.1.6 остаётся в истории git",
       "scope": "профиль"
     },
     {
@@ -229,7 +226,7 @@
     {
       "id": "DEC-REMOVE",
       "decision": "Убрать плагин babysitter целиком, а не чинить его.",
-      "rationale": "Владелец не пользуется плагином; дефект initial_status в 0.1.6 становится неактуальным вместе с плагином; удаление убирает 4 инструмента, CLI-зависимость и лишнюю точку проводки.",
+      "rationale": "Владелец не пользуется плагином; дефект initial_status в 0.1.6 становится неактуальным вместе с плагином; удаление убирает 4 инструмента, CLI-зависимость и лишнюю точку проводки. Промпт orchestrator обновлён до 0.1.48, чтобы не учить несуществующему инструменту.",
       "alternatives": [
         "оставить 0.1.7 с фиксом initial_status"
       ]
@@ -239,8 +236,8 @@
   "sizing": {
     "class": "L2",
     "reasons": [
-      "Две декларации пресетов и проверка четырёх ролей",
-      "Исправление селфтеста и новая отслеживаемая матрица proof",
+      "Три PTC-волны и проверка шести ролей",
+      "Удаление babysitter и перепаковка orchestrator 0.1.48",
       "Коммит и пуш всего завершённого набора"
     ]
   },
@@ -258,13 +255,17 @@
       "componentId": "C-VERIFY",
       "contractIds": [],
       "dataIds": [],
-      "status": "planned",
+      "status": "proven",
       "tasks": [
         {
           "taskId": "task-mwkmqj2u-u3ou21",
           "role": "BACKEND",
-          "at": "2026-11-17T11:49:17.735Z",
-          "evidence": []
+          "at": "2026-11-17T12:06:00.000Z",
+          "evidence": [
+            "reports/ptc-wave3/sessions/session-2a497060: gatherer, header [run_code], SDK 59, playwright 0, bash, dispatch 3, ответ 24",
+            "reports/ptc-wave3/sessions/session-9989ecfd: reviewer, SDK 65, playwright 0, PASS 6/0, dispatch 1",
+            "0 INVALID_REQUEST/CODE_RUN_FAILED; :3081 остановлен"
+          ]
         }
       ]
     },
@@ -274,13 +275,18 @@
       "componentId": "C-PROFILE",
       "contractIds": [],
       "dataIds": [],
-      "status": "planned",
+      "status": "proven",
       "tasks": [
         {
           "taskId": "task-mwkmqj2u-u3ou21",
           "role": "BACKEND",
-          "at": "2026-11-17T11:49:17.735Z",
-          "evidence": []
+          "at": "2026-11-17T12:06:00.000Z",
+          "evidence": [
+            "profile: tool-executor-ptc в preset-critic (1137) и preset-docs (1212); шесть PTC-пресетов",
+            "docs final: session 7b2f546b, header [run_code], SDK 67, playwright 0, PASS, 0 errors; 18161/43520/232 = $0.00326",
+            "critic: session f3856e88, SDK 65, playwright 0, ответ 42, 0 errors",
+            "первый docs 68493e86 (усечённый слой, 24 playwright) отброшен"
+          ]
         }
       ]
     },
@@ -290,13 +296,18 @@
       "componentId": "C-PROOFS",
       "contractIds": [],
       "dataIds": [],
-      "status": "planned",
+      "status": "proven",
       "tasks": [
         {
           "taskId": "task-mwkmqjy0-1jgv1w",
           "role": "DOCS",
-          "at": "2026-11-17T11:49:18.861Z",
-          "evidence": []
+          "at": "2026-11-17T12:06:00.000Z",
+          "evidence": [
+            "удалены plugins/babysitter, оба tarball, scripts/babysitter-selftest.mjs, 5 .babysitter tracked; inventory 23, tarballs 23",
+            "profile row и DEPLOYMENT section/24→23; orchestrator 0.1.48; README/USERGUIDE/NOTICE/install/start/kit-update/provision/.gitignore без babysitter",
+            "docs/HARNESS-OVERVIEW и PLUGIN-PROOFS 23; designmap 0.1.17 = source; godot unverified",
+            "check-documentation 23 green; check-portability 17/17; provision-tools 19/19; analysis proof 130/130; make verify 0"
+          ]
         }
       ]
     },
@@ -306,12 +317,23 @@
       "componentId": "C-RELEASE",
       "contractIds": [],
       "dataIds": [],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkmnv9k-qgl0pj",
+          "role": "оркестратор",
+          "at": "2026-11-17T12:10:00.000Z",
+          "evidence": [
+            "docs/PTC-MODE-ANALYSIS.md §4.4/§4.7, rules/DEPLOYMENT.md §PTC; docs/cases с PTC-кейсами",
+            "commit d76a30f; git push 396d8ef..d76a30f main -> main",
+            ":3080 pid 3160705 жив; установленный профиль не менялся"
+          ]
+        }
+      ]
     }
   ],
   "pendingImpacts": [],
-  "fingerprint": "98fb0666b44cf446526b0a09058ce278ee5cad72e7864f6779e3d3e240b0803c",
+  "fingerprint": "4db818c5da57b9f02771e30a82180048bb04dc44a7d5bdc6fecb4e751ee2b6a3",
   "history": [
     {
       "revision": 1,
@@ -360,6 +382,14 @@
       "action": "upsert",
       "status": "ready",
       "summary": "requirements: FR-3 changed, FR-4 changed"
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-17T12:09:46.459Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "completed",
+      "summary": "requirements: FR-1 changed, FR-2 changed, FR-3 changed, FR-4 changed; impacts: 5"
     }
   ]
 }
