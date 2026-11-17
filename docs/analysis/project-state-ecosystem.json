@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "project-state-ecosystem",
-  "rev": 32,
+  "rev": 36,
   "status": "ready",
   "createdAt": "2026-11-17T13:19:07.274Z",
-  "updatedAt": "2026-11-17T15:36:36.331Z",
+  "updatedAt": "2026-11-17T15:50:29.917Z",
   "updatedBy": "agent",
   "title": "Экосистема состояния проекта и экономика контекста — v1",
   "requestedSolution": "Реализовать v1 дизайна от 2026-11-17 в порядке §10: (1) контекст-фундамент — allow-list в tool-families, диета схем и линтер, контракт слоёв L0–L3, новый хост-плагин state-feed (L1 первым сообщением, L2-дельты по хешу, инъекции как session events), MCP только для ux, Hindsight воркерам убран, context-budget.mjs с предупреждением и красным гейтом >1.5×; (2) ядро ccProjectState — файл на сущность в state/, ID под локом, связи с хешами, CAS, журнал, verify, регенерация проекций; (3) policy-плагин (fs/tools/sandbox) с запретами записи и трипвайром; (4) эволюция analysis в реестр REQ; (5) taskboard с reqId/chore и CAS через ядро; (6) раннер red→green с evidence вне writable-области; (7) оркестратор с брифом из обвязки, структурированным возвратом, cold-start гейтом и снимками; (8) миграции и доводка проекций; (9) дисциплина языка. v2 не трогать.",
@@ -184,13 +184,13 @@
     {
       "id": "FR12",
       "kind": "FR",
-      "text": "Бриф собирает обвязка; структурированный возврат; cold-start гейт.",
+      "text": "Бриф собирает обвязка из реестра; структурированный возврат; cold-start гейт.",
       "acceptance": [
         "Бриф содержит критерии дословно",
         "Cold-start гейт",
         "Возврат по критериям"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR13",
@@ -282,7 +282,7 @@
       {
         "id": "analysis",
         "name": "@cc/dsh-analysis",
-        "responsibility": "эволюция в реестр REQ: REQ первичен, дедуп-кандидаты, digest для L1, гейты",
+        "responsibility": "эволюция в реестр REQ: REQ первичен, дедуп-кандидаты, digest для L1, гейт evidence_required",
         "owner": "kit",
         "owns": [
           "analysis-records"
@@ -317,6 +317,16 @@
         ]
       },
       {
+        "id": "delegation-brief",
+        "name": "@cc/dsh-delegation-brief",
+        "responsibility": "рендерит бриф из реестра (критерии дословно, решения, кейсы, формат возврата) с детерминированным briefHash и разбирает возврат по замороженным критериям; гейт только у корня с пресетом orchestrator",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": [
+          "project-state"
+        ]
+      },
+      {
         "id": "tool-families",
         "name": "@cc/dsh-tool-families",
         "responsibility": "allow-list вместо deny-only; бюджеты инструментов рядом с политикой",
@@ -337,13 +347,14 @@
       {
         "id": "orchestrator",
         "name": "@cc/dsh-orchestrator",
-        "responsibility": "бриф из обвязки, структурированный возврат, cold-start гейт, снимки состояния",
+        "responsibility": "политика ролей, статический раздел про бриф, снимки состояния",
         "owner": "kit",
         "owns": [],
         "dependsOn": [
           "analysis",
           "taskboard",
-          "project-state"
+          "project-state",
+          "delegation-brief"
         ]
       },
       {
@@ -671,7 +682,14 @@
       "contractIds": [],
       "dataIds": [],
       "status": "planned",
-      "tasks": []
+      "tasks": [
+        {
+          "taskId": "task-mwkq732m-ganepf",
+          "role": "UX/UI",
+          "at": "2026-11-17T15:45:00.000Z",
+          "evidence": []
+        }
+      ]
     },
     {
       "requirementId": "FR1",
@@ -895,9 +913,8 @@
           "at": "2026-11-17T15:45:00.000Z",
           "evidence": [
             "test-cases 16/16; analysis 9/9; project-state 12/12; make verify exit 0",
-            "без reqId/authorRole → TEST_REQ_REQUIRED, файл не создаётся",
-            "proven без пары red:fail + green:pass → evidence_required, запись и REQ не пишутся",
-            "green-only REQ не закрывает; тавтология отвергается case_run mode:red с negative control (runner.test.mjs:103)"
+            "без reqId/authorRole → TEST_REQ_REQUIRED",
+            "proven без пары → evidence_required"
           ]
         }
       ]
@@ -905,11 +922,35 @@
     {
       "requirementId": "FR12",
       "processId": "V1-TGT",
-      "componentId": "orchestrator",
-      "contractIds": [],
-      "dataIds": [],
-      "status": "planned",
-      "tasks": []
+      "componentId": "delegation-brief",
+      "contractIds": [
+        "state-service-api",
+        "brief-contract",
+        "gate-codes"
+      ],
+      "dataIds": [
+        "state-views"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkuvwyx-sr1ydm",
+          "role": "BACKEND",
+          "at": "2026-11-17T15:40:00.000Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwkv6sqc-j2gept",
+          "role": "BACKEND",
+          "at": "2026-11-17T15:48:00.000Z",
+          "evidence": [
+            "delegation-brief 7/7; make verify exit 0 (моя проверка)",
+            "гейт строгий: presetOf(ctx, agent) !== 'orchestrator' → return (index.mjs:160); тест «без именованного пресета — ни инструмента, ни раздела»",
+            "критерии дословно, два рендера байт-идентичны; отказы cold_start_required/feature_required/criteria_missing; возврат: brief_stale/return_unmapped/return_invalid",
+            "живой пруф не снят — отчёт v111-delegation-brief.md это фиксирует"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "FR13",
@@ -998,7 +1039,7 @@
     }
   ],
   "pendingImpacts": [],
-  "fingerprint": "54248719798dd52e5f61b2e3e362b27d4661554c58db982b0a247ca81f11fd63",
+  "fingerprint": "f4faae77e1ed752c4818dea906ea38752296282fe3f2e7789adf91b1444e7b08",
   "history": [
     {
       "revision": 1,
@@ -1255,6 +1296,38 @@
       "action": "upsert",
       "status": "ready",
       "summary": "impacts: 1"
+    },
+    {
+      "revision": 33,
+      "at": "2026-11-17T15:37:25.952Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwkuvwyx-sr1ydm -> FR12"
+    },
+    {
+      "revision": 34,
+      "at": "2026-11-17T15:45:53.675Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwkv6sqc-j2gept -> FR12"
+    },
+    {
+      "revision": 35,
+      "at": "2026-11-17T15:46:20.341Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwkq732m-ganepf -> BR1"
+    },
+    {
+      "revision": 36,
+      "at": "2026-11-17T15:50:29.917Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "requirements: FR12 changed; impacts: 2"
     }
   ]
 }

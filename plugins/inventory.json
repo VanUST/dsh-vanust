@@ -227,6 +227,15 @@
       "pack": "scripts/pack-plugin.mjs",
       "mounted": true,
       "note": "the only design map"
+    },
+    {
+      "id": "delegation-brief",
+      "package": "@cc/dsh-delegation-brief",
+      "tarballPrefix": "cc-dsh-delegation-brief",
+      "provenance": "in-repo",
+      "source": "plugins/delegation-brief",
+      "pack": "scripts/pack-plugin.mjs",
+      "mounted": true
     }
   ]
 }

@@ -1,7 +1,7 @@
 # USERGUIDE.md — setting up and starting the harness on a new machine
 
 This kit installs **DeepSeek Harness (dsh)** on any of your machines (2× Linux,
-1× Windows) plus the **25** plugins this deployment adds beyond upstream:
+1× Windows) plus the **26** plugins this deployment adds beyond upstream:
 **`@cc/dsh-notify`** (raises a desktop notification — `notify-send`, a PowerShell toast or
 `osascript` — when an agent finishes a turn and when it asks you a question; silence it with
 `DSH_NOTIFY_DISABLED=1` in the server's environment),
@@ -94,6 +94,8 @@ gatherer: the orchestrator delegates "how does this actually work today?" to it 
 report with `file:line` citations, so the reading happens in the child's context instead of
 filling the orchestrator's. The ledger lives in
 `.dsh/taskboard.json` inside the workspace; it is ignored by git and survives a restart.
+
+**`@cc/dsh-delegation-brief`** (root-only): `delegation_brief` renders the brief for an accepted REQ from the register — the requirement and its criteria verbatim, related decisions, the tests that must pass with commands, non-scope and the return format — and returns a `briefHash`; the same state gives the same bytes. `delegation_return` checks the worker's `{status, criteria:[{id,pass,evidence}], questions}` against that hash and refuses `brief_stale`/`return_unmapped`. Refusals: `cold_start_required`, `feature_required`, `criteria_missing`.
 
 **Project rules (`@cc/dsh-project-rules`) are one cached prompt section, and they are yours alone.** Open **Rules** in the sidebar, edit `.dsh/rules.md` (gitignored) and press Save. The panel never writes while you type; Save calls `/project-rules`, which only writes the file. **No agent may change that file**: a write or edit aimed at it is refused with `rules_human_only`, and so is a shell command that names it - the models read the rules through their prompt section and never write them. That is a guardrail, not a jail (a shell command can spell a path in ways a guard cannot follow); the roles without a shell at all - orchestrator, research - are the hard version. The section re-reads it at the next turn boundary and keeps the previous text when the bytes are unchanged, so a draft or a mid-turn save cannot bust the model's prompt cache. An empty file adds no section.
 

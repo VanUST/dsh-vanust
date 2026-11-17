@@ -307,7 +307,7 @@
         # (~53 KB system prompt), never against a native preset's 24-25 KB.
         budgets:
           orchestrator:
-            tools: 54
+            tools: 56
             recommended: 40
             schemaBytes: 62000
             promptBytes: 26000
@@ -568,6 +568,10 @@
 - insert:
     - id: state-feed
       name: '@cc/dsh-state-feed'
+
+- insert:
+    - id: delegation-brief
+      name: '@cc/dsh-delegation-brief'
 
 - insert:
     - id: taskboard
