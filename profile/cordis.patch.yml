@@ -467,6 +467,25 @@
     model: deepseek-flash
     reasoningEffort: max
 
+# ── retry: a malformed model answer must not end the turn ───────────────────
+# The harness retries a failed model request at the agent step boundary, but
+# `MALFORMED_RESPONSE` is only a CHOICE in the settings; the shipped policy
+# retries EMPTY_RESPONSE, RATE_LIMIT, SERVER, TIMEOUT and TRANSPORT, so a stream
+# whose tool-call JSON does not parse ("tool input is invalid JSON") throws and
+# the whole turn dies - the human sees one failed turn and no work happens.
+# That failure is raised at `message_stop`, BEFORE any tool runs: the adapter
+# validates every tool-call block, discards the response, and the retry re-sends
+# the same durable history, so no partial answer reaches the model or the log.
+# `retryableCodes` REPLACES the default set - the five defaults are repeated on
+# purpose. Five attempts per step is the harness default; each attempt is a
+# billed request, which is why the mode stays bounded (`normal`), not `always`.
+- id: llm-deepseek
+  config:
+    retryPolicy:
+      mode: normal
+      maxRetries: 5
+      retryableCodes: [EMPTY_RESPONSE, RATE_LIMIT, SERVER, TIMEOUT, TRANSPORT, MALFORMED_RESPONSE]
+
 # ── kimi: the Kimi Code subscription as a second model provider ────────────
 # `llm-pi-ai` is mounted dormant by dsh-base — zero routes until `providers`
 # supplies one, then the route registers live and drops when the section empties.
@@ -524,6 +543,12 @@
               low: low
               high: high
               max: max
+        # the same bounded retry as the DeepSeek route above, because a
+        # malformed answer is a property of the model's output, not of the route
+        retryPolicy:
+          mode: normal
+          maxRetries: 5
+          retryableCodes: [EMPTY_RESPONSE, RATE_LIMIT, SERVER, TIMEOUT, TRANSPORT, MALFORMED_RESPONSE]
 
 # ── subagent model selection: which routes an agent may hand to a child ─────
 # The harness's own gate for a model-facing child route: the `subagent` tool

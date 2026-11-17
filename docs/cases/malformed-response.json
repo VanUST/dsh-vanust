@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "id": "malformed-response",
+  "title": "Повтор запроса после MALFORMED_RESPONSE",
+  "requirement": "Ответ модели с невалидным JSON аргументов инструмента не должен завершать ход: маршрут модели повторяет такой ответ в пределах бюджета, и работа продолжается.",
+  "kind": "regression",
+  "status": "unverified",
+  "source": "human",
+  "automated": false,
+  "reason": "Проверка требует фейкового Messages-провайдера; сейчас он лежит вне репозитория (/tmp/dsh-retry-proof), поэтому у кейса нет testPath для прогона из репозитория. Оба прогона измерены 2026-11-17, вывод приведён в отчёте задачи.",
+  "steps": [
+    "Поднять фейковый Messages-сервер: первый запрос агентского шага (в теле есть tools) отдаёт tool_use, у которого не закрывается JSON аргументов (`{\"command\": \"echo proof\" `), последующие запросы шага — текстовый ответ end_turn.",
+    "Красный прогон без политики: `DEEPSEEK_BASE_URL=http://127.0.0.1:8899 DEEPSEEK_API_KEY=proof-key dsh --profile headless 'Say proof-answer.'`.",
+    "Зелёный прогон с политикой: та же команда с `--patch` из строки `- id: llm-deepseek` файла profile/cordis.patch.yml.",
+    "Расшифровать журналы сессий `zstd -dc <session.v4.jsonl.zstd>` и сравнить: красный — `turn/end` с `reason.kind: error`; зелёный — `llm/retry`, `llm/retry-started` и `assistant/message`."
+  ],
+  "expected": "Красный прогон: код возврата 1, в stderr `dsh: MALFORMED_RESPONSE: DeepSeek Messages stream: tool input is invalid JSON`, один агентский запрос, в журнале нет `llm/retry`. Зелёный прогон: код возврата 0, напечатан `proof-answer`, два агентских запроса, в журнале `llm/retry` с `failure.code: MALFORMED_RESPONSE`, `retry: 1` и `delayMs` ≈ 462, затем `llm/retry-started` и один `assistant/message`.",
+  "tags": [
+    "harness",
+    "retry",
+    "provider"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "profile/cordis.patch.yml",
+      "sha256": "f06f9bd1c9ec0d470fa42566158982c684a59034b97ec13e6439b5dead8ca043"
+    },
+    {
+      "path": "rules/DEPLOYMENT.md",
+      "sha256": "a2819bff0e3daea09b96035b165e50ba711a9727c1ea4dc2959614ecd732e988"
+    }
+  ],
+  "linkedTaskId": "task-mwkh6334-358zg6",
+  "revision": 1,
+  "createdAt": "2026-11-17T09:19:56.535Z",
+  "updatedAt": "2026-11-17T09:19:56.535Z",
+  "createdBy": "orchestrator",
+  "createdByKind": "agent",
+  "history": [],
+  "evidence": {}
+}

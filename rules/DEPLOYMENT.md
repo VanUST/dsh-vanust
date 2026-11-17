@@ -54,6 +54,13 @@ model route is whatever the profile configures for the root agent; delegated chi
 flash and may be routed to one of the two allowed Kimi models, and external providers are
 outside that seam.
 
+**The retry policy is part of the model policy.** Both routes carry the same `retryPolicy`, and
+it adds `MALFORMED_RESPONSE` to the harness defaults: an answer whose tool-call JSON does not
+parse (`tool input is invalid JSON`) is retried up to five times per step instead of ending the
+turn. The failure is raised at `message_stop` before any tool runs, so a retry re-sends the same
+history and no partial answer reaches the model or the log; each attempt is another billed
+request, which is why the budget stays bounded and the mode is `normal`, not `always`.
+
 ### 1.0 The role presets — tool sets, not prompts
 
 Eight `@deepseek-ai/dsh-agent-preset` declarations sit in the profile patch, and
