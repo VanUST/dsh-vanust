@@ -113,6 +113,59 @@ export async function precheck(core, { cwd, initiative, requirements, allowDupli
 }
 
 /**
+ * FR11: a requirement may only become `done` when at least one TEST of its REQ shows a passed
+ * red→green pair. The evidence refs are the runner's own records (`<runId>:red:fail` and
+ * `<runId>:green:pass`), so a tautological test — one that never failed in the red phase —
+ * cannot satisfy the gate.
+ *
+ * @param {{enforce?: boolean}} [options] - `enforce: false` is the OLD behaviour, used only by
+ *   the red-first proof to show what the gate prevents.
+ */
+export async function precheckEvidence(core, { cwd, initiative, requirements, enforce = true }) {
+  if (core === undefined || core === null) return { ok: true, skipped: 'no-core' }
+  if (enforce === false) return { ok: true, skipped: 'not-enforced' }
+  if (!Array.isArray(requirements)) return { ok: true }
+  const proven = requirements.filter((requirement) => requirement?.status === 'proven')
+  if (proven.length === 0) return { ok: true }
+  const state = typeof core.open === 'function' ? core.open(cwd) : core
+  let reqs = []
+  let tests = []
+  try {
+    reqs = (await state.list('req'))?.rows ?? []
+    tests = (await state.list('test'))?.rows ?? []
+  } catch {
+    return { ok: true, skipped: 'core-unavailable' }
+  }
+  for (const requirement of proven) {
+    const req = findExisting(reqs, initiative, requirement.id)
+    const label = `requirement "${requirement.id}"`
+    if (req === undefined) {
+      return {
+        ok: false,
+        code: 'evidence_required',
+        requirementId: requirement.id,
+        message: `${label} cannot be marked proven: it has no REQ in the state register yet; record it as planned first, then add a TEST with a red→green run`,
+      }
+    }
+    const candidates = tests.filter((test) => test.reqId === req.id)
+    const holds = candidates.some((test) => {
+      const refs = Array.isArray(test.evidenceRefs) ? test.evidenceRefs.map(String) : []
+      return refs.some((ref) => ref.includes(':red:fail')) && refs.some((ref) => ref.includes(':green:pass'))
+    })
+    if (!holds) {
+      return {
+        ok: false,
+        code: 'evidence_required',
+        requirementId: requirement.id,
+        reqId: req.id,
+        message: `${label} cannot be marked proven: REQ ${req.id} has no TEST with a passed red→green pair (a green-only measurement is not a verification). Run case_run in mode red with a negative control, then green`,
+      }
+    }
+  }
+  return { ok: true }
+}
+
+/**
  * Write the REQ for every requirement of the record (create or update), then regenerate the
  * projections so `digest.md` and `index.json` reflect the new links.
  *

@@ -38,7 +38,7 @@
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { createService } from './store.mjs'
-import { mirror, precheck } from './mirror.mjs'
+import { mirror, precheck, precheckEvidence } from './mirror.mjs'
 
 /** Cordis function-plugin name; also the id a profile patch targets. */
 export const name = 'analysis'
@@ -165,6 +165,10 @@ export function apply(ctx, config = {}) {
           duplicateReview: args.duplicateReview,
         })
         if (gate.ok === false) return gate
+        // FR11: a requirement marked proven needs a TEST with a passed red→green pair; the
+        // record is not written when that evidence is missing (the REQ keeps its status).
+        const evidence = await precheckEvidence(core, { cwd, initiative: args.initiative, requirements: patchRequirements })
+        if (evidence.ok === false) return evidence
         const result = service.upsert(cwd, {
           initiative: args.initiative,
           expectedRev: args.expectedRev,

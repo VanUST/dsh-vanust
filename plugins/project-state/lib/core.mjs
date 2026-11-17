@@ -204,6 +204,10 @@ export function createStateService(options = {}) {
       if (input.reqId !== undefined) frontmatter.reqId = String(input.reqId)
       if (input.authorRole !== undefined) frontmatter.authorRole = String(input.authorRole)
       if (input.command !== undefined) frontmatter.command = String(input.command)
+      if (input.testPath !== undefined) frontmatter.testPath = String(input.testPath)
+      if (input.frozenHash !== undefined) frontmatter.frozenHash = String(input.frozenHash)
+      if (Array.isArray(input.evidenceRefs)) frontmatter.evidenceRefs = input.evidenceRefs.map(String)
+      if (typeof input.caseId === 'string' && input.caseId !== '') frontmatter.caseId = input.caseId
     }
     if (kind === 'decision') {
       if (input.supersedes !== undefined) frontmatter.supersedes = String(input.supersedes)
@@ -299,7 +303,7 @@ export function createStateService(options = {}) {
         const { entities, invalid } = await scanEntities()
         const rows = entities
           .filter((entity) => clean === undefined || entity.fileKind === clean)
-          .map((entity) => ({ id: entity.frontmatter.id, kind: entity.fileKind, title: entity.frontmatter.title, status: entity.frontmatter.status, revision: entity.frontmatter.revision, path: entity.rel, ...(entity.frontmatter.analysisRef === undefined ? {} : { analysisRef: entity.frontmatter.analysisRef }), ...(entity.frontmatter.criteriaHash === undefined ? {} : { criteriaHash: entity.frontmatter.criteriaHash }), ...(entity.frontmatter.boardId === undefined ? {} : { boardId: entity.frontmatter.boardId }) }))
+          .map((entity) => ({ id: entity.frontmatter.id, kind: entity.fileKind, title: entity.frontmatter.title, status: entity.frontmatter.status, revision: entity.frontmatter.revision, path: entity.rel, ...(entity.frontmatter.analysisRef === undefined ? {} : { analysisRef: entity.frontmatter.analysisRef }), ...(entity.frontmatter.criteriaHash === undefined ? {} : { criteriaHash: entity.frontmatter.criteriaHash }), ...(entity.frontmatter.boardId === undefined ? {} : { boardId: entity.frontmatter.boardId }), ...(entity.frontmatter.reqId === undefined ? {} : { reqId: entity.frontmatter.reqId }), ...(entity.frontmatter.authorRole === undefined ? {} : { authorRole: entity.frontmatter.authorRole }), ...(entity.frontmatter.caseId === undefined ? {} : { caseId: entity.frontmatter.caseId }), ...(entity.frontmatter.evidenceRefs === undefined ? {} : { evidenceRefs: entity.frontmatter.evidenceRefs }) }))
           .sort((a, b) => String(a.id).localeCompare(String(b.id)))
         return { ok: true, rows, invalid: invalid.map((entry) => ({ path: entry.rel, error: entry.error })) }
       } catch (error) {
@@ -325,13 +329,14 @@ export function createStateService(options = {}) {
             return fail('revision_conflict', `expected revision ${expected}, file has ${current.revision}`)
           }
           const next = { ...current, revision: expected + 1, updatedAt: now() }
-          for (const field of ['title', 'status', 'ownerRole', 'reqId', 'command', 'choreReason', 'criteriaHash', 'boardId']) {
+          for (const field of ['title', 'status', 'ownerRole', 'reqId', 'command', 'choreReason', 'criteriaHash', 'boardId', 'testPath', 'frozenHash', 'caseId']) {
             if (patch[field] !== undefined) next[field] = patch[field]
           }
           if (patch.analysisRef !== undefined && patch.analysisRef !== null && typeof patch.analysisRef === 'object') {
             next.analysisRef = { initiative: String(patch.analysisRef.initiative ?? ''), requirementId: String(patch.analysisRef.requirementId ?? '') }
           }
           if (Array.isArray(patch.criteria)) next.criteria = patch.criteria.map(String)
+          if (Array.isArray(patch.evidenceRefs)) next.evidenceRefs = patch.evidenceRefs.map(String)
           if (kind === 'task' && patch.chore === true) next.chore = true
           if (next.status !== undefined && !KINDS[kind].status.includes(next.status)) {
             return fail('status_invalid', `status "${next.status}" is not one of ${KINDS[kind].status.join(', ')}`)

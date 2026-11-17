@@ -90,13 +90,13 @@ test('a repeat upsert updates the same REQ and never creates a second one', asyn
   const second = await upsert(tool, cwd, {
     initiative: 'budget-gate',
     expectedRev: first.rev,
-    patch: { requirements: [requirement({ text: 'Context budget gate (v2) fails above 1.5x', status: 'proven' })] },
+    patch: { requirements: [requirement({ text: 'Context budget gate (v2) fails above 1.5x' })] },
   })
   assert.equal(second.ok, true, JSON.stringify(second))
   const reqs = await readdir(join(cwd, 'state', 'req'))
   assert.deepEqual(reqs, ['REQ-001.md'])
   const req = await readFile(join(cwd, 'state', 'req', 'REQ-001.md'), 'utf8')
-  assert.match(req, /status: done/)
+  assert.match(req, /status: proposed/)
   assert.match(req, /revision: 2/)
   assert.equal(second.reqMirror.reqs[0].action, 'updated')
 })

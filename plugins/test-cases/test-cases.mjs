@@ -62,6 +62,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { driftFor, fileHash, slugify } from './lib/schema.mjs'
 import { normalizeChecks } from './lib/checks.mjs'
 import { recordRun, runAttempts, shellExec, spawnExec } from './lib/runner.mjs'
+import { mirrorCase } from './mirror.mjs'
 import { Refusal, appendAudit, libraryDir, readCase, readCases, removeCaseFile, safeCaseId, writeCase } from './lib/store.mjs'
 
 export { driftFor, slugify, safeCaseId, readCase, writeCase }
@@ -361,6 +362,15 @@ export function gateForTask(cwd, taskId, config = {}) {
  * case, not from the caller.
  */
 export function createTools(config = {}, env = {}) {
+  /** Mirror one written case into the project state, when the core is mounted. */
+  const mirror = async (agent, record) => {
+    if (typeof env.mirror !== 'function' || record === undefined || record === null) return null
+    try {
+      return await env.mirror(agent, record)
+    } catch {
+      return null
+    }
+  }
   const dirFor = (agent) => libraryDir(workingDir(agent), config)
   const executor = env.shell !== undefined && env.shell !== null ? shellExec(env.shell) : spawnExec()
 
@@ -382,6 +392,8 @@ export function createTools(config = {}, env = {}) {
       surfaceFiles: { type: 'array', items: { type: 'string' }, description: 'Repository-relative files whose change invalidates this verification.' },
       source: { type: 'string', enum: ['human', 'agent'], description: 'Who stated the requirement. Default agent.' },
       linkedTaskId: { type: 'string', description: 'Optional taskboard task that implements this requirement.' },
+      reqId: { type: 'string', description: 'The REQ this test protects (REQ-001). Required: a test without a requirement proves nothing the register can close.' },
+      authorRole: { type: 'string', description: 'The role that authored the test (orchestrator for acceptance tests, backend for implementation tests). Required: the author of an acceptance test must not be its implementer.' },
       checks: {
         type: 'array',
         description: 'Typed checks case_run evaluates from the driver\'s CASE_SUMMARY: {name?, metric, op?, threshold?|expected?|baseline?, band?, unit?}. A check with none of threshold/expected/baseline is refused.',
@@ -398,10 +410,17 @@ export function createTools(config = {}, env = {}) {
       negativeControl: { type: 'string', description: 'Driver control name for a measured red: the driver must break its own assertion when it receives CASE_NEGATIVE_CONTROL.' },
     },
     output: OUTPUT,
-    execute: (args, exec) => guarded(() => {
+    execute: (args, exec) => guarded(async () => {
       requireStrings(args, ['title', 'requirement', 'expected'])
       const kind = KINDS.includes(args.kind) ? args.kind : 'regression'
       const automated = args.automated === true
+      // FR11: a test belongs to a REQ and names its author. A case without either is refused
+      // before the file is written (test_req_required).
+      const reqId = typeof args.reqId === 'string' ? args.reqId.trim() : ''
+      const authorRole = typeof args.authorRole === 'string' ? args.authorRole.trim() : ''
+      if (reqId === '' || authorRole === '') {
+        throw new Refusal('TEST_REQ_REQUIRED', 'a case needs reqId (the REQ it protects) and authorRole (who wrote it); pass both')
+      }
       if (automated) {
         requireStrings(args, ['testPath', 'runCommand'])
       } else if (typeof args.reason !== 'string' || args.reason.trim() === '') {
@@ -436,6 +455,8 @@ export function createTools(config = {}, env = {}) {
         tags: Array.isArray(args.tags) ? args.tags.filter((tag) => typeof tag === 'string' && tag !== '') : [],
         surfaceFiles: (Array.isArray(args.surfaceFiles) ? args.surfaceFiles : []).filter((path) => typeof path === 'string' && path !== '').map((path) => ({ path, sha256: fileHash(join(workspace, path)) ?? '' })),
         ...(typeof args.linkedTaskId === 'string' && args.linkedTaskId !== '' ? { linkedTaskId: args.linkedTaskId } : {}),
+        reqId,
+        authorRole,
         ...(checks.length > 0 ? { checks } : {}),
         ...(typeof args.negativeControl === 'string' && args.negativeControl !== '' ? { negativeControl: args.negativeControl } : {}),
         revision: 1,
@@ -447,7 +468,8 @@ export function createTools(config = {}, env = {}) {
         evidence: {},
       }
       const path = writeCase(dir, record)
-      return { ok: true, case: summary(record), path: relative(workspace, path) }
+      const testMirror = await mirror(exec.agent, record)
+      return { ok: true, case: summary(record), path: relative(workspace, path), ...(testMirror === null ? {} : { testMirror }) }
     }),
   })
 
@@ -460,6 +482,7 @@ export function createTools(config = {}, env = {}) {
       title: { type: 'string' }, requirement: { type: 'string' }, expected: { type: 'string' },
       steps: { type: 'array', items: { type: 'string' } },
       automated: { type: 'boolean' }, testPath: { type: 'string' }, runCommand: { type: 'string' }, reason: { type: 'string' },
+      reqId: { type: 'string' }, authorRole: { type: 'string' },
       fixture: { type: 'string' }, tags: { type: 'array', items: { type: 'string' } },
       surfaceFiles: { type: 'array', items: { type: 'string' } },
       negativeControl: { type: 'string', description: 'Driver control name for a measured red (pass an empty string to clear it).' },
@@ -478,7 +501,7 @@ export function createTools(config = {}, env = {}) {
       },
     },
     output: OUTPUT,
-    execute: (args, exec) => guarded(() => {
+    execute: (args, exec) => guarded(async () => {
       requireStrings(args, ['id'])
       const dir = dirFor(exec.agent)
       const workspace = workingDir(exec.agent)
@@ -500,6 +523,8 @@ export function createTools(config = {}, env = {}) {
         else next.negativeControl = args.negativeControl
       }
       if (typeof args.automated === 'boolean') next.automated = args.automated
+      if (typeof args.reqId === 'string' && args.reqId.trim() !== '') next.reqId = args.reqId.trim()
+      if (typeof args.authorRole === 'string' && args.authorRole.trim() !== '') next.authorRole = args.authorRole.trim()
       if (next.automated === true && (typeof next.testPath !== 'string' || next.testPath.trim() === '' || typeof next.runCommand !== 'string' || next.runCommand.trim() === '')) {
         throw new Refusal('AUTOMATED_REQUIRES_TEST', 'automated:true needs testPath and runCommand')
       }
@@ -536,7 +561,8 @@ export function createTools(config = {}, env = {}) {
         }
       }
       const path = writeCase(dir, next)
-      return { ok: true, case: summary(next), path: relative(workspace, path) }
+      const testMirror = await mirror(exec.agent, next)
+      return { ok: true, case: summary(next), path: relative(workspace, path), ...(testMirror === null ? {} : { testMirror }) }
     }),
   })
 
@@ -627,7 +653,8 @@ export function createTools(config = {}, env = {}) {
       }
       const folded = recordRun(record, { workspace, attempt, mode, setBaseline: args.setBaseline === true, commit: typeof args.commit === 'string' ? args.commit : null })
       const path = writeCase(dir, folded.record)
-      return { ok: true, case: summary(folded.record), verdict: folded.verdict, path: relative(workspace, path) }
+      const testMirror = await mirror(exec.agent, folded.record)
+      return { ok: true, case: summary(folded.record), verdict: folded.verdict, path: relative(workspace, path), ...(testMirror === null ? {} : { testMirror }) }
     }),
   })
 
@@ -931,10 +958,43 @@ export function apply(ctx, config = {}) {
   } catch {
     shell = undefined
   }
-  const tools = createTools(config, { shell })
+  // THE PROJECT STATE CORE IS OPTIONAL. With `ccProjectState` mounted every written case is
+  // mirrored into state/test/ (found again by caseId) and the projections are regenerated.
+  const mirrorQueue = new Map()
+  const coreOf = () => {
+    try {
+      return ctx.get?.('ccProjectState')
+    } catch {
+      return undefined
+    }
+  }
+  const scheduleMirror = (agent, record) => {
+    const core = coreOf()
+    if (core === undefined || core === null) return null
+    const cwd = workingDir(agent)
+    const run = async () => {
+      try {
+        const result = await mirrorCase(core, { cwd, record })
+        const state = typeof core.open === 'function' ? core.open(cwd) : core
+        if (typeof state.regenerateViews === 'function') await state.regenerateViews()
+        if (result.ok === false) ctx.logger?.warn?.(`test-cases: TEST mirror for ${record.id} failed: ${result.code ?? 'unknown'}`)
+        return result
+      } catch (error) {
+        ctx.logger?.warn?.(`test-cases: TEST mirror for ${record.id} threw: ${error instanceof Error ? error.message : String(error)}`)
+        return { ok: false, code: 'mirror_failed' }
+      }
+    }
+    const previous = mirrorQueue.get(cwd) ?? Promise.resolve()
+    mirrorQueue.set(cwd, previous.then(run, run))
+    return mirrorQueue.get(cwd)
+  }
+  const tools = createTools(config, { shell, mirror: (agent, record) => scheduleMirror(agent, record) })
   // THE TASKBOARD'S READ. A workspace without this row keeps its legacy close behaviour: the
   // taskboard looks the service up with ctx.get('cases') and skips the gate when it is absent.
-  const providedCases = ctx.provide('cases', { gateForTask: (cwd, taskId) => gateForTask(cwd, taskId, config) })
+  const providedCases = ctx.provide('cases', {
+    gateForTask: (cwd, taskId) => gateForTask(cwd, taskId, config),
+    flushMirror: async (cwd) => { await (mirrorQueue.get(cwd) ?? Promise.resolve()) },
+  })
   if (typeof ctx.effect === 'function') ctx.effect(() => providedCases)
   const policy = config.roles !== null && typeof config.roles === 'object' ? config.roles : DEFAULT_ROLE_TOOLS
   const showSection = config.shownInPrompt !== false

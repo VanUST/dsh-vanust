@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "project-state-ecosystem",
-  "rev": 30,
+  "rev": 32,
   "status": "ready",
   "createdAt": "2026-11-17T13:19:07.274Z",
-  "updatedAt": "2026-11-17T15:28:27.191Z",
+  "updatedAt": "2026-11-17T15:36:36.331Z",
   "updatedBy": "agent",
   "title": "Экосистема состояния проекта и экономика контекста — v1",
   "requestedSolution": "Реализовать v1 дизайна от 2026-11-17 в порядке §10: (1) контекст-фундамент — allow-list в tool-families, диета схем и линтер, контракт слоёв L0–L3, новый хост-плагин state-feed (L1 первым сообщением, L2-дельты по хешу, инъекции как session events), MCP только для ux, Hindsight воркерам убран, context-budget.mjs с предупреждением и красным гейтом >1.5×; (2) ядро ccProjectState — файл на сущность в state/, ID под локом, связи с хешами, CAS, журнал, verify, регенерация проекций; (3) policy-плагин (fs/tools/sandbox) с запретами записи и трипвайром; (4) эволюция analysis в реестр REQ; (5) taskboard с reqId/chore и CAS через ядро; (6) раннер red→green с evidence вне writable-области; (7) оркестратор с брифом из обвязки, структурированным возвратом, cold-start гейтом и снимками; (8) миграции и доводка проекций; (9) дисциплина языка. v2 не трогать.",
@@ -179,7 +179,7 @@
         "REQ → done без red→green отказывает",
         "Тавтологичный тест не проходит red-фазу"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR12",
@@ -688,7 +688,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T13:35:00.000Z",
           "evidence": [
-            "proof 92/92; 15/92 на старых байтах; восемь живых сессий"
+            "proof 92/92; 15/92 на старых байтах; восемь сессий"
           ]
         }
       ]
@@ -847,8 +847,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T15:25:00.000Z",
           "evidence": [
-            "analysis 5/5; proof 138/138",
-            "один REQ на требование; дедуп; digest"
+            "analysis 5/5; proof 138/138; один REQ на требование; дедуп"
           ]
         }
       ]
@@ -871,9 +870,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T15:35:00.000Z",
           "evidence": [
-            "taskboard 5/5; пять proof-скриптов exit 0; project-state 12/12; make verify exit 0",
-            "task_create без reqId и без chore+причины → req_required",
-            "TASK в state/task с boardId; повторное обновление правит тот же файл; board.md регенерируется"
+            "taskboard 5/5; пять proof-скриптов exit 0; req_required; boardId"
           ]
         }
       ]
@@ -882,10 +879,28 @@
       "requirementId": "FR11",
       "processId": "V1-TGT",
       "componentId": "test-cases",
-      "contractIds": [],
-      "dataIds": [],
-      "status": "planned",
-      "tasks": []
+      "contractIds": [
+        "state-service-api",
+        "gate-codes"
+      ],
+      "dataIds": [
+        "case-library",
+        "state-entities"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkukron-438ifl",
+          "role": "BACKEND",
+          "at": "2026-11-17T15:45:00.000Z",
+          "evidence": [
+            "test-cases 16/16; analysis 9/9; project-state 12/12; make verify exit 0",
+            "без reqId/authorRole → TEST_REQ_REQUIRED, файл не создаётся",
+            "proven без пары red:fail + green:pass → evidence_required, запись и REQ не пишутся",
+            "green-only REQ не закрывает; тавтология отвергается case_run mode:red с negative control (runner.test.mjs:103)"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "FR12",
@@ -983,7 +998,7 @@
     }
   ],
   "pendingImpacts": [],
-  "fingerprint": "6cc0b4ba0618a1f028257306807c6e4b35b6cb6a7e56e0dd960d17f8f021767a",
+  "fingerprint": "54248719798dd52e5f61b2e3e362b27d4661554c58db982b0a247ca81f11fd63",
   "history": [
     {
       "revision": 1,
@@ -1224,6 +1239,22 @@
       "action": "upsert",
       "status": "ready",
       "summary": "requirements: BR1 changed, FR2 changed, FR9 changed, FR10 changed, FR11 changed; impacts: 6"
+    },
+    {
+      "revision": 31,
+      "at": "2026-11-17T15:28:45.888Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwkukron-438ifl -> FR11"
+    },
+    {
+      "revision": 32,
+      "at": "2026-11-17T15:36:36.331Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "impacts: 1"
     }
   ]
 }
