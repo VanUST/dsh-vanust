@@ -110,6 +110,7 @@
  */
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { mirrorTask } from './mirror.mjs'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
@@ -993,6 +994,15 @@ function createService(config, logger, hooks = {}) {
       const role = typeof input?.role === 'string' ? input.role.trim().slice(0, 80) : ''
       const inline = role === '' && input?.inline === true
       if (role === '' && !inline) return { ok: false, code: 'needs_role_or_inline' }
+      // THE REQUIREMENT GATE (FR10). A task implements a REQ or is an explicitly justified
+      // chore; with a project-state core mounted there is no third option. A composition
+      // without the core keeps the old behaviour (proof scripts exercise that path directly).
+      const reqId = typeof input?.reqId === 'string' ? input.reqId.trim() : ''
+      const chore = input?.chore === true
+      const choreReason = typeof input?.choreReason === 'string' ? input.choreReason.trim() : ''
+      if (typeof hooks.mirrorActive === 'function' && hooks.mirrorActive() && reqId === '' && !(chore && choreReason !== '')) {
+        return { ok: false, code: 'req_required', message: 'a task needs a reqId (the REQ it implements) or chore:true with a non-empty choreReason' }
+      }
       // A TASK IS BORN OPEN. `done` means accepted and `cancelled` means abandoned: neither can
       // be a starting point, and `paused`/`active`/`review` each claim something that has not
       // happened yet. Only `blocked` is a real starting state, and only with its reason.
@@ -1003,7 +1013,7 @@ function createService(config, logger, hooks = {}) {
       const chatId = typeof input?.chatId === 'string' && input.chatId !== ''
         ? input.chatId
         : (typeof input?.parentSessionId === 'string' && input.parentSessionId !== '' && typeof hooks.rootOf === 'function' ? hooks.rootOf(input.parentSessionId) : '')
-      return mutate(cwd, (board) => {
+      const created = mutate(cwd, (board) => {
         const time = now()
         // THE CAP IS ON WORK IN FLIGHT, NOT ON HISTORY. A board that finished 190 tasks and
         // has 5 open ones is not full; it is healthy. Two separate limits, two codes:
@@ -1038,6 +1048,9 @@ function createService(config, logger, hooks = {}) {
           ...(inline ? { inline: true } : {}),
           ...(role !== '' && typeof input.preset === 'string' && input.preset.trim() !== '' ? { preset: input.preset.trim().slice(0, 80) } : {}),
           ...(typeof input?.reason === 'string' && input.reason.trim() !== '' ? { reason: input.reason.trim().slice(0, 1000) } : {}),
+          ...(reqId === '' ? {} : { reqId: reqId.slice(0, 80) }),
+          ...(chore ? { chore: true } : {}),
+          ...(choreReason === '' ? {} : { choreReason: choreReason.slice(0, 1000) }),
           ...(chatId === '' ? {} : { chatId }),
           ...(typeof input?.parentSessionId === 'string' && input.parentSessionId !== '' ? { parentSessionId: input.parentSessionId } : {}),
           ...(typeof input?.parentId === 'string' && input.parentId !== '' ? { parentId: input.parentId } : {}),
@@ -1055,13 +1068,15 @@ function createService(config, logger, hooks = {}) {
         board.tasks.push(task)
         return { changed: true, value: task }
       })
+      if (created !== undefined && created?.ok !== false) hooks.mirror?.(cwd, created)
+      return created
     },
     /** Compare-and-set update; a stale revision returns the current task untouched. */
     update(cwd, input) {
       const id = typeof input?.id === 'string' ? input.id : ''
       const expected = Number.isSafeInteger(input?.expectedRevision) ? input.expectedRevision : null
       const chatId = typeof input?.chatId === 'string' ? input.chatId : ''
-      return mutate(cwd, (board) => {
+      const updated = mutate(cwd, (board) => {
         const task = board.tasks.find((entry) => entry.id === id)
         if (task === undefined) return { value: { ok: false, code: 'not_found' } }
         if (!writable(task, chatId, input?.actor, input?.scope)) return otherChat(task)
@@ -1105,6 +1120,17 @@ function createService(config, logger, hooks = {}) {
           if (patch.reason.trim() === '') delete task.reason
           else task.reason = patch.reason.trim().slice(0, 1000)
         }
+        // The requirement reference can be set or cleared after creation; the gate itself is
+        // enforced on create, where a task gets its identity.
+        if (typeof patch.reqId === 'string') {
+          if (patch.reqId.trim() === '') delete task.reqId
+          else task.reqId = patch.reqId.trim().slice(0, 80)
+        }
+        if (patch.chore === true) task.chore = true
+        if (patch.choreReason !== undefined) {
+          if (String(patch.choreReason).trim() === '') delete task.choreReason
+          else task.choreReason = String(patch.choreReason).trim().slice(0, 1000)
+        }
         // The reason describes why the task is blocked; leaving blocked clears it, and the
         // timeline keeps what it said.
         if (target !== undefined && target !== 'blocked' && current === 'blocked') delete task.reason
@@ -1129,6 +1155,8 @@ function createService(config, logger, hooks = {}) {
         timeline(task, 'edited', input?.actor === 'human' ? 'human' : 'orchestrator', 'Task edited' + editedOrigin, {}, timelineLimit)
         return { changed: true, value: { ok: true, task } }
       })
+      if (updated !== undefined && updated?.ok !== false) hooks.mirror?.(cwd, updated.task)
+      return updated
     },
     /** Append a note without changing the structured fields. */
     note(cwd, input) {
@@ -1628,8 +1656,43 @@ export function apply(ctx, config = {}) {
     }
     return id
   }
+  // THE PROJECT STATE CORE IS OPTIONAL. When `ccProjectState` is mounted, every created or
+  // updated task is mirrored into `state/task/` (found again by `boardId`), the requirement
+  // gate is enforced, and the projections are regenerated. Without the core the taskboard
+  // keeps its old behaviour (the proof scripts exercise that path).
+  const mirrorQueue = new Map()
+  const mirrorResults = new Map()
+  const coreOf = () => {
+    try {
+      return ctx.get?.('ccProjectState')
+    } catch {
+      return undefined
+    }
+  }
+  const scheduleMirror = (cwd, task) => {
+    const core = coreOf()
+    if (core === undefined || core === null || task === undefined || task === null) return undefined
+    const run = async () => {
+      try {
+        const result = await mirrorTask(core, { cwd, task })
+        mirrorResults.set(cwd, result)
+        if (result.ok === false) ctx.logger?.warn?.(`taskboard: TASK mirror for ${task.id} failed: ${result.code ?? 'unknown'}`)
+        const state = typeof core.open === 'function' ? core.open(cwd) : core
+        if (typeof state.regenerateViews === 'function') await state.regenerateViews()
+        return result
+      } catch (error) {
+        ctx.logger?.warn?.(`taskboard: TASK mirror for ${task.id} threw: ${error instanceof Error ? error.message : String(error)}`)
+        return { ok: false, code: 'mirror_failed' }
+      }
+    }
+    const previous = mirrorQueue.get(cwd) ?? Promise.resolve()
+    mirrorQueue.set(cwd, previous.then(run, run))
+    return mirrorQueue.get(cwd)
+  }
   const service = createService(config, ctx.logger, {
     rootOf,
+    mirror: scheduleMirror,
+    mirrorActive: () => coreOf() !== undefined,
     interrupt(childId, parentSessionId) {
       const subagents = ctx.get('subagents')
       if (subagents === undefined || typeof subagents.interrupt !== 'function') throw new Error('subagent service is unavailable')
@@ -1684,6 +1747,10 @@ export function apply(ctx, config = {}) {
       }
     },
   })
+  service.flushMirror = async (cwd) => {
+    await (mirrorQueue.get(cwd) ?? Promise.resolve())
+    return mirrorResults.get(cwd) ?? null
+  }
   const board = ctx.provide('taskboard', service)
   ctx.effect(() => board)
 
@@ -1729,11 +1796,19 @@ export function apply(ctx, config = {}) {
       inline: { type: 'boolean', description: 'true when the caller does this work itself, with no specialist role. Required unless role is given.' },
       parentId: { type: 'string', description: 'Optional parent task id.' },
       priority: { type: 'string', enum: PRIORITIES, description: 'low | normal | high.' },
+      reqId: { type: 'string', description: 'The REQ this task implements (REQ-001). Required with the project-state core, unless chore is true with a choreReason.' },
+      chore: { type: 'boolean', description: 'true when the work is justified housekeeping rather than a requirement; needs a non-empty choreReason.' },
+      choreReason: { type: 'string', description: 'Why this chore is needed; required with chore:true.' },
     },
     output: out(),
-    execute(args, exec) {
-      const task = service.create(workingDir(exec.agent), { ...args, parentSessionId: exec.agent?.id, chatId: rootOf(exec.agent?.id) }, 'orchestrator')
-      return Promise.resolve(task)
+    async execute(args, exec) {
+      const cwd = workingDir(exec.agent)
+      const task = service.create(cwd, { ...args, parentSessionId: exec.agent?.id, chatId: rootOf(exec.agent?.id) }, 'orchestrator')
+      if (task !== undefined && task?.ok !== false) {
+        const taskMirror = await service.flushMirror(cwd)
+        return { ...task, ...(taskMirror === null ? {} : { taskMirror }) }
+      }
+      return task
     },
   }))
 
@@ -1765,7 +1840,7 @@ export function apply(ctx, config = {}) {
 
   ctx.tools.register(defineTool({
     name: 'task_update',
-    description: 'Compare-and-set one task. Pass the revision you read; a stale revision is rejected with the current task. This is how a human or the orchestrator changes status, scope, non-scope, acceptance or the result summary.',
+    description: 'Compare-and-set one task. Pass the revision you read; a stale revision is rejected with the current task. This is how a human or the orchestrator changes status, scope, non-scope, acceptance or the result summary. With the project-state core mounted the updated task is mirrored into state/task/ and the projections are regenerated.',
     parameters: {
       id: { type: 'string', required: true, description: 'Task id.' },
       expectedRevision: { type: 'integer', required: true, description: 'Task revision you read.' },
@@ -1785,7 +1860,7 @@ export function apply(ctx, config = {}) {
       scope: { type: 'string', enum: ['workspace'], description: "'workspace' lets a ROOT agent write a task another chat created (the ledger is one per workspace). Refused for child sessions." },
     },
     output: out(),
-    execute(args, exec) {
+    async execute(args, exec) {
       const widened = workspaceScope(args, exec)
       if (widened.refused !== undefined) return Promise.resolve(widened.refused)
       const patch = {}
@@ -1801,8 +1876,13 @@ export function apply(ctx, config = {}) {
           risks: args.resultRisks,
         }
       }
-      const result = service.update(workingDir(exec.agent), { id: args.id, expectedRevision: args.expectedRevision, patch, scope: widened.scope, chatId: rootOf(exec.agent?.id) })
-      return Promise.resolve(result)
+      const cwd = workingDir(exec.agent)
+      const result = service.update(cwd, { id: args.id, expectedRevision: args.expectedRevision, patch, scope: widened.scope, chatId: rootOf(exec.agent?.id) })
+      if (result !== undefined && result?.ok !== false) {
+        const taskMirror = await service.flushMirror(cwd)
+        return { ...result, ...(taskMirror === null ? {} : { taskMirror }) }
+      }
+      return result
     },
   }))
 

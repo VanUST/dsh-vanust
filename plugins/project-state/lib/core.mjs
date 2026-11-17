@@ -197,6 +197,8 @@ export function createStateService(options = {}) {
       if (input.chore === true) frontmatter.chore = true
       if (input.choreReason !== undefined) frontmatter.choreReason = String(input.choreReason)
       if (input.ownerRole !== undefined) frontmatter.ownerRole = String(input.ownerRole)
+      // The taskboard's stable key: the TASK row keeps the id of the board task it mirrors.
+      if (typeof input.boardId === 'string' && input.boardId !== '') frontmatter.boardId = input.boardId
     }
     if (kind === 'test') {
       if (input.reqId !== undefined) frontmatter.reqId = String(input.reqId)
@@ -297,7 +299,7 @@ export function createStateService(options = {}) {
         const { entities, invalid } = await scanEntities()
         const rows = entities
           .filter((entity) => clean === undefined || entity.fileKind === clean)
-          .map((entity) => ({ id: entity.frontmatter.id, kind: entity.fileKind, title: entity.frontmatter.title, status: entity.frontmatter.status, revision: entity.frontmatter.revision, path: entity.rel, ...(entity.frontmatter.analysisRef === undefined ? {} : { analysisRef: entity.frontmatter.analysisRef }), ...(entity.frontmatter.criteriaHash === undefined ? {} : { criteriaHash: entity.frontmatter.criteriaHash }) }))
+          .map((entity) => ({ id: entity.frontmatter.id, kind: entity.fileKind, title: entity.frontmatter.title, status: entity.frontmatter.status, revision: entity.frontmatter.revision, path: entity.rel, ...(entity.frontmatter.analysisRef === undefined ? {} : { analysisRef: entity.frontmatter.analysisRef }), ...(entity.frontmatter.criteriaHash === undefined ? {} : { criteriaHash: entity.frontmatter.criteriaHash }), ...(entity.frontmatter.boardId === undefined ? {} : { boardId: entity.frontmatter.boardId }) }))
           .sort((a, b) => String(a.id).localeCompare(String(b.id)))
         return { ok: true, rows, invalid: invalid.map((entry) => ({ path: entry.rel, error: entry.error })) }
       } catch (error) {
@@ -323,7 +325,7 @@ export function createStateService(options = {}) {
             return fail('revision_conflict', `expected revision ${expected}, file has ${current.revision}`)
           }
           const next = { ...current, revision: expected + 1, updatedAt: now() }
-          for (const field of ['title', 'status', 'ownerRole', 'reqId', 'command', 'choreReason', 'criteriaHash']) {
+          for (const field of ['title', 'status', 'ownerRole', 'reqId', 'command', 'choreReason', 'criteriaHash', 'boardId']) {
             if (patch[field] !== undefined) next[field] = patch[field]
           }
           if (patch.analysisRef !== undefined && patch.analysisRef !== null && typeof patch.analysisRef === 'object') {

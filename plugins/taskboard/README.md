@@ -66,6 +66,7 @@ and the human's panel reach the same service. Every refusal is a value with a na
 | `use_resume` | any move out of `paused` through an ordinary update |
 | `needs_review` | `task_close` on a task that is not in review |
 | `needs_result` | also `task_close` on a task whose result has no summary — the child settling is not an acceptance |
+| `req_required` | `task_create` with the project-state core mounted and neither a `reqId` nor `chore: true` with a non-empty `choreReason`; the task is not written |
 | `initial_status` | `task_create` with any status other than `open` (or `blocked` with its reason); a task is born open |
 | `needs_revision` | a command-path write without the `expectedRevision` it read |
 | `terminal` | any move out of `done` or `cancelled` |

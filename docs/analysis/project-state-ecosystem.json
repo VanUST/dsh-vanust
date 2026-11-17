@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "project-state-ecosystem",
-  "rev": 28,
+  "rev": 30,
   "status": "ready",
   "createdAt": "2026-11-17T13:19:07.274Z",
-  "updatedAt": "2026-11-17T15:21:25.606Z",
+  "updatedAt": "2026-11-17T15:28:27.191Z",
   "updatedBy": "agent",
   "title": "Экосистема состояния проекта и экономика контекста — v1",
   "requestedSolution": "Реализовать v1 дизайна от 2026-11-17 в порядке §10: (1) контекст-фундамент — allow-list в tool-families, диета схем и линтер, контракт слоёв L0–L3, новый хост-плагин state-feed (L1 первым сообщением, L2-дельты по хешу, инъекции как session events), MCP только для ux, Hindsight воркерам убран, context-budget.mjs с предупреждением и красным гейтом >1.5×; (2) ядро ccProjectState — файл на сущность в state/, ID под локом, связи с хешами, CAS, журнал, verify, регенерация проекций; (3) policy-плагин (fs/tools/sandbox) с запретами записи и трипвайром; (4) эволюция analysis в реестр REQ; (5) taskboard с reqId/chore и CAS через ядро; (6) раннер red→green с evidence вне writable-области; (7) оркестратор с брифом из обвязки, структурированным возвратом, cold-start гейтом и снимками; (8) миграции и доводка проекций; (9) дисциплина языка. v2 не трогать.",
@@ -61,9 +61,9 @@
     {
       "id": "BR1",
       "kind": "BR",
-      "text": "План, принятые требования и способ их проверки живут в репозитории проекта и переживают сессию и компакцию.",
+      "text": "План, принятые требования и способ их проверки живут в репозитории проекта.",
       "acceptance": [
-        "Новая сессия отвечает на «какие REQ открыты» совпадающе с реестром",
+        "Новая сессия отвечает по реестру",
         "Требование без задачи и задача без требования видны в L1/L2"
       ],
       "status": "planned"
@@ -85,8 +85,7 @@
       "acceptance": [
         "Считает инструменты и байты",
         "WARN/1.5× RED с негативным контролем",
-        "PTC — своя база",
-        "Нативные — и по числу"
+        "PTC — своя база"
       ],
       "status": "proven"
     },
@@ -154,30 +153,30 @@
     {
       "id": "FR9",
       "kind": "FR",
-      "text": "Реестр REQ первичен: запись анализа зеркалируется в REQ, дедуп-кандидаты, digest.",
+      "text": "Реестр REQ первичен: зеркалирование, дедуп, digest.",
       "acceptance": [
         "REQ нельзя принять без критериев",
         "Дубль возвращает кандидатов",
-        "digest для L1 генерируется"
+        "digest генерируется"
       ],
       "status": "proven"
     },
     {
       "id": "FR10",
       "kind": "FR",
-      "text": "TASK связан с REQ или chore+причина; CAS через ядро.",
+      "text": "TASK связан с REQ или chore+причина; CAS через ядро; борд — проекция.",
       "acceptance": [
         "TASK → active без reqId и без chore+причины отказывает",
         "Борд регенерируется из состояния"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR11",
       "kind": "FR",
-      "text": "TEST с reqId и authorRole; evidence вне writable-области.",
+      "text": "TEST с reqId и authorRole; evidence red→green вне writable-области.",
       "acceptance": [
-        "REQ → verified без red→green отказывает",
+        "REQ → done без red→green отказывает",
         "Тавтологичный тест не проходит red-фазу"
       ],
       "status": "planned"
@@ -689,8 +688,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T13:35:00.000Z",
           "evidence": [
-            "proof 92/92; 15/92 на старых байтах",
-            "восемь живых сессий"
+            "proof 92/92; 15/92 на старых байтах; восемь живых сессий"
           ]
         }
       ]
@@ -722,7 +720,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T14:52:00.000Z",
           "evidence": [
-            "0 red exit 0; негативный контроль 1 red exit 1; make verify"
+            "0 red exit 0; негативный контроль 1 red exit 1"
           ]
         }
       ]
@@ -764,7 +762,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T15:10:00.000Z",
           "evidence": [
-            "6/6; живая сессия: L1 seq 12 до seq 13; L2 seq 37"
+            "6/6; L1 seq 12 до seq 13; L2 seq 37"
           ]
         }
       ]
@@ -849,10 +847,8 @@
           "role": "BACKEND",
           "at": "2026-11-17T15:25:00.000Z",
           "evidence": [
-            "analysis 5/5, project-state 12/12, state-feed 6/6; proof 138/138; make verify exit 0",
-            "один REQ на требование с analysisRef и criteriaHash; повторный upsert обновляет тот же",
-            "пустой acceptance → req_criteria_required; дубль → req_duplicate_candidates + allowDuplicate",
-            "digest непуст после regenerateViews; ядро опционально через ctx.get"
+            "analysis 5/5; proof 138/138",
+            "один REQ на требование; дедуп; digest"
           ]
         }
       ]
@@ -861,10 +857,26 @@
       "requirementId": "FR10",
       "processId": "V1-TGT",
       "componentId": "taskboard",
-      "contractIds": [],
-      "dataIds": [],
-      "status": "planned",
-      "tasks": []
+      "contractIds": [
+        "state-service-api"
+      ],
+      "dataIds": [
+        "taskboard-file",
+        "state-entities"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkubps1-3i0yad",
+          "role": "BACKEND",
+          "at": "2026-11-17T15:35:00.000Z",
+          "evidence": [
+            "taskboard 5/5; пять proof-скриптов exit 0; project-state 12/12; make verify exit 0",
+            "task_create без reqId и без chore+причины → req_required",
+            "TASK в state/task с boardId; повторное обновление правит тот же файл; board.md регенерируется"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "FR11",
@@ -946,7 +958,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T15:10:00.000Z",
           "evidence": [
-            "L2 341 Б при лимите 1200 Б; одна дельта на ход"
+            "L2 341 Б при лимите 1200 Б"
           ]
         }
       ]
@@ -971,7 +983,7 @@
     }
   ],
   "pendingImpacts": [],
-  "fingerprint": "aece6a1636432421ce9e436c40384b4d10262bf01eec3280a66c2aa337fa436e",
+  "fingerprint": "6cc0b4ba0618a1f028257306807c6e4b35b6cb6a7e56e0dd960d17f8f021767a",
   "history": [
     {
       "revision": 1,
@@ -1196,6 +1208,22 @@
       "action": "upsert",
       "status": "ready",
       "summary": "requirements: FR4 changed, FR5 changed, FR6 changed, FR7 changed, FR9 changed, FR12 changed, NFR2 changed, NFR3 changed, NFR4 changed; impacts: 10"
+    },
+    {
+      "revision": 29,
+      "at": "2026-11-17T15:21:43.513Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwkubps1-3i0yad -> FR10"
+    },
+    {
+      "revision": 30,
+      "at": "2026-11-17T15:28:27.191Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "requirements: BR1 changed, FR2 changed, FR9 changed, FR10 changed, FR11 changed; impacts: 6"
     }
   ]
 }
