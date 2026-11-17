@@ -165,18 +165,34 @@ export function renderSnapshot(model, { lastSeq = 0 } = {}) {
 /** `digest.md`: the small block the L1 layer will deliver; hard-capped. */
 export function renderDigest(model, { lastSeq = 0, limit = DIGEST_LIMIT_BYTES } = {}) {
   const lines = ['# Project state', '', 'GENERATED — DO NOT EDIT.', '', `REQ ${model.reqs.length} · TASK ${model.tasks.length} · TEST ${model.tests.length} · event ${lastSeq}`, '']
-  const open = model.tasks.filter((task) => task.status === 'open' || task.status === 'active' || task.status === 'review')
-  if (open.length > 0) {
-    lines.push('## Open work', '')
-    for (const task of open.sort(byStatusThenId)) lines.push(`- ${task.id} ${task.status}: ${cell(task.title).slice(0, 120)}${task.reqId ? ` (${task.reqId})` : ''}`)
+  // THE GAPS COME FIRST, so the hard cap can never hide them: a full register is exactly the
+  // case where the reader must know that the REQ have no tasks and the tasks have no reqId.
+  const OPEN_REQ = ['proposed', 'open', 'accepted', 'in_progress']
+  const reqsWithoutTasks = model.reqs.filter((req) => req.tasks.length === 0)
+  const tasksWithoutReq = model.tasks.filter((task) => typeof task.reqId !== 'string' || task.reqId === '')
+  const testsWithoutReq = model.tests.filter((test) => typeof test.reqId !== 'string' || test.reqId === '')
+  if (reqsWithoutTasks.length > 0 || tasksWithoutReq.length > 0 || testsWithoutReq.length > 0) {
+    lines.push('## Gaps', '')
+    if (reqsWithoutTasks.length > 0) {
+      const ids = reqsWithoutTasks.slice(0, 10).map((req) => req.id)
+      lines.push(`- REQ without TASK: ${reqsWithoutTasks.length} (${ids.join(', ')}${reqsWithoutTasks.length > ids.length ? ', …' : ''})`)
+    }
+    if (tasksWithoutReq.length > 0) lines.push(`- TASK without reqId: ${tasksWithoutReq.length}`)
+    if (testsWithoutReq.length > 0) lines.push(`- TEST without reqId: ${testsWithoutReq.length}`)
     lines.push('')
   }
-  if (model.reqs.length > 0) {
-    lines.push('## Requirements', '')
-    for (const req of model.reqs) {
-      const facts = [`${req.tasks.length} task${req.tasks.length === 1 ? '' : 's'}`, `${req.tests.length} test${req.tests.length === 1 ? '' : 's'}`]
-      lines.push(`- ${req.id} ${req.status}: ${cell(req.title).slice(0, 120)} — ${facts.join(', ')}`)
-    }
+  const openReqs = model.reqs.filter((req) => OPEN_REQ.includes(req.status)).sort(byId)
+  if (openReqs.length > 0) {
+    lines.push(`## Open requirements (${openReqs.length})`, '')
+    for (const req of openReqs.slice(0, 20)) lines.push(`- ${req.id} ${req.status}: ${cell(req.title).slice(0, 100)}`)
+    if (openReqs.length > 20) lines.push(`- … and ${openReqs.length - 20} more`)
+    lines.push('')
+  }
+  const open = model.tasks.filter((task) => task.status === 'open' || task.status === 'active' || task.status === 'review')
+  if (open.length > 0) {
+    lines.push(`## Open work (${open.length})`, '')
+    for (const task of open.sort(byStatusThenId).slice(0, 24)) lines.push(`- ${task.id} ${task.status}: ${cell(task.title).slice(0, 100)}${task.reqId ? ` (${task.reqId})` : ''}`)
+    if (open.length > 24) lines.push(`- … and ${open.length - 24} more`)
     lines.push('')
   }
   return truncateBytes(`${lines.join('\n')}\n`, limit)

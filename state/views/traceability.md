@@ -106,6 +106,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | REQ-100 | done | — | — | — | no |
 | REQ-101 | done | — | — | — | no |
 | REQ-102 | done | — | — | — | no |
+| REQ-103 | proposed | — | — | — | no |
 
 ## Tests
 
@@ -160,3 +161,5 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | TEST-047 | — | unverified | — |
 | TEST-048 | — | unverified | — |
 | TEST-049 | — | verified | — |
+| TEST-050 | — | unverified | — |
+| TEST-051 | — | unverified | — |

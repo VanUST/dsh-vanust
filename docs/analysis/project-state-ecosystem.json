@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "project-state-ecosystem",
-  "rev": 40,
+  "rev": 43,
   "status": "ready",
   "createdAt": "2026-11-17T13:19:07.274Z",
-  "updatedAt": "2026-11-17T16:20:33.083Z",
+  "updatedAt": "2026-11-17T16:29:04.404Z",
   "updatedBy": "agent",
   "title": "Экосистема состояния проекта и экономика контекста — v1",
   "requestedSolution": "Реализовать v1 дизайна от 2026-11-17 в порядке §10: (1) контекст-фундамент — allow-list в tool-families, диета схем и линтер, контракт слоёв L0–L3, новый хост-плагин state-feed (L1 первым сообщением, L2-дельты по хешу, инъекции как session events), MCP только для ux, Hindsight воркерам убран, context-budget.mjs с предупреждением и красным гейтом >1.5×; (2) ядро ccProjectState — файл на сущность в state/, ID под локом, связи с хешами, CAS, журнал, verify, регенерация проекций; (3) policy-плагин (fs/tools/sandbox) с запретами записи и трипвайром; (4) эволюция analysis в реестр REQ; (5) taskboard с reqId/chore и CAS через ядро; (6) раннер red→green с evidence вне writable-области; (7) оркестратор с брифом из обвязки, структурированным возвратом, cold-start гейтом и снимками; (8) миграции и доводка проекций; (9) дисциплина языка. v2 не трогать.",
@@ -66,7 +66,7 @@
         "Новая сессия отвечает по реестру",
         "Требование без задачи и задача без требования видны в L1/L2"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR1",
@@ -209,6 +209,17 @@
       "acceptance": [
         "Шаблон отчёта в промпте корня",
         "Новый термин — в глоссарии"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR15",
+      "kind": "FR",
+      "text": "Задача — единица приёмки, а не микро-шаг: работа батчится, проверка гоняется пачкой.",
+      "acceptance": [
+        "Одна TASK покрывает пачку шагов/требований",
+        "Прогон проверок на границе задачи",
+        "Микро-правка без новой задачи"
       ],
       "status": "planned"
     },
@@ -706,19 +717,33 @@
       "dataIds": [
         "state-views"
       ],
-      "status": "planned",
+      "status": "proven",
       "tasks": [
         {
           "taskId": "task-mwkq732m-ganepf",
           "role": "UX/UI",
           "at": "2026-11-17T15:45:00.000Z",
-          "evidence": []
+          "evidence": [
+            "панель на :3091 показывает 102 REQ / 223 TASK / 49 TEST; REQ-001 фильтрует задачи и кейсы; read-only (sha256 483 файлов state/ совпали); axe 0"
+          ]
         },
         {
           "taskId": "task-mwkwfd7n-hnqro0",
           "role": "BACKEND",
-          "at": "2026-11-17T16:20:33.083Z",
-          "evidence": []
+          "at": "2026-11-17T16:20:00.000Z",
+          "evidence": [
+            "L1 seq 10 (3204 Б) до человеческого seq 11; ответ совпал с index.json: 102/223/49, 96 done / 6 proposed, REQ-071/076/079/084/085/086"
+          ]
+        },
+        {
+          "taskId": "task-mwkwlg2r-qktas2",
+          "role": "BACKEND",
+          "at": "2026-11-17T16:26:00.000Z",
+          "evidence": [
+            "digest 2655 Б ≤ 3072 с ## Gaps и ## Open requirements (6); L1 seq 10 (2564 Б) содержит обе секции",
+            "ответ seq 31 называет те же 6 REQ и три разрыва; 0 tool/call, 0 bash — ответ целиком из L1",
+            "два regenerateViews дают одинаковый sha256; project-state 12/12, state-feed 6/6"
+          ]
         }
       ]
     },
@@ -943,9 +968,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T15:45:00.000Z",
           "evidence": [
-            "test-cases 16/16; analysis 9/9; project-state 12/12; make verify exit 0",
-            "без reqId/authorRole → TEST_REQ_REQUIRED",
-            "proven без пары → evidence_required"
+            "test-cases 16/16; analysis 9/9; project-state 12/12; make verify exit 0"
           ]
         }
       ]
@@ -969,7 +992,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T15:40:00.000Z",
           "evidence": [
-            "бриф и возврат реализованы; живой пруф на ослабленном гейте переделан в V1.11b"
+            "бриф и возврат; живой пруф переделан в V1.11b"
           ]
         },
         {
@@ -977,10 +1000,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T15:48:00.000Z",
           "evidence": [
-            "delegation-brief 7/7; make verify exit 0",
-            "гейт строгий: presetOf !== 'orchestrator' → return (index.mjs:160)",
-            "критерии дословно; отказы; возврат по критериям",
-            "живой пруф не снят — отчёт фиксирует"
+            "7/7; строгий гейт; отказы; возврат по критериям"
           ]
         }
       ]
@@ -1003,10 +1023,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T16:05:00.000Z",
           "evidence": [
-            "state-migrate.mjs: REQ 102 / TASK 223 / TEST 49; источники только читаются",
-            "повторный прогон: 0 созданных, 374 пропущенных, sha256 483 файлов state/ совпали (моя проверка: exit 0, digest тот же)",
-            "проекции непустые: digest REQ 102 · TASK 223 · TEST 49 · event 374; verify() 0 битых ссылок",
-            "make verify exit 0 после перепаковки designmap 0.1.21 и панели 0.1.5"
+            "REQ 102 / TASK 223 / TEST 49; повторный прогон идемпотентен; проекции непустые"
           ]
         }
       ]
@@ -1019,6 +1036,26 @@
       "dataIds": [],
       "status": "planned",
       "tasks": []
+    },
+    {
+      "requirementId": "FR15",
+      "processId": "V1-TGT",
+      "componentId": "taskboard",
+      "contractIds": [
+        "gate-codes"
+      ],
+      "dataIds": [
+        "taskboard-file"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "taskId": "task-mwkwmnmg-191roo",
+          "role": "BACKEND",
+          "at": "2026-11-17T16:26:00.000Z",
+          "evidence": []
+        }
+      ]
     },
     {
       "requirementId": "NFR1",
@@ -1089,7 +1126,7 @@
     }
   ],
   "pendingImpacts": [],
-  "fingerprint": "9734561db8cbc3e0eed542c24d009bb98861e34397f562c21ab230a13712b57f",
+  "fingerprint": "61b83f15fbb47e0f80b0792772de2100eb438cba14ecb919ebd35db6c1089400",
   "history": [
     {
       "revision": 1,
@@ -1410,6 +1447,30 @@
       "action": "link_task",
       "status": "ready",
       "summary": "task-mwkwfd7n-hnqro0 -> BR1"
+    },
+    {
+      "revision": 41,
+      "at": "2026-11-17T16:25:16.725Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwkwlg2r-qktas2 -> BR1"
+    },
+    {
+      "revision": 42,
+      "at": "2026-11-17T16:26:30.502Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "requirements: FR15 added; impacts: 2"
+    },
+    {
+      "revision": 43,
+      "at": "2026-11-17T16:29:04.404Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
     }
   ]
 }

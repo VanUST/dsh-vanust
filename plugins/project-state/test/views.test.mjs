@@ -113,7 +113,15 @@ test('digest stays inside its byte cap and truncates deterministically', async (
   assert.equal(generated.ok, true)
   const digest = await readFile(join(cwd, 'state', 'views', 'digest.md'), 'utf8')
   assert.ok(Buffer.byteLength(digest, 'utf8') <= 3072, `digest is ${Buffer.byteLength(digest, 'utf8')} B`)
-  assert.match(digest, /truncated: the digest budget is 3072 bytes/)
+  // PROOF: the digest summarises instead of growing — open requirements are listed by id (up to
+  // 20) and the gaps section reports the missing links, so the hard cap bounds the lists rather
+  // than cutting the text mid-sentence. Behavior: a register of 60 REQ with one criterion each
+  // stays under 3072 bytes and names its gaps and open requirements. Fails when: the digest
+  // either drops the gaps line or grows past the byte budget.
+  assert.match(digest, /## Gaps/)
+  assert.match(digest, /REQ without TASK: 60/)
+  assert.match(digest, /## Open requirements \(60\)/)
+  assert.match(digest, /- REQ-001 proposed:/)
   const second = await state.regenerateViews()
   assert.equal(second.ok, true)
   const again = await readFile(join(cwd, 'state', 'views', 'digest.md'), 'utf8')

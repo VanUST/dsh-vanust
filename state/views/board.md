@@ -2,7 +2,7 @@
 
 GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`.
 
-## open (9)
+## open (10)
 
 | id | title | req | chore |
 |---|---|---|---|
@@ -15,6 +15,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-057 | probe-5 | — | no |
 | TASK-061 | Case library: exploratory testing persisted as reproducible cases | — | no |
 | TASK-072 | Auto-converge the kit on every dsh boot | — | no |
+| TASK-226 | V4.1: батчинг работы — задача как пачка шагов, проверка на границе (FR15) | — | no |
 
 ## active (5)
 
@@ -26,7 +27,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-202 | Панель состояния проекта: четыре режима и сквозная взаимосвязь | — | no |
 | TASK-223 | V1.12: миграция источников в реестр — REQ, TASK, TEST (FR13) | — | no |
 
-## review (60)
+## review (62)
 
 | id | title | req | chore |
 |---|---|---|---|
@@ -90,6 +91,8 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-098 | Commit and push design-map 0.2.0 | — | no |
 | TASK-100 | Taskboard: batch close with result and a real subagent stop | — | no |
 | TASK-111 | Write and edit reports/orchestrator-write-fixture.md | — | no |
+| TASK-224 | V3.1: холодный старт на реальном реестре — новая сессия отвечает по состоянию (BR1) | — | no |
+| TASK-225 | V3.2: L1 показывает открытые REQ и разрывы реестра (BR1, третья точка) | — | no |
 
 ## done (138)
 
