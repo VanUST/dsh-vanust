@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "project-state-ecosystem",
-  "rev": 49,
-  "status": "ready",
+  "rev": 51,
+  "status": "completed",
   "createdAt": "2026-11-17T13:19:07.274Z",
-  "updatedAt": "2026-11-17T16:51:58.385Z",
+  "updatedAt": "2026-11-17T16:55:15.030Z",
   "updatedBy": "agent",
   "title": "Экосистема состояния проекта и экономика контекста — v1",
   "requestedSolution": "Реализовать v1 дизайна от 2026-11-17 в порядке §10: (1) контекст-фундамент — allow-list в tool-families, диета схем и линтер, контракт слоёв L0–L3, новый хост-плагин state-feed (L1 первым сообщением, L2-дельты по хешу, инъекции как session events), MCP только для ux, Hindsight воркерам убран, context-budget.mjs с предупреждением и красным гейтом >1.5×; (2) ядро ccProjectState — файл на сущность в state/, ID под локом, связи с хешами, CAS, журнал, verify, регенерация проекций; (3) policy-плагин (fs/tools/sandbox) с запретами записи и трипвайром; (4) эволюция analysis в реестр REQ; (5) taskboard с reqId/chore и CAS через ядро; (6) раннер red→green с evidence вне writable-области; (7) оркестратор с брифом из обвязки, структурированным возвратом, cold-start гейтом и снимками; (8) миграции и доводка проекций; (9) дисциплина языка. v2 не трогать.",
@@ -222,6 +222,17 @@
         "Микроправка без задачи"
       ],
       "status": "proven"
+    },
+    {
+      "id": "FR16",
+      "kind": "FR",
+      "text": "Policy-плагин: запрет записи воркеру в state/, tests/acceptance/ и конфиг раннера, трипвайр.",
+      "acceptance": [
+        "Воркер не может записать в state/ и tests/ (код test_write_denied / state_write_denied)",
+        "Срабатывание трипвайра видно в журнале"
+      ],
+      "status": "deferred",
+      "reason": "Вне v1: требует политики записи на уровне хоста (песочница/fs-гейт), а не в плагинах-потребителях. Вейвер lifecycle-гейтов и правило INV-WRITES закрыты в FR8 и в промпте корня, но механический запрет записи не реализован — нужна отдельная задача с проверкой на копии профиля."
     },
     {
       "id": "NFR1",
@@ -854,8 +865,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T16:50:00.000Z",
           "evidence": [
-            "scripts/schema-lint.mjs: 43 инструмента, WARN 600 / RED 1200, в make verify; red-first 1983 Б → exit 1",
-            "диета: 14 659 → 11 573 Б (−21%), пресетные суммы не выросли; после — 0 red, 0 warn"
+            "schema-lint: 43 инструмента, red-first 1983 Б → exit 1; диета 14 659 → 11 573 Б"
           ]
         }
       ]
@@ -921,9 +931,8 @@
           "role": "BACKEND",
           "at": "2026-11-17T16:50:00.000Z",
           "evidence": [
-            "вейвер на req_required, steps_incomplete, test_req_required, evidence_required; неполный вейвер → waiver_required",
-            "журнал: {kind:'waiver', code, reason, by:'human'} на real state/events.jsonl",
-            "scripts/waiver-proof.mjs — 17/17: каждый гейт отказан, вейвернут, журнал виден; decision_superseded требует преемника и причину"
+            "вейвер на четырёх гейтах; waiver_required; журнал {kind:'waiver', reason, by:'human'}",
+            "waiver-proof 17/17; decision_superseded"
           ]
         }
       ]
@@ -1066,7 +1075,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T16:45:00.000Z",
           "evidence": [
-            "шаблон отчёта в ROOT_POLICY; glossary ok (7 терминов); check-glossary.mjs в make verify"
+            "шаблон отчёта в ROOT_POLICY; glossary ok; check-glossary.mjs в make verify"
           ]
         }
       ]
@@ -1094,6 +1103,20 @@
       ]
     },
     {
+      "requirementId": "FR16",
+      "processId": "V1-TGT",
+      "componentId": "profile",
+      "contractIds": [
+        "gate-codes"
+      ],
+      "dataIds": [
+        "state-entities"
+      ],
+      "status": "deferred",
+      "tasks": [],
+      "reason": "Вне v1: нужна политика записи на уровне хоста; вейвер и INV-WRITES закрыты в FR8 и промпте, механический fs-запрет не реализован"
+    },
+    {
       "requirementId": "NFR1",
       "processId": "V1-TGT",
       "componentId": "orchestrator",
@@ -1106,8 +1129,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T16:45:00.000Z",
           "evidence": [
-            "каталог ролей и долг доски убраны; промпт до 12 961 Б с диффом −169 Б, после 12 251 Б и 0 Б",
-            "журнал «до»: 337 system/message, 337 различных sha256"
+            "каталог ролей и долг доски убраны; промпт 12 961 → 12 251 Б, 0 Б между ходами"
           ]
         }
       ]
@@ -1172,16 +1194,8 @@
     }
   ],
   "pendingImpacts": [],
-  "fingerprint": "4050e1e8a488a5049f45a1b5e54861fa51dc5a3b23ebb2cb0e97b57bb66a2340",
+  "fingerprint": "bec15563963933c7a51237e0bf313dc9b92d80e6a8daf3eafe1b9d537ad475c9",
   "history": [
-    {
-      "revision": 1,
-      "at": "2026-11-17T13:19:07.274Z",
-      "editedBy": "agent",
-      "action": "create",
-      "status": "draft",
-      "summary": ""
-    },
     {
       "revision": 2,
       "at": "2026-11-17T13:19:20.232Z",
@@ -1565,6 +1579,22 @@
       "action": "upsert",
       "status": "ready",
       "summary": "impacts: 1"
+    },
+    {
+      "revision": 50,
+      "at": "2026-11-17T16:54:53.605Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "completed",
+      "summary": ""
+    },
+    {
+      "revision": 51,
+      "at": "2026-11-17T16:55:15.030Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "completed",
+      "summary": "requirements: FR16 added; impacts: 2"
     }
   ]
 }
