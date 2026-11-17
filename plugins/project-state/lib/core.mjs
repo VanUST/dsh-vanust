@@ -21,6 +21,7 @@ import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { dirname, join, relative, sep } from 'node:path'
 import { parse, serialize } from './format.mjs'
+import { buildModel, renderViews, VIEW_DIR } from './views.mjs'
 
 const KINDS = {
   req: { prefix: 'REQ', status: ['open', 'accepted', 'done', 'dropped'] },
@@ -388,6 +389,56 @@ export function createStateService(options = {}) {
       return service.update(id, { expectedRevision: record.frontmatter.revision, status: 'open', ownerRole: '' })
     },
 
+    /**
+     * Regenerate every projection under `state/views/` from the current entities, then write
+     * the hash manifest `views/.hashes.json`. Read-only with respect to `state/` itself: only
+     * `state/views/` is written. A second run on unchanged state produces identical bytes.
+     */
+    async regenerateViews() {
+      try {
+        const { entities } = await scanEntities()
+        const pick = (kind) => entities.filter((entity) => entity.fileKind === kind).map((entity) => entity.frontmatter)
+        const model = buildModel({ reqs: pick('req'), tasks: pick('task'), tests: pick('test'), decisions: pick('decision') })
+        // Stale links: a REQ whose incoming link hash no longer matches the target bytes.
+        const staleIds = new Set()
+        for (const entity of entities) {
+          for (const link of Array.isArray(entity.frontmatter.links) ? entity.frontmatter.links : []) {
+            const target = entities.find((candidate) => candidate.frontmatter.id === link.id)
+            if (target !== undefined && link.hash !== sha256(target.text)) {
+              staleIds.add(entity.fileKind === 'req' ? entity.frontmatter.id : link.id)
+            }
+          }
+        }
+        const events = await readJournal()
+        const lastSeq = events.reduce((max, event) => (typeof event?.seq === 'number' ? Math.max(max, event.seq) : max), 0)
+        const files = renderViews(model, { lastSeq, staleIds })
+        const viewsDir = join(root, VIEW_DIR)
+        await mkdir(viewsDir, { recursive: true })
+        // Remove a map subgraph whose REQ is gone, so a rename never leaves an orphan projection.
+        try {
+          for (const name of await readdir(join(viewsDir, 'map'))) {
+            const rel = `map/${name}`
+            if (files[rel] === undefined) await rm(join(viewsDir, name))
+          }
+        } catch {
+          // No map directory yet.
+        }
+        const hashes = {}
+        for (const [relPath, text] of Object.entries(files).sort(([a], [b]) => a.localeCompare(b))) {
+          await mkdir(dirname(join(viewsDir, relPath)), { recursive: true })
+          await writeFile(join(viewsDir, relPath), text, { encoding: 'utf8' })
+          hashes[relPath] = sha256(text)
+        }
+        const manifest = { schemaVersion: 1, files: hashes }
+        await writeFile(join(viewsDir, '.hashes.json'), `${JSON.stringify(manifest, null, 2)}\n`, { encoding: 'utf8' })
+        // No journal event: a projection is derived, and appending one would move `lastSeq` on
+        // every run — the digest would stop being byte-identical on unchanged state.
+        return { ok: true, files: Object.keys(hashes), digestBytes: Buffer.byteLength(files['digest.md'], 'utf8') }
+      } catch (error) {
+        return fail('views_failed', error.message)
+      }
+    },
+
     /** Hash every state file; the replay comparison uses this map. */
     async snapshot() {
       const { entities, invalid } = await scanEntities()
@@ -488,6 +539,26 @@ export function createStateService(options = {}) {
           if (entity.fileKind !== 'req' && links.length === 0 && (incoming.get(id) ?? 0) === 0) {
             findings.push({ code: 'orphan', id, path, message: `${entity.fileKind} has no incoming or outgoing link` })
           }
+        }
+        // Projections: the manifest records what regenerateViews() wrote. A different or
+        // missing file is a hand edit that regeneration would overwrite — report, never repair.
+        try {
+          const manifest = JSON.parse(await readFile(join(root, VIEW_DIR, '.hashes.json'), 'utf8'))
+          for (const [relPath, expected] of Object.entries(manifest.files ?? {}).sort(([a], [b]) => a.localeCompare(b))) {
+            let actual = null
+            try {
+              actual = await readFile(join(root, VIEW_DIR, relPath), 'utf8')
+            } catch {
+              actual = null
+            }
+            if (actual === null) {
+              findings.push({ code: 'view_modified', path: `${VIEW_DIR}/${relPath}`, message: 'projection is missing; run regenerateViews()' })
+            } else if (sha256(actual) !== expected) {
+              findings.push({ code: 'view_modified', path: `${VIEW_DIR}/${relPath}`, message: 'projection was edited by hand; run regenerateViews()' })
+            }
+          }
+        } catch {
+          // No manifest yet: nothing was generated, so nothing can have been modified.
         }
         return { ok: findings.length === 0, findings }
       } catch (error) {

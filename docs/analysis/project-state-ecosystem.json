@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "project-state-ecosystem",
-  "rev": 22,
+  "rev": 24,
   "status": "ready",
   "createdAt": "2026-11-17T13:19:07.274Z",
-  "updatedAt": "2026-11-17T14:55:30.818Z",
+  "updatedAt": "2026-11-17T15:00:59.704Z",
   "updatedBy": "agent",
   "title": "Экосистема состояния проекта и экономика контекста — v1",
   "requestedSolution": "Реализовать v1 дизайна от 2026-11-17 в порядке §10: (1) контекст-фундамент — allow-list в tool-families, диета схем и линтер, контракт слоёв L0–L3, новый хост-плагин state-feed (L1 первым сообщением, L2-дельты по хешу, инъекции как session events), MCP только для ux, Hindsight воркерам убран, context-budget.mjs с предупреждением и красным гейтом >1.5×; (2) ядро ccProjectState — файл на сущность в state/, ID под локом, связи с хешами, CAS, журнал, verify, регенерация проекций; (3) policy-плагин (fs/tools/sandbox) с запретами записи и трипвайром; (4) эволюция analysis в реестр REQ; (5) taskboard с reqId/chore и CAS через ядро; (6) раннер red→green с evidence вне writable-области; (7) оркестратор с брифом из обвязки, структурированным возвратом, cold-start гейтом и снимками; (8) миграции и доводка проекций; (9) дисциплина языка. v2 не трогать.",
@@ -81,12 +81,12 @@
     {
       "id": "FR2",
       "kind": "FR",
-      "text": "Бюджеты контекста объявлены в профиле per-preset и проверяются по журналам: число инструментов и байты.",
+      "text": "Бюджеты контекста объявлены per-preset и проверяются по журналам.",
       "acceptance": [
-        "Считает число инструментов, байты схем, промпта, напоминаний по каждой сессии",
-        "Бюджет на каждый пресет; WARN — код 0, >1.5× — код 1 (негативный контроль)",
-        "У PTC-пресета свой бюджет по базовой линии режима",
-        "Нативные пресеты судятся и по числу инструментов"
+        "Считает число инструментов, байты схем, промпта, напоминаний",
+        "WARN — код 0, >1.5× — код 1 (негативный контроль)",
+        "PTC — своя база режима",
+        "Нативные судятся и по числу инструментов"
       ],
       "status": "proven"
     },
@@ -98,7 +98,7 @@
         "Воркер не получает mcp__playwright__* и mcp__godot__* вне Godot-проекта",
         "У воркера нет пишущих инструментов Hindsight"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR4",
@@ -134,12 +134,12 @@
     {
       "id": "FR7",
       "kind": "FR",
-      "text": "Проекции views/ генерируются детерминированно из состояния.",
+      "text": "Проекции views/ генерируются детерминированно из состояния, включая машиночитаемый index.json связей.",
       "acceptance": [
         "Повторная регенерация даёт тот же байт",
         "Правка views/ вручную обнаруживается verify()"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR8",
@@ -714,7 +714,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T14:28:00.000Z",
           "evidence": [
-            "reports/probes/v13/headers.json: восемь заголовков на рабочем профиле"
+            "reports/probes/v13/headers.json"
           ]
         },
         {
@@ -722,10 +722,9 @@
           "role": "BACKEND",
           "at": "2026-11-17T14:52:00.000Z",
           "evidence": [
-            "node scripts/context-budget.mjs → «0/8 presets within budget, 0 red», exit 0 (замерено без пайпа)",
-            "node scripts/context-budget.mjs --budget-tools orchestrator=1 → «1 red», exit 1",
-            "PTC-сессия: 1 инструмент / 55 573 Б промпта против 53 365 Б базы → WARN",
-            "make verify exit 0 с шагом бюджета"
+            "context-budget.mjs → 0 red, exit 0",
+            "негативный контроль → 1 red, exit 1",
+            "make verify exit 0"
           ]
         }
       ]
@@ -734,10 +733,21 @@
       "requirementId": "FR3",
       "processId": "V1-TGT",
       "componentId": "profile",
-      "contractIds": [],
+      "contractIds": [
+        "tool-allowlist"
+      ],
       "dataIds": [],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkrnoos-kn609z",
+          "role": "BACKEND",
+          "at": "2026-11-17T14:28:00.000Z",
+          "evidence": [
+            "v13/headers.json: Playwright 24 только у ux; Godot 0; Hindsight 4 read только у orchestrator, у воркеров 0; task_* 2"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "FR4",
@@ -776,9 +786,8 @@
           "role": "BACKEND",
           "at": "2026-11-17T14:44:00.000Z",
           "evidence": [
-            "node --test plugins/project-state/test/*.test.mjs → 8/8 pass, exit 0",
-            "20 параллельных create → 20 разных ID; CAS не пишет; replay ловит ручную правку",
-            "make verify exit 0; тарбол 0.1.1 совпадает с исходником"
+            "8/8 тестов; ID под локом; CAS; replay; verify",
+            "make verify exit 0"
           ]
         }
       ]
@@ -788,9 +797,22 @@
       "processId": "V1-TGT",
       "componentId": "project-state",
       "contractIds": [],
-      "dataIds": [],
-      "status": "planned",
-      "tasks": []
+      "dataIds": [
+        "state-views"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwktepe1-jz27u0",
+          "role": "BACKEND",
+          "at": "2026-11-17T14:58:00.000Z",
+          "evidence": [
+            "12/12 тестов exit 0 (детерминизм, view_modified, полнота индекса, граница digest)",
+            "demo: index.json 755 Б, digest 213 Б, board 201, traceability 342, snapshot 144; повторная регенерация — те же байты",
+            "make verify exit 0; тарбол project-state 0.1.2"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "FR8",
@@ -879,7 +901,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T13:35:00.000Z",
           "evidence": [
-            "восемь сессий на рабочем профиле: ровно один request/header у каждой"
+            "восемь сессий: ровно один request/header"
           ]
         }
       ]
@@ -906,16 +928,14 @@
           "role": "BACKEND",
           "at": "2026-11-17T14:44:00.000Z",
           "evidence": [
-            "index.mjs/lib — блоки PURPOSE/INPUTS/OUTPUTS/KEYWORDS",
-            "verify/replay read-only",
-            "8/8 тестов и make verify exit 0"
+            "PURPOSE/INPUTS/OUTPUTS/KEYWORDS; verify/replay read-only; 8/8 и make verify"
           ]
         }
       ]
     }
   ],
   "pendingImpacts": [],
-  "fingerprint": "58005bdbeffb8c9e7ce23ab3055e94065d7c45c6c8240d9e16d28d3919f3029b",
+  "fingerprint": "5758668e95ca52bae702a74daac954d179d243db38eda52fc9e8042ca2cd27f0",
   "history": [
     {
       "revision": 1,
@@ -1092,6 +1112,22 @@
       "action": "upsert",
       "status": "ready",
       "summary": "requirements: FR1 changed, FR2 changed, FR6 changed, FR10 changed; impacts: 4"
+    },
+    {
+      "revision": 23,
+      "at": "2026-11-17T14:56:03.362Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwktepe1-jz27u0 -> FR7"
+    },
+    {
+      "revision": 24,
+      "at": "2026-11-17T15:00:59.704Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "requirements: FR2 changed, FR7 changed; impacts: 3"
     }
   ]
 }

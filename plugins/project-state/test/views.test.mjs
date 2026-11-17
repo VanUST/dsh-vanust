@@ -1,0 +1,121 @@
+/*
+PROOF: project-state projections
+Behavior: regenerateViews() writes digest.md (hard-capped), board.md, traceability.md, one
+  mermaid map per REQ, snapshot.md and a machine-readable index.json with the REQ ↔ TASK ↔
+  TEST ↔ evidence links; a second run on unchanged state is byte-identical; verify() reports a
+  hand-edited projection as view_modified and regeneration repairs it; the index carries every
+  REQ's tasks and tests and every TEST's reqId and evidenceRefs.
+Fails when: two regenerations differ, a manual edit goes unnoticed, the index drops a link, or
+  the digest grows past its byte cap.
+Production path: plugins/project-state/lib/core.mjs (regenerateViews, verify) with
+  plugins/project-state/lib/views.mjs; the panel reads index.json instead of parsing markdown.
+*/
+
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { createHash } from 'node:crypto'
+import { createStateService } from '../lib/core.mjs'
+
+const clock = () => '2026-01-02T00:00:00.000Z'
+const sha = (text) => createHash('sha256').update(text, 'utf8').digest('hex')
+
+async function workspace() {
+  const cwd = await mkdtemp(join(tmpdir(), 'project-state-views-'))
+  return { cwd, state: createStateService({ cwd, now: clock }) }
+}
+
+/** Every file under state/views, keyed by its path relative to it. */
+async function viewFiles(cwd) {
+  const base = join(cwd, 'state', 'views')
+  const out = {}
+  const walk = async (dir, prefix) => {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const rel = prefix === '' ? entry.name : `${prefix}/${entry.name}`
+      if (entry.isDirectory()) await walk(join(dir, entry.name), rel)
+      else out[rel] = await readFile(join(dir, entry.name), 'utf8')
+    }
+  }
+  await walk(base, '')
+  return out
+}
+
+async function seeded() {
+  const { cwd, state } = await workspace()
+  const req = await state.create('req', { title: 'Budget gate', criteria: ['it fails above 1.5x', 'warn above the table'] })
+  const covered = await state.create('req', { title: 'Coverage', criteria: ['every link is in the index'] })
+  const task = await state.create('task', { title: 'Implement the gate', reqId: req.id })
+  const chore = await state.create('task', { title: 'Bump the docs', chore: true, choreReason: 'doc rot' })
+  const test = await state.create('test', { title: 'Gate is red', reqId: req.id, authorRole: 'orchestrator', command: 'node --test' })
+  await state.link(task.id, req.id)
+  await state.link(test.id, req.id)
+  await state.link(test.id, task.id)
+  await state.regenerateViews()
+  return { cwd, state, req, covered, task, chore, test }
+}
+
+test('regenerateViews writes every projection and is byte-identical on a second run', async () => {
+  const { cwd, state } = await seeded()
+  const first = await viewFiles(cwd)
+  for (const name of ['digest.md', 'board.md', 'traceability.md', 'snapshot.md', 'index.json', '.hashes.json', 'map/REQ-001.mmd', 'map/REQ-002.mmd']) {
+    assert.ok(first[name] !== undefined, `missing ${name}`)
+  }
+  assert.ok(Buffer.byteLength(first['digest.md'], 'utf8') <= 3072)
+  const before = await state.snapshot()
+  const again = await state.regenerateViews()
+  assert.equal(again.ok, true)
+  const second = await viewFiles(cwd)
+  assert.deepEqual(second, first)
+  assert.deepEqual(await state.snapshot(), before, 'regeneration never rewrites the entities')
+})
+
+test('a hand-edited projection is a view_modified finding and regeneration repairs it', async () => {
+  const { cwd, state } = await seeded()
+  const path = join(cwd, 'state', 'views', 'digest.md')
+  const original = await readFile(path, 'utf8')
+  await writeFile(path, `${original}\nhand edit\n`)
+  const verdict = await state.verify()
+  const modified = verdict.findings.filter((finding) => finding.code === 'view_modified')
+  assert.equal(modified.length, 1, JSON.stringify(verdict.findings))
+  assert.equal(modified[0].path, 'views/digest.md')
+  const repaired = await state.regenerateViews()
+  assert.equal(repaired.ok, true)
+  assert.equal(await readFile(path, 'utf8'), original)
+  const clean = await state.verify()
+  assert.equal(clean.findings.some((finding) => finding.code === 'view_modified'), false)
+})
+
+test('index.json is the full link contract: REQ tasks/tests, TEST reqId and evidenceRefs', async () => {
+  const { cwd, state, req, covered, task, test } = await seeded()
+  const index = JSON.parse(await readFile(join(cwd, 'state', 'views', 'index.json'), 'utf8'))
+  assert.equal(index.schemaVersion, 1)
+  const reqRow = index.reqs.find((row) => row.id === req.id)
+  const coveredRow = index.reqs.find((row) => row.id === covered.id)
+  assert.deepEqual(reqRow.tasks, [task.id])
+  assert.deepEqual(reqRow.tests, [test.id])
+  assert.deepEqual(coveredRow.tasks, [])
+  const testRow = index.tests.find((row) => row.id === test.id)
+  assert.equal(testRow.reqId, req.id)
+  assert.deepEqual(testRow.evidenceRefs.map((ref) => ref.id), [task.id])
+  assert.equal(index.counts.req, 2)
+  assert.equal(index.counts.task, 2)
+  assert.equal(index.counts.test, 1)
+})
+
+test('digest stays inside its byte cap and truncates deterministically', async () => {
+  const { cwd, state } = await workspace()
+  for (let index = 0; index < 60; index += 1) {
+    await state.create('req', { title: `Requirement ${index} with a reasonably long title for the digest budget`, criteria: ['c'] })
+  }
+  const generated = await state.regenerateViews()
+  assert.equal(generated.ok, true)
+  const digest = await readFile(join(cwd, 'state', 'views', 'digest.md'), 'utf8')
+  assert.ok(Buffer.byteLength(digest, 'utf8') <= 3072, `digest is ${Buffer.byteLength(digest, 'utf8')} B`)
+  assert.match(digest, /truncated: the digest budget is 3072 bytes/)
+  const second = await state.regenerateViews()
+  assert.equal(second.ok, true)
+  const again = await readFile(join(cwd, 'state', 'views', 'digest.md'), 'utf8')
+  assert.equal(again, digest)
+})

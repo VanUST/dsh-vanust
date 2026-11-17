@@ -55,6 +55,26 @@ events and compares it with the files, so a hand edit that the journal never saw
 `bytes_differ` mismatch instead of being silently accepted. The journal is an audit trail, not
 the source of truth: the files are.
 
+## Projections (`state/views/`)
+
+`regenerateViews()` renders the projections from the entities and writes them under
+`state/views/`; it never touches `state/req|decision|task|test/` or the journal.
+
+| file | content |
+|---|---|
+| `index.json` | the MACHINE contract for the panel: `schemaVersion`, `lastSeq`, counts, every REQ with its `tasks`/`tests`/`decisions`, every TASK with `reqId`, every TEST with `reqId` and `evidenceRefs` — stable ids, no prose |
+| `digest.md` | the small L1 block, hard-capped at 3072 bytes; truncated deterministically with a marker |
+| `board.md` | TASK grouped by status in a fixed order |
+| `traceability.md` | REQ → tasks/tests/decisions, and each TEST with its evidence |
+| `map/REQ-*.mmd` | one mermaid subgraph per REQ |
+| `snapshot.md` | counts, tasks by status and the last journal sequence |
+| `.hashes.json` | sha256 of every file above; `verify()` compares it and reports `view_modified` |
+
+Every list is sorted by id, the section order is fixed and no wall clock appears, so a second
+run on unchanged state is byte-identical. The projections carry `GENERATED — DO NOT EDIT`; a
+hand edit is not accepted — `verify()` names it (`view_modified`, path `views/<file>`) and
+`regenerateViews()` overwrites it.
+
 ## Lock
 
 IDs are allocated under `state/.lock` (a directory created with `O_EXCL`), so two agents asking
