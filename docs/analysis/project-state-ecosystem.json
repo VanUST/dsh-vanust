@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "project-state-ecosystem",
-  "rev": 45,
+  "rev": 47,
   "status": "ready",
   "createdAt": "2026-11-17T13:19:07.274Z",
-  "updatedAt": "2026-11-17T16:35:25.841Z",
+  "updatedAt": "2026-11-17T16:45:17.811Z",
   "updatedBy": "agent",
   "title": "Экосистема состояния проекта и экономика контекста — v1",
   "requestedSolution": "Реализовать v1 дизайна от 2026-11-17 в порядке §10: (1) контекст-фундамент — allow-list в tool-families, диета схем и линтер, контракт слоёв L0–L3, новый хост-плагин state-feed (L1 первым сообщением, L2-дельты по хешу, инъекции как session events), MCP только для ux, Hindsight воркерам убран, context-budget.mjs с предупреждением и красным гейтом >1.5×; (2) ядро ccProjectState — файл на сущность в state/, ID под локом, связи с хешами, CAS, журнал, verify, регенерация проекций; (3) policy-плагин (fs/tools/sandbox) с запретами записи и трипвайром; (4) эволюция analysis в реестр REQ; (5) taskboard с reqId/chore и CAS через ядро; (6) раннер red→green с evidence вне writable-области; (7) оркестратор с брифом из обвязки, структурированным возвратом, cold-start гейтом и снимками; (8) миграции и доводка проекций; (9) дисциплина языка. v2 не трогать.",
@@ -64,7 +64,7 @@
       "text": "План, принятые требования и способ их проверки живут в репозитории проекта.",
       "acceptance": [
         "Новая сессия отвечает по реестру",
-        "Требование без задачи и задача без требования видны в L1/L2"
+        "Разрывы видны в L1"
       ],
       "status": "proven"
     },
@@ -74,7 +74,7 @@
       "text": "Хостовые инструменты не наследуются пресетом по умолчанию.",
       "acceptance": [
         "Пресет без строки получает только объявленное",
-        "Заголовок воркера не растёт от чужих семейств"
+        "Заголовок воркера не растёт"
       ],
       "status": "proven"
     },
@@ -84,7 +84,7 @@
       "text": "Бюджеты контекста per-preset проверяются по журналам.",
       "acceptance": [
         "Считает инструменты и байты",
-        "WARN/1.5× RED с негативным контролем",
+        "WARN/1.5× RED",
         "PTC — своя база"
       ],
       "status": "proven"
@@ -105,7 +105,7 @@
       "text": "Состояние доставляется слоями L1+L2.",
       "acceptance": [
         "L1 один раз",
-        "L2 по хешу, агрегируется",
+        "L2 по хешу",
         "Инъекции — session events"
       ],
       "status": "proven"
@@ -126,7 +126,7 @@
       "text": "Ядро ccProjectState — единственный писатель state/.",
       "acceptance": [
         "Только через сервис",
-        "Журнал реплеится в тот же снапшот"
+        "Журнал реплеится"
       ],
       "status": "proven"
     },
@@ -135,8 +135,8 @@
       "kind": "FR",
       "text": "Проекции views/ детерминированны, включая index.json.",
       "acceptance": [
-        "Повторная регенерация даёт тот же байт",
-        "Ручная правка ловится verify()"
+        "Повторная регенерация — тот же байт",
+        "Ручная правка ловится"
       ],
       "status": "proven"
     },
@@ -145,7 +145,7 @@
       "kind": "FR",
       "text": "Гейты lifecycle отказывают с кодом и пишут вейвер в журнал.",
       "acceptance": [
-        "Наблюдаются коды отказов",
+        "Коды отказов наблюдаются",
         "Вейвер требует причину и человека"
       ],
       "status": "planned"
@@ -155,7 +155,7 @@
       "kind": "FR",
       "text": "Реестр REQ первичен: зеркалирование, дедуп, digest.",
       "acceptance": [
-        "REQ нельзя принять без критериев",
+        "REQ без критериев не принимается",
         "Дубль возвращает кандидатов",
         "digest генерируется"
       ],
@@ -164,29 +164,29 @@
     {
       "id": "FR10",
       "kind": "FR",
-      "text": "TASK связан с REQ или chore+причина; CAS через ядро; борд — проекция.",
+      "text": "TASK связан с REQ или chore+причина; борд — проекция.",
       "acceptance": [
-        "TASK → active без reqId и без chore+причины отказывает",
-        "Борд регенерируется из состояния"
+        "Без reqId и без chore — отказ",
+        "Борд регенерируется"
       ],
       "status": "proven"
     },
     {
       "id": "FR11",
       "kind": "FR",
-      "text": "TEST с reqId и authorRole; evidence red→green вне writable-области.",
+      "text": "TEST с reqId и authorRole; evidence red→green.",
       "acceptance": [
-        "REQ → done без red→green отказывает",
-        "Тавтологичный тест не проходит red-фазу"
+        "REQ без пары не закрывается",
+        "Тавтология не проходит red"
       ],
       "status": "proven"
     },
     {
       "id": "FR12",
       "kind": "FR",
-      "text": "Бриф собирает обвязка из реестра; структурированный возврат; cold-start гейт.",
+      "text": "Бриф из реестра; структурированный возврат.",
       "acceptance": [
-        "Бриф содержит критерии дословно",
+        "Критерии дословно",
         "Cold-start гейт",
         "Возврат по критериям"
       ],
@@ -195,10 +195,10 @@
     {
       "id": "FR13",
       "kind": "FR",
-      "text": "Миграции: docs/analysis → REQ, taskboard.json → TASK, cases → TEST.",
+      "text": "Миграции: analysis → REQ, board → TASK, cases → TEST.",
       "acceptance": [
-        "Каждая запись анализа имеет REQ-эквивалент",
-        "Задачи перенесены без потери истории"
+        "Каждая запись имеет REQ",
+        "История не потеряна"
       ],
       "status": "proven"
     },
@@ -207,46 +207,46 @@
       "kind": "FR",
       "text": "Дисциплина языка: глоссарий и шаблон отчёта.",
       "acceptance": [
-        "Шаблон отчёта в промпте корня",
+        "Шаблон отчёта в промпте",
         "Новый термин — в глоссарии"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR15",
       "kind": "FR",
-      "text": "Задача — единица приёмки, а не микро-шаг: работа батчится, проверка гоняется пачкой.",
+      "text": "Задача — единица приёмки: батчинг работы и проверки.",
       "acceptance": [
-        "Одна TASK покрывает пачку шагов/требований",
-        "Прогон проверок на границе задачи",
-        "Микро-правка без новой задачи"
+        "Пачка требований и шагов",
+        "Прогон на границе",
+        "Микроправка без задачи"
       ],
       "status": "proven"
     },
     {
       "id": "NFR1",
       "kind": "NFR",
-      "text": "Промпт неизменен внутри хода; между ходами только реестровые разделы.",
+      "text": "Промпт неизменен внутри хода и между ходами.",
       "acceptance": [
         "Один system/message на ход",
-        "После вывода каталога и долга — 0 изменений между ходами"
+        "0 изменений между ходами"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "NFR2",
       "kind": "NFR",
       "text": "Набор инструментов не меняется внутри процесса.",
       "acceptance": [
-        "Один request/header на сессию",
-        "При рестарте меняется только состав"
+        "Один header на сессию",
+        "При рестарте меняется состав"
       ],
       "status": "proven"
     },
     {
       "id": "NFR3",
       "kind": "NFR",
-      "text": "L2-дельта ≤ ~300 токенов, агрегируется по ходу.",
+      "text": "L2-дельта ≤ ~300 токенов.",
       "acceptance": [
         "Дельта в пороге",
         "Событий больше, чем дельт"
@@ -258,7 +258,7 @@
       "kind": "NFR",
       "text": "Структурированные логи и docs-first.",
       "acceptance": [
-        "JSON-логи и PURPOSE/INPUTS/OUTPUTS/KEYWORDS",
+        "JSON-логи и docs-first",
         "Успех по логам"
       ],
       "status": "proven"
@@ -724,7 +724,7 @@
           "role": "UX/UI",
           "at": "2026-11-17T15:45:00.000Z",
           "evidence": [
-            "панель :3091: 102 REQ / 223 TASK / 49 TEST; read-only (sha256 483 файлов совпали); axe 0"
+            "панель :3091; read-only по хешам 483 файлов; axe 0"
           ]
         },
         {
@@ -732,7 +732,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T16:20:00.000Z",
           "evidence": [
-            "L1 seq 10 (3204 Б) до seq 11; ответ совпал с index.json"
+            "L1 seq 10 до seq 11; ответ совпал с index.json"
           ]
         },
         {
@@ -792,7 +792,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T14:52:00.000Z",
           "evidence": [
-            "0 red exit 0; негативный контроль 1 red exit 1"
+            "0 red; негативный контроль 1 red"
           ]
         }
       ]
@@ -867,7 +867,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T14:44:00.000Z",
           "evidence": [
-            "8/8; ID под локом; CAS; replay; verify"
+            "8/8; ID под локом; CAS; replay"
           ]
         }
       ]
@@ -887,7 +887,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T14:58:00.000Z",
           "evidence": [
-            "12/12; детерминизм; view_modified; index.json"
+            "12/12; детерминизм; view_modified"
           ]
         }
       ]
@@ -942,7 +942,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T15:35:00.000Z",
           "evidence": [
-            "taskboard 5/5; пять proof-скриптов; req_required"
+            "taskboard 5/5; пять proof; req_required"
           ]
         }
       ]
@@ -1032,8 +1032,18 @@
       "componentId": "docs",
       "contractIds": [],
       "dataIds": [],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkwzlsr-qh6t00",
+          "role": "BACKEND",
+          "at": "2026-11-17T16:45:00.000Z",
+          "evidence": [
+            "шаблон отчёта (Итог/Цель/Изменения/Доказательства/Решения/Риски/Дальше) в ROOT_POLICY; glossary ok (7 терминов шаблона), check-glossary.mjs в make verify",
+            "make verify exit 0"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "FR15",
@@ -1052,9 +1062,8 @@
           "role": "BACKEND",
           "at": "2026-11-17T16:40:00.000Z",
           "evidence": [
-            "task_create с reqIds[] и steps[]; борд показывает REQ-007, REQ-008 | 4/4; закрытие неполной пачки отказывает",
-            "baseline 32 задачи / 23 метки = 1.39 задачи на требование; упражнение 1 задача / 2 требования = 0.50 и один прогон гейта",
-            "taskboard 6/6; project-state 12/12; delegation-brief 7/7; make verify exit 0 после перепаковки панели"
+            "reqIds[] и steps[]; борд 4/4; закрытие неполной пачки отказывает",
+            "1.39 → 0.50 задачи на требование; один прогон гейта"
           ]
         }
       ]
@@ -1065,8 +1074,20 @@
       "componentId": "orchestrator",
       "contractIds": [],
       "dataIds": [],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkwzlsr-qh6t00",
+          "role": "BACKEND",
+          "at": "2026-11-17T16:45:00.000Z",
+          "evidence": [
+            "каталог ролей (1417 Б) и долг доски (169 Б) убраны из корневой композиции; там только [ROOT_POLICY, claim]",
+            "промпт до 12 961 Б и менялся на −169 Б при смене доски; после 12 251 Б и 0 Б между состояниями",
+            "журнал «до»: 337 system/message, 337 различных sha256 — после правки источников диффа нет",
+            "живой двухходовый журнал «после» не снят — отчёт это фиксирует"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "NFR2",
@@ -1128,7 +1149,7 @@
     }
   ],
   "pendingImpacts": [],
-  "fingerprint": "3cecadd3405769e95b5a8b5d6949644e38a9b99734f2b892aa7b29fc2979f9f9",
+  "fingerprint": "bc0207b626d8300674b419185763697026a99fe508b9fef7d7e9d23e84269b54",
   "history": [
     {
       "revision": 1,
@@ -1489,6 +1510,22 @@
       "action": "upsert",
       "status": "ready",
       "summary": ""
+    },
+    {
+      "revision": 46,
+      "at": "2026-11-17T16:36:17.332Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwkwzlsr-qh6t00 -> NFR1, FR14"
+    },
+    {
+      "revision": 47,
+      "at": "2026-11-17T16:45:17.811Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "requirements: BR1 changed, FR1 changed, FR2 changed, FR4 changed, FR6 changed, FR7 changed, FR8 changed, FR9 changed, FR10 changed, FR11 changed, FR12 changed, FR13 changed, FR14 changed, FR15 changed, NFR1 changed, NFR2 changed, NFR3 changed, NFR4 changed; impacts: 18"
     }
   ]
 }

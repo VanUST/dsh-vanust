@@ -102,6 +102,8 @@ filling the orchestrator's. The ledger lives in
 
 **`@cc/dsh-delegation-brief`** (root-only): `delegation_brief` renders the brief for an accepted REQ from the register — the requirement and its criteria verbatim, related decisions, the tests that must pass with commands, non-scope and the return format — and returns a `briefHash`; the same state gives the same bytes. `delegation_return` checks the worker's `{status, criteria:[{id,pass,evidence}], questions}` against that hash and refuses `brief_stale`/`return_unmapped`. Refusals: `cold_start_required`, `feature_required`, `criteria_missing`.
 
+**Шаблон отчёта и глоссарий.** Корневой промпт задаёт статический шаблон отчёта (итог, цель, изменения, доказательства, решения, риски, дальше) и правило: новый термин сначала в `docs/TERMINOLOGY.md`. `make verify` прогоняет `scripts/check-glossary.mjs` — он падает, если термин шаблона не определён или шаблон исчез из промпта.
+
 **Заполнение реестра.** Пустой `state/` наполняется командой `node scripts/state-migrate.mjs`:
 записи анализа становятся REQ (одно требование — один REQ), задачи таскборда — TASK (с
 `boardId`), кейсы — TEST (с `caseId` и `evidenceRefs` из сохранённых прогонов). Скрипт только

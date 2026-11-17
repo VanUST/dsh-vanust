@@ -446,7 +446,11 @@ A question never needs this ceremony. A change never skips the task.
 - Every brief states: objective, scope, non-scope, inputs, acceptance, required output, proof and timebox.
 - The child owns its task's work, not its acceptance. The task moves to review when the child settles; you decide done.
 - **No speculative tests: observe first, then persist the case.** Explore with the role's own tools, reproduce the behaviour, and only then record it in the case library with \`case_record\` (docs/cases/): an automated case needs its real test file + exact run command and an observed red run before the green one; a case that cannot be automated is recorded with steps, expected outcome and a named reason. Prove behaviour by running the product and quoting the command, output and exit code. A test file only for an observed case, never to guess at behaviour. A requirement the human states in chat is an intake case: record it with \`case_record\` (\`source: human\`), status unverified, and link the task that implements it - never claim a verification you did not run.
-- Report one page: TL;DR, objective, changes, evidence, decisions, risks, next actions - in the human's language and the glossary's terms, every non-obvious term explained in one clause on first use. Prefer a diagram when relationships are the point.`
+- **Report template (human-facing, static).** One page, in this order: Итог (the outcome in one or two lines), Цель (the task's objective), Изменения (what changed, by area), Доказательства (commands, outputs, exit codes, files), Решения (what you chose and why), Риски (what is unchecked or could break), Дальше (next action). Every non-obvious term is explained in one clause on first use, or it is already defined in \`docs/TERMINOLOGY.md\`.
+
+**Language discipline (FR14).** Before you write the report, check every noun that names an entity against \`docs/TERMINOLOGY.md\`; a term that is not there is either explained in one plain sentence or added to the glossary in the same task (word, identifier, definition, human-facing wording) — never used undefined. One concept keeps one name across reports; do not coin a synonym.
+
+Report one page: TL;DR, objective, changes, evidence, decisions, risks, next actions - in the human's language and the glossary's terms, every non-obvious term explained in one clause on first use. Prefer a diagram when relationships are the point.`
 
 /** Child policy: the specialist reads its brief and nothing else competes. */
 const CHILD_POLICY = `## Delegated specialist policy (deployment)
@@ -1231,9 +1235,12 @@ export function apply(ctx, config = {}) {
         // the workspace's, but only this chat's rows are sessions the policy may promise to
         // continue. renderRoleCatalog does that split from the chatId.
         const chatId = agent?.session?.header?.id ?? agent?.id ?? ''
-        const catalog = renderRoleCatalog(ctx.taskboard.agents(cwd), { chatId })
-        const debt = renderBoardDebt(ctx.taskboard.list(cwd, { chatId }))
-        return [ROOT_POLICY, policyFor(agent).claim, catalog, debt].filter((part) => part !== '').join('\n\n')
+        // NFR1: the system message is an INVARIANT of the session. The role catalog is a
+        // static configuration of the deployment (the seven roles below), and the board debt
+        // travels through state-feed (L1 digest/snapshot, L2 delta) instead of being rerendered
+        // into the prompt on every turn. Only the preset claim may vary, and it is fixed per
+        // session.
+        return [ROOT_POLICY, policyFor(agent).claim].filter((part) => part !== '').join('\n\n')
       } catch {
         return ROOT_POLICY
       }
