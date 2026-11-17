@@ -3,6 +3,15 @@
   "description": "The plugins this kit ships beyond upstream, one row each. This is the single source of truth for the count and for each plugin's provenance; README.md and the injected rules describe the kit from it, and scripts/check-portability.mjs fails when a row, a tarball, a mounted profile row or a packing entry point disagrees with what is on disk.",
   "plugins": [
     {
+      "id": "project-state",
+      "package": "@cc/dsh-project-state",
+      "tarballPrefix": "cc-dsh-project-state",
+      "provenance": "in-repo",
+      "source": "plugins/project-state",
+      "pack": "scripts/pack-plugin.mjs",
+      "mounted": true
+    },
+    {
       "id": "presentation",
       "package": "@cc/dsh-presentation",
       "tarballPrefix": "cc-dsh-presentation",

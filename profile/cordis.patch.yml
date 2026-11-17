@@ -299,6 +299,76 @@
         # No row allows `mcp__godot__*` (it is ~30 tools / 60 KB and no eight-preset budget
         # holds it); `projectMarkers`+`projectDeny` stay supported for a row that needs a
         # family only on a project that can drive it.
+        # CONTEXT BUDGETS (FR2, D13) live with the family policy: one owner for the role
+        # surface and its size. `tools` is the declared allowance for the role as measured on
+        # 2026-11-17; `recommended` is the design table (a count above it is a WARNING); a count
+        # above 1.5 x `tools` is RED and fails `make verify`. Byte budgets are warnings; a PTC
+        # session (at most two tools in its header) is measured against the mode's own baseline
+        # (~53 KB system prompt), never against a native preset's 24-25 KB.
+        budgets:
+          orchestrator:
+            tools: 54
+            recommended: 40
+            schemaBytes: 62000
+            promptBytes: 26000
+            remindersBytes: 70000
+          ux:
+            tools: 52
+            recommended: 40
+            schemaBytes: 60000
+            promptBytes: 26000
+            remindersBytes: 70000
+            ptc:
+              tools: 2
+              promptBytes: 53365
+          backend:
+            tools: 28
+            recommended: 16
+            schemaBytes: 45000
+            promptBytes: 26000
+            remindersBytes: 70000
+            ptc:
+              tools: 2
+              promptBytes: 53365
+          reviewer:
+            tools: 25
+            recommended: 14
+            schemaBytes: 43000
+            promptBytes: 26000
+            remindersBytes: 70000
+            ptc:
+              tools: 2
+              promptBytes: 53365
+          critic:
+            tools: 24
+            recommended: 14
+            schemaBytes: 40000
+            promptBytes: 26000
+            remindersBytes: 70000
+            ptc:
+              tools: 2
+              promptBytes: 53365
+          gatherer:
+            tools: 16
+            recommended: 10
+            schemaBytes: 30000
+            promptBytes: 26000
+            remindersBytes: 70000
+          research:
+            tools: 23
+            recommended: 14
+            schemaBytes: 42000
+            promptBytes: 26000
+            remindersBytes: 70000
+          docs:
+            tools: 26
+            recommended: 14
+            schemaBytes: 45000
+            promptBytes: 26000
+            remindersBytes: 70000
+            ptc:
+              tools: 2
+              promptBytes: 53365
         families:
           # Root: the board, delegation, the analysis record, the design map, files and the
           # read half of Hindsight (D4 keeps Hindsight at the root; the write tools are out).
@@ -478,6 +548,17 @@
 # header cell and adds a Tasks main panel + sidebar entry; it reads through
 # `workspaceFiles` and writes through the command Remote, so it needs no custom
 # Typert namespace.
+# ── project-state: the state core (ccProjectState) ────────────────────────────
+# One host row that publishes the project state service: the single writer of state/ in a
+# workspace. It owns the entity schema (REQ/DECISION/TASK/TEST) with YAML frontmatter and a
+# body, typed sequential IDs allocated under a lock, links with the content hash of their
+# target, compare-and-set TASK transitions, the append-only journal with replay, snapshot()
+# and verify(). It registers NO model tool: the REQ/TASK operations, the views/ projections
+# and the migrations are their own tasks and consume this service.
+- insert:
+    - id: project-state
+      name: '@cc/dsh-project-state'
+
 - insert:
     - id: taskboard
       name: '@cc/dsh-taskboard'
