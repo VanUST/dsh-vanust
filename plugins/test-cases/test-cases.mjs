@@ -84,14 +84,113 @@ const INTAKE_TOOLS = ['case_record', 'case_list', 'case_get', 'case_drift', 'cas
  * A session without a preset (standard/headless) gets the whole surface so the library is
  * usable outside the orchestrated presets; that is a deliberate default, not an oversight.
  */
+/**
+ * The preset in force: the tool-families service owns the resolution (projection first,
+ * remembered selection, creation header last). Reading `agent.session.header.agentPreset`
+ * here resolved the preset the session was CREATED with — the profile default `orchestrator`
+ * — so every seat received the orchestrator intake set and the verify/run set never reached
+ * a worker. The lookup is guarded because a composition without the service must not fail a
+ * session creation.
+ */
+function presetOf(ctx, agent) {
+  try {
+    const resolved = ctx.get?.('toolFamilies')?.presetFor?.(agent?.session)
+    if (typeof resolved === 'string' && resolved.trim() !== '') return resolved
+  } catch {
+    // No policy owner in this composition: fall back to the projection.
+  }
+  try {
+    const projected = ctx.get?.('agentPresets')?.presetForSession?.(agent?.session)
+    if (typeof projected === 'string' && projected.trim() !== '') return projected
+  } catch {
+    // No projection either: the creation header is the last fallback.
+  }
+  try {
+    const header = agent?.session?.header?.agentPreset
+    return typeof header === 'string' && header !== '' ? header : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Keep one agent's case tools in line with its CURRENT preset.
+ *
+ * A seat selected on a blank session is committed as `agent-preset/selected`, which is raised
+ * on the ROOT context and may arrive after `agent/created`; the previous set is disposed
+ * before the new one is registered, or the duplicate registration would throw.
+ */
+function installCaseGate(ctx, { policy, tools, showSection }) {
+  const installed = new Map()
+  const sectionFor = (agent, preset) => {
+    const granted = (Array.isArray(policy[preset]) ? policy[preset] : []).filter((name) => tools[name] !== undefined)
+    if (showSection && granted.length > 0 && typeof agent?.ctx?.systemPrompt?.section === 'function') {
+      agent.ctx.systemPrompt.section({
+        name: 'deployment:test-cases',
+        order: 123,
+        text: granted.includes('case_run') ? SECTION_FULL : SECTION_INTAKE,
+      })
+    }
+  }
+  const sync = (agent) => {
+    if (agent === undefined || agent === null) return
+    try {
+      const preset = presetOf(ctx, agent)
+      const current = installed.get(agent)
+      if (current !== undefined && current.preset === preset) return
+      if (current !== undefined) {
+        for (const dispose of current.disposers) {
+          try {
+            dispose()
+          } catch {
+            // A failing disposer must not take the session down.
+          }
+        }
+        installed.delete(agent)
+      }
+      // Fail closed: an unrecognised or unlisted preset gets NO case tools.
+      const granted = Array.isArray(policy[preset]) ? policy[preset] : []
+      const selected = granted.filter((name) => tools[name] !== undefined).map((name) => tools[name])
+      if (selected.length > 0) {
+        const disposers = selected.map((tool) => agent.ctx.tools.register(tool)).filter((dispose) => typeof dispose === 'function')
+        installed.set(agent, { preset, disposers })
+      }
+      sectionFor(agent, preset)
+    } catch {
+      // Never throw into agent/created: an exception there cancels the session creation.
+    }
+  }
+  ctx.on('agent/created', ({ agent }) => sync(agent))
+  if (typeof ctx.root?.on === 'function') {
+    ctx.root.on('session/event', (session, event) => {
+      if (event?.type !== 'agent-preset/selected') return
+      let live
+      try {
+        live = ctx.get?.('agents')?.get?.(session?.id)
+      } catch {
+        live = undefined
+      }
+      if (live !== undefined && live !== null) sync(live)
+    })
+  }
+  ctx.on('agent/pre-step', (payload, next) => {
+    sync(payload?.agent)
+    return next()
+  }, { prepend: true })
+}
+
+// The case surface per role (design §5.3: intake at the root, the run/verify loop only
+// where a role proves changes, read-only where it cites them). A preset absent from this
+// map - gatherer included - gets NO case tools.
 export const DEFAULT_ROLE_TOOLS = {
   orchestrator: INTAKE_TOOLS,
-  backend: ALL_TOOLS,
-  ux: ALL_TOOLS,
-  reviewer: ALL_TOOLS,
-  critic: ALL_TOOLS,
-  docs: ALL_TOOLS,
-  research: ALL_TOOLS,
+  backend: ['case_record', 'case_run', 'case_suite', 'case_get', 'case_list'],
+  reviewer: ['case_get', 'case_list', 'case_run', 'case_gate'],
+  critic: ['case_get', 'case_list', 'case_run'],
+  ux: ['case_record', 'case_list'],
+  research: ['case_get', 'case_list'],
+  docs: ['case_record', 'case_list', 'case_get'],
+  gatherer: [],
 }
 
 const STATUSES = ['unverified', 'verified', 'failing', 'flaky', 'stale', 'superseded', 'deprecated']
@@ -839,29 +938,7 @@ export function apply(ctx, config = {}) {
   if (typeof ctx.effect === 'function') ctx.effect(() => providedCases)
   const policy = config.roles !== null && typeof config.roles === 'object' ? config.roles : DEFAULT_ROLE_TOOLS
   const showSection = config.shownInPrompt !== false
-  ctx.on('agent/created', ({ agent }) => {
-    const preset = agent?.session?.header?.agentPreset
-    // Fail closed: an unrecognised preset gets NO tools. Only a preset-less session (the
-    // deliberate case documented in README) or an explicitly listed one is served.
-    const allowed = Array.isArray(policy[preset])
-      ? policy[preset]
-      : (preset === undefined || preset === 'standard' ? ALL_TOOLS : [])
-    for (const toolName of allowed) {
-      if (tools[toolName] !== undefined) agent.ctx.tools.register(tools[toolName])
-    }
-    // The section follows the SURFACE: a role with no case tool gets no case instructions, and
-    // an intake-only role gets the intake text. Measured before this: every preset, including
-    // one granted nothing, was told how to call case_verify.
-    const granted = allowed.filter((name) => tools[name] !== undefined)
-    if (showSection && granted.length > 0 && typeof agent?.ctx?.systemPrompt?.section === 'function') {
-      const canRun = granted.includes('case_run')
-      agent.ctx.systemPrompt.section({
-        name: 'deployment:test-cases',
-        order: 123,
-        text: canRun ? SECTION_FULL : SECTION_INTAKE,
-      })
-    }
-  })
+  installCaseGate(ctx, { policy, tools, showSection })
 
   // THE PANEL'S DOOR. The human's panel is not a tool caller, so the same verbs are exposed
   // as one `/test-cases` JSON command. It executes the very same tool objects (and therefore

@@ -6,10 +6,11 @@
  *   preset, in both workspace kinds (a plain repository and a Godot checkout), and assert the
  *   contract the deployment agreed on:
  *
- *     Playwright  → standard, ux
- *     Godot       → standard, and backend/ux/reviewer/critic ONLY in a Godot workspace
- *     research/docs → no MCP family at all
- *     hindsight   → never removed, for any preset
+ *     allow list  → a preset with `allow` keeps ONLY names matching it (V1.1)
+ *     Playwright  → standard, ux only
+ *     Godot       → standard only; no kit row allows it (an unlisted host family is gone)
+ *     hindsight   → orchestrator (read half); removed from every worker row
+ *     a preset without a row (standard, cordis, ptc, unknown) keeps its full surface
  *
  * WHY IT EXISTS. The policy is a config table, and a config table that is wrong fails silently:
  * the tools simply stay in the header and every step pays for them, or a role silently loses a
@@ -91,7 +92,7 @@ function schemasFromSession(dir) {
 const schemas = sessionDir ? schemasFromSession(sessionDir) : null
 const visible = schemas ? schemas.map((schema) => schema.name) : syntheticNames()
 const totalBytes = schemas ? schemas.reduce((total, schema) => total + schema.bytes, 0) : 0
-const { normalizeConfig, decide, removedBytes, apply } = await import(pathToFileURL(pluginPath).href)
+const { normalizeConfig, decide, removedBytes, apply, matches: matchesName } = await import(pathToFileURL(pluginPath).href)
 
 // The shipped policy, copied from profile/cordis.patch.yml. Duplication is deliberate: this
 // script must be able to test a DIFFERENT plugin build against the agreed policy, so it does
@@ -99,16 +100,18 @@ const { normalizeConfig, decide, removedBytes, apply } = await import(pathToFile
 const POLICY_RAW = {
   projectMarkers: { 'mcp__godot__*': 'project.godot' },
   families: {
-    orchestrator: { deny: ['mcp__godot__*', 'mcp__playwright__*', 'bash', 'pwsh'] },
-    ux: { projectDeny: ['mcp__godot__*'] },
-    backend: { deny: ['mcp__playwright__*'], projectDeny: ['mcp__godot__*'] },
-    reviewer: { deny: ['mcp__playwright__*'], projectDeny: ['mcp__godot__*'] },
-    critic: { deny: ['mcp__playwright__*'], projectDeny: ['mcp__godot__*'] },
-    research: { deny: ['mcp__playwright__*', 'mcp__godot__*'] },
-    gatherer: { deny: ['mcp__playwright__*'], projectDeny: ['mcp__godot__*'] },
-    docs: { deny: ['mcp__playwright__*', 'mcp__godot__*'] },
+    // Copied from profile/cordis.patch.yml (V1.1 allow lists); the app runs the same table.
+    orchestrator: { allow: ['analysis_check', 'analysis_impact', 'analysis_read', 'analysis_upsert', 'ask_user_question', 'delegate_task', 'designmap_apply', 'designmap_open', 'designmap_render', 'designmap_scan', 'designmap_status', 'edit', 'glob', 'grep', 'hindsight_list_pages', 'hindsight_read_page', 'hindsight_search_pages', 'hindsight_reflect', 'outline', 'present', 'read', 'skill', 'skill_evolve', 'skill_inventory', 'task_cancel', 'task_close', 'task_create', 'task_get', 'task_link', 'task_list', 'task_note', 'task_pause', 'task_remove', 'task_resume', 'task_stop', 'task_update', 'todo_write', 'web_fetch', 'web_search', 'write'] },
+    backend: { allow: ['bash', 'case_get', 'case_list', 'case_record', 'case_run', 'case_suite', 'edit', 'glob', 'grep', 'job_output', 'read', 'read_image', 'skill', 'task_get', 'task_note', 'write'] },
+    reviewer: { allow: ['bash', 'case_gate', 'case_get', 'case_list', 'case_run', 'glob', 'grep', 'present', 'read', 'read_image', 'skill', 'task_get', 'task_note', 'todo_write'] },
+    critic: { allow: ['bash', 'case_get', 'case_list', 'case_run', 'glob', 'grep', 'job_output', 'present', 'read', 'read_image', 'skill', 'task_get', 'task_note', 'todo_write'] },
+    gatherer: { allow: ['bash', 'glob', 'grep', 'read', 'read_image', 'skill', 'task_get', 'task_note', 'todo_write', 'working_directory'] },
+    research: { allow: ['glob', 'grep', 'papers_download', 'papers_search', 'papers_trending', 'read', 'read_image', 'skill', 'task_get', 'task_note', 'todo_write', 'web_fetch', 'web_search', 'write'] },
+    docs: { allow: ['case_get', 'case_list', 'case_record', 'edit', 'glob', 'grep', 'read', 'skill', 'task_get', 'task_note', 'todo_write', 'web_fetch', 'web_search', 'write'] },
+    ux: { allow: ['bash', 'case_list', 'case_record', 'edit', 'glob', 'grep', 'mcp__playwright__*', 'present', 'read', 'read_image', 'skill', 'task_get', 'task_note', 'todo_write', 'web_fetch', 'web_search', 'write'] },
   },
 }
+const BUDGETS = { orchestrator: 40, backend: 16, reviewer: 14, critic: 14, gatherer: 10, research: 14, docs: 14, ux: 40 }
 const POLICY = normalizeConfig(POLICY_RAW)
 
 const PRESETS = [undefined, 'orchestrator', 'ux', 'backend', 'reviewer', 'critic', 'research', 'gatherer', 'docs', 'a-preset-nobody-wrote']
@@ -139,7 +142,7 @@ for (const workspace of WORKSPACES) {
       : decision.deny.length
     table.push({ workspace: workspace.label, preset, decision, bytes })
     console.log(
-      `  ${String(preset ?? 'standard').padEnd(20)} deny=${String(decision.deny.length).padStart(3)} tools ${String(bytes).padStart(6)} B`
+      `  ${String(preset ?? 'standard').padEnd(20)} deny=${String(decision.deny.length).padStart(3)} kept=${String(visible.length - decision.deny.length).padStart(3)} tools ${String(bytes).padStart(6)} B`
         + ` | playwright=${keptFamilies(decision, 'mcp__playwright__') ? 'kept' : 'gone'}`
         + ` godot=${keptFamilies(decision, 'mcp__godot__') ? 'kept' : 'gone'}`
         + ` hindsight=${keptFamilies(decision, 'hindsight_') ? 'kept' : 'gone'}`
@@ -153,53 +156,91 @@ for (const workspace of WORKSPACES) {
 const row = (workspace, preset) => table.find((entry) => entry.workspace === workspace && entry.preset === preset)
 
 // ── the contract ──────────────────────────────────────────────────────────────
-const playwrightKept = ['ux']
-const godotInGodot = ['backend', 'ux', 'reviewer', 'critic']
+const ROWS = Object.keys(POLICY_RAW.families)
+const keeps = (decision, name) => !decision.deny.includes(name)
+const keptNames = (decision) => visible.filter((name) => !decision.deny.includes(name))
 
-check(
-  'standard (no preset) keeps every family in a plain repository',
-  keptFamilies(row('dsh-kit', undefined).decision, 'mcp__playwright__') && keptFamilies(row('dsh-kit', undefined).decision, 'mcp__godot__'),
-  `deny=${row('dsh-kit', undefined).decision.deny.length}`,
-)
-// A preset nobody wrote a policy for is checked on its own below: the loops here are the
-// agreed role list, and asserting the safe default per role would contradict it.
-const ROLES = PRESETS.filter((p) => p !== undefined && p !== 'a-preset-nobody-wrote')
-for (const preset of ROLES) {
-  const plain = keptFamilies(row('dsh-kit', preset).decision, 'mcp__playwright__')
-  check(`playwright ${playwrightKept.includes(preset) ? 'kept' : 'removed'} for preset "${preset}"`, plain === playwrightKept.includes(preset), `kept=${plain}`)
-}
-for (const preset of ROLES) {
-  const plain = keptFamilies(row('dsh-kit', preset).decision, 'mcp__godot__')
-  check(`godot removed for preset "${preset}" outside a Godot workspace`, plain === false, `kept=${plain}`)
-}
-for (const preset of godotInGodot) {
-  check(`godot kept for "${preset}" INSIDE a Godot workspace`, keptFamilies(row('godot-project', preset).decision, 'mcp__godot__') === true)
-}
-for (const preset of ['orchestrator', 'research', 'docs']) {
-  check(`godot still removed for "${preset}" inside a Godot workspace`, keptFamilies(row('godot-project', preset).decision, 'mcp__godot__') === false)
-}
-for (const preset of ['research', 'docs']) {
-  const entry = row('godot-project', preset).decision
-  check(`"${preset}" carries NO MCP family in any workspace`, keptFamilies(entry, 'mcp__playwright__') === false && keptFamilies(entry, 'mcp__godot__') === false)
-}
+// 1. A preset with no row keeps everything (D8: standard, cordis, ptc, unknown).
 for (const workspace of WORKSPACES) {
-  for (const preset of PRESETS) {
+  for (const preset of [undefined, 'a-preset-nobody-wrote']) {
     check(
-      `hindsight survives for ${preset ?? 'standard'} in ${workspace.label}`,
-      keptFamilies(row(workspace.label, preset).decision, 'hindsight_') === true,
+      `${preset ?? 'standard'} (no row) keeps its whole surface in ${workspace.label}`,
+      row(workspace.label, preset).decision.deny.length === 0,
+      `deny=${row(workspace.label, preset).decision.deny.length}`,
     )
   }
 }
-check(
-  'a preset nobody wrote a policy for keeps its whole surface',
-  row('dsh-kit', 'a-preset-nobody-wrote').decision.deny.length === 0,
-)
-const backendPlainBytes = row('dsh-kit', 'backend').bytes
-if (schemas) {
+
+// 2. Every row keeps ONLY names its allow list matches: nothing leaks from the host.
+for (const workspace of WORKSPACES) {
+  for (const preset of ROWS) {
+    const decision = row(workspace.label, preset).decision
+    const allow = POLICY.families[preset].allow
+    const strays = keptNames(decision).filter((name) => !allow.some((pattern) => matchesName(name, pattern)))
+    check(
+      `"${preset}" keeps only allow-listed names in ${workspace.label}`,
+      strays.length === 0,
+      strays.length === 0 ? `kept=${keptNames(decision).length}` : `leaked=${strays.slice(0, 4).join(',')}`,
+    )
+  }
+}
+
+// 3. The budget is a ceiling on the kept set, checked against a REAL header too.
+for (const preset of ROWS) {
+  for (const workspace of WORKSPACES) {
+    const kept = keptNames(row(workspace.label, preset).decision).length
+    check(`"${preset}" stays within its budget in ${workspace.label}`, kept <= BUDGETS[preset], `${kept} <= ${BUDGETS[preset]}`)
+  }
+}
+
+// 4. The families the design excludes are gone; Playwright is the ux exception.
+for (const preset of ROWS) {
+  const decision = row('dsh-kit', preset).decision
+  check(`playwright ${preset === 'ux' ? 'kept' : 'removed'} for preset "${preset}"`, keptFamilies(decision, 'mcp__playwright__') === (preset === 'ux'))
+}
+for (const workspace of WORKSPACES) {
+  for (const preset of ROWS) {
+    check(`godot removed for preset "${preset}" in ${workspace.label}`, keptFamilies(row(workspace.label, preset).decision, 'mcp__godot__') === false)
+  }
+}
+for (const preset of ROWS) {
+  const kept = keptNames(row('dsh-kit', preset).decision).filter((name) => name.startsWith('hindsight_'))
   check(
-    'the saving is real: a plain-repository backend drops >= 60% of the header schema bytes',
-    backendPlainBytes > totalBytes * 0.6,
-    `${backendPlainBytes} B of ${totalBytes} B (${visible.length} tools); orchestrator ${row('dsh-kit', 'orchestrator').bytes} B`,
+    `hindsight ${preset === 'orchestrator' ? 'kept (read half)' : 'removed'} for preset "${preset}"`,
+    preset === 'orchestrator' ? kept.length === 4 : kept.length === 0,
+    `kept=${kept.join(',') || '(none)'}`,
+  )
+}
+
+// 5. deny and projectDeny still subtract from an allow list.
+const denyDecision = decide(normalizeConfig({ families: { backend: { allow: ['read', 'write'], deny: ['write'] } } }), 'backend', { visible })
+check(
+  'a deny pattern still subtracts from an allow list',
+  denyDecision.deny.includes('write') === true && denyDecision.deny.includes('bash') === true,
+  `deny=${denyDecision.deny.slice(0, 3).join(',')}…`,
+)
+const projectEntry = normalizeConfig({ projectMarkers: { 'mcp__godot__*': 'project.godot' }, families: { backend: { allow: ['mcp__godot__*', 'read'], projectDeny: ['mcp__godot__*'] } } })
+const godotVisible = visible.filter((name) => name.startsWith('mcp__godot__'))
+const outsideProject = decide(projectEntry, 'backend', { visible, hostHas: () => false })
+const insideProject = decide(projectEntry, 'backend', { visible, hostHas: () => true })
+check(
+  'projectDeny still keeps an allowed family only inside a marked project',
+  outsideProject.deny.filter((name) => name.startsWith('mcp__godot__')).length === godotVisible.length
+    && insideProject.deny.filter((name) => name.startsWith('mcp__godot__')).length === 0,
+  `outside=${outsideProject.deny.filter((name) => name.startsWith('mcp__godot__')).length}/${godotVisible.length} inside=0`,
+)
+check(
+  'an allow pattern matching nothing is not an error',
+  decide(POLICY, 'backend', { visible: ['read'], hostHas: () => false }).deny.length === 0,
+)
+
+// 7. Bytes: with a real header the kept schema budget is quoted directly.
+if (schemas) {
+  const keptBytes = (preset) => schemas.filter((schema) => !row('dsh-kit', preset).decision.deny.includes(schema.name)).reduce((total, schema) => total + schema.bytes, 0)
+  check(
+    'the saving is real: a plain-repository backend keeps <= 20% of the header schema bytes',
+    keptBytes('backend') <= totalBytes * 0.2,
+    `${keptBytes('backend')} B of ${totalBytes} B; orchestrator ${keptBytes('orchestrator')} B`,
   )
 } else {
   console.log(`  [note] schema bytes need --from-session (a real request/header carries sizes); names only here`)
@@ -251,6 +292,10 @@ const fakeAgent = (env, creationPreset) => ({
     tools: {
       schemas: () => fakeSchemas,
       restrict(filter) {
+        // Mirror the registry: a probe for a nonexistent name throws and names the known set.
+        const named = [...(filter.allow ?? []), ...(filter.deny ?? [])]
+        const unknown = named.filter((name) => name === '__tool_families_probe__')
+        if (unknown.length > 0) throw new Error(`tools.restrict() names unknown global tool "${unknown[0]}"; known global tools: ${visible.join(', ')}`)
         env.restricts.push(filter)
         return () => env.lifted.push(filter)
       },
@@ -275,10 +320,11 @@ apply(env.ctx, POLICY_RAW)
 const agent = fakeAgent(env, 'orchestrator')
 await created(env, agent)
 check('created under orchestrator installs exactly one restriction', env.restricts.length === 1, `restricts=${env.restricts.length}`)
+const createdDeny = env.restricts[0]?.deny ?? []
 check(
   'the created restriction is the orchestrator deny (godot and playwright gone, bash gone)',
-  env.restricts[0].deny.some((name) => name.startsWith('mcp__godot__')) && env.restricts[0].deny.some((name) => name.startsWith('mcp__playwright__')) && env.restricts[0].deny.includes('bash'),
-  `deny=${env.restricts[0].deny.length}`,
+  createdDeny.some((name) => name.startsWith('mcp__godot__')) && createdDeny.some((name) => name.startsWith('mcp__playwright__')) && createdDeny.includes('bash'),
+  `deny=${createdDeny.length}`,
 )
 env.projection.set('probe-session', 'backend')
 const continued = await preStep(env, agent)

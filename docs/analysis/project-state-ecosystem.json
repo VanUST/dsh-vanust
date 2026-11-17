@@ -1,0 +1,1011 @@
+{
+  "schemaVersion": 1,
+  "id": "project-state-ecosystem",
+  "rev": 17,
+  "status": "ready",
+  "createdAt": "2026-11-17T13:19:07.274Z",
+  "updatedAt": "2026-11-17T14:30:06.159Z",
+  "updatedBy": "agent",
+  "title": "Экосистема состояния проекта и экономика контекста — v1",
+  "requestedSolution": "Реализовать v1 дизайна от 2026-11-17 в порядке §10: (1) контекст-фундамент — allow-list в tool-families, диета схем и линтер, контракт слоёв L0–L3, новый хост-плагин state-feed (L1 первым сообщением, L2-дельты по хешу, инъекции как session events), MCP только для ux, Hindsight воркерам убран, context-budget.mjs с предупреждением и красным гейтом >1.5×; (2) ядро ccProjectState — файл на сущность в state/, ID под локом, связи с хешами, CAS, журнал, verify, регенерация проекций; (3) policy-плагин (fs/tools/sandbox) с запретами записи и трипвайром; (4) эволюция analysis в реестр REQ; (5) taskboard с reqId/chore и CAS через ядро; (6) раннер red→green с evidence вне writable-области; (7) оркестратор с брифом из обвязки, структурированным возвратом, cold-start гейтом и снимками; (8) миграции и доводка проекций; (9) дисциплина языка. v2 не трогать.",
+  "businessOutcome": {
+    "problem": "Единица хранения — задача, умирающая с сессией, а не фича; бизнес-требования жили в чате; ни один механизм не обязан подать план и требования в контекст новой сессии; компакция и новая сессия теряют всё не экстернализованное; изменчивые разделы рендерятся в системный промпт каждый ход и ломают префикс-кэш.",
+    "outcome": "Агенты работают автономно без дрейфа понимания задачи: каждая сессия получает план и требования первым сообщением, каждое требование имеет заранее определённый способ верификации, делегирование привязано к принятому требованию с замороженными критериями, а расход контекста предсказуем и измерен.",
+    "successMetrics": [
+      "Новая сессия отвечает на «какие REQ открыты» совпадающе с реестром",
+      "Делегирование без accepted REQ отказывает с кодом feature_required",
+      "REQ → verified без пары red→green с совпадающими хешами отказывает с evidence_required",
+      "Число инструментов и байты схем не выше рекомендации; >1.5× — make verify падает",
+      "Промпт неизменен внутри хода, а после вывода каталога и долга — и между ходами, кроме компакции",
+      "Доля попаданий в кэш на шагах ≥2 измерена и отражена в отчёте"
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "V1-CUR",
+        "name": "Работа над изменением",
+        "actors": [
+          "оркестратор",
+          "специалист",
+          "владелец"
+        ],
+        "steps": [
+          "Требование формулируется в чате и живёт только там",
+          "Оркестратор держит план в голове и в переписке",
+          "Новая сессия и компакция теряют состояние",
+          "Приёмка опирается на устную договорённость"
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "V1-TGT",
+        "name": "Работа над изменением",
+        "actors": [
+          "оркестратор",
+          "специалист",
+          "владелец"
+        ],
+        "steps": [
+          "REQ принят с замороженными критериями и записан в state/",
+          "План и открытые REQ приходят новой сессии первым сообщением (L1), изменения — дельтами в хвост (L2)",
+          "TASK связан с REQ; воркер получает свой бриф, тесты пишет оркестратор до реализации",
+          "Правка REQ или карты делает зависимые TASK/TEST stale; verify() называет сирот",
+          "Приёмка — по паре red→green с хешами коммита и теста"
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "BR1",
+      "kind": "BR",
+      "text": "План, принятые требования и способ их проверки живут в репозитории проекта и переживают сессию и компакцию.",
+      "acceptance": [
+        "Новая сессия отвечает на «какие REQ открыты» совпадающе с реестром",
+        "Требование без задачи и задача без требования видны в L1/L2"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR1",
+      "kind": "FR",
+      "text": "Хостовые инструменты не наследуются пресетом по умолчанию: пресет объявляет нужные семейства, остальные не выдаются.",
+      "acceptance": [
+        "Пресет без строки получает только объявленное",
+        "Заголовок воркера не растёт от чужих семейств"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR2",
+      "kind": "FR",
+      "text": "Бюджеты контекста объявлены в профиле и проверяются по журналам: превышение рекомендации — предупреждение, сильное превышение — красный прогон make verify.",
+      "acceptance": [
+        "context-budget.mjs считает число инструментов и байты схем из журналов",
+        "Предупреждение — код 0; >1.5× — код 1 и падение make verify"
+      ],
+      "status": "deferred",
+      "reason": "Ждёт решения владельца: пять пресетов (ux, backend, critic, gatherer, research) работают в PTC-режиме — в заголовке один run_code при 53 365 Б системного промпта против 24–25 КБ нативных, поэтому гейт по числу инструментов для них слеп. Предложено добавить байтовый бюджет с warn/red, а счётчик инструментов оставить красным только для нативных пресетов. После ответа FR2 переоткрывается; вопрос и рекомендация — в задаче task-mwksgejf-855yel"
+    },
+    {
+      "id": "FR3",
+      "kind": "FR",
+      "text": "MCP-семейства нативны только для ux; у воркеров Hindsight только чтение или отсутствует.",
+      "acceptance": [
+        "Воркер не получает mcp__playwright__* и mcp__godot__* вне Godot-проекта",
+        "У воркера нет пишущих инструментов Hindsight"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR4",
+      "kind": "FR",
+      "text": "Состояние доставляется слоями L1+L2, а не промптом: L1 — первым сообщением сессии, L2 — дельты по хешу, все инъекции записаны как session events.",
+      "acceptance": [
+        "L1 приходит один раз и не редактируется",
+        "L2 пишется только при смене хеша, агрегируется по ходу",
+        "Каждая инъекция есть в журнале как session event"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR5",
+      "kind": "FR",
+      "text": "Схемы инструментов короткие: описание тулзы ≤300 символов, параметра ≤120, enum вместо прозы; линтер предупреждает.",
+      "acceptance": [
+        "Линтер сообщает о превышении с путём",
+        "Байты схем не растут при добавлении одной тулзы"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR6",
+      "kind": "FR",
+      "text": "Ядро ccProjectState — единственный писатель state/: файл на сущность, типизированные ID под локом, связи с хешем цели, журнал, CAS для TASK, verify().",
+      "acceptance": [
+        "Агент меняет состояние только через сервис",
+        "Журнал реплеится в тот же снапшот"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR7",
+      "kind": "FR",
+      "text": "Проекции views/ генерируются детерминированно из состояния; ручные правки не принимаются.",
+      "acceptance": [
+        "Повторная регенерация даёт тот же байт",
+        "Правка views/ вручную обнаруживается verify()"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR8",
+      "kind": "FR",
+      "text": "Гейты lifecycle отказывают с кодом и пишут вейвер с причиной и автором в журнал.",
+      "acceptance": [
+        "Наблюдаются req_required, test_req_required, evidence_required, state_write_denied, test_write_denied, feature_required, cold_start_required",
+        "Вейвер требует причину и человека"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR9",
+      "kind": "FR",
+      "text": "Реестр REQ первичен: REQ с замороженными критериями, запись анализа — его обоснование; при создании возвращаются кандидаты-дубли.",
+      "acceptance": [
+        "REQ нельзя принять без непустых критериев",
+        "Создание с дублем возвращает кандидатов",
+        "digest для L1 генерируется"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR10",
+      "kind": "FR",
+      "text": "TASK связан с REQ или помечен chore с причиной; переходы CAS через ядро; борд — проекция.",
+      "acceptance": [
+        "TASK → active без reqId и без chore+причины отказывает",
+        "Борд регенерируется из состояния"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR11",
+      "kind": "FR",
+      "text": "TEST с reqId и authorRole; критерии заморожены; evidence red→green вне writable-области воркера.",
+      "acceptance": [
+        "REQ → verified без пары red→green отказывает",
+        "Тавтологичный тест не проходит red-фазу"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR12",
+      "kind": "FR",
+      "text": "Бриф собирает обвязка; возврат воркера структурирован; холодный старт требует чтения реестра.",
+      "acceptance": [
+        "Бриф содержит критерии дословно",
+        "Первое делегирование без чтения реестра отказывает",
+        "Возврат разбирается по каждому критерию"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR13",
+      "kind": "FR",
+      "text": "Миграции: docs/analysis → REQ, .dsh/taskboard.json → TASK, docs/cases → TEST.",
+      "acceptance": [
+        "Каждая запись анализа имеет REQ-эквивалент",
+        "Старые задачи перенесены без потери истории"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR14",
+      "kind": "FR",
+      "text": "Дисциплина языка: глоссарий в корневом чате, шаблон отчёта.",
+      "acceptance": [
+        "Шаблон отчёта в промпте корня",
+        "Новый термин появляется в глоссарии той же задачей"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "NFR1",
+      "kind": "NFR",
+      "text": "Промпт неизменен внутри хода; между ходами меняются только реестровые разделы, пока не выведены.",
+      "acceptance": [
+        "Один system/message на ход, внутри не меняется",
+        "После вывода каталога и долга — 0 изменений между ходами"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "NFR2",
+      "kind": "NFR",
+      "text": "Набор инструментов не меняется внутри процесса после первого заголовка.",
+      "acceptance": [
+        "Один request/header на сессию",
+        "При рестарте набор меняется только с составом плагинов"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "NFR3",
+      "kind": "NFR",
+      "text": "L2-дельта ≤ ~300 токенов и агрегируется по ходу.",
+      "acceptance": [
+        "Дельта за ход в пороге",
+        "Событий в журнале больше, чем дельт в контексте"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "NFR4",
+      "kind": "NFR",
+      "text": "Структурированные логи и docs-first во всех новых компонентах.",
+      "acceptance": [
+        "Компонент пишет JSON-логи и имеет блоки PURPOSE/INPUTS/OUTPUTS/KEYWORDS",
+        "Успех подтверждается логами"
+      ],
+      "status": "planned"
+    }
+  ],
+  "architecture": {
+    "contractImpact": "breaking",
+    "components": [
+      {
+        "id": "project-state",
+        "name": "@cc/dsh-project-state (ccProjectState)",
+        "responsibility": "единственный писатель state/: схема, ID, связи с хешами, CAS, журнал, verify, регенерация проекций",
+        "owner": "kit",
+        "owns": [
+          "state-entities",
+          "state-journal",
+          "state-views",
+          "state-evidence"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "state-feed",
+        "name": "@cc/dsh-state-feed",
+        "responsibility": "доставка L1 первым сообщением и L2-дельт на границе хода; инъекции как session events",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": [
+          "project-state"
+        ]
+      },
+      {
+        "id": "analysis",
+        "name": "@cc/dsh-analysis",
+        "responsibility": "эволюция в реестр REQ: REQ первичен, дедуп-кандидаты, digest для L1, гейты",
+        "owner": "kit",
+        "owns": [
+          "analysis-records"
+        ],
+        "dependsOn": [
+          "project-state"
+        ]
+      },
+      {
+        "id": "taskboard",
+        "name": "@cc/dsh-taskboard",
+        "responsibility": "TASK в ядре: reqId или chore+причина, CAS через сервис, борд — проекция",
+        "owner": "kit",
+        "owns": [
+          "taskboard-file"
+        ],
+        "dependsOn": [
+          "project-state",
+          "analysis"
+        ]
+      },
+      {
+        "id": "test-cases",
+        "name": "@cc/dsh-test-cases",
+        "responsibility": "TEST с reqId и authorRole, red→green, evidence вне writable-области воркера",
+        "owner": "kit",
+        "owns": [
+          "case-library"
+        ],
+        "dependsOn": [
+          "project-state"
+        ]
+      },
+      {
+        "id": "tool-families",
+        "name": "@cc/dsh-tool-families",
+        "responsibility": "allow-list вместо deny-only; бюджеты инструментов рядом с политикой",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": []
+      },
+      {
+        "id": "context-budget",
+        "name": "scripts/context-budget.mjs",
+        "responsibility": "считает число инструментов и байты схем по журналам, даёт предупреждение или красный гейт",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": [
+          "tool-families"
+        ]
+      },
+      {
+        "id": "orchestrator",
+        "name": "@cc/dsh-orchestrator",
+        "responsibility": "бриф из обвязки, структурированный возврат, cold-start гейт, снимки состояния",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": [
+          "analysis",
+          "taskboard",
+          "project-state"
+        ]
+      },
+      {
+        "id": "profile",
+        "name": "profile/cordis.patch.yml",
+        "responsibility": "состав хоста, пресеты, политика семейств и бюджеты",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": [
+          "tool-families",
+          "orchestrator"
+        ]
+      },
+      {
+        "id": "docs",
+        "name": "docs/",
+        "responsibility": "глоссарий, шаблон отчёта, контракты слоёв и состояния",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": []
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "state-entities",
+      "name": "state/plan.yaml, state/req/*, state/decision/*, state/task/*, state/test/*",
+      "owner": "kit",
+      "ownerComponentId": "project-state",
+      "description": "файл на сущность с YAML frontmatter и телом; пишет только ядро"
+    },
+    {
+      "id": "state-journal",
+      "name": "state/events.jsonl",
+      "owner": "kit",
+      "ownerComponentId": "project-state",
+      "description": "append-only аудит операций ядра, производный от операций, не источник правды"
+    },
+    {
+      "id": "state-views",
+      "name": "state/views/*",
+      "owner": "kit",
+      "ownerComponentId": "project-state",
+      "description": "генерируемые проекции: digest, board, traceability, map, snapshot; руками не правятся"
+    },
+    {
+      "id": "state-evidence",
+      "name": "state/evidence/<run-id>/",
+      "owner": "kit",
+      "ownerComponentId": "project-state",
+      "description": "логи раннера и список файлов с хешами коммита и теста, вне writable-области воркера"
+    },
+    {
+      "id": "analysis-records",
+      "name": "docs/analysis/*.json",
+      "owner": "kit",
+      "ownerComponentId": "analysis",
+      "description": "текущие записи анализа, источник миграции в REQ"
+    },
+    {
+      "id": "taskboard-file",
+      "name": ".dsh/taskboard.json",
+      "owner": "kit",
+      "ownerComponentId": "taskboard",
+      "description": "текущий журнал задач воркспейса, источник миграции в TASK"
+    },
+    {
+      "id": "case-library",
+      "name": "docs/cases/*.json",
+      "owner": "kit",
+      "ownerComponentId": "test-cases",
+      "description": "библиотека кейсов, источник проекции TEST"
+    }
+  ],
+  "contracts": [
+    {
+      "id": "state-service-api",
+      "name": "контракт сервиса ccProjectState",
+      "between": [
+        "project-state",
+        "analysis",
+        "taskboard",
+        "test-cases",
+        "orchestrator",
+        "state-feed"
+      ],
+      "change": "additive",
+      "description": "create/get/list/update/link/issueId/claim/release/complete(revision)/snapshot()/verify()/regenerateViews(); все операции логируются, ID выдаёт ядро под локом"
+    },
+    {
+      "id": "state-file-schema",
+      "name": "схема файлов state/",
+      "between": [
+        "project-state",
+        "docs"
+      ],
+      "change": "additive",
+      "description": "REQ/DECISION/TASK/TEST со своими frontmatter-полями; связи хранят хеш содержимого цели на момент валидации"
+    },
+    {
+      "id": "tool-allowlist",
+      "name": "allow-list инструментов",
+      "between": [
+        "profile",
+        "tool-families"
+      ],
+      "change": "breaking",
+      "description": "хостовые тулзы по умолчанию не выдаются; пресет объявляет нужные; MCP нативен только ux"
+    },
+    {
+      "id": "layer-contract",
+      "name": "контракт слоёв L0–L3",
+      "between": [
+        "profile",
+        "state-feed",
+        "orchestrator"
+      ],
+      "change": "breaking",
+      "description": "L0 инвариант сессии, L1 первое сообщение, L2 дельты по хешу, L3 история; инъекции — session events"
+    },
+    {
+      "id": "brief-contract",
+      "name": "бриф и возврат воркера",
+      "between": [
+        "orchestrator",
+        "profile"
+      ],
+      "change": "breaking",
+      "description": "delegate_task принимает структурированные ссылки, текст собирает обвязка; возврат — done|blocked|design_problem с результатами по каждому критерию"
+    },
+    {
+      "id": "gate-codes",
+      "name": "коды отказов lifecycle",
+      "between": [
+        "project-state",
+        "taskboard",
+        "test-cases",
+        "orchestrator"
+      ],
+      "change": "additive",
+      "description": "req_required, test_req_required, evidence_required, decision_superseded, analysis_required/stale, feature_required, cold_start_required, state_write_denied, test_write_denied, test_tripwire, context_budget_exceeded"
+    }
+  ],
+  "invariants": [
+    {
+      "id": "INV-PROMPT",
+      "text": "Системный промпт неизменен внутри хода; между ходами меняются только реестровые разделы, пока они не выведены",
+      "scope": "kit"
+    },
+    {
+      "id": "INV-TOOLS",
+      "text": "Набор инструментов не меняется внутри процесса после первого заголовка запроса",
+      "scope": "kit"
+    },
+    {
+      "id": "INV-AUTHORSHIP",
+      "text": "Автор приёмочного теста не равен реализатору: тесты пишет оркестратор до делегирования",
+      "scope": "kit"
+    },
+    {
+      "id": "INV-WRITES",
+      "text": "Воркер не пишет state/, tests/acceptance/ и конфиг раннера; evidence лежит вне его writable-области",
+      "scope": "kit"
+    },
+    {
+      "id": "INV-PROJECTIONS",
+      "text": "views/ — генерируемая проекция; ручная правка не принимается",
+      "scope": "kit"
+    },
+    {
+      "id": "INV-SINGLE-OWNER",
+      "text": "У каждого значения один владелец: ревизия карты у designmap, политика семейств у tool-families, состояние у ядра",
+      "scope": "kit"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "D1",
+      "decision": "Состояние живёт вне системного промпта: L1 первым сообщением, L2 дельтами; каталог ролей и долг доски выводятся из промпта",
+      "rationale": "Измерено 2026-11-17: единственный меняющийся между ходами раздел промпта — Board debt (+198 символов), каждая ревизия пишется в журнал полным текстом ~25 КБ; вывод этих разделов убирает единственный источник изменений",
+      "alternatives": [
+        "держать план в промпте и мириться с ревизиями",
+        "подавать всё через инъекции на каждый шаг"
+      ]
+    },
+    {
+      "id": "D2",
+      "decision": "tool-families переходит с deny-only на allow-list: хостовые инструменты по умолчанию не выдаются",
+      "rationale": "Инверсия дефолта — единственный способ, чтобы новые хост-плагины не протекали во все роли; сейчас MCP и Hindsight попадают к каждому пресету",
+      "alternatives": [
+        "оставить deny-only и добавлять строки по мере утечек",
+        "фильтровать в каждом пресете отдельно"
+      ]
+    },
+    {
+      "id": "D3",
+      "decision": "REQ первичен, запись анализа — его обоснование и след решений",
+      "rationale": "Единица, которая живёт месяцами, — требование, а не задача; анализ остаётся местом для альтернатив и бизнес-результата",
+      "alternatives": [
+        "оставить запись анализа единицей и добавить в неё ссылки",
+        "завести второй реестр рядом"
+      ]
+    },
+    {
+      "id": "D4",
+      "decision": "Hindsight у воркеров убрать, у корня оставить",
+      "rationale": "Измерено: 8 инструментов / 6.5 КБ в каждом дочернем заголовке, 9 вызовов за все дочерние журналы; польза редкая, цена постоянная",
+      "alternatives": [
+        "оставить только чтение",
+        "оставить как есть"
+      ]
+    },
+    {
+      "id": "D5",
+      "decision": "Срез семейств делается политикой tool-families, а не конфигурацией MCP-моста",
+      "rationale": "Измерено: в схеме Config моста нет ключа фильтра; syncTools регистрирует всё из listTools, значит подмножество достижимо только через tools.restrict после регистрации",
+      "alternatives": [
+        "патчить мост",
+        "выдавать отдельный процесс моста на роль"
+      ]
+    },
+    {
+      "id": "D6",
+      "decision": "Требование о неизменности промпта: внутри хода — байт-в-байт, между ходами — только после вывода каталога и долга",
+      "rationale": "Измерено: харнесс пересобирает разделы на каждом ходе, единственный дифф 198 символов — Board debt; без вывода этих разделов сессионная неизменность недостижима без правки харнесса",
+      "alternatives": [
+        "требовать неизменности от харнесса и ждать его правки",
+        "считать инвариантом только внутри хода"
+      ]
+    },
+    {
+      "id": "D7",
+      "decision": "Базовая линия бюджета — медиана по 3–5 свежим сессиям пресета",
+      "rationale": "Первая выборка была по одной сессии; разброс между сессиями одного пресета неизвестен, медиана гасит одиночные выбросы",
+      "alternatives": [
+        "зафиксировать одну сессию как эталон",
+        "считать перцентиль"
+      ]
+    },
+    {
+      "id": "D8",
+      "decision": "Allow-list применяется к восьми пресетам кита; пресет без строки сохраняет полную поверхность",
+      "rationale": "Политика кита описывает свои роли; встроенные пресеты харнесса — не его роли, и молчаливое урезание сломало бы ручную работу",
+      "alternatives": [
+        "применить ко всем пресетам и завести строку standard",
+        "требовать явную строку для каждого пресета"
+      ]
+    },
+    {
+      "id": "D9",
+      "decision": "Установленный профиль и перезапуск :3080 обновляет владелец в самом конце; доказательства — на копии профиля на другом порту",
+      "rationale": "Живой :3080 — рабочая среда владельца; копия профиля с рабочими тарболами уже отработана в P0.3, P0.4 и probe 4",
+      "alternatives": [
+        "обновлять профиль после каждой задачи",
+        "работать прямо на :3080"
+      ]
+    },
+    {
+      "id": "D10",
+      "decision": "Программа закончена только когда всё проверено и запушено: make verify и proof-скрипты зелёные, коммит в origin/main, и удалённый HEAD совпадает с локальным",
+      "rationale": "Требование владельца. Push по HTTPS здесь нестабилен — одна попытка из двух падает на gnutls_handshake, SSH-ключа нет, gh не установлен: нужны повторы и сверка ls-remote, а не код возврата",
+      "alternatives": [
+        "пушить без сверки",
+        "считать успехом код возврата одной команды"
+      ]
+    },
+    {
+      "id": "D11",
+      "decision": "Граница политики: tool-families снимает только глобальные инструменты; бюджет полного заголовка = глобальные после фильтра + scoped из регистрации",
+      "rationale": "Подтверждено docstring tools.restrict: «Restrict global tools… scoped registrations remain visible», а неизвестное имя в фильтре роняет всю рестрикцию (dsh-tools/lib/index.js:453-467)",
+      "alternatives": [
+        "считать бюджеты по proof-таблице",
+        "патчить харнесс, чтобы restrict кроя scoped"
+      ]
+    },
+    {
+      "id": "D12",
+      "decision": "Бюджет полного заголовка упирается не в политику и не в блоки пресетов, а в гейт хост-плагинов: он решает по пресету СОЗДАНИЯ, который равен дефолту профиля (orchestrator), поэтому все восемь сессий получают полный scoped-набор. Исправление — один резолвер «пресет в силе», общий для всех гейтов, а не копия в каждом плагине",
+      "rationale": "Измерено V1.2: после урезания блоков пресетов восемь заголовков не изменились ни на один инструмент (reports/probes/v12/headers-before.json == headers-after.json). Grep: papers.mjs:441 и test-cases.mjs:843 читают header.agentPreset; у analysis и designmap в коде гейта по пресету нет — значит гейт в другом месте, владельца надо назвать точно. Попутно: второй сервер копировал УСТАНОВЛЕННЫЙ профиль (babysitter в нём есть, в рабочем дереве его нет), поэтому часть scoped-счёта — артефакт старой версии; следующее доказательство должно идти на рабочем профиле",
+      "alternatives": [
+        "искать дальше в блоках пресетов",
+        "принять текущие числа как есть"
+      ]
+    }
+  ],
+  "openQuestions": [
+    {
+      "id": "Q1",
+      "question": "Должна ли ревизия карты дизайна расти от правки views.yaml, или только от семантической модели?",
+      "owner": "human",
+      "blocks": false,
+      "answer": ""
+    }
+  ],
+  "sizing": {
+    "class": "L2",
+    "reasons": [
+      "новый хост-плагин и новый сервис",
+      "меняет контракт инструментов, промпта и таскборда",
+      "меняет модель данных состояния",
+      "затрагивает десять плагинов и профиль"
+    ]
+  },
+  "designRef": {
+    "mapRev": 30,
+    "at": "2026-11-16T09:24:44.830Z",
+    "source": "design.excalidraw"
+  },
+  "goalId": "goal-30a0180d-57a8-4709-b47f-3210411bb82a",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "BR1",
+      "processId": "V1-TGT",
+      "componentId": "project-state",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR1",
+      "processId": "V1-TGT",
+      "componentId": "tool-families",
+      "contractIds": [
+        "tool-allowlist"
+      ],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkpynfl-6m2cmm",
+          "role": "BACKEND",
+          "at": "2026-11-17T13:35:00.000Z",
+          "evidence": [
+            "proof 92/92 exit 0; на 0.1.10 15/92 exit 1",
+            "восемь живых сессий: чужие семейства сняты"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR2",
+      "processId": "V1-TGT",
+      "componentId": "context-budget",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwkqhvqu-2cwf7c",
+          "role": "BACKEND",
+          "at": "2026-11-17T13:34:32.721Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwkrnoos-kn609z",
+          "role": "BACKEND",
+          "at": "2026-11-17T14:28:00.000Z",
+          "evidence": [
+            "reports/probes/v13/headers.json: восемь заголовков на рабочем профиле",
+            "пять PTC-пресетов: 1 инструмент / 53 365 Б промпта против 24–25 КБ нативных",
+            "make verify exit 0, пять плагинов перепакованы"
+          ]
+        }
+      ],
+      "reason": "Счётчик инструментов слеп для пяти PTC-пресетов (1 run_code против 53 365 Б промпта); нужно решение владельца о байтовом бюджете — вопрос в задаче task-mwksgejf-855yel"
+    },
+    {
+      "requirementId": "FR3",
+      "processId": "V1-TGT",
+      "componentId": "profile",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR4",
+      "processId": "V1-TGT",
+      "componentId": "state-feed",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR5",
+      "processId": "V1-TGT",
+      "componentId": "tool-families",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR6",
+      "processId": "V1-TGT",
+      "componentId": "project-state",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR7",
+      "processId": "V1-TGT",
+      "componentId": "project-state",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR8",
+      "processId": "V1-TGT",
+      "componentId": "project-state",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR9",
+      "processId": "V1-TGT",
+      "componentId": "analysis",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR10",
+      "processId": "V1-TGT",
+      "componentId": "taskboard",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR11",
+      "processId": "V1-TGT",
+      "componentId": "test-cases",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR12",
+      "processId": "V1-TGT",
+      "componentId": "orchestrator",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR13",
+      "processId": "V1-TGT",
+      "componentId": "analysis",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR14",
+      "processId": "V1-TGT",
+      "componentId": "docs",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "NFR1",
+      "processId": "V1-TGT",
+      "componentId": "orchestrator",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "NFR2",
+      "processId": "V1-TGT",
+      "componentId": "tool-families",
+      "contractIds": [
+        "tool-allowlist"
+      ],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkpynfl-6m2cmm",
+          "role": "BACKEND",
+          "at": "2026-11-17T13:35:00.000Z",
+          "evidence": [
+            "восемь сессий на рабочем профиле: ровно один request/header у каждой"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "NFR3",
+      "processId": "V1-TGT",
+      "componentId": "state-feed",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "NFR4",
+      "processId": "V1-TGT",
+      "componentId": "docs",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "planned",
+      "tasks": []
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "0e0cbfcb3cc6a87ae1a35aff0b267f2dca6f70f5dcfb2b1c4ae2868ccf4e01e8",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-17T13:19:07.274Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-17T13:19:20.232Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-17T13:19:35.474Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwkpynfl-6m2cmm -> FR1, NFR2"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-17T13:21:27.388Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "impacts: 1"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-17T13:22:14.112Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "impacts: 1"
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-17T13:22:17.794Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-17T13:29:10.558Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "impacts: 1"
+    },
+    {
+      "revision": 8,
+      "at": "2026-11-17T13:29:20.240Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 9,
+      "at": "2026-11-17T13:29:20.442Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwkpynfl-6m2cmm -> FR1, NFR2"
+    },
+    {
+      "revision": 10,
+      "at": "2026-11-17T13:34:06.495Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "impacts: 1"
+    },
+    {
+      "revision": 11,
+      "at": "2026-11-17T13:34:18.130Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 12,
+      "at": "2026-11-17T13:34:32.721Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwkqhvqu-2cwf7c -> FR2"
+    },
+    {
+      "revision": 13,
+      "at": "2026-11-17T13:50:50.618Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "impacts: 1"
+    },
+    {
+      "revision": 14,
+      "at": "2026-11-17T13:51:01.198Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 15,
+      "at": "2026-11-17T14:07:03.119Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwkrnoos-kn609z -> FR2"
+    },
+    {
+      "revision": 16,
+      "at": "2026-11-17T14:12:16.965Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwkrnoos-kn609z -> FR2"
+    },
+    {
+      "revision": 17,
+      "at": "2026-11-17T14:30:06.159Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "requirements: BR1 changed, FR1 changed, FR2 changed, FR4 changed, FR5 changed, FR6 changed, FR8 changed, FR9 changed, FR11 changed, FR12 changed, FR13 changed, FR14 changed, NFR1 changed, NFR2 changed, NFR3 changed, NFR4 changed; impacts: 16"
+    }
+  ]
+}

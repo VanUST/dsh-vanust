@@ -286,38 +286,190 @@
       config:
         projectMarkers:
           'mcp__godot__*': project.godot
+        # ALLOW LIST (V1.1, 2026-11-17). Until this change the eight rows below named only
+        # what to remove, so every new host tool (MCP bridge, Hindsight, outline, babysitter)
+        # was handed to every role: measured headers 2026-11-17 were orchestrator 109 tools /
+        # 99 227 B of schema, backend 56 / 42 454 B, and all 8 Hindsight tools (6 430 B) sat
+        # in every child header although the child journals show 9 Hindsight calls in total.
+        # A row with `allow` now describes the whole role surface: a tool that matches no
+        # allow pattern is removed, whether it existed when the row was written or not.
+        # Budgets: orchestrator <=40, backend <=16, reviewer <=14, critic <=14, gatherer
+        # <=10, research <=14, docs <=14, ux <=40. A preset WITHOUT a row (standard, cordis,
+        # ptc and any unknown preset) keeps its full surface - D8.
+        # No row allows `mcp__godot__*` (it is ~30 tools / 60 KB and no eight-preset budget
+        # holds it); `projectMarkers`+`projectDeny` stay supported for a row that needs a
+        # family only on a project that can drive it.
         families:
+          # Root: the board, delegation, the analysis record, the design map, files and the
+          # read half of Hindsight (D4 keeps Hindsight at the root; the write tools are out).
           orchestrator:
-            # The orchestrator writes files and reads them; it does not get a shell and does
-            # not drive a browser. The persona and the family table both say so, and the tool
-            # list contradicted them: measured 2026-11-13 on a fresh root header
-            # (session-ed90220d, seq 1502) `bash` was one of 98 tools, and a 2026-11-10 root
-            # session on this preset carried the Playwright family. `pwsh` is denied for the
-            # same reason and does not exist on this machine - the row is what makes the
-            # surface the same on Windows, where it would be registered.
-            deny: ['mcp__godot__*', 'mcp__playwright__*', 'bash', 'pwsh']
-          ux:
-            projectDeny: ['mcp__godot__*']
+            allow:
+              - analysis_check
+              - analysis_impact
+              - analysis_read
+              - analysis_upsert
+              - ask_user_question
+              - delegate_task
+              - designmap_apply
+              - designmap_open
+              - designmap_render
+              - designmap_scan
+              - designmap_status
+              - edit
+              - glob
+              - grep
+              - hindsight_list_pages
+              - hindsight_read_page
+              - hindsight_search_pages
+              - hindsight_reflect
+              - outline
+              - present
+              - read
+              - skill
+              - skill_evolve
+              - skill_inventory
+              - task_cancel
+              - task_close
+              - task_create
+              - task_get
+              - task_link
+              - task_list
+              - task_note
+              - task_pause
+              - task_remove
+              - task_resume
+              - task_stop
+              - task_update
+              - todo_write
+              - web_fetch
+              - web_search
+              - write
+          # Implementation role: files, a shell, the two board tools a worker needs
+          # (task_get/task_note), the case runner and the three intake case tools.
           backend:
-            deny: ['mcp__playwright__*']
-            projectDeny: ['mcp__godot__*']
+            allow:
+              - bash
+              - case_get
+              - case_list
+              - case_record
+              - case_run
+              - case_suite
+              - edit
+              - glob
+              - grep
+              - job_output
+              - read
+              - read_image
+              - skill
+              - task_get
+              - task_note
+              - write
+          # Verification: read-only code access plus the case library; no write/edit (the
+          # role contract), no shell beyond bash for the proof runs.
           reviewer:
-            deny: ['mcp__playwright__*']
-            projectDeny: ['mcp__godot__*']
+            allow:
+              - bash
+              - case_gate
+              - case_get
+              - case_list
+              - case_run
+              - glob
+              - grep
+              - present
+              - read
+              - read_image
+              - skill
+              - task_get
+              - task_note
+              - todo_write
+          # Adversarial review: the same read-only surface plus background-job reading for
+          # long negative runs.
           critic:
-            deny: ['mcp__playwright__*']
-            projectDeny: ['mcp__godot__*']
-          research:
-            deny: ['mcp__playwright__*', 'mcp__godot__*']
+            allow:
+              - bash
+              - case_get
+              - case_list
+              - case_run
+              - glob
+              - grep
+              - job_output
+              - present
+              - read
+              - read_image
+              - skill
+              - task_get
+              - task_note
+              - todo_write
+          # Reconnaissance: the cheapest surface in the kit (<=10): read-only code search,
+          # a shell, the two board tools and skills.
           gatherer:
-            # Reconnaissance reads code with read/grep/glob/bash. It has no business driving a
-            # browser or a Godot editor, and those two families are the biggest blocks a child
-            # header carries; the gatherer's whole point is a cheap context that comes back as
-            # one report instead of filling the root's window.
-            deny: ['mcp__playwright__*']
-            projectDeny: ['mcp__godot__*']
+            allow:
+              - bash
+              - glob
+              - grep
+              - read
+              - read_image
+              - skill
+              - task_get
+              - task_note
+              - todo_write
+              - working_directory
+          # Research: web and paper search, files, no shell (it reads and writes reports).
+          research:
+            allow:
+              - glob
+              - grep
+              - papers_download
+              - papers_search
+              - papers_trending
+              - read
+              - read_image
+              - skill
+              - task_get
+              - task_note
+              - todo_write
+              - web_fetch
+              - web_search
+              - write
+          # Documentation: write/edit plus web verification of links and the case intake.
           docs:
-            deny: ['mcp__playwright__*', 'mcp__godot__*']
+            allow:
+              - case_get
+              - case_list
+              - case_record
+              - edit
+              - glob
+              - grep
+              - read
+              - skill
+              - task_get
+              - task_note
+              - todo_write
+              - web_fetch
+              - web_search
+              - write
+          # Interface work: the ONLY preset that keeps the Playwright family (24 tools /
+          # 16 305 B, probe 5) - the role exists to render a UI. No godot, no Hindsight.
+          ux:
+            allow:
+              - bash
+              - case_list
+              - case_record
+              - edit
+              - glob
+              - grep
+              - mcp__playwright__*
+              - present
+              - read
+              - read_image
+              - skill
+              - task_get
+              - task_note
+              - todo_write
+              - web_fetch
+              - web_search
+              - write
+
 
 # ── taskboard: the workspace task ledger ───────────────────────────────────
 # One `.dsh/taskboard.json` per workspace, with objective, scope, non-scope,

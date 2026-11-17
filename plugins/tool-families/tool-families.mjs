@@ -128,16 +128,19 @@ export function normalizeConfig(raw = {}) {
  * @param preset - `agent.session.header.agentPreset`, may be undefined (standard).
  * @param options.visible - every tool name the agent can currently see.
  * @param options.hostHas - predicate: does `cwd` contain the project marker?
- * @returns { deny, patterns, matched, keptProjectDeny, unmatched } — `deny` holds exact names
- *   only; `matched` names the patterns that really removed a tool, so a consumer can quote
- *   what the policy did instead of inferring it from the config.
+ * @returns { allow, deny, patterns, matched, removed, keptProjectDeny, unmatched } — `deny`
+ *   holds exact names only. With an `allow` list the deny set is the complement: a name is
+ *   removed when it matches no allow pattern (or is explicitly denied). `matched` names the
+ *   configured deny patterns that hit; `removed` names what the consumer may quote — the
+ *   matched patterns plus every removed family or exact name the allow list excluded.
  */
 export function decide(config, preset, { visible = [], hostHas = () => false } = {}) {
-  if (config.disabled) return { deny: [], patterns: [], matched: [], keptProjectDeny: [], unmatched: [] }
+  const empty = { allow: [], deny: [], patterns: [], matched: [], removed: [], keptProjectDeny: [], unmatched: [] }
+  if (config.disabled) return empty
   const entry = preset === undefined || preset === null ? undefined : config.families[preset]
-  if (entry === undefined) return { deny: [], patterns: [], matched: [], keptProjectDeny: [], unmatched: [] }
+  if (entry === undefined) return empty
 
-  const denied = []
+  const explicitlyDenied = new Set()
   const keptProjectDeny = []
   const matched = []
   const unmatched = []
@@ -145,7 +148,7 @@ export function decide(config, preset, { visible = [], hostHas = () => false } =
     const hits = visible.filter((name) => matches(name, pattern))
     if (hits.length === 0) unmatched.push(pattern)
     else matched.push(pattern)
-    for (const name of hits) if (!denied.includes(name)) denied.push(name)
+    for (const name of hits) explicitlyDenied.add(name)
   }
   for (const pattern of entry.deny ?? []) add(pattern)
   for (const pattern of entry.projectDeny ?? []) {
@@ -157,7 +160,70 @@ export function decide(config, preset, { visible = [], hostHas = () => false } =
     }
     add(pattern)
   }
-  return { deny: denied, patterns: [...(entry.deny ?? []), ...(entry.projectDeny ?? [])], matched, keptProjectDeny, unmatched }
+
+  const allow = Array.isArray(entry.allow) ? entry.allow : []
+  // The allow list is a complement filter: everything the list does not name is removed,
+  // unless the explicit deny/projectDeny already removed it (then it is still removed).
+  const outsideAllow = allow.length === 0 ? [] : visible.filter((name) => !allow.some((pattern) => matches(name, pattern)))
+  const deny = visible.filter((name) => explicitlyDenied.has(name) || outsideAllow.includes(name))
+  const removed = describeRemoved({ visible, deny, allow, matched })
+  return { allow, deny, patterns: [...(entry.deny ?? []), ...(entry.projectDeny ?? [])], matched, removed, keptProjectDeny, unmatched }
+}
+
+/** Prefix a family label ends with, so `mcp__godot__scene_open` and `hindsight_read_page` group. */
+function familyOf(name) {
+  if (name.startsWith('mcp__')) {
+    const parts = name.split('__')
+    return parts.length >= 3 ? `${parts[0]}__${parts[1]}__` : name
+  }
+  const match = /^([a-z0-9]+)_/.exec(name)
+  return match === null ? name : `${match[1]}_`
+}
+
+/**
+ * What a consumer may quote as removed.
+ *
+ * With an allow list the claim is about the COMPLEMENT, which is far larger than the deny
+ * patterns: a whole family that the list never mentions is quoted as `family*`; a family the
+ * list keeps only in part is quoted by exact name, because `task_*` would be false while
+ * `task_get` is still there.
+ */
+export function describeRemoved({ visible, deny, allow, matched }) {
+  if (allow.length === 0) return [...new Set(matched)]
+  const out = new Set(matched)
+  const groups = new Map()
+  for (const name of deny) {
+    if (matched.some((pattern) => matches(name, pattern))) continue
+    const prefix = familyOf(name)
+    if (!groups.has(prefix)) groups.set(prefix, [])
+    groups.get(prefix).push(name)
+  }
+  for (const [prefix, names] of groups) {
+    const visibleInFamily = visible.filter((name) => familyOf(name) === prefix)
+    if (visibleInFamily.length > 1 && names.length === visibleInFamily.length) out.add(`${prefix}*`)
+    else for (const name of names) out.add(name)
+  }
+  return [...out]
+}
+
+/**
+ * The names `tools.restrict()` can mask for this agent.
+ *
+ * `restrict()` masks GLOBAL registrations only; a preset-scoped tool (`bash`, `analysis_*`,
+ * `delegate_task`) stays visible and naming it in a filter throws. The registry does not expose
+ * its restrictable set, but the error does, so one deliberate probe per agent reads it. The
+ * probe names a tool that cannot exist, so it installs nothing.
+ */
+function restrictableNames(agent) {
+  try {
+    agent.ctx.tools.restrict({ deny: ['__tool_families_probe__'] })
+  } catch (error) {
+    const line = /known global tools: (.*)$/.exec(String(error?.message ?? ''))?.[1]
+    if (line === undefined) return undefined
+    const names = line.split(', ').map((name) => name.trim()).filter((name) => name !== '')
+    return new Set(names)
+  }
+  return undefined
 }
 
 /** Schema bytes of the denied tools — the number that makes the saving reviewable. */
@@ -310,18 +376,28 @@ export function apply(ctx, config = {}) {
         }
         return true
       }
-      const bytes = removedBytes(schemas, decision.deny)
+      // A scoped tool (mounted by the preset) cannot be masked by `restrict()` and must not be
+      // named: only the global names are the policy's business. The kept header therefore
+      // includes the preset's own tools, which the budget counts.
+      const restrictable = restrictableNames(agent)
       const entry = resolved.families[preset] ?? {}
+      const globalDeny = restrictable === undefined ? decision.deny : decision.deny.filter((name) => restrictable.has(name))
+      const scopedKept = decision.deny.length - globalDeny.length
+      const narrowed = restrictable === undefined ? decision : decide(resolved, preset, { visible: [...restrictable], hostHas: has })
+      const removed = narrowed.removed
+      const bytes = removedBytes(schemas, globalDeny)
       if (current !== undefined) lift(`preset changed to "${preset}"`)
-      const dispose = tools.restrict({ deny: decision.deny, ...(entry.allow?.length ? { allow: entry.allow } : {}) })
+      const dispose = globalDeny.length === 0 ? undefined : tools.restrict({ deny: globalDeny })
       applied.set(agent, {
         preset,
         dispose: typeof dispose === 'function' ? dispose : undefined,
         matched: decision.matched,
+        removed,
         keptProjectDeny: decision.keptProjectDeny,
       })
       ctx.logger?.info?.(
-        `tool-families: preset "${preset}" denied ${decision.deny.length} tool(s) (${bytes} B of schema) via ${decision.patterns.join(', ')}`
+        `tool-families: preset "${preset}" denied ${globalDeny.length} global tool(s) (${bytes} B of schema) via ${decision.patterns.join(', ')}`
+          + `${scopedKept > 0 ? `; ${scopedKept} preset-scoped tool(s) stay` : ''}`
           + `${current !== undefined ? ` [recomputed from "${current.preset}"]` : ''}`
           + `${decision.keptProjectDeny.length > 0 ? `; kept ${decision.keptProjectDeny.join(', ')}` : ''}`
           + `${decision.unmatched.length > 0 ? `; unmatched ${decision.unmatched.join(', ')}` : ''}`,
@@ -391,7 +467,7 @@ export function apply(ctx, config = {}) {
     factsFor(agent) {
       const record = applied.get(agent)
       if (record === undefined) return null
-      return { preset: record.preset, removed: [...record.matched], kept: [...record.keptProjectDeny] }
+      return { preset: record.preset, removed: [...record.removed], kept: [...record.keptProjectDeny] }
     },
   }
   try {

@@ -2,9 +2,9 @@
 
 One host row that removes tool FAMILIES from an agent's view before its first request is
 derived. It is the lever for the largest single item in this deployment's per-step context:
-measured on a real BACKEND child (2026-11-13), the 107 offered tools carried 114,989 bytes of
-JSON schema, of which `mcp__godot__*` was 60,679 B (52.8%) and `mcp__playwright__*` 16,280 B
-(14.2%). Every kit tool together was about 20%.
+measured 2026-11-17, the 109 tools offered to a root agent carried 99,227 bytes of JSON schema,
+and all 8 `hindsight_*` tools (6,430 B) sat in every child header although the child journals
+record 9 Hindsight calls in total.
 
 ## Why a host row and not a preset row
 
@@ -15,7 +15,14 @@ re-derives the visible schema set — so one host row serves every preset and th
 config. A preset row would have to re-register its own MCP client per agent, i.e. one bridge
 process per chat.
 
-## Config
+## Allow list, not a deny list
+
+Since 0.1.11 a row declares what the role KEEPS. This is the inversion the 2026-11-17 design
+asked for (D2 in `docs/analysis/project-state-ecosystem.json`): a deny list can only name tools
+that exist when it is written, so every new host plugin (MCP bridge, Hindsight, outline,
+babysitter) silently joined every role. The measured consequence: root 109 tools / 99,227 B,
+backend 56 / 42,454 B, and 9 real Hindsight calls across all child journals for 6,430 B in each
+of them.
 
 ```yaml
 - id: tool-families
@@ -24,45 +31,53 @@ process per chat.
     projectMarkers:
       'mcp__godot__*': project.godot      # kept only where this file exists in the session cwd
     families:
-      orchestrator: { deny: ['mcp__godot__*', 'mcp__playwright__*', 'bash', 'pwsh'] }
-      ux:           { deny: ['mcp__godot__*'] }
-      backend:      { deny: ['mcp__playwright__*', 'mcp__godot__*'] }
-      reviewer:     { deny: ['mcp__playwright__*', 'mcp__godot__*'] }
-      critic:       { deny: ['mcp__playwright__*', 'mcp__godot__*'] }
-      research:     { deny: ['mcp__playwright__*', 'mcp__godot__*'] }
-      docs:         { deny: ['mcp__playwright__*', 'mcp__godot__*'] }
+      orchestrator: { allow: ['task_get', 'task_note', 'delegate_task', 'read', 'write', 'hindsight_read_page', …] }
+      backend:      { allow: ['bash', 'read', 'write', 'edit', 'glob', 'grep', 'task_get', 'task_note', 'case_run', …] }
+      ux:           { allow: ['mcp__playwright__*', 'read', 'write', 'bash', …] }
 ```
 
-- `families.<preset>.deny` — exact tool names or `prefix*` family patterns. A preset that is
-  absent keeps its full surface, and so does a session with no preset (`standard`): a new role
-  must not lose tools because nobody wrote a row for it yet.
-- `projectMarkers` — a family that is a PROJECT bridge, not a role capability. `mcp__godot__*`
-  drives a Godot editor, so it is kept for a session whose cwd holds `project.godot` and denied
-  everywhere else whatever the preset. Without this, "the backend role may use Godot" would put
-  an editor bridge in every repository that role ever opens.
+- `families.<preset>.allow` — exact tool names or `prefix*` family patterns. A name that matches
+  no allow pattern is REMOVED, whether it existed when the row was written or not. The deny set
+  that reaches `tools.restrict` is the complement of the allow list over the names the agent can
+  see.
+- `families.<preset>.deny` and `families.<preset>.projectDeny` still work and still subtract from
+  the allow list: an explicitly denied name is removed even if an allow pattern matches it.
+- A preset that is absent (standard, cordis, ptc and any unknown preset) keeps its full surface:
+  a new role must not lose tools because nobody wrote a row for it yet (D8).
+- `projectMarkers` — a family that is a PROJECT bridge, not a role capability. Kept only where
+  `project.godot` exists in the session cwd; no eight-preset row allows `mcp__godot__*` (about 30
+  tools / 60 KB), but the mechanism stays for a row that needs it.
 - `disabled: true` — load the row and restrict nothing (one-line rollback).
 
-**Hindsight is never in a policy row.** The `hindsight_*` tools are a memory capability a child
-needs to read its own bank; the automatic recall and write-back stay root-only in the plugin
-itself, which is a different switch.
+**Budgets** (kept tools per header, measured after the change): orchestrator ≤40, backend ≤16,
+reviewer ≤14, critic ≤14, gatherer ≤10, research ≤14, docs ≤14, ux ≤40. Hindsight is root-only
+and read-only (D4): `hindsight_list_pages`, `hindsight_read_page`, `hindsight_search_pages`,
+`hindsight_reflect`; workers get none of the 8.
 
 ## Behaviour
 
 The preset is read from the `agentPresets` projection (`presetForSession(agent.session)`), which
 is the authority for a selection made AFTER the session exists; the session header's
 `agentPreset` is only the value the session was created with and is the fallback. On
-`agent/created` and on EVERY `agent/pre-step` the row expands the preset's patterns against the
-tool names the agent can actually see and calls `tools.restrict({ deny })` when the preset in
-force differs from the one installed. It logs the preset, the number of denied tools, the schema
-bytes that leave the prefix, which project-gated families were kept, any pattern that matched
-nothing, and `[recomputed from "<previous preset>"]` on a change.
+`agent/created` and on EVERY `agent/pre-step` the row expands the preset's allow list against the
+tool names the agent can actually see and calls `tools.restrict({ deny })` with the complement
+when the preset in force differs from the one installed. It logs the preset, the number of denied
+tools, the schema bytes that leave the prefix, which project-gated families were kept, any
+pattern that matched nothing, and `[recomputed from "<previous preset>"]` on a change.
 
 A preset change REPLACES the restriction: the disposer returned by the previous `restrict` is
 lifted first, because `dsh-tools` intersects restrictions and stacking two calls would keep the
 first preset's denies. A restriction is recorded as applied only when a deny list was really
-installed; an unmatched pattern or an empty deny list is retried on the next step (the MCP bridge
-may register later). It never throws into the turn: a bridge that is down or a renamed tool is
-logged and skipped.
+installed; an empty complement (a preset whose whole visible surface is allowed) and an unmatched
+deny pattern are retried on the next step (the MCP bridge may register later). It never throws
+into the turn: a bridge that is down or a renamed tool is logged and skipped.
+
+**Late host tools.** `tools.restrict` filters by exact name, so a tool registered AFTER the
+restriction was installed (a plugin hot-added into a running process) is not covered by the
+complement computed earlier. Measured 2026-11-17 (`reports/probes/04-prompt-mutation.md`): the
+tool set is stable inside a process — one `request/header` — and a composition change arrives
+with the next process, where `agent/created` recomputes. A same-process registration would need
+a `tools/change` hook; that is a separate task, not part of the allow-list change.
 
 **Why the header was not enough** (measured on a second server 2026-11-17): a session created
 under `orchestrator` and then switched to `backend` kept the orchestrator restriction and was
@@ -77,9 +92,12 @@ prompt that describes a role's tool set does not hard-code the claim:
 - `presetFor(session)` — the preset in force, resolved exactly as the restriction is (the
   registry projection, then a selection remembered from a blank session, then the header);
 - `factsFor(agent)` — `{ preset, removed, kept }` once a restriction is installed, `null`
-  before that. `removed` holds only the patterns that really took tools out of that agent's
-  view, so a pattern that matched nothing (a Windows-only `pwsh` on Linux, a bridge that is
-  down) is never quoted; `kept` names the project-gated families kept for the cwd.
+  before that. `removed` names what really took tools out of that agent's view: the matched
+  `deny`/`projectDeny` patterns, plus — for an allow list — a family quoted as `prefix*` when the
+  whole family is excluded, and exact names when the list keeps the family only in part
+  (`task_get` stays, so `task_*` would be false). A pattern that matched nothing (a Windows-only
+  `pwsh` on Linux, a bridge that is down) is never quoted; `kept` names the project-gated
+  families kept for the cwd.
 
 The orchestrator's root policy reads `removed` and checks it against the set the agent can see
 when the prompt is assembled, then freezes the sentence for the session (`INV-GENERATED`,
@@ -89,6 +107,10 @@ gets `undefined` from `ctx.get('toolFamilies')` and must assert nothing instead 
 ## Verification
 
 `node scripts/tool-families-proof.mjs` runs the decision table over a synthetic tool list for
-every preset (`standard`, the eight presets, an unknown preset) and prints the deny list, the kept
-project-gated families and the bytes that would leave the header. A second server proves the
-same effect in a real `request/header` — see `rules/DEPLOYMENT.md`.
+every preset (`standard`, the eight presets, an unknown preset) in both workspace kinds and
+prints the kept count, the budget, the deny count and the bytes that would leave the header. It
+also covers `deny`/`projectDeny` on top of an allow list, the service facts, and the lifecycle
+(preset selected after creation, blank-session selection). Against the previous bytes (0.1.10,
+`--plugin /tmp/tf-old/tool-families.mjs`) it is RED: the old code ignores `allow`, every preset
+keeps all tools, 15/92 checks pass. A second server proves the same effect in a real
+`request/header` for all eight presets — see `rules/DEPLOYMENT.md`.
