@@ -24,7 +24,7 @@ import { parse, serialize } from './format.mjs'
 import { buildModel, renderViews, VIEW_DIR } from './views.mjs'
 
 const KINDS = {
-  req: { prefix: 'REQ', status: ['open', 'accepted', 'done', 'dropped'] },
+  req: { prefix: 'REQ', status: ['proposed', 'open', 'accepted', 'done', 'rejected', 'dropped'] },
   decision: { prefix: 'DEC', status: ['proposed', 'accepted', 'superseded'] },
   task: { prefix: 'TASK', status: ['open', 'active', 'review', 'done', 'blocked', 'cancelled'] },
   test: { prefix: 'TEST', status: ['unverified', 'verified', 'failing', 'stale'] },
@@ -185,6 +185,12 @@ export function createStateService(options = {}) {
     if (kind === 'req') {
       frontmatter.criteria = Array.isArray(input.criteria) ? input.criteria.map(String) : []
       frontmatter.source = input.source ?? 'agent'
+      // The analysis mirror: the originating record is the REQ's justification, and the criteria
+      // hash is frozen when the REQ was accepted from a proven requirement.
+      if (input.analysisRef !== undefined && input.analysisRef !== null && typeof input.analysisRef === 'object') {
+        frontmatter.analysisRef = { initiative: String(input.analysisRef.initiative ?? ''), requirementId: String(input.analysisRef.requirementId ?? '') }
+      }
+      if (typeof input.criteriaHash === 'string' && input.criteriaHash !== '') frontmatter.criteriaHash = input.criteriaHash
     }
     if (kind === 'task') {
       if (input.reqId !== undefined) frontmatter.reqId = String(input.reqId)
@@ -291,7 +297,7 @@ export function createStateService(options = {}) {
         const { entities, invalid } = await scanEntities()
         const rows = entities
           .filter((entity) => clean === undefined || entity.fileKind === clean)
-          .map((entity) => ({ id: entity.frontmatter.id, kind: entity.fileKind, title: entity.frontmatter.title, status: entity.frontmatter.status, revision: entity.frontmatter.revision, path: entity.rel }))
+          .map((entity) => ({ id: entity.frontmatter.id, kind: entity.fileKind, title: entity.frontmatter.title, status: entity.frontmatter.status, revision: entity.frontmatter.revision, path: entity.rel, ...(entity.frontmatter.analysisRef === undefined ? {} : { analysisRef: entity.frontmatter.analysisRef }), ...(entity.frontmatter.criteriaHash === undefined ? {} : { criteriaHash: entity.frontmatter.criteriaHash }) }))
           .sort((a, b) => String(a.id).localeCompare(String(b.id)))
         return { ok: true, rows, invalid: invalid.map((entry) => ({ path: entry.rel, error: entry.error })) }
       } catch (error) {
@@ -317,8 +323,11 @@ export function createStateService(options = {}) {
             return fail('revision_conflict', `expected revision ${expected}, file has ${current.revision}`)
           }
           const next = { ...current, revision: expected + 1, updatedAt: now() }
-          for (const field of ['title', 'status', 'ownerRole', 'reqId', 'command', 'choreReason']) {
+          for (const field of ['title', 'status', 'ownerRole', 'reqId', 'command', 'choreReason', 'criteriaHash']) {
             if (patch[field] !== undefined) next[field] = patch[field]
+          }
+          if (patch.analysisRef !== undefined && patch.analysisRef !== null && typeof patch.analysisRef === 'object') {
+            next.analysisRef = { initiative: String(patch.analysisRef.initiative ?? ''), requirementId: String(patch.analysisRef.requirementId ?? '') }
           }
           if (Array.isArray(patch.criteria)) next.criteria = patch.criteria.map(String)
           if (kind === 'task' && patch.chore === true) next.chore = true

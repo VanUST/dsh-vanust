@@ -129,6 +129,7 @@ export function parse(text) {
   if (close < 0) return { ok: false, error: 'missing closing ---', line: lines.length }
   const frontmatter = {}
   let currentList = null
+  let currentMap = null
   for (let index = 1; index < close; index += 1) {
     const line = lines[index]
     if (line.trim() === '' || line.trim().startsWith('#')) continue
@@ -140,7 +141,22 @@ export function parse(text) {
           frontmatter.links = currentList = []
           continue
         }
+        // A nested one-level map (`analysisRef:` then `  initiative: x`) or a block list
+        // (`criteria:` then `  - c`); decide by the next non-empty line.
+        let nextLine = ''
+        for (let probe = index + 1; probe < close; probe += 1) {
+          if (lines[probe].trim() === '') continue
+          nextLine = lines[probe]
+          break
+        }
+        if (/^\s{2}[A-Za-z][\w-]*:\s/.test(nextLine)) {
+          frontmatter[key] = {}
+          currentList = null
+          currentMap = frontmatter[key]
+          continue
+        }
         currentList = []
+        currentMap = null
         frontmatter[key] = currentList
         continue
       }
@@ -158,6 +174,13 @@ export function parse(text) {
       if (parsed.ok === false) return { ok: false, error: parsed.error, line: index + 1 }
       frontmatter[key] = parsed.value
       currentList = null
+      continue
+    }
+    const mapField = /^\s{2}([A-Za-z][\w-]*):\s*(.*)$/.exec(line)
+    if (mapField !== null && currentMap !== null) {
+      const parsed = parseScalar(mapField[2])
+      if (parsed.ok === false) return { ok: false, error: parsed.error, line: index + 1 }
+      currentMap[mapField[1]] = parsed.value
       continue
     }
     const listItem = /^\s{2}-\s*(.*)$/.exec(line)

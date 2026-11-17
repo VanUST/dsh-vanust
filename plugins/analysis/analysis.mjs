@@ -38,6 +38,7 @@
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { createService } from './store.mjs'
+import { mirror, precheck } from './mirror.mjs'
 
 /** Cordis function-plugin name; also the id a profile patch targets. */
 export const name = 'analysis'
@@ -103,6 +104,15 @@ export function apply(ctx, config = {}) {
   }, ctx.logger)
   const provided = ctx.provide('analysis', service)
   ctx.effect(() => provided)
+  // The project state core is OPTIONAL: a composition without project-state keeps the old
+  // analysis behaviour (no mirroring, no duplicate gate).
+  const coreOf = () => {
+    try {
+      return ctx.get?.('ccProjectState')
+    } catch {
+      return undefined
+    }
+  }
 
   const out = () => ({
     schema: { type: 'json' },
@@ -137,12 +147,25 @@ export function apply(ctx, config = {}) {
       patch: { type: 'object', additionalProperties: true, description: 'Fields to create or replace. Arrays replace; businessOutcome/process/architecture/sizing/designRef merge one level.' },
       resolveImpacts: { type: 'json', description: "Optional: 'all' or an array of pending impact ids to resolve after updating the record." },
       acceptHandEdit: { type: 'boolean', description: 'Acknowledge a semantic fingerprint mismatch caused by editing the file outside analysis_upsert. Without this every write to a hand-edited record is refused.' },
+      allowDuplicate: { type: 'boolean', description: 'With project-state mounted, every requirement is mirrored into a REQ. A new requirement that looks like an existing REQ is refused with req_duplicate_candidates until this is true AND duplicateReview carries the reason for accepting the duplicate.' },
+      duplicateReview: { type: 'string', description: 'The reason the duplicate candidates were reviewed and the new requirement is still distinct (required with allowDuplicate:true).' },
       by: { type: 'string', enum: ['agent', 'human'], description: 'Author recorded on the revision. Default agent.' },
     },
     output: out(),
-    execute(args, exec) {
+    async execute(args, exec) {
       try {
-        return service.upsert(workingDir(exec.agent), {
+        const cwd = workingDir(exec.agent)
+        const core = coreOf()
+        const patchRequirements = Array.isArray(args.patch?.requirements) ? args.patch.requirements : []
+        const gate = await precheck(core, {
+          cwd,
+          initiative: args.initiative,
+          requirements: patchRequirements,
+          allowDuplicate: args.allowDuplicate === true,
+          duplicateReview: args.duplicateReview,
+        })
+        if (gate.ok === false) return gate
+        const result = service.upsert(cwd, {
           initiative: args.initiative,
           expectedRev: args.expectedRev,
           patch: args.patch,
@@ -150,6 +173,12 @@ export function apply(ctx, config = {}) {
           acceptHandEdit: args.acceptHandEdit === true,
           by: args.by,
         })
+        if (result?.ok === false || core === undefined || core === null) return result
+        // Mirror AFTER the record is safely on disk: the record is the justification, the REQ
+        // register is derived from it; a mirror failure is reported, never rolled back into a
+        // lost analysis write.
+        const mirrored = await mirror(core, { cwd, initiative: args.initiative, record: result.record })
+        return { ...result, reqMirror: mirrored }
       } catch (error) {
         return refused(error)
       }

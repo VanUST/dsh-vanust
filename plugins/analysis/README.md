@@ -71,6 +71,25 @@ written through the service only.
 
 A delegated child gets none of these tools: keeping the system design is the root's job.
 
+## The REQ register (with project-state)
+
+When `@cc/dsh-project-state` is mounted (`ctx.get('ccProjectState')`), `analysis_upsert` mirrors
+every requirement of the record into `state/req/` — one REQ per BR/FR/NFR:
+
+- the REQ carries `analysisRef: {initiative, requirementId}`, `criteria` from `acceptance`, and a
+  frozen `criteriaHash` (sha256 of the criteria list);
+- status maps `planned → proposed`, `proven → done`, `deferred/rejected → rejected`;
+- a repeat upsert finds the REQ by `analysisRef` and UPDATES it — never a second file;
+- a requirement with empty `acceptance` is refused with `req_criteria_required` BEFORE the
+  record is written (a REQ without criteria cannot be verified);
+- a NEW requirement is compared with the existing REQs (text and criteria tokens); when similar
+  ones exist the call is refused with `req_duplicate_candidates` and up to three candidates.
+  Repeat with `allowDuplicate: true` plus a `duplicateReview` reason, or reword the requirement;
+- after the write the core regenerates `state/views/`, so `digest.md` (the L1 block) and
+  `index.json` carry the REQ.
+
+The core is optional: without it the upsert behaves exactly as before and no REQ is written.
+
 ## The gate
 
 `delegate_task` reads the analysis service through `ctx.get('analysis')` — it is deliberately

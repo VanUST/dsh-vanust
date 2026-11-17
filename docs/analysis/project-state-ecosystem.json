@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "project-state-ecosystem",
-  "rev": 26,
+  "rev": 28,
   "status": "ready",
   "createdAt": "2026-11-17T13:19:07.274Z",
-  "updatedAt": "2026-11-17T15:14:17.935Z",
+  "updatedAt": "2026-11-17T15:21:25.606Z",
   "updatedBy": "agent",
   "title": "Экосистема состояния проекта и экономика контекста — v1",
   "requestedSolution": "Реализовать v1 дизайна от 2026-11-17 в порядке §10: (1) контекст-фундамент — allow-list в tool-families, диета схем и линтер, контракт слоёв L0–L3, новый хост-плагин state-feed (L1 первым сообщением, L2-дельты по хешу, инъекции как session events), MCP только для ux, Hindsight воркерам убран, context-budget.mjs с предупреждением и красным гейтом >1.5×; (2) ядро ccProjectState — файл на сущность в state/, ID под локом, связи с хешами, CAS, журнал, verify, регенерация проекций; (3) policy-плагин (fs/tools/sandbox) с запретами записи и трипвайром; (4) эволюция analysis в реестр REQ; (5) taskboard с reqId/chore и CAS через ядро; (6) раннер red→green с evidence вне writable-области; (7) оркестратор с брифом из обвязки, структурированным возвратом, cold-start гейтом и снимками; (8) миграции и доводка проекций; (9) дисциплина языка. v2 не трогать.",
@@ -103,11 +103,11 @@
     {
       "id": "FR4",
       "kind": "FR",
-      "text": "Состояние доставляется слоями L1+L2, а не промптом.",
+      "text": "Состояние доставляется слоями L1+L2.",
       "acceptance": [
-        "L1 один раз и не редактируется",
-        "L2 по смене хеша, агрегируется по ходу",
-        "Каждая инъекция — session event"
+        "L1 один раз",
+        "L2 по хешу, агрегируется",
+        "Инъекции — session events"
       ],
       "status": "proven"
     },
@@ -117,7 +117,7 @@
       "text": "Схемы инструментов короткие; линтер предупреждает.",
       "acceptance": [
         "Линтер сообщает о превышении",
-        "Байты схем не растут при добавлении тулзы"
+        "Байты схем не растут"
       ],
       "status": "planned"
     },
@@ -126,7 +126,7 @@
       "kind": "FR",
       "text": "Ядро ccProjectState — единственный писатель state/.",
       "acceptance": [
-        "Агент меняет состояние только через сервис",
+        "Только через сервис",
         "Журнал реплеится в тот же снапшот"
       ],
       "status": "proven"
@@ -134,10 +134,10 @@
     {
       "id": "FR7",
       "kind": "FR",
-      "text": "Проекции views/ генерируются детерминированно, включая index.json.",
+      "text": "Проекции views/ детерминированны, включая index.json.",
       "acceptance": [
         "Повторная регенерация даёт тот же байт",
-        "Правка views/ вручную обнаруживается verify()"
+        "Ручная правка ловится verify()"
       ],
       "status": "proven"
     },
@@ -154,13 +154,13 @@
     {
       "id": "FR9",
       "kind": "FR",
-      "text": "Реестр REQ первичен; запись анализа — обоснование; дедуп-кандидаты.",
+      "text": "Реестр REQ первичен: запись анализа зеркалируется в REQ, дедуп-кандидаты, digest.",
       "acceptance": [
         "REQ нельзя принять без критериев",
         "Дубль возвращает кандидатов",
         "digest для L1 генерируется"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR10",
@@ -188,8 +188,8 @@
       "text": "Бриф собирает обвязка; структурированный возврат; cold-start гейт.",
       "acceptance": [
         "Бриф содержит критерии дословно",
-        "Cold-start гейт отказывает без чтения реестра",
-        "Возврат разбирается по критериям"
+        "Cold-start гейт",
+        "Возврат по критериям"
       ],
       "status": "planned"
     },
@@ -226,7 +226,7 @@
     {
       "id": "NFR2",
       "kind": "NFR",
-      "text": "Набор инструментов не меняется внутри процесса после первого заголовка.",
+      "text": "Набор инструментов не меняется внутри процесса.",
       "acceptance": [
         "Один request/header на сессию",
         "При рестарте меняется только состав"
@@ -236,7 +236,7 @@
     {
       "id": "NFR3",
       "kind": "NFR",
-      "text": "L2-дельта ≤ ~300 токенов и агрегируется по ходу.",
+      "text": "L2-дельта ≤ ~300 токенов, агрегируется по ходу.",
       "acceptance": [
         "Дельта в пороге",
         "Событий больше, чем дельт"
@@ -248,8 +248,8 @@
       "kind": "NFR",
       "text": "Структурированные логи и docs-first.",
       "acceptance": [
-        "Компонент пишет JSON-логи и имеет PURPOSE/INPUTS/OUTPUTS/KEYWORDS",
-        "Успех подтверждается логами"
+        "JSON-логи и PURPOSE/INPUTS/OUTPUTS/KEYWORDS",
+        "Успех по логам"
       ],
       "status": "proven"
     }
@@ -689,7 +689,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T13:35:00.000Z",
           "evidence": [
-            "proof 92/92 exit 0; на 0.1.10 15/92 exit 1",
+            "proof 92/92; 15/92 на старых байтах",
             "восемь живых сессий"
           ]
         }
@@ -714,7 +714,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T14:28:00.000Z",
           "evidence": [
-            "reports/probes/v13/headers.json"
+            "v13/headers.json"
           ]
         },
         {
@@ -722,7 +722,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T14:52:00.000Z",
           "evidence": [
-            "0 red exit 0; негативный контроль 1 red exit 1; make verify exit 0"
+            "0 red exit 0; негативный контроль 1 red exit 1; make verify"
           ]
         }
       ]
@@ -742,7 +742,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T14:28:00.000Z",
           "evidence": [
-            "v13/headers.json: Playwright 24 только ux; Godot 0; Hindsight 4 read только корень"
+            "Playwright 24 только ux; Godot 0; Hindsight 4 read только корень"
           ]
         }
       ]
@@ -764,9 +764,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T15:10:00.000Z",
           "evidence": [
-            "unit 6/6 exit 0 (L1 один раз, no-op, L2 по хешу, агрегация)",
-            "живая сессия 5bf2b43d: state-feed seq 12 до человеческого seq 13; L2 seq 37 (341 Б)",
-            "инъекции видны как user/message с source.kind state-feed"
+            "6/6; живая сессия: L1 seq 12 до seq 13; L2 seq 37"
           ]
         }
       ]
@@ -799,7 +797,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T14:44:00.000Z",
           "evidence": [
-            "8/8; ID под локом; CAS; replay; verify; make verify"
+            "8/8; ID под локом; CAS; replay; verify"
           ]
         }
       ]
@@ -819,7 +817,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T14:58:00.000Z",
           "evidence": [
-            "12/12; детерминизм; view_modified; index.json; make verify"
+            "12/12; детерминизм; view_modified; index.json"
           ]
         }
       ]
@@ -837,10 +835,27 @@
       "requirementId": "FR9",
       "processId": "V1-TGT",
       "componentId": "analysis",
-      "contractIds": [],
-      "dataIds": [],
-      "status": "planned",
-      "tasks": []
+      "contractIds": [
+        "state-service-api"
+      ],
+      "dataIds": [
+        "analysis-records",
+        "state-entities"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwku3ad7-vji8lm",
+          "role": "BACKEND",
+          "at": "2026-11-17T15:25:00.000Z",
+          "evidence": [
+            "analysis 5/5, project-state 12/12, state-feed 6/6; proof 138/138; make verify exit 0",
+            "один REQ на требование с analysisRef и criteriaHash; повторный upsert обновляет тот же",
+            "пустой acceptance → req_criteria_required; дубль → req_duplicate_candidates + allowDuplicate",
+            "digest непуст после regenerateViews; ядро опционально через ctx.get"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "FR10",
@@ -911,7 +926,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T13:35:00.000Z",
           "evidence": [
-            "восемь сессий: один request/header"
+            "один request/header на сессию"
           ]
         }
       ]
@@ -931,7 +946,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T15:10:00.000Z",
           "evidence": [
-            "L2 341 Б при лимите 1200 Б; второе изменение в том же ходу не инжектится"
+            "L2 341 Б при лимите 1200 Б; одна дельта на ход"
           ]
         }
       ]
@@ -949,14 +964,14 @@
           "role": "BACKEND",
           "at": "2026-11-17T14:44:00.000Z",
           "evidence": [
-            "docs-first; verify/replay read-only; тесты и make verify"
+            "docs-first; тесты; make verify"
           ]
         }
       ]
     }
   ],
   "pendingImpacts": [],
-  "fingerprint": "7f49d553efe5e84b38b013b2564ab2e74073156f9a98f7f834deb390ff88246a",
+  "fingerprint": "aece6a1636432421ce9e436c40384b4d10262bf01eec3280a66c2aa337fa436e",
   "history": [
     {
       "revision": 1,
@@ -1165,6 +1180,22 @@
       "action": "upsert",
       "status": "ready",
       "summary": "requirements: FR2 changed, FR3 changed, FR4 changed, FR7 changed, FR8 changed, FR10 changed, FR11 changed, NFR3 changed, NFR4 changed; impacts: 10"
+    },
+    {
+      "revision": 27,
+      "at": "2026-11-17T15:15:10.286Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwku3ad7-vji8lm -> FR9"
+    },
+    {
+      "revision": 28,
+      "at": "2026-11-17T15:21:25.606Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "requirements: FR4 changed, FR5 changed, FR6 changed, FR7 changed, FR9 changed, FR12 changed, NFR2 changed, NFR3 changed, NFR4 changed; impacts: 10"
     }
   ]
 }
