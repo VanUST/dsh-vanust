@@ -113,3 +113,27 @@ test('without the core the old taskboard behaviour is unchanged', async () => {
   const tasks = await readdir(join(cwd, 'state', 'task')).catch(() => [])
   assert.deepEqual(tasks, [])
 })
+
+test('one task covers a batch of requirements and steps, and a micro-edit stays in it', async () => {
+  // PROOF: a TASK is the unit of acceptance, not a micro-step. Behavior: task_create accepts a
+  // non-empty reqIds plus steps, stores the batch, and task_update moves the progress without
+  // creating a second task or asking for another reqId; the board projection shows done/total.
+  // Fails when: the gate still insists on a single reqId, a step update needs a new task, or the
+  // board has no progress column.
+  const { cwd, service, flush } = await board()
+  const created = service.create(cwd, { title: 'Batch two requirements', role: 'BACKEND', reqIds: ['REQ-007', 'REQ-008'], steps: ['edit', 'test', 'scan', 'report'], chatId: 'chat-1' })
+  await flush()
+  assert.equal(created.ok, undefined, JSON.stringify(created))
+  assert.deepEqual(created.reqIds, ['REQ-007', 'REQ-008'])
+  assert.equal(created.steps.length, 4)
+  const moved = service.update(cwd, { id: created.id, expectedRevision: 1, patch: { stepsDone: 4 }, chatId: 'chat-1' })
+  await flush()
+  assert.equal(moved.ok, true, JSON.stringify(moved))
+  const tasks = (await readdir(join(cwd, 'state', 'task')))
+  assert.deepEqual(tasks, ['TASK-001.md'], 'no second task for a step update')
+  const body = await readFile(join(cwd, 'state', 'task', 'TASK-001.md'), 'utf8')
+  assert.match(body, /reqIds:/)
+  assert.match(body, /stepsDone: 4/)
+  const boardFile = await readFile(join(cwd, 'state', 'views', 'board.md'), 'utf8')
+  assert.match(boardFile, /4\/4/)
+})

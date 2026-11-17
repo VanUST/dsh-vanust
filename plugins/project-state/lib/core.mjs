@@ -199,6 +199,11 @@ export function createStateService(options = {}) {
       if (input.ownerRole !== undefined) frontmatter.ownerRole = String(input.ownerRole)
       // The taskboard's stable key: the TASK row keeps the id of the board task it mirrors.
       if (typeof input.boardId === 'string' && input.boardId !== '') frontmatter.boardId = input.boardId
+      // BATCHING (FR15): one TASK may cover several requirements and a list of steps with a
+      // progress counter; a task is the unit of acceptance, not a micro-step.
+      if (Array.isArray(input.reqIds)) frontmatter.reqIds = input.reqIds.map(String).filter((id) => id !== '')
+      if (Array.isArray(input.steps)) frontmatter.steps = input.steps.map(String).filter((step) => step !== '')
+      if (Number.isSafeInteger(input.stepsDone) && input.stepsDone >= 0) frontmatter.stepsDone = input.stepsDone
     }
     if (kind === 'test') {
       if (input.reqId !== undefined) frontmatter.reqId = String(input.reqId)
@@ -303,7 +308,7 @@ export function createStateService(options = {}) {
         const { entities, invalid } = await scanEntities()
         const rows = entities
           .filter((entity) => clean === undefined || entity.fileKind === clean)
-          .map((entity) => ({ id: entity.frontmatter.id, kind: entity.fileKind, title: entity.frontmatter.title, status: entity.frontmatter.status, revision: entity.frontmatter.revision, path: entity.rel, ...(entity.frontmatter.analysisRef === undefined ? {} : { analysisRef: entity.frontmatter.analysisRef }), ...(entity.frontmatter.criteriaHash === undefined ? {} : { criteriaHash: entity.frontmatter.criteriaHash }), ...(entity.frontmatter.boardId === undefined ? {} : { boardId: entity.frontmatter.boardId }), ...(entity.frontmatter.reqId === undefined ? {} : { reqId: entity.frontmatter.reqId }), ...(entity.frontmatter.authorRole === undefined ? {} : { authorRole: entity.frontmatter.authorRole }), ...(entity.frontmatter.caseId === undefined ? {} : { caseId: entity.frontmatter.caseId }), ...(entity.frontmatter.evidenceRefs === undefined ? {} : { evidenceRefs: entity.frontmatter.evidenceRefs }) }))
+          .map((entity) => ({ id: entity.frontmatter.id, kind: entity.fileKind, title: entity.frontmatter.title, status: entity.frontmatter.status, revision: entity.frontmatter.revision, path: entity.rel, ...(entity.frontmatter.analysisRef === undefined ? {} : { analysisRef: entity.frontmatter.analysisRef }), ...(entity.frontmatter.criteriaHash === undefined ? {} : { criteriaHash: entity.frontmatter.criteriaHash }), ...(entity.frontmatter.boardId === undefined ? {} : { boardId: entity.frontmatter.boardId }), ...(entity.frontmatter.reqId === undefined ? {} : { reqId: entity.frontmatter.reqId }), ...(entity.frontmatter.authorRole === undefined ? {} : { authorRole: entity.frontmatter.authorRole }), ...(entity.frontmatter.caseId === undefined ? {} : { caseId: entity.frontmatter.caseId }), ...(entity.frontmatter.evidenceRefs === undefined ? {} : { evidenceRefs: entity.frontmatter.evidenceRefs }), ...(entity.frontmatter.reqIds === undefined ? {} : { reqIds: entity.frontmatter.reqIds }), ...(entity.frontmatter.steps === undefined ? {} : { steps: entity.frontmatter.steps }), ...(entity.frontmatter.stepsDone === undefined ? {} : { stepsDone: entity.frontmatter.stepsDone }) }))
           .sort((a, b) => String(a.id).localeCompare(String(b.id)))
         return { ok: true, rows, invalid: invalid.map((entry) => ({ path: entry.rel, error: entry.error })) }
       } catch (error) {
@@ -329,7 +334,7 @@ export function createStateService(options = {}) {
             return fail('revision_conflict', `expected revision ${expected}, file has ${current.revision}`)
           }
           const next = { ...current, revision: expected + 1, updatedAt: now() }
-          for (const field of ['title', 'status', 'ownerRole', 'reqId', 'command', 'choreReason', 'criteriaHash', 'boardId', 'testPath', 'frozenHash', 'caseId']) {
+          for (const field of ['title', 'status', 'ownerRole', 'reqId', 'command', 'choreReason', 'criteriaHash', 'boardId', 'testPath', 'frozenHash', 'caseId', 'stepsDone']) {
             if (patch[field] !== undefined) next[field] = patch[field]
           }
           if (patch.analysisRef !== undefined && patch.analysisRef !== null && typeof patch.analysisRef === 'object') {
@@ -337,6 +342,8 @@ export function createStateService(options = {}) {
           }
           if (Array.isArray(patch.criteria)) next.criteria = patch.criteria.map(String)
           if (Array.isArray(patch.evidenceRefs)) next.evidenceRefs = patch.evidenceRefs.map(String)
+          if (Array.isArray(patch.reqIds)) next.reqIds = patch.reqIds.map(String).filter((v) => v !== '')
+          if (Array.isArray(patch.steps)) next.steps = patch.steps.map(String).filter((v) => v !== '')
           if (kind === 'task' && patch.chore === true) next.chore = true
           if (next.status !== undefined && !KINDS[kind].status.includes(next.status)) {
             return fail('status_invalid', `status "${next.status}" is not one of ${KINDS[kind].status.join(', ')}`)

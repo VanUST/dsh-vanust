@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "project-state-ecosystem",
-  "rev": 43,
+  "rev": 45,
   "status": "ready",
   "createdAt": "2026-11-17T13:19:07.274Z",
-  "updatedAt": "2026-11-17T16:29:04.404Z",
+  "updatedAt": "2026-11-17T16:35:25.841Z",
   "updatedBy": "agent",
   "title": "Экосистема состояния проекта и экономика контекста — v1",
   "requestedSolution": "Реализовать v1 дизайна от 2026-11-17 в порядке §10: (1) контекст-фундамент — allow-list в tool-families, диета схем и линтер, контракт слоёв L0–L3, новый хост-плагин state-feed (L1 первым сообщением, L2-дельты по хешу, инъекции как session events), MCP только для ux, Hindsight воркерам убран, context-budget.mjs с предупреждением и красным гейтом >1.5×; (2) ядро ccProjectState — файл на сущность в state/, ID под локом, связи с хешами, CAS, журнал, verify, регенерация проекций; (3) policy-плагин (fs/tools/sandbox) с запретами записи и трипвайром; (4) эволюция analysis в реестр REQ; (5) taskboard с reqId/chore и CAS через ядро; (6) раннер red→green с evidence вне writable-области; (7) оркестратор с брифом из обвязки, структурированным возвратом, cold-start гейтом и снимками; (8) миграции и доводка проекций; (9) дисциплина языка. v2 не трогать.",
@@ -221,7 +221,7 @@
         "Прогон проверок на границе задачи",
         "Микро-правка без новой задачи"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "NFR1",
@@ -724,7 +724,7 @@
           "role": "UX/UI",
           "at": "2026-11-17T15:45:00.000Z",
           "evidence": [
-            "панель на :3091 показывает 102 REQ / 223 TASK / 49 TEST; REQ-001 фильтрует задачи и кейсы; read-only (sha256 483 файлов state/ совпали); axe 0"
+            "панель :3091: 102 REQ / 223 TASK / 49 TEST; read-only (sha256 483 файлов совпали); axe 0"
           ]
         },
         {
@@ -732,7 +732,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T16:20:00.000Z",
           "evidence": [
-            "L1 seq 10 (3204 Б) до человеческого seq 11; ответ совпал с index.json: 102/223/49, 96 done / 6 proposed, REQ-071/076/079/084/085/086"
+            "L1 seq 10 (3204 Б) до seq 11; ответ совпал с index.json"
           ]
         },
         {
@@ -740,9 +740,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T16:26:00.000Z",
           "evidence": [
-            "digest 2655 Б ≤ 3072 с ## Gaps и ## Open requirements (6); L1 seq 10 (2564 Б) содержит обе секции",
-            "ответ seq 31 называет те же 6 REQ и три разрыва; 0 tool/call, 0 bash — ответ целиком из L1",
-            "два regenerateViews дают одинаковый sha256; project-state 12/12, state-feed 6/6"
+            "digest 2655 Б с Gaps и Open requirements; ответ из L1: 0 tool/call, 0 bash"
           ]
         }
       ]
@@ -762,7 +760,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T13:35:00.000Z",
           "evidence": [
-            "proof 92/92; 15/92 на старых байтах; восемь сессий"
+            "proof 92/92; 15/92 на старых байтах"
           ]
         }
       ]
@@ -814,7 +812,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T14:28:00.000Z",
           "evidence": [
-            "Playwright 24 только ux; Godot 0; Hindsight 4 read только корень"
+            "Playwright 24 только ux; Godot 0"
           ]
         }
       ]
@@ -921,7 +919,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T15:25:00.000Z",
           "evidence": [
-            "analysis 5/5; proof 138/138; один REQ на требование; дедуп"
+            "analysis 5/5; proof 138/138; дедуп"
           ]
         }
       ]
@@ -944,7 +942,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T15:35:00.000Z",
           "evidence": [
-            "taskboard 5/5; пять proof-скриптов exit 0; req_required; boardId"
+            "taskboard 5/5; пять proof-скриптов; req_required"
           ]
         }
       ]
@@ -968,7 +966,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T15:45:00.000Z",
           "evidence": [
-            "test-cases 16/16; analysis 9/9; project-state 12/12; make verify exit 0"
+            "test-cases 16/16; evidence_required"
           ]
         }
       ]
@@ -992,7 +990,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T15:40:00.000Z",
           "evidence": [
-            "бриф и возврат; живой пруф переделан в V1.11b"
+            "бриф и возврат; живой пруф переделан"
           ]
         },
         {
@@ -1000,7 +998,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T15:48:00.000Z",
           "evidence": [
-            "7/7; строгий гейт; отказы; возврат по критериям"
+            "7/7; строгий гейт; отказы"
           ]
         }
       ]
@@ -1023,7 +1021,7 @@
           "role": "BACKEND",
           "at": "2026-11-17T16:05:00.000Z",
           "evidence": [
-            "REQ 102 / TASK 223 / TEST 49; повторный прогон идемпотентен; проекции непустые"
+            "REQ 102 / TASK 223 / TEST 49; идемпотентность"
           ]
         }
       ]
@@ -1047,13 +1045,17 @@
       "dataIds": [
         "taskboard-file"
       ],
-      "status": "planned",
+      "status": "proven",
       "tasks": [
         {
           "taskId": "task-mwkwmnmg-191roo",
           "role": "BACKEND",
-          "at": "2026-11-17T16:26:00.000Z",
-          "evidence": []
+          "at": "2026-11-17T16:40:00.000Z",
+          "evidence": [
+            "task_create с reqIds[] и steps[]; борд показывает REQ-007, REQ-008 | 4/4; закрытие неполной пачки отказывает",
+            "baseline 32 задачи / 23 метки = 1.39 задачи на требование; упражнение 1 задача / 2 требования = 0.50 и один прогон гейта",
+            "taskboard 6/6; project-state 12/12; delegation-brief 7/7; make verify exit 0 после перепаковки панели"
+          ]
         }
       ]
     },
@@ -1126,7 +1128,7 @@
     }
   ],
   "pendingImpacts": [],
-  "fingerprint": "61b83f15fbb47e0f80b0792772de2100eb438cba14ecb919ebd35db6c1089400",
+  "fingerprint": "3cecadd3405769e95b5a8b5d6949644e38a9b99734f2b892aa7b29fc2979f9f9",
   "history": [
     {
       "revision": 1,
@@ -1467,6 +1469,22 @@
     {
       "revision": 43,
       "at": "2026-11-17T16:29:04.404Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 44,
+      "at": "2026-11-17T16:30:41.160Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwkwmnmg-191roo -> FR15"
+    },
+    {
+      "revision": 45,
+      "at": "2026-11-17T16:35:25.841Z",
       "editedBy": "agent",
       "action": "upsert",
       "status": "ready",

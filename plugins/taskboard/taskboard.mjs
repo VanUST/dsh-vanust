@@ -998,10 +998,14 @@ function createService(config, logger, hooks = {}) {
       // chore; with a project-state core mounted there is no third option. A composition
       // without the core keeps the old behaviour (proof scripts exercise that path directly).
       const reqId = typeof input?.reqId === 'string' ? input.reqId.trim() : ''
+      // FR15: a task is the unit of acceptance and may cover SEVERAL requirements; `reqIds`
+      // is the batch, `reqId` the first one for the single-requirement callers and the mirror.
+      const reqIds = [...new Set([...(Array.isArray(input?.reqIds) ? input.reqIds.map((id) => String(id).trim()) : []), ...(reqId === '' ? [] : [reqId])])].filter((id) => id !== '').slice(0, 10)
+      const steps = strings(input?.steps).slice(0, 20)
       const chore = input?.chore === true
       const choreReason = typeof input?.choreReason === 'string' ? input.choreReason.trim() : ''
-      if (typeof hooks.mirrorActive === 'function' && hooks.mirrorActive() && reqId === '' && !(chore && choreReason !== '')) {
-        return { ok: false, code: 'req_required', message: 'a task needs a reqId (the REQ it implements) or chore:true with a non-empty choreReason' }
+      if (typeof hooks.mirrorActive === 'function' && hooks.mirrorActive() && reqIds.length === 0 && !(chore && choreReason !== '')) {
+        return { ok: false, code: 'req_required', message: 'a task needs reqIds (the REQs it covers) or reqId (one REQ), or chore:true with a non-empty choreReason' }
       }
       // A TASK IS BORN OPEN. `done` means accepted and `cancelled` means abandoned: neither can
       // be a starting point, and `paused`/`active`/`review` each claim something that has not
@@ -1049,6 +1053,9 @@ function createService(config, logger, hooks = {}) {
           ...(role !== '' && typeof input.preset === 'string' && input.preset.trim() !== '' ? { preset: input.preset.trim().slice(0, 80) } : {}),
           ...(typeof input?.reason === 'string' && input.reason.trim() !== '' ? { reason: input.reason.trim().slice(0, 1000) } : {}),
           ...(reqId === '' ? {} : { reqId: reqId.slice(0, 80) }),
+          ...(reqIds.length === 0 ? {} : { reqIds: reqIds.map((id) => id.slice(0, 80)) }),
+          ...(steps.length === 0 ? {} : { steps }),
+          ...(steps.length > 0 && Number.isSafeInteger(input?.stepsDone) ? { stepsDone: Math.max(0, Math.min(steps.length, input.stepsDone)) } : {}),
           ...(chore ? { chore: true } : {}),
           ...(choreReason === '' ? {} : { choreReason: choreReason.slice(0, 1000) }),
           ...(chatId === '' ? {} : { chatId }),
@@ -1125,6 +1132,18 @@ function createService(config, logger, hooks = {}) {
         if (typeof patch.reqId === 'string') {
           if (patch.reqId.trim() === '') delete task.reqId
           else task.reqId = patch.reqId.trim().slice(0, 80)
+        }
+        if (Array.isArray(patch.reqIds)) {
+          const ids = [...new Set(patch.reqIds.map((id) => String(id).trim()))].filter((id) => id !== '').slice(0, 10)
+          if (ids.length === 0) delete task.reqIds
+          else task.reqIds = ids
+        }
+        if (Array.isArray(patch.steps)) {
+          const list = strings(patch.steps).slice(0, 20)
+          if (list.length === 0) { delete task.steps; delete task.stepsDone }
+          else { task.steps = list; if (Number.isSafeInteger(patch.stepsDone)) task.stepsDone = Math.max(0, Math.min(list.length, patch.stepsDone)) }
+        } else if (Number.isSafeInteger(patch.stepsDone) && Array.isArray(task.steps)) {
+          task.stepsDone = Math.max(0, Math.min(task.steps.length, patch.stepsDone))
         }
         if (patch.chore === true) task.chore = true
         if (patch.choreReason !== undefined) {
@@ -1796,7 +1815,10 @@ export function apply(ctx, config = {}) {
       inline: { type: 'boolean', description: 'true when the caller does this work itself, with no specialist role. Required unless role is given.' },
       parentId: { type: 'string', description: 'Optional parent task id.' },
       priority: { type: 'string', enum: PRIORITIES, description: 'low | normal | high.' },
-      reqId: { type: 'string', description: 'The REQ this task implements (REQ-001). Required with the project-state core, unless chore is true with a choreReason.' },
+      reqId: { type: 'string', description: 'The REQ this task implements (REQ-001). Required with the project-state core, unless reqIds or chore+choreReason is given.' },
+      reqIds: { type: 'array', items: { type: 'string' }, description: 'Several REQs this one task covers (a batch). The requirement gate accepts a non-empty reqIds.' },
+      steps: { type: 'array', items: { type: 'string' }, description: 'The steps of the batch, in order; the board shows how many are done.' },
+      stepsDone: { type: 'integer', description: 'How many of steps are done (0..steps.length).' },
       chore: { type: 'boolean', description: 'true when the work is justified housekeeping rather than a requirement; needs a non-empty choreReason.' },
       choreReason: { type: 'string', description: 'Why this chore is needed; required with chore:true.' },
     },
@@ -1857,6 +1879,10 @@ export function apply(ctx, config = {}) {
       resultDecisions: { type: 'array', items: { type: 'string' }, description: 'Decisions worth carrying forward.' },
       resultRisks: { type: 'array', items: { type: 'string' }, description: 'Known risks or unknowns.' },
       priority: { type: 'string', enum: PRIORITIES, description: 'low | normal | high.' },
+      reqIds: { type: 'array', items: { type: 'string' }, description: 'Several REQs this task covers; a batch edits the list in place instead of creating another task.' },
+      steps: { type: 'array', items: { type: 'string' }, description: 'The steps of the batch, in order.' },
+      stepsDone: { type: 'integer', description: 'How many steps are done (0..steps.length); the board shows the progress.' },
+      chore: { type: 'boolean' }, choreReason: { type: 'string' },
       scope: { type: 'string', enum: ['workspace'], description: "'workspace' lets a ROOT agent write a task another chat created (the ledger is one per workspace). Refused for child sessions." },
     },
     output: out(),
@@ -1864,7 +1890,7 @@ export function apply(ctx, config = {}) {
       const widened = workspaceScope(args, exec)
       if (widened.refused !== undefined) return Promise.resolve(widened.refused)
       const patch = {}
-      for (const key of ['status', 'title', 'objective', 'scope', 'nonScope', 'acceptance', 'priority', 'reason']) {
+      for (const key of ['status', 'title', 'objective', 'scope', 'nonScope', 'acceptance', 'priority', 'reason', 'reqId', 'reqIds', 'steps', 'stepsDone', 'chore', 'choreReason']) {
         if (args[key] !== undefined) patch[key] = args[key]
       }
       if (args.resultSummary !== undefined || args.resultEvidence !== undefined || args.resultArtifacts !== undefined || args.resultDecisions !== undefined || args.resultRisks !== undefined) {

@@ -96,7 +96,14 @@ export function renderIndex(model, { lastSeq = 0 } = {}) {
       decision: model.decisions.length,
     },
     reqs: model.reqs.map((req) => ({ id: req.id, status: req.status, tasks: req.tasks, tests: req.tests, decisions: req.decisions })),
-    tasks: model.tasks.map((task) => ({ id: task.id, reqId: task.reqId ?? null, status: task.status, chore: task.chore === true })),
+    tasks: model.tasks.map((task) => ({
+      id: task.id,
+      reqId: task.reqId ?? null,
+      status: task.status,
+      chore: task.chore === true,
+      ...(Array.isArray(task.reqIds) && task.reqIds.length > 0 ? { reqIds: task.reqIds } : {}),
+      ...(Array.isArray(task.steps) && task.steps.length > 0 ? { steps: task.steps.length, stepsDone: Number.isSafeInteger(task.stepsDone) ? task.stepsDone : 0 } : {}),
+    })),
     tests: model.tests.map((test) => ({ id: test.id, reqId: test.reqId, status: test.status, evidenceRefs: test.evidenceRefs })),
     decisions: model.decisions.map((decision) => ({ id: decision.id, status: decision.status })),
   }
@@ -114,9 +121,13 @@ export function renderBoard(model) {
   }
   for (const [status, tasks] of groups) {
     lines.push(`## ${status} (${tasks.length})`, '')
-    lines.push('| id | title | req | chore |')
-    lines.push('|---|---|---|---|')
-    for (const task of tasks) lines.push(`| ${task.id} | ${cell(task.title)} | ${task.reqId ?? '—'} | ${task.chore === true ? 'yes' : 'no'} |`)
+    lines.push('| id | title | reqs | steps | chore |')
+    lines.push('|---|---|---|---|---|')
+    for (const task of tasks) {
+      const reqs = Array.isArray(task.reqIds) && task.reqIds.length > 0 ? task.reqIds.join(', ') : (task.reqId ?? '—')
+      const steps = Array.isArray(task.steps) && task.steps.length > 0 ? `${Number.isSafeInteger(task.stepsDone) ? task.stepsDone : 0}/${task.steps.length}` : '—'
+      lines.push(`| ${task.id} | ${cell(task.title)} | ${reqs} | ${steps} | ${task.chore === true ? 'yes' : 'no'} |`)
+    }
     lines.push('')
   }
   return lines.join('\n')

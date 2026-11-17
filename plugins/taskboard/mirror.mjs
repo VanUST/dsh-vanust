@@ -26,6 +26,8 @@ const STATUS = {
 export function hasRequirement(task) {
   const reqId = typeof task?.reqId === 'string' ? task.reqId.trim() : ''
   if (reqId !== '') return true
+  // FR15: a batch task names its requirements in reqIds; one of them is enough.
+  if (Array.isArray(task?.reqIds) && task.reqIds.some((id) => String(id).trim() !== '')) return true
   const reason = typeof task?.choreReason === 'string' ? task.choreReason.trim() : ''
   return task?.chore === true && reason !== ''
 }
@@ -46,6 +48,11 @@ export function taskPayload(task) {
     title: String(task?.title ?? '').slice(0, 140),
     status: STATUS[task?.status] ?? 'open',
     ...(reqId === undefined ? {} : { reqId }),
+    // FR15: the batch — several requirements, the steps and their progress — travels with the
+    // TASK, so the register and the board agree on what one acceptance unit covers.
+    ...(Array.isArray(task?.reqIds) && task.reqIds.length > 0 ? { reqIds: task.reqIds.map(String) } : {}),
+    ...(Array.isArray(task?.steps) && task.steps.length > 0 ? { steps: task.steps.map(String) } : {}),
+    ...(Number.isSafeInteger(task?.stepsDone) && Array.isArray(task?.steps) && task.steps.length > 0 ? { stepsDone: Math.max(0, Math.min(task.steps.length, task.stepsDone)) } : {}),
     ...(task?.chore === true ? { chore: true } : {}),
     ...(typeof task?.choreReason === 'string' && task.choreReason.trim() !== '' ? { choreReason: task.choreReason.trim() } : {}),
     boardId: String(task?.id ?? ''),
