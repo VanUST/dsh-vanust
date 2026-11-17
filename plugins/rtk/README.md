@@ -33,8 +33,18 @@ passing one.
 The plugin cannot make `git status` run as `rtk git status`; the harness forbids
 argument rewriting before dispatch. The post-execute waterfall can replace the
 projection the model reads, and `rtk pipe` reads stdin, so the same filters are
-reachable from the result. The system-prompt section tells the agent where the
-binary is and that prefixing a command with it is how to take full control.
+reachable from the result.
+
+## The prompt section
+
+One `systemPrompt` section, `rtk:output`, says where the binary is and names the
+measured niche rather than the catalog: on 2026-11-17, over 129 sessions and 7 594
+shell calls, 9 results were filtered and 125 280 B became 17 050 B, every hit a single
+`git log` or `git diff`. From that follows the rule the section states: rtk is not a
+general compressor, so read a file with the `read` tool (`offset`/`limit`) and search
+with `grep`/`glob` instead of shaping work to reach the seam. It still says how to ask
+for the filter explicitly (prefix the command with the binary) and what a banner that
+reports elision means. The mapped command list lives below, not in the prompt.
 
 ## Configuration
 
@@ -47,10 +57,10 @@ binary is and that prefixing a command with it is how to take full control.
 | `timeoutMs` | `15000` | kill one `rtk pipe` after this long and pass the result through. |
 
 Mapped commands: `git status`, `git diff`, `git log`, `pytest`, `cargo test`,
-`go test`, `tsc`, `vitest`, `grep`, `rg`, `find`, `fd`, `mypy`, `ruff check`,
-`ruff format`, `prettier`, `phpunit`, `sqlfluff lint` (plus `npx tsc` /
-`npx vitest`). Only the filters rtk 1.1.0 accepts are ever passed; anything else
-is a pass-through.
+`go test`, `go build`, `ctest`, `tsc`, `vitest`, `grep`, `rg`, `find`, `fd`,
+`mypy`, `ruff check`, `ruff format`, `prettier`, `phpunit`, `pest`, `phpstan`,
+`pint`, `sqlfluff lint` (plus `npx tsc` / `npx vitest`). Only the filters rtk 1.1.0
+accepts are ever passed; anything else is a pass-through.
 
 ## Recall
 

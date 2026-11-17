@@ -109,7 +109,7 @@ choice - REVIEWER to judge a change, CRITIC to attack a running behaviour.
 provider without `capabilities.agentPreset` is refused before a child exists, because the child
 would silently inherit the orchestrator composition and the brief would promise work it cannot
 do. Kit tools that only one role should see gate on the same recorded id through `agent/created`
-plus `agent.ctx.tools.register`: `papers_*` to research, `babysitter_*` to the orchestrator,
+plus `agent.ctx.tools.register`: `papers_*` to research,
 `diagram`/`presentation` to the orchestrator and ux, and `design_map` to the **orchestrator
 only**. `standard` stays in the picker as the
 hands-on escape hatch, and a session with no recorded preset keeps every capability-gated tool,
@@ -147,7 +147,7 @@ child's tool header looks far wider than its role:
 | --- | --- | --- |
 | the eight presets | a per-preset plugin row set (persona, instructions, time, shell where allowed, fs, fs-search, jobs, skills, skill tool, compaction, todo, web, present) | its role's tool set |
 | the host profile (`$DSH_HOME/cordis.patch.yml`, written by `scripts/dsh-mcp-sync.mjs`) | `mcp-client-godot-mcp` (`mcp__godot__*`), `mcp-client-playwright-mcp` (`mcp__playwright__*`), `hindsight` | inherited by every preset, including the reviewer |
-| kit rows mounted at the host | taskboard, test-cases, skills, research-first, proof-guard, rtk, tool-families | inherited, but each gates its own role-only tools by `agent/preset` (`papers_*` research, `design_map` orchestrator, `babysitter_*` orchestrator, `diagram`/`presentation` orchestrator+ux) |
+| kit rows mounted at the host | taskboard, test-cases, skills, research-first, proof-guard, rtk, tool-families | inherited, but each gates its own role-only tools by `agent/preset` (`papers_*` research, `design_map` orchestrator, `diagram`/`presentation` orchestrator+ux) |
 
 Measured 2026-11-11 from the root session's child headers: backend 105 tools, ux 107,
 reviewer/critic/research 103, a legacy run-code-only role 1. The eight presets declare a per-preset plugin row set, so the difference is host-mounted, not role-granted. **The child policy now says
@@ -347,9 +347,32 @@ feature degrades and says so — which is exactly why they used to sit absent fo
 Nothing here needs elevation and nothing needs a POSIX shell. Where a tool has a release
 archive it is downloaded and copied to a directory already on PATH (`%APPDATA%\npm` on
 Windows, `~/.local/bin` elsewhere); where it is an npm package it is installed with the global
-npm; headroom goes through `uv tool install`, with `uv` itself installed on demand and
+npm; the Python tools go through `uv tool install`, with `uv` itself installed on demand and
 `~/.local/bin` added to the user PATH. Measured 2026-10-29 on Windows: `--check` went from
 0/8 to 8/8 after `--apply`, and each binary answered `--version`.
+
+**code-skeleton-mcp — the parser behind the `outline` tool (binary + plugin).** An npm
+package (`0.1.3`, MIT) whose tree-sitter WebAssembly grammars (JavaScript, TypeScript, TSX,
+Python, Go) are committed inside it, so it never fetches grammar bytes at run time and needs
+no native build. Provisioning installs it with the global npm; by hand:
+
+```bash
+npm install -g code-skeleton-mcp@0.1.3
+code-skeleton-mcp outline plugins/orchestrator/orchestrator.mjs --depth 1
+```
+
+`@cc/dsh-outline` is mounted on the HOST row, so the orchestrator and all seven presets get
+the `outline` tool and its prompt section. The plugin resolves the binary from PATH (and a
+configured `bin`), probes it with a real outline call, and registers nothing when the probe
+fails: the section then says `outline unavailable` and where it looked. Measured 2026-11-17
+on the installed 0.1.3: this repository's `plugins/orchestrator/orchestrator.mjs` is
+83 148 B and its depth-1 outline 4 791 B (−94.2 %, ~0.4 s); depth 2 on
+`plugins/analysis/store.mjs` returns 57 490 B against 8 924 B at depth 1, which is why the
+default is 1. Languages: JavaScript, TypeScript, TSX and Python; Go reports types only. The
+CLI has no `--version` (an unknown first argument starts its stdio MCP server), so the probe
+is a real outline call; on a failure the CLI prints the reason to stderr and exits non-zero,
+which the plugin reports as `EXIT`, and a zero exit with empty or non-JSON stdout is a named
+failure too.
 
 **RTK — shell-output compression (binary + plugin).** Installed by provisioning: the POSIX
 path runs upstream's installer with `RTK_EDITION=oss`, and the Windows path downloads
@@ -375,59 +398,6 @@ rtk 1.1.0 ships no filter for those. The mapped rules now cover every `rtk pipe`
 this deployment can plausibly meet: git status/diff/log, pytest, cargo test, go test, go build,
 ctest, tsc, vitest, grep, rg, find, fd, mypy, ruff check/format, prettier, phpunit, pest,
 phpstan, pint, sqlfluff lint.
-
-**Headroom — compression in front of the model (proxy + overlay).** Owned by one script:
-
-```bash
-node scripts/headroom.mjs doctor      # binary, health, marker, overlay
-node scripts/headroom.mjs enable      # write the marker + overlay, start the proxy
-node scripts/headroom.mjs status      # is it up, and is the overlay live
-node scripts/headroom.mjs disable --stop
-node scripts/headroom.mjs run         # foreground: hold the proxy for a supervisor
-node scripts/headroom.mjs unit        # print a systemd user unit that runs `run`
-```
-
-`enable` starts `headroom proxy --port 8787 --anthropic-api-url
-https://api.deepseek.com/anthropic` detached, with the beacon and tool-schema deferral off,
-then waits until the port answers **as a headroom proxy configured for that upstream**.
-`start.sh` calls `ensure` on every boot **while the marker exists** and adds
-`--patch $DSH_HOME/headroom/patch.yml` only when the proxy answers; if it does not, the boot
-proceeds WITHOUT compression and says so. That ordering is the whole safety argument: a base
-URL pointing at a dead loopback port fails every request, so the overlay is never applied to
-an unhealthy proxy. `HEADROOM=0 ./start.sh` bypasses all of it for one boot.
-
-The health answer is identity, not the proxy's own opinion. `/readyz` returns 503 whenever ANY
-dependency is unhappy, and its `upstream` check flaps here: measured 2026-10-30, `/readyz`
-answered 503 at 11:52:47 and 200 at 11:53:06 for the same process, which forwarded every model
-request in between. A gate that read 503 as "no proxy" dropped compression at boot and called
-its own proxy a stranger holding the port. So `ensure`/save accepts a non-2xx answer when the
-body names `headroom-proxy` and the upstream it is configured for is the one asked for — a
-foreign listener cannot answer that, and a proxy pointed at another upstream is refused with
-that fact in the message. The proxy's verdict is still reported (`ready:`, `checks:`) rather
-than hidden.
-
-**If you launch `dsh web` directly instead of `./start.sh`, nothing restarts a dead proxy** —
-the detached child from `enable` is supervised by nobody, and a proxy that dies quietly turns
-every turn into `DeepSeek Messages transport failed`. A boot script is not a supervisor, so
-`run` holds the proxy in the foreground (it exits when the proxy exits) and `unit` prints the
-systemd user unit that runs it with `Restart=always`. Install it once per machine and `dsh web`
-is safe on its own:
-
-```bash
-node scripts/headroom.mjs run --port 8787   # what the unit executes
-node scripts/headroom.mjs unit > ~/.config/systemd/user/headroom.service
-systemctl --user daemon-reload && systemctl --user enable --now headroom
-loginctl enable-linger "$USER"              # start at boot, not only at login
-```
-
-`ensure`/`start` stay harmless beside it: they find the port healthy and start nothing, and
-`stop` refuses to signal a proxy it did not launch — stopping a supervised proxy is
-`systemctl --user stop headroom`. The unit is Linux-only; on Windows the equivalent is a
-scheduled task running `ensure` at logon.
-
-Measured on this machine: a 61 KB JSON tool result went from 19 955 to 8 208 input tokens
-through the proxy (≈59%), DeepSeek's SSE stream survives it, and an uncompressed cold start
-is passed through untouched. Revert is `disable --stop` plus one restart.
 
 **The session store — one unreadable log costs the whole history (boot guard).** The other
 failure that reads as data loss without any data being lost. `listArtifacts()` in
@@ -498,7 +468,7 @@ Measured with the shipped policy over the stored logs: 5.56% of all tool-result 
 (87.6% of the `run_code` bytes it chose to project). Proof:
 `node plugins/run-code-projection/proof/proof.mjs` — 13 checks, exit 0.
 
-**PTC presentation — rolled back on this deployment, and why (`@deepseek-ai/dsh-agent-tool-presentation`).**
+**PTC — the rollback, the upstream fix, and the first wave (`@deepseek-ai/dsh-tool-executor-ptc`).**
 Under `mode: ptc` the model sees one `run_code` transport plus a generated SDK instead of every
 tool schema, so several calls collapse into ONE step — and the step count, not the token price, is
 what multiplies this deployment's bill (measured 2026-11-12: 40 880 steps over 183 sessions,
@@ -516,20 +486,97 @@ the switch is unsafe for a session that already exists:
    `INVALID_REQUEST: tools: at least one tool must have defer_loading=false. All tools cannot be
    deferred.` Every step of that session then fails.
 
-A session CREATED under `ptc` should be fine (its first header declares `run_code`, so it is not an
-addition), but this machine's long-lived role sessions are exactly the unsafe case: the BACKEND
-role session was created before the change, so resuming it fails on the first request. Re-enable
-only after one of these holds:
+A session CREATED under `ptc` was expected to be fine (its first header declares `run_code`, so it
+is not an addition), but the long-lived role sessions were the unsafe case: the BACKEND role
+session was created before the change, so resuming it failed on the first request.
 
-- the harness keeps at least one resident declaration when it defers additions (upstream fix in
-  `toolDeclarations`), or
-- role sessions are recreated before the preset flips (a new chat per role), and the deployment can
-  guarantee no pre-existing session is resumed under `ptc`.
+**The upstream blocker is fixed in 0.2.2-rc.3, measured 2026-11-17.** The installed
+`dsh-llm` rebuilds the declarations when the tool set changes by a removal or by additions to an
+empty set (`rebaseAdditionOnlyHistory`), so the new surface is declared resident instead of all
+deferred. Measured on a real native session resumed under PTC
+(`session-40f5b5fd-ea0d-41a9-9237-3ab5324aa005`): the resumed request carried
+`reason: resume` with the single tool `run_code`, a `developer/message` with one `tool-addition`
+and 58 `tool-removal` blocks, the SDK in the system prompt, and no `INVALID_REQUEST`. The switch
+still costs one full prefix miss (20 998 uncached tokens against 640 cached), so prefer a new chat
+for the flip; a mid-session switch is accepted, not free.
 
-The shipped web-app bundle already offers a `ptc`-presentation preset (`id: ptc`, order 2) for
-experiments; it is untouched. Do NOT set `DSH_TOOLS_MODE`, which flips the whole process. The
-robust way to measure this later is a headless or disposable second-server run with FRESH sessions
-only — never by flipping a preset that existing sessions resume into.
+**Waves 1–3 enabled: `gatherer`, `reviewer`, `backend`, `ux`, `critic`, `docs`.** Wave 1 (`preset-gatherer`,
+`preset-reviewer`) went first because both are read-only over files (`write:false`,
+`edit:false`), need no human input and have no plan mode; the gatherer is the purest "many reads →
+one report" case, the reviewer runs a change and reads its diff as one program. Wave 2 added
+`preset-backend` and `preset-ux` (rows at `profile/cordis.patch.yml:827` and `:752`, each after
+`present`). Wave 3 added `preset-critic` and `preset-docs` (rows at `:1137` and `:1212`). Each
+preset carries one `tool-executor-ptc` row inside its own declaration; the host still mounts the
+native executor, the nearest executor for these six presets is PTC, and every other preset stays
+native. `preset-orchestrator` and `preset-research` do NOT migrate: a PTC
+program is a Node process, and its files, network and subprocesses are outside the file sandbox —
+that would undo the no-shell contract those two roles are built on. No shell preset is left to
+migrate. Rollback is removing the row from a preset: no data migration, no plugin change.
+
+**Wave-2 measurements (2026-11-17).** Backend, fresh session: header `["run_code"]`, SDK 67
+bindings with `bash`, 0 `mcp__playwright__*` and 0 `mcp__godot__*`; `node
+scripts/outline-selftest.mjs` through `run_code` returned `verdict: PASS — 6 passed, 0 failed`.
+A background command works through the program: `sleep 5` with `run_in_background: true` plus
+`job_output` produced `job/registered` + `job/settled` and a `completed` answer after 5.3 s. Ux:
+SDK 91 bindings with all 24 `mcp__playwright__*`, `browser_navigate` to
+`data:text/html,<h1>PTCOK</h1>` and `browser_snapshot` returned `- heading "PTCOK" [level=1]`.
+One `CODE_RUN_FAILED` was recorded on the first ux program: the browser cold start ran past the
+120 s `run_code` limit; the retry did both calls in 209 ms. Price on one fixed task
+(outline-selftest and its verdict): native backend 10 373 miss / 60 416 hit / 106 out = $0.00195;
+PTC backend 27 330 / 34 048 / 201 = $0.00471. PTC is 2.4x the price on a ONE-tool-call task —
+the SDK declarations lengthen the first step, and the saving only starts when a program makes
+many calls.
+
+**Wave-3 measurements (2026-11-17).** Fresh sessions, each with a preset chosen before the first
+message, tool-families 0.1.8 in the overlay: gatherer header `["run_code"]`, SDK 59 bindings, 0
+`mcp__playwright__*`, answer `24`; reviewer SDK 65, 0 playwright, `verdict: PASS — 6 passed, 0
+failed`; critic SDK 65, 0 playwright, answer `42`; docs SDK 67, 0 playwright, the same PASS
+verdict. `INVALID_REQUEST` and `CODE_RUN_FAILED` — 0 in all four. The gatherer/reviewer re-check is
+the tool-families 0.1.8 proof: wave 1 could not show a deterministic 0 playwright in their SDK,
+now it does. Price of the fixed outline-selftest task for docs: 18 161 miss / 43 520 hit / 232 out
+= $0.00326, between native backend ($0.00195) and PTC backend ($0.00471) — the PTC-vs-PTC gap is
+the prefix-cache state of the first step, not a property of the preset.
+
+**`tool-families` 0.1.8: the preset is read from the projection, not the creation header.** The
+policy used to read `agent.session.header.agentPreset` (the value the session was CREATED with)
+and marked the agent done after one pass, so a session created under `orchestrator` and then
+switched to `backend` kept the orchestrator policy and was offered all 24
+`mcp__playwright__*` tools the backend row denies (measured: 91 tools on request 1). 0.1.8 reads
+`agentPresets.presetForSession(session)`, keeps the applied policy in a `WeakMap` with its
+disposer, and recomputes on every `agent/pre-step`. That alone is one request late: inside a step
+the order is tools resolve → system prompt → `agent/pre-step`, so a restriction installed there
+cannot reach that step's header. The early signal is the `agent-preset/selected` session event,
+and it must be heard on the ROOT context (`ctx.root.on('session/event', …)`) — this row and the
+`agentPresets` registry are siblings, and Cordis raises events upward, not sideways. With that,
+the FIRST request after choosing `backend` is 67 tools with 0 `mcp__playwright__*`. The installed
+profile still carries 0.1.5 until the next `kit-update --apply`; the scratch row proves 0.1.8.
+Proof: `node scripts/tool-families-proof.mjs` (62/62), tarball
+`plugins/cc-dsh-tool-families-0.1.8.tgz`.
+
+**Restarting with PTC: what happens to an old session (measured 2026-11-17).**
+A resumed session does not keep the preset generation it started with: `resumeObserved` composes
+from the current declaration (`composeAgent(presetForObservation)` → `agentPresets.mount` of the
+current generation). So an old native `preset-gatherer`/`preset-reviewer` session switches to PTC
+on its first resume after the restart. Measured on :3081 with the same installed profile: header
+83/89 tools → one `run_code`; `developer/message` with one `tool-addition` and 83/89
+`tool-removal`; `INVALID_REQUEST`, `CODE_RUN_FAILED` and `defer_loading` all 0; the second answer
+used the first; the first step paid 31 393 / 32 844 input tokens with 5 376 cached, the next step
+went back to the cache (190 / 36 608). Dormant sessions are not switched until resumed.
+
+Procedure for `:3080`: restart between turns (an active turn is interrupted and is not continued;
+the session, its history and `.dsh/taskboard.json` survive). Stop the server, run
+`node scripts/kit-update.mjs --apply`, start it, then resume the old sessions you still need
+(Search sessions — the sidebar lists only the recent few) and send one continuation. The first
+continuation pays one uncached step per session; do not resume sessions you do not need. If a
+resumed session reports `INVALID_REQUEST: tools: at least one tool must have defer_loading=false`,
+work in a new session of the same preset, or remove the executor rows from the kit profile, apply
+and restart; do not edit the journal. A new chat avoids the one-time miss, but is not required:
+the switch itself is accepted.
+
+Do NOT set `DSH_TOOLS_MODE`, which flips the whole process. The shipped web-app bundle also offers
+its own `ptc` preset (`id: ptc`, order 2) for experiments; it is untouched. Measure with a
+disposable second server and fresh sessions, or on a new chat, never by flipping a preset that
+existing sessions resume into without knowing the prefix cost.
 
 **Skills that grow — `@cc/dsh-skill-evolve` (in the profile, nothing to start).** Writes
 `<name>/SKILL.md` under `$DSH_HOME/skills`, which the harness's own `skill-filesystem`
@@ -554,40 +601,6 @@ bodies) and `.archive/` (forgotten skills) out of the repository — they are lo
 library content. The library is NOT scoped to a machine, so a skill must name its own platform
 assumptions in the body: a procedure that lists `%APPDATA%` or PowerShell commands is wrong on
 Linux, and a shared library that hides that fact teaches the next machine the wrong command.
-
-**Babysitter — deterministic process runs (npm binary + plugin).** `npm install -g
-@a5c-ai/babysitter` (or let the plugin report the missing CLI and stop). It has no DSH
-harness, so `@cc/dsh-babysitter` shells out to the CLI and maps each run onto ONE taskboard
-task: the run's journal steps become timeline notes, and the task lands in `review` for the
-human — never `done`.
-
-**A process must be able to import the SDK**, and the global metapackage nests it
-(`@a5c-ai/babysitter/node_modules/@a5c-ai/babysitter-sdk`), so it is NOT resolvable from a
-workspace file. This kit installs it beside the processes: `.babysitter/node_modules` holds
-`@a5c-ai/babysitter-sdk@6.0.0`, and `.babysitter/processes/` holds the processes —
-`release-gate.mjs` runs the kit's two checks as journaled shell tasks. Two rules cost four
-failed runs on 2026-11-05 and are stated in that file: `defineTask` must be at MODULE scope
-(the runtime replays the process after every effect, and an in-function definition dies with
-`Task id ... is already registered`), and `ctx.task()` resolves to the task's RESULT PAYLOAD
-(the command's stdout string), not `{ok, exitCode}` and not the on-disk `{status, result}`
-envelope. A run's `state: completed` and its exit code are the CLI's verdict, not the
-process's: read `output` before believing the work succeeded.
-
-Shell-only processes need nothing else. **LLM-backed** ones need provider credentials of
-their own, because babysitter resolves its own model rather than borrowing DSH's. The
-credentials this machine already has can serve them — verified 2026-10-26, `genty` reached
-DeepSeek and completed its planning calls:
-
-```bash
-export AGENT_MUX_API_BASE=https://api.deepseek.com/v1
-export AGENT_MUX_API_KEY=...            # the same DeepSeek key the harness stores
-genty doctor --json --model deepseek-flash
-```
-
-Without `--model`, `genty` defaults to `gpt-4o` and DeepSeek rejects it by name; without
-the two variables it fails with "No API credentials found". `babysitter_doctor` reports
-that exact message rather than hiding it. `genty doctor` takes well over two minutes here,
-so raise the tool's `timeoutMs` when probing by hand.
 
 **Marp, Mermaid CLI, D2 — deck export and diagram rendering (binaries only).** Provisioning
 installs all three: the two npm CLIs (`marp`, `mmdc`) through the global npm, and d2 from its
@@ -646,8 +659,7 @@ while IFS= read -r p; do [ -e "$p" ] || echo "missing on disk: $p"; done < /tmp/
 ```
 
 The overlay is **inert until an instance is started with it**: `dsh web --patch
-.dsh/code-search.patch.yml --port 3080` (add `--patch $DSH_HOME/headroom/patch.yml` when
-compression is enabled and healthy; `dsh headless --patch …` for one run). `./start.sh`
+.dsh/code-search.patch.yml --port 3080` (`dsh headless --patch …` for one run). `./start.sh`
 forwards no extra arguments, so it cannot carry the pack — launch `dsh web` directly for a
 packed instance. The servers, the routing section and the hooks are all read at boot: after
 regenerating the overlay, or editing `profile/serena-context.yml`, `profile/octocode-config.toml`,

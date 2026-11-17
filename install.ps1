@@ -95,7 +95,7 @@ try {
 #    `scripts/kit-update.mjs --apply`.
 Copy-Item (Join-Path $KIT_DIR 'rules\DEPLOYMENT.md') (Join-Path $DSH_HOME 'DEPLOYMENT.md') -Force
 
-# 6. The external binaries the features use: RTK, Headroom, Babysitter, Marp, Mermaid
+# 6. The external binaries the features use: RTK, Marp, Mermaid
 #    CLI, D2. They are OPTIONAL by design - every feature degrades and says so - which
 #    is exactly why a fresh machine silently lacks them for weeks. Best effort: a
 #    failure here names the manual command and never fails the install.

@@ -379,6 +379,20 @@
     - id: rtk
       name: '@cc/dsh-rtk'
 
+# ── outline: a table of contents for a file, before the file is read ─────────
+# Mounted at the HOST level, not inside a preset: a file outline is not a role's
+# speciality, so the orchestrator and all seven presets inherit the tool and this
+# section. code-skeleton-mcp parses the file (tree-sitter WASM grammars committed
+# inside that package - no network, no native build) and returns symbols with
+# line ranges, signatures and first-line docstrings instead of the body, so an
+# unknown 2 000-line file costs one small result plus a `read` of the range that
+# matters instead of the whole file on every later step. The binary is resolved
+# from PATH and a configured `bin`; when neither answers, no tool is registered
+# and the section says `outline unavailable` and where the plugin looked.
+- insert:
+    - id: outline
+      name: '@cc/dsh-outline'
+
 # ── session-budget: a deterministic handoff reminder at step thresholds ─────
 # A long session is not a failure, it is expensive: every step re-sends the whole
 # derived history and compaction re-bills the prefix. The fix is a HANDOFF note
@@ -420,18 +434,6 @@
 - insert:
     - id: skill-evolve
       name: '@cc/dsh-skill-evolve'
-
-# ── babysitter: a deterministic process, tracked as one task ─────────────────
-# Babysitter has no adapter for this harness among its twelve, so the plugin
-# shells out to the installed CLI instead of pretending to be one. The mapping is
-# the point: ONE babysitter run is ONE taskboard task, each journal step becomes a
-# timeline note, and the task lands in `review` for a human — never `done`, because
-# the run finishing is not the same as the work being accepted. The taskboard is
-# injected optionally, so the tools still work on a machine without it; with no
-# CLI installed every tool answers with the install line instead of a stack trace.
-- insert:
-    - id: babysitter
-      name: '@cc/dsh-babysitter'
 
 # ── replace the subagent catalog with the taskboard ────────────────────────
 # The taskboard's header cell reuses the `subagent-catalog` id; the shipped
@@ -732,6 +734,11 @@
               searchTimeoutMs: 60000
           - id: present
             name: '@deepseek-ai/dsh-tool-present'
+          # PTC: the ux role opens pages, snapshots them and reads the console as one
+          # program, so the intermediate snapshots stay out of the conversation.
+          # Scope is this preset only; removing this row is the rollback.
+          - id: tool-executor-ptc
+            name: '@deepseek-ai/dsh-tool-executor-ptc'
 
     # ── backend: patterns and callers first, no ad-hoc patches ───────────────
     - id: preset-backend
@@ -802,6 +809,11 @@
               searchTimeoutMs: 60000
           - id: present
             name: '@deepseek-ai/dsh-tool-present'
+          # PTC: the backend runs a change and reads its diff as one program, so the
+          # intermediate output stays in the program instead of the conversation.
+          # Scope is this preset only; removing this row is the rollback.
+          - id: tool-executor-ptc
+            name: '@deepseek-ai/dsh-tool-executor-ptc'
 
     # ── research: find what exists, read the source, cite it, never implement ─
     - id: preset-research
@@ -941,6 +953,12 @@
             name: '@deepseek-ai/dsh-tool-todo'
             config:
               allowParallelInProgress: true
+          # PTC: one program instead of one step per tool call. The host mounts the
+          # runtime; this row selects the PTC executor for the gatherer only, so the
+          # role can read many files and return one report. Removing this row is the
+          # rollback; the other presets keep the native executor.
+          - id: tool-executor-ptc
+            name: '@deepseek-ai/dsh-tool-executor-ptc'
 
     # ── reviewer: independent, runs the change, edits nothing ────────────────
     - id: preset-reviewer
@@ -1015,6 +1033,11 @@
               searchTimeoutMs: 60000
           - id: present
             name: '@deepseek-ai/dsh-tool-present'
+          # PTC: the reviewer runs a change and reads its diff as one program, so the
+          # intermediate reads stay out of the conversation. Scope is this preset
+          # only; removing this row is the rollback.
+          - id: tool-executor-ptc
+            name: '@deepseek-ai/dsh-tool-executor-ptc'
 
     # ── critic: the adversary, not the fixer, not the UI tester ──────────────
     # The seventh role exists because "make sure it works" and "try to break it" are
@@ -1096,6 +1119,11 @@
               searchTimeoutMs: 60000
           - id: present
             name: '@deepseek-ai/dsh-tool-present'
+          # PTC: the critic attacks a running service with sequences of probes, which is one
+          # program rather than one step per call. Scope is this preset only; removing it
+          # is the rollback.
+          - id: tool-executor-ptc
+            name: '@deepseek-ai/dsh-tool-executor-ptc'
 
     # ── docs: stop document sprawl, do not feed it ───────────────────────────
     - id: preset-docs
@@ -1166,3 +1194,8 @@
               searchTimeoutMs: 60000
           - id: present
             name: '@deepseek-ai/dsh-tool-present'
+          # PTC: the docs role reads many files before it prunes one sentence, so the reads
+          # belong in a program and only the correction goes back. Scope is this preset only;
+          # removing it is the rollback.
+          - id: tool-executor-ptc
+            name: '@deepseek-ai/dsh-tool-executor-ptc'

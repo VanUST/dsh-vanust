@@ -149,9 +149,6 @@ const FILTER_RULES = [
   { filter: 'sqlfluff-lint', pattern: /^sqlfluff\s+lint(?:\s|$)/ },
 ]
 
-/** Command list reused by the prompt section; keeps it in one place. */
-const FILTERED_COMMANDS = 'git status, git diff, git log, pytest, cargo test, go test, go build, ctest, tsc, vitest, grep, rg, find, fd, mypy, ruff check, ruff format, prettier, phpunit, pest, phpstan, pint, sqlfluff lint'
-
 /**
  * Trailing lines the bash/pwsh renderers append after the command's own output.
  * The harness uses these to report a non-zero exit without turning the call into
@@ -508,7 +505,15 @@ function shellCommand(exec) {
   return typeof command === 'string' ? command : null
 }
 
-/** The prompt section text: where rtk is and what it will do without being asked. */
+/**
+ * The prompt section text: rtk's measured niche, and the rule that follows from it.
+ *
+ * The earlier section listed all 23 mapped commands. The measurement of 2026-11-17
+ * (129 sessions, 7 594 shell calls, 9 filtered results, 125 280 B -> 17 050 B) showed
+ * every hit was a single `git log` or `git diff`, while 75% of the shell output came
+ * from reads no filter covers. A catalog therefore taught an agent to hunt for a
+ * seam that is not there; the niche plus "read with the tools" is the honest form.
+ */
 function sectionText(rtk, policy) {
   if (rtk === null) {
     return [
@@ -520,16 +525,18 @@ function sectionText(rtk, policy) {
   return [
     `RTK${version} OUTPUT COMPRESSION`,
     `  rtk is installed at ${rtk.bin} (not necessarily on PATH).`,
-    `  Shell results over ${policy.minChars} chars from these commands are filtered through`,
-    `  \`rtk pipe\` and replaced by a compact projection with a banner: ${FILTERED_COMMANDS}.`,
-    '  Commands are NOT rewritten automatically. For full control, prefix the command',
-    '  with the absolute binary path:',
-    `    ${rtk.bin} git status`,
-    `    ${rtk.bin} read <file>`,
+    '  Measured niche, 2026-11-17 over 129 sessions: 9 shell results were filtered,',
+    '  125 280 B became 17 050 B, and every hit was a single `git log` or `git diff`',
+    `  over ${policy.minChars} chars. \`grep\` and \`find\` are mapped too and fire rarely.`,
+    '  That is the whole seam: one simple command from the mapped list, replaced by a',
+    '  compact projection with a banner naming the filter. Everything else passes',
+    '  through untouched: a pipe, a redirect, a second command after `;`, any other',
+    '  command, a shell read.',
+    '  So do not shape work to reach rtk. Read a file with the `read` tool (`offset`',
+    '  and `limit`) and search with `grep` or `glob`.',
     '  A leading `cd <dir> &&` does not stop filtering, so `cd repo && git log --stat`',
-    '  is still compressed. A pipe, `;`, redirection or an unlisted command opts out:',
-    '  `git log --stat | head -40` is passed through untouched. When a command will',
-    '  print a lot, prefer one of the listed forms over wrapping it in a pipe.',
+    '  is still compressed. Commands are NOT rewritten automatically; prefixing one',
+    `  with the binary asks for the filter explicitly: ${rtk.bin} git diff`,
     '  If the banner reports elision, re-run the command unfiltered; when it prints a',
     '  recovery hash, `rtk recall <hash>` returns the stored output.',
   ].join('\n')

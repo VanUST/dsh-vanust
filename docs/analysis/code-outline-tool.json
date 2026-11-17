@@ -1,0 +1,437 @@
+{
+  "schemaVersion": 1,
+  "id": "code-outline-tool",
+  "rev": 7,
+  "status": "completed",
+  "createdAt": "2026-11-17T10:13:41.257Z",
+  "updatedAt": "2026-11-17T10:29:22.708Z",
+  "updatedBy": "agent",
+  "title": "Оглавление кода для всех агентов: инструмент outline в каждом пресете",
+  "requestedSolution": "Владелец сказал: инструменты чтения полезны всем пресетам, не только корневому агенту; попробовать найденные инструменты чтения и внедрить те, что рабочие.",
+  "businessOutcome": {
+    "problem": "Агентам нужен дешёвый способ узнать, что в файле и где: сейчас у них есть read (целиком или диапазон), grep и glob, но нет оглавления, поэтому чтение незнакомого файла начинается с всего файла (замер 2026-11-17: read дал 6,2 МБ, а sed/cat через shell — 4,8 МБ из 15,4 МБ выдачи shell). Проверенные кандидаты: code-skeleton-mcp 0.1.3 (MIT) даёт оглавление с сигнатурами и диапазонами строк; repomix --compress медленный и даёт только 38% на каталоге, поэтому он отклонён как инструмент агента.",
+    "outcome": "Агент любого пресета начинает чтение файла с оглавления за ~5% байт источника, а тело читает только нужным диапазоном; на трёх реальных файлах кита это 91–96% экономии вместо переливки файла через shell.",
+    "successMetrics": [
+      "инструмент outline виден и корню, и всем семи пресетам (проверяется списком инструментов в шапке каждого пресета)",
+      "на plugins/orchestrator/orchestrator.mjs, plugins/analysis/store.mjs и plugins/taskboard/taskboard.mjs оглавление меньше источника на 90% и более, вывод детерминирован",
+      "время одного вызова меньше 1,5 с на прогретом кэше",
+      "отсутствие бинаря не ломает ни один пресет: раздел говорит об этом, а остальные инструменты чтения работают",
+      "make verify и собственный селфтест плагина зелёные"
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CURRENT",
+        "name": "Чтение без оглавления",
+        "actors": [
+          "агент"
+        ],
+        "steps": [
+          "Агент читает незнакомый файл целиком через read или переливает его через sed/cat",
+          "Оглавления нет ни у одного пресета",
+          "Правило чтения инструментами есть только у специалистов"
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-TARGET",
+        "name": "Оглавление у каждого агента",
+        "actors": [
+          "корень",
+          "все пресеты"
+        ],
+        "steps": [
+          "Незнакомый файл сначала outline (~5% байт, символы и диапазоны)",
+          "Тело читается read-ом по нужному диапазону",
+          "Ряд плагина на уровне хоста даёт инструмент и раздел всем агентам",
+          "Отсутствие бинаря деградирует с сообщением"
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "FR-1",
+      "kind": "FR",
+      "text": "Плагин кита даёт инструмент outline: путь файла, необязательная глубина (по умолчанию 1) и docstrings; возвращает JSON с символами и диапазонами строк.",
+      "acceptance": [
+        "инструмент outline возвращает JSON с массивом symbols {kind, name, line, endLine, signature}",
+        "вызов работает для .mjs, .js, .jsx, .ts, .tsx, .py; для .go возвращает только типы (функции не попадают в оглавление) — это ограничение парсера 0.1.3, и описание инструмента это говорит",
+        "несуществующий путь и не-код — понятная ошибка инструмента (EXIT с причиной), падение сессии не происходит"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-2",
+      "kind": "FR",
+      "text": "Полезность измерена на трёх реальных файлах кита: оглавление меньше источника не менее чем на 90%, вывод детерминирован, вызов укладывается в 1,5 с.",
+      "acceptance": [
+        "plugins/orchestrator/orchestrator.mjs: 83 148 Б → 4 791 Б (−94,2%)",
+        "plugins/analysis/store.mjs: 100 991 Б → 8 924 Б (−91,2%)",
+        "plugins/taskboard/taskboard.mjs: 114 387 Б → 5 390 Б (−95,3%)",
+        "два прогона на одном файле дают байт-в-байт тот же JSON",
+        "тёплый вызов укладывается в 1,5 с (измерено 0,39–0,45 с)"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-3",
+      "kind": "FR",
+      "text": "Отсутствие внешнего бинаря деградирует понятным сообщением, а провижининг ставит его пинованную версию.",
+      "acceptance": [
+        "при отсутствии бинаря инструмент не регистрируется, а раздел говорит об этом и где искали",
+        "provision-tools --check перечисляет новый инструмент (20/20), установка через installWithNpm с пином 0.1.3"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-4",
+      "kind": "FR",
+      "text": "Инструмент и его раздел промпта получает каждый агент: корень и все семь пресетов, без копии текста в каждом пресете.",
+      "acceptance": [
+        "ряд плагина стоит на уровне хоста в profile/cordis.patch.yml (вне блоков preset-*)",
+        "регистрация на agent/created без фильтра пресета: подставной контекст даёт инструмент для research, standard, backend, docs",
+        "живая шапка каждого пресета — проверка после перезапуска сервера (в этой сессии не выполнялась)",
+        "текст раздела не дублирует правило политики специалиста"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-5",
+      "kind": "FR",
+      "text": "Плагин учтён в инвентаре и документах, тарбол собран, гейты кита зелёные.",
+      "acceptance": [
+        "в plugins/inventory.json строка outline, mounted: true (24 плагина)",
+        "счётчики в README.md/USERGUIDE.md/DEPLOYMENT согласованы с инвентарём",
+        "check-documentation зелёный; check-portability без провалов по outline",
+        "NOTICE содержит атрибуцию code-skeleton-mcp 0.1.3 (MIT)"
+      ],
+      "status": "proven"
+    }
+  ],
+  "architecture": {
+    "contractImpact": "additive",
+    "components": [
+      {
+        "id": "C-PLUGIN",
+        "name": "Плагин outline",
+        "responsibility": "Инструмент outline: разрешает внешний бинарь, запускает его с таймаутом, отдаёт JSON с символами и диапазонами строк, держит раздел промпта",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": []
+      },
+      {
+        "id": "C-PROFILE",
+        "name": "Профиль",
+        "responsibility": "Монтирует ряд плагина на уровне хоста, чтобы инструмент получил каждый агент: корень и все семь пресетов",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": [
+          "C-PLUGIN"
+        ]
+      },
+      {
+        "id": "C-PROV",
+        "name": "Провижининг",
+        "responsibility": "Ставит и пинит внешний бинарь в scripts/provision-tools.mjs рядом с rtk и babysitter",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": [
+          "C-PLUGIN"
+        ]
+      },
+      {
+        "id": "C-DOCS",
+        "name": "Документы и инвентарь",
+        "responsibility": "Список плагинов, счётчики, README/USERGUIDE/DEPLOYMENT, атрибуция лицензии в NOTICE",
+        "owner": "DOCS",
+        "owns": [],
+        "dependsOn": [
+          "C-PROFILE",
+          "C-PROV"
+        ]
+      }
+    ]
+  },
+  "data": [],
+  "contracts": [
+    {
+      "id": "CT-TOOL",
+      "name": "Схема инструмента outline",
+      "between": [
+        "C-PLUGIN"
+      ],
+      "change": "additive",
+      "description": "Новый инструмент с именем outline и схемой {path, depth, docstrings}; возвращает JSON-текст с массивом symbols {kind, name, line, endLine, signature}."
+    },
+    {
+      "id": "CT-SECTION",
+      "name": "Раздел промпта outline",
+      "between": [
+        "C-PLUGIN"
+      ],
+      "change": "additive",
+      "description": "Раздел промпта на уровне хоста: «незнакомый файл сначала оглавлением, потом read нужного диапазона»; адресован корню и всем пресетам."
+    },
+    {
+      "id": "CT-PROVISION",
+      "name": "Запись провижининга",
+      "between": [
+        "C-PROV"
+      ],
+      "change": "additive",
+      "description": "Запись внешнего инструмента с пином версии; установка необязательна, отсутствие деградирует с сообщением."
+    }
+  ],
+  "invariants": [
+    {
+      "id": "INV-NO-NETWORK-CALL",
+      "text": "Вызов не ходит в сеть: только локальный бинарь; отсутствие бинаря даёт сообщение, а не ошибку сессии",
+      "scope": "инструмент outline"
+    },
+    {
+      "id": "INV-BOUNDED",
+      "text": "Вызов ограничен таймаутом и размером вывода: большой файл не может завалить контекст оглавлением",
+      "scope": "инструмент outline"
+    },
+    {
+      "id": "INV-HOSTWIDE",
+      "text": "Инструмент виден корню и всем семи пресетам: ряд стоит на уровне хоста, а не внутри одного пресета",
+      "scope": "профиль"
+    },
+    {
+      "id": "INV-COUNTS",
+      "text": "Счётчик плагинов в README/USERGUIDE/инвентаре согласован: check-documentation зелёный",
+      "scope": "документы"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "DEC-EXTERNAL",
+      "decision": "Инструмент вызывает внешний бинарь code-skeleton-mcp, а не вкладывает tree-sitter в плагин.",
+      "rationale": "Кит запрещает runtime-зависимости в плагинах (инцидент 2026-11-16 с pnpm add на каждом запуске); внешний бинарь — уже принятый шаблон rtk/babysitter/marp, провижининг ставит его с пином, а плагин деградирует без него. Тёплый вызов — 450 мс, вложенная реализация дала бы ~100 мс, но за 2 МБ в каждом тарболе.",
+      "alternatives": [
+        "вложить web-tree-sitter и грамматики в пакет плагина (≈2 МБ) и разбирать в процессе",
+        "вызывать npx при каждом вызове без установки"
+      ]
+    },
+    {
+      "id": "DEC-HOSTWIDE",
+      "decision": "Ряд плагина монтируется на уровне хоста, поэтому и инструмент, и раздел получает каждый агент без дублирования текста.",
+      "rationale": "Владелец указал, что чтение полезно всем пресетам, а не только корневому агенту; host-уровень — то место, откуда ряд наследуют все, и оно сохраняет один экземпляр текста.",
+      "alternatives": [
+        "оставить раздел в CHILD_POLICY и добавить копию в ROOT_POLICY",
+        "вложить раздел в каждый пресет"
+      ]
+    },
+    {
+      "id": "DEC-SPLIT",
+      "decision": "Раздел говорит только про применение инструмента (оглавление → read диапазона); запрет переливки через shell остаётся в политике специалиста.",
+      "rationale": "Один текст — один владелец: правило поведения принадлежит политике, инструкция по инструменту — плагину инструмента; копия в двух местах стоила бы контекста каждому агенту.",
+      "alternatives": [
+        "только outline без правила",
+        "правило без инструмента"
+      ]
+    }
+  ],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L2",
+    "reasons": [
+      "Новый плагин кита и новый ряд в профиле на уровне хоста",
+      "Меняется набор инструментов каждого агента (все пресеты и корень)",
+      "Затрагиваются провижининг, инвентарь и документы",
+      "Внешняя зависимость с пином версии"
+    ]
+  },
+  "designRef": {
+    "mapRev": 30,
+    "at": "2026-11-17T10:13:00.000Z",
+    "source": "designmap/model.yaml@sha256:699c3c8c844c53b69ef4b2a9ca8300b45dfe73fd752c9e1c54cf2fec4b180f7d"
+  },
+  "goalId": "goal-dd27513d-e05b-4404-954c-fc89ecf36179",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "FR-1",
+      "processId": "P-TARGET",
+      "componentId": "C-PLUGIN",
+      "contractIds": [
+        "CT-TOOL"
+      ],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkjuuea-btst25",
+          "role": "оркестратор",
+          "at": "2026-11-17T10:28:00.000Z",
+          "evidence": [
+            "подставной ctx: apply() → agent/created для research, standard, backend, docs → registered:true, symbols:18, 4 791 Б",
+            "языки проверены живым вызовом: .mjs/.js/.jsx, .ts, .tsx, .py; .go даёт только типы — ограничение парсера, зафиксировано в описании",
+            "ошибки: EXIT с причиной для несуществующего файла и для markdown; INVALID_ARGS от харнесса при отсутствии path"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-2",
+      "processId": "P-TARGET",
+      "componentId": "C-PLUGIN",
+      "contractIds": [
+        "CT-TOOL"
+      ],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkjolvg-31h0s4",
+          "role": "REVIEWER",
+          "at": "2026-11-17T10:28:00.000Z",
+          "evidence": [
+            "outline-selftest PASS 6/6: 83 148 → 4 791 (94,2 %), 100 991 → 8 924 (91,2 %), детерминизм, EOVERFLOW",
+            "ревью независимо: 4 791 / 8 924 / 5 390 / 57 490 Б, 0,39–0,43 с",
+            "числа в текстах приведены к выдаче инструмента после ревью"
+          ]
+        },
+        {
+          "taskId": "task-mwkjuuea-btst25",
+          "role": "оркестратор",
+          "at": "2026-11-17T10:28:00.000Z",
+          "evidence": [
+            "после правки sectionText отдаёт 4 791 Б и ~0,4 с; selftest PASS"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-3",
+      "processId": "P-TARGET",
+      "componentId": "C-PROV",
+      "contractIds": [
+        "CT-PROVISION"
+      ],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkjc7nt-2kaqxc",
+          "role": "BACKEND",
+          "at": "2026-11-17T10:14:00.000Z",
+          "evidence": [
+            "provision-tools --check → ok code-skeleton-mcp 0.1.3, 20/20",
+            "PATH=/tmp/fakebin с битым бинарём → resolveOutlineBin → null; инструмент не регистрируется, раздел говорит unavailable",
+            "installWithNpm с пином 0.1.3; detect читает версию из манифеста, так как нет --version"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-4",
+      "processId": "P-TARGET",
+      "componentId": "C-PROFILE",
+      "contractIds": [
+        "CT-SECTION"
+      ],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkjolvg-31h0s4",
+          "role": "REVIEWER",
+          "at": "2026-11-17T10:28:00.000Z",
+          "evidence": [
+            "profile/cordis.patch.yml:392-394 — ряд на уровне хоста (до preset-блоков, которые начинаются со строки 607)",
+            "регистрация agent/created без проверки пресета; подставной ctx дал outline для research, standard, backend, docs",
+            "ревью: deny-списки tool-families outline не отбивают; живая шапка — шаг владельца при перезапуске"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-5",
+      "processId": "P-TARGET",
+      "componentId": "C-DOCS",
+      "contractIds": [
+        "CT-SECTION"
+      ],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkjc7nt-2kaqxc",
+          "role": "BACKEND",
+          "at": "2026-11-17T10:28:00.000Z",
+          "evidence": [
+            "inventory.json: outline, mounted true, 24 плагина",
+            "check-documentation documentation ok, 24 committed plugins agree",
+            "тарбол cc-dsh-outline-0.1.1.tgz sha256 8cfdd944… побайтно равен исходникам; check-portability 16/17 — единственный FAIL чужой designmap",
+            "NOTICE: код-skeleton-mcp 0.1.3 MIT; USERGUIDE таблица бинарей и README провижининг дополнены"
+          ]
+        }
+      ]
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "a8a24bc57c70d7f70e3385df53dafa81ced72a147a75d97eeb9f02ee3a993d7f",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-17T10:13:41.257Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-17T10:13:46.209Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-17T10:14:10.780Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-17T10:14:10.904Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwkjc7nt-2kaqxc -> FR-1, FR-2, FR-3, FR-4, FR-5"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-17T10:28:32.996Z",
+      "editedBy": "agent",
+      "action": "impact",
+      "status": "draft",
+      "summary": "Правка после ревью: числа в требованиях и текстах приведены к тому, что реально отдаёт инструмент (4 791 / 8 924 / 5 390 / 57 490 Б вместо 4 792 / 8 925 / 5 391 / 57 491), в FR-1 добавлено ограничение парсера (Go отдаёт только типы, без функций), в FR-4 зафиксирован фактический уровень проверки: host-уровень и регистрация без фильтра пресета доказаны подставным контекстом, живая шапка проверяется при перезапуске сервера."
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-17T10:29:17.201Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR-1 changed, FR-2 changed, FR-3 changed, FR-4 changed, FR-5 changed"
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-17T10:29:22.708Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "completed",
+      "summary": ""
+    }
+  ]
+}

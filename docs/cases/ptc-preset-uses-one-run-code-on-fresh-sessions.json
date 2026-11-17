@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "id": "ptc-preset-uses-one-run-code-on-fresh-sessions",
+  "title": "PTC preset uses one run_code on fresh sessions",
+  "requirement": "Пресет, смонтировавший tool-executor-ptc, в свежей сессии видит один run_code и выполняет задачу через вложенные вызовы; остальные пресеты и корень остаются native.",
+  "kind": "regression",
+  "status": "unverified",
+  "source": "agent",
+  "automated": false,
+  "reason": "Требует живого второго web-сервера и свежих сессий с выбранным пресетом; исходники гарнесса (dsh-agent-preset, dsh-tool-executor-ptc) не принадлежат этому репозиторию, а поддельный контекст не проверяет реальную шапку запроса.",
+  "steps": [
+    "Собрать id-оверлей из блоков preset-gatherer и preset-reviewer в profile/cordis.patch.yml; --dump-config показывает tool-executor-ptc только у них",
+    "Поднять второй web-сервер на 3081 с этим слоем; :3080 не трогать",
+    "Создать свежие сессии gatherer, reviewer и native backend; пресет выбрать до первого сообщения",
+    "Дать задачу, требующую чтения и команды: gatherer — отчёт по файлам, reviewer — node scripts/outline-selftest.mjs",
+    "Прочитать журналы: request/header → data.header.tools[], system/message → data.message.content[].text, tool/ptc-dispatch; сверить ответы независимо",
+    "Остановить :3081, убрать временные сессии; убедиться, что установленный профиль и :3080 не менялись"
+  ],
+  "expected": "В PTC-сессии request/header содержит ровно один инструмент run_code; system/message содержит раздел «Writing code for run_code» и SDK с инструментами пресета; в журнале есть tool/ptc-dispatch; ответ корректен; INVALID_REQUEST и CODE_RUN_FAILED отсутствуют. Свежая native-сессия другого пресета видит много инструментов и не видит run_code. :3080 не перезапускается.",
+  "tags": [
+    "ptc",
+    "preset",
+    "run_code",
+    "second-server"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "profile/cordis.patch.yml",
+      "sha256": "d73893908a655a486c642c24c0b9e3c8c192df7c7675894978eab0465d4ab4d4"
+    }
+  ],
+  "linkedTaskId": "task-mwkk3shd-vpgj4y",
+  "revision": 1,
+  "createdAt": "2026-11-17T10:46:20.727Z",
+  "updatedAt": "2026-11-17T10:46:20.727Z",
+  "createdBy": "orchestrator",
+  "createdByKind": "agent",
+  "history": [],
+  "evidence": {}
+}

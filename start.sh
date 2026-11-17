@@ -10,13 +10,12 @@
 #   DSH_HOME  harness home (default ~/.npm/dsh)
 #   PORT      listen port (default 3080)
 #   KIT_UPDATE=0   boot without checking the kit
-#   HEADROOM=0     boot without the Headroom compression overlay even when enabled
 #   SESSION_STORE=0  boot without the session-store guard
 # OUTPUTS
 #   Exit code of `dsh web`, or 1 when the kit check fails or no profile exists.
 #   The update decision and the token URL are printed to the console.
 # KEYWORDS
-#   dsh-kit, startup, convergence, DSH_HOME, port, token URL, headroom
+#   dsh-kit, startup, convergence, DSH_HOME, port, token URL
 #
 # BEHAVIOUR ON EDGE CASES
 #   - No kit checkout next to this script: boots anyway, because a machine can
@@ -25,10 +24,6 @@
 #     a harness with nothing composed.
 #   - Non-interactive stdin: a pending update is reported and skipped rather
 #     than applied unseen.
-#   - Headroom enabled but its proxy cannot be made healthy: the overlay is NOT
-#     added and the reason is printed, because a redirect to a dead 127.0.0.1
-#     port fails every model request. Losing compression is recoverable; losing
-#     the model is not.
 #   - One unreadable session log: the store guard moves it out first. dsh aborts the
 #     WHOLE cross-workspace listing on any error it does not recognise as corruption,
 #     so a single file the OS refuses (an on-access scanner returning EPERM is the
@@ -41,8 +36,6 @@ export DSH_HOME
 KIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 UPDATER="${KIT_DIR}/scripts/kit-update.mjs"
 PROFILE="${DSH_HOME}/profiles/web/cordis.patch.yml"
-HEADROOM_MARKER="${DSH_HOME}/headroom/enabled"
-HEADROOM_PATCH="${DSH_HOME}/headroom/patch.yml"
 
 if [ ! -f "${PROFILE}" ]; then
   echo "no web profile at ${PROFILE} yet" >&2
@@ -69,20 +62,6 @@ if [ "${KIT_UPDATE:-1}" != "0" ] && [ -f "${UPDATER}" ]; then
   fi
 fi
 
-PATCH_ARGS=()
-if [ "${HEADROOM:-1}" != "0" ] && [ -f "${HEADROOM_MARKER}" ] && [ -f "${HEADROOM_PATCH}" ] && [ -f "${KIT_DIR}/scripts/headroom.mjs" ]; then
-  # The reason matters: "not healthy" alone sends the operator to a log. The
-  # script's own `error:` line is the one sentence that says what to fix.
-  if ENSURE_OUT="$(node "${KIT_DIR}/scripts/headroom.mjs" ensure --home "${DSH_HOME}" 2>&1)"; then
-    PATCH_ARGS=(--patch "${HEADROOM_PATCH}")
-    echo "headroom: compression active on every model request" >&2
-  else
-    echo "headroom is enabled but its proxy is not healthy; booting WITHOUT compression" >&2
-    printf '%s\n' "${ENSURE_OUT}" | sed -n 's/^  error: /  reason: /p' >&2
-    echo "  see: node scripts/headroom.mjs doctor" >&2
-  fi
-fi
-
 # The session store decides whether the UI has any history at all. dsh treats an
 # unreadable session log as fatal rather than skippable, so one file the OS refuses
 # aborts the whole cross-workspace listing: `workspace` never activates, four plugins
@@ -101,4 +80,4 @@ fi
 OPEN_ARGS=()
 if [ "${OPEN:-0}" != "1" ]; then OPEN_ARGS=(--no-open); fi
 
-exec dsh web ${PATCH_ARGS[@]+"${PATCH_ARGS[@]}"} ${OPEN_ARGS[@]+"${OPEN_ARGS[@]}"} --port "${PORT:-3080}"
+exec dsh web ${OPEN_ARGS[@]+"${OPEN_ARGS[@]}"} --port "${PORT:-3080}"

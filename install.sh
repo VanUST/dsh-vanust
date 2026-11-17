@@ -82,7 +82,7 @@ echo "   installing the kit plugins (see plugins/inventory.json)..."
 #    `scripts/kit-update.mjs --apply`.
 cp "${KIT_DIR}/rules/DEPLOYMENT.md" "${DSH_HOME}/DEPLOYMENT.md"
 
-# 6. The external binaries the features use: RTK, Headroom, Babysitter, Marp, Mermaid
+# 6. The external binaries the features use: RTK, Marp, Mermaid
 #    CLI, D2. They are OPTIONAL by design — every feature degrades and says so — which
 #    is exactly why a fresh machine silently lacks them for weeks. Best effort: a
 #    failure here names the manual command and never fails the install.

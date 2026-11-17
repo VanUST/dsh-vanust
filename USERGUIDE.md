@@ -38,7 +38,11 @@ needs no document — the record is the only trace store),
 near-duplicate new role unless `forceRole` is passed, attaches to an existing task when
 `taskId` is given, and carries a re-created role's earlier results into its brief),
 **`@cc/dsh-papers`** (arXiv/Hugging Face paper search, HF daily trending, and a PDF
-download with text extraction).
+download with text extraction),
+**`@cc/dsh-outline`** (the `outline` tool: the symbols and line ranges of a source file
+instead of the whole file, so an unknown file costs a fraction of its bytes and you then
+`read` only the range you picked; mounted on the host, so the root and every preset get it,
+and it says `outline unavailable` when `code-skeleton-mcp` is absent).
 `plugins/inventory.json` is the single source of truth for that set;
 `scripts/check-portability.mjs` fails when a tarball, a mounted profile row, a
 source directory or a packing entry point disagrees with it. The harness version
@@ -117,7 +121,7 @@ production data, and it is not the same job as Reviewer (judges a diff) or UX/UI
 interface). Pick **standard** when you want a chat that edits work
 directly instead of delegating; that is the hands-on escape hatch, and it keeps every kit
 tool. The rest of the kit's role-specific tools follow the same rule: `papers_*` only in
-Research, `babysitter_*` only for the Orchestrator, `diagram`/`presentation` for the
+Research, `diagram`/`presentation` for the
 Orchestrator and UX/UI.
 
 **A delegated role is a `(name, preset)` pair, and the name keeps one preset.** `delegate_task`
@@ -537,8 +541,7 @@ SKIP_TOOLS=1 ./install.sh                          # skip the step entirely
 | Tool | Needed by | Installed as |
 |---|---|---|
 | `rtk` | shell-output compression | `rtk-oss` installer (Apache-2.0 only, `RTK_EDITION`) |
-| `headroom` | model-traffic compression | `uv tool install "headroom-ai[proxy]"` |
-| `babysitter` | process runs | `npm -g @a5c-ai/babysitter` |
+| `code-skeleton-mcp` | `outline`: a cheap code outline for every agent | `npm -g code-skeleton-mcp@0.1.3` |
 | `marp` | deck export → PDF/PPTX | `npm -g @marp-team/marp-cli` |
 | `mmdc` | Mermaid source → SVG | `npm -g @mermaid-js/mermaid-cli` with no bundled Chromium; a puppeteer config pointing at your Chrome is written to `$DSH_HOME/mermaid-puppeteer.json` |
 | `d2` | D2 source → SVG/PNG/PPTX | the latest release tarball into `~/.local/bin` |
@@ -556,7 +559,7 @@ SKIP_TOOLS=1 ./install.sh                          # skip the step entirely
 Everything is optional: a missing tool degrades its feature with a message rather than failing a
 run. That is also why the check exists — silence was indistinguishable from "not needed".
 
-## 8. The three outside tools (RTK, Headroom, skill evolution, Babysitter)
+## 8. The outside tools (RTK, skill evolution)
 
 Each is a decision, not a default; none is required for the harness to run.
 
@@ -566,20 +569,6 @@ Each is a decision, not a default; none is required for the harness to run.
 | `@cc/dsh-session-budget` | Reminds the agent (and you) at steps 300/400/500 to write a handoff note and continue in a new session, before the context gets expensive | Already in the profile; thresholds and notifications are config on the row (`thresholds`, `notify`, `notifyChildren`) | Remove the row, or set `enabled: false` — no state is kept outside the session log |
 | `@cc/dsh-run-code-projection` | Turns a `run_code` result above 8 KiB into a banner + head + tail with the full text in `.dsh/spill/` inside the workspace, so the bulk stops riding every step | Already in the profile; `minBytes`, `headBytes`, `tailBytes`, `minSavingRatio` and `spillDir` are config on the row | Remove the row, or set `enabled: false` — the spill files stay on disk |
 | `@cc/dsh-skill-evolve` | Skills grow: write, version, dedupe and archive `SKILL.md` under `$DSH_HOME/skills` | Already in the profile — four tools appear (`skill_evolve`, `skill_inventory`, `skill_grow`, `skill_forget`) | Remove the row; the library files stay |
-| Headroom proxy | Compresses model traffic itself (prompt payloads, tool results) — measured 19 955 → 8 208 input tokens on a 61 KB JSON result | `node scripts/headroom.mjs enable` then restart, or just `./start.sh` (it calls `ensure`); to launch `dsh web` directly instead, install `node scripts/headroom.mjs unit` as a systemd user service so the proxy is up regardless of who boots the harness | `node scripts/headroom.mjs disable --stop`, or `HEADROOM=0 ./start.sh` for one boot |
-| `@cc/dsh-babysitter` | Runs a deterministic babysitter process and tracks it as ONE taskboard task | `npm install -g @a5c-ai/babysitter`; rows in the profile | Remove the row; the CLI stays installed |
-
-The one ordering rule that matters: **the proxy must be healthy before the overlay is
-applied.** `start.sh` enforces it — with the marker present it runs `ensure` and adds
-`--patch $DSH_HOME/headroom/patch.yml` only on success, and prints a line either way. If you
-wire it by hand, do the same, or a dead loopback port will refuse every model request.
-
-A boot script is not a supervisor. `enable` leaves the proxy attached to nothing, so if it
-dies the harness keeps pointing at a dead loopback port and every turn ends in
-`DeepSeek Messages transport failed`. That matters the moment you launch `dsh web` yourself
-rather than through `./start.sh`: run `node scripts/headroom.mjs unit` once and install the
-printed file as a systemd user service (`Restart=always`), and the proxy stops depending on
-anyone remembering it.
 
 RTK does not rewrite commands (this harness cannot rewrite tool arguments at all), so the
 compression happens on the way back. When a result was elided, the banner at the top of the

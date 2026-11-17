@@ -41,10 +41,17 @@
  *     disabled      true to load the row and restrict nothing (a one-line rollback).
  *
  * OUTPUTS
- *   One `agent/created` listener. For a preset with an effective policy it calls
- *   `agent.ctx.tools.restrict({ deny })` ONCE, before the first request header exists, and
- *   logs the preset, the denied families, the removed tool count and the schema bytes that
- *   leave the prefix. No tool, no prompt section, no session event.
+ *   An `agent/created` listener PLUS an `agent/pre-step` listener that re-reads the preset on
+ *   every step. The preset comes from the `agentPresets` projection
+ *   (`presetForSession(agent.session)`, the authority for a selection made AFTER the session
+ *   exists) and falls back to `agent.session.header.agentPreset` (the value the session was
+ *   created with). For a preset with an effective policy it calls
+ *   `agent.ctx.tools.restrict({ deny })` before the first request header exists and logs the
+ *   preset, the denied families, the removed tool count and the schema bytes that leave the
+ *   prefix. On a preset CHANGE it lifts the previous restriction (the disposer returned by
+ *   `restrict`) and installs the new one, so the earlier preset's denies are not left in
+ *   force: `dsh-tools` intersects restrictions, so stacking two calls would keep both.
+ *   No tool, no prompt section, no session event.
  *
  * KEYWORDS
  *   preset, tool family, MCP, tools.restrict, context economy, godot, playwright, role surface
@@ -173,30 +180,93 @@ export function apply(ctx, config = {}) {
   if (presets.length === 0) return
 
   const debug = process.env.TOOL_FAMILIES_DEBUG === '1'
-  /** Agents already offered the restriction, so the deferred attempt runs once each. */
-  const settled = new WeakSet()
+  /**
+   * The policy IN FORCE on each agent: `{ preset, dispose }`.
+   *
+   * A WeakMap rather than a "settled" flag, because the preset can change after the agent
+   * exists (the preset seat on an empty session): the map says which preset's restriction is
+   * installed, so a different preset is a recompute and not a second, intersecting filter.
+   */
+  const applied = new WeakMap()
 
   /**
-   * Apply the preset's deny list to one agent, once.
+   * Presets selected on a session that has no agent yet (a blank session being set up).
+   *
+   * The choice is committed as `agent-preset/selected` BEFORE the first message exists — that
+   * is the only moment early enough to restrict before the first request header is derived.
+   * The projection cannot answer at `agent/created` (measured on a second server 2026-11-17:
+   * `presetForSession` returned nothing there, so the row fell back to the creation header and
+   * the FIRST request kept all 24 `mcp__playwright__*` tools; the restriction only reached the
+   * second request). Keyed by session id, dropped once the agent has been seen.
+   */
+  const pending = new Map()
+  const remember = (sessionId, preset) => {
+    if (typeof sessionId === 'string' && typeof preset === 'string' && preset.trim() !== '') pending.set(sessionId, preset)
+  }
+
+  /**
+   * The preset in force for an agent, read from the authority rather than the creation header.
+   *
+   * `agent.session.header.agentPreset` is only the value the session was CREATED with: a
+   * selection made afterwards is committed as an `agent-preset/selected` event and reaches the
+   * agent through the registry's `agentPreset` projection
+   * (`dsh-agent-preset-registry/lib/index.js`, `presetForSession(session)`). Reading the header
+   * alone kept the first preset's policy forever — measured on a second server 2026-11-17: a
+   * session created under `orchestrator` and switched to `backend` still received all 24
+   * `mcp__playwright__*` tools that the backend row denies.
+   *
+   * @returns the preset id, or undefined when the agent has none (the `standard` composition).
+   */
+  const resolvePreset = (agent) => {
+    try {
+      const fromProjection = ctx.get?.('agentPresets')?.presetForSession?.(agent?.session)
+      if (typeof fromProjection === 'string' && fromProjection.trim() !== '') return fromProjection
+    } catch {
+      // A projection that is not mounted (a bare headless assembly) falls through to the header.
+    }
+    const selected = pending.get(agent?.session?.id)
+    if (selected !== undefined) return selected
+    const fromHeader = agent?.session?.header?.agentPreset
+    return typeof fromHeader === 'string' && fromHeader.trim() !== '' ? fromHeader : undefined
+  }
+
+  /**
+   * Bring one agent's restriction in line with its CURRENT preset.
    *
    * ORDERING IS THE WHOLE PROBLEM. The bridge registers MCP tools on the host plane, and the
    * agent's visible set is derived when a request is built. An `agent/created` call is the
    * earliest moment, but it is not guaranteed to be AFTER the bridge populated the global layer
    * (and `tools.restrict` validates every name against `restrictableNames`, so an unknown name
-   * throws instead of being ignored). This runs at `agent/created` and, when that produced
-   * nothing (no visible names, or names still unknown), again on the first `agent/pre-step`
-   * — still before the request header is derived for that step.
+   * throws instead of being ignored). This runs at `agent/created` and on EVERY
+   * `agent/pre-step` — before the request header of that step exists — so a preset selected
+   * after creation, or a pattern that matched nothing yet, is recomputed.
    *
-   * @returns true when a restriction was installed (or the agent is out of policy).
+   * REPLACE, DO NOT STACK: `dsh-tools` intersects restrictions ("Restrictions intersect;
+   * scoped registrations remain visible"), so a second `restrict` keeps the first preset's
+   * denies. The disposer returned by the first call is kept and lifted before the new list
+   * is installed.
+   *
+   * @returns true when the agent's restriction matches its preset (installed, lifted, or out
+   *   of policy), false when the attempt has to be retried on the next step.
    */
-  const applyTo = (agent, when) => {
-    if (settled.has(agent)) return true
-    const preset = agent?.session?.header?.agentPreset
+  const applyTo = (agent, when, presetOverride) => {
+    const preset = presetOverride ?? resolvePreset(agent)
+    const current = applied.get(agent)
+    if (current !== undefined && current.preset === preset) return true
     const cwd = agent?.session?.header?.cwd
     const tools = agent?.ctx?.tools
     if (typeof tools?.restrict !== 'function') {
       if (debug) console.error(`tool-families[debug:${when}]: no agent-scoped tools.restrict (preset=${preset})`)
       return false
+    }
+    const lift = (why) => {
+      try {
+        current.dispose?.()
+      } catch {
+        // A disposer is best-effort: the next restrict is still the current truth.
+      }
+      applied.delete(agent)
+      if (debug) console.error(`tool-families[debug:${when}]: lifted the "${current.preset}" restriction (${why})`)
     }
     try {
       // The GLOBAL view: `schemas()` without a scope is the host plane, which is where the MCP
@@ -217,28 +287,34 @@ export function apply(ctx, config = {}) {
       if (debug) {
         console.error(`tool-families[debug:${when}]: preset=${preset} host=${hostSchemas.length} agent=${agentSchemas.length} deny=${decision.deny.length} unmatched=${decision.unmatched.join(',') || '-'} kept=${decision.keptProjectDeny.join(',') || '-'}`)
       }
+      // A preset without a row is out of policy: lift whatever the previous preset installed
+      // and stop. A new role must not lose tools because nobody wrote a row for it yet.
       if (resolved.families[preset] === undefined) {
-        settled.add(agent)
+        if (current !== undefined) lift('the preset has no policy row')
         return true
       }
+      // Nothing to deny with a pattern still unmatched: the MCP bridge may not have registered
+      // yet, so this is a retry, not an applied state.
       if (decision.deny.length === 0 && decision.unmatched.length > 0) return false
       if (decision.deny.length === 0) {
+        if (current !== undefined) lift('the current preset denies nothing here')
         if (decision.keptProjectDeny.length > 0) {
           ctx.logger?.info?.(`tool-families: preset "${preset}" keeps ${decision.keptProjectDeny.join(', ')} (project marker present in ${cwd})`)
         }
-        settled.add(agent)
         return true
       }
       const bytes = removedBytes(schemas, decision.deny)
       const entry = resolved.families[preset] ?? {}
-      tools.restrict({ deny: decision.deny, ...(entry.allow?.length ? { allow: entry.allow } : {}) })
-      settled.add(agent)
+      if (current !== undefined) lift(`preset changed to "${preset}"`)
+      const dispose = tools.restrict({ deny: decision.deny, ...(entry.allow?.length ? { allow: entry.allow } : {}) })
+      applied.set(agent, { preset, dispose: typeof dispose === 'function' ? dispose : undefined })
       ctx.logger?.info?.(
         `tool-families: preset "${preset}" denied ${decision.deny.length} tool(s) (${bytes} B of schema) via ${decision.patterns.join(', ')}`
+          + `${current !== undefined ? ` [recomputed from "${current.preset}"]` : ''}`
           + `${decision.keptProjectDeny.length > 0 ? `; kept ${decision.keptProjectDeny.join(', ')}` : ''}`
           + `${decision.unmatched.length > 0 ? `; unmatched ${decision.unmatched.join(', ')}` : ''}`,
       )
-      if (debug) console.error(`tool-families[debug:${when}]: applied ${decision.deny.length} deny name(s)`)
+      if (debug) console.error(`tool-families[debug:${when}]: applied ${decision.deny.length} deny name(s) for "${preset}"`)
       return true
     } catch (error) {
       // Reported, never thrown: a boot that cannot restrict still works, it just pays more.
@@ -249,15 +325,43 @@ export function apply(ctx, config = {}) {
     }
   }
 
+  // The ONLY moment early enough for the first request header.
+  //
+  // Order inside a step is: tools resolve -> system prompt assembles -> `agent/pre-step`. The
+  // first request header is derived from that resolution, so a `restrict` installed at
+  // `agent/pre-step` can only reach the SECOND request (measured: 91 tools with 24
+  // `mcp__playwright__*` on request 1, 67 without on request 2). The preset selection itself is
+  // committed as a `session/event` of type `agent-preset/selected` while the session is still
+  // blank — long before its first step.
+  //
+  // It must be heard on the ROOT context: this row and the `agentPresets` registry are
+  // SIBLINGS, and Cordis raises an event to its ancestors, never sideways to a sibling.
+  // `dsh-agent-preset-registry/lib/index.js` listens to the same `session/event` on its own
+  // context and re-emits `agent-preset/selected` there, which is why listening on this row's
+  // own context saw nothing.
+  if (typeof ctx.root?.on === 'function') {
+    ctx.root.on('session/event', (session, event) => {
+      if (event?.type !== 'agent-preset/selected') return
+      const preset = event?.data?.agentPreset
+      const sessionId = session?.id
+      if (typeof preset !== 'string' || preset.trim() === '') return
+      const live = ctx.get?.('agents')?.get?.(sessionId)
+      if (live !== undefined && live !== null) applyTo(live, 'selected', preset)
+      else remember(sessionId, preset)
+    })
+  }
+
   ctx.on('agent/created', ({ agent }) => {
     if (agent === undefined || agent === null) return
     applyTo(agent, 'created')
+    pending.delete(agent?.session?.id)
   })
-  // The retry that makes the policy non-inert: `prepend` so it runs before any other contributor
-  // derives a message, and before the request header of this step exists.
+  // The retry AND the recompute: `prepend` so it runs before any other contributor derives a
+  // message, and before the request header of this step exists. It compares the agent's current
+  // preset with the one in force, so a preset selected after creation is applied here.
   ctx.on('agent/pre-step', async (payload, next) => {
     const agent = payload?.agent
-    if (agent !== undefined && agent !== null && !settled.has(agent)) applyTo(agent, 'pre-step')
+    if (agent !== undefined && agent !== null) applyTo(agent, 'pre-step')
     return next()
   }, { prepend: true })
 }

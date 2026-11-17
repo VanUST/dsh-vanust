@@ -91,12 +91,12 @@ function schemasFromSession(dir) {
 const schemas = sessionDir ? schemasFromSession(sessionDir) : null
 const visible = schemas ? schemas.map((schema) => schema.name) : syntheticNames()
 const totalBytes = schemas ? schemas.reduce((total, schema) => total + schema.bytes, 0) : 0
-const { normalizeConfig, decide, removedBytes } = await import(pathToFileURL(pluginPath).href)
+const { normalizeConfig, decide, removedBytes, apply } = await import(pathToFileURL(pluginPath).href)
 
 // The shipped policy, copied from profile/cordis.patch.yml. Duplication is deliberate: this
 // script must be able to test a DIFFERENT plugin build against the agreed policy, so it does
 // not read the live row (a drifted row is the defect it should catch, not its input).
-const POLICY = normalizeConfig({
+const POLICY_RAW = {
   projectMarkers: { 'mcp__godot__*': 'project.godot' },
   families: {
     orchestrator: { deny: ['mcp__godot__*'] },
@@ -108,7 +108,8 @@ const POLICY = normalizeConfig({
     gatherer: { deny: ['mcp__playwright__*'], projectDeny: ['mcp__godot__*'] },
     docs: { deny: ['mcp__playwright__*', 'mcp__godot__*'] },
   },
-})
+}
+const POLICY = normalizeConfig(POLICY_RAW)
 
 const PRESETS = [undefined, 'orchestrator', 'ux', 'backend', 'reviewer', 'critic', 'research', 'gatherer', 'docs', 'a-preset-nobody-wrote']
 const WORKSPACES = [
@@ -203,6 +204,132 @@ if (schemas) {
 } else {
   console.log(`  [note] schema bytes need --from-session (a real request/header carries sizes); names only here`)
 }
+
+// ── lifecycle: the preset is read from the projection, and a change recomputes ──
+// The defect this section exists for (measured on a second server 2026-11-17): a session
+// created under `orchestrator` and switched to `backend` kept the orchestrator restriction and
+// received all 24 `mcp__playwright__*` tools the backend row denies, because the plugin read
+// `session.header.agentPreset` (the creation value) and marked the agent done after one pass.
+console.log('\nlifecycle: a preset selected after the session exists')
+const fakeSchemas = visible.map((name) => ({ name, description: '', inputSchema: { type: 'object' } }))
+const lifecycleCtx = () => {
+  const handlers = { 'agent/created': [], 'agent/pre-step': [], 'session/event': [] }
+  const restricts = []
+  const lifted = []
+  const infos = []
+  const projection = new Map()
+  const liveAgents = new Map()
+  const ctx = {
+    on(event, handler) {
+      (handlers[event] ??= []).push(handler)
+    },
+    get(name) {
+      if (name === 'agentPresets') return { presetForSession: (session) => projection.get(session?.id) }
+      if (name === 'agents') return { get: (id) => liveAgents.get(id) }
+      return undefined
+    },
+    tools: { schemas: () => fakeSchemas },
+    logger: { info: (message) => infos.push(String(message)) },
+  }
+  // `ctx.root` is the root context: the row and the registry are siblings, and Cordis raises an
+  // event upward, so a sibling's own `on` never sees the other's emission.
+  ctx.root = ctx
+  return { ctx, liveAgents, handlers, restricts, lifted, infos, projection }
+}
+const fakeAgent = (env, creationPreset) => ({
+  session: { id: 'probe-session', header: { agentPreset: creationPreset, cwd: KIT } },
+  ctx: {
+    tools: {
+      schemas: () => fakeSchemas,
+      restrict(filter) {
+        env.restricts.push(filter)
+        return () => env.lifted.push(filter)
+      },
+    },
+  },
+})
+const emitSelected = async (env, sessionId, preset) => {
+  const session = { id: sessionId }
+  const event = { type: 'agent-preset/selected', data: { agentPreset: preset } }
+  for (const handler of env.handlers['session/event']) await handler(session, event)
+}
+const created = async (env, agent) => {
+  for (const handler of env.handlers['agent/created']) await handler({ agent })
+}
+const preStep = async (env, agent) => {
+  let continued = false
+  for (const handler of env.handlers['agent/pre-step']) await handler({ agent }, async () => { continued = true })
+  return continued
+}
+const env = lifecycleCtx()
+apply(env.ctx, POLICY_RAW)
+const agent = fakeAgent(env, 'orchestrator')
+await created(env, agent)
+check('created under orchestrator installs exactly one restriction', env.restricts.length === 1, `restricts=${env.restricts.length}`)
+check(
+  'the created restriction is the orchestrator deny (godot gone, playwright kept)',
+  env.restricts[0].deny.some((name) => name.startsWith('mcp__godot__')) && !env.restricts[0].deny.some((name) => name.startsWith('mcp__playwright__')),
+  `deny=${env.restricts[0].deny.length}`,
+)
+env.projection.set('probe-session', 'backend')
+const continued = await preStep(env, agent)
+check('pre-step runs next() (it is a waterfall participant)', continued === true)
+check('a preset selected after creation recomputes: a second restriction is installed', env.restricts.length === 2, `restricts=${env.restricts.length}`)
+const backendDeny = env.restricts[1]?.deny ?? []
+check(
+  'the recomputed restriction is the backend deny: playwright removed, bash kept',
+  backendDeny.some((name) => name.startsWith('mcp__playwright__')) && !backendDeny.includes('bash'),
+  `playwright=${backendDeny.filter((name) => name.startsWith('mcp__playwright__')).length} bash=${backendDeny.includes('bash')}`,
+)
+check('the previous (orchestrator) restriction is lifted, not stacked', env.lifted.length === 1, `lifted=${env.lifted.length}`)
+check('the recompute is logged with the preset it came from', env.infos.some((line) => /preset "backend"/.test(line) && /recomputed from "orchestrator"/.test(line)), env.infos.at(-1) ?? '(none)')
+const before = env.restricts.length
+await preStep(env, agent)
+check('a second step under the same preset installs nothing new', env.restricts.length === before, `restricts=${env.restricts.length}`)
+env.projection.set('probe-session', 'a-preset-nobody-wrote')
+await preStep(env, agent)
+check('switching to a preset with no policy row lifts the restriction', env.lifted.length === 2 && env.restricts.length === before, `lifted=${env.lifted.length} restricts=${env.restricts.length}`)
+
+// A preset selected while the session is still BLANK is the case where the projection cannot
+// answer yet: `agent/created` must already know the chosen preset, or the FIRST request is
+// built with the old one (measured: 91 tools with 24 playwright on request 1, 67 without on 2).
+const earlyEnv = lifecycleCtx()
+apply(earlyEnv.ctx, POLICY_RAW)
+const earlyAgent = fakeAgent(earlyEnv, 'orchestrator')
+earlyEnv.liveAgents.set('probe-session', earlyAgent)
+await emitSelected(earlyEnv, 'probe-session', 'backend')
+check('the ROOT session/event listener restricts the live agent at selection time', earlyEnv.restricts.length === 1, `restricts=${earlyEnv.restricts.length} (before any created/pre-step)` )
+const earlyDeny = earlyEnv.restricts[0]?.deny ?? []
+check(
+  'that first restriction is the backend deny (playwright gone, bash kept)',
+  earlyDeny.some((name) => name.startsWith('mcp__playwright__')) && !earlyDeny.includes('bash'),
+  `playwright=${earlyDeny.filter((name) => name.startsWith('mcp__playwright__')).length} bash=${earlyDeny.includes('bash')}`,
+)
+
+// The selection may arrive before the agent is published (a blank session has none): it is
+// remembered by session id and applied at `agent/created`, still before the first step.
+const pendingEnv = lifecycleCtx()
+apply(pendingEnv.ctx, POLICY_RAW)
+await emitSelected(pendingEnv, 'probe-session', 'backend')
+check('a selection with no live agent installs nothing yet', pendingEnv.restricts.length === 0, `restricts=${pendingEnv.restricts.length}`)
+const pendingAgent = fakeAgent(pendingEnv, 'orchestrator')
+await created(pendingEnv, pendingAgent)
+const pendingDeny = pendingEnv.restricts[0]?.deny ?? []
+check('the remembered selection is applied at agent/created', pendingEnv.restricts.length === 1 && pendingDeny.some((name) => name.startsWith('mcp__playwright__')), `restricts=${pendingEnv.restricts.length} playwright=${pendingDeny.filter((n) => n.startsWith('mcp__playwright__')).length}`)
+check('the restriction installed for the remembered selection keeps bash', !pendingDeny.includes('bash'), `bash=${pendingDeny.includes('bash')}`)
+
+// An unmatched pattern must not be recorded as applied: the MCP bridge may register later.
+const unmatchedEnv = lifecycleCtx()
+apply(unmatchedEnv.ctx, { families: { backend: { deny: ['mcp__absent__*'] } } })
+const unmatchedAgent = fakeAgent(unmatchedEnv, 'backend')
+unmatchedEnv.projection.set('probe-session', 'backend')
+const firstTry = await preStep(unmatchedEnv, unmatchedAgent)
+const secondTry = await preStep(unmatchedEnv, unmatchedAgent)
+check(
+  'an unmatched pattern is a retry, not an applied restriction',
+  unmatchedEnv.restricts.length === 0 && unmatchedEnv.lifted.length === 0,
+  `restricts=${unmatchedEnv.restricts.length} (next() called: ${firstTry}/${secondTry})`,
+)
 
 const passed = results.filter((r) => r.ok).length
 console.log(`\n${passed}/${results.length} checks passed`)

@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "specialists-read-files-with-tools-not-shell",
+  "title": "Specialists read files with tools not shell",
+  "requirement": "Владелец потребовал, чтобы специалисты экономили контекст на входе: читали файлы инструментом read с диапазоном строк и искали grep/glob, а не переливали содержимое файлов через sed/cat/ls в shell. Измерение 2026-11-17: 75,3% байт выдачи shell приходит из команд вне фильтров, sed один даёт 3,84 МБ из 15,4 МБ.",
+  "kind": "scenario",
+  "status": "unverified",
+  "source": "human",
+  "automated": false,
+  "reason": "Это правило в тексте политики специалиста, а не код: поведение агента не воспроизводится тестовым файлом. Проверяется чтением нового пункта CHILD_POLICY и наблюдением за вызовами в логах сессий (инструмент чтения против shell).",
+  "steps": [
+    "Прочитать новый пункт в константе CHILD_POLICY (plugins/orchestrator/orchestrator.mjs)",
+    "Запустить специалиста BACKEND или REVIEWER на задаче, требующей чтения двух-трёх файлов",
+    "Посмотреть в логе сессии, какие инструменты он вызвал: read/grep/glob или bash с sed/cat/ls"
+  ],
+  "expected": "Агент читает файл инструментом read (offset/limit) или ищет grep/glob; в shell остаются сборки, тесты, git и запуск программ. Результат шага не содержит целиком влитого в контекст файла из sed/cat/ls.",
+  "tags": [
+    "context-economy",
+    "prompt-rule",
+    "reading"
+  ],
+  "surfaceFiles": [],
+  "linkedTaskId": "task-mwkigak3-5y7y50",
+  "revision": 1,
+  "createdAt": "2026-11-17T09:51:28.834Z",
+  "updatedAt": "2026-11-17T09:51:28.834Z",
+  "createdBy": "orchestrator",
+  "createdByKind": "agent",
+  "history": [],
+  "evidence": {}
+}

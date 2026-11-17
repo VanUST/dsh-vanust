@@ -1,0 +1,379 @@
+{
+  "schemaVersion": 1,
+  "id": "ptc-wave2-tool-families",
+  "rev": 7,
+  "status": "completed",
+  "createdAt": "2026-11-17T10:51:20.956Z",
+  "updatedAt": "2026-11-17T11:45:57.426Z",
+  "updatedBy": "agent",
+  "title": "PTC волна 2, безопасный рестарт и исправление tool-families",
+  "requestedSolution": "Владелец: делать пункты 2-3-4; с миграцией native→PTC разобраться так, чтобы старые сессии не блокировались при перезапуске и текущая работа не встала. То есть: измерить возобновление старой сессии после смены пресета; перенести backend и ux; починить tool-families, который читает пресет из заголовка вместо проекции и потому может оставить чужую поверхность; записать кейс.",
+  "businessOutcome": {
+    "problem": "После рестарта сервера возобновлённая сессия собирается из ТЕКУЩЕЙ декларации пресета (resumeObserved → composeAgent → mount текущей генерации), поэтому старая native-сессия gatherer/reviewer/backend переключится на PTC. Неизвестно, принимается ли первый запрос после такого переключения, сохраняется ли работа и сколько он стоит. Параллельно tool-families читает `session.header.agentPreset` (начальный пресет) и ставит ограничение один раз; если пресет выбран после создания сессии, поверхность остаётся чужой (измерено: 24 mcp__playwright__* в контрольной backend-сессии).",
+    "outcome": "Измерено и задокументировано поведение старой сессии после рестарта; процедура безопасного перезапуска :3080 не блокирует старые сессии и не оставляет текущую работу без продолжения; backend и ux переведены на PTC и проверены свежими сессиями с замером цены; tool-families берёт пресет из проекции и пересчитывает ограничение при его смене; кейс возобновления записан.",
+    "successMetrics": [
+      "старая native-сессия после рестарта и возобновления получает следующий запрос без INVALID_REQUEST, сохраняет историю и продолжает работу; цена первого шага измерена",
+      "процедура перезапуска :3080 описана: тихое окно, что происходит с активным турном, как проверить первую возобновлённую сессию, что делать при отказе",
+      "backend и ux: свежая сессия видит один run_code и SDK; задача выполнена; цена на фиксированной задаче сравнена с native",
+      "tool-families: сессия, где пресет выбран после создания, получает поверхность выбранного пресета (без mcp__playwright__* для backend/reviewer/gatherer); переключение пресета пересчитывает ограничение",
+      "docs/DEPLOYMENT и docs/PTC-MODE-ANALYSIS обновлены; кейс native→PTC возобновления записан"
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CURRENT",
+        "name": "Native у backend/ux и ограничение по заголовку",
+        "actors": [
+          "backend",
+          "ux",
+          "tool-families"
+        ],
+        "steps": [
+          "backend и ux работают native",
+          "tool-families читает agentPreset из заголовка сессии",
+          "при выборе пресета после создания ограничение остаётся от начального пресета",
+          "после рестарта сессия может переключиться на PTC без проверенной процедуры"
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-TARGET",
+        "name": "PTC у backend/ux, безопасный рестарт",
+        "actors": [
+          "backend",
+          "ux",
+          "tool-families",
+          "оркестратор"
+        ],
+        "steps": [
+          "backend и ux монтируют tool-executor-ptc",
+          "tool-families берёт пресет из проекции agentPreset и пересчитывает ограничение при смене",
+          "старая сессия после рестарта принимает следующий запрос или перезапуск откатывается по документированной процедуре",
+          "кейсы и документы отражают поведение"
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "FR-1",
+      "kind": "FR",
+      "text": "tool-families определяет пресет по проекции agentPreset, а не по начальному заголовку, и пересчитывает ограничение при смене пресета.",
+      "acceptance": [
+        "подставной контекст: agent/created с orchestrator, затем agent/pre-step с проекцией backend → restrict вызван с backend deny (playwright), а не с orchestrator deny (bash)",
+        "при смене пресета на gatherer/reviewer ограничение пересчитывается; повторный pre-step без смены не вызывает restrict",
+        "второй сервер: сессия, где пресет выбран после создания, не содержит mcp__playwright__* для backend/reviewer/gatherer",
+        "ошибки restrict не ломают турн; unmatched-паттерны логируются"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-2",
+      "kind": "FR",
+      "text": "Пресеты backend и ux монтируют tool-executor-ptc; свежая сессия каждого выполняет задачу через run_code, а цена сравнивается с native.",
+      "acceptance": [
+        "в profile/cordis.patch.yml ровно два новых ряда tool-executor-ptc — в preset-backend и preset-ux",
+        "backend: request/header = [run_code], SDK 67, mcp__playwright__* 0, bash есть, tool/ptc-dispatch есть, 0 ошибок; ux: SDK 91, playwright 24 (политика), bash есть, PTCOK; у ux один CODE_RUN_FAILED на холодном старте браузера (120 с), повтор проходит — это записано, не скрыто",
+        "цена измерена на одной задаче: native 0.001950, PTC 0.004712 (один вызов), 0.002288 (два вызова); окупаемость выше двух вызовов",
+        "фоновая bash-задача с run_in_background + job_output проверена (job/registered, job/settled, exit 0, 5.3 с)"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-3",
+      "kind": "FR",
+      "text": "Старая native-сессия после рестарта с PTC-пресетом возобновляется, принимает следующий запрос и продолжает работу; процедура перезапуска :3080 описана.",
+      "acceptance": [
+        "сессия gatherer или reviewer, созданная до PTC-слоя, после рестарта получает следующий запрос без INVALID_REQUEST и CODE_RUN_FAILED",
+        "в журнале показано, какая шапка была у первого запроса после возобновления и была ли смена инструментов",
+        "цена первого шага измерена (inputTokens/cacheReadTokens)",
+        "процедура: тихое окно, что происходит с активным турном, как проверить возобновление, откат при отказе"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-4",
+      "kind": "FR",
+      "text": "Документы и кейс отражают волну 2, исправление tool-families и поведение возобновления.",
+      "acceptance": [
+        "rules/DEPLOYMENT.md: backend/ux на PTC, tool-families читает проекцию, процедура рестарта",
+        "docs/PTC-MODE-ANALYSIS.md: волна 2 и результат возобновления",
+        "кейсы native→PTC возобновления и tool-families первого запроса записаны (documented-only)"
+      ],
+      "status": "proven"
+    }
+  ],
+  "architecture": {
+    "contractImpact": "none",
+    "components": [
+      {
+        "id": "C-FAMILIES",
+        "name": "tool-families",
+        "responsibility": "Читает пресет из проекции agentPreset, пересчитывает ограничение при смене пресета",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": []
+      },
+      {
+        "id": "C-PROFILE",
+        "name": "Профиль пресетов",
+        "responsibility": "Ряды tool-executor-ptc в preset-backend и preset-ux; остальные не меняются",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": []
+      },
+      {
+        "id": "C-RESUME",
+        "name": "Возобновление сессии",
+        "responsibility": "Поведение harness при resumeObserved: сборка из текущей генерации пресета; код харнесса не меняется, меняется процедура деплоя",
+        "owner": "оркестратор",
+        "owns": [],
+        "dependsOn": []
+      },
+      {
+        "id": "C-VERIFY",
+        "name": "Проверка на втором сервере",
+        "responsibility": "Свежие и возобновлённые сессии: шапка, SDK, вложенные вызовы, цена, ошибки",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": [
+          "C-PROFILE",
+          "C-FAMILIES"
+        ]
+      },
+      {
+        "id": "C-DOCS",
+        "name": "Документы и кейсы",
+        "responsibility": "DEPLOYMENT, PTC-анализ, кейс возобновления",
+        "owner": "DOCS",
+        "owns": [],
+        "dependsOn": [
+          "C-VERIFY"
+        ]
+      }
+    ]
+  },
+  "data": [],
+  "contracts": [],
+  "invariants": [
+    {
+      "id": "INV-NO-HOST-FLIP",
+      "text": "PTC включается только в области пресета; DSH_TOOLS_MODE не используется",
+      "scope": "профиль"
+    },
+    {
+      "id": "INV-NO-SHELL",
+      "text": "orchestrator и research остаются native",
+      "scope": "профиль"
+    },
+    {
+      "id": "INV-OLD-SESSIONS",
+      "text": "Старая сессия не блокируется: либо продолжается после переключения, либо перезапуск откатывается; активная работа прерывается только самим рестартом, сессия и таскборд переживают",
+      "scope": "деплой"
+    },
+    {
+      "id": "INV-ROLLBACK",
+      "text": "Откат волны 2 — удаление двух рядов; откат фикса tool-families — возврат прежнего tarball",
+      "scope": "профиль"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "DEC-STUDY-FIRST",
+      "decision": "Сначала измерить возобновление старой сессии, потом менять живой :3080.",
+      "rationale": "resumeObserved собирает сессию из текущей декларации; без измерения нельзя обещать, что старые сессии не встанут.",
+      "alternatives": [
+        "перезапустить сразу и смотреть по факту"
+      ]
+    },
+    {
+      "id": "DEC-PROJECTION",
+      "decision": "tool-families читает agentPreset из проекции, а не из заголовка, и пересчитывает ограничение при смене.",
+      "rationale": "Проекция — авторитет выбора пресета (регистрация agentPreset/selected); заголовок хранит начальный пресет. `settled` мешает пересчёту после выбора.",
+      "alternatives": [
+        "оставить заголовок и заставлять выбирать пресет до создания сессии (не гарантируется UI)"
+      ]
+    },
+    {
+      "id": "DEC-WAVE2",
+      "decision": "backend и ux — волна 2; docs и critic — после замера.",
+      "rationale": "backend и ux дают наибольшую ценность и уже имеют шелл; долгие сборки/браузер проверяются отдельно.",
+      "alternatives": [
+        "все четыре сразу"
+      ]
+    },
+    {
+      "id": "DEC-QUIET",
+      "decision": "Перезапуск :3080 — в тихом окне, после проверки возобновления на :3081.",
+      "rationale": "Рестарт прерывает активные турны; таскборд и сессии переживают, но текущий ход надо повторить.",
+      "alternatives": [
+        "горячая замена плагинов под живым сервером (запрещена)"
+      ]
+    }
+  ],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L2",
+    "reasons": [
+      "Меняется поведение хостового плагина (tool-families) для всех агентов",
+      "Меняются две декларации пресетов",
+      "Нужна процедура деплоя с рестартом и проверкой старых сессий",
+      "Проверка на втором сервере и замер цены"
+    ]
+  },
+  "designRef": {
+    "mapRev": 30,
+    "at": "2026-11-17T14:00:00.000Z",
+    "source": "designmap/model.yaml@sha256:699c3c8c844c53b69ef4b2a9ca8300b45dfe73fd752c9e1c54cf2fec4b180f7d"
+  },
+  "goalId": "goal-582287ca-f6b5-40a7-8eb0-bf8cea11d783",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "FR-1",
+      "processId": "P-TARGET",
+      "componentId": "C-FAMILIES",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkkohfa-fsuvk0",
+          "role": "BACKEND",
+          "at": "2026-11-17T11:28:00.000Z",
+          "evidence": [
+            "root-листенер session/event: выбор backend после создания → debug `selected: preset=backend … deny=24`",
+            "первый request/header после выбора: 67 инструментов, mcp__playwright__* 0, bash есть (было 91/24)",
+            "proof 62/62; старые байты 54/62 exit 1; tarball 0.1.8, tar=source; check-documentation ok"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-2",
+      "processId": "P-TARGET",
+      "componentId": "C-PROFILE",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkkohme-gb4uop",
+          "role": "BACKEND",
+          "at": "2026-11-17T11:40:00.000Z",
+          "evidence": [
+            "profile: tool-executor-ptc в preset-ux (752) и preset-backend (827); gatherer 972/reviewer 1051 уже были; orchestrator/research/critic/docs без",
+            "backend session-641cbd5f: header [run_code], SDK 67/0/0/bash, outline-selftest PASS 6/0, dispatch 1, 0 ошибок",
+            "фон session-2c0c7d3f: job/registered + job/settled, completed exit 0, 5.3 с",
+            "ux session-629f79fa: SDK 91/24/0/bash, PTCOK; один CODE_RUN_FAILED на холодном старте (120 с), повтор 193/16 мс",
+            "цена: native 0.001950; PTC 0.004712 (1 вызов), 0.002288 (2 вызова); окупаемость >2"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-3",
+      "processId": "P-TARGET",
+      "componentId": "C-RESUME",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkknas8-9txqhd",
+          "role": "BACKEND",
+          "at": "2026-11-17T11:00:16.000Z",
+          "evidence": [
+            "gatherer session-8a4fa656: header 83 → [run_code]; dev 84; ответы 24/31/# dsh-kit; usage 31393/5376",
+            "reviewer session-1670f09a: header 89 → [run_code]; dev 90; ответы 6/66; usage 32844/5376",
+            "0 INVALID_REQUEST/CODE_RUN_FAILED/defer_loading; следующий шаг кэширован",
+            "reports/ptc-resume/FINDINGS.md §5 процедура"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-4",
+      "processId": "P-TARGET",
+      "componentId": "C-DOCS",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkkohme-gb4uop",
+          "role": "BACKEND",
+          "at": "2026-11-17T11:40:00.000Z",
+          "evidence": [
+            "rules/DEPLOYMENT.md §PTC: backend/ux на PTC, tool-families 0.1.8, процедура рестарта",
+            "docs/PTC-MODE-ANALYSIS.md §4.6 и §6: волна 2, цена, остаются docs/critic",
+            "docs/cases/native-to-ptc-resume-switches-and-is-accepted.json и docs/cases/tool-families-applies-the-chosen-preset-to-the-first-request.json",
+            "node scripts/check-documentation.mjs — documentation ok"
+          ]
+        }
+      ]
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "57880a7b33a7066002bedd78a2df6128e62f41a6448d9d268ce2530db3cc2162",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-17T10:51:20.956Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-17T10:51:34.933Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-17T11:01:14.952Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwkkohfa-fsuvk0 -> FR-1"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-17T11:01:31.536Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-17T11:24:56.257Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-17T11:25:12.974Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwkkohme-gb4uop -> FR-2, FR-4"
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-17T11:45:57.426Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "completed",
+      "summary": "requirements: FR-2 changed, FR-4 changed; impacts: 2"
+    }
+  ]
+}

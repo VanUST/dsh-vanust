@@ -21,10 +21,10 @@ process per chat.
 - id: tool-families
   name: '@cc/dsh-tool-families'
   config:
-    projectGated:
+    projectMarkers:
       'mcp__godot__*': project.godot      # kept only where this file exists in the session cwd
     families:
-      orchestrator: { deny: ['mcp__godot__*'] }
+      orchestrator: { deny: ['mcp__godot__*', 'bash', 'pwsh'] }
       ux:           { deny: ['mcp__godot__*'] }
       backend:      { deny: ['mcp__playwright__*', 'mcp__godot__*'] }
       reviewer:     { deny: ['mcp__playwright__*', 'mcp__godot__*'] }
@@ -36,7 +36,7 @@ process per chat.
 - `families.<preset>.deny` — exact tool names or `prefix*` family patterns. A preset that is
   absent keeps its full surface, and so does a session with no preset (`standard`): a new role
   must not lose tools because nobody wrote a row for it yet.
-- `projectGated` — a family that is a PROJECT bridge, not a role capability. `mcp__godot__*`
+- `projectMarkers` — a family that is a PROJECT bridge, not a role capability. `mcp__godot__*`
   drives a Godot editor, so it is kept for a session whose cwd holds `project.godot` and denied
   everywhere else whatever the preset. Without this, "the backend role may use Godot" would put
   an editor bridge in every repository that role ever opens.
@@ -48,11 +48,26 @@ itself, which is a different switch.
 
 ## Behaviour
 
-On `agent/created` the row expands the preset's patterns against the tool names the agent can
-actually see, calls `tools.restrict({ deny })` once, and logs the preset, the number of denied
-tools, the schema bytes that leave the prefix, which project-gated families were kept, and any
-pattern that matched nothing. It never throws into the turn: a bridge that is down or a renamed
-tool is logged and skipped.
+The preset is read from the `agentPresets` projection (`presetForSession(agent.session)`), which
+is the authority for a selection made AFTER the session exists; the session header's
+`agentPreset` is only the value the session was created with and is the fallback. On
+`agent/created` and on EVERY `agent/pre-step` the row expands the preset's patterns against the
+tool names the agent can actually see and calls `tools.restrict({ deny })` when the preset in
+force differs from the one installed. It logs the preset, the number of denied tools, the schema
+bytes that leave the prefix, which project-gated families were kept, any pattern that matched
+nothing, and `[recomputed from "<previous preset>"]` on a change.
+
+A preset change REPLACES the restriction: the disposer returned by the previous `restrict` is
+lifted first, because `dsh-tools` intersects restrictions and stacking two calls would keep the
+first preset's denies. A restriction is recorded as applied only when a deny list was really
+installed; an unmatched pattern or an empty deny list is retried on the next step (the MCP bridge
+may register later). It never throws into the turn: a bridge that is down or a renamed tool is
+logged and skipped.
+
+**Why the header was not enough** (measured on a second server 2026-11-17): a session created
+under `orchestrator` and then switched to `backend` kept the orchestrator restriction and was
+offered all 24 `mcp__playwright__*` tools that the backend row denies — the header still said
+`orchestrator`, and the one-shot `settled` flag never recomputed.
 
 ## Verification
 

@@ -1,0 +1,494 @@
+{
+  "schemaVersion": 1,
+  "id": "context-output-economy",
+  "rev": 11,
+  "status": "completed",
+  "createdAt": "2026-11-17T09:48:30.891Z",
+  "updatedAt": "2026-11-17T10:04:23.085Z",
+  "updatedBy": "agent",
+  "title": "Экономия контекста на входе: убрать Headroom, сузить раздел RTK, читать файлы инструментами",
+  "requestedSolution": "Владелец согласовал четыре пункта: (1) оптимизировать чтение файлов инструментами и поискать готовые внешние инструменты чтения и аналоги для экономии контекста; (2) сузить раздел промпта RTK до реальной ниши; (3) трассировку решений RTK не включать; (4) удалить Headroom из харнесса.",
+  "businessOutcome": {
+    "problem": "Замер 2026-11-17 по 129 сессиям этой рабочей области (логи с 2026-10-26): два слоя сжатия выдачи инструментов дают около 0,3% экономии. RTK сработал 9 раз на 7 594 вызова shell и сэкономил 108 230 Б из 34,6 МБ всей выдачи инструментов (125 280 Б → 17 050 Б); все девять — это git log --stat/--oneline и git diff. Headroom не получил ни одного запроса с 2026-10-30, а по своим отчётам экономил 0,34–3,4%. При этом 75,3% байт выдачи shell (3,67 МБ из 15,4) приходится на команды вне списка фильтров или на составные команды; sed один даёт 3,84 МБ. Рычаг лежит на входе — в том, чем агент читает файлы.",
+    "outcome": "Кит перестаёт поставлять неработающий слой, раздел RTK говорит об измеренной нише и правиле, а политика специалиста требует читать файлы инструментом read с offset/limit и искать grep/glob вместо переливки файлов через shell.",
+    "successMetrics": [
+      "в репозитории не остаётся файлов, скриптов и упоминаний Headroom, кроме истории и отчётов",
+      "раздел промпта RTK перечисляет измеренную нишу, а не 26 фильтров, и поведение фильтрации не меняется",
+      "политика специалиста содержит правило чтения инструментами",
+      "check-documentation и scripts/rtk-selftest.mjs зелёные, check-portability зелёный по обьявленному объёму (rtk и orchestrator); единственный красный — чужой designmap",
+      "на машине нет работающего посредника, маркера и каталога Headroom"
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CURRENT",
+        "name": "Два слоя сжатия и справочный раздел промпта",
+        "actors": [
+          "оператор",
+          "агент"
+        ],
+        "steps": [
+          "Headroom стоит посредником перед провайдером при маркере",
+          "RTK перехватывает выдачу 26 фильтров после команды",
+          "Раздел промпта перечисляет все фильтры как справку",
+          "Правило чтения файлов инструментами отсутствует"
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-TARGET",
+        "name": "Один слой и правило на входе",
+        "actors": [
+          "оператор",
+          "агент"
+        ],
+        "steps": [
+          "Headroom отсутствует в файлах, скриптах, провижининге и документах",
+          "RTK остаётся и говорит о своей нише и правиле",
+          "Политика специалиста требует read с offset/limit и grep/glob",
+          "Гейты кита зелёные, машина без посредника"
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "FR-1",
+      "kind": "FR",
+      "text": "Кит больше не поставляет Headroom: удалены profile/headroom.patch.yml, scripts/headroom.mjs, ветки запуска в start.sh и start.ps1, запись в scripts/provision-tools.mjs, упоминания в NOTICE, README.md, USERGUIDE.md и rules/DEPLOYMENT.md; документ измерений docs/CONTEXT-ECONOMY-DESIGN.md сохраняет свои замеры как доказательную базу и получает одну строку о том, что слой удалён.",
+      "acceptance": [
+        "grep -rniE 'headroom' в NOTICE, README.md, USERGUIDE.md, rules/DEPLOYMENT.md, start.sh, start.ps1, scripts/ пуст",
+        "scripts/headroom.mjs и profile/headroom.patch.yml отсутствуют; start.sh и start.ps1 не читают $DSH_HOME/headroom",
+        "provision-tools --check не перечисляет Headroom, а ensureUv осталась живой для semgrep/serena/trafilatura",
+        "в docs/CONTEXT-ECONOMY-DESIGN.md сохранены замеры 0.34% и +5.2 с и добавлена одна строка о том, что слой удалён 2026-11-17"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-2",
+      "kind": "FR",
+      "text": "Раздел промпта RTK называет измеренную нишу (единственные наблюдённые срабатывания — git log и git diff; grep и find размечены, но срабатывали редко), правило чтения файлов инструментами и границы перехвата, а не каталог всех 26 фильтров; поведение перехвата не меняется.",
+      "acceptance": [
+        "sectionText в plugins/rtk/rtk.mjs перечисляет не более пяти команд, называет единственные наблюдённые срабатывания (git log, git diff) и содержит правило",
+        "scripts/rtk-selftest.mjs проходит без изменения ожиданий фильтрации",
+        "изменение не трогает classifyCommand, FILTER_NAMES и обработчик post-execute",
+        "текст не обещает свойства, которых нет: find/grep размечены, конвейер и второй command отклоняются, ведущий cd разворачивается"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-3",
+      "kind": "FR",
+      "text": "Политика специалиста требует читать файлы инструментом read с offset/limit, искать grep/glob, и не переливать файлы через sed/cat/ls в shell.",
+      "acceptance": [
+        "CHILD_POLICY в plugins/orchestrator/orchestrator.mjs содержит это правило в терминах словаря проекта",
+        "правило не запрещает shell целиком и не утверждает, что фильтров нет для размеченных команд",
+        "корневая политика не дублирует правило дословно без нужды"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-4",
+      "kind": "FR",
+      "text": "На машине Headroom выключен: посредник остановлен, маркер и каталог $DSH_HOME/headroom удалены, установленный инструмент удалён.",
+      "acceptance": [
+        "ps не показывает процесс headroom",
+        "http://127.0.0.1:8787/readyz недоступен",
+        "~/.npm/dsh/headroom отсутствует"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "NFR-1",
+      "kind": "NFR",
+      "text": "Устаревшее состояние машины (маркер $DSH_HOME/headroom/enabled или каталог) не мешает запуску dsh web после удаления.",
+      "acceptance": [
+        "start.sh и start.ps1 не содержат кода, читающего $DSH_HOME/headroom",
+        "запуск проходит при отсутствии этих файлов"
+      ],
+      "status": "proven"
+    }
+  ],
+  "architecture": {
+    "contractImpact": "breaking",
+    "components": [
+      {
+        "id": "C-RTK",
+        "name": "Плагин RTK",
+        "responsibility": "Перехват выдачи shell-команд после выполнения и раздел промпта, который объясняет перехват",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": []
+      },
+      {
+        "id": "C-ORCH",
+        "name": "Плагин оркестратора",
+        "responsibility": "Корневая политика и политика специалиста: правила, по которым агенты работают и читают контекст",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": []
+      },
+      {
+        "id": "C-BOOT",
+        "name": "Скрипты запуска",
+        "responsibility": "Порядок запуска dsh web, включая необязательные внешние слои",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": []
+      },
+      {
+        "id": "C-PROV",
+        "name": "Провижининг и обновление",
+        "responsibility": "Установка необязательных внешних бинарников и сходимость машины",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": [
+          "C-BOOT"
+        ]
+      },
+      {
+        "id": "C-DOCS",
+        "name": "Документы кита",
+        "responsibility": "Описывают поставку, процедуры и внешние инструменты",
+        "owner": "DOCS",
+        "owns": [],
+        "dependsOn": [
+          "C-BOOT",
+          "C-PROV",
+          "C-RTK"
+        ]
+      }
+    ]
+  },
+  "data": [],
+  "contracts": [
+    {
+      "id": "CT-RTK-SECTION",
+      "name": "Раздел промпта RTK",
+      "between": [
+        "C-RTK"
+      ],
+      "change": "breaking",
+      "description": "Текст раздела сужается: вместо каталога 26 фильтров — измеренная ниша и правило. Раздел меняет системный промпт, поэтому сбрасывает кеш префикса один раз при перезапуске сервера."
+    },
+    {
+      "id": "CT-CHILD-POLICY",
+      "name": "Политика специалиста",
+      "between": [
+        "C-ORCH"
+      ],
+      "change": "additive",
+      "description": "Добавляется правило чтения файлов инструментами; существующие правила не переписываются."
+    },
+    {
+      "id": "CT-BOOT-SWITCH",
+      "name": "Переключатель HEADROOM при запуске",
+      "between": [
+        "C-BOOT",
+        "C-PROV"
+      ],
+      "change": "breaking",
+      "description": "Переменная HEADROOM и ветки запуска, связанные с посредником, исчезают вместе с самим слоем."
+    }
+  ],
+  "invariants": [
+    {
+      "id": "INV-NO-DAEMON",
+      "text": "Кит запускается без внешних демонов: ни один запуск не зависит от локального посредника",
+      "scope": "запуск кита"
+    },
+    {
+      "id": "INV-RTK-PASSTHROUGH",
+      "text": "Перехват RTK на неподходящей, составной или чужой команде не меняется: результат проходит нетронутым",
+      "scope": "plugins/rtk/rtk.mjs"
+    },
+    {
+      "id": "INV-DOC-TRUTH",
+      "text": "Документ не обещает команду, которой нет: check-documentation и check-portability остаются зелёными",
+      "scope": "документы кита"
+    },
+    {
+      "id": "INV-SHELL-ALLOWED",
+      "text": "Ни одно правило не запрещает shell целиком: запрещена только переливка файлов, а не запуск тестов и сборок",
+      "scope": "политика специалиста"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "DEC-REMOVE",
+      "decision": "Headroom удаляется целиком, а не выключается флагом.",
+      "rationale": "Замер 2026-11-17: ни одного запроса после 2026-10-30, собственные отчёты 0,34–3,4% экономии при 0 в трёх сессиях; обязательность означала бы зависимость каждого запуска от демона Python.",
+      "alternatives": [
+        "оставить как необязательный временный слой настроек и не трогать",
+        "оставить, но переключить на измерение кеша префикса"
+      ]
+    },
+    {
+      "id": "DEC-NICHE",
+      "decision": "RTK остаётся, но раздел промпта описывает нишу, а не каталог фильтров.",
+      "rationale": "Перехват даёт 86% сжатия на каждом срабатывании и стоит ноль, но сработал 9 раз на 7 594 вызова: все девять — это git log --stat/--oneline и git diff; grep и find размечены, но среди наблюдённых срабатываний их нет.",
+      "alternatives": [
+        "выключить RTK вместе с Headroom",
+        "оставить текущий каталог 26 фильтров"
+      ]
+    },
+    {
+      "id": "DEC-READ-RULE",
+      "decision": "Правило чтения кладётся в политику плагина оркестратора, а не в README.",
+      "rationale": "Политика специалиста попадает в каждый промпт специалиста; README читает человек. Правило адресовано агенту, значит должно быть в его промпте.",
+      "alternatives": [
+        "правило в rules/DEPLOYMENT.md",
+        "правило в AGENTS.md воркспейса"
+      ]
+    }
+  ],
+  "openQuestions": [
+    {
+      "id": "Q-TOOL",
+      "question": "Какой внешний инструмент дешёвого чтения кода принять в кит, если какой-либо окажется лучше read+grep?",
+      "owner": "",
+      "blocks": false,
+      "answer": ""
+    }
+  ],
+  "sizing": {
+    "class": "L2",
+    "reasons": [
+      "Удаляется поставляемая возможность и её документы (breaking для оператора)",
+      "Меняются тексты двух промптов (RTK и политика оркестратора)",
+      "Затрагиваются скрипты запуска, провижининг и обновление",
+      "Меняется состояние машины (посредник, маркер, установленный инструмент)"
+    ]
+  },
+  "designRef": {
+    "mapRev": 30,
+    "at": "2026-11-17T09:50:00.000Z",
+    "source": "designmap/model.yaml@sha256:699c3c8c844c53b69ef4b2a9ca8300b45dfe73fd752c9e1c54cf2fec4b180f7d"
+  },
+  "goalId": "goal-469d9a4d-b326-40f1-a90e-00cf03c36f9b",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "FR-1",
+      "processId": "P-TARGET",
+      "componentId": "C-PROV",
+      "contractIds": [
+        "CT-BOOT-SWITCH"
+      ],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkigak3-5y7y50",
+          "role": "BACKEND",
+          "at": "2026-11-17T10:00:00.000Z",
+          "evidence": [
+            "grep -rniE headroom по NOTICE, README.md, USERGUIDE.md, rules/DEPLOYMENT.md, install.sh, install.ps1, scripts/*.mjs, start.sh, start.ps1 — пусто; единственное совпадение в дереве — вендорный zod в git-ignored scripts/designmap-api/node_modules",
+            "ls scripts/headroom.mjs profile/headroom.patch.yml → No such file or directory (exit 2); git diff --cached --stat → profile/headroom.patch.yml −30, scripts/headroom.mjs −655",
+            "node scripts/provision-tools.mjs --check → 19/19 tools available, Headroom не перечислен; ensureUv осталась живой: scripts/provision-tools.mjs:577 из installUvTool для semgrep:1038, serena:1180, trafilatura:1231",
+            "docs/CONTEXT-ECONOMY-DESIGN.md:12 — «Headroom удалён из кита 2026-11-17…», замеры 0.34% и +5.2 с на месте; README/USERGUIDE/NOTICE/DEPLOYMENT обновлены, USERGUIDE §8 больше не называет Headroom"
+          ]
+        },
+        {
+          "taskId": "task-mwkipz34-ut3fps",
+          "role": "REVIEWER",
+          "at": "2026-11-17T10:00:00.000Z",
+          "evidence": [
+            "независимое ревью: ни один документ поставки не обещает Headroom и не обещает node scripts/headroom.mjs; единственные упоминания — история в docs/CONTEXT-ECONOMY-DESIGN.md:12-14,23,30,109 и запись анализа"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-2",
+      "processId": "P-TARGET",
+      "componentId": "C-RTK",
+      "contractIds": [
+        "CT-RTK-SECTION"
+      ],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkigak3-5y7y50",
+          "role": "BACKEND",
+          "at": "2026-11-17T10:00:00.000Z",
+          "evidence": [
+            "sectionText называет 4 команды (git log, git diff, grep, find), нишу 9 срабатываний 125 280 Б → 17 050 Б, границы (pipe, redirect, второй command после ;, чтение через shell) и правило «do not shape work to reach rtk; read with read/grep/glob» — plugins/rtk/rtk.mjs:508-540",
+            "node scripts/rtk-selftest.mjs → verdict PASS — 6 shrank, 3 passed through, 0 failed, 4 130 921 B net saved, exit 0",
+            "git diff -U0 plugins/rtk/rtk.mjs: 4 хунка — удаление мёртвой константы FILTERED_COMMANDS и текст sectionText; classifyCommand, FILTER_RULES, tools/post-execute и banner не менялись",
+            "tar -xzOf plugins/cc-dsh-rtk-0.1.7.tgz package/rtk.mjs | diff - plugins/rtk/rtk.mjs → пусто (тарбол побайтно равен исходнику), sha256 68bb05a2980ba9e8d4ac817d5dc7718ee012fa1b57911698d31c003e592d0ef3"
+          ]
+        },
+        {
+          "taskId": "task-mwkipz34-ut3fps",
+          "role": "REVIEWER",
+          "at": "2026-11-17T10:00:00.000Z",
+          "evidence": [
+            "ревью нашло два расхождения текста с кодом и они исправлены: «no filter covers those commands» было ложным для find (фильтр есть, selftest сжимает find 4 106 412 → 2 677 Б) — заменено на «a file dump like that is what no output filter covers»; утверждение про `;` уточнено на «второй command после ;», потому что ведущий cd разворачивается и с `;`",
+            "ревью: README plugins/rtk/README.md обещал «full mapped command list», но в списке не было go build/ctest/pest/phpstan/pint — список дополнен до 23 фильтров"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-3",
+      "processId": "P-TARGET",
+      "componentId": "C-ORCH",
+      "contractIds": [
+        "CT-CHILD-POLICY"
+      ],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkigak3-5y7y50",
+          "role": "BACKEND",
+          "at": "2026-11-17T10:00:00.000Z",
+          "evidence": [
+            "CHILD_POLICY: plugins/orchestrator/orchestrator.mjs:437 — пункт «Read files with the tools, not through the shell»: read с offset/limit, grep для поиска, glob для путей; sed/cat/head/ls как способ чтения запрещены, shell для сборок и тестов остаётся",
+            "ревью: правило не противоречит другим правилам политики и не запрещает shell целиком; оверклейм про отсутствие фильтров исправлен",
+            "tar -xzOf plugins/cc-dsh-orchestrator-0.1.47.tgz package/orchestrator.mjs | diff - plugins/orchestrator/orchestrator.mjs → пусто, sha256 5d499f44a7cf79926ae870471d875bd8523281478e2a0bedcefb8ebcaf7c50e9"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-4",
+      "processId": "P-TARGET",
+      "componentId": "C-PROV",
+      "contractIds": [
+        "CT-BOOT-SWITCH"
+      ],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkigacm-vn1v7g",
+          "role": "оркестратор",
+          "at": "2026-11-17T09:50:32.000Z",
+          "evidence": [
+            "systemctl --user disable --now headroom.service → Removed /home/iustimov/.config/systemd/user/default.target.wants/headroom.service; is-active → inactive; файл юнита удалён, daemon-reload выполнен",
+            "curl http://127.0.0.1:8787/readyz → 000 (порт закрыт); процессы headroom не найдены",
+            "rm -rf /home/iustimov/.npm/dsh/headroom после realpath-проверки → каталог отсутствует; uv tool uninstall headroom-ai → Uninstalled 2 executables: headroom, headroom-cache-ttl; uv tool list без headroom, шима в ~/.local/bin нет"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "NFR-1",
+      "processId": "P-TARGET",
+      "componentId": "C-BOOT",
+      "contractIds": [
+        "CT-BOOT-SWITCH"
+      ],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkigak3-5y7y50",
+          "role": "BACKEND",
+          "at": "2026-11-17T10:00:00.000Z",
+          "evidence": [
+            "grep -nE 'headroom|HEADROOM|PATCH_ARGS' start.sh start.ps1 → пусто (exit 1); bash -n start.sh → ok",
+            "ревью подтвердило: start.sh/start.ps1 не читают $DSH_HOME/headroom, поэтому отсутствие маркера и каталога после удаления на запуск не влияет"
+          ]
+        }
+      ]
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "070c6a14c8c04d011e1999cf9584d57cf6229b549d74493549511210bb8c999b",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-17T09:48:30.891Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-17T09:48:36.217Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-17T09:48:47.609Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-17T09:49:21.678Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwkigak3-5y7y50 -> FR-1, FR-2, FR-3, NFR-1"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-17T09:50:20.537Z",
+      "editedBy": "agent",
+      "action": "impact",
+      "status": "draft",
+      "summary": "Уточнён объём FR-1: документ измерений docs/CONTEXT-ECONOMY-DESIGN.md сохраняет замеры Headroom как доказательную базу и получает одну строку о том, что слой удалён; удаление упоминаний требуется только в документах поставки и в скриптах."
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-17T09:50:28.598Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR-1 changed"
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-17T09:50:32.255Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 8,
+      "at": "2026-11-17T10:03:40.970Z",
+      "editedBy": "agent",
+      "action": "impact",
+      "status": "draft",
+      "summary": "Ревью уточнило нишу: единственные наблюдённые срабатывания — git log и git diff, а grep/find размечены, но срабатывали редко; формулировка требования FR-2 и решения DEC-NICHE приводится к измерению, в businessOutcome.problem добавляется размер выборки (129 сессий)."
+    },
+    {
+      "revision": 9,
+      "at": "2026-11-17T10:03:49.329Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR-1 changed, FR-2 changed, FR-3 changed"
+    },
+    {
+      "revision": 10,
+      "at": "2026-11-17T10:04:20.321Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 11,
+      "at": "2026-11-17T10:04:23.085Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "completed",
+      "summary": ""
+    }
+  ]
+}

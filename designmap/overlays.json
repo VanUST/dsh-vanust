@@ -1,0 +1,30 @@
+{
+  "$version": 1,
+  "db.model": {
+    "x": 352.43,
+    "y": 269,
+    "stroke": "#1971c2",
+    "fill": "#a5d8ff"
+  },
+  "plug.analysis": {
+    "x": 21.5,
+    "y": 160
+  },
+  "plug.designmap": {
+    "x": 360.5,
+    "y": 160
+  },
+  "plug.skills": {
+    "x": 587.3,
+    "y": 160
+  },
+  "plug.taskboard": {
+    "x": 196.5,
+    "y": 160
+  },
+  "svc.orchestrator": {
+    "x": 71.4,
+    "y": 8,
+    "stroke": "#2f9e44"
+  }
+}

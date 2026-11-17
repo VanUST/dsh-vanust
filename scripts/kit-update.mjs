@@ -76,8 +76,8 @@ const USAGE = `kit-update — converge an installed machine onto this kit
   --home <dir>  harness home (default: $DSH_HOME, else <userhome>/.npm/dsh)
   --profile     profile to converge (default: web)
   --no-harness  never touch the globally installed harness
-  --no-tools    never provision the optional external binaries (rtk, headroom,
-                babysitter, marp, mermaid, d2); SKIP_TOOLS=1 does the same
+  --no-tools    never provision the optional external binaries (rtk, marp,
+                mermaid, d2); SKIP_TOOLS=1 does the same
   --keep-model-config
                 keep the installed agent-default-model row (provider/model/
                 reasoningEffort) when the profile patch is written; every other
@@ -855,8 +855,8 @@ function main(argv) {
   //
   // This is what makes a fresh machine complete without a human running a second command.
   // The kit-owned half of the deployment always converged in one call; the binary half did
-  // not, and the consequence was a machine that reported converged while rtk, headroom,
-  // babysitter, marp, mermaid and d2 were silently absent for weeks. Provisioning is part
+  // not, and the consequence was a machine that reported converged while rtk,
+  // marp, mermaid and d2 were silently absent for weeks. Provisioning is part
   // of convergence now, opt-out with --no-tools or SKIP_TOOLS=1.
   if (opts.tools && process.env.SKIP_TOOLS !== '1') {
     const provisionArgs = [join(kit, 'scripts', 'provision-tools.mjs'), '--apply', '--kit', kit]

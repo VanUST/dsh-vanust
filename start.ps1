@@ -8,7 +8,6 @@
 # INPUTS
 #   $env:DSH_HOME  harness home (default %USERPROFILE%\.npm\dsh)
 #   $env:PORT      listen port (default 3080)
-#   $env:HEADROOM  set to 0 to boot without the Headroom overlay even when enabled
 #   $env:SESSION_STORE  set to 0 to boot without the session-store guard
 #   -NoUpdate      boot without checking the kit
 #   -Yes           apply any pending kit update without asking
@@ -30,9 +29,6 @@
 #     legitimately run a profile that no kit manages.
 #   - No profile yet: prints the installer to run and exits 1 instead of booting
 #     a harness with nothing composed.
-#   - Headroom enabled but its proxy cannot be made healthy: the overlay is NOT
-#     added and the reason is printed, because a redirect to a dead loopback port
-#     fails every model request.
 #   - One unreadable session log: the store guard moves it out first, because dsh
 #     aborts the WHOLE cross-workspace listing on any error it does not recognise as
 #     corruption - one file the OS refuses leaves the UI with no history and no way to
@@ -92,25 +88,6 @@ if (-not $NoUpdate -and (Test-Path $updater)) {
   if ($CheckOnly) { exit 0 }
 }
 
-# Headroom: the same opt-in gate as start.sh. The proxy is started first and the
-# overlay is added ONLY when it answers, because a redirect to a dead loopback port
-# would fail every model request. No overlay, no compression - never a dead model.
-$HeadroomMarker = Join-Path $env:DSH_HOME 'headroom\enabled'
-$HeadroomPatch = Join-Path $env:DSH_HOME 'headroom\patch.yml'
-$HeadroomScript = Join-Path $kit 'scripts\headroom.mjs'
-$patchArgs = @()
-if ($env:HEADROOM -ne '0' -and (Test-Path $HeadroomMarker) -and (Test-Path $HeadroomPatch) -and (Test-Path $HeadroomScript)) {
-  $ensureOut = & node $HeadroomScript ensure --home $env:DSH_HOME 2>&1
-  if ($LASTEXITCODE -eq 0) {
-    $patchArgs = @('--patch', $HeadroomPatch)
-    Write-Host 'headroom: compression active on every model request'
-  } else {
-    Write-Warning 'headroom is enabled but its proxy is not healthy; booting WITHOUT compression'
-    ($ensureOut | Select-String -Pattern '^\s*error: ') | ForEach-Object { Write-Warning "reason:$($_)" }
-    Write-Host '  see: node scripts/headroom.mjs doctor'
-  }
-}
-
 # The session store decides whether the UI has any history at all; see the header.
 $SessionStoreScript = Join-Path $kit 'scripts\session-store.mjs'
 if ($env:SESSION_STORE -ne '0' -and (Test-Path $SessionStoreScript)) {
@@ -118,5 +95,5 @@ if ($env:SESSION_STORE -ne '0' -and (Test-Path $SessionStoreScript)) {
 }
 
 $openArgs = if ($Open) { @() } else { @('--no-open') }
-& dsh web @patchArgs --port $port @openArgs
+& dsh web --port $port @openArgs
 exit $LASTEXITCODE

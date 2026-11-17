@@ -24,7 +24,7 @@ reports/
 server.pid
 /*.png
 
-# babysitter run journals (machine state, not kit source)
+# run journals of the removed CLI (machine state, not kit source)
 .a5c/
 
 # Serena's per-project state (.serena/project.yml, symbol cache): created by the code-search

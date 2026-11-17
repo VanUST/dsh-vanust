@@ -1,8 +1,8 @@
 /**
  * PURPOSE
  *   Install — or report on — the external tools the kit's features need, so a fresh
- *   machine does not start with RTK silently inert, Headroom uninstalled, or the
- *   deck/diagram exports unable to render. Missing tools are a supported state (each
+ *   machine does not start with RTK silently inert or the deck/diagram exports
+ *   unable to render. Missing tools are a supported state (each
  *   feature degrades and says so), which is exactly why nobody notices them for
  *   weeks; this command makes the state explicit and fixable in one step.
  *
@@ -26,7 +26,7 @@
  *   found, and the exact next command for a manual install.
  *
  * KEYWORDS
- *   provisioning, rtk, headroom, babysitter, marp, mermaid, d2, chrome, installer,
+ *   provisioning, rtk, code-skeleton-mcp, outline, marp, mermaid, d2, chrome, installer,
  *   role toolchain, depcruise, semgrep, oasdiff, difftastic, betterleaks, osv-scanner,
  *   lychee, trafilatura, axe-core, pixelmatch, checksum, pin, hooks bridge, dsh-hooks-claude-code
  *
@@ -53,9 +53,9 @@
  *   - A tool whose probe throws (corrupt binary) is reported missing, not present.
  *   - `--apply` installs on every platform: npm-based tools through the global npm
  *     (a `.cmd` shim on Windows, which is why the runner routes through the command
- *     interpreter), rtk and d2 from their release archives onto a directory that is
- *     already on PATH, and headroom through `uv tool install` with uv installed on
- *     demand. A tool whose release asset does not exist for this platform stays
+ *     interpreter), rtk, code-skeleton-mcp and d2 from their release archives onto a directory that is
+ *     already on PATH, and the Python tools through `uv tool install`, with uv
+ *     installed on demand. A tool whose release asset does not exist for this platform stays
  *     missing and reports the manual command. Two kit-local exceptions are installed
  *     into `<kit>/.tools`, not a global bin: the browser-audit libraries, and the
  *     `@deepseek-ai/dsh-hooks-claude-code` bridge the code-search pack mounts (with the
@@ -93,6 +93,9 @@ const PINS = {
   osvScanner: '2.7.1',
   lychee: '0.24.2',
   trafilatura: '2.3.1',
+  // The parser behind the `outline` tool. Pinned because the outline shape every agent
+  // receives is a contract: symbols with line ranges, not prose that drifts between releases.
+  codeSkeleton: '0.1.3',
   axePlaywright: '4.14.0',
   pixelmatch: '8.0.0',
   playwrightCore: '1.65.0',
@@ -285,6 +288,41 @@ function resolveToolBin(tool) {
   if (fromPath !== null) return fromPath
   const known = tool.known?.[process.platform] ?? []
   return firstExisting(known)
+}
+
+/**
+ * The version of the npm package that owns `bin`, or null.
+ *
+ * PURPOSE
+ *   A CLI without a version flag (code-skeleton-mcp routes every unknown first argument to
+ *   its stdio MCP server) still has to be reported against the kit's pin. The package the
+ *   shim resolves to is the truthful source, and reading it also proves the install
+ *   directory is complete rather than merely on PATH.
+ * INPUTS
+ *   bin  - absolute path of the executable or its npm shim (string).
+ *   name - package name to match in the manifest (string).
+ * OUTPUTS
+ *   Version string, or null when no matching manifest was found.
+ * KEYWORDS
+ *   npm package, probe, version, code-skeleton-mcp, shim
+ */
+function npmPackageVersion(bin, name) {
+  try {
+    let dir = dirname(realpathSync(bin))
+    for (let depth = 0; depth < 8; depth += 1) {
+      const manifest = join(dir, 'package.json')
+      if (existsSync(manifest)) {
+        const value = JSON.parse(readFileSync(manifest, 'utf8'))
+        if (value?.name === name && typeof value.version === 'string') return value.version
+      }
+      const parent = dirname(dir)
+      if (parent === dir) break
+      dir = parent
+    }
+  } catch {
+    // A layout that hides the manifest still runs; the version is a report detail.
+  }
+  return null
 }
 
 /** Run a probe command and return its first line, or null when it fails. */
@@ -890,16 +928,16 @@ function ensureOnPath(dir) {
  * Return a usable `uv`, installing the official one when it is absent.
  *
  * PURPOSE
- *   Headroom is published only as a Python tool, so `uv tool install` is its one
- *   supported unattended path. Without this, "install headroom" always degraded to
- *   a manual instruction.
+ *   Some external tools are published only as Python packages, so `uv tool install`
+ *   is their one supported unattended path (see {@link installUvTool}). Without
+ *   this, "install semgrep" always degraded to a manual instruction.
  * INPUTS
  *   none.
  * OUTPUTS
  *   Absolute path of `uv` (string), or null when its installer failed or the
  *   binary cannot be found afterwards.
  * KEYWORDS
- *   uv, python toolchain, astral, headroom, unattended install
+ *   uv, python toolchain, astral, unattended install
  */
 function ensureUv() {
   const existing = which('uv')
@@ -959,28 +997,22 @@ const TOOLS = [
     manualWindows: 'download rtk-oss-x86_64-pc-windows-msvc.zip from https://github.com/rtk-ai/rtk/releases and put rtk.exe on PATH',
   },
   {
-    id: 'headroom',
-    label: 'Headroom — model-traffic compression proxy',
+    id: 'code-skeleton-mcp',
+    label: 'code-skeleton-mcp — code outline behind the `outline` tool',
     required: false,
-    names: ['headroom'],
-    install: async () => {
-      const uv = ensureUv()
-      if (uv === null) return false
-      const installed = run([uv, 'tool', 'install', '--python', '3.13', 'headroom-ai[proxy]'])
-      // uv puts the shim in ~/.local/bin, which Windows does not search by default.
-      ensureOnPath(join(homedir(), '.local', 'bin'))
-      return installed && which('headroom') !== null
+    pin: PINS.codeSkeleton,
+    versionPin: PINS.codeSkeleton,
+    names: ['code-skeleton-mcp'],
+    // The CLI has no `--version`: its dispatcher routes only the documented subcommands and
+    // starts the stdio MCP server for anything else, so a version probe would either hang or
+    // report nothing. The package the shim resolves to is the truthful version.
+    detect: () => {
+      const bin = resolveToolBin({ names: ['code-skeleton-mcp'] })
+      return { bin, version: bin === null ? null : npmPackageVersion(bin, 'code-skeleton-mcp') }
     },
-    manual: 'uv tool install --python 3.13 "headroom-ai[proxy]"',
-    manualWindows: 'irm https://astral.sh/uv/install.ps1 | iex; then: uv tool install --python 3.13 "headroom-ai[proxy]"',
-  },
-  {
-    id: 'babysitter',
-    label: 'Babysitter — deterministic process runs',
-    required: false,
-    names: ['babysitter'],
-    install: async () => installWithNpm('@a5c-ai/babysitter'),
-    manual: 'npm install -g @a5c-ai/babysitter',
+    install: async () => installWithNpm(`code-skeleton-mcp@${PINS.codeSkeleton}`) && which('code-skeleton-mcp') !== null,
+    manual: `npm install -g code-skeleton-mcp@${PINS.codeSkeleton}`,
+    manualWindows: `npm install -g code-skeleton-mcp@${PINS.codeSkeleton}`,
   },
   {
     id: 'marp',

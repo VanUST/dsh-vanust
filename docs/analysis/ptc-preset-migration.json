@@ -1,0 +1,376 @@
+{
+  "schemaVersion": 1,
+  "id": "ptc-preset-migration",
+  "rev": 4,
+  "status": "completed",
+  "createdAt": "2026-11-17T10:34:34.945Z",
+  "updatedAt": "2026-11-17T10:45:50.320Z",
+  "updatedBy": "agent",
+  "title": "PTC для пресетов kit: волна 1 — gatherer и reviewer",
+  "requestedSolution": "Владелец: просмотреть все плагины и пресеты, пересмотреть распределение плагинов и начать переносить пресеты на PTC с верификациями. Начать с ролей, где PTC сохраняет роль и даёт наибольший выигрыш: gatherer (много чтений → один отчёт) и reviewer (прогон и чтение диффа). Оркестратор и research остаются native, потому что PTC даёт процессам и сети выйти за пределы их роли.",
+  "businessOutcome": {
+    "problem": "В native каждый промежуточный результат чтения или команды попадает в историю и переотправляется на каждом следующем шаге. У gatherer и reviewer работа состоит из многих последовательных чтений и коротких команд, поэтому шаг дорожает быстрее, чем растёт полезный результат. PTC позволяет программе прочитать много файлов и вернуть только вывод.",
+    "outcome": "Пресеты gatherer и reviewer монтируют tool-executor-ptc; свежая сессия каждого видит один run_code и сгенерированный SDK, выполняет задачу через вложенные вызовы и возвращает корректный результат. Остальные пресеты и корень остаются native; откат — удаление двух рядов.",
+    "successMetrics": [
+      "в profile/cordis.patch.yml ровно два новых ряда tool-executor-ptc: в preset-gatherer и preset-reviewer",
+      "в свежей сессии каждого пресета request/header содержит только run_code, а system/message — раздел tools:sdk с объявлениями инструментов пресета",
+      "задача на каждом пресете выполнена через run_code с событиями tool/ptc-dispatch, без INVALID_REQUEST и CODE_RUN_FAILED",
+      "оркестратор и research не изменились: у них нет tool-executor-ptc и их шапка остаётся native",
+      "живой :3080 не тронут; проверка на втором сервере, после неё сервер и оверлеи убраны"
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CURRENT",
+        "name": "Native у всех пресетов",
+        "actors": [
+          "корень",
+          "все восемь пресетов"
+        ],
+        "steps": [
+          "Каждый вызов инструмента — отдельный шаг модели",
+          "Промежуточные результаты чтений и команд остаются в истории",
+          "gatherer и reviewer переотправляют их на каждом следующем шаге"
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-TARGET",
+        "name": "PTC у gatherer и reviewer",
+        "actors": [
+          "gatherer",
+          "reviewer"
+        ],
+        "steps": [
+          "Пресет монтирует tool-executor-ptc рядом со своими инструментами",
+          "Модель пишет программу и вызывает инструменты как функции SDK",
+          "Промежуточные значения остаются в программе; в разговор попадает только вывод",
+          "Остальные пресеты и корень продолжают работать native"
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "FR-1",
+      "kind": "FR",
+      "text": "Пресеты gatherer и reviewer монтируют tool-executor-ptc; ни один другой пресет и ни один хостовый ряд не включает PTC.",
+      "acceptance": [
+        "в profile/cordis.patch.yml ровно два новых ряда tool-executor-ptc — внутри preset-gatherer и preset-reviewer",
+        "tool-executor-native не выключен ни в одном пресете и не включён tool-executor-ptc на уровне хоста",
+        "у preset-orchestrator и preset-research нет ряда tool-executor-ptc"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-2",
+      "kind": "FR",
+      "text": "Свежая сессия каждого мигрированного пресета видит один run_code и SDK, содержащий все инструменты этого пресета.",
+      "acceptance": [
+        "request/header свежей сессии содержит только run_code",
+        "system/message содержит раздел «Writing code for run_code» и объявления инструментов пресета (read, grep, glob, bash и остальные)",
+        "сгенерированный SDK не падает на схемах инструментов кита"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-3",
+      "kind": "FR",
+      "text": "Реальная задача на каждом мигрированном пресете выполняется через run_code с вложенными вызовами и корректным результатом.",
+      "acceptance": [
+        "в журнале есть tool/ptc-dispatch для вложенных вызовов",
+        "ответ сессии корректен и проверяем независимо",
+        "нет INVALID_REQUEST и CODE_RUN_FAILED"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-4",
+      "kind": "FR",
+      "text": "Проверка выполняется на втором сервере со свежими сессиями; живой :3080 и установленный профиль не меняются.",
+      "acceptance": [
+        "второй сервер на отдельном порту с временным слоем настроек",
+        "сессии созданы после старта второго сервера",
+        "после проверки процесс второго сервера остановлен, временные файлы убраны"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-5",
+      "kind": "FR",
+      "text": "Документы отражают волну и условие откатa: rules/DEPLOYMENT.md и docs/PTC-MODE-ANALYSIS.md говорят, какие пресеты на PTC, почему остальные нет и что снимается одним рядом.",
+      "acceptance": [
+        "в rules/DEPLOYMENT.md есть строка про gatherer и reviewer на PTC и про откат",
+        "docs/PTC-MODE-ANALYSIS.md обновлён разделом о волне 1",
+        "старый постмортем про defer_loading помечен как исправленный в 0.2.2-rc.3"
+      ],
+      "status": "proven"
+    }
+  ],
+  "architecture": {
+    "contractImpact": "none",
+    "components": [
+      {
+        "id": "C-PROFILE",
+        "name": "Профиль пресетов",
+        "responsibility": "Два ряда tool-executor-ptc в декларациях preset-gatherer и preset-reviewer; остальные декларации не меняются",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": [
+          "C-EXECUTOR"
+        ]
+      },
+      {
+        "id": "C-EXECUTOR",
+        "name": "Хост PTC",
+        "responsibility": "Среда исполнения ptc-runtime-node и пакет tool-executor-ptc из установленного харнесса; включение только в области пресета",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": []
+      },
+      {
+        "id": "C-VERIFY",
+        "name": "Проверка на втором сервере",
+        "responsibility": "Свежие сессии gatherer и reviewer: шапка, SDK, вложенные вызовы, корректный результат",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": [
+          "C-PROFILE"
+        ]
+      },
+      {
+        "id": "C-DOCS",
+        "name": "Документы",
+        "responsibility": "rules/DEPLOYMENT.md и docs/PTC-MODE-ANALYSIS.md: волна, причина, откат, снятие старого постмортема",
+        "owner": "DOCS",
+        "owns": [],
+        "dependsOn": [
+          "C-VERIFY"
+        ]
+      }
+    ]
+  },
+  "data": [],
+  "contracts": [],
+  "invariants": [
+    {
+      "id": "INV-NO-HOST-FLIP",
+      "text": "PTC включается только в области пресета; хостовый tool-executor-native не выключается, DSH_TOOLS_MODE не используется",
+      "scope": "профиль"
+    },
+    {
+      "id": "INV-NO-SHELL-ROLES",
+      "text": "orchestrator и research остаются native: их роль построена на отсутствии шелла, а PTC-программа имеет процессы и сеть",
+      "scope": "профиль"
+    },
+    {
+      "id": "INV-FRESH",
+      "text": "Проверка идёт на свежих сессиях; переключение режима посреди истории не является условием приёмки",
+      "scope": "проверка"
+    },
+    {
+      "id": "INV-ROLLBACK",
+      "text": "Откат — удаление двух рядов tool-executor-ptc, без миграции данных и без изменения плагинов",
+      "scope": "профиль"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "DEC-WAVE1",
+      "decision": "Волна 1 — gatherer и reviewer, а не все шесть shell-ролей.",
+      "rationale": "Обе роли read-only по файлам (write:false, edit:false), не ждут человека и не имеют plan mode; gatherer — самый чистый случай «много чтений → один отчёт», reviewer — прогон и чтение диффа. Остальные роли (backend, ux, docs, critic) добавляются следующими волнами после измерения.",
+      "alternatives": [
+        "начать с backend как самой ценной роли, но с долгими сборками и записью",
+        "включить все шесть shell-ролей сразу"
+      ]
+    },
+    {
+      "id": "DEC-PER-PRESET",
+      "decision": "tool-executor-ptc монтируется внутри каждого пресета, а не на уровне хоста.",
+      "rationale": "Хостовый флип переключил бы и standard, и существующие сессии; ближайший исполнитель в области пресета выбирает PTC только для этой роли, остальные остаются native.",
+      "alternatives": [
+        "включить tool-executor-ptc в dsh-base и выключить native для всего процесса",
+        "использовать DSH_TOOLS_MODE"
+      ]
+    },
+    {
+      "id": "DEC-NO-SHELL",
+      "decision": "orchestrator и research не мигрируют.",
+      "rationale": "PTC-программа — процесс Node: файлы, сеть и дочерние процессы не ограничены файловой песочницей. У этих ролей отсутствие шелла записано в персоне и является частью контракта роли; включение PTC — смена роли, а не интерфейса.",
+      "alternatives": [
+        "включить PTC и переписать персону, приняв потерю гарантии",
+        "сделать отдельный пресет-двойник для эксперимента"
+      ]
+    },
+    {
+      "id": "DEC-SECOND-SERVER",
+      "decision": "Проверка на втором сервере с временным слоем настроек, а не на :3080.",
+      "rationale": "Живой сервер держит старую композицию и существующие сессии; правка установленного профиля под работающим сервером ломает композицию. Второй сервер даёт свежие сессии и не трогает :3080.",
+      "alternatives": [
+        "применить kit-update и перезапустить :3080 сразу",
+        "headless-профиль без пресетов кита"
+      ]
+    }
+  ],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L1",
+    "reasons": [
+      "Изменение внутри двух существующих деклараций пресетов, без нового плагина и без изменения данных или контрактов",
+      "Проверяется на втором сервере свежими сессиями",
+      "Откат — удаление двух рядов"
+    ]
+  },
+  "designRef": {
+    "mapRev": 30,
+    "at": "2026-11-17T13:36:00.000Z",
+    "source": "designmap/model.yaml@sha256:699c3c8c844c53b69ef4b2a9ca8300b45dfe73fd752c9e1c54cf2fec4b180f7d"
+  },
+  "goalId": "goal-310449d3-bbf4-49ea-af36-e26c5c0a7e56",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "FR-1",
+      "processId": "P-TARGET",
+      "componentId": "C-PROFILE",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkk3shd-vpgj4y",
+          "role": "BACKEND",
+          "at": "2026-11-17T10:35:37.606Z",
+          "evidence": [
+            "`--dump-config` с id-оверлеем: tool-executor-ptc внутри preset-gatherer (строка 1908) и preset-reviewer (1992); у preset-orchestrator/research/backend/ux/critic/docs и встроенных preset-* его нет; хостовый ряд tool-executor-ptc — disabled: true (строка 448)"
+          ]
+        },
+        {
+          "taskId": "task-mwkk2ylf-cwfmh9",
+          "role": "оркестратор",
+          "at": "2026-11-17T10:36:00.000Z",
+          "evidence": [
+            "profile/cordis.patch.yml: два новых ряда tool-executor-ptc — в preset-gatherer (962) и preset-reviewer (1041); в diff ровно два ряда; check-documentation PASS, 8 presets"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-2",
+      "processId": "P-TARGET",
+      "componentId": "C-PROFILE",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkk3shd-vpgj4y",
+          "role": "BACKEND",
+          "at": "2026-11-17T10:35:37.606Z",
+          "evidence": [
+            "gatherer: request/header.tools = [run_code]; system/message 84 620 символов, раздел «Writing code for run_code», 54 инструмента в SDK, включая read/grep/glob/bash/skill/todo_write; write/edit отсутствуют",
+            "reviewer: request/header.tools = [run_code]; 88 304 символов, 59 инструментов, включая job_*, web_fetch/web_search, present",
+            "схемы инструментов кита отрендерились без ошибок; mcp__playwright__* в SDK нет (tool-families)"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-3",
+      "processId": "P-TARGET",
+      "componentId": "C-VERIFY",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkk3shd-vpgj4y",
+          "role": "BACKEND",
+          "at": "2026-11-17T10:35:37.606Z",
+          "evidence": [
+            "gatherer: 6 tool/ptc-dispatch (grep/glob/bash), 2 run_code; ответ 12 регистраций taskboard, apply на outline.mjs:429, 24 каталога плагинов — сверено независимо",
+            "reviewer: 5 tool/ptc-dispatch, 5 run_code; `node scripts/outline-selftest.mjs` → verdict PASS 6/0, exit 0; два preset id",
+            "INVALID_REQUEST 0, CODE_RUN_FAILED 0"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-4",
+      "processId": "P-TARGET",
+      "componentId": "C-VERIFY",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkk3shd-vpgj4y",
+          "role": "BACKEND",
+          "at": "2026-11-17T10:35:37.606Z",
+          "evidence": [
+            "второй web-сервер :3081 с id-оверлеем; сессии созданы после старта",
+            "после проверки :3081 не слушает; :3080 pid 3160705 старт 12:22 жив; установленный профиль mtime 12:22 не менялся"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-5",
+      "processId": "P-TARGET",
+      "componentId": "C-DOCS",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwkk2ylf-cwfmh9",
+          "role": "оркестратор",
+          "at": "2026-11-17T10:36:00.000Z",
+          "evidence": [
+            "rules/DEPLOYMENT.md §PTC: история откатa, фикс 0.2.2-rc.3, волна gatherer/reviewer, откат двумя рядами",
+            "docs/PTC-MODE-ANALYSIS.md §4.3-4.4 и §7: таблица, результаты проверки, сессии",
+            "старый постмортем помечен как исправленный: rebaseAdditionOnlyHistory, измеренное возобновление session-40f5b5fd"
+          ]
+        }
+      ]
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "6eabe91276b567ad6ac103cc1ee607be0b60c9dccb92b16c675deeb7a2fe6550",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-17T10:34:34.945Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-17T10:34:47.747Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-17T10:35:37.606Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwkk3shd-vpgj4y -> FR-1, FR-2, FR-3, FR-4"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-17T10:45:50.320Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "completed",
+      "summary": ""
+    }
+  ]
+}

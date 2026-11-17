@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "id": "native-to-ptc-resume-switches-and-is-accepted",
+  "title": "Native-to-PTC resume switches and is accepted",
+  "requirement": "Старая native-сессия после перезапуска сервера с PTC-пресетом не блокируется: при первом возобновлении она переключается на PTC, следующий запрос принимается, история и работа сохраняются.",
+  "kind": "regression",
+  "status": "unverified",
+  "source": "agent",
+  "automated": false,
+  "reason": "Требует второго web-сервера, реального провайдера и сессии, созданной до смены пресета; поддельный контекст не воспроизводит пересборку запроса и решение провайдера.",
+  "steps": [
+    "Поднять второй web-сервер на 3081 с установленным профилем без PTC-слоя; создать сессии gatherer и reviewer, выполнить первый ход",
+    "Остановить сервер; поднять его заново с id-слоем Wave 1 (tool-executor-ptc в gatherer/reviewer)",
+    "Открыть обе сессии в тех же id и отправить второй запрос, зависящий от первого ответа",
+    "Прочитать журнал: последний request/header, developer/message с tool-addition/tool-removal, ошибки, usage первого шага",
+    "Убедиться, что второй ответ опирается на первый, а :3080 и установленный профиль не менялись"
+  ],
+  "expected": "Первый запрос после возобновления принят: request/header содержит один run_code, developer/message — добавление run_code и удаление прежних инструментов, INVALID_REQUEST и CODE_RUN_FAILED отсутствуют, второй ответ опирается на первый, история сохранена. Первый шаг без кэша (около 31–33 тыс. input-токенов), следующий шаг снова кэширован.",
+  "tags": [
+    "ptc",
+    "resume",
+    "migration",
+    "defer_loading"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "profile/cordis.patch.yml",
+      "sha256": "d73893908a655a486c642c24c0b9e3c8c192df7c7675894978eab0465d4ab4d4"
+    }
+  ],
+  "linkedTaskId": "task-mwkknas8-9txqhd",
+  "revision": 1,
+  "createdAt": "2026-11-17T11:01:04.232Z",
+  "updatedAt": "2026-11-17T11:01:04.232Z",
+  "createdBy": "orchestrator",
+  "createdByKind": "agent",
+  "history": [],
+  "evidence": {}
+}

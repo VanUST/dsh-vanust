@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "tool-families-applies-the-chosen-preset-to-the-first-request",
+  "title": "tool-families applies the chosen preset to the first request",
+  "requirement": "A session created under one preset and switched to another before its first message must get the CHOSEN preset's tool-family policy in its first request header, not the creation preset's.",
+  "kind": "regression",
+  "status": "unverified",
+  "source": "agent",
+  "automated": false,
+  "reason": "The behaviour needs a running web server, a browser to choose the preset on a blank session, and a real agent turn; the decision logic is covered by scripts/tool-families-proof.mjs (62/62), but the first-request header can only be observed on a live server.",
+  "steps": [
+    "Start a second web server on :3081 with the tool-families scratch row (0.1.8) mounted and the installed row disabled.",
+    "Create a new session (it is created under orchestrator) and switch the preset to Backend in the hero before sending anything.",
+    "Send any message and read $DSH_HOME/sessions/<slug>/<id>/session.v4.jsonl.zstd: the first request/header tools list.",
+    "Expect 67 names, no mcp__playwright__*, bash present."
+  ],
+  "expected": "First request header after switching to backend carries 67 tools, 0 mcp__playwright__*, bash present (the backend row denies playwright; the creation preset orchestrator denies godot/bash). The pre-fix plugin produced 91 tools with 24 mcp__playwright__* on request 1 and 67 on request 2.",
+  "tags": [
+    "tool-families",
+    "preset",
+    "request-header",
+    "ptc-wave2"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/tool-families/tool-families.mjs",
+      "sha256": "6754db934e368ff284042c3c05ebc86b9a2d7ea5849c6f3c8c2d562e6160bbb0"
+    }
+  ],
+  "revision": 1,
+  "createdAt": "2026-11-17T11:42:35.716Z",
+  "updatedAt": "2026-11-17T11:42:35.716Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [],
+  "evidence": {}
+}

@@ -157,7 +157,7 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   the report instead of filling its own context with the reading. New
   chats default to the orchestrator; `standard` stays in the picker as the hands-on escape
   hatch. The kit's role-specific tools gate on the same id (`papers_*` research,
-  `babysitter_*` orchestrator, `diagram`/`presentation` orchestrator + UX).
+  `diagram`/`presentation` orchestrator + UX).
   **`critic` is the adversary**: an adversarial general tester whose brief is to break a
   running algorithm or service on a disposable copy, find realistic non-trivial inputs that
   crash, hang, corrupt state or return a wrong answer, and report the smallest reproducible
@@ -168,10 +168,10 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   arXiv PDF under `.dsh/papers/` with a `pdftotext` extraction. No API key; one source can
   fail while the other returns results.
 - **`scripts/provision-tools.mjs`** — installs or reports the external binaries the features
-  use (RTK, Headroom, Babysitter, Marp CLI, Mermaid CLI, D2) and detects the OS ones (Chrome,
-  ffmpeg). `install.sh` runs it with `--apply`; `make provision` reports, `make provision-apply`
-  installs. Every tool is optional — its feature degrades and says so — which is why silence
-  about it was a defect.
+  use (RTK, code-skeleton-mcp, Marp CLI, Mermaid CLI, D2) and detects the OS ones
+  (Chrome, ffmpeg). `install.sh` runs it with `--apply`; `make provision` reports,
+  `make provision-apply` installs. Every tool is optional — its feature degrades and says so —
+  which is why silence about it was a defect.
 - **`@cc/dsh-research-first`** — refuses to create a NEW file in a session that has read
   nothing current: it observes `web_fetch`/`web_search` results, gates new-file writes, names the
   exact next step in the denial, and offers `research_waive` for an offline machine. Memory is a
@@ -183,6 +183,16 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   simple command whose filter actually shrinks the text, and every replacement carries a banner
   naming the filter and how to get the full output back. Works with rtk absent — the prompt
   section says so and the listener no-ops.
+- **`@cc/dsh-outline`** — a table of contents for a source file, before the file is read. The
+  `outline` tool runs `code-skeleton-mcp outline` (tree-sitter WASM grammars committed inside
+  that package: JavaScript, TypeScript, TSX and Python; Go reports types only; no network) and
+  returns the file's symbols with their line ranges, signatures and first-line docstrings —
+  never the bodies. Measured 2026-11-17: `plugins/orchestrator/orchestrator.mjs` 83 148 B →
+  4 791 B (−94.2 %, ~0.4 s), and the same call twice returns the same bytes. The section
+  teaches the pairing:
+  outline an unfamiliar file first, then `read` only the range of the symbol that matters. It
+  is mounted on the HOST row, so the root and all seven presets get it. With the binary
+  absent no tool is registered and the section says `outline unavailable` and where it looked.
 - **`@cc/dsh-session-budget`** — a deterministic handoff reminder at step thresholds. A session
   projection folds completed steps out of the append-only log, so the count and the "already
   reminded" marks survive compaction; at 300 (soft), 400 (soft) and 500 (hard) the plugin appends
@@ -204,11 +214,6 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   the losers, `skill_forget` archives one skill while keeping its bytes. This is SkillClaw's
   useful half — evolution and dedupe over SKILL.md — with no proxy, no Python and no second
   process: the harness's own `skill-filesystem` provider already discovers the result live.
-- **`@cc/dsh-babysitter`** — drives the real `@a5c-ai/babysitter` CLI from DSH: `babysitter_run`,
-  `babysitter_status`, `babysitter_resume` and `babysitter_doctor`, each bounded by a timeout and
-  each answering with the install line rather than a stack trace when the CLI is absent. The
-  mapping is the point: one run is one taskboard task, journal steps become timeline notes, and
-  the task ends in `review` for a human — never `done`.
 
 **Third-party add-on: Hindsight memory.** `@vectorize-io/hindsight-coding-agents@0.8.2`
 is installed separately by its own command (`npx @vectorize-io/hindsight-coding-agents install dsh`),
@@ -303,12 +308,10 @@ dsh-kit/
 ├── plugins/analysis/          # source of @cc/dsh-analysis (Analysis Record, check, impact, L0/L1/L2 gate)
 ├── plugins/papers/            # source of @cc/dsh-papers (arXiv/HF search, trending, PDF text)
 ├── plugins/rtk/               # source of @cc/dsh-rtk (rtk binary discovery + post-execute output seam)
+├── plugins/outline/           # source of @cc/dsh-outline (outline tool over code-skeleton-mcp + its prompt section)
 ├── plugins/skill-evolve/      # source of @cc/dsh-skill-evolve (SKILL.md write/version/dedupe/archive)
 ├── plugins/research-first/    # source of @cc/dsh-research-first (new-file gate on current docs)
-├── plugins/babysitter/        # source of @cc/dsh-babysitter (CLI adapter mapped onto the taskboard)
 ├── profile/                   # canonical web profile: package.json (no deps) + cordis.patch.yml
-├── profile/headroom.patch.yml # opt-in overlay that points the DeepSeek provider at the local proxy
-├── scripts/headroom.mjs       # start/stop/status/enable/disable for the Headroom proxy
 ├── scripts/rtk-selftest.mjs   # runs real repo commands through the rtk filter and prints the savings
 ├── scripts/session-store.mjs  # boot guard: quarantines session logs the OS refuses (an unreadable one hides ALL history)
 ├── rules/DEPLOYMENT.md        # operating this machine: install, update, checks, troubleshooting ($DSH_HOME/DEPLOYMENT.md)
@@ -358,6 +361,9 @@ verified on and the procedure for reproducing that verification are `rules/DEPLO
   `plugins/proof-guard/`, `plugins/taskboard/`, `plugins/orchestrator/`,
   `plugins/papers/`.
   `plugins/inventory.json` is the set.
+- **Reviewer's overview** — `docs/HARNESS-OVERVIEW.md`: the harness composition, all 8 kit
+  presets and the 4 built-in presets with their personas, the 23 plugins, the system-prompt
+  section map with its source files, and the discrepancies a reviewer should check.
 - **Design rationale** — `docs/` carries the analysis notes this kit was built from
   (`docs/HARNESS-COMPACTION-REVIEW.md`, `docs/SESSION-CONTEXT.md`); they are readings, not
   contracts, and the artifacts win wherever they disagree.
