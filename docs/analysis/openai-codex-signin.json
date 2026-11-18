@@ -1,0 +1,324 @@
+{
+  "schemaVersion": 1,
+  "id": "openai-codex-signin",
+  "rev": 1,
+  "status": "ready",
+  "createdAt": "2026-11-18T12:26:30.735Z",
+  "updatedAt": "2026-11-18T12:26:30.735Z",
+  "updatedBy": "agent",
+  "title": "Вход в OpenAI Codex по подписке ChatGPT Plus/Pro без кнопки в GUI",
+  "requestedSolution": "Владелец 2026-11-18: подписка ChatGPT Pro есть, но в Settings → Models у маршрута openai-codex нет входа; в веб-сборке DSH 0.2.2-rc.3 поток авторизации провайдера нечем запустить (слот settings.models.sign-in занят входом в аккаунт DeepSeek). Сделать вход вне GUI: инструмент харнесса начинает OAuth-поток pi-ai, отдаёт владельцу ссылку и код, после подтверждения запись llm-pi-ai/openai-codex ложится в хранилище харнесса.",
+  "businessOutcome": {
+    "problem": "Подписка ChatGPT Pro не используется: маршрут openai-codex объявлен в профиле, но кнопки входа за ChatGPT в интерфейсе нет, а ключ API требует отдельных кредитов.",
+    "outcome": "Владелец входит в Codex по подписке из чата: инструмент выдаёт ссылку и код, после подтверждения маршрут openai-codex отвечает моделью.",
+    "successMetrics": []
+  },
+  "process": {
+    "current": [
+      {
+        "id": "CS-CUR",
+        "name": "Нет входа",
+        "actors": [
+          "владелец"
+        ],
+        "steps": [
+          "Settings → Models → openai-codex",
+          "Кнопки входа за ChatGPT нет",
+          "Подписка Pro не используется"
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "CS-TGT",
+        "name": "Вход вне GUI",
+        "actors": [
+          "владелец",
+          "оркестратор"
+        ],
+        "steps": [
+          "Оркестратор вызывает codex_signin_start",
+          "Владелец открывает ссылку и вводит код",
+          "codex_signin_status → authorized",
+          "Маршрут openai-codex отвечает"
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "FR1",
+      "kind": "FR",
+      "text": "Инструмент начинает вход в OpenAI (ChatGPT Plus/Pro) и отдаёт владельцу ссылку и код подтверждения.",
+      "acceptance": [
+        "Вызов codex_signin_start возвращает verification URL и user code не позже 10 с",
+        "Поток продолжается после возврата вызова; codex_signin_status показывает pending с тем же кодом",
+        "Если сервер не поддерживает device code (404), ответ — названный отказ и предложение browser-входа, а не таймаут"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR2",
+      "kind": "FR",
+      "text": "После подтверждения запись llm-pi-ai/openai-codex лежит в хранилище харнесса и маршрут openai-codex ею аутентифицируется.",
+      "acceptance": [
+        "codex_signin_status после подтверждения возвращает authorized",
+        "Запись llm-pi-ai/openai-codex описывается хранилищем как grant",
+        "Запрос к маршруту openai-codex с этой записью доходит до провайдера (при поднятом туннеле)"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR3",
+      "kind": "FR",
+      "text": "Вход можно отменить и повторить, не оставив зависший поток.",
+      "acceptance": [
+        "codex_signin_cancel завершает поток; статус становится cancelled",
+        "Повторный codex_signin_start при активном потоке возвращает ALREADY_IN_FLIGHT с текущей ссылкой и кодом",
+        "После отмены новый start запускает новый поток"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "NFR1",
+      "kind": "NFR",
+      "text": "Секрет не печатается, а отказы названы.",
+      "acceptance": [
+        "Ни в выводе инструментов, ни в журнале сессии нет access/refresh токена",
+        "При недоступном ctx.authorization или хранилище — названный отказ, а не молчание",
+        "Тест на fake-сервисах: ни одного сетевого вызова в тесте"
+      ],
+      "status": "planned"
+    }
+  ],
+  "architecture": {
+    "contractImpact": "additive",
+    "components": [
+      {
+        "id": "codex-signin-tool",
+        "name": "@cc/dsh-codex-signin (новый хост-плагин)",
+        "responsibility": "три инструмента codex_signin_start/status/cancel: запускает ctx.authorization.begin в фоне, хранит состояние потока в памяти, отдаёт ссылку и код, отменяет поток; виден только пресету orchestrator",
+        "owner": "kit",
+        "owns": [
+          "codex-signin-state"
+        ],
+        "dependsOn": [
+          "pi-ai-auth",
+          "credential-store"
+        ]
+      },
+      {
+        "id": "pi-ai-auth",
+        "name": "@deepseek-ai/dsh-llm-pi-ai",
+        "responsibility": "регистрирует OAuth-поток openai-codex в ctx.authorization (prompt выбора метода, device_code notify, обмен кода на grant) и резолвит запись для маршрута openai-codex",
+        "owner": "dsh",
+        "owns": [],
+        "dependsOn": [
+          "credential-store"
+        ]
+      },
+      {
+        "id": "credential-store",
+        "name": "@deepseek-ai/dsh-credentials",
+        "responsibility": "хранит запись llm-pi-ai/openai-codex (kind grant) и отдаёт её адаптеру при каждом запросе",
+        "owner": "dsh",
+        "owns": [
+          "codex-credential"
+        ],
+        "dependsOn": []
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "codex-credential",
+      "name": "llm-pi-ai/openai-codex",
+      "owner": "dsh",
+      "ownerComponentId": "credential-store",
+      "description": "grant: access, refresh, expires, accountId; пишет поток авторизации, не плагин"
+    },
+    {
+      "id": "codex-signin-state",
+      "name": "состояние потока входа",
+      "owner": "kit",
+      "ownerComponentId": "codex-signin-tool",
+      "description": "статус, verification URL, user code, ошибка; только в памяти процесса, на диск и в журнал не пишется"
+    }
+  ],
+  "contracts": [
+    {
+      "id": "codex-signin-tool-contract",
+      "name": "контракт трёх инструментов",
+      "between": [
+        "codex-signin-tool",
+        "orchestrator"
+      ],
+      "change": "additive",
+      "description": "codex_signin_start({method?}) → {status,url,code,expiresAt}; codex_signin_status() → тот же статус; codex_signin_cancel() → {status:'cancelled'}; отказы: NO_AUTHORIZATION, ALREADY_IN_FLIGHT, NO_FLOW"
+    },
+    {
+      "id": "codex-credential-contract",
+      "name": "запись учётных данных",
+      "between": [
+        "codex-signin-tool",
+        "credential-store"
+      ],
+      "change": "additive",
+      "description": "адрес llm-pi-ai/openai-codex; пишет поток pi-ai через session.commit, плагин только начинает поток и читает статус"
+    },
+    {
+      "id": "pi-ai-oauth-contract",
+      "name": "запуск OAuth-потока",
+      "between": [
+        "codex-signin-tool",
+        "pi-ai-auth"
+      ],
+      "change": "none",
+      "description": "ctx.authorization.begin({key:'llm-pi-ai/openai-codex', method:'oauth', interaction, signal}); interaction.prompt отвечает select='device_code', notify отдаёт {message,url,code}"
+    }
+  ],
+  "invariants": [
+    {
+      "id": "INV1",
+      "text": "access/refresh токен не попадает в вывод инструмента, журнал сессии и git",
+      "scope": ""
+    },
+    {
+      "id": "INV2",
+      "text": "одновременно один поток на ключ llm-pi-ai/openai-codex; повторный start не запускает второй",
+      "scope": ""
+    }
+  ],
+  "decisions": [
+    {
+      "id": "D1",
+      "decision": "Запускать существующий поток через ctx.authorization.begin, а не писать grant в хранилище самим",
+      "rationale": "Форматом grant владеет pi-ai; адаптер читает только хранилище харнесса (auth.ts), поэтому запись должна создать сама потоковая авторизация",
+      "alternatives": [
+        "свой обмен кода на токен",
+        "ключ API"
+      ]
+    },
+    {
+      "id": "D2",
+      "decision": "По умолчанию device code: ссылка https://auth.openai.com/codex/device и user code, без локального callback-порта 1455",
+      "rationale": "Порт 1455 общий с Codex CLI и часто занят; device code работает без браузера на хосте и без входящего соединения",
+      "alternatives": [
+        "browser-вход с портом 1455",
+        "ручная вставка redirect URL"
+      ]
+    },
+    {
+      "id": "D3",
+      "decision": "Инструменты видит только пресет orchestrator",
+      "rationale": "Вход — операция владельца в его чате; детям её не нужно видеть",
+      "alternatives": [
+        "показать всем пресетам"
+      ]
+    },
+    {
+      "id": "D4",
+      "decision": "Поток идёт в фоне, а start возвращает ссылку сразу; статус читается отдельным инструментом",
+      "rationale": "begin() блокируется до конца авторизации; блокирующий вызов не отдал бы владельцу ссылку до подтверждения",
+      "alternatives": [
+        "блокирующий вызов с ожиданием"
+      ]
+    }
+  ],
+  "openQuestions": [
+    {
+      "id": "Q1",
+      "question": "Поддержит ли сервер OpenAI device code для этого client_id; при 404 — browser-вход с ручной вставкой кода, это проверяется на живом входе",
+      "owner": "",
+      "blocks": false,
+      "answer": ""
+    },
+    {
+      "id": "Q2",
+      "question": "Переживает ли запись llm-pi-ai/openai-codex перезапуск dsh (проверить на живом профиле после входа)",
+      "owner": "",
+      "blocks": false,
+      "answer": ""
+    }
+  ],
+  "sizing": {
+    "class": "L2",
+    "reasons": [
+      "новый хост-плагин и три инструмента",
+      "пишет учётные данные в хранилище харнесса",
+      "использует authorization seam и сетевой OAuth-поток"
+    ]
+  },
+  "designRef": {
+    "mapRev": 0,
+    "at": "2026-11-18T12:30:00.000Z",
+    "source": "designmap/manifest.json"
+  },
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "FR1",
+      "processId": "CS-TGT",
+      "componentId": "codex-signin-tool",
+      "contractIds": [
+        "codex-signin-tool-contract",
+        "pi-ai-oauth-contract"
+      ],
+      "dataIds": [
+        "codex-signin-state"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR2",
+      "processId": "CS-TGT",
+      "componentId": "credential-store",
+      "contractIds": [
+        "codex-credential-contract"
+      ],
+      "dataIds": [
+        "codex-credential"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR3",
+      "processId": "CS-TGT",
+      "componentId": "codex-signin-tool",
+      "contractIds": [
+        "codex-signin-tool-contract"
+      ],
+      "dataIds": [
+        "codex-signin-state"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "NFR1",
+      "processId": "CS-TGT",
+      "componentId": "codex-signin-tool",
+      "contractIds": [
+        "codex-signin-tool-contract"
+      ],
+      "dataIds": [],
+      "status": "planned",
+      "tasks": []
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "182bf8042d8108915da943468e6960f10bfbd1ca10dd8735d9728104c8fc8218",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-18T12:26:30.735Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "ready",
+      "summary": ""
+    }
+  ]
+}

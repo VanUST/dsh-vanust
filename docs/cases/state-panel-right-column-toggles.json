@@ -1,0 +1,215 @@
+{
+  "schemaVersion": 1,
+  "id": "state-panel-right-column-toggles",
+  "title": "State panel right column toggles",
+  "requirement": "The state panel hides its right column (the evidence rail, ps-rail) from its own header button and brings it back on the second press; the button reflects the state through aria-pressed and its label switches between «Скрыть правую колонку» and «Показать правую колонку».",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "plugins/taskboard/test/panel-navigation.test.mjs",
+  "runCommand": "node --test plugins/taskboard/test/panel-navigation.test.mjs",
+  "steps": [
+    "read plugins/project-state-panel/client.js and assert the railOpen state, the aria-pressed toggle and both labels",
+    "assert the ps-rail is rendered only while railOpen and that .ps-shell.ps-no-rail drops the third grid column",
+    "run the test on the fixed files: exit 0, violations 0",
+    "run the same test with CASE_NEGATIVE_CONTROL=expect-pre-fix: exit 1, six named violations (the pre-fix shape)",
+    "run the same test over the files from git HEAD: exit 1, thirteen named violations"
+  ],
+  "expected": "The static test exits 0 with zero violations on the fixed files; the negative control and the git HEAD sources exit 1 and name the missing rail toggle or the returned header entries.",
+  "tags": [
+    "panel",
+    "navigation",
+    "right-column",
+    "p2"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/project-state-panel/client.js",
+      "sha256": "08da8f61b725ae4950202d057fa782c716429b4bd863d05877d0b4ee70e003a2"
+    },
+    {
+      "path": "plugins/taskboard/test/panel-navigation.test.mjs",
+      "sha256": "d4d5c6a75d877ebd4a4050f029dba9e01207a945eb8f0ff5aba7b115063507e1"
+    }
+  ],
+  "linkedTaskId": "task-mwm3irxo-x6slzr",
+  "reqId": "REQ-108",
+  "authorRole": "BACKEND",
+  "checks": [
+    {
+      "name": "violations",
+      "metric": "violations",
+      "op": "==",
+      "threshold": 0
+    }
+  ],
+  "negativeControl": "expect-pre-fix",
+  "revision": 4,
+  "createdAt": "2026-11-18T12:30:35.107Z",
+  "updatedAt": "2026-11-18T12:33:02.043Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-18T12:30:41.320Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-pre-fix\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-18T12:30:46.791Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-18T12:33:02.043Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mwm3nlmo-juua7-1",
+      "at": "2026-11-18T12:30:41.311Z",
+      "mode": "red",
+      "control": "expect-pre-fix",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 195,
+      "commandSha256": "3562986d803064597b6ffccc1a9d6a449138bf1ab4fc0ed8ffc0d1cdc580b06a",
+      "head": "135176a46a5fd3a22b278904d7ee738ca50836f7",
+      "dirty": true,
+      "stdout": "docs/cases/runs/state-panel-right-column-toggles/mwm3nlmo-juua7-1/stdout.log",
+      "stderr": "docs/cases/runs/state-panel-right-column-toggles/mwm3nlmo-juua7-1/stderr.log",
+      "summary": "docs/cases/runs/state-panel-right-column-toggles/mwm3nlmo-juua7-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "violations": 6
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        },
+        {
+          "name": "violations",
+          "metric": "violations",
+          "op": "==",
+          "measured": 6,
+          "threshold": 0,
+          "pass": false,
+          "reason": "6 is not == 0"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwm3npuo-jhx6h-1",
+      "at": "2026-11-18T12:30:46.784Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 174,
+      "commandSha256": "3562986d803064597b6ffccc1a9d6a449138bf1ab4fc0ed8ffc0d1cdc580b06a",
+      "head": "135176a46a5fd3a22b278904d7ee738ca50836f7",
+      "dirty": true,
+      "stdout": "docs/cases/runs/state-panel-right-column-toggles/mwm3npuo-jhx6h-1/stdout.log",
+      "stderr": "docs/cases/runs/state-panel-right-column-toggles/mwm3npuo-jhx6h-1/stderr.log",
+      "summary": "docs/cases/runs/state-panel-right-column-toggles/mwm3npuo-jhx6h-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "violations": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "violations",
+          "metric": "violations",
+          "op": "==",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mwm3qmic-rz2ao-1",
+      "at": "2026-11-18T12:33:02.037Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 189,
+      "commandSha256": "3562986d803064597b6ffccc1a9d6a449138bf1ab4fc0ed8ffc0d1cdc580b06a",
+      "head": "135176a46a5fd3a22b278904d7ee738ca50836f7",
+      "dirty": true,
+      "stdout": "docs/cases/runs/state-panel-right-column-toggles/mwm3qmic-rz2ao-1/stdout.log",
+      "stderr": "docs/cases/runs/state-panel-right-column-toggles/mwm3qmic-rz2ao-1/stderr.log",
+      "summary": "docs/cases/runs/state-panel-right-column-toggles/mwm3qmic-rz2ao-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "violations": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "violations",
+          "metric": "violations",
+          "op": "==",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-18T12:30:41.320Z",
+    "runId": "mwm3nlmo-juua7-1",
+    "exitCode": 1,
+    "control": "expect-pre-fix",
+    "command": "node --test plugins/taskboard/test/panel-navigation.test.mjs",
+    "source": "negative-control"
+  },
+  "lastVerified": {
+    "at": "2026-11-18T12:33:02.043Z",
+    "command": "node --test plugins/taskboard/test/panel-navigation.test.mjs",
+    "exitCode": 0,
+    "runId": "mwm3qmic-rz2ao-1",
+    "source": "runner",
+    "commit": null
+  }
+}

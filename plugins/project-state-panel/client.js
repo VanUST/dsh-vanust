@@ -42,6 +42,106 @@ window.__ModuleLoader__.load({
       { id: 'blocked', label: 'Blocked', statuses: ['blocked'] },
       { id: 'done', label: 'Done', statuses: ['done', 'cancelled'] },
     ]
+    // Relevance is the owner's reading order (D3): work in flight first, history at the bottom.
+    // Inside a status the task that has moved furthest comes first, then the newest update, then id.
+    const STATUS_RELEVANCE = { active: 0, blocked: 1, review: 2, open: 3, done: 4, cancelled: 5 }
+    const SORT_TAGS = [
+      { id: 'relevance', label: 'Relevance', title: 'Active, blocked, review, open, done, cancelled; then more steps done, newest update, id' },
+      { id: 'updated', label: 'Updated', title: 'Newest update first' },
+      { id: 'status', label: 'Status', title: 'Status name A–Z, newest update, id' },
+      { id: 'title', label: 'Title', title: 'Task title A–Z, id' },
+    ]
+
+    function statusRank(status) {
+      return Object.prototype.hasOwnProperty.call(STATUS_RELEVANCE, status) ? STATUS_RELEVANCE[status] : 6
+    }
+
+    function byIdAsc(left, right) {
+      return String(left.id).localeCompare(String(right.id))
+    }
+
+    /** A copy, sorted: the callers pass projection rows and must never see them reordered. */
+    function sortTasks(rows, sort) {
+      const list = Array.isArray(rows) ? rows.slice() : []
+      if (sort === 'updated') {
+        return list.sort((left, right) => String(right.updatedAt ?? '').localeCompare(String(left.updatedAt ?? '')) || byIdAsc(left, right))
+      }
+      if (sort === 'status') {
+        return list.sort((left, right) => String(left.status ?? '').localeCompare(String(right.status ?? '')) || String(right.updatedAt ?? '').localeCompare(String(left.updatedAt ?? '')) || byIdAsc(left, right))
+      }
+      if (sort === 'title') {
+        return list.sort((left, right) => String(left.title ?? '').toLowerCase().localeCompare(String(right.title ?? '').toLowerCase()) || byIdAsc(left, right))
+      }
+      return list.sort((left, right) => (statusRank(left.status) - statusRank(right.status))
+        || ((Number(right.stepsDone) || 0) - (Number(left.stepsDone) || 0))
+        || String(right.updatedAt ?? '').localeCompare(String(left.updatedAt ?? ''))
+        || byIdAsc(left, right))
+    }
+
+    /** Unfinished = not done and not cancelled; active = the status "active" itself. */
+    function taskCounts(tasks) {
+      let unfinished = 0
+      let active = 0
+      for (const row of Array.isArray(tasks) ? tasks : []) {
+        if (row?.status === 'active') active += 1
+        if (row?.status !== 'done' && row?.status !== 'cancelled') unfinished += 1
+      }
+      return { unfinished, active }
+    }
+
+    /** The root session of a chat: a child's work is the chat's work (same walk as the taskboard). */
+    function chatRootOf(sessionId, sessionsById) {
+      if (typeof sessionId !== 'string' || sessionId === '') return ''
+      let id = sessionId
+      for (let hop = 0; hop < 8; hop += 1) {
+        const parent = sessionsById?.[id]?.parentId
+        if (typeof parent !== 'string' || parent === '') break
+        if (sessionsById?.[parent] === undefined) break
+        id = parent
+      }
+      return id
+    }
+
+    /** Live child sessions of this chat: a running subagent of the chat root, never the current one. */
+    function activeSubagents(sessionsById, sessionId) {
+      if (typeof sessionId !== 'string' || sessionId === '') return 0
+      const root = chatRootOf(sessionId, sessionsById)
+      let count = 0
+      for (const [id, summary] of Object.entries(sessionsById ?? {})) {
+        if (id === sessionId) continue
+        if (summary?.origin !== 'subagent' || summary?.running !== true) continue
+        if (chatRootOf(id, sessionsById) === root) count += 1
+      }
+      return count
+    }
+
+    /**
+     * One list row: index.json carries id/status/reqId (and sometimes steps), the entity
+     * frontmatter carries title, steps/stepsDone, reqIds and updatedAt. Read-only merge.
+     */
+    function taskRow(task, entities) {
+      const entity = typeof entities?.get === 'function' ? entities.get(task.id) : undefined
+      const fm = entity?.frontmatter ?? {}
+      const steps = Array.isArray(task.steps) ? task.steps : (Array.isArray(fm.steps) ? fm.steps : [])
+      const rawDone = task.stepsDone !== undefined ? task.stepsDone : fm.stepsDone
+      const stepsDone = typeof rawDone === 'number' && Number.isFinite(rawDone) ? rawDone : 0
+      const reqIds = Array.isArray(task.reqIds) ? task.reqIds : (Array.isArray(fm.reqIds) ? fm.reqIds : (typeof task.reqId === 'string' && task.reqId !== '' ? [task.reqId] : []))
+      return {
+        id: task.id,
+        status: task.status,
+        title: titleOf(entity, typeof task.title === 'string' && task.title !== '' ? task.title : task.id),
+        reqIds,
+        chore: task.chore === true || fm.chore === true,
+        steps: steps.length,
+        stepsDone,
+        updatedAt: String(fm.updatedAt ?? task.updatedAt ?? ''),
+      }
+    }
+
+    function updatedLabel(value) {
+      const text = String(value ?? '')
+      return text === '' ? '—' : text.replace('T', ' ').slice(0, 16)
+    }
 
     const CSS = `
 .ps-root {
@@ -155,6 +255,13 @@ window.__ModuleLoader__.load({
 .ps-table th:nth-child(2), .ps-table td:nth-child(2) { width: 25%; }
 .ps-table th:nth-child(3), .ps-table td:nth-child(3) { width: 16%; }
 .ps-table th:nth-child(4), .ps-table td:nth-child(4) { width: 22%; }
+.ps-table.ps-tasklist th:nth-child(1), .ps-table.ps-tasklist td:nth-child(1) { width: 11%; }
+.ps-table.ps-tasklist th:nth-child(2), .ps-table.ps-tasklist td:nth-child(2) { width: 33%; }
+.ps-table.ps-tasklist th:nth-child(3), .ps-table.ps-tasklist td:nth-child(3) { width: 21%; }
+.ps-table.ps-tasklist th:nth-child(4), .ps-table.ps-tasklist td:nth-child(4) { width: 15%; }
+.ps-table.ps-tasklist th:nth-child(5), .ps-table.ps-tasklist td:nth-child(5) { width: 20%; }
+.ps-table.ps-tasklist .ps-updated { white-space: nowrap; font-variant-numeric: tabular-nums; font-size: 11px; color: var(--ps-muted); }
+.ps-subbar .ps-count { color: var(--ps-muted); font-size: 11px; }
 .ps-cellchips { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
 .ps-subbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 8px; }
 .ps-group { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--ps-line); border-radius: 8px; padding: 2px; background: var(--ps-surface-2); }
@@ -205,6 +312,7 @@ window.__ModuleLoader__.load({
 .ps-windowgroup { display: inline-flex; align-items: center; gap: 2px; padding-left: 8px; border-left: 1px solid var(--ps-line); }
 .ps-modebar { display: none; }
 .ps-shell { flex: 1; min-height: 0; display: grid; grid-template-columns: 212px minmax(0, 1fr) 360px; }
+.ps-shell.ps-no-rail { grid-template-columns: 212px minmax(0, 1fr); }
 .ps-nav { min-width: 0; min-height: 0; overflow: auto; border-right: 1px solid var(--ps-line); background: var(--ps-paper); padding: 14px 12px 18px; scrollbar-width: thin; }
 .ps-nav .ps-kicker { margin: 0 0 7px; }
 .ps-modes { display: flex; flex-direction: column; gap: 2px; }
@@ -730,24 +838,75 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function BoardMode({ data, filter, onOpenTask, onClearFilter }) {
-      const tasks = data.index.tasks.filter((task) => filter === null || task.reqId === filter)
+    function TaskListTable({ rows, onOpenTask }) {
+      return h('table', { className: 'ps-table ps-tasklist' },
+        h('thead', null, h('tr', null,
+          h('th', { scope: 'col' }, 'Status'),
+          h('th', { scope: 'col' }, 'Task'),
+          h('th', { scope: 'col' }, 'Requirement'),
+          h('th', { scope: 'col' }, 'Progress'),
+          h('th', { scope: 'col' }, 'Updated'),
+        )),
+        h('tbody', null, rows.map((row) => h('tr', {
+          key: row.id,
+          tabIndex: 0,
+          onClick: () => onOpenTask(row.id),
+          onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenTask(row.id) } },
+          'aria-label': `${row.id}: ${row.title}, ${row.status}${row.reqIds.length === 0 ? '' : `, requirement ${row.reqIds.join(', ')}`}`,
+        },
+          h('td', null, h(Status, { status: row.status })),
+          h('td', null,
+            h('div', { className: 'ps-cellchips' }, h(TypeChip, { kind: 'task', id: row.id, static: true })),
+            h('div', { style: { marginTop: 3, fontWeight: 600 } }, row.title),
+          ),
+          h('td', null, row.reqIds.length === 0
+            ? (row.chore ? h('span', { className: 'ps-chip static' }, h('span', { className: 'mark' }), h('code', null, 'chore')) : h('span', { className: 'none' }, 'no requirement'))
+            : h('div', { className: 'ps-cellchips' }, row.reqIds.map((id) => h(TypeChip, { key: id, kind: 'req', id, static: true })))),
+          h('td', { className: 'ps-updated', title: row.steps === 0 ? 'No steps are recorded on this task' : `${row.stepsDone} of ${row.steps} steps done` }, row.steps === 0 ? '—' : `${row.stepsDone}/${row.steps}`),
+          h('td', { className: 'ps-updated', title: row.updatedAt === '' ? 'No updatedAt in the projection' : row.updatedAt }, updatedLabel(row.updatedAt)),
+        ))),
+      )
+    }
+
+    function BoardMode({ data, filter, onOpenTask, onClearFilter, view, sort, onView, onSort }) {
+      const scoped = data.index.tasks.filter((task) => filter === null || task.reqId === filter)
       if (data.index.tasks.length === 0) return h(Empty, { title: 'No task on the board' }, h('p', null, 'The task board is a projection of state/task/. Tasks are created in the Tasks panel or by the orchestrator.'))
-      if (filter !== null && tasks.length === 0) return h('div', null,
+      if (filter !== null && scoped.length === 0) return h('div', null,
         h('p', { className: 'ps-kicker' }, 'Task board'),
         h('p', { className: 'ps-empty' }, `No task is linked to ${filter}. This is a traceability gap, not an empty board: `, h('button', { type: 'button', className: 'ps-gap', onClick: onClearFilter }, 'clear the filter'), ' to see every task.'),
       )
+      const rows = sortTasks(scoped.map((task) => taskRow(task, data.entities)), sort)
+      const kicker = view === 'list' ? 'Task list' : 'Task board'
       return h('div', null,
-        h('p', { className: 'ps-kicker' }, filter === null ? 'Task board' : `Task board · filtered by ${filter}`),
-        h('div', { className: 'ps-board', role: 'list' }, TASK_COLUMNS.map((column) => {
-          const items = tasks.filter((task) => column.statuses.includes(task.status))
-          return h('div', { className: 'ps-col', key: column.id, role: 'group', 'aria-label': `${column.label} tasks` },
-            h('h3', null, column.label, h('span', { className: 'n' }, String(items.length))),
-            items.length === 0
-              ? h('div', { className: 'ps-empty', style: { padding: '6px 2px', fontSize: 11 } }, '—')
-              : items.map((task) => h('div', { key: task.id, role: 'listitem' }, h(TaskCard, { task, data, onOpen: onOpenTask }))),
-          )
-        })),
+        h('p', { className: 'ps-kicker' }, filter === null ? kicker : `${kicker} · filtered by ${filter}`),
+        h('div', { className: 'ps-subbar' },
+          h('div', { className: 'ps-group', role: 'group', 'aria-label': 'Task view' },
+            h('button', { type: 'button', className: view === 'board' ? 'on' : '', 'aria-pressed': view === 'board', title: 'Group tasks by status', onClick: () => onView('board') }, 'Board'),
+            h('button', { type: 'button', className: view === 'list' ? 'on' : '', 'aria-pressed': view === 'list', title: 'Read tasks as a sortable table', onClick: () => onView('list') }, 'List'),
+          ),
+          view === 'list'
+            ? h('div', { className: 'ps-group', role: 'group', 'aria-label': 'Sort tasks' }, SORT_TAGS.map((tag) => h('button', {
+                key: tag.id,
+                type: 'button',
+                className: sort === tag.id ? 'on' : '',
+                'aria-pressed': sort === tag.id,
+                title: tag.title,
+                onClick: () => onSort(tag.id),
+              }, tag.label)))
+            : null,
+          h('span', { className: 'ps-meta' }, `${rows.length} task${rows.length === 1 ? '' : 's'}`),
+        ),
+        view === 'list'
+          ? h(TaskListTable, { rows, onOpenTask })
+          : h('div', { className: 'ps-board', role: 'list' }, TASK_COLUMNS.map((column) => {
+              const items = scoped.filter((task) => column.statuses.includes(task.status))
+              return h('div', { className: 'ps-col', key: column.id, role: 'group', 'aria-label': `${column.label} tasks` },
+                h('h3', null, column.label, h('span', { className: 'n' }, String(items.length))),
+                items.length === 0
+                  ? h('div', { className: 'ps-empty', style: { padding: '6px 2px', fontSize: 11 } }, '—')
+                  : items.map((task) => h('div', { key: task.id, role: 'listitem' }, h(TaskCard, { task, data, onOpen: onOpenTask }))),
+              )
+            })),
       )
     }
 
@@ -1359,6 +1518,14 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function RightColumnIcon({ size = 16 }) {
+      return h('svg', { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', 'aria-hidden': 'true' },
+        h('rect', { x: 3.5, y: 4.5, width: 17, height: 15, rx: 2, stroke: 'currentColor', strokeWidth: 1.6 }),
+        h('path', { d: 'M14.5 4.5v15', stroke: 'currentColor', strokeWidth: 1.6 }),
+        h('path', { d: 'M6.5 9.5h5M6.5 12.5h5', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round' }),
+      )
+    }
+
     function ProjectStatePage(props) {
       const remote = props.remote
       const sessionsById = props.useSessions === undefined ? {} : props.useSessions((snapshot) => snapshot.byId)
@@ -1374,6 +1541,12 @@ window.__ModuleLoader__.load({
       const [map, setMap] = useState({ phase: 'idle' })
       const [viewId, setViewId] = useState(null)
       const [mapReload, setMapReload] = useState(0)
+      // The evidence column belongs to the panel, not to the shell layout: layout has no
+      // handle on it, so the panel keeps the show/hide state and the button reflects it.
+      const [railOpen, setRailOpen] = useState(true)
+      // D4: the view and sort choice lives in the panel memory, not in localStorage.
+      const [taskView, setTaskView] = useState('board')
+      const [taskSort, setTaskSort] = useState('relevance')
       const returnFocus = useRef(null)
 
       useEffect(() => {
@@ -1438,6 +1611,7 @@ window.__ModuleLoader__.load({
         returnFocus.current = document.activeElement
         setDrawer({ kind, id })
         setDrawerTab('overview')
+        setRailOpen(true)
         if (kind === 'req') setFilter(id)
       }, [])
 
@@ -1445,6 +1619,7 @@ window.__ModuleLoader__.load({
         returnFocus.current = document.activeElement
         setDrawer({ kind: 'node', id: node.id, node, view })
         setDrawerTab('overview')
+        setRailOpen(true)
       }, [])
 
       const closeDrawer = useCallback(() => {
@@ -1536,6 +1711,15 @@ window.__ModuleLoader__.load({
               title: 'Close right sidebar',
               'aria-label': 'Close right sidebar',
             }, h(RightbarCloseIcon, { size: 16 })),
+            h('button', {
+              type: 'button',
+              className: 'ps-btn icon',
+              'aria-pressed': !railOpen,
+              'aria-controls': 'ps-rail',
+              title: railOpen ? 'Скрыть правую колонку' : 'Показать правую колонку',
+              'aria-label': railOpen ? 'Скрыть правую колонку' : 'Показать правую колонку',
+              onClick: () => setRailOpen((value) => !value),
+            }, h(RightColumnIcon, { size: 16 })),
           ),
           h('button', { type: 'button', className: 'ps-btn small', onClick: () => setReloadToken((value) => value + 1), disabled: data.phase === 'loading' || data.phase === 'refreshing', title: 'Re-read state/views and the entity files' }, 'Reload'),
         ),
@@ -1559,7 +1743,7 @@ window.__ModuleLoader__.load({
           h('p', { className: 'ps-muted' }, 'The panel shows the named failure instead of guessing. Reload after the projections are regenerated.'),
           h('button', { type: 'button', className: 'ps-btn small', onClick: () => setReloadToken((value) => value + 1) }, 'Reload'),
         ) : null,
-        ready ? h('div', { className: 'ps-shell' },
+        ready ? h('div', { className: railOpen ? 'ps-shell' : 'ps-shell ps-no-rail' },
           h('nav', { className: 'ps-nav', 'aria-label': 'Project state modes' },
             h('p', { className: 'ps-kicker' }, 'Modes'),
             h('div', { className: 'ps-modes', role: 'tablist', 'aria-orientation': 'vertical', 'aria-label': 'Project state modes' },
@@ -1590,7 +1774,7 @@ window.__ModuleLoader__.load({
             mode === 'req'
               ? h(RequirementsMode, { data, filter, onSelect: setFilter, onOpenMode: openMode, onOpenEntityDrawer: openEntity })
               : mode === 'board'
-                ? h(BoardMode, { data, filter, onOpenTask: openEntity, onClearFilter: clearFilter })
+                ? h(BoardMode, { data, filter, onOpenTask: openEntity, onClearFilter: clearFilter, view: taskView, sort: taskSort, onView: setTaskView, onSort: setTaskSort })
                 : mode === 'map'
                   ? h(MapMode, {
                       data,
@@ -1605,7 +1789,7 @@ window.__ModuleLoader__.load({
                     })
                   : h(TestsMode, { data, filter, subview, setSubview, onOpenTest: openEntity, onSelectReq: setFilter, onOpenMode: openMode }),
           ),
-          h('div', { className: 'ps-rail' },
+          railOpen ? h('div', { className: 'ps-rail', id: 'ps-rail' },
             drawer === null
               ? h(EvidenceRail, { data, filter, onOpenEntity: (id) => { openEntity(id); setDrawerTab('overview') }, onOpenMode: openMode })
               : h(Drawer, {
@@ -1621,7 +1805,7 @@ window.__ModuleLoader__.load({
                   tab: drawerTab,
                   setTab: setDrawerTab,
                 }),
-          ),
+          ) : null,
         ) : null,
         h('p', { className: 'ps-visually-hidden', 'aria-live': 'polite' },
           filter === null ? 'No requirement filter.' : `Filtered by ${filter}.`,
@@ -1631,12 +1815,58 @@ window.__ModuleLoader__.load({
 
     /* ---------- shell registration ---------- */
 
-    function PanelTrigger({ layout, sessionId }) {
+    /**
+     * The State entry in the session header: the panel, plus the three load counters the owner
+     * asked for (D1/D2) — unfinished tasks, active tasks (both from the workspace projections the
+     * panel opens) and active subagents (live child sessions of this chat). It reads index.json
+     * every five seconds, so a status change or a finished child moves the number without a reload.
+     */
+    function PanelTrigger({ layout, sessionId, remote, useSessions }) {
+      const sessionsRaw = useSessions === undefined ? {} : useSessions((snapshot) => snapshot.byId)
+      const sessionsById = sessionsRaw !== null && typeof sessionsRaw === 'object' ? sessionsRaw : {}
+      const [counts, setCounts] = useState({ phase: 'loading' })
+
+      useEffect(() => {
+        if (typeof sessionId !== 'string' || sessionId === '') {
+          setCounts({ phase: 'empty' })
+          return undefined
+        }
+        let cancelled = false
+        const controller = new AbortController()
+        const tick = async () => {
+          const result = await readJson(remote, sessionId, INDEX_PATH, controller.signal)
+          if (cancelled) return
+          if (result.ok !== true) {
+            setCounts({ phase: 'error', message: result.message ?? result.code ?? 'the projections could not be read' })
+            return
+          }
+          const invalid = validateIndex(result.value)
+          if (invalid !== null) {
+            setCounts({ phase: 'error', message: invalid })
+            return
+          }
+          const next = taskCounts(result.value.tasks)
+          setCounts({ phase: 'ready', unfinished: next.unfinished, active: next.active })
+        }
+        tick().catch((error) => { if (!cancelled) setCounts({ phase: 'error', message: errorText(error) }) })
+        const timer = setInterval(() => { tick().catch(() => {}) }, 5000)
+        return () => { cancelled = true; controller.abort(); clearInterval(timer) }
+      }, [remote, sessionId])
+
+      const subagents = activeSubagents(sessionsById, sessionId)
+      const failed = counts.phase === 'error'
+      const unfinished = counts.phase === 'ready' ? String(counts.unfinished) : '—'
+      const active = counts.phase === 'ready' ? String(counts.active) : '—'
+      const subagentText = failed ? '—' : String(subagents)
+      const scope = 'Tasks are counted in state/views/index.json of this workspace; subagents are live child sessions of this chat.'
+      const label = failed
+        ? `Counts unavailable: ${counts.message}. Open the project state panel.`
+        : `Open the project state panel. Unfinished tasks in this workspace: ${unfinished}. Active tasks in this workspace: ${active}. Active subagents in this chat: ${subagentText}.`
       return h('button', {
         type: 'button',
-        title: 'Open the project state panel for this chat',
-        'aria-label': 'Open the project state panel',
-        style: { display: 'inline-flex', alignItems: 'center', border: '1px solid var(--dsw-alias-border-l1)', background: 'var(--dsw-alias-bg-layer-1)', color: 'var(--dsw-alias-label-primary)', borderRadius: 7, minHeight: 24, padding: '3px 8px', font: 'inherit', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' },
+        title: failed ? `Counts unavailable: ${counts.message}. ${scope}` : scope,
+        'aria-label': label,
+        style: { display: 'inline-flex', alignItems: 'center', gap: 5, border: '1px solid var(--dsw-alias-border-l1)', background: 'var(--dsw-alias-bg-layer-1)', color: 'var(--dsw-alias-label-primary)', borderRadius: 7, minHeight: 24, padding: '3px 8px', font: 'inherit', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' },
         onClick: () => {
           try {
             if (typeof sessionId === 'string' && sessionId !== '') sessionStorage.setItem(SESSION_KEY, sessionId)
@@ -1645,11 +1875,26 @@ window.__ModuleLoader__.load({
           }
           layout.selectPanel(PANEL_ID)
         },
-      }, 'State')
+      },
+        h('svg', { width: 13, height: 13, viewBox: '0 0 24 24', fill: 'none', 'aria-hidden': 'true' },
+          h('rect', { x: 3.5, y: 4.5, width: 17, height: 15, rx: 2.5, stroke: 'currentColor', strokeWidth: 1.6 }),
+          h('path', { d: 'M7 9.5h10M7 13h10M7 16.5h6', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round' }),
+        ),
+        h('span', null, 'State'),
+        h('span', { 'aria-hidden': 'true', style: { display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 2, color: 'var(--dsw-alias-label-secondary)', fontSize: 11, fontWeight: 700, fontVariantNumeric: 'tabular-nums' } },
+          h('span', null, unfinished),
+          h('span', null, '/'),
+          h('span', null, active),
+          h('span', null, '/'),
+          h('span', null, subagentText),
+        ),
+      )
     }
 
     return {
       inject: ['slots', 'remote', 'remote.workspaceFiles', 'remote.commands', 'layout', 'sidebarRight'],
+      // The pure count/sort helpers, so the test can exercise what the UI calls instead of a copy.
+      __test: { statusRank, sortTasks, taskCounts, activeSubagents, taskRow, chatRootOf },
       apply(ctx) {
         ctx.slots.inject('main', () => ctx.slots.register({
           name: 'main',
@@ -1660,7 +1905,7 @@ window.__ModuleLoader__.load({
           name: 'conversation.session.header.actions',
           id: 'project-state',
           order: 15,
-          inject: (sessionId) => ({ layout: ctx.layout, sessionId }),
+          inject: (sessionId) => ({ layout: ctx.layout, sessionId, remote: ctx.remote }),
         }, PanelTrigger))
       },
     }

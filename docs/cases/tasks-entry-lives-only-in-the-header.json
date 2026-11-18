@@ -25,11 +25,11 @@
   "surfaceFiles": [
     {
       "path": "plugins/taskboard/client.js",
-      "sha256": "083308cd06b3f5508619d682e6aef63531de4b4439515251adfe247890f6dea9"
+      "sha256": "50fb906279ac656442e6311b20b358f58d2764e897c99b1af5e3a2a5c17ea144"
     },
     {
       "path": "plugins/project-state-panel/client.js",
-      "sha256": "d2f0974fa4f1203ee7ebc9373e02d0b01791f1e71c3a5e99db61448a012a8330"
+      "sha256": "08da8f61b725ae4950202d057fa782c716429b4bd863d05877d0b4ee70e003a2"
     }
   ],
   "linkedTaskId": "task-mwm2kpm4-q7lbqq",
@@ -44,9 +44,9 @@
     }
   ],
   "negativeControl": "expect-pre-fix",
-  "revision": 3,
+  "revision": 5,
   "createdAt": "2026-11-18T12:06:17.731Z",
-  "updatedAt": "2026-11-18T12:06:25.088Z",
+  "updatedAt": "2026-11-18T12:33:03.039Z",
   "createdBy": "backend",
   "createdByKind": "agent",
   "history": [
@@ -60,6 +60,20 @@
     {
       "revision": 2,
       "at": "2026-11-18T12:06:25.088Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-18T12:30:55.388Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-18T12:33:03.039Z",
       "editedBy": "agent",
       "action": "ran-verified",
       "reason": "1 run(s), 1 passed"
@@ -147,6 +161,84 @@
       ],
       "passed": true,
       "artifacts": []
+    },
+    {
+      "runId": "mwm3nwr5-ucrce-1",
+      "at": "2026-11-18T12:30:55.383Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 198,
+      "commandSha256": "3562986d803064597b6ffccc1a9d6a449138bf1ab4fc0ed8ffc0d1cdc580b06a",
+      "head": "135176a46a5fd3a22b278904d7ee738ca50836f7",
+      "dirty": true,
+      "stdout": "docs/cases/runs/tasks-entry-lives-only-in-the-header/mwm3nwr5-ucrce-1/stdout.log",
+      "stderr": "docs/cases/runs/tasks-entry-lives-only-in-the-header/mwm3nwr5-ucrce-1/stderr.log",
+      "summary": "docs/cases/runs/tasks-entry-lives-only-in-the-header/mwm3nwr5-ucrce-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "violations": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "violations",
+          "metric": "violations",
+          "op": "==",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mwm3qmy4-pwq9r-1",
+      "at": "2026-11-18T12:33:03.033Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 208,
+      "commandSha256": "3562986d803064597b6ffccc1a9d6a449138bf1ab4fc0ed8ffc0d1cdc580b06a",
+      "head": "135176a46a5fd3a22b278904d7ee738ca50836f7",
+      "dirty": true,
+      "stdout": "docs/cases/runs/tasks-entry-lives-only-in-the-header/mwm3qmy4-pwq9r-1/stdout.log",
+      "stderr": "docs/cases/runs/tasks-entry-lives-only-in-the-header/mwm3qmy4-pwq9r-1/stderr.log",
+      "summary": "docs/cases/runs/tasks-entry-lives-only-in-the-header/mwm3qmy4-pwq9r-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "violations": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "violations",
+          "metric": "violations",
+          "op": "==",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
     }
   ],
   "redFirst": {
@@ -158,10 +250,10 @@
     "source": "negative-control"
   },
   "lastVerified": {
-    "at": "2026-11-18T12:06:25.088Z",
+    "at": "2026-11-18T12:33:03.039Z",
     "command": "node --test plugins/taskboard/test/panel-navigation.test.mjs",
     "exitCode": 0,
-    "runId": "mwm2se2w-ti15j-1",
+    "runId": "mwm3qmy4-pwq9r-1",
     "source": "runner",
     "commit": null
   }

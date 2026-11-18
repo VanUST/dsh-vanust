@@ -1,0 +1,282 @@
+{
+  "schemaVersion": 1,
+  "id": "state-counts-and-task-list",
+  "rev": 2,
+  "status": "ready",
+  "createdAt": "2026-11-18T12:29:47.303Z",
+  "updatedAt": "2026-11-18T12:39:13.265Z",
+  "updatedBy": "agent",
+  "title": "Счётчики у State и режим списка задач с сортировкой",
+  "requestedSolution": "Владелец 2026-11-18: (1) рядом с иконкой State в верхней панели показывать число невыполненных задач / активных задач / активных субагентов; (2) в способе просмотра задач добавить режим списка и сортировку так, чтобы сверху были самые релевантные, плюс другие теги сортировки.",
+  "businessOutcome": {
+    "problem": "Чтобы понять, есть ли работа, приходится открывать панель; список задач сортируется только по времени изменения, и в панели состояния списка нет вовсе.",
+    "outcome": "Кнопка State сразу показывает три числа нагрузки, а в панели состояния задачи можно читать списком с сортировкой по релевантности и другими тегами.",
+    "successMetrics": []
+  },
+  "process": {
+    "current": [
+      {
+        "id": "SC-CUR",
+        "name": "Нет обзора",
+        "actors": [
+          "владелец"
+        ],
+        "steps": [
+          "Смотрит на кнопку State — только слово",
+          "Открывает панель",
+          "Видит доску без списка и без сортировки"
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "SC-TGT",
+        "name": "Счётчики и список",
+        "actors": [
+          "владелец"
+        ],
+        "steps": [
+          "Кнопка State: 12/3/1",
+          "Открывает панель → Board",
+          "Переключает List",
+          "Сортирует по Relevance/Updated/Status/Title"
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "FR1",
+      "kind": "FR",
+      "text": "Рядом с иконкой State в верхней панели видны три счётчика: невыполненные задачи / активные задачи / активные субагенты.",
+      "acceptance": [
+        "Кнопка State показывает группу из трёх чисел рядом с иконкой в порядке: невыполненные, активные задачи, активные субагенты",
+        "Числа пересчитываются без перезагрузки: задача сменила статус или субагент завершился — счётчик изменился",
+        "aria-label называет каждое число; ноль показывается как 0; при ошибке чтения — «—» с текстом ошибки в title, кнопка остаётся рабочей",
+        "Область счёта названа: задачи — проекции workspace, который откроет панель; субагенты — живые дочерние сессии этого чата"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR2",
+      "kind": "FR",
+      "text": "В панели состояния у доски задач есть режим списка и сортировка: по умолчанию сверху самые релевантные, есть другие теги.",
+      "acceptance": [
+        "Переключатель Board/List в режиме Board; List рендерит таблицу задач",
+        "Колонки списка: Status, Task, Requirement, Progress (шаги), Updated — из тех полей, что есть в проекциях",
+        "Теги сортировки: Relevance (по умолчанию), Updated, Status, Title; выбор меняет порядок и отражён через aria-pressed",
+        "Relevance: active → blocked → review → open → done → cancelled; внутри — больше выполненных шагов, затем updatedAt по убыванию, затем id",
+        "Переключатель и теги доступны с клавиатуры; axe 0; на 760 px нет горизонтальной прокрутки"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "NFR1",
+      "kind": "NFR",
+      "text": "Счётчики и список читают проекции и не пишут ничего.",
+      "acceptance": [
+        "Ни одного write-вызова: только чтение state/views и сессий",
+        "При 233 задачах список открывается без заметной задержки и без ошибок консоли",
+        "Счётчики не ломают шапку при ошибке чтения — называют её и не блокируют кнопку"
+      ],
+      "status": "planned"
+    }
+  ],
+  "architecture": {
+    "contractImpact": "none",
+    "components": [
+      {
+        "id": "state-panel-client",
+        "name": "@cc/dsh-project-state-panel client",
+        "responsibility": "триггер State в шапке (счётчики) и панель состояния (доска задач, переключатель Board/List, сортировка)",
+        "owner": "kit",
+        "owns": [
+          "task-view-preference"
+        ],
+        "dependsOn": [
+          "state-projections",
+          "session-tree"
+        ]
+      },
+      {
+        "id": "state-projections",
+        "name": "@cc/dsh-project-state (проекции)",
+        "responsibility": "state/views/index.json: id, reqId, reqIds, status, steps/stepsDone каждой задачи и frontmatter state/task/*.md (title, updatedAt, createdAt)",
+        "owner": "kit",
+        "owns": [
+          "task-projections"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "session-tree",
+        "name": "клиентский сервис sessions (useSessions)",
+        "responsibility": "живые сессии и их родители — источник числа активных субагентов чата",
+        "owner": "dsh",
+        "owns": [],
+        "dependsOn": []
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "task-projections",
+      "name": "проекции задач",
+      "owner": "kit",
+      "ownerComponentId": "state-projections",
+      "description": "state/views/index.json и frontmatter state/task/*.md; только чтение"
+    },
+    {
+      "id": "task-view-preference",
+      "name": "выбор Board/List и сортировки",
+      "owner": "kit",
+      "ownerComponentId": "state-panel-client",
+      "description": "состояние в памяти панели, не сохраняется на диск"
+    }
+  ],
+  "contracts": [],
+  "invariants": [
+    {
+      "id": "INV1",
+      "text": "Счётчики и список не выполняют ни одной команды записи",
+      "scope": ""
+    }
+  ],
+  "decisions": [
+    {
+      "id": "D1",
+      "decision": "Счётчики задач — по проекциям workspace, которую откроет панель; субагенты — по живым дочерним сессиям текущего чата",
+      "rationale": "Кнопка открывает панель workspace; смешивать уровень чата и workspace без подписи нельзя, поэтому область названа в aria-label и title",
+      "alternatives": [
+        "только чат",
+        "только workspace"
+      ]
+    },
+    {
+      "id": "D2",
+      "decision": "Три числа в одной группе рядом с иконкой, всегда видны, ноль показывается как 0",
+      "rationale": "Предсказуемая ширина кнопки и никакой пустоты вместо данных",
+      "alternatives": [
+        "скрывать нули",
+        "три отдельных значка"
+      ]
+    },
+    {
+      "id": "D3",
+      "decision": "Relevance: active → blocked → review → open → done → cancelled; внутри — больше шагов сделано, затем updatedAt по убыванию, затем id",
+      "rationale": "Сначала то, что делается и ждёт решения, потом запланированное, история — в конце; порядок детерминирован",
+      "alternatives": [
+        "по времени изменения (как в панели Tasks)",
+        "по приоритету (его нет в проекциях)"
+      ]
+    },
+    {
+      "id": "D4",
+      "decision": "Теги сортировки: Relevance (по умолчанию), Updated, Status, Title; выбор живёт в состоянии панели, не в localStorage",
+      "rationale": "Проекции не содержат priority/role, честные сортировки — только по доступным полям; скрытая персистентность не нужна",
+      "alternatives": [
+        "добавить priority в проекции (L2)",
+        "запоминать выбор между сессиями"
+      ]
+    }
+  ],
+  "openQuestions": [
+    {
+      "id": "Q1",
+      "question": "Владелец имел в виду панель State, а не панель Tasks? Если Tasks, то после P2 её вход из шапки удаляется и его надо вернуть или сделать ссылку из State",
+      "owner": "",
+      "blocks": false,
+      "answer": ""
+    }
+  ],
+  "sizing": {
+    "class": "L1",
+    "reasons": [
+      "один клиентский плагин project-state-panel",
+      "чтение существующих проекций и сессий",
+      "новый вид списка и счётчики в шапке"
+    ]
+  },
+  "designRef": {
+    "mapRev": 0,
+    "at": "2026-11-18T12:35:00.000Z",
+    "source": "designmap/manifest.json"
+  },
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "FR1",
+      "processId": "SC-TGT",
+      "componentId": "state-panel-client",
+      "contractIds": [],
+      "dataIds": [
+        "task-projections"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "taskId": "task-mwm3mmo3-08soxt",
+          "role": "BACKEND",
+          "at": "2026-11-18T12:39:13.265Z",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "requirementId": "FR2",
+      "processId": "SC-TGT",
+      "componentId": "state-panel-client",
+      "contractIds": [],
+      "dataIds": [
+        "task-projections",
+        "task-view-preference"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "taskId": "task-mwm3mmo3-08soxt",
+          "role": "BACKEND",
+          "at": "2026-11-18T12:39:13.265Z",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "requirementId": "NFR1",
+      "processId": "SC-TGT",
+      "componentId": "state-panel-client",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "planned",
+      "tasks": [
+        {
+          "taskId": "task-mwm3mmo3-08soxt",
+          "role": "BACKEND",
+          "at": "2026-11-18T12:39:13.265Z",
+          "evidence": []
+        }
+      ]
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "ce952e1261780c71cf9805a613ac0631c32d132473e32232cc98a23986937168",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-18T12:29:47.303Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-18T12:39:13.265Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwm3mmo3-08soxt -> FR1, FR2, NFR1"
+    }
+  ]
+}

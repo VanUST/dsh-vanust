@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "id": "shell-panel-navigation",
-  "rev": 5,
+  "rev": 8,
   "status": "completed",
   "createdAt": "2026-11-18T11:42:31.897Z",
-  "updatedAt": "2026-11-18T12:08:04.459Z",
+  "updatedAt": "2026-11-18T12:44:24.277Z",
   "updatedBy": "agent",
   "title": "Навигация панелей: выход в чат, скрытие окон, без дубля Tasks",
   "requestedSolution": "Владелец 2026-11-18 (новая сессия): (1) нельзя скрывать окна слева и справа, чтобы дать место остальным; (2) не убраны старые клиентские плагины design map/task — Tasks есть и в левой панели, и сверху; (3) нет кнопки вернуться к чату из панели состояния — приходится искать чат вручную. Сделать кнопку возврата в чат.",
   "businessOutcome": {
-    "problem": "Панель состояния занимает весь экран, но не даёт выйти в чат и не управляет соседними окнами; Tasks висит и в левом списке, и в шапке.",
-    "outcome": "Из состояния можно одним щелчком вернуться в чат, левое и правое окна скрываются, «Tasks» не дублируется.",
+    "problem": "Панель состояния занимает весь экран, но не даёт выйти в чат и не управляет соседними окнами; правая колонка панели не скрывается; верхняя панель дублирует старые панели Tasks и Design map.",
+    "outcome": "Из состояния можно одним щелчком вернуться в чат, левая колонка оболочки и правая колонка панели скрываются и возвращаются, а верхняя панель больше не показывает Tasks и Design map.",
     "successMetrics": []
   },
   "process": {
@@ -24,8 +24,8 @@
         "steps": [
           "Открывает State",
           "Ищет чат в левом окне",
-          "Окна не скрыть",
-          "Tasks виден дважды"
+          "Правая колонка панели не скрывается",
+          "Верхняя панель: Tasks и Design map"
         ]
       }
     ],
@@ -39,8 +39,8 @@
         "steps": [
           "State",
           "Back to chat",
-          "Скрыть слева/справа",
-          "Tasks только в шапке"
+          "Скрыть левую колонку оболочки и правую колонку панели",
+          "Верхняя панель без Tasks и Design map"
         ]
       }
     ]
@@ -49,12 +49,13 @@
     {
       "id": "FR1",
       "kind": "FR",
-      "text": "Убрать дубль Tasks: вход только в шапке.",
+      "text": "Убрать дубль Tasks из левого списка.",
       "acceptance": [
-        "В левом списке нет Tasks; в шапке Tasks остался и открывает панель",
+        "В левом списке нет Tasks; панель Tasks остаётся зарегистрированной в main",
         "Скриншот левой колонки до/после"
       ],
-      "status": "proven"
+      "status": "rejected",
+      "reason": "Владелец 2026-11-18: верхнюю кнопку Tasks тоже убрать; видимый вход к доске — панель State"
     },
     {
       "id": "FR2",
@@ -69,10 +70,43 @@
     {
       "id": "FR3",
       "kind": "FR",
-      "text": "Управление окнами: скрыть левое и закрыть правое.",
+      "text": "Управление окнами оболочки: скрыть левое и закрыть правое.",
       "acceptance": [
         "Кнопки скрывают левое и закрывают правое; повторное нажатие возвращает левое",
         "Скриншоты до/после"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR4",
+      "kind": "FR",
+      "text": "Правая колонка панели состояния скрывается и возвращается своей кнопкой.",
+      "acceptance": [
+        "Кнопка в шапке панели убирает колонку доказательств; повторное нажатие возвращает её",
+        "В браузере после нажатия колонки нет (ширина 0), центральная колонка занимает место; на 760 px нет горизонтальной прокрутки",
+        "Кнопка отражает состояние: aria-pressed и подпись «Скрыть правую колонку»/«Показать правую колонку»"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR5",
+      "kind": "FR",
+      "text": "Верхняя панель сессии не показывает кнопку Tasks.",
+      "acceptance": [
+        "В верхней панели нет кнопки с aria-label «Open tasks»",
+        "Клиент taskboard больше не регистрирует conversation.session.header.actions",
+        "Регистрация панели Tasks в main сохранена"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR6",
+      "kind": "FR",
+      "text": "Верхняя панель сессии не показывает кнопку Design map.",
+      "acceptance": [
+        "В верхней панели нет кнопки с aria-label «Open the design map»",
+        "Клиент designmap больше не регистрирует conversation.session.header.actions; client.js пересобран из entry.jsx",
+        "Регистрация панели designmap в main сохранена"
       ],
       "status": "proven"
     },
@@ -102,7 +136,17 @@
       {
         "id": "taskboard-client",
         "name": "@cc/dsh-taskboard client",
-        "responsibility": "регистрирует TasksPage в main, PanelIcon в sidebar.panellist и TasksTrigger в шапке — два входа в одну панель",
+        "responsibility": "регистрирует TasksPage в main; регистрация TasksTrigger в шапке удаляется (владелец 2026-11-18)",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": [
+          "shell-layout"
+        ]
+      },
+      {
+        "id": "designmap-client",
+        "name": "@cc/dsh-designmap client",
+        "responsibility": "регистрирует DesignMapView в main и HeaderTrigger «Design map» в шапке; регистрация в шапке удаляется (владелец 2026-11-18), client.js собирается из client/entry.jsx",
         "owner": "kit",
         "owns": [],
         "dependsOn": [
@@ -112,7 +156,7 @@
       {
         "id": "state-panel-client",
         "name": "@cc/dsh-project-state-panel client",
-        "responsibility": "панель состояния в main и триггер в шапке; в своей шапке нет выхода в чат и управления окнами",
+        "responsibility": "панель состояния в main и триггер State в шапке; в шапке панели — Back to chat, скрытие левой колонки оболочки и правой колонки панели",
         "owner": "kit",
         "owns": [],
         "dependsOn": [
@@ -145,26 +189,44 @@
     },
     {
       "id": "D2",
-      "decision": "Скрытие левого = layout.toggleSidebar(), правого = layout.closeRightbar()",
-      "rationale": "Геометрией владеет оболочка",
+      "decision": "Скрытие левого = layout.toggleSidebar(); правая кнопка закрывает правую колонку оболочки (closeRightbar + sidebarRight.setExpanded) и прячет собственную правую колонку панели",
+      "rationale": "В панели видима её колонка доказательств; одного closeRightbar() недостаточно — владелец 2026-11-18: «правая панель активна всегда»",
       "alternatives": [
-        "свои CSS-переключатели"
+        "оставить только колонку оболочки",
+        "управлять только колонкой панели"
       ]
     },
     {
       "id": "D3",
-      "decision": "Дубль Tasks убирается удалением регистрации в sidebar.panellist; вход остаётся в шапке",
-      "rationale": "Один вход в одну панель",
+      "decision": "Дубль Tasks убирается удалением регистрации в sidebar.panellist",
+      "rationale": "Один видимый вход; после 2026-11-18 вход в шапке тоже убирается (D4)",
       "alternatives": [
         "скрыть дубль через CSS"
       ]
     },
     {
       "id": "D4",
-      "decision": "Верхний вход остаётся рядом с действиями сессии",
-      "rationale": "Владелец видит Tasks в шапке и не просил его убирать",
+      "decision": "Кнопки Tasks и Design map убираются из верхней панели сессии; панели остаются в main, State — видимый вход к доске и карте",
+      "rationale": "Владелец 2026-11-18: «Старые иконки — это tasks/design map. Их надо убрать из верхней панели»",
       "alternatives": [
-        "оставить левый вход"
+        "оставить входы в шапке"
+      ]
+    },
+    {
+      "id": "D5",
+      "decision": "Правая колонка панели состояния хранит своё состояние показа в панели (railOpen); кнопка отражает его через aria-pressed",
+      "rationale": "layout не владеет колонкой панели; без локального состояния кнопка остаётся no-op",
+      "alternatives": [
+        "управлять только колонкой оболочки"
+      ]
+    },
+    {
+      "id": "D6",
+      "decision": "Кнопка правой колонки меняет и подпись, и aria-pressed; APG советует стабильное имя у toggle-кнопки — отклонение принято сознательно",
+      "rationale": "Подпись называет действие («Скрыть/Показать»), а не состояние; axe 0, подсказка и имя совпадают, владельцу так яснее. Пересмотр — если появится жалоба скринридера",
+      "alternatives": [
+        "стабильное имя + aria-pressed",
+        "меняющаяся подпись без aria-pressed"
       ]
     }
   ],
@@ -189,7 +251,7 @@
       "componentId": "taskboard-client",
       "contractIds": [],
       "dataIds": [],
-      "status": "proven",
+      "status": "rejected",
       "tasks": [
         {
           "taskId": "task-mwm1xztt-meew8o",
@@ -205,11 +267,11 @@
           "role": "BACKEND",
           "at": "2026-11-18T15:05:00.000Z",
           "evidence": [
-            "кейс tasks-entry-lives-only-in-the-header (REQ-104): red exit 1/violations 2 → green exit 0/0, verified",
-            "тест plugins/taskboard/test/panel-navigation.test.mjs: зелёный здесь, красный на /tmp/p1-before"
+            "кейс tasks-entry-lives-only-in-the-header (REQ-104): red exit 1/violations 2 → green exit 0/0, verified"
           ]
         }
-      ]
+      ],
+      "reason": "Владелец 2026-11-18: верхнюю кнопку Tasks тоже убрать"
     },
     {
       "requirementId": "FR2",
@@ -233,6 +295,14 @@
           "at": "2026-11-18T15:05:00.000Z",
           "evidence": [
             "кейс back-to-chat-leaves-the-state-panel (REQ-105): red→green, verified"
+          ]
+        },
+        {
+          "taskId": "task-mwm3irxo-x6slzr",
+          "role": "BACKEND",
+          "at": "2026-11-18T15:40:00.000Z",
+          "evidence": [
+            "panel-navigation.test.mjs зелёный exit 0/violations 0, красный на git HEAD exit 1/violations 13"
           ]
         }
       ]
@@ -261,6 +331,74 @@
           "evidence": [
             "кейс panel-hides-left-sidebar-and-closes-right (REQ-106): red→green, verified"
           ]
+        },
+        {
+          "taskId": "task-mwm3irxo-x6slzr",
+          "role": "BACKEND",
+          "at": "2026-11-18T15:40:00.000Z",
+          "evidence": [
+            "кейс panel-hides-left-sidebar-and-closes-right перепрогнан после P2: exit 0, verified"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR4",
+      "processId": "SP-TGT",
+      "componentId": "state-panel-client",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwm3irxo-x6slzr",
+          "role": "BACKEND",
+          "at": "2026-11-18T15:40:00.000Z",
+          "evidence": [
+            "браузер :3097 (копия профиля, панель 0.1.20): .ps-rail count/width 1/360 → 0/0 после кнопки → 1/360 после повторного нажатия",
+            "aria-pressed false→true→false, подписи «Скрыть правую колонку»/«Показать правую колонку»; axe 0; 760 px scrollW=clientW=760; консоль/сеть 0",
+            "reports/p2/proof-p2.json, rail-before.png, rail-hidden.png, rail-restored.png",
+            "кейс state-panel-right-column-toggles (REQ-108): red exit 1/violations 13 → green exit 0/0, verified"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR5",
+      "processId": "SP-TGT",
+      "componentId": "taskboard-client",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwm3irxo-x6slzr",
+          "role": "BACKEND",
+          "at": "2026-11-18T15:40:00.000Z",
+          "evidence": [
+            "в шапке :3097 кнопок «Open tasks» = 0; регистрация conversation.session.header.actions в клиенте taskboard удалена; name: 'main' остался",
+            "кейс session-header-drops-the-tasks-button (REQ-109): red→green, verified",
+            "make verify exit 0, 17/17"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR6",
+      "processId": "SP-TGT",
+      "componentId": "designmap-client",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwm3irxo-x6slzr",
+          "role": "BACKEND",
+          "at": "2026-11-18T15:40:00.000Z",
+          "evidence": [
+            "в шапке :3097 кнопок «Open the design map» = 0; entry.jsx без регистрации, client.js пересобран (esbuild 0.25.12), HeaderTrigger в бандле 0",
+            "кейс session-header-drops-the-design-map-button (REQ-110): red→green, verified"
+          ]
         }
       ]
     },
@@ -288,12 +426,20 @@
           "evidence": [
             "кейс panel-navigation-gate-stays-green (REQ-107): red→green, verified"
           ]
+        },
+        {
+          "taskId": "task-mwm3irxo-x6slzr",
+          "role": "BACKEND",
+          "at": "2026-11-18T15:40:00.000Z",
+          "evidence": [
+            "второй сервер :3097 с копией профиля: axe 0, консоль 0, сеть 0, 760 px без прокрутки; make verify exit 0, 17/17"
+          ]
         }
       ]
     }
   ],
   "pendingImpacts": [],
-  "fingerprint": "bf13732b27056c3b4d676bdbdb66d4cb8dcffe7b1c554062b2347c10632d4dc0",
+  "fingerprint": "9d21719a4504dcca7e1bddddb02486bacd3a4dbf9e56aa1f3ce0f33ca976f543",
   "history": [
     {
       "revision": 1,
@@ -334,6 +480,30 @@
       "action": "upsert",
       "status": "completed",
       "summary": "requirements: FR3 changed; impacts: 2"
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-18T12:25:18.265Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "requirements: FR1 changed, FR3 changed, FR4 added, FR5 added, FR6 added; impacts: 6"
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-18T12:27:05.062Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwm3irxo-x6slzr -> FR4, FR5, FR6"
+    },
+    {
+      "revision": 8,
+      "at": "2026-11-18T12:44:24.277Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "completed",
+      "summary": "impacts: 1"
     }
   ]
 }

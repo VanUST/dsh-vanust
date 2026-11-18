@@ -107,10 +107,20 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | REQ-101 | done | — | — | — | no |
 | REQ-102 | done | — | — | — | no |
 | REQ-103 | proposed | — | — | — | no |
-| REQ-104 | done | — | TEST-053 | — | no |
+| REQ-104 | rejected | — | TEST-053 | — | no |
 | REQ-105 | done | — | TEST-054 | — | no |
 | REQ-106 | done | — | TEST-055 | — | no |
 | REQ-107 | done | — | TEST-056 | — | no |
+| REQ-108 | done | — | TEST-057 | — | no |
+| REQ-109 | done | — | TEST-058 | — | no |
+| REQ-110 | done | — | TEST-059 | — | no |
+| REQ-111 | proposed | — | — | — | no |
+| REQ-112 | proposed | — | — | — | no |
+| REQ-113 | proposed | — | — | — | no |
+| REQ-114 | proposed | — | — | — | no |
+| REQ-115 | proposed | — | — | — | no |
+| REQ-116 | proposed | — | — | — | no |
+| REQ-117 | proposed | — | — | — | no |
 
 ## Tests
 
@@ -172,3 +182,6 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | TEST-054 | REQ-105 | verified | — |
 | TEST-055 | REQ-106 | verified | — |
 | TEST-056 | REQ-107 | verified | — |
+| TEST-057 | REQ-108 | verified | — |
+| TEST-058 | REQ-109 | verified | — |
+| TEST-059 | REQ-110 | verified | — |

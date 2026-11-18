@@ -1,0 +1,170 @@
+{
+  "schemaVersion": 1,
+  "id": "session-header-drops-the-tasks-button",
+  "title": "Session header drops the Tasks button",
+  "requirement": "The session header no longer shows a Tasks button: the taskboard client registers no conversation.session.header.actions entry, while the Tasks panel registration in main stays.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "plugins/taskboard/test/panel-navigation.test.mjs",
+  "runCommand": "node --test plugins/taskboard/test/panel-navigation.test.mjs",
+  "steps": [
+    "read plugins/taskboard/client.js and assert no conversation.session.header.actions, no TasksTrigger and no \"Open tasks\" label",
+    "assert the main registration (name 'main', key PANEL_ID) stays",
+    "run the test on the fixed files: exit 0, violations 0",
+    "run with CASE_NEGATIVE_CONTROL=expect-pre-fix: exit 1 (the pre-fix shape)",
+    "run over the files from git HEAD: exit 1, thirteen named violations"
+  ],
+  "expected": "The static test exits 0 with zero violations on the fixed files; the negative control and the git HEAD sources exit 1 and name the returned header registration.",
+  "tags": [
+    "panel",
+    "navigation",
+    "header",
+    "taskboard",
+    "p2"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/taskboard/client.js",
+      "sha256": "50fb906279ac656442e6311b20b358f58d2764e897c99b1af5e3a2a5c17ea144"
+    },
+    {
+      "path": "plugins/taskboard/test/panel-navigation.test.mjs",
+      "sha256": "d4d5c6a75d877ebd4a4050f029dba9e01207a945eb8f0ff5aba7b115063507e1"
+    }
+  ],
+  "linkedTaskId": "task-mwm3irxo-x6slzr",
+  "reqId": "REQ-109",
+  "authorRole": "BACKEND",
+  "checks": [
+    {
+      "name": "violations",
+      "metric": "violations",
+      "op": "==",
+      "threshold": 0
+    }
+  ],
+  "negativeControl": "expect-pre-fix",
+  "revision": 3,
+  "createdAt": "2026-11-18T12:30:35.576Z",
+  "updatedAt": "2026-11-18T12:30:47.903Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-18T12:30:42.386Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-pre-fix\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-18T12:30:47.903Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mwm3nmfd-jwwml-1",
+      "at": "2026-11-18T12:30:42.379Z",
+      "mode": "red",
+      "control": "expect-pre-fix",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 189,
+      "commandSha256": "3562986d803064597b6ffccc1a9d6a449138bf1ab4fc0ed8ffc0d1cdc580b06a",
+      "head": "135176a46a5fd3a22b278904d7ee738ca50836f7",
+      "dirty": true,
+      "stdout": "docs/cases/runs/session-header-drops-the-tasks-button/mwm3nmfd-jwwml-1/stdout.log",
+      "stderr": "docs/cases/runs/session-header-drops-the-tasks-button/mwm3nmfd-jwwml-1/stderr.log",
+      "summary": "docs/cases/runs/session-header-drops-the-tasks-button/mwm3nmfd-jwwml-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "violations": 6
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        },
+        {
+          "name": "violations",
+          "metric": "violations",
+          "op": "==",
+          "measured": 6,
+          "threshold": 0,
+          "pass": false,
+          "reason": "6 is not == 0"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwm3nqpv-ryvir-1",
+      "at": "2026-11-18T12:30:47.898Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 185,
+      "commandSha256": "3562986d803064597b6ffccc1a9d6a449138bf1ab4fc0ed8ffc0d1cdc580b06a",
+      "head": "135176a46a5fd3a22b278904d7ee738ca50836f7",
+      "dirty": true,
+      "stdout": "docs/cases/runs/session-header-drops-the-tasks-button/mwm3nqpv-ryvir-1/stdout.log",
+      "stderr": "docs/cases/runs/session-header-drops-the-tasks-button/mwm3nqpv-ryvir-1/stderr.log",
+      "summary": "docs/cases/runs/session-header-drops-the-tasks-button/mwm3nqpv-ryvir-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "violations": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "violations",
+          "metric": "violations",
+          "op": "==",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-18T12:30:42.386Z",
+    "runId": "mwm3nmfd-jwwml-1",
+    "exitCode": 1,
+    "control": "expect-pre-fix",
+    "command": "node --test plugins/taskboard/test/panel-navigation.test.mjs",
+    "source": "negative-control"
+  },
+  "lastVerified": {
+    "at": "2026-11-18T12:30:47.903Z",
+    "command": "node --test plugins/taskboard/test/panel-navigation.test.mjs",
+    "exitCode": 0,
+    "runId": "mwm3nqpv-ryvir-1",
+    "source": "runner",
+    "commit": null
+  }
+}

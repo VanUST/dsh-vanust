@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "lastSeq": 413,
+  "lastSeq": 457,
   "counts": {
-    "req": 107,
-    "task": 231,
-    "test": 56,
+    "req": 117,
+    "task": 234,
+    "test": 59,
     "decision": 0
   },
   "reqs": [
@@ -733,7 +733,7 @@
     },
     {
       "id": "REQ-104",
-      "status": "done",
+      "status": "rejected",
       "tasks": [],
       "tests": [
         "TEST-053"
@@ -765,6 +765,82 @@
       "tests": [
         "TEST-056"
       ],
+      "decisions": []
+    },
+    {
+      "id": "REQ-108",
+      "status": "done",
+      "tasks": [],
+      "tests": [
+        "TEST-057"
+      ],
+      "decisions": []
+    },
+    {
+      "id": "REQ-109",
+      "status": "done",
+      "tasks": [],
+      "tests": [
+        "TEST-058"
+      ],
+      "decisions": []
+    },
+    {
+      "id": "REQ-110",
+      "status": "done",
+      "tasks": [],
+      "tests": [
+        "TEST-059"
+      ],
+      "decisions": []
+    },
+    {
+      "id": "REQ-111",
+      "status": "proposed",
+      "tasks": [],
+      "tests": [],
+      "decisions": []
+    },
+    {
+      "id": "REQ-112",
+      "status": "proposed",
+      "tasks": [],
+      "tests": [],
+      "decisions": []
+    },
+    {
+      "id": "REQ-113",
+      "status": "proposed",
+      "tasks": [],
+      "tests": [],
+      "decisions": []
+    },
+    {
+      "id": "REQ-114",
+      "status": "proposed",
+      "tasks": [],
+      "tests": [],
+      "decisions": []
+    },
+    {
+      "id": "REQ-115",
+      "status": "proposed",
+      "tasks": [],
+      "tests": [],
+      "decisions": []
+    },
+    {
+      "id": "REQ-116",
+      "status": "proposed",
+      "tasks": [],
+      "tests": [],
+      "decisions": []
+    },
+    {
+      "id": "REQ-117",
+      "status": "proposed",
+      "tasks": [],
+      "tests": [],
       "decisions": []
     }
   ],
@@ -2166,6 +2242,46 @@
         "REQ-106",
         "REQ-107"
       ]
+    },
+    {
+      "id": "TASK-232",
+      "reqId": null,
+      "status": "active",
+      "chore": false,
+      "reqIds": [
+        "REQ-108",
+        "REQ-109",
+        "REQ-110"
+      ],
+      "steps": 10,
+      "stepsDone": 0
+    },
+    {
+      "id": "TASK-233",
+      "reqId": null,
+      "status": "open",
+      "chore": false,
+      "reqIds": [
+        "REQ-111",
+        "REQ-112",
+        "REQ-113",
+        "REQ-114"
+      ],
+      "steps": 13,
+      "stepsDone": 0
+    },
+    {
+      "id": "TASK-234",
+      "reqId": null,
+      "status": "active",
+      "chore": false,
+      "reqIds": [
+        "REQ-115",
+        "REQ-116",
+        "REQ-117"
+      ],
+      "steps": 10,
+      "stepsDone": 0
     }
   ],
   "tests": [
@@ -2502,6 +2618,24 @@
     {
       "id": "TEST-056",
       "reqId": "REQ-107",
+      "status": "verified",
+      "evidenceRefs": []
+    },
+    {
+      "id": "TEST-057",
+      "reqId": "REQ-108",
+      "status": "verified",
+      "evidenceRefs": []
+    },
+    {
+      "id": "TEST-058",
+      "reqId": "REQ-109",
+      "status": "verified",
+      "evidenceRefs": []
+    },
+    {
+      "id": "TEST-059",
+      "reqId": "REQ-110",
       "status": "verified",
       "evidenceRefs": []
     }

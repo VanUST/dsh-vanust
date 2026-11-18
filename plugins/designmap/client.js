@@ -12176,26 +12176,6 @@ function LivePanel({ remote, useSessions, useWorkspaces }) {
   const host = import_react6.default.useMemo(() => createRemoteHost({ remote, sessionId }), [remote, sessionId]);
   return import_react6.default.createElement(PanelBoundary, null, import_react6.default.createElement(DesignMapView, { host }));
 }
-function HeaderTrigger({ layout }) {
-  return import_react6.default.createElement(
-    "button",
-    {
-      type: "button",
-      className: "dmv-trigger",
-      onClick: () => layout.selectPanel("designmap"),
-      title: "Open the design map",
-      "aria-label": "Open the design map"
-    },
-    import_react6.default.createElement(
-      "svg",
-      { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", "aria-hidden": "true" },
-      import_react6.default.createElement("rect", { x: 3.5, y: 4.5, width: 7, height: 6, rx: 1.5, stroke: "currentColor", strokeWidth: 1.7 }),
-      import_react6.default.createElement("rect", { x: 13.5, y: 13.5, width: 7, height: 6, rx: 1.5, stroke: "currentColor", strokeWidth: 1.7 }),
-      import_react6.default.createElement("path", { d: "M10.5 7.5h3a3 3 0 0 1 3 3v3", stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round" })
-    ),
-    import_react6.default.createElement("span", null, "Design map")
-  );
-}
 var inject = ["slots", "remote", "remote.workspaceFiles", "remote.commands", "remote.session", "layout"];
 function apply(ctx) {
   ctx.slots.inject(
@@ -12207,18 +12187,6 @@ function apply(ctx) {
         inject: () => ({ remote: ctx.remote, layout: ctx.layout })
       },
       LivePanel
-    )
-  );
-  ctx.slots.inject(
-    "conversation.session.header.actions",
-    () => ctx.slots.register(
-      {
-        name: "conversation.session.header.actions",
-        id: "designmap",
-        order: 20,
-        inject: () => ({ layout: ctx.layout })
-      },
-      HeaderTrigger
     )
   );
 }

@@ -126,11 +126,6 @@ window.__ModuleLoader__.load({
 .tb-child{display:flex;align-items:center;gap:6px;border:1px solid var(--dsw-alias-border-l1);border-radius:6px;padding:5px 7px;font-size:11px;background:var(--dsw-alias-bg-base);min-width:0}
 .tb-child .id{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:10px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tb-child .tb-btn{margin-left:auto;padding:2px 6px;font-size:10px}
-.tb-trigger{display:inline-flex;align-items:center;gap:4px;border:1px solid transparent;background:transparent;color:var(--dsw-alias-label-primary);border-radius:7px;padding:3px 7px;font:inherit;font-size:11.5px;font-weight:600;cursor:pointer;height:26px}
-.tb-trigger:hover{background:var(--dsw-alias-bg-layer-1)}
-.tb-trigger:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}
-.tb-trigger-label{white-space:nowrap}
-.tb-trigger .n{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:17px;padding:0 5px;margin-left:4px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-size:9.5px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1}
 .tb-icon{display:inline-flex;align-items:center;justify-content:center;border:0;background:transparent;color:inherit;border-radius:7px;padding:5px;cursor:pointer}
 .tb-icon:hover{background:transparent;color:inherit}
 .tb-icon:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}
@@ -551,49 +546,6 @@ window.__ModuleLoader__.load({
       if (minutes < 60) return `${minutes}m`
       if (minutes < 1440) return `${Math.round(minutes / 60)}h`
       return `${Math.round(minutes / 1440)}d`
-    }
-
-    function Icon({ size = 18, active = false }) {
-      return h('svg', { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', 'aria-hidden': true },
-        h('rect', { x: 3.5, y: 4.5, width: 17, height: 15, rx: 2.5, stroke: 'currentColor', strokeWidth: 1.6 }),
-        h('path', { d: 'M7 9.5h4M7 13h7M7 16.5h5', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round' }),
-        h('path', { d: 'M15.5 15.5l1.6 1.6 3-3.2', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round' }),
-      )
-    }
-
-    function TasksTrigger({ remote, store, layout, sessionId, useSessions }) {
-      const [count, setCount] = useState(0)
-      const sessionsRaw = useSessions((snapshot) => snapshot.byId)
-      const sessionsById = sessionsRaw !== null && sessionsRaw !== undefined && typeof sessionsRaw === 'object' ? sessionsRaw : {}
-      // The header trigger runs on a child conversation too. A task's chatId is the ROOT of the
-      // lineage, so comparing it with the raw session id counted 0 here while the pane showed
-      // the board. Same resolver as the pane (chatIdOf), so the badge and the board agree.
-      const chatId = chatIdOf(sessionId, sessionsById)
-      useEffect(() => {
-        let cancelled = false
-        const controller = new AbortController()
-        const tick = async () => {
-          const result = await readBoard(remote, sessionId, controller.signal)
-          // This chat's board only: a new chat is a new board, and a count of the whole
-          // workspace on a fresh conversation reads as tasks this chat cannot see.
-          if (!cancelled && result.board) setCount(result.board.tasks.filter((task) => chatOf(task) === chatId).length)
-        }
-        tick().catch(() => {})
-        const timer = setInterval(() => { tick().catch(() => {}) }, 5000)
-        return () => { cancelled = true; controller.abort(); clearInterval(timer) }
-      }, [remote, sessionId, chatId])
-      const open = () => {
-        store.set({ sessionId, returnSessionId: sessionId })
-        layout.selectPanel(PANEL_ID)
-      }
-      return h(React.Fragment, null,
-        h('style', null, CSS),
-        h('button', { type: 'button', className: 'tb-trigger', onClick: open, title: 'Open the task board', 'aria-label': `Open tasks${count > 0 ? `, ${count} total` : ''}` },
-          h(Icon, { size: 14 }),
-          h('span', { className: 'tb-trigger-label' }, 'Tasks '),
-          count > 0 ? h('span', { className: 'n' }, String(count)) : null,
-        ),
-      )
     }
 
     function TaskCard({ task, selected, onSelect, chatId, presets, sessionsById = {} }) {
@@ -1330,12 +1282,6 @@ window.__ModuleLoader__.load({
           key: PANEL_ID,
           inject: () => ({ remote: ctx.remote, store, uiWorkspace: ctx.uiWorkspace, layout: ctx.layout }),
         }, TasksPage))
-        ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
-          name: 'conversation.session.header.actions',
-          id: 'subagent-catalog',
-          order: 10,
-          inject: (sessionId) => ({ remote: ctx.remote, store, layout: ctx.layout, sessionId }),
-        }, TasksTrigger))
       },
     }
   },
