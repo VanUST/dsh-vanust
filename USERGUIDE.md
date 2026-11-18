@@ -546,6 +546,15 @@ Cordis rolled back the WHOLE plugin — so the guard disappeared with it. A kit 
 with `defineTool`, and anything registered after the guard is wrapped so a declaration mistake
 can never take the enforcement down.
 
+## 7.1a Measuring the outline saving
+
+`node scripts/outline-bench.mjs` reports, for real kit sources, the full read versus `outline`,
+`outline` + the median symbol body and `outline` + the largest symbol body, and marks generated
+bundles where the outline is the file (no gain). `--find <file> <symbol>` runs the negative
+control: the bytes and approximate tokens to find one function with and without an outline.
+`node scripts/outline-audit.mjs` is the journal audit: `outline` calls per session and `read`
+bytes in sessions with and without an outline (baseline zero until the plugin is installed).
+
 ## 7.2 The external binaries, provisioned
 
 `install.sh` finishes by running `scripts/provision-tools.mjs --apply`, which installs what is
