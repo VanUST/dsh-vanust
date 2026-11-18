@@ -28,7 +28,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | REQ-022 | done | — | — | — | no |
 | REQ-023 | done | — | — | — | no |
 | REQ-024 | done | — | — | — | no |
-| REQ-025 | done | — | — | — | no |
+| REQ-025 | done | — | TEST-052 | — | no |
 | REQ-026 | done | — | — | — | no |
 | REQ-027 | done | — | — | — | no |
 | REQ-028 | done | — | — | — | no |
@@ -107,6 +107,10 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | REQ-101 | done | — | — | — | no |
 | REQ-102 | done | — | — | — | no |
 | REQ-103 | proposed | — | — | — | no |
+| REQ-104 | done | — | TEST-053 | — | no |
+| REQ-105 | done | — | TEST-054 | — | no |
+| REQ-106 | done | — | TEST-055 | — | no |
+| REQ-107 | done | — | TEST-056 | — | no |
 
 ## Tests
 
@@ -163,3 +167,8 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | TEST-049 | — | verified | — |
 | TEST-050 | — | unverified | — |
 | TEST-051 | — | unverified | — |
+| TEST-052 | REQ-025 | verified | — |
+| TEST-053 | REQ-104 | verified | — |
+| TEST-054 | REQ-105 | verified | — |
+| TEST-055 | REQ-106 | verified | — |
+| TEST-056 | REQ-107 | verified | — |

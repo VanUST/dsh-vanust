@@ -18,7 +18,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-226 | V4.1: батчинг работы — задача как пачка шагов, проверка на границе (FR15) | — | — | no |
 | TASK-229 | V6.2: pack-plugin не должен удалять тарболы соседних плагинов по общему префиксу | — | — | no |
 
-## active (5)
+## active (7)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -27,6 +27,8 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-184 | Документ для ревью: харнесс, пресеты, плагины и системные промпты | — | — | no |
 | TASK-202 | Панель состояния проекта: четыре режима и сквозная взаимосвязь | — | — | no |
 | TASK-223 | V1.12: миграция источников в реестр — REQ, TASK, TEST (FR13) | — | — | no |
+| TASK-230 | P1: выход в чат, скрытие окон, без дубля Tasks | REQ-104, REQ-105, REQ-106, REQ-107 | — | no |
+| TASK-231 | P1-T: red→green тест навигации панелей | REQ-104, REQ-105, REQ-106, REQ-107 | — | no |
 
 ## review (62)
 

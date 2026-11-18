@@ -1,0 +1,257 @@
+{
+  "schemaVersion": 1,
+  "id": "panel-navigation-returns-to-chat-and-toggles-sidebars",
+  "title": "Panel navigation returns to chat and toggles sidebars",
+  "requirement": "The state panel offers Back to chat, a left-sidebar toggle and a right-column reset, while the taskboard strip no longer declares sidebar.panellist.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "plugins/taskboard/test/panel-navigation.test.mjs",
+  "runCommand": "node --test plugins/taskboard/test/panel-navigation.test.mjs",
+  "steps": [
+    "read plugins/taskboard/client.js and plugins/project-state-panel/client.js",
+    "assert sidebar.panellist is absent and TasksTrigger is present",
+    "assert Back to chat, layout.toggleSidebar() and setExpanded(sessionId, false) are present",
+    "run against pre-fix copies from git HEAD with PANEL_ROOT to observe the red"
+  ],
+  "expected": "node --test plugins/taskboard/test/panel-navigation.test.mjs exits 0 with zero violations; on pre-fix sources it exits 1 naming each missing control.",
+  "tags": [
+    "panel",
+    "navigation",
+    "regression"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/taskboard/client.js",
+      "sha256": "083308cd06b3f5508619d682e6aef63531de4b4439515251adfe247890f6dea9"
+    },
+    {
+      "path": "plugins/project-state-panel/client.js",
+      "sha256": "d2f0974fa4f1203ee7ebc9373e02d0b01791f1e71c3a5e99db61448a012a8330"
+    }
+  ],
+  "reqId": "REQ-025",
+  "authorRole": "BACKEND",
+  "checks": [
+    {
+      "name": "violations",
+      "metric": "violations",
+      "op": "==",
+      "threshold": 0
+    }
+  ],
+  "negativeControl": "expect-pre-fix",
+  "revision": 5,
+  "createdAt": "2026-11-18T12:01:30.757Z",
+  "updatedAt": "2026-11-18T12:02:12.404Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-18T12:01:39.847Z",
+      "editedBy": "agent",
+      "action": "ran-failed",
+      "reason": "1 run(s), 0 passed"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-18T12:02:05.539Z",
+      "editedBy": "agent",
+      "action": "ran-needs-red",
+      "reason": "1 run(s), 1 passed; no red run recorded, so the case is not verified"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-18T12:02:06.455Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-pre-fix\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-18T12:02:12.404Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mwm2m9wv-utnxg-1",
+      "at": "2026-11-18T12:01:39.843Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 191,
+      "commandSha256": "3562986d803064597b6ffccc1a9d6a449138bf1ab4fc0ed8ffc0d1cdc580b06a",
+      "head": "54ed26f8451e286061e51bb6470c2205dde2a50e",
+      "dirty": true,
+      "stdout": "docs/cases/runs/panel-navigation-returns-to-chat-and-toggles-sidebars/mwm2m9wv-utnxg-1/stdout.log",
+      "stderr": "docs/cases/runs/panel-navigation-returns-to-chat-and-toggles-sidebars/mwm2m9wv-utnxg-1/stderr.log",
+      "summary": "docs/cases/runs/panel-navigation-returns-to-chat-and-toggles-sidebars/mwm2m9wv-utnxg-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "violations",
+          "metric": "violations",
+          "op": "==",
+          "measured": null,
+          "threshold": 0,
+          "pass": false,
+          "reason": "metric_missing: the summary has no numeric metric \"violations\" (no summary written (CASE_SUMMARY was not used))"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwm2mu06-0xtbv-1",
+      "at": "2026-11-18T12:02:05.531Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 186,
+      "commandSha256": "3562986d803064597b6ffccc1a9d6a449138bf1ab4fc0ed8ffc0d1cdc580b06a",
+      "head": "54ed26f8451e286061e51bb6470c2205dde2a50e",
+      "dirty": true,
+      "stdout": "docs/cases/runs/panel-navigation-returns-to-chat-and-toggles-sidebars/mwm2mu06-0xtbv-1/stdout.log",
+      "stderr": "docs/cases/runs/panel-navigation-returns-to-chat-and-toggles-sidebars/mwm2mu06-0xtbv-1/stderr.log",
+      "summary": "docs/cases/runs/panel-navigation-returns-to-chat-and-toggles-sidebars/mwm2mu06-0xtbv-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "violations": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "violations",
+          "metric": "violations",
+          "op": "==",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mwm2mufu-0mkj5-1",
+      "at": "2026-11-18T12:02:06.450Z",
+      "mode": "red",
+      "control": "expect-pre-fix",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 173,
+      "commandSha256": "3562986d803064597b6ffccc1a9d6a449138bf1ab4fc0ed8ffc0d1cdc580b06a",
+      "head": "54ed26f8451e286061e51bb6470c2205dde2a50e",
+      "dirty": true,
+      "stdout": "docs/cases/runs/panel-navigation-returns-to-chat-and-toggles-sidebars/mwm2mufu-0mkj5-1/stdout.log",
+      "stderr": "docs/cases/runs/panel-navigation-returns-to-chat-and-toggles-sidebars/mwm2mufu-0mkj5-1/stderr.log",
+      "summary": "docs/cases/runs/panel-navigation-returns-to-chat-and-toggles-sidebars/mwm2mufu-0mkj5-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "violations": 2
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        },
+        {
+          "name": "violations",
+          "metric": "violations",
+          "op": "==",
+          "measured": 2,
+          "threshold": 0,
+          "pass": false,
+          "reason": "2 is not == 0"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwm2mz0q-sfy6e-1",
+      "at": "2026-11-18T12:02:12.396Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 184,
+      "commandSha256": "3562986d803064597b6ffccc1a9d6a449138bf1ab4fc0ed8ffc0d1cdc580b06a",
+      "head": "54ed26f8451e286061e51bb6470c2205dde2a50e",
+      "dirty": true,
+      "stdout": "docs/cases/runs/panel-navigation-returns-to-chat-and-toggles-sidebars/mwm2mz0q-sfy6e-1/stdout.log",
+      "stderr": "docs/cases/runs/panel-navigation-returns-to-chat-and-toggles-sidebars/mwm2mz0q-sfy6e-1/stderr.log",
+      "summary": "docs/cases/runs/panel-navigation-returns-to-chat-and-toggles-sidebars/mwm2mz0q-sfy6e-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "violations": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "violations",
+          "metric": "violations",
+          "op": "==",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "lastVerified": {
+    "at": "2026-11-18T12:02:12.404Z",
+    "command": "node --test plugins/taskboard/test/panel-navigation.test.mjs",
+    "exitCode": 0,
+    "runId": "mwm2mz0q-sfy6e-1",
+    "source": "runner",
+    "commit": null
+  },
+  "redFirst": {
+    "at": "2026-11-18T12:02:06.455Z",
+    "runId": "mwm2mufu-0mkj5-1",
+    "exitCode": 1,
+    "control": "expect-pre-fix",
+    "command": "node --test plugins/taskboard/test/panel-navigation.test.mjs",
+    "source": "negative-control"
+  }
+}

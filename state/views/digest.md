@@ -2,12 +2,12 @@
 
 GENERATED — DO NOT EDIT.
 
-REQ 103 · TASK 229 · TEST 51 · event 383
+REQ 107 · TASK 231 · TEST 56 · event 413
 
 ## Gaps
 
-- REQ without TASK: 103 (REQ-001, REQ-002, REQ-003, REQ-004, REQ-005, REQ-006, REQ-007, REQ-008, REQ-009, REQ-010, …)
-- TASK without reqId: 229
+- REQ without TASK: 107 (REQ-001, REQ-002, REQ-003, REQ-004, REQ-005, REQ-006, REQ-007, REQ-008, REQ-009, REQ-010, …)
+- TASK without reqId: 231
 - TEST without reqId: 51
 
 ## Open requirements (7)
@@ -20,7 +20,7 @@ REQ 103 · TASK 229 · TEST 51 · event 383
 - REQ-086 proposed: Промпт неизменен внутри хода; между ходами только реестровые разделы.
 - REQ-103 proposed: Задача — единица приёмки, а не микро-шаг: работа батчится, проверка гоняется пачкой.
 
-## Open work (78)
+## Open work (80)
 
 - TASK-050 open: Fix audit P0/P1: notify display, proof-guard edits, skill-evolve registry, cleanup
 - TASK-052 open: Sandboxed shell for read-only roles, artifact_write, and MCP placed by role
@@ -38,13 +38,11 @@ REQ 103 · TASK 229 · TEST 51 · event 383
 - TASK-184 active: Документ для ревью: харнесс, пресеты, плагины и системные промпты
 - TASK-202 active: Панель состояния проекта: четыре режима и сквозная взаимосвязь
 - TASK-223 active: V1.12: миграция источников в реестр — REQ, TASK, TEST (FR13)
+- TASK-230 active: P1: выход в чат, скрытие окон, без дубля Tasks
+- TASK-231 active: P1-T: red→green тест навигации панелей
 - TASK-007 review: Wire RTK, Headroom, SkillClaw and Babysitter into the kit
 - TASK-009 review: Audit the four integrations against the running server
 - TASK-012 review: Add Kimi K3.1 models to the DSH Kimi route
 - TASK-013 review: Two-model Kimi policy, highspeed guard, subagent wiring
 - TASK-014 review: Remove the two-subagent cap
-- TASK-015 review: Activate skill-evolve, babysitter and rtk
-- TASK-021 review: babysitter: release-gate
-- TASK-022 review: babysitter: probe-nonlinear
-- … and 54 more
-
+[truncated: the digest budget is 3072 bytes; read index.json or state/req/]

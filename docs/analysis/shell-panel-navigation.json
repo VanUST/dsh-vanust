@@ -1,0 +1,339 @@
+{
+  "schemaVersion": 1,
+  "id": "shell-panel-navigation",
+  "rev": 5,
+  "status": "completed",
+  "createdAt": "2026-11-18T11:42:31.897Z",
+  "updatedAt": "2026-11-18T12:08:04.459Z",
+  "updatedBy": "agent",
+  "title": "Навигация панелей: выход в чат, скрытие окон, без дубля Tasks",
+  "requestedSolution": "Владелец 2026-11-18 (новая сессия): (1) нельзя скрывать окна слева и справа, чтобы дать место остальным; (2) не убраны старые клиентские плагины design map/task — Tasks есть и в левой панели, и сверху; (3) нет кнопки вернуться к чату из панели состояния — приходится искать чат вручную. Сделать кнопку возврата в чат.",
+  "businessOutcome": {
+    "problem": "Панель состояния занимает весь экран, но не даёт выйти в чат и не управляет соседними окнами; Tasks висит и в левом списке, и в шапке.",
+    "outcome": "Из состояния можно одним щелчком вернуться в чат, левое и правое окна скрываются, «Tasks» не дублируется.",
+    "successMetrics": []
+  },
+  "process": {
+    "current": [
+      {
+        "id": "SP-CUR",
+        "name": "Тупик в панели",
+        "actors": [
+          "владелец"
+        ],
+        "steps": [
+          "Открывает State",
+          "Ищет чат в левом окне",
+          "Окна не скрыть",
+          "Tasks виден дважды"
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "SP-TGT",
+        "name": "Один щелчок",
+        "actors": [
+          "владелец"
+        ],
+        "steps": [
+          "State",
+          "Back to chat",
+          "Скрыть слева/справа",
+          "Tasks только в шапке"
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "FR1",
+      "kind": "FR",
+      "text": "Убрать дубль Tasks: вход только в шапке.",
+      "acceptance": [
+        "В левом списке нет Tasks; в шапке Tasks остался и открывает панель",
+        "Скриншот левой колонки до/после"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR2",
+      "kind": "FR",
+      "text": "Кнопка возврата в чат из просмотра состояния.",
+      "acceptance": [
+        "В шапке панели состояния есть Back to chat",
+        "Нажатие возвращает в чат и это видно в браузере"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR3",
+      "kind": "FR",
+      "text": "Управление окнами: скрыть левое и закрыть правое.",
+      "acceptance": [
+        "Кнопки скрывают левое и закрывают правое; повторное нажатие возвращает левое",
+        "Скриншоты до/после"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "NFR1",
+      "kind": "NFR",
+      "text": "Доказательство в браузере и гейты.",
+      "acceptance": [
+        "Второй сервер с копией профиля",
+        "axe 0, hit-targets >=24px, консоль чистая",
+        "make verify 17/17"
+      ],
+      "status": "proven"
+    }
+  ],
+  "architecture": {
+    "contractImpact": "none",
+    "components": [
+      {
+        "id": "shell-layout",
+        "name": "clientservice layout",
+        "responsibility": "навигация и геометрия панелей: selectPanel(null), toggleSidebar(), closeRightbar(), openRightbar()",
+        "owner": "dsh",
+        "owns": [],
+        "dependsOn": []
+      },
+      {
+        "id": "taskboard-client",
+        "name": "@cc/dsh-taskboard client",
+        "responsibility": "регистрирует TasksPage в main, PanelIcon в sidebar.panellist и TasksTrigger в шапке — два входа в одну панель",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": [
+          "shell-layout"
+        ]
+      },
+      {
+        "id": "state-panel-client",
+        "name": "@cc/dsh-project-state-panel client",
+        "responsibility": "панель состояния в main и триггер в шапке; в своей шапке нет выхода в чат и управления окнами",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": [
+          "shell-layout"
+        ]
+      },
+      {
+        "id": "rules-client",
+        "name": "@cc/dsh-project-rules client",
+        "responsibility": "уже имеет Back to chat (pr-back, selectPanel(null)) — образец",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": [
+          "shell-layout"
+        ]
+      }
+    ]
+  },
+  "data": [],
+  "contracts": [],
+  "invariants": [],
+  "decisions": [
+    {
+      "id": "D1",
+      "decision": "Back to chat = ctx.layout.selectPanel(null), как в project-rules (pr-back)",
+      "rationale": "Шов оболочки уже есть; второй механизм не нужен",
+      "alternatives": [
+        "своя навигация"
+      ]
+    },
+    {
+      "id": "D2",
+      "decision": "Скрытие левого = layout.toggleSidebar(), правого = layout.closeRightbar()",
+      "rationale": "Геометрией владеет оболочка",
+      "alternatives": [
+        "свои CSS-переключатели"
+      ]
+    },
+    {
+      "id": "D3",
+      "decision": "Дубль Tasks убирается удалением регистрации в sidebar.panellist; вход остаётся в шапке",
+      "rationale": "Один вход в одну панель",
+      "alternatives": [
+        "скрыть дубль через CSS"
+      ]
+    },
+    {
+      "id": "D4",
+      "decision": "Верхний вход остаётся рядом с действиями сессии",
+      "rationale": "Владелец видит Tasks в шапке и не просил его убирать",
+      "alternatives": [
+        "оставить левый вход"
+      ]
+    }
+  ],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L1",
+    "reasons": [
+      "три клиентских плагина, существующий шов layout"
+    ]
+  },
+  "designRef": {
+    "mapRev": 0,
+    "at": "2026-11-18T11:42:31.897Z",
+    "source": "designmap/manifest.json"
+  },
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "FR1",
+      "processId": "SP-TGT",
+      "componentId": "taskboard-client",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwm1xztt-meew8o",
+          "role": "UX/UI",
+          "at": "2026-11-18T14:55:00.000Z",
+          "evidence": [
+            "клиент taskboard: 0 вхождений sidebar.panellist; TasksTrigger остался",
+            "браузер :3096: Tasks в левой = 0, в шапке одна кнопка (x=611); reports/u5/chat.png"
+          ]
+        },
+        {
+          "taskId": "task-mwm2kpm4-q7lbqq",
+          "role": "BACKEND",
+          "at": "2026-11-18T15:05:00.000Z",
+          "evidence": [
+            "кейс tasks-entry-lives-only-in-the-header (REQ-104): red exit 1/violations 2 → green exit 0/0, verified",
+            "тест plugins/taskboard/test/panel-navigation.test.mjs: зелёный здесь, красный на /tmp/p1-before"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR2",
+      "processId": "SP-TGT",
+      "componentId": "state-panel-client",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwm1xztt-meew8o",
+          "role": "UX/UI",
+          "at": "2026-11-18T14:55:00.000Z",
+          "evidence": [
+            "Back to chat в .ps-top: .ps-root=0, кнопка State в шапке=1; reports/u5/back-to-chat.png"
+          ]
+        },
+        {
+          "taskId": "task-mwm2kpm4-q7lbqq",
+          "role": "BACKEND",
+          "at": "2026-11-18T15:05:00.000Z",
+          "evidence": [
+            "кейс back-to-chat-leaves-the-state-panel (REQ-105): red→green, verified"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR3",
+      "processId": "SP-TGT",
+      "componentId": "state-panel-client",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwm1xztt-meew8o",
+          "role": "UX/UI",
+          "at": "2026-11-18T14:55:00.000Z",
+          "evidence": [
+            "Toggle left: visible=true→false→true; Close right через sidebarRight.setExpanded(sessionId,false); контроль без вызова — колонка остаётся",
+            "reports/u5/sidebar-hidden.png, rightbar-after-panel-close.png"
+          ]
+        },
+        {
+          "taskId": "task-mwm2kpm4-q7lbqq",
+          "role": "BACKEND",
+          "at": "2026-11-18T15:05:00.000Z",
+          "evidence": [
+            "кейс panel-hides-left-sidebar-and-closes-right (REQ-106): red→green, verified"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "NFR1",
+      "processId": "SP-TGT",
+      "componentId": "state-panel-client",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwm1xztt-meew8o",
+          "role": "UX/UI",
+          "at": "2026-11-18T14:55:00.000Z",
+          "evidence": [
+            "axe .ps-root 0, hit-targets <24px 0, 760px без переполнения, консоль/сеть 0, sha256 483 файлов state/ совпали",
+            "make verify 17/17"
+          ]
+        },
+        {
+          "taskId": "task-mwm2kpm4-q7lbqq",
+          "role": "BACKEND",
+          "at": "2026-11-18T15:05:00.000Z",
+          "evidence": [
+            "кейс panel-navigation-gate-stays-green (REQ-107): red→green, verified"
+          ]
+        }
+      ]
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "bf13732b27056c3b4d676bdbdb66d4cb8dcffe7b1c554062b2347c10632d4dc0",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-18T11:42:31.897Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-18T11:42:53.307Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwm1xztt-meew8o -> FR1, FR2, FR3, NFR1"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-18T12:00:32.587Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwm2kpm4-q7lbqq -> FR1, FR2, FR3, NFR1"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-18T12:05:57.421Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwm2kpm4-q7lbqq -> FR1, FR2, FR3, NFR1"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-18T12:08:04.459Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "completed",
+      "summary": "requirements: FR3 changed; impacts: 2"
+    }
+  ]
+}

@@ -1,0 +1,168 @@
+{
+  "schemaVersion": 1,
+  "id": "back-to-chat-leaves-the-state-panel",
+  "title": "Back to chat leaves the state panel",
+  "requirement": "The state panel offers Back to chat, which calls layout.selectPanel(null) and returns the person to the chat.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "plugins/taskboard/test/panel-navigation.test.mjs",
+  "runCommand": "node --test plugins/taskboard/test/panel-navigation.test.mjs",
+  "steps": [
+    "read plugins/taskboard/client.js and plugins/project-state-panel/client.js",
+    "assert sidebar.panellist is absent while TasksTrigger remains",
+    "assert Back to chat with layout.selectPanel(null), layout.toggleSidebar() and setExpanded(sessionId, false)",
+    "observe red on pre-fix copies from git HEAD with PANEL_ROOT"
+  ],
+  "expected": "The static test exits 0 with zero violations and names the missing Back to chat or selectPanel(null) call; pre-fix sources exit 1.",
+  "tags": [
+    "panel",
+    "navigation",
+    "regression",
+    "p1"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/taskboard/client.js",
+      "sha256": "083308cd06b3f5508619d682e6aef63531de4b4439515251adfe247890f6dea9"
+    },
+    {
+      "path": "plugins/project-state-panel/client.js",
+      "sha256": "d2f0974fa4f1203ee7ebc9373e02d0b01791f1e71c3a5e99db61448a012a8330"
+    }
+  ],
+  "linkedTaskId": "task-mwm2kpm4-q7lbqq",
+  "reqId": "REQ-105",
+  "authorRole": "BACKEND",
+  "checks": [
+    {
+      "name": "violations",
+      "metric": "violations",
+      "op": "==",
+      "threshold": 0
+    }
+  ],
+  "negativeControl": "expect-pre-fix",
+  "revision": 3,
+  "createdAt": "2026-11-18T12:06:17.968Z",
+  "updatedAt": "2026-11-18T12:06:26.792Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-18T12:06:25.964Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-pre-fix\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-18T12:06:26.792Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mwm2seoa-1apii-1",
+      "at": "2026-11-18T12:06:25.959Z",
+      "mode": "red",
+      "control": "expect-pre-fix",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 181,
+      "commandSha256": "3562986d803064597b6ffccc1a9d6a449138bf1ab4fc0ed8ffc0d1cdc580b06a",
+      "head": "714e60eaab20304267f6aa1bea3905c3153ccdd7",
+      "dirty": true,
+      "stdout": "docs/cases/runs/back-to-chat-leaves-the-state-panel/mwm2seoa-1apii-1/stdout.log",
+      "stderr": "docs/cases/runs/back-to-chat-leaves-the-state-panel/mwm2seoa-1apii-1/stderr.log",
+      "summary": "docs/cases/runs/back-to-chat-leaves-the-state-panel/mwm2seoa-1apii-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "violations": 2
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        },
+        {
+          "name": "violations",
+          "metric": "violations",
+          "op": "==",
+          "measured": 2,
+          "threshold": 0,
+          "pass": false,
+          "reason": "2 is not == 0"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwm2sfd6-6m9mv-1",
+      "at": "2026-11-18T12:06:26.785Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 184,
+      "commandSha256": "3562986d803064597b6ffccc1a9d6a449138bf1ab4fc0ed8ffc0d1cdc580b06a",
+      "head": "714e60eaab20304267f6aa1bea3905c3153ccdd7",
+      "dirty": true,
+      "stdout": "docs/cases/runs/back-to-chat-leaves-the-state-panel/mwm2sfd6-6m9mv-1/stdout.log",
+      "stderr": "docs/cases/runs/back-to-chat-leaves-the-state-panel/mwm2sfd6-6m9mv-1/stderr.log",
+      "summary": "docs/cases/runs/back-to-chat-leaves-the-state-panel/mwm2sfd6-6m9mv-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "violations": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "violations",
+          "metric": "violations",
+          "op": "==",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-18T12:06:25.964Z",
+    "runId": "mwm2seoa-1apii-1",
+    "exitCode": 1,
+    "control": "expect-pre-fix",
+    "command": "node --test plugins/taskboard/test/panel-navigation.test.mjs",
+    "source": "negative-control"
+  },
+  "lastVerified": {
+    "at": "2026-11-18T12:06:26.792Z",
+    "command": "node --test plugins/taskboard/test/panel-navigation.test.mjs",
+    "exitCode": 0,
+    "runId": "mwm2sfd6-6m9mv-1",
+    "source": "runner",
+    "commit": null
+  }
+}

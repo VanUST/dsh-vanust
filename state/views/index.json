@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "lastSeq": 383,
+  "lastSeq": 413,
   "counts": {
-    "req": 103,
-    "task": 229,
-    "test": 51,
+    "req": 107,
+    "task": 231,
+    "test": 56,
     "decision": 0
   },
   "reqs": [
@@ -180,7 +180,9 @@
       "id": "REQ-025",
       "status": "done",
       "tasks": [],
-      "tests": [],
+      "tests": [
+        "TEST-052"
+      ],
       "decisions": []
     },
     {
@@ -727,6 +729,42 @@
       "status": "proposed",
       "tasks": [],
       "tests": [],
+      "decisions": []
+    },
+    {
+      "id": "REQ-104",
+      "status": "done",
+      "tasks": [],
+      "tests": [
+        "TEST-053"
+      ],
+      "decisions": []
+    },
+    {
+      "id": "REQ-105",
+      "status": "done",
+      "tasks": [],
+      "tests": [
+        "TEST-054"
+      ],
+      "decisions": []
+    },
+    {
+      "id": "REQ-106",
+      "status": "done",
+      "tasks": [],
+      "tests": [
+        "TEST-055"
+      ],
+      "decisions": []
+    },
+    {
+      "id": "REQ-107",
+      "status": "done",
+      "tasks": [],
+      "tests": [
+        "TEST-056"
+      ],
       "decisions": []
     }
   ],
@@ -2104,6 +2142,30 @@
       "reqId": null,
       "status": "open",
       "chore": false
+    },
+    {
+      "id": "TASK-230",
+      "reqId": null,
+      "status": "active",
+      "chore": false,
+      "reqIds": [
+        "REQ-104",
+        "REQ-105",
+        "REQ-106",
+        "REQ-107"
+      ]
+    },
+    {
+      "id": "TASK-231",
+      "reqId": null,
+      "status": "active",
+      "chore": false,
+      "reqIds": [
+        "REQ-104",
+        "REQ-105",
+        "REQ-106",
+        "REQ-107"
+      ]
     }
   ],
   "tests": [
@@ -2411,6 +2473,36 @@
       "id": "TEST-051",
       "reqId": null,
       "status": "unverified",
+      "evidenceRefs": []
+    },
+    {
+      "id": "TEST-052",
+      "reqId": "REQ-025",
+      "status": "verified",
+      "evidenceRefs": []
+    },
+    {
+      "id": "TEST-053",
+      "reqId": "REQ-104",
+      "status": "verified",
+      "evidenceRefs": []
+    },
+    {
+      "id": "TEST-054",
+      "reqId": "REQ-105",
+      "status": "verified",
+      "evidenceRefs": []
+    },
+    {
+      "id": "TEST-055",
+      "reqId": "REQ-106",
+      "status": "verified",
+      "evidenceRefs": []
+    },
+    {
+      "id": "TEST-056",
+      "reqId": "REQ-107",
+      "status": "verified",
       "evidenceRefs": []
     }
   ],
