@@ -1,0 +1,367 @@
+{
+  "schemaVersion": 1,
+  "id": "kit-tool-surface",
+  "rev": 1,
+  "status": "ready",
+  "createdAt": "2026-11-18T09:55:59.080Z",
+  "updatedAt": "2026-11-18T09:55:59.080Z",
+  "updatedBy": "agent",
+  "title": "Поверхность инструментов: удалить мёртвое, вернуть нужное, добиться outline",
+  "requestedSolution": "Владелец 2026-11-18 после аудита: удалить presentation; убрать из allow мёртвые имена (case_suite, taskboard, schedule_*, ratchet_*, read_mcp_resource/list_mcp_resource_templates); добавить designmap_export и designmap_lint; включить projectDeny для godot по project.godot; outline не удалять, а сделать видимым и добиться, чтобы агенты им пользовались (он отчасти заменяет grep/read/bash); ponytail оставить как рекомендации. Потом повторить замер.",
+  "businessOutcome": {
+    "problem": "Аудит 1047 журналов: 208 инструментов, 85 без вызовов; godot MCP — 16 336 заголовков при 6 вызовах; allow-лист карты не даёт двух её же инструментов; outline не установлен, но считается полезным.",
+    "outcome": "Каждый ход содержит только те инструменты, которые роль использует или может использовать; outline становится первым способом посмотреть файл, а не последним.",
+    "successMetrics": [
+      "Из заголовков исчезают мёртвые семейства (godot без проекта, schedule_*, ratchet_*)",
+      "outline появляется в заголовке и вызывается вместо целого read на больших файлах",
+      "make verify остаётся зелёным, установленный профиль не трогается"
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "TS-CUR",
+        "name": "Поверхность по инерции",
+        "actors": [
+          "оркестратор"
+        ],
+        "steps": [
+          "Новый плагин попадает в хост",
+          "Allow-лист не пополняется новыми именами",
+          "Мёртвые плагины остаются, потому что никто не считал вызовы"
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "TS-TGT",
+        "name": "Поверхность по замеру",
+        "actors": [
+          "оркестратор",
+          "владелец"
+        ],
+        "steps": [
+          "Audit по журналам даёт вызовы и байты",
+          "Мёртвое удаляется, нужное разрешается",
+          "Повторный замер подтверждает эффект"
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "FR1",
+      "kind": "FR",
+      "text": "Плагин presentation удалён.",
+      "acceptance": [
+        "В профиле, inventory и тарболах нет presentation",
+        "make verify зелёный"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR2",
+      "kind": "FR",
+      "text": "Мёртвые имена убраны из allow-листов.",
+      "acceptance": [
+        "case_suite не в allow у backend; taskboard, schedule_*, ratchet_*, read_mcp_resource, list_mcp_resource_templates не в allow ни у одной роли",
+        "Заголовки после правки не содержат этих имён"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR3",
+      "kind": "FR",
+      "text": "Недостающие инструменты карты разрешены.",
+      "acceptance": [
+        "designmap_export и designmap_lint доступны оркестратору",
+        "Заголовок содержит оба имени"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR4",
+      "kind": "FR",
+      "text": "godot MCP отсекается по project.godot.",
+      "acceptance": [
+        "Запрос с project.godot в корне видит godot-инструменты, без него — не видит",
+        "Схема godot не попадает в заголовки проектов без Godot"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR5",
+      "kind": "FR",
+      "text": "outline виден агентам и применяется вместо чтения целого файла.",
+      "acceptance": [
+        "outline смонтирован и виден оркестратору (и решено: backend/ux)",
+        "В правиле есть «сначала outline, потом read»",
+        "После правки есть вызовы outline или объяснено, почему нет"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "NFR1",
+      "kind": "NFR",
+      "text": "Эффект измерен повторным аудитом.",
+      "acceptance": [
+        "Повторный замер по журналам: заголовки, байты, вызовы",
+        "Сравнение с аудитом до правки"
+      ],
+      "status": "planned"
+    }
+  ],
+  "architecture": {
+    "contractImpact": "breaking",
+    "components": [
+      {
+        "id": "profile",
+        "name": "profile/cordis.patch.yml",
+        "responsibility": "состав хоста и allow-листы восьми пресетов",
+        "owner": "kit",
+        "owns": [
+          "profile-file",
+          "inventory"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "tool-families",
+        "name": "@cc/dsh-tool-families",
+        "responsibility": "маскирует глобальные инструменты под allow-лист пресета",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": [
+          "profile"
+        ]
+      },
+      {
+        "id": "outline",
+        "name": "@cc/dsh-outline",
+        "responsibility": "оглавление файла до чтения (символы, строки, сигнатуры) вместо чтения целого файла",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": []
+      },
+      {
+        "id": "designmap",
+        "name": "@cc/dsh-designmap",
+        "responsibility": "семь инструментов карты; export и lint не были в allow",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": []
+      },
+      {
+        "id": "docs",
+        "name": "docs/ + rules/",
+        "responsibility": "документирует состав и правила использования инструментов",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": []
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "profile-file",
+      "name": "profile/cordis.patch.yml",
+      "owner": "kit",
+      "ownerComponentId": "profile",
+      "description": "allow-строки восьми пресетов и host-строки плагинов"
+    },
+    {
+      "id": "inventory",
+      "name": "plugins/inventory.json",
+      "owner": "kit",
+      "ownerComponentId": "profile",
+      "description": "учёт плагинов и их тарболов"
+    }
+  ],
+  "contracts": [
+    {
+      "id": "tool-allowlist",
+      "name": "allow-лист инструментов",
+      "between": [
+        "profile",
+        "tool-families"
+      ],
+      "change": "breaking",
+      "description": "allow-лист пресета — полное описание поверхности роли; имена, которых нет в плагине, бесполезны, отсутствующие имена отрезают живые инструменты"
+    },
+    {
+      "id": "designmap-allow",
+      "name": "инструменты карты в allow",
+      "between": [
+        "designmap",
+        "profile"
+      ],
+      "change": "additive",
+      "description": "designmap_export и designmap_lint разрешены оркестратору"
+    },
+    {
+      "id": "outline-contract",
+      "name": "доступ к outline",
+      "between": [
+        "outline",
+        "profile"
+      ],
+      "change": "additive",
+      "description": "outline смонтирован и виден роли; в правилах есть указание смотреть оглавление до чтения файла"
+    }
+  ],
+  "invariants": [],
+  "decisions": [
+    {
+      "id": "D1",
+      "decision": "outline остаётся и делается видимым: смонтирован в профиле, разрешён роли, в правило добавлено «сначала outline, потом read»",
+      "rationale": "Владелец 2026-11-18: outline — реально экономящий инструмент, проблема в том, что агенты им не пользуются; в установленном профиле его вообще нет",
+      "alternatives": [
+        "удалить плагин",
+        "оставить и добавить в правило"
+      ]
+    },
+    {
+      "id": "D2",
+      "decision": "presentation удаляется (3 вызова, последний 26.10)",
+      "rationale": "Владелец согласился с удалением",
+      "alternatives": [
+        "оставить до востребования"
+      ]
+    },
+    {
+      "id": "D3",
+      "decision": "ponytail остаётся; мёртвые legacy-имена ponytail/grilling не трогаются (они не появляются в заголовках)",
+      "rationale": "Владелец: ponytail — это рекомендации на уровне промпта, оставить",
+      "alternatives": [
+        "удалить"
+      ]
+    },
+    {
+      "id": "D4",
+      "decision": "godot MCP отсекается projectDeny по project.godot; schedule_*, ratchet_*, case_suite, taskboard, read_mcp_resource/list_mcp_resource_templates убираются из allow",
+      "rationale": "Самые дорогие мёртвые семейства: godot ~60 КБ схемы в 308 сессиях при 6 вызовах",
+      "alternatives": [
+        "оставить в allow у всех"
+      ]
+    },
+    {
+      "id": "D5",
+      "decision": "designmap_export и designmap_lint добавляются в allow оркестратора",
+      "rationale": "Плагин их регистрирует, а лист их не пускал: экспорт SVG/PNG и линт были недоступны",
+      "alternatives": [
+        "не трогать"
+      ]
+    },
+    {
+      "id": "D6",
+      "decision": "После правки повторить замер по журналам: заголовки, вызовы, байты",
+      "rationale": "Аудит — снимок; эффект проверяется измерением, а не обещанием",
+      "alternatives": [
+        "верить отчёту"
+      ]
+    }
+  ],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L1",
+    "reasons": [
+      "изменение состава хоста и allow-листов",
+      "удаление плагина",
+      "новые правила использования инструмента"
+    ]
+  },
+  "designRef": {
+    "mapRev": 30,
+    "at": "2026-11-16T12:40:49.113Z",
+    "source": "designmap/manifest.json"
+  },
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "FR1",
+      "processId": "TS-TGT",
+      "componentId": "profile",
+      "contractIds": [
+        "tool-allowlist"
+      ],
+      "dataIds": [
+        "profile-file",
+        "inventory"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR2",
+      "processId": "TS-TGT",
+      "componentId": "tool-families",
+      "contractIds": [
+        "tool-allowlist"
+      ],
+      "dataIds": [
+        "profile-file"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR3",
+      "processId": "TS-TGT",
+      "componentId": "designmap",
+      "contractIds": [
+        "designmap-allow"
+      ],
+      "dataIds": [],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR4",
+      "processId": "TS-TGT",
+      "componentId": "profile",
+      "contractIds": [
+        "tool-allowlist"
+      ],
+      "dataIds": [
+        "profile-file"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR5",
+      "processId": "TS-TGT",
+      "componentId": "outline",
+      "contractIds": [
+        "outline-contract"
+      ],
+      "dataIds": [
+        "profile-file"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "NFR1",
+      "processId": "TS-TGT",
+      "componentId": "docs",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "planned",
+      "tasks": []
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "8df73ee9ac1071a1c599466fbe381ff85e58d42110d20920c8b8a3fa06fc5007",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-18T09:55:59.080Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "ready",
+      "summary": ""
+    }
+  ]
+}

@@ -66,7 +66,7 @@
 
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { basename, delimiter, dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -74,6 +74,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const LOCAL_BIN = join(homedir(), '.local', 'bin')
 const DSH_HOME = resolve(process.env.DSH_HOME ?? join(homedir(), '.npm', 'dsh'))
+/** The skill repo commit the DSH skill is installed from; a pin, so the files do not drift. */
+const IMPECCABLE_SKILL_COMMIT = 'd41d9860b0094dcb68030657da63461212835aaa'
+/** sha256 of @impeccable/cli-linux-x64@0.1.25 `bin/impeccable` (engine-checksums.txt). */
+const IMPECCABLE_ENGINE_SHA = 'f48aca43294a9ba1ea3eb7b1d0a0b2d595c480e8c65003e410247b9884820ddd'
+const IMPECCABLE_ENGINE_DIR = join(homedir(), '.impeccable', 'bin')
+const IMPECCABLE_ENGINE_BIN = join(IMPECCABLE_ENGINE_DIR, 'impeccable')
 
 /**
  * The role toolchain, pinned. Each value is the version this kit installs when
@@ -97,6 +103,11 @@ const PINS = {
   // receives is a contract: symbols with line ranges, not prose that drifts between releases.
   codeSkeleton: '0.1.3',
   axePlaywright: '4.14.0',
+  // UI design checker (U1). The npm `impeccable` package is only the LAUNCHER; the detector is
+  // the platform binary package. Both are pinned, and the engine binary is digest-checked
+  // against the checksum the skill ships (`scripts/engine-checksums.txt`).
+  impeccable: '4.9.2',
+  impeccableEngine: '0.1.25',
   pixelmatch: '8.0.0',
   playwrightCore: '1.65.0',
   // Code-search pack (profile/code-search.mcp.json). Pinned because a symbol server and an
@@ -970,6 +981,77 @@ const CHROME_KNOWN = {
 }
 
 /** The tool set, in a stable order, with the probe and the installer for each. */
+
+/**
+ * Install the impeccable ENGINE binary beside `~/.impeccable/bin/impeccable`.
+ *
+ * WHY NOT `impeccable install`: the launcher downloads its bundle from
+ * https://impeccable.style, a host this network cannot reach. The platform package on npm
+ * carries the same binary, so the kit installs that package into a temp prefix, checks the
+ * sha256 the skill publishes in `scripts/engine-checksums.txt`, and copies the file where the
+ * launcher looks first. The digest is the integrity check: a package that changed under the
+ * pin is refused instead of installed.
+ *
+ * @returns true when the engine is in place with the pinned digest.
+ */
+function ensureImpeccableEngine() {
+  if (existsSync(IMPECCABLE_ENGINE_BIN) && sha256(IMPECCABLE_ENGINE_BIN) === IMPECCABLE_ENGINE_SHA) return true
+  const dir = join(tmpdir(), `impeccable-engine-${process.pid}`)
+  mkdirSync(dir, { recursive: true })
+  const argv = npmArgv(['install', '--prefix', dir, '--no-audit', '--no-fund', `@impeccable/cli-linux-x64@${PINS.impeccableEngine}`])
+  if (argv === null || !run(argv)) return false
+  const source = join(dir, 'node_modules', '@impeccable', 'cli-linux-x64', 'bin', 'impeccable')
+  if (!existsSync(source)) return false
+  if (sha256(source) !== IMPECCABLE_ENGINE_SHA) {
+    console.error(`impeccable: engine digest mismatch in @impeccable/cli-linux-x64@${PINS.impeccableEngine}: ${sha256(source)}`)
+    return false
+  }
+  mkdirSync(IMPECCABLE_ENGINE_DIR, { recursive: true })
+  copyFileSync(source, IMPECCABLE_ENGINE_BIN)
+  chmodSync(IMPECCABLE_ENGINE_BIN, 0o755)
+  return true
+}
+
+/**
+ * Install the DSH skill from the pinned commit of pbakaus/impeccable.
+ *
+ * WHY GITHUB AND NOT `impeccable install --providers=dsh`: that command downloads the bundle
+ * from the blocked domain. The repository carries the same skill files under
+ * `.dsh/skills/impeccable/`; the commit is pinned, and the marker file records it so a rerun is
+ * a no-op and a pin bump reinstalls.
+ */
+async function ensureImpeccableSkill() {
+  const target = join(DSH_HOME, 'skills', 'impeccable')
+  const marker = join(target, '.provision.json')
+  if (existsSync(join(target, 'SKILL.md')) && existsSync(marker)) {
+    try {
+      if (JSON.parse(readFileSync(marker, 'utf8')).commit === IMPECCABLE_SKILL_COMMIT) {
+        // Raw GitHub downloads carry no mode; the launcher the skill ships must be executable
+        // or the documented command fails with "Permission denied".
+        const launcher = join(target, 'scripts', 'impeccable')
+        if (existsSync(launcher)) chmodSync(launcher, 0o755)
+        return true
+      }
+    } catch {
+      // A broken marker reinstalls; it is a cache, not the source of truth.
+    }
+  }
+  const tree = await fetchJson(`https://api.github.com/repos/pbakaus/impeccable/git/trees/${IMPECCABLE_SKILL_COMMIT}?recursive=1`)
+  const prefix = '.dsh/skills/impeccable/'
+  const files = (Array.isArray(tree?.tree) ? tree.tree : []).filter((entry) => entry.type === 'blob' && String(entry.path).startsWith(prefix))
+  if (files.length === 0) return false
+  for (const entry of files) {
+    const rel = String(entry.path).slice(prefix.length)
+    const dest = join(target, rel)
+    mkdirSync(dirname(dest), { recursive: true })
+    await download(`https://raw.githubusercontent.com/pbakaus/impeccable/${IMPECCABLE_SKILL_COMMIT}/${entry.path}`, dest)
+  }
+  const launcher = join(target, 'scripts', 'impeccable')
+  if (existsSync(launcher)) chmodSync(launcher, 0o755)
+  writeFileSync(marker, `${JSON.stringify({ commit: IMPECCABLE_SKILL_COMMIT, files: files.length }, null, 2)}\n`, 'utf8')
+  return existsSync(join(target, 'SKILL.md'))
+}
+
 const TOOLS = [
   {
     id: 'rtk',
@@ -1013,6 +1095,35 @@ const TOOLS = [
     install: async () => installWithNpm(`code-skeleton-mcp@${PINS.codeSkeleton}`) && which('code-skeleton-mcp') !== null,
     manual: `npm install -g code-skeleton-mcp@${PINS.codeSkeleton}`,
     manualWindows: `npm install -g code-skeleton-mcp@${PINS.codeSkeleton}`,
+  },
+  {
+    id: 'impeccable',
+    label: 'impeccable — UI design checker (launcher + engine + DSH skill)',
+    required: false,
+    pin: PINS.impeccable,
+    versionPin: PINS.impeccable,
+    names: ['impeccable'],
+    // The launcher's own `--version` prints the ENGINE version (`0.1.25+engine`), not the npm
+    // package the kit pins, so the truthful launcher version comes from its manifest and the
+    // engine is reported separately by the digest check.
+    detect: () => {
+      const bin = resolveToolBin({ names: ['impeccable'] })
+      const engine = existsSync(IMPECCABLE_ENGINE_BIN) && sha256(IMPECCABLE_ENGINE_BIN) === IMPECCABLE_ENGINE_SHA
+      const skill = existsSync(join(DSH_HOME, 'skills', 'impeccable', 'SKILL.md'))
+      // PRESENT means all three parts: launcher, digest-checked engine, DSH skill. A launcher
+      // alone would run `impeccable install` and hit the blocked bundle domain; a skill without
+      // an engine answers "engine missing" on every call.
+      const complete = engine && skill
+      return { bin, version: bin === null || !complete ? null : npmPackageVersion(bin, 'impeccable'), drifted: !complete, note: `${engine ? 'engine ok' : 'engine missing'}, ${skill ? 'skill ok' : 'skill missing'}` }
+    },
+    install: async () => {
+      const launcher = installWithNpm(`impeccable@${PINS.impeccable}`)
+      const engine = ensureImpeccableEngine()
+      const skill = await ensureImpeccableSkill()
+      return launcher && engine && skill
+    },
+    manual: `npm install -g impeccable@${PINS.impeccable} && npm i --prefix /tmp/imp @impeccable/cli-linux-x64@${PINS.impeccableEngine} && mkdir -p ~/.impeccable/bin && cp /tmp/imp/node_modules/@impeccable/cli-linux-x64/bin/impeccable ~/.impeccable/bin/ && chmod +x ~/.impeccable/bin/impeccable`,
+    manualWindows: 'impeccable install --providers=dsh (needs https://impeccable.style) then place the skill in %USERPROFILE%/.npm/dsh/skills/impeccable',
   },
   {
     id: 'marp',

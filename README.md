@@ -204,10 +204,10 @@ invent a justification.
   arXiv PDF under `.dsh/papers/` with a `pdftotext` extraction. No API key; one source can
   fail while the other returns results.
 - **`scripts/provision-tools.mjs`** — installs or reports the external binaries the features
-  use (RTK, code-skeleton-mcp, Marp CLI, Mermaid CLI, D2) and detects the OS ones
+  use (RTK, code-skeleton-mcp, Marp CLI, Mermaid CLI, D2, impeccable) and detects the OS ones
   (Chrome, ffmpeg). `install.sh` runs it with `--apply`; `make provision` reports,
   `make provision-apply` installs. Every tool is optional — its feature degrades and says so —
-  which is why silence about it was a defect.
+  which is why silence about it was a defect. `make design-audit` runs the pinned impeccable UI detector over the kit's own UI sources (designmap client, project-state panel) and prints one JSON document; it is deliberately NOT part of `make verify`, which must stay offline.
 - **`@cc/dsh-research-first`** — refuses to create a NEW file in a session that has read
   nothing current: it observes `web_fetch`/`web_search` results, gates new-file writes, names the
   exact next step in the denial, and offers `research_waive` for an offline machine. Memory is a

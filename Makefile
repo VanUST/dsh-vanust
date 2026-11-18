@@ -107,6 +107,12 @@ provision:
 provision-apply:
 	@$(NODE) scripts/provision-tools.mjs --apply
 
+
+# UI design audit — a SEPARATE target, never part of `verify`: verify must stay offline, while
+# this needs the provisioned impeccable engine (and may scan a URL). Output is one JSON document.
+design-audit:
+	@$(NODE) scripts/design-audit.mjs
+
 verify:
 	node scripts/check-portability.mjs
 	node scripts/check-documentation.mjs

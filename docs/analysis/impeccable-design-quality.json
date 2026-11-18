@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "impeccable-design-quality",
-  "rev": 2,
+  "rev": 3,
   "status": "ready",
   "createdAt": "2026-11-18T09:42:36.525Z",
-  "updatedAt": "2026-11-18T09:42:53.334Z",
+  "updatedAt": "2026-11-18T09:51:29.269Z",
   "updatedBy": "agent",
   "title": "Дизайн-контур: impeccable (slop-детектор) и визуальный выбор вариантов",
   "requestedSolution": "Владелец 2026-11-18: взять https://impeccable.style/slop/ (npm-пакет impeccable, DSH-скилл + детерминированный детектор анти-паттернов) и имплементировать его в dsh-kit так, чтобы: (1) UX/UI-агент мог работать с ним и на новом проекте (init/shape/document → PRODUCT.md/DESIGN.md), и на существующем (context → critique/audit → правки → повторный detect); (2) агент умел делать прототипы/мокапы (2–4 варианта одного экрана) со скриншотами и одной страницей сравнения, чтобы владелец визуально выбирал лучший вариант; (3) детектор был доступен как отдельная цель сборки и как обязательный шаг в отчёте UX-работы. Плюс отдельное задание: аудит полезности всех плагинов и пресетов — кто реально вызывается, что мёртвое, что дорогое по токенам.",
@@ -341,7 +341,14 @@
         "impeccable-engine"
       ],
       "status": "planned",
-      "tasks": []
+      "tasks": [
+        {
+          "taskId": "task-mwlxo6cu-529m2f",
+          "role": "BACKEND",
+          "at": "2026-11-18T09:51:29.269Z",
+          "evidence": []
+        }
+      ]
     },
     {
       "requirementId": "FR2",
@@ -389,7 +396,14 @@
       ],
       "dataIds": [],
       "status": "planned",
-      "tasks": []
+      "tasks": [
+        {
+          "taskId": "task-mwlxo6cu-529m2f",
+          "role": "BACKEND",
+          "at": "2026-11-18T09:51:29.269Z",
+          "evidence": []
+        }
+      ]
     },
     {
       "requirementId": "NFR1",
@@ -402,7 +416,14 @@
         "impeccable-engine"
       ],
       "status": "planned",
-      "tasks": []
+      "tasks": [
+        {
+          "taskId": "task-mwlxo6cu-529m2f",
+          "role": "BACKEND",
+          "at": "2026-11-18T09:51:29.269Z",
+          "evidence": []
+        }
+      ]
     },
     {
       "requirementId": "NFR2",
@@ -432,6 +453,14 @@
       "action": "upsert",
       "status": "ready",
       "summary": ""
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-18T09:51:29.269Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwlxo6cu-529m2f -> FR1, FR5, NFR1"
     }
   ]
 }

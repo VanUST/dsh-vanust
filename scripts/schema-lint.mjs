@@ -48,26 +48,30 @@ async function collectTools() {
   return tools
 }
 
-/** preset id -> allowed tool names, parsed from the tool-families `families:` block. */
+/** preset id -> allowed tool names, from the tool-families `families:` allow rows. */
 async function collectPresets() {
   let text = ''
   try { text = await readFile(join(KIT, 'profile', 'cordis.patch.yml'), 'utf8') } catch { return {} }
-  const presets = {}
   const lines = text.split('\n')
   let inFamilies = false
   let current = null
-  let inAllow = false
-  for (const line of lines) {
+  const presets = {}
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]
     if (/^\s*families:\s*$/.test(line)) { inFamilies = true; continue }
     if (!inFamilies) continue
-    const presetMatch = line.match(/^ {10}([a-z][a-z0-9_-]*):\s*$/)
-    if (presetMatch) { current = presetMatch[1]; presets[current] = []; inAllow = false; continue }
-    if (/^\s*allow:\s*$/.test(line)) { inAllow = true; continue }
-    const item = line.match(/^\s{14}-\s*([A-Za-z0-9_*]+)\s*$/)
-    if (inAllow && current !== null && item) { presets[current].push(item[1]); continue }
-    if (/^ {10}\S/.test(line) && !presetMatch && /^\s{10}\S/.test(line) && line.includes(':') && !line.includes('allow')) { inAllow = false }
+    const preset = line.match(/^ {10}([a-z][a-z0-9_-]*):\s*$/)
+    if (preset) { current = preset[1]; presets[current] = []; continue }
+    if (!/^ {12}allow:\s*$/.test(line) || current === null) continue
+    let j = i + 1
+    while (j < lines.length) {
+      const item = lines[j].match(/^ {14}-\s*([A-Za-z0-9_*]+)\s*$/)
+      if (item) { presets[current].push(item[1]); j += 1; continue }
+      if (lines[j].trim() === '' || /^\s*#/.test(lines[j])) { j += 1; continue }
+      break
+    }
   }
-  for (const preset of Object.keys(presets)) if (presets[preset].length === 0) delete presets[preset]
+  for (const key of Object.keys(presets)) if (presets[key].length === 0) delete presets[key]
   return presets
 }
 

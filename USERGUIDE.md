@@ -577,9 +577,15 @@ SKIP_TOOLS=1 ./install.sh                          # skip the step entirely
 | `lychee` | docs: link and anchor check | static musl release archive → `~/.local/bin` |
 | `trafilatura` | web text extraction (shell-bearing roles) | `uv tool install trafilatura==2.3.1` |
 | `@axe-core/playwright`, `pixelmatch` | UX: accessibility audit, screenshot diff | `npm --prefix <kit>/.tools` |
+| `impeccable` | UI design audit (`make design-audit`), the `impeccable` DSH skill | `npm -g impeccable@4.9.2` + engine `@impeccable/cli-linux-x64@0.1.25` into `~/.impeccable/bin` (sha256-checked) + the skill from the pinned commit into `$DSH_HOME/skills/impeccable` |
 
 Everything is optional: a missing tool degrades its feature with a message rather than failing a
 run. That is also why the check exists — silence was indistinguishable from "not needed".
+
+`make design-audit` is a separate target: it runs the provisioned impeccable engine over the kit's
+UI sources and prints one JSON document (engine version, 62 rules, targets, findings). It is not
+part of `make verify`, which stays offline. To run the engine offline after provisioning:
+`~/.impeccable/bin/impeccable detect --list-rules` (62 lines) needs no network.
 
 ## 8. The outside tools (RTK, skill evolution)
 
