@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "agent-surface-and-shell",
-  "rev": 5,
+  "rev": 6,
   "status": "ready",
   "createdAt": "2026-11-18T10:40:48.333Z",
-  "updatedAt": "2026-11-18T10:49:51.422Z",
+  "updatedAt": "2026-11-18T10:58:15.974Z",
   "updatedBy": "agent",
   "title": "Открытая поверхность: модель Codex в харнессе, вход внешнего агента, State наверху и адаптивная тема",
   "requestedSolution": "Владелец 2026-11-18: (1) на роль системного дизайнера/бизнес-аналитика есть API-ключ Codex — сделать API-поверхность, чтобы агент ChatGPT мог работать в этом харнессе, и выбрать, какую модель использовать; (2) перенести точку входа State на верхнюю панель вместо левой и адаптировать UI под светлую/тёмную тему.",
@@ -57,7 +57,7 @@
         "Сессия BA/SD может работать на этой модели"
       ],
       "status": "deferred",
-      "reason": "Ждёт ключа: владелец добавляет OPENAI_API_KEY в хранилище секретов, без него живую сессию на модели OpenAI не снять. Адаптер, выбор моделей и ACP-вход уже доказаны; осталась одна живая сессия, которую я не могу провести без ключа."
+      "reason": "Ждёт сети: нет маршрута до api.openai.com (прямой запрос 000, локального прокси или VPN нет, порты 8080/8888/8889 оказались SSH-форвардами без CONNECT). Адаптер, модели и ACP-вход доказаны; живая сессия требует открытого канала до OpenAI."
     },
     {
       "id": "FR1",
@@ -95,20 +95,20 @@
       "kind": "FR",
       "text": "State перенесён в верхнюю панель.",
       "acceptance": [
-        "State в верхней панели",
-        "Скриншоты и axe 0"
+        "State в верхней панели (conversation.session.header.actions)",
+        "Левая колонка без State; скриншоты и axe 0"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR5",
       "kind": "FR",
-      "text": "Адаптация панели под светлую/тёмную тему.",
+      "text": "Панель следует светлой/тёмной теме.",
       "acceptance": [
-        "Токены --dsw-alias-* в светлой и тёмной",
-        "Скриншоты обеих тем"
+        "Токены --dsw-alias-* в светлой и тёмной теме",
+        "Скриншоты обеих тем; axe 0"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "NFR1",
@@ -338,12 +338,12 @@
           "role": "BACKEND",
           "at": "2026-11-18T11:00:00.000Z",
           "evidence": [
-            "адаптер и провайдер поставлены; живёт ждёт OPENAI_API_KEY",
-            "ACP initialize проверен"
+            "адаптер и провайдер поставлены; живая сессия требует открытого канала до OpenAI",
+            "проверено: прямой запрос 000, прокси-переменных нет, 8080/8888/8889 — ssh-форварды"
           ]
         }
       ],
-      "reason": "нет ключа владельца для живой сессии"
+      "reason": "нет сетевого маршрута до api.openai.com на этой машине"
     },
     {
       "requirementId": "FR1",
@@ -363,7 +363,7 @@
           "role": "BACKEND",
           "at": "2026-11-18T11:00:00.000Z",
           "evidence": [
-            "4/4 теста: текст, tool-call read, finish tool-calls, usage 12/7/2"
+            "4/4 теста на fake-эндпойнте"
           ]
         }
       ]
@@ -405,7 +405,7 @@
           "role": "BACKEND",
           "at": "2026-11-18T11:00:00.000Z",
           "evidence": [
-            "ACP initialize protocolVersion 1, sessionCapabilities {close,list,resume}"
+            "ACP initialize protocolVersion 1"
           ]
         }
       ]
@@ -418,13 +418,16 @@
         "shell-slot-contract"
       ],
       "dataIds": [],
-      "status": "planned",
+      "status": "proven",
       "tasks": [
         {
           "taskId": "task-mwlzqosl-t56z93",
           "role": "UX/UI",
-          "at": "2026-11-18T10:40:00.000Z",
-          "evidence": []
+          "at": "2026-11-18T11:20:00.000Z",
+          "evidence": [
+            "State открывается из conversation.session.header.actions (x=660), sidebarEntry=false в обеих темах",
+            "левая колонка State больше не показывает; скриншоты reports/u4/header-Light.png и header-Dark.png"
+          ]
         }
       ]
     },
@@ -438,13 +441,17 @@
       "dataIds": [
         "theme-tokens"
       ],
-      "status": "planned",
+      "status": "proven",
       "tasks": [
         {
           "taskId": "task-mwlzqosl-t56z93",
           "role": "UX/UI",
-          "at": "2026-11-18T10:40:00.000Z",
-          "evidence": []
+          "at": "2026-11-18T11:20:00.000Z",
+          "evidence": [
+            "панель 0.1.16 на --dsw-alias-*; color-scheme: dark удалён; семантические акценты сохранены",
+            "обе темы проверены на :3094: axe .ps-root 0 в обеих, hit-targets <24px 0, 760px без переполнения, консоль/сеть 0",
+            "read-only: sha256 483 файлов state/ до и после совпали"
+          ]
         }
       ]
     },
@@ -479,9 +486,9 @@
       "status": "proven",
       "tasks": [
         {
-          "taskId": "task-mwlzqnkb-yrhh0t",
-          "role": "BACKEND",
-          "at": "2026-11-18T11:00:00.000Z",
+          "taskId": "task-mwlzqosl-t56z93",
+          "role": "UX/UI",
+          "at": "2026-11-18T11:20:00.000Z",
           "evidence": [
             "4/4 теста; make verify 17/17"
           ]
@@ -490,7 +497,7 @@
     }
   ],
   "pendingImpacts": [],
-  "fingerprint": "4491d6c280538bd33be26658924d52490117a48d0737d660ba96c16d1b64e3f0",
+  "fingerprint": "9526fa24bea35143947b3296286fd44da646a9800c83a73243743e1ca96b2fc7",
   "history": [
     {
       "revision": 1,
@@ -531,6 +538,14 @@
       "action": "upsert",
       "status": "ready",
       "summary": "requirements: BR1 changed, FR1 changed, FR2 changed, FR3 changed, FR5 changed, NFR1 changed; impacts: 6"
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-18T10:58:15.974Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "requirements: BR1 changed, FR4 changed, FR5 changed; impacts: 3"
     }
   ]
 }
