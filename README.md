@@ -20,7 +20,9 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   `/v1/chat/completions`, `/v1/models` discovery, `listModels`/`resolveModel`) and a
   configurable-provider entry for Settings -> Models. The key is a credential reference
   (`OPENAI_API_KEY`) resolved through the harness credential store per request — no secret in
-  this repository or the profile.
+  this repository or the profile. An optional `proxy: {url, type: 'http'|'socks5', usernameRef?,
+  passwordRef?}` routes ONLY this adapter's requests through an HTTP(S) proxy using the harness
+  transport; SOCKS5 is refused by name because no connector ships in this tree.
 - **`@cc/dsh-diagrams`** — one tool, `diagram`, that turns a JSON diagram spec into a
   standalone HTML document whose SVG is inline: flowcharts and algorithm illustrations,
   layered system designs, sequence diagrams and state machines, over one contract. The

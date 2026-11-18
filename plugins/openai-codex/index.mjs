@@ -14,6 +14,15 @@
  *   deployment without that service falls back to the launch environment. The key is never
  *   logged, written to a file or put in the request URL.
  *
+ * PROXY TRANSPORT (SELECTIVE)
+ *   `proxy: {url, type: 'http'|'socks5', usernameRef?, passwordRef?}` routes ONLY this adapter's
+ *   requests. HTTP(S) uses the harness transport (`createRouteDispatcher` from
+ *   `@deepseek-ai/dsh-http-proxy`) with a per-adapter environment, so the global dispatcher and
+ *   the rest of the harness stay direct. Credentials are REFERENCES resolved on each request and
+ *   embedded into the per-request proxy URL — never stored in the config, the profile or git.
+ *   SOCKS5 has no connector in this dependency tree (`socks-proxy-agent` is absent), so a SOCKS5
+ *   proxy is refused by name (`PROXY_UNSUPPORTED`) instead of silently going direct.
+ *
  * WHAT THIS ADAPTER DOES NOT DO
  *   It does not translate the Responses API, images or reasoning-effort control beyond passing
  *   `reasoning_effort` for models that accept it; a request with images is refused by name
@@ -21,6 +30,8 @@
  */
 
 import { LlmAdapter, LlmError, attributionHeaders } from '@deepseek-ai/dsh-llm'
+import { createRequire } from 'node:module'
+import { pathToFileURL } from 'node:url'
 
 export const name = '@cc/dsh-openai-codex'
 export const inject = ['llm']
@@ -109,10 +120,81 @@ export function* chunksOf(event) {
   }
 }
 
+/**
+ * Fetch from the SAME undici copy that owns the dispatcher. Node's global fetch is a different
+ * bundled copy, and a dispatcher from one copy is rejected by the other's handler interface
+ * (`invalid onRequestStart method`), so the dispatcher's own package supplies the fetch.
+ */
+async function undiciFetchFor(dispatcher) {
+  const proxyUrl = import.meta.resolve?.('@deepseek-ai/dsh-http-proxy')
+  if (typeof proxyUrl !== 'string') return undefined
+  try {
+    const require = createRequire(proxyUrl)
+    const undiciPath = require.resolve('undici')
+    const undici = await import(pathToFileURL(undiciPath).href)
+    return (url, init = {}) => undici.fetch(url, { ...init, dispatcher })
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * The per-adapter proxy: one dispatcher built from the harness transport, or undefined for direct.
+ * The URL carries the resolved credentials, so it lives in memory only and is rebuilt per call.
+ */
+async function proxyDispatcherFor(proxy, resolveSecret) {
+  if (proxy === undefined || proxy === null) return undefined
+  const type = proxy.type === 'socks5' ? 'socks5' : 'http'
+  if (type === 'socks5') {
+    throw new LlmError('SOCKS5 proxy is not supported by this build: no socks-proxy-agent in the dependency tree; use an http:// or https:// proxy URL', 'PROXY_UNSUPPORTED')
+  }
+  const parsed = new URL(proxy.url)
+  if (parsed.username !== '' || parsed.password !== '') {
+    throw new LlmError('proxy.url must not embed credentials; use usernameRef/passwordRef resolved from the credential store', 'PROXY_INVALID')
+  }
+  const username = proxy.usernameRef === undefined ? undefined : await resolveSecret(proxy.usernameRef)
+  const password = proxy.passwordRef === undefined ? undefined : await resolveSecret(proxy.passwordRef)
+  if ((username === undefined) !== (password === undefined)) throw new LlmError('proxy username and password must both be configured or both be absent', 'PROXY_INVALID')
+  if (username !== undefined) {
+    parsed.username = encodeURIComponent(username)
+    parsed.password = encodeURIComponent(password)
+  }
+  const env = {
+    get(name) {
+      const value = name.toLowerCase() === 'http_proxy' || name.toLowerCase() === 'https_proxy' ? parsed.toString() : undefined
+      return value === undefined ? undefined : { value }
+    },
+  }
+  const { createRouteDispatcher } = await import('@deepseek-ai/dsh-http-proxy')
+  return { dispatcher: await createRouteDispatcher(env, { allowH2: false }), url: parsed.toString() }
+}
+
 class OpenAiAdapter extends LlmAdapter {
   constructor(options) {
     super()
     this.options = options
+    this.transport = undefined
+  }
+
+  /** The fetch this adapter uses: direct when no proxy, otherwise the harness dispatcher. */
+  async fetchFor() {
+    const proxy = this.options.proxy
+    if (proxy === undefined || proxy === null) return { fetch: this.options.fetchImpl, dispatcher: undefined }
+    if (this.transport === undefined) {
+      const built = await proxyDispatcherFor(proxy, this.options.resolveSecret)
+      this.transport = built
+    }
+    const dispatcher = this.transport?.dispatcher
+    const base = this.options.fetchImpl
+    if (this.transport?.fetch === undefined) {
+      this.transport.fetch = (await undiciFetchFor(dispatcher)) ?? ((url, init = {}) => base(url, { ...init, dispatcher }))
+    }
+    return { fetch: this.transport.fetch, dispatcher, url: this.transport?.url }
+  }
+
+  async close() {
+    try { await this.transport?.dispatcher?.close?.() } catch { /* already closed */ }
+    this.transport = undefined
   }
 
   providerInfo(provider) {
@@ -121,7 +203,8 @@ class OpenAiAdapter extends LlmAdapter {
 
   async listModels(provider) {
     const { baseURL, key, fetchImpl } = await this.options.connection()
-    const response = await fetchImpl(`${baseURL}/models`, { headers: { ...attributionHeaders(), authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS) })
+    const transport = await this.fetchFor()
+    const response = await transport.fetch(`${baseURL}/models`, { headers: { ...attributionHeaders(), authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS) })
     if (!response.ok) throw new LlmError(`OpenAI model listing failed with HTTP ${response.status}`, 'TRANSPORT')
     const body = await response.json()
     const ids = (Array.isArray(body?.data) ? body.data : []).map((entry) => String(entry?.id ?? '')).filter((id) => id !== '')
@@ -150,7 +233,8 @@ class OpenAiAdapter extends LlmAdapter {
       throw new LlmError('OpenAI Chat Completions route refuses image content; send text only or use a vision route', 'IMAGES_UNSUPPORTED')
     }
     const body = toChatRequest(options)
-    const response = await connection.fetchImpl(`${connection.baseURL}/chat/completions`, {
+    const transport = await this.fetchFor()
+    const response = await transport.fetch(`${connection.baseURL}/chat/completions`, {
       method: 'POST',
       headers: { ...attributionHeaders(), 'content-type': 'application/json', authorization: `Bearer ${connection.key}` },
       body: JSON.stringify(body),
@@ -251,9 +335,22 @@ export function apply(ctx, config = {}) {
     fallbackModels: Array.isArray(config.models) ? config.models.map(String) : DEFAULT_MODELS,
     timeoutMs: Number.isFinite(config.timeoutMs) ? config.timeoutMs : DEFAULT_TIMEOUT_MS,
   }
-  const adapter = new OpenAiAdapter(options)
+  const adapter = new OpenAiAdapter({
+    ...options,
+    fetchImpl,
+    proxy: config.proxy ?? undefined,
+    resolveSecret: async (ref) => {
+      const credentials = ctx.get?.('credentials')
+      if (credentials !== undefined && typeof credentials.resolve === 'function') {
+        const hit = await credentials.resolve(ref)
+        if (hit !== undefined && typeof hit.value === 'string' && hit.value !== '') return hit.value
+      }
+      const ambient = typeof process.env[ref] === 'string' ? process.env[ref] : ''
+      return ambient === '' ? undefined : ambient
+    },
+  })
   const registration = ctx.llm.registerAdapter([provider], adapter)
-  ctx.effect?.(() => () => registration?.dispose?.())
+  ctx.effect?.(() => () => { registration?.dispose?.(); adapter.close() })
   const directory = ctx.llm.registerConfigurableProviders?.([{
     provider,
     displayName: 'OpenAI / Codex',

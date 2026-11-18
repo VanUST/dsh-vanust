@@ -8,7 +8,7 @@ This kit installs **DeepSeek Harness (dsh)** on any of your machines (2× Linux,
 **`@cc/dsh-image-window`** (keeps only the newest screenshot in the request: the image that
 falls out of the window is offloaded as a new one arrives, so the provider re-bills the new
 batch instead of the whole context),
-**`@cc/dsh-openai-codex`** (an OpenAI/Codex model route: streaming text and tool calls, model discovery via `/v1/models`, key from the harness credential store; configure it in Settings → Models),
+**`@cc/dsh-openai-codex`** (an OpenAI/Codex model route: streaming text and tool calls, model discovery via `/v1/models`, key from the harness credential store; configure it in Settings → Models; an optional `proxy {url, type: http|socks5, usernameRef, passwordRef}` routes only OpenAI traffic through an HTTP(S) proxy),
 **`@cc/dsh-diagrams`** (one tool that renders a JSON diagram spec into a standalone
 HTML document with inline SVG — flowcharts and algorithm illustrations, layered system
 designs, sequence diagrams and state machines; you describe nodes and relationships and
