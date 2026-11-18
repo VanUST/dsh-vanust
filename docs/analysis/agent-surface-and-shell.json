@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "agent-surface-and-shell",
-  "rev": 6,
+  "rev": 7,
   "status": "ready",
   "createdAt": "2026-11-18T10:40:48.333Z",
-  "updatedAt": "2026-11-18T10:58:15.974Z",
+  "updatedAt": "2026-11-18T11:08:59.607Z",
   "updatedBy": "agent",
   "title": "Открытая поверхность: модель Codex в харнессе, вход внешнего агента, State наверху и адаптивная тема",
   "requestedSolution": "Владелец 2026-11-18: (1) на роль системного дизайнера/бизнес-аналитика есть API-ключ Codex — сделать API-поверхность, чтобы агент ChatGPT мог работать в этом харнессе, и выбрать, какую модель использовать; (2) перенести точку входа State на верхнюю панель вместо левой и адаптировать UI под светлую/тёмную тему.",
@@ -365,6 +365,12 @@
           "evidence": [
             "4/4 теста на fake-эндпойнте"
           ]
+        },
+        {
+          "taskId": "task-mwm0hkio-hge31m",
+          "role": "BACKEND",
+          "at": "2026-11-18T11:08:59.607Z",
+          "evidence": []
         }
       ]
     },
@@ -474,6 +480,12 @@
           "evidence": [
             "grep пуст"
           ]
+        },
+        {
+          "taskId": "task-mwm0hkio-hge31m",
+          "role": "BACKEND",
+          "at": "2026-11-18T11:08:59.607Z",
+          "evidence": []
         }
       ]
     },
@@ -546,6 +558,14 @@
       "action": "upsert",
       "status": "ready",
       "summary": "requirements: BR1 changed, FR4 changed, FR5 changed; impacts: 3"
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-18T11:08:59.607Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwm0hkio-hge31m -> FR1, NFR1"
     }
   ]
 }

@@ -160,7 +160,6 @@ node /home/iustimov/.npm/node/lib/node_modules/@deepseek-ai/dsh/lib/bin.js \
 | `research-first` | `@cc/dsh-research-first` 0.1.4 | хост | запрет создавать файл, пока в сессии не прочитан текущий источник; `research_waive`; раздел `research:first` |
 | `rtk` | `@cc/dsh-rtk` 0.1.7 | хост | сжатие вывода shell на `tools/post-execute`; раздел `rtk:output` |
 | `outline` | `@cc/dsh-outline` 0.1.1 | хост | инструмент `outline` (оглавление файла) и раздел `outline:index` |
-| `session-budget` | `@cc/dsh-session-budget` 0.1.2 | хост | напоминания на 300/400/500 завершённых шагах; уведомление; ни инструмента, ни раздела |
 | `run-code-projection` | `@cc/dsh-run-code-projection` 0.1.1 | хост | заменяет большой результат `run_code` проекцией с путём к полному тексту |
 | `skill-evolve` | `@cc/dsh-skill-evolve` 0.1.5 | хост | `skill_evolve`, `skill_inventory`, `skill_grow`, `skill_forget`; раздел `skills:evolve` |
 | `work-modes` | `@cc/dsh-work-modes` 0.1.9 | **не смонтирован** | исторический лимит на два параллельных ребёнка; выключен, пакет и тарбол сохранены |

@@ -53,7 +53,6 @@
 | `project-rules` | 0.1.10 | да | раздел `project:rules` из `.dsh/rules.md` и панель Rules; правка файла агенту запрещена (`rules_human_only`) (`plugins/project-rules/index.js:323,348,361`) | своего прогона нет | не проверено |
 | `test-cases` | 0.1.12 | да | 12 инструментов `case_*`, команда, сервисы, панель | `node --test plugins/test-cases/test/runner.test.mjs` → exit 0, 12 pass | подтверждено прогоном |
 | `analysis` | 0.1.9 | да | 4 корневых инструмента `analysis_*` и раздел `deployment:analysis-policy` (`plugins/analysis/analysis.mjs:203`) | тот же прогон `analysis-before-decomposition-proof` → exit 0, 130/130 | подтверждено прогоном |
-| `session-budget` | 0.1.2 | да | 0 инструментов; перехват `agent/pre-step` и проекция счётчика шагов; пороги 300/400/500 (`plugins/session-budget/session-budget.mjs:91`) | `node plugins/session-budget/proof/proof.mjs` → exit 0, 15 проверок PASS | подтверждено прогоном |
 | `run-code-projection` | 0.1.1 | да | 0 инструментов; перехват `tools/post-execute` для `run_code` | `node plugins/run-code-projection/proof/proof.mjs` → exit 0, 13 проверок PASS | подтверждено прогоном |
 | `tool-families` | 0.1.8 | да | 0 инструментов; 4 перехвата: `agent-preset/selected`, `session/event`, `agent/created`, `agent/pre-step` | `node scripts/tool-families-proof.mjs` → exit 0, 62/62 (перепроверено); политика доказана для native, в PTC не действует — см. «Оговорка PTC» | частично |
 | `designmap` | 0.1.17 | да | 7 инструментов `designmap_*` только для `orchestrator` (`plugins/designmap/index.js:53-56`), команда `/designmap`, панель Design map | `cd plugins/designmap && node --test test/*.test.mjs` → exit 0, 125 тестов, 125 pass (перепроверено); упаковка 0.1.17 совпадает с исходником — см. «Упаковка `designmap` 0.1.17» | подтверждено прогоном |
@@ -146,7 +145,6 @@ node scripts/outline-selftest.mjs
 node scripts/tool-families-proof.mjs
 node scripts/notify-selftest.mjs --dry-run
 
-node plugins/session-budget/proof/proof.mjs
 node plugins/run-code-projection/proof/proof.mjs
 node --test plugins/test-cases/test/runner.test.mjs
 cd plugins/designmap && node --test test/*.test.mjs

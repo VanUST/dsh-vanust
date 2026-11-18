@@ -14,7 +14,7 @@ unless the `DSH_HOME` environment variable overrides it.
 
 ## 1. What this deployment is
 
-The upstream harness plus 27 plugins, all pinned and installed from one kit repository:
+The upstream harness plus 26 plugins, all pinned and installed from one kit repository:
 
 | Piece | What it does |
 |---|---|
@@ -448,21 +448,6 @@ It never moves a directory written in the last 60 minutes (`--max-age-minutes`),
 fresh mtime means a live session. A clean store costs ~0.2 s and prints nothing; the summary
 line is `make session-doctor`. Quarantining does not delete the chat: it removes it from the
 listing, which is the difference between "invisible" and "gone".
-
-**Session budget — a deterministic handoff reminder, not a summary (`@cc/dsh-session-budget`).**
-A session that runs for a thousand steps is expensive, not broken: every step re-sends the
-derived history, and compaction then re-bills the prefix. Measured on this machine 2026-11-12:
-four sessions of 2 000+ steps carried 26% of two weeks' spend, and 25.6% of all steps ran above
-500 000 tokens of context — 40% of the money. The plugin counts completed steps through a
-`ctx.sessionProjections` fold over the append-only log, so a compaction's `{op:'replace'}`
-neither resets the count nor erases which thresholds already fired. At steps 300, 400 and 500 it
-appends ONE fixed `user/message` before the step runs — in the same request, because the
-`agent/pre-step` waterfall precedes request derivation — telling the agent to write
-`docs/handoffs/<date>-<slug>.md` and register it on the current task, and raises one detached
-desktop notification through `@cc/dsh-notify/core`. No model call, no daemon, no thrown turn:
-`thresholds` overrides the three steps, `notifyChildren: false` (the default) keeps a delegated
-child's reminder out of the human's popups, and `enabled: false` disables it without removing
-the row. Proof: `node plugins/session-budget/proof/proof.mjs` — 15 checks, exit 0.
 
 **Run-code projection — the bulk of a `run_code` result, moved out of the step
 (`@cc/dsh-run-code-projection`).** The tool that dominates this deployment's context is not bash
