@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "agent-surface-and-shell",
-  "rev": 8,
+  "rev": 10,
   "status": "ready",
   "createdAt": "2026-11-18T10:40:48.333Z",
-  "updatedAt": "2026-11-18T11:15:00.519Z",
+  "updatedAt": "2026-11-18T11:35:09.605Z",
   "updatedBy": "agent",
   "title": "Открытая поверхность: модель Codex в харнессе, вход внешнего агента, State наверху и адаптивная тема",
   "requestedSolution": "Владелец 2026-11-18: (1) на роль системного дизайнера/бизнес-аналитика есть API-ключ Codex — сделать API-поверхность, чтобы агент ChatGPT мог работать в этом харнессе, и выбрать, какую модель использовать; (2) перенести точку входа State на верхнюю панель вместо левой и адаптировать UI под светлую/тёмную тему.",
@@ -57,7 +57,7 @@
         "Сессия BA/SD может работать на этой модели"
       ],
       "status": "deferred",
-      "reason": "Ждёт сети: нет маршрута до api.openai.com (прямой запрос 000, локального прокси или VPN нет, порты 8080/8888/8889 оказались SSH-форвардами без CONNECT). Адаптер, модели и ACP-вход доказаны; живая сессия требует открытого канала до OpenAI."
+      "reason": "Сеть открыта (туннель RedShield, tun0 10.1.0.26/19, curl api.openai.com = 401), ключ видит 98 моделей — но у аккаунта нет кредитов: chat/completions отвечает 429 insufficient_quota «You have no credits remaining». Плюс gpt-5.3-codex вообще требует /v1/responses, а не chat/completions. Нужны кредиты на platform.openai.com (и, если нужна кодовая модель, поддержка Responses в адаптере)."
     },
     {
       "id": "FR1",
@@ -75,8 +75,8 @@
       "kind": "FR",
       "text": "Выбор модели под роль.",
       "acceptance": [
-        "BA/SD = gpt-5, BACKEND = gpt-5-codex",
-        "Id из discovery"
+        "BA/SD = рассуждающая модель, BACKEND = кодовая",
+        "Id из discovery /v1/models"
       ],
       "status": "proven"
     },
@@ -336,14 +336,15 @@
         {
           "taskId": "task-mwlzqnkb-yrhh0t",
           "role": "BACKEND",
-          "at": "2026-11-18T11:00:00.000Z",
+          "at": "2026-11-18T11:25:00.000Z",
           "evidence": [
-            "адаптер и провайдер поставлены; живая сессия требует открытого канала до OpenAI",
-            "проверено: прямой запрос 000, прокси-переменных нет, 8080/8888/8889 — ssh-форварды"
+            "туннель RedShield поднят владельцем: tun0 10.1.0.26/19, curl https://api.openai.com/v1/models = 401",
+            "ключ OpenAI: GET /v1/models = 200, 98 моделей, включая gpt-5, gpt-5.2/5.4/5.5-pro, gpt-5.3-codex, gpt-5.6-luna/sol/terra",
+            "chat/completions: gpt-5, gpt-5.5-pro, gpt-5.6-sol → 429 insufficient_quota «You have no credits remaining»; gpt-5.3-codex → 404 «use /v1/responses instead»"
           ]
         }
       ],
-      "reason": "нет сетевого маршрута до api.openai.com на этой машине"
+      "reason": "нет кредитов на ключе OpenAI (429 insufficient_quota); сеть через туннель уже работает, curl api.openai.com = 401"
     },
     {
       "requirementId": "FR1",
@@ -371,9 +372,7 @@
           "role": "BACKEND",
           "at": "2026-11-18T11:40:00.000Z",
           "evidence": [
-            "proxy: {url, type http|socks5, usernameRef?, passwordRef?}; HTTP через createRouteDispatcher с приватным env, глобальный диспетчер не тронут",
-            "7/7 тестов: fake-прокси получает запросы с Basic, прямой эндпойнт 0; без прокси — напрямую; SOCKS5 → PROXY_UNSUPPORTED, userinfo в URL → PROXY_INVALID",
-            "make verify 17/17"
+            "прокси-транспорт: 7/7 тестов"
           ]
         }
       ]
@@ -395,7 +394,7 @@
           "role": "BACKEND",
           "at": "2026-11-18T11:00:00.000Z",
           "evidence": [
-            "gpt-5 для BA/SD, gpt-5-codex для BACKEND"
+            "gpt-5 для BA/SD, gpt-5-codex для BACKEND; фактический каталог ключа: gpt-5.5-pro — сильнейшая рассуждающая, gpt-5.3-codex — кодовая"
           ]
         }
       ]
@@ -435,7 +434,7 @@
           "role": "UX/UI",
           "at": "2026-11-18T11:20:00.000Z",
           "evidence": [
-            "State из conversation.session.header.actions, sidebarEntry=false"
+            "State из conversation.session.header.actions"
           ]
         }
       ]
@@ -479,7 +478,7 @@
           "role": "BACKEND",
           "at": "2026-11-18T11:00:00.000Z",
           "evidence": [
-            "grep пуст; прокси-креды только через usernameRef/passwordRef"
+            "grep пуст; ключ удалён из /tmp после проверки"
           ]
         }
       ]
@@ -504,7 +503,7 @@
     }
   ],
   "pendingImpacts": [],
-  "fingerprint": "9526fa24bea35143947b3296286fd44da646a9800c83a73243743e1ca96b2fc7",
+  "fingerprint": "729fb22ca3df8ca3efd015936107b9d52ef8fa92ef152149bb4696d314b6f517",
   "history": [
     {
       "revision": 1,
@@ -565,6 +564,22 @@
     {
       "revision": 8,
       "at": "2026-11-18T11:15:00.519Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 9,
+      "at": "2026-11-18T11:22:57.706Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: BR1 changed, FR2 changed; impacts: 2"
+    },
+    {
+      "revision": 10,
+      "at": "2026-11-18T11:35:09.605Z",
       "editedBy": "agent",
       "action": "upsert",
       "status": "ready",
