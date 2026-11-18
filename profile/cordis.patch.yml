@@ -806,21 +806,13 @@
           retryableCodes: [EMPTY_RESPONSE, RATE_LIMIT, SERVER, TIMEOUT, TRANSPORT, MALFORMED_RESPONSE]
 
 
-# ── openai-codex: the OpenAI/Codex model route ────────────────────────────
-# A kit HOST adapter, not a harness package: `ctx.llm.registerAdapter` registers the
-# provider and `registerConfigurableProviders` puts it in Settings -> Models. The key is
-# only a REFERENCE (`OPENAI_API_KEY`) resolved through the harness credential store on
-# every request, so no secret lives in this file or the repository. Models come from the
-# endpoint's own `/v1/models` discovery; the two ids below are the fallback when a
-# deployment cannot list them.
-- insert:
-    - id: openai-codex
-      name: '@cc/dsh-openai-codex'
-      config:
-        provider: openai-codex
-        baseURL: https://api.openai.com/v1
-        keyRef: OPENAI_API_KEY
-        models: [gpt-5, gpt-5-codex]
+      # The harness's own pi-ai catalog already ships this provider: baseUrl
+      # https://chatgpt.com/backend-api, protocol openai-codex-responses, and an OAuth
+      # grant named "OpenAI (ChatGPT Plus/Pro)" with isSubscription: true. Naming the
+      # route here activates that catalog entry; the sign-in happens in Settings ->
+      # Models and the credential is stored as llm-pi-ai/openai-codex. No API key and
+      # no prepaid credits are involved, so a ChatGPT subscription is enough.
+      openai-codex: {}
 
 # ── subagent model selection: which routes an agent may hand to a child ─────
 # The harness's own gate for a model-facing child route: the `subagent` tool

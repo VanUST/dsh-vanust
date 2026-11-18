@@ -1,14 +1,13 @@
 # USERGUIDE.md — setting up and starting the harness on a new machine
 
 This kit installs **DeepSeek Harness (dsh)** on any of your machines (2× Linux,
-1× Windows) plus the **26** plugins this deployment adds beyond upstream:
+1× Windows) plus the **25** plugins this deployment adds beyond upstream:
 **`@cc/dsh-notify`** (raises a desktop notification — `notify-send`, a PowerShell toast or
 `osascript` — when an agent finishes a turn and when it asks you a question; silence it with
 `DSH_NOTIFY_DISABLED=1` in the server's environment),
 **`@cc/dsh-image-window`** (keeps only the newest screenshot in the request: the image that
 falls out of the window is offloaded as a new one arrives, so the provider re-bills the new
 batch instead of the whole context),
-**`@cc/dsh-openai-codex`** (an OpenAI/Codex model route: streaming text and tool calls, model discovery via `/v1/models`, key from the harness credential store; configure it in Settings → Models; an optional `proxy {url, type: http|socks5, usernameRef, passwordRef}` routes only OpenAI traffic through an HTTP(S) proxy),
 **`@cc/dsh-diagrams`** (one tool that renders a JSON diagram spec into a standalone
 HTML document with inline SVG — flowcharts and algorithm illustrations, layered system
 designs, sequence diagrams and state machines; you describe nodes and relationships and

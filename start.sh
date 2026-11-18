@@ -80,4 +80,10 @@ fi
 OPEN_ARGS=()
 if [ "${OPEN:-0}" != "1" ]; then OPEN_ARGS=(--no-open); fi
 
+# Node takes the first DNS answer; this host publishes AAAA for many endpoints while having
+# no IPv6 default route, so a plain `fetch` dies with ENETUNREACH where curl's own fallback
+# succeeds. Prefer IPv4 for every Node process the launcher starts.
+NODE_OPTIONS="${NODE_OPTIONS:-} --dns-result-order=ipv4first"
+export NODE_OPTIONS
+
 exec dsh web ${OPEN_ARGS[@]+"${OPEN_ARGS[@]}"} --port "${PORT:-3080}"
