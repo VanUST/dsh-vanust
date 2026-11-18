@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "agent-surface-and-shell",
-  "rev": 7,
+  "rev": 8,
   "status": "ready",
   "createdAt": "2026-11-18T10:40:48.333Z",
-  "updatedAt": "2026-11-18T11:08:59.607Z",
+  "updatedAt": "2026-11-18T11:15:00.519Z",
   "updatedBy": "agent",
   "title": "Открытая поверхность: модель Codex в харнессе, вход внешнего агента, State наверху и адаптивная тема",
   "requestedSolution": "Владелец 2026-11-18: (1) на роль системного дизайнера/бизнес-аналитика есть API-ключ Codex — сделать API-поверхность, чтобы агент ChatGPT мог работать в этом харнессе, и выбрать, какую модель использовать; (2) перенести точку входа State на верхнюю панель вместо левой и адаптировать UI под светлую/тёмную тему.",
@@ -369,8 +369,12 @@
         {
           "taskId": "task-mwm0hkio-hge31m",
           "role": "BACKEND",
-          "at": "2026-11-18T11:08:59.607Z",
-          "evidence": []
+          "at": "2026-11-18T11:40:00.000Z",
+          "evidence": [
+            "proxy: {url, type http|socks5, usernameRef?, passwordRef?}; HTTP через createRouteDispatcher с приватным env, глобальный диспетчер не тронут",
+            "7/7 тестов: fake-прокси получает запросы с Basic, прямой эндпойнт 0; без прокси — напрямую; SOCKS5 → PROXY_UNSUPPORTED, userinfo в URL → PROXY_INVALID",
+            "make verify 17/17"
+          ]
         }
       ]
     },
@@ -431,8 +435,7 @@
           "role": "UX/UI",
           "at": "2026-11-18T11:20:00.000Z",
           "evidence": [
-            "State открывается из conversation.session.header.actions (x=660), sidebarEntry=false в обеих темах",
-            "левая колонка State больше не показывает; скриншоты reports/u4/header-Light.png и header-Dark.png"
+            "State из conversation.session.header.actions, sidebarEntry=false"
           ]
         }
       ]
@@ -454,9 +457,7 @@
           "role": "UX/UI",
           "at": "2026-11-18T11:20:00.000Z",
           "evidence": [
-            "панель 0.1.16 на --dsw-alias-*; color-scheme: dark удалён; семантические акценты сохранены",
-            "обе темы проверены на :3094: axe .ps-root 0 в обеих, hit-targets <24px 0, 760px без переполнения, консоль/сеть 0",
-            "read-only: sha256 483 файлов state/ до и после совпали"
+            "панель 0.1.16 на --dsw-alias-*; axe 0 в обеих темах"
           ]
         }
       ]
@@ -474,18 +475,12 @@
       "status": "proven",
       "tasks": [
         {
-          "taskId": "task-mwlzqnkb-yrhh0t",
+          "taskId": "task-mwm0hkio-hge31m",
           "role": "BACKEND",
           "at": "2026-11-18T11:00:00.000Z",
           "evidence": [
-            "grep пуст"
+            "grep пуст; прокси-креды только через usernameRef/passwordRef"
           ]
-        },
-        {
-          "taskId": "task-mwm0hkio-hge31m",
-          "role": "BACKEND",
-          "at": "2026-11-18T11:08:59.607Z",
-          "evidence": []
         }
       ]
     },
@@ -498,11 +493,11 @@
       "status": "proven",
       "tasks": [
         {
-          "taskId": "task-mwlzqosl-t56z93",
-          "role": "UX/UI",
+          "taskId": "task-mwm0hkio-hge31m",
+          "role": "BACKEND",
           "at": "2026-11-18T11:20:00.000Z",
           "evidence": [
-            "4/4 теста; make verify 17/17"
+            "4/4 + 7/7 тестов; make verify 17/17"
           ]
         }
       ]
@@ -566,6 +561,14 @@
       "action": "link_task",
       "status": "ready",
       "summary": "task-mwm0hkio-hge31m -> FR1, NFR1"
+    },
+    {
+      "revision": 8,
+      "at": "2026-11-18T11:15:00.519Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
     }
   ]
 }
