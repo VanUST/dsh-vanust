@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "kit-tool-surface",
-  "rev": 1,
+  "rev": 3,
   "status": "ready",
   "createdAt": "2026-11-18T09:55:59.080Z",
-  "updatedAt": "2026-11-18T09:55:59.080Z",
+  "updatedAt": "2026-11-18T10:09:22.984Z",
   "updatedBy": "agent",
   "title": "Поверхность инструментов: удалить мёртвое, вернуть нужное, добиться outline",
   "requestedSolution": "Владелец 2026-11-18 после аудита: удалить presentation; убрать из allow мёртвые имена (case_suite, taskboard, schedule_*, ratchet_*, read_mcp_resource/list_mcp_resource_templates); добавить designmap_export и designmap_lint; включить projectDeny для godot по project.godot; outline не удалять, а сделать видимым и добиться, чтобы агенты им пользовались (он отчасти заменяет grep/read/bash); ponytail оставить как рекомендации. Потом повторить замер.",
@@ -57,7 +57,7 @@
         "В профиле, inventory и тарболах нет presentation",
         "make verify зелёный"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR2",
@@ -67,7 +67,7 @@
         "case_suite не в allow у backend; taskboard, schedule_*, ratchet_*, read_mcp_resource, list_mcp_resource_templates не в allow ни у одной роли",
         "Заголовки после правки не содержат этих имён"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR3",
@@ -77,7 +77,7 @@
         "designmap_export и designmap_lint доступны оркестратору",
         "Заголовок содержит оба имени"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR4",
@@ -87,7 +87,7 @@
         "Запрос с project.godot в корне видит godot-инструменты, без него — не видит",
         "Схема godot не попадает в заголовки проектов без Godot"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR5",
@@ -98,7 +98,7 @@
         "В правиле есть «сначала outline, потом read»",
         "После правки есть вызовы outline или объяснено, почему нет"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "NFR1",
@@ -108,7 +108,7 @@
         "Повторный замер по журналам: заголовки, байты, вызовы",
         "Сравнение с аудитом до правки"
       ],
-      "status": "planned"
+      "status": "proven"
     }
   ],
   "architecture": {
@@ -289,8 +289,18 @@
         "profile-file",
         "inventory"
       ],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwly4vbt-p3tfw4",
+          "role": "BACKEND",
+          "at": "2026-11-18T10:20:00.000Z",
+          "evidence": [
+            "каталог plugins/presentation и тарбол 0.1.10 удалены, inventory 27 → 26, упоминания убраны из README/USERGUIDE/NOTICE/start.ps1/rules/DEPLOYMENT.md и check-portability",
+            "make verify exit 0 (17/17)"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "FR2",
@@ -302,8 +312,18 @@
       "dataIds": [
         "profile-file"
       ],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwly4vbt-p3tfw4",
+          "role": "BACKEND",
+          "at": "2026-11-18T10:20:00.000Z",
+          "evidence": [
+            "grep: case_suite 0, schedule_create 0, ratchet_ingest 0, read_mcp_resource 0, отдельной allow-строки `taskboard` нет во всех восьми ролях (моя проверка)",
+            "белый список backend 16 → 15"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "FR3",
@@ -313,8 +333,18 @@
         "designmap-allow"
       ],
       "dataIds": [],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwly4vbt-p3tfw4",
+          "role": "BACKEND",
+          "at": "2026-11-18T10:20:00.000Z",
+          "evidence": [
+            "designmap_export и designmap_lint присутствуют в allow-листе оркестратора (grep 1/1)",
+            "движок decide() на реальном конфиге: kept (reports/audit/policy-proof.txt)"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "FR4",
@@ -326,8 +356,17 @@
       "dataIds": [
         "profile-file"
       ],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwly4vbt-p3tfw4",
+          "role": "BACKEND",
+          "at": "2026-11-18T10:20:00.000Z",
+          "evidence": [
+            "projectDeny по project.godot в allow-строке godot; decide(): без маркера — removed, с маркером — keptProjectDeny"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "FR5",
@@ -339,8 +378,19 @@
       "dataIds": [
         "profile-file"
       ],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwly4vbt-p3tfw4",
+          "role": "BACKEND",
+          "at": "2026-11-18T10:20:00.000Z",
+          "evidence": [
+            "host-строка outline в профиле; fake-context: registered ['outline']",
+            "«Outline before the whole file» в ROOT_POLICY и CHILD_POLICY (grep 2)",
+            "вызовов outline всё ещё 0: плагин не установлен в живой профиль — установка и рестарт за владельцем"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "NFR1",
@@ -348,18 +398,44 @@
       "componentId": "docs",
       "contractIds": [],
       "dataIds": [],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwly4vbt-p3tfw4",
+          "role": "BACKEND",
+          "at": "2026-11-18T10:20:00.000Z",
+          "evidence": [
+            "повторный прогон reports/audit/collect.mjs: 208 инструментов / 85 без вызовов — без изменений, потому что новых сессий с новым конфигом ещё нет (журналы историчны)",
+            "schema-lint: 42 инструмента, 11 495 Б, 0 red (было 43 / 11 573 Б)"
+          ]
+        }
+      ]
     }
   ],
   "pendingImpacts": [],
-  "fingerprint": "8df73ee9ac1071a1c599466fbe381ff85e58d42110d20920c8b8a3fa06fc5007",
+  "fingerprint": "7db215de4b5414fdba52e97c9fc0f385233af9943ec234cc74b2138d7a10582d",
   "history": [
     {
       "revision": 1,
       "at": "2026-11-18T09:55:59.080Z",
       "editedBy": "agent",
       "action": "create",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-18T10:00:36.836Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwly4vbt-p3tfw4 -> FR1, FR2, FR3, FR4, FR5, NFR1"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-18T10:09:22.984Z",
+      "editedBy": "agent",
+      "action": "upsert",
       "status": "ready",
       "summary": ""
     }

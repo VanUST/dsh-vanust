@@ -47,17 +47,6 @@
       config:
         keepImages: 1
 
-# ── presentation: decks the agent renders, shown by the file preview ────────
-# Contributes one tool, `presentation`, which turns a JSON deck spec into a
-# standalone HTML file in the session workspace. There is no client half on
-# purpose: the Sidebar document preview already renders `.html` in a script-
-# enabled sandboxed frame, so the deck is its own viewer, and the very file the
-# user previews is the one they export and print — preview, export and PDF cannot
-# drift apart because they are the same document.
-- insert:
-    - id: presentation
-      name: '@cc/dsh-presentation'
-
 # ── diagrams: schemes the agent draws, shown by the file preview ────────────
 # Contributes one tool, `diagram`, which turns a JSON diagram spec into a standalone
 # HTML file whose SVG is inline. Four kinds over one contract — flow (flowcharts and
@@ -65,7 +54,7 @@
 # scheme is a description of relationships, not of coordinates: the agent supplies nodes
 # and edges and the plugin computes every position.
 #
-# No client half, for the same reason presentation has none: the Sidebar document preview
+# No client half on purpose: the Sidebar document preview
 # already renders `.html` in a script-enabled sandboxed frame, so the document is its own
 # viewer and the file the user prints is the file the agent wrote. The layout engine is
 # dependency-free on purpose — a vendored renderer would put megabytes into every diagram
@@ -381,6 +370,8 @@
               - ask_user_question
               - delegate_task
               - designmap_apply
+              - designmap_export
+              - designmap_lint
               - designmap_open
               - designmap_render
               - designmap_scan
@@ -388,6 +379,7 @@
               - edit
               - glob
               - grep
+              - mcp__godot__*
               - hindsight_list_pages
               - hindsight_read_page
               - hindsight_search_pages
@@ -414,6 +406,8 @@
               - web_fetch
               - web_search
               - write
+            projectDeny:
+              - mcp__godot__*
           # Implementation role: files, a shell, the two board tools a worker needs
           # (task_get/task_note), the case runner and the three intake case tools.
           backend:
@@ -423,7 +417,6 @@
               - case_list
               - case_record
               - case_run
-              - case_suite
               - edit
               - glob
               - grep
@@ -529,6 +522,7 @@
               - glob
               - grep
               - mcp__playwright__*
+              - mcp__godot__*
               - present
               - read
               - read_image
@@ -539,6 +533,11 @@
               - web_fetch
               - web_search
               - write
+            # The Godot bridge is a PROJECT family: kept only when the session's cwd holds
+            # `project.godot` (projectMarkers). Without the marker the whole 47-tool family is
+            # denied, so a non-Godot workspace pays nothing for it.
+            projectDeny:
+              - mcp__godot__*
 
 
 # ── taskboard: the workspace task ledger ───────────────────────────────────

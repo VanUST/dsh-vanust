@@ -1,6 +1,6 @@
 # dsh-kit
 
-Portable setup for **DeepSeek Harness (dsh)** plus the 27 plugins this
+Portable setup for **DeepSeek Harness (dsh)** plus the 26 plugins this
 deployment needs beyond upstream, across all your machines (2× Linux, 1× Windows).
 `plugins/inventory.json` is the single source of truth for the set:
 
@@ -15,19 +15,13 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   with argv-only arguments — no shell, and the text travels in environment variables on
   Windows — so it cannot block a turn, and a machine with no notifier loses the popup and
   nothing else. Silence it with `DSH_NOTIFY_DISABLED=1`.
-- **`@cc/dsh-presentation`** — one tool that turns a JSON deck spec into a standalone
-  HTML presentation in the session workspace. It ships no client half on purpose: the
-  Sidebar document preview already renders `.html` in a script-enabled sandboxed frame,
-  so the deck is its own viewer and the file the user previews is exactly the file they
-  export and print.
 - **`@cc/dsh-diagrams`** — one tool, `diagram`, that turns a JSON diagram spec into a
   standalone HTML document whose SVG is inline: flowcharts and algorithm illustrations,
   layered system designs, sequence diagrams and state machines, over one contract. The
   agent supplies nodes and relationships and the plugin computes every coordinate —
   layered ranking, edge routing and label placement are its own dependency-free layout
   engine — so a scheme is never handed a set of coordinates to maintain. Same reasoning
-  as presentation for the missing client half: the Sidebar document preview renders the
-  file, and the file prints as it looks.
+  The Sidebar document preview renders the file, and the file prints as it looks.
 - **`@cc/dsh-design-map`** — one Excalidraw scene, `design.excalidraw` at the project
   root, that the **orchestrator** and the human both edit. The orchestrator gets a
   `design_map` tool over a *visual* vocabulary: a node's `kind` chooses the shape (rectangle
@@ -193,7 +187,7 @@ invent a justification.
   the report instead of filling its own context with the reading. New
   chats default to the orchestrator; `standard` stays in the picker as the hands-on escape
   hatch. The kit's role-specific tools gate on the same id (`papers_*` research,
-  `diagram`/`presentation` orchestrator + UX).
+  `diagram` for orchestrator + UX).
   **`critic` is the adversary**: an adversarial general tester whose brief is to break a
   running algorithm or service on a disposable copy, find realistic non-trivial inputs that
   crash, hang, corrupt state or return a wrong answer, and report the smallest reproducible
@@ -253,7 +247,7 @@ invent a justification.
 
 **Third-party add-on: Hindsight memory.** `@vectorize-io/hindsight-coding-agents@0.8.2`
 is installed separately by its own command (`npx @vectorize-io/hindsight-coding-agents install dsh`),
-not from this repository, and is therefore not one of the 27 in-repo plugins. It writes a
+not from this repository, and is therefore not one of the 26 in-repo plugins. It writes a
 row into `$DSH_HOME/cordis.patch.yml` (the home layer, shared by every profile) and a
 companion skill into `~/.agents/skills/hindsight-coding-agent`. Its settings live in
 `~/.hindsight/coding-agent.json`; this machine's file is enabled with `serverMode: daemon`
@@ -299,9 +293,9 @@ cd dsh-vanust               # the repository is dsh-vanust; the kit it contains 
 ```
 
 **What a clone alone gives you, stated exactly.** Everything the deployment
-installs is in the repository: the 27 plugin tarballs, the canonical profile, the
+installs is in the repository: the 26 plugin tarballs, the canonical profile, the
 procedure and the pinned version in both installers. Every plugin's source is here
-too — `plugins/notify/`, `plugins/presentation/`, `plugins/diagrams/`,
+too — `plugins/notify/`, `plugins/diagrams/`,
 `plugins/work-modes/`, `plugins/godot-mcp/`, `plugins/skills/`, `plugins/flash-guard/`,
 `plugins/proof-guard/`, `plugins/taskboard/` and `plugins/orchestrator/`. Two things come from
 outside it, and both are steps the installer performs rather than files a clone could
@@ -325,11 +319,10 @@ dsh-kit/
 │                              #   session-analysis`: every session, in seconds per question)
 ├── scripts/kit-update.mjs     # update path: hash drift check + convergence for an existing machine
 ├── plugins/inventory.json     # the shipped plugin set (the source of truth)
-├── plugins/*.tgz              # plugin tarballs: 27 packages, including notify, presentation,
+├── plugins/*.tgz              # plugin tarballs: 26 packages, including notify, diagrams,
 │                              #                  diagrams, work-modes, godot-mcp, skills, flash-guard,
 │                              #                  proof-guard, taskboard, orchestrator
 ├── plugins/notify/            # source of @cc/dsh-notify (desktop notifications; packed above)
-├── plugins/presentation/      # source of @cc/dsh-presentation (deck tool; no client half by design)
 ├── plugins/diagrams/          # source of @cc/dsh-diagrams (scheme tool; own layout engine, no client half)
 ├── plugins/designmap/        # source of @cc/dsh-designmap (M4: YAML model → ELK scene → panel)
 ├── plugins/design-map/       # source of @cc/dsh-design-map (0.2.0, retired in the profile patch)
@@ -392,13 +385,13 @@ patch version, packs, leaves one tarball behind and prints the sha256.
 **Reviewing this kit.** The reviewable units, and where they are. The machine this was
 verified on and the procedure for reproducing that verification are `rules/DEPLOYMENT.md`.
 
-- **Plugin source** — `plugins/notify/`, `plugins/presentation/`, `plugins/diagrams/`,
+- **Plugin source** — `plugins/notify/`, `plugins/diagrams/`,
   `plugins/work-modes/`, `plugins/godot-mcp/`, `plugins/skills/`, `plugins/flash-guard/`,
   `plugins/proof-guard/`, `plugins/taskboard/`, `plugins/orchestrator/`,
   `plugins/papers/`.
   `plugins/inventory.json` is the set.
 - **Reviewer's overview** — `docs/HARNESS-OVERVIEW.md`: the harness composition, all 8 kit
-  presets and the 4 built-in presets with their personas, the 27 plugins, the system-prompt
+  presets and the 4 built-in presets with their personas, the 26 plugins, the system-prompt
   section map with its source files, and the discrepancies a reviewer should check.
 - **Design rationale** — `docs/` carries the analysis notes this kit was built from
   (`docs/HARNESS-COMPACTION-REVIEW.md`, `docs/SESSION-CONTEXT.md`); they are readings, not

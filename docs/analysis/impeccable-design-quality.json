@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "impeccable-design-quality",
-  "rev": 3,
+  "rev": 5,
   "status": "ready",
   "createdAt": "2026-11-18T09:42:36.525Z",
-  "updatedAt": "2026-11-18T09:51:29.269Z",
+  "updatedAt": "2026-11-18T10:00:38.609Z",
   "updatedBy": "agent",
   "title": "Дизайн-контур: impeccable (slop-детектор) и визуальный выбор вариантов",
   "requestedSolution": "Владелец 2026-11-18: взять https://impeccable.style/slop/ (npm-пакет impeccable, DSH-скилл + детерминированный детектор анти-паттернов) и имплементировать его в dsh-kit так, чтобы: (1) UX/UI-агент мог работать с ним и на новом проекте (init/shape/document → PRODUCT.md/DESIGN.md), и на существующем (context → critique/audit → правки → повторный detect); (2) агент умел делать прототипы/мокапы (2–4 варианта одного экрана) со скриншотами и одной страницей сравнения, чтобы владелец визуально выбирал лучший вариант; (3) детектор был доступен как отдельная цель сборки и как обязательный шаг в отчёте UX-работы. Плюс отдельное задание: аудит полезности всех плагинов и пресетов — кто реально вызывается, что мёртвое, что дорогое по токенам.",
@@ -69,12 +69,12 @@
         "`node scripts/provision-tools.mjs --check` показывает impeccable и его версию",
         "После установки движок работает без сети (detect на локальном файле)"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR2",
       "kind": "FR",
-      "text": "UX/UI-агент применяет detектор к существующему проекту: находит, ранжирует и исправляет анти-паттерны.",
+      "text": "UX/UI-агент применяет детектор к существующему проекту: находит, ранжирует и исправляет анти-паттерны.",
       "acceptance": [
         "UX/UI-агент на уже существующем проекте прошёл context → detect/audit → fix и приложил findings",
         "Скилл виден агенту и его команда `detect` вызывается из скилла"
@@ -109,7 +109,7 @@
         "`make design-audit` печатает находки по UI-исходникам кита с JSON-выводом",
         "Цель не входит в make verify и не ломает офлайн-прогон"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "NFR1",
@@ -119,7 +119,7 @@
         "Версии и суммы зафиксированы, установка проверяет digest",
         "Проверено на чистом кэше, офлайн после установки"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "NFR2",
@@ -340,13 +340,17 @@
         "impeccable-skill-files",
         "impeccable-engine"
       ],
-      "status": "planned",
+      "status": "proven",
       "tasks": [
         {
           "taskId": "task-mwlxo6cu-529m2f",
           "role": "BACKEND",
-          "at": "2026-11-18T09:51:29.269Z",
-          "evidence": []
+          "at": "2026-11-18T10:05:00.000Z",
+          "evidence": [
+            "provision-tools --check → `ok impeccable 4.9.2`; --apply на чистом кэше → INSTALLED 4.9.2 (engine ok, skill ok)",
+            "движок @impeccable/cli-linux-x64@0.1.25 со sha256 f48aca43…820ddd, сверенным с engine-checksums.txt",
+            "скилл из GitHub pbakaus/impeccable@d41d986… в ~/.npm/dsh/skills/impeccable (SKILL.md, reference, scripts)"
+          ]
         }
       ]
     },
@@ -361,7 +365,14 @@
         "impeccable-skill-files"
       ],
       "status": "planned",
-      "tasks": []
+      "tasks": [
+        {
+          "taskId": "task-mwlxo6k5-feshqa",
+          "role": "UX/UI",
+          "at": "2026-11-18T10:00:38.609Z",
+          "evidence": []
+        }
+      ]
     },
     {
       "requirementId": "FR3",
@@ -372,7 +383,14 @@
         "design-docs"
       ],
       "status": "planned",
-      "tasks": []
+      "tasks": [
+        {
+          "taskId": "task-mwlxo6k5-feshqa",
+          "role": "UX/UI",
+          "at": "2026-11-18T10:00:38.609Z",
+          "evidence": []
+        }
+      ]
     },
     {
       "requirementId": "FR4",
@@ -385,7 +403,14 @@
         "mockups-dir"
       ],
       "status": "planned",
-      "tasks": []
+      "tasks": [
+        {
+          "taskId": "task-mwlxo6k5-feshqa",
+          "role": "UX/UI",
+          "at": "2026-11-18T10:00:38.609Z",
+          "evidence": []
+        }
+      ]
     },
     {
       "requirementId": "FR5",
@@ -395,13 +420,16 @@
         "detector-json"
       ],
       "dataIds": [],
-      "status": "planned",
+      "status": "proven",
       "tasks": [
         {
           "taskId": "task-mwlxo6cu-529m2f",
           "role": "BACKEND",
-          "at": "2026-11-18T09:51:29.269Z",
-          "evidence": []
+          "at": "2026-11-18T10:05:00.000Z",
+          "evidence": [
+            "make design-audit → JSON {engine 0.1.25+engine, rules 62, targets 9, findings: []}",
+            "цель не входит в make verify: make verify exit 0 (17/17, documentation ok)"
+          ]
         }
       ]
     },
@@ -415,13 +443,16 @@
       "dataIds": [
         "impeccable-engine"
       ],
-      "status": "planned",
+      "status": "proven",
       "tasks": [
         {
           "taskId": "task-mwlxo6cu-529m2f",
           "role": "BACKEND",
-          "at": "2026-11-18T09:51:29.269Z",
-          "evidence": []
+          "at": "2026-11-18T10:05:00.000Z",
+          "evidence": [
+            "движок офлайн: 62 правила с HTTPS_PROXY=127.0.0.1:9 и без сети",
+            "чистый кэш: rm -rf ~/.impeccable ~/.npm/dsh/skills/impeccable → --apply → INSTALLED (логи в reports/probes/u1/)"
+          ]
         }
       ]
     },
@@ -432,11 +463,18 @@
       "contractIds": [],
       "dataIds": [],
       "status": "planned",
-      "tasks": []
+      "tasks": [
+        {
+          "taskId": "task-mwlxo6k5-feshqa",
+          "role": "UX/UI",
+          "at": "2026-11-18T10:00:38.609Z",
+          "evidence": []
+        }
+      ]
     }
   ],
   "pendingImpacts": [],
-  "fingerprint": "d9c50e5e4f6ed0aa8a569179eb5e9231cdc1ad7b31a25e5258e05c983d09ae0f",
+  "fingerprint": "41ae008e3a3c4101758fc0bc1aee2207591d48039d17b05b256e7ba93ce40725",
   "history": [
     {
       "revision": 1,
@@ -461,6 +499,22 @@
       "action": "link_task",
       "status": "ready",
       "summary": "task-mwlxo6cu-529m2f -> FR1, FR5, NFR1"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-18T10:00:22.542Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "requirements: FR2 changed; impacts: 1"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-18T10:00:38.609Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwlxo6k5-feshqa -> FR2, FR3, FR4, NFR2"
     }
   ]
 }

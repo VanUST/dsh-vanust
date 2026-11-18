@@ -9,7 +9,7 @@ third-party components it contains or depends on:
     packages are peer dependencies of the shipped plugins, resolved from the
     harness installation rather than vendored here.
 
-- **`@cc/dsh-notify`**, **`@cc/dsh-work-modes`**, **`@cc/dsh-presentation`**,
+- **`@cc/dsh-notify`**, **`@cc/dsh-work-modes`**,
   **`@cc/dsh-diagrams`**, **`@cc/dsh-godot-mcp`**, **`@cc/dsh-skills`**,
   **`@cc/dsh-flash-guard`**, **`@cc/dsh-proof-guard`**, **`@cc/dsh-taskboard`**,
   **`@cc/dsh-orchestrator`**, **`@cc/dsh-papers`**,

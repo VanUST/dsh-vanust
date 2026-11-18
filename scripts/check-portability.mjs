@@ -89,7 +89,7 @@ const CHECKS = [
     // godot-mcp plugin's whole purpose is resolving a launcher and a project on the
     // machine that runs it, so a `C:\…` literal there is the exact defect this check
     // exists to catch.
-    paths: ['plugins/godot-mcp', 'plugins/presentation', 'plugins/diagrams', 'plugins/notify', 'plugins/work-modes'],
+    paths: ['plugins/godot-mcp', 'plugins/diagrams', 'plugins/notify', 'plugins/work-modes'],
     allow: [],
   },
   {

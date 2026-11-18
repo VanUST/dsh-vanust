@@ -31,15 +31,6 @@
       "mounted": true
     },
     {
-      "id": "presentation",
-      "package": "@cc/dsh-presentation",
-      "tarballPrefix": "cc-dsh-presentation",
-      "provenance": "in-repo",
-      "source": "plugins/presentation",
-      "pack": "scripts/pack-plugin.mjs",
-      "mounted": true
-    },
-    {
       "id": "diagrams",
       "package": "@cc/dsh-diagrams",
       "tarballPrefix": "cc-dsh-diagrams",

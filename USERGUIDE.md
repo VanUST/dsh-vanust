@@ -1,16 +1,13 @@
 # USERGUIDE.md — setting up and starting the harness on a new machine
 
 This kit installs **DeepSeek Harness (dsh)** on any of your machines (2× Linux,
-1× Windows) plus the **27** plugins this deployment adds beyond upstream:
+1× Windows) plus the **26** plugins this deployment adds beyond upstream:
 **`@cc/dsh-notify`** (raises a desktop notification — `notify-send`, a PowerShell toast or
 `osascript` — when an agent finishes a turn and when it asks you a question; silence it with
 `DSH_NOTIFY_DISABLED=1` in the server's environment),
 **`@cc/dsh-image-window`** (keeps only the newest screenshot in the request: the image that
 falls out of the window is offloaded as a new one arrives, so the provider re-bills the new
 batch instead of the whole context),
-**`@cc/dsh-presentation`** (one tool that renders a JSON deck spec into a
-standalone HTML presentation in the workspace, shown by the Sidebar document
-preview),
 **`@cc/dsh-diagrams`** (one tool that renders a JSON diagram spec into a standalone
 HTML document with inline SVG — flowcharts and algorithm illustrations, layered system
 designs, sequence diagrams and state machines; you describe nodes and relationships and
@@ -143,7 +140,7 @@ production data, and it is not the same job as Reviewer (judges a diff) or UX/UI
 interface). Pick **standard** when you want a chat that edits work
 directly instead of delegating; that is the hands-on escape hatch, and it keeps every kit
 tool. The rest of the kit's role-specific tools follow the same rule: `papers_*` only in
-Research, `diagram`/`presentation` for the
+Research, `diagram` for the
 Orchestrator and UX/UI.
 
 **A delegated role is a `(name, preset)` pair, and the name keeps one preset.** `delegate_task`
@@ -274,7 +271,7 @@ apply it unseen" — pass `-Yes` to apply without a prompt in those contexts.
    a terminal block in the chat.
 3. Ask the agent to edit a file and confirm the change appears in the sidebar
    preview.
-4. Ask for a `diagram` and a `presentation`: each writes a standalone `.html` file in the
+4. Ask for a `diagram`: it writes a standalone `.html` file in the
    workspace that the sidebar document preview renders.
 5. Run `make provision`: every row must say `ok`, including the role toolchain
    (`depcruise`, `semgrep`, `oasdiff`, `difft`, `betterleaks`, `osv-scanner`, `lychee`,
@@ -285,7 +282,7 @@ If it fails with `MISSING_CREDENTIAL`, finish the onboarding credential step. Th
 half is one command — every plugin row must be mounted:
 
 ```bash
-dsh --profile web --dump-config | grep -E "id: (notify|presentation|diagrams|subagent|godot-mcp)"
+dsh --profile web --dump-config | grep -E "id: (notify|diagrams|subagent|godot-mcp)"
 ```
 
 If a row is missing, the patch layer was overwritten — see §5.
