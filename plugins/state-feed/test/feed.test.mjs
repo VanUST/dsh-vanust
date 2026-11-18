@@ -17,7 +17,7 @@ import { mkdtemp, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createStateService } from '../../project-state/lib/core.mjs'
-import { L1_HEADER, L2_HEADER, L2_LIMIT_BYTES, composeL1, composeL2, readState } from '../lib/feed.mjs'
+import { L1_HEADER, L2_HEADER, L2_LIMIT_BYTES, composeL1, composeL2, readState, stateMessage } from '../lib/feed.mjs'
 import { apply, isRootAgent } from '../index.mjs'
 
 const clock = () => '2026-01-03T00:00:00.000Z'
@@ -153,4 +153,30 @@ test('composeL1 keeps the digest, the plan and the snapshot in a fixed order', a
   const planAt = text.indexOf('## Plan')
   const snapshotAt = text.indexOf('## Last snapshot')
   assert.ok(digestAt >= 0 && planAt > digestAt && snapshotAt > planAt)
+})
+
+/*
+PROOF: an injected message carries the identity the session log requires
+Behavior: every injected message has a fresh non-empty `id` alongside its role, source and
+  content, so the harness's `adoptSessionEvent` accepts the user/message event it writes.
+Fails when: the message is composed without an `id` (the defect shipped in 0.1.1: the session
+  persisted the message verbatim and every later load was refused with "session event at seq N
+  lacks an identified message"), or two injections reuse one identity.
+*/
+test('every injected message carries a fresh identity', async () => {
+  const { cwd } = await workspace()
+  const env = host()
+  apply(env.ctx)
+  const { agent, injected } = agentOf(cwd)
+  await created(env, agent)
+  await preStep(env, agent, 2, 1)
+  assert.equal(injected.length, 1)
+  const message = injected[0]
+  assert.equal(typeof message.id, 'string')
+  assert.ok(message.id.length > 0)
+  assert.equal(message.role, 'user')
+  assert.equal(message.source.kind, 'state-feed')
+  assert.ok(Array.isArray(message.content))
+  // A second injection must not reuse the first identity.
+  assert.notEqual(stateMessage('another').id, message.id)
 })

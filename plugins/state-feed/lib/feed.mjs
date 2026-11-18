@@ -13,7 +13,7 @@
  *   "did the state change" signal: the same state always produces the same hash.
  */
 
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -103,9 +103,21 @@ export function composeL2(state, previousHash) {
   return cap(parts.join('\n'), L2_LIMIT_BYTES)
 }
 
-/** A UserMessage for `agent.inject()`: model-visible, logged by the harness as user/message. */
+/**
+ * A complete UserMessage for `agent.inject()`: model-visible, logged by the harness as
+ * user/message.
+ *
+ * WHY THE `id` IS MANDATORY. `inject()` takes an already-built `UserMessage` and the session
+ * persists it verbatim; it never stamps an identity of its own. `createUserMessage()` in
+ * `@deepseek-ai/dsh-llm` is where that identity comes from, and this plugin composes its
+ * message without importing the harness LLM package — so it must supply the id itself. A
+ * message without one is written to the log anyway and every later load is refused with
+ * `session event at seq N lacks an identified message`, which takes the whole session (not
+ * just this message) down with it.
+ */
 export function stateMessage(text) {
   return {
+    id: randomUUID(),
     role: 'user',
     content: [{ type: 'text', text }],
     source: { kind: 'state-feed', form: 'snapshot', sections: [{ name: 'state-feed', text }] },

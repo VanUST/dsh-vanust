@@ -666,6 +666,39 @@ function inspectHindsightTools(kit, mode = '--check') {
   }
 }
 
+/**
+ * Ask the harness identity guard where the installed harness stands.
+ *
+ * PURPOSE
+ *   Convergence, not a manual step. `snapshotAppend()` in the pinned harness stores whatever
+ *   message a producer passes, and `adoptSessionEvent()` validates identities only when the
+ *   session is loaded — so one plugin that injects a message without an `id` makes every session
+ *   it touched refuse to open, and the cost is the session. The kit patches both functions
+ *   (scripts/harness-identity-guard.mjs); an `npm install` of the harness would restore the
+ *   defect, so the patch is re-applied on every boot.
+ * INPUTS
+ *   kit - kit root; the patch script lives in <kit>/scripts.
+ * OUTPUTS
+ *   The patch script's JSON report, or { state: 'script-missing' | 'error' }.
+ *   'unpatched' is a decision for the caller to act on, never a failure.
+ * KEYWORDS
+ *   harness, session, identity, patch, idempotent, convergence
+ *
+ * Exit 3 is the script's "unpatched" answer, so this cannot go through `run()`: that helper
+ * turns every non-zero exit into null and would report a patchable harness as unreadable.
+ */
+function inspectIdentityGuard(kit, mode = '--check') {
+  const script = join(kit, 'scripts', 'harness-identity-guard.mjs')
+  if (!existsSync(script)) return { state: 'script-missing', script }
+  const result = spawnSync(process.execPath, [script, mode, '--json'], { cwd: kit, encoding: 'utf8' })
+  try {
+    return JSON.parse((result.stdout ?? '').trim())
+  } catch {
+    const detail = (result.stderr || result.stdout || '').trim().split('\n').filter(Boolean).slice(-1)[0]
+    return { state: 'error', detail: detail ?? 'no output' }
+  }
+}
+
 /** Build the state record written after a successful apply. */
 function buildState({ items, kit, repo, harness }) {
   return {
@@ -763,6 +796,12 @@ function main(argv) {
   if (hindsight.state === 'unpatched') plan.push({ action: 'patch-hindsight-tools', items: [hindsight.path] })
   log('hindsight.tools', { state: hindsight.state ?? 'unknown', sha256: hindsight.sha256 ?? 'none' })
 
+  // The harness identity guard is kit state too: it lives in the pinned harness, which a global
+  // `npm install -g` rewrites without asking. Reported on every run; applied on every converge.
+  const identityGuard = inspectIdentityGuard(kit)
+  if (identityGuard.state === 'unpatched') plan.push({ action: 'patch-harness-identity', items: [identityGuard.path] })
+  log('harness.identity-guard', { state: identityGuard.state ?? 'unknown', sha256: identityGuard.sha256 ?? 'none' })
+
   if (!drift && plan.length === 0) {
     log('kit.current', { state: statePath(home) })
     // An apply that finds nothing to do still records the head it verified, or the
@@ -814,6 +853,18 @@ function main(argv) {
       log('hindsight.patched', { path: patched.path, sha256: patched.sha256 })
     } else {
       warn(`Hindsight subagent-tool patch did not apply (state: ${patched.state ?? patched.error ?? 'unknown'}); hindsight_* tools stay unavailable to subagents`)
+    }
+  }
+
+  // Re-applied on every converge for the same reason as the Hindsight patch: the check and the
+  // apply are milliseconds apart, but "patched because we checked" is what keeps the record honest.
+  if (identityGuard.state !== 'absent' && identityGuard.state !== 'script-missing') {
+    const guarded = inspectIdentityGuard(kit, '--apply')
+    if (guarded.state === 'patched') {
+      applied.push('patch-harness-identity')
+      log('harness.identity-guarded', { path: guarded.path, sha256: guarded.sha256 })
+    } else {
+      warn(`Harness identity guard did not apply (state: ${guarded.state ?? guarded.detail ?? 'unknown'}); a message without an id would block its whole session again`)
     }
   }
 

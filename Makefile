@@ -48,7 +48,7 @@ endif
 CORPUS   ?= .cache/session-analysis/corpus.json
 ANALYSIS ?= .cache/session-analysis/analysis.json
 
-.PHONY: help usage usage-check usage-gate session-corpus session-analysis notify-selftest session-doctor verify cases
+.PHONY: help usage usage-check usage-gate session-corpus session-analysis notify-selftest session-doctor session-identity harness-guard harness-guard-apply verify cases
 
 help:
 	@echo "make usage                    - newest usage export in ~/Downloads, write and open the report"
@@ -60,6 +60,8 @@ help:
 	@echo "make session-corpus           - one pass over every session log -> $(CORPUS) (~2 min)"
 	@echo "make session-analysis         - the corpus, then the behaviour and cost figures cut from it"
 	@echo "make session-doctor           - report session logs the OS refuses to read (the UI shows no history)"
+	@echo "make session-identity         - report stored messages with no identity (they refuse the whole session)"
+	@echo "make harness-guard            - check the harness patch that makes that class impossible (3 = unpatched)"
 	@echo "make verify                   - run every check the kit ships"
 	@echo "make cases                    - execute the automated cases in docs/cases; exit 1 when one is not verified"
 	@echo "  TAG=<tag> ARGS=<cli args>   - e.g. make cases TAG=benchmark, or ARGS=\"--id <case>\""
@@ -93,6 +95,23 @@ usage-gate:
 session-doctor:
 	@$(NODE) scripts/session-store.mjs doctor
 
+# The defect class the doctor cannot see: a stored message with no identity, which refuses the
+# whole session at load. `scan` is the check (exit 1 while a log needs repair, moves
+# nothing); `repair --apply` rewrites the affected frames with a backup and verifies the
+# result before it replaces the original.
+session-identity:
+	@$(NODE) scripts/session-repair.mjs scan
+
+# The defense that makes the class impossible rather than repairable: the harness patch that
+# stamps an identity when an event is written and repairs a legacy one when it is read. Exit 3
+# means the installed harness is unpatched - `make harness-guard-apply` (or any boot: the
+# dsh wrapper converges it) and it comes back.
+harness-guard:
+	@$(NODE) scripts/harness-identity-guard.mjs --check
+
+harness-guard-apply:
+	@$(NODE) scripts/harness-identity-guard.mjs --apply
+
 # Raise one REAL notification on this host, in the top-right corner of the display the human
 # is on (not the Xvfb a server usually inherits). Not part of `verify`: it pops a window on
 # the machine running it, which is evidence when you ask for it and noise when you do not.
@@ -119,6 +138,7 @@ verify:
 	node scripts/check-glossary.mjs
 	node scripts/schema-lint.mjs
 	node scripts/context-budget.mjs
+	node scripts/harness-identity-guard.mjs --check
 
 # The case library's own entry point. `make verify` is the packaging/doc gate; this target RUNS
 # the product: every automated case (or a TAG/ARGS subset) is executed by the same runner the
