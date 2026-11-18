@@ -201,6 +201,8 @@ window.__ModuleLoader__.load({
 /* ── Night desk shell: a navigation rail, the mode, and a persistent evidence rail ── */
 .ps-top { background: var(--ps-surface); border-bottom-color: var(--ps-line); min-height: 52px; padding: 8px 16px; }
 .ps-title { font-size: 18px; letter-spacing: -.015em; }
+.ps-back { margin-right: 2px; }
+.ps-windowgroup { display: inline-flex; align-items: center; gap: 2px; padding-left: 8px; border-left: 1px solid var(--ps-line); }
 .ps-modebar { display: none; }
 .ps-shell { flex: 1; min-height: 0; display: grid; grid-template-columns: 212px minmax(0, 1fr) 360px; }
 .ps-nav { min-width: 0; min-height: 0; overflow: auto; border-right: 1px solid var(--ps-line); background: var(--ps-paper); padding: 14px 12px 18px; scrollbar-width: thin; }
@@ -1335,6 +1337,28 @@ window.__ModuleLoader__.load({
       }
     }
 
+    function BackIcon({ size = 16 }) {
+      return h('svg', { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', 'aria-hidden': 'true' },
+        h('path', { d: 'M14.5 5.5 8 12l6.5 6.5', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round' }),
+      )
+    }
+
+    function SidebarToggleIcon({ size = 16 }) {
+      return h('svg', { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', 'aria-hidden': 'true' },
+        h('rect', { x: 3.5, y: 4.5, width: 17, height: 15, rx: 2, stroke: 'currentColor', strokeWidth: 1.6 }),
+        h('path', { d: 'M9.5 4.5v15', stroke: 'currentColor', strokeWidth: 1.6 }),
+        h('path', { d: 'M6 9.5h1.5M6 12h1.5M6 14.5h1.5', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round' }),
+      )
+    }
+
+    function RightbarCloseIcon({ size = 16 }) {
+      return h('svg', { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', 'aria-hidden': 'true' },
+        h('rect', { x: 3.5, y: 4.5, width: 17, height: 15, rx: 2, stroke: 'currentColor', strokeWidth: 1.6 }),
+        h('path', { d: 'M15 4.5v15', stroke: 'currentColor', strokeWidth: 1.6 }),
+        h('path', { d: 'M17 9.5l4 4m0-4l-4 4', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round' }),
+      )
+    }
+
     function ProjectStatePage(props) {
       const remote = props.remote
       const sessionsById = props.useSessions === undefined ? {} : props.useSessions((snapshot) => snapshot.byId)
@@ -1485,6 +1509,7 @@ window.__ModuleLoader__.load({
       return h('div', { className: 'ps-root', role: 'main', 'aria-label': 'Project state' },
         h('style', null, CSS),
         h('div', { className: 'ps-top' },
+          h('button', { type: 'button', className: 'ps-btn icon ps-back', onClick: () => props.layout.selectPanel(null), title: 'Back to chat', 'aria-label': 'Back to chat' }, h(BackIcon, { size: 16 })),
           h('h1', { className: 'ps-title' }, 'Project state'),
           h('span', { className: 'ps-ro', title: 'This panel executes no write command and writes no file. Changes stay in the Tasks, Cases and Design map panels and in the state core.' }, 'read-only'),
           h('span', { className: 'ps-spacer' }),
@@ -1495,6 +1520,23 @@ window.__ModuleLoader__.load({
             h('span', { className: 'ps-count', title: 'Decisions in index.json' }, h('b', null, String(counts.decision)), 'DEC'),
           ),
           index === null ? null : h('span', { className: 'ps-meta', title: 'The machine-readable link contract this panel reads' }, `index.json v${index.schemaVersion} · event ${String(index.lastSeq ?? 0)}`),
+          h('div', { className: 'ps-windowgroup', role: 'group', 'aria-label': 'Window controls' },
+            h('button', { type: 'button', className: 'ps-btn icon', onClick: () => props.layout.toggleSidebar(), title: 'Toggle left sidebar', 'aria-label': 'Toggle left sidebar' }, h(SidebarToggleIcon, { size: 16 })),
+            h('button', {
+              type: 'button',
+              className: 'ps-btn icon',
+              onClick: () => {
+                // layout.closeRightbar only reports the frame presentation; the rightbar's
+                // own expanded state is owned by sidebarRight and reopens it on return.
+                // Collapse that state too, or the control is a no-op after Back to chat.
+                props.layout.closeRightbar()
+                const actions = props.sidebarRight?.actionsFor?.(sessionId)
+                if (actions?.setExpanded && typeof sessionId === 'string') actions.setExpanded(sessionId, false)
+              },
+              title: 'Close right sidebar',
+              'aria-label': 'Close right sidebar',
+            }, h(RightbarCloseIcon, { size: 16 })),
+          ),
           h('button', { type: 'button', className: 'ps-btn small', onClick: () => setReloadToken((value) => value + 1), disabled: data.phase === 'loading' || data.phase === 'refreshing', title: 'Re-read state/views and the entity files' }, 'Reload'),
         ),
         filter === null ? null : h('div', { className: 'ps-filterbar', role: 'status' },
@@ -1607,12 +1649,12 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots', 'remote', 'remote.workspaceFiles', 'remote.commands', 'layout'],
+      inject: ['slots', 'remote', 'remote.workspaceFiles', 'remote.commands', 'layout', 'sidebarRight'],
       apply(ctx) {
         ctx.slots.inject('main', () => ctx.slots.register({
           name: 'main',
           key: PANEL_ID,
-          inject: () => ({ remote: ctx.remote, layout: ctx.layout }),
+          inject: () => ({ remote: ctx.remote, layout: ctx.layout, sidebarRight: ctx.sidebarRight }),
         }, ProjectStatePage))
         ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
           name: 'conversation.session.header.actions',

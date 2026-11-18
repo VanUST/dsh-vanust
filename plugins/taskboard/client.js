@@ -596,23 +596,6 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function PanelIcon({ size = 18, active = false, layout, store, useSessions }) {
-      const sessionsRaw = useSessions((snapshot) => snapshot.byId)
-      const sessionsById = sessionsRaw !== null && sessionsRaw !== undefined && typeof sessionsRaw === 'object' ? sessionsRaw : {}
-      const main = Object.values(sessionsById).find((session) => (session?.retainedBy?.mainView ?? 0) > 0)
-      const open = () => {
-        const next = typeof main?.id === 'string' && main.id !== '' ? main.id : null
-        store.set({ ...(next === null ? {} : { sessionId: next }), returnSessionId: next })
-        layout.selectPanel(PANEL_ID)
-      }
-      return h(React.Fragment, null,
-        h('style', null, CSS),
-        h('button', { type: 'button', className: `tb-icon${active ? ' active' : ''}`, onClick: open, title: 'Tasks', 'aria-label': 'Open the task board', style: { width: size + 12, height: size + 12 } },
-          h(Icon, { size, active }),
-        ),
-      )
-    }
-
     function TaskCard({ task, selected, onSelect, chatId, presets, sessionsById = {} }) {
       const children = normalizeChildren(task, sessionsById)
       const assignment = assignmentOf(task)
@@ -1347,13 +1330,6 @@ window.__ModuleLoader__.load({
           key: PANEL_ID,
           inject: () => ({ remote: ctx.remote, store, uiWorkspace: ctx.uiWorkspace, layout: ctx.layout }),
         }, TasksPage))
-        ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
-          name: 'sidebar.panellist',
-          id: PANEL_ID,
-          order: 20,
-          label: () => 'Tasks',
-          inject: () => ({ layout: ctx.layout, store }),
-        }, PanelIcon))
         ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
           name: 'conversation.session.header.actions',
           id: 'subagent-catalog',
