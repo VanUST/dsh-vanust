@@ -1,0 +1,173 @@
+{
+  "schemaVersion": 1,
+  "id": "register-batch-rule-is-closed",
+  "title": "register-batch-rule-is-closed",
+  "requirement": "The batch rule is closed in the register, not only in the analysis record: state/req/REQ-103.md carries status done (the analysis mirror of project-state-ecosystem FR15) and state/task/TASK-226.md carries status done with REQ-103 in its reqIds, so the board row and the requirement agree.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "plugins/test-cases/test/register-closure.test.mjs",
+  "runCommand": "node --test plugins/test-cases/test/register-closure.test.mjs",
+  "steps": [
+    "read state/req/REQ-103.md frontmatter and assert status done",
+    "read state/task/TASK-226.md frontmatter and assert status done and reqIds contains REQ-103",
+    "run against reports/p5/backend/pre-fix-register (REQ-103 proposed, TASK-226 open without reqIds): exit 1 with the two named violations",
+    "run with CASE_NEGATIVE_CONTROL=expect-pre-fix on the closed register: exit 1 (the pre-fix control)",
+    "run on the current workspace: exit 0, violations 0"
+  ],
+  "expected": "The test exits 0 with CASE_SUMMARY violations 0 on the closed register; the pre-closure snapshot and the negative control exit 1 and name REQ-103 and TASK-226.",
+  "tags": [
+    "policy",
+    "register",
+    "batch",
+    "p5"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "state/req/REQ-103.md",
+      "sha256": "79b274786aa4ebcce306c40d11ab6b365487a483d8dca3b3559f5e9756de9f6f"
+    },
+    {
+      "path": "state/task/TASK-226.md",
+      "sha256": "52c88bf785ea9aa3ac8ddd5c8dd52d673c2c06bd62eaec5043158c187b2ba3a9"
+    },
+    {
+      "path": "plugins/test-cases/test/register-closure.test.mjs",
+      "sha256": "20cd84a55ec978cfec79e17ce4792654465a554065b28698dcca5b6ab7751705"
+    }
+  ],
+  "linkedTaskId": "task-mwm4hppu-n64d9m",
+  "reqId": "REQ-121",
+  "authorRole": "BACKEND",
+  "checks": [
+    {
+      "name": "violations",
+      "metric": "violations",
+      "op": "==",
+      "threshold": 0
+    }
+  ],
+  "negativeControl": "expect-pre-fix",
+  "revision": 3,
+  "createdAt": "2026-11-18T13:06:56.423Z",
+  "updatedAt": "2026-11-18T13:07:01.891Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-18T13:07:00.768Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-pre-fix\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-18T13:07:01.891Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mwm4yb9f-gdkvj-1",
+      "at": "2026-11-18T13:07:00.762Z",
+      "mode": "red",
+      "control": "expect-pre-fix",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 189,
+      "commandSha256": "d413e14b86dbc01451ff3285fb37bd4352e9afb3ff4fc65554d5f4756c0929ef",
+      "head": "f554145a1c5c1d83b9039a4f7641950c0d517e37",
+      "dirty": true,
+      "stdout": "docs/cases/runs/register-batch-rule-is-closed/mwm4yb9f-gdkvj-1/stdout.log",
+      "stderr": "docs/cases/runs/register-batch-rule-is-closed/mwm4yb9f-gdkvj-1/stderr.log",
+      "summary": "docs/cases/runs/register-batch-rule-is-closed/mwm4yb9f-gdkvj-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "violations": 2
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        },
+        {
+          "name": "violations",
+          "metric": "violations",
+          "op": "==",
+          "measured": 2,
+          "threshold": 0,
+          "pass": false,
+          "reason": "2 is not == 0"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwm4yc4p-jxkmw-1",
+      "at": "2026-11-18T13:07:01.886Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 168,
+      "commandSha256": "d413e14b86dbc01451ff3285fb37bd4352e9afb3ff4fc65554d5f4756c0929ef",
+      "head": "f554145a1c5c1d83b9039a4f7641950c0d517e37",
+      "dirty": true,
+      "stdout": "docs/cases/runs/register-batch-rule-is-closed/mwm4yc4p-jxkmw-1/stdout.log",
+      "stderr": "docs/cases/runs/register-batch-rule-is-closed/mwm4yc4p-jxkmw-1/stderr.log",
+      "summary": "docs/cases/runs/register-batch-rule-is-closed/mwm4yc4p-jxkmw-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "violations": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "violations",
+          "metric": "violations",
+          "op": "==",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-18T13:07:00.768Z",
+    "runId": "mwm4yb9f-gdkvj-1",
+    "exitCode": 1,
+    "control": "expect-pre-fix",
+    "command": "node --test plugins/test-cases/test/register-closure.test.mjs",
+    "source": "negative-control"
+  },
+  "lastVerified": {
+    "at": "2026-11-18T13:07:01.891Z",
+    "command": "node --test plugins/test-cases/test/register-closure.test.mjs",
+    "exitCode": 0,
+    "runId": "mwm4yc4p-jxkmw-1",
+    "source": "runner",
+    "commit": null
+  }
+}

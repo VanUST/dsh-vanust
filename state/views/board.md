@@ -2,7 +2,7 @@
 
 GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`.
 
-## open (12)
+## open (11)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -15,11 +15,10 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-057 | probe-5 | — | — | no |
 | TASK-061 | Case library: exploratory testing persisted as reproducible cases | — | — | no |
 | TASK-072 | Auto-converge the kit on every dsh boot | — | — | no |
-| TASK-226 | V4.1: батчинг работы — задача как пачка шагов, проверка на границе (FR15) | — | — | no |
 | TASK-229 | V6.2: pack-plugin не должен удалять тарболы соседних плагинов по общему префиксу | — | — | no |
 | TASK-233 | OpenAI Codex: вход по подписке через инструмент харнесса | REQ-111, REQ-112, REQ-113, REQ-114 | 0/13 | no |
 
-## active (9)
+## active (10)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -32,6 +31,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-231 | P1-T: red→green тест навигации панелей | REQ-104, REQ-105, REQ-106, REQ-107 | — | no |
 | TASK-232 | P2: правая колонка панели, верхняя панель без Tasks и Design map | REQ-108, REQ-109, REQ-110 | 0/10 | no |
 | TASK-234 | P3: счётчики State и список задач с сортировкой | REQ-115, REQ-116, REQ-117 | 0/10 | no |
+| TASK-235 | P5: правила скорости для всех корней, L0 для локальных правок, один кейс на пачку | REQ-118, REQ-119, REQ-120 | 0/11 | no |
 
 ## review (62)
 
@@ -100,7 +100,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-224 | V3.1: холодный старт на реальном реестре — новая сессия отвечает по состоянию (BR1) | — | — | no |
 | TASK-225 | V3.2: L1 показывает открытые REQ и разрывы реестра (BR1, третья точка) | — | — | no |
 
-## done (140)
+## done (141)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -242,6 +242,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-220 | V1.10: закоммитить гейт доказательств | — | — | no |
 | TASK-221 | V1.11: бриф делегирования из реестра и разбор возврата (FR12) | — | — | no |
 | TASK-222 | V1.11b: вернуть строгий гейт пресета в делегатном брифе | — | — | no |
+| TASK-226 | V4.1: батчинг работы — задача как пачка шагов, проверка на границе (FR15) | REQ-103 | — | no |
 | TASK-227 | V5.1: инвариант промпта и дисциплина языка — один срез (NFR1 + FR14) | — | — | no |
 | TASK-228 | V6.1: диета схем и вейвер lifecycle-гейтов — последний срез (FR5 + FR8) | — | — | no |
 

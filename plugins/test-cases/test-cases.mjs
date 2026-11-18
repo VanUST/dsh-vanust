@@ -1,7 +1,7 @@
 /**
  * PURPOSE
  *   Turn a test that a role actually performed into durable, reproducible knowledge in the
- *   repository - and EXECUTE it: one case per observed requirement, stored under `docs/cases/`,
+ *   repository - and EXECUTE it: one case per accepted behaviour, stored under `docs/cases/`,
  *   written only through this tool family so the schema and the evidence trail cannot drift.
  *
  *   The deployment rule used to be "no autotests". The honest rule is "no SPECULATIVE tests":
@@ -925,9 +925,10 @@ export function createTools(config = {}, env = {}) {
 }
 
 /** The full prompt section: the rule that makes the library worth trusting. */
-const SECTION_FULL = [
+export const SECTION_FULL = [
   'TEST CASES (docs/cases/, host tool family):',
   '  Explore with your own tools first and OBSERVE the behaviour, then persist the case. Never record a speculative test.',
+  '  Record ONE case per accepted behaviour, not per requirement: one verified run may prove several requirements at once. The case keeps its primary reqId - the requirement it protects - and names the other REQs in its text; the schema does not grow a reqIds field.',
   '  case_run EXECUTES an automated case\'s stored runCommand and records the MEASUREMENT (exit code, duration, checks, artifacts under docs/cases/runs/). Declare checks on the case - {metric, op, threshold} reads the driver\'s CASE_SUMMARY JSON, {baseline: true} ratchets against the recorded baseline, runs>1 gives median/p95 and records a mixed outcome as flaky.',
   '  A green run on a case with no recorded red is a measurement, not a verification: record the negative control with case_run mode:"red" (the driver breaks its own assertion on CASE_NEGATIVE_CONTROL), or use case_verify, which is the MANUAL report and is stamped source manual.',
   '  case_suite runs a filtered set and writes a report; case_gate reads whether the automated cases linked to a task are verified (the taskboard refuses task_close on the same rule).',
@@ -943,8 +944,9 @@ const SECTION_FULL = [
  * the prompt was teaching an agent to call tools that are not registered — the one instruction
  * a model cannot follow and cannot report. The text below names exactly what is on its surface.
  */
-const SECTION_INTAKE = [
+export const SECTION_INTAKE = [
   'TEST CASES (docs/cases/, intake subset):',
+  '  One case per accepted behaviour, not per requirement: a case may name several requirements (REQs) while its primary reqId is the one it protects. One verified run can prove the batch.',
   '  Your surface is intake only: case_record, case_list, case_get, case_drift, case_gate. Recording is NOT verifying - you have no case_run, case_verify or case_update, so never claim a case passed.',
   '  When the human states a requirement, record it with case_record: source human, automated:false with a named reason (or a real testPath + runCommand + checks when one exists), and linkedTaskId of the task that implements it. Leave the status unverified.',
   '  Read with case_get (compare-and-set needs its revision) and case_list; case_gate is the same verdict the taskboard enforces on task_close. Verification belongs to the specialist that owns the work, in its own session.',

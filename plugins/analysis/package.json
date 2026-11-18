@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-analysis",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "description": "Analysis before decomposition: one repo-tracked Analysis Record per initiative with compare-and-set writes, an atomic store, a semantic fingerprint, a completeness checker, impact analysis and proportional L0/L1/L2 delegation gates. Root-only tools; the trace lives only in the record. With @cc/dsh-project-state mounted, every requirement is mirrored into a REQ (analysisRef, acceptance criteria, frozen criteriaHash) with a duplicate-candidate gate.",
   "type": "module",
   "main": "analysis.mjs",

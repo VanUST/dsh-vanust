@@ -74,22 +74,22 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | REQ-068 | done | — | — | — | no |
 | REQ-069 | done | — | — | — | no |
 | REQ-070 | done | — | — | — | no |
-| REQ-071 | proposed | — | — | — | no |
+| REQ-071 | done | — | — | — | no |
 | REQ-072 | done | — | — | — | no |
 | REQ-073 | done | — | — | — | no |
 | REQ-074 | done | — | — | — | no |
 | REQ-075 | done | — | — | — | no |
-| REQ-076 | proposed | — | — | — | no |
+| REQ-076 | done | — | — | — | no |
 | REQ-077 | done | — | — | — | no |
 | REQ-078 | done | — | — | — | no |
-| REQ-079 | proposed | — | — | — | no |
+| REQ-079 | done | — | — | — | no |
 | REQ-080 | done | — | — | — | no |
 | REQ-081 | done | — | — | — | no |
 | REQ-082 | done | — | — | — | no |
 | REQ-083 | done | — | — | — | no |
-| REQ-084 | proposed | — | — | — | no |
-| REQ-085 | proposed | — | — | — | no |
-| REQ-086 | proposed | — | — | — | no |
+| REQ-084 | done | — | — | — | no |
+| REQ-085 | done | — | — | — | no |
+| REQ-086 | done | — | — | — | no |
 | REQ-087 | done | — | — | — | no |
 | REQ-088 | done | — | — | — | no |
 | REQ-089 | done | — | — | — | no |
@@ -106,7 +106,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | REQ-100 | done | — | — | — | no |
 | REQ-101 | done | — | — | — | no |
 | REQ-102 | done | — | — | — | no |
-| REQ-103 | proposed | — | — | — | no |
+| REQ-103 | done | — | — | — | no |
 | REQ-104 | rejected | — | TEST-053 | — | no |
 | REQ-105 | done | — | TEST-054 | — | no |
 | REQ-106 | done | — | TEST-055 | — | no |
@@ -121,6 +121,12 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | REQ-115 | done | — | TEST-060 | — | no |
 | REQ-116 | done | — | TEST-061 | — | no |
 | REQ-117 | done | — | TEST-062 | — | no |
+| REQ-118 | done | — | TEST-063 | — | no |
+| REQ-119 | done | — | TEST-064 | — | no |
+| REQ-120 | done | — | TEST-065 | — | no |
+| REQ-121 | done | — | TEST-066 | — | no |
+| REQ-122 | rejected | — | — | — | no |
+| REQ-123 | rejected | — | — | — | no |
 
 ## Tests
 
@@ -128,13 +134,13 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 |---|---|---|---|
 | TEST-001 | — | stale | — |
 | TEST-002 | — | unverified | — |
-| TEST-003 | — | verified | — |
-| TEST-004 | — | verified | — |
+| TEST-003 |  | verified | — |
+| TEST-004 |  | verified | — |
 | TEST-005 | — | stale | — |
 | TEST-006 | — | verified | — |
 | TEST-007 | — | verified | — |
 | TEST-008 | — | unverified | — |
-| TEST-009 | — | verified | — |
+| TEST-009 |  | verified | — |
 | TEST-010 | — | unverified | — |
 | TEST-011 | — | unverified | — |
 | TEST-012 | — | unverified | — |
@@ -155,7 +161,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | TEST-027 | — | verified | — |
 | TEST-028 | — | unverified | — |
 | TEST-029 | — | stale | — |
-| TEST-030 | — | verified | — |
+| TEST-030 |  | verified | — |
 | TEST-031 | — | verified | — |
 | TEST-032 | — | unverified | — |
 | TEST-033 | — | unverified | — |
@@ -168,7 +174,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | TEST-040 | — | verified | — |
 | TEST-041 | — | unverified | — |
 | TEST-042 | — | verified | — |
-| TEST-043 | — | verified | — |
+| TEST-043 |  | verified | — |
 | TEST-044 | — | unverified | — |
 | TEST-045 | — | stale | — |
 | TEST-046 | — | stale | — |
@@ -188,3 +194,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | TEST-060 | REQ-115 | verified | — |
 | TEST-061 | REQ-116 | verified | — |
 | TEST-062 | REQ-117 | verified | — |
+| TEST-063 | REQ-118 | verified | — |
+| TEST-064 | REQ-119 | verified | — |
+| TEST-065 | REQ-120 | verified | — |
+| TEST-066 | REQ-121 | verified | — |

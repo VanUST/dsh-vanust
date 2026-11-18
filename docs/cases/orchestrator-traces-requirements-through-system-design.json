@@ -27,21 +27,21 @@
   "surfaceFiles": [
     {
       "path": "plugins/analysis/analysis.mjs",
-      "sha256": "e5524516b191e4f95991d1848f6f2f15730157c9f0e4a876cd300846a8bc665b"
+      "sha256": "5d5116d59ddc3492bdc0c5477348c07483bcc47cc106c2f5f33268d3e8ac132b"
     },
     {
       "path": "plugins/analysis/store.mjs",
-      "sha256": "36575e7cad7fff78f534926a27f4e4dd433f3046bb384a4ac727950a1b46351d"
+      "sha256": "01a4b56e7c425d70f243e8be208786dcd1152299f1052ba01af37fc2162a6746"
     },
     {
       "path": "plugins/orchestrator/orchestrator.mjs",
-      "sha256": "b3ccf48bcdf0b9e8df029cf595c19458b71c5b2fd8b4eba5a9a1257579948939"
+      "sha256": "625c5b9b453b50de2058837da15984ab681579088cdfc202f86395b4bcd2b9e9"
     }
   ],
   "linkedTaskId": "task-mwf3lroq-ii7skg",
-  "revision": 10,
+  "revision": 11,
   "createdAt": "2026-11-13T14:55:20.590Z",
-  "updatedAt": "2026-11-13T16:28:57.859Z",
+  "updatedAt": "2026-11-18T13:02:12.191Z",
   "createdBy": "orchestrator",
   "createdByKind": "agent",
   "history": [
@@ -168,6 +168,13 @@
       "editedBy": "agent",
       "action": "verified",
       "notes": "Round-4 fixes: trace mapping in the semantic fingerprint/impact, deferred/rejected status as a semantic change, trace-task removal refused at any status, explicit legacyAttach:true instead of timestamp inference. Red is a scratch copy with those four fixes reverted (89/93). Green 93/93 on @cc/dsh-analysis 0.1.4 / @cc/dsh-orchestrator 0.1.43. A real second server additionally observed the positive task_close path: analysis_upsert rev2 ready with proven requirement + evidence, task_close ok:true status done."
+    },
+    {
+      "revision": 10,
+      "at": "2026-11-18T13:02:12.191Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
     }
   ],
   "evidence": {
@@ -188,9 +195,43 @@
   "testPath": "scripts/analysis-before-decomposition-proof.mjs",
   "runCommand": "node scripts/analysis-before-decomposition-proof.mjs",
   "lastVerified": {
-    "at": "2026-11-13T16:28:57.858Z",
+    "at": "2026-11-18T13:02:12.191Z",
     "command": "node scripts/analysis-before-decomposition-proof.mjs",
-    "exitCode": 0
+    "exitCode": 0,
+    "runId": "mwm4s32l-gy6kv-1",
+    "source": "runner",
+    "commit": null
   },
-  "degraded": false
+  "degraded": false,
+  "runs": [
+    {
+      "runId": "mwm4s32l-gy6kv-1",
+      "at": "2026-11-18T13:02:12.190Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 2278,
+      "commandSha256": "f08695b9c35af0a8082f736071c2cafeb6cd5ff835773ae271b4cb7c608fb7f9",
+      "head": "f554145a1c5c1d83b9039a4f7641950c0d517e37",
+      "dirty": true,
+      "stdout": "docs/cases/runs/orchestrator-traces-requirements-through-system-design/mwm4s32l-gy6kv-1/stdout.log",
+      "stderr": "docs/cases/runs/orchestrator-traces-requirements-through-system-design/mwm4s32l-gy6kv-1/stderr.log",
+      "summary": "docs/cases/runs/orchestrator-traces-requirements-through-system-design/mwm4s32l-gy6kv-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ]
 }

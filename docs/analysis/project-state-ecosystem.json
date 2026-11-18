@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "project-state-ecosystem",
-  "rev": 51,
+  "rev": 52,
   "status": "completed",
   "createdAt": "2026-11-17T13:19:07.274Z",
-  "updatedAt": "2026-11-17T16:55:15.030Z",
+  "updatedAt": "2026-11-18T12:54:32.739Z",
   "updatedBy": "agent",
   "title": "Экосистема состояния проекта и экономика контекста — v1",
   "requestedSolution": "Реализовать v1 дизайна от 2026-11-17 в порядке §10: (1) контекст-фундамент — allow-list в tool-families, диета схем и линтер, контракт слоёв L0–L3, новый хост-плагин state-feed (L1 первым сообщением, L2-дельты по хешу, инъекции как session events), MCP только для ux, Hindsight воркерам убран, context-budget.mjs с предупреждением и красным гейтом >1.5×; (2) ядро ccProjectState — файл на сущность в state/, ID под локом, связи с хешами, CAS, журнал, verify, регенерация проекций; (3) policy-плагин (fs/tools/sandbox) с запретами записи и трипвайром; (4) эволюция analysis в реестр REQ; (5) taskboard с reqId/chore и CAS через ядро; (6) раннер red→green с evidence вне writable-области; (7) оркестратор с брифом из обвязки, структурированным возвратом, cold-start гейтом и снимками; (8) миграции и доводка проекций; (9) дисциплина языка. v2 не трогать.",
@@ -1197,14 +1197,6 @@
   "fingerprint": "bec15563963933c7a51237e0bf313dc9b92d80e6a8daf3eafe1b9d537ad475c9",
   "history": [
     {
-      "revision": 2,
-      "at": "2026-11-17T13:19:20.232Z",
-      "editedBy": "agent",
-      "action": "upsert",
-      "status": "ready",
-      "summary": ""
-    },
-    {
       "revision": 3,
       "at": "2026-11-17T13:19:35.474Z",
       "editedBy": "agent",
@@ -1595,6 +1587,14 @@
       "action": "upsert",
       "status": "completed",
       "summary": "requirements: FR16 added; impacts: 2"
+    },
+    {
+      "revision": 52,
+      "at": "2026-11-18T12:54:32.739Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "completed",
+      "summary": ""
     }
   ]
 }

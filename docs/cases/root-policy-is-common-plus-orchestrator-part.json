@@ -1,0 +1,140 @@
+{
+  "schemaVersion": 1,
+  "id": "root-policy-is-common-plus-orchestrator-part",
+  "title": "Root policy is common plus orchestrator part",
+  "requirement": "Every root agent reads the common working policy (Batch the work, Answering is not work, Report once), while the orchestrator-specific part (roles, delegation rules, the task ledger claim) is rendered only for the orchestrator preset; a delegated child gets only CHILD_POLICY.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "plugins/orchestrator/test/policy-gating.test.mjs",
+  "runCommand": "node --test plugins/orchestrator/test/policy-gating.test.mjs",
+  "steps": [
+    "apply the orchestrator plugin on a fake context and capture the policy section text for three agents",
+    "a cordis root: assert the common markers are present and no orchestrator marker is",
+    "an orchestrator root: assert both parts are present, common first",
+    "a delegated child: assert the text is exactly CHILD_POLICY",
+    "assert the module header no longer claims both 'applies to every preset' and 'every other root gets no section'"
+  ],
+  "expected": "The test exits 0; the pre-P5 sources fail every gating assertion and the negative control expect-pre-fix fails on the fixed files.",
+  "tags": [
+    "policy",
+    "prompt",
+    "orchestrator",
+    "p5"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/orchestrator/orchestrator.mjs",
+      "sha256": "625c5b9b453b50de2058837da15984ab681579088cdfc202f86395b4bcd2b9e9"
+    },
+    {
+      "path": "plugins/orchestrator/test/policy-gating.test.mjs",
+      "sha256": "ff7be8d7bd11d5472ffb62df38affedf7e57bc0a9823597120add5750a7615c3"
+    }
+  ],
+  "linkedTaskId": "task-mwm4hppu-n64d9m",
+  "reqId": "REQ-118",
+  "authorRole": "BACKEND",
+  "negativeControl": "expect-pre-fix",
+  "revision": 3,
+  "createdAt": "2026-11-18T13:00:17.854Z",
+  "updatedAt": "2026-11-18T13:00:25.866Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-18T13:00:23.007Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-pre-fix\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-18T13:00:25.866Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mwm4pseu-3no3r-1",
+      "at": "2026-11-18T13:00:23.006Z",
+      "mode": "red",
+      "control": "expect-pre-fix",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 215,
+      "commandSha256": "d1106ee9752cea571d610184a3455734296045705ad466ef144580179fa3bd1d",
+      "head": "f554145a1c5c1d83b9039a4f7641950c0d517e37",
+      "dirty": true,
+      "stdout": "docs/cases/runs/root-policy-is-common-plus-orchestrator-part/mwm4pseu-3no3r-1/stdout.log",
+      "stderr": "docs/cases/runs/root-policy-is-common-plus-orchestrator-part/mwm4pseu-3no3r-1/stderr.log",
+      "summary": "docs/cases/runs/root-policy-is-common-plus-orchestrator-part/mwm4pseu-3no3r-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwm4puk7-yig4g-1",
+      "at": "2026-11-18T13:00:25.864Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 219,
+      "commandSha256": "d1106ee9752cea571d610184a3455734296045705ad466ef144580179fa3bd1d",
+      "head": "f554145a1c5c1d83b9039a4f7641950c0d517e37",
+      "dirty": true,
+      "stdout": "docs/cases/runs/root-policy-is-common-plus-orchestrator-part/mwm4puk7-yig4g-1/stdout.log",
+      "stderr": "docs/cases/runs/root-policy-is-common-plus-orchestrator-part/mwm4puk7-yig4g-1/stderr.log",
+      "summary": "docs/cases/runs/root-policy-is-common-plus-orchestrator-part/mwm4puk7-yig4g-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-18T13:00:23.007Z",
+    "runId": "mwm4pseu-3no3r-1",
+    "exitCode": 1,
+    "control": "expect-pre-fix",
+    "command": "node --test plugins/orchestrator/test/policy-gating.test.mjs",
+    "source": "negative-control"
+  },
+  "lastVerified": {
+    "at": "2026-11-18T13:00:25.866Z",
+    "command": "node --test plugins/orchestrator/test/policy-gating.test.mjs",
+    "exitCode": 0,
+    "runId": "mwm4puk7-yig4g-1",
+    "source": "runner",
+    "commit": null
+  }
+}

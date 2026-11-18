@@ -68,7 +68,7 @@ export function isRootAgent(agent) {
 /** The short policy the root reads every turn. Static text: no record is read here. */
 export const ANALYSIS_POLICY = `## Analysis before decomposition (deployment)
 
-An L1/L2 change starts with ONE Analysis Record in \`docs/analysis/<initiative>.json\` before you create or delegate tasks. An L0 question or a local fix needs none.
+An **L0 local edit** is a local fix with no contract, architecture or data change - a typo, a copy change, a one-file correction inside an existing behaviour. Do it **inline**: no Analysis Record, no case per requirement, no delegation; the task record and the report are enough. When the change touches a contract, the architecture or the data, it is not L0: an L1/L2 change starts with ONE Analysis Record in \`docs/analysis/<initiative>.json\` before you create or delegate tasks. A question needs no change at all.
 
 - \`analysis_upsert\` records the business outcome (separate from the requested solution), the process, BR/FR/NFR with acceptance, architecture and data ownership, contract impact, invariants, decisions, open questions and a trace row per requirement. Every edit of an existing record needs the \`expectedRev\` it read.
 - \`analysis_check\` must pass before the record can be \`ready\`. It names missing acceptance, missing component/data ownership, missing contract impact, a moved design map and an unresolved trace; it also reports completion as proven vs explicitly deferred.

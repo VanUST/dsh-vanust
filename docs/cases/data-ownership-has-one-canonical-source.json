@@ -25,21 +25,21 @@
   "surfaceFiles": [
     {
       "path": "plugins/analysis/store.mjs",
-      "sha256": "cb92ad1b4d80893494e0ca059e8fe159f6f355049c6b9fd5c61a4052215a4044"
+      "sha256": "01a4b56e7c425d70f243e8be208786dcd1152299f1052ba01af37fc2162a6746"
     },
     {
       "path": "plugins/analysis/analysis.mjs",
-      "sha256": "81988f3967088b92b3141f89895a7ce5437f8ebbe6475c975534522029855a8a"
+      "sha256": "5d5116d59ddc3492bdc0c5477348c07483bcc47cc106c2f5f33268d3e8ac132b"
     },
     {
       "path": "scripts/analysis-before-decomposition-proof.mjs",
-      "sha256": "1919f703a98541c565d250c0331428d6e7f0a9826b8bb54b778384fc786bfc1d"
+      "sha256": "fd635d4796c0e3fa06018e340a490362b5dbc4bd0817d0389234a16107d55137"
     }
   ],
   "linkedTaskId": "task-mwj27220-stljsf",
-  "revision": 9,
+  "revision": 10,
   "createdAt": "2026-11-16T09:27:00.421Z",
-  "updatedAt": "2026-11-16T10:10:48.483Z",
+  "updatedAt": "2026-11-18T13:02:08.888Z",
   "createdBy": "orchestrator",
   "createdByKind": "agent",
   "history": [
@@ -109,6 +109,13 @@
       "editedBy": "agent",
       "action": "verified",
       "notes": "Re-verified after checks 41/42. Green on committed 0.1.8 + completed record (e157e74), 130/130. Red is the same command against committed 0.1.4 bytes: 103/130, 27 FAIL; note 0.1.4 also cannot goal-validate the canonical completed record because its normalizer drops ownerComponentId."
+    },
+    {
+      "revision": 9,
+      "at": "2026-11-18T13:02:08.888Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
     }
   ],
   "evidence": {
@@ -129,18 +136,43 @@
   "testPath": "scripts/analysis-before-decomposition-proof.mjs",
   "runCommand": "node scripts/analysis-before-decomposition-proof.mjs",
   "lastVerified": {
-    "at": "2026-11-16T10:12:00.000Z",
+    "at": "2026-11-18T13:02:08.888Z",
     "command": "node scripts/analysis-before-decomposition-proof.mjs",
-    "exitCode": 0
+    "exitCode": 0,
+    "runId": "mwm4s0bm-qn93o-1",
+    "source": "runner",
+    "commit": null
   },
   "degraded": false,
-  "needsReverification": {
-    "at": "2026-11-16T09:57:39.486Z",
-    "changedFiles": [
-      "plugins/analysis/store.mjs",
-      "plugins/analysis/analysis.mjs",
-      "scripts/analysis-before-decomposition-proof.mjs"
-    ],
-    "reason": "surface files changed since lastVerified: plugins/analysis/store.mjs, plugins/analysis/analysis.mjs, scripts/analysis-before-decomposition-proof.mjs"
-  }
+  "runs": [
+    {
+      "runId": "mwm4s0bm-qn93o-1",
+      "at": "2026-11-18T13:02:08.887Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 2472,
+      "commandSha256": "f08695b9c35af0a8082f736071c2cafeb6cd5ff835773ae271b4cb7c608fb7f9",
+      "head": "f554145a1c5c1d83b9039a4f7641950c0d517e37",
+      "dirty": true,
+      "stdout": "docs/cases/runs/data-ownership-has-one-canonical-source/mwm4s0bm-qn93o-1/stdout.log",
+      "stderr": "docs/cases/runs/data-ownership-has-one-canonical-source/mwm4s0bm-qn93o-1/stderr.log",
+      "summary": "docs/cases/runs/data-ownership-has-one-canonical-source/mwm4s0bm-qn93o-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ]
 }

@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 1,
+  "id": "one-case-may-prove-a-batch-of-requirements",
+  "title": "One case may prove a batch of requirements",
+  "requirement": "The case policy says one case per accepted behaviour and allows one verified run to prove several requirements while the case keeps its primary reqId; case_gate passes a task covering three reqIds behind one verified automated case and still blocks an unverified one, with the case schema unchanged.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "plugins/test-cases/test/batch-gate.test.mjs",
+  "runCommand": "node --test plugins/test-cases/test/batch-gate.test.mjs",
+  "steps": [
+    "assert SECTION_FULL and SECTION_INTAKE carry the one-case-per-behaviour rule and allow several requirements, and the module header dropped 'one case per observed requirement'",
+    "write one verified automated case linked to a task that covers REQ-001..REQ-003 and call case_gate(taskId): ok true, no blockers",
+    "add an unverified automated case and a documented-only unverified case: the first blocks, the second never does"
+  ],
+  "expected": "The test exits 0; the pre-P5 module does not export the policy sections and the negative control expect-pre-fix fails on the fixed text.",
+  "tags": [
+    "policy",
+    "cases",
+    "gate",
+    "batch",
+    "p5"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/test-cases/test-cases.mjs",
+      "sha256": "04813c2c095b1104263af9889b46c233544ac6cb416e9e169af73a9939cbfab5"
+    },
+    {
+      "path": "plugins/test-cases/test/batch-gate.test.mjs",
+      "sha256": "2b86075e5c7d304bcbde236f505cad96b992e7fa55e307e7e0be2c85c0f27385"
+    }
+  ],
+  "linkedTaskId": "task-mwm4hppu-n64d9m",
+  "reqId": "REQ-120",
+  "authorRole": "BACKEND",
+  "negativeControl": "expect-pre-fix",
+  "revision": 3,
+  "createdAt": "2026-11-18T13:00:18.871Z",
+  "updatedAt": "2026-11-18T13:00:28.041Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-18T13:00:24.842Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-pre-fix\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-18T13:00:28.041Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mwm4ptsn-khcwg-1",
+      "at": "2026-11-18T13:00:24.841Z",
+      "mode": "red",
+      "control": "expect-pre-fix",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 266,
+      "commandSha256": "aa7dda0f792f9c0345820c237331098a47594ec0d3c3e9a31f304d2d688012d2",
+      "head": "f554145a1c5c1d83b9039a4f7641950c0d517e37",
+      "dirty": true,
+      "stdout": "docs/cases/runs/one-case-may-prove-a-batch-of-requirements/mwm4ptsn-khcwg-1/stdout.log",
+      "stderr": "docs/cases/runs/one-case-may-prove-a-batch-of-requirements/mwm4ptsn-khcwg-1/stderr.log",
+      "summary": "docs/cases/runs/one-case-may-prove-a-batch-of-requirements/mwm4ptsn-khcwg-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwm4pw9e-x4sr5-1",
+      "at": "2026-11-18T13:00:28.040Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 258,
+      "commandSha256": "aa7dda0f792f9c0345820c237331098a47594ec0d3c3e9a31f304d2d688012d2",
+      "head": "f554145a1c5c1d83b9039a4f7641950c0d517e37",
+      "dirty": true,
+      "stdout": "docs/cases/runs/one-case-may-prove-a-batch-of-requirements/mwm4pw9e-x4sr5-1/stdout.log",
+      "stderr": "docs/cases/runs/one-case-may-prove-a-batch-of-requirements/mwm4pw9e-x4sr5-1/stderr.log",
+      "summary": "docs/cases/runs/one-case-may-prove-a-batch-of-requirements/mwm4pw9e-x4sr5-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-18T13:00:24.842Z",
+    "runId": "mwm4ptsn-khcwg-1",
+    "exitCode": 1,
+    "control": "expect-pre-fix",
+    "command": "node --test plugins/test-cases/test/batch-gate.test.mjs",
+    "source": "negative-control"
+  },
+  "lastVerified": {
+    "at": "2026-11-18T13:00:28.041Z",
+    "command": "node --test plugins/test-cases/test/batch-gate.test.mjs",
+    "exitCode": 0,
+    "runId": "mwm4pw9e-x4sr5-1",
+    "source": "runner",
+    "commit": null
+  }
+}

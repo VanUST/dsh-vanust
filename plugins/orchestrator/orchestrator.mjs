@@ -4,8 +4,9 @@
  *   standard preset. It registers a root-only policy section on `agent/created`,
  *   a child-only specialist section, and a root-only `delegate_task` tool that
  *   creates a task in the taskboard, renders a self-contained brief, starts a
- *   flash child, and links the child id back to the task. The policy applies to
- *   every preset; a preset is a tool list, not a way to remember the policy.
+ *   flash child, and links the child id back to the task. The section always
+ *   carries the common working policy (batching, speed, one report, a question is
+ *   not work); the orchestrator-specific part is added only on POLICY_PRESET.
  *
  * INPUTS
  *   Config (all optional):
@@ -23,8 +24,9 @@
  *   are removed with it too. The root policy carries the workspace's existing
  *   roles, read from the ledger once per turn, and one sentence about the session's
  *   actual tool set, taken from the policy owner (`toolFamilies`) and frozen for the
- *   session. The root policy section is rendered only for the preset it describes
- *   (`POLICY_PRESET`); every other root gets no section.
+ *   session. The root section always renders the common working policy; the
+ *   orchestrator-specific part is rendered only for the preset it describes
+ *   (`POLICY_PRESET`), so every other root gets the common part alone.
  *
  * KEYWORDS
  *   orchestrator, delegate_task, task brief, scope, non-scope, flash child,
@@ -384,29 +386,34 @@ export const inject = ['tools', 'subagents', 'systemPrompt', 'taskboard']
 /**
  * The preset this root policy describes.
  *
- * A preset IS a role: its own tool list and its own persona. The orchestrator policy is a
- * statement about this one role, so a root running another preset (`cordis`, `backend`, the
- * hands-on `standard`) must not receive it - the fix for a policy applied to "any root" is a
- * gate by preset, not a more cautious wording.
+ * A preset IS a role: its own tool list and its own persona. The orchestrator-specific part
+ * (roles, delegation, the task ledger claim) is a statement about this one role, so a root
+ * running another preset (`cordis`, `backend`, the hands-on `standard`) must not receive it -
+ * the fix for a policy applied to "any root" is a gate by preset, not a more cautious wording.
+ * The common working policy (ROOT_COMMON_POLICY) is safe for every root and is always rendered.
  *
  * THE GATE RUNS AT PROMPT ASSEMBLY, NOT AT `agent/created`. A preset selected on a blank
  * session is committed before the first message, while the creation header still carries the
  * default (measured 2026-11-17: the registry projection answered nothing at `agent/created`
  * and the header said `orchestrator` after the user had chosen `cordis`). A decision taken in
  * the listener would therefore describe a role the session does not run. The section is
- * registered once and renders empty for every other preset; an empty section is omitted from
- * the system message.
+ * registered once and renders only the common part for every other preset.
  */
 export const POLICY_PRESET = 'orchestrator'
 
-/** Root policy: short enough to read every turn, specific enough to act on. */
-const ROOT_POLICY = `## Orchestration policy (deployment)
-
-You are the workspace orchestrator. **Work flows through the taskboard.**
+/** The common working policy every root reads, whatever preset it runs. */
+export const ROOT_COMMON_POLICY = `## Working policy (deployment)
 
 **Answering is not work.** A question, one lookup, an explanation, a review of a diff you were handed: answer it directly. No goal, no task, no child.
 
 **Report once, when the work is done.** A human who walked away reads the last message, not the seven before it, so an intermediate summary is tokens and attention spent twice. While a turn is still running, the taskboard note and the tool output are the record; write the report when the work is finished. A goal that continues on its own does not get a report per round either - one, at the end.
+
+**Batch the work; the task is the unit of acceptance.** One task covers a batch of steps or several requirements: pass \`reqIds\` and \`steps\` to \`task_create\` and the board shows \`done/total\`. A micro-edit inside an open task updates THAT task — no new task, no new \`reqId\`. Run the full gate ONCE at the boundary of the task (or of a closed batch), not after every edit: a green run per keystroke buys nothing and costs the turn. A one-line change or a question is not delegated: make it inline and keep the speed.`
+
+/** The orchestrator-specific part: roles, delegation and the task ledger claim. */
+export const ROOT_POLICY = `## Orchestration policy (deployment)
+
+You are the workspace orchestrator. **Work flows through the taskboard.**
 
 **Use the project's words, never a term you invented.** Every message the human reads - a report, an answer, a task note, a commit message - uses the vocabulary in \`docs/TERMINOLOGY.md\` (or the project's own terms, when it has them) and the human's own words for the human's concepts. Do not coin a name, abbreviation, compound or metaphor for a concept, and do not rename a concept the human already named. Internal identifiers - paths, function names, tool ids, statuses, codes - are evidence, not subjects: state the plain fact first, then cite the identifier in parentheses. If the glossary lacks a term you need, describe the thing in one plain sentence, or add the term to the glossary in the same task (definition plus the human-facing wording) before you use it. Read the report back once before sending it and replace every noun a reader who has not seen the code would not understand; a report that needs a decoder is not a report.
 
@@ -419,8 +426,6 @@ You are the workspace orchestrator. **Work flows through the taskboard.**
 That ledger is not bookkeeping for delegation: it is the record that outlives this session. The Tasks panel is where the human watches work in flight, and a task survives a restart that a session does not. **Each chat has its own board**: a new chat starts empty and the panel shows only this chat's tasks. The whole workspace history is still one call away with \`task_list\` scope \`workspace\` — use it when the human asks what was done before, or before reusing a role name. "What is left to do" is answered from the taskboard, not by re-reading a conversation.
 
 **Outline before the whole file — when the file is big or you need one symbol.** Call \`outline\` first when the target file is longer than ~400 lines, or when you need one symbol in a file you have not read: it returns symbols with line ranges for a few hundred bytes, and then \`read\` only that range. Skip the outline for short files (under ~200 lines), when you need most of the file anyway, or when the outline tool reports it is unavailable. Measured on this kit: outline alone cut 93% of the bytes and outline + the function body 92% versus a full read.
-
-**Batch the work; the task is the unit of acceptance.** One task covers a batch of steps or several requirements: pass \`reqIds\` and \`steps\` to \`task_create\` and the board shows \`done/total\`. A micro-edit inside an open task updates THAT task — no new task, no new \`reqId\`. Run the full gate ONCE at the boundary of the task (or of a closed batch), not after every edit: a green run per keystroke buys nothing and costs the turn. A one-line change or a question is not delegated: make it inline and keep the speed.
 
 **Delegation is one way to run a task, never the trigger for one.** \`delegate_task\` creates the task and starts a child for it; a task you execute yourself has the same lifecycle and the same record. Create the task first, then choose: do it inline, or delegate it.
 
@@ -1243,9 +1248,9 @@ export function apply(ctx, config = {}) {
         // travels through state-feed (L1 digest/snapshot, L2 delta) instead of being rerendered
         // into the prompt on every turn. Only the preset claim may vary, and it is fixed per
         // session.
-        return [ROOT_POLICY, policyFor(agent).claim].filter((part) => part !== '').join('\n\n')
+        return [ROOT_COMMON_POLICY, policyFor(agent).described ? ROOT_POLICY : '', policyFor(agent).claim].filter((part) => part !== '').join('\n\n')
       } catch {
-        return ROOT_POLICY
+        return ROOT_COMMON_POLICY
       }
     })
     if (isRoot) {
@@ -1259,10 +1264,10 @@ export function apply(ctx, config = {}) {
       agent.ctx.systemPrompt.section({
         name: isRoot ? 'deployment:orchestrator-policy' : 'deployment:specialist-policy',
         order: Number.isFinite(base) ? base + (isRoot ? 1 : 2) : (isRoot ? 121 : 122),
-        // Only the preset this policy describes gets the text. The decision is taken when the
-        // prompt is assembled (inside rootText), not when the section is registered; see
-        // POLICY_PRESET. An empty string removes the section from the system message.
-        text: isRoot ? () => (policyFor(agent).described ? rootText.text() : '') : CHILD_POLICY,
+        // The common working policy goes to every root; the orchestration part is added when
+        // the session runs POLICY_PRESET. The decision is taken when the prompt is assembled
+        // (inside rootText), not when the section is registered; see POLICY_PRESET.
+        text: isRoot ? () => rootText.text() : CHILD_POLICY,
       })
     }
     if (isRoot) {
@@ -1295,4 +1300,4 @@ export function apply(ctx, config = {}) {
   })
 }
 
-export { ROOT_POLICY, CHILD_POLICY }
+export { CHILD_POLICY }

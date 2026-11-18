@@ -1,0 +1,361 @@
+{
+  "schemaVersion": 1,
+  "id": "speed-over-bureaucracy",
+  "rev": 3,
+  "status": "completed",
+  "createdAt": "2026-11-18T12:53:48.148Z",
+  "updatedAt": "2026-11-18T13:08:58.184Z",
+  "updatedBy": "agent",
+  "title": "Скорость и группировка: противовес бюрократии для всех корневых агентов",
+  "requestedSolution": "Владелец 2026-11-18 согласился с четырьмя правками: (1) абзац «Batch the work» и правила скорости должны попадать в промпт любого корня, а не только пресета orchestrator; (2) политика анализа должна прямо называть локальную правку L0 — без записи анализа, без кейса на каждое требование и без делегации; (3) один кейс должен мочь покрывать пачку требований, если один прогон доказывает их все; (4) REQ-103 и TASK-226 закрыть в реестре.",
+  "businessOutcome": {
+    "problem": "Противовес бюрократии (батчинг, прогон на границе, inline-правки) живёт в разделе, который видит только пресет orchestrator; в чате на cordis есть раздел анализа и кейсов, но нет противовеса, поэтому процесс перевешивает.",
+    "outcome": "Правило видно каждому корневому агенту, локальная правка явно освобождена от полного цикла, один кейс может закрыть пачку требований, а реестр больше не держит открытыми уже реализованные правила.",
+    "successMetrics": []
+  },
+  "process": {
+    "current": [
+      {
+        "id": "SB-CUR",
+        "name": "Раздел спрятан",
+        "actors": [
+          "владелец"
+        ],
+        "steps": [
+          "Открывает чат на cordis",
+          "Видит анализ и кейсы в промпте",
+          "Не видит правил батчинга и скорости",
+          "Локальная правка тянет запись анализа и кейсы"
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "SB-TGT",
+        "name": "Правило видно всем",
+        "actors": [
+          "владелец"
+        ],
+        "steps": [
+          "Любой корень видит батчинг и скорость",
+          "Локальная правка — L0 inline",
+          "Один кейс на пачку требований",
+          "REQ-103/TASK-226 закрыты"
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "FR1",
+      "kind": "FR",
+      "text": "Раздел о батчинге и скорости виден в промпте любого корневого агента, независимо от пресета.",
+      "acceptance": [
+        "В промпте корня на пресете cordis есть абзац «Batch the work» и «Answering is not work»",
+        "Текст, специфичный для оркестратора (роли, делегирование, claim), остаётся только у пресета orchestrator",
+        "Тест на fake-контексте: cordis-корень получает общую часть, оркестратор — общую и свою, ребёнок — только CHILD_POLICY"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR2",
+      "kind": "FR",
+      "text": "Политика анализа прямо говорит, что локальная правка — это L0: без записи анализа, без кейса на каждое требование, без делегации.",
+      "acceptance": [
+        "ANALYSIS_POLICY содержит формулировку про L0-локальную правку и inline-исполнение",
+        "L0 по-прежнему проходит delegate_task без analysisId, а L1/L2 без записи не проходят",
+        "Текст не расширяет L0 на изменения с контрактом или архитектурой"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR3",
+      "kind": "FR",
+      "text": "Один кейс может покрывать пачку требований, когда один прогон доказывает их все.",
+      "acceptance": [
+        "Политика кейсов говорит «один кейс на принятое поведение» и допускает несколько REQ в одном кейсе",
+        "case_gate пропускает задачу с тремя reqIds, если к ней привязан один verified automated кейс",
+        "Схема кейса не меняется: у кейса остаётся первичный reqId"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR4",
+      "kind": "FR",
+      "text": "REQ-103 и TASK-226 закрыты в реестре как выполненные.",
+      "acceptance": [
+        "state/req/REQ-103.md имеет status done",
+        "TASK-226 имеет status done с evidence: коммит a0fd37c и раздел в установленном 0.1.58",
+        "Запись project-state-ecosystem FR15 остаётся proven"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "NFR1",
+      "kind": "NFR",
+      "text": "Промпт и условия приёмки не ломаются.",
+      "acceptance": [
+        "make verify — exit 0, 17/17 + документация",
+        "Тесты плагинов orchestrator/analysis/test-cases зелёные",
+        "Раздел промпта стабилен в пределах хода (INV-PROMPT-FROZEN не нарушен)"
+      ],
+      "status": "deferred",
+      "reason": "Инвариант «ничего не сломалось» измерен зелёным: make verify 17/17 + документация, тесты трёх плагинов 37/37. Красную сторону дали бы только искусственно сломанные исходники; отдельная red→green пара для инварианта не имеет смысла, поэтому требование явно отложено, а не помечено proven"
+    }
+  ],
+  "architecture": {
+    "contractImpact": "none",
+    "components": [
+      {
+        "id": "orchestrator-policy",
+        "name": "@cc/dsh-orchestrator",
+        "responsibility": "разделы ROOT_POLICY/CHILD_POLICY: выделить общую часть про скорость и батчинг и оставить оркестратор-специфичную под пресетом",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": []
+      },
+      {
+        "id": "analysis-policy",
+        "name": "@cc/dsh-analysis",
+        "responsibility": "ANALYSIS_POLICY: пропорциональность L0/L1/L2 и запрет полного цикла для локальной правки",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": []
+      },
+      {
+        "id": "test-cases-policy",
+        "name": "@cc/dsh-test-cases",
+        "responsibility": "SECTION_FULL/SECTION_INTAKE и case_gate: один кейс на принятое поведение, допускается пачка REQ",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": []
+      },
+      {
+        "id": "project-state-register",
+        "name": "@cc/dsh-project-state + taskboard",
+        "responsibility": "REQ/TASK проекции и их закрытие: REQ-103 через зеркало анализа, TASK-226 через task_close",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": []
+      }
+    ]
+  },
+  "data": [],
+  "contracts": [],
+  "invariants": [
+    {
+      "id": "INV1",
+      "text": "Раздел промпта не меняется внутри хода (INV-PROMPT-FROZEN)",
+      "scope": ""
+    },
+    {
+      "id": "INV2",
+      "text": "Один кейс с первичным reqId не отменяет требования кейса: automated-кейс обязан быть verified и привязан к задаче",
+      "scope": ""
+    }
+  ],
+  "decisions": [
+    {
+      "id": "D1",
+      "decision": "Разделить ROOT_POLICY на общую часть (батчинг, скорость, отчёт один раз) и оркестратор-специфичную (роли, делегирование, claim); общую рендерить всем корням",
+      "rationale": "Всем корням нужен противовес, но текст про роли и детей неверен для UX/UI или REVIEWER-корня",
+      "alternatives": [
+        "включить весь ROOT_POLICY всем",
+        "оставить как есть"
+      ]
+    },
+    {
+      "id": "D2",
+      "decision": "L0 — локальная правка без контракта, архитектуры и данных; текст политики анализа не расширяет L0 на L1/L2",
+      "rationale": "Иначе «локальная правка» станет лазейкой в обход записи анализа",
+      "alternatives": [
+        "вообще убрать L0"
+      ]
+    },
+    {
+      "id": "D3",
+      "decision": "Один кейс на принятое поведение; первичный reqId остаётся обязательным, остальные REQ называются в тексте кейса; схему не менять",
+      "rationale": "case_gate уже не требует кейс на каждый REQ — блокирует только непроверенный automated-кейс, привязанный к задаче",
+      "alternatives": [
+        "добавить reqIds в схему кейса и TEST (L2)"
+      ]
+    },
+    {
+      "id": "D4",
+      "decision": "REQ-103 закрыть через upsert записи project-state-ecosystem (зеркало requirements → REQ), TASK-226 — через доску",
+      "rationale": "REQ пишет только зеркало анализа; TASK закрывается таскбордом",
+      "alternatives": [
+        "править state/req вручную (запрещено)"
+      ]
+    },
+    {
+      "id": "D5",
+      "decision": "TASK-226 в проекции висел open, потому что строка доски V4.1 не имела reqId и зеркало отказывало req_required; ремонт — связать строку с REQ-103 через reqIds, а не править state/task руками",
+      "rationale": "Зеркало пишет TASK только при выполненном req_required; проекция, созданная миграцией, не обновлялась",
+      "alternatives": [
+        "править state/task вручную",
+        "удалить TASK-226 из проекции"
+      ]
+    }
+  ],
+  "openQuestions": [
+    {
+      "id": "Q1",
+      "question": "Промпт меняется для всех корней после установки тарболов orchestrator 0.1.59 / analysis 0.1.14 / test-cases 0.1.16; проверить в живой сессии после перезапуска профиля",
+      "owner": "human",
+      "blocks": false,
+      "answer": ""
+    }
+  ],
+  "sizing": {
+    "class": "L1",
+    "reasons": [
+      "тексты и гating разделов трёх kit-плагинов",
+      "закрытие двух записей реестра",
+      "без новых контрактов и данных"
+    ]
+  },
+  "designRef": {
+    "mapRev": 0,
+    "at": "2026-11-18T12:58:00.000Z",
+    "source": "designmap/manifest.json"
+  },
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "FR1",
+      "processId": "SB-TGT",
+      "componentId": "orchestrator-policy",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwm4hppu-n64d9m",
+          "role": "BACKEND",
+          "at": "2026-11-18T13:02:00.000Z",
+          "evidence": [
+            "orchestrator.mjs: ROOT_COMMON_POLICY рендерится любому корню (rootText: [COMMON, described ? ROOT_POLICY : '', claim]); POLICY_PRESET остался только для оркестраторской части",
+            "тест policy-gating.test.mjs: cordis-корень получает общий раздел, orchestrator — общий и свой, ребёнок — только CHILD_POLICY; вместе с analysis/test-cases 12/12 pass, контроли expect-pre-fix exit 1 ×3",
+            "кейс root-policy-is-common-plus-orchestrator-part (REQ-118): red exit 1 → green exit 0, verified",
+            "тарбол orchestrator 0.1.59 содержит ROOT_COMMON_POLICY (4 вхождения)"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR2",
+      "processId": "SB-TGT",
+      "componentId": "analysis-policy",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwm4hppu-n64d9m",
+          "role": "BACKEND",
+          "at": "2026-11-18T13:02:00.000Z",
+          "evidence": [
+            "ANALYSIS_POLICY: абзац про L0 (строка 71) — inline, без записи анализа и кейса на требование; граница contract/architecture/data",
+            "тест policy-l0.test.mjs зелёный, контроль exit 1; вместе с двумя другими 12/12",
+            "кейс analysis-policy-names-the-l0-local-edit (REQ-119): red→green, verified",
+            "тарбол analysis 0.1.14 содержит текст L0"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR3",
+      "processId": "SB-TGT",
+      "componentId": "test-cases-policy",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwm4hppu-n64d9m",
+          "role": "BACKEND",
+          "at": "2026-11-18T13:02:00.000Z",
+          "evidence": [
+            "политика кейсов: one case per accepted behaviour (SECTION_FULL/SECTION_INTAKE и шапка модуля), первичный reqId сохраняется",
+            "тест batch-gate.test.mjs: задача с тремя reqIds и одним verified automated кейсом проходит gate; контроль exit 1",
+            "кейс one-case-may-prove-a-batch-of-requirements (REQ-120): red→green, verified",
+            "тарбол test-cases 0.1.16 содержит текст; схема кейса не менялась"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR4",
+      "processId": "SB-TGT",
+      "componentId": "project-state-register",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwm4hppu-n64d9m",
+          "role": "BACKEND",
+          "at": "2026-11-18T13:02:00.000Z",
+          "evidence": [
+            "state/req/REQ-103.md: status done (зеркало project-state-ecosystem rev 52)",
+            "state/task/TASK-226.md: status done, reqIds [REQ-103]; строка доски revision 10, зеркало ответило updated",
+            "причина простоя: строка V4.1 не имела reqId, зеркало отказывало req_required; после связи с REQ-103 проекция обновилась",
+            "кейс register-batch-rule-is-closed (REQ-121): снимок pre-fix-register → exit 1 / violations 2 с названными нарушениями; текущий реестр → exit 0 / 0, verified"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "NFR1",
+      "processId": "SB-TGT",
+      "componentId": "orchestrator-policy",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwm4hppu-n64d9m",
+          "role": "BACKEND",
+          "at": "2026-11-18T13:02:00.000Z",
+          "evidence": [
+            "make verify: exit 0, 17/17 portability and packaging checks passed, documentation ok, glossary ok",
+            "тесты трёх плагинов 37/37; три новых 12/12; контроли expect-pre-fix exit 1 ×3",
+            "три тарбола 0.1.59/0.1.14/0.1.16, список 25→25, изменены ровно три строки",
+            "стабильность в пределах хода: новых чтений леджера в рендере нет, freezePerTurn не менялся"
+          ]
+        }
+      ],
+      "reason": "Зелёная сторона измерена (make verify 17/17 + документация, 37/37 тестов); красной стороны у инварианта нет без искусственно сломанных исходников, поэтому отдельная пара не заводится"
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "ff0893adf2b3f2082cccce5615956aabe4d2161248817dd39d8d28f65d9a1be2",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-18T12:53:48.148Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-18T12:54:12.173Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwm4hppu-n64d9m -> FR1, FR2, FR3"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-18T13:08:58.184Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "completed",
+      "summary": "requirements: FR2 changed, FR3 changed, NFR1 changed; impacts: 4"
+    }
+  ]
+}

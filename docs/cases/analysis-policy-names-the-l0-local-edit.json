@@ -1,0 +1,138 @@
+{
+  "schemaVersion": 1,
+  "id": "analysis-policy-names-the-l0-local-edit",
+  "title": "Analysis policy names the L0 local edit",
+  "requirement": "ANALYSIS_POLICY says a local fix is an L0 local edit done inline: no Analysis Record, no case per requirement, no delegation; it does not extend L0 to a contract, architecture or data change, and the delegation gate still passes L0 without an analysisId while refusing L1/L2 without a ready record.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "plugins/analysis/test/policy-l0.test.mjs",
+  "runCommand": "node --test plugins/analysis/test/policy-l0.test.mjs",
+  "steps": [
+    "assert the policy text names the L0 local edit, inline execution and each exemption, and keeps L0 away from contract/architecture/data",
+    "call the analysis gate with L0 and assert it passes with no record",
+    "call it with L1 and L2 and assert analysis_required; an unclassified delegation is gated like L1"
+  ],
+  "expected": "The test exits 0; the pre-P5 policy text fails the wording assertions and the negative control expect-pre-fix fails on the fixed text.",
+  "tags": [
+    "policy",
+    "analysis",
+    "l0",
+    "p5"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/analysis/analysis.mjs",
+      "sha256": "5d5116d59ddc3492bdc0c5477348c07483bcc47cc106c2f5f33268d3e8ac132b"
+    },
+    {
+      "path": "plugins/analysis/test/policy-l0.test.mjs",
+      "sha256": "148689c5f0582a46d36054fc2f1d43fcf454c488bce9d4fe5efa9246e313a873"
+    }
+  ],
+  "linkedTaskId": "task-mwm4hppu-n64d9m",
+  "reqId": "REQ-119",
+  "authorRole": "BACKEND",
+  "negativeControl": "expect-pre-fix",
+  "revision": 3,
+  "createdAt": "2026-11-18T13:00:18.091Z",
+  "updatedAt": "2026-11-18T13:00:27.021Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-18T13:00:23.938Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-pre-fix\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-18T13:00:27.021Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mwm4pt3x-n3y7y-1",
+      "at": "2026-11-18T13:00:23.937Z",
+      "mode": "red",
+      "control": "expect-pre-fix",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 202,
+      "commandSha256": "6972037ace06f0a95656991dc93797e65dbf209f6e4f85dab8775277e55affb8",
+      "head": "f554145a1c5c1d83b9039a4f7641950c0d517e37",
+      "dirty": true,
+      "stdout": "docs/cases/runs/analysis-policy-names-the-l0-local-edit/mwm4pt3x-n3y7y-1/stdout.log",
+      "stderr": "docs/cases/runs/analysis-policy-names-the-l0-local-edit/mwm4pt3x-n3y7y-1/stderr.log",
+      "summary": "docs/cases/runs/analysis-policy-names-the-l0-local-edit/mwm4pt3x-n3y7y-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwm4pvfr-x3sr7-1",
+      "at": "2026-11-18T13:00:27.020Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 219,
+      "commandSha256": "6972037ace06f0a95656991dc93797e65dbf209f6e4f85dab8775277e55affb8",
+      "head": "f554145a1c5c1d83b9039a4f7641950c0d517e37",
+      "dirty": true,
+      "stdout": "docs/cases/runs/analysis-policy-names-the-l0-local-edit/mwm4pvfr-x3sr7-1/stdout.log",
+      "stderr": "docs/cases/runs/analysis-policy-names-the-l0-local-edit/mwm4pvfr-x3sr7-1/stderr.log",
+      "summary": "docs/cases/runs/analysis-policy-names-the-l0-local-edit/mwm4pvfr-x3sr7-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-18T13:00:23.938Z",
+    "runId": "mwm4pt3x-n3y7y-1",
+    "exitCode": 1,
+    "control": "expect-pre-fix",
+    "command": "node --test plugins/analysis/test/policy-l0.test.mjs",
+    "source": "negative-control"
+  },
+  "lastVerified": {
+    "at": "2026-11-18T13:00:27.021Z",
+    "command": "node --test plugins/analysis/test/policy-l0.test.mjs",
+    "exitCode": 0,
+    "runId": "mwm4pvfr-x3sr7-1",
+    "source": "runner",
+    "commit": null
+  }
+}
