@@ -2,7 +2,7 @@
 
 GENERATED — DO NOT EDIT.
 
-REQ 117 · TASK 234 · TEST 59 · event 457
+REQ 117 · TASK 234 · TEST 62 · event 474
 
 ## Gaps
 
@@ -10,7 +10,7 @@ REQ 117 · TASK 234 · TEST 59 · event 457
 - TASK without reqId: 234
 - TEST without reqId: 51
 
-## Open requirements (14)
+## Open requirements (11)
 
 - REQ-071 proposed: План, принятые требования и способ их проверки живут в репозитории проекта.
 - REQ-076 proposed: Схемы инструментов короткие; линтер предупреждает.
@@ -23,9 +23,6 @@ REQ 117 · TASK 234 · TEST 59 · event 457
 - REQ-112 proposed: После подтверждения запись llm-pi-ai/openai-codex лежит в хранилище харнесса и маршрут openai-codex 
 - REQ-113 proposed: Вход можно отменить и повторить, не оставив зависший поток.
 - REQ-114 proposed: Секрет не печатается, а отказы названы.
-- REQ-115 proposed: Рядом с иконкой State в верхней панели видны три счётчика: невыполненные задачи / активные задачи / 
-- REQ-116 proposed: В панели состояния у доски задач есть режим списка и сортировка: по умолчанию сверху самые релевантн
-- REQ-117 proposed: Счётчики и список читают проекции и не пишут ничего.
 
 ## Open work (83)
 
@@ -39,4 +36,9 @@ REQ 117 · TASK 234 · TEST 59 · event 457
 - TASK-061 open: Case library: exploratory testing persisted as reproducible cases
 - TASK-072 open: Auto-converge the kit on every dsh boot
 - TASK-226 open: V4.1: батчинг работы — задача как пачка шагов, проверка на границе (FR15)
+- TASK-229 open: V6.2: pack-plugin не должен удалять тарболы соседних плагинов по общему префиксу
+- TASK-233 open: OpenAI Codex: вход по подписке через инструмент харнесса
+- TASK-094 active: Test cases panel proof, round 2
+- TASK-113 active: Create and extend orchestrator write fixture
+- TASK-184 active: Документ для ревью: харнесс, пресеты, плагины и системные промпты
 [truncated: the digest budget is 3072 bytes; read index.json or state/req/]

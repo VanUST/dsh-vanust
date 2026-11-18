@@ -1,0 +1,170 @@
+{
+  "schemaVersion": 1,
+  "id": "state-header-shows-three-counters",
+  "title": "State header shows three counters",
+  "requirement": "The State button in the session header shows three numbers in order — unfinished tasks, active tasks, active subagents — each named in aria-label, with the count area stated: tasks from the workspace projections, subagents from live child sessions of the chat. Zero shows as 0; a read error shows — with the error in title and the button still opens the panel.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "plugins/project-state-panel/test/counts-and-sort.test.mjs",
+  "runCommand": "node --test plugins/project-state-panel/test/counts-and-sort.test.mjs",
+  "steps": [
+    "load the real client module through a loader stand-in and assert the exported taskCounts and activeSubagents helpers",
+    "assert unfinished excludes done/cancelled, active counts the status active, and running descendants of this chat root are counted while idle, foreign and non-subagent sessions are not",
+    "assert the header aria-label names the workspace task area and the this-chat subagent area",
+    "run the test on the fixed files: exit 0, violations 0; CASE_NEGATIVE_CONTROL=expect-pre-fix: exit 1, three named violations",
+    "run over the panel client from git HEAD: exit 1, violations 1"
+  ],
+  "expected": "The static/unit test exits 0 with zero violations on the fixed files; the negative control and the git HEAD client exit 1 and name the missing helpers and header counters.",
+  "tags": [
+    "panel",
+    "state",
+    "counters",
+    "header",
+    "p3"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/project-state-panel/client.js",
+      "sha256": "2ffd461a5a9d4041eb39f130f4213a24963ed83c01dda226e1a855271fd8dbab"
+    },
+    {
+      "path": "plugins/project-state-panel/test/counts-and-sort.test.mjs",
+      "sha256": "919d0d8f22280a17cf2987b4e63f730730c3ac0ab839931541945886f362c86b"
+    }
+  ],
+  "linkedTaskId": "task-mwm3mmo3-08soxt",
+  "reqId": "REQ-115",
+  "authorRole": "BACKEND",
+  "checks": [
+    {
+      "name": "violations",
+      "metric": "violations",
+      "op": "==",
+      "threshold": 0
+    }
+  ],
+  "negativeControl": "expect-pre-fix",
+  "revision": 3,
+  "createdAt": "2026-11-18T12:46:00.311Z",
+  "updatedAt": "2026-11-18T12:46:10.318Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-18T12:46:06.510Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-pre-fix\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-18T12:46:10.318Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mwm47ffw-ghjgq-1",
+      "at": "2026-11-18T12:46:06.504Z",
+      "mode": "red",
+      "control": "expect-pre-fix",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 195,
+      "commandSha256": "a031b8f6dfc0556cb4c11bf53957a9c01074af7bdf5eb1b9e7f13df84a02552a",
+      "head": "fba3d945f217964fd73b7de32f8d706d4e9d47bc",
+      "dirty": true,
+      "stdout": "docs/cases/runs/state-header-shows-three-counters/mwm47ffw-ghjgq-1/stdout.log",
+      "stderr": "docs/cases/runs/state-header-shows-three-counters/mwm47ffw-ghjgq-1/stderr.log",
+      "summary": "docs/cases/runs/state-header-shows-three-counters/mwm47ffw-ghjgq-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "violations": 3
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        },
+        {
+          "name": "violations",
+          "metric": "violations",
+          "op": "==",
+          "measured": 3,
+          "threshold": 0,
+          "pass": false,
+          "reason": "3 is not == 0"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwm47idp-e7ubc-1",
+      "at": "2026-11-18T12:46:10.313Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 193,
+      "commandSha256": "a031b8f6dfc0556cb4c11bf53957a9c01074af7bdf5eb1b9e7f13df84a02552a",
+      "head": "fba3d945f217964fd73b7de32f8d706d4e9d47bc",
+      "dirty": true,
+      "stdout": "docs/cases/runs/state-header-shows-three-counters/mwm47idp-e7ubc-1/stdout.log",
+      "stderr": "docs/cases/runs/state-header-shows-three-counters/mwm47idp-e7ubc-1/stderr.log",
+      "summary": "docs/cases/runs/state-header-shows-three-counters/mwm47idp-e7ubc-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "violations": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "violations",
+          "metric": "violations",
+          "op": "==",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-18T12:46:06.510Z",
+    "runId": "mwm47ffw-ghjgq-1",
+    "exitCode": 1,
+    "control": "expect-pre-fix",
+    "command": "node --test plugins/project-state-panel/test/counts-and-sort.test.mjs",
+    "source": "negative-control"
+  },
+  "lastVerified": {
+    "at": "2026-11-18T12:46:10.318Z",
+    "command": "node --test plugins/project-state-panel/test/counts-and-sort.test.mjs",
+    "exitCode": 0,
+    "runId": "mwm47idp-e7ubc-1",
+    "source": "runner",
+    "commit": null
+  }
+}

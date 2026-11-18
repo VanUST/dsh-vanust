@@ -1,0 +1,168 @@
+{
+  "schemaVersion": 1,
+  "id": "counters-and-list-stay-read-only",
+  "title": "Counters and list stay read-only",
+  "requirement": "The State counters and the task list only read: state/views projections and the session snapshot, with no write command and no file write, so a broken read shows — and a message in title instead of breaking the header and the button keeps opening the panel.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "plugins/project-state-panel/test/counts-and-sort.test.mjs",
+  "runCommand": "node --test plugins/project-state-panel/test/counts-and-sort.test.mjs",
+  "steps": [
+    "assert the client source declares no workspaceFiles.write call and runs exactly one command: the read-only designmap views op",
+    "assert the counter error path renders — with the error in title and keeps the click handler that opens the panel",
+    "assert the list reads title/steps/updatedAt from the entity frontmatter rather than writing anything back",
+    "run the test on the fixed files: exit 0, violations 0; expect-pre-fix: exit 1; git HEAD client: exit 1"
+  ],
+  "expected": "The test exits 0 with zero violations on the fixed files and names the write call or the missing error path if either returns.",
+  "tags": [
+    "panel",
+    "state",
+    "read-only",
+    "p3"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/project-state-panel/client.js",
+      "sha256": "2ffd461a5a9d4041eb39f130f4213a24963ed83c01dda226e1a855271fd8dbab"
+    },
+    {
+      "path": "plugins/project-state-panel/test/counts-and-sort.test.mjs",
+      "sha256": "919d0d8f22280a17cf2987b4e63f730730c3ac0ab839931541945886f362c86b"
+    }
+  ],
+  "linkedTaskId": "task-mwm3mmo3-08soxt",
+  "reqId": "REQ-117",
+  "authorRole": "BACKEND",
+  "checks": [
+    {
+      "name": "violations",
+      "metric": "violations",
+      "op": "==",
+      "threshold": 0
+    }
+  ],
+  "negativeControl": "expect-pre-fix",
+  "revision": 3,
+  "createdAt": "2026-11-18T12:46:01.562Z",
+  "updatedAt": "2026-11-18T12:46:12.081Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-18T12:46:08.892Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-pre-fix\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-18T12:46:12.081Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mwm47h1r-2zh33-1",
+      "at": "2026-11-18T12:46:08.887Z",
+      "mode": "red",
+      "control": "expect-pre-fix",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 209,
+      "commandSha256": "a031b8f6dfc0556cb4c11bf53957a9c01074af7bdf5eb1b9e7f13df84a02552a",
+      "head": "fba3d945f217964fd73b7de32f8d706d4e9d47bc",
+      "dirty": true,
+      "stdout": "docs/cases/runs/counters-and-list-stay-read-only/mwm47h1r-2zh33-1/stdout.log",
+      "stderr": "docs/cases/runs/counters-and-list-stay-read-only/mwm47h1r-2zh33-1/stderr.log",
+      "summary": "docs/cases/runs/counters-and-list-stay-read-only/mwm47h1r-2zh33-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "violations": 3
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        },
+        {
+          "name": "violations",
+          "metric": "violations",
+          "op": "==",
+          "measured": 3,
+          "threshold": 0,
+          "pass": false,
+          "reason": "3 is not == 0"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwm47js8-a9bi2-1",
+      "at": "2026-11-18T12:46:12.076Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 184,
+      "commandSha256": "a031b8f6dfc0556cb4c11bf53957a9c01074af7bdf5eb1b9e7f13df84a02552a",
+      "head": "fba3d945f217964fd73b7de32f8d706d4e9d47bc",
+      "dirty": true,
+      "stdout": "docs/cases/runs/counters-and-list-stay-read-only/mwm47js8-a9bi2-1/stdout.log",
+      "stderr": "docs/cases/runs/counters-and-list-stay-read-only/mwm47js8-a9bi2-1/stderr.log",
+      "summary": "docs/cases/runs/counters-and-list-stay-read-only/mwm47js8-a9bi2-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "violations": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "violations",
+          "metric": "violations",
+          "op": "==",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-18T12:46:08.892Z",
+    "runId": "mwm47h1r-2zh33-1",
+    "exitCode": 1,
+    "control": "expect-pre-fix",
+    "command": "node --test plugins/project-state-panel/test/counts-and-sort.test.mjs",
+    "source": "negative-control"
+  },
+  "lastVerified": {
+    "at": "2026-11-18T12:46:12.081Z",
+    "command": "node --test plugins/project-state-panel/test/counts-and-sort.test.mjs",
+    "exitCode": 0,
+    "runId": "mwm47js8-a9bi2-1",
+    "source": "runner",
+    "commit": null
+  }
+}

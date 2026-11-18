@@ -1,0 +1,170 @@
+{
+  "schemaVersion": 1,
+  "id": "board-list-sorts-tasks",
+  "title": "Board list sorts tasks",
+  "requirement": "The Task board mode offers a Board/List switch; List renders a Status/Task/Requirement/Progress/Updated table with sort tags Relevance (default), Updated, Status and Title, each reflecting the choice through aria-pressed. Relevance is active → blocked → review → open → done → cancelled, then more steps done, then updatedAt descending, then id.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "plugins/project-state-panel/test/counts-and-sort.test.mjs",
+  "runCommand": "node --test plugins/project-state-panel/test/counts-and-sort.test.mjs",
+  "steps": [
+    "assert the exported sortTasks Relevance order, its three tie-breaks and the Updated, Status and Title orders on fixed fixtures",
+    "assert sorting returns a copy and never mutates the projection rows",
+    "assert taskRow merges the entity frontmatter title, steps/stepsDone, reqIds and updatedAt and falls back to the projection row",
+    "assert the source carries the Board/List toggle, the sort tags with aria-pressed, the five column headers and the ps-tasklist table",
+    "run the test on the fixed files: exit 0, violations 0; expect-pre-fix: exit 1; git HEAD client: exit 1"
+  ],
+  "expected": "The test exits 0 with zero violations on the fixed files and names the wrong order, tie-break, mutation or missing list markup when the behaviour regresses.",
+  "tags": [
+    "panel",
+    "state",
+    "task-list",
+    "sorting",
+    "p3"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/project-state-panel/client.js",
+      "sha256": "2ffd461a5a9d4041eb39f130f4213a24963ed83c01dda226e1a855271fd8dbab"
+    },
+    {
+      "path": "plugins/project-state-panel/test/counts-and-sort.test.mjs",
+      "sha256": "919d0d8f22280a17cf2987b4e63f730730c3ac0ab839931541945886f362c86b"
+    }
+  ],
+  "linkedTaskId": "task-mwm3mmo3-08soxt",
+  "reqId": "REQ-116",
+  "authorRole": "BACKEND",
+  "checks": [
+    {
+      "name": "violations",
+      "metric": "violations",
+      "op": "==",
+      "threshold": 0
+    }
+  ],
+  "negativeControl": "expect-pre-fix",
+  "revision": 3,
+  "createdAt": "2026-11-18T12:46:00.640Z",
+  "updatedAt": "2026-11-18T12:46:11.186Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-18T12:46:07.543Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-pre-fix\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-18T12:46:11.186Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mwm47g8w-kstww-1",
+      "at": "2026-11-18T12:46:07.539Z",
+      "mode": "red",
+      "control": "expect-pre-fix",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 190,
+      "commandSha256": "a031b8f6dfc0556cb4c11bf53957a9c01074af7bdf5eb1b9e7f13df84a02552a",
+      "head": "fba3d945f217964fd73b7de32f8d706d4e9d47bc",
+      "dirty": true,
+      "stdout": "docs/cases/runs/board-list-sorts-tasks/mwm47g8w-kstww-1/stdout.log",
+      "stderr": "docs/cases/runs/board-list-sorts-tasks/mwm47g8w-kstww-1/stderr.log",
+      "summary": "docs/cases/runs/board-list-sorts-tasks/mwm47g8w-kstww-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "violations": 3
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        },
+        {
+          "name": "violations",
+          "metric": "violations",
+          "op": "==",
+          "measured": 3,
+          "threshold": 0,
+          "pass": false,
+          "reason": "3 is not == 0"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwm47j4l-1n18z-1",
+      "at": "2026-11-18T12:46:11.181Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 201,
+      "commandSha256": "a031b8f6dfc0556cb4c11bf53957a9c01074af7bdf5eb1b9e7f13df84a02552a",
+      "head": "fba3d945f217964fd73b7de32f8d706d4e9d47bc",
+      "dirty": true,
+      "stdout": "docs/cases/runs/board-list-sorts-tasks/mwm47j4l-1n18z-1/stdout.log",
+      "stderr": "docs/cases/runs/board-list-sorts-tasks/mwm47j4l-1n18z-1/stderr.log",
+      "summary": "docs/cases/runs/board-list-sorts-tasks/mwm47j4l-1n18z-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "violations": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "violations",
+          "metric": "violations",
+          "op": "==",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-18T12:46:07.543Z",
+    "runId": "mwm47g8w-kstww-1",
+    "exitCode": 1,
+    "control": "expect-pre-fix",
+    "command": "node --test plugins/project-state-panel/test/counts-and-sort.test.mjs",
+    "source": "negative-control"
+  },
+  "lastVerified": {
+    "at": "2026-11-18T12:46:11.186Z",
+    "command": "node --test plugins/project-state-panel/test/counts-and-sort.test.mjs",
+    "exitCode": 0,
+    "runId": "mwm47j4l-1n18z-1",
+    "source": "runner",
+    "commit": null
+  }
+}

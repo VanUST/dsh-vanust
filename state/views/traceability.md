@@ -118,9 +118,9 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | REQ-112 | proposed | — | — | — | no |
 | REQ-113 | proposed | — | — | — | no |
 | REQ-114 | proposed | — | — | — | no |
-| REQ-115 | proposed | — | — | — | no |
-| REQ-116 | proposed | — | — | — | no |
-| REQ-117 | proposed | — | — | — | no |
+| REQ-115 | done | — | TEST-060 | — | no |
+| REQ-116 | done | — | TEST-061 | — | no |
+| REQ-117 | done | — | TEST-062 | — | no |
 
 ## Tests
 
@@ -185,3 +185,6 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | TEST-057 | REQ-108 | verified | — |
 | TEST-058 | REQ-109 | verified | — |
 | TEST-059 | REQ-110 | verified | — |
+| TEST-060 | REQ-115 | verified | — |
+| TEST-061 | REQ-116 | verified | — |
+| TEST-062 | REQ-117 | verified | — |

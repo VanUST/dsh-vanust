@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "state-counts-and-task-list",
-  "rev": 2,
-  "status": "ready",
+  "rev": 3,
+  "status": "completed",
   "createdAt": "2026-11-18T12:29:47.303Z",
-  "updatedAt": "2026-11-18T12:39:13.265Z",
+  "updatedAt": "2026-11-18T12:50:00.505Z",
   "updatedBy": "agent",
   "title": "Счётчики у State и режим списка задач с сортировкой",
   "requestedSolution": "Владелец 2026-11-18: (1) рядом с иконкой State в верхней панели показывать число невыполненных задач / активных задач / активных субагентов; (2) в способе просмотра задач добавить режим списка и сортировку так, чтобы сверху были самые релевантные, плюс другие теги сортировки.",
@@ -55,7 +55,7 @@
         "aria-label называет каждое число; ноль показывается как 0; при ошибке чтения — «—» с текстом ошибки в title, кнопка остаётся рабочей",
         "Область счёта названа: задачи — проекции workspace, который откроет панель; субагенты — живые дочерние сессии этого чата"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR2",
@@ -68,7 +68,7 @@
         "Relevance: active → blocked → review → open → done → cancelled; внутри — больше выполненных шагов, затем updatedAt по убыванию, затем id",
         "Переключатель и теги доступны с клавиатуры; axe 0; на 760 px нет горизонтальной прокрутки"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "NFR1",
@@ -79,7 +79,7 @@
         "При 233 задачах список открывается без заметной задержки и без ошибок консоли",
         "Счётчики не ломают шапку при ошибке чтения — называют её и не блокируют кнопку"
       ],
-      "status": "planned"
+      "status": "proven"
     }
   ],
   "architecture": {
@@ -178,15 +178,33 @@
         "добавить priority в проекции (L2)",
         "запоминать выбор между сессиями"
       ]
+    },
+    {
+      "id": "D5",
+      "decision": "Tag Status сортирует по алфавиту имени статуса, затем updatedAt по убыванию и id",
+      "rationale": "В критериях порядок не задан; алфавит предсказуем и объяснён в title тега; Relevance остаётся осмысленным порядком по умолчанию",
+      "alternatives": [
+        "порядок статусов как в Relevance",
+        "только updatedAt"
+      ]
+    },
+    {
+      "id": "D6",
+      "decision": "Счётчики обновляются опросом state/views/index.json каждые 5 с и подпиской useSessions; список читает frontmatter задач при открытии панели",
+      "rationale": "Другого канала обновления проекций у клиента нет; чтение frontmatter было и до задачи (панель читает его для всех режимов)",
+      "alternatives": [
+        "событие от ядра состояния",
+        "без опроса, только по Reload"
+      ]
     }
   ],
   "openQuestions": [
     {
       "id": "Q1",
       "question": "Владелец имел в виду панель State, а не панель Tasks? Если Tasks, то после P2 её вход из шапки удаляется и его надо вернуть или сделать ссылку из State",
-      "owner": "",
+      "owner": "владелец",
       "blocks": false,
-      "answer": ""
+      "answer": "Да, State: владелец 2026-11-18 уточнил, что список задач — это доска, которой нужна форма представления списком"
     }
   ],
   "sizing": {
@@ -213,13 +231,17 @@
       "dataIds": [
         "task-projections"
       ],
-      "status": "planned",
+      "status": "proven",
       "tasks": [
         {
           "taskId": "task-mwm3mmo3-08soxt",
           "role": "BACKEND",
-          "at": "2026-11-18T12:39:13.265Z",
-          "evidence": []
+          "at": "2026-11-18T12:55:00.000Z",
+          "evidence": [
+            "браузер :3097 (панель 0.1.21): видимый текст «State 74 / 5 / 0»; aria-label «Open the project state panel. Unfinished tasks in this workspace: 74. Active tasks in this workspace: 5. Active subagents in this chat: 0.»; title называет область счёта",
+            "reports/p3/proof-p3.json, header-counters.png",
+            "кейс state-header-shows-three-counters (REQ-115): red exit 1/violations 1 → green exit 0/0, verified"
+          ]
         }
       ]
     },
@@ -232,13 +254,18 @@
         "task-projections",
         "task-view-preference"
       ],
-      "status": "planned",
+      "status": "proven",
       "tasks": [
         {
           "taskId": "task-mwm3mmo3-08soxt",
           "role": "BACKEND",
-          "at": "2026-11-18T12:39:13.265Z",
-          "evidence": []
+          "at": "2026-11-18T12:55:00.000Z",
+          "evidence": [
+            "браузер :3097: переключатель Board/List (aria-pressed), теги Relevance (по умолчанию)/Updated/Status/Title только в List; таблица Status/Task/Requirement/Progress/Updated, 223 строки",
+            "Relevance: первые строки active TASK-223, TASK-202, TASK-184, TASK-113, TASK-094, затем review TASK-111; Updated даёт done TASK-217, TASK-215, cancelled TASK-128; axe 0; 760 px scrollW=clientW",
+            "reports/p3/proof-p3.json, list-relevance.png, list-after-sorting.png",
+            "кейс board-list-sorts-tasks (REQ-116): red exit 1 → green exit 0/0, verified"
+          ]
         }
       ]
     },
@@ -248,19 +275,23 @@
       "componentId": "state-panel-client",
       "contractIds": [],
       "dataIds": [],
-      "status": "planned",
+      "status": "proven",
       "tasks": [
         {
           "taskId": "task-mwm3mmo3-08soxt",
           "role": "BACKEND",
-          "at": "2026-11-18T12:39:13.265Z",
-          "evidence": []
+          "at": "2026-11-18T12:55:00.000Z",
+          "evidence": [
+            "только чтение: счётчики читают state/views/index.json и useSessions; ни одного write-вызова",
+            "консоль/сеть 0; панель открылась на 223 строках без ошибок; axe 0",
+            "reports/p3/proof-p3.json; кейс counters-and-list-stay-read-only (REQ-117): red exit 1 → green exit 0/0, verified"
+          ]
         }
       ]
     }
   ],
   "pendingImpacts": [],
-  "fingerprint": "ce952e1261780c71cf9805a613ac0631c32d132473e32232cc98a23986937168",
+  "fingerprint": "7edf74544c47d0ccebb213f16de3652617cae213367c62c5cdd553f97f1fc859",
   "history": [
     {
       "revision": 1,
@@ -277,6 +308,14 @@
       "action": "link_task",
       "status": "ready",
       "summary": "task-mwm3mmo3-08soxt -> FR1, FR2, NFR1"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-18T12:50:00.505Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "completed",
+      "summary": "impacts: 1"
     }
   ]
 }

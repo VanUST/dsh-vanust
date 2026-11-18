@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "lastSeq": 457,
+  "lastSeq": 474,
   "counts": {
     "req": 117,
     "task": 234,
-    "test": 59,
+    "test": 62,
     "decision": 0
   },
   "reqs": [
@@ -824,23 +824,29 @@
     },
     {
       "id": "REQ-115",
-      "status": "proposed",
+      "status": "done",
       "tasks": [],
-      "tests": [],
+      "tests": [
+        "TEST-060"
+      ],
       "decisions": []
     },
     {
       "id": "REQ-116",
-      "status": "proposed",
+      "status": "done",
       "tasks": [],
-      "tests": [],
+      "tests": [
+        "TEST-061"
+      ],
       "decisions": []
     },
     {
       "id": "REQ-117",
-      "status": "proposed",
+      "status": "done",
       "tasks": [],
-      "tests": [],
+      "tests": [
+        "TEST-062"
+      ],
       "decisions": []
     }
   ],
@@ -2636,6 +2642,24 @@
     {
       "id": "TEST-059",
       "reqId": "REQ-110",
+      "status": "verified",
+      "evidenceRefs": []
+    },
+    {
+      "id": "TEST-060",
+      "reqId": "REQ-115",
+      "status": "verified",
+      "evidenceRefs": []
+    },
+    {
+      "id": "TEST-061",
+      "reqId": "REQ-116",
+      "status": "verified",
+      "evidenceRefs": []
+    },
+    {
+      "id": "TEST-062",
+      "reqId": "REQ-117",
       "status": "verified",
       "evidenceRefs": []
     }

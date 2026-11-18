@@ -29,7 +29,7 @@
     },
     {
       "path": "plugins/project-state-panel/client.js",
-      "sha256": "08da8f61b725ae4950202d057fa782c716429b4bd863d05877d0b4ee70e003a2"
+      "sha256": "2ffd461a5a9d4041eb39f130f4213a24963ed83c01dda226e1a855271fd8dbab"
     }
   ],
   "linkedTaskId": "task-mwm2kpm4-q7lbqq",
@@ -44,9 +44,9 @@
     }
   ],
   "negativeControl": "expect-pre-fix",
-  "revision": 5,
+  "revision": 6,
   "createdAt": "2026-11-18T12:06:17.968Z",
-  "updatedAt": "2026-11-18T12:33:04.156Z",
+  "updatedAt": "2026-11-18T12:46:20.718Z",
   "createdBy": "backend",
   "createdByKind": "agent",
   "history": [
@@ -74,6 +74,13 @@
     {
       "revision": 4,
       "at": "2026-11-18T12:33:04.156Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-18T12:46:20.718Z",
       "editedBy": "agent",
       "action": "ran-verified",
       "reason": "1 run(s), 1 passed"
@@ -239,6 +246,45 @@
       ],
       "passed": true,
       "artifacts": []
+    },
+    {
+      "runId": "mwm47qf2-u4i0e-1",
+      "at": "2026-11-18T12:46:20.712Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 195,
+      "commandSha256": "3562986d803064597b6ffccc1a9d6a449138bf1ab4fc0ed8ffc0d1cdc580b06a",
+      "head": "fba3d945f217964fd73b7de32f8d706d4e9d47bc",
+      "dirty": true,
+      "stdout": "docs/cases/runs/back-to-chat-leaves-the-state-panel/mwm47qf2-u4i0e-1/stdout.log",
+      "stderr": "docs/cases/runs/back-to-chat-leaves-the-state-panel/mwm47qf2-u4i0e-1/stderr.log",
+      "summary": "docs/cases/runs/back-to-chat-leaves-the-state-panel/mwm47qf2-u4i0e-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "violations": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "violations",
+          "metric": "violations",
+          "op": "==",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
     }
   ],
   "redFirst": {
@@ -250,10 +296,10 @@
     "source": "negative-control"
   },
   "lastVerified": {
-    "at": "2026-11-18T12:33:04.156Z",
+    "at": "2026-11-18T12:46:20.718Z",
     "command": "node --test plugins/taskboard/test/panel-navigation.test.mjs",
     "exitCode": 0,
-    "runId": "mwm3qnss-10vxe-1",
+    "runId": "mwm47qf2-u4i0e-1",
     "source": "runner",
     "commit": null
   }
