@@ -45,31 +45,32 @@ window.__ModuleLoader__.load({
 
     const CSS = `
 .ps-root {
-  /* Night desk: the panel is its own dark world, independent of the shell theme. The
-     tokens are the v3 night-* set from DESIGN.md; every pair used for text is checked
-     against its surface, and the shell's light aliases are deliberately not inherited. */
-  --ps-paper: #14191c;
-  --ps-surface: #1b2226;
-  --ps-surface-2: #20282c;
-  --ps-surface-3: #263034;
-  --ps-ink: #ece8dd;
-  --ps-muted: #a9b3ae;
-  --ps-line: #2c3538;
-  --ps-line-strong: #46524f;
-  --ps-accent: #d4685a;
-  --ps-accent-hover: #e07b6d;
-  --ps-accent-ink: #14191c;
-  --ps-ok: #8fce9e;
-  --ps-warn: #e0a64a;
-  --ps-bad: #f0a094;
-  --ps-info: #7fc4bd;
+  /* The panel owns no palette of its own: every surface, label, border and state colour is
+     a shell alias token, so the same rules follow the light and the dark theme. Entity
+     accents (TYPE_COLOR: REQ/TASK/TEST/DEC) stay semantic and are deliberately not themed.
+     State colours are mixed with the theme ink so a saturated token keeps a readable text
+     contrast on both backgrounds instead of being used raw. */
+  --ps-paper: var(--dsw-alias-bg-base);
+  --ps-surface: var(--dsw-alias-bg-layer-1);
+  --ps-surface-2: color-mix(in srgb, var(--dsw-alias-label-primary) 4%, var(--dsw-alias-bg-base));
+  --ps-surface-3: color-mix(in srgb, var(--dsw-alias-label-primary) 8%, var(--dsw-alias-bg-base));
+  --ps-ink: var(--dsw-alias-label-primary);
+  --ps-muted: var(--dsw-alias-label-secondary);
+  --ps-line: var(--dsw-alias-border-l1);
+  --ps-line-strong: var(--dsw-alias-border-l2);
+  --ps-accent: var(--dsw-alias-brand-primary);
+  --ps-accent-hover: var(--dsw-alias-button-primary-hover);
+  --ps-accent-ink: var(--dsw-alias-label-primary-inverted);
+  --ps-ok: color-mix(in srgb, var(--dsw-alias-state-success-primary) 62%, var(--dsw-alias-label-primary));
+  --ps-warn: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 50%, var(--dsw-alias-label-primary));
+  --ps-bad: color-mix(in srgb, var(--dsw-alias-state-error-primary) 78%, var(--dsw-alias-label-primary));
+  --ps-info: color-mix(in srgb, var(--dsw-alias-state-business-primary) 68%, var(--dsw-alias-label-primary));
   height: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--ps-paper);
   color: var(--ps-ink);
-  color-scheme: dark;
   font: 13.5px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   container-type: inline-size;
 }
@@ -171,7 +172,7 @@ window.__ModuleLoader__.load({
 .ps-mapstage > .dmv { height: 100%; }
 .ps-maplist { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
 .ps-maplist li { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; }
-.ps-nodebadge { position: absolute; min-width: 18px; height: 16px; padding: 0 4px; border-radius: 999px; border: 1px solid #b45309; background: #fef3c7; color: #78350f; font: 9.5px/14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 700; text-align: center; white-space: nowrap; pointer-events: none; }
+.ps-nodebadge { position: absolute; min-width: 18px; height: 16px; padding: 0 4px; border-radius: 999px; border: 1px solid color-mix(in srgb, #FFB020 58%, var(--ps-line)); /* #FFB020 is TYPE_COLOR.req */ background: color-mix(in srgb, #FFB020 22%, var(--ps-surface)); color: var(--ps-ink); font: 9.5px/14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 700; text-align: center; white-space: nowrap; pointer-events: none; }
 .ps-nodefacts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 10px; margin: 0 0 12px; font-size: 12px; }
 .ps-nodefacts dt { color: var(--ps-muted); }
 .ps-nodefacts dd { margin: 0; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; }
@@ -248,7 +249,6 @@ window.__ModuleLoader__.load({
   --dmv-warn: var(--ps-warn);
   --dmv-danger: var(--ps-bad);
 }
-.ps-mapstage .react-flow__background { opacity: .35; }
 .ps-root .ps-status.info { color: var(--ps-info); }
 .ps-root .ps-kicker { font-size: 11px; letter-spacing: .1em; }
 .ps-root .ps-status { font-size: 11px; }
@@ -1068,7 +1068,7 @@ window.__ModuleLoader__.load({
 
       return h('aside', { className: 'ps-evrail', 'aria-label': 'Evidence rail' },
         h('div', { className: 'ps-railhead' },
-          h('p', { className: 'ps-kicker' }, 'Evidence rail'),
+          h('h2', { className: 'ps-kicker' }, 'Evidence rail'),
           h('span', { className: 'ps-spacer' }),
           req === null ? null : h('button', { type: 'button', className: 'ps-btn small', onClick: () => onOpenEntity(req.id) }, 'Open detail'),
         ),
@@ -1594,7 +1594,7 @@ window.__ModuleLoader__.load({
         type: 'button',
         title: 'Open the project state panel for this chat',
         'aria-label': 'Open the project state panel',
-        style: { display: 'inline-flex', alignItems: 'center', border: '1px solid var(--dsw-alias-border-l1, #dfe5ee)', background: 'var(--dsw-alias-bg-layer-1, #f8fafc)', color: 'var(--dsw-alias-label-primary, #0f172a)', borderRadius: 7, minHeight: 24, padding: '3px 8px', font: 'inherit', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' },
+        style: { display: 'inline-flex', alignItems: 'center', border: '1px solid var(--dsw-alias-border-l1)', background: 'var(--dsw-alias-bg-layer-1)', color: 'var(--dsw-alias-label-primary)', borderRadius: 7, minHeight: 24, padding: '3px 8px', font: 'inherit', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' },
         onClick: () => {
           try {
             if (typeof sessionId === 'string' && sessionId !== '') sessionStorage.setItem(SESSION_KEY, sessionId)
@@ -1606,24 +1606,6 @@ window.__ModuleLoader__.load({
       }, 'State')
     }
 
-    /**
-     * The sidebar glyph. The shell wraps every `sidebar.panellist` entry in its own button
-     * that already calls `selectPanel(id)`, so this component must NOT be a button: a button
-     * inside a button is a nested interactive control, and the shell's aria-hidden glyph span
-     * would contain a focusable element. The glyph is decoration; the row is the control.
-     */
-    function SidebarIcon({ size = 18, active = false }) {
-      return h('span', {
-        style: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: active === true ? 'var(--dsw-alias-brand-primary, #2563eb)' : 'currentColor' },
-        'aria-hidden': 'true',
-      }, h('svg', { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round' },
-        h('rect', { x: 3.5, y: 3.5, width: 7, height: 7, rx: 1.5 }),
-        h('rect', { x: 3.5, y: 13.5, width: 7, height: 7, rx: 1.5 }),
-        h('rect', { x: 13.5, y: 3.5, width: 7, height: 7, rx: 1.5 }),
-        h('path', { d: 'M13.5 17h7M17 13.5v7' }),
-      ))
-    }
-
     return {
       inject: ['slots', 'remote', 'remote.workspaceFiles', 'remote.commands', 'layout'],
       apply(ctx) {
@@ -1632,13 +1614,6 @@ window.__ModuleLoader__.load({
           key: PANEL_ID,
           inject: () => ({ remote: ctx.remote, layout: ctx.layout }),
         }, ProjectStatePage))
-        ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
-          name: 'sidebar.panellist',
-          id: PANEL_ID,
-          order: 30,
-          label: () => 'State',
-          inject: () => ({}),
-        }, SidebarIcon))
         ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
           name: 'conversation.session.header.actions',
           id: 'project-state',
