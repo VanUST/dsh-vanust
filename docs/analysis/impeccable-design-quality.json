@@ -1,0 +1,437 @@
+{
+  "schemaVersion": 1,
+  "id": "impeccable-design-quality",
+  "rev": 2,
+  "status": "ready",
+  "createdAt": "2026-11-18T09:42:36.525Z",
+  "updatedAt": "2026-11-18T09:42:53.334Z",
+  "updatedBy": "agent",
+  "title": "Дизайн-контур: impeccable (slop-детектор) и визуальный выбор вариантов",
+  "requestedSolution": "Владелец 2026-11-18: взять https://impeccable.style/slop/ (npm-пакет impeccable, DSH-скилл + детерминированный детектор анти-паттернов) и имплементировать его в dsh-kit так, чтобы: (1) UX/UI-агент мог работать с ним и на новом проекте (init/shape/document → PRODUCT.md/DESIGN.md), и на существующем (context → critique/audit → правки → повторный detect); (2) агент умел делать прототипы/мокапы (2–4 варианта одного экрана) со скриншотами и одной страницей сравнения, чтобы владелец визуально выбирал лучший вариант; (3) детектор был доступен как отдельная цель сборки и как обязательный шаг в отчёте UX-работы. Плюс отдельное задание: аудит полезности всех плагинов и пресетов — кто реально вызывается, что мёртвое, что дорогое по токенам.",
+  "businessOutcome": {
+    "problem": "UI, сделанный агентом без внешнего вкусового контура, сваливается в одинаковый «безопасный» вид (Inter, фиолетовые градиенты, карточки в карточках), а владелец не имеет дешёвого способа выбрать вариант до реализации.",
+    "outcome": "UX/UI-агент не угадывает вкус, а приносит владельцу сравнимые варианты и проходит механический детектор анти-паттернов до сдачи работы.",
+    "successMetrics": [
+      "Детектор запускается агентом до сдачи UI-работы и его findings попадают в отчёт",
+      "Владелец выбирает один из 2–4 вариантов, а не получает один готовый"
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "UX-CUR",
+        "name": "Дизайн без вкусового контура",
+        "actors": [
+          "оркестратор",
+          "UX/UI"
+        ],
+        "steps": [
+          "Промпт описывает задачу словами",
+          "Агент делает один вариант по своим привычкам",
+          "Владелец видит готовый результат и просит переделать"
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "UX-TGT",
+        "name": "Дизайн с детектором и выбором",
+        "actors": [
+          "оркестратор",
+          "UX/UI",
+          "владелец"
+        ],
+        "steps": [
+          "Контекст проекта: PRODUCT.md/DESIGN.md (новый проект) или чтение существующего кода",
+          "Агент делает 2–4 варианта одного экрана",
+          "Скриншоты и одна страница сравнения — владелец выбирает",
+          "Детектор гоняется до сдачи, findings в отчёт"
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "BR1",
+      "kind": "BR",
+      "text": "Владелец видит сравнимые варианты интерфейса до реализации и получает механический отчёт об анти-паттернах.",
+      "acceptance": [
+        "Детектор запускается агентом до сдачи UI-работы и findings попадают в отчёт",
+        "Владелец выбирает один из 2–4 вариантов"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR1",
+      "kind": "FR",
+      "text": "Скилл и движок impeccable ставятся провижном кита с пином версии и проверкой целостности.",
+      "acceptance": [
+        "`node scripts/provision-tools.mjs --check` показывает impeccable и его версию",
+        "После установки движок работает без сети (detect на локальном файле)"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR2",
+      "kind": "FR",
+      "text": "UX/UI-агент применяет detектор к существующему проекту: находит, ранжирует и исправляет анти-паттерны.",
+      "acceptance": [
+        "UX/UI-агент на уже существующем проекте прошёл context → detect/audit → fix и приложил findings",
+        "Скилл виден агенту и его команда `detect` вызывается из скилла"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR3",
+      "kind": "FR",
+      "text": "UX/UI-агент применяет скилл к новому проекту: init/shape/document.",
+      "acceptance": [
+        "На новом проекте init пишет PRODUCT.md и DESIGN.md",
+        "Страница собирается по этим документам"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR4",
+      "kind": "FR",
+      "text": "Мокапы: 2–4 варианта + скриншоты + страница сравнения для визуального выбора владельцем.",
+      "acceptance": [
+        "2–4 варианта одного экрана, у каждого скриншот",
+        "Одна страница сравнения; выбор владельца записан в задачу"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR5",
+      "kind": "FR",
+      "text": "Гейт дизайна: отдельная цель, которая гоняет детектор по UI кита и складывает находки.",
+      "acceptance": [
+        "`make design-audit` печатает находки по UI-исходникам кита с JSON-выводом",
+        "Цель не входит в make verify и не ломает офлайн-прогон"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "NFR1",
+      "kind": "NFR",
+      "text": "Пин версий и офлайн после установки; никакой сети в рантайме.",
+      "acceptance": [
+        "Версии и суммы зафиксированы, установка проверяет digest",
+        "Проверено на чистом кэше, офлайн после установки"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "NFR2",
+      "kind": "NFR",
+      "text": "Доказательства на копии профиля и втором порту; живой :3080 не трогать.",
+      "acceptance": [
+        "Доказательство на второй копии профиля/втором порту",
+        "Живой :3080 не тронут"
+      ],
+      "status": "planned"
+    }
+  ],
+  "architecture": {
+    "contractImpact": "additive",
+    "components": [
+      {
+        "id": "impeccable-tool",
+        "name": "impeccable (npm 4.9.2 + engine 0.1.25)",
+        "responsibility": "детерминированный детектор анти-паттернов (62 правила) и лаунчер, который находит/скачивает движок и проверяет его по engine-checksums.txt",
+        "owner": "kit",
+        "owns": [
+          "impeccable-engine"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "impeccable-skill",
+        "name": "скилл impeccable для DSH",
+        "responsibility": "24 команды дизайн-работы (init, shape, critique, audit, polish, bolder, document, live и др.) — SKILL.md + reference/ + scripts/",
+        "owner": "kit",
+        "owns": [
+          "impeccable-skill-files",
+          "design-docs"
+        ],
+        "dependsOn": [
+          "impeccable-tool"
+        ]
+      },
+      {
+        "id": "provisioning",
+        "name": "scripts/provision-tools.mjs",
+        "responsibility": "ставит внешние инструменты с пином версии и проверкой digest, --check/--apply",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": []
+      },
+      {
+        "id": "ux-preset",
+        "name": "пресет UX/UI",
+        "responsibility": "роль, которая ведёт дизайн: получает скилл, bash и Playwright, гоняет детектор, делает мокапы",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": [
+          "impeccable-skill"
+        ]
+      },
+      {
+        "id": "design-gate",
+        "name": "make design-audit",
+        "responsibility": "прогон impeccable detect по UI-исходникам кита с JSON-выводом; отчёт, а не красный make verify",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": [
+          "impeccable-tool"
+        ]
+      },
+      {
+        "id": "mockups",
+        "name": "варианты и сравнение",
+        "responsibility": "2–4 варианта одного экрана в статике, скриншот каждого, одна страница сравнения для выбора владельцем",
+        "owner": "kit",
+        "owns": [
+          "mockups-dir"
+        ],
+        "dependsOn": [
+          "ux-preset"
+        ]
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "impeccable-skill-files",
+      "name": ".dsh/skills/impeccable/",
+      "owner": "kit",
+      "ownerComponentId": "impeccable-skill",
+      "description": "SKILL.md + reference/*.md (46 плейбуков) + scripts/ (лаунчер, live-browser, data)"
+    },
+    {
+      "id": "impeccable-engine",
+      "name": "~/.impeccable/bin/impeccable",
+      "owner": "kit",
+      "ownerComponentId": "impeccable-tool",
+      "description": "платформенный движок, сверяется по engine-checksums.txt; после первой установки работает офлайн"
+    },
+    {
+      "id": "design-docs",
+      "name": "PRODUCT.md / DESIGN.md",
+      "owner": "kit",
+      "ownerComponentId": "impeccable-skill",
+      "description": "документы проекта для дизайн-контура: кто пользователь, что делает продукт, язык дизайна"
+    },
+    {
+      "id": "mockups-dir",
+      "name": ".mockups/<slug>/",
+      "owner": "kit",
+      "ownerComponentId": "mockups",
+      "description": "исходники вариантов и их скриншоты для выбора"
+    }
+  ],
+  "contracts": [
+    {
+      "id": "skill-install-contract",
+      "name": "установка скилла и движка",
+      "between": [
+        "impeccable-skill",
+        "provisioning"
+      ],
+      "change": "additive",
+      "description": "скилл ставится из npm-пакета с пином версии и проверкой целостности; движок сверяется с engine-checksums.txt из самого скилла"
+    },
+    {
+      "id": "detector-json",
+      "name": "вывод детектора",
+      "between": [
+        "design-gate",
+        "ux-preset"
+      ],
+      "change": "additive",
+      "description": "impeccable detect --json → findings с rule id, файлом и позицией; exit 2 = есть находки, exit 1 = цель не отсканирована"
+    },
+    {
+      "id": "mockup-contract",
+      "name": "формат вариантов",
+      "between": [
+        "mockups",
+        "ux-preset"
+      ],
+      "change": "additive",
+      "description": "каталог .mockups/<slug>/vN.html + shots/vN.png + index.html со сравнением; выбор владельца фиксируется в задаче"
+    }
+  ],
+  "invariants": [],
+  "decisions": [
+    {
+      "id": "D1",
+      "decision": "Скилл и движок ставит provision-tools из npm с пином версии и проверкой целостности, кэш в ~/.impeccable/bin; после установки — офлайн",
+      "rationale": "Кит должен восстанавливаться на чистой машине одной командой и не тянуть сеть при каждом запуске",
+      "alternatives": [
+        "вендорить 1.2 МБ в git",
+        "оставить только npx без пина"
+      ]
+    },
+    {
+      "id": "D2",
+      "decision": "Скилл ставится в общую библиотеку скиллов DSH (~/.npm/dsh/skills/impeccable), а не в пресет отдельным плагином",
+      "rationale": "Скиллы видны всем ролям и не стоят контекста, пока не загружены; пресет получает баш, а не новые инструменты",
+      "alternatives": [
+        "отдельный плагин-команда",
+        "только npm CLI"
+      ]
+    },
+    {
+      "id": "D3",
+      "decision": "detect живёт отдельной целью make design-audit и не входит в make verify",
+      "rationale": "make verify должен оставаться офлайновым и детерминированным; детектор зависит от установленного движка и меняющихся UI-исходников",
+      "alternatives": [
+        "держать в make verify",
+        "жёсткий порог по числу находок"
+      ]
+    },
+    {
+      "id": "D4",
+      "decision": "Мокапы — статические варианты + скриншоты + одна страница сравнения, показывается через present",
+      "rationale": "Владельцу нужен визуальный выбор, а не ещё один экран; скриншот фиксирует то, что он реально увидит",
+      "alternatives": [
+        "новая панель",
+        "набор HTML в отчёте без скриншотов"
+      ]
+    }
+  ],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L2",
+    "reasons": [
+      "новый внешний инструмент и скилл",
+      "новый рабочий процесс UX-роли",
+      "новые артефакты проектов (PRODUCT.md/DESIGN.md) и мокапы"
+    ]
+  },
+  "designRef": {
+    "mapRev": 30,
+    "at": "2026-11-16T12:40:49.113Z",
+    "source": "designmap/manifest.json"
+  },
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "BR1",
+      "processId": "UX-TGT",
+      "componentId": "ux-preset",
+      "contractIds": [],
+      "dataIds": [
+        "design-docs"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR1",
+      "processId": "UX-TGT",
+      "componentId": "provisioning",
+      "contractIds": [
+        "skill-install-contract"
+      ],
+      "dataIds": [
+        "impeccable-skill-files",
+        "impeccable-engine"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR2",
+      "processId": "UX-TGT",
+      "componentId": "impeccable-skill",
+      "contractIds": [
+        "detector-json"
+      ],
+      "dataIds": [
+        "impeccable-skill-files"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR3",
+      "processId": "UX-TGT",
+      "componentId": "impeccable-skill",
+      "contractIds": [],
+      "dataIds": [
+        "design-docs"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR4",
+      "processId": "UX-TGT",
+      "componentId": "mockups",
+      "contractIds": [
+        "mockup-contract"
+      ],
+      "dataIds": [
+        "mockups-dir"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR5",
+      "processId": "UX-TGT",
+      "componentId": "design-gate",
+      "contractIds": [
+        "detector-json"
+      ],
+      "dataIds": [],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "NFR1",
+      "processId": "UX-TGT",
+      "componentId": "provisioning",
+      "contractIds": [
+        "skill-install-contract"
+      ],
+      "dataIds": [
+        "impeccable-engine"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "NFR2",
+      "processId": "UX-TGT",
+      "componentId": "ux-preset",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "planned",
+      "tasks": []
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "d9c50e5e4f6ed0aa8a569179eb5e9231cdc1ad7b31a25e5258e05c983d09ae0f",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-18T09:42:36.525Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-18T09:42:53.334Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    }
+  ]
+}
