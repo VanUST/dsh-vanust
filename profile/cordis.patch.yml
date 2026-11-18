@@ -421,6 +421,7 @@
               - glob
               - grep
               - job_output
+              - outline
               - read
               - read_image
               - skill
@@ -438,6 +439,7 @@
               - case_run
               - glob
               - grep
+              - outline
               - present
               - read
               - read_image
@@ -456,6 +458,7 @@
               - glob
               - grep
               - job_output
+              - outline
               - present
               - read
               - read_image
@@ -470,6 +473,7 @@
               - bash
               - glob
               - grep
+              - outline
               - read
               - read_image
               - skill
@@ -482,6 +486,7 @@
             allow:
               - glob
               - grep
+              - outline
               - papers_download
               - papers_search
               - papers_trending
@@ -503,6 +508,7 @@
               - edit
               - glob
               - grep
+              - outline
               - read
               - skill
               - task_get
@@ -523,6 +529,7 @@
               - grep
               - mcp__playwright__*
               - mcp__godot__*
+              - outline
               - present
               - read
               - read_image
@@ -812,6 +819,23 @@
           mode: normal
           maxRetries: 5
           retryableCodes: [EMPTY_RESPONSE, RATE_LIMIT, SERVER, TIMEOUT, TRANSPORT, MALFORMED_RESPONSE]
+
+
+# ── openai-codex: the OpenAI/Codex model route ────────────────────────────
+# A kit HOST adapter, not a harness package: `ctx.llm.registerAdapter` registers the
+# provider and `registerConfigurableProviders` puts it in Settings -> Models. The key is
+# only a REFERENCE (`OPENAI_API_KEY`) resolved through the harness credential store on
+# every request, so no secret lives in this file or the repository. Models come from the
+# endpoint's own `/v1/models` discovery; the two ids below are the fallback when a
+# deployment cannot list them.
+- insert:
+    - id: openai-codex
+      name: '@cc/dsh-openai-codex'
+      config:
+        provider: openai-codex
+        baseURL: https://api.openai.com/v1
+        keyRef: OPENAI_API_KEY
+        models: [gpt-5, gpt-5-codex]
 
 # ── subagent model selection: which routes an agent may hand to a child ─────
 # The harness's own gate for a model-facing child route: the `subagent` tool

@@ -1,0 +1,20 @@
+{
+  "name": "@cc/dsh-openai-codex",
+  "version": "0.1.1",
+  "description": "OpenAI/Codex provider adapter for the harness llm service: registers a Chat-Completions route (streaming text and tool calls, /v1/models discovery, credentials-backed key) and a configurable provider entry for Settings -> Models.",
+  "type": "module",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.mjs",
+    "README.md"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-llm": "*"
+  }
+}

@@ -1,0 +1,528 @@
+{
+  "schemaVersion": 1,
+  "id": "agent-surface-and-shell",
+  "rev": 4,
+  "status": "ready",
+  "createdAt": "2026-11-18T10:40:48.333Z",
+  "updatedAt": "2026-11-18T10:49:01.981Z",
+  "updatedBy": "agent",
+  "title": "Открытая поверхность: модель Codex в харнессе, вход внешнего агента, State наверху и адаптивная тема",
+  "requestedSolution": "Владелец 2026-11-18: (1) на роль системного дизайнера/бизнес-аналитика есть API-ключ Codex — сделать API-поверхность, чтобы агент ChatGPT мог работать в этом харнессе, и выбрать, какую модель использовать; (2) перенести точку входа State на верхнюю панель вместо левой и адаптировать UI под светлую/тёмную тему.",
+  "businessOutcome": {
+    "problem": "В харнессе нет OpenAI/Codex-провайдера (list_subagent_models: только deepseek-official и kimi-coding), а панель состояния спрятана в левой колонке и жёстко зашита в тёмную палитру.",
+    "outcome": "Владелец может посадить роль системного дизайнера/бизнес-аналитика на модель OpenAI и позвать внешнего агента в харнесс, а панель состояния живёт в верхней панели и выглядит нативно в любой теме.",
+    "successMetrics": []
+  },
+  "process": {
+    "current": [
+      {
+        "id": "AS-CUR",
+        "name": "Только DeepSeek",
+        "actors": [
+          "владелец",
+          "оркестратор"
+        ],
+        "steps": [
+          "Роли работают на deepseek-official или kimi",
+          "Внешний агент не имеет входа в харнесс",
+          "Панель в левой колонке и только тёмная"
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "AS-TGT",
+        "name": "Открытая поверхность",
+        "actors": [
+          "владелец",
+          "оркестратор",
+          "внешний агент"
+        ],
+        "steps": [
+          "Провайдер OpenAI/Codex добавлен и ключ в credentials",
+          "Модель выбрана по discovery для BA/SD и для кода",
+          "Внешний агент входит через acp/sdk/gateway",
+          "State в верхней панели, тема светлая/тёмная"
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "BR1",
+      "kind": "BR",
+      "text": "Владелец может посадить BA/SD-роль на модель OpenAI/Codex и позвать внешнего агента в харнесс.",
+      "acceptance": [
+        "В харнессе есть провайдер и выбор модели",
+        "Сессия BA/SD может работать на этой модели"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR1",
+      "kind": "FR",
+      "text": "Адаптер OpenAI/Codex против ctx.llm.",
+      "acceptance": [
+        "registerAdapter/registerConfigurableProviders; stream отдаёт текст, tool-calls и usage",
+        "listModels/resolveModel работают",
+        "ключ из credentials, в git не попадает"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR2",
+      "kind": "FR",
+      "text": "Выбор модели под роль.",
+      "acceptance": [
+        "BA/SD = gpt-5, BACKEND = gpt-5-codex",
+        "Id из discovery /v1/models"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR3",
+      "kind": "FR",
+      "text": "API-поверхность для внешнего агента.",
+      "acceptance": [
+        "ACP: dsh --profile acp, initialize, шаги",
+        "Честно отмечено, что Codex CLI/ChatGPT не ACP-клиенты"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR4",
+      "kind": "FR",
+      "text": "State перенесён в верхнюю панель.",
+      "acceptance": [
+        "State в верхней панели",
+        "Скриншоты и axe 0"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR5",
+      "kind": "FR",
+      "text": "Адаптация панели под светлую/тёмную тему.",
+      "acceptance": [
+        "Токены --dsw-alias-* в светлой и тёмной теме",
+        "Скриншоты обеих тем"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "NFR1",
+      "kind": "NFR",
+      "text": "Секреты вне репозитория.",
+      "acceptance": [
+        "Ключ только в credentials",
+        "grep по репозиторию пуст"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "NFR2",
+      "kind": "NFR",
+      "text": "Тесты без живого сервиса.",
+      "acceptance": [
+        "Тесты на fake-эндпойнте",
+        "make verify 17/17"
+      ],
+      "status": "proven"
+    }
+  ],
+  "architecture": {
+    "contractImpact": "additive",
+    "components": [
+      {
+        "id": "llm-adapter",
+        "name": "@cc/dsh-llm-openai (новый хост-плагин)",
+        "responsibility": "адаптер OpenAI/Codex против ctx.llm: registerAdapter + registerConfigurableProviders, потоковый stream(), listModels, resolveModel",
+        "owner": "kit",
+        "owns": [
+          "api-credentials",
+          "provider-settings"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "llm-seam",
+        "name": "@deepseek-ai/dsh-llm",
+        "responsibility": "абстрактный сервис llm: реестр адаптеров, стриминг вызова, waterfall llm/stream",
+        "owner": "dsh",
+        "owns": [],
+        "dependsOn": [
+          "llm-adapter"
+        ]
+      },
+      {
+        "id": "shell-nav",
+        "name": "клиентская точка входа панели",
+        "responsibility": "регистрация панели состояния в слоте верхней панели вместо sidebar.panellist",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": [
+          "shell-nav"
+        ]
+      },
+      {
+        "id": "theme",
+        "name": "тема оболочки (--dsw-alias-*)",
+        "responsibility": "14 токенов с обязательной светлой и тёмной реализацией; плагин наследует, а не задаёт свой мир",
+        "owner": "dsh",
+        "owns": [
+          "theme-tokens"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "project-state-panel",
+        "name": "@cc/dsh-project-state-panel",
+        "responsibility": "панель состояния: четыре режима, drawer, рельс доказательства; должна следовать теме",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": [
+          "theme"
+        ]
+      },
+      {
+        "id": "api-surface",
+        "name": "внешняя API-поверхность харнесса",
+        "responsibility": "способ, которым внешний агент (ChatGPT/Codex CLI) ведёт сессию в харнессе: существующие acp/sdk-app/api-gateway или узкий HTTP-слой",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": []
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "api-credentials",
+      "name": "credentials record",
+      "owner": "kit",
+      "ownerComponentId": "llm-adapter",
+      "description": "ключ OpenAI/Codex в хранилище секретов, не в git"
+    },
+    {
+      "id": "provider-settings",
+      "name": "settings: провайдер и модель",
+      "owner": "kit",
+      "ownerComponentId": "llm-adapter",
+      "description": "какие модели видит ключ и какая выбрана по умолчанию для BA/SD"
+    },
+    {
+      "id": "theme-tokens",
+      "name": "theme tokens",
+      "owner": "dsh",
+      "ownerComponentId": "theme",
+      "description": "14 токенов --dsw-alias-* с обязательной светлой/тёмной реализацией"
+    }
+  ],
+  "contracts": [
+    {
+      "id": "llm-adapter-contract",
+      "name": "контракт адаптера LLM",
+      "between": [
+        "llm-adapter",
+        "llm-seam"
+      ],
+      "change": "additive",
+      "description": "LlmAdapter.stream(options) → StreamChunk; registerAdapter(['openai']), registerConfigurableProviders([{provider, displayName, settingsNs, baseURL, nativeAuth}])"
+    },
+    {
+      "id": "credentials-contract",
+      "name": "хранение ключа",
+      "between": [
+        "llm-adapter",
+        "api-credentials"
+      ],
+      "change": "additive",
+      "description": "ключ хранится в credentials/settings, не в репозитории; адаптер читает его через settingsNs"
+    },
+    {
+      "id": "shell-slot-contract",
+      "name": "слот и токены темы",
+      "between": [
+        "shell-nav",
+        "theme"
+      ],
+      "change": "additive",
+      "description": "панель регистрируется в слоте верхней панели (conversation.session.header*/shell.leading) и читает только --dsw-alias-* токены с светлой/тёмной реализацией"
+    },
+    {
+      "id": "external-agent-contract",
+      "name": "вход внешнего агента",
+      "between": [
+        "api-surface",
+        "llm-adapter"
+      ],
+      "change": "none",
+      "description": "внешний агент ведёт сессию теми же средствами, что и веб (gateway/acp/sdk), без второго моста"
+    }
+  ],
+  "invariants": [],
+  "decisions": [
+    {
+      "id": "D1",
+      "decision": "Провайдер через registerConfigurableProviders: ключ вводится в Settings → Models, хранится в credentials, в репозиторий не попадает",
+      "rationale": "Секрет не должен лежать в git; оболочка уже имеет карточку провайдера и discovery моделей",
+      "alternatives": [
+        "прописать ключ в профиле"
+      ]
+    },
+    {
+      "id": "D2",
+      "decision": "Для BA/SD выбираем рассуждающую модель OpenAI по умолчанию, для BACKEND-роли — кодовую; конкретные id берём из discovery /v1/models по ключу, а не угадываем",
+      "rationale": "Ключ видит не все модели; список моделей спрашивается у эндпойнта, выбор фиксируется в настройке и в отчёте",
+      "alternatives": [
+        "генерическая модель по умолчанию"
+      ]
+    },
+    {
+      "id": "D3",
+      "decision": "Сначала использовать существующие поверхности DSH (acp / sdk-app / api-gateway) и документировать, как внешний Codex/ChatGPT-агент ведёт сессию; новый мост — только если ни одна не подходит",
+      "rationale": "Не делать второй мост, пока есть готовый; сначала факты, потом слой",
+      "alternatives": [
+        "писать свой HTTP-мост в ChatGPT Actions"
+      ]
+    },
+    {
+      "id": "D4",
+      "decision": "Панель переходит на наследование темы: все цвета — --dsw-alias-* с светлой и тёмной реализацией; Night desk остаётся как её тёмная половина",
+      "rationale": "Пользователь попросил адаптацию под светлую/тёмную; токены уже требуют оба варианта",
+      "alternatives": [
+        "сохранить тёмный мир панели"
+      ]
+    },
+    {
+      "id": "D5",
+      "decision": "Точка входа State переносится в верхнюю панель (слоты conversation.session.header* или shell.leading)",
+      "rationale": "Владелец: «перенеси state на верхнюю панель вместо левой»",
+      "alternatives": [
+        "оставить State в левой колонке"
+      ]
+    }
+  ],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L2",
+    "reasons": [
+      "новый провайдер LLM и адаптер",
+      "внешняя API-поверхность харнесса",
+      "изменение точки входа и темизации клиента"
+    ]
+  },
+  "designRef": {
+    "mapRev": 30,
+    "at": "2026-11-18T10:40:48.333Z",
+    "source": "design.excalidraw"
+  },
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "BR1",
+      "processId": "AS-TGT",
+      "componentId": "llm-adapter",
+      "contractIds": [
+        "llm-adapter-contract"
+      ],
+      "dataIds": [
+        "provider-settings",
+        "api-credentials"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "taskId": "task-mwlzqnkb-yrhh0t",
+          "role": "BACKEND",
+          "at": "2026-11-18T11:00:00.000Z",
+          "evidence": [
+            "адаптер и провайдер поставлены, но живой сессии на реальном ключе не было — ждёт OPENAI_API_KEY"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR1",
+      "processId": "AS-TGT",
+      "componentId": "llm-adapter",
+      "contractIds": [
+        "llm-adapter-contract",
+        "credentials-contract"
+      ],
+      "dataIds": [
+        "api-credentials"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwlzqnkb-yrhh0t",
+          "role": "BACKEND",
+          "at": "2026-11-18T11:00:00.000Z",
+          "evidence": [
+            "@cc/dsh-openai-codex 0.1.1: registerAdapter(['openai-codex']) + registerConfigurableProviders",
+            "4/4 теста на fake-эндпойнте: текст Hel+lo, tool-call read, finish tool-calls, usage 12/7/2, модели gpt-5/gpt-5-codex/o4-mini",
+            "ключ из ctx.credentials.resolve('OPENAI_API_KEY') на каждый запрос"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR2",
+      "processId": "AS-TGT",
+      "componentId": "llm-adapter",
+      "contractIds": [
+        "llm-adapter-contract"
+      ],
+      "dataIds": [
+        "provider-settings"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwlzqnkb-yrhh0t",
+          "role": "BACKEND",
+          "at": "2026-11-18T11:00:00.000Z",
+          "evidence": [
+            "BA/SD — gpt-5 (reasoning), BACKEND — gpt-5-codex; fallback в профиле, реальные id из /v1/models"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR3",
+      "processId": "AS-TGT",
+      "componentId": "api-surface",
+      "contractIds": [
+        "external-agent-contract"
+      ],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwlzqnkb-yrhh0t",
+          "role": "BACKEND",
+          "at": "2026-11-18T11:00:00.000Z",
+          "evidence": [
+            "ACP: initialize → protocolVersion 1, sessionCapabilities {close,list,resume}",
+            "sdk-app — SDK-клиент, api-gateway — Typert Remote; Codex CLI/ChatGPT не ACP-клиенты, мост не писался"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR4",
+      "processId": "AS-TGT",
+      "componentId": "shell-nav",
+      "contractIds": [
+        "shell-slot-contract"
+      ],
+      "dataIds": [],
+      "status": "planned",
+      "tasks": [
+        {
+          "taskId": "task-mwlzqosl-t56z93",
+          "role": "UX/UI",
+          "at": "2026-11-18T10:40:00.000Z",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "requirementId": "FR5",
+      "processId": "AS-TGT",
+      "componentId": "project-state-panel",
+      "contractIds": [
+        "shell-slot-contract"
+      ],
+      "dataIds": [
+        "theme-tokens"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "taskId": "task-mwlzqosl-t56z93",
+          "role": "UX/UI",
+          "at": "2026-11-18T10:40:00.000Z",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "requirementId": "NFR1",
+      "processId": "AS-TGT",
+      "componentId": "llm-adapter",
+      "contractIds": [
+        "credentials-contract"
+      ],
+      "dataIds": [
+        "api-credentials"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwlzqnkb-yrhh0t",
+          "role": "BACKEND",
+          "at": "2026-11-18T11:00:00.000Z",
+          "evidence": [
+            "grep sk-/Bearer: только заголовок запроса, секрета нет"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "NFR2",
+      "processId": "AS-TGT",
+      "componentId": "llm-adapter",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwlzqnkb-yrhh0t",
+          "role": "BACKEND",
+          "at": "2026-11-18T11:00:00.000Z",
+          "evidence": [
+            "4/4 теста; make verify 17/17; :3080 не тронут"
+          ]
+        }
+      ]
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "d75e80005d0706859663b844213faaab7d55bd6321bb976e58480ced06c92078",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-18T10:40:48.333Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-18T10:41:04.739Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwlzqnkb-yrhh0t -> FR1, FR2, FR3, NFR1, NFR2"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-18T10:41:06.331Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwlzqosl-t56z93 -> FR4, FR5, NFR2"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-18T10:49:01.981Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "requirements: BR1 changed, FR1 changed, FR2 changed, FR3 changed, FR4 changed, FR5 changed, NFR1 changed, NFR2 changed; impacts: 8"
+    }
+  ]
+}

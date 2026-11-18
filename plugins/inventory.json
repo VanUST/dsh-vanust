@@ -237,6 +237,15 @@
       "source": "plugins/delegation-brief",
       "pack": "scripts/pack-plugin.mjs",
       "mounted": true
+    },
+    {
+      "id": "openai-codex",
+      "package": "@cc/dsh-openai-codex",
+      "tarballPrefix": "cc-dsh-openai-codex",
+      "provenance": "in-repo",
+      "source": "plugins/openai-codex",
+      "pack": "scripts/pack-plugin.mjs",
+      "mounted": true
     }
   ]
 }
