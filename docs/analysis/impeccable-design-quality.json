@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "impeccable-design-quality",
-  "rev": 5,
+  "rev": 8,
   "status": "ready",
   "createdAt": "2026-11-18T09:42:36.525Z",
-  "updatedAt": "2026-11-18T10:00:38.609Z",
+  "updatedAt": "2026-11-18T10:24:25.759Z",
   "updatedBy": "agent",
   "title": "Дизайн-контур: impeccable (slop-детектор) и визуальный выбор вариантов",
   "requestedSolution": "Владелец 2026-11-18: взять https://impeccable.style/slop/ (npm-пакет impeccable, DSH-скилл + детерминированный детектор анти-паттернов) и имплементировать его в dsh-kit так, чтобы: (1) UX/UI-агент мог работать с ним и на новом проекте (init/shape/document → PRODUCT.md/DESIGN.md), и на существующем (context → critique/audit → правки → повторный detect); (2) агент умел делать прототипы/мокапы (2–4 варианта одного экрана) со скриншотами и одной страницей сравнения, чтобы владелец визуально выбирал лучший вариант; (3) детектор был доступен как отдельная цель сборки и как обязательный шаг в отчёте UX-работы. Плюс отдельное задание: аудит полезности всех плагинов и пресетов — кто реально вызывается, что мёртвое, что дорогое по токенам.",
@@ -59,77 +59,86 @@
         "Детектор запускается агентом до сдачи UI-работы и findings попадают в отчёт",
         "Владелец выбирает один из 2–4 вариантов"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR1",
       "kind": "FR",
-      "text": "Скилл и движок impeccable ставятся провижном кита с пином версии и проверкой целостности.",
+      "text": "Скилл и движок ставятся провижном с пином и проверкой целостности.",
       "acceptance": [
-        "`node scripts/provision-tools.mjs --check` показывает impeccable и его версию",
-        "После установки движок работает без сети (detect на локальном файле)"
+        "provision-tools --check показывает impeccable",
+        "Движок работает офлайн"
       ],
       "status": "proven"
     },
     {
       "id": "FR2",
       "kind": "FR",
-      "text": "UX/UI-агент применяет детектор к существующему проекту: находит, ранжирует и исправляет анти-паттерны.",
+      "text": "Детектор применяется к существующему проекту, находки исправляются.",
       "acceptance": [
-        "UX/UI-агент на уже существующем проекте прошёл context → detect/audit → fix и приложил findings",
-        "Скилл виден агенту и его команда `detect` вызывается из скилла"
-      ],
-      "status": "planned"
-    },
-    {
-      "id": "FR3",
-      "kind": "FR",
-      "text": "UX/UI-агент применяет скилл к новому проекту: init/shape/document.",
-      "acceptance": [
-        "На новом проекте init пишет PRODUCT.md и DESIGN.md",
-        "Страница собирается по этим документам"
-      ],
-      "status": "planned"
-    },
-    {
-      "id": "FR4",
-      "kind": "FR",
-      "text": "Мокапы: 2–4 варианта + скриншоты + страница сравнения для визуального выбора владельцем.",
-      "acceptance": [
-        "2–4 варианта одного экрана, у каждого скриншот",
-        "Одна страница сравнения; выбор владельца записан в задачу"
-      ],
-      "status": "planned"
-    },
-    {
-      "id": "FR5",
-      "kind": "FR",
-      "text": "Гейт дизайна: отдельная цель, которая гоняет детектор по UI кита и складывает находки.",
-      "acceptance": [
-        "`make design-audit` печатает находки по UI-исходникам кита с JSON-выводом",
-        "Цель не входит в make verify и не ломает офлайн-прогон"
+        "Прогон context → detect/audit по существующему проекту с findings и повторным прогоном"
       ],
       "status": "proven"
     },
     {
+      "id": "FR3",
+      "kind": "FR",
+      "text": "Скилл применяется к новому проекту: PRODUCT.md/DESIGN.md → страница.",
+      "acceptance": [
+        "На новом проекте init пишет PRODUCT.md и DESIGN.md",
+        "Страница собирается по ним"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR4",
+      "kind": "FR",
+      "text": "Мокапы: варианты + скриншоты + страница сравнения для визуального выбора.",
+      "acceptance": [
+        "2–4 варианта одного экрана со скриншотами",
+        "Страница сравнения и форма выбора; выбор владельца фиксируется"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR5",
+      "kind": "FR",
+      "text": "Гейт дизайна отдельной целью.",
+      "acceptance": [
+        "make design-audit печатает JSON",
+        "Не входит в make verify"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR6",
+      "kind": "FR",
+      "text": "Выбранное направление v3 (Night desk) внедрено в панель состояния.",
+      "acceptance": [
+        "Панель в тёмной теме направления v3 на втором сервере; консоль и сеть без ошибок",
+        "Detector 0 и axe по панели 0; hit-targets ≥ 24px сохранены",
+        "Скриншоты до/после в отчёте; make verify exit 0"
+      ],
+      "status": "planned"
+    },
+    {
       "id": "NFR1",
       "kind": "NFR",
-      "text": "Пин версий и офлайн после установки; никакой сети в рантайме.",
+      "text": "Пин версий и офлайн.",
       "acceptance": [
-        "Версии и суммы зафиксированы, установка проверяет digest",
-        "Проверено на чистом кэше, офлайн после установки"
+        "Пин digest, офлайн после установки"
       ],
       "status": "proven"
     },
     {
       "id": "NFR2",
       "kind": "NFR",
-      "text": "Доказательства на копии профиля и втором порту; живой :3080 не трогать.",
+      "text": "Доказательства на копии профиля; живой :3080 не трогать.",
       "acceptance": [
-        "Доказательство на второй копии профиля/втором порту",
+        "Второй порт/копия профиля",
         "Живой :3080 не тронут"
       ],
-      "status": "planned"
+      "status": "proven"
     }
   ],
   "architecture": {
@@ -265,39 +274,29 @@
   "invariants": [],
   "decisions": [
     {
-      "id": "D1",
-      "decision": "Скилл и движок ставит provision-tools из npm с пином версии и проверкой целостности, кэш в ~/.impeccable/bin; после установки — офлайн",
-      "rationale": "Кит должен восстанавливаться на чистой машине одной командой и не тянуть сеть при каждом запуске",
-      "alternatives": [
-        "вендорить 1.2 МБ в git",
-        "оставить только npx без пина"
-      ]
-    },
-    {
-      "id": "D2",
-      "decision": "Скилл ставится в общую библиотеку скиллов DSH (~/.npm/dsh/skills/impeccable), а не в пресет отдельным плагином",
-      "rationale": "Скиллы видны всем ролям и не стоят контекста, пока не загружены; пресет получает баш, а не новые инструменты",
-      "alternatives": [
-        "отдельный плагин-команда",
-        "только npm CLI"
-      ]
-    },
-    {
-      "id": "D3",
-      "decision": "detect живёт отдельной целью make design-audit и не входит в make verify",
-      "rationale": "make verify должен оставаться офлайновым и детерминированным; детектор зависит от установленного движка и меняющихся UI-исходников",
-      "alternatives": [
-        "держать в make verify",
-        "жёсткий порог по числу находок"
-      ]
-    },
-    {
       "id": "D4",
       "decision": "Мокапы — статические варианты + скриншоты + одна страница сравнения, показывается через present",
       "rationale": "Владельцу нужен визуальный выбор, а не ещё один экран; скриншот фиксирует то, что он реально увидит",
       "alternatives": [
-        "новая панель",
-        "набор HTML в отчёте без скриншотов"
+        "оставить как есть"
+      ]
+    },
+    {
+      "id": "D5",
+      "decision": "Владелец выбрал направление 3 — Night desk: тёмный трёхколоночный мир, постоянный рельс доказательства рядом с решением",
+      "rationale": "Выбор владельца 2026-11-18 в чате после просмотра трёх вариантов со скриншотами; два других остаются в папке как референсы, а не как отказ",
+      "alternatives": [
+        "v1 Ledger — плотный скан всего журнала",
+        "v2 Review sheet — одна колонка, доказательство первым"
+      ]
+    },
+    {
+      "id": "D6",
+      "decision": "Выбранное направление внедряется в панель состояния отдельной задачей (FR6), с повторным аудитом и детектором",
+      "rationale": "Выбор без внедрения — это мнение; панель должна стать v3, иначе мокап не имеет последствий",
+      "alternatives": [
+        "держать панель в светлой теме и ждать",
+        "сделать ещё один раунд мокапов"
       ]
     }
   ],
@@ -326,8 +325,18 @@
       "dataIds": [
         "design-docs"
       ],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwlxo6k5-feshqa",
+          "role": "UX/UI",
+          "at": "2026-11-18T11:20:00.000Z",
+          "evidence": [
+            "три варианта + страница сравнения + форма выбора (U2)",
+            "владелец выбрал 3 · Night desk в чате 2026-11-18 — решение D5"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "FR1",
@@ -347,9 +356,7 @@
           "role": "BACKEND",
           "at": "2026-11-18T10:05:00.000Z",
           "evidence": [
-            "provision-tools --check → `ok impeccable 4.9.2`; --apply на чистом кэше → INSTALLED 4.9.2 (engine ok, skill ok)",
-            "движок @impeccable/cli-linux-x64@0.1.25 со sha256 f48aca43…820ddd, сверенным с engine-checksums.txt",
-            "скилл из GitHub pbakaus/impeccable@d41d986… в ~/.npm/dsh/skills/impeccable (SKILL.md, reference, scripts)"
+            "provision-tools --check → ok impeccable 4.9.2; чистый кэш → INSTALLED (engine ok, skill ok)"
           ]
         }
       ]
@@ -364,13 +371,15 @@
       "dataIds": [
         "impeccable-skill-files"
       ],
-      "status": "planned",
+      "status": "proven",
       "tasks": [
         {
           "taskId": "task-mwlxo6k5-feshqa",
           "role": "UX/UI",
-          "at": "2026-11-18T10:00:38.609Z",
-          "evidence": []
+          "at": "2026-11-18T10:55:00.000Z",
+          "evidence": [
+            "detect 0 на панели; аудит 303→0 контролей <24px; axe .ps-root 0"
+          ]
         }
       ]
     },
@@ -382,13 +391,15 @@
       "dataIds": [
         "design-docs"
       ],
-      "status": "planned",
+      "status": "proven",
       "tasks": [
         {
           "taskId": "task-mwlxo6k5-feshqa",
           "role": "UX/UI",
-          "at": "2026-11-18T10:00:38.609Z",
-          "evidence": []
+          "at": "2026-11-18T10:55:00.000Z",
+          "evidence": [
+            "init → PRODUCT.md + DESIGN.md; index.html; детектор 0"
+          ]
         }
       ]
     },
@@ -402,13 +413,15 @@
       "dataIds": [
         "mockups-dir"
       ],
-      "status": "planned",
+      "status": "proven",
       "tasks": [
         {
           "taskId": "task-mwlxo6k5-feshqa",
           "role": "UX/UI",
-          "at": "2026-11-18T10:00:38.609Z",
-          "evidence": []
+          "at": "2026-11-18T10:55:00.000Z",
+          "evidence": [
+            "v1/v2/v3 + скриншоты + страница сравнения; форма выбора проверена записью и сбросом"
+          ]
         }
       ]
     },
@@ -427,9 +440,28 @@
           "role": "BACKEND",
           "at": "2026-11-18T10:05:00.000Z",
           "evidence": [
-            "make design-audit → JSON {engine 0.1.25+engine, rules 62, targets 9, findings: []}",
-            "цель не входит в make verify: make verify exit 0 (17/17, documentation ok)"
+            "make design-audit JSON; не в make verify"
           ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR6",
+      "processId": "UX-TGT",
+      "componentId": "ux-preset",
+      "contractIds": [
+        "mockup-contract"
+      ],
+      "dataIds": [
+        "mockups-dir"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "taskId": "task-mwlz58qt-rml8v9",
+          "role": "UX/UI",
+          "at": "2026-11-18T10:24:25.759Z",
+          "evidence": []
         }
       ]
     },
@@ -450,8 +482,7 @@
           "role": "BACKEND",
           "at": "2026-11-18T10:05:00.000Z",
           "evidence": [
-            "движок офлайн: 62 правила с HTTPS_PROXY=127.0.0.1:9 и без сети",
-            "чистый кэш: rm -rf ~/.impeccable ~/.npm/dsh/skills/impeccable → --apply → INSTALLED (логи в reports/probes/u1/)"
+            "digest f48aca43…, офлайн 62 правила"
           ]
         }
       ]
@@ -462,19 +493,21 @@
       "componentId": "ux-preset",
       "contractIds": [],
       "dataIds": [],
-      "status": "planned",
+      "status": "proven",
       "tasks": [
         {
           "taskId": "task-mwlxo6k5-feshqa",
           "role": "UX/UI",
-          "at": "2026-11-18T10:00:38.609Z",
-          "evidence": []
+          "at": "2026-11-18T10:55:00.000Z",
+          "evidence": [
+            "второй сервер :3092 и :3093; живой :3080 не тронут"
+          ]
         }
       ]
     }
   ],
   "pendingImpacts": [],
-  "fingerprint": "41ae008e3a3c4101758fc0bc1aee2207591d48039d17b05b256e7ba93ce40725",
+  "fingerprint": "5c0ac31b574f7e213479c6d52f4ed2a21708fd2bcef6f2cd305794cfd0bdca0d",
   "history": [
     {
       "revision": 1,
@@ -515,6 +548,30 @@
       "action": "link_task",
       "status": "ready",
       "summary": "task-mwlxo6k5-feshqa -> FR2, FR3, FR4, NFR2"
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-18T10:17:40.481Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "requirements: FR1 changed, FR2 changed, FR3 changed, FR4 changed, FR5 changed, NFR1 changed, NFR2 changed; impacts: 7"
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-18T10:24:16.110Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "requirements: FR6 added; impacts: 2"
+    },
+    {
+      "revision": 8,
+      "at": "2026-11-18T10:24:25.759Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwlz58qt-rml8v9 -> FR6"
     }
   ]
 }
