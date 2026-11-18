@@ -1,52 +1,61 @@
-# 2026-11-18 — OpenAI/Codex, VPN для него, outline как форсируемое чтение
+# 2026-11-18 — состояние экосистемы: Codex по подписке, outline, панель, политика
 
-Продолжение `2026-11-18-impeccable-and-audit.md`. Всё ниже проверено в этой сессии; коммиты на `origin/main`.
+Продолжение `2026-11-18-impeccable-and-audit.md`. Всё ниже проверено в этой сессии; `origin/main = 0bd16d9`.
+
+## Терминология, которую следующая сессия не должна переспорить
+
+У чат-агента **три шляпы, а не две**: оркестратор (координация, делегирование, приёмка),
+системный дизайнер (архитектура, контракты, инварианты), бизнес-аналитик (зачем, требования,
+приёмка). Это один пресет `orchestrator`, не три агента. Сборщик контекста — `CONTEXT`/`gatherer`,
+отдельный ребёнок, только чтение.
 
 ## Сделано и запушено
 
 | Коммит | Что |
 |---|---|
-| `56cf304` | новый плагин `@cc/dsh-openai-codex` 0.1.1 (провайдер OpenAI/Codex против `ctx.llm`) + `outline` разрешён всем восьми ролям |
-| `68fed05` | записи анализа: `agent-surface-and-shell` (BR1 отложен), `kit-tool-surface` (FR7) |
 | `b997bf1` | панель `0.1.16`: `State` в верхней панели сессии, адаптация к светлой/тёмной теме |
-| `1ed26aa` | `scripts/outline-bench.mjs` и `scripts/outline-audit.mjs`, правило промпта с порогом, orchestrator 0.1.57 |
+| `1ed26aa` | `scripts/outline-bench.mjs`, `scripts/outline-audit.mjs`, правило «сначала outline» с порогом |
+| `0ae228f` + `8925221` | `session-budget` удалён из поставки; `start.sh` с `--dns-result-order=ipv4first` |
+| `cc610c5` + `8925221` | свой адаптер OpenAI удалён; включён штатный маршрут `openai-codex` у `llm-pi-ai` |
+| `de5c034` + `ce953e8` | откат моей правки политики оркестратора (0.1.58 = прежний текст) |
+| `0bd16d9` | запись анализа: причина отказа живой сессии |
 
 Доказательства:
-- адаптер: `node --test plugins/openai-codex/test/*.test.mjs` → 4/4 на поддельном OpenAI-эндпойнте (текст, tool-call, usage 12/7/2, модели `gpt-5`, `gpt-5-codex`, `o4-mini`); `make verify` 17/17.
-- outline: `outline` 30 013 Б против 460 341 Б (−93%), +медианное тело 34 606 Б (−92%), +крупнейшее 233 654 Б (−49%); негативный контроль «найди функцию» 7 826 Б против 124 455 Б (15.9×); аудит — базовая линия 675 сессий, 0 вызовов, 130 191 479 Б read.
-- панель: `State` открывается из `conversation.session.header.actions` (x=660), в левой колонке нет; axe 0 в обеих темах, hit-targets ≥24 px, 760 px без переполнения; sha256 483 файлов `state/` до/после совпали.
-
-Записи анализа: `docs/analysis/agent-surface-and-shell.json` (7 proven, 1 deferred), `docs/analysis/kit-tool-surface.json` (7/7 proven).
+- `make verify` — **17/17** + documentation ok (после каждого изменения).
+- outline: `node scripts/outline-bench.mjs` — 460 341 Б → 30 013 Б (−93%), с медианным телом −92%, с крупнейшим −49%; негативный контроль «найди функцию» 7 826 Б против 124 455 Б (15.9×).
+- аудит журналов: `node scripts/outline-audit.mjs --json` — базовая линия 675 сессий, **0** вызовов outline, 130 191 479 Б read.
+- панель: в `client.js` 0 вхождений `sidebar.panellist`, `State` из `conversation.session.header.actions`; axe 0 в обеих темах.
+- готовность: `kit-update --apply` в копию → 25 плагинов, второй сервер `:3095` поднялся без `already declared`/`did not activate`; в профиле нет `session-budget`, панель `0.1.16`, `outline` на месте.
+- OpenAI: ключ даёт `GET /v1/models` = 200 (98 моделей: `gpt-6.2-astra`, `gpt-6.2-sol`, `gpt-5.3-codex`…), но `chat/completions` = **429 insufficient_quota**. Поэтому маршрут переведён на подписку.
 
 ## Что осталось
 
-1. **Живая сессия на модели OpenAI** (BR1 в `agent-surface-and-shell`, отложен). Блокер — сеть: `api.openai.com` с машины недоступен (прямой запрос `000`).
-2. **B3 `task-mwm0hkio-hge31m`** (открыт, не делегирован): прокси в адаптере — HTTP через `createRouteDispatcher` из `@deepseek-ai/dsh-http-proxy`, SOCKS5 отдельным коннектором; чтобы через VPN шёл только OpenAI.
-3. **Обновление установленного профиля** (за владельцем): в живом профиле `orchestrator 0.1.45`, панель `0.1.14`, нет `@cc/dsh-outline` и `@cc/dsh-openai-codex`. После обновления — повторить `node scripts/outline-audit.mjs` и сравнить с базовой линией.
+1. **Перезапуск профиля владельцем**: `dsh web` ставит новую версию (25 плагинов). До этого живой `:3080` работает на старом профиле.
+2. **Вход в Codex по подписке**: Settings → Models → «OpenAI (ChatGPT Plus/Pro)» (OAuth). Кредиты API не нужны; ключ `sk-proj-…` с нулевым балансом не использовать.
+3. **Живая сессия на GPT** (BR1 в `docs/analysis/agent-surface-and-shell.json`, deferred): после входа выбрать модель в чате и снять один реальный ответ.
+4. **Журнальный эффект outline**: после перезапуска `node scripts/outline-audit.mjs --json` и сравнить с базовой линией.
+5. **Жёсткий запрет подагентов у детей** (опционально): смонтировать `@deepseek-ai/dsh-tool-subagent` с `maxDepth`/`allowedAgentPresets`; сейчас дети ограничены промптом и отсутствием `delegate_task`.
+6. **Обновление установленного профиля** — за владельцем; агент его не трогает.
 
-## Следующий шаг: поднять OpenVPN
-
-Готово: `~/Downloads/rsv.FIN.ovpn`, файл авторизации `~/.redshield.auth` (600, логин + пароль). `openvpn 2.5.11` установлен. `sudo` спрашивает пароль — **root у агента нет**, туннель поднимает владелец.
-
-Ловушка: в `rsv.FIN.ovpn` **нет `redirect-gateway`** — это split tunnel, и `api.openai.com` через него не пойдёт. Нужна копия с `redirect-gateway def1`:
+## Точный следующий шаг
 
 ```bash
-cp ~/Downloads/rsv.FIN.ovpn ~/.redshield-full.ovpn
-echo 'redirect-gateway def1 bypass-dhcp' >> ~/.redshield-full.ovpn
-sudo openvpn --config ~/.redshield-full.ovpn --auth-user-pass ~/.redshield.auth \
-  --daemon --writepid /tmp/redshield.pid --log /tmp/redshield.log
-ip -brief addr show tun0
-curl -sS -m 10 -o /dev/null -w '%{http_code}\n' https://api.openai.com/v1/models   # 401 = канал есть
+# 1. остановить живой сервер (pid 3160705 в этой сессии)
+kill 3160705
+# 2. поднять новую версию — лаунчер сам выполнит kit-update
+dsh web
+# 3. в браузере: Settings -> Models -> OpenAI (ChatGPT Plus/Pro) -> войти
+# 4. проверить, что маршрут живой: выбрать модель в чате и получить ответ
 ```
-
-После этого: снять живую проверку адаптера на `gpt-5` (ключ OpenAI владелец даст заново; в репозиторий его не писать), закрыть BR1, затем опустить туннель `sudo kill "$(cat /tmp/redshield.pid)"`.
 
 ## Ловушки, которые иначе повторятся
 
-- **Rootless-туннель невозможен:** в новом network namespace нет сети, а veth без root не создать. Не тратить время на `unshare -Urn`.
-- **Browsec — расширение браузера:** Brave не слушает ни одного порта, `--proxy-server` не задан, в профиле расширения нет. Другой процесс его VPN использовать не может; запросы через CDP упираются в CORS `api.openai.com`.
-- **Прокси в DSH — политика процесса:** `@deepseek-ai/dsh-http-proxy` ставит диспетчер на глобальный `fetch` из окружения или `$DSH_HOME/.env` (файла сейчас нет). SOCKS/PAC он не поддерживает. Адаптер OpenAI использует обычный `fetch`, поэтому при глобальном `HTTPS_PROXY` проксируется автоматически; для «только OpenAI» нужен B3.
-- **Ключи в чате:** ключ OpenAI и пароль RedShield были присланы сообщением — считать раскрытыми, рекомендовать перевыпуск. В git их нет (`grep` чист).
+- **`openai-codex` — это маршрут pi-ai, а не наш плагин.** Если снова добавить свой адаптер с этим `provider`, `llm-pi-ai` падает: `configurable provider "openai-codex" is already declared`, и вместе с ним отваливается Kimi. Проверять после установки: `grep -c "already declared"` в логе второго сервера.
+- **Обратные кавычки внутри шаблонных строк `orchestrator.mjs`** закрывают литерал и ломают модуль. После правок: `node --check plugins/orchestrator/orchestrator.mjs`; тарбол без проверки не собирать.
+- **Node и IPv6:** у машины нет IPv6-маршрута, а DNS отдаёт AAAA первым, поэтому `fetch` падает там, где `curl` работает. Лечится `NODE_OPTIONS=--dns-result-order=ipv4first` — уже в `start.sh`.
+- **`kit-update` отказывается работать, пока запущен `dsh web`** («kit update skipped»). Сначала остановить, потом запускать.
+- **`git add` с путём удалённого каталога** (`plugins/openai-codex`, `plugins/session-budget`) падает с `fatal: pathspec` и отменяет весь `add` — стейджить только существующие пути, удаления делать через `git rm -f`.
 - **Push флейки:** ретраить с `http.version=HTTP/1.1`/`1.0`, статус не читать через пайп, сверять `ls-remote`.
-- **Серверы от прошлых задач:** `:3092`, `:3093`, `:3094` (второй профиль для доказательств), живой `:3080` (pid 3160705) не трогать.
-- **Один BACKEND — одна сессия:** второй бриф, отправленный до завершения первого, попадает в работающий child.
+- **VPN:** `~/.redshield-full.ovpn` (с `redirect-gateway` и маршрутами DNS) + `~/.redshield.auth` (пара OpenVPN `7958645831` / `LJkCrmQO`). Поднимается только root: `sudo openvpn --config ~/.redshield-full.ovpn --auth-user-pass ~/.redshield.auth --verb 4`. Проверка пары без root — `~/.redshield-check.sh`. Остановить: `sudo pkill openvpn`. Пароли и ключ проходили через чат — перевыпустить.
+- **Browsec/расширения браузера** — не прокси для процессов: Brave не слушает портов, `--proxy-server` не задан. Не тратить время.
+- **Сессии `:3092`–`:3095`** от прошлых задач; живой `:3080` не трогать до перезапуска.
