@@ -45,22 +45,31 @@ window.__ModuleLoader__.load({
 
     const CSS = `
 .ps-root {
-  --ps-surface: var(--dsw-alias-bg-base, #ffffff);
-  --ps-surface-2: var(--dsw-alias-bg-layer-1, #f8fafc);
-  --ps-surface-3: var(--dsw-alias-bg-layer-2, #eef2f7);
-  --ps-ink: var(--dsw-alias-label-primary, #0f172a);
-  --ps-muted: var(--dsw-alias-label-secondary, #5b6676);
-  --ps-line: var(--dsw-alias-border-l1, #dfe5ee);
-  --ps-accent: var(--dsw-alias-button-primary-fill, var(--dsw-alias-brand-primary, #2563eb));
-  --ps-ok: var(--dsw-alias-state-success-primary, #15803d);
-  --ps-warn: var(--dsw-alias-state-warn-primary, #92400e);
-  --ps-bad: var(--dsw-alias-state-error-primary, #b91c1c);
+  /* Night desk: the panel is its own dark world, independent of the shell theme. The
+     tokens are the v3 night-* set from DESIGN.md; every pair used for text is checked
+     against its surface, and the shell's light aliases are deliberately not inherited. */
+  --ps-paper: #14191c;
+  --ps-surface: #1b2226;
+  --ps-surface-2: #20282c;
+  --ps-surface-3: #263034;
+  --ps-ink: #ece8dd;
+  --ps-muted: #a9b3ae;
+  --ps-line: #2c3538;
+  --ps-line-strong: #46524f;
+  --ps-accent: #d4685a;
+  --ps-accent-hover: #e07b6d;
+  --ps-accent-ink: #14191c;
+  --ps-ok: #8fce9e;
+  --ps-warn: #e0a64a;
+  --ps-bad: #f0a094;
+  --ps-info: #7fc4bd;
   height: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--ps-surface);
+  background: var(--ps-paper);
   color: var(--ps-ink);
+  color-scheme: dark;
   font: 13.5px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   container-type: inline-size;
 }
@@ -134,13 +143,17 @@ window.__ModuleLoader__.load({
 .ps-card .t { font-size: 12.4px; font-weight: 650; line-height: 1.3; overflow-wrap: anywhere; }
 .ps-card .m { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; margin-top: 5px; }
 .ps-card .none { color: var(--ps-muted); font-size: 11px; }
-.ps-table { width: 100%; border-collapse: collapse; }
-.ps-table th { text-align: left; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--ps-muted); font-weight: 700; padding: 6px 8px; border-bottom: 1px solid var(--ps-line); }
-.ps-table td { padding: 7px 8px; border-bottom: 1px solid var(--ps-line); vertical-align: top; font-size: 12px; }
+.ps-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.ps-table th { overflow-wrap: anywhere; text-align: left; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--ps-muted); font-weight: 700; padding: 6px 8px; border-bottom: 1px solid var(--ps-line); }
+.ps-table td { padding: 7px 8px; border-bottom: 1px solid var(--ps-line); vertical-align: top; font-size: 12px; overflow-wrap: anywhere; }
 .ps-table tbody tr { cursor: pointer; }
 .ps-table tbody tr:hover { background: var(--ps-surface-2); }
 .ps-table tbody tr:focus-visible { outline: 2px solid var(--ps-accent); outline-offset: -2px; }
 .ps-table .nowrap { white-space: nowrap; }
+.ps-table th:nth-child(1), .ps-table td:nth-child(1) { width: 37%; }
+.ps-table th:nth-child(2), .ps-table td:nth-child(2) { width: 25%; }
+.ps-table th:nth-child(3), .ps-table td:nth-child(3) { width: 16%; }
+.ps-table th:nth-child(4), .ps-table td:nth-child(4) { width: 22%; }
 .ps-cellchips { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
 .ps-subbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 8px; }
 .ps-group { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--ps-line); border-radius: 8px; padding: 2px; background: var(--ps-surface-2); }
@@ -183,6 +196,88 @@ window.__ModuleLoader__.load({
 .ps-loading:before { content: ""; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--ps-line); border-top-color: var(--ps-accent); animation: ps-spin .8s linear infinite; }
 @keyframes ps-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .ps-loading:before { animation: none; } }
+
+/* ── Night desk shell: a navigation rail, the mode, and a persistent evidence rail ── */
+.ps-top { background: var(--ps-surface); border-bottom-color: var(--ps-line); min-height: 52px; padding: 8px 16px; }
+.ps-title { font-size: 18px; letter-spacing: -.015em; }
+.ps-modebar { display: none; }
+.ps-shell { flex: 1; min-height: 0; display: grid; grid-template-columns: 212px minmax(0, 1fr) 360px; }
+.ps-nav { min-width: 0; min-height: 0; overflow: auto; border-right: 1px solid var(--ps-line); background: var(--ps-paper); padding: 14px 12px 18px; scrollbar-width: thin; }
+.ps-nav .ps-kicker { margin: 0 0 7px; }
+.ps-modes { display: flex; flex-direction: column; gap: 2px; }
+.ps-mode { display: flex; align-items: center; width: 100%; min-height: 36px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--ps-muted); padding: 5px 8px; text-align: left; font: inherit; font-size: 12.5px; font-weight: 650; cursor: pointer; }
+.ps-mode:hover { background: var(--ps-surface-2); color: var(--ps-ink); }
+.ps-mode[aria-selected="true"] { background: var(--ps-surface-2); color: var(--ps-ink); border-color: var(--ps-line-strong); }
+.ps-mode[aria-selected="true"]:before { content: ""; width: 2px; height: 16px; margin-right: 7px; background: var(--ps-accent); }
+.ps-navsec { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--ps-line); }
+.ps-navsec .ps-muted, .ps-navsec p.muted { margin: 0; color: var(--ps-muted); font-size: 12px; line-height: 1.5; }
+.ps-navfilter { border: 1px solid var(--ps-line); border-radius: 8px; background: var(--ps-surface); padding: 8px; }
+.ps-navfilter .t { font-size: 12.5px; font-weight: 650; line-height: 1.35; margin: 6px 0; overflow-wrap: anywhere; }
+.ps-navfilter .ps-meta { white-space: normal; display: block; margin-top: 4px; }
+.ps-navfoot { margin-top: 18px; color: var(--ps-muted); font-size: 11px; line-height: 1.5; }
+.ps-mail { display: inline-flex; align-items: center; gap: 4px; color: var(--ps-muted); font-size: 11px; }
+.ps-rail { min-width: 0; min-height: 0; overflow: auto; border-left: 1px solid var(--ps-line); background: var(--ps-surface); padding: 14px 14px 24px; scrollbar-width: thin; }
+.ps-rail > .ps-drawer { border: 0; background: transparent; padding: 0; min-height: 0; overflow: visible; }
+.ps-rail .ps-meta, .ps-railreq .ps-meta { white-space: normal; }
+.ps-railhead { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; }
+.ps-railhead .ps-kicker { margin: 0; }
+.ps-railhead .ps-spacer { flex: 1; }
+.ps-railreq { border-bottom: 1px solid var(--ps-line); padding-bottom: 10px; margin-bottom: 12px; }
+.ps-railreq .t { font-size: 14px; font-weight: 650; line-height: 1.35; margin: 6px 0 0; overflow-wrap: anywhere; }
+.ps-railsec { margin: 0 0 14px; }
+.ps-railsec h3 { margin: 0 0 5px; font: 700 11px/1.4 var(--ps-sans, system-ui, sans-serif); letter-spacing: .1em; text-transform: uppercase; color: var(--ps-muted); }
+.ps-evrow { display: flex; align-items: flex-start; gap: 6px; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px solid var(--ps-line); }
+.ps-evrow:last-child { border-bottom: 0; }
+.ps-evrow .cmd { flex: 1 1 100%; min-width: 0; color: var(--ps-muted); font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ps-evsum { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 0 0 12px; }
+.ps-evsum .cell { border: 1px solid var(--ps-line); border-radius: 6px; background: var(--ps-surface-2); padding: 7px 8px; }
+.ps-evsum .n { display: block; color: var(--ps-ink); font: 700 18px/1.1 var(--ps-sans, system-ui, sans-serif); font-variant-numeric: tabular-nums; }
+.ps-evsum .l { display: block; color: var(--ps-muted); font-size: 11px; margin-top: 2px; }
+.ps-railnote { margin: 12px 0 0; color: var(--ps-muted); font-size: 11.5px; line-height: 1.5; }
+.ps-root .dmv {
+  --dmv-surface: var(--ps-paper);
+  --dmv-surface-2: var(--ps-surface);
+  --dmv-surface-3: var(--ps-surface-2);
+  --dmv-ink: var(--ps-ink);
+  --dmv-muted: var(--ps-muted);
+  --dmv-line: var(--ps-line);
+  --dmv-line-strong: var(--ps-line-strong);
+  --dmv-accent: var(--ps-accent);
+  --dmv-accent-ink: var(--ps-paper);
+  --dmv-ok: var(--ps-ok);
+  --dmv-warn: var(--ps-warn);
+  --dmv-danger: var(--ps-bad);
+}
+.ps-mapstage .react-flow__background { opacity: .35; }
+.ps-root .ps-status.info { color: var(--ps-info); }
+.ps-root .ps-kicker { font-size: 11px; letter-spacing: .1em; }
+.ps-root .ps-status { font-size: 11px; }
+.ps-root .ps-col h3, .ps-root .ps-table th, .ps-root .ps-drawer h3, .ps-root .ps-sec h3 { font-size: 11px; }
+.ps-root .ps-meta { font-size: 11px; }
+.ps-root .ps-btn { background: var(--ps-surface-2); border-color: var(--ps-line-strong); }
+.ps-root .ps-btn:hover { background: var(--ps-surface-3); }
+.ps-root .ps-btn.small { min-height: 24px; }
+.ps-root .ps-ro { background: color-mix(in srgb, var(--ps-ok) 10%, transparent); }
+.ps-root .ps-chip { background: color-mix(in srgb, var(--ps-type) 18%, var(--ps-surface-2)); }
+.ps-root .ps-chip:hover { background: color-mix(in srgb, var(--ps-type) 28%, var(--ps-surface-2)); }
+.ps-root .ps-reqrow { background: var(--ps-surface-2); }
+.ps-root .ps-reqrow.sel { background: color-mix(in srgb, var(--ps-accent) 8%, var(--ps-surface-2)); }
+.ps-root .ps-col, .ps-root .ps-card, .ps-root .ps-table tbody tr:hover { background: var(--ps-surface-2); }
+.ps-root .ps-card { background: var(--ps-surface); }
+.ps-root .ps-pre { background: var(--ps-paper); }
+@container (max-width: 1000px) {
+  .ps-shell { grid-template-columns: 196px minmax(0, 1fr); }
+  .ps-rail { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--ps-line); max-height: 46vh; }
+}
+@container (max-width: 760px) {
+  .ps-shell { grid-template-columns: minmax(0, 1fr); }
+  .ps-nav { border-right: 0; border-bottom: 1px solid var(--ps-line); overflow: visible; }
+  .ps-modes { flex-direction: row; overflow-x: auto; padding-bottom: 2px; }
+  .ps-mode { flex: 0 0 auto; width: auto; }
+  .ps-mode[aria-selected="true"]:before { display: none; }
+  .ps-navsec, .ps-navfoot { display: none; }
+  .ps-rail { max-height: 55vh; }
+}
 `
 
     /* ---------- read + parse helpers (read-only) ---------- */
@@ -947,6 +1042,86 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /** How many evidence references a TEST carries, from the index and the entity metadata. */
+    function evidenceCountOf(data, test) {
+      const entity = data.entities.get(test.id)
+      const fm = entity?.frontmatter ?? {}
+      return (Array.isArray(test.evidenceRefs) ? test.evidenceRefs.length : 0) + (Array.isArray(fm.evidenceRefs) ? fm.evidenceRefs.length : 0)
+    }
+
+    /**
+     * The persistent evidence rail. It is not a second drawer: it always shows the evidence
+     * the projections carry for the current requirement filter (or, with no filter, the
+     * evidence summary of the whole view). Opening an entity replaces this rail with the one
+     * drawer; closing the drawer returns to this summary, so the column is never empty and
+     * the evidence never sits on a separate screen.
+     */
+    function EvidenceRail({ data, filter, onOpenEntity, onOpenMode }) {
+      const index = data.index
+      const req = filter === null ? null : index.reqs.find((row) => row.id === filter) ?? null
+      const reqEntity = filter === null ? null : data.entities.get(filter)
+      const tests = req === null ? index.tests : index.tests.filter((test) => test.reqId === req.id)
+      const testsWithEvidence = tests.filter((test) => evidenceCountOf(data, test) > 0)
+      const testsWithoutEvidence = tests.length - testsWithEvidence.length
+      const reqsWithoutTests = index.reqs.filter((row) => row.tests.length === 0).length
+      const shown = (req === null ? testsWithEvidence : tests).slice(0, 8)
+
+      return h('aside', { className: 'ps-evrail', 'aria-label': 'Evidence rail' },
+        h('div', { className: 'ps-railhead' },
+          h('p', { className: 'ps-kicker' }, 'Evidence rail'),
+          h('span', { className: 'ps-spacer' }),
+          req === null ? null : h('button', { type: 'button', className: 'ps-btn small', onClick: () => onOpenEntity(req.id) }, 'Open detail'),
+        ),
+        req === null
+          ? h('div', { className: 'ps-railreq' },
+              h('p', { className: 'ps-kicker' }, 'This view'),
+              h('p', { className: 't' }, 'Evidence across the projections'),
+              h('p', { className: 'ps-meta' }, 'Choose a requirement in Requirements to pin its evidence here.'),
+            )
+          : h('div', { className: 'ps-railreq' },
+              h(TypeChip, { kind: 'req', id: req.id, static: true }),
+              h('p', { className: 't' }, titleOf(reqEntity, req.id)),
+              h('p', { className: 'ps-meta' }, `${req.tasks.length} task${req.tasks.length === 1 ? '' : 's'} · ${req.tests.length} test${req.tests.length === 1 ? '' : 's'} · ${req.decisions.length} decision${req.decisions.length === 1 ? '' : 's'}`),
+            ),
+        h('div', { className: 'ps-evsum', 'aria-label': 'Evidence totals' },
+          h('div', { className: 'cell' }, h('span', { className: 'n' }, String(testsWithEvidence.length)), h('span', { className: 'l' }, `test${testsWithEvidence.length === 1 ? '' : 's'} with evidence`)),
+          h('div', { className: 'cell' }, h('span', { className: 'n' }, String(testsWithoutEvidence)), h('span', { className: 'l' }, `test${testsWithoutEvidence === 1 ? '' : 's'} without evidence`)),
+        ),
+        h('div', { className: 'ps-railsec' },
+          h('h3', null, req === null ? 'Tests carrying evidence' : `Tests for ${req.id} (${tests.length})`),
+          shown.length === 0
+            ? h('p', { className: 'ps-muted' }, req === null
+                ? 'No test in these projections carries an evidence reference. The Tests & trace mode shows every TEST row.'
+                : h(Gap, { onClick: () => onOpenMode('trace', req.id) }, 'no test'), req === null ? null : ' This requirement has no test in the projections.')
+            : shown.map((test) => {
+                const entity = data.entities.get(test.id)
+                const fm = entity?.frontmatter ?? {}
+                const refs = evidenceCountOf(data, test)
+                return h('div', { className: 'ps-evrow', key: test.id },
+                  h(TypeChip, { kind: 'test', id: test.id, onClick: () => onOpenEntity(test.id), title: `Open test ${test.id}` }),
+                  h(Status, { status: test.status }),
+                  h('span', { className: 'ps-meta' }, refs > 0 ? `${refs} evidence ref${refs === 1 ? '' : 's'}` : 'no evidence'),
+                  typeof fm.command === 'string' && fm.command !== '' ? h('span', { className: 'cmd', title: fm.command }, fm.command) : null,
+                )
+              }),
+        ),
+        req !== null && req.decisions.length > 0
+          ? h('div', { className: 'ps-railsec' },
+              h('h3', null, `Decisions (${req.decisions.length})`),
+              h('div', { className: 'ps-chiplist' }, req.decisions.map((id) => h(TypeChip, { key: id, kind: 'decision', id, onClick: () => onOpenEntity(id) }))),
+            )
+          : null,
+        h('div', { className: 'ps-railsec' },
+          h('h3', null, 'Evidence gaps'),
+          h('p', { className: 'ps-muted' }, `${reqsWithoutTests} requirement${reqsWithoutTests === 1 ? '' : 's'} without a test in the projections.`),
+          req === null
+            ? h('p', { className: 'ps-muted' }, `${testsWithoutEvidence} test${testsWithoutEvidence === 1 ? '' : 's'} without an evidence reference; open a test to read its recorded pair.`)
+            : h('p', { className: 'ps-muted' }, `${testsWithoutEvidence} of ${tests.length} tests for this requirement carry no evidence reference.`),
+        ),
+        h('p', { className: 'ps-railnote' }, 'Evidence is read from index.json and the TEST entity body. The red→green pair is shown in the test drawer, not summarised here.'),
+      )
+    }
+
     function Drawer({ drawer, data, analysisLinks, filter, onClose, onOpenEntity, onOpenRequirement, onOpenMode, onClearFilter, tab, setTab }) {
       const closeRef = useRef(null)
       const isNode = drawer.kind === 'node'
@@ -1257,11 +1432,13 @@ window.__ModuleLoader__.load({
       const clearFilter = useCallback(() => setFilter(null), [])
 
       const onModeKeyDown = (event) => {
+        // The mode list is a VERTICAL tablist in the Night desk shell; keep the horizontal
+        // arrows working for muscle memory, but Up/Down is the pattern the orientation promises.
         const order = ['req', 'board', 'map', 'trace']
         const index = order.indexOf(mode)
-        if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+        const delta = event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1 : event.key === 'ArrowUp' || event.key === 'ArrowLeft' ? -1 : 0
+        if (delta !== 0) {
           event.preventDefault()
-          const delta = event.key === 'ArrowRight' ? 1 : -1
           const next = order[(index + delta + order.length) % order.length]
           setMode(next)
           const element = document.getElementById(`ps-tab-${next}`)
@@ -1290,16 +1467,26 @@ window.__ModuleLoader__.load({
       const filteredTasks = index === null || filter === null ? null : index.tasks.filter((task) => task.reqId === filter).length
       const filteredTests = index === null || filter === null ? null : index.tests.filter((test) => test.reqId === filter).length
 
+      const modeButton = (id, label) => h('button', {
+        id: `ps-tab-${id}`,
+        type: 'button',
+        role: 'tab',
+        'aria-selected': mode === id,
+        'aria-controls': 'ps-panel',
+        className: 'ps-mode',
+        onClick: () => setMode(id),
+        onKeyDown: onModeKeyDown,
+        tabIndex: mode === id ? 0 : -1,
+      }, label)
+
+      const filterEntity = filter === null ? null : data.entities.get(filter)
+      const filterTitle = filter === null ? '' : titleOf(filterEntity, filter)
+
       return h('div', { className: 'ps-root', role: 'main', 'aria-label': 'Project state' },
         h('style', null, CSS),
         h('div', { className: 'ps-top' },
           h('h1', { className: 'ps-title' }, 'Project state'),
-          h('div', { className: 'ps-modebar', role: 'tablist', 'aria-label': 'Project state modes' },
-            h('button', { id: 'ps-tab-req', type: 'button', role: 'tab', 'aria-selected': mode === 'req', 'aria-controls': 'ps-panel', className: 'ps-mode', onClick: () => setMode('req'), onKeyDown: onModeKeyDown, tabIndex: mode === 'req' ? 0 : -1 }, 'Requirements'),
-            h('button', { id: 'ps-tab-board', type: 'button', role: 'tab', 'aria-selected': mode === 'board', 'aria-controls': 'ps-panel', className: 'ps-mode', onClick: () => setMode('board'), onKeyDown: onModeKeyDown, tabIndex: mode === 'board' ? 0 : -1 }, 'Board'),
-            h('button', { id: 'ps-tab-map', type: 'button', role: 'tab', 'aria-selected': mode === 'map', 'aria-controls': 'ps-panel', className: 'ps-mode', onClick: () => setMode('map'), onKeyDown: onModeKeyDown, tabIndex: mode === 'map' ? 0 : -1 }, 'Design map'),
-            h('button', { id: 'ps-tab-trace', type: 'button', role: 'tab', 'aria-selected': mode === 'trace', 'aria-controls': 'ps-panel', className: 'ps-mode', onClick: () => setMode('trace'), onKeyDown: onModeKeyDown, tabIndex: mode === 'trace' ? 0 : -1 }, 'Tests & trace'),
-          ),
+          h('span', { className: 'ps-ro', title: 'This panel executes no write command and writes no file. Changes stay in the Tasks, Cases and Design map panels and in the state core.' }, 'read-only'),
           h('span', { className: 'ps-spacer' }),
           counts === null ? null : h('div', { className: 'ps-counts', 'aria-label': 'Projection counts' },
             h('span', { className: 'ps-count', title: 'Requirements in index.json' }, h('b', null, String(counts.req)), 'REQ'),
@@ -1308,7 +1495,6 @@ window.__ModuleLoader__.load({
             h('span', { className: 'ps-count', title: 'Decisions in index.json' }, h('b', null, String(counts.decision)), 'DEC'),
           ),
           index === null ? null : h('span', { className: 'ps-meta', title: 'The machine-readable link contract this panel reads' }, `index.json v${index.schemaVersion} · event ${String(index.lastSeq ?? 0)}`),
-          h('span', { className: 'ps-ro', title: 'This panel executes no write command and writes no file. Changes stay in the Tasks, Cases and Design map panels and in the state core.' }, 'read-only'),
           h('button', { type: 'button', className: 'ps-btn small', onClick: () => setReloadToken((value) => value + 1), disabled: data.phase === 'loading' || data.phase === 'refreshing', title: 'Re-read state/views and the entity files' }, 'Reload'),
         ),
         filter === null ? null : h('div', { className: 'ps-filterbar', role: 'status' },
@@ -1331,7 +1517,32 @@ window.__ModuleLoader__.load({
           h('p', { className: 'ps-muted' }, 'The panel shows the named failure instead of guessing. Reload after the projections are regenerated.'),
           h('button', { type: 'button', className: 'ps-btn small', onClick: () => setReloadToken((value) => value + 1) }, 'Reload'),
         ) : null,
-        ready ? h('div', { className: `ps-body${drawer === null ? '' : ' with-drawer'}` },
+        ready ? h('div', { className: 'ps-shell' },
+          h('nav', { className: 'ps-nav', 'aria-label': 'Project state modes' },
+            h('p', { className: 'ps-kicker' }, 'Modes'),
+            h('div', { className: 'ps-modes', role: 'tablist', 'aria-orientation': 'vertical', 'aria-label': 'Project state modes' },
+              modeButton('req', 'Requirements'),
+              modeButton('board', 'Board'),
+              modeButton('map', 'Design map'),
+              modeButton('trace', 'Tests & trace'),
+            ),
+            h('div', { className: 'ps-navsec' },
+              h('p', { className: 'ps-kicker' }, 'Requirement filter'),
+              filter === null
+                ? h('p', { className: 'muted' }, 'Choose a requirement in Requirements to filter the other modes.')
+                : h('div', { className: 'ps-navfilter' },
+                    h(TypeChip, { kind: 'req', id: filter, static: true }),
+                    h('p', { className: 't' }, filterTitle),
+                    h('span', { className: 'ps-meta' }, `${filteredTasks} task${filteredTasks === 1 ? '' : 's'} · ${filteredTests} test${filteredTests === 1 ? '' : 's'}`),
+                    h('button', { type: 'button', className: 'ps-btn small', onClick: clearFilter, style: { marginTop: 7 } }, 'Clear filter'),
+                  ),
+            ),
+            h('div', { className: 'ps-navfoot' },
+              h('p', { className: 'ps-kicker' }, 'Projection'),
+              index === null ? null : h('p', null, `index.json v${index.schemaVersion}`, h('br'), `event ${String(index.lastSeq ?? 0)}`),
+              h('p', { style: { marginTop: 6 } }, 'Read-only lens over state/views.'),
+            ),
+          ),
           h('section', { className: 'ps-main', id: 'ps-panel', role: 'tabpanel', 'aria-labelledby': `ps-tab-${mode}` },
             data.issues !== undefined && data.issues.length > 0 ? h('div', { className: 'ps-warnline', role: 'status' }, `Entity metadata issues: ${data.issues.join('; ')}`) : null,
             mode === 'req'
@@ -1352,19 +1563,23 @@ window.__ModuleLoader__.load({
                     })
                   : h(TestsMode, { data, filter, subview, setSubview, onOpenTest: openEntity, onSelectReq: setFilter, onOpenMode: openMode }),
           ),
-          drawer === null ? null : h(Drawer, {
-            drawer,
-            data,
-            analysisLinks,
-            filter,
-            onClose: closeDrawer,
-            onOpenEntity: (id) => { openEntity(id); if (kindOfId(id) !== 'req') setDrawerTab('links') },
-            onOpenRequirement: (id) => { openEntity(id); setModeState('req') },
-            onOpenMode: openMode,
-            onClearFilter: clearFilter,
-            tab: drawerTab,
-            setTab: setDrawerTab,
-          }),
+          h('div', { className: 'ps-rail' },
+            drawer === null
+              ? h(EvidenceRail, { data, filter, onOpenEntity: (id) => { openEntity(id); setDrawerTab('overview') }, onOpenMode: openMode })
+              : h(Drawer, {
+                  drawer,
+                  data,
+                  analysisLinks,
+                  filter,
+                  onClose: closeDrawer,
+                  onOpenEntity: (id) => { openEntity(id); if (kindOfId(id) !== 'req') setDrawerTab('links') },
+                  onOpenRequirement: (id) => { openEntity(id); setModeState('req') },
+                  onOpenMode: openMode,
+                  onClearFilter: clearFilter,
+                  tab: drawerTab,
+                  setTab: setDrawerTab,
+                }),
+          ),
         ) : null,
         h('p', { className: 'ps-visually-hidden', 'aria-live': 'polite' },
           filter === null ? 'No requirement filter.' : `Filtered by ${filter}.`,
