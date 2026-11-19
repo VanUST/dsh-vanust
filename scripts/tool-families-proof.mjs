@@ -101,7 +101,7 @@ const POLICY_RAW = {
   projectMarkers: { 'mcp__godot__*': 'project.godot' },
   families: {
     // Copied from profile/cordis.patch.yml (V1.1 allow lists); the app runs the same table.
-    orchestrator: { allow: ['analysis_check', 'analysis_impact', 'analysis_read', 'analysis_upsert', 'ask_user_question', 'delegate_task', 'designmap_apply', 'designmap_open', 'designmap_render', 'designmap_scan', 'designmap_status', 'edit', 'glob', 'grep', 'hindsight_list_pages', 'hindsight_read_page', 'hindsight_search_pages', 'hindsight_reflect', 'outline', 'present', 'read', 'skill', 'skill_evolve', 'skill_inventory', 'task_cancel', 'task_close', 'task_create', 'task_get', 'task_link', 'task_list', 'task_note', 'task_pause', 'task_remove', 'task_resume', 'task_stop', 'task_update', 'todo_write', 'web_fetch', 'web_search', 'write'] },
+    orchestrator: { allow: ['analysis_check', 'analysis_impact', 'analysis_read', 'analysis_upsert', 'ask_user_question', 'case_drift', 'case_get', 'case_list', 'case_record', 'delegate_task', 'delegation_brief', 'designmap_apply', 'designmap_lint', 'designmap_status', 'edit', 'glob', 'grep', 'hindsight_list_pages', 'hindsight_read_page', 'hindsight_search_pages', 'outline', 'present', 'read', 'skill', 'skill_evolve', 'skill_inventory', 'task_cancel', 'task_close', 'task_create', 'task_get', 'task_list', 'task_note', 'task_stop', 'task_update', 'todo_write', 'web_fetch', 'web_search', 'write'] },
     backend: { allow: ['bash', 'case_get', 'case_list', 'case_record', 'case_run', 'case_suite', 'edit', 'glob', 'grep', 'job_output', 'read', 'read_image', 'skill', 'task_get', 'task_note', 'write'] },
     reviewer: { allow: ['bash', 'case_gate', 'case_get', 'case_list', 'case_run', 'glob', 'grep', 'present', 'read', 'read_image', 'skill', 'task_get', 'task_note', 'todo_write'] },
     critic: { allow: ['bash', 'case_get', 'case_list', 'case_run', 'glob', 'grep', 'job_output', 'present', 'read', 'read_image', 'skill', 'task_get', 'task_note', 'todo_write'] },
@@ -111,7 +111,7 @@ const POLICY_RAW = {
     ux: { allow: ['bash', 'case_list', 'case_record', 'edit', 'glob', 'grep', 'mcp__playwright__*', 'present', 'read', 'read_image', 'skill', 'task_get', 'task_note', 'todo_write', 'web_fetch', 'web_search', 'write'] },
   },
 }
-const BUDGETS = { orchestrator: 40, backend: 16, reviewer: 14, critic: 14, gatherer: 10, research: 14, docs: 14, ux: 40 }
+const BUDGETS = { orchestrator: 42, backend: 16, reviewer: 14, critic: 14, gatherer: 10, research: 14, docs: 14, ux: 40 }
 const POLICY = normalizeConfig(POLICY_RAW)
 
 const PRESETS = [undefined, 'orchestrator', 'ux', 'backend', 'reviewer', 'critic', 'research', 'gatherer', 'docs', 'a-preset-nobody-wrote']
@@ -207,7 +207,7 @@ for (const preset of ROWS) {
   const kept = keptNames(row('dsh-kit', preset).decision).filter((name) => name.startsWith('hindsight_'))
   check(
     `hindsight ${preset === 'orchestrator' ? 'kept (read half)' : 'removed'} for preset "${preset}"`,
-    preset === 'orchestrator' ? kept.length === 4 : kept.length === 0,
+    preset === 'orchestrator' ? kept.length === 3 : kept.length === 0,
     `kept=${kept.join(',') || '(none)'}`,
   )
 }
@@ -426,6 +426,35 @@ check(
   'a different preset gets its own facts, not the orchestrator ones',
   backendFacts?.preset === 'backend' && !(backendFacts?.removed ?? []).includes('bash'),
   `preset=${backendFacts?.preset} removed=${(backendFacts?.removed ?? []).join(',')}`,
+)
+
+// ── allows: the registration-time half of the policy ───────────────────────────
+// tools.restrict masks only global and ancestor registrations; a kit plugin that registers a
+// tool into the agent's own layer used to bypass the allow list entirely (measured 2026-11-18:
+// the root carried case_*, delegation_*, diagram and the goal tools although the row named none
+// of them). Those plugins now ask this service before registering, so the row is the one owner
+// of the role surface.
+console.log('\nregistration time: the row decides what a per-agent plugin may register')
+const allowsAgent = (preset) => ({ session: { id: 'allows-' + preset, header: { agentPreset: preset, cwd: KIT } } })
+check(
+  'allows admits a tool the orchestrator row names',
+  factsService?.allows(allowsAgent('orchestrator'), 'case_record') === true,
+)
+check(
+  'allows refuses a tool the orchestrator row does not name',
+  factsService?.allows(allowsAgent('orchestrator'), 'case_gate') === false,
+)
+check(
+  'allows admits a tool the backend row names',
+  factsService?.allows(allowsAgent('backend'), 'bash') === true,
+)
+check(
+  'allows refuses a tool the backend row does not name',
+  factsService?.allows(allowsAgent('backend'), 'task_list') === false,
+)
+check(
+  'a preset without a row admits every tool',
+  factsService?.allows(allowsAgent('a-preset-nobody-wrote'), 'anything_at_all') === true,
 )
 
 const passed = results.filter((r) => r.ok).length

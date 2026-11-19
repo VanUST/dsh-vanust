@@ -35,7 +35,7 @@
 | id | Версия | Смонтирован | Что регистрирует | Доказательство | Статус |
 |---|---|---|---|---|---|
 | `presentation` | 0.1.9 | да | инструмент `presentation`; только `standard`, `orchestrator`, `ux` (`plugins/presentation/index.js:27-34`) | своего прогона нет; упоминается только в `check-portability` | не проверено |
-| `diagrams` | 0.1.5 | да | инструмент `diagram`; только `standard`, `orchestrator`, `ux` (`plugins/diagrams/index.js:27-34`) | своего прогона нет | не проверено |
+| `diagrams` | 0.1.7 | да | инструмент `diagram`; только `standard`, `orchestrator`, `ux`, и только если allow-строка пресета его называет (`surfaceAllows` в `plugins/diagrams/index.js`) | своего прогона нет | не проверено |
 | `work-modes` | 0.1.9 | **нет** | 0 инструментов, 2 перехвата (`subagent/start`, `subagent/end`) (`plugins/work-modes/work-modes.mjs:600,610`) | `mounted: false` (`plugins/inventory.json`); своего прогона нет | не смонтирован |
 | `godot-mcp` | 0.1.6 | да | раздел промпта `godot:mcp` (`plugins/godot-mcp/godot-mcp.mjs:624-625`) и декларация MCP-сервера; сам MCP-ряд — в домашнем `$DSH_HOME/cordis.patch.yml` | своего прогона нет; живого редактора Godot нет — см. «Godot: не проверено» | не проверено |
 | `notify` | 1.1.3 | да | 0 инструментов, 2 перехвата (`agent/status`, `user-questions/request`) (`plugins/notify/plugin-notify.mjs:378,422`) | `node scripts/notify-selftest.mjs --dry-run` → exit 0, `dry-run: nothing was spawned` (перепроверено) | частично: попап не поднимался |
@@ -51,10 +51,10 @@
 | `skill-evolve` | 0.1.5 | да | 4 инструмента (`skill_inventory`, `skill_evolve`, `skill_grow`, `skill_forget`) и раздел `skills:evolve` | своего прогона нет | не проверено |
 | `research-first` | 0.1.4 | да | перехват `tools/pre-execute`, инструмент `research_waive`, раздел `research:first` (`plugins/research-first/research-first.mjs:177,203,237`) | своего прогона нет | не проверено |
 | `project-rules` | 0.1.10 | да | раздел `project:rules` из `.dsh/rules.md` и панель Rules; правка файла агенту запрещена (`rules_human_only`) (`plugins/project-rules/index.js:323,348,361`) | своего прогона нет | не проверено |
-| `test-cases` | 0.1.12 | да | 12 инструментов `case_*`, команда, сервисы, панель | `node --test plugins/test-cases/test/runner.test.mjs` → exit 0, 12 pass | подтверждено прогоном |
+| `test-cases` | 0.1.17 | да | 12 инструментов `case_*`, регистрируются только если allow-строка пресета их называет (`surfaceAllows`), команда, сервисы, панель | `node --test plugins/test-cases/test/runner.test.mjs` → exit 0, 12 pass | подтверждено прогоном |
 | `analysis` | 0.1.9 | да | 4 корневых инструмента `analysis_*` и раздел `deployment:analysis-policy` (`plugins/analysis/analysis.mjs:203`) | тот же прогон `analysis-before-decomposition-proof` → exit 0, 130/130 | подтверждено прогоном |
-| `run-code-projection` | 0.1.1 | да | 0 инструментов; перехват `tools/post-execute` для `run_code` | `node plugins/run-code-projection/proof/proof.mjs` → exit 0, 13 проверок PASS | подтверждено прогоном |
-| `tool-families` | 0.1.8 | да | 0 инструментов; 4 перехвата: `agent-preset/selected`, `session/event`, `agent/created`, `agent/pre-step` | `node scripts/tool-families-proof.mjs` → exit 0, 62/62 (перепроверено); политика доказана для native, в PTC не действует — см. «Оговорка PTC» | частично |
+| `run-code-projection` | 0.1.2 | да | 0 инструментов; перехват `tools/post-execute` для набора инструментов (`run_code`, `bash`, `pwsh`, `read`, `web_fetch`, `hindsight_read_page`, `hindsight_search_pages`, `grep`, `glob`, `outline`, `task_list`) | `node plugins/run-code-projection/proof/proof.mjs` → exit 0, 18 проверок PASS | подтверждено прогоном |
+| `tool-families` | 0.1.14 | да | 0 инструментов; 4 перехвата и сервис `toolFamilies` с `allows()` — регистрация инструментов кита в контексте агента теперь спрашивает политику (2026-11-18: `tools.restrict` маскирует только глобальные регистрации) | `node scripts/tool-families-proof.mjs` → exit 0, 97/97 (перепроверено); политика доказана для native, в PTC не действует — см. «Оговорка PTC» | частично |
 | `designmap` | 0.1.17 | да | 7 инструментов `designmap_*` только для `orchestrator` (`plugins/designmap/index.js:53-56`), команда `/designmap`, панель Design map | `cd plugins/designmap && node --test test/*.test.mjs` → exit 0, 125 тестов, 125 pass (перепроверено); упаковка 0.1.17 совпадает с исходником — см. «Упаковка `designmap` 0.1.17» | подтверждено прогоном |
 
 ## Godot: не проверено
@@ -102,7 +102,7 @@
 |---|---|
 | `node scripts/check-portability.mjs` | exit 0, 17/17 |
 | `make verify` (обе проверки кита) | exit 0, `documentation ok` |
-| `node scripts/tool-families-proof.mjs` | exit 0, 62/62 |
+| `node scripts/tool-families-proof.mjs` | exit 0, 97/97 |
 | `node scripts/outline-selftest.mjs` | exit 0, 6 passed, 0 failed |
 | `node scripts/notify-selftest.mjs --dry-run` | exit 0, `dry-run: nothing was spawned` |
 | `cd plugins/designmap && node --test test/*.test.mjs` | exit 0, 125 tests, 125 pass |

@@ -14,7 +14,7 @@ unless the `DSH_HOME` environment variable overrides it.
 
 ## 1. What this deployment is
 
-The upstream harness plus 25 plugins, all pinned and installed from one kit repository:
+The upstream harness plus 26 plugins, all pinned and installed from one kit repository:
 
 | Piece | What it does |
 |---|---|
@@ -31,16 +31,16 @@ The upstream harness plus 25 plugins, all pinned and installed from one kit repo
 | `@deepseek-ai/dsh-subagent` | the harness's subagent service, mounted with this profile's one setting: `maxActiveSubagents: 64` (harness default 8), `maxDepth` left at its default 1. It owns the concurrent-child pool, parent/child relationships and the capacity check that answers `ACTIVATION_LIMIT_REACHED`; `subagent`, `subagent_fork`, `workflow` and `delegate_task` all spawn through it. Raising the pool here is what makes removing `@cc/dsh-work-modes` a real removal rather than a move from a cap of 2 to a cap of 8. The volatile fields are also editable on Plugins → Subagent, but a value written in this profile patch takes precedence and a form write it would override is refused |
 | `@cc/dsh-skills` | registers twenty runtime skills through `ctx.skills.register`: `ponytail` (test paragraph patched to the proof rule), `grill-me`/`grilling`, `clear-writing`, `explain-webpage`, `explain-diagram` (adapted to the local `diagram` tool), `ui-builder`, `proof-not-tests`, `literature-review`, and five added 2026-10-26: `tests-that-could-fail`, `visual-explanations`, `ui-testing`, `ui-design-system`, `research-first`; and six added 2026-11-09 for UX/UI testing: `canvas-test-bridge`, `property-based-domain-tests`, `visual-golden-tests`, `a11y-keyboard-audit`, `maestro-mobile-flows`, `test-run-observability`. The tarball is the source of truth; no `$DSH_HOME/skills` copy |
 | `@cc/dsh-flash-guard` | one `agent/request` waterfall. A delegated child (`delegationDepth > 0` or a `parentSession` header) whose route is not in `allowedRoutes` is **refused** before dispatch — never rewritten, because dsh freezes the route before that hook and a mutated result throws inside the turn (`dsh-agent-loop`: "use agent.model.select() before step preparation"); on 0.2.1 the old rewrite still worked, so this is a deliberate behaviour change, and `onViolation: rewrite` is now reported and treated as `refuse`. `enforceRoot: false` keeps the human's own model choice; external ACP/SDK/Claude Code providers bypass the seam and are the stated residual. A second, stricter rule covers routes nobody may run: a `deniedModels` match (`*highspeed*`) is **refused for root and child alike**, because silently substituting another model is how a "never use this" rule holds while the expensive route was already paid for |
-| `@deepseek-ai/dsh-llm-pi-ai` | the harness's multi-provider LLM adapter, mounted dormant and activated by this profile's `providers` map. One extra route runs here: `kimi-coding`, the Kimi Code subscription endpoint (OpenAI-compatible, `https://api.kimi.com/coding/v1`), with exactly **two** models — `k3.1-pro` for planning, design, review and orchestration, and `kimi-for-coding` (K2.8 Preview) as the workhorse that stands in during DeepSeek peak hours. Neither highspeed variant is listed: they cost two to three times the tokens for latency this work does not need, and `deniedModels` refuses them if anything names one. Context windows come from the endpoint's own `GET /v1/models`; the key is only the credential reference `KIMI_CODING_API_KEY`, resolved per request from `$DSH_HOME/.credentials.yaml`. The same `providers` map also names `openai-codex: {}`: the pi-ai catalog already describes that provider (`https://chatgpt.com/backend-api`, protocol `openai-codex-responses`, OAuth grant "OpenAI (ChatGPT Plus/Pro)", `isSubscription: true`), so a ChatGPT subscription signs in through Settings -> Models and the credential is stored as `llm-pi-ai/openai-codex`; no API key and no prepaid API credits are involved |
+| `@deepseek-ai/dsh-llm-pi-ai` | the harness's multi-provider LLM adapter, mounted dormant and activated by this profile's `providers` map. One extra route runs here: `kimi-coding`, the Kimi Code subscription endpoint (OpenAI-compatible, `https://api.kimi.com/coding/v1`), with exactly **two** models — `k3.1-pro` for planning, design, review and orchestration, and `kimi-for-coding` (K2.8 Preview) as the workhorse that stands in during DeepSeek peak hours. Neither highspeed variant is listed: they cost two to three times the tokens for latency this work does not need, and `deniedModels` refuses them if anything names one. Context windows come from the endpoint's own `GET /v1/models`; the key is only the credential reference `KIMI_CODING_API_KEY`, resolved per request from `$DSH_HOME/.credentials.yaml`. The same `providers` map names `openai-codex` with an explicit `models` list: the pi-ai catalog describes the provider (`https://chatgpt.com/backend-api`, protocol `openai-codex-responses`, OAuth grant "OpenAI (ChatGPT Plus/Pro)", `isSubscription: true`), so a ChatGPT subscription signs in through Settings -> Models and the credential is stored as `llm-pi-ai/openai-codex`; no API key and no prepaid API credits are involved. The list exists because the installed pi-ai catalog stops at GPT-6.1 while the subscription serves GPT-6.2 Astra and GPT-6.2 Sol: a `models` list REPLACES the catalog, so the block repeats the 6.1/6/5.6 tiers (they inherit their capacities and compat flags from the installed entries) and adds the two 6.2 ids with 272k context, 128k output and the codex effort levels. Remove or extend the list when the catalog catches up; a plain `openai-codex: {}` is the catalog-only form |
 | `@deepseek-ai/dsh-tool-subagent/model-selection-settings` | the harness's own gate for a model-facing child route: `enabled: true` with exactly three routes (`deepseek-official/deepseek-flash`, `kimi-coding/k3.1-pro`, `kimi-coding/kimi-for-coding`). The `subagent` tool and the kit's `delegate_task` accept `provider`/`model` only for a route listed here, and the Plugins → Subagent page edits the same namespace. The list deliberately matches `flash-guard.allowedRoutes`; a route offered here and rewritten there would be a setting that lies to the operator |
 | `@cc/dsh-research-first` | one `tools/pre-execute` gate plus a `tools/result` observer. A successful `web_fetch`/`web_search` marks the session researched; creating a file that does not exist yet without one is refused, with the denial naming the lookup and the escape hatch. `research_waive({reason})` unlocks the session for offline work and logs the reason. `mode: deny` by default, `warn` for a trial, `allowPaths` for generated trees. It gates file creation, not design decisions inside an edit — that stays with the review |
-| `@cc/dsh-tool-families` | one `agent/created` listener: expands the row's per-preset ALLOW list against the tool names the agent can see and calls the registry's agent-scoped `tools.restrict` with the complement, so a family the row does not name (e.g. `mcp__playwright__*` for backend) leaves the request header. Explicit `deny`/`projectDeny` still subtract, and a `projectDeny` family is kept only where its marker (`project.godot` for `mcp__godot__*`) exists in the session cwd; `standard` and any preset without a row keep everything. Hindsight is root-only and read-only (D4); Playwright only ux. `tools.restrict()` masks GLOBAL tools only — a preset-scoped tool (`bash`, `analysis_*`, `delegate_task`) is outside the policy and stays in the header (D11) |
+| `@cc/dsh-tool-families` | one `agent/created` listener: expands the row's per-preset ALLOW list against the tool names the agent can see and calls the registry's agent-scoped `tools.restrict` with the complement, so a family the row does not name (e.g. `mcp__playwright__*` for backend) leaves the request header. Explicit `deny`/`projectDeny` still subtract, and a `projectDeny` family is kept only where its marker (`project.godot` for `mcp__godot__*`) exists in the session cwd; `standard` and any preset without a row keep everything. Hindsight is root-only and read-only (D4); Playwright only ux. `tools.restrict()` masks GLOBAL tools only — a PRESET-scoped tool (`bash`, `read`, `*_goal`, `ask_user_question`, `todo_write`, `web_*`, `present`) is outside the policy and stays in the header (D11). A tool that a kit plugin registers into the AGENT's own layer (`analysis_*`, `case_*`, `delegation_*`, `diagram`) asks `toolFamilies.allows()` before registering, so the row owns those too; before 2026-11-18 they bypassed it (measured: 54 tools in the root header including 8 the row never named) |
 | `@cc/dsh-designmap`, `@cc/dsh-diagrams`, `@cc/dsh-papers`, `@cc/dsh-test-cases` | these five host plugins gate their tools by the preset IN FORCE: the resolver is the `toolFamilies.presetFor` service (projection → remembered `agent-preset/selected` → creation header, the last fallback), and the registration is deferred — on `agent/created` and again on the root `agent-preset/selected` event the previous set is disposed through the `tools.register` disposers before the new one is registered, so a seat chosen on a blank session is honoured before the first request header. A gate never throws: an exception in `agent/created` cancels the session creation. `analysis_*` and `delegate_task` stay gated by the root lineage, not by preset. |
 | `@cc/dsh-proof-guard` | one `tools/pre-execute` waterfall on `write`/`edit`. A path matching the test conventions needs a `PROOF:` header (`Behavior:`, `Fails when:`, `Production path:`); a legacy file that already carries one is allowed. `mode: deny` is the default, `warn` the trial. Friction, not proof: a shell write and a fake header are outside it |
 | `@cc/dsh-state-feed` | L1/L2 delivery of the project state. At `agent/created` of a ROOT session with `state/views/digest.md` it injects one user message (`digest.md`, `plan.yaml`, `snapshot.md`); at `agent/pre-step` of step 1 it injects one aggregated delta (≤ 1200 B) only when the sha256 of digest+board+snapshot changed, never twice in one turn. A delegated worker (depth > 0 / parentSession / origin subagent) and a workspace without `state/` get nothing. `agent.inject()` makes the message a journal `user/message` with `source.kind: state-feed`; it does not wake an idle driver and is lost on cancel. Tests: `node --test plugins/state-feed/test/*.test.mjs`. |
 | `@cc/dsh-project-state` | the state core, published as `ccProjectState` (no model tool). It is the single writer of `state/`: REQ/DECISION/TASK/TEST markdown with YAML frontmatter, typed IDs allocated under `state/.lock`, links storing the sha256 of their target, CAS transitions (`revision_conflict` on a stale `expectedRevision`, nothing written), append-only `state/events.jsonl` with `replay()` comparing bytes, `snapshot()` and a read-only `verify()` (`frontmatter_invalid`, `link_broken`, `link_stale`, `req_criteria_missing`, `task_req_missing` unless chore+reason, `orphan`, `status_invalid`, `id_mismatch`, `id_duplicate`). Tests: `node --test plugins/project-state/test/*.test.mjs`. |
 | `@cc/dsh-project-state-panel` | one **read-only** panel, four modes over one selection: business requirements, the task board, the design map and tests/traceability. It reads `state/views/index.json` for the link contract and `state/<kind>/<ID>.md` frontmatter only for title/criteria/body/command/revision — never the markdown projections. Selecting a requirement filters Board and Tests; a task shows its requirement and tests; a test shows its requirement and evidence references; a map node shows the requirements traced to its analysis `componentId`, and following one switches to Requirements. The map is designmap's exported `SceneCanvas` (React Flow, scene geometry untouched); the panel's own badge overlay is positioned from the scene's node coordinates. It executes no write command (designmap's read-only `views` op only) and has no create/close/run action. Client-only host row; package packed by `scripts/pack-plugin.mjs --dir plugins/project-state-panel`. |
-| `scripts/state-migrate.mjs` | fills `state/` from `docs/analysis/*.json` (→ REQ), `.dsh/taskboard.json` (→ TASK) and `docs/cases/*.json` (→ TEST), then regenerates the projections. Read-only on the sources; idempotent by source key (`analysisRef`, `boardId`, `caseId`), so a second run creates nothing and leaves `state/` byte-identical (`--dry-run` reports the plan). A TASK without `reqId` stays without one and is reported as `task_req_missing`; no justification is invented. |
+| `scripts/state-migrate.mjs` | fills `state/` from `docs/analysis/*.json` (→ REQ), `.dsh/taskboard.json` (→ TASK) and `docs/cases/*.json` (→ TEST), then regenerates the projections. Read-only on the sources; idempotent by source key (`analysisRef`, `boardId`, `caseId`), so a second run creates nothing and leaves `state/` byte-identical (`--dry-run` reports the plan). A TASK without `reqId` stays without one and is reported as `task_req_missing`; no justification is invented. `--refresh-tasks` is the surgical companion: it fills the EXISTING TASKs with the concrete task fields (`scope`, `nonScope`, `acceptance`, role/owner, `sessions`, the result) from the same ledger, creates nothing, leaves title/status/body and `updatedAt` alone, and a second run changes nothing. `--sync-status` reconciles title/status of the same rows against the board by `boardId` (the board is the source for a row that names its board), creates nothing, preserves `updatedAt`, and is idempotent; it is how a state row closed in another session stops reading as `active`. |
 | `scripts/check-glossary.mjs` | FR14 gate in `make verify`: every heading of the report template in the root policy (Итог, Цель, Изменения, Доказательства, Решения, Риски, Дальше) must be defined in `docs/TERMINOLOGY.md`, and the template must still be present in `plugins/orchestrator/orchestrator.mjs`. Fails both when a new report section ships undefined and when the template and the check drift apart. |
 | `scripts/outline-bench.mjs`, `scripts/outline-audit.mjs` | bench and journal audit for the outline saving: full read vs outline vs outline+symbol body on real kit sources (`--find` runs the find-one-function negative control), and per-session `outline` calls and `read` bytes with/without an outline. Not part of `make verify` (they read the machine and journals). |
 | `make design-audit` | runs the pinned `impeccable` UI detector (npm `impeccable@4.9.2` launcher, engine `@impeccable/cli-linux-x64@0.1.25`, sha256 `f48aca43…` into `~/.impeccable/bin/impeccable`) over the kit UI sources (`plugins/designmap/client/*`, `plugins/project-state-panel/client.js`) and prints one JSON document. Separate from `make verify`: verify stays offline. The DSH skill is installed from the pinned commit `d41d986…` into `$DSH_HOME/skills/impeccable` (SKILL.md, reference/ 46 files, scripts/). |
@@ -73,10 +73,10 @@ request, which is why the budget stays bounded and the mode is `normal`, not `al
 
 ### 1.0 The role presets — tool sets, not prompts
 
-Eight `@deepseek-ai/dsh-agent-preset` declarations sit in the profile patch, and
+Nine `@deepseek-ai/dsh-agent-preset` declarations sit in the profile patch, and
 `@deepseek-ai/dsh-agent-preset-registry` defaults new sessions to it:
-`preset-orchestrator`, `preset-ux`, `preset-backend`, `preset-research`, `preset-gatherer`,
-`preset-reviewer`, `preset-critic`, `preset-docs`. A preset is the persona AND the tool list, so
+`preset-orchestrator`, `preset-architect`, `preset-ux`, `preset-backend`, `preset-research`,
+`preset-gatherer`, `preset-reviewer`, `preset-critic`, `preset-docs`. A preset is the persona AND the tool list, so
 the isolation is
 registration, not a brief: the orchestrator reads and writes (`read`, `readImage`, `write`,
 `edit`) but has no `bash` or `pwsh` at all - it can change a file and cannot run anything, so a
@@ -87,6 +87,21 @@ can write**: "cannot write" means "cannot use the write/edit tools", not "cannot
 file". The same is true of the critic, whose `tool-fs` now carries `write: false` and
 `edit: false` for the same reason (its persona says never fix). The backend, ux and docs roles
 have the full shell and filesystem.
+
+**`architect` is the system designer on the expensive route, and it exists to be small.** The
+owner opens a chat on it, or the orchestrator delegates one design question; every step is paid at
+`openai-codex/gpt-6.2-astra`, so the preset is the decision surface only: `read`, `glob`, `grep`,
+`outline`, `designmap_apply` / `designmap_lint` / `designmap_status`, `delegate_task`,
+`task_note` and the three Hindsight read tools. It has no shell, no `write`/`edit`, no web tools,
+no case tools and **no `skill-filesystem`/`tool-skill`** — `tool-skill` emits the skill catalog
+only together with its own tool, so dropping the tool drops the catalog, which measured 30 304 B
+of the 34 188 B of reminders in a session before this change. Context arrives one of two ways:
+as a ROOT the role delegates a `GATHERER` (`delegate_task` is registered on root agents only), and
+as a CHILD it reads the brief the orchestrator wrote and names what is missing instead of
+surveying the tree. `@cc/dsh-role-model` gives it its route and the fallback
+(`deepseek-official/deepseek-flash` at max effort) when the subscription is out of quota, and
+`tool-families` keeps its surface at twelve tools. The role is NOT in `store.mjs` `readOnly`:
+it changes the design map, so an L1/L2 delegation to it needs the Analysis Record like any other.
 
 **`gatherer` is reconnaissance, and it exists to keep the root's context for the design.** The
 orchestrator can read and write, but "how does this actually work today?" answered by the root's
@@ -156,12 +171,12 @@ child's tool header looks far wider than its role:
 
 | source | rows | what a specialist sees |
 | --- | --- | --- |
-| the eight presets | a per-preset plugin row set (persona, instructions, time, shell where allowed, fs, fs-search, jobs, skills, skill tool, compaction, todo, web, present) | its role's tool set |
+| the nine presets | a per-preset plugin row set (persona, instructions, time, shell where allowed, fs, fs-search, jobs, skills, skill tool, compaction, todo, web, present) | its role's tool set |
 | the host profile (`$DSH_HOME/cordis.patch.yml`, written by `scripts/dsh-mcp-sync.mjs`) | `mcp-client-godot-mcp` (`mcp__godot__*`), `mcp-client-playwright-mcp` (`mcp__playwright__*`), `hindsight` | inherited by every preset, including the reviewer |
 | kit rows mounted at the host | taskboard, test-cases, skills, research-first, proof-guard, rtk, tool-families | inherited, but each gates its own role-only tools by `agent/preset` (`papers_*` research, `design_map` orchestrator, `diagram` orchestrator+ux) |
 
 Measured 2026-11-11 from the root session's child headers: backend 105 tools, ux 107,
-reviewer/critic/research 103, a legacy run-code-only role 1. The eight presets declare a per-preset plugin row set, so the difference is host-mounted, not role-granted. **The child policy now says
+reviewer/critic/research 103, a legacy run-code-only role 1. The nine presets declare a per-preset plugin row set, so the difference is host-mounted, not role-granted. **The child policy now says
 this in one line**, so a specialist knows an `mcp__*` tool in its header came from the host and
 is not licence to do a job its role was given no tool for. Moving the MCP rows INTO the presets
 is technically possible (a preset is a plugin list) but each mounted MCP row starts its own
@@ -372,8 +387,9 @@ npm install -g code-skeleton-mcp@0.1.3
 code-skeleton-mcp outline plugins/orchestrator/orchestrator.mjs --depth 1
 ```
 
-`@cc/dsh-outline` is mounted on the HOST row, so the orchestrator and all seven presets get
-the `outline` tool and its prompt section. The plugin resolves the binary from PATH (and a
+`@cc/dsh-outline` is mounted on the HOST row, so every preset whose allow row admits it gets
+the `outline` tool and its prompt section (the section is agent-scoped and gated by
+`toolFamilies.allows`, so a role that excludes the tool pays for neither). The plugin resolves the binary from PATH (and a
 configured `bin`), probes it with a real outline call, and registers nothing when the probe
 fails: the section then says `outline unavailable` and where it looked. Measured 2026-11-17
 on the installed 0.1.3: this repository's `plugins/orchestrator/orchestrator.mjs` is
@@ -448,21 +464,27 @@ fresh mtime means a live session. A clean store costs ~0.2 s and prints nothing;
 line is `make session-doctor`. Quarantining does not delete the chat: it removes it from the
 listing, which is the difference between "invisible" and "gone".
 
-**Run-code projection — the bulk of a `run_code` result, moved out of the step
+**Tool-result projection — the bulk of a large tool result, moved out of the step
 (`@cc/dsh-run-code-projection`).** The tool that dominates this deployment's context is not bash
 but `run_code`: measured over this workspace's session logs, `run_code` produced 33.3 MB of the
 34.5 MB of tool output while `bash` produced 0.8 MB — which is why RTK, aimed at shell commands,
 filters almost nothing here. On the same `tools/post-execute` seam RTK uses, a successful
-`run_code` result above `minBytes` (8192) is replaced by a banner, the first `headBytes` (3072),
-the last `tailBytes` (1536), the elided byte count, and the exact path of the full text written
-inside the session workspace (`<cwd>/.dsh/spill/run_code-<callId>-<epoch>.txt`), so the middle is
-one `read` away instead of on every subsequent request. It runs after `next()`, so another
+result above `minBytes` (8192) of a tool named by `tools` is replaced by a banner, the first
+`headBytes` (3072), the last `tailBytes` (1536), the elided byte count, and the exact path of the
+full text written inside the session workspace (`<cwd>/.dsh/spill/<tool>-<callId>-<epoch>.txt`),
+so the middle is one `read` away instead of on every subsequent request. Since 0.1.2 the list
+is `run_code`, `bash`, `pwsh`, `read`, `web_fetch`, `hindsight_read_page`,
+`hindsight_search_pages`, `grep`, `glob`, `outline`, `task_list`; compare-and-set tools
+(`task_get`, `task_update`, `task_close`, `analysis_*`, `delegation_*`) and `skill` are excluded
+because their full text is a contract or instructions the model must follow. It runs after `next()`, so another
 policy's block or replacement stays authoritative, and it never touches errors, media, results
 below the threshold, text that already carries its banner, or a session without a workspace. A
 write failure logs once and returns the original result — the turn never sees an exception.
 Measured with the shipped policy over the stored logs: 5.56% of all tool-result bytes saved
 (87.6% of the `run_code` bytes it chose to project). Proof:
-`node plugins/run-code-projection/proof/proof.mjs` — 13 checks, exit 0.
+`node plugins/run-code-projection/proof/proof.mjs` — 18 checks, exit 0. The stored-log
+measurement above (5.56%) was taken with the `run_code`-only policy; the tool list broadens the
+seam, it does not change the per-result rule.
 
 **PTC — the rollback, the upstream fix, and the first wave (`@deepseek-ai/dsh-tool-executor-ptc`).**
 Under `mode: ptc` the model sees one `run_code` transport plus a generated SDK instead of every
@@ -548,6 +570,17 @@ the FIRST request after choosing `backend` is 67 tools with 0 `mcp__playwright__
 profile still carries 0.1.5 until the next `kit-update --apply`; the scratch row proves 0.1.8.
 Proof: `node scripts/tool-families-proof.mjs` (62/62), tarball
 `plugins/cc-dsh-tool-families-0.1.8.tgz`.
+
+**2026-11-18 — 0.1.14: the allow row reaches per-agent registrations.** `tools.restrict` masks
+only global and ancestor registrations, so the kit plugins that register their tools into the
+agent's own layer (test-cases, delegation-brief, diagrams) bypassed the allow row entirely: the
+root header carried 54 tools, 8 of them (`case_*`, `delegation_*`, `diagram`) the row never named.
+The row now publishes `toolFamilies.allows(agent, name)`, and those plugins ask it before
+registering; the orchestrator row was retuned from 127 root sessions (9082 tool calls) — zero-use
+tools left (`designmap_export/open/scan/render`, `task_link/pause/resume/remove`,
+`hindsight_reflect`), `case_record/list/get/drift` and `delegation_brief` entered. Expected root
+surface 42 tools (floor: the preset's own 15). Proof: `node scripts/tool-families-proof.mjs`
+(97/97, includes the `allows` contract), tarball `plugins/cc-dsh-tool-families-0.1.14.tgz`.
 
 **Restarting with PTC: what happens to an old session (measured 2026-11-17).**
 A resumed session does not keep the preset generation it started with: `resumeObserved` composes
@@ -715,7 +748,7 @@ pack saves tokens or time. Evidence and the full tables:
 [integration.md](../reports/code-search/integration.md) (local run artifacts; `reports/` is
 gitignored, so these links exist in this checkout, not in an installed copy).
 
-**The role toolchain — eight presets, nine pinned binaries, and two roles that cannot run them.**
+**The role toolchain — nine presets, nine pinned binaries, and two roles that cannot run them.**
 Provisioning also installs the CLIs the role personas name. Each pin is the project's own latest
 release measured on 2026-11-10; the release date, licence, last-commit date and the exact proof
 command for every row are recorded in `.dsh/research/role-toolchain-install.md`.
@@ -756,8 +789,8 @@ carries `@deepseek-ai/dsh-client-ui-settings-general` (welcome notice suppressed
 2026-10-26, which made `kit-update --check` report profile drift forever: the managed-seed rule
 correctly refuses to overwrite a hand-edited patch, so the kit and the machine could never
 converge. They are now kit state, because the deployment's model policy already assumed them
-(`@cc/dsh-flash-guard` rewrites a child to flash and caps its effort at `high`; the root keeps
-the human's choice). A machine that wants a different default edits these rows in the kit, not
+(`@cc/dsh-flash-guard` refuses a child's route unless it is listed; the root keeps the
+human's choice). A machine that wants a different default edits these rows in the kit, not
 in `$DSH_HOME`.
 
 ## 2. Fresh machine

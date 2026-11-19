@@ -1,16 +1,19 @@
 # @cc/dsh-run-code-projection
 
-Bound one `run_code` result: keep a head, a tail and a path to the rest, instead of re-sending
-tens of kilobytes on every later step.
+Bound one large tool result: keep a head, a tail and a path to the rest, instead of
+re-sending tens of kilobytes on every later step.
 
 A program that prints a report, a JSON page or a whole file hands the model one
 `tool/result` of 8–50 KB, and the loop re-sends that result in every subsequent request
-until compaction rewrites it. The evidence is usually in the beginning and the end; the
+until compaction rewrites it. The same holds for `read` on a whole file, `bash` output,
+a Hindsight page and the workspace task list; measured 2026-11-18 on session
+`session-0b50bf39` (workspace `autolabel_pipeline`): the first two steps of one turn put
+190 324 characters (≈43K tokens) into the context, and every later request re-sent them. The evidence is usually in the beginning and the end; the
 middle is what makes the step expensive. This plugin replaces such a result with:
 
 ```
-[run-code-projection] 27380 bytes; showing the first 3062 chars and the last 1506 chars, 22772 bytes elided from the middle.
-Full text: /home/you/workspace/.dsh/spill/run_code-call_00_N2I4YMAgAKyOuSQJsXDo0908-1794491656594.txt
+[tool-result-projection] read 27380 bytes; showing the first 3062 chars and the last 1506 chars, 22772 bytes elided from the middle.
+Full text: /home/you/workspace/.dsh/spill/read-call_00_N2I4YMAgAKyOuSQJsXDo0908-1794491656594.txt
 
 <first 3062 characters of the output>
 
@@ -47,6 +50,7 @@ content that would otherwise reach the model.
 | key | default | meaning |
 | --- | --- | --- |
 | `enabled` | `true` | `false` registers no listener. |
+| `tools` | `run_code`, `bash`, `pwsh`, `read`, `web_fetch`, `hindsight_read_page`, `hindsight_search_pages`, `grep`, `glob`, `outline`, `task_list` | tool names whose results may be projected. Compare-and-set tools (`task_get`, `task_update`, `task_close`, `analysis_*`, `delegation_*`) and `skill` are deliberately absent: their full text is either a contract or instructions. |
 | `minBytes` | `8192` | shortest result worth projecting (bytes). |
 | `headBytes` | `3072` | retained prefix, cut on a UTF-8 boundary. |
 | `tailBytes` | `1536` | retained suffix, cut on a UTF-8 boundary. |
@@ -59,7 +63,7 @@ never introduce a replacement character or a lone surrogate in the durable log.
 
 ## What is never touched
 
-- any tool other than `run_code`;
+- any tool not in `tools` (and every tool the kit keeps intact: `task_get`, `task_update`, `task_close`, `analysis_*`, `delegation_*`, `skill`);
 - a failed result (`isError`), and a decision that blocks or replaces `value`;
 - content that is not exactly one text block (images, media, multi-block results);
 - a result below `minBytes`, or one whose projection would not save `minSavingRatio`;
@@ -79,6 +83,8 @@ work is wrapped; a projection failure can never turn a successful tool call into
 ```
 node plugins/run-code-projection/proof/proof.mjs
 ```
+
+It also checks the tool list: `read` and `bash` above `minBytes` are projected (the banner names the tool and the spill file starts with its name), a `task_get` result is untouched, a tool outside the list is untouched, and a result already carrying the 0.1.x banner is not projected twice.
 
 It drives the plugin's real `tools/post-execute` listener against a real `run_code` result
 (fixture extracted read-only from `$DSH_HOME/sessions` with `zstd -dc`), a temporary

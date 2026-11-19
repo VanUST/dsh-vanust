@@ -158,3 +158,83 @@ test('a human edit that breaks the frontmatter is a finding, not a rewrite', asy
   assert.equal(get.ok, false)
   assert.equal(get.code, 'frontmatter_invalid')
 })
+
+test('a TASK keeps the concrete task — scope, non-scope, acceptance, owner and sessions', async () => {
+  // PROOF: the concrete task is stored field by field and the journal replays it byte for byte.
+  // Behavior: create keeps scope/nonScope/acceptance [{text,done}]/role/preset/owner/sessions/
+  // resultSummary and resultEvidence on disk; a read gives the same values; an update with an
+  // empty list or an empty string CLEARS the field; replay still matches the files.
+  // Fails when: the writer drops a field, accepts a bare string as criteria without a done mark,
+  // keeps a cleared scope, or the cleared update breaks replay.
+  const { cwd, state } = await workspace()
+  const req = await state.create('req', { title: 'R', criteria: ['c'] })
+  const created = await state.create('task', {
+    title: 'Concrete',
+    reqId: req.id,
+    scope: ['plugins/a', 'plugins/b'],
+    nonScope: [':3080'],
+    acceptance: [{ text: 'works', done: true }, 'still open'],
+    role: 'BACKEND',
+    preset: 'backend',
+    owner: { kind: 'agent', label: 'BACKEND', sessionId: 'sess-1' },
+    sessions: [{ sessionId: 'sess-1', label: 'BACKEND', role: 'BACKEND', status: 'sleeping' }],
+    steps: ['one', 'two'],
+    stepsDone: 1,
+    resultSummary: 'done it',
+    resultEvidence: ['make verify'],
+    resultArtifacts: ['reports/proof.json'],
+    body: 'Objective',
+  })
+  assert.equal(created.ok, true, JSON.stringify(created))
+  const got = await state.get(created.id)
+  assert.deepEqual(got.frontmatter.scope, ['plugins/a', 'plugins/b'])
+  assert.deepEqual(got.frontmatter.nonScope, [':3080'])
+  assert.deepEqual(got.frontmatter.acceptance, [{ text: 'works', done: true }, { text: 'still open', done: false }])
+  assert.equal(got.frontmatter.role, 'BACKEND')
+  assert.equal(got.frontmatter.preset, 'backend')
+  assert.deepEqual(got.frontmatter.owner, { kind: 'agent', label: 'BACKEND', sessionId: 'sess-1' })
+  assert.deepEqual(got.frontmatter.sessions, [{ sessionId: 'sess-1', label: 'BACKEND', role: 'BACKEND', status: 'sleeping' }])
+  assert.equal(got.frontmatter.resultSummary, 'done it')
+  assert.deepEqual(got.frontmatter.resultEvidence, ['make verify'])
+  assert.deepEqual(got.frontmatter.resultArtifacts, ['reports/proof.json'])
+  assert.equal(got.frontmatter.stepsDone, 1)
+  const replayed = await state.replay()
+  assert.equal(replayed.ok, true, JSON.stringify(replayed))
+
+  const cleared = await state.update(created.id, {
+    expectedRevision: got.frontmatter.revision,
+    scope: [],
+    nonScope: [],
+    acceptance: [],
+    sessions: [],
+    owner: null,
+    steps: [],
+    stepsDone: 0,
+    resultSummary: '',
+  })
+  assert.equal(cleared.ok, true, JSON.stringify(cleared))
+  const after = await state.get(created.id)
+  for (const field of ['scope', 'nonScope', 'acceptance', 'sessions', 'owner', 'steps', 'stepsDone', 'resultSummary']) {
+    assert.equal(after.frontmatter[field], undefined, `${field} must be cleared`)
+  }
+  assert.equal(after.frontmatter.role, 'BACKEND', 'a field the patch did not name is untouched')
+  assert.equal((await state.replay()).ok, true)
+  assert.equal(after.body.trim(), 'Objective')
+  const text = await readFile(join(cwd, 'state', 'task', `${created.id}.md`), 'utf8')
+  assert.equal(/^scope:/m.test(text), false)
+})
+
+test('an inline list item keeps its comma and its quotes through write, read and replay', async () => {
+  // PROOF: the format round-trips a list item that is not a plain word. Behavior: an item with
+  // a comma, a JSON fragment with double quotes and an apostrophe reads back verbatim, so the
+  // journal replay matches the file. Fails when: the parser splits an inline list on a comma
+  // INSIDE a quoted item (the 236-TASK backfill found this: a health-check line became three).
+  const { state } = await workspace()
+  const evidence = ['GET /health -> 200 {"status": "healthy", "database": "connected"}', "zod: strictObject rejected [nodes] - it's a list, not a map", 'plain item']
+  const created = await state.create('task', { title: 'Quoted list', chore: true, choreReason: 'format proof', resultEvidence: evidence, steps: ['one, two', 'three'] })
+  assert.equal(created.ok, true, JSON.stringify(created))
+  const got = await state.get(created.id)
+  assert.deepEqual(got.frontmatter.resultEvidence, evidence)
+  assert.deepEqual(got.frontmatter.steps, ['one, two', 'three'])
+  assert.equal((await state.replay()).ok, true)
+})

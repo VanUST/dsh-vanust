@@ -21,6 +21,12 @@
  * INPUTS
  *   Config (all optional):
  *     enabled          false disables the listener. Default true.
+ *     tools            tool names whose results may be projected. Default is the set of
+ *                      tools that carry bulk: run_code, bash, pwsh, read, web_fetch,
+ *                      hindsight_read_page, hindsight_search_pages, grep, glob, outline,
+ *                      task_list. Tools with a compare-and-set contract (task_get,
+ *                      task_update, task_close, analysis_*, delegation_*) and skill (whose
+ *                      full text is instructions the model must follow) are not in it.
  *     minBytes         shortest result worth projecting, in bytes. Default 8192.
  *     headBytes        retained prefix, UTF-8 boundary safe. Default 3072.
  *     tailBytes        retained suffix, UTF-8 boundary safe. Default 1536.
@@ -43,7 +49,7 @@
  *   tail, banner, deterministic
  *
  * BEHAVIOUR ON EDGE CASES
- *   - Only `run_code` is touched. Any other tool name, a failed result (`isError`), a
+ *   - Only the tools named by `tools` are touched. Any other tool name, a failed result (`isError`), a
  *     blocked decision, a decision that replaced `value`, a multi-block or image result,
  *     an aborted signal, and a result below `minBytes` pass through untouched.
  *   - Already projected content is recognised by its banner prefix and left alone, so
@@ -71,19 +77,32 @@ export const name = 'run-code-projection'
 /** No service is injected: the plugin only observes a waterfall. */
 export const inject = []
 
-/** The tool whose successful result may be projected. */
+/** Kept for the original single-tool contract and its proof. */
 export const RUN_CODE = 'run_code'
 
 /**
- * First line of every projection. It doubles as the idempotency mark: content that already
- * starts with it has been projected and is never projected again.
+ * Tools whose results may be projected: the ones that carry whole files, whole pages and
+ * command output. Compare-and-set tools and `skill` are deliberately absent.
  */
-export const BANNER_PREFIX = '[run-code-projection]'
+export const DEFAULT_TOOLS = Object.freeze([
+  'run_code', 'bash', 'pwsh', 'read', 'web_fetch',
+  'hindsight_read_page', 'hindsight_search_pages',
+  'grep', 'glob', 'outline', 'task_list',
+])
+
+/**
+ * First line of every projection. It doubles as the idempotency mark: content that already
+ * starts with it has been projected and is never projected again. The legacy prefix of
+ * 0.1.x is recognised too, so an older projection is never projected a second time.
+ */
+export const BANNER_PREFIX = '[tool-result-projection]'
+export const LEGACY_BANNER_PREFIX = '[run-code-projection]'
 
 /** The line naming the full-text file; `parseBanner` reads it. */
 export const SPILL_LINE = 'Full text: '
 
 const DEFAULTS = Object.freeze({
+  tools: DEFAULT_TOOLS,
   minBytes: 8192,
   headBytes: 3072,
   tailBytes: 1536,
@@ -108,8 +127,12 @@ export function resolveConfig(config = {}) {
   const minSavingRatio = typeof config.minSavingRatio === 'number' && Number.isFinite(config.minSavingRatio) && config.minSavingRatio >= 0 && config.minSavingRatio <= 1
     ? config.minSavingRatio
     : DEFAULTS.minSavingRatio
+  const tools = Array.isArray(config.tools)
+    ? [...new Set(config.tools.filter((name) => typeof name === 'string' && name !== ''))]
+    : [...DEFAULTS.tools]
   return {
     enabled: config.enabled !== false,
+    tools,
     minBytes: nonNegativeInteger(config.minBytes) ?? DEFAULTS.minBytes,
     headBytes: nonNegativeInteger(config.headBytes) ?? DEFAULTS.headBytes,
     tailBytes: nonNegativeInteger(config.tailBytes) ?? DEFAULTS.tailBytes,
@@ -141,7 +164,7 @@ function singleText(content) {
 
 /** Whether text already carries this plugin's banner. */
 export function isProjected(text) {
-  return typeof text === 'string' && text.startsWith(BANNER_PREFIX)
+  return typeof text === 'string' && (text.startsWith(BANNER_PREFIX) || text.startsWith(LEGACY_BANNER_PREFIX))
 }
 
 /**
@@ -192,9 +215,10 @@ export function planProjection(text, options) {
   if (head.length === 0 || tail.length === 0) return null
   const elidedBytes = beforeBytes - Buffer.byteLength(head, 'utf8') - Buffer.byteLength(tail, 'utf8')
   if (elidedBytes <= 0) return null
-  const spillPath = resolve(options.cwd, options.spillDir, `run_code-${safeCallId(options.callId)}-${Date.now()}.txt`)
+  const tool = typeof options.tool === 'string' && options.tool !== '' ? options.tool : RUN_CODE
+  const spillPath = resolve(options.cwd, options.spillDir, `${safeCallId(tool)}-${safeCallId(options.callId)}-${Date.now()}.txt`)
   const projected = [
-    `${BANNER_PREFIX} ${beforeBytes} bytes; showing the first ${head.length} chars and the last ${tail.length} chars, ${elidedBytes} bytes elided from the middle.`,
+    `${BANNER_PREFIX} ${tool} ${beforeBytes} bytes; showing the first ${head.length} chars and the last ${tail.length} chars, ${elidedBytes} bytes elided from the middle.`,
     `${SPILL_LINE}${spillPath}`,
     '',
     head,
@@ -221,7 +245,8 @@ function writeSpill(spillPath, text) {
  * only from filesystem operations, which the listener catches.
  */
 function project(exec, result, decision, config, warnOnce) {
-  if (exec?.name !== RUN_CODE) return decision
+  const tool = exec?.name
+  if (typeof tool !== 'string' || !config.tools.includes(tool)) return decision
   if (exec.signal?.aborted === true) return decision
   if (result?.isError === true) return decision
   if (decision?.kind !== 'accept' || Object.hasOwn(decision, 'value')) return decision
@@ -243,6 +268,7 @@ function project(exec, result, decision, config, warnOnce) {
     cwd,
     spillDir: config.spillDir,
     callId: exec.callId,
+    tool,
   })
   if (plan === null) return decision
   try {

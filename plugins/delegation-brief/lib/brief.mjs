@@ -29,6 +29,19 @@ const sha256 = (text) => createHash('sha256').update(text, 'utf8').digest('hex')
 const byId = (a, b) => String(a?.id ?? '').localeCompare(String(b?.id ?? ''))
 const clean = (value) => String(value ?? '').replace(/\r\n/g, '\n').trim()
 
+/**
+ * The REQ statuses a brief can be rendered for. `analysis_upsert` mirrors a planned
+ * requirement to `proposed`, a proven one to `done` and a deferred/rejected one to
+ * `rejected`; nothing in the tool surface writes `accepted`, so requiring it made the brief
+ * unreachable. A planned or open requirement is briefable; a finished or rejected one is not.
+ */
+export const BRIEFABLE_REQ_STATUSES = ['proposed', 'open', 'accepted']
+
+/** Is this REQ status one the register can produce AND a brief can render? */
+export function briefableReq(status) {
+  return BRIEFABLE_REQ_STATUSES.includes(String(status ?? ''))
+}
+
 /** The stable id of one acceptance criterion (position in the list is not an id). */
 export function criterionId(reqId, text, index) {
   return `${reqId}-C${String(index + 1).padStart(2, '0')}`
@@ -47,8 +60,8 @@ export function criteriaOf(req) {
  */
 export function renderBrief({ req, decisions = [], tests = [], nonScope = [], role = '' }) {
   if (req === undefined || req === null) return { ok: false, code: 'feature_required', message: 'no REQ to brief' }
-  if (req.status !== 'accepted') {
-    return { ok: false, code: 'feature_required', message: `REQ ${req.id} is "${req.status}", not "accepted"; accept it before delegating` }
+  if (!briefableReq(req.status)) {
+    return { ok: false, code: 'feature_required', message: `REQ ${req.id} is "${req.status}"; a brief is rendered for a planned or accepted requirement (${BRIEFABLE_REQ_STATUSES.join(', ')}), not for a finished or rejected one` }
   }
   const criteria = criteriaOf(req)
   if (criteria.length === 0) return { ok: false, code: 'criteria_missing', message: `REQ ${req.id} has no acceptance criteria` }

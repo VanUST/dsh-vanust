@@ -93,6 +93,19 @@ const INTAKE_TOOLS = ['case_record', 'case_list', 'case_get', 'case_drift', 'cas
  * a worker. The lookup is guarded because a composition without the service must not fail a
  * session creation.
  */
+/**
+ * The role-surface policy: a per-agent tool is registered only when the preset's row admits
+ * it. `tools.restrict` cannot mask a tool registered into the agent's own layer, so the
+ * registration itself has to ask. No tool-families row (or no service) admits everything.
+ */
+function surfaceAllows(ctx, agent, name) {
+  try {
+    return ctx.get?.('toolFamilies')?.allows?.(agent, name) !== false
+  } catch {
+    return true
+  }
+}
+
 function presetOf(ctx, agent) {
   try {
     const resolved = ctx.get?.('toolFamilies')?.presetFor?.(agent?.session)
@@ -151,7 +164,7 @@ function installCaseGate(ctx, { policy, tools, showSection }) {
       }
       // Fail closed: an unrecognised or unlisted preset gets NO case tools.
       const granted = Array.isArray(policy[preset]) ? policy[preset] : []
-      const selected = granted.filter((name) => tools[name] !== undefined).map((name) => tools[name])
+      const selected = granted.filter((name) => tools[name] !== undefined && surfaceAllows(ctx, agent, name)).map((name) => tools[name])
       if (selected.length > 0) {
         const disposers = selected.map((tool) => agent.ctx.tools.register(tool)).filter((dispose) => typeof dispose === 'function')
         installed.set(agent, { preset, disposers })

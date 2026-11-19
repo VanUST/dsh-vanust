@@ -1,6 +1,6 @@
 # dsh-kit
 
-Portable setup for **DeepSeek Harness (dsh)** plus the 25 plugins this
+Portable setup for **DeepSeek Harness (dsh)** plus the 26 plugins this
 deployment needs beyond upstream, across all your machines (2× Linux, 1× Windows).
 `plugins/inventory.json` is the single source of truth for the set:
 
@@ -100,9 +100,16 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
 - **`@cc/dsh-flash-guard`** — one `agent/request` waterfall that REFUSES a delegated
   child's disallowed model route before dispatch. It no longer rewrites: dsh freezes the
   route before that hook and a mutation there throws inside the turn, so the guard keeps
-  the policy (allowed routes, `deniedModels`, effort cap) and loses only the substitution.
-  This is the enforcement behind the Subagent model-selection allowlist; external providers
-  are the stated residual.
+  the policy (allowed routes, `deniedModels`) and loses only the substitution. The old effort
+  cap is gone: dsh compares the reasoning effort as part of the same frozen selection, so
+  lowering it there threw the turn. This is the enforcement behind the Subagent
+  model-selection allowlist; external providers are the stated residual.
+- **`@cc/dsh-role-model`** — a role's own model route, and a fallback that keeps the turn
+  alive: before a fresh session's first request the preset's configured route is selected
+  (`agent/model.select`), and a `QUOTA`/`ACCOUNT_QUOTA` failure selects the fallback and
+  retries the step instead of failing it. The `architect` role is the first user:
+  `openai-codex/gpt-6.2-astra`, falling back to `deepseek-official/deepseek-flash` at max
+  effort. No tool, no prompt section.
 - **`@cc/dsh-proof-guard`** — a `tools/pre-execute` waterfall that denies a write or edit to
   a test file unless it carries a `PROOF:` header naming the production behavior and the
   failure it prevents. `mode: warn` exists for a trial; this is friction, not proof.
@@ -223,9 +230,10 @@ invent a justification.
   outline an unfamiliar file first, then `read` only the range of the symbol that matters. It
   is mounted on the HOST row, so the root and all seven presets get it. With the binary
   absent no tool is registered and the section says `outline unavailable` and where it looked.
-- **`@cc/dsh-run-code-projection`** — bounds what one `run_code` result costs the step. The tool is
-  not bash here: a program that prints a report hands the model tens of kilobytes in one
-  `tool/result`, and every later step re-sends them. On the same `tools/post-execute` seam RTK
+- **`@cc/dsh-run-code-projection`** — bounds what one large tool result costs the step, for
+  `run_code`, `read`, `bash`, `web_fetch`, the Hindsight pages, `grep`/`glob`/`outline` and
+  `task_list`. A program that prints a report, a whole file or a whole page hands the model
+  tens of kilobytes in one `tool/result`, and every later step re-sends them. On the same `tools/post-execute` seam RTK
   uses, a result above 8 KiB becomes a banner, its first 3 KiB, its last 1.5 KiB, the elided byte
   count, and the exact path of the full text written inside the session workspace — so the middle
   is one `read` away instead of on every request. Errors, media, short results, already-projected
@@ -241,7 +249,7 @@ invent a justification.
 
 **Third-party add-on: Hindsight memory.** `@vectorize-io/hindsight-coding-agents@0.8.2`
 is installed separately by its own command (`npx @vectorize-io/hindsight-coding-agents install dsh`),
-not from this repository, and is therefore not one of the 25 in-repo plugins. It writes a
+not from this repository, and is therefore not one of the 26 in-repo plugins. It writes a
 row into `$DSH_HOME/cordis.patch.yml` (the home layer, shared by every profile) and a
 companion skill into `~/.agents/skills/hindsight-coding-agent`. Its settings live in
 `~/.hindsight/coding-agent.json`; this machine's file is enabled with `serverMode: daemon`
@@ -287,7 +295,7 @@ cd dsh-vanust               # the repository is dsh-vanust; the kit it contains 
 ```
 
 **What a clone alone gives you, stated exactly.** Everything the deployment
-installs is in the repository: the 25 plugin tarballs, the canonical profile, the
+installs is in the repository: the 26 plugin tarballs, the canonical profile, the
 procedure and the pinned version in both installers. Every plugin's source is here
 too — `plugins/notify/`, `plugins/diagrams/`,
 `plugins/work-modes/`, `plugins/godot-mcp/`, `plugins/skills/`, `plugins/flash-guard/`,
@@ -313,8 +321,8 @@ dsh-kit/
 │                              #   session-analysis`: every session, in seconds per question)
 ├── scripts/kit-update.mjs     # update path: hash drift check + convergence for an existing machine
 ├── plugins/inventory.json     # the shipped plugin set (the source of truth)
-├── plugins/*.tgz              # plugin tarballs: 25 packages, including notify, diagrams,
-│                              #                  diagrams, work-modes, godot-mcp, skills, flash-guard,
+├── plugins/*.tgz              # plugin tarballs: 26 packages, including notify, diagrams,
+│                              #                  work-modes, godot-mcp, skills, flash-guard, role-model,
 │                              #                  proof-guard, taskboard, orchestrator
 ├── plugins/notify/            # source of @cc/dsh-notify (desktop notifications; packed above)
 ├── plugins/diagrams/          # source of @cc/dsh-diagrams (scheme tool; own layout engine, no client half)
@@ -325,6 +333,7 @@ dsh-kit/
 ├── plugins/godot-mcp/         # source of @cc/dsh-godot-mcp (packed into its tarball above)
 ├── plugins/skills/            # source of @cc/dsh-skills (twenty runtime skills)
 ├── plugins/flash-guard/       # source of @cc/dsh-flash-guard (child model-route guard)
+├── plugins/role-model/        # source of @cc/dsh-role-model (role route + quota fallback)
 ├── plugins/proof-guard/       # source of @cc/dsh-proof-guard (test-file PROOF header)
 ├── plugins/taskboard/         # source of @cc/dsh-taskboard (Host service, command, Web panel)
 ├── plugins/orchestrator/      # source of @cc/dsh-orchestrator (root/child policy + delegate_task)
@@ -385,7 +394,7 @@ verified on and the procedure for reproducing that verification are `rules/DEPLO
   `plugins/papers/`.
   `plugins/inventory.json` is the set.
 - **Reviewer's overview** — `docs/HARNESS-OVERVIEW.md`: the harness composition, all 8 kit
-  presets and the 4 built-in presets with their personas, the 25 plugins, the system-prompt
+  presets and the 4 built-in presets with their personas, the 26 plugins, the system-prompt
   section map with its source files, and the discrepancies a reviewer should check.
 - **Design rationale** — `docs/` carries the analysis notes this kit was built from
   (`docs/HARNESS-COMPACTION-REVIEW.md`, `docs/SESSION-CONTEXT.md`); they are readings, not

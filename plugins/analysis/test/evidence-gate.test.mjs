@@ -69,6 +69,26 @@ test('a proven requirement without a TEST is refused and nothing is written', as
   assert.deepEqual(files, [])
 })
 
+// PROOF: one verified case may prove a batch of requirements
+// Behavior: a TEST whose primary reqId is REQ-A and whose body names REQ-B covers BOTH; the gate
+//   accepts a proven REQ-B on the same red->green pair instead of demanding a second case.
+// Fails when: the case library's rule (one case per behaviour, the other REQs named in its text)
+//   cannot close the register, i.e. the gate only matches the single primary reqId.
+test('a batch case covers a REQ it names even when its primary reqId is another', async () => {
+  const { cwd, core } = await harness()
+  const primary = await core.create('req', { title: 'primary', criteria: ['c'], analysisRef: { initiative: 'evidence', requirementId: 'FR-1' } })
+  const other = await core.create('req', { title: 'other', criteria: ['c'], analysisRef: { initiative: 'evidence', requirementId: 'FR-2' } })
+  await core.create('test', {
+    title: 'batch case',
+    reqId: primary.id,
+    authorRole: 'orchestrator',
+    evidenceRefs: ['run-red:red:fail', 'run-green:green:pass'],
+    body: 'covers ' + primary.id + ' and ' + other.id + ' in one run',
+  })
+  const verdict = await precheckEvidence(core, { cwd, initiative: 'evidence', requirements: [requirement({ id: 'FR-2' })], enforce: true })
+  assert.equal(verdict.ok, true)
+})
+
 test('a green-only TEST does not satisfy the gate', async () => {
   const { cwd, core, tool, exec } = await harness()
   const req = await core.create('req', { title: requirement().text, criteria: ['c'], analysisRef: { initiative: 'evidence', requirementId: 'FR-1' } })

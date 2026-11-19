@@ -94,6 +94,15 @@
       "mounted": true
     },
     {
+      "id": "role-model",
+      "package": "@cc/dsh-role-model",
+      "tarballPrefix": "cc-dsh-role-model",
+      "provenance": "in-repo",
+      "source": "plugins/role-model",
+      "pack": "scripts/pack-plugin.mjs",
+      "mounted": true
+    },
+    {
       "id": "proof-guard",
       "package": "@cc/dsh-proof-guard",
       "tarballPrefix": "cc-dsh-proof-guard",

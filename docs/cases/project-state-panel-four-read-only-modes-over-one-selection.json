@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "id": "project-state-panel-four-read-only-modes-over-one-selection",
-  "title": "Project state panel: four read-only modes over one selection",
-  "requirement": "The project state panel is one read-only lens over the generated state projections: business requirements, the task board, the design map and tests/traceability share one selection, so picking a requirement filters the other modes; a task shows its requirement and tests, a test shows its requirement and evidence, and a design-map node shows the requirements traced to its component. The map is drawn by the existing designmap renderer and the panel writes nothing.",
+  "title": "Project state panel: four modes over one selection, one owner write",
+  "requirement": "The project state panel is one lens over the generated state projections: business requirements, the task board, the design map and tests/traceability share one selection, so picking a requirement filters the other modes; a task shows its requirement and tests, a test shows its requirement and evidence, and a design-map node shows the requirements traced to its component. The map is drawn by the existing designmap renderer and the panel writes no file: its one write is the owner changing a task status, which goes through the taskboard command (the board mirrors the TASK, regenerates the projections and records the override in the state journal). A task linked through reqIds shows every requirement.",
   "kind": "scenario",
   "status": "unverified",
   "source": "agent",
@@ -45,11 +45,19 @@
     }
   ],
   "linkedTaskId": "task-mwkq732m-ganepf",
-  "revision": 1,
+  "revision": 2,
   "createdAt": "2026-11-17T16:17:51.846Z",
-  "updatedAt": "2026-11-17T16:17:51.846Z",
+  "updatedAt": "2026-11-19T08:30:00.000Z",
   "createdBy": "ux",
   "createdByKind": "agent",
-  "history": [],
+  "history": [
+    {
+      "revision": 2,
+      "at": "2026-11-19T08:30:00.000Z",
+      "editedBy": "agent",
+      "action": "reopened",
+      "reason": "the panel gained one owner write (task status) and shows every linked requirement; the scenario must be re-run before it can be verified"
+    }
+  ],
   "evidence": {}
 }

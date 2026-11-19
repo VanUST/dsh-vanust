@@ -1,10 +1,11 @@
 /*
 PROOF: delegation brief rendered from the register
-Behavior: delegation_brief renders an accepted REQ verbatim (criteria with stable ids, related
-  decisions, mandatory tests with commands, non-scope and the return format) and returns a
-  briefHash; two renders on unchanged state are byte-identical; missing core/state refuses
-  cold_start_required, an unknown or non-accepted REQ refuses feature_required and a REQ without
-  criteria refuses criteria_missing; delegation_return maps a valid return and refuses
+Behavior: delegation_brief renders a PLANNED REQ (the status the register actually produces,
+  `proposed`) verbatim (criteria with stable ids, related decisions, mandatory tests with
+  commands, non-scope and the return format) and returns a briefHash; two renders on unchanged
+  state are byte-identical; missing core/state refuses cold_start_required, an unknown,
+  finished (`done`) or rejected REQ refuses feature_required and a REQ without criteria
+  refuses criteria_missing; delegation_return maps a valid return and refuses
   brief_stale, return_unmapped and return_invalid; a worker session gets neither tool.
 Fails when: the brief paraphrases a criterion, two renders differ, a refusal comes back ok, a
   stale/unmapped return is accepted, or a worker receives the tools.
@@ -38,13 +39,13 @@ function host(core, preset = 'orchestrator') {
   return { ctx, handlers }
 }
 
-async function harness({ accepted = true, withCriteria = true } = {}) {
+async function harness({ status = 'proposed', withCriteria = true } = {}) {
   const cwd = await mkdtemp(join(tmpdir(), 'delegation-brief-'))
   const core = createStateService({ cwd, now: clock })
   const req = await core.create('req', {
     title: 'The context budget gate fails above 1.5x the declared allowance',
     criteria: withCriteria ? ['a budget above 1.5x exits 1', 'a budget above the table warns with exit 0'] : [],
-    status: accepted ? 'accepted' : 'proposed',
+    status,
   })
   const decision = await core.create('decision', { title: 'Count both numbers', body: 'Count tools and bytes', status: 'accepted' })
   await core.link(decision.id, req.id)
@@ -108,15 +109,21 @@ test('missing core or state refuses cold_start_required', async () => {
   assert.equal(noState.code, 'cold_start_required')
 })
 
-test('an unknown or non-accepted REQ refuses feature_required; no criteria refuses criteria_missing', async () => {
+test('a planned REQ renders; unknown, finished and rejected REQs refuse feature_required; no criteria refuses criteria_missing', async () => {
+  // PROOF: the gate names a status the register can hold. `analysis_upsert` writes `proposed`
+  // for a planned requirement, never `accepted`; requiring `accepted` made the brief dead.
   const unknown = await harness()
   const missing = await unknown.tools.get('delegation_brief').execute({ reqId: 'REQ-404' }, { agent: unknown.agent })
   assert.equal(missing.ok, false)
   assert.equal(missing.code, 'feature_required')
-  const proposed = await harness({ accepted: false })
-  const notAccepted = await proposed.tools.get('delegation_brief').execute({ reqId: proposed.req.id }, { agent: proposed.agent })
-  assert.equal(notAccepted.ok, false)
-  assert.equal(notAccepted.code, 'feature_required')
+  const finished = await harness({ status: 'done' })
+  const done = await finished.tools.get('delegation_brief').execute({ reqId: finished.req.id }, { agent: finished.agent })
+  assert.equal(done.ok, false)
+  assert.equal(done.code, 'feature_required')
+  const rejectedEnv = await harness({ status: 'rejected' })
+  const rejected = await rejectedEnv.tools.get('delegation_brief').execute({ reqId: rejectedEnv.req.id }, { agent: rejectedEnv.agent })
+  assert.equal(rejected.ok, false)
+  assert.equal(rejected.code, 'feature_required')
   const bare = await harness({ withCriteria: false })
   const noCriteria = await bare.tools.get('delegation_brief').execute({ reqId: bare.req.id }, { agent: bare.agent })
   assert.equal(noCriteria.ok, false)

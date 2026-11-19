@@ -1,7 +1,7 @@
 # USERGUIDE.md — setting up and starting the harness on a new machine
 
 This kit installs **DeepSeek Harness (dsh)** on any of your machines (2× Linux,
-1× Windows) plus the **25** plugins this deployment adds beyond upstream:
+1× Windows) plus the **26** plugins this deployment adds beyond upstream:
 **`@cc/dsh-notify`** (raises a desktop notification — `notify-send`, a PowerShell toast or
 `osascript` — when an agent finishes a turn and when it asks you a question; silence it with
 `DSH_NOTIFY_DISABLED=1` in the server's environment),
@@ -19,8 +19,11 @@ children), **`@cc/dsh-godot-mcp`** (a declarative, transferable MCP server list 
 clear-writing/explain-webpage/explain-diagram, the UI builder loop, the proof-not-tests
 ruling, literature review, and the 2026-11-09 UX/UI testing set: canvas bridge, property
 tests, visual goldens, a11y/keyboard audit, Maestro flows, run observability),
-**`@cc/dsh-flash-guard`** (rewrites or refuses a delegated child's model route unless it is
-the configured flash route),
+**`@cc/dsh-flash-guard`** (refuses a delegated child's model route unless it is one of the
+allowed routes; the old effort cap is gone because the effort is part of the frozen selection),
+**`@cc/dsh-role-model`** (a role's own route before a fresh session's first request, and a
+fallback on a quota failure that retries the step instead of failing the turn — the `architect`
+role runs on `gpt-6.2-astra` and falls back to `deepseek-flash` at max effort),
 **`@cc/dsh-tool-families`** (per-preset MCP/tool families: a family leaves the request
 header instead of staying in it unused), **`@cc/dsh-proof-guard`** (denies a test-file write
 without a `PROOF:` header),
@@ -32,11 +35,13 @@ REQ/DECISION/TASK/TEST files, IDs under a lock, links with a content hash, CAS, 
 `verify()`; no model tool yet),
 **`@cc/dsh-taskboard`** (the task ledger and the Tasks panel that replaces the subagent
 catalog; `@cc/dsh-client-ui-subagent` is disabled so the header has one cell),
-**`@cc/dsh-project-state-panel`** (one read-only panel over the generated projections, with
+**`@cc/dsh-project-state-panel`** (one panel over the generated projections, with
 four modes that share a selection: business requirements, the task board, the design map and
 tests/traceability; selecting a requirement filters the board and the tests, a test shows its
 requirement and evidence, a map node shows the requirements traced to its component, and the
-map is designmap's own React Flow renderer; it executes no write command),
+map is designmap's own React Flow renderer; its only write is the owner changing a task
+status — the panel sends the taskboard's `owner-status` op, the board mirrors the TASK and
+records the override in the state journal, and the panel writes no file),
 **`@cc/dsh-analysis`** (analysis before decomposition: one repo-tracked Analysis Record per
 initiative with a completeness checker and impact analysis; `delegate_task` refuses L1/L2
 without a ready record and `analysis_stale` after an affected change, while an L0 local fix
@@ -107,6 +112,19 @@ filling the orchestrator's. The ledger lives in
 читает источники; повторный запуск ничего не создаёт и не меняет байты `state/`. Задачи без
 `reqId`, записанные до требования требования, остаются без него — `verify()` показывает их как
 `task_req_missing`, миграция не придумывает обоснование.
+
+**Статусы, отставшие от доски.** `node scripts/state-migrate.mjs --sync-status` сверяет
+существующие TASK с `.dsh/taskboard.json` по `boardId` и переносит заголовок и статус
+(доска — источник для строки, которая называет свой `boardId`); ничего не создаёт, `updatedAt`
+не двигает, повторный прогон ничего не меняет. Нужен, когда строку доски закрыли в другой
+сессии или другим инструментом, а реестр об этом не узнал и продолжает показывать `active`.
+
+**Конкретика уже записанных задач.** `node scripts/state-migrate.mjs --refresh-tasks`
+дополняет СУЩЕСТВУЮЩИЕ TASK полями задачи из таскборда — рамками, вне рамок, критериями
+приёмки, ролью/владельцем, сессиями исполнителей и итогом, не создавая ни одной новой
+записи. Заголовок, статус и body не трогаются (их пишет следующая запись задачи), а
+`updatedAt` сохраняется, чтобы панель не переставила все задачи на «сейчас». Повторный
+запуск ничего не меняет. Без флага команда остаётся создать-только миграцией выше.
 
 **Project rules (`@cc/dsh-project-rules`) are one cached prompt section, and they are yours alone.** Open **Rules** in the sidebar, edit `.dsh/rules.md` (gitignored) and press Save. The panel never writes while you type; Save calls `/project-rules`, which only writes the file. **No agent may change that file**: a write or edit aimed at it is refused with `rules_human_only`, and so is a shell command that names it - the models read the rules through their prompt section and never write them. That is a guardrail, not a jail (a shell command can spell a path in ways a guard cannot follow); the roles without a shell at all - orchestrator, research - are the hard version. The section re-reads it at the next turn boundary and keeps the previous text when the bytes are unchanged, so a draft or a mid-turn save cannot bust the model's prompt cache. An empty file adds no section.
 
@@ -600,7 +618,7 @@ Each is a decision, not a default; none is required for the harness to run.
 | Addition | What it buys | Switch on | Switch off |
 |---|---|---|---|
 | `@cc/dsh-rtk` | Compresses oversized shell results (`git log/diff`, test runners, `rg`, `find`) before the model reads them | Install the binary: `RTK_EDITION=oss sh <(curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh)` | Nothing to stop; remove the row to disable, or uninstall the binary and the plugin says it is absent |
-| `@cc/dsh-run-code-projection` | Turns a `run_code` result above 8 KiB into a banner + head + tail with the full text in `.dsh/spill/` inside the workspace, so the bulk stops riding every step | Already in the profile; `minBytes`, `headBytes`, `tailBytes`, `minSavingRatio` and `spillDir` are config on the row | Remove the row, or set `enabled: false` — the spill files stay on disk |
+| `@cc/dsh-run-code-projection` | Turns a large tool result (`run_code`, `read`, `bash`, `web_fetch`, Hindsight pages, `task_list`) above 8 KiB into a banner + head + tail with the full text in `.dsh/spill/` inside the workspace, so the bulk stops riding every step | Already in the profile; `tools`, `minBytes`, `headBytes`, `tailBytes`, `minSavingRatio` and `spillDir` are config on the row | Remove the row, or set `enabled: false` — the spill files stay on disk |
 | `@cc/dsh-skill-evolve` | Skills grow: write, version, dedupe and archive `SKILL.md` under `$DSH_HOME/skills` | Already in the profile — four tools appear (`skill_evolve`, `skill_inventory`, `skill_grow`, `skill_forget`) | Remove the row; the library files stay |
 
 RTK does not rewrite commands (this harness cannot rewrite tool arguments at all), so the

@@ -1,7 +1,7 @@
 /**
  * PURPOSE
  *   Two root-only tools that make a delegation brief a product of the register instead of prose:
- *     delegation_brief  — render the brief for an accepted REQ (criteria verbatim, decisions,
+ *     delegation_brief  — render the brief for a planned/accepted REQ (criteria verbatim, decisions,
  *                         mandatory tests with commands, non-scope, return format) and return its
  *                         text plus `briefHash`;
  *     delegation_return — validate a worker's structured return against the CURRENT brief:
@@ -10,7 +10,7 @@
  *
  * REFUSALS (design §7)
  *   cold_start_required  no project-state core, or the workspace has no state/views/index.json
- *   feature_required     the REQ does not exist or is not `accepted`
+ *   feature_required     the REQ does not exist, or is finished/rejected (not `proposed`, `open` or `accepted`)
  *   criteria_missing     the REQ has no acceptance criteria
  *
  * WHY THE PROMPT SECTION IS STATIC
@@ -21,7 +21,7 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { parseReturn, renderBrief } from './lib/brief.mjs'
+import { parseReturn, renderBrief, briefableReq, BRIEFABLE_REQ_STATUSES } from './lib/brief.mjs'
 
 export const name = '@cc/dsh-delegation-brief'
 /** Tools are registered per agent; no host-global service. */
@@ -39,6 +39,15 @@ export const SECTION = [
 ].join('\n')
 
 /** The preset in force, resolved through the policy owner when it is mounted. */
+/** The role-surface policy; a preset without a tool-families row admits every tool. */
+function surfaceAllows(ctx, agent, name) {
+  try {
+    return ctx.get?.('toolFamilies')?.allows?.(agent, name) !== false
+  } catch {
+    return true
+  }
+}
+
 function presetOf(ctx, agent) {
   try {
     const resolved = ctx.get?.('toolFamilies')?.presetFor?.(agent?.session)
@@ -73,7 +82,7 @@ async function loadBrief(core, { cwd, reqId, role, nonScope }) {
   const reqRecord = await state.get(reqId)
   if (reqRecord?.ok === false) return refuse('feature_required', `REQ ${reqId} is not in the register: ${reqRecord.message ?? reqRecord.code}`)
   const req = reqRecord.frontmatter
-  if (req.status !== 'accepted') return refuse('feature_required', `REQ ${reqId} is "${req.status}", not "accepted"; accept it before delegating`)
+  if (!briefableReq(req.status)) return refuse('feature_required', `REQ ${reqId} is "${req.status}"; a brief is rendered for a planned or accepted requirement (${BRIEFABLE_REQ_STATUSES.join(', ')}), not for a finished or rejected one`)
   const decisions = []
   const decisionRows = (await state.list('decision'))?.rows ?? []
   for (const row of decisionRows) {
@@ -152,21 +161,72 @@ export function apply(ctx, config = {}) {
     },
   })
 
-  ctx.on('agent/created', ({ agent }) => {
+  // STRICT PRESET GATE (owner decision D8): only a session whose preset in force is
+  // `orchestrator` gets the tools and the section. A session without a named preset has no
+  // policy owner, so it gets nothing — the same rule as the other gated plugins. The gate
+  // follows the SEAT: a preset picked on a blank session is committed as
+  // `agent-preset/selected` after the agent exists, so a creation-time check would leave an
+  // `architect` chat holding two tools and a 784 B section its allow row does not admit.
+  const installed = new WeakMap()
+  const sync = (agent, presetOverride) => {
+    if (agent === undefined || agent === null) return
+    let preset
     try {
-      // STRICT PRESET GATE (owner decision D8): only a session whose preset in force is
-      // `orchestrator` gets the tools and the section. A session without a named preset has no
-      // policy owner, so it gets nothing — the same rule as the other gated plugins.
-      if (presetOf(ctx, agent) !== 'orchestrator') return
-      agent.ctx.tools.register(briefTool)
-      agent.ctx.tools.register(returnTool)
-      if (typeof agent?.ctx?.systemPrompt?.section === 'function') {
-        agent.ctx.systemPrompt.section({ name: 'deployment:delegation-brief', order: 122, text: SECTION })
+      preset = typeof presetOverride === 'string' && presetOverride !== '' ? presetOverride : (presetOf(ctx, agent) ?? '(none)')
+    } catch {
+      preset = '(none)'
+    }
+    const current = installed.get(agent)
+    if (current !== undefined && current.preset === preset) return
+    if (current !== undefined) {
+      for (const dispose of current.disposers) {
+        try {
+          dispose()
+        } catch {
+          // A failing disposer must not take the session down.
+        }
       }
+      installed.delete(agent)
+    }
+    if (preset !== 'orchestrator') return
+    try {
+      const disposers = []
+      if (surfaceAllows(ctx, agent, briefTool.name)) {
+        const dispose = agent.ctx.tools.register(briefTool)
+        if (typeof dispose === 'function') disposers.push(dispose)
+      }
+      if (surfaceAllows(ctx, agent, returnTool.name)) {
+        const dispose = agent.ctx.tools.register(returnTool)
+        if (typeof dispose === 'function') disposers.push(dispose)
+      }
+      if (typeof agent?.ctx?.systemPrompt?.section === 'function') {
+        const dispose = agent.ctx.systemPrompt.section({ name: 'deployment:delegation-brief', order: 122, text: SECTION })
+        if (typeof dispose === 'function') disposers.push(dispose)
+      }
+      installed.set(agent, { preset, disposers })
     } catch {
       // A section or a registration that fails must not break the session.
     }
-  })
+  }
+  ctx.on('agent/created', ({ agent }) => sync(agent))
+  ctx.on('agent/pre-step', (payload, next) => {
+    sync(payload?.agent)
+    return next()
+  }, { prepend: true })
+  try {
+    ctx.root?.on?.('session/event', (session, event) => {
+      if (event?.type !== 'agent-preset/selected') return
+      let live
+      try {
+        live = ctx.get?.('agents')?.get?.(session?.id)
+      } catch {
+        live = undefined
+      }
+      sync(live, event?.data?.agentPreset)
+    })
+  } catch {
+    // A root without the session feed still re-syncs at pre-step.
+  }
 }
 
 export default { name, inject, apply, SECTION }

@@ -20,7 +20,7 @@ Two root-only tools make a delegation brief a product of the project state inste
 | code | when |
 |---|---|
 | `cold_start_required` | no `ccProjectState` service, or the workspace has no `state/views/index.json` |
-| `feature_required` | the REQ is not in the register, or its status is not `accepted` |
+| `feature_required` | the REQ is not in the register, or it is finished/rejected: a brief is rendered for `proposed`, `open` or `accepted`, which is what the register can actually hold (`analysis_upsert` mirrors a planned requirement to `proposed`) |
 | `criteria_missing` | the REQ has no acceptance criteria |
 
 ## Gates

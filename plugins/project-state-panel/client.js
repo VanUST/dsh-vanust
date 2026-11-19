@@ -1,4 +1,4 @@
-/* @cc/dsh-project-state-panel — the read-only Project state panel.
+/* @cc/dsh-project-state-panel — the Project state panel.
  *
  * One panel, four modes over ONE selection:
  *   Requirements   the REQ registry with criteria and its gaps
@@ -13,8 +13,11 @@
  * `trace[].componentId`), because index.json carries no map link; the matcher is exact id,
  * dotted suffix, then `node.id = <componentId>`.
  *
- * Writes: NONE. No command except designmap's read-only `views` op is executed, and no
- * file is written. The panel says so in its own header.
+ * Writes: ONE, and only the owner's. The panel executes designmap's read-only `views` command
+ * and the taskboard's `owner-status` op (the status control on a board card and in the task
+ * drawer); it writes no file itself. The status change goes through the board, which owns the
+ * row, mirrors it into `state/task/` and records the override in the state journal. Everything
+ * else stays a lens, and the header badge says so.
  */
 window.__ModuleLoader__.load({
   id: '@cc/dsh-project-state-panel',
@@ -51,6 +54,10 @@ window.__ModuleLoader__.load({
       { id: 'status', label: 'Status', title: 'Status name A–Z, newest update, id' },
       { id: 'title', label: 'Title', title: 'Task title A–Z, id' },
     ]
+    // THE OWNER'S STATUS CONTROL offers the six statuses the TASK registry holds. `paused` is a
+    // board state the register maps to blocked (the mirror's STATUS table), so offering it here
+    // would show a status the panel cannot read back.
+    const TASK_STATUS_CHOICES = ['open', 'active', 'review', 'blocked', 'done', 'cancelled']
 
     function statusRank(status) {
       return Object.prototype.hasOwnProperty.call(STATUS_RELEVANCE, status) ? STATUS_RELEVANCE[status] : 6
@@ -119,28 +126,209 @@ window.__ModuleLoader__.load({
      * One list row: index.json carries id/status/reqId (and sometimes steps), the entity
      * frontmatter carries title, steps/stepsDone, reqIds and updatedAt. Read-only merge.
      */
-    function taskRow(task, entities) {
+    function taskRow(task, entities, sessionsById = {}) {
       const entity = typeof entities?.get === 'function' ? entities.get(task.id) : undefined
       const fm = entity?.frontmatter ?? {}
-      const steps = Array.isArray(task.steps) ? task.steps : (Array.isArray(fm.steps) ? fm.steps : [])
+      // The index carries the step COUNT; the planned list is in the entity file the drawer
+      // fetches on open (a list per task was what pushed the index over one gateway page).
+      const steps = typeof task.steps === 'number'
+        ? task.steps
+        : (Array.isArray(task.steps) ? task.steps.length : (Array.isArray(fm.steps) ? fm.steps.length : 0))
       const rawDone = task.stepsDone !== undefined ? task.stepsDone : fm.stepsDone
       const stepsDone = typeof rawDone === 'number' && Number.isFinite(rawDone) ? rawDone : 0
-      const reqIds = Array.isArray(task.reqIds) ? task.reqIds : (Array.isArray(fm.reqIds) ? fm.reqIds : (typeof task.reqId === 'string' && task.reqId !== '' ? [task.reqId] : []))
+      const reqIds = requirementIdsOf(task, fm)
+      const sessions = taskSessions({ ...fm, status: task.status ?? fm.status }, sessionsById)
       return {
         id: task.id,
         status: task.status,
         title: titleOf(entity, typeof task.title === 'string' && task.title !== '' ? task.title : task.id),
         reqIds,
         chore: task.chore === true || fm.chore === true,
-        steps: steps.length,
+        steps,
         stepsDone,
         updatedAt: String(fm.updatedAt ?? task.updatedAt ?? ''),
+        role: typeof task.role === 'string' && task.role !== '' ? task.role : (typeof fm.role === 'string' ? fm.role : ''),
+        preset: typeof task.preset === 'string' && task.preset !== '' ? task.preset : (typeof fm.preset === 'string' ? fm.preset : ''),
+        inline: task.inline === true || fm.inline === true,
+        sessions,
+        // LIVE, NOT THE STATUS: a task stays `active` until it is accepted, while its child
+        // may be idle or gone. The count is what the list shows beside the status.
+        running: sessions.filter((session) => session.running).length,
       }
     }
 
+    /**
+     * THE REQUIREMENTS ONE TASK IS LINKED TO. A batch task carries `reqIds` and no `reqId`; the
+     * card and the drawer used to read only `reqId`, so a task with two requirements read as
+     * "no requirement" there and vanished from a board filtered by either one. One helper, used
+     * by the list, the card, the drawer, the filter and the header count, so the four cannot
+     * disagree again. Both spellings are folded: the row's and the entity's.
+     */
+    function requirementIdsOf(row, fm = {}) {
+      const single = typeof row?.reqId === 'string' && row.reqId !== ''
+        ? [row.reqId]
+        : (typeof fm?.reqId === 'string' && fm.reqId !== '' ? [fm.reqId] : [])
+      const listed = Array.isArray(row?.reqIds) ? row.reqIds : (Array.isArray(fm?.reqIds) ? fm.reqIds : [])
+      const ids = []
+      for (const value of [...listed, ...single]) {
+        const id = String(value ?? '').trim()
+        if (id !== '' && !ids.includes(id)) ids.push(id)
+      }
+      return ids
+    }
+
+    /**
+     * The `/taskboard` request for one owner status change: the board id the TASK records, the
+     * target status and the reason. A TASK without a board row is refused with `no_board_row`
+     * instead of writing a status the next mirror would overwrite.
+     */
+    function taskStatusRequest(entity, status) {
+      const fm = entity?.frontmatter ?? {}
+      const boardId = typeof fm.boardId === 'string' ? fm.boardId.trim() : ''
+      if (boardId === '') {
+        return { ok: false, code: 'no_board_row', message: 'this TASK has no board row (boardId), so the panel cannot change its status' }
+      }
+      if (!TASK_STATUS_CHOICES.includes(status)) {
+        return { ok: false, code: 'status_invalid', message: `status "${String(status)}" is not one of ${TASK_STATUS_CHOICES.join(', ')}` }
+      }
+      return { ok: true, boardId, status }
+    }
+
+    /**
+     * One `/taskboard` reply, as the command Remote returns it: `value.result` is
+     * `{kind:'success', text}` or `{kind:'error', text: "taskboard: CODE; message"}`. A refusal
+     * keeps its code so the panel can quote it rather than paraphrase.
+     */
+    function parseTaskboardReply(result) {
+      if (result === null || result === undefined) return { ok: false, code: 'command_failed', message: 'the taskboard command returned no result' }
+      if (result.ok !== true) return { ok: false, code: result?.error?.code ?? 'command_failed', message: errorText(result?.error) }
+      const outcome = result.value?.result
+      if (outcome === null || outcome === undefined) return { ok: false, code: 'command_result_invalid', message: 'the taskboard command returned no result' }
+      if (outcome.kind === 'error') {
+        const text = String(outcome.text ?? '')
+        const match = /^taskboard:\s*([A-Za-z0-9_-]+)\s*(?:[;:]\s*)?([\s\S]*)$/.exec(text)
+        if (match === null) return { ok: false, code: 'command_failed', message: text }
+        return { ok: false, code: match[1], message: match[2] }
+      }
+      if (outcome.kind !== 'success') return { ok: false, code: 'command_failed', message: 'the taskboard command returned an unexpected result' }
+      let payload
+      try {
+        payload = JSON.parse(outcome.text)
+      } catch (error) {
+        return { ok: false, code: 'command_result_invalid', message: errorText(error) }
+      }
+      if (payload === null || typeof payload !== 'object') return { ok: false, code: 'command_result_invalid', message: 'the taskboard command returned no payload' }
+      if (payload.ok !== true) return { ok: false, code: payload.code ?? 'command_result_invalid', message: payload.message ?? 'the taskboard command refused the change' }
+      return { ok: true, payload }
+    }
+
+    /** One `/taskboard` op through the command Remote; the same transport the Tasks panel uses. */
+    async function runTaskboard(remote, sessionId, op) {
+      if (remote?.commands === undefined || typeof remote.commands.execute !== 'function') {
+        return { ok: false, code: 'command_unavailable', message: 'this build has no command transport, so the status cannot be changed' }
+      }
+      let result
+      try {
+        result = await remote.commands.execute(sessionId, `/taskboard ${JSON.stringify(op)}`, [])
+      } catch (error) {
+        return { ok: false, code: 'command_failed', message: errorText(error) }
+      }
+      return parseTaskboardReply(result)
+    }
+
+    /**
+     * Change one task status AS THE OWNER. The board owns a task's status, so the write goes
+     * there (`owner-status`, a compare-and-set on the revision the panel just read), and the
+     * mirror moves the TASK in `state/` and the projections with it. The panel itself writes no
+     * file: it reads the TASK for its `boardId`, reads the row's revision, then asks the board.
+     */
+    async function changeTaskStatus(remote, sessionId, { taskId, status, reason = '', signal }) {
+      const entity = await loadEntity(remote, sessionId, taskId, 'task', signal)
+      if (entity.error !== undefined) return { ok: false, code: 'entity_unreadable', message: entity.error }
+      const plan = taskStatusRequest(entity, status)
+      if (plan.ok !== true) return plan
+      const got = await runTaskboard(remote, sessionId, { op: 'get', id: plan.boardId })
+      if (got.ok !== true) return got
+      const boardTask = got.payload.task
+      if (boardTask === null || typeof boardTask !== 'object' || !Number.isSafeInteger(boardTask.revision)) {
+        return { ok: false, code: 'command_result_invalid', message: 'the board row carries no revision' }
+      }
+      const applied = await runTaskboard(remote, sessionId, {
+        op: 'owner-status',
+        id: plan.boardId,
+        expectedRevision: boardTask.revision,
+        status,
+        ...(String(reason ?? '').trim() === '' ? {} : { reason: String(reason).trim().slice(0, 1000) }),
+      })
+      if (applied.ok !== true) return applied
+      return { ok: true, payload: applied.payload, boardId: plan.boardId }
+    }
+
+    /**
+     * Elapsed time, not a wall clock: a board is read to see what is fresh, and
+     * `2026-11-18 18:20` makes the reader do the subtraction. The full timestamp stays in the
+     * cell's title, so nothing is lost. Russian units because the owner reads this UI.
+     */
+    function relativeLabel(value, nowMs = Date.now()) {
+      const time = Date.parse(String(value ?? ''))
+      if (!Number.isFinite(time)) return '—'
+      const delta = nowMs - time
+      const abs = Math.abs(delta)
+      if (abs < 45_000) return 'сейчас'
+      if (abs < 3_600_000) return `${delta < 0 ? 'через ' : ''}${Math.max(1, Math.round(abs / 60_000))} мин ${delta < 0 ? '' : 'назад'}`.trim()
+      if (abs < 86_400_000) return `${delta < 0 ? 'через ' : ''}${Math.max(1, Math.round(abs / 3_600_000))} ч ${delta < 0 ? '' : 'назад'}`.trim()
+      if (abs < 30 * 86_400_000) return `${delta < 0 ? 'через ' : ''}${Math.max(1, Math.round(abs / 86_400_000))} дн ${delta < 0 ? '' : 'назад'}`.trim()
+      try {
+        return new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: 'short' }).format(new Date(time))
+      } catch {
+        return new Date(time).toISOString().slice(0, 10)
+      }
+    }
+
+    /** Kept for callers that want the wall clock; the list and the drawer use relativeLabel. */
     function updatedLabel(value) {
       const text = String(value ?? '')
       return text === '' ? '—' : text.replace('T', ' ').slice(0, 16)
+    }
+
+    /**
+     * The sessions a TASK recorded, with the live state folded in. The register stores the
+     * status at write time; the session snapshot knows whether the child runs NOW, so a
+     * running child wins and a finished one keeps its recorded word. Read-only.
+     */
+    function taskSessions(frontmatter, sessionsById) {
+      const rows = Array.isArray(frontmatter?.sessions) ? frontmatter.sessions : []
+      const out = []
+      const seen = new Set()
+      for (const row of rows) {
+        if (row === null || typeof row !== 'object' || typeof row.sessionId !== 'string' || row.sessionId === '') continue
+        if (seen.has(row.sessionId)) continue
+        seen.add(row.sessionId)
+        const live = sessionsById?.[row.sessionId]
+        // A CLOSED TASK CANNOT BE WORKING. The session may still be listed (history) and may
+        // even be running for a DIFFERENT task after a reuse; echoing `running` here would show
+        // activity on review/done/cancelled rows. Only `active` owns live work now.
+        const liveAllowed = frontmatter?.status === 'active'
+        const running = liveAllowed && live?.running === true
+        const recorded = typeof row.status === 'string' && row.status !== '' ? row.status : ''
+        out.push({
+          sessionId: row.sessionId,
+          label: typeof row.label === 'string' && row.label !== '' ? row.label : (typeof live?.title === 'string' && live.title !== '' ? live.title : row.sessionId),
+          role: typeof row.role === 'string' ? row.role : '',
+          // LIVE MEANS RUNNING OR NOT. The ledger writes `active` when a child is linked and
+          // only settles it later, so echoing that status as "active" next to "running" made
+          // two different states look alike. The recorded word stays as the tooltip history.
+          status: running ? 'running' : 'idle',
+          recorded,
+          running,
+        })
+      }
+      return out
+    }
+
+    /** Trimmed non-empty strings from a frontmatter list; anything else yields `[]`. */
+    function listOf(value) {
+      return Array.isArray(value) ? value.map((item) => String(item).trim()).filter((item) => item !== '') : []
     }
 
     const CSS = `
@@ -154,6 +342,8 @@ window.__ModuleLoader__.load({
   --ps-surface: var(--dsw-alias-bg-layer-1);
   --ps-surface-2: color-mix(in srgb, var(--dsw-alias-label-primary) 4%, var(--dsw-alias-bg-base));
   --ps-surface-3: color-mix(in srgb, var(--dsw-alias-label-primary) 8%, var(--dsw-alias-bg-base));
+  --ps-open: #93C5FD;
+  --ps-violet: #C4B5FD;
   --ps-ink: var(--dsw-alias-label-primary);
   --ps-muted: var(--dsw-alias-label-secondary);
   --ps-line: var(--dsw-alias-border-l1);
@@ -189,6 +379,7 @@ window.__ModuleLoader__.load({
 .ps-counts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ps-count { display: inline-flex; align-items: center; gap: 4px; color: var(--ps-muted); font-size: 11px; white-space: nowrap; }
 .ps-count b { color: var(--ps-ink); font-variant-numeric: tabular-nums; }
+.ps-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
 .ps-btn { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--ps-line); background: var(--ps-surface-2); color: var(--ps-ink); border-radius: 7px; padding: 4px 9px; font: inherit; font-size: 12px; font-weight: 650; cursor: pointer; white-space: nowrap; }
 .ps-btn:hover { background: var(--ps-surface-3); }
 .ps-btn:focus-visible { outline: 2px solid var(--ps-accent); outline-offset: 1px; }
@@ -220,6 +411,15 @@ window.__ModuleLoader__.load({
 .ps-status.bad { color: var(--ps-bad); border-color: color-mix(in srgb, var(--ps-bad) 35%, var(--ps-line)); background: color-mix(in srgb, var(--ps-bad) 8%, transparent); }
 .ps-status.warn { color: var(--ps-warn); border-color: color-mix(in srgb, var(--ps-warn) 35%, var(--ps-line)); background: color-mix(in srgb, var(--ps-warn) 8%, transparent); }
 .ps-status.info { color: var(--ps-accent); border-color: color-mix(in srgb, var(--ps-accent) 35%, var(--ps-line)); background: color-mix(in srgb, var(--ps-accent) 8%, transparent); }
+.ps-status.muted { color: var(--ps-muted); border-style: dashed; }
+.ps-status.open { color: var(--ps-open); border-color: color-mix(in srgb, var(--ps-open) 40%, var(--ps-line)); background: color-mix(in srgb, var(--ps-open) 10%, transparent); }
+.ps-status.proposed { color: var(--ps-violet); border-color: color-mix(in srgb, var(--ps-violet) 40%, var(--ps-line)); background: color-mix(in srgb, var(--ps-violet) 10%, transparent); }
+.ps-status.unverified { color: var(--ps-open); border-color: color-mix(in srgb, var(--ps-open) 40%, var(--ps-line)); background: color-mix(in srgb, var(--ps-open) 10%, transparent); }
+.ps-status.active, .ps-status.running { color: var(--ps-accent); border-color: color-mix(in srgb, var(--ps-accent) 45%, var(--ps-line)); background: color-mix(in srgb, var(--ps-accent) 12%, transparent); }
+.ps-status.review, .ps-status.stale { color: var(--ps-warn); border-color: color-mix(in srgb, var(--ps-warn) 45%, var(--ps-line)); background: color-mix(in srgb, var(--ps-warn) 10%, transparent); }
+.ps-status.blocked, .ps-status.failing, .ps-status.rejected { color: var(--ps-bad); border-color: color-mix(in srgb, var(--ps-bad) 45%, var(--ps-line)); background: color-mix(in srgb, var(--ps-bad) 10%, transparent); }
+.ps-status.done, .ps-status.verified, .ps-status.accepted { color: var(--ps-ok); border-color: color-mix(in srgb, var(--ps-ok) 45%, var(--ps-line)); background: color-mix(in srgb, var(--ps-ok) 10%, transparent); }
+.ps-status.cancelled, .ps-status.superseded, .ps-status.dropped { color: var(--ps-muted); border-style: dashed; }
 .ps-gap { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; border: 1px dashed color-mix(in srgb, var(--ps-warn) 55%, var(--ps-line)); background: color-mix(in srgb, var(--ps-warn) 6%, transparent); color: var(--ps-ink); border-radius: 6px; padding: 3px 6px; font: 11px/1.55 inherit; font-weight: 600; cursor: pointer; }
 .ps-gap:before { content: "△"; color: var(--ps-warn); font-size: 10px; }
 .ps-gap:hover { background: color-mix(in srgb, var(--ps-warn) 12%, transparent); }
@@ -237,15 +437,43 @@ window.__ModuleLoader__.load({
 .ps-board { display: flex; gap: 8px; align-items: flex-start; overflow-x: auto; padding-bottom: 6px; }
 .ps-col { flex: 1 0 186px; min-width: 186px; border: 1px solid var(--ps-line); border-radius: 10px; background: var(--ps-surface-2); padding: 8px; min-height: 120px; }
 .ps-col h3 { display: flex; align-items: center; gap: 6px; margin: 0 0 7px; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--ps-muted); font-weight: 700; }
+.ps-col h3:before { content: ""; width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--ps-line-strong); }
+.ps-col[data-status="open"] h3:before { background: var(--ps-open); }
+.ps-col[data-status="active"] h3:before { background: var(--ps-accent); }
+.ps-col[data-status="review"] h3:before { background: var(--ps-warn); }
+.ps-col[data-status="blocked"] h3:before { background: var(--ps-bad); }
+.ps-col[data-status="done"] h3:before { background: var(--ps-ok); }
 .ps-col h3 .n { margin-left: auto; color: var(--ps-muted); font-weight: 500; letter-spacing: 0; font-variant-numeric: tabular-nums; }
-.ps-card { display: block; width: 100%; text-align: left; border: 1px solid var(--ps-line); background: var(--ps-surface); border-radius: 8px; padding: 7px 8px; margin: 0 0 6px; font: inherit; color: inherit; cursor: pointer; }
+.ps-card { display: block; width: 100%; text-align: left; border: 1px solid var(--ps-line); border-left: 3px solid var(--ps-line); background: var(--ps-surface); border-radius: 8px; padding: 7px 8px; margin: 0 0 6px; font: inherit; color: inherit; cursor: pointer; }
+.ps-card[data-status="open"] { border-left-color: var(--ps-open); }
+.ps-card[data-status="active"] { border-left-color: var(--ps-accent); }
+.ps-card[data-status="review"] { border-left-color: var(--ps-warn); }
+.ps-card[data-status="blocked"] { border-left-color: var(--ps-bad); }
+.ps-card[data-status="done"] { border-left-color: var(--ps-ok); }
+.ps-card[data-status="cancelled"] { border-left-color: var(--ps-muted); }
 .ps-card:hover { background: var(--ps-surface-3); }
-.ps-card:focus-visible { outline: 2px solid var(--ps-accent); outline-offset: 1px; }
+.ps-card .ps-cardopen { display: block; width: 100%; text-align: left; border: 0; background: transparent; color: inherit; font: inherit; padding: 0; cursor: pointer; }
+.ps-card .ps-cardopen:focus-visible { outline: 2px solid var(--ps-accent); outline-offset: 2px; border-radius: 4px; }
+.ps-cardactions { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.ps-select { border: 1px solid var(--ps-line); background: var(--ps-surface); color: var(--ps-ink); border-radius: 6px; padding: 2px 4px; font: inherit; font-size: 11px; font-weight: 600; }
+.ps-select:focus-visible, .ps-input:focus-visible { outline: 2px solid var(--ps-accent); outline-offset: 1px; }
+.ps-input { border: 1px solid var(--ps-line); background: var(--ps-surface); color: var(--ps-ink); border-radius: 6px; padding: 3px 6px; font: inherit; font-size: 12px; width: 100%; }
+.ps-statusform { border-top: 1px solid var(--ps-line); padding-top: 8px; margin-top: 8px; }
+.ps-statusform h3 { margin: 0 0 6px; }
+.ps-field { display: grid; gap: 3px; margin-bottom: 6px; }
+.ps-field label { font-size: 11px; color: var(--ps-muted); font-weight: 600; }
+.ps-statusactions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ps-statusactions .ps-meta { flex: 1 1 140px; line-height: 1.35; }
+.ps-table td .ps-select { margin-top: 3px; display: block; max-width: 110px; }
+.ps-notice { border: 1px solid var(--ps-line); border-radius: 8px; padding: 6px 9px; margin-bottom: 10px; font-size: 12px; line-height: 1.4; }
+.ps-notice.ok { border-color: color-mix(in srgb, var(--ps-ok) 45%, var(--ps-line)); background: color-mix(in srgb, var(--ps-ok) 10%, transparent); color: var(--ps-ok); }
+.ps-notice.bad { border-color: color-mix(in srgb, var(--ps-bad) 45%, var(--ps-line)); background: color-mix(in srgb, var(--ps-bad) 10%, transparent); color: var(--ps-bad); }
+.ps-notice code { font-weight: 700; }
 .ps-card .t { font-size: 12.4px; font-weight: 650; line-height: 1.3; overflow-wrap: anywhere; }
 .ps-card .m { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; margin-top: 5px; }
 .ps-card .none { color: var(--ps-muted); font-size: 11px; }
 .ps-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-.ps-table th { overflow-wrap: anywhere; text-align: left; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--ps-muted); font-weight: 700; padding: 6px 8px; border-bottom: 1px solid var(--ps-line); }
+.ps-table th { white-space: nowrap; overflow-wrap: normal; text-align: left; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--ps-muted); font-weight: 700; padding: 6px 8px; border-bottom: 1px solid var(--ps-line); }
 .ps-table td { padding: 7px 8px; border-bottom: 1px solid var(--ps-line); vertical-align: top; font-size: 12px; overflow-wrap: anywhere; }
 .ps-table tbody tr { cursor: pointer; }
 .ps-table tbody tr:hover { background: var(--ps-surface-2); }
@@ -255,11 +483,18 @@ window.__ModuleLoader__.load({
 .ps-table th:nth-child(2), .ps-table td:nth-child(2) { width: 25%; }
 .ps-table th:nth-child(3), .ps-table td:nth-child(3) { width: 16%; }
 .ps-table th:nth-child(4), .ps-table td:nth-child(4) { width: 22%; }
-.ps-table.ps-tasklist th:nth-child(1), .ps-table.ps-tasklist td:nth-child(1) { width: 11%; }
-.ps-table.ps-tasklist th:nth-child(2), .ps-table.ps-tasklist td:nth-child(2) { width: 33%; }
-.ps-table.ps-tasklist th:nth-child(3), .ps-table.ps-tasklist td:nth-child(3) { width: 21%; }
-.ps-table.ps-tasklist th:nth-child(4), .ps-table.ps-tasklist td:nth-child(4) { width: 15%; }
-.ps-table.ps-tasklist th:nth-child(5), .ps-table.ps-tasklist td:nth-child(5) { width: 20%; }
+.ps-tablewrap { overflow-x: auto; max-width: 100%; }
+/* The list must FIT the panel: fixed px widths for the narrow columns, the rest to Task. */
+.ps-table.ps-tasklist { min-width: 690px; }
+.ps-table.ps-tasklist th:nth-child(1), .ps-table.ps-tasklist td:nth-child(1) { width: 84px; }
+.ps-table.ps-tasklist th:nth-child(2), .ps-table.ps-tasklist td:nth-child(2) { width: auto; }
+.ps-table.ps-tasklist th:nth-child(3), .ps-table.ps-tasklist td:nth-child(3) { width: 96px; }
+.ps-table.ps-tasklist th:nth-child(4), .ps-table.ps-tasklist td:nth-child(4) { width: 140px; }
+.ps-table.ps-tasklist th:nth-child(5), .ps-table.ps-tasklist td:nth-child(5) { width: 78px; }
+.ps-table.ps-tasklist th:nth-child(6), .ps-table.ps-tasklist td:nth-child(6) { width: 92px; }
+.ps-table.ps-tasklist th:nth-child(7), .ps-table.ps-tasklist td:nth-child(7) { width: 120px; }
+.ps-rolecell { display: flex; flex-direction: column; gap: 1px; font-size: 11.5px; overflow-wrap: anywhere; }
+.ps-rolecell b { font-weight: 650; }
 .ps-table.ps-tasklist .ps-updated { white-space: nowrap; font-variant-numeric: tabular-nums; font-size: 11px; color: var(--ps-muted); }
 .ps-subbar .ps-count { color: var(--ps-muted); font-size: 11px; }
 .ps-cellchips { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
@@ -319,7 +554,7 @@ window.__ModuleLoader__.load({
 .ps-mode { display: flex; align-items: center; width: 100%; min-height: 36px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--ps-muted); padding: 5px 8px; text-align: left; font: inherit; font-size: 12.5px; font-weight: 650; cursor: pointer; }
 .ps-mode:hover { background: var(--ps-surface-2); color: var(--ps-ink); }
 .ps-mode[aria-selected="true"] { background: var(--ps-surface-2); color: var(--ps-ink); border-color: var(--ps-line-strong); }
-.ps-mode[aria-selected="true"]:before { content: ""; width: 2px; height: 16px; margin-right: 7px; background: var(--ps-accent); }
+.ps-mode[aria-selected="true"]:before { content: ""; width: 2px; height: 16px; margin-right: 7px; background: var(--ps-type, var(--ps-accent)); }
 .ps-navsec { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--ps-line); }
 .ps-navsec .ps-muted, .ps-navsec p.muted { margin: 0; color: var(--ps-muted); font-size: 12px; line-height: 1.5; }
 .ps-navfilter { border: 1px solid var(--ps-line); border-radius: 8px; background: var(--ps-surface); padding: 8px; }
@@ -412,7 +647,8 @@ window.__ModuleLoader__.load({
       for (let page = 0; page < 60; page += 1) {
         let result
         try {
-          result = await remote.workspaceFiles.read(sessionId, path, { offset, limit: 2000 }, signal)
+          // 5000 is the gateway's maximum page; the index is kept under it so a read is one trip.
+          result = await remote.workspaceFiles.read(sessionId, path, { offset, limit: 5000 }, signal)
         } catch (error) {
           return { ok: false, code: 'read_failed', message: errorText(error) }
         }
@@ -455,21 +691,34 @@ window.__ModuleLoader__.load({
       if (trimmed === 'true') return true
       if (trimmed === 'false') return false
       if (trimmed === 'null' || trimmed === '~') return null
+      // The state writer emits a number unquoted and quotes a numeric STRING, so a bare
+      // number here is a number (stepsDone, revision) and never a lost title.
+      if (/^-?\d+$/.test(trimmed)) return Number(trimmed)
+      if (/^-?\d+\.\d+$/.test(trimmed)) return Number(trimmed)
       return trimmed
     }
 
+    /**
+     * Split an inline list on commas OUTSIDE a JSON string. The state writer quotes an item
+     * that would not read back as itself, so an item may contain a comma or a bracket; a
+     * backslash escapes only inside a double-quoted string, and an apostrophe is literal.
+     */
     function splitInlineList(value) {
       const out = []
       let current = ''
-      let quote = null
+      let quoted = false
+      let escaped = false
       for (const character of String(value)) {
-        if (quote !== null) {
+        if (escaped) {
           current += character
-          if (character === quote) quote = null
-        } else if (character === '"' || character === "'") {
-          quote = character
+          escaped = false
+        } else if (quoted && character === '\\') {
           current += character
-        } else if (character === ',') {
+          escaped = true
+        } else if (character === '"') {
+          quoted = !quoted
+          current += character
+        } else if (character === ',' && !quoted) {
           out.push(current)
           current = ''
         } else {
@@ -531,6 +780,12 @@ window.__ModuleLoader__.load({
         }
         const nested = /^\s{2,4}([A-Za-z][\w-]*):\s*(.*)$/.exec(line)
         if (nested !== null && currentMap !== null) currentMap[nested[1]] = unquoteScalar(nested[2])
+        // A LIST OF MAPS (acceptance `- text:` + `done:`, sessions `- sessionId:` + `role:`):
+        // the later fields belong to the entry the `- ` line opened, not to the enclosing map.
+        else if (nested !== null && currentList !== null && currentList.length > 0) {
+          const last = currentList[currentList.length - 1]
+          if (last !== null && typeof last === 'object' && !Array.isArray(last)) last[nested[1]] = unquoteScalar(nested[2])
+        }
       }
       const body = lines.slice(close + 1).join('\n').replace(/^\n+/, '').replace(/\n+$/, '')
       return { frontmatter, body }
@@ -581,29 +836,80 @@ window.__ModuleLoader__.load({
       const invalid = validateIndex(indexRead.value)
       if (invalid !== null) return { phase: 'error', code: 'projections_invalid', message: invalid }
       const index = indexRead.value
-      const entities = new Map()
-      const issues = []
-      const rows = [
-        ...index.reqs.map((row) => ({ kind: 'req', id: row.id })),
-        ...index.tasks.map((row) => ({ kind: 'task', id: row.id })),
-        ...index.tests.map((row) => ({ kind: 'test', id: row.id })),
-        ...index.decisions.map((row) => ({ kind: 'decision', id: row.id })),
-      ]
-      await Promise.all(
-        rows.map(async ({ kind, id }) => {
+      const { workspace, legacy } = workspaceFromIndex(index)
+      // A LEGACY index (written before the rows carried titles) still has to read as text:
+      // the rows without a title are filled from their entity files, and only those. A current
+      // index never enters this branch, so the fast path keeps its single read.
+      // AN ALL-LEGACY INDEX IS NOT PATCHED BY READING 400+ FILES: that is the old several-second
+      // open the owner complained about, and the titles come back the moment the state core
+      // regenerates the projection. It is named instead, so the wait is one read, not 449.
+      const rowCount = index.reqs.length + index.tasks.length + index.tests.length + index.decisions.length
+      if (legacy.length > 0 && legacy.length < rowCount) {
+        await Promise.all(legacy.map(async ({ kind, id }) => {
           const path = `state/${KIND_DIR[kind]}/${id}.md`
           const read = await readText(remote, sessionId, path, signal)
-          if (read.ok === true) {
-            const parsed = parseEntityText(read.text)
-            entities.set(id, { kind, id, path, frontmatter: parsed.frontmatter, body: parsed.body })
-            return
-          }
-          entities.set(id, { kind, id, path, frontmatter: { id, kind, title: id }, body: '', error: read.message ?? read.code })
-          issues.push(`${id}: ${read.message ?? read.code ?? 'unreadable'}`)
-        }),
-      )
-      const analysis = await loadAnalysis(remote, sessionId, signal)
-      return { phase: 'ready', index, entities, analysis, issues }
+          if (read.ok !== true) return
+          const parsed = parseEntityText(read.text)
+          workspace.entities.set(id, { kind, id, path, frontmatter: parsed.frontmatter, body: parsed.body })
+        }))
+      } else if (legacy.length > 0) {
+        workspace.issues.push('index.json carries no titles (old projection); regenerate state/views to restore titles')
+      }
+      return workspace
+    }
+
+    /**
+     * The panel state of one index: the list fields are drawn from the rows, and the entity
+     * map is a lookup over those same rows. Building it from a CACHED index lets the next open
+     * paint before the network answers (stale-while-revalidate).
+     */
+    function workspaceFromIndex(index) {
+      const entities = new Map()
+      const legacy = []
+      const track = (kind, row) => {
+        if (row === null || typeof row !== 'object' || typeof row.id !== 'string') return
+        entities.set(row.id, {
+          kind,
+          id: row.id,
+          path: `state/${KIND_DIR[kind]}/${row.id}.md`,
+          frontmatter: { ...row, id: row.id, kind, title: typeof row.title === 'string' && row.title !== '' ? row.title : row.id },
+          body: undefined,
+        })
+        if (typeof row.title !== 'string' || row.title === '') legacy.push({ kind, id: row.id })
+      }
+      for (const row of index.reqs) track('req', row)
+      for (const row of index.tasks) track('task', row)
+      for (const row of index.tests) track('test', row)
+      for (const row of index.decisions) track('decision', row)
+      return { workspace: { phase: 'ready', index, entities, analysis: [], analysisLoaded: false, issues: [] }, legacy }
+    }
+
+    const INDEX_CACHE_PREFIX = 'dsh:project-state-panel:index:'
+    function readCachedIndex(sessionId) {
+      try {
+        const text = sessionStorage.getItem(INDEX_CACHE_PREFIX + sessionId)
+        if (typeof text !== 'string' || text === '') return null
+        const index = JSON.parse(text)
+        return validateIndex(index) === null ? index : null
+      } catch {
+        return null
+      }
+    }
+    function writeCachedIndex(sessionId, index) {
+      try {
+        sessionStorage.setItem(INDEX_CACHE_PREFIX + sessionId, JSON.stringify(index))
+      } catch {
+        /* private mode or quota: the cache is an optimisation, never a requirement */
+      }
+    }
+
+    /** Fetch one entity file for the drawer body; the index already drew its card. */
+    async function loadEntity(remote, sessionId, id, kind, signal) {
+      const path = `state/${KIND_DIR[kind]}/${id}.md`
+      const read = await readText(remote, sessionId, path, signal)
+      if (read.ok !== true) return { error: read.message ?? read.code ?? 'unreadable' }
+      const parsed = parseEntityText(read.text)
+      return { kind, id, path, frontmatter: parsed.frontmatter, body: parsed.body }
     }
 
     async function loadMapViews(remote, sessionId) {
@@ -696,12 +1002,19 @@ window.__ModuleLoader__.load({
       return ids
     }
 
+    /**
+     * One class per status, not four shared tones: `active` and `review` used to be the same
+     * colour, and `open` had none, so a board could not be read by colour. Unknown statuses
+     * fall back to a neutral chip instead of looking like a completed one.
+     */
+    const STATUS_TONE = {
+      proposed: 'proposed', open: 'open', active: 'active', running: 'running', idle: 'muted', review: 'review',
+      blocked: 'blocked', failing: 'failing', rejected: 'rejected', done: 'done',
+      verified: 'verified', accepted: 'accepted', cancelled: 'cancelled', superseded: 'superseded',
+      dropped: 'dropped', stale: 'stale', unverified: 'unverified',
+    }
     function statusTone(status) {
-      if (status === 'done' || status === 'verified' || status === 'accepted') return 'ok'
-      if (status === 'blocked' || status === 'failing' || status === 'rejected') return 'bad'
-      if (status === 'stale' || status === 'superseded') return 'warn'
-      if (status === 'review' || status === 'active') return 'info'
-      return ''
+      return STATUS_TONE[String(status ?? '')] ?? 'muted'
     }
 
     function titleOf(entity, fallback) {
@@ -760,7 +1073,6 @@ window.__ModuleLoader__.load({
       const criteria = Array.isArray(fm.criteria) ? fm.criteria : []
       const taskCount = req.tasks.length
       const testCount = req.tests.length
-      const decisionCount = req.decisions.length
       return h('li', { className: `ps-reqrow${selected ? ' sel' : ''}` },
         h('div', { className: 'body' },
           h('button', {
@@ -787,9 +1099,6 @@ window.__ModuleLoader__.load({
             testCount > 0
               ? h('span', { className: 'ps-count' }, h('b', null, String(testCount)), testCount === 1 ? ' test' : ' tests')
               : h(Gap, { onClick: () => { onSelect(req.id); onOpen('trace', req.id) }, title: `No test is linked to ${req.id}; open tests and trace filtered by it` }, 'no test'),
-            decisionCount > 0
-              ? h('span', { className: 'ps-count' }, h('b', null, String(decisionCount)), decisionCount === 1 ? ' decision' : ' decisions')
-              : h(Gap, { static: true, title: 'No decision is linked to this requirement' }, 'no decision'),
             h('span', { className: 'ps-spacer' }),
             h('button', { type: 'button', className: 'ps-btn small', onClick: () => onOpenEntityDrawer(req.id) }, 'Details'),
           ),
@@ -816,35 +1125,72 @@ window.__ModuleLoader__.load({
 
     /* ---------- board mode ---------- */
 
-    function TaskCard({ task, data, onOpen }) {
+    /**
+     * One task on the board. The OPEN action stays one button (a card that opens a drawer must
+     * not contain a nested control), and the status control is its own row: a native select,
+     * which gives keyboard and screen-reader access without a custom menu.
+     */
+    function TaskCard({ task, data, onOpen, sessionsById = {}, onChangeStatus, busy }) {
       const entity = data.entities.get(task.id)
       const fm = entity?.frontmatter ?? {}
       const tests = data.index.tests.filter((test) => Array.isArray(test.evidenceRefs) && test.evidenceRefs.some((ref) => ref.kind === 'task' && ref.id === task.id))
-      return h('button', {
-        type: 'button',
-        className: 'ps-card',
-        onClick: () => onOpen(task.id),
-        'aria-label': `${task.id}: ${titleOf(entity, task.id)}, ${task.status}${task.reqId ? `, requirement ${task.reqId}` : ', chore'}`,
-      },
-        h('div', { className: 't' }, titleOf(entity, task.id)),
-        h('div', { className: 'm' },
-          h(TypeChip, { kind: 'task', id: task.id, static: true }),
-          h(Status, { status: task.status }),
+      const sessions = taskSessions(fm, sessionsById)
+      const running = sessions.filter((session) => session.running).length
+      const reqIds = requirementIdsOf(task, fm)
+      const title = titleOf(entity, task.id)
+      return h('div', { className: 'ps-card', 'data-status': task.status },
+        h('button', {
+          type: 'button',
+          className: 'ps-cardopen',
+          onClick: () => onOpen(task.id),
+          'aria-label': `${task.id}: ${title}, ${task.status}${reqIds.length === 0 ? (task.chore === true ? ', chore' : ', no requirement') : `, requirement ${reqIds.join(', ')}`}`,
+        },
+          h('div', { className: 't' }, title),
+          h('div', { className: 'm' },
+            h(TypeChip, { kind: 'task', id: task.id, static: true }),
+            h(Status, { status: task.status }),
+          ),
+          h('div', { className: 'm' },
+            reqIds.length > 0
+              ? reqIds.map((id) => h(TypeChip, { key: id, kind: 'req', id, static: true }))
+              : (task.chore === true ? h('span', { className: 'ps-chip static', style: { '--ps-type': TYPE_COLOR.evidence } }, h('span', { className: 'mark' }), h('code', null, 'chore')) : h('span', { className: 'none' }, 'no requirement')),
+            tests.length > 0 ? h('span', { className: 'ps-count' }, h('b', null, String(tests.length)), tests.length === 1 ? ' test' : ' tests') : h('span', { className: 'none' }, fm.status === 'done' ? 'no test' : ''),
+          ),
+          // WHO IS WORKING NOW, as a row of its own: a task can be active with an idle child,
+          // and a running child is the claim the board must be able to show without opening it.
+          sessions.length === 0
+            ? null
+            : h('div', { className: 'm', 'aria-label': `${running} of ${sessions.length} subagents running` },
+                running > 0
+                  ? h('span', { className: 'ps-count', style: { color: 'var(--ps-ok)' } }, h('span', { className: 'ps-dot', 'aria-hidden': 'true' }), h('b', null, String(running)), ` of ${sessions.length} subagent${sessions.length === 1 ? '' : 's'} running`)
+                  : h('span', { className: 'ps-count', style: { color: 'var(--ps-muted)' } }, h('span', { className: 'ps-dot', 'aria-hidden': 'true' }), `${sessions.length} subagent${sessions.length === 1 ? '' : 's'} idle`),
+              ),
         ),
-        h('div', { className: 'm' },
-          task.reqId ? h(TypeChip, { kind: 'req', id: task.reqId, static: true }) : (task.chore === true ? h('span', { className: 'ps-chip static', style: { '--ps-type': TYPE_COLOR.evidence } }, h('span', { className: 'mark' }), h('code', null, 'chore')) : h('span', { className: 'none' }, 'no requirement')),
-          tests.length > 0 ? h('span', { className: 'ps-count' }, h('b', null, String(tests.length)), tests.length === 1 ? ' test' : ' tests') : h('span', { className: 'none' }, fm.status === 'done' ? 'no test' : ''),
-        ),
+        typeof onChangeStatus !== 'function'
+          ? null
+          : h('div', { className: 'ps-cardactions' },
+              h('select', {
+                className: 'ps-select',
+                value: task.status,
+                disabled: busy === true,
+                'aria-label': `Change the status of ${task.id} (currently ${task.status})`,
+                title: 'You are the owner: this status change overrides the lifecycle rules and is recorded in the state journal',
+                onChange: (event) => onChangeStatus(task.id, event.target.value),
+              }, TASK_STATUS_CHOICES.map((status) => h('option', { key: status, value: status }, status))),
+              h('span', { className: 'ps-meta' }, busy === true ? 'saving…' : 'owner'),
+            ),
       )
     }
 
-    function TaskListTable({ rows, onOpenTask }) {
+    function TaskListTable({ rows, onOpenTask, onChangeStatus, statusBusy }) {
       return h('table', { className: 'ps-table ps-tasklist' },
         h('thead', null, h('tr', null,
           h('th', { scope: 'col' }, 'Status'),
           h('th', { scope: 'col' }, 'Task'),
+          h('th', { scope: 'col' }, 'Role'),
           h('th', { scope: 'col' }, 'Requirement'),
           h('th', { scope: 'col' }, 'Progress'),
+          h('th', { scope: 'col' }, 'Subagents'),
           h('th', { scope: 'col' }, 'Updated'),
         )),
         h('tbody', null, rows.map((row) => h('tr', {
@@ -854,28 +1200,63 @@ window.__ModuleLoader__.load({
           onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenTask(row.id) } },
           'aria-label': `${row.id}: ${row.title}, ${row.status}${row.reqIds.length === 0 ? '' : `, requirement ${row.reqIds.join(', ')}`}`,
         },
-          h('td', null, h(Status, { status: row.status })),
+          h('td', null,
+            h(Status, { status: row.status }),
+            // THE OWNER'S CONTROL, ALSO IN THE LIST: the list is the default view, and a status
+            // that can only be changed in the card grid would be a control the human does not
+            // see. The click must not bubble to the row (that opens the drawer).
+            typeof onChangeStatus !== 'function'
+              ? null
+              : h('select', {
+                  className: 'ps-select',
+                  value: row.status,
+                  disabled: statusBusy === row.id,
+                  'aria-label': `Change the status of ${row.id} (currently ${row.status})`,
+                  title: 'You are the owner: this status change overrides the lifecycle rules and is recorded in the state journal',
+                  onClick: (event) => event.stopPropagation(),
+                  onKeyDown: (event) => event.stopPropagation(),
+                  onChange: (event) => onChangeStatus(row.id, event.target.value),
+                }, TASK_STATUS_CHOICES.map((status) => h('option', { key: status, value: status }, status))),
+          ),
           h('td', null,
             h('div', { className: 'ps-cellchips' }, h(TypeChip, { kind: 'task', id: row.id, static: true })),
             h('div', { style: { marginTop: 3, fontWeight: 600 } }, row.title),
           ),
+          h('td', null, row.inline
+            ? h('span', { className: 'ps-meta' }, 'inline')
+            : (row.role !== ''
+                ? h('span', { className: 'ps-rolecell', title: row.preset === '' ? row.role : `${row.role} · ${row.preset}` },
+                    h('b', null, row.role),
+                    row.preset === '' ? null : h('span', { className: 'ps-meta' }, row.preset))
+                : h('span', { className: 'none' }, '—'))),
           h('td', null, row.reqIds.length === 0
             ? (row.chore ? h('span', { className: 'ps-chip static' }, h('span', { className: 'mark' }), h('code', null, 'chore')) : h('span', { className: 'none' }, 'no requirement'))
             : h('div', { className: 'ps-cellchips' }, row.reqIds.map((id) => h(TypeChip, { key: id, kind: 'req', id, static: true })))),
           h('td', { className: 'ps-updated', title: row.steps === 0 ? 'No steps are recorded on this task' : `${row.stepsDone} of ${row.steps} steps done` }, row.steps === 0 ? '—' : `${row.stepsDone}/${row.steps}`),
-          h('td', { className: 'ps-updated', title: row.updatedAt === '' ? 'No updatedAt in the projection' : row.updatedAt }, updatedLabel(row.updatedAt)),
+          h('td', {
+            className: 'ps-updated',
+            title: row.sessions.length === 0
+              ? 'No subagent session is recorded on this task'
+              : `${row.running} of ${row.sessions.length} subagent sessions running now (a task stays active until it is accepted, so its status is not this number)`,
+          }, row.sessions.length === 0
+            ? '—'
+            : h('span', { style: { color: row.running > 0 ? 'var(--ps-ok)' : 'var(--ps-muted)', fontWeight: 600 } },
+                row.running > 0 ? `${row.running} running` : `${row.sessions.length} idle`)),
+          h('td', { className: 'ps-updated', title: row.updatedAt === '' ? 'No updatedAt in the projection' : row.updatedAt }, relativeLabel(row.updatedAt)),
         ))),
       )
     }
 
-    function BoardMode({ data, filter, onOpenTask, onClearFilter, view, sort, onView, onSort }) {
-      const scoped = data.index.tasks.filter((task) => filter === null || task.reqId === filter)
+    function BoardMode({ data, filter, onOpenTask, onClearFilter, view, sort, onView, onSort, sessionsById = {}, onChangeStatus, statusBusy }) {
+      // A FILTER MATCHES EVERY LINKED REQUIREMENT, not just `reqId`: a batch task carries
+      // `reqIds` and used to disappear from a board filtered by one of them.
+      const scoped = data.index.tasks.filter((task) => filter === null || requirementIdsOf(task, data.entities.get(task.id)?.frontmatter).includes(filter))
       if (data.index.tasks.length === 0) return h(Empty, { title: 'No task on the board' }, h('p', null, 'The task board is a projection of state/task/. Tasks are created in the Tasks panel or by the orchestrator.'))
       if (filter !== null && scoped.length === 0) return h('div', null,
         h('p', { className: 'ps-kicker' }, 'Task board'),
         h('p', { className: 'ps-empty' }, `No task is linked to ${filter}. This is a traceability gap, not an empty board: `, h('button', { type: 'button', className: 'ps-gap', onClick: onClearFilter }, 'clear the filter'), ' to see every task.'),
       )
-      const rows = sortTasks(scoped.map((task) => taskRow(task, data.entities)), sort)
+      const rows = sortTasks(scoped.map((task) => taskRow(task, data.entities, sessionsById)), sort)
       const kicker = view === 'list' ? 'Task list' : 'Task board'
       return h('div', null,
         h('p', { className: 'ps-kicker' }, filter === null ? kicker : `${kicker} · filtered by ${filter}`),
@@ -897,14 +1278,14 @@ window.__ModuleLoader__.load({
           h('span', { className: 'ps-meta' }, `${rows.length} task${rows.length === 1 ? '' : 's'}`),
         ),
         view === 'list'
-          ? h(TaskListTable, { rows, onOpenTask })
+          ? h('div', { className: 'ps-tablewrap' }, h(TaskListTable, { rows, onOpenTask, onChangeStatus, statusBusy }))
           : h('div', { className: 'ps-board', role: 'list' }, TASK_COLUMNS.map((column) => {
               const items = scoped.filter((task) => column.statuses.includes(task.status))
-              return h('div', { className: 'ps-col', key: column.id, role: 'group', 'aria-label': `${column.label} tasks` },
+              return h('div', { className: 'ps-col', key: column.id, role: 'group', 'aria-label': `${column.label} tasks`, 'data-status': column.statuses[0] },
                 h('h3', null, column.label, h('span', { className: 'n' }, String(items.length))),
                 items.length === 0
                   ? h('div', { className: 'ps-empty', style: { padding: '6px 2px', fontSize: 11 } }, '—')
-                  : items.map((task) => h('div', { key: task.id, role: 'listitem' }, h(TaskCard, { task, data, onOpen: onOpenTask }))),
+                  : items.map((task) => h('div', { key: task.id, role: 'listitem' }, h(TaskCard, { task, data, onOpen: onOpenTask, sessionsById, onChangeStatus, busy: statusBusy === task.id }))),
               )
             })),
       )
@@ -960,7 +1341,6 @@ window.__ModuleLoader__.load({
           h('th', { scope: 'col' }, 'Requirement'),
           h('th', { scope: 'col' }, 'Tasks'),
           h('th', { scope: 'col' }, 'Tests'),
-          h('th', { scope: 'col' }, 'Decisions'),
         )),
         h('tbody', null, reqs.map((req) => {
           const entity = data.entities.get(req.id)
@@ -974,7 +1354,6 @@ window.__ModuleLoader__.load({
             ),
             h('td', null, chips(req.tasks, 'task', 'no task', 'board')),
             h('td', null, chips(req.tests, 'test', 'no test', 'trace')),
-            h('td', null, chips(req.decisions, 'decision', 'no decision', 'req')),
           )
         })),
       )
@@ -1099,7 +1478,6 @@ window.__ModuleLoader__.load({
       const req = kind === 'req' ? index.reqs.find((row) => row.id === id) : null
       const test = kind === 'test' ? index.tests.find((row) => row.id === id) : null
       const task = kind === 'task' ? index.tasks.find((row) => row.id === id) : null
-      const decision = kind === 'decision' ? index.decisions.find((row) => row.id === id) : null
       const entity = data.entities.get(id)
       const fm = entity?.frontmatter ?? {}
       const sections = []
@@ -1116,12 +1494,6 @@ window.__ModuleLoader__.load({
           req.tests.length > 0
             ? h('div', { className: 'ps-chiplist' }, req.tests.map((testId) => h(TypeChip, { key: testId, kind: 'test', id: testId, onClick: () => onOpenEntity(testId) })))
             : h('p', { className: 'muted' }, h(Gap, { onClick: () => onOpenMode('trace', req.id) }, 'no test'), ' No test proves this requirement yet.'),
-        ))
-        sections.push(h('div', { className: 'ps-sec', key: 'decisions' },
-          h('h3', null, `Decisions (${req.decisions.length})`),
-          req.decisions.length > 0
-            ? h('div', { className: 'ps-chiplist' }, req.decisions.map((decisionId) => h(TypeChip, { key: decisionId, kind: 'decision', id: decisionId, onClick: () => onOpenEntity(decisionId) })))
-            : h('p', { className: 'muted' }, h(Gap, { static: true }, 'no decision'), ' The requirement has no linked decision.'),
         ))
       }
 
@@ -1175,16 +1547,6 @@ window.__ModuleLoader__.load({
         ))
       }
 
-      if (decision !== null) {
-        const reqIds = index.reqs.filter((row) => row.decisions.includes(decision.id)).map((row) => row.id)
-        sections.push(h('div', { className: 'ps-sec', key: 'req' },
-          h('h3', null, 'Requirements'),
-          reqIds.length > 0
-            ? h('div', { className: 'ps-chiplist' }, reqIds.map((reqId) => h(TypeChip, { key: reqId, kind: 'req', id: reqId, onClick: () => onOpenEntity(reqId) })))
-            : h('p', { className: 'muted' }, 'No requirement links this decision.'),
-        ))
-      }
-
       if (kind === 'node') {
         const reqIds = requirementsForNode(node, analysisLinks)
         sections.push(h('div', { className: 'ps-sec', key: 'reqs' },
@@ -1203,87 +1565,141 @@ window.__ModuleLoader__.load({
       )
     }
 
-    /** How many evidence references a TEST carries, from the index and the entity metadata. */
-    function evidenceCountOf(data, test) {
-      const entity = data.entities.get(test.id)
-      const fm = entity?.frontmatter ?? {}
-      return (Array.isArray(test.evidenceRefs) ? test.evidenceRefs.length : 0) + (Array.isArray(fm.evidenceRefs) ? fm.evidenceRefs.length : 0)
-    }
-
     /**
-     * The persistent evidence rail. It is not a second drawer: it always shows the evidence
-     * the projections carry for the current requirement filter (or, with no filter, the
-     * evidence summary of the whole view). Opening an entity replaces this rail with the one
-     * drawer; closing the drawer returns to this summary, so the column is never empty and
-     * the evidence never sits on a separate screen.
+     * The concrete task a TASK row carries: the same fields the Tasks panel edits. A row
+     * written before the schema grew them says "not recorded" instead of rendering an empty
+     * section, and a row with no child session says so rather than offering a dead Open.
      */
-    function EvidenceRail({ data, filter, onOpenEntity, onOpenMode }) {
-      const index = data.index
-      const req = filter === null ? null : index.reqs.find((row) => row.id === filter) ?? null
-      const reqEntity = filter === null ? null : data.entities.get(filter)
-      const tests = req === null ? index.tests : index.tests.filter((test) => test.reqId === req.id)
-      const testsWithEvidence = tests.filter((test) => evidenceCountOf(data, test) > 0)
-      const testsWithoutEvidence = tests.length - testsWithEvidence.length
-      const reqsWithoutTests = index.reqs.filter((row) => row.tests.length === 0).length
-      const shown = (req === null ? testsWithEvidence : tests).slice(0, 8)
-
-      return h('aside', { className: 'ps-evrail', 'aria-label': 'Evidence rail' },
-        h('div', { className: 'ps-railhead' },
-          h('h2', { className: 'ps-kicker' }, 'Evidence rail'),
-          h('span', { className: 'ps-spacer' }),
-          req === null ? null : h('button', { type: 'button', className: 'ps-btn small', onClick: () => onOpenEntity(req.id) }, 'Open detail'),
+    function TaskSpecifics({ fm, sessionsById = {}, onOpenSession }) {
+      const scope = listOf(fm.scope)
+      const nonScope = listOf(fm.nonScope)
+      const steps = listOf(fm.steps)
+      const stepsDone = Number.isSafeInteger(fm.stepsDone) ? fm.stepsDone : 0
+      const acceptance = (Array.isArray(fm.acceptance) ? fm.acceptance : [])
+        .filter((row) => row !== null && typeof row === 'object' && typeof row.text === 'string' && row.text.trim() !== '')
+      const sessions = taskSessions(fm, sessionsById)
+      const resultSummary = typeof fm.resultSummary === 'string' ? fm.resultSummary.trim() : ''
+      const resultEvidence = listOf(fm.resultEvidence)
+      const owner = fm.owner !== null && typeof fm.owner === 'object' ? fm.owner : null
+      const notRecorded = (what) => h('p', { className: 'muted' }, `${what} not recorded in this TASK (written before the field existed, or the task has none).`)
+      const bulletList = (title, items) => h('div', { className: 'ps-sec' },
+        h('h3', null, title),
+        h('ul', { className: 'ps-criteria', style: { color: 'var(--ps-ink)' } }, items.map((item, position) => h('li', { key: position }, item))),
+      )
+      return h('div', null,
+        h('div', { className: 'ps-sec' },
+          h('h3', null, 'Concrete task'),
+          h('dl', { className: 'ps-defs' },
+            h('dt', null, 'Role'), h('dd', null, typeof fm.role === 'string' && fm.role !== '' ? String(fm.role) : (fm.inline === true ? 'inline — the owner does it' : 'not recorded')),
+            h('dt', null, 'Owner'), h('dd', null, owner === null
+              ? 'not recorded'
+              : `${String(owner.label ?? '')}${owner.sessionId === undefined || owner.sessionId === null ? '' : ` · ${String(owner.sessionId)}`}`),
+            h('dt', null, 'Steps'), h('dd', null, steps.length === 0 ? 'not recorded' : `${stepsDone} of ${steps.length} done`),
+          ),
         ),
-        req === null
-          ? h('div', { className: 'ps-railreq' },
-              h('p', { className: 'ps-kicker' }, 'This view'),
-              h('p', { className: 't' }, 'Evidence across the projections'),
-              h('p', { className: 'ps-meta' }, 'Choose a requirement in Requirements to pin its evidence here.'),
-            )
-          : h('div', { className: 'ps-railreq' },
-              h(TypeChip, { kind: 'req', id: req.id, static: true }),
-              h('p', { className: 't' }, titleOf(reqEntity, req.id)),
-              h('p', { className: 'ps-meta' }, `${req.tasks.length} task${req.tasks.length === 1 ? '' : 's'} · ${req.tests.length} test${req.tests.length === 1 ? '' : 's'} · ${req.decisions.length} decision${req.decisions.length === 1 ? '' : 's'}`),
+        steps.length === 0
+          ? null
+          : h('div', { className: 'ps-sec' },
+              h('h3', null, 'Planned steps'),
+              h('p', { className: 'muted', style: { marginTop: -2 } }, 'The count above is the task\'s stepsDone counter, written by its owner with task_update; it does not advance on its own, so the first stepsDone steps are shown as done.'),
+              h('ol', { className: 'ps-criteria', style: { color: 'var(--ps-ink)' } }, steps.map((step, position) => h('li', { key: position },
+                h('span', { 'aria-hidden': 'true', style: { color: position < stepsDone ? 'var(--ps-ok)' : 'var(--ps-muted)', marginRight: 5 } }, position < stepsDone ? '✓' : '•'),
+                step,
+              ))),
             ),
-        h('div', { className: 'ps-evsum', 'aria-label': 'Evidence totals' },
-          h('div', { className: 'cell' }, h('span', { className: 'n' }, String(testsWithEvidence.length)), h('span', { className: 'l' }, `test${testsWithEvidence.length === 1 ? '' : 's'} with evidence`)),
-          h('div', { className: 'cell' }, h('span', { className: 'n' }, String(testsWithoutEvidence)), h('span', { className: 'l' }, `test${testsWithoutEvidence === 1 ? '' : 's'} without evidence`)),
+        scope.length === 0 ? notRecorded('Scope') : bulletList('Scope', scope),
+        nonScope.length === 0 ? notRecorded('Non-scope') : bulletList('Non-scope', nonScope),
+        h('div', { className: 'ps-sec' },
+          h('h3', null, 'Acceptance'),
+          acceptance.length === 0
+            ? notRecorded('Acceptance')
+            : h('ul', { className: 'ps-criteria', style: { color: 'var(--ps-ink)' } }, acceptance.map((row, position) => h('li', { key: position },
+                h('span', { 'aria-hidden': 'true', style: { color: row.done === true ? 'var(--ps-ok)' : 'var(--ps-muted)', marginRight: 5 } }, row.done === true ? '✓' : '•'),
+                row.text,
+              ))),
         ),
-        h('div', { className: 'ps-railsec' },
-          h('h3', null, req === null ? 'Tests carrying evidence' : `Tests for ${req.id} (${tests.length})`),
-          shown.length === 0
-            ? h('p', { className: 'ps-muted' }, req === null
-                ? 'No test in these projections carries an evidence reference. The Tests & trace mode shows every TEST row.'
-                : h(Gap, { onClick: () => onOpenMode('trace', req.id) }, 'no test'), req === null ? null : ' This requirement has no test in the projections.')
-            : shown.map((test) => {
-                const entity = data.entities.get(test.id)
-                const fm = entity?.frontmatter ?? {}
-                const refs = evidenceCountOf(data, test)
-                return h('div', { className: 'ps-evrow', key: test.id },
-                  h(TypeChip, { kind: 'test', id: test.id, onClick: () => onOpenEntity(test.id), title: `Open test ${test.id}` }),
-                  h(Status, { status: test.status }),
-                  h('span', { className: 'ps-meta' }, refs > 0 ? `${refs} evidence ref${refs === 1 ? '' : 's'}` : 'no evidence'),
-                  typeof fm.command === 'string' && fm.command !== '' ? h('span', { className: 'cmd', title: fm.command }, fm.command) : null,
-                )
-              }),
+        h('div', { className: 'ps-sec' },
+          h('h3', null, 'Subagents'),
+          sessions.length === 0
+            ? notRecorded('A subagent session')
+            : h('ul', { style: { listStyle: 'none', paddingLeft: 0, margin: 0 } }, sessions.map((row) => h('li', { key: row.sessionId, style: { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5, flexWrap: 'wrap' } },
+                h(Status, { status: row.status }),
+                h('span', { style: { fontWeight: 600, overflowWrap: 'anywhere' } }, row.label),
+                row.role !== '' ? h('span', { className: 'ps-meta' }, row.role) : null,
+                h('code', { className: 'ps-meta', style: { marginLeft: 'auto', fontSize: 10, overflowWrap: 'anywhere' }, title: row.sessionId }, row.sessionId),
+                typeof onOpenSession === 'function'
+                  ? h('button', {
+                      type: 'button',
+                      className: 'ps-btn small',
+                      onClick: () => onOpenSession(row.sessionId),
+                      title: `Open session ${row.sessionId}`,
+                      'aria-label': `Open subagent session ${row.label}`,
+                    }, 'Open')
+                  : h('span', { className: 'ps-meta', title: 'This shell does not expose session navigation to the panel' }, 'Open unavailable'),
+              ))),
         ),
-        req !== null && req.decisions.length > 0
-          ? h('div', { className: 'ps-railsec' },
-              h('h3', null, `Decisions (${req.decisions.length})`),
-              h('div', { className: 'ps-chiplist' }, req.decisions.map((id) => h(TypeChip, { key: id, kind: 'decision', id, onClick: () => onOpenEntity(id) }))),
+        resultSummary !== '' || resultEvidence.length > 0
+          ? h('div', { className: 'ps-sec' },
+              h('h3', null, 'Result'),
+              resultSummary !== '' ? h('p', null, resultSummary) : null,
+              resultEvidence.length > 0 ? h('ul', { className: 'ps-criteria', style: { color: 'var(--ps-ink)' } }, resultEvidence.map((item, position) => h('li', { key: position }, item))) : null,
             )
           : null,
-        h('div', { className: 'ps-railsec' },
-          h('h3', null, 'Evidence gaps'),
-          h('p', { className: 'ps-muted' }, `${reqsWithoutTests} requirement${reqsWithoutTests === 1 ? '' : 's'} without a test in the projections.`),
-          req === null
-            ? h('p', { className: 'ps-muted' }, `${testsWithoutEvidence} test${testsWithoutEvidence === 1 ? '' : 's'} without an evidence reference; open a test to read its recorded pair.`)
-            : h('p', { className: 'ps-muted' }, `${testsWithoutEvidence} of ${tests.length} tests for this requirement carry no evidence reference.`),
-        ),
-        h('p', { className: 'ps-railnote' }, 'Evidence is read from index.json and the TEST entity body. The red→green pair is shown in the test drawer, not summarised here.'),
       )
     }
 
-    function Drawer({ drawer, data, analysisLinks, filter, onClose, onOpenEntity, onOpenRequirement, onOpenMode, onClearFilter, tab, setTab }) {
+    /**
+     * THE OWNER'S STATUS FORM in the task drawer: the target status, an optional reason, and one
+     * explicit Apply. The board id comes from the TASK's `boardId`; a TASK without one gets the
+     * refusal the panel shows (`no_board_row`), not a silent no-op. The result is rendered by the
+     * page's notice line, so a refusal keeps its code in one place.
+     */
+    function TaskStatusEditor({ taskId, fm, onChange, busy }) {
+      const current = typeof fm.status === 'string' ? fm.status : ''
+      const [target, setTarget] = useState(current)
+      const [reason, setReason] = useState('')
+      useEffect(() => { setTarget(current) }, [current, taskId])
+      if (typeof onChange !== 'function') return null
+      const changed = target !== current
+      return h('div', { className: 'ps-sec ps-statusform' },
+        h('h3', null, 'Change the status'),
+        h('div', { className: 'ps-field' },
+          h('label', { htmlFor: `ps-status-${taskId}` }, 'New status'),
+          h('select', {
+            id: `ps-status-${taskId}`,
+            className: 'ps-select',
+            value: target,
+            disabled: busy === true,
+            onChange: (event) => setTarget(event.target.value),
+          }, TASK_STATUS_CHOICES.map((status) => h('option', { key: status, value: status }, status))),
+        ),
+        h('div', { className: 'ps-field' },
+          h('label', { htmlFor: `ps-status-reason-${taskId}` }, 'Why (recorded in the journal)'),
+          h('input', {
+            id: `ps-status-reason-${taskId}`,
+            className: 'ps-input',
+            type: 'text',
+            value: reason,
+            maxLength: 200,
+            placeholder: 'optional',
+            disabled: busy === true,
+            onChange: (event) => setReason(event.target.value),
+          }),
+        ),
+        h('div', { className: 'ps-statusactions' },
+          h('button', {
+            type: 'button',
+            className: 'ps-btn small',
+            disabled: busy === true || !changed,
+            title: changed ? `Write ${current} -> ${target} through the board` : 'Choose a different status first',
+            onClick: () => { onChange(taskId, target, reason); setReason('') },
+          }, busy === true ? 'Saving…' : 'Change status'),
+          h('span', { className: 'ps-meta' }, 'You are the owner: this overrides the lifecycle rules and the board records it in the state journal.'),
+        ),
+      )
+    }
+
+    function Drawer({ drawer, data, analysisLinks, filter, onClose, onOpenEntity, onOpenRequirement, onOpenMode, onClearFilter, tab, setTab, sessionsById = {}, onOpenSession, onChangeStatus, statusBusy }) {
       const closeRef = useRef(null)
       const isNode = drawer.kind === 'node'
       const entity = isNode ? null : data.entities.get(drawer.id)
@@ -1317,7 +1733,9 @@ window.__ModuleLoader__.load({
           : drawer.kind === 'req'
             ? data.index.reqs.find((row) => row.id === drawer.id)
             : null
-      const requirementId = indexRow?.reqId ?? (typeof fm.reqId === 'string' ? fm.reqId : null)
+      // A TASK is linked through `reqId` OR `reqIds` (a batch); reading only the first made a
+      // two-requirement task say "no requirement" here while the board showed both.
+      const requirementIds = isNode ? [] : requirementIdsOf(indexRow, fm)
       const evidenceRefs = indexRow !== null && Array.isArray(indexRow.evidenceRefs) ? indexRow.evidenceRefs : []
       const extraEvidence = Array.isArray(fm.evidenceRefs) ? fm.evidenceRefs : []
 
@@ -1361,10 +1779,10 @@ window.__ModuleLoader__.load({
                   h('div', { className: 'ps-sec' },
                     h('h3', null, 'Overview'),
                     drawer.kind === 'task' || drawer.kind === 'test'
-                      ? h('p', { className: 'ps-chiplist', style: { marginBottom: 6 } },
-                          h('span', { className: 'muted' }, 'Requirement: '),
-                          requirementId
-                            ? h(TypeChip, { kind: 'req', id: requirementId, onClick: () => onOpenEntity(requirementId) })
+                      ? h('div', { className: 'ps-chiplist', style: { marginBottom: 6 } },
+                          h('span', { className: 'muted' }, requirementIds.length === 1 ? 'Requirement: ' : 'Requirements: '),
+                          requirementIds.length > 0
+                            ? requirementIds.map((id) => h(TypeChip, { key: id, kind: 'req', id, onClick: () => onOpenEntity(id) }))
                             : h(Gap, { static: true }, drawer.kind === 'task' ? 'no requirement' : 'no requirement'),
                         )
                       : null,
@@ -1378,6 +1796,12 @@ window.__ModuleLoader__.load({
                               : h('span', { className: 'muted' }, 'none linked as evidence')
                           })(),
                         )
+                      : null,
+                    drawer.kind === 'task'
+                      ? h(TaskStatusEditor, { taskId: drawer.id, fm, onChange: onChangeStatus, busy: statusBusy === drawer.id })
+                      : null,
+                    drawer.kind === 'task'
+                      ? h(TaskSpecifics, { fm, sessionsById, onOpenSession })
                       : null,
                     drawer.kind === 'test' && (evidenceRefs.length > 0 || extraEvidence.length > 0)
                       ? h('p', { className: 'ps-chiplist', style: { marginBottom: 6 } },
@@ -1399,21 +1823,12 @@ window.__ModuleLoader__.load({
                           })),
                         )
                       : null,
-                    drawer.kind === 'decision'
-                      ? h('p', { className: 'ps-chiplist', style: { marginBottom: 6 } },
-                          h('span', { className: 'muted' }, 'Requirements: '),
-                          (() => {
-                            const reqIds = data.index.reqs.filter((row) => row.decisions.includes(drawer.id)).map((row) => row.id)
-                            return reqIds.length > 0 ? reqIds.map((id) => h(TypeChip, { key: id, kind: 'req', id, onClick: () => onOpenEntity(id) })) : h('span', { className: 'muted' }, 'none linked')
-                          })(),
-                        )
-                      : null,
                     drawer.kind === 'req'
                       ? (Array.isArray(fm.criteria) && fm.criteria.length > 0
                           ? h('ol', { className: 'ps-criteria', style: { color: 'var(--ps-ink)' } }, fm.criteria.map((criterion, position) => h('li', { key: position }, String(criterion))))
                           : h('p', { className: 'muted' }, h(Gap, { static: true }, 'no criteria'), ' The state core rejects acceptance without criteria (`req_criteria_missing`).'))
                       : null,
-                    drawer.kind === 'task' && fm.reqId === undefined && fm.chore !== true
+                    drawer.kind === 'task' && requirementIds.length === 0 && fm.chore !== true
                       ? h('p', { className: 'muted' }, h(Gap, { static: true }, 'no requirement'), ' The state core reports `task_req_missing` for a non-chore task.')
                       : null,
                     drawer.kind === 'task' && fm.chore === true ? h('p', null, h('b', null, 'Chore: '), String(fm.choreReason ?? 'reason not recorded')) : null,
@@ -1430,7 +1845,7 @@ window.__ModuleLoader__.load({
                   ),
                   entity !== null && typeof entity.body === 'string' && entity.body !== ''
                     ? h('div', { className: 'ps-sec' },
-                        h('h3', null, drawer.kind === 'test' ? 'Recorded evidence' : 'Body'),
+                        h('h3', null, drawer.kind === 'test' ? 'Recorded evidence' : (drawer.kind === 'task' ? 'Objective' : 'Body')),
                         drawer.kind === 'test'
                           ? h(EvidenceBlock, { text: entity.body })
                           : h('pre', { className: 'ps-pre' }, entity.body),
@@ -1439,7 +1854,7 @@ window.__ModuleLoader__.load({
                       ? h('div', { className: 'ps-sec' }, h('h3', null, 'Recorded evidence'), h('p', { className: 'muted' }, h(Gap, { static: true }, 'no red→green pair recorded'), ' A green result without a red run is not evidence; the state core refuses closure with `evidence_required`.'))
                       : null,
                   updatedAt !== null
-                    ? h('p', { className: 'ps-meta' }, `Updated ${updatedAt}${fm.createdAt === undefined ? '' : ` · created ${String(fm.createdAt)}`}`)
+                    ? h('p', { className: 'ps-meta', title: `updated ${updatedAt}${fm.createdAt === undefined ? '' : ` · created ${String(fm.createdAt)}`}` }, `Обновлено ${relativeLabel(updatedAt)}${fm.createdAt === undefined ? '' : ` · создано ${relativeLabel(fm.createdAt)}`}`)
                     : null,
                 ),
         ),
@@ -1510,14 +1925,6 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function RightbarCloseIcon({ size = 16 }) {
-      return h('svg', { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', 'aria-hidden': 'true' },
-        h('rect', { x: 3.5, y: 4.5, width: 17, height: 15, rx: 2, stroke: 'currentColor', strokeWidth: 1.6 }),
-        h('path', { d: 'M15 4.5v15', stroke: 'currentColor', strokeWidth: 1.6 }),
-        h('path', { d: 'M17 9.5l4 4m0-4l-4 4', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round' }),
-      )
-    }
-
     function RightColumnIcon({ size = 16 }) {
       return h('svg', { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', 'aria-hidden': 'true' },
         h('rect', { x: 3.5, y: 4.5, width: 17, height: 15, rx: 2, stroke: 'currentColor', strokeWidth: 1.6 }),
@@ -1543,11 +1950,17 @@ window.__ModuleLoader__.load({
       const [mapReload, setMapReload] = useState(0)
       // The evidence column belongs to the panel, not to the shell layout: layout has no
       // handle on it, so the panel keeps the show/hide state and the button reflects it.
-      const [railOpen, setRailOpen] = useState(true)
+      const [railOpen, setRailOpen] = useState(false)
       // D4: the view and sort choice lives in the panel memory, not in localStorage.
-      const [taskView, setTaskView] = useState('board')
+      const [taskView, setTaskView] = useState('list')
       const [taskSort, setTaskSort] = useState('relevance')
       const returnFocus = useRef(null)
+      // Elapsed labels are computed at render; a minute tick keeps them honest without a poll.
+      const [, setClockTick] = useState(0)
+      useEffect(() => {
+        const timer = setInterval(() => setClockTick((value) => value + 1), 60_000)
+        return () => clearInterval(timer)
+      }, [])
 
       useEffect(() => {
         setFilter(null)
@@ -1562,10 +1975,16 @@ window.__ModuleLoader__.load({
           return undefined
         }
         const controller = new AbortController()
+        // STALE-WHILE-REVALIDATE: paint the last index of this session at once, then replace
+        // it with the fresh one. A cold open makes one read; every later open is instant.
+        const cached = readCachedIndex(sessionId)
+        if (cached !== null) setData(workspaceFromIndex(cached).workspace)
         setData((previous) => (previous.phase === 'ready' ? { ...previous, phase: 'refreshing' } : { phase: 'loading' }))
         loadWorkspace(remote, sessionId, controller.signal).then(
           (next) => {
-            if (!controller.signal.aborted) setData(next)
+            if (controller.signal.aborted) return
+            setData(next)
+            if (next.phase === 'ready') writeCachedIndex(sessionId, next.index)
           },
           (error) => {
             if (!controller.signal.aborted) setData({ phase: 'error', code: 'load_failed', message: errorText(error) })
@@ -1595,7 +2014,30 @@ window.__ModuleLoader__.load({
         return () => { cancelled = true }
       }, [mode, sessionId, mapReload, remote])
 
-      const analysisLinks = useMemo(() => (data.phase === 'ready' ? buildAnalysisLinks(data.analysis, data.entities) : null), [data])
+      // The analysis records are needed only by the Design map's REQ links: fetch them the
+      // first time that mode opens instead of holding the first paint for ~20 JSON files.
+      useEffect(() => {
+        if (mode !== 'map' || typeof sessionId !== 'string' || sessionId === '') return undefined
+        if (data.phase !== 'ready' || data.analysisLoaded === true || data.analysisLoading === true) return undefined
+        let cancelled = false
+        const controller = new AbortController()
+        setData((previous) => ({ ...previous, analysisLoading: true }))
+        loadAnalysis(remote, sessionId, controller.signal).then((result) => {
+          if (cancelled) return
+          setData((previous) => ({
+            ...previous,
+            analysis: Array.isArray(result.records) ? result.records : [],
+            analysisError: result.error ?? null,
+            analysisLoaded: true,
+            analysisLoading: false,
+          }))
+        }, () => {
+          if (!cancelled) setData((previous) => ({ ...previous, analysisLoaded: true, analysisLoading: false, analysis: [] }))
+        })
+        return () => { cancelled = true; controller.abort() }
+      }, [mode, sessionId, remote, data.phase, data.analysisLoaded, data.analysisLoading])
+
+      const analysisLinks = useMemo(() => (data.phase === 'ready' ? buildAnalysisLinks(data.analysis ?? [], data.entities) : null), [data])
 
       const setMode = useCallback((next) => {
         setModeState(next)
@@ -1613,7 +2055,19 @@ window.__ModuleLoader__.load({
         setDrawerTab('overview')
         setRailOpen(true)
         if (kind === 'req') setFilter(id)
-      }, [])
+        // The card is drawn from index.json; the BODY is one file, fetched only now.
+        if (typeof sessionId !== 'string' || sessionId === '') return
+        loadEntity(remote, sessionId, id, kind).then((entity) => {
+          if (entity === undefined) return
+          setData((previous) => {
+            if (previous.phase !== 'ready' && previous.phase !== 'refreshing') return previous
+            const entities = new Map(previous.entities)
+            const current = entities.get(id)
+            entities.set(id, entity.error === undefined ? entity : { ...current, error: entity.error })
+            return { ...previous, entities }
+          })
+        }).catch(() => {})
+      }, [remote, sessionId])
 
       const openNode = useCallback((node, view) => {
         returnFocus.current = document.activeElement
@@ -1629,6 +2083,65 @@ window.__ModuleLoader__.load({
       }, [])
 
       const clearFilter = useCallback(() => setFilter(null), [])
+
+      // OPENING A SUBAGENT'S CONVERSATION IS NAVIGATION, not a write: the shell service does
+      // it, and the panel only names the exact session id the TASK recorded. A composition
+      // without the service keeps the card and says Open is unavailable.
+      const openSession = useCallback((id) => {
+        const navigate = props.uiWorkspace?.openSession
+        if (typeof navigate !== 'function' || typeof id !== 'string' || id === '') return
+        try {
+          navigate.call(props.uiWorkspace, id)
+        } catch (error) {
+          console.error('[project-state-panel] could not open session', id, error)
+        }
+      }, [props.uiWorkspace])
+
+      // THE OWNER'S STATUS WRITE. One write in the whole panel: the task status goes through the
+      // board (which owns the row), the mirror moves the TASK and the projections, and the
+      // panel re-reads index.json. A refusal is quoted with its code, never swallowed.
+      const [statusNotice, setStatusNotice] = useState(null)
+      const [statusBusy, setStatusBusy] = useState(null)
+      useEffect(() => {
+        if (statusNotice === null) return undefined
+        const timer = setTimeout(() => setStatusNotice(null), 9000)
+        return () => clearTimeout(timer)
+      }, [statusNotice])
+      const changeStatus = useCallback((taskId, status, reason = '') => {
+        if (typeof sessionId !== 'string' || sessionId === '') return
+        setStatusBusy(taskId)
+        setStatusNotice(null)
+        changeTaskStatus(remote, sessionId, { taskId, status, reason }).then(
+          (result) => {
+            setStatusBusy(null)
+            if (result.ok !== true) {
+              setStatusNotice({ tone: 'bad', code: result.code, message: result.message ?? 'the status change was refused' })
+              // A stale revision means the board moved under the panel: re-read it so the next
+              // attempt carries the revision it needs.
+              if (result.code === 'stale') setReloadToken((value) => value + 1)
+              return
+            }
+            // OPTIMISTIC, then the projection: the board already answered with the row it wrote,
+            // and the command mirrored it before answering, so the re-read finds the new status.
+            setData((previous) => {
+              if (previous.phase !== 'ready' && previous.phase !== 'refreshing') return previous
+              const tasks = previous.index.tasks.map((row) => (row.id === taskId ? { ...row, status } : row))
+              const entities = new Map(previous.entities)
+              const current = entities.get(taskId)
+              if (current !== undefined && current.frontmatter !== undefined) {
+                entities.set(taskId, { ...current, frontmatter: { ...current.frontmatter, status } })
+              }
+              return { ...previous, index: { ...previous.index, tasks }, entities }
+            })
+            setStatusNotice({ tone: 'ok', code: null, message: `${taskId} is now ${status}; the state journal records the change` })
+            setReloadToken((value) => value + 1)
+          },
+          (error) => {
+            setStatusBusy(null)
+            setStatusNotice({ tone: 'bad', code: 'status_change_failed', message: errorText(error) })
+          },
+        )
+      }, [remote, sessionId])
 
       const onModeKeyDown = (event) => {
         // The mode list is a VERTICAL tablist in the Night desk shell; keep the horizontal
@@ -1648,7 +2161,7 @@ window.__ModuleLoader__.load({
       if (data.phase === 'no-session') {
         return h('div', { className: 'ps-root', role: 'main', 'aria-label': 'Project state' },
           h('style', null, CSS),
-          h('div', { className: 'ps-top' }, h('h1', { className: 'ps-title' }, 'Project state'), h('span', { className: 'ps-spacer' }), h('span', { className: 'ps-ro', title: 'This panel executes no write command and writes no file.' }, 'read-only')),
+          h('div', { className: 'ps-top' }, h('h1', { className: 'ps-title' }, 'Project state'), h('span', { className: 'ps-spacer' }), h('span', { className: 'ps-ro', title: 'No conversation, so nothing to write: the panel is a lens over state/views.' }, 'read-only · status by owner')),
           h('div', { className: 'ps-main' },
             h(Empty, { title: 'Open a live conversation' }, h('p', null, 'The panel reads the projections of the workspace the conversation belongs to. There is no live conversation to anchor that workspace.')),
           ),
@@ -1663,9 +2176,10 @@ window.__ModuleLoader__.load({
         test: index.tests.length,
         decision: index.decisions.length,
       }
-      const filteredTasks = index === null || filter === null ? null : index.tasks.filter((task) => task.reqId === filter).length
+      const filteredTasks = index === null || filter === null ? null : index.tasks.filter((task) => requirementIdsOf(task, data.entities?.get?.(task.id)?.frontmatter).includes(filter)).length
       const filteredTests = index === null || filter === null ? null : index.tests.filter((test) => test.reqId === filter).length
 
+      const MODE_COLOR = { req: TYPE_COLOR.req, board: TYPE_COLOR.task, map: TYPE_COLOR.node, trace: TYPE_COLOR.test }
       const modeButton = (id, label) => h('button', {
         id: `ps-tab-${id}`,
         type: 'button',
@@ -1673,6 +2187,7 @@ window.__ModuleLoader__.load({
         'aria-selected': mode === id,
         'aria-controls': 'ps-panel',
         className: 'ps-mode',
+        style: { '--ps-type': MODE_COLOR[id] },
         onClick: () => setMode(id),
         onKeyDown: onModeKeyDown,
         tabIndex: mode === id ? 0 : -1,
@@ -1686,31 +2201,16 @@ window.__ModuleLoader__.load({
         h('div', { className: 'ps-top' },
           h('button', { type: 'button', className: 'ps-btn icon ps-back', onClick: () => props.layout.selectPanel(null), title: 'Back to chat', 'aria-label': 'Back to chat' }, h(BackIcon, { size: 16 })),
           h('h1', { className: 'ps-title' }, 'Project state'),
-          h('span', { className: 'ps-ro', title: 'This panel executes no write command and writes no file. Changes stay in the Tasks, Cases and Design map panels and in the state core.' }, 'read-only'),
+          h('span', { className: 'ps-ro', title: 'The panel is a lens over the state projections and writes no file. Its one write is your own change of a task status: it goes through the taskboard, which owns the row and records the override in the state journal.' }, 'read-only · status by owner'),
           h('span', { className: 'ps-spacer' }),
           counts === null ? null : h('div', { className: 'ps-counts', 'aria-label': 'Projection counts' },
             h('span', { className: 'ps-count', title: 'Requirements in index.json' }, h('b', null, String(counts.req)), 'REQ'),
             h('span', { className: 'ps-count', title: 'Tasks in index.json' }, h('b', null, String(counts.task)), 'TASK'),
             h('span', { className: 'ps-count', title: 'Tests in index.json' }, h('b', null, String(counts.test)), 'TEST'),
-            h('span', { className: 'ps-count', title: 'Decisions in index.json' }, h('b', null, String(counts.decision)), 'DEC'),
           ),
           index === null ? null : h('span', { className: 'ps-meta', title: 'The machine-readable link contract this panel reads' }, `index.json v${index.schemaVersion} · event ${String(index.lastSeq ?? 0)}`),
           h('div', { className: 'ps-windowgroup', role: 'group', 'aria-label': 'Window controls' },
             h('button', { type: 'button', className: 'ps-btn icon', onClick: () => props.layout.toggleSidebar(), title: 'Toggle left sidebar', 'aria-label': 'Toggle left sidebar' }, h(SidebarToggleIcon, { size: 16 })),
-            h('button', {
-              type: 'button',
-              className: 'ps-btn icon',
-              onClick: () => {
-                // layout.closeRightbar only reports the frame presentation; the rightbar's
-                // own expanded state is owned by sidebarRight and reopens it on return.
-                // Collapse that state too, or the control is a no-op after Back to chat.
-                props.layout.closeRightbar()
-                const actions = props.sidebarRight?.actionsFor?.(sessionId)
-                if (actions?.setExpanded && typeof sessionId === 'string') actions.setExpanded(sessionId, false)
-              },
-              title: 'Close right sidebar',
-              'aria-label': 'Close right sidebar',
-            }, h(RightbarCloseIcon, { size: 16 })),
             h('button', {
               type: 'button',
               className: 'ps-btn icon',
@@ -1743,7 +2243,7 @@ window.__ModuleLoader__.load({
           h('p', { className: 'ps-muted' }, 'The panel shows the named failure instead of guessing. Reload after the projections are regenerated.'),
           h('button', { type: 'button', className: 'ps-btn small', onClick: () => setReloadToken((value) => value + 1) }, 'Reload'),
         ) : null,
-        ready ? h('div', { className: railOpen ? 'ps-shell' : 'ps-shell ps-no-rail' },
+        ready ? h('div', { className: railOpen && drawer !== null ? 'ps-shell' : 'ps-shell ps-no-rail' },
           h('nav', { className: 'ps-nav', 'aria-label': 'Project state modes' },
             h('p', { className: 'ps-kicker' }, 'Modes'),
             h('div', { className: 'ps-modes', role: 'tablist', 'aria-orientation': 'vertical', 'aria-label': 'Project state modes' },
@@ -1766,15 +2266,21 @@ window.__ModuleLoader__.load({
             h('div', { className: 'ps-navfoot' },
               h('p', { className: 'ps-kicker' }, 'Projection'),
               index === null ? null : h('p', null, `index.json v${index.schemaVersion}`, h('br'), `event ${String(index.lastSeq ?? 0)}`),
-              h('p', { style: { marginTop: 6 } }, 'Read-only lens over state/views.'),
+              h('p', { style: { marginTop: 6 } }, 'Lens over state/views; you can change a task status here (recorded in the journal).'),
             ),
           ),
           h('section', { className: 'ps-main', id: 'ps-panel', role: 'tabpanel', 'aria-labelledby': `ps-tab-${mode}` },
+            statusNotice === null
+              ? null
+              : h('div', { className: `ps-notice ${statusNotice.tone}`, role: 'status', 'aria-live': 'polite' },
+                  statusNotice.code === null || statusNotice.code === undefined ? null : h('code', null, `${statusNotice.code}: `),
+                  statusNotice.message,
+                ),
             data.issues !== undefined && data.issues.length > 0 ? h('div', { className: 'ps-warnline', role: 'status' }, `Entity metadata issues: ${data.issues.join('; ')}`) : null,
             mode === 'req'
               ? h(RequirementsMode, { data, filter, onSelect: setFilter, onOpenMode: openMode, onOpenEntityDrawer: openEntity })
               : mode === 'board'
-                ? h(BoardMode, { data, filter, onOpenTask: openEntity, onClearFilter: clearFilter, view: taskView, sort: taskSort, onView: setTaskView, onSort: setTaskSort })
+                ? h(BoardMode, { data, filter, onOpenTask: openEntity, onClearFilter: clearFilter, view: taskView, sort: taskSort, onView: setTaskView, onSort: setTaskSort, sessionsById, onChangeStatus: changeStatus, statusBusy })
                 : mode === 'map'
                   ? h(MapMode, {
                       data,
@@ -1789,10 +2295,8 @@ window.__ModuleLoader__.load({
                     })
                   : h(TestsMode, { data, filter, subview, setSubview, onOpenTest: openEntity, onSelectReq: setFilter, onOpenMode: openMode }),
           ),
-          railOpen ? h('div', { className: 'ps-rail', id: 'ps-rail' },
-            drawer === null
-              ? h(EvidenceRail, { data, filter, onOpenEntity: (id) => { openEntity(id); setDrawerTab('overview') }, onOpenMode: openMode })
-              : h(Drawer, {
+          railOpen && drawer !== null ? h('div', { className: 'ps-rail', id: 'ps-rail' },
+            h(Drawer, {
                   drawer,
                   data,
                   analysisLinks,
@@ -1804,6 +2308,10 @@ window.__ModuleLoader__.load({
                   onClearFilter: clearFilter,
                   tab: drawerTab,
                   setTab: setDrawerTab,
+                  sessionsById,
+                  onOpenSession: typeof props.uiWorkspace?.openSession === 'function' ? openSession : undefined,
+                  onChangeStatus: changeStatus,
+                  statusBusy,
                 }),
           ) : null,
         ) : null,
@@ -1858,13 +2366,16 @@ window.__ModuleLoader__.load({
       const unfinished = counts.phase === 'ready' ? String(counts.unfinished) : '—'
       const active = counts.phase === 'ready' ? String(counts.active) : '—'
       const subagentText = failed ? '—' : String(subagents)
-      const scope = 'Tasks are counted in state/views/index.json of this workspace; subagents are live child sessions of this chat.'
+      const scope = 'Задачи считаются по state/views/index.json этого рабочего пространства; субагенты — живые дочерние сессии этого чата.'
+      const hover = failed
+        ? `Счётчики недоступны: ${counts.message}. Открыть панель состояния.`
+        : `Незакрытых задач: ${unfinished}. Активных задач: ${active}. Активных субагентов: ${subagentText}.`
       const label = failed
         ? `Counts unavailable: ${counts.message}. Open the project state panel.`
         : `Open the project state panel. Unfinished tasks in this workspace: ${unfinished}. Active tasks in this workspace: ${active}. Active subagents in this chat: ${subagentText}.`
       return h('button', {
         type: 'button',
-        title: failed ? `Counts unavailable: ${counts.message}. ${scope}` : scope,
+        title: failed ? `Счётчики недоступны: ${counts.message}. ${scope}` : `${hover} ${scope}`,
         'aria-label': label,
         style: { display: 'inline-flex', alignItems: 'center', gap: 5, border: '1px solid var(--dsw-alias-border-l1)', background: 'var(--dsw-alias-bg-layer-1)', color: 'var(--dsw-alias-label-primary)', borderRadius: 7, minHeight: 24, padding: '3px 8px', font: 'inherit', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' },
         onClick: () => {
@@ -1882,24 +2393,29 @@ window.__ModuleLoader__.load({
         ),
         h('span', null, 'State'),
         h('span', { 'aria-hidden': 'true', style: { display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 2, color: 'var(--dsw-alias-label-secondary)', fontSize: 11, fontWeight: 700, fontVariantNumeric: 'tabular-nums' } },
-          h('span', null, unfinished),
+          // Each number says what it counts on hover; the group is too terse to read otherwise.
+          h('span', { title: `Незакрытых задач: ${unfinished} — всё, что не done и не cancelled` }, unfinished),
           h('span', null, '/'),
-          h('span', null, active),
+          h('span', { title: `Активных задач: ${active} — статус active` }, active),
           h('span', null, '/'),
-          h('span', null, subagentText),
+          h('span', { title: `Активных субагентов: ${subagentText} — живые дочерние сессии этого чата` }, subagentText),
         ),
       )
     }
 
     return {
-      inject: ['slots', 'remote', 'remote.workspaceFiles', 'remote.commands', 'layout', 'sidebarRight'],
+      inject: ['slots', 'remote', 'remote.workspaceFiles', 'remote.commands', 'uiWorkspace', 'layout'],
       // The pure count/sort helpers, so the test can exercise what the UI calls instead of a copy.
-      __test: { statusRank, sortTasks, taskCounts, activeSubagents, taskRow, chatRootOf },
+      __test: {
+        statusRank, sortTasks, taskCounts, activeSubagents, taskRow, chatRootOf, taskSessions, parseEntityText,
+        loadWorkspace, loadEntity, relativeLabel,
+        requirementIdsOf, TASK_STATUS_CHOICES, taskStatusRequest, parseTaskboardReply, changeTaskStatus, runTaskboard,
+      },
       apply(ctx) {
         ctx.slots.inject('main', () => ctx.slots.register({
           name: 'main',
           key: PANEL_ID,
-          inject: () => ({ remote: ctx.remote, layout: ctx.layout, sidebarRight: ctx.sidebarRight }),
+          inject: () => ({ remote: ctx.remote, layout: ctx.layout, uiWorkspace: ctx.uiWorkspace }),
         }, ProjectStatePage))
         ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
           name: 'conversation.session.header.actions',

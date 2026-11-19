@@ -2,8 +2,8 @@
 id: TASK-057
 kind: task
 title: probe-5
-status: open
-revision: 1
+status: cancelled
+revision: 2
 createdAt: 2026-11-17T15:52:39.650Z
 updatedAt: 2026-11-17T15:52:39.650Z
 boardId: task-mwaqgygz-8id97e

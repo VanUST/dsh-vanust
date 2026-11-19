@@ -2,11 +2,15 @@
 id: TASK-013
 kind: task
 title: "Two-model Kimi policy, highspeed guard, subagent wiring"
-status: review
-revision: 1
+status: cancelled
+revision: 3
 createdAt: 2026-11-17T15:52:39.106Z
 updatedAt: 2026-11-17T15:52:39.106Z
 boardId: task-mvyzj4zu-su8ssn
+nonScope: ["Do not change the DeepSeek routes or the deployment default model", "Do not add a new plugin package; extend the two that already own these seams", "Do not store any credential in the kit"]
+resultEvidence: ["node /tmp/validate-policy.mjs → guard allowed = deepseek-official/deepseek-flash, kimi-coding/k3.1-pro, kimi-coding/kimi-for-coding; guard denied = *highspeed*; kimi models = k3.1-pro, kimi-for-coding; selection enabled = true with the same three routes; guard == selection: true", "node /tmp/prove-guards.mjs → root->k3.1-pro-highspeed REFUSED (deniedModels), child->highspeed REFUSED, child->k3.1-pro DISPATCHED, child->kimi-for-coding DISPATCHED, child->deepseek-v4-pro rewritten to flash; delegate default ROUTE flash, delegate->k3.1-pro ROUTE k3.1-pro, delegate->workhorse ROUTE kimi-for-coding, delegate->highspeed REFUSED, half route REFUSED, unknown route REFUSED", "dsh --profile headless --patch .cache/kimi-overlay.yml \"Reply with exactly the text smart-ok\" → smart-ok, exit 0", "dsh --profile headless --patch .cache/kimi-overlay.yml \"Reply with exactly the text workhorse-ok\" → workhorse-ok, exit 0", "node scripts/kit-update.mjs --apply → actions=write-profile-files,write-rules,install-plugins; plugins verified cc-dsh-flash-guard-0.1.1 and cc-dsh-orchestrator-0.1.11", "diff -q profile/cordis.patch.yml $DSH_HOME/profiles/web/cordis.patch.yml → identical; rules/DEPLOYMENT.md identical", "node scripts/check-documentation.mjs → documentation ok; node scripts/check-portability.mjs → 17/17 passed", "grep -cE '^\\s+- id: .*highspeed' installed patch → 0 model entries; the only highspeed mention in config is the deny pattern"]
+resultSummary: "Two-model Kimi policy enforced end to end. The kimi-coding catalog is now only k3.1-pro (smart) and kimi-for-coding (workhorse) — zero highspeed entries. flash-guard gained a deniedModels rule; highspeed variants are refused for root and child alike (never silently swapped), while children may deliberately run the two Kimi routes and everything else still collapses to flash. Subagent model selection is enabled with exactly those three routes, so the subagent tool and the new delegate_task provider/model arguments can route a child to Kimi; delegate_task resolves the route before it writes the task row. Both Kimi tiers answered a real request through DSH, and both kit checks pass. Operator step: restart dsh web."
+scope: ["profile/cordis.patch.yml — kimi catalog, flash-guard policy, subagent-model-selection row", "plugins/flash-guard — deniedModels rule and its README", "plugins/orchestrator — optional per-delegation route gated by subagent model selection", "plugin tarballs and profile/package.json file: dependencies", "scripts/kit-update.mjs --apply to project the patch"]
 ---
 
 Enforce a two-model Kimi policy and make it reachable everywhere the harness chooses a model. Deliver: the kimi-coding catalog trimmed to k3.1-pro (smart) and kimi-for-coding (workhorse), with the highspeed variants gone; a guard that refuses any request naming a highspeed model instead of silently rewriting it; subagent model selection enabled for the three allowed routes (deepseek flash, kimi smart, kimi workhorse) so both the subagent tool and delegate_task can route a child to Kimi; and proof that each surface works.

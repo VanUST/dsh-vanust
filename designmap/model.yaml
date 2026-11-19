@@ -26,6 +26,11 @@ nodes:
     label: designmap (this panel)
     group: null
     source: plugins/designmap/index.js
+  - id: plug.role-model
+    type: service
+    label: Role model route
+    group: null
+    source: plugins/role-model/role-model.mjs
   - id: plug.skills
     type: service
     label: Skills library
@@ -92,3 +97,13 @@ edges:
     to: svc.host
     kind: sync
     label: HTTP + SSE
+  - id: plug.role-model.to.svc.orchestrator
+    from: plug.role-model
+    to: svc.orchestrator
+    kind: sync
+    label: route of the ARCHITECT role
+  - id: svc.host.to.plug.role-model
+    from: svc.host
+    to: plug.role-model
+    kind: sync
+    label: mounts the role route

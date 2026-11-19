@@ -459,6 +459,43 @@ export function apply(ctx, config = {}) {
       return resolvePreset({ session })
     },
     /**
+     * Whether this agent's preset admits `name` at all — the registration-time half of the
+     * policy.
+     *
+     * `tools.restrict` masks only global and ancestor registrations; a tool registered into the
+     * agent's OWN layer (every kit plugin that registers on `agent/created`) stays visible to
+     * every restriction. Those plugins therefore ask this before registering. A preset with no
+     * row (standard, cordis, ptc, unknown) admits everything, exactly like `decide`.
+     *
+     * @returns true when the tool may be registered, false when the preset's row excludes it.
+     */
+    allows(agent, name) {
+      if (resolved.disabled) return true
+      if (typeof name !== 'string' || name === '') return true
+      const preset = resolvePreset({ session: agent?.session })
+      const entry = preset === undefined ? undefined : resolved.families[preset]
+      if (entry === undefined) return true
+      const cwd = agent?.session?.header?.cwd
+      const hostHas = (marker) => {
+        if (typeof cwd !== 'string' || cwd === '') return false
+        try {
+          return existsSync(join(cwd, marker))
+        } catch {
+          return false
+        }
+      }
+      const denied = (entry.deny ?? []).some((pattern) => matches(name, pattern))
+      if (denied) return false
+      const projectDenied = (entry.projectDeny ?? []).some((pattern) => {
+        if (!matches(name, pattern)) return false
+        const marker = resolved.projectMarkers[pattern]
+        return marker === undefined || !hostHas(marker)
+      })
+      if (projectDenied) return false
+      const allow = Array.isArray(entry.allow) ? entry.allow : []
+      return allow.length === 0 ? true : allow.some((pattern) => matches(name, pattern))
+    },
+    /**
      * What this policy removed from one agent's view.
      *
      * @returns `{ preset, removed, kept }` once a restriction is installed, `null` before that

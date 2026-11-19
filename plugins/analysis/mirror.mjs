@@ -17,6 +17,8 @@
  *   a no-op and the analysis behaviour is exactly the old one.
  */
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 
 const STOP = new Set(['the', 'and', 'for', 'with', 'that', 'this', 'from', 'into', 'when', 'must', 'have', 'has', 'are', 'was', 'were', 'will', 'shall', 'each', 'every', 'their', 'them', 'they', 'than', 'then', 'also', 'only', 'over', 'under', 'after', 'before', 'while', 'where', 'which', 'what', 'there', 'here', 'such', 'same', 'other', 'some', 'any', 'all', 'not', 'but', 'can', 'may', 'should', 'would', 'could'])
@@ -121,6 +123,18 @@ export async function precheck(core, { cwd, initiative, requirements, allowDupli
  * @param {{enforce?: boolean}} [options] - `enforce: false` is the OLD behaviour, used only by
  *   the red-first proof to show what the gate prevents.
  */
+/** Whether a TEST covers a requirement: its primary reqId, its reqIds, or a REQ it names in its body. */
+function testCovers(cwd, test, reqId) {
+  if (test?.reqId === reqId) return true
+  if (Array.isArray(test?.reqIds) && test.reqIds.includes(reqId)) return true
+  if (typeof test?.path !== 'string' || test.path === '') return false
+  try {
+    return readFileSync(join(cwd, test.path), 'utf8').includes(reqId)
+  } catch {
+    return false
+  }
+}
+
 export async function precheckEvidence(core, { cwd, initiative, requirements, enforce = true }) {
   if (core === undefined || core === null) return { ok: true, skipped: 'no-core' }
   if (enforce === false) return { ok: true, skipped: 'not-enforced' }
@@ -147,7 +161,11 @@ export async function precheckEvidence(core, { cwd, initiative, requirements, en
         message: `${label} cannot be marked proven: it has no REQ in the state register yet; record it as planned first, then add a TEST with a red→green run`,
       }
     }
-    const candidates = tests.filter((test) => test.reqId === req.id)
+    // A BATCH CASE COUNTS. The case library's rule is one case per behaviour with ONE primary
+    // reqId, naming the other REQs it protects in its text ("one verified run may prove the
+    // batch"). The TEST row keeps the case text as its body, so a case that names this REQ
+    // covers it even though its primary reqId is another one.
+    const candidates = tests.filter((test) => testCovers(cwd, test, req.id))
     const holds = candidates.some((test) => {
       const refs = Array.isArray(test.evidenceRefs) ? test.evidenceRefs.map(String) : []
       return refs.some((ref) => ref.includes(':red:fail')) && refs.some((ref) => ref.includes(':green:pass'))

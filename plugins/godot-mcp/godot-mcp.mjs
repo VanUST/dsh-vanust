@@ -619,9 +619,112 @@ export function apply(ctx, config = {}) {
   const workspace = config.workspacePath ?? process.cwd()
   const showStatus = config.showStatus !== false
   if (!showStatus) return
-  const order = ctx?.systemPrompt?.getSectionOrder?.('godot:mcp') ?? FALLBACK_ORDER
-  ctx.effect(() => {
-    const dispose = ctx.systemPrompt.section({
+  // THE SECTION IS FOR A ROLE THAT HAS AN MCP FAMILY. It is the status of the declared MCP
+  // servers (and the fix when a launcher is missing), so a role whose allow row excludes both
+  // families paid ~640 B of prompt for a toolchain it cannot call — the architect, docs and
+  // research roles do exactly that. Gating needs an agent-scoped section: a host one lands in
+  // every system prompt regardless of the preset.
+  // A SEAT PICKED ON A BLANK SESSION ARRIVES AFTER THE AGENT EXISTS, so the section follows the
+  // seat: re-synced on `agent-preset/selected` and again at pre-step, the last point before the
+  // first request header is derived.
+  const sections = new WeakMap()
+  const syncSection = (agent, presetOverride) => {
+    if (agent === null || agent === undefined) return
+    const preset = (typeof presetOverride === 'string' && presetOverride !== '' ? presetOverride :  presetOf(ctx, agent) ) ?? '(none)'
+    const current = sections.get(agent)
+    if (current !== undefined && current.preset === preset) return
+    if (current !== undefined) {
+      try {
+        current.dispose?.()
+      } catch {
+        // A failing disposer must not take the session down.
+      }
+      sections.delete(agent)
+    }
+    if (!surfaceAllows(ctx, agent, 'mcp__godot__*') && !surfaceAllows(ctx, agent, 'mcp__playwright__*')) return
+    try {
+      const dispose = installSection(ctx, { agent, specPath, workspace })
+      sections.set(agent, { preset, dispose })
+    } catch {
+      // A prompt registry that refuses the section must not break the session.
+    }
+  }
+  ctx.on('agent/created', ({ agent }) => syncSection(agent))
+  ctx.on('agent/pre-step', (payload, next) => {
+    syncSection(payload?.agent)
+    return next()
+  }, { prepend: true })
+  try {
+    ctx.root?.on?.('session/event', (session, event) => {
+      if (event?.type !== 'agent-preset/selected') return
+      let live
+      try {
+        live = ctx.get?.('agents')?.get?.(session?.id)
+      } catch {
+        live = undefined
+      }
+      syncSection(live, event?.data?.agentPreset)
+    })
+  } catch {
+    // A root without the session feed still re-syncs at pre-step.
+  }
+}
+
+/**
+ * Whether this agent's preset admits one tool name.
+ *
+ * @param ctx - Cordis context.
+ * @param agent - The agent the section is for.
+ * @param name - Tool name.
+ * @returns false only when the policy positively excludes the name.
+ */
+/**
+ * The preset in force for one agent, resolved through the policy owner first.
+ *
+ * A selection made after the agent was created is committed as `agent-preset/selected`, and the
+ * policy owner (`toolFamilies.presetFor`) resolves it; the creation header is the last fallback.
+ *
+ * @param ctx - Cordis context.
+ * @param agent - The agent being synced.
+ * @returns The preset id, or undefined in a composition without a preset.
+ */
+function presetOf(ctx, agent) {
+  try {
+    const resolved = ctx.get?.('toolFamilies')?.presetFor?.(agent?.session)
+    if (typeof resolved === 'string' && resolved !== '') return resolved
+  } catch {
+    // No policy owner: fall through to the creation header.
+  }
+  try {
+    const projected = ctx.get?.('agentPresets')?.presetForSession?.(agent?.session)
+    if (typeof projected === 'string' && projected !== '') return projected
+  } catch {
+    // No projection either.
+  }
+  const header = agent?.session?.header?.agentPreset
+  return typeof header === 'string' && header !== '' ? header : undefined
+}
+
+function surfaceAllows(ctx, agent, name) {
+  try {
+    return ctx.get?.('toolFamilies')?.allows?.(agent, name) !== false
+  } catch {
+    return true
+  }
+}
+
+/**
+ * Register the status section on one agent's scoped prompt registry.
+ *
+ * @param ctx - Cordis context (unused fallback when the agent has no registry).
+ * @param options.agent - Agent receiving the section.
+ * @param options.specPath - Declarative server list.
+ * @param options.workspace - Workspace root used to resolve the launcher.
+ */
+function installSection(ctx, { agent, specPath, workspace }) {
+  const registry = agent?.ctx?.systemPrompt ?? ctx?.systemPrompt
+  const order = registry?.getSectionOrder?.('godot:mcp') ?? FALLBACK_ORDER
+  return registry.section({
       name: 'godot:mcp',
       order,
       // A provider, not a string: the spec is re-read on every assembly, so editing the
@@ -646,7 +749,5 @@ export function apply(ctx, config = {}) {
           return ''
         }
       },
-    })
-    return () => dispose()
   })
 }

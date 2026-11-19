@@ -2,7 +2,8 @@
 PROOF: panel navigation controls live in the panel, not in the taskboard strip or the session header
 Behavior: the taskboard client registers only the Tasks panel in main, the designmap client registers
   only the Design map panel in main (its bundle rebuilt from client/entry.jsx), and the state panel
-  renders Back to chat, the left-sidebar toggle and a right-column toggle whose aria-pressed and
+  renders Back to chat, the left-sidebar toggle and a right-column toggle (no third "Close right
+  sidebar" button) whose aria-pressed and
   label ("Скрыть правую колонку" / "Показать правую колонку") reflect the ps-rail's presence.
 Fails when: conversation.session.header.actions is registered again in the taskboard or designmap
   client, the taskboard header button (aria-label "Open tasks") or the designmap HeaderTrigger comes
@@ -55,12 +56,15 @@ function violations() {
   // State panel: leave, left column, and the right-column toggle.
   if (!/Back to chat/.test(panel)) found.push('Back to chat is missing from plugins/project-state-panel/client.js')
   if (!/toggleSidebar\(\)/.test(panel)) found.push('layout.toggleSidebar() is missing from plugins/project-state-panel/client.js')
-  if (!/setExpanded\(\s*sessionId\s*,\s*false\s*\)/.test(panel)) found.push('right-column reset setExpanded(sessionId, false) is missing from plugins/project-state-panel/client.js')
+  // The old "Close right sidebar" button called sidebarRight.setExpanded; it never worked in
+  // this shell and the owner asked for it to be removed. The rail toggle is the control now.
+  if (/setExpanded\(\s*sessionId\s*,\s*false\s*\)/.test(panel)) found.push('the removed "Close right sidebar" control is back in plugins/project-state-panel/client.js')
+  if (/Close right sidebar/.test(panel)) found.push('the removed "Close right sidebar" control still declares its label')
   if (!/selectPanel\(null\)/.test(panel)) found.push('Back to chat does not call layout.selectPanel(null)')
-  if (!/const \[railOpen, setRailOpen\] = useState\(true\)/.test(panel)) found.push('the panel does not keep the evidence-rail state (railOpen)')
+  if (!/const \[railOpen, setRailOpen\] = useState\(false\)/.test(panel)) found.push('the panel does not keep the evidence-rail state (railOpen) hidden by default')
   if (!/aria-pressed': !railOpen/.test(panel)) found.push('the right-column toggle does not reflect the rail state in aria-pressed')
   if (!/Скрыть правую колонку/.test(panel) || !/Показать правую колонку/.test(panel)) found.push('the right-column toggle label does not switch between "Скрыть правую колонку" and "Показать правую колонку"')
-  if (!/railOpen \? h\('div', \{ className: 'ps-rail', id: 'ps-rail' \}/.test(panel)) found.push('the ps-rail is not rendered conditionally on railOpen')
+  if (!/railOpen && drawer !== null \? h\('div', \{ className: 'ps-rail', id: 'ps-rail' \}/.test(panel)) found.push('the ps-rail is not rendered only when a detail drawer is open')
   if (!/\.ps-shell\.ps-no-rail \{ grid-template-columns: 212px minmax\(0, 1fr\); \}/.test(panel)) found.push('the grid keeps the third column when the rail is hidden (no .ps-shell.ps-no-rail rule)')
   return found
 }

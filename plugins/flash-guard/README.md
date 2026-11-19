@@ -25,12 +25,16 @@ while the expensive route was paid for anyway.
     allowedRoutes:
       - { provider: deepseek-official, model: deepseek-flash }
       - { provider: kimi-coding, model: k3.1-pro }
-    onViolation: rewrite      # or refuse
+    onViolation: refuse       # the only value that does anything
     enforceRoot: false        # true also guards the conversation's own agent
-    maxReasoningEffort: high  # optional cap; omit to leave effort alone
     deniedModels:             # refused for root and child alike, always
       - '*highspeed*'
 ```
+
+`maxReasoningEffort` is accepted for compatibility and **ignored**: on this harness the reasoning
+effort is part of the frozen step selection and is compared after `agent/request` exactly like the
+route, so lowering it in this waterfall threw the turn whenever the cap mattered. Route the role
+with `agent.model.select()` instead — see `@cc/dsh-role-model`.
 
 A `deniedModels` pattern is a case-insensitive glob where `*` is the only
 metacharacter: `*highspeed*` matches every current and future variant. A pattern

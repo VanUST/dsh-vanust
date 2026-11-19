@@ -421,6 +421,43 @@ export function sectionText(installed) {
 }
 
 /**
+ * Whether this agent's preset admits one tool name.
+ *
+ * The policy owner (`toolFamilies`) answers; a composition without that row admits everything,
+ * exactly like `tools.restrict` does. A missing service must never remove a tool silently.
+ *
+ * @param ctx - Cordis context.
+ * @param agent - The agent the section is for.
+ * @param name - Tool name.
+ * @returns false only when the policy positively excludes the name.
+ */
+function surfaceAllows(ctx, agent, name) {
+  try {
+    return ctx.get?.('toolFamilies')?.allows?.(agent, name) !== false
+  } catch {
+    return true
+  }
+}
+
+/**
+ * The preset in force for one agent, through the policy owner first.
+ *
+ * @param ctx - Cordis context.
+ * @param agent - The agent being synced.
+ * @returns The preset id, or undefined in a composition without a preset.
+ */
+function presetOf(ctx, agent) {
+  try {
+    const resolved = ctx.get?.('toolFamilies')?.presetFor?.(agent?.session)
+    if (typeof resolved === 'string' && resolved !== '') return resolved
+  } catch {
+    // No policy owner: fall through to the creation header.
+  }
+  const header = agent?.session?.header?.agentPreset
+  return typeof header === 'string' && header !== '' ? header : undefined
+}
+
+/**
  * Register the section and the tool.
  *
  * @param ctx - Cordis context; must expose `tools` and `systemPrompt`.
@@ -435,24 +472,67 @@ export function apply(ctx, config = {}) {
   }
   if (!policy.enabled) return
   const installed = resolveOutlineBin({ bin: policy.bin })
-  const order = ctx?.systemPrompt?.getSectionOrder?.('outline:index') ?? FALLBACK_ORDER
 
-  ctx.effect(() => {
-    const dispose = ctx.systemPrompt.section({
-      name: 'outline:index',
-      order,
-      // A provider, not a string: the prompt is re-assembled every request, so a reload
-      // that finds the binary is visible without re-registering the plugin.
-      text: () => {
-        try {
-          return sectionText(installed)
-        } catch {
-          return ''
-        }
-      },
+  // THE SECTION IS FOR A ROLE THAT HAS THE TOOL. It explains how to use `outline` before
+  // reading a file, so a role whose allow row excludes the tool paid ~1 KB of prompt for
+  // advice it could not follow. An agent-scoped section can be gated; a host one cannot.
+  // A SEAT PICKED ON A BLANK SESSION ARRIVES AFTER THE AGENT EXISTS, so the section follows the
+  // seat: re-synced on `agent-preset/selected` and again at pre-step, the last point before the
+  // first request header is derived.
+  const sections = new WeakMap()
+  const syncSection = (agent, presetOverride) => {
+    if (agent === null || agent === undefined) return
+    const preset = (typeof presetOverride === 'string' && presetOverride !== '' ? presetOverride :  presetOf(ctx, agent) ) ?? '(none)'
+    const current = sections.get(agent)
+    if (current !== undefined && current.preset === preset) return
+    if (current !== undefined) {
+      try {
+        current.dispose?.()
+      } catch {
+        // A failing disposer must not take the session down.
+      }
+      sections.delete(agent)
+    }
+    if (!surfaceAllows(ctx, agent, 'outline')) return
+    try {
+      const order = agent.ctx?.systemPrompt?.getSectionOrder?.('outline:index') ?? FALLBACK_ORDER
+      const dispose = agent.ctx.systemPrompt.section({
+        name: 'outline:index',
+        order,
+        // A provider, not a string: the prompt is re-assembled every request, so a reload
+        // that finds the binary is visible without re-registering the plugin.
+        text: () => {
+          try {
+            return sectionText(installed)
+          } catch {
+            return ''
+          }
+        },
+      })
+      sections.set(agent, { preset, dispose })
+    } catch {
+      // A prompt registry that refuses the section must not break the session.
+    }
+  }
+  ctx.on('agent/created', ({ agent }) => syncSection(agent))
+  ctx.on('agent/pre-step', (payload, next) => {
+    syncSection(payload?.agent)
+    return next()
+  }, { prepend: true })
+  try {
+    ctx.root?.on?.('session/event', (session, event) => {
+      if (event?.type !== 'agent-preset/selected') return
+      let live
+      try {
+        live = ctx.get?.('agents')?.get?.(session?.id)
+      } catch {
+        live = undefined
+      }
+      syncSection(live, event?.data?.agentPreset)
     })
-    return () => dispose()
-  })
+  } catch {
+    // A root without the session feed still re-syncs at pre-step.
+  }
 
   if (installed === null) return
 
@@ -494,9 +574,50 @@ export function apply(ctx, config = {}) {
     },
   })
 
-  // Host-level: every agent gets it. A file outline is not a role's speciality, and a
-  // child that cannot outline a file spends its context reading whole files instead.
-  ctx.on('agent/created', ({ agent }) => {
-    agent.ctx.tools.register(tool)
-  })
+  // Every agent whose allow row admits it gets the tool: a file outline is not a role's
+  // speciality, and a child that cannot outline a file spends its context reading whole files
+  // instead. The row is still the owner — a role that excludes `outline` gets neither the tool
+  // nor the section above — and it is re-synced on the seat, because a preset picked after the
+  // agent exists must still decide the surface.
+  const toolSeats = new WeakMap()
+  const syncTool = (agent, presetOverride) => {
+    if (agent === null || agent === undefined) return
+    const preset = (typeof presetOverride === 'string' && presetOverride !== '' ? presetOverride :  presetOf(ctx, agent) ) ?? '(none)'
+    const current = toolSeats.get(agent)
+    if (current !== undefined && current.preset === preset) return
+    if (current !== undefined) {
+      try {
+        current.dispose?.()
+      } catch {
+        // A failing disposer must not take the session down.
+      }
+      toolSeats.delete(agent)
+    }
+    if (!surfaceAllows(ctx, agent, 'outline')) return
+    try {
+      const dispose = agent.ctx.tools.register(tool)
+      toolSeats.set(agent, { preset, dispose })
+    } catch {
+      // A duplicate registration would throw; leaving the tool out is the safe failure.
+    }
+  }
+  ctx.on('agent/created', ({ agent }) => syncTool(agent))
+  ctx.on('agent/pre-step', (payload, next) => {
+    syncTool(payload?.agent)
+    return next()
+  }, { prepend: true })
+  try {
+    ctx.root?.on?.('session/event', (session, event) => {
+      if (event?.type !== 'agent-preset/selected') return
+      let live
+      try {
+        live = ctx.get?.('agents')?.get?.(session?.id)
+      } catch {
+        live = undefined
+      }
+      syncTool(live, event?.data?.agentPreset)
+    })
+  } catch {
+    // A root without the session feed still re-syncs at pre-step.
+  }
 }

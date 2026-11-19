@@ -36,6 +36,67 @@ const nowIso = () => new Date().toISOString()
 const sha256 = (text) => createHash('sha256').update(text, 'utf8').digest('hex')
 const fail = (code, message) => ({ ok: false, code, message })
 
+/** Trimmed non-empty strings from a value; anything else yields `[]`. */
+function stringList(value) {
+  if (!Array.isArray(value)) return []
+  return value.map((item) => String(item).trim()).filter((item) => item !== '')
+}
+
+/**
+ * Acceptance criteria as `[{text, done}]`. A bare string is an open criterion; an object
+ * keeps only a non-empty text and the explicit `done: true` (a missing mark is not done).
+ */
+export function acceptanceList(value) {
+  if (!Array.isArray(value)) return []
+  const rows = []
+  for (const item of value) {
+    if (typeof item === 'string') {
+      if (item.trim() !== '') rows.push({ text: item.trim(), done: false })
+      continue
+    }
+    if (item === null || typeof item !== 'object' || Array.isArray(item)) continue
+    const text = typeof item.text === 'string' ? item.text.trim() : ''
+    if (text === '') continue
+    rows.push({ text, done: item.done === true })
+  }
+  return rows
+}
+
+/**
+ * The sessions of a TASK as `[{sessionId, label, role, status}]`. The session id is the
+ * only required field and repeats are folded, so a list-of-maps frontmatter stays readable.
+ */
+export function sessionList(value) {
+  if (!Array.isArray(value)) return []
+  const rows = []
+  const seen = new Set()
+  for (const item of value) {
+    if (item === null || typeof item !== 'object' || Array.isArray(item)) continue
+    const sessionId = typeof item.sessionId === 'string' ? item.sessionId.trim() : ''
+    if (sessionId === '' || seen.has(sessionId)) continue
+    seen.add(sessionId)
+    rows.push({
+      sessionId,
+      ...(typeof item.label === 'string' && item.label.trim() !== '' ? { label: item.label.trim().slice(0, 200) } : {}),
+      ...(typeof item.role === 'string' && item.role.trim() !== '' ? { role: item.role.trim().slice(0, 200) } : {}),
+      ...(typeof item.status === 'string' && item.status.trim() !== '' ? { status: item.status.trim().slice(0, 40) } : {}),
+    })
+  }
+  return rows
+}
+
+/** The owner of a TASK as `{kind, label, sessionId?}`, or undefined when it has no label. */
+function ownerOf(value) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const label = typeof value.label === 'string' ? value.label.trim() : ''
+  if (label === '') return undefined
+  return {
+    kind: value.kind === 'human' ? 'human' : 'agent',
+    label: label.slice(0, 200),
+    ...(typeof value.sessionId === 'string' && value.sessionId.trim() !== '' ? { sessionId: value.sessionId.trim() } : {}),
+  }
+}
+
 /** The canonical relative path of an entity. */
 export function entityPath(kind, id) {
   return join('state', DIRS[kind], `${id}.md`)
@@ -201,9 +262,31 @@ export function createStateService(options = {}) {
       if (typeof input.boardId === 'string' && input.boardId !== '') frontmatter.boardId = input.boardId
       // BATCHING (FR15): one TASK may cover several requirements and a list of steps with a
       // progress counter; a task is the unit of acceptance, not a micro-step.
-      if (Array.isArray(input.reqIds)) frontmatter.reqIds = input.reqIds.map(String).filter((id) => id !== '')
-      if (Array.isArray(input.steps)) frontmatter.steps = input.steps.map(String).filter((step) => step !== '')
-      if (Number.isSafeInteger(input.stepsDone) && input.stepsDone >= 0) frontmatter.stepsDone = input.stepsDone
+      if (Array.isArray(input.reqIds) && stringList(input.reqIds).length > 0) frontmatter.reqIds = stringList(input.reqIds)
+      if (Array.isArray(input.steps) && stringList(input.steps).length > 0) {
+        frontmatter.steps = stringList(input.steps)
+        if (Number.isSafeInteger(input.stepsDone) && input.stepsDone >= 0) frontmatter.stepsDone = input.stepsDone
+      }
+      // THE CONCRETE TASK: the same fields the Tasks panel edits, so the register and the
+      // board agree on what a task is. Empty values are omitted; the file stays readable.
+      const scope = stringList(input.scope)
+      if (scope.length > 0) frontmatter.scope = scope
+      const nonScope = stringList(input.nonScope)
+      if (nonScope.length > 0) frontmatter.nonScope = nonScope
+      const acceptance = acceptanceList(input.acceptance)
+      if (acceptance.length > 0) frontmatter.acceptance = acceptance
+      if (typeof input.role === 'string' && input.role.trim() !== '') frontmatter.role = input.role.trim().slice(0, 80)
+      if (typeof input.preset === 'string' && input.preset.trim() !== '') frontmatter.preset = input.preset.trim().slice(0, 80)
+      if (input.inline === true) frontmatter.inline = true
+      const owner = ownerOf(input.owner)
+      if (owner !== undefined) frontmatter.owner = owner
+      const sessions = sessionList(input.sessions)
+      if (sessions.length > 0) frontmatter.sessions = sessions
+      if (typeof input.resultSummary === 'string' && input.resultSummary.trim() !== '') frontmatter.resultSummary = input.resultSummary.trim()
+      const resultEvidence = stringList(input.resultEvidence)
+      if (resultEvidence.length > 0) frontmatter.resultEvidence = resultEvidence
+      const resultArtifacts = stringList(input.resultArtifacts)
+      if (resultArtifacts.length > 0) frontmatter.resultArtifacts = resultArtifacts
     }
     if (kind === 'test') {
       if (input.reqId !== undefined) frontmatter.reqId = String(input.reqId)
@@ -359,6 +442,9 @@ export function createStateService(options = {}) {
             return fail('revision_conflict', `expected revision ${expected}, file has ${current.revision}`)
           }
           const next = { ...current, revision: expected + 1, updatedAt: now() }
+          // A schema backfill adds fields to an old entity; it must not reset the file's own
+          // last-change time, which the panels order by. This flag keeps it, and is not stored.
+          if (patch.preserveUpdatedAt === true && typeof current.updatedAt === 'string') next.updatedAt = current.updatedAt
           for (const field of ['title', 'status', 'ownerRole', 'reqId', 'command', 'choreReason', 'criteriaHash', 'boardId', 'testPath', 'frozenHash', 'caseId', 'stepsDone', 'supersededBy', 'reason']) {
             if (patch[field] !== undefined) next[field] = patch[field]
           }
@@ -367,8 +453,41 @@ export function createStateService(options = {}) {
           }
           if (Array.isArray(patch.criteria)) next.criteria = patch.criteria.map(String)
           if (Array.isArray(patch.evidenceRefs)) next.evidenceRefs = patch.evidenceRefs.map(String)
-          if (Array.isArray(patch.reqIds)) next.reqIds = patch.reqIds.map(String).filter((v) => v !== '')
-          if (Array.isArray(patch.steps)) next.steps = patch.steps.map(String).filter((v) => v !== '')
+          // An empty list or an empty string CLEARS the field: the Tasks panel can remove a
+          // scope line, and the register must follow instead of keeping the stale value.
+          const assignList = (field, list) => {
+            if (list.length === 0) delete next[field]
+            else next[field] = list
+          }
+          const assignText = (field, value) => {
+            const text = String(value ?? '').trim()
+            if (text === '') delete next[field]
+            else next[field] = text
+          }
+          if (Array.isArray(patch.reqIds)) assignList('reqIds', stringList(patch.reqIds))
+          if (Array.isArray(patch.steps)) {
+            assignList('steps', stringList(patch.steps))
+            // A cleared plan has no progress: a lone stepsDone would claim a plan that is gone.
+            if (stringList(patch.steps).length === 0) delete next.stepsDone
+          }
+          if (Array.isArray(patch.scope)) assignList('scope', stringList(patch.scope))
+          if (Array.isArray(patch.nonScope)) assignList('nonScope', stringList(patch.nonScope))
+          if (Array.isArray(patch.acceptance)) assignList('acceptance', acceptanceList(patch.acceptance))
+          if (Array.isArray(patch.sessions)) assignList('sessions', sessionList(patch.sessions))
+          if (Array.isArray(patch.resultEvidence)) assignList('resultEvidence', stringList(patch.resultEvidence))
+          if (Array.isArray(patch.resultArtifacts)) assignList('resultArtifacts', stringList(patch.resultArtifacts))
+          if (patch.role !== undefined) assignText('role', patch.role)
+          if (patch.preset !== undefined) assignText('preset', patch.preset)
+          if (patch.resultSummary !== undefined) assignText('resultSummary', patch.resultSummary)
+          if (patch.inline !== undefined) {
+            if (patch.inline === true) next.inline = true
+            else delete next.inline
+          }
+          if (patch.owner !== undefined) {
+            const owner = ownerOf(patch.owner)
+            if (owner === undefined) delete next.owner
+            else next.owner = owner
+          }
           if (kind === 'task' && patch.chore === true) next.chore = true
           if (next.status !== undefined && !KINDS[kind].status.includes(next.status)) {
             return fail('status_invalid', `status "${next.status}" is not one of ${KINDS[kind].status.join(', ')}`)

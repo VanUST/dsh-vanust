@@ -1178,9 +1178,78 @@ function apply(ctx, config = {}) {
     };
   };
   const tools = createHostTools({ defineTool, hostFor });
-  ctx.on("agent/created", ({ agent }) => {
-    if (!presets.includes(agent?.session?.header?.agentPreset)) return;
-    for (const tool of tools) agent.ctx.tools.register(tool);
+  function presetOf(ctx2, agent) {
+    try {
+      const resolved = ctx2.get?.("toolFamilies")?.presetFor?.(agent?.session);
+      if (typeof resolved === "string" && resolved.trim() !== "") return resolved;
+    } catch {
+    }
+    try {
+      const projected = ctx2.get?.("agentPresets")?.presetForSession?.(agent?.session);
+      if (typeof projected === "string" && projected.trim() !== "") return projected;
+    } catch {
+    }
+    try {
+      const header = agent?.session?.header?.agentPreset;
+      return typeof header === "string" && header !== "" ? header : void 0;
+    } catch {
+      return void 0;
+    }
+  }
+  function installPresetGate(ctx2, { allowed, tools: tools2 = [], toolsFor, onInstalled }) {
+    const installed = /* @__PURE__ */ new Map();
+    const resolve3 = (agent) => {
+      try {
+        return presetOf(ctx2, agent);
+      } catch {
+        return void 0;
+      }
+    };
+    const sync = (agent, presetOverride) => {
+      if (agent === void 0 || agent === null) return;
+      try {
+        const preset = typeof presetOverride === "string" && presetOverride !== "" ? presetOverride : resolve3(agent);
+        const current = installed.get(agent);
+        if (current !== void 0 && current.preset === preset) return;
+        if (current !== void 0) {
+          for (const dispose of current.disposers) {
+            try {
+              dispose();
+            } catch {
+            }
+          }
+          installed.delete(agent);
+        }
+        if (typeof preset !== "string" || !allowed(preset)) return;
+        const selected = typeof toolsFor === "function" ? toolsFor(preset) : tools2;
+        const disposers = selected.map((tool) => agent.ctx.tools.register(tool)).filter((dispose) => typeof dispose === "function");
+        installed.set(agent, { preset, disposers });
+        onInstalled?.(agent, preset);
+      } catch {
+      }
+    };
+    ctx2.on("agent/created", ({ agent }) => sync(agent));
+    if (typeof ctx2.root?.on === "function") {
+      ctx2.root.on("session/event", (session, event) => {
+        if (event?.type !== "agent-preset/selected") return;
+        let live;
+        try {
+          live = ctx2.get?.("agents")?.get?.(session?.id);
+        } catch {
+          live = void 0;
+        }
+        if (live !== void 0 && live !== null) sync(live, event?.data?.agentPreset);
+      });
+    }
+    ctx2.on("agent/pre-step", (payload, next) => {
+      sync(payload?.agent);
+      return next();
+    }, { prepend: true });
+    return sync;
+  }
+  installPresetGate(ctx, {
+    tools,
+    allowed: (preset) => presets.includes(preset)
   });
   ctx.commands.register({
     name: "designmap",

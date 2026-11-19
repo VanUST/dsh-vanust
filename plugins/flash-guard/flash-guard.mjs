@@ -18,7 +18,7 @@
  *     enforceRoot            also apply to root agents. Default false, so the
  *                            human can still choose a stronger model for the
  *                            conversation itself.
- *     maxReasoningEffort     optional cap: off | low | high | max.
+ *     maxReasoningEffort     accepted for compatibility and IGNORED (see below).
  *     deniedModels           optional model-id patterns refused for EVERY agent,
  *                            root included. `*` matches any run of characters,
  *                            matching is case-insensitive, and the decision is a
@@ -51,6 +51,13 @@
  *     a typo never turns into "deny everything".
  *   - A denied-model refusal is reported once per denied pattern, not once per
  *     request, because it is a configuration fact rather than a looping child.
+ *   - `maxReasoningEffort` no longer caps anything. Since dsh 0.2.2 the reasoning effort is part
+ *     of the FROZEN step selection and is compared after `agent/request` exactly like the route
+ *     (`dsh-agent-loop`: 'agent/request proposed reasoning effort "…" after step preparation fixed
+ *     "…"'). Lowering it in this waterfall therefore threw the turn whenever the cap mattered —
+ *     a guard that kills the work it was meant to make cheaper. The key is still accepted so an
+ *     older profile boots, and its presence is reported once; a role that must not think that
+ *     hard is routed with `agent.model.select()` (see `@cc/dsh-role-model`).
  */
 
 /** Compile one deny pattern: `*` is the only metacharacter, matching is case-insensitive. */
@@ -95,16 +102,13 @@ export function normalizeConfig(config = {}) {
     ? config.deniedModels.filter((pattern) => typeof pattern === 'string' && pattern.trim() !== '')
     : []
   const deniedModels = denyCandidates.map(compileDenyPattern)
-  const maxReasoningEffort = EFFORT_ORDER.includes(config.maxReasoningEffort)
-    ? config.maxReasoningEffort
-    : null
   return {
     fallback,
     allowedRoutes: allowedRoutes.length > 0 ? allowedRoutes : [fallback],
     deniedModels,
     onViolation,
     enforceRoot: config.enforceRoot === true,
-    maxReasoningEffort,
+    legacyEffortCap: config.maxReasoningEffort !== undefined,
     malformedOnViolation: config.onViolation !== undefined && config.onViolation !== 'refuse',
     droppedRoutes: Array.isArray(config.allowedRoutes) ? config.allowedRoutes.length - allowedRoutes.length : 0,
   }
@@ -135,7 +139,6 @@ export function guardDecision(call, agent, policy) {
     }
   }
   const allowed = policy.allowedRoutes.some((route) => route.provider === call?.provider && route.model === call?.model)
-  const capped = capEffort(call, policy.maxReasoningEffort)
   if (!applies) return { action: 'allow', call }
   if (!allowed) {
     // NEVER a rewrite: dsh freezes the route before `agent/request`, and a mutated result is a
@@ -147,7 +150,7 @@ export function guardDecision(call, agent, policy) {
       reason: `flash-guard: ${key} is not allowed for delegated work; use ${policy.fallback.provider}/${policy.fallback.model}`,
     }
   }
-  return { action: 'allow', call: capped }
+  return { action: 'allow', call }
 }
 
 /**
@@ -166,21 +169,6 @@ function denyMatch(call, deniedModels) {
   )) ?? null
 }
 
-/**
- * Apply the optional reasoning-effort cap without changing the route.
- *
- * @param call - Resolved call.
- * @param max - Cap name, or null.
- * @returns The call, or a copy with a lower effort.
- */
-function capEffort(call, max) {
-  if (max === null || call === null || typeof call !== 'object') return call
-  const current = call.reasoningEffort
-  if (!EFFORT_ORDER.includes(current)) return call
-  if (EFFORT_ORDER.indexOf(current) <= EFFORT_ORDER.indexOf(max)) return call
-  return { ...call, reasoningEffort: max }
-}
-
 /** Cordis function-plugin name; also the id a profile patch targets. */
 export const name = 'flash-guard'
 
@@ -195,6 +183,9 @@ export const inject = []
  */
 export function apply(ctx, config = {}) {
   const policy = normalizeConfig(config)
+  if (policy.legacyEffortCap) {
+    ctx.logger.warn('flash-guard: maxReasoningEffort is ignored — the reasoning effort is part of the frozen step selection, so capping it here would throw the turn; route the role explicitly instead')
+  }
   if (policy.malformedOnViolation) {
     ctx.logger.warn(`flash-guard: onViolation ${JSON.stringify(config.onViolation)} is not "refuse"; using "refuse"`)
   }

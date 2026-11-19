@@ -1,35 +1,38 @@
 {
   "schemaVersion": 1,
   "id": "counters-and-list-stay-read-only",
-  "title": "Counters and list stay read-only",
-  "requirement": "The State counters and the task list only read: state/views projections and the session snapshot, with no write command and no file write, so a broken read shows — and a message in title instead of breaking the header and the button keeps opening the panel.",
+  "title": "Counters, list and the one owner write",
+  "requirement": "The State counters, the task list and the two board/mode toggles read the state/views projections and the session snapshot, with no file write; the panel has exactly two command call sites — designmap's read-only views and the taskboard owner-status write (the owner changes a task status: the board owns the row, mirrors the TASK and records the override in the journal; a TASK with no boardId is refused no_board_row and a refusal keeps its code). A task linked through reqIds shows every requirement, not only reqId. A broken read shows — and a message in title instead of breaking the header and the button keeps opening the panel.",
   "kind": "regression",
-  "status": "verified",
+  "status": "stale",
   "source": "agent",
   "automated": true,
   "testPath": "plugins/project-state-panel/test/counts-and-sort.test.mjs",
   "runCommand": "node --test plugins/project-state-panel/test/counts-and-sort.test.mjs",
   "steps": [
-    "assert the client source declares no workspaceFiles.write call and runs exactly one command: the read-only designmap views op",
+    "assert the client source declares no workspaceFiles.write call and exactly two command call sites: designmap views (read) and taskboard owner-status (the owner write)",
+    "assert the owner-status path is a two-call compare-and-set: read the board row, then one owner-status op; a TASK with no boardId sends no command and answers no_board_row; a refusal keeps its code",
+    "assert requirementIdsOf folds reqId and reqIds so a batch task shows both requirements in the card, the drawer, the filter and the count",
     "assert the counter error path renders — with the error in title and keeps the click handler that opens the panel",
     "assert the list reads title/steps/updatedAt from the entity frontmatter rather than writing anything back",
-    "run the test on the fixed files: exit 0, violations 0; expect-pre-fix: exit 1; git HEAD client: exit 1"
+    "run the test on the fixed files: exit 0, violations 0; the same test on the shipped 0.1.36 client names the missing helpers and the one command call site (red, recorded in the analysis trace)"
   ],
-  "expected": "The test exits 0 with zero violations on the fixed files and names the write call or the missing error path if either returns.",
+  "expected": "The test exits 0 with zero violations on the fixed files; against the shipped 0.1.36 client it fails by name on the missing requirement/status helpers, the single command call site and the absent status control. It names a workspaceFiles.write call, a third command call site or a missing error path if any returns.",
   "tags": [
+    "owner-status",
+    "p3",
     "panel",
-    "state",
     "read-only",
-    "p3"
+    "state"
   ],
   "surfaceFiles": [
     {
       "path": "plugins/project-state-panel/client.js",
-      "sha256": "2ffd461a5a9d4041eb39f130f4213a24963ed83c01dda226e1a855271fd8dbab"
+      "sha256": "08b9b0f5f11e4c176a99053ac74f2870f216f3c423597f2666061db79e5c2566"
     },
     {
       "path": "plugins/project-state-panel/test/counts-and-sort.test.mjs",
-      "sha256": "919d0d8f22280a17cf2987b4e63f730730c3ac0ab839931541945886f362c86b"
+      "sha256": "93c4b43185966a1a6384a42d3c31f2f89d0c4e99ff4c69f0c791c18210f7b30f"
     }
   ],
   "linkedTaskId": "task-mwm3mmo3-08soxt",
@@ -44,9 +47,9 @@
     }
   ],
   "negativeControl": "expect-pre-fix",
-  "revision": 3,
+  "revision": 4,
   "createdAt": "2026-11-18T12:46:01.562Z",
-  "updatedAt": "2026-11-18T12:46:12.081Z",
+  "updatedAt": "2026-11-19T08:30:00.000Z",
   "createdBy": "backend",
   "createdByKind": "agent",
   "history": [
@@ -63,6 +66,13 @@
       "editedBy": "agent",
       "action": "ran-verified",
       "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-19T08:30:00.000Z",
+      "editedBy": "agent",
+      "action": "reopened",
+      "reason": "the owner-status write and the reqIds fix changed the assertion (one command -> two call sites, one of them a write); the stored run no longer matches these bytes and the case must be re-run by a role with case_run"
     }
   ],
   "evidence": {},
@@ -148,21 +158,5 @@
       "passed": true,
       "artifacts": []
     }
-  ],
-  "redFirst": {
-    "at": "2026-11-18T12:46:08.892Z",
-    "runId": "mwm47h1r-2zh33-1",
-    "exitCode": 1,
-    "control": "expect-pre-fix",
-    "command": "node --test plugins/project-state-panel/test/counts-and-sort.test.mjs",
-    "source": "negative-control"
-  },
-  "lastVerified": {
-    "at": "2026-11-18T12:46:12.081Z",
-    "command": "node --test plugins/project-state-panel/test/counts-and-sort.test.mjs",
-    "exitCode": 0,
-    "runId": "mwm47js8-a9bi2-1",
-    "source": "runner",
-    "commit": null
-  }
+  ]
 }

@@ -1,0 +1,468 @@
+{
+  "schemaVersion": 1,
+  "id": "task-state-owner-control",
+  "rev": 6,
+  "status": "ready",
+  "createdAt": "2026-11-19T08:19:42.538Z",
+  "updatedAt": "2026-11-19T08:48:04.902Z",
+  "updatedBy": "agent",
+  "title": "Владелец меняет состояние задачи сам: ручной статус в панели Project state и доска без предела строк",
+  "requestedSolution": "Владелец 2026-11-19: (1) в панели Project state должна быть возможность вручную менять состояние задач — и на доске, и в карточке; (2) предел доски в 1000 строк не должен существовать — новые строки создаются без ограничения.",
+  "businessOutcome": {
+    "problem": "Статус задачи меняет только агент и только по правилам жизненного цикла: в done можно попасть лишь из review, из open — никак. Владелец, который смотрит работу в панели Project state, не может ни поправить статус, ни закрыть строку, не прося агента. Отдельно доска отказывает в новой строке на пределе maxRows (по умолчанию 1000): в рабочей области autolabel_pipeline ровно 1000 строк, новые не создаются, и работа была привязана к существующей строке.",
+    "outcome": "Владелец в панели Project state меняет статус любой задачи — на доске и в карточке. Изменение проходит независимо от правил жизненного цикла, записывается в журнал состояния (кто, из какого статуса, в какой, почему) и попадает в доску задач, в TASK реестра state/ и в проекции, которые читает агент. Доска задач по умолчанию не имеет предела строк: предел остаётся только явной настройкой maxRows.",
+    "successMetrics": [
+      "Смена статуса на доске панели Project state меняет .dsh/taskboard.json, state/task/<id>.md и state/views/index.json без перезагрузки страницы",
+      "На каждое ручное изменение в state/events.jsonl есть событие с кодом, статусами до и после и причиной; в таймлайне задачи — запись actor: human",
+      "Переход в done/cancelled останавливает связанных детей; отказ (stale, not_found, no_board_row, нет транспорта) назван кодом в панели и ничего не пишет",
+      "Доска создаёт строку сверх 1000 без явного maxRows; явный maxRows по-прежнему отказывает board_rows_full",
+      "Тесты taskboard и project-state-panel красные до правки и зелёные после; make verify зелёный"
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "ST-CUR",
+        "name": "Статус только через агента",
+        "actors": [
+          "владелец"
+        ],
+        "steps": [
+          "Открывает Project state → Board",
+          "Видит задачу в неверном статусе",
+          "Пишет агенту просьбу поправить статус",
+          "Агент упирается в правило: done только из review, из open нельзя",
+          "Статус остаётся прежним"
+        ]
+      },
+      {
+        "id": "ST-CUR2",
+        "name": "Доска на пределе",
+        "actors": [
+          "владелец"
+        ],
+        "steps": [
+          "Агент создаёт новую задачу",
+          "Доска отказывает board_rows_full на 1000 строк",
+          "Работа привязывается к существующей строке интерфейса",
+          "Что отложено, записывается в чужую задачу"
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "ST-TGT",
+        "name": "Статус меняет владелец",
+        "actors": [
+          "владелец"
+        ],
+        "steps": [
+          "Открывает Project state → Board",
+          "Меняет статус на карточке или в карточке-панели задачи",
+          "Видит новый статус сразу и запись об изменении в журнале",
+          "На доске задач и в TASK реестра тот же статус",
+          "Попадает в Project state"
+        ]
+      },
+      {
+        "id": "ST-TGT2",
+        "name": "Доска без предела",
+        "actors": [
+          "владелец",
+          "агент"
+        ],
+        "steps": [
+          "Агент создаёт задачу на доске с 1000+ строк",
+          "Строка создаётся",
+          "История строк не удаляется"
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "FR1",
+      "kind": "FR",
+      "text": "Владелец меняет статус задачи вручную в панели Project state — на доске и в карточке задачи; изменение идёт через доску задач, обходит правила жизненного цикла и записывается в журнал состояния.",
+      "acceptance": [
+        "У карточки задачи на доске и в карточке-панели есть управление статусом с шестью статусами реестра: open, active, review, blocked, done, cancelled",
+        "Изменение идёт командой /taskboard op owner-status от имени владельца: CAS по ревизии доски, обход transitionRefusal, остановка детей при done/cancelled, запись в таймлайн задачи",
+        "После успеха статус совпадает в .dsh/taskboard.json, state/task/<id>.md и state/views/index.json; панель показывает новый статус без перезагрузки страницы",
+        "В state/events.jsonl появляется событие с кодом owner_status_override, статусами from/to, причиной, by: human, boardId и id TASK; без ядра состояния операция проходит, но событие не пишется",
+        "Отказ (stale, not_found, no_board_row, нет транспорта команд) назван в панели кодом и текстом; ничего не записано",
+        "Тест: на 0.1.36 панели и 0.1.66 доски проверка красная, после правки зелёная; панель не использует workspaceFiles.write"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR2",
+      "kind": "FR",
+      "text": "Доска задач не ограничивает число строк по умолчанию: предел строк применяется только если владелец задал maxRows явно.",
+      "acceptance": [
+        "Без maxRows в конфигурации create принимает строку сверх 1000 и не возвращает board_rows_full",
+        "Явный maxRows: N по-прежнему отказывает на N-й строке кодом board_rows_full; 0 означает «без предела»",
+        "Профиль рабочей области не задаёт maxRows: строка из profile/cordis.patch.yml удалена",
+        "Тест: на 0.1.66 проверка красная (предел 1000 по умолчанию), после правки зелёная"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR3",
+      "kind": "FR",
+      "text": "Карточка задачи и карточка-панель показывают все связанные требования (reqId и reqIds), и фильтр доски идёт по ним же.",
+      "acceptance": [
+        "Задача с двумя требованиями (reqIds, без reqId) показывает оба на карточке доски и в карточке-панели",
+        "Фильтр доски и счётчик задач в шапке считают по всем требованиям задачи, а не только по reqId",
+        "«no requirement» показывается только когда у задачи нет ни reqId, ни reqIds (и это не chore); клик по требованию открывает его",
+        "Тест: на панели 0.1.36 проверка красная (drawer still shows a single requirement), после правки зелёная"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "NFR1",
+      "kind": "NFR",
+      "text": "Правка аддитивна: контракт index.json не меняется, старые TASK без boardId читаются и получают названный отказ, журнал воспроизводится.",
+      "acceptance": [
+        "schemaVersion index.json остаётся 1; TASK без boardId не роняет панель, а получает отказ no_board_row",
+        "replay() после ручного изменения не даёт новых находок; verify() не добавляет кодов",
+        "make verify зелёный"
+      ],
+      "status": "proven"
+    }
+  ],
+  "architecture": {
+    "contractImpact": "additive",
+    "components": [
+      {
+        "id": "taskboard",
+        "name": "@cc/dsh-taskboard",
+        "responsibility": "владеет доской задач: статус, таймлайн, остановка детей, предел строк; отдаёт команду /taskboard и сервис taskboard",
+        "owner": "kit",
+        "owns": [
+          "board-ledger"
+        ],
+        "dependsOn": [
+          "state-core"
+        ]
+      },
+      {
+        "id": "state-core",
+        "name": "@cc/dsh-project-state",
+        "responsibility": "владеет TASK в state/ и журналом событий; отдаёт journal() через сервис ccProjectState",
+        "owner": "kit",
+        "owns": [
+          "task-record",
+          "state-journal"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "state-panel-client",
+        "name": "@cc/dsh-project-state-panel (клиент)",
+        "responsibility": "панель Project state: показывает доску и карточку задачи, отдаёт владельцу управление статусом через команду /taskboard",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": [
+          "taskboard",
+          "state-core"
+        ]
+      },
+      {
+        "id": "profile",
+        "name": "profile/cordis.patch.yml",
+        "responsibility": "монтирует плагины и задаёт их настройки, включая maxRows доски",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": []
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "board-ledger",
+      "name": "доска задач",
+      "owner": "kit",
+      "ownerComponentId": "taskboard",
+      "description": ".dsh/taskboard.json: строки задач с статусом, таймлайном и ревизией"
+    },
+    {
+      "id": "task-record",
+      "name": "карточка TASK",
+      "owner": "kit",
+      "ownerComponentId": "state-core",
+      "description": "state/task/<id>.md: зеркало строки доски по boardId"
+    },
+    {
+      "id": "state-journal",
+      "name": "журнал состояния",
+      "owner": "kit",
+      "ownerComponentId": "state-core",
+      "description": "state/events.jsonl: добавление события waiver на каждое ручное изменение статуса"
+    }
+  ],
+  "contracts": [
+    {
+      "id": "taskboard-command",
+      "name": "команда /taskboard",
+      "between": [
+        "state-panel-client",
+        "taskboard"
+      ],
+      "change": "additive",
+      "description": "новая операция op owner-status: id, expectedRevision, status, reason; возвращает задачу доски; пишется только человеком через команду, инструменты модели её не получают"
+    },
+    {
+      "id": "state-journal-event",
+      "name": "событие журнала состояния",
+      "between": [
+        "taskboard",
+        "state-core"
+      ],
+      "change": "additive",
+      "description": "событие waiver с кодом owner_status_override: from, to, reason, by: human, boardId, taskId; replay() такие события пропускает"
+    },
+    {
+      "id": "board-row-limit",
+      "name": "предел строк доски",
+      "between": [
+        "taskboard",
+        "profile"
+      ],
+      "change": "breaking",
+      "description": "maxRows больше не имеет значения по умолчанию: без настройки предела нет; явное положительное число задаёт предел, 0 — без предела"
+    }
+  ],
+  "invariants": [
+    {
+      "id": "INV-AUTHORITY",
+      "text": "Доска задач — автор статуса, state/ — его зеркало; панель не пишет файлов напрямую и не меняет статус в обход доски",
+      "scope": "доска задач и state/"
+    },
+    {
+      "id": "INV-OVERRIDE-TRAIL",
+      "text": "Правила жизненного цикла действуют для агента; обойти их может только команда владельца, и обход остаётся в журнале состояния",
+      "scope": "смена статуса владельцем"
+    },
+    {
+      "id": "INV-NO-LOSS",
+      "text": "Ручное изменение статуса не удаляет строки и историю доски",
+      "scope": "доска задач"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "D1",
+      "decision": "Ручное изменение статуса идёт через доску задач (op owner-status), а не прямой записью в state/task/*.md",
+      "rationale": "Доска — владелец статуса строки; прямая запись в TASK была бы затёрта следующим зеркалом, и агент увидел бы одно, а владелец другое",
+      "alternatives": [
+        "писать state/task напрямую и оставлять доску как есть",
+        "отдельное хранилище ручных статусов"
+      ]
+    },
+    {
+      "id": "D2",
+      "decision": "Обход правил жизненного цикла доступен только человеческой команде; инструменты модели остаются под гейтами",
+      "rationale": "Владелец попросил себе ручное управление; сделать тот же обход доступным агенту значило бы отменить гейты, которые владелец не отменял",
+      "alternatives": [
+        "добавить параметр override в task_update",
+        "новый инструмент для модели"
+      ]
+    },
+    {
+      "id": "D3",
+      "decision": "Событие обхода пишется в журнал состояния с кодом owner_status_override и статусами from/to",
+      "rationale": "Владелец попросил «с записью в журнал»; журнал — append-only запись состояния, replay() его читает и пропускает события waiver",
+      "alternatives": [
+        "только таймлайн доски",
+        "только запись в задаче"
+      ]
+    },
+    {
+      "id": "D4",
+      "decision": "Предел строк доски по умолчанию отсутствует; maxRows остаётся явной настройкой (0 — без предела)",
+      "rationale": "Владелец: «не ограничивать». Предел, который срабатывает без просьбы владельца, остановил работу на 1000 строк и заставил писать отложенное в чужую задачу",
+      "alternatives": [
+        "поднять предел до 10000",
+        "архивировать доску при пределе"
+      ]
+    },
+    {
+      "id": "D5",
+      "decision": "Панель остаётся линзой: единственная её запись — команда смены статуса, других write-команд нет",
+      "rationale": "Прежнее решение «панель только читает» отменено владельцем ровно в этой части; остальные поля задачи по-прежнему меняются в панели Tasks и агентом",
+      "alternatives": [
+        "разрешить в панели все поля задачи",
+        "оставить панель только для чтения"
+      ]
+    }
+  ],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L2",
+    "reasons": [
+      "меняется поведение контракта панели (была только для чтения) и команды доски",
+      "затронуты три плагина и профиль",
+      "меняется правило предела строк доски"
+    ]
+  },
+  "designRef": {
+    "mapRev": 0,
+    "at": "2026-11-19T08:20:00.000Z",
+    "source": "designmap/manifest.json"
+  },
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "FR1",
+      "processId": "ST-TGT",
+      "componentId": "state-panel-client",
+      "contractIds": [
+        "taskboard-command",
+        "state-journal-event"
+      ],
+      "dataIds": [
+        "board-ledger",
+        "task-record",
+        "state-journal"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwna53jt-817kmc",
+          "role": "orchestrator",
+          "at": "2026-11-19T08:45:00.000Z",
+          "evidence": [
+            "node --test plugins/taskboard/test/owner-status.test.mjs on taskboard 0.1.66: 5 of 6 fail (unknown_op, no journal call); on 0.1.67: 6/6 pass (TEST-072)",
+            "PANEL_ROOT=<shipped panel 0.1.36 client> node --test plugins/project-state-panel/test/counts-and-sort.test.mjs fails naming the missing helpers, the single command call site and the absent status control; on 0.1.38 the suite is green",
+            "second server :3081 with an isolated DSH_HOME and profile web-proof (panel 0.1.38, taskboard 0.1.67): 11/11 browser checks; TASK-246 open -> done from the list and from the card grid, notice 'TASK-246 is now done; the state journal records the change'",
+            "reports/task-state-owner-control/fixture-after.json: board row done rev 3 with {kind: status, actor: human, from: open, to: done}, state/task/TASK-246.md done, index.json row done, one owner_status_override waiver {from: open, to: done, by: human, boardId: task-mwna53jt-817kmc, taskId: TASK-246}",
+            "negative control TASK-990 (no boardId): drawer refuses no_board_row, 0 commands sent, 0 journal events, file still open",
+            "the agent path refuses the same move: service.update open -> done answers use_close (asserted in the taskboard test)"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR2",
+      "processId": "ST-TGT2",
+      "componentId": "taskboard",
+      "contractIds": [
+        "board-row-limit"
+      ],
+      "dataIds": [
+        "board-ledger"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwna53jt-817kmc",
+          "role": "orchestrator",
+          "at": "2026-11-19T08:45:00.000Z",
+          "evidence": [
+            "on taskboard 0.1.66 the suite fails 'a create past 1000 rows is accepted when maxRows is not configured' (board_rows_full); on 0.1.67 it passes: 1000-row fixture + one create = 1001 rows (TEST-073)",
+            "node scripts/taskboard-limit-proof.mjs: 13/13, explicit maxRows: 10 still refuses board_rows_full, maxRows: 0 accepted on a full board",
+            "profile/cordis.patch.yml no longer sets maxRows; the plugin reads no default limit"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR3",
+      "processId": "ST-TGT",
+      "componentId": "state-panel-client",
+      "contractIds": [],
+      "dataIds": [
+        "task-record"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwna53jt-817kmc",
+          "role": "orchestrator",
+          "at": "2026-11-19T08:45:00.000Z",
+          "evidence": [
+            "against the shipped 0.1.36 client the panel suite is red with 'the drawer still shows a single requirement' and no requirementIdsOf; on 0.1.38 it is green (TEST-074)",
+            "browser proof: the TASK-233 drawer reads 'Requirements: REQ-111 REQ-112 REQ-113 REQ-114' (4 chips), and the list rows show every requirement tag of a batch task",
+            "requirementIdsOf folds reqId and reqIds for the card, the drawer, the board filter and the header count"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "NFR1",
+      "processId": "ST-TGT",
+      "componentId": "state-core",
+      "contractIds": [],
+      "dataIds": [
+        "task-record",
+        "state-journal"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwna53jt-817kmc",
+          "role": "orchestrator",
+          "at": "2026-11-19T08:45:00.000Z",
+          "evidence": [
+            "node --test plugins/project-state/test/service.test.mjs on 0.1.13 fails 'the service publishes no journal()'; on 0.1.14 journal() appends the waiver event (TEST-075)",
+            "replay() on this workspace: ok true, 982 events, 0 mismatches; verify() adds no new codes (task_req_missing/orphan only); state/views/index.json stays schemaVersion 1",
+            "a TASK without boardId is refused no_board_row before any command (browser negative control)"
+          ]
+        }
+      ]
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "f85ec7e55ec5b2e6f7e0a954dd97bf12d2083cb159d12822f0cdb9970de6177e",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-19T08:19:42.538Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-19T08:19:54.167Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-19T08:26:53.110Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR1 changed, FR3 added; impacts: 3"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-19T08:26:56.395Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-19T08:48:01.490Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR2 changed; impacts: 1"
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-19T08:48:04.902Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    }
+  ]
+}

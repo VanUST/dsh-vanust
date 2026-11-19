@@ -5,12 +5,14 @@
  *   the profile can mount the client half (the loader discovers a client bundle through the
  *   package's `dsh.client` declaration, and a client bundle needs an active loader row).
  *
- * WHAT IT DOES NOT DO
+ * WHAT IT DOES
  *   No `tools` injection, no `provide`, no `inject`: nothing in the agent's turn changes
  *   because this panel is mounted. The four modes read `state/views/index.json` plus the
  *   entity frontmatter through the read-only workspaceFiles API of the browser session, and
- *   the design map mode calls designmap's read-only `views` command. Writes stay in the
- *   panels and services that own them.
+ *   the design map mode calls designmap's read-only `views` command. The one write the owner
+ *   gets is the task status: the panel sends the taskboard's `owner-status` op through the
+ *   command Remote, and the board owns that write (it mirrors the TASK, regenerates the
+ *   projections and records the override in the state journal). The panel writes no file.
  */
 
 export const name = '@cc/dsh-project-state-panel'

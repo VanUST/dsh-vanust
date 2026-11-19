@@ -144,9 +144,9 @@ node /home/iustimov/.npm/node/lib/node_modules/@deepseek-ai/dsh/lib/bin.js \
 | `notify` | `@cc/dsh-notify` 1.1.3 | хост | уведомление на конец хода и на вопрос пользователю; ни инструмента, ни раздела промпта |
 | `image-window` | `@cc/dsh-image-window` 0.1.1 | хост | вытесняет из запроса самое старое изображение, когда приходит новое; ни инструмента, ни раздела |
 | `presentation` | `@cc/dsh-presentation` 0.1.9 | хост | инструмент `presentation` (HTML-презентация из JSON); только `standard`, `orchestrator`, `ux` |
-| `diagrams` | `@cc/dsh-diagrams` 0.1.5 | хост | инструмент `diagram` (HTML/SVG из JSON); только `standard`, `orchestrator`, `ux` |
+| `diagrams` | `@cc/dsh-diagrams` 0.1.7 | хост | инструмент `diagram` (HTML/SVG из JSON); только `standard`, `orchestrator`, `ux` и только если allow-строка пресета его называет |
 | `designmap` | `@cc/dsh-designmap` 0.1.17 | хост | 7 инструментов `designmap_*`, панель Design map, команда `/designmap`; только `orchestrator` |
-| `test-cases` | `@cc/dsh-test-cases` 0.1.12 | хост | 12 инструментов `case_*` по политике ролей, панель, сервис `cases` для отказа `task_close`; раздел `deployment:test-cases` |
+| `test-cases` | `@cc/dsh-test-cases` 0.1.17 | хост | 12 инструментов `case_*` по политике ролей (регистрация спрашивает allow-строку пресета), панель, сервис `cases` для отказа `task_close`; раздел `deployment:test-cases` |
 | `analysis` | `@cc/dsh-analysis` 0.1.9 | хост | 4 корневых инструмента `analysis_*`, сервис `analysis` для `delegate_task`/`task_close`/`update_goal`; раздел `deployment:analysis-policy` |
 | `project-rules` | `@cc/dsh-project-rules` 0.1.10 | хост | раздел `project:rules` из `.dsh/rules.md`, панель Rules; агенту запрещено править файл (`rules_human_only`) |
 | `godot-mcp` | `@cc/dsh-godot-mcp` 0.1.6 | хост | канонический список MCP-серверов и раздел `godot:mcp`; сам протокол MCP не реализует |
@@ -154,13 +154,13 @@ node /home/iustimov/.npm/node/lib/node_modules/@deepseek-ai/dsh/lib/bin.js \
 | `papers` | `@cc/dsh-papers` 0.1.5 | хост | `papers_search`, `papers_trending`, `papers_download`; только `standard`, `research` |
 | `flash-guard` | `@cc/dsh-flash-guard` 0.1.2 | хост | отказ дочернему маршруту модели вне списка; ни инструмента, ни раздела |
 | `proof-guard` | `@cc/dsh-proof-guard` 0.1.1 | хост | запрет записи или правки тестового файла без заголовка `PROOF:` |
-| `tool-families` | `@cc/dsh-tool-families` 0.1.8 | хост | сужает видимый набор MCP- и shell-семейств по пресету; ни инструмента, ни раздела |
+| `tool-families` | `@cc/dsh-tool-families` 0.1.14 | хост | сужает видимый набор MCP- и shell-семейств по пресету через `tools.restrict`, а регистрации кита — через `toolFamilies.allows()`; ни инструмента, ни раздела |
 | `taskboard` | `@cc/dsh-taskboard` 0.1.56 | хост | 12 инструментов `task_*`, панель Tasks, строгий жизненный цикл задачи; своего раздела промпта нет (правила — в политике оркестратора) |
 | `orchestrator` | `@cc/dsh-orchestrator` 0.1.48 | хост | `delegate_task`, разделы `deployment:orchestrator-policy` и `deployment:specialist-policy`, каталог ролей и долг таскборда, запрет обходить `delegate_task` через `subagent` |
 | `research-first` | `@cc/dsh-research-first` 0.1.4 | хост | запрет создавать файл, пока в сессии не прочитан текущий источник; `research_waive`; раздел `research:first` |
 | `rtk` | `@cc/dsh-rtk` 0.1.7 | хост | сжатие вывода shell на `tools/post-execute`; раздел `rtk:output` |
 | `outline` | `@cc/dsh-outline` 0.1.1 | хост | инструмент `outline` (оглавление файла) и раздел `outline:index` |
-| `run-code-projection` | `@cc/dsh-run-code-projection` 0.1.1 | хост | заменяет большой результат `run_code` проекцией с путём к полному тексту |
+| `run-code-projection` | `@cc/dsh-run-code-projection` 0.1.2 | хост | заменяет большой результат инструмента из списка (`run_code`, `bash`, `read`, `web_fetch`, страницы Hindsight, `task_list`) проекцией с путём к полному тексту |
 | `skill-evolve` | `@cc/dsh-skill-evolve` 0.1.5 | хост | `skill_evolve`, `skill_inventory`, `skill_grow`, `skill_forget`; раздел `skills:evolve` |
 | `work-modes` | `@cc/dsh-work-modes` 0.1.9 | **не смонтирован** | исторический лимит на два параллельных ребёнка; выключен, пакет и тарбол сохранены |
 

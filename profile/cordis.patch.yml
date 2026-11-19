@@ -82,6 +82,10 @@
         dir: designmap
         presets:
           - orchestrator
+          # The design map is the architect's artifact: the role reads and records it, and with
+          # the role left out of this list its three allowed designmap tools never registered
+          # (measured 2026-11-19: an architect session carried no designmap tool at all).
+          - architect
 
 # ── test-cases: observed test cases persisted in docs/cases/ ────────────────
 # Eight schema-enforced host tools over a repo-tracked library: case_record,
@@ -205,9 +209,11 @@
 # ── flash-guard: delegated work stays on flash ─────────────────────────────
 # The default model is already deepseek-flash, but a workflow script can name
 # another route. This listener runs after `agent/request` resolves the frozen
-# LlmCallConfig and rewrites a child's route to flash before dispatch; with
-# `onViolation: refuse` it throws instead. `enforceRoot: false` keeps the human's
-# own model choice intact. External providers do not route through this seam.
+# LlmCallConfig and REFUSES a child's route unless it is listed below;
+# `enforceRoot: false` keeps the human's own model choice intact. External
+# providers do not route through this seam. The old `maxReasoningEffort` cap is
+# gone: the effort is part of the same frozen selection and lowering it here threw
+# the turn (`dsh-agent-loop` compares provider, model AND effort).
 #
 # Two rules, because they answer different questions. `allowedRoutes` says what a
 # CHILD may run on, so a child may be routed to either Kimi tier deliberately
@@ -229,7 +235,6 @@
         # keeps the policy and loses only the substitution.
         onViolation: refuse
         enforceRoot: false
-        maxReasoningEffort: high
         allowedRoutes:
           - provider: deepseek-official
             model: deepseek-flash
@@ -237,6 +242,13 @@
             model: k3.1-pro
           - provider: kimi-coding
             model: kimi-for-coding
+          # The ARCHITECT role's own route (`@cc/dsh-role-model` selects it for that preset and
+          # for nobody else). It must be listed here or the guard refuses every delegated
+          # architect child: the child's route is decided before `agent/request` runs. It is NOT
+          # in `subagent-model-selection-settings.allowedModels`, so a `workflow` script still
+          # cannot name it explicitly, and `delegate_task` cannot ask for it either.
+          - provider: openai-codex
+            model: gpt-6.2-astra
         deniedModels:
           - '*highspeed*'
 
@@ -296,11 +308,28 @@
         # (~53 KB system prompt), never against a native preset's 24-25 KB.
         budgets:
           orchestrator:
-            tools: 56
-            recommended: 40
-            schemaBytes: 62000
+            # 2026-11-18: 54 measured tools -> 42 after the allow list started applying to
+            # per-agent registrations and eight zero-use tools left the row. The floor is the
+            # preset's own 15 tools, which tools.restrict cannot mask.
+            tools: 45
+            recommended: 42
+            schemaBytes: 56000
             promptBytes: 26000
             remindersBytes: 70000
+          architect:
+            # Measured on the first real session after the preset shipped; the floor is the
+            # preset's own seven tools (read, glob, grep, edit-less fs, skill-less), which
+            # tools.restrict cannot mask. The role's whole reason to exist is a small prefix, so
+            # its allowance is on the declared surface (12) and not on the deployment default.
+            tools: 15
+            recommended: 12
+            schemaBytes: 20000
+            promptBytes: 12000
+            # Measured 2026-11-19 on the first real ARCHITECT session: 15 309 B, of which the
+            # Hindsight guide its own plugin injects into every root is 7 932 B and the state
+            # digest 3 312 B. No skill catalog (30 304 B in the orchestrator session this role
+            # replaces). The budget is the measurement plus a little headroom, not a guess.
+            remindersBytes: 16000
           ux:
             tools: 52
             recommended: 40
@@ -361,6 +390,12 @@
         families:
           # Root: the board, delegation, the analysis record, the design map, files and the
           # read half of Hindsight (D4 keeps Hindsight at the root; the write tools are out).
+          # TUNED 2026-11-18 from 127 root sessions (9082 tool calls): dropped every tool with
+          # zero or near-zero root use - designmap export/open/scan/render, task link/pause/
+          # resume/remove, hindsight_reflect; added the case-intake subset and delegation_brief,
+          # which the root does use but the list never named (so they bypassed the policy).
+          # Floor: the preset's own 15 tools (fs, search, skill, goal, ask, todo, web, present)
+          # cannot be masked by tools.restrict; the root surface is ~42, not 30.
           orchestrator:
             allow:
               - analysis_check
@@ -368,13 +403,14 @@
               - analysis_read
               - analysis_upsert
               - ask_user_question
+              - case_drift
+              - case_get
+              - case_list
+              - case_record
               - delegate_task
+              - delegation_brief
               - designmap_apply
-              - designmap_export
               - designmap_lint
-              - designmap_open
-              - designmap_render
-              - designmap_scan
               - designmap_status
               - edit
               - glob
@@ -383,7 +419,6 @@
               - hindsight_list_pages
               - hindsight_read_page
               - hindsight_search_pages
-              - hindsight_reflect
               - outline
               - present
               - read
@@ -394,18 +429,35 @@
               - task_close
               - task_create
               - task_get
-              - task_link
               - task_list
               - task_note
-              - task_pause
-              - task_remove
-              - task_resume
               - task_stop
               - task_update
               - todo_write
               - web_fetch
               - web_search
               - write
+            projectDeny:
+              - mcp__godot__*
+          # The costly route: the decision surface only (D13, and the owner's 2026-11-19 brief).
+          # `delegate_task` is the context seam (registered on root agents only, so a delegated
+          # architect reads its brief instead); the design map is its artifact; the three Hindsight
+          # read tools make the guide its plugin injects into every root truthful. No bash, no
+          # web, no write/edit, no skill catalog, no task-board writes, no case tools.
+          architect:
+            allow:
+              - delegate_task
+              - designmap_apply
+              - designmap_lint
+              - designmap_status
+              - glob
+              - grep
+              - hindsight_list_pages
+              - hindsight_read_page
+              - hindsight_search_pages
+              - outline
+              - read
+              - task_note
             projectDeny:
               - mcp__godot__*
           # Implementation role: files, a shell, the two board tools a worker needs
@@ -599,9 +651,11 @@
         # No cap on work in flight. `maxTasks: 0` is the plugin's explicit UNLIMITED, not a
         # default: this workspace runs many long-lived role rows at once and the 200 cap
         # turned "start one more task" into `board_full` with history on the board already
-        # holding the answer. The file guard below is what still bounds the ledger.
+        # holding the answer.
+        # NO ROW CAP EITHER. `maxRows` is deliberately absent: the plugin has no default limit,
+        # and the shipped 1000-row guard refused new work in a real workspace whose board had
+        # 1000 rows of history. A limit is a decision for the owner, not a default.
         maxTasks: 0
-        maxRows: 1000
         timelineLimit: 120
 
 # ── orchestrator: the root agent plans, delegates and integrates ─────────────
@@ -661,21 +715,36 @@
     - id: outline
       name: '@cc/dsh-outline'
 
-# ── run-code-projection: the bulk of a run_code result, moved out of the step ─
-# The tool that dominates this deployment's context is not bash but run_code: a
-# program that prints a report or a whole file hands the model tens of kilobytes
-# in one tool/result, and every later step re-sends them. This row listens on the
-# same tools/post-execute seam RTK uses, but for run_code: above 8 KiB the
-# model-facing text becomes a banner, the first 3 KiB, the last 1.5 KiB and the
-# exact path of the full text written INSIDE the session workspace, so the model
-# reads the middle back with ordinary file tools only when it needs it. Errors,
-# media, short results, already-projected text and a result another policy
-# replaced are never touched, and the banner always names the elided byte count.
-# Measured over this workspace's session logs with the same policy: 5.56% of all
-# tool-result bytes saved, which is the 5-7% the projection was designed for.
+# ── run-code-projection: the bulk of a large tool result, moved out of the step ─
+# A program that prints a report, a whole file or a whole page hands the model tens
+# of kilobytes in one tool/result, and every later step re-sends them. This row
+# listens on the same tools/post-execute seam RTK uses, but for a configured tool
+# list: above 8 KiB the model-facing text becomes a banner, the first 3 KiB, the
+# last 1.5 KiB and the exact path of the full text written INSIDE the session
+# workspace, so the model reads the middle back with ordinary file tools only when
+# it needs it. Compare-and-set tools (task_get, task_update, task_close,
+# analysis_*, delegation_*) and skill stay whole: their text is a contract or
+# instructions. Errors, media, short results, already-projected text and a result
+# another policy replaced are never touched.
+# 2026-11-18: the list was one tool (run_code); the first two steps of session
+# session-0b50bf39 put 190 324 chars of task_list/read/hindsight output into the
+# context and re-sent them for 54 requests. The list below is the fix.
 - insert:
     - id: run-code-projection
       name: '@cc/dsh-run-code-projection'
+      config:
+        tools:
+          - run_code
+          - bash
+          - pwsh
+          - read
+          - web_fetch
+          - hindsight_read_page
+          - hindsight_search_pages
+          - grep
+          - glob
+          - outline
+          - task_list
 
 # ── skill-evolve: the skill library grows instead of rotting ────────────────
 # The harness already discovers `<name>/SKILL.md` under $DSH_HOME/skills and
@@ -812,7 +881,46 @@
       # route here activates that catalog entry; the sign-in happens in Settings ->
       # Models and the credential is stored as llm-pi-ai/openai-codex. No API key and
       # no prepaid credits are involved, so a ChatGPT subscription is enough.
-      openai-codex: {}
+      # The installed pi-ai catalog (1.5.2 in DSH 0.2.2-rc.3) stops at GPT-6.1: it has no
+      # GPT-6.2 family, so the picker cannot offer the models this subscription serves. The
+      # route accepts them (measured: POST /codex/responses with gpt-6.2-astra -> 200 and a
+      # completed answer), and the live catalog
+      # (GET /backend-api/codex/models?client_version=1.0.0) lists gpt-6.2-astra and
+      # gpt-6.2-sol next to the 6.1/6/5.6 tiers. A `models` list REPLACES the route's catalog,
+      # so the whole set is repeated: entries that exist in the installed catalog inherit
+      # their capacities and compat flags; the two new ids carry their own.
+      openai-codex:
+        models:
+          - id: gpt-6.2-astra
+            name: GPT-6.2 Astra
+            contextWindow: 272000
+            maxTokens: 128000
+            input: [text, image]
+            reasoningEfforts:
+              low: low
+              medium: medium
+              high: high
+              xhigh: xhigh
+              max: max
+          - id: gpt-6.2-sol
+            name: GPT-6.2 Sol
+            contextWindow: 272000
+            maxTokens: 128000
+            input: [text, image]
+            reasoningEfforts:
+              low: low
+              medium: medium
+              high: high
+              xhigh: xhigh
+              max: max
+          - id: gpt-6.1-sol
+          - id: gpt-6.1-terra
+          - id: gpt-6-astra
+          - id: gpt-6-sol
+          - id: gpt-6-luna
+          - id: gpt-5.6-sol
+          - id: gpt-5.6-terra
+          - id: gpt-5.6-luna
 
 # ── subagent model selection: which routes an agent may hand to a child ─────
 # The harness's own gate for a model-facing child route: the `subagent` tool
@@ -833,7 +941,32 @@
         model: k3.1-pro
       - provider: kimi-coding
         model: kimi-for-coding
-# ── roles: the eight compositions this deployment runs ─────────────────────
+
+# ── role-model: a role's own route, and a fallback when its quota is gone ───
+# A preset has no model field (`PresetDefinition` is identity + plugins), so a role that must run
+# on an expensive model was re-routed by hand in every session. This row is that rule, and the
+# first entry is the ARCHITECT role: `openai-codex/gpt-6.2-astra` for a fresh session whose human
+# has not picked a model, and `deepseek-official/deepseek-flash` at max effort — the deployment
+# default from `agent-default-model` above — when the provider answers QUOTA. The switch happens
+# at `agent/request-error` and the step is RETRIED, so an exhausted subscription costs one retried
+# step instead of a dead turn. Nothing else is routed: a preset without a rule keeps the default,
+# and `gpt-6.2-astra` is not in `subagent-model-selection-settings`, so no delegation or workflow
+# script can name it.
+- insert:
+    - id: role-model
+      name: '@cc/dsh-role-model'
+      config:
+        roles:
+          architect:
+            provider: openai-codex
+            model: gpt-6.2-astra
+            reasoningEffort: high
+            fallback:
+              provider: deepseek-official
+              model: deepseek-flash
+              reasoningEffort: max
+
+# ── roles: the nine compositions this deployment runs ──────────────────────
 # A role is an agent preset, not a prompt request: the preset IS the tool list and
 # the persona, so a backend specialist cannot run `papers_*` because nothing
 # registered it, and the orchestrator cannot run a command because it has no `bash`
@@ -903,8 +1036,27 @@
               - id: compaction-basic
                 name: '@deepseek-ai/dsh-compaction-basic'
                 config:
-                  thresholdRatio: 0.5
+                  # Absolute budget ~500K where the window allows it, and never more than
+                  # 80% of the window: a 1M window compacts at 524K (0.5), a 272K Codex
+                  # window at 206K (0.8, capped by the 64K headroom). A flat 0.5 cut the
+                  # 272K window at 136K and paid for a summarization call plus a cache reset
+                  # mid-turn (session-0b50bf39, 2026-11-18).
+                  thresholdRatio: 0.8
                   retainRatio: 0.08
+                  modelPolicies:
+                    - provider: deepseek-official
+                      model: deepseek-flash
+                      thresholdRatio: 0.5
+                    # The 1M Kimi windows are the same absolute budget: 0.8 would spend 838K.
+                    - provider: kimi-coding
+                      model: k3.1-pro
+                      thresholdRatio: 0.5
+                    - provider: kimi-coding
+                      model: kimi-for-coding
+                      thresholdRatio: 0.5
+                    - provider: kimi-coding
+                      model: k3
+                      thresholdRatio: 0.5
               - id: command-compact
                 name: '@deepseek-ai/dsh-command-compact'
               - id: tool-result-pruner
@@ -926,6 +1078,82 @@
               searchTimeoutMs: 60000
           - id: present
             name: '@deepseek-ai/dsh-tool-present'
+
+    # ── architect: the system designer on the expensive route, minimal ────────
+    # WHY A NINTH PRESET AND NOT A SMALLER ORCHESTRATOR: this role is called rarely (the owner
+    # opens a chat on it, or the orchestrator delegates an L0 design question) and every step is
+    # paid at the most expensive route the deployment has. Its surface is therefore the decision
+    # tools only: read a named file, inspect the design map, change the design map, delegate the
+    # reading. No bash (a command is a specialist's proof), no web (RESEARCH owns external state),
+    # no write/edit (the design is the map and the answer; the orchestrator writes the record),
+    # and NO skill-filesystem/tool-skill: the skill catalog was 30 304 B of the 34 188 B of
+    # reminders in a measured session, and `tool-skill` emits the catalog only together with its
+    # own tool, so dropping the tool drops the catalog. The three Hindsight read tools stay: the
+    # plugin injects its guide into every root regardless (measured 9 288 B), and a guide whose
+    # tools are absent would cost a failed call on the expensive route.
+    #
+    # CONTEXT SUPPLY (the owner's two modes): as a ROOT the role delegates a GATHERER for
+    # reconnaissance — `delegate_task` is registered on root agents only, so as a CHILD the role
+    # reads what its brief gave it and names what is missing. That split is deliberate and is
+    # stated in the persona.
+    #
+    # ROUTE: `role-model` above selects gpt-6.2-astra for this preset before the first request and
+    # falls back to flash at max effort on a quota failure.
+    - id: preset-architect
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: architect
+        name: Architect
+        description: System designer on the expensive route. Decides what should exist and how the parts fit from the context it is given; records the design map and delegates the reading.
+        order: 15
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |-
+                You are the architect of this workspace: the system designer, running on the deployment's most expensive route. Every token of context is paid at that route, so spend it on the decision, not on reading. Read only what the question needs (read, grep, glob, outline on named files or a named subsystem) and never survey the repository; when the answer depends on the current architecture, delegate ONE GATHERER with delegate_task and use its cited report instead of reading the tree yourself. As a delegated specialist you cannot delegate: the context you were given is the context, and a missing fact is named in your answer rather than explored. Record a design change in the design map with designmap_apply (nodes, edges, groups), keep it lint-clean, and answer in one text: the decision, why it is the right one, which parts change, what would break. No transcript of your reading. You cannot edit code, run commands, browse or change the task board — those belong to the roles that own them; make the edit if the edit is the work, and delegate the proof. Keep the answer short enough to act on: the decision and its reasons are the product.
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              write: false
+              edit: false
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              # Half of the 272K window (136K) instead of the deployment's 0.8: the route is the
+              # expensive one, so the session must stay small, and the summary is written by flash
+              # rather than by the expensive model. `summarizationProvider`/`summarizationModel`
+              # are set as a pair; without them the LAST ROUTED TARGET would write the summary,
+              # which is astra here.
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+                config:
+                  thresholdRatio: 0.5
+                  retainRatio: 0.08
+                  summarizationProvider: deepseek-official
+                  summarizationModel: deepseek-flash
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
 
     # ── ux: designer and tester, reference-first, proves in a browser ────────
     - id: preset-ux
@@ -975,8 +1203,27 @@
               - id: compaction-basic
                 name: '@deepseek-ai/dsh-compaction-basic'
                 config:
-                  thresholdRatio: 0.5
+                  # Absolute budget ~500K where the window allows it, and never more than
+                  # 80% of the window: a 1M window compacts at 524K (0.5), a 272K Codex
+                  # window at 206K (0.8, capped by the 64K headroom). A flat 0.5 cut the
+                  # 272K window at 136K and paid for a summarization call plus a cache reset
+                  # mid-turn (session-0b50bf39, 2026-11-18).
+                  thresholdRatio: 0.8
                   retainRatio: 0.08
+                  modelPolicies:
+                    - provider: deepseek-official
+                      model: deepseek-flash
+                      thresholdRatio: 0.5
+                    # The 1M Kimi windows are the same absolute budget: 0.8 would spend 838K.
+                    - provider: kimi-coding
+                      model: k3.1-pro
+                      thresholdRatio: 0.5
+                    - provider: kimi-coding
+                      model: kimi-for-coding
+                      thresholdRatio: 0.5
+                    - provider: kimi-coding
+                      model: k3
+                      thresholdRatio: 0.5
               - id: command-compact
                 name: '@deepseek-ai/dsh-command-compact'
               - id: tool-result-pruner
@@ -1050,8 +1297,27 @@
               - id: compaction-basic
                 name: '@deepseek-ai/dsh-compaction-basic'
                 config:
-                  thresholdRatio: 0.5
+                  # Absolute budget ~500K where the window allows it, and never more than
+                  # 80% of the window: a 1M window compacts at 524K (0.5), a 272K Codex
+                  # window at 206K (0.8, capped by the 64K headroom). A flat 0.5 cut the
+                  # 272K window at 136K and paid for a summarization call plus a cache reset
+                  # mid-turn (session-0b50bf39, 2026-11-18).
+                  thresholdRatio: 0.8
                   retainRatio: 0.08
+                  modelPolicies:
+                    - provider: deepseek-official
+                      model: deepseek-flash
+                      thresholdRatio: 0.5
+                    # The 1M Kimi windows are the same absolute budget: 0.8 would spend 838K.
+                    - provider: kimi-coding
+                      model: k3.1-pro
+                      thresholdRatio: 0.5
+                    - provider: kimi-coding
+                      model: kimi-for-coding
+                      thresholdRatio: 0.5
+                    - provider: kimi-coding
+                      model: k3
+                      thresholdRatio: 0.5
               - id: command-compact
                 name: '@deepseek-ai/dsh-command-compact'
               - id: tool-result-pruner
@@ -1121,8 +1387,27 @@
               - id: compaction-basic
                 name: '@deepseek-ai/dsh-compaction-basic'
                 config:
-                  thresholdRatio: 0.5
+                  # Absolute budget ~500K where the window allows it, and never more than
+                  # 80% of the window: a 1M window compacts at 524K (0.5), a 272K Codex
+                  # window at 206K (0.8, capped by the 64K headroom). A flat 0.5 cut the
+                  # 272K window at 136K and paid for a summarization call plus a cache reset
+                  # mid-turn (session-0b50bf39, 2026-11-18).
+                  thresholdRatio: 0.8
                   retainRatio: 0.08
+                  modelPolicies:
+                    - provider: deepseek-official
+                      model: deepseek-flash
+                      thresholdRatio: 0.5
+                    # The 1M Kimi windows are the same absolute budget: 0.8 would spend 838K.
+                    - provider: kimi-coding
+                      model: k3.1-pro
+                      thresholdRatio: 0.5
+                    - provider: kimi-coding
+                      model: kimi-for-coding
+                      thresholdRatio: 0.5
+                    - provider: kimi-coding
+                      model: k3
+                      thresholdRatio: 0.5
               - id: command-compact
                 name: '@deepseek-ai/dsh-command-compact'
               - id: tool-result-pruner
@@ -1201,8 +1486,27 @@
               - id: compaction-basic
                 name: '@deepseek-ai/dsh-compaction-basic'
                 config:
-                  thresholdRatio: 0.5
+                  # Absolute budget ~500K where the window allows it, and never more than
+                  # 80% of the window: a 1M window compacts at 524K (0.5), a 272K Codex
+                  # window at 206K (0.8, capped by the 64K headroom). A flat 0.5 cut the
+                  # 272K window at 136K and paid for a summarization call plus a cache reset
+                  # mid-turn (session-0b50bf39, 2026-11-18).
+                  thresholdRatio: 0.8
                   retainRatio: 0.08
+                  modelPolicies:
+                    - provider: deepseek-official
+                      model: deepseek-flash
+                      thresholdRatio: 0.5
+                    # The 1M Kimi windows are the same absolute budget: 0.8 would spend 838K.
+                    - provider: kimi-coding
+                      model: k3.1-pro
+                      thresholdRatio: 0.5
+                    - provider: kimi-coding
+                      model: kimi-for-coding
+                      thresholdRatio: 0.5
+                    - provider: kimi-coding
+                      model: k3
+                      thresholdRatio: 0.5
               - id: command-compact
                 name: '@deepseek-ai/dsh-command-compact'
               - id: tool-result-pruner
@@ -1274,8 +1578,27 @@
               - id: compaction-basic
                 name: '@deepseek-ai/dsh-compaction-basic'
                 config:
-                  thresholdRatio: 0.5
+                  # Absolute budget ~500K where the window allows it, and never more than
+                  # 80% of the window: a 1M window compacts at 524K (0.5), a 272K Codex
+                  # window at 206K (0.8, capped by the 64K headroom). A flat 0.5 cut the
+                  # 272K window at 136K and paid for a summarization call plus a cache reset
+                  # mid-turn (session-0b50bf39, 2026-11-18).
+                  thresholdRatio: 0.8
                   retainRatio: 0.08
+                  modelPolicies:
+                    - provider: deepseek-official
+                      model: deepseek-flash
+                      thresholdRatio: 0.5
+                    # The 1M Kimi windows are the same absolute budget: 0.8 would spend 838K.
+                    - provider: kimi-coding
+                      model: k3.1-pro
+                      thresholdRatio: 0.5
+                    - provider: kimi-coding
+                      model: kimi-for-coding
+                      thresholdRatio: 0.5
+                    - provider: kimi-coding
+                      model: k3
+                      thresholdRatio: 0.5
               - id: command-compact
                 name: '@deepseek-ai/dsh-command-compact'
               - id: tool-result-pruner
@@ -1360,8 +1683,27 @@
               - id: compaction-basic
                 name: '@deepseek-ai/dsh-compaction-basic'
                 config:
-                  thresholdRatio: 0.5
+                  # Absolute budget ~500K where the window allows it, and never more than
+                  # 80% of the window: a 1M window compacts at 524K (0.5), a 272K Codex
+                  # window at 206K (0.8, capped by the 64K headroom). A flat 0.5 cut the
+                  # 272K window at 136K and paid for a summarization call plus a cache reset
+                  # mid-turn (session-0b50bf39, 2026-11-18).
+                  thresholdRatio: 0.8
                   retainRatio: 0.08
+                  modelPolicies:
+                    - provider: deepseek-official
+                      model: deepseek-flash
+                      thresholdRatio: 0.5
+                    # The 1M Kimi windows are the same absolute budget: 0.8 would spend 838K.
+                    - provider: kimi-coding
+                      model: k3.1-pro
+                      thresholdRatio: 0.5
+                    - provider: kimi-coding
+                      model: kimi-for-coding
+                      thresholdRatio: 0.5
+                    - provider: kimi-coding
+                      model: k3
+                      thresholdRatio: 0.5
               - id: command-compact
                 name: '@deepseek-ai/dsh-command-compact'
               - id: tool-result-pruner
@@ -1435,8 +1777,27 @@
               - id: compaction-basic
                 name: '@deepseek-ai/dsh-compaction-basic'
                 config:
-                  thresholdRatio: 0.5
+                  # Absolute budget ~500K where the window allows it, and never more than
+                  # 80% of the window: a 1M window compacts at 524K (0.5), a 272K Codex
+                  # window at 206K (0.8, capped by the 64K headroom). A flat 0.5 cut the
+                  # 272K window at 136K and paid for a summarization call plus a cache reset
+                  # mid-turn (session-0b50bf39, 2026-11-18).
+                  thresholdRatio: 0.8
                   retainRatio: 0.08
+                  modelPolicies:
+                    - provider: deepseek-official
+                      model: deepseek-flash
+                      thresholdRatio: 0.5
+                    # The 1M Kimi windows are the same absolute budget: 0.8 would spend 838K.
+                    - provider: kimi-coding
+                      model: k3.1-pro
+                      thresholdRatio: 0.5
+                    - provider: kimi-coding
+                      model: kimi-for-coding
+                      thresholdRatio: 0.5
+                    - provider: kimi-coding
+                      model: k3
+                      thresholdRatio: 0.5
               - id: command-compact
                 name: '@deepseek-ai/dsh-command-compact'
               - id: tool-result-pruner

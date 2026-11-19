@@ -543,6 +543,49 @@ function sectionText(rtk, policy) {
 }
 
 /**
+ * Whether this agent's preset admits one tool name.
+ *
+ * The policy owner (`toolFamilies`) answers; a composition without that row admits everything,
+ * exactly like `tools.restrict` does.
+ *
+ * @param ctx - Cordis context.
+ * @param agent - The agent the section is for.
+ * @param name - Tool name.
+ * @returns false only when the policy positively excludes the name.
+ */
+function surfaceAllows(ctx, agent, name) {
+  try {
+    return ctx.get?.('toolFamilies')?.allows?.(agent, name) !== false
+  } catch {
+    return true
+  }
+}
+
+/**
+ * The preset in force for one agent, through the policy owner first.
+ *
+ * @param ctx - Cordis context.
+ * @param agent - The agent the section is for.
+ * @returns The preset id, or undefined in a composition without a preset.
+ */
+function presetOf(ctx, agent) {
+  try {
+    const resolved = ctx.get?.('toolFamilies')?.presetFor?.(agent?.session)
+    if (typeof resolved === 'string' && resolved !== '') return resolved
+  } catch {
+    // No policy owner: fall through to the creation header.
+  }
+  try {
+    const projected = ctx.get?.('agentPresets')?.presetForSession?.(agent?.session)
+    if (typeof projected === 'string' && projected !== '') return projected
+  } catch {
+    // No projection either.
+  }
+  const header = agent?.session?.header?.agentPreset
+  return typeof header === 'string' && header !== '' ? header : undefined
+}
+
+/**
  * Register the prompt section and the post-execute listener.
  *
  * @param ctx - Cordis context; must expose `tools` and `systemPrompt`.
@@ -552,25 +595,70 @@ export function apply(ctx, config = {}) {
   const policy = normalizeConfig(config)
   if (!policy.enabled) return
   const rtk = resolveRtk(policy)
-  const order = ctx?.systemPrompt?.getSectionOrder?.('rtk:output') ?? FALLBACK_ORDER
-  ctx.effect(() => {
-    const dispose = ctx.systemPrompt.section({
-      name: 'rtk:output',
-      order,
-      // A provider, not a string: the harness re-assembles the prompt every
-      // request, so a reload that finds the binary is visible without a restart.
-      text: () => {
-        try {
-          return sectionText(rtk, policy)
-        } catch {
-          // Never throw from an assembly: a missing section is a smaller failure
-          // than an unbuildable prompt.
-          return ''
-        }
-      },
+  // THE SECTION IS FOR A ROLE THAT HAS A SHELL. It describes what the rtk filter does to `bash`
+  // output, so a role whose allow row has no shell tool (the architect, research, docs) paid
+  // 1 122 B of prompt for instructions it could never use. Registering it on the agent's own
+  // context instead of the host's is what makes the gate possible at all: a host section lands
+  // in every agent's system prompt.
+  // A SEAT PICKED ON A BLANK SESSION ARRIVES AFTER THE AGENT EXISTS (the preset registry commits
+  // it as `agent-preset/selected`), so the section is re-synced on the seat and again at pre-step,
+  // the last point before the first request header is derived.
+  const sections = new WeakMap()
+  const sync = (agent, presetOverride) => {
+    if (agent === null || agent === undefined) return
+    const preset = (typeof presetOverride === 'string' && presetOverride !== '' ? presetOverride :  presetOf(ctx, agent) ) ?? '(none)'
+    const current = sections.get(agent)
+    if (current !== undefined && current.preset === preset) return
+    if (current !== undefined) {
+      try {
+        current.dispose?.()
+      } catch {
+        // A failing disposer must not take the session down.
+      }
+      sections.delete(agent)
+    }
+    if (!surfaceAllows(ctx, agent, 'bash') && !surfaceAllows(ctx, agent, 'pwsh')) return
+    try {
+      const order = agent.ctx?.systemPrompt?.getSectionOrder?.('rtk:output') ?? FALLBACK_ORDER
+      const dispose = agent.ctx.systemPrompt.section({
+        name: 'rtk:output',
+        order,
+        // A provider, not a string: the harness re-assembles the prompt every
+        // request, so a reload that finds the binary is visible without a restart.
+        text: () => {
+          try {
+            return sectionText(rtk, policy)
+          } catch {
+            // Never throw from an assembly: a missing section is a smaller failure
+            // than an unbuildable prompt.
+            return ''
+          }
+        },
+      })
+      sections.set(agent, { preset, dispose })
+    } catch {
+      // A prompt registry that refuses the section must not break the session.
+    }
+  }
+  ctx.on('agent/created', ({ agent }) => sync(agent))
+  ctx.on('agent/pre-step', (payload, next) => {
+    sync(payload?.agent)
+    return next()
+  }, { prepend: true })
+  try {
+    ctx.root?.on?.('session/event', (session, event) => {
+      if (event?.type !== 'agent-preset/selected') return
+      let live
+      try {
+        live = ctx.get?.('agents')?.get?.(session?.id)
+      } catch {
+        live = undefined
+      }
+      sync(live, event?.data?.agentPreset)
     })
-    return () => dispose()
-  })
+  } catch {
+    // A root without the session feed still re-syncs at pre-step.
+  }
 
   const trace = (payload) => {
     if (!policy.debug) return

@@ -1,0 +1,415 @@
+{
+  "schemaVersion": 1,
+  "id": "state-task-specifics",
+  "rev": 7,
+  "status": "completed",
+  "createdAt": "2026-11-18T13:47:11.722Z",
+  "updatedAt": "2026-11-18T15:12:33.074Z",
+  "updatedBy": "agent",
+  "title": "Карточка задачи в реестре состояния: конкретика и переход к сессии субагента",
+  "requestedSolution": "Владелец 2026-11-18: (1) в формулировке задачи реестра состояния должен быть не только body, а конкретика, как в прежней панели Tasks — рамки, вне рамок, критерии приёмки, шаги; (2) из активной задачи панели State нужно переходить в сессию её субагента.",
+  "businessOutcome": {
+    "problem": "В панели State задача читается как один абзац: не видно, что входит в работу, что не входит и по каким критериям её принимать. Найти сессию исполнителя можно только в панели Tasks, которая уходит на пенсию, поэтому карточка State не даёт дойти до работы по задаче.",
+    "outcome": "Карточка задачи в State показывает ту же конкретику, что прежняя панель Tasks (цель, рамки, вне рамок, критерии приёмки, шаги, роль и владелец), и открывает сессию субагента одним нажатием.",
+    "successMetrics": [
+      "У открытой в State задачи видны непустые «Рамки», «Вне рамок» и «Критерии приёмки» для задач, созданных или обновлённых после изменения",
+      "Кнопка Open в карточке задачи открывает именно сессию исполнителя этой задачи, живую или спящую",
+      "make verify и тесты трёх плагинов зелёные, схема index.json не меняется"
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "ST-CUR",
+        "name": "Один абзац",
+        "actors": [
+          "владелец"
+        ],
+        "steps": [
+          "Открывает State → Board",
+          "Щёлкает задачу",
+          "Видит «Body» — один абзац цели",
+          "Идёт в панель Tasks, чтобы прочитать рамки и критерии",
+          "Там же ищет сессию исполнителя"
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "ST-TGT",
+        "name": "Конкретика и переход",
+        "actors": [
+          "владелец"
+        ],
+        "steps": [
+          "Открывает State → Board",
+          "Щёлкает задачу",
+          "Видит цель, рамки, вне рамок, критерии приёмки и шаги",
+          "Нажимает Open у сессии исполнителя",
+          "Попадает в разговор субагента"
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "FR1",
+      "kind": "FR",
+      "text": "Карточка TASK в state/ несёт конкретику задачи — рамки, вне рамок, критерии приёмки и шаги, — а зеркало панели Tasks записывает их при создании и обновлении задачи.",
+      "acceptance": [
+        "state/task/<id>.md несёт блоки scope, nonScope, acceptance (текст и отметка done), role/preset/owner, если они есть у задачи панели Tasks; body остаётся целью",
+        "Зеркало task_create/task_update/delegate_task записывает эти поля в тот же TASK по boardId, не создавая второй файл",
+        "Панель State в карточке задачи показывает цель, рамки, вне рамок, критерии приёмки с отметкой done и прогресс шагов; старый TASK без новых полей не роняет страницу и честно говорит «не записано»",
+        "Существующие TASK заполняются миграцией state-migrate --refresh-tasks из .dsh/taskboard.json, и повторный прогон не меняет байты"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR2",
+      "kind": "FR",
+      "text": "TASK в state/ хранит сессии исполнителей этой задачи, и панель State из карточки задачи открывает сессию субагента.",
+      "acceptance": [
+        "Зеркало пишет sessions — список {sessionId,label,role,status} — для владельца и связанных дочерних сессий; ссылка остаётся и после завершения ребёнка",
+        "В карточке задачи панели State у каждой сессии есть кнопка Open; нажатие открывает эту сессию через uiWorkspace.openSession, включая спящую дочернюю",
+        "Статус сессии в панели живой: running из useSessions, иначе записанный статус",
+        "Кнопка Open не пишет ни state/, ни .dsh/taskboard.json"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR3",
+      "kind": "FR",
+      "text": "Панель State в списке задач и инструменты task_list/task_get показывают, какие субагенты задачи работают сейчас, отдельно от статуса задачи.",
+      "acceptance": [
+        "В списке задач панели есть колонка Subagents: «N running» при живом ребёнке и «N idle» иначе; карточка показывает то же строкой",
+        "task_list и task_get помечают каждого связанного ребёнка running: true/false и отдают runningChildSessionIds; статус задачи не используется как признак работы",
+        "Нет сессий — «—» в панели и пустой список у инструмента; панель не пишет ничего",
+        "Тесты: чистая функция taskRow считает running из живого снимка, сервис помечает детей; make verify зелёный"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "NFR1",
+      "kind": "NFR",
+      "text": "Расширение схемы TASK аддитивно: TASK без новых полей читается и проверяется как раньше, журнал воспроизводит те же байты, панель не пишет ни одного файла.",
+      "acceptance": [
+        "Старый TASK без новых полей читается, index.json остаётся schemaVersion 1, verify() не даёт новых находок",
+        "replay() после записи новых полей воспроизводит те же байты, что на диске",
+        "В панели нет ни workspaceFiles.write, ни команды записи"
+      ],
+      "status": "proven"
+    }
+  ],
+  "architecture": {
+    "contractImpact": "additive",
+    "components": [
+      {
+        "id": "state-core",
+        "name": "@cc/dsh-project-state (core)",
+        "responsibility": "схема TASK в state/task/*.md, сериализация и replay; принимает и отдаёт новые поля задачи",
+        "owner": "kit",
+        "owns": [
+          "task-record"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "taskboard-mirror",
+        "name": "@cc/dsh-taskboard (зеркало)",
+        "responsibility": "переносит задачу панели Tasks в TASK реестра по boardId, включая рамки, вне рамок, критерии приёмки и сессии",
+        "owner": "kit",
+        "owns": [
+          "task-sessions"
+        ],
+        "dependsOn": [
+          "state-core"
+        ]
+      },
+      {
+        "id": "state-panel-client",
+        "name": "@cc/dsh-project-state-panel (клиент)",
+        "responsibility": "карточка задачи в панели State: конкретика задачи и кнопка Open для сессии субагента",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": [
+          "state-core"
+        ]
+      },
+      {
+        "id": "state-migrate",
+        "name": "scripts/state-migrate.mjs",
+        "responsibility": "заполняет реестр из источников и обновляет существующие TASK новой конкретикой по --refresh-tasks",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": [
+          "state-core"
+        ]
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "task-record",
+      "name": "карточка TASK",
+      "owner": "kit",
+      "ownerComponentId": "state-core",
+      "description": "state/task/<id>.md: frontmatter и body; новые поля аддитивны"
+    },
+    {
+      "id": "task-sessions",
+      "name": "сессии исполнителей задачи",
+      "owner": "kit",
+      "ownerComponentId": "taskboard-mirror",
+      "description": "список sessions в TASK: sessionId, label, role, status; источник — панель Tasks"
+    }
+  ],
+  "contracts": [
+    {
+      "id": "task-frontmatter",
+      "name": "поля TASK в state/task/*.md",
+      "between": [
+        "taskboard-mirror",
+        "state-core",
+        "state-panel-client"
+      ],
+      "change": "additive",
+      "description": "TASK получает scope, nonScope, acceptance [{text,done}], role, preset, inline, owner {kind,label,sessionId}, sessions [{sessionId,label,role,status}] и итог resultSummary/resultEvidence; старые файлы без них остаются валидными"
+    },
+    {
+      "id": "task-list-liveness",
+      "name": "живость субагентов в списке задач",
+      "between": [
+        "taskboard-mirror",
+        "state-panel-client"
+      ],
+      "change": "additive",
+      "description": "task_list/task_get отдают children[].running и runningChildSessionIds из runtime (agents service); панель показывает то же число из useSessions в колонке Subagents и на карточке; статус задачи active больше не читается как «субагент работает»"
+    }
+  ],
+  "invariants": [],
+  "decisions": [
+    {
+      "id": "D1",
+      "decision": "Схема TASK расширяется теми же полями, что у задачи прежней панели Tasks: scope, nonScope, acceptance (text+done), role/preset/owner; body остаётся целью",
+      "rationale": "Владелец назвал образец — панель Tasks; второе хранилище конкретики разошлось бы с ней",
+      "alternatives": [
+        "рендерить только body, добавив подписи",
+        "хранить конкретику только в .dsh/taskboard.json и читать её панелью State"
+      ]
+    },
+    {
+      "id": "D2",
+      "decision": "Сессии задачи — поле sessions со списком {sessionId,label,role,status}; зеркало пишет его при create/update/linkChild, панель открывает сессию через uiWorkspace.openSession",
+      "rationale": "Переход возможен только по точному id сессии; вычислять его из заголовка задачи нельзя",
+      "alternatives": [
+        "искать сессию по совпадению заголовка",
+        "читать .dsh/taskboard.json из панели"
+      ]
+    },
+    {
+      "id": "D3",
+      "decision": "Панель остаётся только для чтения: Open — навигация, не запись; новых write-команд нет",
+      "rationale": "Разделение владения: панель — линза, пишут ядро состояния и панель Tasks",
+      "alternatives": [
+        "добавить в панель запись статуса"
+      ]
+    },
+    {
+      "id": "D4",
+      "decision": "Существующие TASK заполняются миграцией: state-migrate --refresh-tasks обновляет найденные по boardId записи и не трогает остальное",
+      "rationale": "Иначе новая карточка работает только для новых задач, а владелец смотрит на текущие",
+      "alternatives": [
+        "ждать следующей записи задачи",
+        "обновлять все TASK при каждом запуске плагина"
+      ]
+    },
+    {
+      "id": "D5",
+      "decision": "Живость субагента — отдельное поле running из runtime, а не статус задачи: панель берёт его из useSessions, task_list/task_get — из agents service; неизвестное состояние не выдаётся ни за running, ни за idle",
+      "rationale": "Задача остаётся active до приёмки, пока ребёнок уже спит или ушёл; статус задачи не может ответить, кто работает сейчас",
+      "alternatives": [
+        "считать active задачу работающей",
+        "хранить живость в TASK frontmatter"
+      ]
+    }
+  ],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L2",
+    "reasons": [
+      "меняется схема и контракт TASK в state/",
+      "три плагина и скрипт миграции: ядро, зеркало, панель",
+      "данные TASK дополняются без смены версии index.json"
+    ]
+  },
+  "designRef": {
+    "mapRev": 0,
+    "at": "2026-11-18T13:47:30.000Z",
+    "source": "designmap/manifest.json"
+  },
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "FR1",
+      "processId": "ST-TGT",
+      "componentId": "state-core",
+      "contractIds": [
+        "task-frontmatter"
+      ],
+      "dataIds": [
+        "task-record"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwm6e79r-1swk9g",
+          "role": "orchestrator",
+          "at": "2026-11-18T14:46:36.000Z",
+          "evidence": [
+            "node --test plugins/project-state/test/core.test.mjs: new 'TASK keeps the concrete task' and inline-list tests FAIL on HEAD core (red, 2 fail) and PASS on 0.1.12 (green, 9/9); TEST-067 carries the red→green pair",
+            "CRITIC measurement (/tmp/critic-final.mjs): one TASK-001.md after create+update+linkChild with scope, nonScope, acceptance[{text,done}], role/preset/owner, steps/stepsDone; hand-written old TASK reads ok; state-migrate --refresh-tasks on a copy updated 1 row and is idempotent",
+            "the panel card renders the fields (screenshot of TASK-008/TASK-233 in the live GUI)"
+          ]
+        },
+        {
+          "taskId": "task-mwm6e79r-1swk9g",
+          "role": "orchestrator",
+          "at": "2026-11-18T14:46:36.000Z",
+          "evidence": [
+            "mirror test 'the concrete task and the linked child session reach the TASK' FAILS on HEAD taskboard (red) and PASSES after the mirror change (green, 10/10); TEST-068",
+            "linkChild mirrors the sessions and the lease transfer clears the donor"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR2",
+      "processId": "ST-TGT",
+      "componentId": "state-panel-client",
+      "contractIds": [
+        "task-frontmatter"
+      ],
+      "dataIds": [
+        "task-sessions"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwm6e79r-1swk9g",
+          "role": "orchestrator",
+          "at": "2026-11-18T14:46:36.000Z",
+          "evidence": [
+            "mirror test red on HEAD taskboard (sessions absent), green on 0.1.63 (10/10); TEST-068",
+            "panel taskSessions folds the live snapshot (running) and reports non-live as idle; Open wired to uiWorkspace.openSession; taskboard/test/panel-navigation.test.mjs asserts the wiring",
+            "the live GUI card shows the Subagents section with Open (screenshot)"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR3",
+      "processId": "ST-TGT",
+      "componentId": "taskboard-mirror",
+      "contractIds": [
+        "task-list-liveness"
+      ],
+      "dataIds": [
+        "task-sessions"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwm6e79r-1swk9g",
+          "role": "orchestrator",
+          "at": "2026-11-18T14:46:36.000Z",
+          "evidence": [
+            "mirror test 'the task list says which subagents are running NOW' FAILS on HEAD taskboard (no running fields) and PASSES on 0.1.63; TEST-069",
+            "CRITIC measurement: task_list/task_get return children [{sess-live,running:true},{sess-idle,running:false}] and runningChildSessionIds ['sess-live']; no children -> []",
+            "panel list column Subagents and card line N running/N idle with data-status colours"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "NFR1",
+      "processId": "ST-TGT",
+      "componentId": "state-core",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwm6e79r-1swk9g",
+          "role": "orchestrator",
+          "at": "2026-11-18T14:46:36.000Z",
+          "evidence": [
+            "core tests red on HEAD core (2 fail) and green on 0.1.12 (9/9); TEST-070",
+            "replay()->true, 0 mismatches on the live state after refresh and sync; verify codes stay task_req_missing/orphan only",
+            "panel test asserts no workspaceFiles.write; make verify 17/17 exit 0"
+          ]
+        }
+      ]
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "874e57aef3023438d1ad92b3b907c8e0cae6d8cd5cdb02a59cba1c0607da4c87",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-18T13:47:11.722Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-18T13:47:15.169Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-18T14:46:04.889Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR3 added; impacts: 2"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-18T14:46:19.214Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-18T14:46:36.186Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwm6e79r-1swk9g -> FR1, FR2, FR3, NFR1"
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-18T15:11:10.552Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-18T15:12:33.074Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "completed",
+      "summary": ""
+    }
+  ]
+}

@@ -24,6 +24,29 @@ clock produces the same bytes; the journal replay relies on that. A human edits 
 git — a broken frontmatter is a `frontmatter_invalid` finding from `verify()`, never a silent
 overwrite.
 
+## The TASK record
+
+A TASK is not only a title and a body. It carries the concrete task the Tasks panel edits, so
+the register and the board cannot disagree about what one acceptance unit covers:
+
+| field | shape | meaning |
+|---|---|---|
+| `title`, `status` | scalar | the board's title and lifecycle status |
+| `scope` / `nonScope` | list of strings | what the task touches / what it must not touch |
+| `acceptance` | list of `{text, done}` | the criteria the result is judged by; a bare string is an open criterion |
+| `steps` / `stepsDone` | list / number | the plan and its progress; `stepsDone` is dropped when `steps` is cleared |
+| `role`, `preset`, `inline` | scalar / bool | the assignment: a specialist role or inline work, never both |
+| `owner` | `{kind, label, sessionId?}` | who took it; `sessionId` names the linked child |
+| `sessions` | list of `{sessionId, label, role, status}` | the child sessions that serve the task; the State panel opens one by this id. `status` is what was recorded at write time — LIVE running/idle is not stored here, because it belongs to the runtime (the panel and `task_list` read it from the session/agents service) |
+| `resultSummary`, `resultEvidence`, `resultArtifacts` | string / lists | the accepted result |
+| `body` | text | the objective, exactly what the Tasks panel calls `objective` |
+
+Every field is optional and ADDITIVE: a TASK written before the field existed stays valid, and
+`verify()` reports no new finding for it. `update()` CLEARS a field when the patch carries an
+empty list or an empty string, so removing a scope line in the panel removes it here too. A
+schema backfill passes `preserveUpdatedAt: true` to keep the file's own last-change time (the
+panels order by it); it is a control flag and is never stored.
+
 ## Service API
 
 Every method takes the workspace `cwd` first (one host row serves every workspace the UI opens)
@@ -38,6 +61,7 @@ agent's turn.
 | `complete(cwd, id, { expectedRevision })` | `update` with `status: done` |
 | `link(cwd, from, to)` | append `{kind, id, hash}` where `hash` is sha256 of the target's bytes |
 | `claim(cwd, id, { owner })` / `release(cwd, id)` | TASK active/open transition |
+| `journal(cwd, event)` | append one `waiver` event to `state/events.jsonl` (the one audit path a consumer outside this plugin may use); `replay()` skips it |
 | `issueId(cwd, kind)` | the next ID WITHOUT reserving it (advisory; `create` allocates) |
 | `snapshot(cwd)` | `{ relPath: sha256 }` for every state file |
 | `replay(cwd)` | apply the journal in memory, re-serialize, compare bytes with disk |
@@ -62,7 +86,7 @@ the source of truth: the files are.
 
 | file | content |
 |---|---|
-| `index.json` | the MACHINE contract for the panel: `schemaVersion`, `lastSeq`, counts, every REQ with its `tasks`/`tests`/`decisions`, every TASK with `reqId`, every TEST with `reqId` and `evidenceRefs` — stable ids, no prose |
+| `index.json` | the MACHINE contract for the panel and its FIRST-PAINT read model: `schemaVersion`, `lastSeq`, counts; every REQ with `title`, `updatedAt` and its `tasks`/`tests`/`decisions`; every TASK with `title`, `reqId`/`reqIds`, status, `steps`/`stepsDone`, `role`/`preset`/`inline`/`owner`, `sessions` and `updatedAt`; every TEST with `title`, `reqId`, `authorRole`, `command`, `updatedAt` and `evidenceRefs` — stable ids and list fields only, never the body. The file is COMPACT JSON (one line), because the gateway caps a read at 5000 lines and the panel's first paint must stay one read; human projections are `board.md`/`digest.md`. The drawer's details (criteria, scope, acceptance, result, body) come from the entity file on open. A row without `title` is treated as a legacy index and its file is read for the title |
 | `digest.md` | the small L1 block, hard-capped at 3072 bytes; truncated deterministically with a marker |
 | `board.md` | TASK grouped by status in a fixed order |
 | `traceability.md` | REQ → tasks/tests/decisions, and each TEST with its evidence |
@@ -90,4 +114,5 @@ nothing: it only provides the service.
 
 `node --test plugins/project-state/test/*.test.mjs` — parallel ID allocation (20 creates), byte
 determinism, link hash staleness, CAS refusal with untouched file, journal replay, every
-`verify()` code, and the service publication on a fake host context.
+`verify()` code, the concrete TASK fields (including the clearing update), an inline list item
+with a comma and quotes, and the service publication on a fake host context.

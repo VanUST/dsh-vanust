@@ -540,6 +540,49 @@ export function skillTools(define, policy) {
   return { evolve, inventory, grow, forget }
 }
 
+/**
+ * Whether this agent's preset admits one tool name.
+ *
+ * @param ctx - Cordis context.
+ * @param agent - The agent the section is for.
+ * @param name - Tool name.
+ * @returns false only when the policy positively excludes the name.
+ */
+/**
+ * The preset in force for one agent, resolved through the policy owner first.
+ *
+ * A selection made after the agent was created is committed as `agent-preset/selected`, and the
+ * policy owner (`toolFamilies.presetFor`) resolves it; the creation header is the last fallback.
+ *
+ * @param ctx - Cordis context.
+ * @param agent - The agent being synced.
+ * @returns The preset id, or undefined in a composition without a preset.
+ */
+function presetOf(ctx, agent) {
+  try {
+    const resolved = ctx.get?.('toolFamilies')?.presetFor?.(agent?.session)
+    if (typeof resolved === 'string' && resolved !== '') return resolved
+  } catch {
+    // No policy owner: fall through to the creation header.
+  }
+  try {
+    const projected = ctx.get?.('agentPresets')?.presetForSession?.(agent?.session)
+    if (typeof projected === 'string' && projected !== '') return projected
+  } catch {
+    // No projection either.
+  }
+  const header = agent?.session?.header?.agentPreset
+  return typeof header === 'string' && header !== '' ? header : undefined
+}
+
+function surfaceAllows(ctx, agent, name) {
+  try {
+    return ctx.get?.('toolFamilies')?.allows?.(agent, name) !== false
+  } catch {
+    return true
+  }
+}
+
 export const name = '@cc/dsh-skill-evolve'
 /** The tool registry is the only hard dependency; the prompt section is optional. */
 export const inject = ['tools']
@@ -554,19 +597,63 @@ export function apply(ctx, config = {}) {
   ctx.tools.register(tools.forget)
 
   if (!policy.promptSection) return
-  ctx.inject(['systemPrompt'], (scope) => {
-    const order = scope.systemPrompt.getSectionOrder?.('skills:evolve') ?? 10060
-    const dispose = scope.systemPrompt.section({
-      name: 'skills:evolve',
-      order,
-      text: () => {
-        try {
-          return sectionText(policy)
-        } catch {
-          return ''
-        }
-      },
+  // THE SECTION IS FOR A ROLE THAT HAS THE TOOLS. It tells the agent when to call
+  // `skill_inventory`/`skill_evolve`/`skill_grow`/`skill_forget`, so a role whose allow row has
+  // none of them paid ~700 B of prompt for a procedure it cannot follow. An agent-scoped section
+  // can be gated on the policy owner; a host section lands in every agent's system prompt.
+  // A SEAT PICKED ON A BLANK SESSION ARRIVES AFTER THE AGENT EXISTS (committed as
+  // `agent-preset/selected`), so the guidance section follows the seat instead of the creation
+  // header: re-synced on the seat and again at pre-step, the last point before the first request.
+  const sections = new WeakMap()
+  const syncSection = (agent, presetOverride) => {
+    if (agent === null || agent === undefined) return
+    const preset = (typeof presetOverride === 'string' && presetOverride !== '' ? presetOverride :  presetOf(ctx, agent) ) ?? '(none)'
+    const current = sections.get(agent)
+    if (current !== undefined && current.preset === preset) return
+    if (current !== undefined) {
+      try {
+        current.dispose?.()
+      } catch {
+        // A failing disposer must not take the session down.
+      }
+      sections.delete(agent)
+    }
+    if (!surfaceAllows(ctx, agent, 'skill_evolve')) return
+    try {
+      const order = agent.ctx?.systemPrompt?.getSectionOrder?.('skills:evolve') ?? 10060
+      const dispose = agent.ctx.systemPrompt.section({
+        name: 'skills:evolve',
+        order,
+        text: () => {
+          try {
+            return sectionText(policy)
+          } catch {
+            return ''
+          }
+        },
+      })
+      sections.set(agent, { preset, dispose })
+    } catch {
+      // A prompt registry that refuses the section must not break the session.
+    }
+  }
+  ctx.on('agent/created', ({ agent }) => syncSection(agent))
+  ctx.on('agent/pre-step', (payload, next) => {
+    syncSection(payload?.agent)
+    return next()
+  }, { prepend: true })
+  try {
+    ctx.root?.on?.('session/event', (session, event) => {
+      if (event?.type !== 'agent-preset/selected') return
+      let live
+      try {
+        live = ctx.get?.('agents')?.get?.(session?.id)
+      } catch {
+        live = undefined
+      }
+      syncSection(live, event?.data?.agentPreset)
     })
-    scope.on('dispose', () => dispose?.())
-  })
+  } catch {
+    // A root without the session feed still re-syncs at pre-step.
+  }
 }

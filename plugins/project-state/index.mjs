@@ -10,7 +10,7 @@
  *     create(cwd, kind, input)      get(cwd, id)          list(cwd, kind?)
  *     update(cwd, id, patch)        link(cwd, from, to)   issueId(cwd, kind)
  *     claim(cwd, id, {owner})       release(cwd, id)      complete(cwd, id, patch)
- *     snapshot(cwd)                 replay(cwd)           verify(cwd)
+ *     journal(cwd, event)           snapshot(cwd)         replay(cwd)           verify(cwd)
  *     regenerateViews(cwd)
  *   Each returns `{ ok: true, ... }` or `{ ok: false, code, message }`; nothing throws into a
  *   caller's turn.
@@ -66,6 +66,9 @@ export function apply(ctx, config = {}) {
     claim: delegate('claim'),
     release: delegate('release'),
     complete: delegate('complete'),
+    // A conversation-level consumer (the taskboard's owner-status override) records a waiver
+    // event here; without the delegate the trail silently disappears.
+    journal: delegate('journal'),
     snapshot: delegate('snapshot'),
     regenerateViews: delegate('regenerateViews'),
     replay: delegate('replay'),

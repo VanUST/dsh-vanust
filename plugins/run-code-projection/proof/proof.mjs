@@ -24,7 +24,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { BANNER_PREFIX, apply, parseBanner } from '../run-code-projection.mjs'
+import { BANNER_PREFIX, LEGACY_BANNER_PREFIX, apply, parseBanner } from '../run-code-projection.mjs'
 
 const fixture = JSON.parse(readFileSync(new URL('./fixture-run-code.json', import.meta.url), 'utf8'))
 
@@ -145,8 +145,8 @@ try {
   const imageContent = effectiveContent(imageRun.decision, imageRun.result)
   check('image result — untouched', !Object.hasOwn(imageRun.decision, 'content') && imageContent[0].type === 'image', 'multi/media block', { before: 0, after: 0 })
 
-  const otherTool = await run(harness, { name: 'read', content: [{ type: 'text', text: original }], cwd: workspace })
-  check('non-run_code tool — untouched', textOf(effectiveContent(otherTool.decision, otherTool.result)) === original, 'name=read', { before: original.length, after: original.length })
+  const otherTool = await run(harness, { name: 'web_search', content: [{ type: 'text', text: original }], cwd: workspace })
+  check('tool outside the list — untouched', textOf(effectiveContent(otherTool.decision, otherTool.result)) === original, 'name=web_search', { before: original.length, after: original.length })
 
   const abortedRun = await run(harness, { content: [{ type: 'text', text: original }], cwd: workspace, aborted: true })
   check('aborted step — untouched', textOf(effectiveContent(abortedRun.decision, abortedRun.result)) === original, 'signal.aborted', { before: original.length, after: original.length })
@@ -216,6 +216,30 @@ try {
     'banner would not pay for itself',
     { before: 1100, after: 1100 },
   )
+  // ── the tool list: bulk tools project, contract tools pass through ──────
+  const readLike = 'r'.repeat(12_000)
+  const readResult = await run(harness, { name: 'read', content: [{ type: 'text', text: readLike }], cwd: workspace })
+  const readProjected = textOf(effectiveContent(readResult.decision, readResult.result))
+  const readBanner = parseBanner(readProjected)
+  check('read above minBytes — projected', readBanner !== null && readBanner.includes('/read-'), readBanner ?? 'not projected', {
+    before: readLike.length,
+    after: readProjected.length,
+  })
+  check('read banner names the tool', typeof readProjected === 'string' && readProjected.startsWith(`${BANNER_PREFIX} read `), (readProjected ?? '').split('\n')[0].slice(0, 90))
+
+  const contractText = 'c'.repeat(12_000)
+  const contractResult = await run(createHarness({}), { name: 'task_get', content: [{ type: 'text', text: contractText }], cwd: workspace })
+  check('compare-and-set tool — untouched', textOf(effectiveContent(contractResult.decision, contractResult.result)) === contractText, 'task_get keeps its revision', {
+    before: contractText.length,
+    after: contractText.length,
+  })
+
+  const bashResult = await run(harness, { name: 'bash', content: [{ type: 'text', text: 'b'.repeat(9000) }], cwd: workspace })
+  check('bash above minBytes — projected', parseBanner(textOf(effectiveContent(bashResult.decision, bashResult.result))) !== null, 'command output bounded')
+
+  const legacy = `${LEGACY_BANNER_PREFIX} old projection\nFull text: /tmp/x\n`
+  const legacyResult = await run(harness, { name: 'read', content: [{ type: 'text', text: legacy.repeat(200) }], cwd: workspace })
+  check('legacy banner — untouched', textOf(effectiveContent(legacyResult.decision, legacyResult.result)).startsWith(LEGACY_BANNER_PREFIX), 'no second projection')
 } finally {
   rmSync(workspace, { recursive: true, force: true })
 }

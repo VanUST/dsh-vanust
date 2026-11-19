@@ -2,105 +2,24 @@
 
 GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`.
 
-## open (11)
+## open (3)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
-| TASK-050 | Fix audit P0/P1: notify display, proof-guard edits, skill-evolve registry, cleanup | — | — | no |
-| TASK-052 | Sandboxed shell for read-only roles, artifact_write, and MCP placed by role | — | — | no |
-| TASK-053 | probe-1 | — | — | no |
-| TASK-054 | probe-2 | — | — | no |
-| TASK-055 | probe-3 | — | — | no |
-| TASK-056 | probe-4 | — | — | no |
-| TASK-057 | probe-5 | — | — | no |
-| TASK-061 | Case library: exploratory testing persisted as reproducible cases | — | — | no |
-| TASK-072 | Auto-converge the kit on every dsh boot | — | — | no |
-| TASK-229 | V6.2: pack-plugin не должен удалять тарболы соседних плагинов по общему префиксу | — | — | no |
-| TASK-233 | OpenAI Codex: вход по подписке через инструмент харнесса | REQ-111, REQ-112, REQ-113, REQ-114 | 0/13 | no |
+| TASK-233 | OpenAI Codex: вход по подписке через инструмент харнесса | REQ-111, REQ-112, REQ-113, REQ-114 | 0/4 | no |
+| TASK-237 | Stop the state feed from writing unidentified messages, and repair the sessions it corrupted | — | 0/7 | yes |
+| TASK-243 | Остаток окна Codex и цена модели — в сессии | REQ-132, REQ-133 | 0/4 | no |
 
-## active (10)
+## review (4)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
-| TASK-094 | Test cases panel proof, round 2 | — | — | no |
-| TASK-113 | Create and extend orchestrator write fixture | — | — | no |
-| TASK-184 | Документ для ревью: харнесс, пресеты, плагины и системные промпты | — | — | no |
-| TASK-202 | Панель состояния проекта: четыре режима и сквозная взаимосвязь | — | — | no |
-| TASK-223 | V1.12: миграция источников в реестр — REQ, TASK, TEST (FR13) | — | — | no |
-| TASK-230 | P1: выход в чат, скрытие окон, без дубля Tasks | REQ-104, REQ-105, REQ-106, REQ-107 | — | no |
-| TASK-231 | P1-T: red→green тест навигации панелей | REQ-104, REQ-105, REQ-106, REQ-107 | — | no |
-| TASK-232 | P2: правая колонка панели, верхняя панель без Tasks и Design map | REQ-108, REQ-109, REQ-110 | 0/10 | no |
-| TASK-234 | P3: счётчики State и список задач с сортировкой | REQ-115, REQ-116, REQ-117 | 0/10 | no |
-| TASK-235 | P5: правила скорости для всех корней, L0 для локальных правок, один кейс на пачку | REQ-118, REQ-119, REQ-120 | 0/11 | no |
+| TASK-240 | Ограничить контекст на входе: проекция выдачи и task_list | REQ-128, REQ-129, REQ-134 | 4/4 | no |
+| TASK-241 | Абсолютный бюджет контекста ~500K вместо доли окна | REQ-131 | 2/2 | no |
+| TASK-242 | Allow-список ролей не действует на инструменты кита | REQ-130 | 4/4 | no |
+| TASK-244 | Red/green proof for the context-bounds changes | REQ-128, REQ-129, REQ-130, REQ-131, REQ-134 | 4/4 | no |
 
-## review (62)
-
-| id | title | reqs | steps | chore |
-|---|---|---|---|---|
-| TASK-007 | Wire RTK, Headroom, SkillClaw and Babysitter into the kit | — | — | no |
-| TASK-009 | Audit the four integrations against the running server | — | — | no |
-| TASK-012 | Add Kimi K3.1 models to the DSH Kimi route | — | — | no |
-| TASK-013 | Two-model Kimi policy, highspeed guard, subagent wiring | — | — | no |
-| TASK-014 | Remove the two-subagent cap | — | — | no |
-| TASK-015 | Activate skill-evolve, babysitter and rtk | — | — | no |
-| TASK-021 | babysitter: release-gate | — | — | no |
-| TASK-022 | babysitter: probe-nonlinear | — | — | no |
-| TASK-024 | Reclaim ~102 GB of Docker disk on the PC | — | — | no |
-| TASK-025 | Ship the UX/UI testing skill set in @cc/dsh-skills | — | — | no |
-| TASK-026 | Remove the handoff plugin from dsh-kit | — | — | no |
-| TASK-027 | Verify the UX/UI testing skills after restart and harden them for Windows | — | — | no |
-| TASK-028 | Audit and improve the six UX/UI testing skills | — | — | no |
-| TASK-029 | Refactor the UX/UI testing skill set and routing | — | — | no |
-| TASK-030 | Independent end-to-end verification of the five web testing skills | — | — | no |
-| TASK-032 | Audit dsh-kit for remaining token over-spend | — | — | no |
-| TASK-033 | Cut token over-spend: MCP domain trim, reminders off, compaction threshold, honest corpus cost | — | — | no |
-| TASK-034 | Push all dsh-kit changes to GitHub (VanUST/dsh-vanust) | — | — | no |
-| TASK-035 | Notify only on real completion, root sessions only, one aggregated popup | — | — | no |
-| TASK-036 | Policy: report once at the end; push notify rework and policy change | — | — | no |
-| TASK-037 | Policy: no ad hoc fixes - check the architecture before patching | — | — | no |
-| TASK-038 | Session-scoped taskboard with opt-in global view | — | — | no |
-| TASK-039 | Role presets: orchestrator + 5 specialists with isolated tools and prompts | — | — | no |
-| TASK-040 | Live system-design map both the agent and the human edit | — | — | no |
-| TASK-041 | Audit the kit's plugins: defects, dead weight, and role fit | — | — | no |
-| TASK-047 | Introspect RESEARCH tool set and fetch one trending paper | — | — | no |
-| TASK-048 | Compaction rewrites mid-turn: why image-offload and the pruner break the prefix cache | — | — | no |
-| TASK-049 | Install the role toolchain and prove it per role | — | — | no |
-| TASK-051 | Project rules editor: one cached prompt section, edited from the client | — | — | no |
-| TASK-059 | Strict task lifecycle and a readable board | — | — | no |
-| TASK-060 | Add the CRITIC role: adversarial general tester | — | — | no |
-| TASK-062 | Ownership boundaries: design map (orchestrator+human), rules (human only) | — | — | no |
-| TASK-063 | Rules panel: byte-exact save (trailing newline) | — | — | no |
-| TASK-066 | Fix design-map: empty write wipes the scene, validation holes | — | — | no |
-| TASK-067 | Fix project-rules: fail closed on a mangled file, resolve symlinks in the guard | — | — | no |
-| TASK-068 | Fix taskboard command path: born-done, cleared blocked reason, optional CAS | — | — | no |
-| TASK-069 | Fix orchestrator: refuse-to-start on failed attach, board_full, depth-only root | — | — | no |
-| TASK-070 | Fix docs and gates: stale plugin counts, capability claims, pin drift | — | — | no |
-| TASK-071 | Board cap counts terminal rows, blocks new tasks at 198/200 | — | — | no |
-| TASK-075 | Integrate Serena and Octocode | — | — | no |
-| TASK-076 | Build fair code-search benchmark | — | — | no |
-| TASK-077 | Review code-search integration | — | — | no |
-| TASK-078 | Make code-search tools actually used | — | — | no |
-| TASK-079 | Implement readable design-map layout | — | — | no |
-| TASK-080 | Review readable design-map layout | — | — | no |
-| TASK-081 | Document code-search pack activation | — | — | no |
-| TASK-082 | Audit subagent role and tool assignments | — | — | no |
-| TASK-083 | Enforce roles on every child agent | — | — | no |
-| TASK-084 | Role proof | — | — | no |
-| TASK-085 | Build test-cases host service | — | — | no |
-| TASK-086 | Build test-cases panel | — | — | no |
-| TASK-087 | Review test-cases library | — | — | no |
-| TASK-088 | Fix sleeping status during active work | — | — | no |
-| TASK-090 | Running child state probe | — | — | no |
-| TASK-091 | Commit and push harness updates | — | — | no |
-| TASK-092 | Fix role/catalog/state contract defects | — | — | no |
-| TASK-093 | Fix test-cases panel usability | — | — | no |
-| TASK-098 | Commit and push design-map 0.2.0 | — | — | no |
-| TASK-100 | Taskboard: batch close with result and a real subagent stop | — | — | no |
-| TASK-111 | Write and edit reports/orchestrator-write-fixture.md | — | — | no |
-| TASK-224 | V3.1: холодный старт на реальном реестре — новая сессия отвечает по состоянию (BR1) | — | — | no |
-| TASK-225 | V3.2: L1 показывает открытые REQ и разрывы реестра (BR1, третья точка) | — | — | no |
-
-## done (141)
+## done (158)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -207,6 +126,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-181 | tool-families: пресет из проекции и пересчёт при смене | — | — | no |
 | TASK-182 | PTC волна 2: backend и ux | — | — | no |
 | TASK-183 | Native→PTC: процедура рестарта в документах | — | — | no |
+| TASK-184 | Документ для ревью: харнесс, пресеты, плагины и системные промпты | — | — | no |
 | TASK-185 | Аудит всех не-дефолтных плагинов и PTC-совместимости | — | — | no |
 | TASK-186 | Закоммитить и запушить изменения кита | — | — | no |
 | TASK-187 | PTC: свежие gatherer/reviewer с 0.1.8 и волна docs/critic | — | — | no |
@@ -224,6 +144,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-199 | Probe 4-6: мутации промпта, вес Playwright MCP, инструменты Hindsight | — | — | no |
 | TASK-200 | Probe 4: мутации промпта и набора инструментов посреди сессии | — | — | no |
 | TASK-201 | V1.1: allow-list инструментов вместо deny-only | — | — | no |
+| TASK-202 | Панель состояния проекта: четыре режима и сквозная взаимосвязь | — | — | no |
 | TASK-204 | Разведка: кто регистрирует scoped-инструменты и по какому пресету | — | — | no |
 | TASK-205 | V1.3: гейт пяти хост-плагинов по пресету в силе | — | — | no |
 | TASK-207 | V1: закоммитить контекст-фундамент | — | — | no |
@@ -242,22 +163,108 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-220 | V1.10: закоммитить гейт доказательств | — | — | no |
 | TASK-221 | V1.11: бриф делегирования из реестра и разбор возврата (FR12) | — | — | no |
 | TASK-222 | V1.11b: вернуть строгий гейт пресета в делегатном брифе | — | — | no |
+| TASK-223 | V1.12: миграция источников в реестр — REQ, TASK, TEST (FR13) | — | — | no |
+| TASK-224 | V3.1: холодный старт на реальном реестре — новая сессия отвечает по состоянию (BR1) | — | — | no |
+| TASK-225 | V3.2: L1 показывает открытые REQ и разрывы реестра (BR1, третья точка) | — | — | no |
 | TASK-226 | V4.1: батчинг работы — задача как пачка шагов, проверка на границе (FR15) | REQ-103 | — | no |
 | TASK-227 | V5.1: инвариант промпта и дисциплина языка — один срез (NFR1 + FR14) | — | — | no |
 | TASK-228 | V6.1: диета схем и вейвер lifecycle-гейтов — последний срез (FR5 + FR8) | — | — | no |
+| TASK-229 | V6.2: pack-plugin не должен удалять тарболы соседних плагинов по общему префиксу | — | — | no |
+| TASK-230 | P1: выход в чат, скрытие окон, без дубля Tasks | REQ-104, REQ-105, REQ-106, REQ-107 | — | no |
+| TASK-231 | P1-T: red→green тест навигации панелей | REQ-104, REQ-105, REQ-106, REQ-107 | — | no |
+| TASK-232 | P2: правая колонка панели, верхняя панель без Tasks и Design map | REQ-108, REQ-109, REQ-110 | 0/6 | no |
+| TASK-234 | P3: счётчики State и список задач с сортировкой | REQ-115, REQ-116, REQ-117 | 0/5 | no |
+| TASK-235 | P5: правила скорости для всех корней, L0 для локальных правок, один кейс на пачку | REQ-118, REQ-119, REQ-120 | 0/5 | no |
+| TASK-236 | State: конкретика задачи в TASK и переход к сессии субагента | REQ-124, REQ-125, REQ-126, REQ-127 | 4/5 | no |
+| TASK-238 | Починить гейт delegation_brief: REQ, который реестр реально может иметь | REQ-083 | 3/3 | no |
+| TASK-239 | Почистить список задач: синхронизировать статусы реестра с доской и закрыть заброшенные строки | — | 4/4 | yes |
+| TASK-245 | Убрать класс ошибок «unidentified message»: починить старые логи и закрыть источник | — | 6/6 | yes |
+| TASK-246 | Ручной статус задачи в панели Project state и доска без предела строк | REQ-136, REQ-137, REQ-138, REQ-146 | 6/6 | no |
+| TASK-247 | Роль ARCHITECT: пресет, маршрут astra с фолбэком, границы секций промпта | REQ-139, REQ-140, REQ-141, REQ-142, REQ-143, REQ-144, REQ-145 | 9/9 | no |
 
-## cancelled (11)
+## cancelled (82)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
+| TASK-007 | Wire RTK, Headroom, SkillClaw and Babysitter into the kit | — | — | no |
+| TASK-009 | Audit the four integrations against the running server | — | — | no |
+| TASK-012 | Add Kimi K3.1 models to the DSH Kimi route | — | — | no |
+| TASK-013 | Two-model Kimi policy, highspeed guard, subagent wiring | — | — | no |
+| TASK-014 | Remove the two-subagent cap | — | — | no |
+| TASK-015 | Activate skill-evolve, babysitter and rtk | — | — | no |
 | TASK-016 | babysitter: release-gate | — | — | no |
 | TASK-017 | babysitter: release-gate | — | — | no |
 | TASK-018 | babysitter: release-gate | — | — | no |
 | TASK-019 | babysitter: probe-task-result | — | — | no |
 | TASK-020 | babysitter: release-gate | — | — | no |
+| TASK-021 | babysitter: release-gate | — | — | no |
+| TASK-022 | babysitter: probe-nonlinear | — | — | no |
 | TASK-023 | babysitter: release-gate | — | — | no |
+| TASK-024 | Reclaim ~102 GB of Docker disk on the PC | — | — | no |
+| TASK-025 | Ship the UX/UI testing skill set in @cc/dsh-skills | — | — | no |
+| TASK-026 | Remove the handoff plugin from dsh-kit | — | — | no |
+| TASK-027 | Verify the UX/UI testing skills after restart and harden them for Windows | — | — | no |
+| TASK-028 | Audit and improve the six UX/UI testing skills | — | — | no |
+| TASK-029 | Refactor the UX/UI testing skill set and routing | — | — | no |
+| TASK-030 | Independent end-to-end verification of the five web testing skills | — | — | no |
+| TASK-032 | Audit dsh-kit for remaining token over-spend | — | — | no |
+| TASK-033 | Cut token over-spend: MCP domain trim, reminders off, compaction threshold, honest corpus cost | — | — | no |
+| TASK-034 | Push all dsh-kit changes to GitHub (VanUST/dsh-vanust) | — | — | no |
+| TASK-035 | Notify only on real completion, root sessions only, one aggregated popup | — | — | no |
+| TASK-036 | Policy: report once at the end; push notify rework and policy change | — | — | no |
+| TASK-037 | Policy: no ad hoc fixes - check the architecture before patching | — | — | no |
+| TASK-038 | Session-scoped taskboard with opt-in global view | — | — | no |
+| TASK-039 | Role presets: orchestrator + 5 specialists with isolated tools and prompts | — | — | no |
+| TASK-040 | Live system-design map both the agent and the human edit | — | — | no |
+| TASK-041 | Audit the kit's plugins: defects, dead weight, and role fit | — | — | no |
 | TASK-043 | Probe: does a fresh child have shell access? | — | — | no |
+| TASK-047 | Introspect RESEARCH tool set and fetch one trending paper | — | — | no |
+| TASK-048 | Compaction rewrites mid-turn: why image-offload and the pruner break the prefix cache | — | — | no |
+| TASK-049 | Install the role toolchain and prove it per role | — | — | no |
+| TASK-050 | Fix audit P0/P1: notify display, proof-guard edits, skill-evolve registry, cleanup | — | — | no |
+| TASK-051 | Project rules editor: one cached prompt section, edited from the client | — | — | no |
+| TASK-052 | Sandboxed shell for read-only roles, artifact_write, and MCP placed by role | — | — | no |
+| TASK-053 | probe-1 | — | — | no |
+| TASK-054 | probe-2 | — | — | no |
+| TASK-055 | probe-3 | — | — | no |
+| TASK-056 | probe-4 | — | — | no |
+| TASK-057 | probe-5 | — | — | no |
+| TASK-059 | Strict task lifecycle and a readable board | — | — | no |
+| TASK-060 | Add the CRITIC role: adversarial general tester | — | — | no |
+| TASK-061 | Case library: exploratory testing persisted as reproducible cases | — | — | no |
+| TASK-062 | Ownership boundaries: design map (orchestrator+human), rules (human only) | — | — | no |
+| TASK-063 | Rules panel: byte-exact save (trailing newline) | — | — | no |
+| TASK-066 | Fix design-map: empty write wipes the scene, validation holes | — | — | no |
+| TASK-067 | Fix project-rules: fail closed on a mangled file, resolve symlinks in the guard | — | — | no |
+| TASK-068 | Fix taskboard command path: born-done, cleared blocked reason, optional CAS | — | — | no |
+| TASK-069 | Fix orchestrator: refuse-to-start on failed attach, board_full, depth-only root | — | — | no |
+| TASK-070 | Fix docs and gates: stale plugin counts, capability claims, pin drift | — | — | no |
+| TASK-071 | Board cap counts terminal rows, blocks new tasks at 198/200 | — | — | no |
+| TASK-072 | Auto-converge the kit on every dsh boot | — | — | no |
+| TASK-075 | Integrate Serena and Octocode | — | — | no |
+| TASK-076 | Build fair code-search benchmark | — | — | no |
+| TASK-077 | Review code-search integration | — | — | no |
+| TASK-078 | Make code-search tools actually used | — | — | no |
+| TASK-079 | Implement readable design-map layout | — | — | no |
+| TASK-080 | Review readable design-map layout | — | — | no |
+| TASK-081 | Document code-search pack activation | — | — | no |
+| TASK-082 | Audit subagent role and tool assignments | — | — | no |
+| TASK-083 | Enforce roles on every child agent | — | — | no |
+| TASK-084 | Role proof | — | — | no |
+| TASK-085 | Build test-cases host service | — | — | no |
+| TASK-086 | Build test-cases panel | — | — | no |
+| TASK-087 | Review test-cases library | — | — | no |
+| TASK-088 | Fix sleeping status during active work | — | — | no |
+| TASK-090 | Running child state probe | — | — | no |
+| TASK-091 | Commit and push harness updates | — | — | no |
+| TASK-092 | Fix role/catalog/state contract defects | — | — | no |
+| TASK-093 | Fix test-cases panel usability | — | — | no |
+| TASK-094 | Test cases panel proof, round 2 | — | — | no |
+| TASK-098 | Commit and push design-map 0.2.0 | — | — | no |
+| TASK-100 | Taskboard: batch close with result and a real subagent stop | — | — | no |
 | TASK-106 | Живая проверка PTC и проекции run_code после рестарта | — | — | no |
+| TASK-111 | Write and edit reports/orchestrator-write-fixture.md | — | — | no |
+| TASK-113 | Create and extend orchestrator write fixture | — | — | no |
 | TASK-128 | Исправить Analysis Record schema integrity | — | — | no |
 | TASK-203 | V1.2: состав пресетов под бюджеты полного заголовка | — | — | no |
 | TASK-206 | FR2: бюджеты контекста — ждёт решения о PTC-пресетах | — | — | no |

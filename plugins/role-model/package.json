@@ -1,0 +1,19 @@
+{
+  "name": "@cc/dsh-role-model",
+  "version": "0.1.11",
+  "description": "Give one role its own model route: select it before a fresh session's first request, and switch to the configured fallback when the provider reports the quota is gone, retrying the step instead of failing the turn. No tool, prompt section or service.",
+  "type": "module",
+  "main": "role-model.mjs",
+  "exports": {
+    ".": "./role-model.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "role-model.mjs",
+    "README.md"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
+  }
+}

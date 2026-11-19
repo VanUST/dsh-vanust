@@ -30,6 +30,15 @@ export const inject = ['tools']
  * — so every seat received the orchestrator tool set. The lookup is guarded because a
  * composition without the service must not fail a session creation.
  */
+/** The role-surface policy; a preset without a tool-families row admits every tool. */
+function surfaceAllows(ctx, agent, name) {
+  try {
+    return ctx.get?.('toolFamilies')?.allows?.(agent, name) !== false
+  } catch {
+    return true
+  }
+}
+
 function presetOf(ctx, agent) {
   try {
     const resolved = ctx.get?.('toolFamilies')?.presetFor?.(agent?.session)
@@ -86,7 +95,8 @@ function installPresetGate(ctx, { allowed, tools = [], toolsFor, onInstalled }) 
         installed.delete(agent)
       }
       if (typeof preset !== 'string' || !allowed(preset)) return
-      const selected = typeof toolsFor === 'function' ? toolsFor(preset) : tools
+      const selected = (typeof toolsFor === 'function' ? toolsFor(preset) : tools)
+        .filter((tool) => surfaceAllows(ctx, agent, tool.name))
       const disposers = selected.map((tool) => agent.ctx.tools.register(tool)).filter((dispose) => typeof dispose === 'function')
       installed.set(agent, { preset, disposers })
       onInstalled?.(agent, preset)

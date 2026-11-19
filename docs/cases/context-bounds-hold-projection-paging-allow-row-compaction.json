@@ -1,0 +1,512 @@
+{
+  "schemaVersion": 1,
+  "id": "context-bounds-hold-projection-paging-allow-row-compaction",
+  "title": "Context bounds hold: projection, paging, allow row, compaction",
+  "requirement": "The model's context stays bounded: an oversized result from a tool the profile lists arrives as a banner naming a readable full-text file (REQ-128, REQ-134), the workspace board is paged instead of dumped (REQ-129), the orchestrator allow row decides what per-agent kit plugins may register (REQ-130), and the compaction threshold is the per-window budget — about 500K tokens at a 1M window and at most 218K at 272K, never the old flat 136K (REQ-131).",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "scripts/context-bounds-proof.mjs",
+  "runCommand": "node scripts/context-bounds-proof.mjs",
+  "steps": [
+    "read profile/cordis.patch.yml: the run-code-projection tool list, the orchestrator allow row, every compaction-basic block",
+    "apply the real run-code-projection plugin with that list on a fake context: a task_list result above 8 KiB must project, the spill file must read back identical, task_get/skill/error results must stay whole",
+    "apply the real taskboard plugin on a temporary workspace with 60 seeded tasks: page one must be 25 rows with counts and a next cursor, limit/offset and the status filter must work, chat scope keeps 50",
+    "spawn scripts/tool-surface-proof.mjs: the kit plugins must register only through the parsed allow row",
+    "assert the compaction ratio per window: 0.5 for deepseek-flash on 1M (524 288 tokens), 0.8 default on 272K (217 600, at most 218K), no flat 0.5 block",
+    "write CASE_SUMMARY metrics; exit 0 only when every row passed"
+  ],
+  "expected": "The driver exits 0 with every check PASS and a CASE_SUMMARY whose metrics satisfy the declared checks (failures 0, projectionAfter <= 6000, taskListChars <= 12000, compaction1M 480000..540000, compaction272K 136001..218000). CASE_NEGATIVE_CONTROL=pre-change exits 1 because the same checks reject the one-tool projection list, the whole-board page, the old allow row and the flat 0.5 compaction.",
+  "fixture": "profile/cordis.patch.yml read-only; a temporary workspace with .dsh/taskboard.json of 60 tasks, created and removed by the driver",
+  "tags": [
+    "context-bounds",
+    "projection",
+    "taskboard",
+    "allow-row",
+    "compaction",
+    "proof"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "profile/cordis.patch.yml",
+      "sha256": "d3e849eb901b484dfbf91de6c5d55cbabf8af52623f8d4835f33f1e720a6010d"
+    },
+    {
+      "path": "plugins/run-code-projection/run-code-projection.mjs",
+      "sha256": "4223e61e038ff46b06e832a8e981ee8240329bbbfaefb2388cac33788046ebdb"
+    },
+    {
+      "path": "plugins/taskboard/taskboard.mjs",
+      "sha256": "97aa8e4192c3836d6900cf4ba3548a109500c91477fc8200e3cc6b6a13d66483"
+    },
+    {
+      "path": "plugins/tool-families/tool-families.mjs",
+      "sha256": "2f2d3ab5c6d108bead6c1d60e91122b831e62a667379d0a83f2b902b30f63fe8"
+    },
+    {
+      "path": "plugins/test-cases/test-cases.mjs",
+      "sha256": "10d3c1f477ca9c42f6a94bf284442571a33ec4698848a4bc084b7416743ecf83"
+    },
+    {
+      "path": "scripts/tool-surface-proof.mjs",
+      "sha256": "261cd087ee8c0243dc087a39551fc1f4917b412142e122af54849074989faed4"
+    },
+    {
+      "path": "scripts/context-bounds-proof.mjs",
+      "sha256": "b0e2db3f3d9ae9f3974418d7f72b5bf5842db9e9637ef37e1ed3a699e5f3d442"
+    }
+  ],
+  "linkedTaskId": "task-mwmb46es-ze81wg",
+  "reqId": "REQ-128",
+  "authorRole": "BACKEND",
+  "checks": [
+    {
+      "name": "every check passed",
+      "metric": "failures",
+      "op": "==",
+      "threshold": 0
+    },
+    {
+      "name": "the proof ran its checks",
+      "metric": "checks",
+      "op": ">=",
+      "threshold": 20
+    },
+    {
+      "name": "the projected result was above the threshold",
+      "metric": "projectionBefore",
+      "op": ">=",
+      "threshold": 8192
+    },
+    {
+      "name": "the projected result stays under 6000 chars",
+      "metric": "projectionAfter",
+      "op": "<=",
+      "threshold": 6000
+    },
+    {
+      "name": "the projection saves at least 40%",
+      "metric": "projectionSavedPct",
+      "op": ">=",
+      "threshold": 40,
+      "unit": "%"
+    },
+    {
+      "name": "page one holds at most 25 rows",
+      "metric": "taskListRows",
+      "op": "<=",
+      "threshold": 25
+    },
+    {
+      "name": "page one stays under 12000 chars",
+      "metric": "taskListChars",
+      "op": "<=",
+      "threshold": 12000
+    },
+    {
+      "name": "the kit registration proof passed 6 checks",
+      "metric": "allowRowChecks",
+      "op": ">=",
+      "threshold": 6
+    },
+    {
+      "name": "the allow row stays within 45 entries",
+      "metric": "allowRowEntries",
+      "op": "<=",
+      "threshold": 45
+    },
+    {
+      "name": "a 1M window compacts at 480K or later",
+      "metric": "compaction1M",
+      "op": ">=",
+      "threshold": 480000,
+      "unit": "tokens"
+    },
+    {
+      "name": "a 1M window compacts no later than 540K",
+      "metric": "compaction1M",
+      "op": "<=",
+      "threshold": 540000,
+      "unit": "tokens"
+    },
+    {
+      "name": "a 272K window compacts above 136K",
+      "metric": "compaction272K",
+      "op": ">",
+      "threshold": 136000,
+      "unit": "tokens"
+    },
+    {
+      "name": "a 272K window compacts no later than 218K",
+      "metric": "compaction272K",
+      "op": "<=",
+      "threshold": 218000,
+      "unit": "tokens"
+    }
+  ],
+  "negativeControl": "pre-change",
+  "revision": 3,
+  "createdAt": "2026-11-18T16:05:03.287Z",
+  "updatedAt": "2026-11-18T16:05:11.303Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-18T16:05:07.275Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"pre-change\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-18T16:05:11.303Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mwmbbcyz-z3q7b-1",
+      "at": "2026-11-18T16:05:07.267Z",
+      "mode": "red",
+      "control": "pre-change",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 273,
+      "commandSha256": "cd4ab186d9ef8b27318fe1abdace4c22158363b4a3ebfe98f7fbccab5d504aa8",
+      "head": "d4de360f5552158a5fb1e0e8871dc0d1af6d5ec3",
+      "dirty": true,
+      "stdout": "docs/cases/runs/context-bounds-hold-projection-paging-allow-row-compaction/mwmbbcyz-z3q7b-1/stdout.log",
+      "stderr": "docs/cases/runs/context-bounds-hold-projection-paging-allow-row-compaction/mwmbbcyz-z3q7b-1/stderr.log",
+      "summary": "docs/cases/runs/context-bounds-hold-projection-paging-allow-row-compaction/mwmbbcyz-z3q7b-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "projectionTools": 1,
+        "projectionBefore": 13061,
+        "projectionAfter": 13061,
+        "projectionSavedPct": 0,
+        "projectionSpillReadable": 0,
+        "taskListRows": 60,
+        "taskListChars": 13947,
+        "taskListTotal": 60,
+        "allowRowEntries": 43,
+        "allowRowChecks": 6,
+        "compactionBlocks": 8,
+        "compactionDefaultRatio": 0.5,
+        "compactionFlashRatio": 0,
+        "compaction1M": 0,
+        "compaction272K": 136000,
+        "checks": 26,
+        "failures": 13,
+        "negativeControl": 1
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        },
+        {
+          "name": "every check passed",
+          "metric": "failures",
+          "op": "==",
+          "measured": 13,
+          "threshold": 0,
+          "pass": false,
+          "reason": "13 is not == 0"
+        },
+        {
+          "name": "the proof ran its checks",
+          "metric": "checks",
+          "op": ">=",
+          "measured": 26,
+          "threshold": 20,
+          "pass": true
+        },
+        {
+          "name": "the projected result was above the threshold",
+          "metric": "projectionBefore",
+          "op": ">=",
+          "measured": 13061,
+          "threshold": 8192,
+          "pass": true
+        },
+        {
+          "name": "the projected result stays under 6000 chars",
+          "metric": "projectionAfter",
+          "op": "<=",
+          "measured": 13061,
+          "threshold": 6000,
+          "pass": false,
+          "reason": "13061 is not <= 6000"
+        },
+        {
+          "name": "the projection saves at least 40%",
+          "metric": "projectionSavedPct",
+          "op": ">=",
+          "unit": "%",
+          "measured": 0,
+          "threshold": 40,
+          "pass": false,
+          "reason": "0 is not >= 40"
+        },
+        {
+          "name": "page one holds at most 25 rows",
+          "metric": "taskListRows",
+          "op": "<=",
+          "measured": 60,
+          "threshold": 25,
+          "pass": false,
+          "reason": "60 is not <= 25"
+        },
+        {
+          "name": "page one stays under 12000 chars",
+          "metric": "taskListChars",
+          "op": "<=",
+          "measured": 13947,
+          "threshold": 12000,
+          "pass": false,
+          "reason": "13947 is not <= 12000"
+        },
+        {
+          "name": "the kit registration proof passed 6 checks",
+          "metric": "allowRowChecks",
+          "op": ">=",
+          "measured": 6,
+          "threshold": 6,
+          "pass": true
+        },
+        {
+          "name": "the allow row stays within 45 entries",
+          "metric": "allowRowEntries",
+          "op": "<=",
+          "measured": 43,
+          "threshold": 45,
+          "pass": true
+        },
+        {
+          "name": "a 1M window compacts at 480K or later",
+          "metric": "compaction1M",
+          "op": ">=",
+          "unit": "tokens",
+          "measured": 0,
+          "threshold": 480000,
+          "pass": false,
+          "reason": "0 is not >= 480000"
+        },
+        {
+          "name": "a 1M window compacts no later than 540K",
+          "metric": "compaction1M",
+          "op": "<=",
+          "unit": "tokens",
+          "measured": 0,
+          "threshold": 540000,
+          "pass": true
+        },
+        {
+          "name": "a 272K window compacts above 136K",
+          "metric": "compaction272K",
+          "op": ">",
+          "unit": "tokens",
+          "measured": 136000,
+          "threshold": 136000,
+          "pass": false,
+          "reason": "136000 is not > 136000"
+        },
+        {
+          "name": "a 272K window compacts no later than 218K",
+          "metric": "compaction272K",
+          "op": "<=",
+          "unit": "tokens",
+          "measured": 136000,
+          "threshold": 218000,
+          "pass": true
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwmbbg1e-dsvs7-1",
+      "at": "2026-11-18T16:05:11.297Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 288,
+      "commandSha256": "cd4ab186d9ef8b27318fe1abdace4c22158363b4a3ebfe98f7fbccab5d504aa8",
+      "head": "d4de360f5552158a5fb1e0e8871dc0d1af6d5ec3",
+      "dirty": true,
+      "stdout": "docs/cases/runs/context-bounds-hold-projection-paging-allow-row-compaction/mwmbbg1e-dsvs7-1/stdout.log",
+      "stderr": "docs/cases/runs/context-bounds-hold-projection-paging-allow-row-compaction/mwmbbg1e-dsvs7-1/stderr.log",
+      "summary": "docs/cases/runs/context-bounds-hold-projection-paging-allow-row-compaction/mwmbbg1e-dsvs7-1/summary.json",
+      "summaryError": null,
+      "metrics": {
+        "projectionTools": 11,
+        "projectionBefore": 13061,
+        "projectionAfter": 4938,
+        "projectionSavedPct": 62.2,
+        "projectionSpillReadable": 1,
+        "taskListRows": 25,
+        "taskListChars": 6003,
+        "taskListTotal": 60,
+        "allowRowEntries": 39,
+        "allowRowChecks": 6,
+        "compactionBlocks": 8,
+        "compactionDefaultRatio": 0.8,
+        "compactionFlashRatio": 0.5,
+        "compaction1M": 524288,
+        "compaction272K": 217600,
+        "checks": 26,
+        "failures": 0,
+        "negativeControl": 0
+      },
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        },
+        {
+          "name": "every check passed",
+          "metric": "failures",
+          "op": "==",
+          "measured": 0,
+          "threshold": 0,
+          "pass": true
+        },
+        {
+          "name": "the proof ran its checks",
+          "metric": "checks",
+          "op": ">=",
+          "measured": 26,
+          "threshold": 20,
+          "pass": true
+        },
+        {
+          "name": "the projected result was above the threshold",
+          "metric": "projectionBefore",
+          "op": ">=",
+          "measured": 13061,
+          "threshold": 8192,
+          "pass": true
+        },
+        {
+          "name": "the projected result stays under 6000 chars",
+          "metric": "projectionAfter",
+          "op": "<=",
+          "measured": 4938,
+          "threshold": 6000,
+          "pass": true
+        },
+        {
+          "name": "the projection saves at least 40%",
+          "metric": "projectionSavedPct",
+          "op": ">=",
+          "unit": "%",
+          "measured": 62.2,
+          "threshold": 40,
+          "pass": true
+        },
+        {
+          "name": "page one holds at most 25 rows",
+          "metric": "taskListRows",
+          "op": "<=",
+          "measured": 25,
+          "threshold": 25,
+          "pass": true
+        },
+        {
+          "name": "page one stays under 12000 chars",
+          "metric": "taskListChars",
+          "op": "<=",
+          "measured": 6003,
+          "threshold": 12000,
+          "pass": true
+        },
+        {
+          "name": "the kit registration proof passed 6 checks",
+          "metric": "allowRowChecks",
+          "op": ">=",
+          "measured": 6,
+          "threshold": 6,
+          "pass": true
+        },
+        {
+          "name": "the allow row stays within 45 entries",
+          "metric": "allowRowEntries",
+          "op": "<=",
+          "measured": 39,
+          "threshold": 45,
+          "pass": true
+        },
+        {
+          "name": "a 1M window compacts at 480K or later",
+          "metric": "compaction1M",
+          "op": ">=",
+          "unit": "tokens",
+          "measured": 524288,
+          "threshold": 480000,
+          "pass": true
+        },
+        {
+          "name": "a 1M window compacts no later than 540K",
+          "metric": "compaction1M",
+          "op": "<=",
+          "unit": "tokens",
+          "measured": 524288,
+          "threshold": 540000,
+          "pass": true
+        },
+        {
+          "name": "a 272K window compacts above 136K",
+          "metric": "compaction272K",
+          "op": ">",
+          "unit": "tokens",
+          "measured": 217600,
+          "threshold": 136000,
+          "pass": true
+        },
+        {
+          "name": "a 272K window compacts no later than 218K",
+          "metric": "compaction272K",
+          "op": "<=",
+          "unit": "tokens",
+          "measured": 217600,
+          "threshold": 218000,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-18T16:05:07.275Z",
+    "runId": "mwmbbcyz-z3q7b-1",
+    "exitCode": 1,
+    "control": "pre-change",
+    "command": "node scripts/context-bounds-proof.mjs",
+    "source": "negative-control"
+  },
+  "lastVerified": {
+    "at": "2026-11-18T16:05:11.303Z",
+    "command": "node scripts/context-bounds-proof.mjs",
+    "exitCode": 0,
+    "runId": "mwmbbg1e-dsvs7-1",
+    "source": "runner",
+    "commit": null
+  }
+}

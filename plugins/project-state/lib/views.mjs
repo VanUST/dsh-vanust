@@ -75,10 +75,14 @@ export function buildModel({ reqs = [], tasks = [], tests = [], decisions = [] }
   }))
   const testRows = tests.map((test) => ({
     id: test.id,
+    // The panel's first paint reads the index alone; a row without a title would send it back
+    // to the entity files (the legacy fallback), so the title travels here too.
+    title: test.title,
     reqId: test.reqId ?? null,
     status: test.status,
     authorRole: test.authorRole ?? null,
     command: test.command ?? null,
+    updatedAt: test.updatedAt ?? null,
     evidenceRefs: (Array.isArray(test.links) ? test.links : []).filter((link) => link.kind !== 'req').map((link) => ({ kind: link.kind, id: link.id, hash: link.hash })),
   }))
   return { reqs: reqRows.sort(byId), tasks: [...tasks].sort(byId), tests: testRows.sort(byId), decisions: [...decisions].sort(byId) }
@@ -95,19 +99,35 @@ export function renderIndex(model, { lastSeq = 0 } = {}) {
       test: model.tests.length,
       decision: model.decisions.length,
     },
-    reqs: model.reqs.map((req) => ({ id: req.id, status: req.status, tasks: req.tasks, tests: req.tests, decisions: req.decisions })),
+    // THE PANEL'S FIRST PAINT READS THIS ONE FILE. It used to follow the index with one read
+    // per entity (hundreds of round trips, several seconds); the rows below carry every field
+    // a list or a card draws, and the entity file is fetched only when a body is opened.
+    reqs: model.reqs.map((req) => ({ id: req.id, title: req.title, status: req.status, ...(typeof req.updatedAt === 'string' ? { updatedAt: req.updatedAt } : {}), tasks: req.tasks, tests: req.tests, decisions: req.decisions })),
     tasks: model.tasks.map((task) => ({
       id: task.id,
+      title: task.title,
       reqId: task.reqId ?? null,
       status: task.status,
       chore: task.chore === true,
       ...(Array.isArray(task.reqIds) && task.reqIds.length > 0 ? { reqIds: task.reqIds } : {}),
       ...(Array.isArray(task.steps) && task.steps.length > 0 ? { steps: task.steps.length, stepsDone: Number.isSafeInteger(task.stepsDone) ? task.stepsDone : 0 } : {}),
+      // LIST FIELDS ONLY. The card needs title/status/progress/sessions and the drawer's
+      // details (scope, acceptance, result, full steps) come from the entity file when the
+      // card is opened; putting them here made index.json 790 KB (over the reader's page cap).
+      ...(typeof task.role === 'string' && task.role !== '' ? { role: task.role } : {}),
+      ...(typeof task.preset === 'string' && task.preset !== '' ? { preset: task.preset } : {}),
+      ...(task.inline === true ? { inline: true } : {}),
+      ...(task.owner !== undefined && task.owner !== null ? { owner: task.owner } : {}),
+      ...(Array.isArray(task.sessions) && task.sessions.length > 0 ? { sessions: task.sessions } : {}),
+      ...(typeof task.updatedAt === 'string' ? { updatedAt: task.updatedAt } : {}),
     })),
-    tests: model.tests.map((test) => ({ id: test.id, reqId: test.reqId, status: test.status, evidenceRefs: test.evidenceRefs })),
-    decisions: model.decisions.map((decision) => ({ id: decision.id, status: decision.status })),
+    tests: model.tests.map((test) => ({ id: test.id, title: test.title, reqId: test.reqId, status: test.status, authorRole: test.authorRole ?? null, command: test.command ?? null, ...(typeof test.updatedAt === 'string' ? { updatedAt: test.updatedAt } : {}), evidenceRefs: test.evidenceRefs })),
+    decisions: model.decisions.map((decision) => ({ id: decision.id, title: decision.title, status: decision.status, ...(typeof decision.updatedAt === 'string' ? { updatedAt: decision.updatedAt } : {}) })),
   }
-  return `${JSON.stringify(index, null, 2)}\n`
+  // ONE LINE, deliberately: the gateway pages a read at 5000 lines, and a pretty index of a
+  // few hundred entities crosses that. This file is the machine contract (a human reads
+  // board.md/digest.md), so compact JSON keeps the panel's first paint at one read.
+  return `${JSON.stringify(index)}\n`
 }
 
 /** `board.md`: the TASK board grouped by status in a fixed order. */

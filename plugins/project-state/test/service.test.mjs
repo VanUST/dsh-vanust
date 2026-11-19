@@ -47,3 +47,25 @@ test('apply publishes ccProjectState once and disposes it through ctx.effect', a
   const verdict = await service.verify(cwd)
   assert.equal(verdict.ok, true, JSON.stringify(verdict.findings))
 })
+
+test('the service exposes journal() so a consumer can leave a waiver event', async () => {
+  const ctx = {
+    logger: { warn() {} },
+    provide: () => () => {},
+    effect: (fn) => fn(),
+  }
+  const service = apply(ctx, {})
+  const cwd = await mkdtemp(join(tmpdir(), 'project-state-journal-'))
+  // The board's owner-status write records its override here; without this delegate the
+  // trail the owner asked for silently disappears (the caller sees no journal method).
+  assert.equal(typeof service.journal, 'function', 'the service publishes no journal()')
+  const record = await service.journal(cwd, { code: 'owner_status_override', by: 'human', reason: 'owner decision', from: 'open', to: 'done' })
+  assert.equal(record.seq, 1)
+  assert.equal(record.kind, 'waiver')
+  assert.equal(record.code, 'owner_status_override')
+  assert.equal(record.by, 'human')
+  const text = await (await import('node:fs/promises')).readFile(join(cwd, 'state', 'events.jsonl'), 'utf8')
+  const events = text.trim().split('\n').map((line) => JSON.parse(line))
+  assert.equal(events.length, 1)
+  assert.equal(events[0].to, 'done')
+})

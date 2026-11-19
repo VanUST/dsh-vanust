@@ -1,0 +1,523 @@
+{
+  "schemaVersion": 1,
+  "id": "codex-context-bounds",
+  "rev": 8,
+  "status": "ready",
+  "createdAt": "2026-11-18T15:39:39.165Z",
+  "updatedAt": "2026-11-18T16:10:18.003Z",
+  "updatedBy": "agent",
+  "title": "Границы контекста и видимость квоты на маршруте Codex",
+  "requestedSolution": "Владелец принял пункты 1, 2, 3, 5, 6 разбора сгоревшего окна Codex (2026-11-18) и потребовал задавать обрезку абсолютным числом токенов около 500K, а не долей окна. Остальные претензии к харнессу признаны требующими исправлений.",
+  "businessOutcome": {
+    "problem": "Сессия autolabel_pipeline session-0b50bf39 за 32 минуты (16:33–17:05 МСК 2026-11-18) исчерпала 5-часовое окно ChatGPT Plus: 56 запросов и 5 141 365 токенов промпта на два коротких сообщения пользователя. 93,8% промпта читалось из кэша, то есть кэш работал и виноват объём: 27,5% — «шапка» 25 287 токенов в каждом из 56 запросов, 44,5% — стартовый дамп 43K токенов (task_list scope workspace 61 884 символа, hindsight_read_page 57 883, skill 23 981), который ехал ещё 54 запроса. Остаток окна нигде не виден до ошибки 17:05:38. Тот же рисунок на deepseek после переключения: 62 запроса и 11,1 млн токенов за 80 минут.",
+    "outcome": "Харнесс ограничивает на входе модели любую крупную выдачу инструмента, не тянет полную доску и полную страницу памяти на старте, держит бюджет контекста абсолютным (~500K токенов), сокращает набор инструментов корня и показывает остаток 5-часового и недельного окна Codex до его исчерпания.",
+    "successMetrics": [
+      "крупная выдача инструмента в контексте модели не превышает 16 000 символов и несёт путь к полному тексту",
+      "task_list со scope workspace отдаёт сводку и страницу задач вместо всего реестра",
+      "стартовые tool-результаты контрольной сессии не превышают 8K токенов",
+      "порог компакции: 500K токенов там, где окно позволяет, и не более 80% окна иначе",
+      "остаток 5-часового окна Codex виден до отказа",
+      "make verify и профильные проверки зелёные"
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CURRENT",
+        "name": "Неограниченная выдача и обрезка только под давлением",
+        "actors": [
+          "оркестратор",
+          "инструменты",
+          "compaction-basic",
+          "tool-result-pruner"
+        ],
+        "steps": [
+          "Оркестратор на старте вызывает task_list(workspace) и hindsight_read_page и получает 60K символов в контекст.",
+          "Каждый следующий шаг переотправляет весь контекст; выдача инструментов не ограничена.",
+          "Обрезчик срабатывает по порогу и переписывает историю посреди хода, обнуляя кэш-префикс.",
+          "Компакция на доле 0.5 от окна режет 272K-окно до 136K и добавляет отдельный запрос суммаризации."
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-TARGET",
+        "name": "Границы на входе и поздняя компакция",
+        "actors": [
+          "плагин проекции выдачи",
+          "taskboard",
+          "оркестратор",
+          "compaction-basic",
+          "плагин квоты"
+        ],
+        "steps": [
+          "Крупная выдача инструмента проецируется на входе: баннер, голова, хвост и путь к полному тексту; история не переписывается.",
+          "task_list отдаёт сводку и страницу; полный список — явным limit/offset.",
+          "Порог компакции — абсолютный бюджет 500K, ограниченный 80% окна модели.",
+          "Остаток окна Codex виден в сессии до отказа."
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "FR-1",
+      "kind": "FR",
+      "text": "Выдача инструмента, попадающая в контекст модели, ограничена сверху и несёт путь к полному тексту; полный текст сохраняется в рабочей области сессии.",
+      "acceptance": [
+        "read, bash, web_fetch, hindsight_read_page и task_list выше порога приходят баннером с путём",
+        "task_get, task_update, task_close, analysis_read, analysis_upsert, skill, delegation_* не обрезаются",
+        "ошибочный результат, картинка и уже спроецированный текст не трогаются",
+        "полный текст читается по пути из баннера"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-2",
+      "kind": "FR",
+      "text": "task_list не отдаёт весь реестр рабочей области одним ответом; список страничный, а стартовый сценарий оркестратора не требует полной доски.",
+      "acceptance": [
+        "task_list(scope:workspace) без limit отдаёт сводку и не более 25 задач",
+        "limit/offset возвращают запрошенную страницу",
+        "промпт оркестратора не велит тянуть workspace-доску на старте",
+        "default scope chat остаётся"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-3",
+      "kind": "FR",
+      "text": "Набор инструментов корневого агента сокращён: роль-специфичные семейства остаются только у ролей, которым они нужны.",
+      "acceptance": [
+        "у пресета orchestrator не более 45 инструментов (замер: 54 до правки)",
+        "ни один инструмент с нулевым использованием корнем за 127 сессий не остаётся в строке allow",
+        "allow-строка действует и на инструменты, которые плагины регистрируют в контексте агента (case_*, delegation_*, diagram)",
+        "make verify зелёный"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-4",
+      "kind": "FR",
+      "text": "Порог компакции задаётся абсолютным бюджетом около 500K токенов и не превышает 80% окна модели.",
+      "acceptance": [
+        "модель с окном 1M компактится на 500K",
+        "модель с окном 272K компактится не позже 218K",
+        "в профиле нет доли, дающей 136K на 272K"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR-5",
+      "kind": "FR",
+      "text": "Остаток 5-часового и недельного окна Codex виден в сессии; дорогая модель маршрута названа при выборе.",
+      "acceptance": [
+        "команда или панель показывает used_percent и reset для primary и secondary",
+        "данные берутся из /wham/usage с учётными данными харнесса",
+        "недоступность сети не ломает сессию"
+      ],
+      "status": "rejected",
+      "reason": "владелец снял пункты 5 и 6 (2026-11-18): остаток окна и цена модели не делаются"
+    },
+    {
+      "id": "FR-6",
+      "kind": "FR",
+      "text": "Выбор дорогой модели маршрута openai-codex сопровождается ценовым предупреждением; дешёвая модель указана как рекомендуемая.",
+      "acceptance": [
+        "при выборе gpt-6-astra на openai-codex сессия получает одно предупреждение с ценой относительно самой дешёвой модели маршрута",
+        "предупреждение не повторяется в каждой сессии"
+      ],
+      "status": "rejected",
+      "reason": "владелец снял пункты 5 и 6 (2026-11-18): остаток окна и цена модели не делаются"
+    },
+    {
+      "id": "NFR-1",
+      "kind": "NFR",
+      "text": "Обрезка не теряет данные и не ломает контракты.",
+      "acceptance": [
+        "полный текст лежит на диске и указан в баннере",
+        "task_get возвращает revision",
+        "анализ и делегирование не обрезаются"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "NFR-2",
+      "kind": "NFR",
+      "text": "Правки не увеличивают число перезаписей истории внутри хода.",
+      "acceptance": [
+        "prune/compaction не чаще одного раза на границе хода",
+        "повторный запуск проекции не создаёт второй файл"
+      ],
+      "status": "deferred",
+      "reason": "граница хода для обрезчика не входила в согласованный набор 1,2,3,5,6"
+    }
+  ],
+  "architecture": {
+    "contractImpact": "additive",
+    "components": [
+      {
+        "id": "C-PROJ",
+        "name": "Проекция выдачи инструментов",
+        "responsibility": "tools/post-execute: выше minBytes заменить модельный текст на баннер, голову, хвост и путь к полному тексту",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": []
+      },
+      {
+        "id": "C-TB",
+        "name": "Плагин taskboard",
+        "responsibility": "task_list: сводка и страницы вместо всего реестра",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": []
+      },
+      {
+        "id": "C-ORCH",
+        "name": "Плагин оркестратора",
+        "responsibility": "корневая политика: стартовый сценарий без полной доски и полной страницы памяти",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": []
+      },
+      {
+        "id": "C-CFG",
+        "name": "Профиль web",
+        "responsibility": "порог компакции по моделям, набор инструментов пресетов",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": []
+      },
+      {
+        "id": "C-QUOTA",
+        "name": "Квота Codex",
+        "responsibility": "чтение /wham/usage и предупреждение о дорогой модели маршрута",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": []
+      }
+    ]
+  },
+  "data": [],
+  "contracts": [
+    {
+      "id": "CT-PROJ",
+      "name": "Модельная выдача инструмента",
+      "between": [
+        "C-PROJ"
+      ],
+      "change": "additive",
+      "description": "У крупных результатов появляется баннер с путём к полному тексту; структура результата для харнесса не меняется."
+    },
+    {
+      "id": "CT-TASKLIST",
+      "name": "Результат task_list",
+      "between": [
+        "C-TB",
+        "C-ORCH"
+      ],
+      "change": "breaking",
+      "description": "workspace-режим возвращает сводку и страницу; полный список — через limit/offset."
+    },
+    {
+      "id": "CT-CFG",
+      "name": "Конфигурация профиля",
+      "between": [
+        "C-CFG"
+      ],
+      "change": "breaking",
+      "description": "Порог компакции становится per-model; набор инструментов корня сокращается."
+    }
+  ],
+  "invariants": [
+    {
+      "id": "INV-1",
+      "text": "Ни один результат инструмента не теряется: полный текст доступен по указанному пути или остаётся в результате.",
+      "scope": ""
+    },
+    {
+      "id": "INV-2",
+      "text": "Инструменты с compare-and-set возвращают неизменённые поля контракта.",
+      "scope": ""
+    }
+  ],
+  "decisions": [
+    {
+      "id": "D-1",
+      "decision": "Ограничивать объём на входе модели, а не в истории.",
+      "rationale": "Проекция заменяет только модельный текст и не переписывает историю, поэтому кэш-префикс не ломается; обрезчик истории, наоборот, обнулял кэш трижды за сессию.",
+      "alternatives": [
+        "переписывать историю обрезчиком",
+        "оставить как есть"
+      ]
+    },
+    {
+      "id": "D-2",
+      "decision": "Абсолютные 500K выражаются per-model thresholdRatio: 0.5 для окна 1M (ровно 500K), 0.8 для окна 272K (218K).",
+      "rationale": "compaction-basic принимает только долю окна; доля 0.5 на 272K давала 136K и раннюю компакцию с отдельным запросом суммаризации.",
+      "alternatives": [
+        "форк compaction-basic",
+        "оставить 0.5 везде"
+      ]
+    },
+    {
+      "id": "D-3",
+      "decision": "Не обрезать skill и инструменты анализа.",
+      "rationale": "Полный текст скилла нужен для исполнения, а analysis_* несут revision для compare-and-set.",
+      "alternatives": [
+        "обрезать всё выше порога"
+      ]
+    },
+    {
+      "id": "D-4",
+      "decision": "Ролевая allow-строка — единственный владелец поверхности: плагины, регистрирующие инструменты в контексте агента, спрашивают toolFamilies.allows() перед регистрацией.",
+      "rationale": "tools.restrict маскирует только глобальные и унаследованные регистрации; 8 из 54 инструментов корня не были названы в строке и обходили политику. Нижняя граница 15 инструментов — собственные инструменты пресета (fs, search, skill, goal, ask, todo, web, present), их restrict не маскирует.",
+      "alternatives": [
+        "оставить как есть",
+        "перенести регистрации на глобальный слой"
+      ]
+    }
+  ],
+  "openQuestions": [
+    {
+      "id": "Q-1",
+      "question": "Доступен ли https://chatgpt.com/backend-api/wham/usage из процесса dsh без прокси? Если нет — нужен тот же путь прокси, что у провайдера.",
+      "owner": "",
+      "blocks": false,
+      "answer": ""
+    },
+    {
+      "id": "Q-2",
+      "question": "Какие роль-специфичные семейства (designmap, cases, diagram, papers) можно убрать из корня без потери работы? Нужен замер использования за 10 корневых сессий.",
+      "owner": "",
+      "blocks": false,
+      "answer": ""
+    }
+  ],
+  "sizing": {
+    "class": "L1",
+    "reasons": [
+      "Меняются модельная выдача двух инструментов и конфигурация профиля",
+      "Новых данных и внешних контрактов нет",
+      "Правки локальны для кита и проверяются его гейтами"
+    ]
+  },
+  "designRef": {
+    "mapRev": 30,
+    "at": "2026-11-18T15:39:39.007Z",
+    "source": "designmap/model.yaml@sha256:699c3c8c844c53b69ef4b2a9ca8300b45dfe73fd752c9e1c54cf2fec4b180f7d"
+  },
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "FR-1",
+      "processId": "P-TARGET",
+      "componentId": "C-PROJ",
+      "contractIds": [
+        "CT-PROJ"
+      ],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwmb46es-ze81wg",
+          "role": "BACKEND",
+          "at": "2026-11-18T15:59:37.546Z",
+          "evidence": [
+            "node scripts/context-bounds-proof.mjs -> PASS (26 checks), exit 0: read 13 061 chars -> banner + spill readable (4 938 chars), task_get untouched",
+            "CASE_NEGATIVE_CONTROL=pre-change -> FAIL, exit 1 (projectionAfter 13 061: no banner)",
+            "case_run red mwmbbcyz-z3q7b-1 (exit 1, 13 failed checks) -> green mwmbbg1e-dsvs7-1 (exit 0, 0 failed), case status verified, TEST-071"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-2",
+      "processId": "P-TARGET",
+      "componentId": "C-TB",
+      "contractIds": [
+        "CT-TASKLIST"
+      ],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwmb46es-ze81wg",
+          "role": "BACKEND",
+          "at": "2026-11-18T15:59:37.546Z",
+          "evidence": [
+            "node scripts/context-bounds-proof.mjs -> PASS: task_list(scope:workspace) page 25 rows of 60, total 60, counts + next.offset 25, 6 003 chars",
+            "CASE_NEGATIVE_CONTROL=pre-change -> FAIL, exit 1 (taskListRows 60)",
+            "case_run red mwmbbcyz-z3q7b-1 (exit 1, 13 failed checks) -> green mwmbbg1e-dsvs7-1 (exit 0, 0 failed), case status verified, TEST-071"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-3",
+      "processId": "P-TARGET",
+      "componentId": "C-CFG",
+      "contractIds": [
+        "CT-CFG"
+      ],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwmb46es-ze81wg",
+          "role": "BACKEND",
+          "at": "2026-11-18T15:59:37.546Z",
+          "evidence": [
+            "node scripts/context-bounds-proof.mjs -> PASS: allow row 39 entries; delegation_brief registered, delegation_return not; diagram refused for orchestrator; case intake 4 registered, case_gate out",
+            "node scripts/tool-families-proof.mjs -> exit 0, 97/97",
+            "case_run red mwmbbcyz-z3q7b-1 (exit 1, 13 failed checks) -> green mwmbbg1e-dsvs7-1 (exit 0, 0 failed), case status verified, TEST-071"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-4",
+      "processId": "P-TARGET",
+      "componentId": "C-CFG",
+      "contractIds": [
+        "CT-CFG"
+      ],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwmb46es-ze81wg",
+          "role": "BACKEND",
+          "at": "2026-11-18T15:59:37.546Z",
+          "evidence": [
+            "node scripts/context-bounds-proof.mjs -> PASS: compaction1M 524 288, compaction272K 217 600 (headroom caps it at 206 464)",
+            "CASE_NEGATIVE_CONTROL=pre-change -> FAIL, exit 1 (compaction1M 0, compaction272K 136 000)",
+            "case_run red mwmbbcyz-z3q7b-1 (exit 1, 13 failed checks) -> green mwmbbg1e-dsvs7-1 (exit 0, 0 failed), case status verified, TEST-071"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR-5",
+      "processId": "P-TARGET",
+      "componentId": "C-QUOTA",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "rejected",
+      "tasks": [],
+      "reason": "владелец снял пункты 5 и 6 (2026-11-18): остаток окна и цена модели не делаются"
+    },
+    {
+      "requirementId": "FR-6",
+      "processId": "P-TARGET",
+      "componentId": "C-QUOTA",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "rejected",
+      "tasks": [],
+      "reason": "владелец снял пункты 5 и 6 (2026-11-18): остаток окна и цена модели не делаются"
+    },
+    {
+      "requirementId": "NFR-1",
+      "processId": "P-TARGET",
+      "componentId": "C-PROJ",
+      "contractIds": [
+        "CT-PROJ"
+      ],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwmb46es-ze81wg",
+          "role": "BACKEND",
+          "at": "2026-11-18T15:59:37.546Z",
+          "evidence": [
+            "node scripts/context-bounds-proof.mjs -> PASS: the banner path contains the full original text; task_get result untouched",
+            "case_run red mwmbbcyz-z3q7b-1 (exit 1, 13 failed checks) -> green mwmbbg1e-dsvs7-1 (exit 0, 0 failed), case status verified, TEST-071"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "NFR-2",
+      "processId": "P-TARGET",
+      "componentId": "C-PROJ",
+      "contractIds": [
+        "CT-PROJ"
+      ],
+      "dataIds": [],
+      "status": "deferred",
+      "tasks": [],
+      "reason": "граница хода для обрезчика не входила в согласованный набор 1,2,3,5,6"
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "36d0b6d127837c49aa1a2f8865a1e7d74e7b73284f4088d1853519c46c75ad61",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-18T15:39:39.165Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-18T15:46:40.278Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-18T15:55:37.766Z",
+      "editedBy": "agent",
+      "action": "impact",
+      "status": "draft",
+      "summary": "FR-3 acceptance revised from <=38 to <=45 after measuring the preset-scoped floor (15 tools cannot be masked) and root usage over 127 sessions; the allow list now also applies at per-agent registration"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-18T15:55:43.509Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "requirements: FR-3 changed"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-18T15:56:02.551Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR-5 changed, FR-6 changed, NFR-2 changed; impacts: 3"
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-18T15:56:07.726Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-18T15:59:37.546Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwmb46es-ze81wg -> FR-1, FR-2, FR-3, FR-4, NFR-1"
+    },
+    {
+      "revision": 8,
+      "at": "2026-11-18T16:10:18.003Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    }
+  ]
+}

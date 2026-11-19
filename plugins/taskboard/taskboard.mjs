@@ -22,10 +22,12 @@
  *     maxTasks tasks that can still be acted on (open, active, paused, review, blocked).
  *              Default 200. Terminal rows (done, cancelled) do not count against it.
  *              `0` is UNLIMITED (explicitly: no work-in-flight cap at all); a negative,
- *              a string or a missing value keeps the 200 default, and `maxRows` still
- *              bounds the file.
- *     maxRows  hard row limit for the ledger file itself. Default 1000; a create past it is
- *              refused with `board_rows_full`, and nothing is evicted.
+ *              a string or a missing value keeps the 200 default.
+ *     maxRows  hard row limit for the ledger file itself. NO DEFAULT: without this key the
+ *              board has no row limit. A positive integer is a limit (a create past it is
+ *              refused with `board_rows_full`), `0` is the explicit spelling of no limit, and
+ *              nothing is ever evicted. A limit that fires without the owner asking for it
+ *              stopped a real workspace at 1000 rows, which is why the default is "none".
  *     timelineLimit maximum timeline entries per task. Default 120.
  *     staleAfterMs  how old an untouched role row must be to report `stale`.
  *                   Default 86400000 (one day).
@@ -96,6 +98,15 @@
  *     (`use_pause`, `use_close`) and leaving paused is `use_resume`; done and cancelled are
  *     terminal (`terminal`); `task_close` accepts only a task in review (`needs_review`).
  *     A refusal is a value, not a throw: the caller quotes the code.
+ *   - THE OWNER'S DOOR IS THE COMMAND ONLY. `op: "owner-status"` writes any status without
+ *     `transitionRefusal` (the owner's own decision, asked for on 2026-11-19), stops the
+ *     children of a terminal or held target, writes a `status` timeline entry with actor
+ *     `human` and a `waiver` journal event with code `owner_status_override` carrying
+ *     from/to/reason/boardId/taskId. No model tool exposes it: an agent stays under the
+ *     lifecycle, and the human is the only caller that can mint an acceptance.
+ *   - THE BOARD HAS NO ROW LIMIT UNLESS THE WORKSPACE ASKS. `maxRows` has no default; the
+ *     shipped 1000-row guard refused new work on a real 1000-row board, and a limit that
+ *     fires without the owner's decision is the defect, not the safety. Nothing is evicted.
  *   - A row with `proposed` or `ready` was written before those two names were merged into
  *     `open`. It is DISPLAY-MAPPED on read (`displayStatus`) and never rewritten by a read:
  *     a save that does not change the state leaves the stored value alone. The board
@@ -400,14 +411,19 @@ export const INITIAL_STATUSES = ['open', 'blocked']
  */
 const ACTIVE_STATUSES = ['open', 'active', 'paused', 'review', 'blocked']
 
-/** The row count past which the FILE, not the work, is the thing at risk. */
-const DEFAULT_MAX_ROWS = 1000
+/**
+ * The row count past which the FILE, not the work, is the thing at risk. There is no default
+ * limit: a board that grew past 1000 rows stopped accepting new work in a real workspace, and
+ * "the file is full" was never the owner's decision. A workspace that wants a cap sets
+ * `maxRows` explicitly.
+ */
+const NO_ROW_LIMIT = Number.POSITIVE_INFINITY
 
 /** The most ids one batch lifecycle call may carry. A cleanup batch is tens of rows, not thousands. */
 const MAX_BATCH = 100
 
 /** Every command operation that edits or removes a row, and therefore needs its revision. */
-const MUTATING_OPS = ['update', 'note', 'link', 'pause', 'resume', 'close', 'cancel', 'remove']
+const MUTATING_OPS = ['update', 'note', 'link', 'pause', 'resume', 'close', 'cancel', 'remove', 'owner-status']
 
 /**
  * A board read from disk, or the empty board when the file does not exist.
@@ -581,17 +597,18 @@ function annotateAgents(board, staleAfterMs = STALE_AFTER_MS) {
 function createService(config, logger, hooks = {}) {
   const file = typeof config.file === 'string' && config.file !== '' ? config.file : '.dsh/taskboard.json'
   // `maxTasks` keeps its name and its default (200) but counts tasks that can still be
-  // ACTED ON; `maxRows` bounds the file itself, which grows forever without it.
+  // ACTED ON; `maxRows` bounds the file itself when a workspace asks for that.
   //
-  // `0` is UNLIMITED, and it has to be spelled `0`: a workspace that does not want a cap on
-  // work in flight says so explicitly, while every other unusable value (a negative, a
-  // string, `null`, a missing key) still falls back to 200. A cap that a typo removes
-  // silently is the failure this distinction exists to prevent. The file guard `maxRows`
-  // stays either way - "no cap on work" is not "no cap on the file".
+  // `0` is UNLIMITED for both, and it has to be spelled `0` for maxTasks: a workspace that
+  // does not want a cap on work in flight says so explicitly, while every other unusable
+  // value (a negative, a string, `null`, a missing key) still falls back to 200. For maxRows
+  // the default IS no limit: the shipped cap fired without the owner's decision and refused
+  // new work at 1000 rows, so a missing key now means unlimited and only an explicit positive
+  // integer bounds the file.
   const maxTasks = config.maxTasks === 0
     ? Number.POSITIVE_INFINITY
     : (Number.isSafeInteger(config.maxTasks) && config.maxTasks > 0 ? config.maxTasks : 200)
-  const maxRows = Number.isSafeInteger(config.maxRows) && config.maxRows > 0 ? config.maxRows : DEFAULT_MAX_ROWS
+  const maxRows = Number.isSafeInteger(config.maxRows) && config.maxRows > 0 ? config.maxRows : NO_ROW_LIMIT
   const timelineLimit = Number.isSafeInteger(config.timelineLimit) && config.timelineLimit > 0 ? config.timelineLimit : 120
   const staleAfterMs = Number.isSafeInteger(config.staleAfterMs) && config.staleAfterMs > 0 ? config.staleAfterMs : STALE_AFTER_MS
   const linksFile = typeof config.linksFile === 'string' && config.linksFile !== '' ? config.linksFile : join(process.env.DSH_HOME || join(homedir(), '.dsh'), 'taskboard-child-links.json')
@@ -641,6 +658,24 @@ function createService(config, logger, hooks = {}) {
       writeBoard(path, { ...board, tasks: board.tasks, agents: board.agents ?? [] })
     }
     return result?.value ?? result
+  }
+
+  /**
+   * Mirror the tasks a lifecycle action just changed. `create`/`update`/`linkChild` already
+   * mirror their row; `close`, `cancel`, `pause`, `resume`, `childEnded` and `reconcile` are
+   * separate write points and used to leave the register behind (measured: TASK-238/239 read
+   * `review` while the board said `done`). A batch reads the changed ids back once.
+   */
+  const mirrorTasks = (cwd, tasks) => {
+    for (const task of Array.isArray(tasks) ? tasks : []) {
+      if (task === undefined || task === null) continue
+      hooks.mirror?.(cwd, task)
+    }
+  }
+  const mirrorByIds = (cwd, ids) => {
+    if (!Array.isArray(ids) || ids.length === 0) return
+    const board = readBoard(pathFor(cwd))
+    mirrorTasks(cwd, ids.map((id) => board.tasks.find((task) => task.id === id)).filter((task) => task !== undefined))
   }
 
   /**
@@ -783,7 +818,13 @@ function createService(config, logger, hooks = {}) {
     const from = displayStatus(task.status)
     if (from === 'cancelled') return { ok: true, task, interrupted: [], errors: [], note: 'already cancelled' }
     if (from === 'done') return { ok: false, code: 'terminal', task }
-    const { interrupted, errors, skipped } = interruptChildren(task, input?.parentSessionId, board)
+    // FORCE IS FOR ARTIFACT CLEANUP: a row whose linked sessions belong to a process that no
+    // longer exists cannot be interrupted, and a fail-closed cancel would leave it in review
+    // forever. The owner asserts the work is dropped; children are marked settled, not stopped.
+    const forced = input?.force === true
+    const { interrupted, errors, skipped } = forced
+      ? { interrupted: [], errors: [], skipped: [] }
+      : interruptChildren(task, input?.parentSessionId, board)
     if (errors.length > 0) return { ok: false, code: 'interrupt_failed', task, interrupted, errors }
     markChildren(board, task, 'sleeping', 'sleeping')
     task.status = 'cancelled'
@@ -824,9 +865,39 @@ function createService(config, logger, hooks = {}) {
     return { ok: true, task, interrupted, errors, skipped, changed: true, resultRecorded: recorded }
   }
 
+  /**
+   * The LIVE state of a task's children. The ledger's `children[].status` is written at link
+   * and settle time, so a child that is still linked reads `active` even when its turn ended
+   * between those writes; only the runtime knows who is working NOW. `running: true` comes
+   * from the agents service, `running: false` from a known-idle session, and an unresolved id
+   * keeps the field absent rather than claiming either.
+   */
+  const liveSession = typeof hooks.liveSession === 'function' ? hooks.liveSession : () => undefined
+  const withLiveChildren = (task) => {
+    // A CLOSED TASK CANNOT BE WORKING: its session may be running for a DIFFERENT task (a
+    // role session is reused), so liveness is reported only on `active` rows. A review/done
+    // child is history, never "1 running" on the finished card.
+    const liveAllowed = displayStatus(task?.status) === 'active'
+    const children = (Array.isArray(task?.children) ? task.children : []).map((child) => {
+      if (child === null || typeof child !== 'object' || typeof child.sessionId !== 'string') return child
+      let running
+      try {
+        running = liveAllowed ? liveSession(child.sessionId) : false
+      } catch {
+        running = undefined
+      }
+      return running === true || running === false ? { ...child, running } : child
+    })
+    const runningChildSessionIds = children
+      .filter((child) => child !== null && typeof child === 'object' && child.running === true && typeof child.sessionId === 'string')
+      .map((child) => child.sessionId)
+    return { ...task, children, runningChildSessionIds }
+  }
+
   /** Compact list row; the board UI uses the full task document. */
   const summary = (task) => {
     const assignment = assignmentOf(task)
+    const live = withLiveChildren(task)
     return {
       id: task.id,
       chatId: chatOf(task),
@@ -841,7 +912,8 @@ function createService(config, logger, hooks = {}) {
       owner: task.owner?.label ?? null,
       reason: typeof task.reason === 'string' && task.reason !== '' ? task.reason : null,
       childSessionIds: task.childSessionIds ?? [],
-      children: Array.isArray(task.children) ? task.children : [],
+      children: live.children,
+      runningChildSessionIds: live.runningChildSessionIds,
       revision: task.revision,
       updatedAt: task.updatedAt,
     }
@@ -1006,7 +1078,8 @@ function createService(config, logger, hooks = {}) {
     },
     /** One full task, or undefined. */
     get(cwd, id) {
-      return readBoard(pathFor(cwd)).tasks.find((task) => task.id === id)
+      const task = readBoard(pathFor(cwd)).tasks.find((entry) => entry.id === id)
+      return task === undefined ? undefined : withLiveChildren(task)
     },
     /** Create a task; returns the full record, or a named refusal. */
     create(cwd, input, actor = 'orchestrator') {
@@ -1050,18 +1123,19 @@ function createService(config, logger, hooks = {}) {
         // THE CAP IS ON WORK IN FLIGHT, NOT ON HISTORY. A board that finished 190 tasks and
         // has 5 open ones is not full; it is healthy. Two separate limits, two codes:
         //   board_full      - too much work is open, paused, waiting for review or blocked
-        //   board_rows_full - the ledger file itself is at its row limit (a scale guard, so a
-        //                     board cannot grow without bound); nothing is ever deleted or
-        //                     rewritten to make room.
+        //   board_rows_full - the ledger file is at a row limit the WORKSPACE asked for;
+        //                     nothing is ever deleted or rewritten to make room.
         //   maxTasks: 0 is UNLIMITED, so the work-in-flight check is skipped entirely rather
         //   than compared against Infinity: a ledger with 400 actionable rows must accept a
-        //   401st, and the row guard below is the only limit left.
+        //   401st. maxRows has NO default: the row guard below fires only when the workspace
+        //   named a positive limit, because the shipped 1000-row default refused new work the
+        //   owner had asked for.
         const active = board.tasks.filter((task) => ACTIVE_STATUSES.includes(displayStatus(task?.status))).length
         if (Number.isFinite(maxTasks) && active >= maxTasks) {
           return { value: { ok: false, code: 'board_full', active, cap: maxTasks, message: `${active} of ${maxTasks} tasks can still be acted on; close or cancel what is finished, or raise maxTasks` } }
         }
-        if (board.tasks.length >= maxRows) {
-          return { value: { ok: false, code: 'board_rows_full', rows: board.tasks.length, cap: maxRows, message: `the ledger holds ${board.tasks.length} rows (limit ${maxRows}); the file, not the work, is full - nothing is deleted automatically, so raise maxRows` } }
+        if (Number.isFinite(maxRows) && board.tasks.length >= maxRows) {
+          return { value: { ok: false, code: 'board_rows_full', rows: board.tasks.length, cap: maxRows, message: `the ledger holds ${board.tasks.length} rows (limit ${maxRows}); the file, not the work, is full - nothing is deleted automatically, so raise maxRows or remove it` } }
         }
         const task = {
           id: taskId(),
@@ -1230,7 +1304,7 @@ function createService(config, logger, hooks = {}) {
       const childId = typeof input?.sessionId === 'string' ? input.sessionId : ''
       const chatId = typeof input?.chatId === 'string' ? input.chatId : ''
       if (childId === '') return { ok: false, code: 'empty' }
-      return mutate(cwd, (board) => {
+      const linked = mutate(cwd, (board) => {
         const task = board.tasks.find((entry) => entry.id === id)
         if (task === undefined) return { value: { ok: false, code: 'not_found' } }
         if (!writable(task, chatId, input?.actor, input?.scope)) return otherChat(task)
@@ -1244,6 +1318,12 @@ function createService(config, logger, hooks = {}) {
           if (other.id === task.id) continue
           if (!Array.isArray(other.childSessionIds) || !other.childSessionIds.includes(childId)) continue
           other.childSessionIds = other.childSessionIds.filter((value) => value !== childId)
+          // The donor no longer owns the child, so it must not keep naming it as the owner
+          // either; the label stays, the session address goes.
+          if (other.owner !== null && typeof other.owner === 'object' && other.owner.sessionId === childId) {
+            const { sessionId: _moved, ...owner } = other.owner
+            other.owner = owner
+          }
           const otherChildren = Array.isArray(other.children) ? other.children : []
           const moved = otherChildren.find((child) => child.sessionId === childId)
           if (moved !== undefined) Object.assign(moved, { status: 'moved', endedAt: now() })
@@ -1281,8 +1361,18 @@ function createService(config, logger, hooks = {}) {
         if (!links.some((entry) => entry.cwd === cwd && entry.id === id)) links.push({ cwd, id })
         childLinks.set(childId, links)
         writeLinks(childLinks)
-        return { changed: true, value: { ok: true, task, movedFrom } }
+        const movedFromTasks = movedFrom.map((otherId) => board.tasks.find((entry) => entry.id === otherId)).filter((entry) => entry !== undefined)
+        return { changed: true, value: { ok: true, task, movedFrom, movedFromTasks } }
       })
+      // THE LINK IS THE FACT THE STATE PANEL NEEDS: without mirroring here, a delegated task
+      // reaches the register one update too late and its card cannot open the child session.
+      // THE DONOR TASKS ARE MIRRORED TOO: the lease moved the child away from them, and a
+      // stale donor row kept offering a session another task owns.
+      if (linked !== undefined && linked?.ok === true && linked.task !== undefined) {
+        hooks.mirror?.(cwd, linked.task)
+        mirrorTasks(cwd, linked.movedFromTasks)
+      }
+      return linked
     },
     /** A linked child settled: move to review, never straight to done. */
     childEnded(childId, info) {
@@ -1337,7 +1427,10 @@ function createService(config, logger, hooks = {}) {
           timeline(task, failed && !stillRunning ? 'child_failed' : 'child_finished', 'child', `${failed && !stillRunning ? 'Child failed' : 'Child settled'} (${info?.stopReason ?? 'unknown'})${output === '' ? '' : `: ${output}`}`, { sessionId: childId }, timelineLimit)
           return { changed: true, value: { ok: true, task } }
         })
-        if (result !== undefined) last = result
+        if (result !== undefined) {
+          last = result
+          if (result?.ok === true) mirrorTasks(link.cwd, [result.task])
+        }
       }
       return last
     },
@@ -1349,17 +1442,19 @@ function createService(config, logger, hooks = {}) {
      * comes from the result, because the helper bumps the per-task revision, not the board's.
      */
     reconcile(cwd) {
-      return mutate(cwd, (board) => {
+      const out = mutate(cwd, (board) => {
         const result = reconcileTasks(board, timelineLimit)
         return { changed: result.fixed > 0, value: { ok: true, ...result } }
       })
+      if (out?.ok === true) mirrorByIds(cwd, out.ids)
+      return out
     },
     /** Pause a task and interrupt its linked children; fail closed on interrupt errors. */
     pause(cwd, input) {
       const id = typeof input?.id === 'string' ? input.id : ''
       const requestedParent = typeof input?.parentSessionId === 'string' && input.parentSessionId !== '' ? input.parentSessionId : ''
       const chatId = typeof input?.chatId === 'string' ? input.chatId : ''
-      return mutate(cwd, (board) => {
+      const paused = mutate(cwd, (board) => {
         const task = board.tasks.find((entry) => entry.id === id)
         if (task === undefined) return { value: { ok: false, code: 'not_found' } }
         if (!writable(task, chatId, input?.actor, input?.scope)) return otherChat(task)
@@ -1373,12 +1468,14 @@ function createService(config, logger, hooks = {}) {
         timeline(task, 'paused', input?.actor === 'human' ? 'human' : 'orchestrator', `Paused${interrupted.length === 0 ? '' : `; interrupted ${interrupted.length} child session(s)`}`, { sessionIds: interrupted }, timelineLimit)
         return { changed: true, value: { ok: true, task, interrupted, errors, skipped } }
       })
+      if (paused?.ok === true) mirrorTasks(cwd, [paused.task])
+      return paused
     },
     /** Resume tracking a paused task. Child sessions are not auto-prompted. */
     resume(cwd, input) {
       const id = typeof input?.id === 'string' ? input.id : ''
       const chatId = typeof input?.chatId === 'string' ? input.chatId : ''
-      return mutate(cwd, (board) => {
+      const resumed = mutate(cwd, (board) => {
         const task = board.tasks.find((entry) => entry.id === id)
         if (task === undefined) return { value: { ok: false, code: 'not_found' } }
         if (!writable(task, chatId, input?.actor, input?.scope)) return otherChat(task)
@@ -1393,6 +1490,8 @@ function createService(config, logger, hooks = {}) {
         timeline(task, 'resumed', input?.actor === 'human' ? 'human' : 'orchestrator', 'Resumed; linked children must be reopened to continue their turn', {}, timelineLimit)
         return { changed: true, value: { ok: true, task } }
       })
+      if (resumed?.ok === true) mirrorTasks(cwd, [resumed.task])
+      return resumed
     },
     /**
      * Cancel a task and interrupt its linked children; fail closed.
@@ -1409,7 +1508,7 @@ function createService(config, logger, hooks = {}) {
     cancel(cwd, input) {
       const id = typeof input?.id === 'string' ? input.id : ''
       const reason = typeof input?.reason === 'string' ? input.reason.trim().slice(0, 1000) : ''
-      return mutate(cwd, (board) => {
+      const cancelled = mutate(cwd, (board) => {
         const task = board.tasks.find((entry) => entry.id === id)
         if (task === undefined) return { value: { ok: false, code: 'not_found' } }
         const outcome = cancelOne(board, task, input, reason)
@@ -1419,6 +1518,8 @@ function createService(config, logger, hooks = {}) {
           value: { ok: true, task: outcome.task, interrupted: outcome.interrupted, errors: outcome.errors, ...(Array.isArray(outcome.skipped) && outcome.skipped.length === 0 ? {} : { skipped: outcome.skipped }), note: outcome.note },
         }
       })
+      if (cancelled?.ok === true) mirrorTasks(cwd, [cancelled.task])
+      return cancelled
     },
     /**
      * Cancel a batch of tasks in one ledger write, interrupting every linked child first.
@@ -1433,7 +1534,7 @@ function createService(config, logger, hooks = {}) {
       if (ids.length === 0) return { ok: false, code: 'invalid', message: 'pass id or ids' }
       if (ids.length > MAX_BATCH) return { ok: false, code: 'batch_too_large', max: MAX_BATCH }
       const reason = typeof input?.reason === 'string' ? input.reason.trim().slice(0, 1000) : ''
-      return mutate(cwd, (board) => {
+      const batch = mutate(cwd, (board) => {
         const items = []
         let changed = false
         for (const id of ids) {
@@ -1450,6 +1551,8 @@ function createService(config, logger, hooks = {}) {
         const failed = items.filter((entry) => entry.ok === false).length
         return { changed, value: { ok: failed === 0, requested: ids.length, cancelled: items.length - failed, failed, results: items } }
       })
+      if (batch?.ok === true) mirrorByIds(cwd, batch.results.filter((entry) => entry.ok === true).map((entry) => entry.id))
+      return batch
     },
     /** Close a task as done and interrupt its linked children; fail closed. */
     close(cwd, input) {
@@ -1459,7 +1562,7 @@ function createService(config, logger, hooks = {}) {
       // refusal names it, so a red case cannot be closed away.
       const gate = typeof hooks.beforeClose === 'function' ? hooks.beforeClose(cwd, id) : undefined
       if (gate !== undefined && gate !== null && gate.ok === false) return gate
-      return mutate(cwd, (board) => {
+      const closed = mutate(cwd, (board) => {
         const task = board.tasks.find((entry) => entry.id === id)
         if (task === undefined) return { value: { ok: false, code: 'not_found' } }
         const outcome = closeOne(board, task, input, input?.result)
@@ -1477,6 +1580,83 @@ function createService(config, logger, hooks = {}) {
           },
         }
       })
+      if (closed?.ok === true) mirrorTasks(cwd, [closed.task])
+      return closed
+    },
+    /**
+     * THE OWNER'S OWN STATUS CHANGE (`/taskboard` op `owner-status`).
+     *
+     * The lifecycle above is a rule for the AGENT, and the owner asked to be able to overrule it
+     * from the Project state panel. So this door takes any status and skips `transitionRefusal`
+     * entirely: `open -> done` and `open -> review` are allowed here and refused to a tool call.
+     * It is reachable only from a command (a human submit or the panel), never from a model tool,
+     * and every write leaves two trails:
+     *   - the task's own timeline: kind `status`, actor `human`, `open -> done` and the reason;
+     *   - the state journal: a `waiver` event with code `owner_status_override`, the statuses
+     *     before/after, the reason, the board id and the TASK id (the mirror runs first so the
+     *     TASK id exists when the event is written).
+     * A terminal or held target (`done`, `cancelled`, `paused`) stops the linked children through
+     * the same lease-aware interrupt as close/cancel; a child that will not stop fails the whole
+     * change, so history cannot land above running work. The compare-and-set is the command
+     * path's, not this method's: `applyOp` refuses without `expectedRevision` and reports `stale`.
+     *
+     * @param cwd - workspace root.
+     * @param input - `{ id, status, reason?, chatId?, parentSessionId?, actor? }`.
+     * @returns `{ ok, task, from, to, interrupted?, errors?, unchanged? }` or a named refusal.
+     */
+    async setStatusOwner(cwd, input) {
+      const id = typeof input?.id === 'string' ? input.id : ''
+      const wanted = typeof input?.status === 'string' ? input.status.trim() : ''
+      if (id === '') return { ok: false, code: 'invalid', message: 'owner-status needs the board task id' }
+      if (!STATUSES.includes(wanted)) return { ok: false, code: 'status_invalid', message: `status "${wanted}" is not one of ${STATUSES.join(', ')}` }
+      const reason = typeof input?.reason === 'string' ? input.reason.trim().slice(0, 1000) : ''
+      const chatId = typeof input?.chatId === 'string' ? input.chatId : ''
+      const outcome = mutate(cwd, (board) => {
+        const task = board.tasks.find((entry) => entry.id === id)
+        if (task === undefined) return { value: { ok: false, code: 'not_found' } }
+        if (!writable(task, chatId, input?.actor, input?.scope)) return otherChat(task)
+        const from = displayStatus(task.status)
+        if (from === wanted) return { value: { ok: true, unchanged: true, task, from, to: wanted, interrupted: [], errors: [] } }
+        // No work may outlive a status that says "nothing is running here".
+        const held = wanted === 'done' || wanted === 'cancelled' || wanted === 'paused'
+        const stop = held ? interruptChildren(task, input?.parentSessionId, board) : { interrupted: [], errors: [], skipped: [] }
+        if (stop.errors.length > 0) return { value: { ok: false, code: 'interrupt_failed', task, interrupted: stop.interrupted, errors: stop.errors } }
+        if (held) markChildren(board, task, 'sleeping', 'sleeping')
+        task.status = wanted
+        // The blocked reason belongs to blocked: leaving it behind would let a done row read as
+        // waiting on something, and a non-blocked row has nothing to explain.
+        if (wanted === 'blocked') task.reason = reason
+        else delete task.reason
+        task.revision += 1
+        task.updatedAt = now()
+        timeline(task, 'status', 'human', `Owner set the status ${from} -> ${wanted}${reason === '' ? '' : `: ${reason}`}`, { from, to: wanted, ...(reason === '' ? {} : { reason }) }, timelineLimit)
+        return { changed: true, value: { ok: true, task, from, to: wanted, interrupted: stop.interrupted, errors: stop.errors, ...(Array.isArray(stop.skipped) && stop.skipped.length === 0 ? {} : { skipped: stop.skipped }) } }
+      })
+      if (outcome === undefined || outcome.ok === false) return outcome ?? { ok: false, code: 'write_failed', message: 'the board write did not report a result' }
+      if (outcome.unchanged === true) return outcome
+      // MIRROR FIRST: the journal event names the TASK id, and the projections must agree with
+      // the board before the command reports success.
+      let mirrored
+      try {
+        const pending = hooks.mirror?.(cwd, outcome.task)
+        mirrored = pending !== undefined && typeof pending.then === 'function' ? await pending : pending
+      } catch (error) {
+        logger?.warn?.(`taskboard: owner status mirrored nothing: ${error instanceof Error ? error.message : String(error)}`)
+      }
+      if (typeof hooks.recordOwnerStatus === 'function') {
+        try {
+          await hooks.recordOwnerStatus(cwd, {
+            from: outcome.from,
+            to: outcome.to,
+            reason,
+            boardId: outcome.task.id,
+            ...(typeof mirrored?.taskId === 'string' ? { taskId: mirrored.taskId } : {}),
+          })
+        } catch (error) {
+          logger?.warn?.(`taskboard: owner status journal failed: ${error instanceof Error ? error.message : String(error)}`)
+        }
+      }
+      return outcome
     },
     /**
      * Accept a batch of review tasks in one ledger write, filling missing results from the
@@ -1492,7 +1672,7 @@ function createService(config, logger, hooks = {}) {
       if (ids.length === 0) return { ok: false, code: 'invalid', message: 'pass id or ids' }
       if (ids.length > MAX_BATCH) return { ok: false, code: 'batch_too_large', max: MAX_BATCH }
       const perTask = perTaskResults(input)
-      return mutate(cwd, (board) => {
+      const batch = mutate(cwd, (board) => {
         const items = []
         let changed = false
         for (const id of ids) {
@@ -1523,6 +1703,8 @@ function createService(config, logger, hooks = {}) {
         const failed = items.filter((entry) => entry.ok === false).length
         return { changed, value: { ok: failed === 0, requested: ids.length, closed: items.length - failed, failed, results: items } }
       })
+      if (batch?.ok === true) mirrorByIds(cwd, batch.results.filter((entry) => entry.ok === true).map((entry) => entry.id))
+      return batch
     },
     /**
      * Force-stop linked children without changing a task's lifecycle.
@@ -1660,6 +1842,9 @@ function createService(config, logger, hooks = {}) {
       if (kind === 'resume') return this.resume(cwd, { ...op, chatId, actor })
       if (kind === 'close') return this.close(cwd, { ...op, chatId, parentSessionId: actorSessionId, actor })
       if (kind === 'cancel') return this.cancel(cwd, { ...op, chatId, parentSessionId: actorSessionId, actor })
+      // THE OWNER'S DOOR: any status, no lifecycle gate, and a journal event. Reachable from
+      // the command only (the Project state panel's status control), never from a model tool.
+      if (kind === 'owner-status') return this.setStatusOwner(cwd, { ...op, chatId, parentSessionId: actorSessionId, actor })
       // A forced stop is a timeline action, not a status transition: it takes no revision
       // (it changes no task field) and leaves the status to the runtime's settle event.
       if (kind === 'stop') return this.stop(cwd, { ...op, chatId, parentSessionId: actorSessionId, actor })
@@ -1746,12 +1931,37 @@ export function apply(ctx, config = {}) {
      */
     waive(cwd, code, waiver, meta = {}) {
       const core = coreOf()
-      if (core === undefined || core === null || typeof core.journal !== 'function') return
+      if (core === undefined || core === null) return
       const state = typeof core.open === 'function' ? core.open(cwd) : core
+      if (state === null || state === undefined || typeof state.journal !== 'function') return
       Promise.resolve(state.journal({ code, reason: String(waiver?.reason ?? ''), by: 'human', ...meta })).catch(() => {})
+    },
+    /**
+     * THE OWNER'S TRAIL. `owner-status` is the one write the lifecycle does not gate, so it is
+     * the one write that always leaves a journal record: code, from, to, reason, board id and
+     * the TASK id. Awaitable on purpose - the command reports success only after the record is
+     * on disk. Without a state core this is a no-op (the board still has its own timeline).
+     */
+    recordOwnerStatus(cwd, event) {
+      const core = coreOf()
+      if (core === undefined || core === null) return undefined
+      const state = typeof core.open === 'function' ? core.open(cwd) : core
+      if (state === null || state === undefined || typeof state.journal !== 'function') return undefined
+      return state.journal({ code: 'owner_status_override', by: 'human', ...event })
     },
     mirror: scheduleMirror,
     mirrorActive: () => coreOf() !== undefined,
+    // The task list says who is working NOW; a task can stay `active` long after its child
+    // stopped, so the status alone cannot answer it. `agents.list()`/`get()` is the runtime's
+    // live view; an absent service leaves the fields out instead of guessing.
+    liveSession(childId) {
+      try {
+        const agent = ctx.get('agents')?.get(childId)
+        return agent === undefined ? false : agent.status === 'running'
+      } catch {
+        return undefined
+      }
+    },
     interrupt(childId, parentSessionId) {
       const subagents = ctx.get('subagents')
       if (subagents === undefined || typeof subagents.interrupt !== 'function') throw new Error('subagent service is unavailable')
@@ -1877,7 +2087,7 @@ export function apply(ctx, config = {}) {
 
   ctx.tools.register(defineTool({
     name: 'task_get',
-    description: 'Read one task in full: objective, scope, non-scope, acceptance, status, result and timeline.',
+    description: 'Read one task in full: objective, scope, non-scope, acceptance, status, result and timeline. Its linked child sessions carry `running` (true/false from the runtime, absent when unknown) and `runningChildSessionIds` names who is working NOW; a task can be active with an idle child, so read these fields rather than inferring activity from the status.',
     parameters: { id: { type: 'string', required: true, description: 'Task id.' } },
     output: out(),
     execute(args, exec) {
@@ -1888,16 +2098,38 @@ export function apply(ctx, config = {}) {
 
   ctx.tools.register(defineTool({
     name: 'task_list',
-    description: 'List tasks in compact form. The default scope is THIS CHAT only: every chat starts with its own empty board. Pass scope "workspace" to read every task the workspace has ever recorded, including other chats and rows from before boards were per-chat - use it when the user asks what has been done before, or before reusing a role name.',
+    description: 'List tasks in compact form, one page at a time. The default scope is THIS CHAT only: every chat starts with its own empty board. Pass scope "workspace" to read the workspace history, including other chats and rows from before boards were per-chat - use it when the user asks what has been done before, or before reusing a role name. A workspace list is PAGED because the whole history is tens of thousands of characters: page one carries counts by status, the first `limit` rows and a `next` cursor; ask for the next page with limit/offset instead of reading everything into the step. Each task carries its linked child sessions; children[].running and runningChildSessionIds say which subagents are working NOW (from the runtime), which is NOT the same as the task being active: a task stays active until it is accepted, while its child may be idle or gone.',
     parameters: {
-      scope: { type: 'string', enum: ['chat', 'workspace'], description: 'chat (default) lists this chat only; workspace lists the whole workspace history.' },
+      scope: { type: 'string', enum: ['chat', 'workspace'], description: 'chat (default) lists this chat only; workspace lists the whole workspace history, one page at a time.' },
+      status: { type: 'string', description: 'Optional status filter: open | active | review | blocked | paused | done | cancelled.' },
+      limit: { type: 'integer', description: 'Rows per page. Default 25 (workspace) or 50 (chat); capped at 200.' },
+      offset: { type: 'integer', description: 'Rows to skip; use the next.offset of the previous page.' },
     },
     output: out(),
     execute(args, exec) {
-      return Promise.resolve(service.list(workingDir(exec.agent), {
+      const all = args.scope === 'workspace'
+      const tasks = service.list(workingDir(exec.agent), {
         chatId: rootOf(exec.agent?.id),
-        all: args.scope === 'workspace',
-      }))
+        all,
+      })
+      const status = typeof args.status === 'string' && args.status !== '' ? args.status : ''
+      const filtered = status === '' ? tasks : tasks.filter((task) => task.status === status)
+      const limit = Math.min(200, Math.max(1, Number.isSafeInteger(args.limit) && args.limit > 0 ? args.limit : (all ? 25 : 50)))
+      const offset = Number.isSafeInteger(args.offset) && args.offset > 0 ? args.offset : 0
+      const counts = {}
+      for (const task of tasks) counts[task.status] = (counts[task.status] ?? 0) + 1
+      const page = filtered.slice(offset, offset + limit)
+      const nextOffset = offset + page.length
+      return Promise.resolve({
+        ok: true,
+        scope: all ? 'workspace' : 'chat',
+        ...(status === '' ? {} : { status }),
+        total: filtered.length,
+        counts,
+        tasks: page,
+        ...(nextOffset < filtered.length ? { next: { limit, offset: nextOffset } } : {}),
+        ...(nextOffset < filtered.length ? { hint: 'More rows exist; call task_list again with next.limit and next.offset instead of reading everything.' } : {}),
+      })
     },
   }))
 
@@ -2007,11 +2239,12 @@ export function apply(ctx, config = {}) {
 
   ctx.tools.register(defineTool({
     name: 'task_cancel',
-    description: 'Cancel one task or a batch (ids) and interrupt every linked child first. Use it for work that will not be finished: a paused task and a task that still has children can ONLY be abandoned this way (an ordinary update is refused). The reason is recorded as a decision on every result and as a timeline entry. A refused child stop cancels nothing and returns interrupt_failed; a batch reports each row separately and never claims a whole-batch success when one row was refused. done is terminal: an accepted task stays accepted.',
+    description: 'Cancel one task or a batch (ids) and interrupt every linked child first. Use it for work that will not be finished: a paused task and a task that still has children can ONLY be abandoned this way (an ordinary update is refused). The reason is recorded as a decision on every result and as a timeline entry. A refused child stop cancels nothing and returns interrupt_failed; a batch reports each row separately and never claims a whole-batch success when one row was refused. done is terminal: an accepted task stays accepted. force:true skips the child interrupt for artifact cleanup when the linked sessions belong to a process that no longer exists.',
     parameters: {
       id: { type: 'string', description: 'Task id for a single cancel.' },
       ids: { type: 'array', items: { type: 'string' }, description: 'Task ids for a batch cancel: one ledger write, per-task results, partial by design.' },
       reason: { type: 'string', description: 'Why the work is being dropped, in one line. Shared by a batch and kept on every result and timeline.' },
+      force: { type: 'boolean', description: 'Skip the child interrupt and mark linked children settled; only for a row whose sessions no longer exist (artifact cleanup). The owner asserts the work is dropped.' },
     },
     output: out(),
     execute(args, exec) {
@@ -2100,9 +2333,9 @@ export function apply(ctx, config = {}) {
 
   ctx.commands.register({
     name: 'taskboard',
-    description: 'Apply one JSON operation to the workspace task ledger (used by the Tasks panel).',
+    description: 'Apply one JSON operation to the workspace task ledger (used by the Tasks panel and the Project state panel).',
     recordInput: false,
-    handler: (invocation) => {
+    handler: async (invocation) => {
       let op
       try {
         op = JSON.parse(invocation.rawInput)
@@ -2110,7 +2343,9 @@ export function apply(ctx, config = {}) {
         return { kind: 'error', text: 'taskboard: expected a JSON operation' }
       }
       try {
-        const result = service.applyOp(workingDir(invocation.agent), op, 'human', invocation.agent?.id)
+        // `owner-status` mirrors the row and writes the state journal before it answers, so
+        // this one op is awaited; the others keep their synchronous result.
+        const result = await service.applyOp(workingDir(invocation.agent), op, 'human', invocation.agent?.id)
         if (result?.ok === false) {
           const details = []
           if (result.code) details.push(result.code)

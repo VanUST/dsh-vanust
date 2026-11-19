@@ -96,10 +96,10 @@ function installPresetGate(ctx, { allowed, tools = [], toolsFor, onInstalled }) 
       return undefined
     }
   }
-  const sync = (agent) => {
+  const sync = (agent, presetOverride) => {
     if (agent === undefined || agent === null) return
     try {
-      const preset = resolve(agent)
+      const preset = typeof presetOverride === 'string' && presetOverride !== '' ? presetOverride : resolve(agent)
       const current = installed.get(agent)
       if (current !== undefined && current.preset === preset) return
       if (current !== undefined) {
@@ -131,7 +131,7 @@ function installPresetGate(ctx, { allowed, tools = [], toolsFor, onInstalled }) 
       } catch {
         live = undefined
       }
-      if (live !== undefined && live !== null) sync(live)
+      if (live !== undefined && live !== null) sync(live, event?.data?.agentPreset)
     })
   }
   // The last line of defence: the first request header is derived after pre-step.

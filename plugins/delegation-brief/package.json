@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-delegation-brief",
-  "version": "0.1.4",
+  "version": "0.1.8",
   "description": "Renders delegation briefs from the project state register instead of prose: delegation_brief returns a deterministic text and briefHash (REQ and acceptance criteria verbatim, related decisions, mandatory tests with commands, non-scope, return format), and delegation_return validates a worker's structured return against the current criteria (brief_stale, return_unmapped). Root-only tools, static prompt section, no model-visible state of its own.",
   "type": "module",
   "main": "index.mjs",

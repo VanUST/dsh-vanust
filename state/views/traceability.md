@@ -86,7 +86,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | REQ-080 | done | — | — | — | no |
 | REQ-081 | done | — | — | — | no |
 | REQ-082 | done | — | — | — | no |
-| REQ-083 | done | — | — | — | no |
+| REQ-083 | done | TASK-238 | — | — | no |
 | REQ-084 | done | — | — | — | no |
 | REQ-085 | done | — | — | — | no |
 | REQ-086 | done | — | — | — | no |
@@ -127,6 +127,29 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | REQ-121 | done | — | TEST-066 | — | no |
 | REQ-122 | rejected | — | — | — | no |
 | REQ-123 | rejected | — | — | — | no |
+| REQ-124 | done | — | TEST-067 | — | no |
+| REQ-125 | done | — | TEST-068 | — | no |
+| REQ-126 | done | — | TEST-070 | — | no |
+| REQ-127 | done | — | TEST-069 | — | no |
+| REQ-128 | done | — | TEST-071 | — | no |
+| REQ-129 | done | — | — | — | no |
+| REQ-130 | done | — | — | — | no |
+| REQ-131 | done | — | — | — | no |
+| REQ-132 | rejected | — | — | — | no |
+| REQ-133 | rejected | — | — | — | no |
+| REQ-134 | done | — | — | — | no |
+| REQ-135 | rejected | — | — | — | no |
+| REQ-136 | done | — | TEST-072 | — | no |
+| REQ-137 | done | — | TEST-073 | — | no |
+| REQ-138 | done | — | TEST-075 | — | no |
+| REQ-139 | rejected | — | — | — | no |
+| REQ-140 | rejected | — | — | — | no |
+| REQ-141 | rejected | — | — | — | no |
+| REQ-142 | rejected | — | — | — | no |
+| REQ-143 | rejected | — | — | — | no |
+| REQ-144 | rejected | — | — | — | no |
+| REQ-145 | rejected | — | — | — | no |
+| REQ-146 | done | — | TEST-074 | — | no |
 
 ## Tests
 
@@ -198,3 +221,12 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | TEST-064 | REQ-119 | verified | — |
 | TEST-065 | REQ-120 | verified | — |
 | TEST-066 | REQ-121 | verified | — |
+| TEST-067 | REQ-124 | verified | — |
+| TEST-068 | REQ-125 | verified | — |
+| TEST-069 | REQ-127 | verified | — |
+| TEST-070 | REQ-126 | verified | — |
+| TEST-071 | REQ-128 | verified | — |
+| TEST-072 | REQ-136 | verified | TASK-246 |
+| TEST-073 | REQ-137 | verified | TASK-246 |
+| TEST-074 | REQ-146 | verified | TASK-246 |
+| TEST-075 | REQ-138 | verified | TASK-246 |

@@ -43,6 +43,60 @@ export function reqRefusal() {
   }
 }
 
+/**
+ * The concrete task the Tasks panel edits, in the shape a TASK row stores it. Every field is
+ * present — an empty list or string CLEARS the value on update — because the board is the
+ * source of truth for its task: dropping a scope line in the panel must drop it here too.
+ *
+ * The sessions come from `childSessionIds`, the one-child-one-task lease, not from the
+ * historical `children[]` rows: a session handed to another task must not be offered as
+ * this task's executor. `owner.sessionId` is the linked child the lease already names.
+ */
+export function taskSpecifics(task) {
+  const strings = (value) => (Array.isArray(value) ? value.map((item) => String(item).trim()).filter((item) => item !== '') : [])
+  const acceptance = (Array.isArray(task?.acceptance) ? task.acceptance : [])
+    .map((entry) => (typeof entry === 'string' ? { text: entry.trim(), done: false } : { text: String(entry?.text ?? '').trim(), done: entry?.done === true }))
+    .filter((entry) => entry.text !== '')
+  const children = new Map((Array.isArray(task?.children) ? task.children : []).filter((child) => typeof child?.sessionId === 'string').map((child) => [child.sessionId, child]))
+  const sessions = []
+  const seen = new Set()
+  for (const sessionId of Array.isArray(task?.childSessionIds) ? task.childSessionIds : []) {
+    if (typeof sessionId !== 'string' || sessionId === '' || seen.has(sessionId)) continue
+    seen.add(sessionId)
+    const child = children.get(sessionId)
+    sessions.push({
+      sessionId,
+      ...(typeof child?.label === 'string' && child.label !== '' ? { label: child.label } : {}),
+      ...(typeof child?.role === 'string' && child.role !== '' ? { role: child.role } : {}),
+      ...(typeof child?.status === 'string' && child.status !== '' ? { status: child.status } : {}),
+    })
+  }
+  const result = task?.result !== null && typeof task?.result === 'object' ? task.result : {}
+  const owner = task?.owner !== null && typeof task?.owner === 'object' && typeof task.owner.label === 'string' && task.owner.label.trim() !== ''
+    ? {
+        kind: task.owner.kind === 'human' ? 'human' : 'agent',
+        label: task.owner.label.trim(),
+        ...(typeof task.owner.sessionId === 'string' && task.owner.sessionId !== '' ? { sessionId: task.owner.sessionId } : {}),
+      }
+    : null
+  return {
+    scope: strings(task?.scope),
+    nonScope: strings(task?.nonScope),
+    acceptance,
+    role: typeof task?.role === 'string' ? task.role.trim() : '',
+    preset: typeof task?.preset === 'string' ? task.preset.trim() : '',
+    inline: task?.inline === true,
+    owner,
+    sessions,
+    reqIds: strings(task?.reqIds),
+    steps: strings(task?.steps),
+    stepsDone: Number.isSafeInteger(task?.stepsDone) ? task.stepsDone : 0,
+    resultSummary: typeof result.summary === 'string' ? result.summary : '',
+    resultEvidence: strings(result.evidence),
+    resultArtifacts: strings(result.artifacts),
+  }
+}
+
 /** The TASK payload of a board task. */
 export function taskPayload(task) {
   const reqId = typeof task?.reqId === 'string' && task.reqId.trim() !== '' ? task.reqId.trim() : undefined
@@ -52,9 +106,7 @@ export function taskPayload(task) {
     ...(reqId === undefined ? {} : { reqId }),
     // FR15: the batch — several requirements, the steps and their progress — travels with the
     // TASK, so the register and the board agree on what one acceptance unit covers.
-    ...(Array.isArray(task?.reqIds) && task.reqIds.length > 0 ? { reqIds: task.reqIds.map(String) } : {}),
-    ...(Array.isArray(task?.steps) && task.steps.length > 0 ? { steps: task.steps.map(String) } : {}),
-    ...(Number.isSafeInteger(task?.stepsDone) && Array.isArray(task?.steps) && task.steps.length > 0 ? { stepsDone: Math.max(0, Math.min(task.steps.length, task.stepsDone)) } : {}),
+    ...taskSpecifics(task),
     ...(task?.chore === true ? { chore: true } : {}),
     ...(typeof task?.choreReason === 'string' && task.choreReason.trim() !== '' ? { choreReason: task.choreReason.trim() } : {}),
     boardId: String(task?.id ?? ''),

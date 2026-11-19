@@ -34,6 +34,26 @@ timeline entry. `reconcile(cwd)` (also `applyOp {op: "reconcile"}`) settles `act
 ledger can prove have no running child: every linked child has a settled `children[]` entry; a
 child with no entry, or one still `active`/`paused`, is left alone and counted.
 
+## The project-state mirror
+
+When `ccProjectState` is mounted, every created or updated task is also written as a TASK row
+in `state/task/`, found again by `boardId`, so one board task stays one register row. The row
+carries the concrete task — `scope`, `nonScope`, `acceptance[{text,done}]`, `role`/`preset` or
+`inline`, `owner`, `steps`/`stepsDone`, the batch `reqIds` and the result — and the body is the
+objective. `linkChild` mirrors as well, because the delegated child id is the fact the State
+panel needs to open that session (`sessions` in the TASK); without that write the card would
+know the task but not its executor. A field the panel clears (a removed scope line) is written
+as an empty list, which the state core reads as a clear, not as "keep the old value". Without
+the core the ledger behaves exactly as before; the requirement gate (`req_required`) exists
+only when the core is mounted.
+
+**Liveness is not the task status.** A task is `active` from the moment a child is linked until
+it is accepted, so `status` cannot say whether anybody is working right now. `task_list` and
+`task_get` therefore annotate every linked child with `running` from the runtime (`agents`
+service): `true` running, `false` a known-idle session, the field absent when the runtime cannot
+answer. The row also carries `runningChildSessionIds`. The panel reads the same truth from the
+session snapshot; neither path infers activity from `active`.
+
 ## The lifecycle
 
 Seven states, and no two of them mean the same thing:
@@ -95,9 +115,21 @@ a batch is partial by design and is never reported as a whole-batch success when
 **The command registry is the human/client path; agents use the tools.** `delegate_task` and
 the model tools carry `expectedRevision` in their schema. The `/taskboard` command has only what
 the panel sends, so it checks it itself: every mutating op (`update`, `note`, `link`, `pause`,
-`resume`, `close`, `cancel`, `remove`) is refused with `needs_revision` when the revision is
-missing and with `stale` when it moved. A create is the one exception — there is nothing to
-compare yet.
+`resume`, `close`, `cancel`, `remove`, `owner-status`) is refused with `needs_revision` when the
+revision is missing and with `stale` when it moved. A create is the one exception — there is
+nothing to compare yet.
+
+**The owner can overrule the lifecycle, and only the owner.** The Project state panel's status
+control sends `/taskboard {op: "owner-status", id, expectedRevision, status, reason?}`: any of the
+seven statuses, with `transitionRefusal` skipped — `open -> done` and `open -> review` are allowed
+here and refused to a tool call. No model tool exposes it, so an agent cannot mint an acceptance.
+Every change leaves two trails: a `status` timeline entry with `actor: human` (`from`, `to`, the
+reason) and a `waiver` event in the state journal with code `owner_status_override` (`from`, `to`,
+reason, `by: human`, `boardId`, `taskId`). It is a compare-and-set like every other command op, a
+terminal or held target (`done`, `cancelled`, `paused`) stops the linked children through the same
+lease-aware interrupt as close/cancel (a child that will not stop fails the whole change), and the
+mirror runs BEFORE the journal event so the event can name the TASK. Asking for the status a task
+already has is a no-op (`unchanged: true`), not a new revision.
 
 **The assignment is editable, and it is one field pair.** `task_update` accepts `role`,
 `inline` and `owner` (the panel shows them beside the status), so a row written before the role
@@ -267,16 +299,17 @@ live session and is left alone.
   tasks that can still be acted on — open, active, paused, review, blocked — and a create
   past it is refused with `board_full` plus the counts (`active`, `cap`). Finished and
   cancelled rows are the record of what the board did; they do not occupy a slot, so a
-  workspace with 190 done rows and 5 open ones can still add work. A second, larger limit
-  guards the FILE: at `maxRows` (default 1000) a create is refused with `board_rows_full`
-  (`rows`, `cap`). The Host never evicts, deletes or rewrites a row to make space — a full
-  board is answered by closing or cancelling what is finished, or by raising the cap in the
-  profile.
-  **`maxTasks: 0` means UNLIMITED** and skips the work-in-flight check entirely: the row
-  guard is then the only limit, so a ledger with 400 actionable rows still accepts a new
-  task. It has to be spelled `0`; a negative, a string or a missing key keeps the 200
-  default, because a typo must not silently remove a cap. The kit's own profile mounts
-  `maxTasks: 0` for this workspace and keeps `maxRows: 1000` as the file guard.
+  workspace with 190 done rows and 5 open ones can still add work.
+  **`maxTasks: 0` means UNLIMITED** and skips the work-in-flight check entirely: a ledger
+  with 400 actionable rows still accepts a new task. It has to be spelled `0`; a negative, a
+  string or a missing key keeps the 200 default, because a typo must not silently remove a
+  cap. The kit's own profile mounts `maxTasks: 0` for this workspace.
+- **There is no row limit unless the workspace asks for one.** `maxRows` has no default: the
+  shipped 1000-row guard refused new work on a real board with 1000 rows of history, so a
+  missing key now means unlimited. A positive integer sets the limit (a create past it is
+  refused with `board_rows_full`, carrying `rows` and `cap`), and `0` is the explicit spelling
+  of no limit. Nothing is ever evicted, deleted or rewritten to make space — the row limit is
+  a decision the owner makes, never a default the plugin imposes.
 - The ledger has no cross-process file lock. Run one DSH host per workspace;
   a second host writing the same checkout can lose an update (the UI shows the
   `session/writer-held` failure instead of pretending it saved).

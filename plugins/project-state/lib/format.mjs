@@ -100,6 +100,44 @@ function unquote(text) {
   return { ok: true, value: undefined }
 }
 
+/**
+ * Split an inline list body on commas OUTSIDE a JSON string. The serializer quotes an item
+ * that would not read back as itself, so an item may legitimately contain a comma or a
+ * bracket: `["a, b", "c"]` is two items, not three. A backslash escapes only inside a
+ * double-quoted string (the serializer uses JSON.stringify), so an apostrophe is literal.
+ */
+function splitInline(inner) {
+  const items = []
+  let current = ''
+  let quoted = false
+  let escaped = false
+  for (const character of inner) {
+    if (escaped) {
+      current += character
+      escaped = false
+      continue
+    }
+    if (quoted && character === '\\') {
+      current += character
+      escaped = true
+      continue
+    }
+    if (character === '"') {
+      quoted = !quoted
+      current += character
+      continue
+    }
+    if (character === ',' && !quoted) {
+      items.push(current.trim())
+      current = ''
+      continue
+    }
+    current += character
+  }
+  if (current.trim() !== '') items.push(current.trim())
+  return items
+}
+
 /** Parse a scalar: quoted string, number, boolean, null, or the raw string. */
 function parseScalar(text) {
   const trimmed = text.trim()
@@ -162,7 +200,7 @@ export function parse(text) {
       }
       if (value.trim().startsWith('[') && value.trim().endsWith(']')) {
         const inner = value.trim().slice(1, -1).trim()
-        const items = inner === '' ? [] : inner.split(',').map((part) => part.trim())
+        const items = inner === '' ? [] : splitInline(inner)
         const parsed = items.map((part) => parseScalar(part))
         const bad = parsed.find((item) => item.ok === false)
         if (bad !== undefined) return { ok: false, error: bad.error, line: index + 1 }

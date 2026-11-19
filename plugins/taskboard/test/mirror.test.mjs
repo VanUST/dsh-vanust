@@ -31,6 +31,10 @@ async function board() {
   const service = createService({ file: '.dsh/taskboard.json' }, logger, {
     rootOf: () => 'chat-1',
     mirrorActive: () => true,
+    // The runtime view the plugin passes in production; the test names one live child.
+    liveSession: (id) => (id === 'sess-live' ? true : id === 'sess-idle' ? false : undefined),
+    // The harness has no subagent runtime; a cancel that must stop children is a no-op here.
+    interrupt: () => {},
     mirror: (dir, task) => {
       const run = (async () => {
         const result = await mirrorTask(core, { cwd: dir, task })
@@ -136,4 +140,131 @@ test('one task covers a batch of requirements and steps, and a micro-edit stays 
   assert.match(body, /stepsDone: 4/)
   const boardFile = await readFile(join(cwd, 'state', 'views', 'board.md'), 'utf8')
   assert.match(boardFile, /4\/4/)
+})
+
+test('the concrete task and the linked child session reach the TASK, and clearing follows', async () => {
+  // PROOF: the board's task is the source of the register's concrete task and of the session
+  // link the State panel opens. Behavior: task_create writes scope/nonScope/acceptance/role and
+  // board assignee to the TASK; linkChild mirrors the child session into `sessions` and moves
+  // the task active; an update that empties a scope clears it in the SAME TASK file.
+  // Fails when: the mirror drops a field, the link is not mirrored (so Open has no id), or a
+  // cleared line survives in the register.
+  const { cwd, service, flush } = await board()
+  const created = service.create(cwd, {
+    title: 'Concrete mirror',
+    role: 'BACKEND',
+    reqId: 'REQ-007',
+    chatId: 'chat-1',
+    objective: 'Do the thing',
+    scope: ['plugins/a', 'plugins/b'],
+    nonScope: [':3080'],
+    acceptance: [{ text: 'works', done: false }, { text: 'tested', done: true }],
+  })
+  assert.equal(typeof created.id, 'string')
+  await flush()
+  const before = await readFile(join(cwd, 'state', 'task', 'TASK-001.md'), 'utf8')
+  assert.match(before, /scope:/)
+  assert.match(before, /plugins\/a/)
+  assert.match(before, /nonScope:/)
+  assert.match(before, /acceptance:/)
+  assert.match(before, /- text: works/)
+  assert.match(before, /role: BACKEND/)
+
+  const linked = service.linkChild(cwd, { id: created.id, sessionId: 'sess-1', label: 'BACKEND', role: 'BACKEND', chatId: 'chat-1' })
+  assert.equal(linked.ok, true, JSON.stringify(linked))
+  await flush()
+  const withChild = await readFile(join(cwd, 'state', 'task', 'TASK-001.md'), 'utf8')
+  assert.match(withChild, /status: active/)
+  assert.match(withChild, /sessions:/)
+  assert.match(withChild, /- sessionId: sess-1/)
+  assert.match(withChild, /owner:/)
+  assert.match(withChild, /sessionId: sess-1/)
+
+  const updated = service.update(cwd, { id: created.id, expectedRevision: linked.task.revision, patch: { scope: [] }, chatId: 'chat-1' })
+  assert.equal(updated.ok, true, JSON.stringify(updated))
+  await flush()
+  const after = await readFile(join(cwd, 'state', 'task', 'TASK-001.md'), 'utf8')
+  assert.equal(/^scope:/m.test(after), false, 'an emptied scope is cleared')
+  assert.ok(after.includes('plugins/b') === false)
+})
+
+
+test('the task list says which subagents are running NOW, not just the task status', async () => {
+  // PROOF: a task stays `active` until it is accepted, so the status cannot tell a working
+  // child from an idle one. Behavior: every linked child carries `running` from the runtime
+  // and the row carries `runningChildSessionIds`; the same annotation is on task_get.
+  // Fails when: the list keeps only the ledger's stale `active` child status, or reports an
+  // idle child as running just because the task is active.
+  const { cwd, service, flush } = await board()
+  const created = service.create(cwd, { title: 'Delegated', role: 'BACKEND', reqId: 'REQ-007', chatId: 'chat-1' })
+  await flush()
+  const first = service.linkChild(cwd, { id: created.id, sessionId: 'sess-live', label: 'BACKEND', role: 'BACKEND', chatId: 'chat-1' })
+  assert.equal(first.ok, true, JSON.stringify(first))
+  const second = service.linkChild(cwd, { id: created.id, sessionId: 'sess-idle', label: 'CRITIC', role: 'CRITIC', chatId: 'chat-1' })
+  assert.equal(second.ok, true, JSON.stringify(second))
+  await flush()
+  const row = service.list(cwd, { chatId: 'chat-1' }).find((task) => task.id === created.id)
+  assert.equal(row.status, 'active')
+  assert.deepEqual(row.runningChildSessionIds, ['sess-live'])
+  assert.equal(row.children.find((child) => child.sessionId === 'sess-live').running, true)
+  assert.equal(row.children.find((child) => child.sessionId === 'sess-idle').running, false)
+  const got = service.get(cwd, created.id)
+  assert.deepEqual(got.runningChildSessionIds, ['sess-live'])
+  // A CLOSED TASK NEVER REPORTS A RUNNING CHILD, even when the reused session is live.
+  const cancelled = service.cancel(cwd, { id: created.id, chatId: 'chat-1', actor: 'orchestrator' })
+  assert.equal(cancelled.ok, true, JSON.stringify(cancelled))
+  await flush()
+  const closedRow = service.list(cwd, { chatId: 'chat-1' }).find((task) => task.id === created.id)
+  assert.equal(closedRow.children.every((child) => child.running === false), true)
+  assert.deepEqual(closedRow.runningChildSessionIds, [])
+})
+
+test('a lifecycle write mirrors: cancel and close reach the SAME TASK', async () => {
+  // PROOF: the mirror used to run on create/update/linkChild only, so a task closed or
+  // cancelled in the ledger read `review`/`active` in the register until a manual reconcile.
+  // Behavior: cancel writes status cancelled to the TASK; close writes status done and the
+  // result; no second TASK is created.
+  const { cwd, service, flush } = await board()
+  const cancelledTask = service.create(cwd, { title: 'Cancel me', role: 'BACKEND', reqId: 'REQ-007', chatId: 'chat-1' })
+  await flush()
+  const cancelled = service.cancel(cwd, { id: cancelledTask.id, chatId: 'chat-1', actor: 'orchestrator' })
+  assert.equal(cancelled.ok, true, JSON.stringify(cancelled))
+  await flush()
+  const cancelledText = await readFile(join(cwd, 'state', 'task', 'TASK-001.md'), 'utf8')
+  assert.match(cancelledText, /status: cancelled/)
+
+  const closedTask = service.create(cwd, { title: 'Close me', role: 'BACKEND', reqId: 'REQ-008', chatId: 'chat-1' })
+  await flush()
+  const reviewed = service.update(cwd, {
+    id: closedTask.id, expectedRevision: 1, chatId: 'chat-1',
+    patch: { status: 'review', result: { summary: 'done', evidence: ['make verify'] } },
+  })
+  assert.equal(reviewed.ok, true, JSON.stringify(reviewed))
+  await flush()
+  const closed = service.close(cwd, { id: closedTask.id, chatId: 'chat-1', actor: 'orchestrator' })
+  assert.equal(closed.ok, true, JSON.stringify(closed))
+  await flush()
+  const closedText = await readFile(join(cwd, 'state', 'task', 'TASK-002.md'), 'utf8')
+  assert.match(closedText, /status: done/)
+  assert.match(closedText, /resultSummary: done/)
+})
+
+test('a lease transfer clears the session from the donor TASK', async () => {
+  // PROOF: the donor kept the moved child's session in its mirror, so the panel offered Open
+  // on a session another task owned. Behavior: after moving sess-1 from A to B, A's TASK has
+  // no sessions and no owner.sessionId, B's TASK names it.
+  const { cwd, service, flush } = await board()
+  const a = service.create(cwd, { title: 'Task A', role: 'BACKEND', reqId: 'REQ-007', chatId: 'chat-1' })
+  await flush()
+  const b = service.create(cwd, { title: 'Task B', role: 'CRITIC', reqId: 'REQ-008', chatId: 'chat-1' })
+  await flush()
+  service.linkChild(cwd, { id: a.id, sessionId: 'sess-1', label: 'BACKEND', role: 'BACKEND', chatId: 'chat-1' })
+  await flush()
+  const moved = service.linkChild(cwd, { id: b.id, sessionId: 'sess-1', label: 'CRITIC', role: 'CRITIC', chatId: 'chat-1' })
+  assert.equal(moved.ok, true, JSON.stringify(moved))
+  await flush()
+  const donor = await readFile(join(cwd, 'state', 'task', 'TASK-001.md'), 'utf8')
+  const receiver = await readFile(join(cwd, 'state', 'task', 'TASK-002.md'), 'utf8')
+  assert.equal(donor.includes('sess-1'), false, 'the donor no longer names the moved session')
+  assert.ok(receiver.includes('sess-1'))
 })

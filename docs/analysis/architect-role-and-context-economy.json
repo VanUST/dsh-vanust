@@ -1,0 +1,507 @@
+{
+  "schemaVersion": 1,
+  "id": "architect-role-and-context-economy",
+  "rev": 5,
+  "status": "ready",
+  "createdAt": "2026-11-19T08:23:51.549Z",
+  "updatedAt": "2026-11-19T09:05:25.466Z",
+  "updatedBy": "agent",
+  "title": "Роль ARCHITECT: минималистичный пресет системного дизайнера и границы контекста у всех ролей",
+  "requestedSolution": "Владелец 2026-11-19: минималистичный пресет для роли системного дизайнера. Дорогая модель, критична экономия токенов; взаимодействие минимально — владелец сам вызывает роль, изредка оркестратор. Роль должна уметь звать субагентов сбора контекста, либо контекст даёт оркестратор. По умолчанию gpt-6.2-astra, при исчерпании лимита — фолбэк на deepseek-flash с максимальным усилием. Дополнительно: у остальных ролей не должно быть бесполезного контекста в сессиях, инструментах, плагинах и вызовах.",
+  "businessOutcome": {
+    "problem": "Роль системного дизайнера исполняет оркестратор: 52 инструмента, 50 881 B схем, 24 448 B системного промпта и 34 188 B напоминаний в первом запросе (scripts/context-budget.mjs, 2026-11-19). Дорогая модель в этой роли уже сожгла 5-часовое окно подписки: сессия session-0b50bf39 — 56 запросов и 5 141 365 токенов промпта на два коротких сообщения. Отдельного пресета нет: «посадить BA/SD-роль на модель OpenAI/Codex» — отложенное требование BR1 записи agent-surface-and-shell. Каталог скиллов (30 304 B из 34 188 B) и политика записи анализа (~6,6 KB промпта) выдаются каждой корневой сессии любой роли, даже когда этих инструментов у неё нет.",
+    "outcome": "Есть отдельная роль ARCHITECT на дорогой модели: минимальная поверхность, границы контекста, сбор контекста делегированием; по умолчанию gpt-6.2-astra, при исчерпании квоты — deepseek-flash с усилием max без падения хода. Ни одна роль не платит за секцию промпта, инструментов которой у неё нет.",
+    "successMetrics": [
+      "первый запрос ARCHITECT: схемы <= 20 000 B, промпт <= 12 000 B, напоминания <= 4 000 B",
+      "в сессии ARCHITECT нет напоминания skill-catalog и секции политики записи анализа",
+      "QUOTA на astra переключает на deepseek-flash/max и повторяет шаг без падения хода",
+      "make verify зелёный"
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CURRENT",
+        "name": "Дизайнер на дорогой модели без своего пресета",
+        "actors": [
+          "владелец",
+          "оркестратор"
+        ],
+        "steps": [
+          "Владелец открывает чат на пресете orchestrator и вручную выбирает дорогую модель.",
+          "Сессия получает 52 инструмента, 24 KB промпта и 34 KB напоминаний, включая каталог 68 скиллов.",
+          "Каждый шаг переотправляет весь префикс; при исчерпании окна подписки ход падает ошибкой провайдера.",
+          "Роль не может позвать сборщика контекста отдельно: чтение кода оплачивается дорогой моделью."
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-TARGET",
+        "name": "Роль ARCHITECT со своим минимальным пресетом и запасным маршрутом",
+        "actors": [
+          "владелец",
+          "оркестратор",
+          "пресет architect",
+          "плагин role-model",
+          "роль GATHERER"
+        ],
+        "steps": [
+          "Владелец открывает чат на пресете Architect или оркестратор делегирует роль ARCHITECT.",
+          "Плагин role-model выбирает gpt-6.2-astra до первого запроса, если человек модель не выбрал.",
+          "Сессия несёт только инструменты дизайнера; каталога скиллов и политики записи анализа нет.",
+          "Как корень роль зовёт GATHERER через delegate_task; как ребёнок получает контекст в брифе.",
+          "При QUOTA на astra плагин выбирает deepseek-flash/max и возвращает retry: шаг повторяется."
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "FR-1",
+      "kind": "FR",
+      "text": "Существует отдельный пресет architect (роль ARCHITECT): владелец начинает на нём чат, оркестратор делегирует роль по имени.",
+      "acceptance": [
+        "пресет architect с order между orchestrator и ux",
+        "роль ARCHITECT разворачивается в пресет architect",
+        "delegate_task принимает ARCHITECT",
+        "сессия стартует без ошибки композиции"
+      ],
+      "status": "deferred",
+      "reason": "приёмка измерена (dump-config, меню пресетов :3092, сессия b47cea97), но TEST с парой красный→зелёный в реестре не заведён: case_run — инструмент другой роли"
+    },
+    {
+      "id": "FR-2",
+      "kind": "FR",
+      "text": "Сессия ARCHITECT укладывается в объявленный бюджет контекста: нет каталога скиллов, политики записи анализа и MCP-семейства.",
+      "acceptance": [
+        "нет напоминания skill-catalog",
+        "нет секции «Analysis before decomposition»",
+        "инструменты и байты в бюджете architect",
+        "make verify считает architect в таблице бюджетов"
+      ],
+      "status": "deferred",
+      "reason": "измерено: 10 инструментов, 10 551 B схемы, 8 487 B промпта, 3 884 B напоминаний, verdict OK в context-budget; красный→зелёный TEST не заведён (case_run вне моей поверхности)"
+    },
+    {
+      "id": "FR-3",
+      "kind": "FR",
+      "text": "Роль по умолчанию идёт на gpt-6.2-astra, а при исчерпании квоты провайдера переключается на deepseek-flash/max и повторяет шаг.",
+      "acceptance": [
+        "новая сессия получает openai-codex/gpt-6.2-astra",
+        "явный выбор человеком не перезаписывается",
+        "QUOTA переключает на deepseek-flash/max и повторяет шаг",
+        "второй отказ терминален",
+        "роли без правила не меняют маршрут"
+      ],
+      "status": "deferred",
+      "reason": "выбор astra доказан живой сессией (header config provider openai-codex/model gpt-6.2-astra, effort high); живой отказ QUOTA не воспроизводился — переключение и повтор доказаны 16 тестами role-model"
+    },
+    {
+      "id": "FR-4",
+      "kind": "FR",
+      "text": "Роль получает контекст, не раздувая свой: корень зовёт GATHERER через delegate_task, ребёнок получает контекст в брифе.",
+      "acceptance": [
+        "у корня ARCHITECT есть delegate_task",
+        "делегирование GATHERER создаёт задачу и ребёнка на preset gatherer",
+        "у ребёнка ARCHITECT нет bash/write/edit/web",
+        "персона говорит называть недостающий контекст"
+      ],
+      "status": "deferred",
+      "reason": "delegate_task в заголовке измерен, реестр ролей и тексты политики обновлены и тесты оркестратора зелёные; живой прогон делегирования GATHERER из ARCHITECT не снимался"
+    },
+    {
+      "id": "FR-5",
+      "kind": "FR",
+      "text": "Секция системного промпта плагина кита регистрируется только тогда, когда её инструменты есть в поверхности сессии.",
+      "acceptance": [
+        "корень без analysis_* не несёт секцию политики анализа",
+        "секции rtk/outline/skill-evolve/godot-mcp не появляются без инструментов",
+        "у orchestrator всё остаётся",
+        "замер до/после",
+        "make verify зелёный"
+      ],
+      "status": "deferred",
+      "reason": "на сессии ARCHITECT секции отсутствуют (8 487 B вместо 12 308 B), но замер «после» для остальных семи ролей не снимался: новых сессий этих ролей не было"
+    },
+    {
+      "id": "NFR-1",
+      "kind": "NFR",
+      "text": "Изменение не ломает упаковку и документацию кита.",
+      "acceptance": [
+        "make verify печатает 17/17 и 9 документированных пресетов",
+        "каждый пресет назван в rules/DEPLOYMENT.md",
+        "тарболы совпадают с исходниками"
+      ],
+      "status": "deferred",
+      "reason": "17/17 portability, documentation ok — приёмка выполнена; TEST-пара не заведена по той же причине, что FR-1"
+    },
+    {
+      "id": "NFR-2",
+      "kind": "NFR",
+      "text": "Ни одна роль не получает больше контекста, доказанное поведение не откатывается.",
+      "acceptance": [
+        "ни одна роль не выросла в инструментах и байтах",
+        "тесты analysis, orchestrator, delegation-brief, role-model зелёные",
+        "записи анализа не дрейфуют без правки карты"
+      ],
+      "status": "deferred",
+      "reason": "замеры и тесты сняты (analysis 13/13, orchestrator 5/5, delegation-brief 7/7, role-model 16/16, rtk/outline selftest PASS), дрейфа записей нет; TEST-пара не заведена"
+    }
+  ],
+  "architecture": {
+    "contractImpact": "additive",
+    "components": [
+      {
+        "id": "C-PRESET",
+        "name": "Пресет architect в профиле web",
+        "responsibility": "девятый пресет с минимальной композицией, строка allow и бюджет в tool-families, маршрут astra в flash-guard",
+        "owner": "BACKEND",
+        "owns": [
+          "D-CFG"
+        ],
+        "dependsOn": [
+          "C-MODEL"
+        ]
+      },
+      {
+        "id": "C-MODEL",
+        "name": "Плагин role-model",
+        "responsibility": "маршрут роли по умолчанию на agent/created и переключение на запасной по agent/request-error с повтором",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": []
+      },
+      {
+        "id": "C-ORCH",
+        "name": "Плагин оркестратора",
+        "responsibility": "реестр ролей: PRESET_IDS, ROLE_PRESETS, тексты политики",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": [
+          "C-PRESET"
+        ]
+      },
+      {
+        "id": "C-SECTIONS",
+        "name": "Плагины кита с секциями промпта",
+        "responsibility": "регистрировать секцию только когда её инструменты разрешены политикой tool-families",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": [
+          "C-PRESET"
+        ]
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "D-CFG",
+      "name": "Конфигурация профиля web",
+      "owner": "C-PRESET",
+      "ownerComponentId": "C-PRESET",
+      "description": "пресеты, строки allow и бюджеты tool-families, маршруты flash-guard, правила role-model"
+    }
+  ],
+  "contracts": [
+    {
+      "id": "CT-ROUTE",
+      "name": "Конфигурация маршрута роли",
+      "between": [
+        "C-MODEL"
+      ],
+      "change": "additive",
+      "description": "новая строка профиля role-model: roles.<preset> = {provider, model, reasoningEffort, fallback}; без строки плагин ничего не делает"
+    }
+  ],
+  "invariants": [
+    {
+      "id": "INV-1",
+      "text": "Роль без инструмента не получает секцию промпта и каталог, которые этот инструмент описывает.",
+      "scope": "все пресеты"
+    },
+    {
+      "id": "INV-2",
+      "text": "Явный выбор модели человеком не перезаписывается автоматическим маршрутом роли.",
+      "scope": "plugin role-model"
+    },
+    {
+      "id": "INV-3",
+      "text": "Отказ по квоте не превращается в падение хода, если у роли объявлен запасной маршрут; повтор не зацикливается.",
+      "scope": "plugin role-model"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "D-1",
+      "decision": "Девятый пресет architect, а не изменение orchestrator.",
+      "rationale": "Роль вызывается редко и дорого стоит; оркестратор остаётся на дешёвой модели.",
+      "alternatives": [
+        "понизить поверхность orchestrator",
+        "второй провайдер без пресета"
+      ]
+    },
+    {
+      "id": "D-2",
+      "decision": "В пресет architect не монтировать skill-filesystem и tool-skill.",
+      "rationale": "Каталог скиллов — 30 304 B из 34 188 B напоминаний; без инструмента нет и каталога.",
+      "alternatives": [
+        "оставить tool-skill и платить 30 KB"
+      ]
+    },
+    {
+      "id": "D-3",
+      "decision": "Как корень — delegate_task на GATHERER; как ребёнок — контекст даёт оркестратор в брифе.",
+      "rationale": "delegate_task есть только у корневого агента; бриф обязан быть самодостаточным.",
+      "alternatives": [
+        "разрешить subagent всем ролям"
+      ]
+    },
+    {
+      "id": "D-4",
+      "decision": "Переключение по квоте в agent/request-error с возвратом retry.",
+      "rationale": "В agent/request маршрут заморожен и подмена бросает исключение; request-error — водораздел восстановления.",
+      "alternatives": [
+        "retry на том же маршруте"
+      ]
+    },
+    {
+      "id": "D-5",
+      "decision": "Запасной маршрут — deepseek-official/deepseek-flash с усилием max.",
+      "rationale": "Совпадает с agent-default-model и с тем, что владелец назвал «флеш макс».",
+      "alternatives": [
+        "kimi-coding/k3.1-pro"
+      ]
+    },
+    {
+      "id": "D-6",
+      "decision": "Секции промпта гейтятся через toolFamilies.allows().",
+      "rationale": "Продолжение D-4 записи codex-context-bounds: allow-строка — владелец поверхности.",
+      "alternatives": [
+        "оставить секции безусловными"
+      ]
+    },
+    {
+      "id": "D-7",
+      "decision": "Роль-гейтованные регистрации перенимают пресет при позднем выборе места и помнят его, если место выбрано раньше агента.",
+      "rationale": "Замер 2026-11-19: Web GUI фиксирует пресет через 2 с ПОСЛЕ agent/created, поэтому прочитанный один раз пресет оставлял сессии инструменты и секции прежней роли (22 инструмента/12 308 B вместо 10/8 487 B).",
+      "alternatives": [
+        "требовать выбора пресета до создания сессии"
+      ]
+    }
+  ],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L1",
+    "reasons": [
+      "Меняется композиция профиля и добавляется один кит-плагин",
+      "Новых данных и внешних контрактов нет",
+      "Правки локальны для кита и проверяются его гейтами"
+    ]
+  },
+  "designRef": {
+    "mapRev": 31,
+    "at": "2026-11-19T09:03:00.000Z",
+    "source": "designmap/model.yaml rev 31"
+  },
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "FR-1",
+      "processId": "P-TARGET",
+      "componentId": "C-PRESET",
+      "contractIds": [
+        "CT-ROUTE"
+      ],
+      "dataIds": [
+        "D-CFG"
+      ],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwnaakvt-z1cbbg",
+          "role": "BACKEND",
+          "at": "2026-11-19T09:03:00.000Z",
+          "evidence": [
+            "dump-config kitarch: preset-architect и role-model",
+            "меню пресетов :3092: Architect между Orchestrator и UX/UI",
+            "сессия b47cea97: agent-preset/selected architect, запрос выполнен"
+          ]
+        }
+      ],
+      "reason": "приёмка измерена (dump-config, меню :3092, сессия b47cea97); красный→зелёный TEST не заведён — case_run вне поверхности корня"
+    },
+    {
+      "requirementId": "FR-2",
+      "processId": "P-TARGET",
+      "componentId": "C-PRESET",
+      "contractIds": [],
+      "dataIds": [
+        "D-CFG"
+      ],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwnaakvt-z1cbbg",
+          "role": "BACKEND",
+          "at": "2026-11-19T09:03:00.000Z",
+          "evidence": [
+            "context-budget: architect 10 / 10 551 / 8 487 / 3 884 OK; та же роль на orchestrator была 52 / 50 881 / 24 448 / 34 188",
+            "без skill-catalog и без секции Analysis; make verify 1/9 within budget"
+          ]
+        }
+      ],
+      "reason": "измерено context-budget: 10 инструментов / 10 551 B / 8 487 B / 3 884 B, OK; TEST-пара не заведена"
+    },
+    {
+      "requirementId": "FR-3",
+      "processId": "P-TARGET",
+      "componentId": "C-MODEL",
+      "contractIds": [
+        "CT-ROUTE"
+      ],
+      "dataIds": [],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwnaakvt-z1cbbg",
+          "role": "BACKEND",
+          "at": "2026-11-19T09:03:00.000Z",
+          "evidence": [
+            "request/header: openai-codex/gpt-6.2-astra, effort high, window 272000",
+            "пикер :3092: current GPT-6.2 Astra High",
+            "role-model tests 16/16"
+          ]
+        }
+      ],
+      "reason": "выбор astra доказан живой сессией; живой отказ QUOTA не воспроизводился — переключение и повтор доказаны 16 тестами"
+    },
+    {
+      "requirementId": "FR-4",
+      "processId": "P-TARGET",
+      "componentId": "C-ORCH",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwnaakvt-z1cbbg",
+          "role": "BACKEND",
+          "at": "2026-11-19T09:03:00.000Z",
+          "evidence": [
+            "первый запрос ARCHITECT: delegate_task, glob, grep, hindsight×3, outline, read, read_image, task_note",
+            "PRESET_IDS 8 дочерних; ROLE_PRESETS architect/systemdesigner/systemarchitect",
+            "orchestrator tests 5/5"
+          ]
+        }
+      ],
+      "reason": "delegate_task в заголовке измерен, реестр ролей обновлён и тесты зелёные; живой прогон делегирования GATHERER из ARCHITECT не снимался"
+    },
+    {
+      "requirementId": "FR-5",
+      "processId": "P-TARGET",
+      "componentId": "C-SECTIONS",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwnaakvt-z1cbbg",
+          "role": "BACKEND",
+          "at": "2026-11-19T09:03:00.000Z",
+          "evidence": [
+            "ARCHITECT: 8 487 B без Analysis/SKILLS CAN GROW/RTK/MCP; до правки 12 308 B",
+            "гейт общий для analysis, rtk, outline, skill-evolve, godot-mcp, delegation-brief, designmap"
+          ]
+        }
+      ],
+      "reason": "секции отсутствуют у ARCHITECT (8 487 B вместо 12 308 B); замер «после» для остальных семи ролей не снимался"
+    },
+    {
+      "requirementId": "NFR-1",
+      "processId": "P-TARGET",
+      "componentId": "C-PRESET",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwnaakvt-z1cbbg",
+          "role": "BACKEND",
+          "at": "2026-11-19T09:03:00.000Z",
+          "evidence": [
+            "17/17 portability, documentation ok, 9 пресетов документированы",
+            "26 плагинов и 9 пресетов в rules/DEPLOYMENT.md, README.md, USERGUIDE.md"
+          ]
+        }
+      ],
+      "reason": "make verify 17/17 и documentation ok; TEST-пара не заведена"
+    },
+    {
+      "requirementId": "NFR-2",
+      "processId": "P-TARGET",
+      "componentId": "C-SECTIONS",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwnaakvt-z1cbbg",
+          "role": "BACKEND",
+          "at": "2026-11-19T09:03:00.000Z",
+          "evidence": [
+            "ни у одной из восьми прежних ролей значения не выросли",
+            "analysis 13/13, orchestrator 5/5, delegation-brief 7/7, role-model 16/16, rtk и outline selftest PASS",
+            "designRef карты rev 31"
+          ]
+        }
+      ],
+      "reason": "замеры и тесты сняты, дрейфа записей нет; TEST-пара не заведена"
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "80c49d1a2c18d1e4ba3d41778ab7621d6cb73cfccbd9843e23015d16b677754d",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-19T08:23:51.549Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-19T08:24:06.925Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-19T09:05:12.329Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR-1 changed, FR-2 changed, FR-3 changed, FR-4 changed, FR-5 changed, NFR-1 changed, NFR-2 changed; impacts: 9"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-19T09:05:20.722Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-19T09:05:25.466Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    }
+  ]
+}

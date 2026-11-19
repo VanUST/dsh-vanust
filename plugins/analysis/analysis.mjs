@@ -40,9 +40,141 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { createService } from './store.mjs'
 import { mirror, precheck, precheckEvidence } from './mirror.mjs'
 
+/**
+ * Whether this agent's preset admits one tool name.
+ *
+ * The policy owner (`toolFamilies`) answers; a composition without that row admits everything,
+ * exactly like `tools.restrict` does. A missing service must never remove a tool silently.
+ *
+ * @param ctx - Cordis context.
+ * @param agent - The agent the tool would be registered on.
+ * @param name - Tool name.
+ * @returns false only when the policy positively excludes the name.
+ */
+/**
+ * The preset in force for one agent, resolved through the policy owner first.
+ *
+ * A selection made after the agent was created is committed as `agent-preset/selected`, and the
+ * policy owner (`toolFamilies.presetFor`) resolves it; the creation header is the last fallback.
+ *
+ * @param ctx - Cordis context.
+ * @param agent - The agent being synced.
+ * @returns The preset id, or undefined in a composition without a preset.
+ */
+function presetOf(ctx, agent) {
+  try {
+    const resolved = ctx.get?.('toolFamilies')?.presetFor?.(agent?.session)
+    if (typeof resolved === 'string' && resolved !== '') return resolved
+  } catch {
+    // No policy owner: fall through to the creation header.
+  }
+  try {
+    const projected = ctx.get?.('agentPresets')?.presetForSession?.(agent?.session)
+    if (typeof projected === 'string' && projected !== '') return projected
+  } catch {
+    // No projection either.
+  }
+  const header = agent?.session?.header?.agentPreset
+  return typeof header === 'string' && header !== '' ? header : undefined
+}
+
+function surfaceAllows(ctx, agent, name) {
+  try {
+    return ctx.get?.('toolFamilies')?.allows?.(agent, name) !== false
+  } catch {
+    return true
+  }
+}
+
+/**
+ * The role's Analysis surface: the tools its allow row admits, and the policy section only when
+ * at least one of them is registered.
+ *
+ * WHY IT FOLLOWS THE SEAT. A seat picked on a blank session is committed as an
+ * `agent-preset/selected` event AFTER `agent/created`, so a plugin that registers once keeps the
+ * creation-time answer: measured 2026-11-19, a new `architect` chat (created as `orchestrator`,
+ * seat chosen before the first message) shipped analysis_* tools and 6 641 B of policy into a
+ * role whose allow row has none of them. The gate therefore re-syncs on the seat, disposing the
+ * previous set first — a duplicate registration would throw.
+ *
+ * @param ctx - Cordis context.
+ * @param agent - Agent whose surface is synced.
+ * @param tools - The four Analysis tools (name-carrying definitions).
+ * @param config - Plugin config; `promptSection: false` turns the section off.
+ * @param cache - WeakMap from agent to what is installed, owned by apply().
+ */
+function syncRoleSurfaceFor(ctx, tools, config, cache) {
+  return (agent, presetOverride) => {
+    if (agent === undefined || agent === null) return
+    let preset
+    try {
+      preset = ctx.get?.('toolFamilies')?.presetFor?.(agent?.session)
+    } catch {
+      preset = undefined
+    }
+    // A composition without a preset owner (a bare assembly, a test harness) admits everything:
+    // the sentinel keeps the cache stable and the filter below then admits every tool.
+    if (typeof preset !== 'string' || preset === '') preset = agent?.session?.header?.agentPreset
+    if (typeof preset !== 'string' || preset === '') preset = typeof presetOverride === 'string' && presetOverride !== '' ? presetOverride : '(none)'
+    const current = cache.get(agent)
+    if (current !== undefined && current.preset === preset) return
+    if (current !== undefined) {
+      for (const dispose of current.disposers) {
+        try {
+          dispose()
+        } catch {
+          // A failing disposer must not take the session down.
+        }
+      }
+      cache.delete(agent)
+    }
+    // THE ROLE'S SURFACE DECIDES, NOT THE FACT THAT THIS IS A ROOT (D-4, codex-context-bounds):
+    // a tool this preset does not admit is not registered in the agent's own layer either, where
+    // `tools.restrict` could never mask it again.
+    const offered = tools.filter((tool) => surfaceAllows(ctx, agent, tool.name))
+    const disposers = offered.map((tool) => {
+      try {
+        return agent.ctx.tools.register(tool)
+      } catch {
+        return undefined
+      }
+    }).filter((dispose) => typeof dispose === 'function')
+    let disposeSection
+    if (offered.length > 0 && config.promptSection !== false) {
+      // THE SECTION DESCRIBES THE TOOLS, SO A ROLE WITHOUT THEM MUST NOT PAY FOR IT. Measured
+      // 2026-11-19: 6 641 B of "Analysis before decomposition" sat in the system prompt of every
+      // root of every preset, including roles whose allow row has no analysis_* tool at all.
+      try {
+        let order = 123
+        try {
+          const base = agent.ctx.systemPrompt.getSectionOrder('SUBAGENT_DELEGATION')
+          if (Number.isFinite(base)) order = base + 2
+        } catch {
+          // A prompt registry that cannot report an order still accepts an explicit one.
+        }
+        disposeSection = agent.ctx.systemPrompt.section({ name: 'deployment:analysis-policy', order, text: ANALYSIS_POLICY })
+      } catch {
+        // The tools are the enforcement; a section that cannot register must not break the agent.
+      }
+    }
+    cache.set(agent, { preset, disposers: disposeSection === undefined ? disposers : [...disposers, disposeSection] })
+  }
+}
+
 /** Cordis function-plugin name; also the id a profile patch targets. */
 export const name = 'analysis'
 
+/**
+ * Whether this agent's preset admits one tool name.
+ *
+ * The policy owner (`toolFamilies`) answers; a composition without that row admits everything,
+ * exactly like `tools.restrict` does. A missing service must never remove a tool silently.
+ *
+ * @param ctx - Cordis context.
+ * @param agent - The agent the tool would be registered on.
+ * @param name - Tool name.
+ * @returns false only when the policy positively excludes the name.
+ */
 /** The tool and prompt registries are required; the store needs nothing else. */
 export const inject = ['tools', 'systemPrompt']
 
@@ -191,7 +323,29 @@ export function apply(ctx, config = {}) {
         // register is derived from it; a mirror failure is reported, never rolled back into a
         // lost analysis write.
         const mirrored = await mirror(core, { cwd, initiative: args.initiative, record: result.record })
-        return { ...result, reqMirror: mirrored }
+        // THE MODEL'S COPY IS A SUMMARY, NOT THE RECORD. The full record is 10-15 KB per call
+        // and the caller just wrote it; what it needs back is the revision, the verdicts and
+        // the REQ mirror. `analysis_read` returns the record when a caller really needs it.
+        const record = result.record ?? null
+        return {
+          ok: result.ok === true,
+          created: result.created === true,
+          rev: result.rev,
+          status: record?.status ?? result.status,
+          title: record?.title,
+          counts: {
+            requirements: Array.isArray(record?.requirements) ? record.requirements.length : 0,
+            trace: Array.isArray(record?.trace) ? record.trace.length : 0,
+            decisions: Array.isArray(record?.decisions) ? record.decisions.length : 0,
+            components: Array.isArray(record?.architecture?.components) ? record.architecture.components.length : 0,
+          },
+          readiness: result.readiness,
+          check: result.check,
+          completion: result.completion,
+          pendingImpacts: Array.isArray(record?.pendingImpacts) ? record.pendingImpacts.map((impact) => ({ id: impact.id, change: impact.change })) : [],
+          reqMirror: mirrored,
+          recordHint: 'call analysis_read for the full record',
+        }
       } catch (error) {
         return refused(error)
       }
@@ -244,6 +398,8 @@ export function apply(ctx, config = {}) {
   })
 
   const tools = [readTool, upsertTool, checkTool, impactTool]
+  const roleSurfaces = new WeakMap()
+  const syncRoleSurface = syncRoleSurfaceFor(ctx, tools, config, roleSurfaces)
   ctx.on('agent/created', ({ agent }) => {
     // COMPLETION GUARDS RUN FOR EVERY AGENT. A task_close or a goal completion is a
     // lifecycle action, not a root tool: a child must not be able to close traced work
@@ -283,21 +439,30 @@ export function apply(ctx, config = {}) {
       return undefined
     })
     if (!isRootAgent(agent)) return
-    for (const tool of tools) agent.ctx.tools.register(tool)
-    if (config.promptSection === false) return
-    let order = 123
-    try {
-      const base = agent.ctx.systemPrompt.getSectionOrder('SUBAGENT_DELEGATION')
-      if (Number.isFinite(base)) order = base + 2
-    } catch {
-      // A prompt registry that cannot report an order still accepts an explicit one.
-    }
-    try {
-      agent.ctx.systemPrompt.section({ name: 'deployment:analysis-policy', order, text: ANALYSIS_POLICY })
-    } catch {
-      // The tools are the enforcement; a section that cannot register must not break the agent.
-    }
+    syncRoleSurface(agent)
   })
+
+  ctx.on('agent/pre-step', (payload, next) => {
+    // THE LAST LINE OF DEFENCE. A seat picked on a blank session is committed as
+    // `agent-preset/selected` after the agent exists, and the first request header is derived
+    // after pre-step: this is the last point where the surface can still follow the seat.
+    syncRoleSurface(payload?.agent)
+    return next()
+  }, { prepend: true })
+  try {
+    ctx.root?.on?.('session/event', (session, event) => {
+      if (event?.type !== 'agent-preset/selected') return
+      let live
+      try {
+        live = ctx.get?.('agents')?.get?.(session?.id)
+      } catch {
+        live = undefined
+      }
+      syncRoleSurface(live, event?.data?.agentPreset)
+    })
+  } catch {
+    // A root without the session feed still re-syncs at pre-step.
+  }
 }
 
 export { createService }
