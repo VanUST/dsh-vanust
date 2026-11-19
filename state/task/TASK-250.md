@@ -3,9 +3,9 @@ id: TASK-250
 kind: task
 title: "Основание задачи в delegate_task и остановка install.ps1 на сбойном шаге"
 status: done
-revision: 3
+revision: 9
 createdAt: 2026-11-19T14:32:07.789Z
-updatedAt: 2026-11-19T14:45:07.449Z
+updatedAt: 2026-11-19T15:19:14.251Z
 acceptance:
   - text: "delegate_task с reqIds и с chore+choreReason создаёт по одной строке и запускает по одному ребёнку; вызов без основания возвращает req_required без строки и без ребёнка"
     done: false

@@ -4,7 +4,8 @@ One host row that publishes the service consumers build on: the single writer of
 workspace. It owns the entity schema, the IDs, the links with their target hash, the CAS
 transitions, the journal with replay, `verify()` and `snapshot()`. It owns no model tool — the
 REQ/TASK operations, the projections under `state/views/` and the migrations are their own
-tasks.
+tasks — and it registers ONE command, `/state`, which is how the owner's own hand edit reaches
+the core from the State panel.
 
 ## Files it writes
 
@@ -47,6 +48,43 @@ empty list or an empty string, so removing a scope line in the panel removes it 
 schema backfill passes `preserveUpdatedAt: true` to keep the file's own last-change time (the
 panels order by it); it is a control flag and is never stored.
 
+## The owner's hand edit (`manualFields`)
+
+The register is written by mirrors (the analysis record, the taskboard, the case library), but
+the owner can edit an entity by hand from the State panel: the `/state` command in this row turns
+`{"op":"edit","id":"REQ-001","expectedRevision":3,"patch":{…},"release":["title"]}` into
+`update(cwd, id, {…, origin: "human"})`. A write is accepted only if the payload carries the
+revision of the file the panel read, so a mirror write between the read and the save is refused
+with `revision_conflict` instead of being overwritten.
+
+**What a hand edit may touch** is `HUMAN_EDITABLE` in `lib/core.mjs`, per kind:
+
+| kind | editable fields |
+|---|---|
+| REQ | `title`, `status`, `body`, `criteria`, `source`, `reason` |
+| TASK | `title`, `status`, `body`, `reqId`, `reqIds`, `scope`, `nonScope`, `acceptance`, `steps`, `stepsDone`, `role`, `preset`, `inline`, `ownerRole`, `reason`, `chore`, `choreReason`, `resultSummary`, `resultEvidence`, `resultArtifacts` |
+| TEST | `title`, `status`, `body`, `reqId`, `authorRole`, `command`, `testPath`, `evidenceRefs` |
+| DECISION | `title`, `status`, `body`, `reason`, `supersededBy` |
+
+Anything else is refused whole with `field_not_editable` and nothing is written. The rest of the
+frontmatter is either the mirror's row key (`analysisRef`, `boardId`, `caseId`), the workflow
+position (`revision`, `createdAt`, `updatedAt`), a value derived from other fields
+(`criteriaHash`, `frozenHash`) or a relation (`links`, `sessions`, `owner`); editing one from a
+text box would duplicate a mirrored row or leave a hash claiming something the record no longer
+says.
+
+**A hand-edited field is the owner's until it is released.** The entity records
+`manualFields` (sorted field names, `body` included) and `manualAt`; the journal event carries
+`origin: human`. A later AUTOMATIC write — a mirror, or any tool call that does not pass
+`origin: "human"` — puts the stored value back for every masked field, and a write that would
+change nothing else is not written at all, so the revision does not churn on every mirror pass.
+`{release: ["title"]}` (a hand edit) hands the field back: the next automatic write sets it
+again. A masked `steps` also freezes `stepsDone`, because a plan and its progress are one value.
+
+The owner's status edit wins over the mirror in the same way. The board still owns its own row,
+so a TASK whose status was taken by hand can disagree with the board until the owner releases it;
+the panel shows which fields are theirs, with a release action on the row.
+
 ## Service API
 
 Every method takes the workspace `cwd` first (one host row serves every workspace the UI opens)
@@ -57,7 +95,7 @@ agent's turn.
 |---|---|
 | `create(cwd, kind, input)` | allocate the next typed ID under the lock and write the file; journals `create` |
 | `get(cwd, id)` / `list(cwd, kind?)` | read one entity / read the index |
-| `update(cwd, id, { expectedRevision, … })` | CAS: a stale revision refuses with `revision_conflict` and writes nothing |
+| `update(cwd, id, { expectedRevision, … })` | CAS: a stale revision refuses with `revision_conflict` and writes nothing. `origin: "human"` marks the written fields as the owner's (`manualFields`), and an automatic write skips those fields; `release: [field]` hands them back |
 | `complete(cwd, id, { expectedRevision })` | `update` with `status: done` |
 | `link(cwd, from, to)` | append `{kind, id, hash}` where `hash` is sha256 of the target's bytes |
 | `claim(cwd, id, { owner })` / `release(cwd, id)` | TASK active/open transition |

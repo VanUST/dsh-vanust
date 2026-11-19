@@ -32,6 +32,31 @@ const KINDS = {
 const DIRS = { req: 'req', decision: 'decision', task: 'task', test: 'test' }
 const ID_PATTERN = /^(REQ|DEC|TASK|TEST)-(\d{3,})$/
 const KIND_BY_PREFIX = { REQ: 'req', DEC: 'decision', TASK: 'task', TEST: 'test' }
+
+/**
+ * THE FIELDS THE OWNER MAY EDIT BY HAND, per kind.
+ *
+ * The panel has an Edit mode for the register, and a write from it must be as safe as one from
+ * a mirror: the core is still the single writer, the revision is still checked, and the journal
+ * still records the change. What a hand edit may touch is this list, and nothing outside it is
+ * accepted - not because the other fields are unimportant, but because they are KEYS the
+ * mirrors find their row by (`analysisRef`, `boardId`, `caseId`), the WORKFLOW position the
+ * owning tool sets (`revision`, `createdAt`), or values derived from other fields
+ * (`criteriaHash`, `frozenHash`, `links`). Editing one of those from a text box would duplicate
+ * a mirrored row or leave a hash that claims something the criteria no longer say.
+ *
+ * `body` is the entity's own text (a REQ's requirement text, a TASK's objective, a TEST's
+ * description), so it is editable like any other field.
+ */
+const HUMAN_EDITABLE = {
+  req: ['title', 'status', 'body', 'criteria', 'source', 'reason'],
+  decision: ['title', 'status', 'body', 'reason', 'supersededBy'],
+  task: ['title', 'status', 'body', 'reqId', 'reqIds', 'scope', 'nonScope', 'acceptance', 'steps', 'stepsDone', 'role', 'preset', 'inline', 'ownerRole', 'reason', 'chore', 'choreReason', 'resultSummary', 'resultEvidence', 'resultArtifacts'],
+  test: ['title', 'status', 'body', 'reqId', 'authorRole', 'command', 'testPath', 'evidenceRefs'],
+}
+/** Keys a hand edit carries that are not fields: routing, the CAS and the mask release. */
+const PATCH_KEYS = ['origin', 'expectedRevision', 'release', 'preserveUpdatedAt']
+
 const nowIso = () => new Date().toISOString()
 const sha256 = (text) => createHash('sha256').update(text, 'utf8').digest('hex')
 const fail = (code, message) => ({ ok: false, code, message })
@@ -86,8 +111,7 @@ export function sessionList(value) {
 }
 
 /** The owner of a TASK as `{kind, label, sessionId?}`, or undefined when it has no label. */
-function ownerOf(value) {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
+function ownerOf(value) {  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
   const label = typeof value.label === 'string' ? value.label.trim() : ''
   if (label === '') return undefined
   return {
@@ -429,6 +453,24 @@ export function createStateService(options = {}) {
       const match = ID_PATTERN.exec(String(id))
       if (match === null) return fail('id_invalid', `id "${id}" is not a typed id`)
       const kind = KIND_BY_PREFIX[match[1]]
+      // A HAND EDIT IS VALIDATED BEFORE THE LOCK, so a refused field never leaves a partly
+      // applied entity on disk. Only the fields of the kind's own schema are accepted; the
+      // source keys and derived values are named in the refusal instead of being ignored.
+      const human = patch?.origin === 'human'
+      if (human) {
+        const editable = HUMAN_EDITABLE[kind] ?? []
+        const refused = Object.keys(patch).filter((key) => !PATCH_KEYS.includes(key) && !editable.includes(key))
+        if (refused.length > 0) {
+          return fail('field_not_editable', `${refused.map((key) => `"${key}"`).join(', ')} cannot be edited by hand; a ${kind} accepts: ${editable.join(', ')} (plus release)`)
+        }
+        const fields = Object.keys(patch).filter((key) => !PATCH_KEYS.includes(key))
+        if (fields.length === 0 && !Array.isArray(patch.release)) {
+          return fail('nothing_to_edit', 'a hand edit needs at least one field, or a release of the fields to return to their source')
+        }
+        if (patch.title !== undefined && String(patch.title).trim() === '') {
+          return fail('title_required', 'a title cannot be cleared')
+        }
+      }
       const expected = patch.expectedRevision
       if (!Number.isInteger(expected)) return fail('revision_required', 'expectedRevision must be an integer')
       try {
@@ -445,9 +487,10 @@ export function createStateService(options = {}) {
           // A schema backfill adds fields to an old entity; it must not reset the file's own
           // last-change time, which the panels order by. This flag keeps it, and is not stored.
           if (patch.preserveUpdatedAt === true && typeof current.updatedAt === 'string') next.updatedAt = current.updatedAt
-          for (const field of ['title', 'status', 'ownerRole', 'reqId', 'command', 'choreReason', 'criteriaHash', 'boardId', 'testPath', 'frozenHash', 'caseId', 'stepsDone', 'supersededBy', 'reason']) {
+          for (const field of ['title', 'status', 'ownerRole', 'reqId', 'command', 'choreReason', 'criteriaHash', 'boardId', 'testPath', 'frozenHash', 'caseId', 'stepsDone', 'supersededBy', 'reason', 'source']) {
             if (patch[field] !== undefined) next[field] = patch[field]
           }
+          if (human && typeof next.title === 'string') next.title = next.title.trim()
           if (patch.analysisRef !== undefined && patch.analysisRef !== null && typeof patch.analysisRef === 'object') {
             next.analysisRef = { initiative: String(patch.analysisRef.initiative ?? ''), requirementId: String(patch.analysisRef.requirementId ?? '') }
           }
@@ -488,14 +531,63 @@ export function createStateService(options = {}) {
             if (owner === undefined) delete next.owner
             else next.owner = owner
           }
-          if (kind === 'task' && patch.chore === true) next.chore = true
+          if (kind === 'task' && patch.chore !== undefined) {
+            // The editor can clear the chore mark (and its reason): `false` deletes it rather
+            // than writing a `chore: false`, which every reader would have to special-case.
+            if (patch.chore === true) next.chore = true
+            else delete next.chore
+          }
+          // An emptied progress field clears the counter; the plan itself is not touched here.
+          if (patch.stepsDone === null) delete next.stepsDone
           if (next.status !== undefined && !KINDS[kind].status.includes(next.status)) {
             return fail('status_invalid', `status "${next.status}" is not one of ${KINDS[kind].status.join(', ')}`)
           }
-          const body = typeof patch.body === 'string' ? patch.body : record.body
+          // ── THE OWNER'S OWN FIELDS ─────────────────────────────────────────────────────
+          // A field the owner edited by hand stays theirs until they release it: a later
+          // AUTOMATIC write (a mirror) puts the stored value back, and a write that would change
+          // nothing else is not written at all, so the revision does not churn on every mirror
+          // pass. `origin: 'human'` is set only by the /state command, which is reached from the
+          // panel; every mirror and every tool call leaves it out.
+          const previousMask = stringList(current.manualFields)
+          const released = human ? stringList(patch.release) : []
+          if (!human) {
+            for (const field of previousMask) {
+              if (field === 'body') continue
+              if (current[field] === undefined) delete next[field]
+              else next[field] = current[field]
+              // A plan and its progress are one value: a frozen `steps` must not let a mirror
+              // move `stepsDone` to a number the plan no longer has.
+              if (field === 'steps') {
+                if (current.stepsDone === undefined) delete next.stepsDone
+                else next.stepsDone = current.stepsDone
+              }
+            }
+          }
+          let body = typeof patch.body === 'string' ? patch.body : record.body
+          if (!human && previousMask.includes('body')) body = record.body
+          let mask = previousMask.filter((field) => !released.includes(field))
+          if (human) {
+            const edited = Object.keys(patch).filter((key) => !PATCH_KEYS.includes(key))
+            mask = [...new Set([...mask, ...edited])].sort()
+            next.manualAt = now()
+          }
+          if (mask.length > 0) next.manualFields = mask
+          else {
+            delete next.manualFields
+            delete next.manualAt
+          }
+          const contentOf = (frontmatter) => {
+            const copy = { ...frontmatter }
+            delete copy.revision
+            delete copy.updatedAt
+            return JSON.stringify(copy)
+          }
+          if (!human && contentOf(next) === contentOf(current) && body === record.body) {
+            return { ok: true, id: String(id), revision: current.revision, manualFields: previousMask, skipped: 'manual', hash: sha256(record.text) }
+          }
           const text = await writeEntity(rel, next, body)
-          const event = await appendJournal({ op: 'update', id: String(id), kind, revision: next.revision, record: next, body })
-          return { ok: true, id: String(id), revision: next.revision, hash: sha256(text), event: event.seq }
+          const event = await appendJournal({ op: 'update', id: String(id), kind, revision: next.revision, record: next, body, origin: human ? 'human' : 'mirror', ...(mask.length === 0 ? {} : { manualFields: mask }) })
+          return { ok: true, id: String(id), revision: next.revision, hash: sha256(text), event: event.seq, ...(mask.length === 0 ? {} : { manualFields: mask }) }
         })
       } catch (error) {
         return fail('write_failed', error.message)

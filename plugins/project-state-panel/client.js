@@ -13,11 +13,12 @@
  * `trace[].componentId`), because index.json carries no map link; the matcher is exact id,
  * dotted suffix, then `node.id = <componentId>`.
  *
- * Writes: ONE, and only the owner's. The panel executes designmap's read-only `views` command
- * and the taskboard's `owner-status` op (the status badge in the list, on a board card and in
- * the task drawer IS the select); it writes no file itself. The status change goes through the board, which owns the
- * row, mirrors it into `state/task/` and records the override in the state journal. Everything
- * else stays a lens, and the header badge says so.
+ * Writes: TWO, both the owner's, both through the command Remote. The status badge (in the list,
+ * on a board card and in the task drawer) runs the taskboard's `owner-status` op, because the
+ * board owns that row. The Edit tab runs the state core's `/state` command for any field of a
+ * REQ, TASK or TEST: the core writes, checks the revision, journals `origin: human` and marks the
+ * field as the owner's own (`manualFields`), so a later mirror leaves it alone. The panel writes
+ * no file itself, and the header badge says so.
  */
 window.__ModuleLoader__.load({
   id: '@cc/dsh-project-state-panel',
@@ -271,6 +272,177 @@ window.__ModuleLoader__.load({
       })
       if (applied.ok !== true) return applied
       return { ok: true, payload: applied.payload, boardId: plan.boardId }
+    }
+
+    // ── THE OWNER'S HAND EDIT ───────────────────────────────────────────────────────────────
+    // The Edit tab writes ONLY through the state core: `/state` is the same command Remote the
+    // status control uses for `/taskboard`. The core is the single writer, so the revision, the
+    // journal and the projections stay consistent, and the entity records which fields the
+    // owner has taken over (`manualFields`), so a later mirror leaves them alone until the
+    // owner releases them. The panel still writes no file: pointing it at the workspace files
+    // would bypass the lock and let a mirror overwrite the edit on its next pass.
+    const EDIT_STATUS_CHOICES = {
+      req: ['proposed', 'open', 'accepted', 'done', 'rejected', 'dropped'],
+      task: TASK_STATUS_CHOICES,
+      test: ['unverified', 'verified', 'failing', 'stale'],
+    }
+    const EDIT_FIELDS = {
+      req: [
+        { key: 'title', label: 'Title', type: 'text' },
+        { key: 'status', label: 'Status', type: 'status' },
+        { key: 'source', label: 'Source', type: 'select', options: ['agent', 'human'] },
+        { key: 'criteria', label: 'Criteria', type: 'list', hint: 'One per line. Edits do not recompute the frozen criteria hash, which keeps saying what the source accepted.' },
+        { key: 'reason', label: 'Reason', type: 'textarea', rows: 2, hint: 'The "why" the source gave (a deferral, a rejection, a correction).' },
+        { key: 'body', label: 'Text', type: 'body', rows: 8, hint: 'The requirement text itself.' },
+      ],
+      task: [
+        { key: 'title', label: 'Title', type: 'text' },
+        { key: 'status', label: 'Status', type: 'status', hint: 'The board owns a task status: a value set here stays until you release it.' },
+        { key: 'reqIds', label: 'Requirements', type: 'list', hint: 'REQ ids, one per line. The first becomes the task\'s primary requirement.' },
+        { key: 'ownerRole', label: 'Owner role', type: 'text' },
+        { key: 'role', label: 'Role', type: 'text' },
+        { key: 'preset', label: 'Preset', type: 'text' },
+        { key: 'scope', label: 'Scope', type: 'list', hint: 'One item per line.' },
+        { key: 'nonScope', label: 'Non-scope', type: 'list', hint: 'One item per line.' },
+        { key: 'acceptance', label: 'Acceptance', type: 'acceptance', hint: 'One per line. A line that keeps its exact wording keeps its done mark.' },
+        { key: 'steps', label: 'Steps', type: 'list', hint: 'One per line; the plan and its progress are frozen together.' },
+        { key: 'stepsDone', label: 'Steps done', type: 'number', hint: 'Leave empty to clear.' },
+        { key: 'chore', label: 'Chore (no requirement)', type: 'bool' },
+        { key: 'choreReason', label: 'Chore reason', type: 'text' },
+        { key: 'reason', label: 'Blocked reason', type: 'text' },
+        { key: 'resultSummary', label: 'Result summary', type: 'textarea', rows: 3 },
+        { key: 'resultEvidence', label: 'Result evidence', type: 'list', hint: 'One per line.' },
+        { key: 'resultArtifacts', label: 'Result artifacts', type: 'list', hint: 'One per line.' },
+        { key: 'body', label: 'Objective', type: 'body', rows: 6, hint: 'The task text: what it is for.' },
+      ],
+      test: [
+        { key: 'title', label: 'Title', type: 'text' },
+        { key: 'status', label: 'Status', type: 'status' },
+        { key: 'reqId', label: 'Requirement', type: 'text', hint: 'The REQ this test protects.' },
+        { key: 'authorRole', label: 'Author role', type: 'text' },
+        { key: 'testPath', label: 'Test path', type: 'text' },
+        { key: 'command', label: 'Run command', type: 'text' },
+        { key: 'evidenceRefs', label: 'Evidence refs', type: 'list', hint: 'One per line; the case library writes these when a run passes.' },
+        { key: 'body', label: 'Description', type: 'body', rows: 6, hint: 'What the test proves.' },
+      ],
+    }
+    /** Keys the core owns: shown read-only so the owner sees why they are not text boxes. */
+    const EDIT_READONLY = ['id', 'revision', 'createdAt', 'updatedAt', 'analysisRef', 'boardId', 'caseId', 'criteriaHash', 'frozenHash', 'links', 'sessions', 'manualAt']
+
+    /** The form's initial values, one string per control, from the entity as read. */
+    function initialDraft(entity, kind) {
+      const fm = entity?.frontmatter ?? {}
+      const draft = {}
+      for (const field of EDIT_FIELDS[kind] ?? []) {
+        if (field.type === 'body') draft[field.key] = String(entity?.body ?? '')
+        else if (field.type === 'acceptance') draft[field.key] = (Array.isArray(fm.acceptance) ? fm.acceptance : []).map((row) => String(row?.text ?? row ?? '')).filter((text) => text !== '').join('\n')
+        else if (field.type === 'list') draft[field.key] = listOf(fm[field.key]).join('\n')
+        else if (field.type === 'number') draft[field.key] = fm[field.key] === undefined || fm[field.key] === null ? '' : String(fm[field.key])
+        else if (field.type === 'bool') draft[field.key] = fm[field.key] === true
+        else draft[field.key] = fm[field.key] === undefined || fm[field.key] === null ? '' : String(fm[field.key])
+      }
+      // A TASK may carry one `reqId` (older rows) or a `reqIds` batch: the form edits one list.
+      if (kind === 'task') {
+        draft.reqIds = [...new Set([...(fm.reqId === undefined || fm.reqId === '' ? [] : [String(fm.reqId)]), ...listOf(fm.reqIds)])].join('\n')
+      }
+      return draft
+    }
+
+    /**
+     * What changed, as the core's patch. Only changed fields are sent, so a save cannot
+     * silently take ownership of a field the owner did not touch. An acceptance line keeps its
+     * done mark when its exact wording is unchanged; a new line starts not done.
+     */
+    function buildEditPatch(entity, kind, draft) {
+      const fm = entity?.frontmatter ?? {}
+      const patch = {}
+      const acceptanceDone = new Map(
+        (Array.isArray(fm.acceptance) ? fm.acceptance : []).map((row) => [String(row?.text ?? row ?? ''), row?.done === true]),
+      )
+      for (const field of EDIT_FIELDS[kind] ?? []) {
+        const value = draft[field.key]
+        if (field.type === 'list' || field.type === 'acceptance') {
+          const lines = String(value ?? '').split('\n').map((line) => line.trim()).filter((line) => line !== '')
+          const current = field.key === 'reqIds' && kind === 'task'
+            ? [...new Set([...(fm.reqId === undefined || fm.reqId === '' ? [] : [String(fm.reqId)]), ...listOf(fm.reqIds)])]
+            : listOf(fm[field.key])
+          const next = field.type === 'acceptance' ? lines.map((text) => ({ text, done: acceptanceDone.get(text) === true })) : lines
+          const currentRows = field.type === 'acceptance'
+            ? (Array.isArray(fm.acceptance) ? fm.acceptance : []).map((row) => ({ text: String(row?.text ?? row ?? ''), done: row?.done === true }))
+            : current
+          if (JSON.stringify(next) !== JSON.stringify(currentRows)) patch[field.key] = next
+        } else if (field.type === 'number') {
+          const text = String(value ?? '').trim()
+          const current = fm[field.key]
+          if (text === '') {
+            if (current !== undefined) patch[field.key] = null
+          } else {
+            const number = Number(text)
+            if (Number.isSafeInteger(number) && number !== current) patch[field.key] = number
+          }
+        } else if (field.type === 'bool') {
+          if (Boolean(value) !== (fm[field.key] === true)) patch[field.key] = Boolean(value)
+        } else if (field.type === 'body') {
+          if (String(value ?? '') !== String(entity?.body ?? '')) patch.body = String(value ?? '')
+        } else {
+          const text = field.key === 'title' ? String(value ?? '').trim() : String(value ?? '')
+          const current = fm[field.key] === undefined || fm[field.key] === null ? '' : String(fm[field.key])
+          if (text !== current) patch[field.key] = text
+        }
+      }
+      // The requirement list is one value in two keys: the first becomes `reqId` so older
+      // readers (and the board's single-requirement path) keep working.
+      if (kind === 'task' && Array.isArray(patch.reqIds)) patch.reqId = patch.reqIds[0] ?? ''
+      return patch
+    }
+
+    /** One `/state` reply: `{kind:'success'|'error', text}`, errors as `state: CODE; message`. */
+    function parseStateReply(result) {
+      if (result === null || result === undefined) return { ok: false, code: 'command_failed', message: 'the state command returned no result' }
+      if (result.ok !== true) return { ok: false, code: result?.error?.code ?? 'command_failed', message: errorText(result?.error) }
+      const outcome = result.value?.result
+      if (outcome === null || outcome === undefined) return { ok: false, code: 'command_result_invalid', message: 'the state command returned no result' }
+      if (outcome.kind === 'error') {
+        const text = String(outcome.text ?? '')
+        const match = /^state:\s*([A-Za-z0-9_-]+)\s*(?:[;:]\s*)?([\s\S]*)$/.exec(text)
+        if (match === null) return { ok: false, code: 'command_failed', message: text }
+        return { ok: false, code: match[1], message: match[2] }
+      }
+      if (outcome.kind !== 'success') return { ok: false, code: 'command_failed', message: 'the state command returned an unexpected result' }
+      let payload
+      try {
+        payload = JSON.parse(outcome.text)
+      } catch (error) {
+        return { ok: false, code: 'command_result_invalid', message: errorText(error) }
+      }
+      if (payload === null || typeof payload !== 'object') return { ok: false, code: 'command_result_invalid', message: 'the state command returned no payload' }
+      if (payload.ok !== true) return { ok: false, code: payload.code ?? 'command_result_invalid', message: payload.message ?? 'the state command refused the change' }
+      return { ok: true, payload }
+    }
+
+    async function runStateCommand(remote, sessionId, op) {
+      if (remote?.commands === undefined || typeof remote.commands.execute !== 'function') {
+        return { ok: false, code: 'command_unavailable', message: 'this build has no command transport, so the entity cannot be edited' }
+      }
+      let result
+      try {
+        result = await remote.commands.execute(sessionId, `/state ${JSON.stringify(op)}`, [])
+      } catch (error) {
+        return { ok: false, code: 'command_failed', message: errorText(error) }
+      }
+      return parseStateReply(result)
+    }
+
+    /**
+     * Save a hand edit. `expectedRevision` is the revision of the file the form was built from;
+     * a refusal keeps its code (`revision_conflict`, `status_invalid`, `field_not_editable`) so
+     * the panel quotes the core instead of paraphrasing it.
+     */
+    async function editStateEntity(remote, sessionId, { id, kind, expectedRevision, patch, release }) {
+      if (typeof id !== 'string' || id === '') return { ok: false, code: 'id_required', message: 'the edit has no entity id' }
+      if (!Number.isInteger(expectedRevision)) return { ok: false, code: 'revision_required', message: `the form has no revision for ${id}; close and reopen it` }
+      const op = { op: 'edit', id, expectedRevision, ...(Object.keys(patch ?? {}).length === 0 ? {} : { patch }), ...(Array.isArray(release) && release.length > 0 ? { release } : {}) }
+      return runStateCommand(remote, sessionId, op)
     }
 
     /**
@@ -632,6 +804,32 @@ window.__ModuleLoader__.load({
   .ps-navsec, .ps-navfoot { display: none; }
   .ps-rail { max-height: 55vh; }
 }
+/* ── the owner's Edit mode ──────────────────────────────────────────────────────────────
+   The form is the drawer's third tab. A field the owner has taken over keeps a badge and a
+   release action on the same row, so "why did my text not move?" is answered where it happened. */
+.ps-edit-form { display: grid; gap: 10px; margin: 0 0 12px; }
+.ps-edit-field { display: grid; gap: 3px; }
+.ps-edit-field > .ps-edit-label { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--ps-muted); }
+.ps-edit-field input[type="text"], .ps-edit-field input[type="number"], .ps-edit-field textarea, .ps-edit-field select {
+  width: 100%; box-sizing: border-box; padding: 6px 8px; border-radius: 8px;
+  border: 1px solid var(--ps-line); background: var(--ps-surface); color: var(--ps-ink);
+  font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.ps-edit-field textarea { resize: vertical; min-height: 34px; }
+.ps-edit-field input:focus-visible, .ps-edit-field textarea:focus-visible, .ps-edit-field select:focus-visible {
+  outline: 2px solid var(--ps-accent); outline-offset: 1px;
+}
+.ps-edit-field .ps-edit-hint { color: var(--ps-muted); font-size: 11px; }
+.ps-edit-field.manual > .ps-edit-label { color: var(--ps-ink); }
+.ps-manual-badge { display: inline-flex; align-items: center; gap: 4px; padding: 0 6px; border-radius: 999px; font-size: 9.5px; letter-spacing: .04em; text-transform: none; border: 1px solid color-mix(in srgb, #FFB020 55%, var(--ps-line)); background: color-mix(in srgb, #FFB020 16%, transparent); color: var(--ps-ink); }
+.ps-edit-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0 0 10px; }
+.ps-edit-actions .ps-btn.primary { background: var(--ps-accent); border-color: var(--ps-accent); color: var(--ps-accent-ink, #fff); }
+.ps-edit-note { border-radius: 8px; padding: 7px 9px; font-size: 11.5px; margin: 0 0 10px; border: 1px solid var(--ps-line); background: var(--ps-surface); }
+.ps-edit-note.bad { border-color: color-mix(in srgb, var(--ps-bad) 55%, var(--ps-line)); color: var(--ps-bad); }
+.ps-edit-note.ok { border-color: color-mix(in srgb, var(--ps-ok) 55%, var(--ps-line)); }
+.ps-edit-readonly { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 10px; font-size: 11px; color: var(--ps-muted); margin: 0; }
+.ps-edit-readonly dt { white-space: nowrap; }
+.ps-edit-readonly dd { margin: 0; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 `
 
     /* ---------- read + parse helpers (read-only) ---------- */
@@ -834,6 +1032,19 @@ window.__ModuleLoader__.load({
         if (read.ok === true && read.value !== null && typeof read.value === 'object' && !Array.isArray(read.value)) records.push(read.value)
       }
       return { records, error: null, truncated: listing.value?.truncated === true, count: files.length }
+    }
+
+    /**
+     * Keep the entity files already read when the workspace object is replaced (the cached
+     * paint, the fresh read, a reload after a save). The drawer for an open entity would
+     * otherwise lose its frontmatter and body, blanking the Edit form exactly when the owner is
+     * looking at it. An entity is an immutable snapshot per read, so keeping the loaded one is
+     * safe; re-opening the card re-reads it.
+     */
+    function withLoadedEntities(previous, next) {
+      if (next?.phase !== 'ready' && next?.phase !== 'refreshing' && next?.phase !== 'loading') return next
+      if (!(previous?.entities instanceof Map) || previous.entities.size === 0) return next
+      return { ...next, entities: new Map([...previous.entities, ...(next.entities ?? new Map())]) }
     }
 
     async function loadWorkspace(remote, sessionId, signal) {
@@ -1706,9 +1917,119 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function Drawer({ drawer, data, analysisLinks, filter, onClose, onOpenEntity, onOpenRequirement, onOpenMode, onClearFilter, tab, setTab, sessionsById = {}, onOpenSession, onChangeStatus, statusBusy }) {
+    /**
+     * THE OWNER'S EDIT FORM. Every field of the kind's schema gets a typed control, because a
+     * free-form frontmatter box would let a typo break the file and would hide which keys the
+     * core owns. A field the owner already took over carries a badge and a release action on
+     * its own row: that is where "why did my text not move?" gets answered.
+     *
+     * The form never writes: Save and Release hand the patch to the panel, which runs the
+     * `/state` command. Only changed fields are in the patch, so saving does not take ownership
+     * of a field the owner left alone.
+     */
+    function EntityEditor({ entity, kind, busy, notice, onSave, onRelease }) {
+      const fm = entity?.frontmatter ?? {}
+      const [draft, setDraft] = useState(() => initialDraft(entity, kind))
+      const revision = Number.isInteger(fm.revision) ? fm.revision : null
+      // Re-seed when another write moved the entity (a save, or a mirror while the drawer was
+      // open): the revision shown in the header is exactly the one the next save sends.
+      useEffect(() => {
+        setDraft(initialDraft(entity, kind))
+      }, [entity?.frontmatter?.revision, entity?.id, kind])
+      if (entity === undefined || entity === null) return h('p', { className: 'muted' }, 'The entity file is still loading.')
+      if (entity.error !== undefined) return h('p', { className: 'muted' }, `The entity file could not be read: ${entity.error}`)
+      const fields = EDIT_FIELDS[kind] ?? []
+      const manualFields = Array.isArray(fm.manualFields) ? fm.manualFields : []
+      const patch = buildEditPatch(entity, kind, draft)
+      const dirty = Object.keys(patch).length > 0
+      const setValue = (key, value) => setDraft((previous) => ({ ...previous, [key]: value }))
+      const control = (field) => {
+        const id = `ps-edit-${field.key}`
+        const value = draft[field.key]
+        if (field.type === 'status') {
+          const choices = EDIT_STATUS_CHOICES[kind] ?? []
+          const options = choices.includes(value) ? choices : [...choices, value].filter((entry) => entry !== undefined && entry !== '')
+          return h('select', { id, value: value ?? '', onChange: (event) => setValue(field.key, event.target.value) },
+            options.map((option) => h('option', { key: option, value: option }, option)))
+        }
+        if (field.type === 'select') {
+          const options = field.options ?? []
+          return h('select', { id, value: value ?? '', onChange: (event) => setValue(field.key, event.target.value) },
+            options.map((option) => h('option', { key: option, value: option }, option)))
+        }
+        if (field.type === 'bool') {
+          return h('input', { id, type: 'checkbox', checked: Boolean(value), onChange: (event) => setValue(field.key, event.target.checked) })
+        }
+        if (field.type === 'number') {
+          return h('input', { id, type: 'number', min: 0, value: value ?? '', onChange: (event) => setValue(field.key, event.target.value) })
+        }
+        if (field.type === 'body' || field.type === 'textarea') {
+          return h('textarea', { id, rows: field.rows ?? 3, value: value ?? '', onChange: (event) => setValue(field.key, event.target.value) })
+        }
+        if (field.type === 'list') {
+          return h('textarea', { id, rows: Math.min(10, Math.max(3, String(value ?? '').split('\n').length)), value: value ?? '', onChange: (event) => setValue(field.key, event.target.value) })
+        }
+        return h('input', { id, type: 'text', value: value ?? '', onChange: (event) => setValue(field.key, event.target.value) })
+      }
+      return h('div', null,
+        h('div', { className: 'ps-sec' },
+          h('h3', null, `Edit ${KIND_NAME[kind] ?? kind}`),
+          h('p', { className: 'muted' }, `Saved through the state core, which checks revision ${revision ?? '—'}. A field you change becomes yours: the mirrors leave it alone until you release it.`),
+          notice === null || notice === undefined ? null : h('p', { className: `ps-edit-note ${notice.tone === 'bad' ? 'bad' : 'ok'}` }, notice.message),
+          h('div', { className: 'ps-edit-form' },
+            fields.map((field) => {
+              const manual = manualFields.includes(field.key)
+              return h('div', { key: field.key, className: manual ? 'ps-edit-field manual' : 'ps-edit-field' },
+                h('label', { className: 'ps-edit-label', htmlFor: `ps-edit-${field.key}` },
+                  field.label,
+                  manual ? h('span', { className: 'ps-manual-badge', title: 'You edited this field by hand; a mirror write will not overwrite it until you release it.' }, 'правит человек') : null,
+                  manual
+                    ? h('button', {
+                        type: 'button',
+                        className: 'ps-btn',
+                        disabled: busy === true || revision === null,
+                        title: 'Return this field to its source: the next mirror write will set it again.',
+                        onClick: () => onRelease(field.key),
+                      }, '↺ вернуть источнику')
+                    : null,
+                ),
+                control(field),
+                field.hint === undefined ? null : h('span', { className: 'ps-edit-hint' }, field.hint),
+              )
+            }),
+          ),
+        ),
+        h('div', { className: 'ps-edit-actions' },
+          h('button', { type: 'button', className: 'ps-btn primary', disabled: busy === true || dirty !== true || revision === null, onClick: () => onSave(patch, []) }, busy === true ? 'Saving…' : 'Save'),
+          h('button', { type: 'button', className: 'ps-btn', disabled: busy === true || dirty !== true, onClick: () => setDraft(initialDraft(entity, kind)) }, 'Reset'),
+          h('span', { className: 'muted' }, dirty ? `${Object.keys(patch).length} field(s) changed` : 'no changes'),
+        ),
+        h('div', { className: 'ps-sec' },
+          h('h3', null, 'Owned by the core'),
+          h('dl', { className: 'ps-edit-readonly' },
+            h('dt', null, 'id'), h('dd', null, String(fm.id ?? entity.id ?? '—')),
+            h('dt', null, 'revision'), h('dd', null, revision === null ? '—' : String(revision)),
+            h('dt', null, 'updated'), h('dd', null, String(fm.updatedAt ?? '—')),
+            fm.analysisRef === undefined ? null : h('dt', null, 'analysisRef'),
+            fm.analysisRef === undefined ? null : h('dd', null, `${String(fm.analysisRef.initiative ?? '')} / ${String(fm.analysisRef.requirementId ?? '')}`),
+            fm.boardId === undefined ? null : h('dt', null, 'boardId'),
+            fm.boardId === undefined ? null : h('dd', null, String(fm.boardId)),
+            fm.caseId === undefined ? null : h('dt', null, 'caseId'),
+            fm.caseId === undefined ? null : h('dd', null, String(fm.caseId)),
+            fm.criteriaHash === undefined ? null : h('dt', null, 'criteriaHash'),
+            fm.criteriaHash === undefined ? null : h('dd', null, String(fm.criteriaHash).slice(0, 16)),
+            manualFields.length === 0 ? null : h('dt', null, 'yours'),
+            manualFields.length === 0 ? null : h('dd', null, manualFields.join(', ')),
+          ),
+          h('p', { className: 'muted' }, 'These keys are how the mirrors find their row or how other fields are derived. Editing them from a text box would duplicate a mirrored row or leave a hash that claims something the record no longer says, so the core refuses them.'),
+        ),
+      )
+    }
+
+    function Drawer({ drawer, data, analysisLinks, filter, onClose, onOpenEntity, onOpenRequirement, onOpenMode, onClearFilter, tab, setTab, sessionsById = {}, onOpenSession, onChangeStatus, statusBusy, onSaveEntity, onReleaseField, entityBusy, entityNotice }) {
       const closeRef = useRef(null)
       const isNode = drawer.kind === 'node'
+      const editable = !isNode && (drawer.kind === 'req' || drawer.kind === 'task' || drawer.kind === 'test')
       const entity = isNode ? null : data.entities.get(drawer.id)
       const fm = entity?.frontmatter ?? {}
       const node = drawer.node ?? null
@@ -1768,9 +2089,21 @@ window.__ModuleLoader__.load({
         h('div', { className: 'ps-group', role: 'tablist', 'aria-label': 'Entity detail sections', style: { marginBottom: 10 } },
           h('button', { type: 'button', role: 'tab', id: 'ps-dtab-overview', 'aria-selected': tab === 'overview', 'aria-controls': 'ps-drawer-panel', className: tab === 'overview' ? 'on' : '', onClick: () => setTab('overview') }, 'Overview'),
           h('button', { type: 'button', role: 'tab', id: 'ps-dtab-links', 'aria-selected': tab === 'links', 'aria-controls': 'ps-drawer-panel', className: tab === 'links' ? 'on' : '', onClick: () => setTab('links') }, 'Links'),
+          editable
+            ? h('button', { type: 'button', role: 'tab', id: 'ps-dtab-edit', 'aria-selected': tab === 'edit', 'aria-controls': 'ps-drawer-panel', className: tab === 'edit' ? 'on' : '', onClick: () => setTab('edit') }, 'Edit')
+            : null,
         ),
-        h('div', { id: 'ps-drawer-panel', role: 'tabpanel', 'aria-labelledby': tab === 'overview' ? 'ps-dtab-overview' : 'ps-dtab-links' },
-          tab === 'links'
+        h('div', { id: 'ps-drawer-panel', role: 'tabpanel', 'aria-labelledby': `ps-dtab-${tab === 'links' ? 'links' : tab === 'edit' ? 'edit' : 'overview'}` },
+          tab === 'edit' && editable
+            ? h(EntityEditor, {
+                entity,
+                kind: drawer.kind,
+                busy: entityBusy,
+                notice: entityNotice,
+                onSave: (patch, release) => onSaveEntity(drawer.id, drawer.kind, fm.revision, patch, release),
+                onRelease: (field) => onReleaseField(drawer.id, drawer.kind, fm.revision, field),
+              })
+            : tab === 'links'
             ? h(EntityLinks, { kind: drawer.kind, id: drawer.id, filter, data, analysisLinks, node, onOpenEntity, onOpenRequirement, onOpenMode, onCloseFilter: onClearFilter })
             : isNode
               ? h('div', null,
@@ -1989,12 +2322,20 @@ window.__ModuleLoader__.load({
         // STALE-WHILE-REVALIDATE: paint the last index of this session at once, then replace
         // it with the fresh one. A cold open makes one read; every later open is instant.
         const cached = readCachedIndex(sessionId)
-        if (cached !== null) setData(workspaceFromIndex(cached).workspace)
+        // The cached paint REPLACES the workspace object too, so it gets the same entity merge
+        // as the fresh read below: a drawer that is open while the index refreshes must keep
+        // its entity, otherwise its Edit form blanks out on every reload.
+        if (cached !== null) setData((previous) => withLoadedEntities(previous, workspaceFromIndex(cached).workspace))
         setData((previous) => (previous.phase === 'ready' ? { ...previous, phase: 'refreshing' } : { phase: 'loading' }))
         loadWorkspace(remote, sessionId, controller.signal).then(
           (next) => {
             if (controller.signal.aborted) return
-            setData(next)
+            // KEEP THE ENTITY FILES ALREADY READ. A reload replaces the workspace object, and
+            // the drawer for an open entity would be left with no frontmatter and no body - the
+            // Edit form would blank out right after a save, which is exactly when the owner is
+            // looking at it. An entity is an immutable snapshot per read, so keeping the loaded
+            // one is safe; re-opening the card re-reads it.
+            setData((previous) => withLoadedEntities(previous, next))
             if (next.phase === 'ready') writeCachedIndex(sessionId, next.index)
           },
           (error) => {
@@ -2154,6 +2495,88 @@ window.__ModuleLoader__.load({
         )
       }, [remote, sessionId])
 
+      // THE OWNER'S HAND EDIT. Save and release go through the same `/state` command, and the
+      // file is read back afterwards, so the form shows what the core wrote rather than what the
+      // panel sent. A refusal keeps its code (`revision_conflict`, `status_invalid`,
+      // `field_not_editable`); a stale revision re-reads the index so the next try is fresh.
+      const [entityNotice, setEntityNotice] = useState(null)
+      const [entityBusy, setEntityBusy] = useState(false)
+      useEffect(() => {
+        if (entityNotice === null) return undefined
+        const timer = setTimeout(() => setEntityNotice(null), 9000)
+        return () => clearTimeout(timer)
+      }, [entityNotice])
+      const saveEntityFields = useCallback((id, kind, expectedRevision, patch, release) => {
+        if (typeof sessionId !== 'string' || sessionId === '') return
+        setEntityBusy(true)
+        setEntityNotice(null)
+        editStateEntity(remote, sessionId, { id, kind, expectedRevision, patch, release }).then(
+          (result) => {
+            setEntityBusy(false)
+            // A REFUSED EDIT RE-READS THE ENTITY, not the whole index: the form is what was
+            // stale (a mirror moved the revision), and a full reload would blank the open drawer.
+            const refresh = () => {
+              loadEntity(remote, sessionId, id, kind).then((fresh) => {
+                if (fresh === undefined || fresh.error !== undefined) return
+                setData((previous) => {
+                  if (previous.phase !== 'ready' && previous.phase !== 'refreshing') return previous
+                  const entities = new Map(previous.entities)
+                  entities.set(id, fresh)
+                  return { ...previous, entities }
+                })
+              }).catch(() => {})
+            }
+            if (result.ok !== true) {
+              setEntityNotice({ tone: 'bad', message: `${result.code ?? 'refused'}: ${result.message ?? 'the edit was refused'}` })
+              if (result.code === 'revision_conflict' || result.code === 'not_found') refresh()
+              return
+            }
+            const saved = result.payload ?? {}
+            const mine = Array.isArray(saved.manualFields) ? saved.manualFields : []
+            const released = Array.isArray(release) && release.length > 0
+            setEntityNotice({
+              tone: 'ok',
+              message: released
+                ? `${id}: ${release.join(', ')} returned to the source; revision ${saved.revision}`
+                : `${id} saved at revision ${saved.revision}${mine.length === 0 ? '' : `; yours now: ${mine.join(', ')}`}`,
+            })
+            // SETTLE THE PANEL IN PLACE: the entity from disk plus the index row it affects
+            // (title, status, revision, updatedAt). No index reload - a reload replaces the
+            // workspace object and the open drawer with it, which blanked the form the owner
+            // had just saved. The next natural paint re-reads everything anyway.
+            loadEntity(remote, sessionId, id, kind).then((fresh) => {
+              if (fresh === undefined || fresh.error !== undefined) return
+              setData((previous) => {
+                if (previous.phase !== 'ready' && previous.phase !== 'refreshing') return previous
+                const entities = new Map(previous.entities)
+                entities.set(id, fresh)
+                const fm = fresh.frontmatter ?? {}
+                const patchRow = (rows) => rows.map((row) => (row.id === id
+                  ? { ...row, ...(fm.title === undefined ? {} : { title: fm.title }), ...(fm.status === undefined ? {} : { status: fm.status }), ...(fm.revision === undefined ? {} : { revision: fm.revision }), ...(fm.updatedAt === undefined ? {} : { updatedAt: fm.updatedAt }), ...(Array.isArray(fm.reqIds) ? { reqIds: fm.reqIds } : {}) }
+                  : row))
+                return {
+                  ...previous,
+                  index: {
+                    ...previous.index,
+                    reqs: patchRow(previous.index.reqs),
+                    tasks: patchRow(previous.index.tasks),
+                    tests: patchRow(previous.index.tests),
+                  },
+                  entities,
+                }
+              })
+            }).catch(() => {})
+          },
+          (error) => {
+            setEntityBusy(false)
+            setEntityNotice({ tone: 'bad', message: errorText(error) })
+          },
+        )
+      }, [remote, sessionId])
+      const releaseEntityField = useCallback((id, kind, expectedRevision, field) => {
+        saveEntityFields(id, kind, expectedRevision, {}, [field])
+      }, [saveEntityFields])
+
       const onModeKeyDown = (event) => {
         // The mode list is a VERTICAL tablist in the Night desk shell; keep the horizontal
         // arrows working for muscle memory, but Up/Down is the pattern the orientation promises.
@@ -2172,7 +2595,7 @@ window.__ModuleLoader__.load({
       if (data.phase === 'no-session') {
         return h('div', { className: 'ps-root', role: 'main', 'aria-label': 'Project state' },
           h('style', null, CSS),
-          h('div', { className: 'ps-top' }, h('h1', { className: 'ps-title' }, 'Project state'), h('span', { className: 'ps-spacer' }), h('span', { className: 'ps-ro', title: 'No conversation, so nothing to write: the panel is a lens over state/views.' }, 'read-only · status by owner')),
+          h('div', { className: 'ps-top' }, h('h1', { className: 'ps-title' }, 'Project state'), h('span', { className: 'ps-spacer' }), h('span', { className: 'ps-ro', title: 'No conversation, so nothing to write: the panel reads state/views and the entity files.' }, 'lens · owner edits via the core')),
           h('div', { className: 'ps-main' },
             h(Empty, { title: 'Open a live conversation' }, h('p', null, 'The panel reads the projections of the workspace the conversation belongs to. There is no live conversation to anchor that workspace.')),
           ),
@@ -2212,7 +2635,7 @@ window.__ModuleLoader__.load({
         h('div', { className: 'ps-top' },
           h('button', { type: 'button', className: 'ps-btn icon ps-back', onClick: () => props.layout.selectPanel(null), title: 'Back to chat', 'aria-label': 'Back to chat' }, h(BackIcon, { size: 16 })),
           h('h1', { className: 'ps-title' }, 'Project state'),
-          h('span', { className: 'ps-ro', title: 'The panel is a lens over the state projections and writes no file. Its one write is your own change of a task status: it goes through the taskboard, which owns the row and records the override in the state journal.' }, 'read-only · status by owner'),
+          h('span', { className: 'ps-ro', title: 'The panel is a lens over the state projections and writes no file. Your two writes go through commands: a task status to the taskboard (which owns the row) and any field of a REQ/TASK/TEST to the state core (which checks the revision and marks the field as yours).' }, 'lens · owner edits via the core'),
           h('span', { className: 'ps-spacer' }),
           counts === null ? null : h('div', { className: 'ps-counts', 'aria-label': 'Projection counts' },
             h('span', { className: 'ps-count', title: 'Requirements in index.json' }, h('b', null, String(counts.req)), 'REQ'),
@@ -2323,6 +2746,10 @@ window.__ModuleLoader__.load({
                   onOpenSession: typeof props.uiWorkspace?.openSession === 'function' ? openSession : undefined,
                   onChangeStatus: changeStatus,
                   statusBusy,
+                  onSaveEntity: saveEntityFields,
+                  onReleaseField: releaseEntityField,
+                  entityBusy,
+                  entityNotice,
                 }),
           ) : null,
         ) : null,
@@ -2422,6 +2849,9 @@ window.__ModuleLoader__.load({
         loadWorkspace, loadEntity, relativeLabel,
         requirementIdsOf, TASK_STATUS_CHOICES, taskStatusRequest, parseTaskboardReply, changeTaskStatus, runTaskboard,
         isChoreTask,
+        // The hand-edit surface: what the Edit tab builds and what it sends, so a test proves the
+        // patch and the refusal codes instead of re-implementing them.
+        EDIT_FIELDS, EDIT_STATUS_CHOICES, initialDraft, buildEditPatch, parseStateReply, editStateEntity, runStateCommand,
       },
       apply(ctx) {
         ctx.slots.inject('main', () => ctx.slots.register({

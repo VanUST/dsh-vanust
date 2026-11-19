@@ -19,7 +19,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-242 | Allow-список ролей не действует на инструменты кита | REQ-130 | 4/4 | no |
 | TASK-244 | Red/green proof for the context-bounds changes | REQ-128, REQ-129, REQ-130, REQ-131, REQ-134 | 4/4 | no |
 
-## done (161)
+## done (162)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -184,6 +184,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-248 | Статус меняется кликом по значку, без второй плашки | REQ-136 | 4/4 | no |
 | TASK-249 | Скрыть chore-задачи из вида доски задач | REQ-147 | 4/4 | no |
 | TASK-250 | Основание задачи в delegate_task и остановка install.ps1 на сбойном шаге | REQ-148, REQ-149, REQ-150 | 7/7 | no |
+| TASK-251 | Ручное редактирование REQ, TASK и TEST из панели состояния | REQ-151, REQ-152, REQ-153, REQ-154 | 7/7 | no |
 
 ## cancelled (82)
 

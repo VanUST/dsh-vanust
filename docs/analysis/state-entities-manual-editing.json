@@ -1,0 +1,376 @@
+{
+  "schemaVersion": 1,
+  "id": "state-entities-manual-editing",
+  "rev": 2,
+  "status": "completed",
+  "createdAt": "2026-11-19T14:54:52.401Z",
+  "updatedAt": "2026-11-19T15:21:12.859Z",
+  "updatedBy": "agent",
+  "title": "Ручное редактирование требований, задач и тест-кейсов из панели состояния",
+  "requestedSolution": "Владелец 2026-11-19: «надо добавить возможность полного ручного редактирования задач и требований и тест кейсов — сейчас такой возможности нет вообще». Сегодня панель состояния — линза только для чтения; её единственная запись — смена статуса задачи через доску. Нужен редактор всех полей и текста сущностей REQ/TASK/TEST в панели, через ядро состояния, с сохранением правок при следующих автоматических записях.",
+  "businessOutcome": {
+    "problem": "Владелец не может исправить или дописать запись реестра: ни требование, ни задачу, ни тест-кейс. Любая правка файла в state/ руками отклоняется (fingerprint), а через инструменты меняются только отдельные поля (зеркала анализа, доски и кейсов) и только агентом. Из-за этого опечатка или неверная формулировка живёт до следующего агента, а описать требование или кейс самостоятельно владелец не может вообще.",
+    "outcome": "Владелец правит любое содержательное поле и текст REQ/TASK/TEST прямо в панели; правка записывается ядром с проверкой ревизии и попадает в журнал; следующие автоматические записи зеркал не затирают её, пока владелец сам не вернёт поле источнику.",
+    "successMetrics": []
+  },
+  "process": {
+    "current": [
+      {
+        "id": "ME-CUR",
+        "name": "Правка только через агента",
+        "actors": [
+          "владелец",
+          "агент",
+          "ядро состояния"
+        ],
+        "steps": [
+          "Владелец видит неверную формулировку в панели",
+          "Редактора нет; правка файла в state/ отклоняется",
+          "Владелец просит агента изменить запись",
+          "Агент меняет поле своим инструментом или не может вовсе"
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "ME-TGT",
+        "name": "Правка в панели",
+        "actors": [
+          "владелец",
+          "ядро состояния"
+        ],
+        "steps": [
+          "Владелец открывает карточку REQ/TASK/TEST и вкладку Edit",
+          "Меняет поля и текст",
+          "Ядро записывает с проверкой ревизии и пишет журнал",
+          "Следующая запись зеркала не трогает поля, помеченные как ручные",
+          "Владелец видит пометку и может вернуть поле источнику"
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "FR1",
+      "kind": "FR",
+      "text": "Владелец может изменить любое содержательное поле и текст существующего REQ, TASK или TEST из панели состояния; запись идёт через ядро состояния (единственный писатель) с проверкой ревизии.",
+      "acceptance": [
+        "в карточке REQ, TASK и TEST есть режим Edit со всеми содержательными полями и текстом",
+        "сохранение идёт через команду /state → ccProjectState.update с expectedRevision из открытого файла",
+        "успешная правка увеличивает revision, пишет журнал с origin human и перегенерирует проекции"
+      ],
+      "status": "deferred",
+      "reason": "Измерено в живой панели на втором сервере (сохранение TASK-250: «saved at revision 7; yours now: title»), тестами панели и команды и red-прогоном на коде из git HEAD; TEST-строку с парой :red:fail/:green:pass пишет только case_run, которого у корневой сессии нет."
+    },
+    {
+      "id": "FR2",
+      "kind": "FR",
+      "text": "Ручная правка переживает следующие автоматические записи: изменённые поля помечаются как взятые человеком, зеркала их не перезаписывают, а владелец может вернуть поле источнику.",
+      "acceptance": [
+        "правка человека добавляет поле в manualFields сущности",
+        "последующая автоматическая запись зеркала не меняет поле из manualFields и не увеличивает revision, если менять больше нечего",
+        "панель показывает пометку «правит человек» по полю и действие «вернуть из источника», снимающее пометку",
+        "ключи источника (analysisRef, boardId, caseId), revision и производные хеши правке не подлежат"
+      ],
+      "status": "deferred",
+      "reason": "Маска полей измерена тестами ядра (8/8; на коде до правки 6 из 8 падают) и в живой панели: пометка «правит человек», возврат источнику снял её (revision 9). Регистрация проверки остаётся за case_run."
+    },
+    {
+      "id": "FR3",
+      "kind": "FR",
+      "text": "Отказ правки называет причину (устаревшая ревизия, недопустимый статус, неизвестное или производное поле) и ничего не записывает.",
+      "acceptance": [
+        "устаревшая revision даёт revision_conflict и ничего не пишет",
+        "статус вне списка вида даёт status_invalid",
+        "поле, которого нет в схеме вида или которое является ключом источника, даёт field_not_editable и ничего не пишет",
+        "отказ доходит до панели одной строкой с кодом"
+      ],
+      "status": "deferred",
+      "reason": "Отказы измерены тестами команды и ядра (7/7 и 8/8; на коде до правки падают все 7 тестов команды) и проверены в браузере только успешным путём; TEST-строку пишет case_run."
+    },
+    {
+      "id": "NFR1",
+      "kind": "NFR",
+      "text": "Существующие пути записи и гейты не меняются: создание и зеркалирование работают как раньше, ни один отказ не ослаблен.",
+      "acceptance": [
+        "создание сущностей зеркалами и их обновление работают как раньше",
+        "make verify и тесты затронутых плагинов зелёные",
+        "ни один существующий гейт (complete, close, evidence) не ослаблен"
+      ],
+      "status": "deferred",
+      "reason": "Инвариант измерен зелёным (40/40 тестов, make verify exit 0, тарболы совпадают с исходником); отдельная TEST-строка не создана, потому что её пишет только case_run."
+    }
+  ],
+  "architecture": {
+    "contractImpact": "additive",
+    "components": [
+      {
+        "id": "state-core",
+        "name": "@cc/dsh-project-state (ядро)",
+        "responsibility": "принимает origin human, применяет ручные поля, хранит manualFields, отклоняет производные поля, пишет журнал",
+        "owner": "kit",
+        "owns": [
+          "state-manual-fields"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "state-command",
+        "name": "host-строка @cc/dsh-project-state",
+        "responsibility": "регистрирует команду /state (edit) и публикует его результат панели",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": [
+          "state-core"
+        ]
+      },
+      {
+        "id": "state-panel",
+        "name": "@cc/dsh-project-state-panel",
+        "responsibility": "режим Edit в карточке REQ/TASK/TEST, пометки ручных полей и возврат источнику",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": [
+          "state-command"
+        ]
+      },
+      {
+        "id": "state-mirrors",
+        "name": "зеркала analysis / taskboard / test-cases",
+        "responsibility": "продолжают писать сущности; ограничение ручных полей даёт ядро, своих правил зеркала не получают",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": [
+          "state-core"
+        ]
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "state-manual-fields",
+      "name": "state/{req,task,test}/*.md — manualFields, manualAt",
+      "owner": "state-core",
+      "ownerComponentId": "state-core",
+      "description": "Фронтматтер сущности: список полей, которые владелец правит руками, и время последней ручной правки"
+    }
+  ],
+  "contracts": [
+    {
+      "id": "state-command-edit",
+      "name": "Команда /state (edit)",
+      "between": [
+        "state-panel",
+        "state-command"
+      ],
+      "change": "additive",
+      "description": "{op:'edit', id, expectedRevision, patch:{поле: значение}, body?, release?:[поле]} → {ok, revision, manualFields}; отказ отдаётся как state: CODE; message, как /taskboard."
+    },
+    {
+      "id": "update-origin-manual",
+      "name": "Контракт ядра: origin и ручные поля",
+      "between": [
+        "state-core",
+        "state-mirrors"
+      ],
+      "change": "additive",
+      "description": "update(..., {origin:'human'}) применяет поля и добавляет их в manualFields; без origin поля из manualFields пропускаются, а запись без изменений не делается."
+    },
+    {
+      "id": "state-manual-fields",
+      "name": "Поля manualFields/manualAt в файле сущности",
+      "between": [
+        "state-core",
+        "state-panel"
+      ],
+      "change": "additive",
+      "description": "Фронтматтер сущности получает manualFields (список) и manualAt (время); неизвестные старым читателям поля не мешают проекциям."
+    }
+  ],
+  "invariants": [
+    {
+      "id": "INV1",
+      "text": "Ревизия меняется только при реальной записи; пропуск по manualFields ревизию не двигает",
+      "scope": "state-core"
+    },
+    {
+      "id": "INV2",
+      "text": "Панель не пишет файлы: любая её запись идёт командой через ядро",
+      "scope": "state-panel"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "D1",
+      "decision": "Ручные пометки хранятся в самом файле сущности (manualFields/manualAt), а не в отдельном оверлее",
+      "rationale": "git diff показывает, что правил человек, а checkout остаётся самодостаточным",
+      "alternatives": [
+        "отдельный файл оверрайдов",
+        "метка в журнале без полей в файле"
+      ]
+    },
+    {
+      "id": "D2",
+      "decision": "Приоритет полевой: ручные поля не перезаписываются автоматическими записями, но ревизия, ключи источника (analysisRef, boardId, caseId) и производные (criteriaHash, frozenHash) правке не подлежат",
+      "rationale": "Иначе правка ключей создала бы вторую строку в зеркале или сломала связь доски",
+      "alternatives": [
+        "ручная правка любых полей",
+        "победа зеркала (тогда редактор бесполезен)"
+      ]
+    },
+    {
+      "id": "D3",
+      "decision": "Команда /state регистрируется в host-строке project-state; панель остаётся без доступа к файлам на запись",
+      "rationale": "Сохраняется правило одного писателя: всё проходит через ядро с блокировкой и журналом",
+      "alternatives": [
+        "давать панели workspace-write",
+        "писать через taskboard"
+      ]
+    },
+    {
+      "id": "D4",
+      "decision": "В UI — типизированные контролы по схеме вида (текст, список, статус, число, флажок), без свободного JSON",
+      "rationale": "Свободный JSON ломает формат и не показывает схему; типизированный контрол даёт проверку ядра",
+      "alternatives": [
+        "редактор сырого фронтматтера"
+      ]
+    }
+  ],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L2",
+    "reasons": [
+      "новый контракт команды и поля данных в ядре состояния",
+      "правка четырёх плагинов: ядро, host-строка, панель, поведение зеркал",
+      "влияет на все виды сущностей реестра"
+    ]
+  },
+  "designRef": {
+    "mapRev": 31,
+    "at": "2026-11-19T15:00:00.000Z",
+    "source": "designmap/manifest.json"
+  },
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "FR1",
+      "processId": "ME-TGT",
+      "componentId": "state-panel",
+      "contractIds": [
+        "state-command-edit"
+      ],
+      "dataIds": [],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwno96qc-7r0csd",
+          "role": "inline",
+          "at": "2026-11-19T15:20:00.000Z",
+          "evidence": [
+            "второй сервер 3081 (копия профиля web с рow-строками file:///tmp/...): TASK-250 → Edit → правка заголовка → Save → «TASK-250 saved at revision 7; yours now: title»; форма сохраняет revision 7 и значение поля",
+            "node --test plugins/project-state-panel/test/edit-mode.test.mjs → 9/9 exit 0; на коде из git HEAD → 8 из 9 падают",
+            "node --test plugins/project-state/test/state-command.test.mjs → 7/7 exit 0; на коде из git HEAD → 7 из 7 падают",
+            "plugins/project-state/index.mjs: команда /state (inject commands, recordInput:false) → update с origin human, ответ — тот же {kind,text}, отказ как «state: CODE; message»",
+            "plugins/project-state-panel/client.js: вкладка Edit со схемой полей вида, контролы по типу поля, Save/Reset, блок «Owned by the core»"
+          ]
+        }
+      ],
+      "reason": "Измерено в живой панели на втором сервере и тестами; TEST-строку пишет case_run, которого у сессии нет."
+    },
+    {
+      "requirementId": "FR2",
+      "processId": "ME-TGT",
+      "componentId": "state-core",
+      "contractIds": [
+        "update-origin-manual",
+        "state-manual-fields"
+      ],
+      "dataIds": [
+        "state-manual-fields"
+      ],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwno96qc-7r0csd",
+          "role": "inline",
+          "at": "2026-11-19T15:20:00.000Z",
+          "evidence": [
+            "plugins/project-state/lib/core.mjs: HUMAN_EDITABLE по видам, origin human, manualFields/manualAt, release, пропуск ручных полей и отсутствие записи без изменений, steps/stepsDone вместе",
+            "node --test plugins/project-state/test/manual-edit.test.mjs → 8/8 exit 0; на коде из git HEAD → 6 из 8 падают",
+            "в браузере после сохранения в панели видна пометка «правит человек» и кнопка «↺ вернуть источнику»; после возврата — «TASK-250: title returned to the source; revision 9», пометок нет",
+            "state/task/TASK-250.md после возврата: title исходный, revision 9, manualFields/manualAt отсутствуют; state/events.jsonl seq 1057-1059 с origin human"
+          ]
+        }
+      ],
+      "reason": "Маска измерена тестами ядра и в живой панели; TEST-строку пишет case_run."
+    },
+    {
+      "requirementId": "FR3",
+      "processId": "ME-TGT",
+      "componentId": "state-command",
+      "contractIds": [
+        "state-command-edit"
+      ],
+      "dataIds": [],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwno96qc-7r0csd",
+          "role": "inline",
+          "at": "2026-11-19T15:20:00.000Z",
+          "evidence": [
+            "node --test plugins/project-state/test/state-command.test.mjs → 7/7: revision_conflict («file has 1»), field_not_editable (analysisRef), REVISION_REQUIRED без записи, unknown op, release",
+            "тесты ядра: status_invalid, title_required, revision_conflict и protected-поля отклоняются с сохранением байт файла",
+            "в браузере рефус не воспроизводился: только успешные сохранения и возврат"
+          ]
+        }
+      ],
+      "reason": "Отказы измерены тестами; в браузере проверен только успешный путь, TEST-строку пишет case_run."
+    },
+    {
+      "requirementId": "NFR1",
+      "processId": "ME-TGT",
+      "componentId": "state-mirrors",
+      "contractIds": [
+        "update-origin-manual"
+      ],
+      "dataIds": [],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwno96qc-7r0csd",
+          "role": "inline",
+          "at": "2026-11-19T15:20:00.000Z",
+          "evidence": [
+            "node --test plugins/project-state/test/*.test.mjs plugins/project-state-panel/test/*.test.mjs → 40/40 exit 0",
+            "make verify → exit 0: 18/18 portability, документация ok, глоссарий ok, tarball:matches-source и version-bumped PASS",
+            "тарболы cc-dsh-project-state-0.1.15.tgz (e423cfdd…) и cc-dsh-project-state-panel-0.1.45.tgz (b33ee818…) собраны из исходника; старые удалены",
+            "живой :3080 не тронут: второй сервер остановлен, копия профиля и тестовая сессия удалены"
+          ]
+        }
+      ],
+      "reason": "Инвариант измерен зелёным; отдельная TEST-строка не создана, потому что её пишет только case_run."
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "e584abf2420610a9c6794fa24e7bb1c9a8f01ea092b500aafb6ce1f7b4ec2f96",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-19T14:54:52.401Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-19T15:21:12.859Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "completed",
+      "summary": "requirements: FR1 changed, FR2 changed, FR3 changed, NFR1 changed"
+    }
+  ]
+}

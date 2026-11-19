@@ -612,19 +612,23 @@
 # body, typed sequential IDs allocated under a lock, links with the content hash of their
 # target, compare-and-set TASK transitions, the append-only journal with replay, snapshot()
 # and verify(). It registers NO model tool: the REQ/TASK operations, the views/ projections
-# and the migrations are their own tasks and consume this service.
+# and the migrations are their own tasks and consume this service. It DOES register one command,
+# `/state`, which is how the owner's hand edit in the State panel reaches the core: the payload
+# carries the revision, the core writes with `origin: human` and marks the edited fields as the
+# owner's own (`manualFields`), so a later mirror write leaves them alone until they are released.
 - insert:
     - id: project-state
       name: '@cc/dsh-project-state'
 
-# ── project-state-panel: four read-only modes over the state projections ──────
+# ── project-state-panel: four modes and an Edit tab over the state projections ─
 # One client-only panel (the host row registers nothing) over `state/views/index.json`: the
 # business requirements, the task board, the design map and tests/traceability share one
-# selection, so picking a requirement filters the other modes. It writes nothing and runs no
-# write command: the map is designmap's read-only `views` op drawn by designmap's own React
-# Flow scene renderer, and every action that changes state stays in the Tasks, Cases and
-# Design map panels and in the state core. The panel reads `state/` and the analysis records
-# through the read-only workspaceFiles API.
+# selection, so picking a requirement filters the other modes. The map is designmap's read-only
+# `views` op drawn by designmap's own React Flow scene renderer. The panel writes no file; the
+# owner has exactly two writes, both through the command Remote: a task status to the taskboard
+# (`/taskboard owner-status`, because the board owns that row) and any field of a REQ/TASK/TEST
+# to the state core (`/state`, which checks the revision and marks the field as the owner's). It
+# reads `state/` and the analysis records through the read-only workspaceFiles API.
 - insert:
     - id: project-state-panel
       name: '@cc/dsh-project-state-panel'

@@ -1,10 +1,11 @@
 # @cc/dsh-project-state-panel — the Project state panel
 
-One panel with four modes over one selection. It is a LENS over files the state core already
-writes; it owns neither a store nor a gate. Its ONE write is the owner's own change of a task
-status: the panel asks the taskboard (which owns the row) through the `/taskboard` command, the
-board mirrors the row into `state/task/` and records the override in the state journal. The
-panel writes no file itself.
+One panel with four modes over one selection, plus an **Edit** tab in every entity drawer. It is a
+LENS over files the state core already writes; it owns neither a store nor a gate, and it writes
+no file itself. The owner's TWO writes go through commands: a task status goes to the taskboard
+(`/taskboard owner-status`, because the board owns that row), and any field of a REQ, TASK or TEST
+goes to the state core (`/state`, which checks the revision, journals `origin: human` and marks
+the field as the owner's own). Nothing else in the panel writes.
 
 | mode | reads | answers |
 |---|---|---|
@@ -144,6 +145,25 @@ a task with no recorded session shows `—`.
 The frontmatter reader is the same small line parser as the state writer, extended for a list of
 maps (`acceptance`, `sessions`) and for a comma inside a quoted inline item; the panel still
 never parses `digest.md`, `board.md` or `traceability.md`.
+
+## The owner's Edit mode
+
+Every REQ, TASK and TEST drawer has an Edit tab. The form is built from the kind's schema
+(`EDIT_FIELDS` in `client.js`): text and number inputs, list textareas (one item per line), a
+status select, a checkbox for the chore mark, and the entity's own text as a large textarea. Only
+changed fields are sent, so saving never takes ownership of a field the owner left alone.
+
+Save runs `/state {"op":"edit","id":…,"expectedRevision":<the revision on screen>,"patch":{…}}`.
+The core writes the file and the panel reads it back, so the form shows what the core wrote
+rather than what the panel sent. A refusal keeps the core's code in the notice
+(`revision_conflict`, `status_invalid`, `field_not_editable`), and a stale revision re-reads the
+index so the next attempt is current.
+
+A field the owner changed carries a badge (`правит человек`) and a release action on its own row.
+Release sends the same command with `release:[field]`, which hands the field back: the next
+mirror write sets it again. The `Owned by the core` block at the bottom of the form lists the keys
+the editor will not touch — the mirror's row keys (`analysisRef`, `boardId`, `caseId`), the
+revision and the derived hashes — with one sentence saying why.
 
 ## Cross-selection
 

@@ -16,8 +16,8 @@ Behavior: the panel exports taskCounts (unfinished = not done/cancelled, active 
 Fails when: a counter stops following its rule, the Relevance order or one of its tie-breaks changes,
   a sort stops being deterministic or mutates its input, the panel loses the Board/List toggle and
   the sort tags with aria-pressed, a task with reqIds reads as "no requirement", the status write
-  stops being a two-call compare-and-set or swallows a refusal code, or any write other than that
-  one command appears beside the reads.
+  stops being a two-call compare-and-set or swallows a refusal code, or any command call site other
+  than designmap views, taskboard owner-status and the state edit appears beside the reads.
   CASE_NEGATIVE_CONTROL=expect-pre-fix flips the assertions to the pre-fix shape (no helpers, no
   list, no owner-status write), which must fail on the fixed files (the measured red).
 Production path: plugins/project-state-panel/client.js — the State header trigger, BoardMode,
@@ -259,10 +259,15 @@ async function violations() {
   }
   if (/workspaceFiles\.write/.test(source)) found.push('the panel declares a workspaceFiles.write call')
   // TWO COMMAND CALL SITES, ONE WRITE: designmap's read-only views and the board's owner-status.
+  // THREE call sites are allowed, and each is named below: designmap `views` (a read) and the
+  // owner's two writes - the taskboard's `owner-status` and the state core's `/state` edit.
+  // A fourth one means a new write path appeared without a decision.
   const commandCalls = source.match(/commands\.execute\(/g) ?? []
-  if (commandCalls.length !== 2) found.push(`the panel has ${commandCalls.length} command call sites; only designmap views (read) and taskboard owner-status (write) are allowed`)
+  if (commandCalls.length !== 3) found.push(`the panel has ${commandCalls.length} command call sites; only designmap views (read), taskboard owner-status and the state edit are allowed`)
   if (!/\/designmap /.test(source)) found.push('the designmap views command is missing')
   if (!/\/taskboard /.test(source)) found.push('the taskboard owner-status command is missing')
+  if (!/\/state /.test(source)) found.push('the state edit command is missing')
+  if (!/buildEditPatch/.test(source)) found.push('the Edit tab builds no patch')
   if (!/'owner-status'/.test(source)) found.push('the owner-status op is never sent')
   if (!/onChangeStatus/.test(source)) found.push('the board card has no status control')
   // THE BADGE IS THE CONTROL, not a second plaque repeating the state.
@@ -271,7 +276,7 @@ async function violations() {
   if (/TaskStatusEditor/.test(source) || /ps-statusform/.test(source)) found.push('a second status control duplicates the badge')
   if (!/function TaskStatusBadge\(/.test(source)) found.push('the drawer badge carries no optional reason field')
   if (!/function TaskListTable\(\{ rows, onOpenTask, onChangeStatus/.test(source)) found.push('the task list has no owner status control (the list is the default view)')
-  if (!/status by owner/.test(source)) found.push('the header badge still claims a bare read-only panel')
+  if (!/owner edits via the core/.test(source)) found.push('the header badge does not say the owner edits through the core')
   if (!/Hide chores \(\$\{choreCount\}\)/.test(source)) found.push('the board subbar has no hide-chores toggle')
   if (!/'aria-pressed': hideChores === true/.test(source)) found.push('the hide-chores toggle does not reflect its state through aria-pressed')
   if (!/const visible = hideChores === true/.test(source)) found.push('the board/list does not filter chore tasks from the view')
