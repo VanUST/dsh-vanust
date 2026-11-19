@@ -14,8 +14,8 @@
  * dotted suffix, then `node.id = <componentId>`.
  *
  * Writes: ONE, and only the owner's. The panel executes designmap's read-only `views` command
- * and the taskboard's `owner-status` op (the status control on a board card and in the task
- * drawer); it writes no file itself. The status change goes through the board, which owns the
+ * and the taskboard's `owner-status` op (the status badge in the list, on a board card and in
+ * the task drawer IS the select); it writes no file itself. The status change goes through the board, which owns the
  * row, mirrors it into `state/task/` and records the override in the state journal. Everything
  * else stays a lens, and the header badge says so.
  */
@@ -175,6 +175,15 @@ window.__ModuleLoader__.load({
         if (id !== '' && !ids.includes(id)) ids.push(id)
       }
       return ids
+    }
+
+    /**
+     * IS THIS A CHORE? A chore is work the board keeps next to the requirement-linked tasks and
+     * that the owner may want out of the view. The index row carries the flag; an older or a
+     * hand-written TASK may only carry it in its frontmatter, so both are read.
+     */
+    function isChoreTask(row, fm = {}) {
+      return row?.chore === true || fm?.chore === true
     }
 
     /**
@@ -454,17 +463,16 @@ window.__ModuleLoader__.load({
 .ps-card:hover { background: var(--ps-surface-3); }
 .ps-card .ps-cardopen { display: block; width: 100%; text-align: left; border: 0; background: transparent; color: inherit; font: inherit; padding: 0; cursor: pointer; }
 .ps-card .ps-cardopen:focus-visible { outline: 2px solid var(--ps-accent); outline-offset: 2px; border-radius: 4px; }
-.ps-cardactions { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
-.ps-select { border: 1px solid var(--ps-line); background: var(--ps-surface); color: var(--ps-ink); border-radius: 6px; padding: 2px 4px; font: inherit; font-size: 11px; font-weight: 600; }
-.ps-select:focus-visible, .ps-input:focus-visible { outline: 2px solid var(--ps-accent); outline-offset: 1px; }
+.ps-cardfoot { display: flex; align-items: center; margin-top: 5px; }
+/* THE BADGE IS THE SELECT: a native dropdown wearing the status chip, with a CSS caret. */
+.ps-statuswrap { position: relative; display: inline-flex; align-items: center; }
+.ps-statuswrap::after { content: "▾"; position: absolute; right: 5px; pointer-events: none; font-size: 9px; line-height: 1; color: var(--ps-muted); }
+.ps-status.ps-statusselect { display: inline-block; appearance: none; -webkit-appearance: none; padding: 1px 16px 1px 7px; line-height: 1.6; cursor: pointer; font-family: inherit; }
+.ps-status.ps-statusselect:disabled { cursor: progress; opacity: .7; }
+.ps-statuscontrol { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .ps-input { border: 1px solid var(--ps-line); background: var(--ps-surface); color: var(--ps-ink); border-radius: 6px; padding: 3px 6px; font: inherit; font-size: 12px; width: 100%; }
-.ps-statusform { border-top: 1px solid var(--ps-line); padding-top: 8px; margin-top: 8px; }
-.ps-statusform h3 { margin: 0 0 6px; }
-.ps-field { display: grid; gap: 3px; margin-bottom: 6px; }
-.ps-field label { font-size: 11px; color: var(--ps-muted); font-weight: 600; }
-.ps-statusactions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.ps-statusactions .ps-meta { flex: 1 1 140px; line-height: 1.35; }
-.ps-table td .ps-select { margin-top: 3px; display: block; max-width: 110px; }
+.ps-input:focus-visible { outline: 2px solid var(--ps-accent); outline-offset: 1px; }
+.ps-reason { width: 170px; font-size: 11px; padding: 2px 6px; }
 .ps-notice { border: 1px solid var(--ps-line); border-radius: 8px; padding: 6px 9px; margin-bottom: 10px; font-size: 12px; line-height: 1.4; }
 .ps-notice.ok { border-color: color-mix(in srgb, var(--ps-ok) 45%, var(--ps-line)); background: color-mix(in srgb, var(--ps-ok) 10%, transparent); color: var(--ps-ok); }
 .ps-notice.bad { border-color: color-mix(in srgb, var(--ps-bad) 45%, var(--ps-line)); background: color-mix(in srgb, var(--ps-bad) 10%, transparent); color: var(--ps-bad); }
@@ -502,6 +510,7 @@ window.__ModuleLoader__.load({
 .ps-group { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--ps-line); border-radius: 8px; padding: 2px; background: var(--ps-surface-2); }
 .ps-group button { min-height: 24px; border: 0; border-radius: 6px; background: transparent; color: var(--ps-muted); padding: 3px 8px; font: inherit; font-size: 11.5px; font-weight: 650; cursor: pointer; }
 .ps-group button.on { background: var(--ps-surface); color: var(--ps-ink); box-shadow: 0 0 0 1px var(--ps-line); }
+.ps-group button:disabled { opacity: .55; cursor: default; }
 .ps-empty { max-width: 64ch; padding: 26px 4px; color: var(--ps-muted); }
 .ps-empty h2 { margin: 0 0 5px; font-size: 15px; color: var(--ps-ink); }
 .ps-empty p { margin: 0 0 6px; }
@@ -1126,9 +1135,60 @@ window.__ModuleLoader__.load({
     /* ---------- board mode ---------- */
 
     /**
-     * One task on the board. The OPEN action stays one button (a card that opens a drawer must
-     * not contain a nested control), and the status control is its own row: a native select,
-     * which gives keyboard and screen-reader access without a custom menu.
+     * THE STATUS BADGE IS THE CONTROL. There is no second control repeating the state: the
+     * tone-coloured badge itself is a native `<select>`, so clicking it opens the status list and
+     * choosing one writes through the board. Native select keeps keyboard, screen-reader and
+     * touch behaviour for free; the caret is CSS (`.ps-statuswrap::after`), not a second element
+     * with its own text. Without a write path (no command transport) the plain read-only chip is
+     * rendered instead, so a consumer of this component cannot offer a control that cannot work.
+     */
+    function StatusSelect({ taskId, status, onChange, busy }) {
+      if (typeof onChange !== 'function') return h(Status, { status })
+      const current = String(status ?? '')
+      // A legacy row may carry a status the registry does not list (`paused` maps to blocked on
+      // the mirror, but a hand-written TASK can say anything): it is still shown, as the selected
+      // option, instead of the browser silently displaying the first choice.
+      const choices = TASK_STATUS_CHOICES.includes(current) ? TASK_STATUS_CHOICES : (current === '' ? TASK_STATUS_CHOICES : [current, ...TASK_STATUS_CHOICES])
+      return h('span', { className: 'ps-statuswrap' },
+        h('select', {
+          className: `ps-status ps-statusselect ${statusTone(current)}`,
+          value: current,
+          disabled: busy === true,
+          'aria-label': `Status of ${taskId}: ${current || 'unknown'}. Choose another status to change it as the owner`,
+          title: 'Click the status and pick another: as the owner this overrides the lifecycle rules, and the board records it in the state journal',
+          onClick: (event) => event.stopPropagation(),
+          onKeyDown: (event) => event.stopPropagation(),
+          onChange: (event) => onChange(taskId, event.target.value),
+        }, choices.map((choice) => h('option', { key: choice, value: choice }, choice))),
+      )
+    }
+
+    /**
+     * The drawer's status badge plus the one thing a click cannot carry: WHY the owner changed it.
+     * The reason is optional and travels with the next pick (the journal event records it).
+     */
+    function TaskStatusBadge({ taskId, status, onChange, busy }) {
+      const [reason, setReason] = useState('')
+      return h('span', { className: 'ps-statuscontrol' },
+        h(StatusSelect, { taskId, status, onChange: (id, next) => { onChange(id, next, reason); setReason('') }, busy }),
+        h('input', {
+          className: 'ps-input ps-reason',
+          type: 'text',
+          value: reason,
+          maxLength: 200,
+          disabled: busy === true,
+          placeholder: 'why? (optional, goes to the journal)',
+          'aria-label': `Why ${taskId} changes status (optional, recorded in the state journal)`,
+          onClick: (event) => event.stopPropagation(),
+          onChange: (event) => setReason(event.target.value),
+        }),
+      )
+    }
+
+    /**
+     * One task on the board. The open action and the status badge are siblings — a card that
+     * opens a drawer must not contain a nested control — so the badge sits in the card's corner
+     * and the rest of the card is one button.
      */
     function TaskCard({ task, data, onOpen, sessionsById = {}, onChangeStatus, busy }) {
       const entity = data.entities.get(task.id)
@@ -1146,10 +1206,7 @@ window.__ModuleLoader__.load({
           'aria-label': `${task.id}: ${title}, ${task.status}${reqIds.length === 0 ? (task.chore === true ? ', chore' : ', no requirement') : `, requirement ${reqIds.join(', ')}`}`,
         },
           h('div', { className: 't' }, title),
-          h('div', { className: 'm' },
-            h(TypeChip, { kind: 'task', id: task.id, static: true }),
-            h(Status, { status: task.status }),
-          ),
+          h('div', { className: 'm' }, h(TypeChip, { kind: 'task', id: task.id, static: true })),
           h('div', { className: 'm' },
             reqIds.length > 0
               ? reqIds.map((id) => h(TypeChip, { key: id, kind: 'req', id, static: true }))
@@ -1166,19 +1223,12 @@ window.__ModuleLoader__.load({
                   : h('span', { className: 'ps-count', style: { color: 'var(--ps-muted)' } }, h('span', { className: 'ps-dot', 'aria-hidden': 'true' }), `${sessions.length} subagent${sessions.length === 1 ? '' : 's'} idle`),
               ),
         ),
-        typeof onChangeStatus !== 'function'
-          ? null
-          : h('div', { className: 'ps-cardactions' },
-              h('select', {
-                className: 'ps-select',
-                value: task.status,
-                disabled: busy === true,
-                'aria-label': `Change the status of ${task.id} (currently ${task.status})`,
-                title: 'You are the owner: this status change overrides the lifecycle rules and is recorded in the state journal',
-                onChange: (event) => onChangeStatus(task.id, event.target.value),
-              }, TASK_STATUS_CHOICES.map((status) => h('option', { key: status, value: status }, status))),
-              h('span', { className: 'ps-meta' }, busy === true ? 'saving…' : 'owner'),
-            ),
+        // THE BADGE IS THE CONTROL, AND THE ONLY STATUS DISPLAY ON THE CARD: it sits in its own
+        // row under the open button (a button must not contain another control), so the title
+        // keeps the card's full width and nothing repeats the state.
+        h('div', { className: 'ps-cardfoot' },
+          h(StatusSelect, { taskId: task.id, status: task.status, onChange: onChangeStatus, busy }),
+        ),
       )
     }
 
@@ -1200,24 +1250,9 @@ window.__ModuleLoader__.load({
           onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenTask(row.id) } },
           'aria-label': `${row.id}: ${row.title}, ${row.status}${row.reqIds.length === 0 ? '' : `, requirement ${row.reqIds.join(', ')}`}`,
         },
-          h('td', null,
-            h(Status, { status: row.status }),
-            // THE OWNER'S CONTROL, ALSO IN THE LIST: the list is the default view, and a status
-            // that can only be changed in the card grid would be a control the human does not
-            // see. The click must not bubble to the row (that opens the drawer).
-            typeof onChangeStatus !== 'function'
-              ? null
-              : h('select', {
-                  className: 'ps-select',
-                  value: row.status,
-                  disabled: statusBusy === row.id,
-                  'aria-label': `Change the status of ${row.id} (currently ${row.status})`,
-                  title: 'You are the owner: this status change overrides the lifecycle rules and is recorded in the state journal',
-                  onClick: (event) => event.stopPropagation(),
-                  onKeyDown: (event) => event.stopPropagation(),
-                  onChange: (event) => onChangeStatus(row.id, event.target.value),
-                }, TASK_STATUS_CHOICES.map((status) => h('option', { key: status, value: status }, status))),
-          ),
+          // THE BADGE ITSELF IS THE CONTROL (the list is the default view, so it must be here).
+          // Its click stops at the badge; the row's click opens the drawer.
+          h('td', null, h(StatusSelect, { taskId: row.id, status: row.status, onChange: onChangeStatus, busy: statusBusy === row.id })),
           h('td', null,
             h('div', { className: 'ps-cellchips' }, h(TypeChip, { kind: 'task', id: row.id, static: true })),
             h('div', { style: { marginTop: 3, fontWeight: 600 } }, row.title),
@@ -1247,7 +1282,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function BoardMode({ data, filter, onOpenTask, onClearFilter, view, sort, onView, onSort, sessionsById = {}, onChangeStatus, statusBusy }) {
+    function BoardMode({ data, filter, onOpenTask, onClearFilter, view, sort, onView, onSort, sessionsById = {}, onChangeStatus, statusBusy, hideChores, onHideChores }) {
       // A FILTER MATCHES EVERY LINKED REQUIREMENT, not just `reqId`: a batch task carries
       // `reqIds` and used to disappear from a board filtered by one of them.
       const scoped = data.index.tasks.filter((task) => filter === null || requirementIdsOf(task, data.entities.get(task.id)?.frontmatter).includes(filter))
@@ -1256,7 +1291,12 @@ window.__ModuleLoader__.load({
         h('p', { className: 'ps-kicker' }, 'Task board'),
         h('p', { className: 'ps-empty' }, `No task is linked to ${filter}. This is a traceability gap, not an empty board: `, h('button', { type: 'button', className: 'ps-gap', onClick: onClearFilter }, 'clear the filter'), ' to see every task.'),
       )
-      const rows = sortTasks(scoped.map((task) => taskRow(task, data.entities, sessionsById)), sort)
+      // VIEW ONLY: the hidden rows stay in the projection and on the board; this filter decides
+      // what is DRAWN, so hiding chores never touches state/ or .dsh/taskboard.json.
+      const choreCount = scoped.filter((task) => isChoreTask(task, data.entities.get(task.id)?.frontmatter)).length
+      const visible = hideChores === true ? scoped.filter((task) => !isChoreTask(task, data.entities.get(task.id)?.frontmatter)) : scoped
+      const allHidden = hideChores === true && visible.length === 0 && scoped.length > 0
+      const rows = sortTasks(visible.map((task) => taskRow(task, data.entities, sessionsById)), sort)
       const kicker = view === 'list' ? 'Task list' : 'Task board'
       return h('div', null,
         h('p', { className: 'ps-kicker' }, filter === null ? kicker : `${kicker} · filtered by ${filter}`),
@@ -1275,19 +1315,37 @@ window.__ModuleLoader__.load({
                 onClick: () => onSort(tag.id),
               }, tag.label)))
             : null,
+          // ONE BUTTON, BOTH VIEWS. The count is the chore tasks in the current requirement
+          // filter, so the control says what it would hide before it is pressed.
+          h('div', { className: 'ps-group', role: 'group', 'aria-label': 'Task visibility' },
+            h('button', {
+              type: 'button',
+              className: hideChores === true ? 'on' : '',
+              'aria-pressed': hideChores === true,
+              disabled: choreCount === 0,
+              title: choreCount === 0
+                ? 'No chore task in this view'
+                : `${choreCount} chore task${choreCount === 1 ? '' : 's'} in this view; ${hideChores === true ? 'hidden' : 'shown'}. Hiding is a view setting: no file is written.`,
+              onClick: () => onHideChores(hideChores !== true),
+            }, `Hide chores (${choreCount})`),
+          ),
           h('span', { className: 'ps-meta' }, `${rows.length} task${rows.length === 1 ? '' : 's'}`),
         ),
         view === 'list'
-          ? h('div', { className: 'ps-tablewrap' }, h(TaskListTable, { rows, onOpenTask, onChangeStatus, statusBusy }))
-          : h('div', { className: 'ps-board', role: 'list' }, TASK_COLUMNS.map((column) => {
-              const items = scoped.filter((task) => column.statuses.includes(task.status))
+          ? (allHidden
+              ? h('p', { className: 'ps-empty' }, `Every task in this view is a chore (${choreCount}) and chore tasks are hidden. `, h('button', { type: 'button', className: 'ps-gap', onClick: () => onHideChores(false) }, 'Show chores'), ' to see them.')
+              : h('div', { className: 'ps-tablewrap' }, h(TaskListTable, { rows, onOpenTask, onChangeStatus, statusBusy })))
+          : (allHidden
+              ? h('p', { className: 'ps-empty' }, `Every task in this view is a chore (${choreCount}) and chore tasks are hidden. `, h('button', { type: 'button', className: 'ps-gap', onClick: () => onHideChores(false) }, 'Show chores'), ' to see them.')
+              : h('div', { className: 'ps-board', role: 'list' }, TASK_COLUMNS.map((column) => {
+              const items = visible.filter((task) => column.statuses.includes(task.status))
               return h('div', { className: 'ps-col', key: column.id, role: 'group', 'aria-label': `${column.label} tasks`, 'data-status': column.statuses[0] },
                 h('h3', null, column.label, h('span', { className: 'n' }, String(items.length))),
                 items.length === 0
                   ? h('div', { className: 'ps-empty', style: { padding: '6px 2px', fontSize: 11 } }, '—')
                   : items.map((task) => h('div', { key: task.id, role: 'listitem' }, h(TaskCard, { task, data, onOpen: onOpenTask, sessionsById, onChangeStatus, busy: statusBusy === task.id }))),
               )
-            })),
+            }))),
       )
     }
 
@@ -1648,57 +1706,6 @@ window.__ModuleLoader__.load({
       )
     }
 
-    /**
-     * THE OWNER'S STATUS FORM in the task drawer: the target status, an optional reason, and one
-     * explicit Apply. The board id comes from the TASK's `boardId`; a TASK without one gets the
-     * refusal the panel shows (`no_board_row`), not a silent no-op. The result is rendered by the
-     * page's notice line, so a refusal keeps its code in one place.
-     */
-    function TaskStatusEditor({ taskId, fm, onChange, busy }) {
-      const current = typeof fm.status === 'string' ? fm.status : ''
-      const [target, setTarget] = useState(current)
-      const [reason, setReason] = useState('')
-      useEffect(() => { setTarget(current) }, [current, taskId])
-      if (typeof onChange !== 'function') return null
-      const changed = target !== current
-      return h('div', { className: 'ps-sec ps-statusform' },
-        h('h3', null, 'Change the status'),
-        h('div', { className: 'ps-field' },
-          h('label', { htmlFor: `ps-status-${taskId}` }, 'New status'),
-          h('select', {
-            id: `ps-status-${taskId}`,
-            className: 'ps-select',
-            value: target,
-            disabled: busy === true,
-            onChange: (event) => setTarget(event.target.value),
-          }, TASK_STATUS_CHOICES.map((status) => h('option', { key: status, value: status }, status))),
-        ),
-        h('div', { className: 'ps-field' },
-          h('label', { htmlFor: `ps-status-reason-${taskId}` }, 'Why (recorded in the journal)'),
-          h('input', {
-            id: `ps-status-reason-${taskId}`,
-            className: 'ps-input',
-            type: 'text',
-            value: reason,
-            maxLength: 200,
-            placeholder: 'optional',
-            disabled: busy === true,
-            onChange: (event) => setReason(event.target.value),
-          }),
-        ),
-        h('div', { className: 'ps-statusactions' },
-          h('button', {
-            type: 'button',
-            className: 'ps-btn small',
-            disabled: busy === true || !changed,
-            title: changed ? `Write ${current} -> ${target} through the board` : 'Choose a different status first',
-            onClick: () => { onChange(taskId, target, reason); setReason('') },
-          }, busy === true ? 'Saving…' : 'Change status'),
-          h('span', { className: 'ps-meta' }, 'You are the owner: this overrides the lifecycle rules and the board records it in the state journal.'),
-        ),
-      )
-    }
-
     function Drawer({ drawer, data, analysisLinks, filter, onClose, onOpenEntity, onOpenRequirement, onOpenMode, onClearFilter, tab, setTab, sessionsById = {}, onOpenSession, onChangeStatus, statusBusy }) {
       const closeRef = useRef(null)
       const isNode = drawer.kind === 'node'
@@ -1751,7 +1758,11 @@ window.__ModuleLoader__.load({
           isNode
             ? h('span', { className: 'ps-chip static', style: { '--ps-type': TYPE_COLOR.node } }, h('span', { className: 'mark' }), h('code', null, String(node?.id ?? drawer.id)))
             : h(TypeChip, { kind: drawer.kind, id: drawer.id, static: true }),
-          status === null ? null : h(Status, { status }),
+          status === null
+            ? null
+            : (drawer.kind === 'task' && typeof onChangeStatus === 'function'
+                ? h(TaskStatusBadge, { taskId: drawer.id, status: fm.status ?? '', onChange: onChangeStatus, busy: statusBusy === drawer.id })
+                : h(Status, { status })),
           revision === null ? null : h('span', { className: 'ps-meta' }, `revision ${revision}`),
         ),
         h('div', { className: 'ps-group', role: 'tablist', 'aria-label': 'Entity detail sections', style: { marginBottom: 10 } },
@@ -1796,9 +1807,6 @@ window.__ModuleLoader__.load({
                               : h('span', { className: 'muted' }, 'none linked as evidence')
                           })(),
                         )
-                      : null,
-                    drawer.kind === 'task'
-                      ? h(TaskStatusEditor, { taskId: drawer.id, fm, onChange: onChangeStatus, busy: statusBusy === drawer.id })
                       : null,
                     drawer.kind === 'task'
                       ? h(TaskSpecifics, { fm, sessionsById, onOpenSession })
@@ -1954,6 +1962,9 @@ window.__ModuleLoader__.load({
       // D4: the view and sort choice lives in the panel memory, not in localStorage.
       const [taskView, setTaskView] = useState('list')
       const [taskSort, setTaskSort] = useState('relevance')
+      // VIEW ONLY, like the view and the sort: the owner asked to be able to hide chore tasks;
+      // the default keeps the board exactly as before.
+      const [hideChores, setHideChores] = useState(false)
       const returnFocus = useRef(null)
       // Elapsed labels are computed at render; a minute tick keeps them honest without a poll.
       const [, setClockTick] = useState(0)
@@ -2280,7 +2291,7 @@ window.__ModuleLoader__.load({
             mode === 'req'
               ? h(RequirementsMode, { data, filter, onSelect: setFilter, onOpenMode: openMode, onOpenEntityDrawer: openEntity })
               : mode === 'board'
-                ? h(BoardMode, { data, filter, onOpenTask: openEntity, onClearFilter: clearFilter, view: taskView, sort: taskSort, onView: setTaskView, onSort: setTaskSort, sessionsById, onChangeStatus: changeStatus, statusBusy })
+                ? h(BoardMode, { data, filter, onOpenTask: openEntity, onClearFilter: clearFilter, view: taskView, sort: taskSort, onView: setTaskView, onSort: setTaskSort, sessionsById, onChangeStatus: changeStatus, statusBusy, hideChores, onHideChores: setHideChores })
                 : mode === 'map'
                   ? h(MapMode, {
                       data,
@@ -2410,6 +2421,7 @@ window.__ModuleLoader__.load({
         statusRank, sortTasks, taskCounts, activeSubagents, taskRow, chatRootOf, taskSessions, parseEntityText,
         loadWorkspace, loadEntity, relativeLabel,
         requirementIdsOf, TASK_STATUS_CHOICES, taskStatusRequest, parseTaskboardReply, changeTaskStatus, runTaskboard,
+        isChoreTask,
       },
       apply(ctx) {
         ctx.slots.inject('main', () => ctx.slots.register({

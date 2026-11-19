@@ -36,6 +36,20 @@ body and details (criteria, scope, acceptance, result); the Design map fetches
 `title` falls back to reading the entity files of exactly those rows, so an old workspace shows
 its titles again instead of ids.
 
+## Hiding chore tasks
+
+The board subbar carries one toggle, `Hide chores (N)`, in both views (board grid and list). `N` is
+the number of chore tasks in the current requirement filter, so the control says what it would hide
+before it is pressed. Pressing it removes chore tasks from the list and from the board columns, and
+the subbar count follows the visible rows; pressing it again brings them back. The top header keeps
+the projection counts (REQ/TASK/TEST) and does not change.
+
+It is a VIEW setting only: `state/views/index.json`, `state/task/` and `.dsh/taskboard.json` are not
+written, and it is off by default, so the board looks exactly as before until the owner presses it.
+If a requirement filter leaves only chore tasks, the panel says so and offers `Show chores` instead
+of drawing an empty board. A chore is the task's `chore: true` in the index row or, for an older
+TASK, in its frontmatter — one predicate (`isChoreTask`) answers for both.
+
 ## The contract it reads
 
 `state/views/index.json` is the machine contract: `schemaVersion`, `lastSeq`, `counts`,
@@ -52,16 +66,23 @@ so, and the missing link is reported as a gap rather than a zero.
 
 ## The owner's status control
 
-A board card and the task drawer carry a status control. Choosing a status sends
-`/taskboard {op: "owner-status", id: <boardId>, expectedRevision, status, reason?}` — one
-compare-and-set against the row the panel just read — and the board does the rest: it stops the
-linked children for `done`/`cancelled`, mirrors the TASK, regenerates the projections and writes a
-`waiver` event with code `owner_status_override` into `state/events.jsonl`. Then the panel re-reads
-`index.json` and paints the new status. The change overrides the lifecycle rules on purpose: it is
-the owner's door, and it is not exposed to the agent. A refusal is quoted with its code
-(`stale`, `needs_revision`, `not_found`, `no_board_row`, `command_unavailable`) in the panel's
+**The status badge itself is the control.** There is no second plaque repeating the state: the
+tone-coloured badge in the task list, on the board card and in the task drawer is a native
+`<select>` wearing the chip (a CSS caret, not a second element), so clicking the status opens the
+list and choosing one writes it. Native select keeps keyboard, screen-reader and touch behaviour
+without a custom menu; the click stops at the badge so the row does not open the drawer. In the
+drawer a small optional `why?` field travels with the next pick.
+
+Choosing a status sends `/taskboard {op: "owner-status", id: <boardId>, expectedRevision, status,
+reason?}` — one compare-and-set against the row the panel just read — and the board does the rest:
+it stops the linked children for `done`/`cancelled`, mirrors the TASK, regenerates the projections
+and writes a `waiver` event with code `owner_status_override` into `state/events.jsonl`. Then the
+panel re-reads `index.json` and paints the new status. The change overrides the lifecycle rules on
+purpose: it is the owner's door, and it is not exposed to the agent. A refusal is quoted with its
+code (`stale`, `needs_revision`, `not_found`, `no_board_row`, `command_unavailable`) in the panel's
 notice line, and a `stale` refusal triggers one re-read so the next attempt carries the new
-revision. A TASK with no `boardId` cannot be changed here (`no_board_row`).
+revision. A TASK with no `boardId` cannot be changed here (`no_board_row`); without a command
+transport the badge renders as the read-only chip.
 
 A task linked through a batch (`reqIds`, no `reqId`) shows **every** requirement in the card, the
 drawer, the filter and the header count; `reqId` and `reqIds` are folded by one helper

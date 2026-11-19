@@ -1,0 +1,209 @@
+{
+  "schemaVersion": 1,
+  "id": "state-panel-hide-chores",
+  "rev": 4,
+  "status": "ready",
+  "createdAt": "2026-11-19T11:27:15.004Z",
+  "updatedAt": "2026-11-19T11:31:24.984Z",
+  "updatedBy": "agent",
+  "title": "Скрыть chore-задачи из вида доски задач",
+  "requestedSolution": "Владелец 2026-11-19: «Добавь возможность скрыть chore задачи из списка\\просмотра».",
+  "businessOutcome": {
+    "problem": "Доска задач показывает chore-задачи вперемешку с работой по требованиям. На рабочей области в 248 задач chore-строки шумят в списке и на доске, и владелец не может смотреть только на работу, связанную с требованиями.",
+    "outcome": "Владелец прячет chore-задачи одним переключателем в подшапке доски (в обоих видах: доска и список). Счётчик задач в подшапке показывает, сколько осталось после скрытия; без нажатия вид не меняется. По умолчанию chore видны, как сейчас.",
+    "successMetrics": [
+      "При включённом переключателе в списке и на доске не остаётся ни одной задачи с chore: true, остальные остаются на месте",
+      "Счётчик задач в подшапке равен числу видимых строк (до и после переключения)",
+      "Выключение переключателя возвращает все chore-задачи на прежнее место без перезагрузки страницы",
+      "Тест панели зелёный на новой версии и красный на предыдущей"
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "ST-CUR",
+        "name": "Chore вперемешку с работой",
+        "actors": [
+          "владелец"
+        ],
+        "steps": [
+          "Открывает Project state → Board",
+          "Просматривает 248 задач в списке",
+          "Пропускает chore-строки глазами",
+          "Теряет место, где остановился"
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "ST-TGT",
+        "name": "Chore скрыты по кнопке",
+        "actors": [
+          "владелец"
+        ],
+        "steps": [
+          "Открывает Project state → Board",
+          "Нажимает Hide chores",
+          "Видит только задачи, связанные с требованиями; счётчик показывает число видимых",
+          "Нажимает ещé раз — chore возвращаются"
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "FR1",
+      "kind": "FR",
+      "text": "Владелец скрывает chore-задачи из вида доски и списка одним переключателем.",
+      "acceptance": [
+        "Переключатель стоит в подшапке доски и виден в обоих видах (Board и List), с aria-pressed и числом chore в текущем фильтре",
+        "Во включённом состоянии из списка и из колонок доски уходят только задачи с chore: true (по строке index.json или frontmatter), остальные остаются",
+        "Счётчик задач в подшапке равен числу видимых строк; шапка страницы (REQ/TASK/TEST) не меняется",
+        "Если в выбранном фильтре требований все задачи — chore, панель говорит это текстом вместо пустой доски",
+        "По умолчанию chore видны; выключение возвращает их без перезагрузки; state/, index.json и доска не пишутся",
+        "Тест: на панели 0.1.40 красный (нет isChoreTask и переключателя), на 0.1.41 зелёный"
+      ],
+      "status": "proven"
+    }
+  ],
+  "architecture": {
+    "contractImpact": "none",
+    "components": [
+      {
+        "id": "state-panel-client",
+        "name": "@cc/dsh-project-state-panel (клиент)",
+        "responsibility": "панель Project state: доска и список задач, настройки вида (режим, сортировка, видимость chore)",
+        "owner": "kit",
+        "owns": [
+          "view-preferences"
+        ],
+        "dependsOn": []
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "view-preferences",
+      "name": "настройки вида панели",
+      "owner": "kit",
+      "ownerComponentId": "state-panel-client",
+      "description": "настройки вида самой панели (режим, сортировка, видимость chore); живут в памяти панели, не в localStorage и не в state/"
+    }
+  ],
+  "contracts": [],
+  "invariants": [
+    {
+      "id": "INV-VIEW-ONLY",
+      "text": "Скрытие chore-задач — только настройка вида: state/views, state/task/ и .dsh/taskboard.json не меняются",
+      "scope": "панель Project state"
+    },
+    {
+      "id": "INV-DEFAULT",
+      "text": "Без нажатия переключателя панель показывает то же, что раньше",
+      "scope": "панель Project state"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "D1",
+      "decision": "Один переключатель в подшапке доски с aria-pressed, плюс счётчик упрятанных задач; виден в обоих видах (Board и List)",
+      "rationale": "Владелец просил возможность скрыть, а не другой вид по умолчанию; нативный переключатель с aria-pressed не требует своей логики фокуса",
+      "alternatives": [
+        "поле поиска",
+        "скрывать chore всегда по умолчанию"
+      ]
+    },
+    {
+      "id": "D2",
+      "decision": "chore видны по умолчанию; скрытие живёт только в памяти панели",
+      "rationale": "Новое поведение не должно менять текущий вид без действия владельца; панель сознательно не имеет своего хранилища (D4 из предыдущей работы: выбор вида живёт в памяти панели)",
+      "alternatives": [
+        "скрывать chore всегда",
+        "настройка в storage"
+      ]
+    },
+    {
+      "id": "D3",
+      "decision": "Счётчик задач в подшапке считает видимые строки, шапка вверху страницы остаётся счётчиком проекций",
+      "rationale": "Два разных вопроса: «сколько задач в реестре» и «сколько я сейчас вижу» — смешивать их значило бы врать об обоих",
+      "alternatives": [
+        "считать по index.json целиком"
+      ]
+    }
+  ],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L1",
+    "reasons": [
+      "одно поведение внутри клиента панели, без изменения контрактов и данных state/"
+    ]
+  },
+  "designRef": {
+    "mapRev": 31,
+    "at": "2026-11-19T11:20:00.000Z",
+    "source": "designmap/manifest.json"
+  },
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "FR1",
+      "processId": "ST-TGT",
+      "componentId": "state-panel-client",
+      "contractIds": [],
+      "dataIds": [
+        "view-preferences"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwngu1cv-x700vf",
+          "role": "orchestrator",
+          "at": "2026-11-19T11:40:00.000Z",
+          "evidence": [
+            "PANEL_ROOT=<клиент 0.1.40> node --test plugins/project-state-panel/test/counts-and-sort.test.mjs падает, называя отсутствие isChoreTask, переключателя и фильтра; на 0.1.41 pass (TEST-076)",
+            "второй сервер :3081 (профиль web-proof, панель 0.1.41): 249 строк и 3 chore по умолчанию, 246 строк и 0 chore после нажатия (счётчик 246 tasks), 246 карточек в сетке, все chore вернулись после повторного нажатия",
+            "state/ и .dsh/taskboard.json байт-в-байт совпадают до и после переключений: скрытие ничего не пишет",
+            "reports/state-panel-hide-chores/PROOF.md и screens/31..34.png"
+          ]
+        }
+      ]
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "784a48fae6c62b65dec1106dba1445bde08c0a66f3a1b1c4b3fe4ec20e9427fd",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-19T11:27:15.004Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-19T11:27:20.059Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-19T11:31:20.930Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR1 changed; impacts: 1"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-19T11:31:24.984Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    }
+  ]
+}

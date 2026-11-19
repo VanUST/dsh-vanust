@@ -191,6 +191,16 @@ async function violations() {
   if (!/uiWorkspace\?\.openSession/.test(source)) found.push('the panel never calls uiWorkspace.openSession')
   if (!/onOpenSession/.test(source)) found.push('the task card does not pass onOpenSession')
   if (!/'Open'/.test(source)) found.push('the session row has no Open button')
+  // HIDE CHORES: one pure predicate, both spellings of the flag.
+  if (typeof api.isChoreTask !== 'function') {
+    found.push('the panel exports no isChoreTask (the hide-chores filter is missing)')
+  } else {
+    check('isChoreTask reads the index row flag', api.isChoreTask({ chore: true }, {}), true)
+    check('isChoreTask reads the frontmatter flag of an old row', api.isChoreTask({}, { chore: true }), true)
+    check('isChoreTask is false for a requirement-linked task', api.isChoreTask({ chore: false }, {}), false)
+    check('isChoreTask tolerates an empty row', api.isChoreTask(undefined, undefined), false)
+  }
+
   // A PRE-FIX CLIENT FAILS BY NAME: the helpers and the write are absent, not broken.
   if (typeof api.requirementIdsOf !== 'function' || typeof api.taskStatusRequest !== 'function' || typeof api.parseTaskboardReply !== 'function' || typeof api.changeTaskStatus !== 'function') {
     found.push('the panel exports no requirement/status helpers (requirementIdsOf, taskStatusRequest, parseTaskboardReply, changeTaskStatus)')
@@ -255,9 +265,16 @@ async function violations() {
   if (!/\/taskboard /.test(source)) found.push('the taskboard owner-status command is missing')
   if (!/'owner-status'/.test(source)) found.push('the owner-status op is never sent')
   if (!/onChangeStatus/.test(source)) found.push('the board card has no status control')
-  if (!/TaskStatusEditor/.test(source)) found.push('the task drawer has no status editor')
+  // THE BADGE IS THE CONTROL, not a second plaque repeating the state.
+  if (!/function StatusSelect\(/.test(source)) found.push('the status badge is not a control')
+  if (!/ps-status ps-statusselect/.test(source)) found.push('the status control does not wear the status chip')
+  if (/TaskStatusEditor/.test(source) || /ps-statusform/.test(source)) found.push('a second status control duplicates the badge')
+  if (!/function TaskStatusBadge\(/.test(source)) found.push('the drawer badge carries no optional reason field')
   if (!/function TaskListTable\(\{ rows, onOpenTask, onChangeStatus/.test(source)) found.push('the task list has no owner status control (the list is the default view)')
   if (!/status by owner/.test(source)) found.push('the header badge still claims a bare read-only panel')
+  if (!/Hide chores \(\$\{choreCount\}\)/.test(source)) found.push('the board subbar has no hide-chores toggle')
+  if (!/'aria-pressed': hideChores === true/.test(source)) found.push('the hide-chores toggle does not reflect its state through aria-pressed')
+  if (!/const visible = hideChores === true/.test(source)) found.push('the board/list does not filter chore tasks from the view')
   if (!/requirementIds\.length > 0/.test(source)) found.push('the drawer still shows a single requirement')
   if (!/const requirementIds = isNode \? \[\] : requirementIdsOf\(/.test(source)) found.push('the drawer does not read reqId and reqIds through requirementIdsOf')
   if (!/const reqIds = requirementIdsOf\(/.test(source)) found.push('the board card does not read reqId and reqIds through requirementIdsOf')

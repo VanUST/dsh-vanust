@@ -150,6 +150,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | REQ-144 | rejected | — | — | — | no |
 | REQ-145 | rejected | — | — | — | no |
 | REQ-146 | done | — | TEST-074 | — | no |
+| REQ-147 | done | — | TEST-076 | — | no |
 
 ## Tests
 
@@ -230,3 +231,4 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | TEST-073 | REQ-137 | verified | TASK-246 |
 | TEST-074 | REQ-146 | verified | TASK-246 |
 | TEST-075 | REQ-138 | verified | TASK-246 |
+| TEST-076 | REQ-147 | verified | TASK-249 |

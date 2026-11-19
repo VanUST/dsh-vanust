@@ -19,7 +19,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-242 | Allow-список ролей не действует на инструменты кита | REQ-130 | 4/4 | no |
 | TASK-244 | Red/green proof for the context-bounds changes | REQ-128, REQ-129, REQ-130, REQ-131, REQ-134 | 4/4 | no |
 
-## done (158)
+## done (160)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -181,6 +181,8 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-245 | Убрать класс ошибок «unidentified message»: починить старые логи и закрыть источник | — | 6/6 | yes |
 | TASK-246 | Ручной статус задачи в панели Project state и доска без предела строк | REQ-136, REQ-137, REQ-138, REQ-146 | 6/6 | no |
 | TASK-247 | Роль ARCHITECT: пресет, маршрут astra с фолбэком, границы секций промпта | REQ-139, REQ-140, REQ-141, REQ-142, REQ-143, REQ-144, REQ-145 | 9/9 | no |
+| TASK-248 | Статус меняется кликом по значку, без второй плашки | REQ-136 | 4/4 | no |
+| TASK-249 | Скрыть chore-задачи из вида доски задач | REQ-147 | 4/4 | no |
 
 ## cancelled (82)
 
