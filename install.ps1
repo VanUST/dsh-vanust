@@ -21,6 +21,24 @@ $DSH_VERSION = '0.2.2-rc.3'
 $PNPM_VERSION = '11.7.0'
 $DSH_HOME = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $env:USERPROFILE '.npm\dsh' }
 
+# 0. One guard for every MANDATORY external command.
+#
+#    Windows PowerShell does NOT turn a non-zero exit code of a native program into an error,
+#    even under $ErrorActionPreference = 'Stop': only cmdlets and thrown exceptions are
+#    terminating, so `npm install` / `corepack add` could fail and the script carried on to
+#    print '== done ==' with exit code 0. The result was a profile without the harness or
+#    without its plugins that was announced as installed. Every mandatory external command is
+#    followed by Assert-Step, which names the step and stops the install with a non-zero code.
+#    OPTIONAL steps do not use it: missing external tools are reported and never fail the
+#    install.
+function Assert-Step([string]$Step) {
+  if ($LASTEXITCODE -ne 0) {
+    $code = $LASTEXITCODE
+    [Console]::Error.WriteLine("ERROR: step '$Step' failed with exit code $code -- the install stopped here and nothing after this step ran.")
+    exit 1
+  }
+}
+
 Write-Host "== dsh-kit installer (harness $DSH_VERSION) =="
 
 # 1. Node check.
@@ -68,10 +86,12 @@ if ($underProfile) {
 } else {
   $npmPrefix = if ($env:NPM_PREFIX) { $env:NPM_PREFIX } else { Join-Path $env:USERPROFILE '.npm' }
   npm config set prefix $npmPrefix | Out-Null
+  Assert-Step 'npm config set prefix'
 }
 Write-Host "   npm prefix: $npmPrefix (user-local, no admin needed)"
 Write-Host "   installing @deepseek-ai/dsh@$DSH_VERSION (global)..."
 npm install -g --no-audit --no-fund "@deepseek-ai/dsh@$DSH_VERSION"
+Assert-Step 'npm install -g (pinned harness)'
 $env:PATH = "$npmPrefix;$env:PATH"
 
 # 3. Web profile from the canonical kit files.
@@ -86,6 +106,7 @@ Write-Host '   installing the kit plugins (see plugins\inventory.json)...'
 Push-Location $profileDir
 try {
   corepack pnpm@$PNPM_VERSION add (Get-ChildItem (Join-Path $KIT_DIR 'plugins\*.tgz') | ForEach-Object { $_.FullName })
+  Assert-Step 'corepack pnpm add (kit plugins)'
 } finally {
   Pop-Location
 }

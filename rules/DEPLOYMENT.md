@@ -806,6 +806,13 @@ cd ~/dsh-kit
 @deepseek-ai/dsh@0.2.2-rc.3` → profile files under `$DSH_HOME/profiles/web` → every
 `plugins/*.tgz` installed into that profile → `$DSH_HOME/DEPLOYMENT.md`.
 
+Every MANDATORY step in that list is followed by an exit-code check, because Windows
+PowerShell does not treat a native program's non-zero exit code as an error: a failed
+harness install or plugin install names the step and stops the install with a non-zero
+code, so `== done ==` means the profile was built. Missing OPTIONAL external tools (RTK,
+Marp, Mermaid, D2) never fail it; they are reported, and the features that need them
+degrade and say so.
+
 Two steps in that list are the HUMAN's, not yours: entering API credentials (the
 onboarding screen on first boot) and anything that touches another machine.
 

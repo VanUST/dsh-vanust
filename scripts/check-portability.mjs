@@ -57,6 +57,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { gunzipSync } from 'node:zlib'
+import { inspectInstallerSteps } from './lib/installer-steps.mjs'
 
 const KIT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -574,6 +575,34 @@ for (const spec of CHECKS) {
         : `${scripts.length} installer script(s) are ASCII-only, so no codepage can change what PowerShell 5.1 reads`
       : `${offenders.slice(0, 6).join(' | ')} — a non-ASCII character in a BOM-less .ps1 is decoded with the system ANSI codepage; keep the file ASCII`,
   )
+}
+
+// ── every MANDATORY step of install.ps1 is followed by an exit-code guard ──
+{
+  // `$ErrorActionPreference = 'Stop'` does not make a native program's non-zero exit code an
+  // error (about_Preference_Variables, 5.1: the preference "determines how PowerShell responds
+  // to a non-terminating error", and native commands only write to streams), so `npm install`
+  // or `corepack add` could fail while the installer walked on to `== done ==` with exit 0.
+  // The rule is executed by the same module the red proof uses, on the pre-fix text from git.
+  let installer = null
+  let installerError = null
+  try {
+    installer = readFileSync(join(KIT, 'install.ps1'), 'utf8')
+  } catch (error) {
+    installerError = String(error)
+  }
+  if (installer === null) {
+    check('install-ps1:mandatory-step-exit', false, `install.ps1 must exist and be readable: ${installerError}`)
+  } else {
+    const inspected = inspectInstallerSteps(installer)
+    check(
+      'install-ps1:mandatory-step-exit',
+      inspected.ok,
+      inspected.ok
+        ? `${inspected.mandatory.length} mandatory step(s) guarded: ${inspected.mandatory.map((entry) => `${entry.step} (line ${entry.line} -> ${entry.guardLine})`).join(', ')}`
+        : inspected.findings.map((finding) => finding.message).join(' | '),
+    )
+  }
 }
 
 // ── the platform file-URL API round-trips on BOTH platforms, and that is EXECUTED ──

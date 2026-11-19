@@ -19,7 +19,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-242 | Allow-список ролей не действует на инструменты кита | REQ-130 | 4/4 | no |
 | TASK-244 | Red/green proof for the context-bounds changes | REQ-128, REQ-129, REQ-130, REQ-131, REQ-134 | 4/4 | no |
 
-## done (160)
+## done (161)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -183,6 +183,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-247 | Роль ARCHITECT: пресет, маршрут astra с фолбэком, границы секций промпта | REQ-139, REQ-140, REQ-141, REQ-142, REQ-143, REQ-144, REQ-145 | 9/9 | no |
 | TASK-248 | Статус меняется кликом по значку, без второй плашки | REQ-136 | 4/4 | no |
 | TASK-249 | Скрыть chore-задачи из вида доски задач | REQ-147 | 4/4 | no |
+| TASK-250 | Основание задачи в delegate_task и остановка install.ps1 на сбойном шаге | REQ-148, REQ-149, REQ-150 | 7/7 | no |
 
 ## cancelled (82)
 

@@ -1,0 +1,350 @@
+{
+  "schemaVersion": 1,
+  "id": "delegation-basis-and-install-steps",
+  "rev": 3,
+  "status": "completed",
+  "createdAt": "2026-11-19T14:31:59.593Z",
+  "updatedAt": "2026-11-19T14:44:49.711Z",
+  "updatedBy": "agent",
+  "title": "Основание задачи при делегировании и остановка установщика Windows на сбойном шаге",
+  "requestedSolution": "Владелец 2026-11-19 после частичного ревью назвал два приоритета. Первый: delegate_task должен передавать таскборду основание создаваемой задачи — reqIds для работы по требованиям или chore:true с choreReason для самостоятельного ревью без изменений — и при отказе возвращать объяснение таскборда, оставляя совет «освободить место» только для board_full. Второй: install.ps1 должен проверять код возврата после каждой обязательной внешней команды, называть сбойный шаг и завершаться с ненулевым кодом, а не печатать «== done ==».",
+  "businessOutcome": {
+    "problem": "Корневой агент не может запустить субагента на ревью без изменений: таскборд требует связь с требованием или chore с причиной, а delegate_task не передаёт ни того, ни другого. Отказ выглядит как переполненная доска, оркестратор читает код сам, и вместе с кратким отчётом субагента теряется весь выигрыш делегирования. На Windows установщик после сбоя обязательного шага печатает успех, поэтому профиль остаётся без харнесса или без плагинов при внешне удачной установке.",
+    "outcome": "delegate_task передаёт основание задачи, отказ называет настоящую причину и следующий шаг, а установщик Windows останавливается на сбойном шаге с ненулевым кодом и не печатает успех.",
+    "successMetrics": []
+  },
+  "process": {
+    "current": [
+      {
+        "id": "DB-CUR",
+        "name": "Делегирование без основания",
+        "actors": [
+          "оркестратор",
+          "таскборд"
+        ],
+        "steps": [
+          "Корень зовёт delegate_task для ревью без изменений",
+          "delegate_task создаёт строку задачи без reqIds и без chore",
+          "Таскборд отказывает req_required",
+          "delegate_task отвечает советом освободить место",
+          "Корень читает код сам, субагент не стартует"
+        ]
+      },
+      {
+        "id": "WINS-CUR",
+        "name": "Установка Windows после сбоя",
+        "actors": [
+          "владелец",
+          "install.ps1"
+        ],
+        "steps": [
+          "install.ps1 запускает обязательный npm install или corepack pnpm add",
+          "Команда завершается с ненулевым кодом",
+          "Скрипт продолжает и печатает == done ==",
+          "Владелец получает профиль без харнесса или плагинов"
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "DB-TGT",
+        "name": "Делегирование с основанием",
+        "actors": [
+          "оркестратор",
+          "таскборд"
+        ],
+        "steps": [
+          "Корень передаёт reqIds для работы по требованию или chore+choreReason для ревью без изменений",
+          "Таскборд создаёт строку с этим основанием",
+          "Субагент стартует один раз",
+          "Вызов без основания получает объяснение таскборда и не создаёт строку"
+        ]
+      },
+      {
+        "id": "WINS-TGT",
+        "name": "Установка Windows останавливается на сбое",
+        "actors": [
+          "владелец",
+          "install.ps1"
+        ],
+        "steps": [
+          "Обязательная внешняя команда завершается с ненулевым кодом",
+          "Скрипт называет шаг и код и завершается с ненулевым кодом",
+          "Сообщение об успехе не печатается"
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "FR1",
+      "kind": "FR",
+      "text": "delegate_task передаёт таскборду основание создаваемой задачи: reqIds (или reqId), либо chore:true с непустым choreReason; вызов без основания получает отказ req_required без строки задачи и без запуска ребёнка.",
+      "acceptance": [
+        "delegate_task с reqIds создаёт строку задачи с reqIds и запускает ровно одного ребёнка",
+        "delegate_task с chore:true и непустым choreReason создаёт строку chore и запускает ровно одного ребёнка (сценарий ревью без изменений)",
+        "вызов без reqIds/reqId и без chore+choreReason возвращает ok:false code req_required, число строк доски не меняется, startActivation не вызывается",
+        "сообщение отказа содержит объяснение таскборда; совет освободить строку появляется только при board_full",
+        "политика делегирования в промпте корня называет основание задачи и запрещает выдумывать требование ради ревью"
+      ],
+      "status": "deferred",
+      "reason": "Поведение измерено, но не зарегистрировано как проверка: red→green дал proof (13/13 на рабочем дереве против 4/13 на orchestrator.mjs из git HEAD) и тест с негативным контролем (8/8 при exit 0, control expect-pre-fix при exit 1). TEST-строку с парой :red:fail/:green:pass пишет только case_run, которого у этой корневой сессии нет — регистрация проверки остаётся за специалистом в его сессии."
+    },
+    {
+      "id": "FR2",
+      "kind": "FR",
+      "text": "install.ps1 проверяет код возврата каждой обязательной внешней команды, называет шаг и завершается с ненулевым кодом; сообщение об успехе недостижимо после сбоя.",
+      "acceptance": [
+        "после npm config set prefix, npm install -g и corepack pnpm add стоит проверка $LASTEXITCODE",
+        "сбой обязательного шага печатает имя шага и его код и завершает скрипт ненулевым кодом",
+        "проверка scripts/check-portability.mjs падает на install.ps1 до правки (red) и проходит после (green)",
+        "необязательный шаг провижининга внешних инструментов остаётся best-effort и не завершает установку"
+      ],
+      "status": "deferred",
+      "reason": "Поведение измерено, но не зарегистрировано как проверка: installer-steps-proof отклоняет install.ps1 из git HEAD (exit 1, три шага без проверки) и принимает текущий (exit 0), тест 5/5 с негативным контролем exit 1, гейт check-portability в make verify зелёный. PowerShell на машине нет (pwsh не установлен), поэтому реальный запуск .ps1 не выполнялся. TEST-строку пишет только case_run."
+    },
+    {
+      "id": "NFR1",
+      "kind": "NFR",
+      "text": "Остальное поведение кита не меняется: make verify и тесты затронутых плагинов зелёные, поведение делегирования по требованию и best-effort провижининга инструментов сохраняется.",
+      "acceptance": [
+        "make verify завершается 0 и все его проверки проходят",
+        "тесты плагина orchestrator зелёные, включая негативный контроль expect-pre-fix",
+        "делегирование с taskId и провижининг инструментов в install.ps1 работают как раньше"
+      ],
+      "status": "deferred",
+      "reason": "Инвариант измерен зелёным (make verify exit 0, тесты orchestrator 13/13, analysis-before-decomposition-proof 138/138), но без отдельной проверки в реестре: TEST-строку пишет только case_run, а красную сторону инварианта можно дать только искусственно сломанными исходниками."
+    }
+  ],
+  "architecture": {
+    "contractImpact": "additive",
+    "components": [
+      {
+        "id": "orchestrator",
+        "name": "@cc/dsh-orchestrator",
+        "responsibility": "delegate_task: объявить и передать основание задачи, вернуть объяснение таскборда при отказе; текст политики делегирования",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": [
+          "taskboard"
+        ]
+      },
+      {
+        "id": "taskboard",
+        "name": "@cc/dsh-taskboard",
+        "responsibility": "владеет правилом req_required и кодами отказа; остаётся без изменений",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": []
+      },
+      {
+        "id": "installer-windows",
+        "name": "install.ps1",
+        "responsibility": "проверка кода возврата после каждой обязательной внешней команды и остановка установки",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": []
+      },
+      {
+        "id": "kit-gate",
+        "name": "scripts/check-portability.mjs",
+        "responsibility": "гейт, который падает, если обязательная внешняя команда в install.ps1 осталась без проверки кода возврата",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": [
+          "installer-windows"
+        ]
+      }
+    ]
+  },
+  "data": [],
+  "contracts": [
+    {
+      "id": "delegate-task-params",
+      "name": "Параметры инструмента delegate_task",
+      "between": [
+        "orchestrator",
+        "taskboard"
+      ],
+      "change": "additive",
+      "description": "Добавляются reqIds, reqId, chore и choreReason; они передаются в taskboard.create. Сообщение отказа при создании задачи несёт message таскборда, а совет освободить строку — только при board_full."
+    },
+    {
+      "id": "installer-exit",
+      "name": "Поведение установщика Windows при сбое",
+      "between": [
+        "installer-windows"
+      ],
+      "change": "breaking",
+      "description": "Ненулевой код обязательной внешней команды теперь завершает установку с ненулевым кодом, а не печатает успех."
+    }
+  ],
+  "invariants": [
+    {
+      "id": "INV1",
+      "text": "Отказ доски не создаёт строку задачи и не запускает ребёнка",
+      "scope": "delegate_task"
+    },
+    {
+      "id": "INV2",
+      "text": "Необязательный провижининг внешних инструментов не завершает установку",
+      "scope": "install.ps1"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "D1",
+      "decision": "Передавать основание задачи через новые параметры delegate_task (reqIds/reqId, chore/choreReason), а не освобождать весь L0 от проверки таскборда",
+      "rationale": "Правило таскборда (задача связана с требованием или это chore с причиной) остаётся единственным источником истины; делегирование просто перестаёт его обходить",
+      "alternatives": [
+        "отключить req_required для delegate_task",
+        "привязывать ревью к постороннему требованию"
+      ]
+    },
+    {
+      "id": "D2",
+      "decision": "Совет освободить строку доски остаётся только в сообщении board_full, а прочие отказы возвращают message таскборда",
+      "rationale": "Совет лечил не ту причину: свободных строк было достаточно, отказ был из-за отсутствия основания",
+      "alternatives": [
+        "оставить общий совет для всех кодов"
+      ]
+    },
+    {
+      "id": "D3",
+      "decision": "Проверять $LASTEXITCODE явно после npm config set prefix, npm install -g и corepack pnpm add через общую функцию Assert-Step",
+      "rationale": "$ErrorActionPreference='Stop' не превращает ненулевой код внешней программы в исключение; одна функция даёт одинаковый текст и код выхода для всех обязательных шагов",
+      "alternatives": [
+        "полагаться на $ErrorActionPreference",
+        "проверять код каждой команды вручную без функции"
+      ]
+    },
+    {
+      "id": "D4",
+      "decision": "Правило проверки установщика живёт в scripts/lib/installer-steps.mjs и используется и гейтом check-portability.mjs, и proof-скриптом на файле до правки",
+      "rationale": "Так red-прогон на файле из git HEAD доказывает, что гейт умеет падать, не дублируя правило",
+      "alternatives": [
+        "две копии правила",
+        "проверка только вручную"
+      ]
+    }
+  ],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L1",
+    "reasons": [
+      "аддитивно расширяется контракт одного инструмента кита",
+      "локальная правка установщика Windows и одного гейта",
+      "новых данных и внешних сервисов нет"
+    ]
+  },
+  "designRef": {
+    "mapRev": 31,
+    "at": "2026-11-19T14:35:00.000Z",
+    "source": "designmap/manifest.json"
+  },
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "FR1",
+      "processId": "DB-TGT",
+      "componentId": "orchestrator",
+      "contractIds": [
+        "delegate-task-params"
+      ],
+      "dataIds": [],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwnnfmxh-5o3muk",
+          "role": "inline",
+          "at": "2026-11-19T14:50:00.000Z",
+          "evidence": [
+            "node scripts/delegation-basis-proof.mjs → 13/13, exit 0: reqIds даёт строку с reqIds и одного ребёнка; chore+choreReason даёт строку chore и одного ребёнка; вызов без основания — req_required, строк и детей не прибавилось; отказ несёт message доски и не содержит 'Free a row'; board_full содержит 'Free a row'; attach по taskId проходит без основания",
+            "node scripts/delegation-basis-proof.mjs --orchestrator /tmp/red-delegation/orchestrator.mjs (git HEAD:plugins/orchestrator/orchestrator.mjs) → 4/13, exit 1: reqIds и chore получают req_required, отказ советует освободить строку — воспроизведён отчёт владельца",
+            "node --test plugins/orchestrator/test/delegation-basis.test.mjs → 8/8 exit 0; CASE_NEGATIVE_CONTROL=expect-pre-fix → exit 1 (только контрольный тест)",
+            "plugins/orchestrator/orchestrator.mjs: объявлены reqIds/reqId/chore/choreReason, они передаются в taskboard.create; отказ при create использует message доски, совет 'Free a row' — только при code === 'board_full'; в политике делегирования появилась строка про основание задачи",
+            "живой ребёнок с моделью не запускался: провайдер субагентов подменён рекордером (startActivation записан), модули оркестратора и таскборда — настоящие, вызов инструмента — тот же"
+          ]
+        }
+      ],
+      "reason": "Измерено proof-скриптом и тестом (red→green), но TEST-строку с парой :red:fail/:green:pass пишет только case_run, которого у корневой сессии нет."
+    },
+    {
+      "requirementId": "FR2",
+      "processId": "WINS-TGT",
+      "componentId": "installer-windows",
+      "contractIds": [
+        "installer-exit"
+      ],
+      "dataIds": [],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwnnfmxh-5o3muk",
+          "role": "inline",
+          "at": "2026-11-19T14:50:00.000Z",
+          "evidence": [
+            "node scripts/installer-steps-proof.mjs --ps1 /tmp/head-install.ps1 (git HEAD:install.ps1) → VERDICT refused, 3 шага без проверки (строки 70, 74, 88), exit 1",
+            "node scripts/installer-steps-proof.mjs → VERDICT accepted, шаги 88→89, 93→94, 108→109, exit 0; встроенные негативные контроли: охранник без exit и охранник дальше окна отклоняются",
+            "node --test scripts/test/installer-steps.test.mjs → 5/5 exit 0; CASE_NEGATIVE_CONTROL=expect-pre-fix → exit 1",
+            "scripts/check-portability.mjs: [PASS] install-ps1:mandatory-step-exit в make verify (18/18, exit 0); правило лежит в scripts/lib/installer-steps.mjs и используется обоими прогонами",
+            "install.ps1: function Assert-Step проверяет $LASTEXITCODE и делает exit 1; вызовы после npm config set prefix, npm install -g (pinned harness) и corepack pnpm add; необязательный провижининг инструментов не тронут",
+            "pwsh на машине нет: install.ps1 не исполнялся; сбой обязательного шага проверен правилом и негативными контролями, а не запуском PowerShell"
+          ]
+        }
+      ],
+      "reason": "Измерено proof-скриптом и тестом (red→green), но реального запуска .ps1 не было (pwsh нет), а TEST-строку пишет только case_run."
+    },
+    {
+      "requirementId": "NFR1",
+      "processId": "DB-TGT",
+      "componentId": "kit-gate",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwnnfmxh-5o3muk",
+          "role": "inline",
+          "at": "2026-11-19T14:50:00.000Z",
+          "evidence": [
+            "make verify → exit 0: 18/18 portability and packaging, documentation ok, glossary ok, tarball:matches-source PASS",
+            "node --test plugins/orchestrator/test/policy-gating.test.mjs → 5/5 pass, включая негативный контроль expect-pre-fix; delegation-basis.test.mjs → 8/8",
+            "node scripts/analysis-before-decomposition-proof.mjs → 138/138, exit 0: путь delegate_task (включая attach, L0/L1/L2, роли и пресеты) не сломан",
+            "тарбол cc-dsh-orchestrator-0.1.62.tgz собран из исходника (pack-plugin, sha256 48b534be…); старый 0.1.61 удалён"
+          ]
+        }
+      ],
+      "reason": "Инвариант измерен зелёным, но отдельная проверка в реестре не создана: TEST-строку пишет только case_run."
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "381d88a9fa6593c17fdd73e6f22d50630128c2f86f333d6bac48e01bdd448f4c",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-19T14:31:59.593Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-19T14:43:39.150Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "requirements: FR1 changed, FR2 changed, NFR1 changed"
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-19T14:44:49.711Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "completed",
+      "summary": ""
+    }
+  ]
+}

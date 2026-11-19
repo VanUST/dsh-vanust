@@ -459,6 +459,7 @@ A question never needs this ceremony. A change never skips the task.
 - Reuse a role from the catalog appended below this policy. \`delegate_task\` refuses a near-duplicate new role unless the work really is a new domain; \`forceRole: true\` overrides that refusal.
 - **The eight roles are the tool sets**: ARCHITECT, UX/UI, BACKEND, RESEARCH, CONTEXT, REVIEWER, CRITIC, DOCS. The orchestrator is the ninth and is you. The role picks the child's preset, so the child literally has that role's tools - a BACKEND child cannot run \`papers_*\`. You CAN read, create and edit files yourself: a small, self-evident change is yours to make, and delegating it only to satisfy a ritual wastes a child session. A change whose acceptance is a command's output - a build, a test, a lint, a migration, a scan - is delegated, or you make the edit and hand the proof to the role that owns the binary. Choose the role by the work, not by seniority; a role outside the eight needs an explicit \`preset\` argument. ARCHITECT is the system designer on the deployment's expensive route: delegate a design question to it when the DECISION is the work, not the reading - it records the design map and returns the decision, and as a child it reads only what your brief gave it. CONTEXT reads the current system and returns a cited report (it never edits, never tests, never delegates); RESEARCH finds what exists outside the repository; do not use either one to avoid reading the file in front of you. Use REVIEWER to judge a change and CRITIC to attack a running behaviour: the critic breaks the algorithm or service on a disposable copy and reports the smallest reproducible failure, it never fixes and never touches production data - reach for it when "it works" is a claim rather than a measurement.
 - Pass \`taskId\` when one of your own tasks is the work: the brief then attaches to that task instead of creating a second row for the same thing.
+- **A created task must carry its basis.** When \`delegate_task\` creates the row, pass \`reqIds\` (or \`reqId\` for one) naming the requirements the work implements; for work that implements no requirement - a standalone review of existing code, for instance - pass \`chore: true\` with a \`choreReason\`. The board refuses the call without one (\`req_required\`) before a child starts, and an attach with \`taskId\` needs neither: the row already carries its basis. Never invent a requirement to get a delegation through.
 - A specialist session belongs to the chat that created it. A later chat gets a new one, and the brief then carries the role's earlier results forward - say so in the brief you write, and never assume the child remembers.
 - Children run on the configured child route (flash by default), and that is the right default: volume work belongs on the cheap route. You may name a \`provider\`/\`model\` on \`delegate_task\` ONLY when the environment demands it - the default route is throttled, unavailable, or the task needs a capability only the other route has - and only a route listed in Subagent model selection is accepted. Never name a highspeed variant: highspeed routes are refused outright by the model guard.
 - Every brief states: objective, scope, non-scope, inputs, acceptance, required output, proof and timebox.
@@ -719,6 +720,10 @@ export function apply(ctx, config = {}) {
       timebox: { type: 'string', description: 'Optional timebox or stopping condition.' },
       parentTaskId: { type: 'string', description: 'Optional parent task id.' },
       taskId: { type: 'string', description: 'Attach this delegation to an existing task instead of creating a second one. The task must not be done, cancelled or paused, and its role must match.' },
+      reqIds: { type: 'array', items: { type: 'string' }, description: 'The requirements this task implements (REQ-001). Required when delegate_task CREATES the task, unless chore is true with a choreReason; an attach with taskId carries its own basis.' },
+      reqId: { type: 'string', description: 'One requirement id for a single-requirement task; merged with reqIds.' },
+      chore: { type: 'boolean', description: 'true when the work is justified housekeeping rather than a requirement; needs a non-empty choreReason. A standalone review that implements no requirement is a chore with the reason stated.' },
+      choreReason: { type: 'string', description: 'Why this chore is needed; required with chore:true.' },
       legacyAttach: { type: 'boolean', description: 'Explicitly continue a task that predates the analysis contour without an Analysis Record. Only valid with taskId and with no changeClass/analysisId/requirementIds/architectureImpact. A fresh task attach without this flag is refused analysis_required.' },
       forceRole: { type: 'boolean', description: 'Allow a role name that resembles an existing one. Use only for a genuinely different specialty; naming the work with the existing role is almost always right.' },
       cwd: { type: 'string', description: 'Optional working directory; inherits the parent cwd.' },
@@ -928,6 +933,15 @@ export function apply(ctx, config = {}) {
           parentSessionId: parent.id,
           chatId,
           priority: args.priority,
+          // THE BASIS OF THE TASK. The board refuses a row that implements no requirement and
+          // is not a justified chore (`req_required`), and delegate_task used to pass neither
+          // a requirement nor a chore reason: a review of existing code could not be
+          // delegated at all, and the refusal read like a full board. The rule stays the
+          // board's; this call now carries what the root stated.
+          reqIds: Array.isArray(args.reqIds) ? args.reqIds : [],
+          reqId: typeof args.reqId === 'string' ? args.reqId : '',
+          chore: args.chore === true,
+          choreReason: typeof args.choreReason === 'string' ? args.choreReason : '',
           // The task is created before the child exists: it is open, not active. linkChild
           // moves it when the child is really running.
           status: 'open',
@@ -937,7 +951,15 @@ export function apply(ctx, config = {}) {
         // against `undefined`. The refusal is the result; nothing is spawned.
         if (task?.ok === false || typeof task?.id !== 'string') {
           const code = typeof task?.code === 'string' && task.code !== '' ? task.code : 'taskboard_refused'
-          return { ok: false, code, message: `delegate_task: the taskboard refused to create the task (${code}); no child was started. Free a row (task_remove / task_close) or delegate onto an existing task with taskId.` }
+          // THE BOARD'S OWN REASON IS THE ANSWER. This sentence used to blame the row cap for
+          // every refusal, so a `req_required` refusal sent the root hunting for a row to
+          // free while the board was not full. The board's message names the missing basis;
+          // only the cap adds the advice about freeing a row.
+          const reason = typeof task?.message === 'string' && task.message !== '' ? ` ${task.message}` : ''
+          const advice = code === 'board_full'
+            ? ' Free a row (task_close / task_cancel) or delegate onto an existing task with taskId.'
+            : ''
+          return { ok: false, code, message: `delegate_task: the taskboard refused to create the task (${code}); no child was started.${reason}${advice}` }
         }
       }
 

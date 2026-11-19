@@ -151,6 +151,9 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | REQ-145 | rejected | — | — | — | no |
 | REQ-146 | done | — | TEST-074 | — | no |
 | REQ-147 | done | — | TEST-076 | — | no |
+| REQ-148 | rejected | — | — | — | no |
+| REQ-149 | rejected | — | — | — | no |
+| REQ-150 | rejected | — | — | — | no |
 
 ## Tests
 
