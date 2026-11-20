@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "presenter-role",
-  "rev": 2,
-  "status": "draft",
+  "rev": 4,
+  "status": "completed",
   "createdAt": "2026-11-20T09:16:18.708Z",
-  "updatedAt": "2026-11-20T09:17:58.149Z",
+  "updatedAt": "2026-11-20T10:02:50.486Z",
   "updatedBy": "agent",
   "title": "Роль presentation maker: пресет и инструменты визуализации",
   "requestedSolution": "Владелец 2026-11-20: сделать пресет под роль presentation maker — красивые HTML-презентации с анимацией и визуализацией сложных концепций. Подобрать инструменты: анимация, библиотека стилей презентаций, дашборды и схемы — всё, что нужно для визуализации проектов и концепций, где возможны анимации. Проверить пресет тестовым ТЗ: визуализация механизма prefix caching, понятная человеку, далёкому от мира LLM.",
@@ -66,7 +66,7 @@
         "delegate_task принимает роль PRESENTER и резолвит preset presenter",
         "make verify печатает, что preset-presenter назван в процедуре"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR2",
@@ -79,7 +79,7 @@
         "навигация с клавиатуры, полный экран, обзор и печать по одному слайду на страницу работают",
         "нераскладной спецификации соответствует ok:false и список errors, а не исключение"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR3",
@@ -91,7 +91,7 @@
         "та же тема и те же токены, что у колоды",
         "нераскладная спецификация возвращает errors, а не исключение"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR4",
@@ -102,7 +102,7 @@
         "в заголовке нет mcp__godot__*, designmap_*, task_* записи доски и analysis_*",
         "число инструментов не выше 1.5× объявленного бюджета, байты схем и напоминаний в бюджете"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR5",
@@ -114,7 +114,7 @@
         "страница открывается в Chromium, консоль без ошибок, стрелки переключают слайды, в CSS есть правила печати",
         "артефакты-скриншоты лежат в отчёте прогона"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "FR6",
@@ -126,7 +126,7 @@
         "в тексте нет терминов без расшифровки: кэш, префикс, токен, окно объяснены бытовыми словами",
         "файл открывается без сети и печатается"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "NFR1",
@@ -137,7 +137,7 @@
         "inventory, тарбол, профиль и README согласованы по числу плагинов",
         "новый пресет назван в rules/DEPLOYMENT.md строкой preset-presenter"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "NFR2",
@@ -147,7 +147,7 @@
         "профиль ~/.npm/dsh/profiles/web не переписывается во время работы :3080",
         "второй сервер поднят на свободном порту с overlay-патчем и остановлен после проверки"
       ],
-      "status": "planned"
+      "status": "proven"
     },
     {
       "id": "NFR3",
@@ -158,7 +158,7 @@
         "единственный встроенный script — классический, без модулей",
         "семейства шрифтов заканчиваются системным запасным"
       ],
-      "status": "planned"
+      "status": "proven"
     }
   ],
   "architecture": {
@@ -455,8 +455,19 @@
       "dataIds": [
         "profile-file"
       ],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mworls9w-6l6lez",
+          "role": "orchestrator",
+          "at": "2026-11-20T09:53:00.000Z",
+          "evidence": [
+            "второй сервер 3081: Presentation maker в списке композиции между UX/UI и Backend (reports/presenter-proof/preset-menu.png)",
+            "node -e presetForRole: PRESENTER/presentation/slides/Presentation maker -> presenter",
+            "make verify -> documentation ok, preset-presenter назван в процедуре"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "FR2",
@@ -471,8 +482,18 @@
         "theme-css",
         "chart-svg"
       ],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mworlrme-9d24kq",
+          "role": "orchestrator",
+          "at": "2026-11-20T09:53:00.000Z",
+          "evidence": [
+            "node scripts/presentation-proof.mjs -> PASS 63/63: 8 типов слайдов, 5 тем с разными акцентами, печать, фрагменты, 0 ошибок консоли",
+            "Chromium: 10 снимков, стрелки/обзор/заметки, печать 10 страниц, тот же документ в iframe sandbox=allow-scripts"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "FR3",
@@ -487,8 +508,18 @@
         "theme-css",
         "chart-svg"
       ],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mworlrme-9d24kq",
+          "role": "orchestrator",
+          "at": "2026-11-20T09:53:00.000Z",
+          "evidence": [
+            "presentation-proof: board 4 плитки, 4 графика (bar/line/donut/sparkline), 2 списка, is-live, без ошибок консоли",
+            "негативный контроль: board без блоков -> html null + ошибка"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "FR4",
@@ -500,8 +531,18 @@
       "dataIds": [
         "profile-file"
       ],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mworls9w-6l6lez",
+          "role": "orchestrator",
+          "at": "2026-11-20T09:53:00.000Z",
+          "evidence": [
+            "node scripts/tool-families-proof.mjs -> 105/105; presenter kept=32 (allow 22 записи + семейство playwright), godot/hindsight вырезаны",
+            "заголовок сессии presenter на втором сервере: 1 инструмент run_code (PTC, бюджет 2)"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "FR5",
@@ -514,8 +555,18 @@
       "dataIds": [
         "screenshots"
       ],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mworlwqz-1dpoqw",
+          "role": "orchestrator",
+          "at": "2026-11-20T09:53:00.000Z",
+          "evidence": [
+            "node plugins/test-cases/bin/cases.mjs run --id presentation-deck-and-board-contract --red --control before-axis-fix -> FAIL (exit 1), затем run -> PASS (exit 0): кейс verified, TEST-077",
+            "негативные контроли в самом скрипте: пустая колода, неизвестный тип, пустой donut, неизвестная тема, инъекция HTML"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "FR6",
@@ -528,8 +579,20 @@
         "deck-html",
         "screenshots"
       ],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mworlwqz-1dpoqw",
+          "role": "orchestrator",
+          "at": "2026-11-20T09:53:00.000Z",
+          "evidence": [
+            "сессия session-d6651fa0 с preset presenter (agent-preset/selected) собрала колоду: reports/prefix-caching/prefix-caching.html (10 слайдов) и сториборд 8969 B",
+            "корень снял каждый слайд в Chromium: reports/presenter-proof/tz-01..10.png, 0 ошибок консоли, печать 11 страниц с шагом 900px",
+            "текст объясняет токен/контекст/кэш/префикс на слайде первого появления; вопрос 'одна буква' закрыт слайдом 9",
+            "короткий прогон с тем же пресетом после правки персоны: 3 слайда и снимки за 13 диспетчей, путь к браузеру найден без поиска"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "NFR1",
@@ -540,8 +603,18 @@
         "D-INV",
         "D-TARBALL"
       ],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mworls9w-6l6lez",
+          "role": "orchestrator",
+          "at": "2026-11-20T09:53:00.000Z",
+          "evidence": [
+            "make verify -> exit 0: 18/18 portability, documentation ok, glossary ok, schema-lint 0 red, context-budget 0 red",
+            "plugins 27, inventory и README/USERGUIDE/DEPLOYMENT согласованы"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "NFR2",
@@ -551,8 +624,17 @@
       "dataIds": [
         "profile-file"
       ],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mworlwqz-1dpoqw",
+          "role": "orchestrator",
+          "at": "2026-11-20T09:53:00.000Z",
+          "evidence": [
+            "второй сервер: DSH_HOME=/tmp/dsh-presenter-home, --profile presenterproof --port 3081; профиль ~/.npm/dsh/profiles/web не менялся"
+          ]
+        }
+      ]
     },
     {
       "requirementId": "NFR3",
@@ -564,12 +646,22 @@
       "dataIds": [
         "deck-html"
       ],
-      "status": "planned",
-      "tasks": []
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mworlrme-9d24kq",
+          "role": "orchestrator",
+          "at": "2026-11-20T09:53:00.000Z",
+          "evidence": [
+            "presentation-proof: нет script src, link href, @import, url(, http(s) в теле документа (комментарии исключены)",
+            "один классический inline script, стек шрифтов кончается system-ui"
+          ]
+        }
+      ]
     }
   ],
   "pendingImpacts": [],
-  "fingerprint": "5e7251e9dd679859c3a8be206270726ab518e54f949697ddeb332d2c9345f904",
+  "fingerprint": "00af4d6c207a2cdf36d142303e3f6cda6d4880416ce1a89ad5e52500f7dbfd88",
   "history": [
     {
       "revision": 1,
@@ -585,6 +677,22 @@
       "editedBy": "agent",
       "action": "upsert",
       "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-20T10:02:42.312Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-20T10:02:50.486Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "completed",
       "summary": ""
     }
   ]

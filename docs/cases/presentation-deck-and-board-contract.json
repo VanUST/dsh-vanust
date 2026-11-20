@@ -1,0 +1,155 @@
+{
+  "schemaVersion": 1,
+  "id": "presentation-deck-and-board-contract",
+  "title": "Колода и доска рендерятся в один автономный документ",
+  "requirement": "presentation и dashboard превращают JSON-спецификацию в один автономный HTML-файл: восемь типов слайдов и пять тем, фрагменты и счёт чисел, четыре SVG-графика, печать одного слайда на страницу, никаких внешних ссылок, а испорченная спецификация — это ошибка, а не исключение. Покрывает REQ-155, REQ-156, REQ-157, REQ-158, REQ-159, REQ-160, REQ-161, REQ-162 и REQ-163; первичное — REQ-160.",
+  "kind": "acceptance",
+  "status": "verified",
+  "source": "human",
+  "automated": true,
+  "testPath": "scripts/presentation-proof.mjs",
+  "runCommand": "node scripts/presentation-proof.mjs",
+  "steps": [
+    "Отрендерить колоду-фикстуру и доску-фикстуру, записать файлы в reports/presenter-proof.",
+    "Проверить автономность: нет script src, link href, @import, url( и http(s) в теле документа; один классический script; пять тем с разными акцентами; правила печати.",
+    "Проверить негативные контроли: пустая колода, неизвестный тип слайда, отсутствующий заголовок, пустой donut, неизвестная тема, инъекция HTML в текст.",
+    "Проверить подгонку оси графика: самая левая подпись должна начинаться внутри viewBox.",
+    "Открыть оба файла в Chromium: консоль, стрелки, фрагменты, обзор, заметки, печать, кадр sandbox=allow-scripts."
+  ],
+  "expected": "Скрипт печатает PASS и выходит 0; негативный контроль CASE_NEGATIVE_CONTROL=before-axis-fix возвращает старую постоянную ширину поля (62 px), проверка подгонки оси падает и процесс выходит 1.",
+  "tags": [
+    "presentation",
+    "renderer",
+    "offline",
+    "browser",
+    "negative-control"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/presentation/render-deck.mjs",
+      "sha256": "c364737758626d3ab052adf6718a3f5457f7f6ac8db47ca34b11d36f79b4ac9f"
+    },
+    {
+      "path": "plugins/presentation/render-board.mjs",
+      "sha256": "4ddd869a51b5fe7a73bfa2d3165d91378c50c0a3b4244e9ac69a46920e5e355f"
+    },
+    {
+      "path": "plugins/presentation/charts.mjs",
+      "sha256": "14933a81609670dccb79bb020e46a5c00669255da95bff73d22cf8d353bec56c"
+    },
+    {
+      "path": "plugins/presentation/theme.css",
+      "sha256": "9baecc7ee8c802f9324487160bfb862919e7c1617063ea6fc261dbaab367febd"
+    },
+    {
+      "path": "scripts/presentation-proof.mjs",
+      "sha256": "7ad195a39c97d84df2bc0c40c8c78c136ca8d62791e443645120f16fcc544623"
+    }
+  ],
+  "linkedTaskId": "task-mworlwqz-1dpoqw",
+  "revision": 3,
+  "createdAt": "2026-11-20T09:59:00.000Z",
+  "updatedAt": "2026-11-20T10:01:36.634Z",
+  "createdBy": "agent",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "at": "2026-11-20T09:59:00.000Z",
+      "kind": "created",
+      "actor": "agent",
+      "text": "Автоматический кейс контракта рендера: один прогон покрывает девять REQ"
+    },
+    {
+      "revision": 1,
+      "at": "2026-11-20T10:01:19.502Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"before-axis-fix\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-20T10:01:36.634Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "runs": [
+    {
+      "runId": "mwot6ydu-kpery-1",
+      "at": "2026-11-20T10:01:19.498Z",
+      "mode": "red",
+      "control": "before-axis-fix",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 13017,
+      "commandSha256": "7b733cfb88fb907a935f2affaba6e7a4dea30d1b3678cdf52227eb82f9aaed76",
+      "head": "3ee9152cfb98867dd9c4bd598cfe706e02a204ea",
+      "dirty": true,
+      "stdout": "docs/cases/runs/presentation-deck-and-board-contract/mwot6ydu-kpery-1/stdout.log",
+      "stderr": "docs/cases/runs/presentation-deck-and-board-contract/mwot6ydu-kpery-1/stderr.log",
+      "summary": "docs/cases/runs/presentation-deck-and-board-contract/mwot6ydu-kpery-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwot7bgv-bpmgx-1",
+      "at": "2026-11-20T10:01:36.630Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 13192,
+      "commandSha256": "7b733cfb88fb907a935f2affaba6e7a4dea30d1b3678cdf52227eb82f9aaed76",
+      "head": "3ee9152cfb98867dd9c4bd598cfe706e02a204ea",
+      "dirty": true,
+      "stdout": "docs/cases/runs/presentation-deck-and-board-contract/mwot7bgv-bpmgx-1/stdout.log",
+      "stderr": "docs/cases/runs/presentation-deck-and-board-contract/mwot7bgv-bpmgx-1/stderr.log",
+      "summary": "docs/cases/runs/presentation-deck-and-board-contract/mwot7bgv-bpmgx-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-20T10:01:19.502Z",
+    "runId": "mwot6ydu-kpery-1",
+    "exitCode": 1,
+    "control": "before-axis-fix",
+    "command": "node scripts/presentation-proof.mjs",
+    "source": "negative-control"
+  },
+  "lastVerified": {
+    "at": "2026-11-20T10:01:36.634Z",
+    "command": "node scripts/presentation-proof.mjs",
+    "exitCode": 0,
+    "runId": "mwot7bgv-bpmgx-1",
+    "source": "runner",
+    "commit": null
+  }
+}

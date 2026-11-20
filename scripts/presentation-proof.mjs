@@ -32,6 +32,17 @@
  *   One line per check, then a PASS/FAIL summary; exit 0 when every check passed,
  *   1 when one failed. Screenshots and the rendered HTML stay in <out>.
  *
+ * COVERS (one case, several requirements — the batch rule of the case library):
+ *   REQ-155 preset presenter, REQ-156 presentation tool, REQ-157 dashboard tool,
+ *   REQ-158 role tool surface, REQ-159 this proof, REQ-160 the prefix-caching deck,
+ *   REQ-161 packaging gates, REQ-162 second-server proof, REQ-163 offline document.
+ *   A case protects the behaviour; `REQ-160` is its primary requirement.
+ *
+ * NEGATIVE CONTROL
+ *   CASE_NEGATIVE_CONTROL=before-axis-fix replays the pre-fix chart gutter (a constant
+ *   62 px) so the axis-fit check fails and the process exits 1: the case library needs a
+ *   measured red before a green counts as verification.
+ *
  * KEYWORDS
  *   presentation, deck, dashboard, renderer, proof, playwright, print, sandbox.
  */
@@ -53,6 +64,10 @@ const OUT = resolve(value('--out', join(KIT, 'reports', 'presenter-proof')))
 const JSON_ONLY = argv.includes('--json')
 const NO_BROWSER = argv.includes('--no-browser')
 const CSS = readFileSync(join(KIT, 'plugins', 'presentation', 'theme.css'), 'utf8')
+/** The chart gutter the renderer used before 2026-11-20: a constant that clipped a long tick. */
+const PRE_FIX_GUTTER = 62
+/** A negative control replays the old defect on demand, so the check can be seen to fail. */
+const CONTROL = process.env.CASE_NEGATIVE_CONTROL ?? ''
 
 const checks = []
 function check(name, ok, detail = '') {
@@ -429,7 +444,29 @@ async function proveInBrowser(files) {
   void page
 }
 
+/**
+ * The axis-fit check: every y-axis tick must start inside the viewBox. The renderer
+ * solves its left gutter from the widest label; the control replays the old constant,
+ * which is how this check was proved able to fail (a deck plotting `2 000 мс` printed
+ * `000 мс`).
+ */
+function chartAxisFits() {
+  const chart = chartSvg({ kind: 'bar', unit: 'мс', data: [{ label: 'без кэша', value: 1193 }, { label: 'с кэшем', value: 46 }], width: 1240, height: 400 })
+  const ticks = [...chart.svg.matchAll(/<text x="([0-9.]+)" y="[0-9.]+" text-anchor="end"[^>]*>([^<]*)</g)]
+  if (ticks.length === 0) {
+    check('chart: the axis prints tick labels at all', false, 'no end-anchored label in the SVG')
+    return
+  }
+  const measured = Number(ticks[0][1]) + 12
+  const gutter = CONTROL === 'before-axis-fix' ? PRE_FIX_GUTTER : measured
+  // 8 px per character at the 13 px mono size; the label ends 12 px left of the axis.
+  const starts = ticks.map(([, , label]) => gutter - 12 - label.length * 8)
+  const leftmost = Math.min(...starts)
+  check('chart: every axis tick fits inside the viewBox', leftmost >= 0, `gutter ${gutter}px, leftmost label starts at ${leftmost}px`)
+}
+
 const files = renderArtifacts()
+chartAxisFits()
 if (!NO_BROWSER) {
   try {
     await proveInBrowser(files)
