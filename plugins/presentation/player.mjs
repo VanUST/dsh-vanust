@@ -97,8 +97,166 @@ export const PLAYER_JS = `(function(){
     }
   }
 
+  // ── motion: a timed scene inside one slide ─────────────────────────────────
+  // A motion block hands the player a list of tracks (target, at, dur, ease, to)
+  // and a scene whose elements carry data-id. The player turns every track into a
+  // Web Animation with a delay, so the sequence runs on the compositor clock, can be
+  // paused and replayed, and needs no library. The scene markup states the START
+  // state; the track states the CHANGE.
+  var motion = null;
+
+  function motionFrames(to){
+    var frame = {};
+    var transform = [];
+    if (!to || typeof to !== 'object') return frame;
+    if (to.opacity !== undefined) frame.opacity = to.opacity;
+    if (to.fill !== undefined) frame.fill = to.fill;
+    if (to.stroke !== undefined) frame.stroke = to.stroke;
+    if (to.strokeWidth !== undefined) frame.strokeWidth = to.strokeWidth;
+    if (to.x !== undefined || to.y !== undefined) transform.push('translate(' + (to.x || 0) + 'px,' + (to.y || 0) + 'px)');
+    if (to.scale !== undefined) transform.push('scale(' + to.scale + ')');
+    if (to.rotate !== undefined) transform.push('rotate(' + to.rotate + 'deg)');
+    if (transform.length) frame.transform = transform.join(' ');
+    return frame;
+  }
+
+  function stopMotion(){
+    if (motion === null) return;
+    for (var i = 0; i < motion.animations.length; i++){
+      try { motion.animations[i].cancel(); } catch (error) { /* already gone */ }
+    }
+    if (motion.timer !== null) window.clearInterval(motion.timer);
+    motion = null;
+  }
+
+  function motionClockText(ms){
+    var total = Math.max(0, ms) / 1000;
+    return total.toFixed(1) + ' с';
+  }
+
+  function syncMotionButtons(){
+    if (motion === null) return;
+    var root = motion.root;
+    var toggle = root.querySelector('[data-motion="toggle"]');
+    if (toggle) toggle.textContent = motion.playing ? '⏸' : '▶';
+    root.classList.toggle('is-paused', motion.playing === false);
+  }
+
+  function buildMotion(root, autoplay){
+    stopMotion();
+    var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var node = root.querySelector('template.motion__spec');
+    var spec = { tracks: [] };
+    try { spec = JSON.parse(node === null ? '{}' : node.innerHTML); } catch (error) { spec = { tracks: [] }; }
+    var duration = Number(root.getAttribute('data-duration')) || 0;
+    if (!(duration > 0) || !root.animate) return;
+    var pace = Number(root.getAttribute('data-pace')) || 1;
+    var targets = {};
+    var nodes = root.querySelectorAll('[data-id]');
+    for (var n = 0; n < nodes.length; n++) targets[nodes[n].getAttribute('data-id')] = nodes[n];
+    var animations = [];
+    var tracks = Array.isArray(spec.tracks) ? spec.tracks : [];
+    for (var t = 0; t < tracks.length; t++){
+      var track = tracks[t] || {};
+      var el = targets[track.target];
+      if (!el) continue;
+      var frames = track.from === undefined ? [{}, motionFrames(track.to)] : [motionFrames(track.from), motionFrames(track.to)];
+      var options = {
+        duration: Math.max(1, (Number(track.dur) || 300) / pace),
+        delay: Math.max(0, (Number(track.at) || 0) / pace),
+        easing: track.ease || 'ease-out',
+        fill: 'forwards',
+        iterations: track.repeat === true ? Infinity : 1,
+      };
+      if (track.repeat === true) options.direction = track.pingPong === true ? 'alternate' : 'normal';
+      animations.push(el.animate(frames, options));
+    }
+    var captions = root.querySelectorAll('.motion__caption');
+    for (var c = 0; c < captions.length; c++){
+      var caption = captions[c];
+      animations.push(caption.animate([
+        { opacity: 0, offset: 0 },
+        { opacity: 1, offset: 0.02 },
+        { opacity: 1, offset: 0.92 },
+        { opacity: 0, offset: 1 },
+      ], {
+        duration: Math.max(1, (Number(caption.getAttribute('data-dur')) || 1200) / pace),
+        delay: Math.max(0, (Number(caption.getAttribute('data-at')) || 0) / pace),
+        easing: 'linear',
+        fill: 'forwards',
+      }));
+    }
+    var progress = root.querySelector('.motion__progress');
+    var barAnimation = null;
+    if (progress){
+      barAnimation = progress.animate([{ width: '0%' }, { width: '100%' }], {
+        duration: duration / pace,
+        easing: 'linear',
+        fill: 'forwards',
+      });
+      animations.push(barAnimation);
+    }
+    motion = {
+      root: root,
+      animations: animations,
+      progress: barAnimation,
+      duration: duration / pace,
+      playing: autoplay === true,
+      timer: null,
+      startedAt: 0,
+    };
+    if (autoplay !== true){
+      for (var p = 0; p < animations.length; p++) animations[p].pause();
+    }
+    if (reduced === true){
+      for (var f = 0; f < animations.length; f++){ try { animations[f].finish(); } catch (error) { /* nothing to finish */ } }
+      motion.playing = false;
+    }
+    var clock = root.querySelector('.motion__clock');
+    if (clock !== null){
+      motion.timer = window.setInterval(function(){
+        if (motion === null || motion !== this || motion.progress === null) return;
+        var at = motion.progress.currentTime || 0;
+        clock.textContent = motionClockText(at) + ' / ' + motionClockText(motion.duration);
+      }.bind(motion), 100);
+    }
+    syncMotionButtons();
+    if (autoplay === true && barAnimation !== null && root.getAttribute('data-loop') === '1'){
+      barAnimation.onfinish = function(){ buildMotion(root, true); };
+    }
+  }
+
+  function startMotion(slide){
+    stopMotion();
+    if (slide === null || slide === undefined) return;
+    var root = slide.querySelector('.motion');
+    if (root === null) return;
+    root.classList.remove('is-paused');
+    buildMotion(root, root.getAttribute('data-autoplay') === '1');
+  }
+
+  function toggleMotion(){
+    if (motion === null) return;
+    motion.playing = !motion.playing;
+    for (var i = 0; i < motion.animations.length; i++){
+      var animation = motion.animations[i];
+      if (motion.playing) animation.play();
+      else animation.pause();
+    }
+    syncMotionButtons();
+  }
+
+  function replayMotion(){
+    if (motion === null) return;
+    var root = motion.root;
+    var autoplay = root.getAttribute('data-autoplay') === '1';
+    buildMotion(root, true);
+    void autoplay;
+  }
+
   function show(index, fromHash){
     if (!slides.length) return;
+    stopMotion();
     current = Math.max(0, Math.min(slides.length - 1, index));
     for (var i = 0; i < slides.length; i++){
       var slide = slides[i];
@@ -112,6 +270,7 @@ export const PLAYER_JS = `(function(){
         countUp(slide);
         void slide.offsetWidth;
         slide.classList.add('is-in');
+        startMotion(slide);
       } else {
         slide.classList.remove('is-in');
       }
@@ -190,6 +349,8 @@ export const PLAYER_JS = `(function(){
     else if (key === 'o' || key === 'O' || key === 'о' || key === 'О'){ event.preventDefault(); toggle('is-overview'); }
     else if (key === 'n' || key === 'N' || key === 'т' || key === 'Т'){ event.preventDefault(); toggle('is-notes'); }
     else if (key === 'f' || key === 'F' || key === 'а' || key === 'А'){ event.preventDefault(); fullscreen(); }
+    else if (key === 'p' || key === 'P' || key === 'з' || key === 'З'){ if (motion !== null){ event.preventDefault(); toggleMotion(); } }
+    else if (key === 'r' || key === 'R' || key === 'к' || key === 'К'){ if (motion !== null){ event.preventDefault(); replayMotion(); } }
     else if (key === 'Escape'){ document.body.classList.remove('is-overview'); document.body.classList.remove('is-notes'); }
     else if (/^[1-9]$/.test(key)){ event.preventDefault(); show(parseInt(key, 10) - 1); }
   });
@@ -206,6 +367,13 @@ export const PLAYER_JS = `(function(){
 
   document.addEventListener('click', function(event){
     var target = event.target;
+    var sceneButton = target.closest ? target.closest('[data-motion]') : null;
+    if (sceneButton !== null){
+      var sceneAction = sceneButton.getAttribute('data-motion');
+      if (sceneAction === 'toggle') toggleMotion();
+      else if (sceneAction === 'replay') replayMotion();
+      return;
+    }
     var action = target.closest ? target.closest('[data-deck-action]') : null;
     if (action !== null){
       var name = action.getAttribute('data-deck-action');
@@ -224,6 +392,10 @@ export const PLAYER_JS = `(function(){
     next();
   });
 
+  window.addEventListener('beforeprint', function(){
+    if (motion === null) return;
+    for (var i = 0; i < motion.animations.length; i++){ try { motion.animations[i].finish(); } catch (error) { /* nothing to finish */ } }
+  });
   window.addEventListener('resize', fit);
   window.addEventListener('hashchange', function(){ show(slideFromHash(), true); });
   fit();

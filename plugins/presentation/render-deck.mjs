@@ -8,7 +8,10 @@
  * INPUTS:  spec (object): { theme?, title?, lang?, foot?, slides: Slide[] }.
  *          A Slide is { type?, kicker?, title?, lede?, note?, flush?, anim?,
  *          layout?, cards?, kpis?, table?, timeline?, quote?, chips?, callout?,
- *          list?, steps?, compare?, chart?, visual?, code?, raw? }.
+ *          list?, steps?, compare?, chart?, motion?, visual?, code?, raw? }.
+ *          A `motion` block is a timed scene: { svg|html, duration?, autoplay?,
+ *          pace?, loop?, tracks: [{ target, at, dur, ease?, from?, to?, repeat? }],
+ *          captions: [{ at, dur, text }], caption? }.
  *          Text fields accept `**bold**` and `==highlight==`; every other string
  *          is escaped. `type` is one of cover, section, content, compare, steps,
  *          chart, visual, raw.
@@ -29,7 +32,7 @@ export const THEMES = ['ember', 'graphite', 'aurora', 'mono', 'paper']
 export const SLIDE_TYPES = ['cover', 'section', 'content', 'compare', 'steps', 'chart', 'visual', 'raw']
 
 /** The order blocks appear in, so a spec's key order never changes the layout. */
-const BLOCK_ORDER = ['kpis', 'cards', 'table', 'timeline', 'quote', 'chips', 'callout', 'list', 'steps', 'compare', 'chart', 'visual', 'code']
+const BLOCK_ORDER = ['kpis', 'cards', 'table', 'timeline', 'quote', 'chips', 'callout', 'list', 'steps', 'compare', 'chart', 'motion', 'visual', 'code']
 
 /** Escapes a value for a double-quoted attribute (notes, titles, labels). */
 function attr(value) {
@@ -209,6 +212,77 @@ function blockChart(block, ctx) {
   return `<div class="chart"><div class="chart__body" data-anim="zoom">${chart.svg}</div>${legendHtml}${caption}</div>`
 }
 
+/**
+ * Renders a timed scene: the scene markup (an SVG or HTML with `data-id` targets),
+ * a JSON track list the player turns into Web Animations, synced captions, a
+ * progress bar and play/replay controls. The scene markup states the START state;
+ * a track states the CHANGE, so the spec reads as a shot list rather than a script.
+ * An unknown target is an error named with its id: the player would silently skip
+ * it, and a track that animates nothing is the defect this renderer must surface.
+ */
+function blockMotion(block, ctx) {
+  if (block === null || typeof block !== 'object') return ''
+  const scene = typeof block.svg === 'string' ? block.svg : typeof block.html === 'string' ? block.html : ''
+  if (scene.trim() === '') {
+    ctx.errors.push('motion: needs `svg` (inline SVG markup) or `html` as the scene')
+    return ''
+  }
+  const tracks = Array.isArray(block.tracks) ? block.tracks.filter((track) => track && typeof track === 'object') : []
+  if (tracks.length === 0) {
+    ctx.errors.push('motion: needs at least one track [{ target, at, dur, to }]')
+    return ''
+  }
+  const ids = new Set([...scene.matchAll(/data-id="([^"]+)"/g)].map((match) => match[1]))
+  let longest = 0
+  for (const track of tracks) {
+    if (typeof track.target !== 'string' || track.target === '') {
+      ctx.errors.push('motion: every track needs a `target` (the data-id of a scene element)')
+      continue
+    }
+    if (!ids.has(track.target)) ctx.errors.push(`motion: track target "${track.target}" is not in the scene (known: ${[...ids].join(', ') || 'none'})`)
+    const end = (num(track.at) ?? 0) + (num(track.dur) ?? 0)
+    if (Number.isFinite(end)) longest = Math.max(longest, end)
+  }
+  const duration = num(block.duration) ?? longest
+  if (!(duration > 0)) {
+    ctx.errors.push('motion: `duration` must be a positive number of milliseconds (or leave it out and give tracks at/dur)')
+    return ''
+  }
+  const captions = Array.isArray(block.captions) ? block.captions.filter((caption) => caption && typeof caption === 'object') : []
+  const pace = num(block.pace) === null || num(block.pace) <= 0 ? 1 : num(block.pace)
+  const spec = {
+    tracks: tracks.map((track) => ({
+      target: String(track.target ?? ''),
+      at: num(track.at) ?? 0,
+      dur: num(track.dur) ?? 300,
+      ease: typeof track.ease === 'string' ? track.ease : 'ease-out',
+      ...(track.from === undefined ? {} : { from: track.from }),
+      to: track.to ?? {},
+      ...(track.repeat === true ? { repeat: true } : {}),
+      ...(track.pingPong === true ? { pingPong: true } : {}),
+    })),
+  }
+  const json = JSON.stringify(spec).replace(/</g, '\\u003c')
+  const captionHtml = captions.map((caption) => {
+    const at = num(caption.at) ?? 0
+    const dur = num(caption.dur) ?? 1400
+    return `<div class="motion__caption" data-at="${at}" data-dur="${dur}">${inline(caption.text)}</div>`
+  }).join('')
+  const note = block.caption ? `<div class="figure__caption">${inline(block.caption)}</div>` : ''
+  return `<div class="motion" data-duration="${duration}" data-autoplay="${block.autoplay === false ? '0' : '1'}" data-loop="${block.loop === true ? '1' : '0'}" data-pace="${pace}">`
+    + `<div class="motion__stage"${block.flush === true ? ' data-flush="1"' : ''}>${scene}</div>`
+    + `<template class="motion__spec">${json}</template>`
+    + (captionHtml === '' ? '' : `<div class="motion__captions">${captionHtml}</div>`)
+    + `<div class="motion__bar"><i class="motion__progress"></i></div>`
+    + `<div class="motion__controls">`
+    + `<button type="button" data-motion="toggle" aria-label="Пауза и продолжение">⏸</button>`
+    + `<button type="button" data-motion="replay" aria-label="Повторить с начала">⟲</button>`
+    + `<span class="motion__clock">0,0 с / ${(duration / 1000).toFixed(1).replace('.', ',')} с</span>`
+    + '</div>'
+    + note
+    + '</div>'
+}
+
 /** Renders a figure: an inline SVG the spec supplies, or raw HTML. */
 function blockVisual(block, ctx) {
   if (block === null || typeof block !== 'object') return ''
@@ -250,6 +324,7 @@ function renderBlocks(slide, ctx) {
     else if (key === 'steps') html = blockSteps(block, slide.layout)
     else if (key === 'compare') html = blockCompare(block)
     else if (key === 'chart') html = blockChart(block, ctx)
+    else if (key === 'motion') html = blockMotion(block, ctx)
     else if (key === 'visual') html = blockVisual(block, ctx)
     else if (key === 'code') html = blockCode(block)
     if (html !== '') parts.push(fragment(html, parts.length, { frag }))

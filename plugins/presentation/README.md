@@ -66,6 +66,7 @@ rendered in a fixed order regardless of key order:
 | `steps` | `[{ title, text, num }]` — each step is a fragment |
 | `compare` | `{ left: { head, title, text, list }, right: { … }, arrow }` |
 | `chart` | `{ kind: "bar\|line\|donut\|sparkline", data, series, unit, caption }` |
+| `motion` | a timed scene: `{ svg \| html, duration?, autoplay?, pace?, loop?, tracks: [{ target, at, dur, ease?, from?, to?, repeat? }], captions: [{ at, dur, text }], caption? }` |
 | `visual` | `{ svg \| html, caption, flush }` — an inline SVG the agent supplies |
 | `code` | `{ title, text }` |
 
@@ -93,6 +94,35 @@ that starts with a number (`"93,8 %"`) counts up on entry.
 
 Charts are the same four kinds a deck uses, drawn by `charts.mjs`. A board is fluid:
 it fills the sidebar at any width and prints on one page.
+
+## Timed scenes (`motion`)
+
+A deck can show a process by frames (one advance per state) or by clock. The `motion`
+block is the clock: the scene markup states each element's START state (`data-id` plus
+an `opacity` or position), the tracks state the CHANGE with an absolute `at` and a
+`dur`, and the player turns every track into a Web Animation with a delay — so the
+sequence runs on the compositor clock, `P` pauses it, `R` replays it, a progress bar
+and a clock show where it is, and captions change in step. There is no library behind
+it: `Element.animate()` is the runtime, which keeps the document one file and ~0 bytes
+of dependency (the whole player, scene runtime included, is 16 KB of source).
+
+```json
+{"type": "content", "title": "Prefill, cache, decode",
+ "motion": {
+   "svg": "<svg viewBox='0 0 900 320'><g data-id='prompt' opacity='0.2'>…</g></svg>",
+   "duration": 4200,
+   "captions": [{"at": 0, "dur": 1400, "text": "The model reads the prompt"}, …],
+   "tracks": [
+     {"target": "prompt", "at": 0,    "dur": 600, "to": {"opacity": 1}},
+     {"target": "kv",     "at": 1400, "dur": 900, "to": {"opacity": 0.9}}
+   ]}}
+```
+
+Rules that make it reliable: a target must exist in the scene (the renderer refuses a
+misspelled `data-id` instead of animating nothing); a scene element must not carry its
+own `transform` attribute (the timeline owns `transform`); `prefers-reduced-motion`
+lands on the final state; print shows the final state with the last caption. A `from`
+is optional — without it the animation starts from the element's current value.
 
 ## The style system
 

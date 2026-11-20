@@ -250,6 +250,41 @@ function renderArtifacts() {
     writeFileSync(files.svgFragments, svgDeck.html)
   }
 
+  // A TIMED SCENE: the start state lives in the markup, the schedule in the tracks.
+  // The control `motion-idle` renders it with autoplay off, which is the pre-feature
+  // behaviour, so the "the scene starts on entry" check can be seen to fail.
+  const motionScene = '<svg viewBox="0 0 900 320" role="img" aria-label="prefill and decode">'
+    + '<g data-id="prompt" opacity="0.2"><rect x="40" y="60" width="320" height="60" rx="10" fill="none" stroke="var(--info)"/><text x="60" y="96" fill="var(--ink)" font-size="18">prompt</text></g>'
+    + '<g data-id="kv" opacity="0"><rect x="40" y="170" width="320" height="24" rx="6" fill="var(--ok)"/></g>'
+    + '<g data-id="out" opacity="0.2"><rect x="470" y="60" width="120" height="60" rx="10" fill="none" stroke="var(--accent)"/></g>'
+    + '</svg>'
+  const motionSpec = {
+    theme: 'ember', title: 'Timed scene', slides: [
+      { type: 'cover', title: 'Timed scene' },
+      { type: 'content', title: 'Scene', motion: {
+        svg: motionScene,
+        duration: 3400,
+        autoplay: CONTROL !== 'motion-idle',
+        captions: [{ at: 0, dur: 1000, text: 'one' }, { at: 1500, dur: 1000, text: 'two' }],
+        tracks: [
+          { target: 'prompt', at: 0, dur: 800, to: { opacity: 1 } },
+          { target: 'kv', at: 1200, dur: 800, to: { opacity: 0.9 } },
+          { target: 'out', at: 2400, dur: 600, to: { opacity: 1 } },
+        ],
+      } },
+    ],
+  }
+  const motionDeck = renderDeck(motionSpec, { css: CSS })
+  check('motion scene renders', motionDeck.errors.length === 0 && motionDeck.html !== null, motionDeck.errors.join('; ') || 'ok')
+  if (motionDeck.html !== null) {
+    files.motion = join(OUT, 'motion.html')
+    writeFileSync(files.motion, motionDeck.html)
+    check('motion scene carries its schedule', (motionDeck.html.match(/motion__spec/g) ?? []).length === 2 && /"tracks"/.test(motionDeck.html))
+    check('motion scene has play and replay controls', /data-motion="toggle"/.test(motionDeck.html) && /data-motion="replay"/.test(motionDeck.html))
+  }
+  const unknownTarget = renderDeck({ slides: [{ title: 'x', motion: { svg: '<svg><g data-id="a"/></svg>', tracks: [{ target: 'nope', at: 0, dur: 100, to: { opacity: 1 } }] } }] }, { css: CSS })
+  check('negative: a motion track naming a target that is not in the scene is an error', unknownTarget.errors.some((error) => /not in the scene/.test(error)), unknownTarget.errors[0] ?? '')
+
   const board = renderBoard(BOARD, { css: CSS })
   check('board renders without errors', board.errors.length === 0, board.errors.join('; ') || `${board.tiles} tiles, ${board.charts} charts`)
   check('board draws every chart', board.charts === BOARD.charts.length, `${board.charts}/${BOARD.charts.length}`)
@@ -406,6 +441,95 @@ async function proveInBrowser(files) {
   // The cache-rack mechanism: inside one SVG, each group reveals on its own
   // advance and keeps its own coordinates. A CSS transform on the fragment would
   // collapse every group onto the origin, which is exactly what this catches.
+  // The timed scene: the schedule is on the compositor clock, so states are sampled
+  // by SEEKING the animations instead of sleeping — the check cannot be flaky.
+  if (files.motion !== undefined) {
+    const motionPage = await context.newPage()
+    const motionErrors = []
+    motionPage.on('pageerror', (error) => motionErrors.push(String(error.message)))
+    await motionPage.goto(pathToFileURL(files.motion).href)
+    await motionPage.waitForSelector('.slide.is-current')
+    await motionPage.evaluate(() => { window.location.hash = '#2' })
+    await motionPage.waitForTimeout(260)
+    const sceneState = () => motionPage.evaluate(() => {
+      const anims = document.getAnimations().filter((a) => a.effect && a.effect.target && a.effect.target.closest && a.effect.target.closest('.motion'))
+      const at = (id) => Number(getComputedStyle(document.querySelector(`[data-id="${id}"]`)).opacity)
+      return {
+        count: anims.length,
+        running: anims.filter((a) => a.playState === 'running').length,
+        paused: anims.filter((a) => a.playState === 'paused').length,
+        finished: anims.filter((a) => a.playState === 'finished').length,
+        prompt: at('prompt'), kv: at('kv'), out: at('out'),
+        controls: document.querySelector('.motion__controls') !== null,
+      }
+    })
+    const seek = (target, ms) => motionPage.evaluate(({ id, time }) => {
+      for (const anim of document.getAnimations()) {
+        const el = anim.effect && anim.effect.target
+        if (el && el.getAttribute && el.getAttribute('data-id') === id) anim.currentTime = time
+      }
+    }, { id: target, time: ms })
+
+    let scene = await sceneState()
+    check('browser: the timed scene starts on entry', scene.count >= 4 && scene.running > 0, `${scene.count} animations, ${scene.running} running`)
+    await seek('prompt', 400)
+    await motionPage.waitForTimeout(60)
+    const mid = await sceneState()
+    await seek('prompt', 900)
+    await motionPage.waitForTimeout(60)
+    const done = await sceneState()
+    check('browser: a track is in flight at its middle', mid.prompt > 0.25 && mid.prompt < 1, `prompt ${mid.prompt}`)
+    check('browser: a track holds its target after its end', done.prompt === 1, `prompt ${done.prompt}`)
+    check('browser: a later track waits for its delay', done.kv < 0.05 && done.out < 0.5, `kv ${done.kv}, out ${done.out}`)
+    await seek('kv', 1300)
+    await motionPage.waitForTimeout(60)
+    const kvMid = await sceneState()
+    check('browser: the second track starts at its own time', kvMid.kv > 0 && kvMid.kv < 0.9, `kv ${kvMid.kv}`)
+
+    await motionPage.keyboard.press('p')
+    await motionPage.waitForTimeout(120)
+    const paused = await sceneState()
+    check('browser: P pauses the scene', paused.paused > 0 && paused.running === 0, `${paused.paused} paused, ${paused.running} running`)
+    await motionPage.keyboard.press('p')
+    await motionPage.waitForTimeout(120)
+    const resumed = await sceneState()
+    check('browser: P resumes the scene', resumed.running > 0, `${resumed.running} running`)
+    await motionPage.keyboard.press('r')
+    await motionPage.waitForTimeout(160)
+    const replayed = await motionPage.evaluate(() => {
+      const anims = document.getAnimations().filter((a) => a.effect && a.effect.target && a.effect.target.closest && a.effect.target.closest('.motion'))
+      return Math.min(...anims.map((a) => Number(a.currentTime) || 0))
+    })
+    check('browser: R replays the scene from the start', replayed < 300, `earliest currentTime ${Math.round(replayed)}ms`)
+    await motionPage.emulateMedia({ media: 'print' })
+    const printed = await motionPage.evaluate(() => {
+      const controls = document.querySelector('.motion__controls')
+      return { display: controls === null ? 'none' : getComputedStyle(controls).display, captions: document.querySelectorAll('.motion__caption').length }
+    })
+    check('browser: print hides the scene controls', printed.display === 'none', printed.display)
+    await motionPage.emulateMedia({ media: 'screen' })
+    check('browser: no page error on the timed scene', motionErrors.length === 0, motionErrors.slice(0, 2).join(' | '))
+    await motionPage.close()
+
+    // Reduced motion: the scene lands on its final state instead of playing.
+    const calm = await context.newPage()
+    await calm.emulateMedia({ reducedMotion: 'reduce' })
+    await calm.goto(pathToFileURL(files.motion).href)
+    await calm.waitForSelector('.slide.is-current')
+    await calm.evaluate(() => { window.location.hash = '#2' })
+    await calm.waitForTimeout(260)
+    const calmState = await calm.evaluate(() => {
+      const anims = document.getAnimations().filter((a) => a.effect && a.effect.target && a.effect.target.closest && a.effect.target.closest('.motion'))
+      return {
+        running: anims.filter((a) => a.playState === 'running').length,
+        prompt: Number(getComputedStyle(document.querySelector('[data-id="prompt"]')).opacity),
+        kv: Number(getComputedStyle(document.querySelector('[data-id="kv"]')).opacity),
+      }
+    })
+    check('browser: reduced motion lands on the final state', calmState.running === 0 && calmState.prompt === 1 && calmState.kv >= 0.85, `${calmState.running} running, prompt ${calmState.prompt}, kv ${calmState.kv}`)
+    await calm.close()
+  }
+
   if (files.svgFragments !== undefined) {
     const svgPage = await context.newPage()
     const svgErrors = []

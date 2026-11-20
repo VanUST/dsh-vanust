@@ -391,6 +391,34 @@ body.is-notes .deck-notes{display:block}
 .code b{color:var(--accent); font-weight:400}
 .code i{color:var(--ok); font-style:normal}
 
+/* ---------------------------------------------------- 7b. TIMED SCENE (motion) */
+/* A motion block is a schedule, not a film: the scene markup states the start
+   state, the track list states the change, and the player sets the delay on each
+   Web Animation, so the sequence runs on the compositor clock without a library. */
+.motion{display:flex; flex-direction:column; gap:var(--sp-3); margin-top:var(--sp-5); flex:1; min-height:0}
+.motion__stage{
+  position:relative; flex:1; min-height:0; display:grid; place-items:center;
+  border:1px solid var(--line); border-radius:var(--r-lg); background:var(--card-bg);
+  padding:var(--sp-5); overflow:hidden;
+}
+.motion__stage[data-flush="1"]{border:0; background:transparent; padding:0}
+.motion__stage svg{max-width:100%; max-height:100%; height:auto; width:auto}
+.motion__captions{position:relative; height:2.4em; flex:none}
+.motion__caption{
+  position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  text-align:center; opacity:0; font-size:var(--fs-lg); color:var(--ink-2);
+}
+.motion__bar{height:3px; border-radius:2px; background:rgba(128,128,128,.22); overflow:hidden; flex:none}
+.motion__progress{display:block; height:100%; width:0; background:var(--accent)}
+.motion__controls{display:flex; align-items:center; gap:8px; flex:none; font-size:var(--fs-xs); color:var(--muted)}
+.motion__controls button{
+  appearance:none; border:1px solid var(--line-2); background:var(--card-bg); color:var(--ink-2);
+  font:inherit; font-size:var(--fs-sm); cursor:pointer; border-radius:var(--r-pill); padding:5px 13px;
+}
+.motion__controls button:hover{color:var(--ink); border-color:var(--accent)}
+.motion__clock{margin-left:auto; font-family:var(--font-mono); letter-spacing:.02em}
+.motion.is-paused .motion__progress{opacity:.55}
+
 /* cover and section treatments */
 .slide--cover .wrap, .slide--section .wrap{justify-content:center}
 .slide--cover .title{font-size:var(--fs-6xl); max-width:1250px}
@@ -510,6 +538,11 @@ a:focus-visible, button:focus-visible, [tabindex]:focus-visible{
   }
   [data-anim],[data-frag]{opacity:1 !important; transform:none !important; animation:none !important}
   .deck-progress, .deck-controls, .deck-hint, .deck-overview, .deck-notes{display:none !important}
+  /* A timed scene prints its final state; the conclusion caption is the one that stays. */
+  .motion__controls, .motion__bar{display:none !important}
+  .motion__caption{opacity:0 !important}
+  .motion__caption:last-child{opacity:1 !important}
+  .motion__captions{height:auto}
 }
 
 /* ---------------------------------------------------------- 10. DASHBOARD */

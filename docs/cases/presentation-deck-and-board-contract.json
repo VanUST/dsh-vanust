@@ -15,9 +15,10 @@
     "Проверить негативные контроли: пустая колода, неизвестный тип слайда, отсутствующий заголовок, пустой donut, неизвестная тема, инъекция HTML в текст.",
     "Проверить подгонку оси графика: самая левая подпись должна начинаться внутри viewBox.",
     "Открыть оба файла в Chromium: консоль, стрелки, фрагменты, обзор, заметки, печать, кадр sandbox=allow-scripts.",
-    "Проверить сборку схемы по ячейкам внутри одного SVG: каждая группа раскрывается своим нажатием и сохраняет свои координаты."
+    "Проверить сборку схемы по ячейкам внутри одного SVG: каждая группа раскрывается своим нажатием и сохраняет свои координаты.",
+    "Проверить сцену по часам: старт на входе, трек в середине и на конце, пауза/повтор, печать без органов управления, reduced motion даёт конечное состояние."
   ],
-  "expected": "Скрипт печатает PASS и выходит 0. Два негативных контроля: CASE_NEGATIVE_CONTROL=before-axis-fix возвращает старую постоянную ширину поля графика (62 px) и проверка подгонки оси падает; CASE_NEGATIVE_CONTROL=before-svg-fragment-fix возвращает CSS transform на SVG-группе, и все ячейки схемы съезжают в одну точку — проверка координат падает. В обоих случаях процесс выходит 1.",
+  "expected": "Скрипт печатает PASS и выходит 0. Два негативных контроля: CASE_NEGATIVE_CONTROL=before-axis-fix возвращает старую постоянную ширину поля графика (62 px) и проверка подгонки оси падает; CASE_NEGATIVE_CONTROL=before-svg-fragment-fix возвращает CSS transform на SVG-группе, и все ячейки схемы съезжают в одну точку — проверка координат падает. В обоих случаях процесс выходит 1. Третий контроль, CASE_NEGATIVE_CONTROL=motion-idle, рендерит сцену без автозапуска — проверка «сцена стартует на входе» падает.",
   "tags": [
     "presentation",
     "renderer",
@@ -28,7 +29,7 @@
   "surfaceFiles": [
     {
       "path": "plugins/presentation/render-deck.mjs",
-      "sha256": "c364737758626d3ab052adf6718a3f5457f7f6ac8db47ca34b11d36f79b4ac9f"
+      "sha256": "cd866706424f62bed7a9ec494665b5226afa0ac69b0fee02075e102e3534e8d3"
     },
     {
       "path": "plugins/presentation/render-board.mjs",
@@ -40,17 +41,21 @@
     },
     {
       "path": "plugins/presentation/theme.css",
-      "sha256": "2bce783624482401ab3cb34aa164392319a63cd585fd0eed6a245829703c26dd"
+      "sha256": "a1f4dc6e4d344b0e3f9cc4effbd2aac4948251363cc68e139acea741ae38cfbb"
     },
     {
       "path": "scripts/presentation-proof.mjs",
-      "sha256": "1bd3712eb57a1e4b6ceb75c92cfa95f639c9fc06968ea30e7021d60a1dab4173"
+      "sha256": "1287270a354513030158bf813ab0ea2cf29204c7fb41b0ccd084a83c8b1478df"
+    },
+    {
+      "path": "plugins/presentation/player.mjs",
+      "sha256": "bd6755738ddc6bf345c299b6e546091950aea827094b89a388165c4ab4a1d803"
     }
   ],
   "linkedTaskId": "task-mworlwqz-1dpoqw",
-  "revision": 5,
+  "revision": 7,
   "createdAt": "2026-11-20T09:59:00.000Z",
-  "updatedAt": "2026-11-20T16:31:12.961Z",
+  "updatedAt": "2026-11-20T16:45:52.995Z",
   "createdBy": "agent",
   "createdByKind": "agent",
   "history": [
@@ -84,6 +89,20 @@
     {
       "revision": 4,
       "at": "2026-11-20T16:31:12.961Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-20T16:45:37.730Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"motion-idle\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-20T16:45:52.995Z",
       "editedBy": "agent",
       "action": "ran-verified",
       "reason": "1 run(s), 1 passed"
@@ -213,21 +232,85 @@
       ],
       "passed": true,
       "artifacts": []
+    },
+    {
+      "runId": "mwp7muhd-lz8g2-1",
+      "at": "2026-11-20T16:45:37.726Z",
+      "mode": "red",
+      "control": "motion-idle",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 15180,
+      "commandSha256": "7b733cfb88fb907a935f2affaba6e7a4dea30d1b3678cdf52227eb82f9aaed76",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7ff4e727829990495a5fc1ce9846b5c5f05fb990",
+      "dirty": true,
+      "stdout": "docs/cases/runs/presentation-deck-and-board-contract/mwp7muhd-lz8g2-1/stdout.log",
+      "stderr": "docs/cases/runs/presentation-deck-and-board-contract/mwp7muhd-lz8g2-1/stderr.log",
+      "summary": "docs/cases/runs/presentation-deck-and-board-contract/mwp7muhd-lz8g2-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwp7n69p-2ugh7-1",
+      "at": "2026-11-20T16:45:52.990Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 15175,
+      "commandSha256": "7b733cfb88fb907a935f2affaba6e7a4dea30d1b3678cdf52227eb82f9aaed76",
+      "cwd": "/home/iustimov/dsh-kit",
+      "cwdRelative": ".",
+      "head": "7ff4e727829990495a5fc1ce9846b5c5f05fb990",
+      "dirty": true,
+      "stdout": "docs/cases/runs/presentation-deck-and-board-contract/mwp7n69p-2ugh7-1/stdout.log",
+      "stderr": "docs/cases/runs/presentation-deck-and-board-contract/mwp7n69p-2ugh7-1/stderr.log",
+      "summary": "docs/cases/runs/presentation-deck-and-board-contract/mwp7n69p-2ugh7-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
     }
   ],
   "redFirst": {
-    "at": "2026-11-20T16:30:58.507Z",
-    "runId": "mwp740wj-becx8-1",
+    "at": "2026-11-20T16:45:37.730Z",
+    "runId": "mwp7muhd-lz8g2-1",
     "exitCode": 1,
-    "control": "before-svg-fragment-fix",
+    "control": "motion-idle",
     "command": "node scripts/presentation-proof.mjs",
     "source": "negative-control"
   },
   "lastVerified": {
-    "at": "2026-11-20T16:31:12.961Z",
+    "at": "2026-11-20T16:45:52.995Z",
     "command": "node scripts/presentation-proof.mjs",
     "exitCode": 0,
-    "runId": "mwp74bvc-nlgd9-1",
+    "runId": "mwp7n69p-2ugh7-1",
     "source": "runner",
     "commit": null
   }

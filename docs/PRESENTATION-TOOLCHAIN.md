@@ -18,6 +18,7 @@
 |---|---|---|
 | стилевая система (пять тем, токены) | свой `theme.css`: палитра, девять шагов кегля, сетка 4/8, три длительности | `plugins/presentation/theme.css` |
 | движение (вход, фрагменты, счёт чисел, рисунок пути, поток) | CSS-анимации и `prefers-reduced-motion`, плюс `requestAnimationFrame` для чисел | `plugins/presentation/theme.css`, `player.mjs` |
+| движение по часам (сцена, таймлайн, пауза, повтор, синхронные подписи) | `motion`-блок и рантайм на `Element.animate()`: 16 КБ исходника плеера целиком, без библиотеки | `plugins/presentation/player.mjs`, `render-deck.mjs` |
 | графики (bar, line, donut, sparkline) | свой `charts.mjs`: координаты считаются в SVG, без canvas и без библиотеки | `plugins/presentation/charts.mjs` |
 | схемы (flow, state, arch, sequence) | отдельный инструмент `diagram` того же кита, готовый SVG вставляется в слайд `visual` | `plugins/diagrams/` |
 | проверка результата | сам корень и роль: Chromium через `playwright-core`, снимок каждого слайда | `scripts/presentation-proof.mjs` |

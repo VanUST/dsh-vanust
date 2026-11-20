@@ -143,7 +143,10 @@ export function presentationTools(defineTool) {
       + '"kicker":"…","title":"…","lede":"…","note":"speaker note","cards":[{"title","text","list","color"}],'
       + '"kpis":[{"value","label","note","color"}],"table":{"header","rows"},"timeline","quote","chips","callout",'
       + '"list","steps":[{"title","text"}],"compare":{"left","right"},"chart":{…kind bar|line|donut|sparkline},'
+      + '"motion":{"svg"|"html","duration","autoplay","tracks":[{"target","at","dur","to"}],"captions"},'
       + '"visual":{"svg"|"html","caption"},"html":"raw markup"}]}. '
+      + 'A `motion` block is a TIMED scene: the markup states each element\'s start (data-id, opacity), the tracks state the change, '
+      + 'the player runs it on the compositor clock (P pauses, R replays); use it when the process itself is the point. '
       + 'Move the eye: one idea per slide, `frag:true` on a block (or any `steps`) to reveal it on advance, '
       + '`anim` fade|zoom|left, a warm-accent palette per theme. '
       + 'READ THE RESULT: `ok` only means the file was written; validity is in `errors` and `degraded` — fix and re-render.',
