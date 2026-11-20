@@ -1,7 +1,7 @@
 # USERGUIDE.md — setting up and starting the harness on a new machine
 
 This kit installs **DeepSeek Harness (dsh)** on any of your machines (2× Linux,
-1× Windows) plus the **27** plugins this deployment adds beyond upstream:
+1× Windows) plus the **28** plugins this deployment adds beyond upstream:
 **`@cc/dsh-notify`** (raises a desktop notification — `notify-send`, a PowerShell toast or
 `osascript` — when an agent finishes a turn and when it asks you a question; silence it with
 `DSH_NOTIFY_DISABLED=1` in the server's environment),

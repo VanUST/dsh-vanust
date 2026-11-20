@@ -2,13 +2,14 @@
 
 GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`.
 
-## open (3)
+## open (4)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
 | TASK-233 | OpenAI Codex: вход по подписке через инструмент харнесса | REQ-111, REQ-112, REQ-113, REQ-114 | 0/4 | no |
 | TASK-237 | Stop the state feed from writing unidentified messages, and repair the sessions it corrupted | — | 0/7 | yes |
 | TASK-243 | Остаток окна Codex и цена модели — в сессии | REQ-132, REQ-133 | 0/4 | no |
+| TASK-256 | Обрезка результатов инструментов от хвоста: плагин tail-pruner | REQ-168, REQ-169, REQ-170, REQ-171 | 0/7 | no |
 
 ## review (3)
 

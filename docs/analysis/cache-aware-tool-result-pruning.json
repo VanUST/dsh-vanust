@@ -1,0 +1,258 @@
+{
+  "schemaVersion": 1,
+  "id": "cache-aware-tool-result-pruning",
+  "rev": 2,
+  "status": "ready",
+  "createdAt": "2026-11-20T11:00:31.366Z",
+  "updatedAt": "2026-11-20T11:00:37.933Z",
+  "updatedBy": "agent",
+  "title": "Точка обрыва кэша при обрезке результатов инструментов",
+  "requestedSolution": "Владелец 2026-11-20: согласен с поправками аудита префикс-кэша — обрезать результаты инструментов начиная с новейших, чтобы точка перезаписи уходила к хвосту, и проверить результат.",
+  "businessOutcome": {
+    "problem": "Обрезчик результатов (tool-result-pruner) срабатывает только когда контекст уже выше порога компакции, и переписывает ВСЕ результаты больше 8192 символов начиная с самых старых. Первая переписанная вершина рвёт кэш-префикс почти на всём контексте: за трое суток 53 таких вызова оплатили заново 12,2 млн токенов из 48,2 млн свежих (аудит 2026-11-20: 22 938 шагов, 99,13% промпта из кэша, чистая переоплата 9,4 млн).",
+    "outcome": "Плагин кита @cc/dsh-tail-pruner держит бюджет контекста обрезкой НОВЕЙШИХ результатов: контекст не доходит до порога компакции, точка перезаписи стоит у хвоста, повторно оплачивается только хвост. Прежний обрезчик остаётся страховкой.",
+    "successMetrics": [
+      "на записанных сессиях ожидаемая переоплата от обрезки падает не меньше чем втрое против 12,2 млн токенов за трое суток",
+      "последние protectResults результатов инструментов остаются целыми",
+      "события замены replay-safe: compaction/prune + tool/result с surfaceOp replace и sourceEventSeqs",
+      "make verify зелёный, число плагинов согласовано в inventory, README, USERGUIDE, rules/DEPLOYMENT.md"
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CURRENT",
+        "name": "Обрезка от старых под давлением",
+        "actors": [
+          "compaction-basic",
+          "tool-result-pruner",
+          "провайдер модели"
+        ],
+        "steps": [
+          "Шаг завершается; compactPressure измеряет контекст и сравнивает с порогом (0.5 окна для 1M-маршрутов).",
+          "Выше порога вызывается tool-result-pruner.pruneSession: он переписывает все результаты больше 8192 символов от самых старых.",
+          "Первая переписанная вершина стоит в начале контекста, поэтому провайдер заново считает почти весь промпт.",
+          "Следующий шаг читает из кэша только маленькую голову."
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-TARGET",
+        "name": "Обрезка от хвоста до бюджета",
+        "actors": [
+          "@cc/dsh-tail-pruner",
+          "compaction-basic",
+          "tool-result-pruner"
+        ],
+        "steps": [
+          "Перед шагом tail-pruner измеряет контекст тем же tokenMeter и сравнивает с бюджетом (окно x budgetRatio, 0.45 по умолчанию — ниже порога компакции).",
+          "Выше бюджета он обрезает результаты в порядке от новейших, пропуская последние protectResults, пока измеренный объём не опустится под бюджет.",
+          "Точка перезаписи стоит у хвоста: провайдер заново считает только токены после неё.",
+          "Порог компакции не достигается, поэтому прежний обрезчик и компакция не срабатывают; они остаются страховкой."
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "FR1",
+      "kind": "FR",
+      "text": "Результаты инструментов обрезаются начиная с самых новых, пока измеренный контекст не опустится под бюджет.",
+      "acceptance": [
+        "planPrune выбирает кандидатов в порядке убывания seq",
+        "обрезка продолжается только пока измеренный объём выше бюджета, затем прекращается",
+        "на каждую обрезку пишется compaction/prune и tool/result с surfaceOp replace и sourceEventSeqs"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR2",
+      "kind": "FR",
+      "text": "Свежие результаты не обрезаются: последние protectResults результатов инструментов остаются целыми.",
+      "acceptance": [
+        "protectResults по умолчанию 3",
+        "проверка на fake-сессии: три последних результата не тронуты",
+        "если подходящих кандидатов нет, плагин ничего не пишет"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR3",
+      "kind": "FR",
+      "text": "Прежний обрезчик остаётся страховкой, а бюджет по умолчанию ниже порога компакции.",
+      "acceptance": [
+        "строка @deepseek-ai/dsh-compaction-tool-result-pruner остаётся в профиле",
+        "budgetRatio 0.45 ниже thresholdRatio 0.5 на 1M-маршрутах",
+        "если contextWindow неизвестен, плагин молчит и не мешает страховочному пути"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "NFR1",
+      "kind": "NFR",
+      "text": "Гейты кита и упаковка остаются зелёными.",
+      "acceptance": [
+        "make verify exit 0",
+        "check-documentation: все заявленные числа плагинов совпадают с inventory",
+        "тарбол собран, inventory и профиль согласованы"
+      ],
+      "status": "planned"
+    }
+  ],
+  "architecture": {
+    "contractImpact": "additive",
+    "components": [
+      {
+        "id": "C-TAIL",
+        "name": "Плагин tail-pruner",
+        "responsibility": "agent/pre-step: измерить контекст, обрезать новейшие результаты до бюджета, писать replay-safe замены",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": []
+      },
+      {
+        "id": "C-COMPACT",
+        "name": "Компакция и прежний обрезчик",
+        "responsibility": "порог компакции и страховочная обрезка от старых",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": []
+      },
+      {
+        "id": "C-CFG",
+        "name": "Профиль web",
+        "responsibility": "строка плагина и её конфигурация",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": []
+      }
+    ]
+  },
+  "data": [],
+  "contracts": [
+    {
+      "id": "CT-SURFACE",
+      "name": "События замены поверхности",
+      "between": [
+        "C-TAIL"
+      ],
+      "change": "additive",
+      "description": "Новый писатель тех же событий compaction/prune + tool/result(surfaceOp replace); формат события не меняется."
+    },
+    {
+      "id": "CT-CFG",
+      "name": "Конфигурация профиля",
+      "between": [
+        "C-CFG",
+        "C-TAIL"
+      ],
+      "change": "additive",
+      "description": "Новая строка плагина и её config; существующие строки не меняются."
+    }
+  ],
+  "invariants": [
+    {
+      "id": "INV-PRUNE",
+      "text": "Обрезка не трогает результаты моложе protectResults и ничего не удаляет из журнала: полный текст остаётся в исходном событии.",
+      "scope": ""
+    },
+    {
+      "id": "INV-REPLAY",
+      "text": "Замена поверхности воспроизводима: compaction/prune ссылается на shadowed seq, tool/result несёт sourceEventSeqs.",
+      "scope": ""
+    }
+  ],
+  "decisions": [
+    {
+      "id": "D-NEWEST",
+      "decision": "Обрезать с новейших, а не со старых.",
+      "rationale": "точка обрыва кэша — самая ранняя переписанная вершина; у новейшей она у хвоста",
+      "alternatives": []
+    },
+    {
+      "id": "D-KEEP",
+      "decision": "Прежний обрезчик оставить в профиле страховкой.",
+      "rationale": "как image-window: реактивный путь остаётся на случай, когда проактивный не успел",
+      "alternatives": []
+    }
+  ],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L1",
+    "reasons": [
+      "новый плагин кита внутри существующего профиля",
+      "контракты и данные не меняются",
+      "живой сервер не трогается, проверка на втором"
+    ]
+  },
+  "designRef": {
+    "mapRev": 32,
+    "at": "2026-11-20T11:00:31.366Z",
+    "source": "designmap/manifest.json"
+  },
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "FR1",
+      "processId": "P-TARGET",
+      "componentId": "C-TAIL",
+      "contractIds": [
+        "CT-SURFACE"
+      ],
+      "dataIds": [],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR2",
+      "processId": "P-TARGET",
+      "componentId": "C-TAIL",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR3",
+      "processId": "P-TARGET",
+      "componentId": "C-COMPACT",
+      "contractIds": [
+        "CT-CFG"
+      ],
+      "dataIds": [],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "NFR1",
+      "processId": "P-TARGET",
+      "componentId": "C-CFG",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "planned",
+      "tasks": []
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "9f5cfbf4ab0095cab04bfae7627ad215684408242c9c5790270ccac7e71db0d6",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-20T11:00:31.366Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-20T11:00:37.933Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    }
+  ]
+}

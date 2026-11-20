@@ -171,6 +171,10 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | REQ-165 | rejected | — | — | — | no |
 | REQ-166 | rejected | — | — | — | no |
 | REQ-167 | rejected | — | — | — | no |
+| REQ-168 | proposed | — | — | — | no |
+| REQ-169 | proposed | — | — | — | no |
+| REQ-170 | proposed | — | — | — | no |
+| REQ-171 | proposed | — | — | — | no |
 
 ## Tests
 

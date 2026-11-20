@@ -86,6 +86,16 @@
       "mounted": true
     },
     {
+      "id": "tail-pruner",
+      "package": "@cc/dsh-tail-pruner",
+      "tarballPrefix": "cc-dsh-tail-pruner",
+      "provenance": "in-repo",
+      "source": "plugins/tail-pruner",
+      "pack": "scripts/pack-plugin.mjs",
+      "mounted": true,
+      "note": "prunes the newest over-sized tool results first so the prefix-cache break stays at the tail"
+    },
+    {
       "id": "skills",
       "package": "@cc/dsh-skills",
       "tarballPrefix": "cc-dsh-skills",

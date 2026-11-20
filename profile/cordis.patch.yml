@@ -47,6 +47,27 @@
       config:
         keepImages: 1
 
+# ── tail-pruner: the cache break stays at the tail ──────────────────────────
+# The harness pruner (dsh-compaction-tool-result-pruner) runs only after the context
+# crossed the compaction threshold and rewrites EVERY result over 8192 characters from
+# the OLDEST. The earliest rewritten node sits near the head, so the next request
+# re-bills almost the whole context: measured 2026-11-20 over three days (22 938 steps,
+# 5.56 B tokens of prompt, 99.13% cached), 53 prune passes paid 12.2 M of the 48.2 M
+# fresh tokens. This row prunes NEWEST-first, only above its own budget and only until
+# the projection fits it, so the break sits at the tail; the newest protectResults stay
+# intact. budgetRatio 0.45 sits under the 0.5 compaction threshold of the 1M windows;
+# the 272K Codex window gets 0.75 so it is not pruned early. The harness pruner and
+# compaction stay mounted as the safety net.
+- insert:
+    - id: tail-pruner
+      name: '@cc/dsh-tail-pruner'
+      config:
+        budgetRatio: 0.45
+        protectResults: 3
+        routes:
+          - provider: openai-codex
+            budgetRatio: 0.75
+
 # ── diagrams: schemes the agent draws, shown by the file preview ────────────
 # Contributes one tool, `diagram`, which turns a JSON diagram spec into a standalone
 # HTML file whose SVG is inline. Four kinds over one contract — flow (flowcharts and

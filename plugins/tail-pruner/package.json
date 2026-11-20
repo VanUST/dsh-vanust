@@ -1,0 +1,16 @@
+{
+  "name": "@cc/dsh-tail-pruner",
+  "version": "0.1.0",
+  "description": "Keeps a session under a token budget by pruning the NEWEST over-sized tool results first: the point where the provider prefix cache breaks stays at the tail instead of at the head (measured 2026-11-20: 12.2M of 48.2M fresh tokens were paid by the harness oldest-first prune passes).",
+  "type": "module",
+  "main": "tail-pruner.mjs",
+  "exports": {
+    ".": "./tail-pruner.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": ["tail-pruner.mjs", "README.md"],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
+  }
+}
