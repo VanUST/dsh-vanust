@@ -1,0 +1,591 @@
+{
+  "schemaVersion": 1,
+  "id": "presenter-role",
+  "rev": 2,
+  "status": "draft",
+  "createdAt": "2026-11-20T09:16:18.708Z",
+  "updatedAt": "2026-11-20T09:17:58.149Z",
+  "updatedBy": "agent",
+  "title": "Роль presentation maker: пресет и инструменты визуализации",
+  "requestedSolution": "Владелец 2026-11-20: сделать пресет под роль presentation maker — красивые HTML-презентации с анимацией и визуализацией сложных концепций. Подобрать инструменты: анимация, библиотека стилей презентаций, дашборды и схемы — всё, что нужно для визуализации проектов и концепций, где возможны анимации. Проверить пресет тестовым ТЗ: визуализация механизма prefix caching, понятная человеку, далёкому от мира LLM.",
+  "businessOutcome": {
+    "problem": "В ките нет роли, которая умеет объяснять сложные концепции визуально: плагин presentation удалён 2026-11-18 за три вызова, диаграммы рисуют только схемы, остальные роли объясняют текстом. Красивая анимированная презентация сейчас требует ручной вёрстки без стилевой системы и без проверки в браузере, поэтому результат непредсказуем.",
+    "outcome": "В развёртывании есть пресет presenter с инструментами презентаций, дашбордов и схем. Роль собирает автономный HTML-документ по спецификации, проверяет его в браузере и отдаёт владельцу; тестовое ТЗ про prefix caching объясняет механизм человеку без знаний об LLM.",
+    "successMetrics": [
+      "пресет presenter виден в выборе композиции и принимается delegate_task по роли PRESENTER",
+      "presentation и dashboard пишут один автономный HTML-файл, открываемый без сети",
+      "make verify зелёный и называет preset-presenter",
+      "контрольный прогон: колода про prefix caching открыта в браузере, каждый слайд снят, ошибок консоли нет, навигация с клавиатуры работает",
+      "владелец читает колоду без объяснений в чате"
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CUR",
+        "name": "Объяснение текстом и разовая вёрстка",
+        "actors": [
+          "оркестратор",
+          "UX/UI",
+          "Docs"
+        ],
+        "steps": [
+          "Сложную концепцию объясняют абзацами в отчёте",
+          "Схему рисует diagram — только узлы и связи, без объяснения и движения",
+          "Презентацию при необходимости верстают вручную без общей стилевой системы",
+          "Результат в браузере не проверяют, о печати и узком экране не думают"
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-TGT",
+        "name": "Сториборд, рендер инструментом, проверка в браузере",
+        "actors": [
+          "владелец",
+          "оркестратор",
+          "presenter"
+        ],
+        "steps": [
+          "Владелец ставит задачу объяснить концепцию или показать проект",
+          "presenter делает сториборд: одна мысль на кадр, якорь, изменение, подпись",
+          "presenter вызывает presentation (колода) или dashboard (доска показателей), при необходимости diagram (схема) и вставляет готовый SVG в слайд",
+          "presenter открывает файл в браузере, снимает каждый слайд, проверяет консоль, клавиатуру и печать",
+          "владелец получает один HTML-файл и колоду в превью"
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "FR1",
+      "kind": "FR",
+      "text": "В развёртывании объявлен пресет presenter (роль Presentation maker) и он принимается всеми тремя путями выбора.",
+      "acceptance": [
+        "в списке композиции на втором сервере есть Presentation maker в позиции order 25",
+        "delegate_task принимает роль PRESENTER и резолвит preset presenter",
+        "make verify печатает, что preset-presenter назван в процедуре"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR2",
+      "kind": "FR",
+      "text": "Инструмент presentation превращает спецификацию колоды в один автономный HTML-файл с темами, раскладками и анимацией.",
+      "acceptance": [
+        "один файл открывается без сети и без соседних ресурсов",
+        "пять тем переключаются атрибутом на корне и меняют только токены",
+        "слайды типов cover, section, content, compare, steps, chart, visual, raw рендерятся",
+        "навигация с клавиатуры, полный экран, обзор и печать по одному слайду на страницу работают",
+        "нераскладной спецификации соответствует ok:false и список errors, а не исключение"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR3",
+      "kind": "FR",
+      "text": "Инструмент dashboard превращает спецификацию доски в один автономный HTML-файл с плитками показателей и SVG-графиками.",
+      "acceptance": [
+        "плитки KPI, списки статусов и графики bar, line, donut, sparkline рендерятся",
+        "графики считаются собственным кодом плагина, без внешней библиотеки",
+        "та же тема и те же токены, что у колоды",
+        "нераскладная спецификация возвращает errors, а не исключение"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR4",
+      "kind": "FR",
+      "text": "Роль presenter получает инструменты под свою работу и не получает лишних.",
+      "acceptance": [
+        "в заголовке ребёнка presenter есть bash, fs, fs-search, jobs, skills, web, present, presentation, dashboard, diagram и mcp__playwright__*",
+        "в заголовке нет mcp__godot__*, designmap_*, task_* записи доски и analysis_*",
+        "число инструментов не выше 1.5× объявленного бюджета, байты схем и напоминаний в бюджете"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR5",
+      "kind": "FR",
+      "text": "Скрипт-доказательство проверяет рендер, негативный контроль и живую страницу в браузере.",
+      "acceptance": [
+        "node scripts/presentation-proof.mjs печатает PASS и выходит 0",
+        "негативный контроль: испорченная спецификация даёт ok:false и не пишет файл",
+        "страница открывается в Chromium, консоль без ошибок, стрелки переключают слайды, в CSS есть правила печати",
+        "артефакты-скриншоты лежат в отчёте прогона"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR6",
+      "kind": "FR",
+      "text": "Тестовое ТЗ выполнено: колода про механизм prefix caching собрана ролью presenter и понятна человеку вне мира LLM.",
+      "acceptance": [
+        "колода создана сессией с пресетом presenter на втором сервере, а не корнем",
+        "каждый слайд снят и прочитан, ошибок консоли нет",
+        "в тексте нет терминов без расшифровки: кэш, префикс, токен, окно объяснены бытовыми словами",
+        "файл открывается без сети и печатается"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "NFR1",
+      "kind": "NFR",
+      "text": "Упаковка и документация сходятся с кодом: всех гейтов кита достаточно, чтобы это доказать.",
+      "acceptance": [
+        "make verify печатает 17/17 и не краснеет",
+        "inventory, тарбол, профиль и README согласованы по числу плагинов",
+        "новый пресет назван в rules/DEPLOYMENT.md строкой preset-presenter"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "NFR2",
+      "kind": "NFR",
+      "text": "Работающий сервер :3080 не трогается: проверка идёт на втором сервере своего профиля.",
+      "acceptance": [
+        "профиль ~/.npm/dsh/profiles/web не переписывается во время работы :3080",
+        "второй сервер поднят на свободном порту с overlay-патчем и остановлен после проверки"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "NFR3",
+      "kind": "NFR",
+      "text": "Колода автономна: во время просмотра не нужна сеть и не запрашиваются внешние ресурсы.",
+      "acceptance": [
+        "в HTML нет script src, @import и url( на локальные файлы",
+        "единственный встроенный script — классический, без модулей",
+        "семейства шрифтов заканчиваются системным запасным"
+      ],
+      "status": "planned"
+    }
+  ],
+  "architecture": {
+    "contractImpact": "additive",
+    "components": [
+      {
+        "id": "C-PRES",
+        "name": "@cc/dsh-presentation",
+        "responsibility": "Два инструмента: presentation собирает колоду, dashboard — доску; общая тема и SVG-графики, автономный HTML на выходе; хост-половина регистрирует инструменты только для пресета presenter",
+        "owner": "kit",
+        "owns": [
+          "theme-css",
+          "chart-svg",
+          "deck-html",
+          "board-html"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "C-PROFILE",
+        "name": "profile/cordis.patch.yml",
+        "responsibility": "Строка хоста плагина, объявление preset-presenter, allow-лист и бюджет presenter в tool-families",
+        "owner": "kit",
+        "owns": [
+          "D-INV",
+          "D-TARBALL",
+          "profile-file"
+        ],
+        "dependsOn": [
+          "C-PRES"
+        ]
+      },
+      {
+        "id": "C-ORCH",
+        "name": "plugins/orchestrator",
+        "responsibility": "PRESET_IDS и ROLE_PRESETS получают presenter и его написания, описание delegate_task и тексты о числе ролей",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": [
+          "C-PROFILE"
+        ]
+      },
+      {
+        "id": "C-DIAGRAM",
+        "name": "@cc/dsh-diagrams",
+        "responsibility": "Гейт пресетов диаграмм получает presenter, чтобы схема попадала в слайд как готовый SVG",
+        "owner": "kit",
+        "owns": [],
+        "dependsOn": []
+      },
+      {
+        "id": "C-PROOF",
+        "name": "scripts/presentation-proof.mjs",
+        "responsibility": "Проверяет контракт рендера, негативный контроль и живую страницу в Chromium",
+        "owner": "kit",
+        "owns": [
+          "D-SHOTS",
+          "screenshots"
+        ],
+        "dependsOn": [
+          "C-PRES"
+        ]
+      },
+      {
+        "id": "C-ARTIFACT",
+        "name": "Колода про prefix caching",
+        "responsibility": "Тестовый артефакт роли: один HTML-файл плюс снимки слайдов, по которым владелец проверяет понятность",
+        "owner": "kit",
+        "owns": [
+          "D-CASE"
+        ],
+        "dependsOn": [
+          "C-PRES",
+          "C-PROFILE"
+        ]
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "D-INV",
+      "name": "plugins/inventory.json",
+      "owner": "kit",
+      "ownerComponentId": "C-PROFILE",
+      "description": "Строка плагина; число плагинов в README и правилах растёт на единицу"
+    },
+    {
+      "id": "D-TARBALL",
+      "name": "plugins/cc-dsh-presentation-0.2.0.tgz",
+      "owner": "kit",
+      "ownerComponentId": "C-PROFILE",
+      "description": "Собран scripts/pack-plugin.mjs; должен совпадать с исходниками"
+    },
+    {
+      "id": "D-CASE",
+      "name": "docs/cases",
+      "owner": "kit",
+      "ownerComponentId": "C-ARTIFACT",
+      "description": "Требование владельца про понятность колоды: source human, unverified, связанный task"
+    },
+    {
+      "id": "D-SHOTS",
+      "name": "reports/presenter-proof",
+      "owner": "kit",
+      "ownerComponentId": "C-PROOF",
+      "description": "Снимки слайдов и доски, лог консоли; хост-локальные артефакты"
+    },
+    {
+      "id": "theme-css",
+      "name": "plugins/presentation/theme.css",
+      "owner": "kit",
+      "ownerComponentId": "C-PRES",
+      "description": "Канонические строки пяти тем: палитра, типографика, шаги сетки, радиусы, тени"
+    },
+    {
+      "id": "chart-svg",
+      "name": "plugins/presentation/charts.mjs",
+      "owner": "kit",
+      "ownerComponentId": "C-PRES",
+      "description": "Готовые SVG-примитивы графиков: bar, line, donut, sparkline"
+    },
+    {
+      "id": "deck-html",
+      "name": "presentation.html",
+      "owner": "kit",
+      "ownerComponentId": "C-PRES",
+      "description": "Один автономный HTML-файл колоды, который открывает превью и браузер"
+    },
+    {
+      "id": "board-html",
+      "name": "dashboard.html",
+      "owner": "kit",
+      "ownerComponentId": "C-PRES",
+      "description": "Один автономный HTML-файл доски показателей"
+    },
+    {
+      "id": "screenshots",
+      "name": "reports/presenter-proof/*.png",
+      "owner": "kit",
+      "ownerComponentId": "C-PROOF",
+      "description": "PNG-снимки слайдов и доски из Chromium и лог консоли"
+    },
+    {
+      "id": "profile-file",
+      "name": "profile/cordis.patch.yml",
+      "owner": "kit",
+      "ownerComponentId": "C-PROFILE",
+      "description": "Проверенный состав хоста и пресетов"
+    }
+  ],
+  "contracts": [
+    {
+      "id": "CT-DECK",
+      "name": "Инструмент presentation",
+      "between": [
+        "C-PRES"
+      ],
+      "change": "additive",
+      "description": "Вход: JSON-спецификация колоды и имя файла. Выход: {ok, degraded, path, bytes, theme, slides, errors, warnings}; ok означает только запись файла, валидность живёт в errors."
+    },
+    {
+      "id": "CT-BOARD",
+      "name": "Инструмент dashboard",
+      "between": [
+        "C-PRES"
+      ],
+      "change": "additive",
+      "description": "Вход: JSON-спецификация доски. Выход: {ok, degraded, path, bytes, theme, tiles, charts, errors, warnings}."
+    },
+    {
+      "id": "CT-HTML",
+      "name": "Автономный документ",
+      "between": [
+        "C-PRES",
+        "C-ARTIFACT"
+      ],
+      "change": "additive",
+      "description": "Один файл .html: встроенные style и один классический script, нет script src, @import и url( на локальные файлы, шрифты с системным запасным, печать по одному слайду на страницю."
+    },
+    {
+      "id": "CT-ROLE",
+      "name": "Контракт роли",
+      "between": [
+        "C-PROFILE",
+        "C-ORCH",
+        "C-PRES"
+      ],
+      "change": "additive",
+      "description": "Идентификатор пресета presenter, порядок 25, роль Presentation maker; диаграммы разрешены ещё и этому пресету."
+    }
+  ],
+  "invariants": [
+    {
+      "id": "INV-1",
+      "text": "Рендер не бросает исключений: неразборная спецификация — это результат с ok:false и errors.",
+      "scope": "C-PRES"
+    },
+    {
+      "id": "INV-2",
+      "text": "degraded истинно ровно тогда, когда список errors непуст; ok описывает только запись файла.",
+      "scope": "C-PRES"
+    },
+    {
+      "id": "INV-3",
+      "text": "В результате инструмента нет полей со значением undefined: кодировщик харнесса отвергает такое значение.",
+      "scope": "C-PRES"
+    },
+    {
+      "id": "INV-4",
+      "text": "В готовом документе нет внешних ресурсов, кроме необязательного шрифта с системным запасным.",
+      "scope": "C-ARTIFACT"
+    },
+    {
+      "id": "INV-5",
+      "text": "Печать даёт один слайд на страницу.",
+      "scope": "C-ARTIFACT"
+    },
+    {
+      "id": "INV-6",
+      "text": "Тема переключается атрибутом на корне и меняет только токены, а не разметку.",
+      "scope": "C-PRES"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "D-1",
+      "decision": "Свой движок анимации на CSS и WAAPI вместо внешней библиотеки; слайд raw остаётся выходом для нестандартного движения.",
+      "rationale": "openmotion 0.1.1 (MIT) — рантайм для Next.js, к автономной странице неприменим; motion 14.14.0 (MIT) — около 1 МБ распакованного кода на каждую колоду, а страница должна открываться без сети и без соседних файлов. CSS и WAAPI дают те же 150–250 мс с ease-out без байтов и без цепочки поставок.",
+      "alternatives": [
+        "vendored-библиотека в каждой колоде",
+        "переписать страницу на сборщик и отдать папку"
+      ]
+    },
+    {
+      "id": "D-2",
+      "decision": "Два инструмента в одном плагине: presentation и dashboard делят theme.css и charts.mjs.",
+      "rationale": "Дека и доска — разные вопросы читателя (рассказ против сводки), значит разные инструменты; но стиль должен совпадать, поэтому одна библиотека токенов и один набор графиков на двоих.",
+      "alternatives": [
+        "один инструмент с режимом deck|board",
+        "три отдельных плагина"
+      ]
+    },
+    {
+      "id": "D-3",
+      "decision": "Роль получает order 25 — между ux (20) и backend (30).",
+      "rationale": "Работа роли — дизайн артефакта, а не реализация: она стоит рядом с ux в списке композиций.",
+      "alternatives": [
+        "order 35 после backend",
+        "отдельная группа"
+      ]
+    },
+    {
+      "id": "D-4",
+      "decision": "PTC включён по образцу ux: рендер и проверка в браузере — это много мелких шагов, в диалог должно вернуться только решение.",
+      "rationale": "Тот же профиль нагрузки, что у ux, у которого PTC уже проверен; заголовок режима — два инструмента против тридцати.",
+      "alternatives": [
+        "не давать PTC"
+      ]
+    },
+    {
+      "id": "D-5",
+      "decision": "Схемы остаются отдельным инструментом diagram; колода принимает готовый SVG слайдом visual.",
+      "rationale": "Раскладка графа уже написана и проверена; копия в плагине презентаций раздвоила бы правку и добавила бы вторую реализацию.",
+      "alternatives": [
+        "новый инструмент slide_diagram",
+        "встроить раскладку диаграмм в плагин презентаций"
+      ]
+    }
+  ],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L1",
+    "reasons": [
+      "Новый компонент кита и новый пресет внутри существующего профиля",
+      "Новых внешних контрактов и данных нет: контракт — два новых инструмента и роль",
+      "Живой сервер не трогается, проверка на втором"
+    ]
+  },
+  "designRef": {
+    "mapRev": 32,
+    "at": "2026-11-20T09:17:17.472Z",
+    "source": "designmap/manifest.json"
+  },
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "FR1",
+      "processId": "P-TGT",
+      "componentId": "C-PROFILE",
+      "contractIds": [
+        "CT-ROLE"
+      ],
+      "dataIds": [
+        "profile-file"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR2",
+      "processId": "P-TGT",
+      "componentId": "C-PRES",
+      "contractIds": [
+        "CT-DECK",
+        "CT-HTML"
+      ],
+      "dataIds": [
+        "deck-html",
+        "theme-css",
+        "chart-svg"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR3",
+      "processId": "P-TGT",
+      "componentId": "C-PRES",
+      "contractIds": [
+        "CT-BOARD",
+        "CT-HTML"
+      ],
+      "dataIds": [
+        "board-html",
+        "theme-css",
+        "chart-svg"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR4",
+      "processId": "P-TGT",
+      "componentId": "C-ORCH",
+      "contractIds": [
+        "CT-ROLE"
+      ],
+      "dataIds": [
+        "profile-file"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR5",
+      "processId": "P-TGT",
+      "componentId": "C-PROOF",
+      "contractIds": [
+        "CT-DECK",
+        "CT-BOARD"
+      ],
+      "dataIds": [
+        "screenshots"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR6",
+      "processId": "P-TGT",
+      "componentId": "C-ARTIFACT",
+      "contractIds": [
+        "CT-HTML"
+      ],
+      "dataIds": [
+        "deck-html",
+        "screenshots"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "NFR1",
+      "processId": "P-TGT",
+      "componentId": "C-PROFILE",
+      "contractIds": [],
+      "dataIds": [
+        "D-INV",
+        "D-TARBALL"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "NFR2",
+      "processId": "P-TGT",
+      "componentId": "C-PROFILE",
+      "contractIds": [],
+      "dataIds": [
+        "profile-file"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "NFR3",
+      "processId": "P-TGT",
+      "componentId": "C-PRES",
+      "contractIds": [
+        "CT-HTML"
+      ],
+      "dataIds": [
+        "deck-html"
+      ],
+      "status": "planned",
+      "tasks": []
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "5e7251e9dd679859c3a8be206270726ab518e54f949697ddeb332d2c9345f904",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-20T09:16:18.708Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-20T09:17:58.149Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": ""
+    }
+  ]
+}

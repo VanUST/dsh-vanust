@@ -40,6 +40,16 @@
       "mounted": true
     },
     {
+      "id": "presentation",
+      "package": "@cc/dsh-presentation",
+      "tarballPrefix": "cc-dsh-presentation",
+      "provenance": "in-repo",
+      "source": "plugins/presentation",
+      "pack": "scripts/pack-plugin.mjs",
+      "mounted": true,
+      "note": "two tools, presentation and dashboard; self-contained HTML, five themes, CSS/WAAPI motion"
+    },
+    {
       "id": "work-modes",
       "package": "@cc/dsh-work-modes",
       "tarballPrefix": "cc-dsh-work-modes",

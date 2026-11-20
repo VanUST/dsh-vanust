@@ -109,12 +109,13 @@ const POLICY_RAW = {
     research: { allow: ['glob', 'grep', 'papers_download', 'papers_search', 'papers_trending', 'read', 'read_image', 'skill', 'task_get', 'task_note', 'todo_write', 'web_fetch', 'web_search', 'write'] },
     docs: { allow: ['case_get', 'case_list', 'case_record', 'edit', 'glob', 'grep', 'read', 'skill', 'task_get', 'task_note', 'todo_write', 'web_fetch', 'web_search', 'write'] },
     ux: { allow: ['bash', 'case_list', 'case_record', 'edit', 'glob', 'grep', 'mcp__playwright__*', 'present', 'read', 'read_image', 'skill', 'task_get', 'task_note', 'todo_write', 'web_fetch', 'web_search', 'write'] },
+    presenter: { allow: ['bash', 'dashboard', 'diagram', 'edit', 'glob', 'grep', 'job_kill', 'job_list', 'job_output', 'mcp__playwright__*', 'outline', 'present', 'presentation', 'read', 'read_image', 'skill', 'task_get', 'task_note', 'todo_write', 'web_fetch', 'web_search', 'write'] },
   },
 }
-const BUDGETS = { orchestrator: 42, backend: 16, reviewer: 14, critic: 14, gatherer: 10, research: 14, docs: 14, ux: 40 }
+const BUDGETS = { orchestrator: 42, presenter: 36, backend: 16, reviewer: 14, critic: 14, gatherer: 10, research: 14, docs: 14, ux: 40 }
 const POLICY = normalizeConfig(POLICY_RAW)
 
-const PRESETS = [undefined, 'orchestrator', 'ux', 'backend', 'reviewer', 'critic', 'research', 'gatherer', 'docs', 'a-preset-nobody-wrote']
+const PRESETS = [undefined, 'orchestrator', 'ux', 'presenter', 'backend', 'reviewer', 'critic', 'research', 'gatherer', 'docs', 'a-preset-nobody-wrote']
 const WORKSPACES = [
   { label: 'dsh-kit', marker: false },
   { label: 'godot-project', marker: true },
@@ -193,10 +194,12 @@ for (const preset of ROWS) {
   }
 }
 
-// 4. The families the design excludes are gone; Playwright is the ux exception.
+// 4. The families the design excludes are gone; Playwright is the browser-seat exception
+// (ux designs an interface, presenter looks at its own rendered deck).
+const BROWSER_SEATS = new Set(['ux', 'presenter'])
 for (const preset of ROWS) {
   const decision = row('dsh-kit', preset).decision
-  check(`playwright ${preset === 'ux' ? 'kept' : 'removed'} for preset "${preset}"`, keptFamilies(decision, 'mcp__playwright__') === (preset === 'ux'))
+  check(`playwright ${BROWSER_SEATS.has(preset) ? 'kept' : 'removed'} for preset "${preset}"`, keptFamilies(decision, 'mcp__playwright__') === BROWSER_SEATS.has(preset))
 }
 for (const workspace of WORKSPACES) {
   for (const preset of ROWS) {

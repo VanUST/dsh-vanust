@@ -63,6 +63,22 @@
     - id: diagrams
       name: '@cc/dsh-diagrams'
 
+# ── presentation: a deck and a board the preview can show ───────────────────
+# Contributes two tools, `presentation` (a slide deck) and `dashboard` (a KPI
+# board). Both turn a JSON spec into ONE standalone HTML file whose CSS, player
+# and charts are inline, so the file opens in the Sidebar document preview (a
+# sandboxed frame with an opaque origin), in a browser and in a PDF printer with
+# no network and no sibling file. The five themes and every component live in one
+# `theme.css`; the animation engine is CSS plus `requestAnimationFrame` — a
+# vendored library would put ~190 KB of `motion` into every deck for the same
+# 150–320 ms ease-out, and `openmotion` is a Next.js runtime that cannot run in a
+# static page (the survey and the numbers are in docs/PRESENTATION-TOOLCHAIN.md).
+# The host half registers the tools for the `presenter` and `ux` seats only; the
+# tool-families row is the second gate.
+- insert:
+    - id: presentation
+      name: '@cc/dsh-presentation'
+
 # ── designmap: semantic YAML model → deterministic ELK scene → panel ───────
 # The single design map. The 0.2.0 Excalidraw plugin was removed in this release; the
 # React Flow view below is the shipped renderer.
@@ -339,6 +355,20 @@
             ptc:
               tools: 2
               promptBytes: 53365
+          presenter:
+            # The role's allow list is 22 entries, but `mcp__playwright__*` expands to a
+            # family of tools, so the kept set is larger than the list: the policy proof
+            # measures 32 kept names against the synthetic header (2026-11-20), which is
+            # why the declared allowance is 36 rather than 22. `recommended` is the
+            # design table; the real child header is measured on the second server.
+            tools: 36
+            recommended: 32
+            schemaBytes: 60000
+            promptBytes: 26000
+            remindersBytes: 70000
+            ptc:
+              tools: 2
+              promptBytes: 53365
           backend:
             tools: 28
             recommended: 16
@@ -597,6 +627,35 @@
             # denied, so a non-Godot workspace pays nothing for it.
             projectDeny:
               - mcp__godot__*
+
+          # The visual seat: a shell to verify, the file tools to author, the browser
+          # to look at the result, web for references, and the two kit renderers plus
+          # the diagram tool it composes slides from. No designmap (it is not designing
+          # the system), no Godot bridge, no board writes beyond its own task note.
+          presenter:
+            allow:
+              - bash
+              - dashboard
+              - diagram
+              - edit
+              - glob
+              - grep
+              - job_kill
+              - job_list
+              - job_output
+              - mcp__playwright__*
+              - outline
+              - present
+              - presentation
+              - read
+              - read_image
+              - skill
+              - task_get
+              - task_note
+              - todo_write
+              - web_fetch
+              - web_search
+              - write
 
 
 # ── taskboard: the workspace task ledger ───────────────────────────────────
@@ -1250,6 +1309,104 @@
           # PTC: the ux role opens pages, snapshots them and reads the console as one
           # program, so the intermediate snapshots stay out of the conversation.
           # Scope is this preset only; removing this row is the rollback.
+          - id: tool-executor-ptc
+            name: '@deepseek-ai/dsh-tool-executor-ptc'
+
+    # ── presenter: the visual storyteller — decks, boards, animated explainers ──
+    # A separate seat from ux on purpose: ux designs an INTERFACE and proves it
+    # with an accessibility pass, while this role designs an EXPLANATION and proves
+    # it by making a non-specialist understand. They share the style system (five
+    # themes in the presentation plugin), not the job.
+    - id: preset-presenter
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: presenter
+        name: Presentation maker
+        description: Makes an idea land for a stranger - animated HTML decks, KPI boards and diagrams from the kit's own renderers, verified in a real browser.
+        order: 25
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |-
+                You are the presentation maker of this workspace. Your product is understanding, not slides: the test of your work is that a person outside the subject can repeat the idea afterwards. Work from the reader's question, not from the source material: pick the artifact that answers it — a deck when the order matters, a dashboard when the numbers matter, a diagram when the relationships matter, a staged or interactive page when the reader must see a change — and build it with the kit's renderers (`presentation`, `dashboard`, `diagram`) instead of hand-written HTML. Storyboard before you render: for every frame write down the ANCHOR (what stays on screen), the CHANGE (what moves) and the CAPTION (what the viewer should conclude, as a sentence). One idea per slide; a title states the conclusion, not the box's name. Show the transformation instead of its result: keep the "before" visible while the "after" arrives. Colour carries one meaning — accent marks the subject of the current idea and nothing else. No decorative motion: if removing an animation loses nothing, remove it. Explain every term a reader outside the field would not know, in one clause, on the slide where it first appears, and prefer a concrete example over a definition. Then verify in the browser: open the file, screenshot every slide, read the console, check the print view and a narrow window, and fix what you see. Your tools: bash, the file tools, web research for references, the Playwright browser and the kit's presentation/dashboard/diagram tools. A deck that needs an explanation in chat has failed — the file is the deliverable, and a slide you did not look at is not finished.
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+            disabled: !!js process.platform !== 'win32'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-jobs
+            name: '@deepseek-ai/dsh-tool-jobs'
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+                config:
+                  # Absolute budget ~500K where the window allows it, and never more than
+                  # 80% of the window: a 1M window compacts at 524K (0.5), a 272K Codex
+                  # window at 206K (0.8, capped by the 64K headroom). A flat 0.5 cut the
+                  # 272K window at 136K and paid for a summarization call plus a cache reset
+                  # mid-turn (session-0b50bf39, 2026-11-18).
+                  thresholdRatio: 0.8
+                  retainRatio: 0.08
+                  modelPolicies:
+                    - provider: deepseek-official
+                      model: deepseek-flash
+                      thresholdRatio: 0.5
+                    # The 1M Kimi windows are the same absolute budget: 0.8 would spend 838K.
+                    - provider: kimi-coding
+                      model: k3.1-pro
+                      thresholdRatio: 0.5
+                    - provider: kimi-coding
+                      model: kimi-for-coding
+                      thresholdRatio: 0.5
+                    - provider: kimi-coding
+                      model: k3
+                      thresholdRatio: 0.5
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config:
+              fetch: true
+              searchTimeoutMs: 60000
+          - id: present
+            name: '@deepseek-ai/dsh-tool-present'
+          # PTC: building one deck is a long run of small edits and browser checks.
+          # The program does the loop and only the decision comes back. Scope is this
+          # preset only; removing this row is the rollback.
           - id: tool-executor-ptc
             name: '@deepseek-ai/dsh-tool-executor-ptc'
 

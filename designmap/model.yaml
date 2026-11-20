@@ -26,6 +26,11 @@ nodes:
     label: designmap (this panel)
     group: null
     source: plugins/designmap/index.js
+  - id: plug.presentation
+    type: service
+    label: presentation + dashboard tools
+    group: null
+    source: plugins/presentation/index.js
   - id: plug.role-model
     type: service
     label: Role model route
@@ -82,6 +87,11 @@ edges:
     to: plug.designmap
     kind: sync
     label: designmap_* tools
+  - id: e.orch.presentation
+    from: svc.orchestrator
+    to: plug.presentation
+    kind: async
+    label: presenter preset renders a deck
   - id: e.orch.skills
     from: svc.orchestrator
     to: plug.skills

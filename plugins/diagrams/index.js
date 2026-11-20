@@ -134,7 +134,7 @@ function registerForPresets(ctx, tool, presets) {
  * @param ctx - Cordis context; `ctx.tools` is guaranteed by `inject`.
  */
 export function apply(ctx) {
-  registerForPresets(ctx, diagramTool(defineTool), ['standard', 'orchestrator', 'ux'])
+  registerForPresets(ctx, diagramTool(defineTool), ['standard', 'orchestrator', 'ux', 'presenter'])
 }
 
 export { renderDiagram, THEMES, KINDS } from './render.mjs'

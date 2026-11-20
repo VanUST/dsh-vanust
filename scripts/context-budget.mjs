@@ -41,7 +41,7 @@ import { zstdDecompressSync } from 'node:zlib'
 import { decodeSession } from './session/session-log.mjs'
 
 const KIT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const KIT_PRESETS = ['orchestrator', 'architect', 'ux', 'backend', 'research', 'gatherer', 'reviewer', 'critic', 'docs']
+const KIT_PRESETS = ['orchestrator', 'architect', 'ux', 'presenter', 'backend', 'research', 'gatherer', 'reviewer', 'critic', 'docs']
 const REMINDER_KINDS = new Set(['agent-instructions', 'runtime-context', 'skill-catalog', 'time-context'])
 const RED_FACTOR = 1.5
 

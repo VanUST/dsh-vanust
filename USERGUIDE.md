@@ -1,7 +1,7 @@
 # USERGUIDE.md — setting up and starting the harness on a new machine
 
 This kit installs **DeepSeek Harness (dsh)** on any of your machines (2× Linux,
-1× Windows) plus the **26** plugins this deployment adds beyond upstream:
+1× Windows) plus the **27** plugins this deployment adds beyond upstream:
 **`@cc/dsh-notify`** (raises a desktop notification — `notify-send`, a PowerShell toast or
 `osascript` — when an agent finishes a turn and when it asks you a question; silence it with
 `DSH_NOTIFY_DISABLED=1` in the server's environment),
@@ -12,6 +12,11 @@ batch instead of the whole context),
 HTML document with inline SVG — flowcharts and algorithm illustrations, layered system
 designs, sequence diagrams and state machines; you describe nodes and relationships and
 the plugin computes the geometry, and the Sidebar document preview shows it),
+**`@cc/dsh-presentation`** (two tools over one style system: `presentation` renders a JSON
+deck spec into a standalone HTML deck and `dashboard` renders a KPI board — five themes,
+fragments that reveal on advance, count-up numbers, drawn chart lines, an overview grid,
+speaker notes and one printed slide per page; the file needs no network and no sibling
+asset, so the Sidebar preview shows exactly what you print),
 **`@cc/dsh-work-modes`** (shipped but not mounted: its two-child concurrency cap was
 removed on 2026-11-05 and the harness pool now allows 64 concurrent `subagent`
 children), **`@cc/dsh-godot-mcp`** (a declarative, transferable MCP server list — §3.2),

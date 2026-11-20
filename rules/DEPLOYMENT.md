@@ -14,13 +14,14 @@ unless the `DSH_HOME` environment variable overrides it.
 
 ## 1. What this deployment is
 
-The upstream harness plus 26 plugins, all pinned and installed from one kit repository:
+The upstream harness plus 27 plugins, all pinned and installed from one kit repository:
 
 | Piece | What it does |
 |---|---|
 | `@cc/dsh-notify` | raises a desktop notification when an agent finishes a turn and when it asks the user a question (`notify-send`, a PowerShell toast, or `osascript`); spawned detached, argv-only, never blocking |
 | `@cc/dsh-image-window` | keeps only the newest N images in a session's request by offloading the one that falls out of the window as a new image arrives — a *tail* rewrite, so a caching provider re-bills the new batch instead of the whole context. It exists because the harness satisfies a route's image budget reactively: an adapter rejects the request, `@deepseek-ai/dsh-compaction-image-offload` removes the **oldest** occurrences and retries, and that head rewrite re-billed 1,783,829 of 2,260,222 fresh tokens in one measured session (2026-11-10, `session-1cb0708d`, kimi-coding, 532K context). The harness plugin stays mounted as the safety net for a single image larger than the whole byte budget. `keepImages: 1` by default; raise it when a task compares several images |
 | `@cc/dsh-diagrams` | one tool, `diagram`, that renders a JSON diagram spec into a standalone HTML file whose SVG is inline: flow and state (flowcharts, algorithm illustrations), layered architecture, and sequence diagrams. The agent describes nodes and relationships and the plugin computes the geometry — layered ranking with cycle breaking, edge routing with detours, and label placement — in a dependency-free engine. The Sidebar document preview displays it, so the file the user prints is the file the agent wrote |
+| `@cc/dsh-presentation` | two tools over one style system: `presentation` renders a JSON deck spec into a standalone HTML deck and `dashboard` renders a JSON board spec into a KPI board. The document carries its CSS, charts and player inline — no `src=`, no `@import`, no `url(` — so the sandboxed preview, the browser and the PDF printer show the same thing. Five themes are one token layer; motion is CSS plus `requestAnimationFrame` (150–320 ms ease-out, fragments on advance, count-up numbers, drawn chart lines); a deck prints one slide per page and the board prints as one page. The survey of the libraries it does NOT vendor (`openmotion` is a Next.js runtime, `motion` would add ~190 KB per deck, `reveal.js`/`slidev`/`mermaid` are heavier than the renderers the kit already has) is `docs/PRESENTATION-TOOLCHAIN.md`, measured 2026-11-20 |
 | `@cc/dsh-designmap` | **M4 redesign, replaces `@cc/dsh-design-map`** (whose loader row the kit patch now disables with `disabled: true`; its source, tarball and inventory row stay for rollback). Semantic `designmap/model.yaml` + `designmap/views.yaml` → zod-strict validation → ELK layered layout → overlay merge + GC → lint → `designmap/out/<viewId>.scene.json` + `index.json`. Seven `designmap_*` tools (status/scan/apply/render/lint/open/export) gated to the **orchestrator** preset by default; the read-only panel reads through `workspaceFiles` and writes only through `/designmap op:'overlay'`, which the host guards with a strict allow-list and lands in `designmap/overlays.json`. SVG export is canonical; PNG is optional and needs an external converter (`rsvg-convert`/ImageMagick) or refuses with `png_converter_missing`. Package packed by `scripts/pack-plugin.mjs --dir plugins/designmap`; the host half ships pre-bundled (`dist/`, with the pinned `elkjs`/`yaml`/`zod` inlined and no runtime `dependencies`), so installing the tarball needs no npm registry and a `dsh web` boot stays offline — with real dependencies the boot spent 1m22s in pnpm retries and could leave the profile with no plugin set. Installed and active in the live web profile (0.1.4) |
 | `@cc/dsh-design-map` (0.2.0, retired) | one Excalidraw scene, `design.excalidraw` at the project root, that the **orchestrator** and the human both edit. The orchestrator gets `design_map` (read/write/upsert/remove over labelled boxes and arrows; missing positions are laid out for it) and the human opens **Design map** in the sidebar. The tool is registered per agent on `agent/created` and ONLY for the `orchestrator` preset: a specialist child has no `design_map`, and an unknown preset gets none either (an ownership boundary fails closed). The `/design-map` command is not gated - it is the human's panel path. The panel embeds the real MIT Excalidraw editor in an iframe `srcdoc` built from a vendored 3.4 MB frame (no CDN), reads the scene through `workspaceFiles` and saves through the `/design-map` command; every save is stamped with `rev`, `updatedAt` and `updatedBy` at the scene root, and a read returns `ageMs`/`stale` so the orchestrator knows when the map must be refreshed. One document, one revision counter, no second store |
 | `@cc/dsh-test-cases` | the observed test-case library in `docs/cases/`, which now EXECUTES: twelve host tools (`case_record`, `case_update`, `case_verify`, `case_run`, `case_suite`, `case_gate`, `case_list`, `case_get`, `case_supersede`, `case_deprecate`, `case_remove`, `case_drift`) over one schema-validated JSON file per case. `case_run` invokes the STORED `runCommand` through `ctx.shell` when the host mounts it (sandbox, caps, timeout) and records the measurement: exit code, duration, `commandSha256`, `head`/`dirty`, the driver's `CASE_SUMMARY` metrics/hashes/artifacts under `docs/cases/runs/`, and the case's declared `checks` (`{metric, op, threshold}`; a missing metric FAILS; `baseline: true` is a ratchet seeded only from a passing run; `runs` keeps median/p95 and records a mixed outcome as `flaky`). A green run with no recorded red is a measurement, not a verification: the measured red is `case_run {mode:'red'}` with a driver negative control (`CASE_NEGATIVE_CONTROL` must exit non-zero), while `case_verify` is the manual report stamped `source:manual`. `case_suite` runs a filtered set and writes a report; `case_gate` and the `cases` service expose the verdict, and the taskboard refuses `task_close` with `cases_not_green` when a linked automated case is not verified. Compare-and-set on `revision` with `history`; `case_drift` rehashes recorded surface files and degrades a missing test, but only `verified`/`failing`/`flaky` can go `stale`. The `orchestrator` gets intake plus `case_gate`, the tester presets get all twelve, and a preset not listed gets all twelve. CLI: `node plugins/test-cases/bin/cases.mjs`, `make cases` |
@@ -73,10 +74,10 @@ request, which is why the budget stays bounded and the mode is `normal`, not `al
 
 ### 1.0 The role presets — tool sets, not prompts
 
-Nine `@deepseek-ai/dsh-agent-preset` declarations sit in the profile patch, and
+Ten `@deepseek-ai/dsh-agent-preset` declarations sit in the profile patch, and
 `@deepseek-ai/dsh-agent-preset-registry` defaults new sessions to it:
-`preset-orchestrator`, `preset-architect`, `preset-ux`, `preset-backend`, `preset-research`,
-`preset-gatherer`, `preset-reviewer`, `preset-critic`, `preset-docs`. A preset is the persona AND the tool list, so
+`preset-orchestrator`, `preset-architect`, `preset-ux`, `preset-presenter`, `preset-backend`,
+`preset-research`, `preset-gatherer`, `preset-reviewer`, `preset-critic`, `preset-docs`. A preset is the persona AND the tool list, so
 the isolation is
 registration, not a brief: the orchestrator reads and writes (`read`, `readImage`, `write`,
 `edit`) but has no `bash` or `pwsh` at all - it can change a file and cannot run anything, so a
@@ -103,6 +104,22 @@ surveying the tree. `@cc/dsh-role-model` gives it its route and the fallback
 `tool-families` keeps its surface at twelve tools. The role is NOT in `store.mjs` `readOnly`:
 it changes the design map, so an L1/L2 delegation to it needs the Analysis Record like any other.
 
+**`presenter` makes an idea land for a person outside the subject.** It is the visual
+storyteller: a deck when the order matters, a board when the numbers matter, a diagram when the
+relationships matter — built with the kit's own renderers (`presentation`, `dashboard`,
+`diagram`) and proved slide by slide in a browser. It is NOT a second `ux`: ux designs an
+interface and proves it with an accessibility pass, the presenter designs an explanation and
+proves it by making a non-specialist repeat the idea; they share the style system, not the job.
+Its persona is a discipline, not a preference: storyboard every frame as anchor/change/caption,
+one idea per slide, a title that states the conclusion, the "before" kept on screen while the
+"after" arrives, accent colour meaning one thing, no decorative motion, and every term a reader
+outside the field would not know explained in one clause on the slide where it first appears.
+The seat carries `bash` (to verify and to bundle), the file tools, web research, the Playwright
+browser, `presentation`, `dashboard` and `diagram` (the last one was extended to this preset),
+and PTC so the edit/look/fix loop stays out of the conversation. It has no `designmap_*` (it does
+not design the system) and no Godot bridge. The OutputRule: **a deck that needs an explanation in
+chat has failed, and a slide nobody looked at is not finished.**
+
 **`gatherer` is reconnaissance, and it exists to keep the root's context for the design.** The
 orchestrator can read and write, but "how does this actually work today?" answered by the root's
 own read/grep calls fills the window the design decision needs - and the next design step still
@@ -118,7 +135,7 @@ document. Its `tool-families` row is an allow list of ten tools (read/glob/grep/
 task_get/task_note/todo_write/working_directory/read_image): the gatherer reads code, it does
 not drive an interface, and Playwright is not in its row.
 
-**`critic` is the seventh child role, and it is a different job from `reviewer`.** The reviewer judges a
+**`critic` is the eighth child role, and it is a different job from `reviewer`.** The reviewer judges a
 diff and does not write; the critic attacks a RUNNING behaviour - a service, a CLI, an
 algorithm - with realistic non-trivial inputs and sequences, on a disposable copy (`/tmp`, a
 scratch checkout, a copy of the data), and reports the smallest reproducible failure or what
@@ -171,12 +188,12 @@ child's tool header looks far wider than its role:
 
 | source | rows | what a specialist sees |
 | --- | --- | --- |
-| the nine presets | a per-preset plugin row set (persona, instructions, time, shell where allowed, fs, fs-search, jobs, skills, skill tool, compaction, todo, web, present) | its role's tool set |
+| the ten presets | a per-preset plugin row set (persona, instructions, time, shell where allowed, fs, fs-search, jobs, skills, skill tool, compaction, todo, web, present) | its role's tool set |
 | the host profile (`$DSH_HOME/cordis.patch.yml`, written by `scripts/dsh-mcp-sync.mjs`) | `mcp-client-godot-mcp` (`mcp__godot__*`), `mcp-client-playwright-mcp` (`mcp__playwright__*`), `hindsight` | inherited by every preset, including the reviewer |
 | kit rows mounted at the host | taskboard, test-cases, skills, research-first, proof-guard, rtk, tool-families | inherited, but each gates its own role-only tools by `agent/preset` (`papers_*` research, `design_map` orchestrator, `diagram` orchestrator+ux) |
 
 Measured 2026-11-11 from the root session's child headers: backend 105 tools, ux 107,
-reviewer/critic/research 103, a legacy run-code-only role 1. The nine presets declare a per-preset plugin row set, so the difference is host-mounted, not role-granted. **The child policy now says
+reviewer/critic/research 103, a legacy run-code-only role 1. The ten presets declare a per-preset plugin row set, so the difference is host-mounted, not role-granted. **The child policy now says
 this in one line**, so a specialist knows an `mcp__*` tool in its header came from the host and
 is not licence to do a job its role was given no tool for. Moving the MCP rows INTO the presets
 is technically possible (a preset is a plugin list) but each mounted MCP row starts its own
@@ -748,7 +765,7 @@ pack saves tokens or time. Evidence and the full tables:
 [integration.md](../reports/code-search/integration.md) (local run artifacts; `reports/` is
 gitignored, so these links exist in this checkout, not in an installed copy).
 
-**The role toolchain — nine presets, nine pinned binaries, and two roles that cannot run them.**
+**The role toolchain — ten presets, nine pinned binaries, and two roles that cannot run them.**
 Provisioning also installs the CLIs the role personas name. Each pin is the project's own latest
 release measured on 2026-11-10; the release date, licence, last-commit date and the exact proof
 command for every row are recorded in `.dsh/research/role-toolchain-install.md`.

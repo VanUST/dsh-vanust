@@ -111,9 +111,9 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
  * for AUDIT is told to choose REVIEWER or CRITIC, and a board that still holds the label keeps
  * it as history (scripts/taskboard-migrate.mjs splits the rows it can still prove).
  */
-export const PRESET_IDS = ['architect', 'ux', 'backend', 'research', 'gatherer', 'reviewer', 'critic', 'docs']
+export const PRESET_IDS = ['architect', 'ux', 'presenter', 'backend', 'research', 'gatherer', 'reviewer', 'critic', 'docs']
 
-/** Role spellings that denote one of the eight child compositions. Keys are normalizedRole() output. */
+/** Role spellings that denote one of the nine child compositions. Keys are normalizedRole() output. */
 export const ROLE_PRESETS = {
   // The system designer on the expensive route. `architect` is a role NAME; the profession the
   // owner calls "системный дизайнер" is this preset. `designer` stays UX/UI: an interface
@@ -126,6 +126,15 @@ export const ROLE_PRESETS = {
   uxui: 'ux',
   design: 'ux',
   designer: 'ux',
+  // The visual storyteller. `presentation` and `slides` are what a person calls the
+  // work; `presenter` and `deck` are what the seat is called. `designer` stays UX/UI:
+  // designing an explanation is not designing an interface.
+  presenter: 'presenter',
+  presentation: 'presenter',
+  presentationmaker: 'presenter',
+  slides: 'presenter',
+  deck: 'presenter',
+  visualization: 'presenter',
   backend: 'backend',
   backenddev: 'backend',
   server: 'backend',
@@ -151,7 +160,7 @@ export const ROLE_PRESETS = {
   docssteward: 'docs',
 }
 
-/** The preset a role name denotes, or undefined when it denotes none of the eight. */
+/** The preset a role name denotes, or undefined when it denotes none of the nine. */
 export function presetForRole(role) {
   return ROLE_PRESETS[normalizeRole(role)]
 }
@@ -457,7 +466,7 @@ A question never needs this ceremony. A change never skips the task.
 ## Delegation rules
 
 - Reuse a role from the catalog appended below this policy. \`delegate_task\` refuses a near-duplicate new role unless the work really is a new domain; \`forceRole: true\` overrides that refusal.
-- **The eight roles are the tool sets**: ARCHITECT, UX/UI, BACKEND, RESEARCH, CONTEXT, REVIEWER, CRITIC, DOCS. The orchestrator is the ninth and is you. The role picks the child's preset, so the child literally has that role's tools - a BACKEND child cannot run \`papers_*\`. You CAN read, create and edit files yourself: a small, self-evident change is yours to make, and delegating it only to satisfy a ritual wastes a child session. A change whose acceptance is a command's output - a build, a test, a lint, a migration, a scan - is delegated, or you make the edit and hand the proof to the role that owns the binary. Choose the role by the work, not by seniority; a role outside the eight needs an explicit \`preset\` argument. ARCHITECT is the system designer on the deployment's expensive route: delegate a design question to it when the DECISION is the work, not the reading - it records the design map and returns the decision, and as a child it reads only what your brief gave it. CONTEXT reads the current system and returns a cited report (it never edits, never tests, never delegates); RESEARCH finds what exists outside the repository; do not use either one to avoid reading the file in front of you. Use REVIEWER to judge a change and CRITIC to attack a running behaviour: the critic breaks the algorithm or service on a disposable copy and reports the smallest reproducible failure, it never fixes and never touches production data - reach for it when "it works" is a claim rather than a measurement.
+- **The nine roles are the tool sets**: ARCHITECT, UX/UI, PRESENTER, BACKEND, RESEARCH, CONTEXT, REVIEWER, CRITIC, DOCS. The orchestrator is the tenth and is you. The role picks the child's preset, so the child literally has that role's tools - a BACKEND child cannot run \`papers_*\`. You CAN read, create and edit files yourself: a small, self-evident change is yours to make, and delegating it only to satisfy a ritual wastes a child session. A change whose acceptance is a command's output - a build, a test, a lint, a migration, a scan - is delegated, or you make the edit and hand the proof to the role that owns the binary. Choose the role by the work, not by seniority; a role outside those nine needs an explicit \`preset\` argument. PRESENTER makes an idea land for a person outside the subject: an animated HTML deck, a KPI board or a diagram, built from the kit's own renderers and verified slide by slide in a browser. ARCHITECT is the system designer on the deployment's expensive route: delegate a design question to it when the DECISION is the work, not the reading - it records the design map and returns the decision, and as a child it reads only what your brief gave it. CONTEXT reads the current system and returns a cited report (it never edits, never tests, never delegates); RESEARCH finds what exists outside the repository; do not use either one to avoid reading the file in front of you. Use REVIEWER to judge a change and CRITIC to attack a running behaviour: the critic breaks the algorithm or service on a disposable copy and reports the smallest reproducible failure, it never fixes and never touches production data - reach for it when "it works" is a claim rather than a measurement.
 - Pass \`taskId\` when one of your own tasks is the work: the brief then attaches to that task instead of creating a second row for the same thing.
 - **A created task must carry its basis.** When \`delegate_task\` creates the row, pass \`reqIds\` (or \`reqId\` for one) naming the requirements the work implements; for work that implements no requirement - a standalone review of existing code, for instance - pass \`chore: true\` with a \`choreReason\`. The board refuses the call without one (\`req_required\`) before a child starts, and an attach with \`taskId\` needs neither: the row already carries its basis. Never invent a requirement to get a delegation through.
 - A specialist session belongs to the chat that created it. A later chat gets a new one, and the brief then carries the role's earlier results forward - say so in the brief you write, and never assume the child remembers.
@@ -710,7 +719,7 @@ export function apply(ctx, config = {}) {
     parameters: {
       title: { type: 'string', required: true, description: 'Short task title.' },
       role: { type: 'string', required: true, description: 'Specialist role, e.g. UX/UI, BACKEND, RESEARCH, CONTEXT, REVIEWER, CRITIC, DOCS. The roles this workspace already has are listed in your policy section - reuse one of those exact names; all fitting tasks belong to it.' },
-      preset: { type: 'string', enum: PRESET_IDS, description: 'Tool composition for the child. Omit to derive it from the role; pass it explicitly when the role is a specialty outside the eight (e.g. a migration under preset backend, or an adversarial pass over an algorithm with preset critic). AUDIT is not accepted as a name at all - use REVIEWER or CRITIC.' },
+      preset: { type: 'string', enum: PRESET_IDS, description: 'Tool composition for the child. Omit to derive it from the role; pass it explicitly when the role is a specialty outside the nine (e.g. a migration under preset backend, or an adversarial pass over an algorithm with preset critic). PRESENTER is a role name too: use it for a deck, a board or an animated explanation instead of DUMMY. AUDIT is not accepted as a name at all - use REVIEWER or CRITIC.' },
       roleDescription: { type: 'string', description: 'Optional one-line responsibility zone for a newly created specialist.' },
       objective: { type: 'string', required: true, description: 'The outcome in one paragraph, not the activity.' },
       scope: { type: 'array', items: { type: 'string' }, description: 'What the child may touch.' },
@@ -747,7 +756,7 @@ export function apply(ctx, config = {}) {
       // A role names the task, a preset names the tools. Resolve it before any
       // taskboard write: a child started on the wrong composition does work that has
       // to be thrown away, and an explicit preset is the escape hatch for a role
-      // outside the eight.
+      // outside the nine.
       // AUDIT IS REFUSED AS A NAME, not merely unmapped. Unmapped alone would still let
       // `role: "AUDIT", preset: "reviewer"` through, which is exactly the ambiguity: one label
       // whose tool set depends on the call. The board keeps the rows it already has as
@@ -757,7 +766,7 @@ export function apply(ctx, config = {}) {
       }
       const preset = typeof args.preset === 'string' && args.preset !== '' ? args.preset : presetForRole(role)
       if (preset === undefined) {
-        throw new Error(`delegate_task: role "${role}" names none of the eight tool compositions (${PRESET_IDS.join(', ')}). Reuse one of those role names (CRITIC/QA/TESTER map to the adversarial tester, CONTEXT/GATHERER to reconnaissance), or pass preset explicitly when the role is a genuine specialty.`)
+        throw new Error(`delegate_task: role "${role}" names none of the nine tool compositions (${PRESET_IDS.join(', ')}). Reuse one of those role names (CRITIC/QA/TESTER map to the adversarial tester, CONTEXT/GATHERER to reconnaissance), or pass preset explicitly when the role is a genuine specialty.`)
       }
       if (!PRESET_IDS.includes(preset)) {
         throw new Error(`delegate_task: "${preset}" is not one of the role presets (${PRESET_IDS.join(', ')}).`)
@@ -806,7 +815,7 @@ export function apply(ctx, config = {}) {
       // Both are refused before a task row exists; forceRole is the explicit escape hatch.
       const knownPreset = typeof knownAgent?.preset === 'string' ? knownAgent.preset.trim() : ''
       if (knownAgent !== undefined && knownPreset === '' && args.forceRole !== true) {
-        throw new Error(`delegate_task: role "${knownAgent.role}" is a legacy row from before role presets - its child's tool set is unknown, so it cannot be reused. Name this work with one of the eight roles (${PRESET_IDS.join(', ')}), or pass forceRole: true with an explicit preset to re-compose it deliberately.`)
+        throw new Error(`delegate_task: role "${knownAgent.role}" is a legacy row from before role presets - its child's tool set is unknown, so it cannot be reused. Name this work with one of the nine roles (${PRESET_IDS.join(', ')}), or pass forceRole: true with an explicit preset to re-compose it deliberately.`)
       }
       if (knownAgent !== undefined && knownPreset !== '' && knownPreset !== preset && args.forceRole !== true) {
         throw new Error(`delegate_task: role "${knownAgent.role}" is already the [${knownPreset}] role in this workspace, and a role label keeps one tool set. ${knownPreset === 'reviewer' || preset === 'reviewer' ? 'REVIEWER judges a change while CRITIC attacks a running behaviour - use the role that owns this work. ' : ''}Pass forceRole: true only to deliberately re-compose the role.`)
@@ -1277,7 +1286,7 @@ export function apply(ctx, config = {}) {
         // continue. renderRoleCatalog does that split from the chatId.
         const chatId = agent?.session?.header?.id ?? agent?.id ?? ''
         // NFR1: the system message is an INVARIANT of the session. The role catalog is a
-        // static configuration of the deployment (the eight roles below), and the board debt
+        // static configuration of the deployment (the nine roles below), and the board debt
         // travels through state-feed (L1 digest/snapshot, L2 delta) instead of being rerendered
         // into the prompt on every turn. Only the preset claim may vary, and it is fixed per
         // session.

@@ -1,6 +1,6 @@
 # dsh-kit
 
-Portable setup for **DeepSeek Harness (dsh)** plus the 26 plugins this
+Portable setup for **DeepSeek Harness (dsh)** plus the 27 plugins this
 deployment needs beyond upstream, across all your machines (2× Linux, 1× Windows).
 `plugins/inventory.json` is the single source of truth for the set:
 
@@ -22,6 +22,18 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   layered ranking, edge routing and label placement are its own dependency-free layout
   engine — so a scheme is never handed a set of coordinates to maintain. Same reasoning
   The Sidebar document preview renders the file, and the file prints as it looks.
+- **`@cc/dsh-presentation`** — two tools over one style system: `presentation` turns a JSON
+  deck spec into a standalone HTML deck, `dashboard` turns a board spec into a KPI board.
+  Both files carry their CSS, their charts and their player inline, so they open in the
+  Sidebar document preview (a sandboxed frame with an opaque origin), in a browser and in a
+  PDF printer with no network and no sibling file. Five themes are one token layer
+  (`ember`, `graphite`, `aurora`, `mono`, `paper`); the motion is CSS plus
+  `requestAnimationFrame` — 150–320 ms ease-out, fragments on advance, count-up numbers,
+  drawn chart lines — because a vendored animation library would add ~190 KB to every deck
+  for the same effect (`docs/PRESENTATION-TOOLCHAIN.md` has the survey). The deck player
+  gives arrows/space, full screen, an overview grid, speaker notes and one printed slide
+  per page; a click advances the slide, which is also how the previewed frame takes the
+  keyboard.
 - **`@cc/dsh-design-map`** — one Excalidraw scene, `design.excalidraw` at the project
   root, that the **orchestrator** and the human both edit. The orchestrator gets a
   `design_map` tool over a *visual* vocabulary: a node's `kind` chooses the shape (rectangle
@@ -180,9 +192,12 @@ invent a justification.
   brief (objective, scope, non-scope, inputs, acceptance, output, proof, timebox), starts a
   child on the role's **agent preset** and links the child id. It applies to every preset; no
   preset is duplicated.
-- **Role presets** — eight `@deepseek-ai/dsh-agent-preset` declarations in
-  `profile/cordis.patch.yml`: `orchestrator`, `ux`, `backend`, `research`, `gatherer`,
-  `reviewer`, `critic`, `docs`.
+- **Role presets** — nine `@deepseek-ai/dsh-agent-preset` declarations in
+  `profile/cordis.patch.yml`: `orchestrator`, `ux`, `presenter`, `backend`, `research`,
+  `gatherer`, `reviewer`, `critic`, `docs`. **`presenter`** makes an idea land for a
+  person outside the subject: it storyboards the explanation, renders it with
+  `presentation`/`dashboard`/`diagram` and proves every slide in a browser — the deck is
+  the deliverable, and a slide nobody looked at is not finished.
   A role is its persona and its tool list, not a request in the brief: the orchestrator has no
   shell, but it DOES carry `write`/`edit` (a small self-evident change is its own to make; a
   change whose proof is a command's output still goes to a role that can run one), research has
@@ -228,7 +243,7 @@ invent a justification.
   4 791 B (−94.2 %, ~0.4 s), and the same call twice returns the same bytes. The section
   teaches the pairing:
   outline an unfamiliar file first, then `read` only the range of the symbol that matters. It
-  is mounted on the HOST row, so the root and all seven presets get it. With the binary
+  is mounted on the HOST row, so the root and all nine presets get it. With the binary
   absent no tool is registered and the section says `outline unavailable` and where it looked.
 - **`@cc/dsh-run-code-projection`** — bounds what one large tool result costs the step, for
   `run_code`, `read`, `bash`, `web_fetch`, the Hindsight pages, `grep`/`glob`/`outline` and
@@ -249,7 +264,7 @@ invent a justification.
 
 **Third-party add-on: Hindsight memory.** `@vectorize-io/hindsight-coding-agents@0.8.2`
 is installed separately by its own command (`npx @vectorize-io/hindsight-coding-agents install dsh`),
-not from this repository, and is therefore not one of the 26 in-repo plugins. It writes a
+not from this repository, and is therefore not one of the 27 in-repo plugins. It writes a
 row into `$DSH_HOME/cordis.patch.yml` (the home layer, shared by every profile) and a
 companion skill into `~/.agents/skills/hindsight-coding-agent`. Its settings live in
 `~/.hindsight/coding-agent.json`; this machine's file is enabled with `serverMode: daemon`
@@ -295,7 +310,7 @@ cd dsh-vanust               # the repository is dsh-vanust; the kit it contains 
 ```
 
 **What a clone alone gives you, stated exactly.** Everything the deployment
-installs is in the repository: the 26 plugin tarballs, the canonical profile, the
+installs is in the repository: the 27 plugin tarballs, the canonical profile, the
 procedure and the pinned version in both installers. Every plugin's source is here
 too — `plugins/notify/`, `plugins/diagrams/`,
 `plugins/work-modes/`, `plugins/godot-mcp/`, `plugins/skills/`, `plugins/flash-guard/`,
@@ -321,7 +336,7 @@ dsh-kit/
 │                              #   session-analysis`: every session, in seconds per question)
 ├── scripts/kit-update.mjs     # update path: hash drift check + convergence for an existing machine
 ├── plugins/inventory.json     # the shipped plugin set (the source of truth)
-├── plugins/*.tgz              # plugin tarballs: 26 packages, including notify, diagrams,
+├── plugins/*.tgz              # plugin tarballs: 27 packages, including notify, diagrams, presentation,
 │                              #                  work-modes, godot-mcp, skills, flash-guard, role-model,
 │                              #                  proof-guard, taskboard, orchestrator
 ├── plugins/notify/            # source of @cc/dsh-notify (desktop notifications; packed above)
@@ -394,7 +409,7 @@ verified on and the procedure for reproducing that verification are `rules/DEPLO
   `plugins/papers/`.
   `plugins/inventory.json` is the set.
 - **Reviewer's overview** — `docs/HARNESS-OVERVIEW.md`: the harness composition, all 8 kit
-  presets and the 4 built-in presets with their personas, the 26 plugins, the system-prompt
+  presets and the 4 built-in presets with their personas, the 27 plugins, the system-prompt
   section map with its source files, and the discrepancies a reviewer should check.
 - **Design rationale** — `docs/` carries the analysis notes this kit was built from
   (`docs/HARNESS-COMPACTION-REVIEW.md`, `docs/SESSION-CONTEXT.md`); they are readings, not
