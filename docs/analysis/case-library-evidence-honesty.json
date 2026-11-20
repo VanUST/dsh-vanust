@@ -1,0 +1,363 @@
+{
+  "schemaVersion": 1,
+  "id": "case-library-evidence-honesty",
+  "rev": 5,
+  "status": "completed",
+  "createdAt": "2026-11-20T14:41:51.906Z",
+  "updatedAt": "2026-11-20T15:02:08.188Z",
+  "updatedBy": "agent",
+  "title": "Библиотека кейсов: выдача case_update/case_verify, каталог в записи прогона, запрет прибитых к дереву команд",
+  "requestedSolution": "Владелец 2026-11-20: case_verify и case_update не выданы ни одному пресету, хотя README обещает роли «все двенадцать»; в записи доказательства нет каталога запуска, поэтому честный красный прогон в копии дерева некуда записать; один кейс прибит к рабочему дереву через `cd /home/iustimov/tasks/autolabel_pipeline &&` и не может покраснеть. Починить регистрацию по ролям, добавить каталог в запись прогона и запретить прибитые к дереву команды.",
+  "businessOutcome": {
+    "problem": "Три дефекта библиотеки кейсов. (1) case_update и case_verify реализованы, но не выданы ни одному пресету (backend: 5 инструментов, reviewer: 4, critic: 3), хотя README обещает шести ролям «все двенадцать» — из-за этого задача на исправление кейса невыполнима. (2) В записи прогона нет каталога запуска: честный красный прогон в копии дерева записать некуда, пара red/green теряет смысл. (3) runCommand может начинаться с `cd /абсолютный/путь` — такой кейс не покраснеет никогда: в копии он всё равно выполнит рабочее дерево.",
+    "outcome": "Роль, владеющая кейсом, может его исправить и записать честное наблюдение; каждый прогон знает и показывает свой каталог; кейс с прибитой к одному дереву командой больше нельзя зарегистрировать. Документация плагина и подсказка роли совпадают с регистрацией и проверяются тестом.",
+    "successMetrics": [
+      "backend имеет record/update/verify/run/suite/gate/get/list; reviewer имеет verify; ни одна роль не может менять кейс, которым не владеет",
+      "case_run принимает cwd и записывает его в прогон; case_get показывает каталог последнего прогона",
+      "case_record и case_update отказывают runCommand с абсолютным путём, называя причину и предлагая относительную команду + cwd",
+      "README-таблица поверхностей совпадает с DEFAULT_ROLE_TOOLS и проверяется тестом",
+      "make verify и make test зелёные; тарбол test-cases перепакован"
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CURRENT",
+        "name": "Кейс нельзя ни исправить, ни записать честно",
+        "actors": [
+          "backend",
+          "reviewer",
+          "библиотека кейсов"
+        ],
+        "steps": [
+          "Роль создаёт и запускает кейс, но не может его исправить — case_update не выдан.",
+          "Красный прогон в копии дерева некуда записать: каталога в записи нет.",
+          "Кейс с `cd /абсолютный/путь` в команде зелёный в любом дереве и никогда не краснеет."
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-TARGET",
+        "name": "Кейс исправим и доказательство честное",
+        "actors": [
+          "backend",
+          "reviewer",
+          "библиотека кейсов"
+        ],
+        "steps": [
+          "Владелец кейса правит ожидания через case_update; наблюдатель записывает ручное подтверждение через case_verify.",
+          "case_run принимает cwd, записывает его и показывает в case_get.",
+          "Регистрация и правка отклоняют команду с абсолютным путём и предлагают относительную форму."
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "FR1",
+      "kind": "FR",
+      "text": "Владелец кейса может его исправить, а наблюдатель — записать ручное подтверждение.",
+      "acceptance": [
+        "backend получает case_update и case_verify сверх своих пяти инструментов",
+        "reviewer получает case_verify, но не case_update",
+        "пресеты без списка по-прежнему не получают ни одного case_*",
+        "негативный контроль: пресет, которому case_update не выдан, получает отказ в регистрации"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR2",
+      "kind": "FR",
+      "text": "Запись доказательства хранит каталог запуска и показывает его.",
+      "acceptance": [
+        "case_run принимает cwd и пишет его в запись прогона",
+        "case_get показывает каталог последнего прогона и наблюдения",
+        "без cwd каталогом считается рабочее пространство сессии",
+        "негативный контроль: прогон в другом каталоге виден в записи и различается с прогоном в корне"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR3",
+      "kind": "FR",
+      "text": "Кейс, прибитый к одному дереву, нельзя ни зарегистрировать, ни сохранить правкой.",
+      "acceptance": [
+        "case_record и case_update отклоняют runCommand, начинающийся с cd /… или содержащий абсолютный путь",
+        "отказ называет причину и предлагает относительную команду с cwd",
+        "существующие кейсы с абсолютным путём остаются читаемыми",
+        "негативный контроль: попытка зарегистрировать такой кейс падает"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR4",
+      "kind": "FR",
+      "text": "Документация и подсказка роли совпадают с регистрацией и это проверяется тестом.",
+      "acceptance": [
+        "README-таблица называет реальные наборы по каждой роли",
+        "тест сравнивает таблицу с DEFAULT_ROLE_TOOLS и падает при расхождении",
+        "подсказка роли в композиции соответствует своей строке политики"
+      ],
+      "status": "deferred",
+      "reason": "Сделано и проверено: README-таблица по ролям, sectionText(granted) собирает подсказку из той же строки, тест policy-docs.test.mjs сверяет таблицу с DEFAULT_ROLE_TOOLS и на копии HEAD падает. TEST-сущности с парой red/green нет — тест запускается через make test, а не как кейс библиотеки."
+    },
+    {
+      "id": "NFR1",
+      "kind": "NFR",
+      "text": "Упаковка и проверки кита остаются зелёными, живой сервер не тронут.",
+      "acceptance": [
+        "make verify exit 0",
+        "make test exit 0",
+        "тарбол test-cases перепакован с подъёмом версии",
+        "живой профиль и :3080 не тронуты"
+      ],
+      "status": "deferred",
+      "reason": "Прогоны: make verify 19/19 exit 0, make test 72/72 exit 0, тарбол cc-dsh-test-cases-0.1.19.tgz; живой профиль не тронут. TEST-сущность не создавалась."
+    }
+  ],
+  "architecture": {
+    "contractImpact": "additive",
+    "components": [
+      {
+        "id": "C-CASES",
+        "name": "Библиотека кейсов",
+        "responsibility": "инструменты case_*, запись прогонов, проверки",
+        "owner": "BACKEND",
+        "owns": [
+          "D-RUNREC"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "C-POLICY",
+        "name": "Политика поверхности по пресетам",
+        "responsibility": "какой роли выданы какие case_* и что об этом говорит документация",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": []
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "D-RUNREC",
+      "name": "Запись прогона",
+      "owner": "kit",
+      "ownerComponentId": "C-CASES",
+      "description": "запись одного прогона: команда, каталог, код возврата, метрики, артефакты"
+    }
+  ],
+  "contracts": [
+    {
+      "id": "CT-EVIDENCE",
+      "name": "Запись доказательства",
+      "between": [
+        "C-CASES"
+      ],
+      "change": "additive",
+      "description": "Новый аргумент cwd у case_run и поле cwd в записи прогона и в ручном наблюдении case_verify; runCommand с абсолютным путём отклоняется."
+    }
+  ],
+  "invariants": [
+    {
+      "id": "INV-CWD",
+      "text": "Любая запись прогона или наблюдения называет каталог, в котором выполнялась команда.",
+      "scope": "запись прогона"
+    },
+    {
+      "id": "INV-DOC",
+      "text": "Таблица поверхностей в README совпадает с политикой в коде; расхождение ловится тестом.",
+      "scope": "документация плагина"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "D-UPDATE-OWNER",
+      "decision": "case_update выдаётся только владельцу кейсов (backend); case_verify — backend и reviewer; critic, ux, docs и research остаются на чтении и запуске.",
+      "rationale": "case_update меняет ожидания и команду — тот, кто судит изменение, не должен ослаблять кейс; тот, кто его написал, должен мочь исправить",
+      "alternatives": [
+        "выдать все двенадцать всем шести ролям"
+      ]
+    },
+    {
+      "id": "D-NO-ABS-PATH",
+      "decision": "runCommand с абсолютным путём отклоняется при регистрации и правке.",
+      "rationale": "такой кейс не может покраснеть в копии дерева — он даёт ложную уверенность",
+      "alternatives": [
+        "предупреждать и всё равно регистрировать"
+      ]
+    }
+  ],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L2",
+    "reasons": [
+      "меняется контракт поверхности инструментов по ролям",
+      "меняется схема записи доказательства (добавляется каталог)",
+      "меняется валидация регистрации кейса"
+    ]
+  },
+  "designRef": {
+    "mapRev": 32,
+    "at": "2026-11-20T15:00:00.000Z",
+    "source": "designmap/manifest.json"
+  },
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "FR1",
+      "processId": "P-TARGET",
+      "componentId": "C-POLICY",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwp38cbu-yxweys",
+          "role": "BACKEND",
+          "at": "2026-11-20T15:00:00.000Z",
+          "evidence": [
+            "DEFAULT_ROLE_TOOLS: backend 7 инструментов, reviewer 5 с case_verify, остальные не расширены",
+            "node --test plugins/test-cases/test/*.test.mjs -> 34/34 exit 0",
+            "кейс case-surface-per-role-matches-the-readme-table: red control expect-pre-fix -> green, verified (REQ-179)"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR2",
+      "processId": "P-TARGET",
+      "componentId": "C-CASES",
+      "contractIds": [
+        "CT-EVIDENCE"
+      ],
+      "dataIds": [
+        "D-RUNREC"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwp38cbu-yxweys",
+          "role": "BACKEND",
+          "at": "2026-11-20T15:00:00.000Z",
+          "evidence": [
+            "lib/runner.mjs runAttempts({cwd}) выполняет в каталоге и пишет cwd/cwdRelative в run.json",
+            "case_get -> directories.lastRun и lastObservation",
+            "кейс a-run-records-the-directory-it-happened-in: red->green, verified (REQ-180)",
+            "красный на копии HEAD: 'the run.json does not name the directory the command ran in'"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR3",
+      "processId": "P-TARGET",
+      "componentId": "C-CASES",
+      "contractIds": [
+        "CT-EVIDENCE"
+      ],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwp38cbu-yxweys",
+          "role": "BACKEND",
+          "at": "2026-11-20T15:00:00.000Z",
+          "evidence": [
+            "pinnedCommand/checkPinned -> PINNED_COMMAND с подсказкой 'относительная команда + cwd'; отказ на case_record и на правке в case_update",
+            "кейс a-command-pinned-to-one-tree-is-refused: red->green, verified (REQ-181)",
+            "красный на копии HEAD: 'a pinned command was registered: cd /home/iustimov/tasks/autolabel_pipeline && node --test test/x.test.mjs'",
+            "33 сохранённых runCommand -> 0 отказов"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR4",
+      "processId": "P-TARGET",
+      "componentId": "C-POLICY",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwp38cbu-yxweys",
+          "role": "BACKEND",
+          "at": "2026-11-20T15:00:00.000Z",
+          "evidence": [
+            "README-таблица по пресетам; sectionText(granted) собирает подсказку из строки политики",
+            "plugins/test-cases/test/policy-docs.test.mjs сверяет таблицу с DEFAULT_ROLE_TOOLS; на копии HEAD падает"
+          ]
+        }
+      ],
+      "reason": "Сделано и проверено тестом; TEST-сущности с парой red/green нет."
+    },
+    {
+      "requirementId": "NFR1",
+      "processId": "P-TARGET",
+      "componentId": "C-CASES",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwp38cbu-yxweys",
+          "role": "BACKEND",
+          "at": "2026-11-20T15:00:00.000Z",
+          "evidence": [
+            "make verify 19/19 exit 0; make test 72/72 exit 0",
+            "cc-dsh-test-cases-0.1.19.tgz, старый 0.1.17 удалён",
+            "~/.npm/dsh и :3080 не тронуты"
+          ]
+        }
+      ],
+      "reason": "Прогоны есть; TEST-сущности нет."
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "2ee0eb4787c4290c618fa6face28453ba7d59f5d38e9baad4bc6e1a05804c134",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-20T14:41:51.906Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-20T14:41:57.790Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-20T14:42:07.363Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwp38cbu-yxweys -> FR1, FR2, FR3, FR4, NFR1"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-20T15:02:03.171Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR4 changed, NFR1 changed; impacts: 2"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-20T15:02:08.188Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "completed",
+      "summary": ""
+    }
+  ]
+}

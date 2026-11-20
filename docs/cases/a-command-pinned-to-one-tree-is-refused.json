@@ -1,0 +1,132 @@
+{
+  "schemaVersion": 1,
+  "id": "a-command-pinned-to-one-tree-is-refused",
+  "title": "A command pinned to one tree is refused",
+  "requirement": "A case whose runCommand starts with cd /... or carries an absolute path cannot be registered and cannot be saved through case_update; the refusal names the reason and offers the relative-command-plus-cwd route, and a case already recorded that way stays readable (REQ-181).",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "plugins/test-cases/test/run-cwd-pinned.test.mjs",
+  "runCommand": "node --test plugins/test-cases/test/run-cwd-pinned.test.mjs",
+  "steps": [
+    "Try case_record with three pinned commands (POSIX cd, POSIX argument, Windows drive)",
+    "Try case_update on a legacy case that already carries a pinned command",
+    "Read that legacy case with case_get"
+  ],
+  "expected": "case_record refuses each with PINNED_COMMAND and a hint mentioning cwd; case_update refuses the legacy case; case_get still returns it; a relative command (including cd plugins/designmap) is accepted.",
+  "tags": [
+    "test-cases",
+    "pinned-command"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/test-cases/test-cases.mjs",
+      "sha256": "cb40bfc804f401789ccdd985dddaf4fd9b5267de954f3e532fa4d77057e678c3"
+    }
+  ],
+  "linkedTaskId": "task-mwp38cbu-yxweys",
+  "reqId": "REQ-181",
+  "authorRole": "backend",
+  "negativeControl": "expect-pre-fix",
+  "revision": 3,
+  "createdAt": "2026-11-20T14:57:42.165Z",
+  "updatedAt": "2026-11-20T14:58:07.683Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-20T14:57:54.416Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-pre-fix\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-20T14:58:07.683Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mwp3sm9x-mstf9-1",
+      "at": "2026-11-20T14:57:54.414Z",
+      "mode": "red",
+      "control": "expect-pre-fix",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 465,
+      "commandSha256": "a28f9db8e41c5771da7b2239bf852ca93103d18283568ee011de49f1807ade45",
+      "head": "001a1f07ff5da90ca2a68ee6572fd3b09ca7a465",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-command-pinned-to-one-tree-is-refused/mwp3sm9x-mstf9-1/stdout.log",
+      "stderr": "docs/cases/runs/a-command-pinned-to-one-tree-is-refused/mwp3sm9x-mstf9-1/stderr.log",
+      "summary": "docs/cases/runs/a-command-pinned-to-one-tree-is-refused/mwp3sm9x-mstf9-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwp3swi3-iwo8k-1",
+      "at": "2026-11-20T14:58:07.683Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 432,
+      "commandSha256": "a28f9db8e41c5771da7b2239bf852ca93103d18283568ee011de49f1807ade45",
+      "head": "001a1f07ff5da90ca2a68ee6572fd3b09ca7a465",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-command-pinned-to-one-tree-is-refused/mwp3swi3-iwo8k-1/stdout.log",
+      "stderr": "docs/cases/runs/a-command-pinned-to-one-tree-is-refused/mwp3swi3-iwo8k-1/stderr.log",
+      "summary": "docs/cases/runs/a-command-pinned-to-one-tree-is-refused/mwp3swi3-iwo8k-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-20T14:57:54.416Z",
+    "runId": "mwp3sm9x-mstf9-1",
+    "exitCode": 1,
+    "control": "expect-pre-fix",
+    "command": "node --test plugins/test-cases/test/run-cwd-pinned.test.mjs",
+    "source": "negative-control"
+  },
+  "lastVerified": {
+    "at": "2026-11-20T14:58:07.683Z",
+    "command": "node --test plugins/test-cases/test/run-cwd-pinned.test.mjs",
+    "exitCode": 0,
+    "runId": "mwp3swi3-iwo8k-1",
+    "source": "runner",
+    "commit": null
+  }
+}

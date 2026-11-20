@@ -125,14 +125,19 @@
           - architect
 
 # ── test-cases: observed test cases persisted in docs/cases/ ────────────────
-# Eight schema-enforced host tools over a repo-tracked library: case_record,
-# case_update (compare-and-set), case_verify (red-first evidence), case_list,
-# case_get, case_supersede, case_deprecate and case_drift. The rule is "observe
-# first, then persist - no speculative tests"; a documented-only case keeps its
-# requirement and a named reason, and a changed surface file marks a case stale
-# instead of deleting it. The orchestrator only gets the intake subset
-# (record/list/get/drift), so it can capture a human requirement without ever
-# claiming a verification it did not run.
+# Twelve schema-enforced host tools over a repo-tracked library: case_record,
+# case_update (compare-and-set), case_verify (the manual observation, with the
+# directory it was taken in), case_run (executes the stored command in `cwd`),
+# case_suite, case_gate, case_list, case_get, case_supersede, case_deprecate,
+# case_remove and case_drift. The rule is "observe first, then persist - no
+# speculative tests"; a documented-only case keeps its requirement and a named
+# reason, and a changed surface file marks a case stale instead of deleting it.
+# The tools are granted per preset: the orchestrator only gets the intake subset
+# (record/list/get/drift/gate), so it can capture a human requirement without
+# ever claiming a verification it did not run; the backend, which owns the case,
+# also gets case_update and case_verify; the reviewer gets case_verify but never
+# case_update. A command pinned to one checkout by an absolute path is refused
+# (PINNED_COMMAND).
 - insert:
     - id: test-cases
       name: '@cc/dsh-test-cases'

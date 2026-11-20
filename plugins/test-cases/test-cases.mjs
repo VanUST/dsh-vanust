@@ -56,8 +56,8 @@
  *     without claiming a regression, and the requirement stays.
  */
 
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { join, relative, resolve } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { driftFor, fileHash, slugify } from './lib/schema.mjs'
 import { normalizeChecks } from './lib/checks.mjs'
@@ -71,17 +71,21 @@ export const name = 'test-cases'
 export const inject = ['tools', 'systemPrompt', 'commands']
 
 /** Tools every tester role gets: the full library, including execution and evidence. */
-const ALL_TOOLS = ['case_record', 'case_update', 'case_verify', 'case_run', 'case_suite', 'case_gate', 'case_list', 'case_get', 'case_supersede', 'case_deprecate', 'case_remove', 'case_drift']
+export const ALL_TOOLS = ['case_record', 'case_update', 'case_verify', 'case_run', 'case_suite', 'case_gate', 'case_list', 'case_get', 'case_supersede', 'case_deprecate', 'case_remove', 'case_drift']
 /** The root intake set: record a human requirement, read the library and check the gate; never claim a run. */
-const INTAKE_TOOLS = ['case_record', 'case_list', 'case_get', 'case_drift', 'case_gate']
+export const INTAKE_TOOLS = ['case_record', 'case_list', 'case_get', 'case_drift', 'case_gate']
 
 /**
  * Per-preset tool policy.
  *
  * WHY ROLE-AWARE AT ALL. The human states requirements in chat; the orchestrator is the intake
  * point, so it must be able to record a case (source human, status unverified) and read the
- * library - but it must not be able to claim a verification it never ran. The roles that
- * explore and prove (backend, ux, reviewer, critic, docs, research) get the whole surface.
+ * library - but it must not be able to claim a verification it never ran. The role that owns
+ * the work (backend) also repairs the case: it has case_update and case_verify, because a case
+ * whose text is wrong is the owner's to fix, and a manual observation is theirs to record. A
+ * role that JUDGES the change (reviewer) may record an observation but never edits the case it
+ * judges; the role that attacks it (critic) only reads and runs. ux, research and docs cite
+ * cases, so they keep the narrow sets below.
  * A session without a preset (standard/headless) gets the whole surface so the library is
  * usable outside the orchestrated presets; that is a deliberate default, not an oversight.
  */
@@ -142,7 +146,9 @@ function installCaseGate(ctx, { policy, tools, showSection }) {
       agent.ctx.systemPrompt.section({
         name: 'deployment:test-cases',
         order: 123,
-        text: granted.includes('case_run') ? SECTION_FULL : SECTION_INTAKE,
+        // The text follows the SAME row that registers the tools: a section that names a verb the
+        // role does not have is an instruction it can neither follow nor report.
+        text: sectionText(granted),
       })
     }
   }
@@ -198,8 +204,8 @@ function installCaseGate(ctx, { policy, tools, showSection }) {
 // map - gatherer included - gets NO case tools.
 export const DEFAULT_ROLE_TOOLS = {
   orchestrator: INTAKE_TOOLS,
-  backend: ['case_record', 'case_run', 'case_suite', 'case_get', 'case_list'],
-  reviewer: ['case_get', 'case_list', 'case_run', 'case_gate'],
+  backend: ['case_record', 'case_update', 'case_verify', 'case_run', 'case_suite', 'case_get', 'case_list'],
+  reviewer: ['case_get', 'case_list', 'case_run', 'case_gate', 'case_verify'],
   critic: ['case_get', 'case_list', 'case_run'],
   ux: ['case_record', 'case_list'],
   research: ['case_get', 'case_list'],
@@ -216,6 +222,62 @@ function workingDir(agent) {
   return agent?.session?.header?.cwd ?? process.cwd()
 }
 
+/**
+ * Resolve the directory a run or an observation executes in.
+ *
+ * WHY IT EXISTS. A red-first pair only means something when both runs happened in a tree that
+ * contains the change under test. Without a recorded directory, the honest red - the one taken
+ * in a COPY of the tree at the previous commit - had nowhere to be written, so the red and the
+ * green of one case could have been observed in two different trees and the record could not
+ * tell. `value` is absolute or relative to the session workspace; absent means the workspace,
+ * which is what a run in this checkout is.
+ */
+function resolveCwd(workspace, value) {
+  if (value === undefined || value === null || value === '') return { cwd: workspace, cwdRelative: '.' }
+  if (typeof value !== 'string') throw new Refusal('CWD_INVALID', 'cwd must be a string: an absolute path, or one relative to the session workspace')
+  if (value.trim() === '') return { cwd: workspace, cwdRelative: '.' }
+  const cwd = resolve(workspace, value)
+  let stat
+  try {
+    stat = statSync(cwd)
+  } catch {
+    throw new Refusal('CWD_NOT_FOUND', `cwd does not exist: ${cwd}`)
+  }
+  if (!stat.isDirectory()) throw new Refusal('CWD_NOT_FOUND', `cwd is not a directory: ${cwd}`)
+  return { cwd, cwdRelative: relative(workspace, cwd).split('\\').join('/') || '.' }
+}
+
+/**
+ * Refuse a command pinned to one checkout by an absolute path.
+ *
+ * `cd /home/me/repo && node --test test/x.test.mjs` reads as reproducible and is not: run from a
+ * copy of the tree it still executes the ORIGINAL one, so the case can never go red for a change
+ * made in the copy - it is the one shape that makes an honest red impossible to record. The
+ * command must be relative and the directory comes from the run itself (`cwd`), which the run
+ * record stores next to the command.
+ */
+export function pinnedCommand(command) {
+  const text = String(command ?? '')
+  // Both shapes are refused: a leading `cd` into an absolute path (POSIX, drive letter or home),
+  // and an absolute path anywhere in the command (`node --test /home/me/x.test.mjs`).
+  const cdAbsolute = /^\s*(?:cd|pushd)\s+(?:"|')?(?:\/|[A-Za-z]:[\\/]|~)/.test(text)
+  const absolute = /(?:^|[\s"'=(])(?:\/(?!\/)|[A-Za-z]:[\\/])/.test(text)
+  if (!cdAbsolute && !absolute) return null
+  return {
+    code: 'PINNED_COMMAND',
+    reason: cdAbsolute ? 'it starts with `cd` into an absolute path' : 'it contains an absolute path',
+    hint: 'make the command RELATIVE and pass the directory as cwd - case_run { cwd: "<abs or workspace-relative path>" }; e.g. "node --test test/x.test.mjs" with cwd, instead of "cd /abs/tree && node --test test/x.test.mjs"',
+  }
+}
+
+/** Throw when a command is pinned to one checkout. */
+function checkPinned(command, label) {
+  const pinned = pinnedCommand(command)
+  if (pinned !== null) {
+    throw new Refusal(pinned.code, `${label} is pinned to one tree: ${pinned.reason}. ${pinned.hint}`)
+  }
+}
+
 /** Validate the fields the library cannot work without. */
 function requireStrings(args, fields) {
   for (const field of fields) {
@@ -226,17 +288,22 @@ function requireStrings(args, fields) {
 }
 
 /** A recorded run: command, output excerpt, exit code and time. */
-function requireEvidence(evidence, label) {
-  if (evidence === null || typeof evidence !== 'object') throw new Refusal('EVIDENCE_REQUIRED', `${label} evidence is required: { command, output, exitCode, at? }`)
+function requireEvidence(evidence, label, workspace = process.cwd()) {
+  if (evidence === null || typeof evidence !== 'object') throw new Refusal('EVIDENCE_REQUIRED', `${label} evidence is required: { command, output, exitCode, at?, cwd? }`)
   for (const field of ['command', 'output']) {
     if (typeof evidence[field] !== 'string' || evidence[field].trim() === '') throw new Refusal('EVIDENCE_REQUIRED', `${label} evidence needs \`${field}\``)
   }
   if (!Number.isInteger(evidence.exitCode)) throw new Refusal('EVIDENCE_REQUIRED', `${label} evidence needs an integer \`exitCode\``)
+  // WHERE the observation was taken travels with it, exactly as it does for a measured run: an
+  // observation taken in a copy of the tree and one taken in this checkout are not the same claim.
+  const tree = resolveCwd(workspace, evidence.cwd)
   return {
     command: evidence.command,
     output: String(evidence.output).slice(0, 8000),
     exitCode: evidence.exitCode,
     at: typeof evidence.at === 'string' && evidence.at !== '' ? evidence.at : new Date().toISOString(),
+    cwd: tree.cwd,
+    cwdRelative: tree.cwdRelative,
   }
 }
 
@@ -291,7 +358,7 @@ const OUTPUT = {
  */
 export function verificationPlan(record, args, workspace) {
   if (typeof args.passed !== 'boolean') throw new Refusal('EVIDENCE_REQUIRED', 'passed must be true or false')
-  const evidence = requireEvidence(args.evidence, 'verification')
+  const evidence = requireEvidence(args.evidence, 'verification', workspace)
   if (record.degraded === true) {
     throw new Refusal('TEST_REQUIRED', 'this case was degraded to documented-only because its test disappeared; restore the test and record it as automated before verifying again')
   }
@@ -306,7 +373,7 @@ export function verificationPlan(record, args, workspace) {
       throw new Refusal('COMMAND_MISMATCH', `evidence.command must be the case's runCommand (${runCommand})`)
     }
     if (args.passed === true) {
-      const red = requireEvidence(args.redFirst, 'red-first')
+      const red = requireEvidence(args.redFirst, 'red-first', workspace)
       if (red.command.trim() !== runCommand) {
         throw new Refusal('COMMAND_MISMATCH', `redFirst.command must be the case's runCommand (${runCommand})`)
       }
@@ -444,6 +511,7 @@ export function createTools(config = {}, env = {}) {
       }
       if (automated) {
         requireStrings(args, ['testPath', 'runCommand'])
+        checkPinned(args.runCommand, 'runCommand')
       } else if (typeof args.reason !== 'string' || args.reason.trim() === '') {
         throw new Refusal('DOCUMENTED_REQUIRES_REASON', 'automated:false needs a `reason` naming why this case cannot be a test')
       }
@@ -552,6 +620,10 @@ export function createTools(config = {}, env = {}) {
       if (next.automated === false && (typeof next.reason !== 'string' || next.reason === '')) {
         throw new Refusal('DOCUMENTED_REQUIRES_REASON', 'automated:false needs a reason')
       }
+      // The pinned-command rule holds on the EDITED record, not only on the incoming field: a case
+      // registered before the rule keeps its text (it stays readable), but no edit may save it
+      // again until its command is relative.
+      if (next.automated === true) checkPinned(next.runCommand, 'runCommand')
       if (next.automated !== true && Array.isArray(next.checks) && next.checks.length > 0) {
         throw new Refusal('CHECKS_REQUIRE_AUTOMATED', 'checks are evaluated by case_run; a documented-only case has no command to run')
       }
@@ -594,8 +666,8 @@ export function createTools(config = {}, env = {}) {
       id: { type: 'string', required: true },
       expectedRevision: { type: 'number', required: true },
       passed: { type: 'boolean', required: true, description: 'True when the run/observation showed the expected outcome.' },
-      evidence: { type: 'object', additionalProperties: false, description: '{ command, output, exitCode, at? } of the green/observation run.', properties: { command: { type: 'string' }, output: { type: 'string' }, exitCode: { type: 'number' }, at: { type: 'string' } } },
-      redFirst: { type: 'object', additionalProperties: false, description: 'Automated only: { command, output, exitCode, at? } of the observed failing run before the fix. exitCode must be non-zero.', properties: { command: { type: 'string' }, output: { type: 'string' }, exitCode: { type: 'number' }, at: { type: 'string' } } },
+      evidence: { type: 'object', additionalProperties: false, description: '{ command, output, exitCode, at?, cwd? } of the green/observation run. cwd is absolute or workspace-relative; default the session workspace.', properties: { command: { type: 'string' }, output: { type: 'string' }, exitCode: { type: 'number' }, at: { type: 'string' }, cwd: { type: 'string' } } },
+      redFirst: { type: 'object', additionalProperties: false, description: 'Automated only: { command, output, exitCode, at?, cwd? } of the observed failing run before the fix. exitCode must be non-zero.', properties: { command: { type: 'string' }, output: { type: 'string' }, exitCode: { type: 'number' }, at: { type: 'string' }, cwd: { type: 'string' } } },
       commit: { type: 'string', description: 'Optional git commit at verification time.' },
       notes: { type: 'string' },
     },
@@ -638,6 +710,7 @@ export function createTools(config = {}, env = {}) {
       timeoutMs: { type: 'number', description: 'Per-run timeout in ms (1000-600000, default 120000). A timeout is a failed run.' },
       control: { type: 'string', description: 'Red only: the control name passed as CASE_NEGATIVE_CONTROL. The driver must break its own assertion when it sees it.' },
       setBaseline: { type: 'boolean', description: 'Seed the ratchet from this passing run: every numeric metric\'s median becomes the baseline.' },
+      cwd: { type: 'string', description: 'Directory the stored command runs in: absolute, or relative to the session workspace (default: the workspace). Recorded with the run, so a red and a green name the tree they were observed in. Use it for a red-first run in a COPY of the tree instead of pinning the command with \`cd /abs/path\`.' },
       commit: { type: 'string', description: 'Optional commit you attribute the run to; HEAD and dirty state are recorded automatically.' },
     },
     output: OUTPUT,
@@ -658,8 +731,12 @@ export function createTools(config = {}, env = {}) {
       if (mode === 'red' && control === '') {
         throw new Refusal('NEGATIVE_CONTROL_REQUIRED', 'a red run needs a control: pass control, or record negativeControl on the case (the driver breaks its own assertion when it receives CASE_NEGATIVE_CONTROL)')
       }
+      // WHERE the run happens is part of the evidence: a command relative to a copy of the tree is
+      // what makes the recorded red real, and the record keeps the directory beside the command.
+      const tree = resolveCwd(workspace, args.cwd)
       const attempt = await runAttempts({
         workspace,
+        cwd: tree.cwd,
         dir,
         record,
         runId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
@@ -673,6 +750,10 @@ export function createTools(config = {}, env = {}) {
         throw new Refusal('NEGATIVE_CONTROL_DID_NOT_FAIL', 'the negative control exited 0 (or timed out); a red run must FAIL for the control to prove the check can fail')
       }
       const folded = recordRun(record, { workspace, attempt, mode, setBaseline: args.setBaseline === true, commit: typeof args.commit === 'string' ? args.commit : null })
+      if (folded.record.lastVerified !== null && folded.record.lastVerified !== undefined) {
+        folded.record.lastVerified = { ...folded.record.lastVerified, cwd: tree.cwd, cwdRelative: tree.cwdRelative }
+      }
+      folded.verdict = { ...folded.verdict, cwd: tree.cwd, cwdRelative: tree.cwdRelative }
       const path = writeCase(dir, folded.record)
       const testMirror = await mirror(exec.agent, folded.record)
       return { ok: true, case: summary(folded.record), verdict: folded.verdict, path: relative(workspace, path), ...(testMirror === null ? {} : { testMirror }) }
@@ -773,13 +854,21 @@ export function createTools(config = {}, env = {}) {
 
   const get = defineTool({
     name: 'case_get',
-    description: 'Read one case in full: requirement, steps, expected, automation fields, evidence, surface hashes, revision and history.',
+    description: 'Read one case in full: requirement, steps, expected, automation fields, evidence, surface hashes, revision and history, plus the directory of the last measured run and of the last manual observation (directories.lastRun / directories.lastObservation).',
     parameters: { id: { type: 'string', required: true } },
     output: OUTPUT,
     execute: (args, exec) => guarded(() => {
       requireStrings(args, ['id'])
       const { record } = readCase(dirFor(exec.agent), args.id)
-      return { ok: true, case: record }
+      // The directory is what tells two otherwise identical runs apart: a red taken in a copy of
+      // the tree and a green taken here are the same command in two different trees.
+      const where = (entry) => (entry === null || entry === undefined || typeof entry.cwd !== 'string' || entry.cwd === ''
+        ? null
+        : { cwd: entry.cwd, cwdRelative: typeof entry.cwdRelative === 'string' ? entry.cwdRelative : null, at: entry.at ?? null, ...(typeof entry.runId === 'string' ? { runId: entry.runId } : {}) })
+      const runs = Array.isArray(record.runs) ? record.runs : []
+      const lastRun = runs.length > 0 ? runs[runs.length - 1] : null
+      const observation = record.evidence?.run ?? record.evidence?.observation ?? null
+      return { ok: true, case: record, directories: { lastRun: where(lastRun), lastObservation: where(observation) } }
     }),
   })
 
@@ -937,33 +1026,62 @@ export function createTools(config = {}, env = {}) {
   return { case_record: record, case_update: update, case_verify: verify, case_run: run, case_suite: suite, case_gate: gate, case_list: list, case_get: get, case_supersede: supersede, case_deprecate: deprecate, case_remove: remove, case_drift: drift }
 }
 
-/** The full prompt section: the rule that makes the library worth trusting. */
-export const SECTION_FULL = [
-  'TEST CASES (docs/cases/, host tool family):',
-  '  Explore with your own tools first and OBSERVE the behaviour, then persist the case. Never record a speculative test.',
-  '  Record ONE case per accepted behaviour, not per requirement: one verified run may prove several requirements at once. The case keeps its primary reqId - the requirement it protects - and names the other REQs in its text; the schema does not grow a reqIds field.',
-  '  case_run EXECUTES an automated case\'s stored runCommand and records the MEASUREMENT (exit code, duration, checks, artifacts under docs/cases/runs/). Declare checks on the case - {metric, op, threshold} reads the driver\'s CASE_SUMMARY JSON, {baseline: true} ratchets against the recorded baseline, runs>1 gives median/p95 and records a mixed outcome as flaky.',
-  '  A green run on a case with no recorded red is a measurement, not a verification: record the negative control with case_run mode:"red" (the driver breaks its own assertion on CASE_NEGATIVE_CONTROL), or use case_verify, which is the MANUAL report and is stamped source manual.',
-  '  case_suite runs a filtered set and writes a report; case_gate reads whether the automated cases linked to a task are verified (the taskboard refuses task_close on the same rule).',
-  '  The library is compare-and-set: read the case (case_get), pass expectedRevision on every edit/run, and supersede/deprecate instead of deleting. A changed surface file or a missing test makes a case stale; it never erases the requirement.',
-].join('\n')
-
 /**
- * The INTAKE section, for a role that was granted only record/list/get/drift/gate.
+ * The prompt section for ONE role's granted surface.
  *
- * WHY TWO SECTIONS. The orchestrator records what the human states and reads the library; it
- * cannot verify (no case_verify), edit (no case_update) or close (no supersede/deprecate). The
- * full section named verbs it does not have and described a red-first ritual it cannot run, so
- * the prompt was teaching an agent to call tools that are not registered — the one instruction
- * a model cannot follow and cannot report. The text below names exactly what is on its surface.
+ * WHY IT IS GENERATED, NOT FIXED. The section used to be chosen by one bit - "has case_run? the
+ * full section : the intake section" - so the critic, which has three tools, was told to use
+ * case_verify it cannot call, and the backend was told nothing about the case_update it now owns.
+ * A prompt that names a verb the role does not have is an instruction a model can neither follow
+ * nor report. The text is therefore built from the same policy row that registers the tools, and
+ * `test/policy-docs.test.mjs` compares it with the row and with the README table.
  */
-export const SECTION_INTAKE = [
-  'TEST CASES (docs/cases/, intake subset):',
-  '  One case per accepted behaviour, not per requirement: a case may name several requirements (REQs) while its primary reqId is the one it protects. One verified run can prove the batch.',
-  '  Your surface is intake only: case_record, case_list, case_get, case_drift, case_gate. Recording is NOT verifying - you have no case_run, case_verify or case_update, so never claim a case passed.',
-  '  When the human states a requirement, record it with case_record: source human, automated:false with a named reason (or a real testPath + runCommand + checks when one exists), and linkedTaskId of the task that implements it. Leave the status unverified.',
-  '  Read with case_get (compare-and-set needs its revision) and case_list; case_gate is the same verdict the taskboard enforces on task_close. Verification belongs to the specialist that owns the work, in its own session.',
-].join('\n')
+export function sectionText(granted = ALL_TOOLS) {
+  const list = Array.isArray(granted) ? granted : []
+  const has = (verb) => list.includes(verb)
+  const lines = [
+    has('case_run') || has('case_verify') ? 'TEST CASES (docs/cases/, host tool family):' : 'TEST CASES (docs/cases/, intake subset):',
+    '  Explore with your own tools first and OBSERVE the behaviour, then persist the case. Never record a speculative test.',
+    '  Record ONE case per accepted behaviour, not per requirement: one verified run may prove several requirements at once. The case keeps its primary reqId - the requirement it protects - and names the other REQs in its text; the schema does not grow a reqIds field.',
+    `  Your surface is exactly: ${list.join(', ')}. A case verb outside that list is not registered for this role; do not describe a check you cannot run.`,
+  ]
+  if (has('case_record')) {
+    lines.push('  case_record persists ONE observed case: source human for a requirement the human stated (status unverified), a named reason when it cannot be a test, a real testPath + runCommand when it can, and linkedTaskId of the task that implements it.')
+  }
+  if (has('case_run')) {
+    lines.push('  case_run EXECUTES an automated case\'s stored runCommand and records the MEASUREMENT (exit code, duration, checks, artifacts under docs/cases/runs/, and the directory it ran in - pass cwd for a red-first run in a COPY of the tree instead of pinning the command with `cd /abs/path`). Declare checks on the case - {metric, op, threshold} reads the driver\'s CASE_SUMMARY JSON, {baseline: true} ratchets against the recorded baseline, runs>1 gives median/p95 and records a mixed outcome as flaky.')
+  }
+  if (has('case_run') || has('case_verify')) {
+    // The red-first rule is one rule, but the verb that satisfies it differs per row: case_run
+    // records the measured control, case_verify the observed one. Naming both to a role that has
+    // one of them is the same defect the generated section exists to prevent.
+    const control = has('case_run') ? 'record the negative control with case_run mode:"red" (the driver breaks its own assertion on CASE_NEGATIVE_CONTROL)' : ''
+    const manual = has('case_verify') ? 'case_verify is the MANUAL report, stamped source manual' : ''
+    const observed = !has('case_run') && has('case_verify') ? ' and an automated pass needs the observed red-first run of the same command' : ''
+    lines.push(`  A green run on a case with no recorded red is a measurement, not a verification: ${[control, manual].filter((part) => part !== '').join(', or ')}.${observed}`)
+  }
+  if (has('case_verify') && has('case_run')) {
+    lines.push('  case_verify records what YOU observed - {command, output, exitCode, cwd} - with the directory included, so a red taken in a copy of the tree is not confused with a green taken here.')
+  }
+  if (has('case_update')) {
+    lines.push('  case_update repairs the case itself: read it with case_get, pass expectedRevision, and know that a changed requirement, command or check returns the case to stale and drops the recorded red.')
+  }
+  if (has('case_suite')) lines.push('  case_suite runs a filtered set and writes a report.')
+  if (has('case_gate')) lines.push('  case_gate reads whether the automated cases linked to a task are verified (the taskboard refuses task_close on the same rule).')
+  if (has('case_drift')) lines.push('  case_drift rehashes the recorded surface files and degrades a case whose test disappeared; only verified/failing/flaky can go stale.')
+  if (!has('case_run') && !has('case_verify')) lines.push('  Recording is NOT verifying: a case you record stays unverified until the role that owns the work runs it in its own session, so never claim a case passed.')
+  const read = has('case_get') ? 'read the case (case_get)' : 'read the case with case_list first'
+  lines.push(has('case_supersede') || has('case_deprecate')
+    ? `  The library is compare-and-set: ${read}, pass expectedRevision on every edit/run, and supersede/deprecate instead of deleting. A changed surface file or a missing test makes a case stale; it never erases the requirement.`
+    : `  The library is compare-and-set: ${read} and pass expectedRevision on every run; a changed surface file or a missing test makes a case stale, and it never erases the requirement.`)
+  return lines.join('\n')
+}
+
+/** The full prompt section: the surface of a role that records, runs, edits and verifies. */
+export const SECTION_FULL = sectionText(ALL_TOOLS)
+
+/** The intake section: the orchestrator's surface (record, list, get, drift, gate). */
+export const SECTION_INTAKE = sectionText(INTAKE_TOOLS)
 
 /**
  * Register the tools.

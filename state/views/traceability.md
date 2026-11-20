@@ -182,6 +182,11 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | REQ-176 | rejected | — | — | — | no |
 | REQ-177 | rejected | — | TEST-082 | — | no |
 | REQ-178 | rejected | — | — | — | no |
+| REQ-179 | done | — | TEST-084 | — | no |
+| REQ-180 | done | — | TEST-085 | — | no |
+| REQ-181 | done | — | TEST-086 | — | no |
+| REQ-182 | rejected | — | — | — | no |
+| REQ-183 | rejected | — | — | — | no |
 
 ## Tests
 
@@ -270,3 +275,6 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | TEST-081 | REQ-175 | unverified | — |
 | TEST-082 | REQ-177 | unverified | — |
 | TEST-083 | REQ-131 | unverified | — |
+| TEST-084 | REQ-179 | verified | — |
+| TEST-085 | REQ-180 | verified | — |
+| TEST-086 | REQ-181 | verified | — |

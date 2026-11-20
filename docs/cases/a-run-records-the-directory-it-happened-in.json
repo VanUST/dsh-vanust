@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 1,
+  "id": "a-run-records-the-directory-it-happened-in",
+  "title": "A run records the directory it happened in",
+  "requirement": "A recorded red names the tree it was observed in: case_run takes cwd (absolute or workspace-relative, default the session workspace) and stores cwd and cwdRelative with the run, case_verify records the directory of the observation, and case_get shows both (REQ-180).",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "plugins/test-cases/test/run-cwd-pinned.test.mjs",
+  "runCommand": "node --test plugins/test-cases/test/run-cwd-pinned.test.mjs",
+  "steps": [
+    "Record an automated case whose command prints its own working directory",
+    "Run it with cwd pointing at a copy of the tree, then without cwd",
+    "Read run.json and case_get for the recorded directories"
+  ],
+  "expected": "the copy run records cwd=<copy>/cwdRelative=copy-of-tree and the command really echoed that path; the second run records the workspace; case_get shows the last run and the last observation directory.",
+  "tags": [
+    "test-cases",
+    "cwd",
+    "evidence"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/test-cases/test-cases.mjs",
+      "sha256": "cb40bfc804f401789ccdd985dddaf4fd9b5267de954f3e532fa4d77057e678c3"
+    },
+    {
+      "path": "plugins/test-cases/lib/runner.mjs",
+      "sha256": "5e05acce665d3fb2aefd4d782cbd381e790bafc9d02713fcabb156c5968c0c6c"
+    }
+  ],
+  "linkedTaskId": "task-mwp38cbu-yxweys",
+  "reqId": "REQ-180",
+  "authorRole": "backend",
+  "negativeControl": "expect-pre-fix",
+  "revision": 3,
+  "createdAt": "2026-11-20T14:57:39.547Z",
+  "updatedAt": "2026-11-20T14:58:04.987Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-20T14:57:51.357Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-pre-fix\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-20T14:58:04.987Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mwp3sjgh-x552q-1",
+      "at": "2026-11-20T14:57:51.356Z",
+      "mode": "red",
+      "control": "expect-pre-fix",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 949,
+      "commandSha256": "a28f9db8e41c5771da7b2239bf852ca93103d18283568ee011de49f1807ade45",
+      "head": "001a1f07ff5da90ca2a68ee6572fd3b09ca7a465",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-run-records-the-directory-it-happened-in/mwp3sjgh-x552q-1/stdout.log",
+      "stderr": "docs/cases/runs/a-run-records-the-directory-it-happened-in/mwp3sjgh-x552q-1/stderr.log",
+      "summary": "docs/cases/runs/a-run-records-the-directory-it-happened-in/mwp3sjgh-x552q-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwp3suh0-l2emt-1",
+      "at": "2026-11-20T14:58:04.986Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 416,
+      "commandSha256": "a28f9db8e41c5771da7b2239bf852ca93103d18283568ee011de49f1807ade45",
+      "head": "001a1f07ff5da90ca2a68ee6572fd3b09ca7a465",
+      "dirty": true,
+      "stdout": "docs/cases/runs/a-run-records-the-directory-it-happened-in/mwp3suh0-l2emt-1/stdout.log",
+      "stderr": "docs/cases/runs/a-run-records-the-directory-it-happened-in/mwp3suh0-l2emt-1/stderr.log",
+      "summary": "docs/cases/runs/a-run-records-the-directory-it-happened-in/mwp3suh0-l2emt-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-20T14:57:51.357Z",
+    "runId": "mwp3sjgh-x552q-1",
+    "exitCode": 1,
+    "control": "expect-pre-fix",
+    "command": "node --test plugins/test-cases/test/run-cwd-pinned.test.mjs",
+    "source": "negative-control"
+  },
+  "lastVerified": {
+    "at": "2026-11-20T14:58:04.987Z",
+    "command": "node --test plugins/test-cases/test/run-cwd-pinned.test.mjs",
+    "exitCode": 0,
+    "runId": "mwp3suh0-l2emt-1",
+    "source": "runner",
+    "commit": null
+  }
+}

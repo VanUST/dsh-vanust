@@ -158,7 +158,7 @@ function pruneRuns(runRoot, keep) {
 }
 
 /** One execution: logs, summary, checks, artifacts, run.json. */
-export async function runAttempt({ workspace, dir, record, runId, timeoutMs, mode = 'green', control = '', exec }) {
+export async function runAttempt({ workspace, cwd, dir, record, runId, timeoutMs, mode = 'green', control = '', exec }) {
   const runRoot = join(dir, 'runs', record.id)
   const runDir = join(runRoot, runId)
   mkdirSync(runDir, { recursive: true })
@@ -171,8 +171,12 @@ export async function runAttempt({ workspace, dir, record, runId, timeoutMs, mod
     CASE_ARTIFACTS: runDir,
     ...(mode === 'red' && control !== '' ? { CASE_NEGATIVE_CONTROL: control } : {}),
   }
-  const git = gitState(workspace)
-  const outcome = await exec(record.runCommand, { cwd: workspace, env, timeoutMs })
+  // The command runs in `cwd` (the session workspace unless the caller named a tree), and the run
+  // says WHERE: a red observed in a copy of the tree is only evidence if the record can tell that
+  // copy from the checkout the green ran in.
+  const runCwd = typeof cwd === 'string' && cwd !== '' ? cwd : workspace
+  const git = gitState(runCwd)
+  const outcome = await exec(record.runCommand, { cwd: runCwd, env, timeoutMs })
   const at = new Date().toISOString()
   const summary = parseSummary(summaryPath)
   const checks = evaluateChecks(record.checks ?? [], summary, { exitCode: outcome.exitCode, baseline: record.baseline })
@@ -187,6 +191,8 @@ export async function runAttempt({ workspace, dir, record, runId, timeoutMs, mod
     timedOut: outcome.timedOut === true,
     durationMs: Number.isFinite(outcome.durationMs) ? outcome.durationMs : null,
     commandSha256: commandHash(record.runCommand),
+    cwd: runCwd,
+    cwdRelative: relative(workspace, runCwd).split('\\').join('/') || '.',
     head: git.head,
     dirty: git.dirty,
     stdout: relative(workspace, join(runDir, 'stdout.log')).split('\\').join('/'),
@@ -211,14 +217,14 @@ export async function runAttempt({ workspace, dir, record, runId, timeoutMs, mod
  * A red run is the negative control: it must FAIL on EVERY attempt, otherwise the control is not
  * demonstrating anything and the caller refuses to record it.
  */
-export async function runAttempts({ workspace, dir, record, runId, runs = 1, timeoutMs = DEFAULT_TIMEOUT_MS, mode = 'green', control = '', exec = spawnExec() }) {
+export async function runAttempts({ workspace, cwd = workspace, dir, record, runId, runs = 1, timeoutMs = DEFAULT_TIMEOUT_MS, mode = 'green', control = '', exec = spawnExec() }) {
   const count = Number.isInteger(runs) && runs > 0 ? Math.min(runs, 5) : 1
   const timeout = Number.isInteger(timeoutMs) && timeoutMs > 0 ? Math.min(Math.max(timeoutMs, 1000), MAX_TIMEOUT_MS) : DEFAULT_TIMEOUT_MS
   const runRoot = join(dir, 'runs', record.id)
   mkdirSync(runRoot, { recursive: true })
   const attempts = []
   for (let index = 1; index <= count; index += 1) {
-    attempts.push(await runAttempt({ workspace, dir, record, runId: `${runId}-${index}`, timeoutMs: timeout, mode, control, exec }))
+    attempts.push(await runAttempt({ workspace, cwd, dir, record, runId: `${runId}-${index}`, timeoutMs: timeout, mode, control, exec }))
   }
   pruneRuns(runRoot, KEEP_RUNS * 5)
   const metrics = aggregateMetrics(attempts.map((attempt) => attempt.run.metrics))

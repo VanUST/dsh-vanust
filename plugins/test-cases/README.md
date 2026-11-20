@@ -14,8 +14,19 @@ a golden hash) is part of the durable case; the measurement is part of the run.
 | Preset | Tools |
 |---|---|
 | `orchestrator` | `case_record`, `case_list`, `case_get`, `case_drift`, `case_gate` — intake and the gate, never a claimed verification |
-| `backend`, `ux`, `reviewer`, `critic`, `docs`, `research` | all twelve |
-| no preset (standard/headless) | all twelve (deliberate: the library stays usable outside the orchestrated presets) |
+| `backend` | `case_record`, `case_update`, `case_verify`, `case_run`, `case_suite`, `case_get`, `case_list` — the role that owns the case repairs its text and records the observation |
+| `reviewer` | `case_get`, `case_list`, `case_run`, `case_gate`, `case_verify` — records an observation, never edits the case it judges |
+| `critic` | `case_get`, `case_list`, `case_run` |
+| `ux` | `case_record`, `case_list` |
+| `research` | `case_get`, `case_list` |
+| `docs` | `case_record`, `case_list`, `case_get` |
+| `gatherer` | none — an empty row in the map means no case tool at all |
+| no preset (standard/headless) | all twelve (deliberate: the library stays usable outside the orchestrated presets; this row is the one place the table leaves the policy) |
+
+Every row above is a row of `DEFAULT_ROLE_TOOLS`, and `test/policy-docs.test.mjs` fails when this
+table and that map disagree. `case_update` is deliberately absent from every role that JUDGES the
+change: an editor of the case must not be the judge of it. The prompt section a role receives is
+generated from its own row by `sectionText`, so it names exactly the verbs that role has.
 
 The policy is `DEFAULT_ROLE_TOOLS` in `test-cases.mjs` and can be overridden through the row's
 `roles` config. Tools are registered per agent on `agent.ctx`, so a preset that is not listed
@@ -29,11 +40,11 @@ All tools return a JSON value; a refusal is `{ ok:false, code, message }` with a
 |---|---|
 | `case_record` | one case; `automated:true` needs `testPath`+`runCommand`, otherwise a `reason`; optional `checks`, `negativeControl`, `surfaceFiles`, `source`, `linkedTaskId` |
 | `case_update` | compare-and-set on `revision`; a changed requirement/command/test/checks returns the case to `stale`; a changed command or test drops the recorded red too |
-| `case_verify` | the **manual** report: `{command, output, exitCode}` typed by the caller, stamped `source: manual`; automated passes need the observed red run of the same command |
-| `case_run` | **executes** the stored `runCommand` (1–5 runs, timeout) and records the measured result; `mode:"red"` runs the negative control and must FAIL |
+| `case_verify` | the **manual** report: `{command, output, exitCode, cwd}` typed by the caller, stamped `source: manual`, the directory recorded with it; automated passes need the observed red run of the same command |
+| `case_run` | **executes** the stored `runCommand` (1–5 runs, timeout) in `cwd` — absolute or workspace-relative, default the session workspace — and records the measured result with that directory (`cwd`, `cwdRelative`); `mode:"red"` runs the negative control and must FAIL. Use `cwd` for a red-first run in a COPY of the tree instead of pinning the command to one checkout |
 | `case_suite` | runs every automated case matching tag/kind/status, records each, writes `docs/cases/runs/suites/<id>.json` |
 | `case_gate` | read-only verdict: which linked AUTOMATED cases are not verified |
-| `case_list` / `case_get` | summaries with counts / the full record |
+| `case_list` / `case_get` | summaries with counts / the full record plus `directories.lastRun` and `directories.lastObservation` — the directory the last measured run and the last manual observation were taken in |
 | `case_supersede` / `case_deprecate` | closed status, requirement kept |
 | `case_remove` | the only destructive verb, terminal status only, audit line in `docs/cases/.removed.jsonl` |
 | `case_drift` | rehashes surface files, degrades a missing test; only `verified`/`failing`/`flaky` can go stale |
@@ -44,7 +55,8 @@ Refusal codes include `CASE_NOT_FOUND`, `CASE_EXISTS`, `REVISION_REQUIRED`, `REV
 `NEGATIVE_CONTROL_DID_NOT_FAIL`, `METRIC_REQUIRED`, `CHECKS_REQUIRE_AUTOMATED`,
 `BASELINE_REQUIRES_PASS`, `BASELINE_UNSUPPORTED`, `EMPTY_SUITE`, `COMMAND_MISMATCH`,
 `EVIDENCE_REQUIRED`, `EVIDENCE_NOT_GREEN`, `SELF_SUPERSEDE`, `CASE_UNREADABLE`, `INVALID_CASE`,
-`INVALID_CHECKS`.
+`INVALID_CHECKS`, `PINNED_COMMAND` (the command carries an absolute path: make it relative and pass
+`cwd`), `CWD_NOT_FOUND`, `CWD_INVALID`.
 
 ## The runner and the driver contract
 

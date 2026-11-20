@@ -2,10 +2,10 @@
 id: TASK-269
 kind: task
 title: "Коммит и push изменений в origin/main"
-status: review
-revision: 4
+status: done
+revision: 5
 createdAt: 2026-11-20T14:21:31.116Z
-updatedAt: 2026-11-20T14:26:06.269Z
+updatedAt: 2026-11-20T14:27:02.541Z
 boardId: task-mwp2hsqd-ssld7u
 chore: true
 choreReason: "Публикация уже сделанных изменений: коммит и push в origin по прямой просьбе владельца, без правок кода."
@@ -14,6 +14,8 @@ owner:
   kind: agent
   label: BACKEND
 preset: backend
+resultEvidence: ["commit 9f11674e1ddbe5ba534332a27e7df84dda154aa2, 87 путей, от a1eb322", "make verify 19/19 exit 0; make test 70/70 exit 0 на этом дереве", "v1 gnutls_handshake exit 128; v2 HTTP/1.0 exit 0; ls-remote refs/heads/main = 9f11674"]
+resultSummary: "Изменения сессии закоммичены одним коммитом и отправлены в origin/main; удалённый HEAD сверен с локальным, дерево чистое, игнорируемые каталоги в индекс не попали."
 role: BACKEND
 scope: ["git add/commit/push в текущем дереве", "ветка main, origin https://github.com/VanUST/dsh-vanust/"]
 ---

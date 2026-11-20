@@ -14,9 +14,9 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
-| TASK-270 | Догоняющий коммит и push после 9f11674 | — | — | yes |
+| TASK-272 | Коммит и push правки библиотеки кейсов | — | — | yes |
 
-## review (9)
+## review (8)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -28,9 +28,8 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-264 | Установка: Node 24.9, сохранение слоя, сторож сервера, бэкап и откат, обёртка Windows | REQ-176 | — | no |
 | TASK-265 | Сведение: make verify, make test, тарболы, кейс компакции, живой профиль | REQ-178 | — | no |
 | TASK-267 | Кейсы таскборда: негативный контроль через CASE_NEGATIVE_CONTROL | REQ-173, REQ-174 | — | no |
-| TASK-269 | Коммит и push изменений в origin/main | — | — | yes |
 
-## done (175)
+## done (178)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -209,6 +208,9 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-262 | Таскборд: закрытие с мёртвым ребёнком, один писатель доски, повтор зеркала | REQ-173, REQ-174 | — | no |
 | TASK-266 | Проверка компакции: общий бюджет и объявленное исключение architect | REQ-131 | — | no |
 | TASK-268 | Роль ARCHITECT: маршрут по умолчанию gpt-6.2-sol вместо gpt-6.2-astra | — | — | yes |
+| TASK-269 | Коммит и push изменений в origin/main | — | — | yes |
+| TASK-270 | Догоняющий коммит и push после 9f11674 | — | — | yes |
+| TASK-271 | Библиотека кейсов: правка и наблюдение доступны, каталог в доказательстве, запрет прибитых команд | REQ-179, REQ-180, REQ-181, REQ-182, REQ-183 | — | no |
 
 ## cancelled (82)
 

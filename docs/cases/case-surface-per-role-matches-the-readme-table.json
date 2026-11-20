@@ -1,0 +1,138 @@
+{
+  "schemaVersion": 1,
+  "id": "case-surface-per-role-matches-the-readme-table",
+  "title": "Case surface per role matches the README table",
+  "requirement": "The owner of a case can repair it and the observer can record an observation: backend gets case_update and case_verify, reviewer gets case_verify but never case_update, and the README table plus the role's prompt section name exactly the verbs its policy row carries (REQ-179, REQ-182).",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "plugins/test-cases/test/policy-docs.test.mjs",
+  "runCommand": "node --test plugins/test-cases/test/policy-docs.test.mjs",
+  "steps": [
+    "Read DEFAULT_ROLE_TOOLS and the README \"Role availability\" table",
+    "Compare every preset row of the table with the policy map",
+    "Ask sectionText(row) for each row and check it names only the granted verbs",
+    "Register one agent per preset through apply() and read the tool names it received"
+  ],
+  "expected": "backend is registered case_update and case_verify, reviewer case_verify only, critic neither, and the table and the generated section agree with the policy map.",
+  "tags": [
+    "test-cases",
+    "policy",
+    "docs"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/test-cases/test-cases.mjs",
+      "sha256": "cb40bfc804f401789ccdd985dddaf4fd9b5267de954f3e532fa4d77057e678c3"
+    },
+    {
+      "path": "plugins/test-cases/README.md",
+      "sha256": "c967d655057ff0fd4eac1a0c529fdc516bec34100153290478d2ec2c07aeae56"
+    }
+  ],
+  "linkedTaskId": "task-mwp38cbu-yxweys",
+  "reqId": "REQ-179",
+  "authorRole": "backend",
+  "negativeControl": "expect-pre-fix",
+  "revision": 3,
+  "createdAt": "2026-11-20T14:57:38.919Z",
+  "updatedAt": "2026-11-20T14:58:02.876Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-20T14:57:48.738Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-pre-fix\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-20T14:58:02.876Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mwp3shzr-7vl9z-1",
+      "at": "2026-11-20T14:57:48.736Z",
+      "mode": "red",
+      "control": "expect-pre-fix",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 272,
+      "commandSha256": "371a2da4bfc2d1264bedda99cb652643117e85bd8c9a9c882b66a1c1435646de",
+      "head": "001a1f07ff5da90ca2a68ee6572fd3b09ca7a465",
+      "dirty": true,
+      "stdout": "docs/cases/runs/case-surface-per-role-matches-the-readme-table/mwp3shzr-7vl9z-1/stdout.log",
+      "stderr": "docs/cases/runs/case-surface-per-role-matches-the-readme-table/mwp3shzr-7vl9z-1/stderr.log",
+      "summary": "docs/cases/runs/case-surface-per-role-matches-the-readme-table/mwp3shzr-7vl9z-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwp3stcc-omfwx-1",
+      "at": "2026-11-20T14:58:02.875Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 289,
+      "commandSha256": "371a2da4bfc2d1264bedda99cb652643117e85bd8c9a9c882b66a1c1435646de",
+      "head": "001a1f07ff5da90ca2a68ee6572fd3b09ca7a465",
+      "dirty": true,
+      "stdout": "docs/cases/runs/case-surface-per-role-matches-the-readme-table/mwp3stcc-omfwx-1/stdout.log",
+      "stderr": "docs/cases/runs/case-surface-per-role-matches-the-readme-table/mwp3stcc-omfwx-1/stderr.log",
+      "summary": "docs/cases/runs/case-surface-per-role-matches-the-readme-table/mwp3stcc-omfwx-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-20T14:57:48.738Z",
+    "runId": "mwp3shzr-7vl9z-1",
+    "exitCode": 1,
+    "control": "expect-pre-fix",
+    "command": "node --test plugins/test-cases/test/policy-docs.test.mjs",
+    "source": "negative-control"
+  },
+  "lastVerified": {
+    "at": "2026-11-20T14:58:02.876Z",
+    "command": "node --test plugins/test-cases/test/policy-docs.test.mjs",
+    "exitCode": 0,
+    "runId": "mwp3stcc-omfwx-1",
+    "source": "runner",
+    "commit": null
+  }
+}
