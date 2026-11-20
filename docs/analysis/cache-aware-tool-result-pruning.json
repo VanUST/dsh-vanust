@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "cache-aware-tool-result-pruning",
-  "rev": 2,
-  "status": "ready",
+  "rev": 5,
+  "status": "completed",
   "createdAt": "2026-11-20T11:00:31.366Z",
-  "updatedAt": "2026-11-20T11:00:37.933Z",
+  "updatedAt": "2026-11-20T11:24:06.819Z",
   "updatedBy": "agent",
   "title": "Точка обрыва кэша при обрезке результатов инструментов",
   "requestedSolution": "Владелец 2026-11-20: согласен с поправками аудита префикс-кэша — обрезать результаты инструментов начиная с новейших, чтобы точка перезаписи уходила к хвосту, и проверить результат.",
@@ -64,7 +64,8 @@
         "обрезка продолжается только пока измеренный объём выше бюджета, затем прекращается",
         "на каждую обрезку пишется compaction/prune и tool/result с surfaceOp replace и sourceEventSeqs"
       ],
-      "status": "planned"
+      "status": "deferred",
+      "reason": "Поведение доказано прогоном scripts/tail-pruner-proof.mjs (25 проверок зелёные, включая негативный контроль «oldest-first plan fails the newest-first predicate») и реплеем scripts/tail-pruner-savings.mjs, но реестр требует TEST-сущность с парой red:fail/green:pass, а её создаёт только case_run, которого в этой сессии нет (поверхность intake: case_record/case_list/case_get/case_drift/case_gate). Требование отложено явно, а не помечено proven: прогон есть, записи о нём в реестре нет."
     },
     {
       "id": "FR2",
@@ -75,7 +76,8 @@
         "проверка на fake-сессии: три последних результата не тронуты",
         "если подходящих кандидатов нет, плагин ничего не пишет"
       ],
-      "status": "planned"
+      "status": "deferred",
+      "reason": "Поведение доказано прогоном scripts/tail-pruner-proof.mjs (25 проверок зелёные, включая негативный контроль «oldest-first plan fails the newest-first predicate») и реплеем scripts/tail-pruner-savings.mjs, но реестр требует TEST-сущность с парой red:fail/green:pass, а её создаёт только case_run, которого в этой сессии нет (поверхность intake: case_record/case_list/case_get/case_drift/case_gate). Требование отложено явно, а не помечено proven: прогон есть, записи о нём в реестре нет."
     },
     {
       "id": "FR3",
@@ -86,7 +88,8 @@
         "budgetRatio 0.45 ниже thresholdRatio 0.5 на 1M-маршрутах",
         "если contextWindow неизвестен, плагин молчит и не мешает страховочному пути"
       ],
-      "status": "planned"
+      "status": "deferred",
+      "reason": "Поведение доказано прогоном scripts/tail-pruner-proof.mjs (25 проверок зелёные, включая негативный контроль «oldest-first plan fails the newest-first predicate») и реплеем scripts/tail-pruner-savings.mjs, но реестр требует TEST-сущность с парой red:fail/green:pass, а её создаёт только case_run, которого в этой сессии нет (поверхность intake: case_record/case_list/case_get/case_drift/case_gate). Требование отложено явно, а не помечено proven: прогон есть, записи о нём в реестре нет."
     },
     {
       "id": "NFR1",
@@ -97,7 +100,8 @@
         "check-documentation: все заявленные числа плагинов совпадают с inventory",
         "тарбол собран, inventory и профиль согласованы"
       ],
-      "status": "planned"
+      "status": "deferred",
+      "reason": "make verify exit 0 (18/18 portability, documentation ok, glossary ok, schema-lint, context-budget, identity-guard) — зелёный прогон; пара red:fail/green:pass для гейта потребовала бы искусственно сломанных исходников, поэтому требование отложено явно."
     }
   ],
   "architecture": {
@@ -202,8 +206,19 @@
         "CT-SURFACE"
       ],
       "dataIds": [],
-      "status": "planned",
-      "tasks": []
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwovbjnk-zuq3gj",
+          "role": "BACKEND",
+          "at": "2026-11-20T11:23:58.544Z",
+          "evidence": [
+            "proof: «plan prunes strictly newest-first», «plan stops once the projection fits the budget», «replacement carries surfaceOp replace and sourceEventSeqs» (25 проверок зелёные)",
+            "tar -xzOf plugins/cc-dsh-tail-pruner-0.1.0.tgz package/tail-pruner.mjs | diff - plugins/tail-pruner/tail-pruner.mjs — identical"
+          ]
+        }
+      ],
+      "reason": "Поведение доказано прогоном scripts/tail-pruner-proof.mjs (25 проверок, включая негативный контроль) и реплеем scripts/tail-pruner-savings.mjs, но реестр требует TEST-сущность с парой red:fail/green:pass, а её создаёт только case_run, которого в этой сессии нет (поверхность intake)."
     },
     {
       "requirementId": "FR2",
@@ -211,8 +226,20 @@
       "componentId": "C-TAIL",
       "contractIds": [],
       "dataIds": [],
-      "status": "planned",
-      "tasks": []
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwovbjnk-zuq3gj",
+          "role": "BACKEND",
+          "at": "2026-11-20T11:23:58.545Z",
+          "evidence": [
+            "proof: «plan never touches the newest protectResults»",
+            "proof: «nothing is written when the context is under budget»",
+            "negative control: «an oldest-first plan fails the newest-first predicate»"
+          ]
+        }
+      ],
+      "reason": "Поведение доказано прогоном scripts/tail-pruner-proof.mjs (25 проверок, включая негативный контроль) и реплеем scripts/tail-pruner-savings.mjs, но реестр требует TEST-сущность с парой red:fail/green:pass, а её создаёт только case_run, которого в этой сессии нет (поверхность intake)."
     },
     {
       "requirementId": "FR3",
@@ -222,8 +249,21 @@
         "CT-CFG"
       ],
       "dataIds": [],
-      "status": "planned",
-      "tasks": []
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwovbjnk-zuq3gj",
+          "role": "BACKEND",
+          "at": "2026-11-20T11:23:58.545Z",
+          "evidence": [
+            "grep -c dsh-compaction-tool-result-pruner profile/cordis.patch.yml -> 11",
+            "profile/cordis.patch.yml: budgetRatio 0.45 против thresholdRatio 0.5",
+            "proof: «no contextWindow means the plugin stays quiet»",
+            "второй сервер: dump-config печатает tail-pruner; 127.0.0.1:3081 слушает"
+          ]
+        }
+      ],
+      "reason": "Поведение доказано прогоном scripts/tail-pruner-proof.mjs (25 проверок, включая негативный контроль) и реплеем scripts/tail-pruner-savings.mjs, но реестр требует TEST-сущность с парой red:fail/green:pass, а её создаёт только case_run, которого в этой сессии нет (поверхность intake)."
     },
     {
       "requirementId": "NFR1",
@@ -231,12 +271,24 @@
       "componentId": "C-CFG",
       "contractIds": [],
       "dataIds": [],
-      "status": "planned",
-      "tasks": []
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwovbjnk-zuq3gj",
+          "role": "BACKEND",
+          "at": "2026-11-20T11:23:58.545Z",
+          "evidence": [
+            "make verify -> exit 0: 18/18 portability, documentation ok (28 plugins), glossary ok, schema-lint, context-budget, identity-guard",
+            "plugins/inventory.json: 28 строк, tail-pruner mounted:true",
+            "git 3519375, f7e687d"
+          ]
+        }
+      ],
+      "reason": "Поведение доказано прогоном scripts/tail-pruner-proof.mjs (25 проверок, включая негативный контроль) и реплеем scripts/tail-pruner-savings.mjs, но реестр требует TEST-сущность с парой red:fail/green:pass, а её создаёт только case_run, которого в этой сессии нет (поверхность intake)."
     }
   ],
   "pendingImpacts": [],
-  "fingerprint": "9f5cfbf4ab0095cab04bfae7627ad215684408242c9c5790270ccac7e71db0d6",
+  "fingerprint": "3da9ab76db70fb09648ab3986c0e40af9bda14489193c43c4529adba714124a5",
   "history": [
     {
       "revision": 1,
@@ -252,6 +304,30 @@
       "editedBy": "agent",
       "action": "upsert",
       "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-20T11:23:52.239Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR1 changed, FR2 changed, FR3 changed, NFR1 changed; impacts: 4"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-20T11:23:58.553Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-20T11:24:06.819Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "completed",
       "summary": ""
     }
   ]

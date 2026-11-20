@@ -2,14 +2,13 @@
 
 GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`.
 
-## open (4)
+## open (3)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
 | TASK-233 | OpenAI Codex: вход по подписке через инструмент харнесса | REQ-111, REQ-112, REQ-113, REQ-114 | 0/4 | no |
 | TASK-237 | Stop the state feed from writing unidentified messages, and repair the sessions it corrupted | — | 0/7 | yes |
 | TASK-243 | Остаток окна Codex и цена модели — в сессии | REQ-132, REQ-133 | 0/4 | no |
-| TASK-256 | Обрезка результатов инструментов от хвоста: плагин tail-pruner | REQ-168, REQ-169, REQ-170, REQ-171 | 0/7 | no |
 
 ## review (3)
 
@@ -19,7 +18,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-241 | Абсолютный бюджет контекста ~500K вместо доли окна | REQ-131 | 2/2 | no |
 | TASK-242 | Allow-список ролей не действует на инструменты кита | REQ-130 | 4/4 | no |
 
-## done (167)
+## done (168)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -190,6 +189,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-253 | Пресет presenter: роль, профиль, политика инструментов, документы | REQ-155, REQ-158, REQ-161 | 5/5 | no |
 | TASK-254 | Доказательство пресета: скрипт, второй сервер, ТЗ про prefix caching | REQ-159, REQ-160, REQ-162 | 5/5 | no |
 | TASK-255 | Панель состояния: читаемый список статусов, без колонки Evidence, смена статуса доходит до реестра | REQ-164, REQ-165, REQ-166, REQ-167 | 6/6 | no |
+| TASK-256 | Обрезка результатов инструментов от хвоста: плагин tail-pruner | REQ-168, REQ-169, REQ-170, REQ-171 | 7/7 | no |
 
 ## cancelled (82)
 

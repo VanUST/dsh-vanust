@@ -2,7 +2,7 @@
 
 GENERATED — DO NOT EDIT.
 
-- last journal event: 1141
+- last journal event: 1155
 - REQ: 171
 - DECISION: 0
 - TASK: 256
@@ -11,6 +11,6 @@ GENERATED — DO NOT EDIT.
 ## Tasks by status
 
 - cancelled: 82
-- done: 167
-- open: 4
+- done: 168
+- open: 3
 - review: 3
