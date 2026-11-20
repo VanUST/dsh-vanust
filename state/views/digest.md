@@ -2,12 +2,12 @@
 
 GENERATED — DO NOT EDIT.
 
-REQ 178 · TASK 269 · TEST 83 · event 1261
+REQ 178 · TASK 270 · TEST 83 · event 1267
 
 ## Gaps
 
 - REQ without TASK: 177 (REQ-001, REQ-002, REQ-003, REQ-004, REQ-005, REQ-006, REQ-007, REQ-008, REQ-009, REQ-010, …)
-- TASK without reqId: 268
+- TASK without reqId: 269
 - TEST without reqId: 51
 
 ## Open requirements (4)
@@ -22,8 +22,7 @@ REQ 178 · TASK 269 · TEST 83 · event 1261
 - TASK-233 open: OpenAI Codex: вход по подписке через инструмент харнесса
 - TASK-237 open: Stop the state feed from writing unidentified messages, and repair the sessions it corrupted
 - TASK-243 open: Остаток окна Codex и цена модели — в сессии
-- TASK-268 active: Роль ARCHITECT: маршрут по умолчанию gpt-6.2-sol вместо gpt-6.2-astra
-- TASK-269 active: Коммит и push изменений в origin/main
+- TASK-270 active: Догоняющий коммит и push после 9f11674
 - TASK-240 review: Ограничить контекст на входе: проекция выдачи и task_list
 - TASK-241 review: Абсолютный бюджет контекста ~500K вместо доли окна
 - TASK-242 review: Allow-список ролей не действует на инструменты кита
@@ -32,4 +31,5 @@ REQ 178 · TASK 269 · TEST 83 · event 1261
 - TASK-264 review: Установка: Node 24.9, сохранение слоя, сторож сервера, бэкап и откат, обёртка Windows
 - TASK-265 review: Сведение: make verify, make test, тарболы, кейс компакции, живой профиль
 - TASK-267 review: Кейсы таскборда: негативный контроль через CASE_NEGATIVE_CONTROL
+- TASK-269 review: Коммит и push изменений в origin/main
 

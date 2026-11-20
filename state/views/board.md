@@ -10,14 +10,13 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-237 | Stop the state feed from writing unidentified messages, and repair the sessions it corrupted | — | 0/7 | yes |
 | TASK-243 | Остаток окна Codex и цена модели — в сессии | REQ-132, REQ-133 | 0/4 | no |
 
-## active (2)
+## active (1)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
-| TASK-268 | Роль ARCHITECT: маршрут по умолчанию gpt-6.2-sol вместо gpt-6.2-astra | — | — | yes |
-| TASK-269 | Коммит и push изменений в origin/main | — | — | yes |
+| TASK-270 | Догоняющий коммит и push после 9f11674 | — | — | yes |
 
-## review (8)
+## review (9)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -29,8 +28,9 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-264 | Установка: Node 24.9, сохранение слоя, сторож сервера, бэкап и откат, обёртка Windows | REQ-176 | — | no |
 | TASK-265 | Сведение: make verify, make test, тарболы, кейс компакции, живой профиль | REQ-178 | — | no |
 | TASK-267 | Кейсы таскборда: негативный контроль через CASE_NEGATIVE_CONTROL | REQ-173, REQ-174 | — | no |
+| TASK-269 | Коммит и push изменений в origin/main | — | — | yes |
 
-## done (174)
+## done (175)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -208,6 +208,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-260 | Карта отказных режимов харнесса | — | — | yes |
 | TASK-262 | Таскборд: закрытие с мёртвым ребёнком, один писатель доски, повтор зеркала | REQ-173, REQ-174 | — | no |
 | TASK-266 | Проверка компакции: общий бюджет и объявленное исключение architect | REQ-131 | — | no |
+| TASK-268 | Роль ARCHITECT: маршрут по умолчанию gpt-6.2-sol вместо gpt-6.2-astra | — | — | yes |
 
 ## cancelled (82)
 
