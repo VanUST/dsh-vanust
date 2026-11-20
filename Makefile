@@ -48,7 +48,7 @@ endif
 CORPUS   ?= .cache/session-analysis/corpus.json
 ANALYSIS ?= .cache/session-analysis/analysis.json
 
-.PHONY: help usage usage-check usage-gate session-corpus session-analysis notify-selftest session-doctor session-identity harness-guard harness-guard-apply verify cases
+.PHONY: help usage usage-check usage-gate session-corpus session-analysis notify-selftest session-doctor session-identity harness-guard harness-guard-apply verify test cases
 
 help:
 	@echo "make usage                    - newest usage export in ~/Downloads, write and open the report"
@@ -62,7 +62,9 @@ help:
 	@echo "make session-doctor           - report session logs the OS refuses to read (the UI shows no history)"
 	@echo "make session-identity         - report stored messages with no identity (they refuse the whole session)"
 	@echo "make harness-guard            - check the harness patch that makes that class impossible (3 = unpatched)"
-	@echo "make verify                   - run every check the kit ships"
+	@echo "make verify                   - run every check the kit ships (they READ the tree)"
+	@echo "make test                     - run the tests that RUN the kit: plugin tests, then proof scripts"
+	@echo "  ONLY=<substring>            - run only the test and proof paths containing it"
 	@echo "make cases                    - execute the automated cases in docs/cases; exit 1 when one is not verified"
 	@echo "  TAG=<tag> ARGS=<cli args>   - e.g. make cases TAG=benchmark, or ARGS=\"--id <case>\""
 
@@ -139,6 +141,15 @@ verify:
 	node scripts/schema-lint.mjs
 	node scripts/context-budget.mjs
 	node scripts/harness-identity-guard.mjs --check
+
+# The other half of the gate. The checks above READ the tree - paths, packaging, documentation,
+# schema bytes, session headers - and none of them executes it. This target runs the files that
+# do: every plugin test file through `node --test`, then every proof script, one process each,
+# in a fixed order, stopping at the first failure with exit 1. `make test ONLY=taskboard` runs a
+# subset. It is a separate target on purpose: `verify` stays the cheap reader that needs no
+# session store and no browser.
+test:
+	@$(NODE) scripts/test-all.mjs $(if $(strip $(ONLY)),--only "$(strip $(ONLY))",)
 
 # The case library's own entry point. `make verify` is the packaging/doc gate; this target RUNS
 # the product: every automated case (or a TAG/ARGS subset) is executed by the same runner the

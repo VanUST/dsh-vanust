@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "id": "the-architect-role-defaults-to-gpt-6-2-sol",
+  "title": "The ARCHITECT role defaults to gpt-6.2-sol",
+  "requirement": "Роль ARCHITECT по умолчанию идёт на openai-codex/gpt-6.2-sol вместо openai-codex/gpt-6.2-astra: и правило role-model, и строка flash-guard allowedRoutes называют sol. Фолбэк deepseek-official/deepseek-flash с усилием max и правило «явный выбор модели человеком не перезаписывается» остаются. Модель gpt-6.2-astra остаётся в каталоге провайдера openai-codex (llm-pi-ai), но не как маршрут по умолчанию.",
+  "kind": "regression",
+  "status": "unverified",
+  "source": "human",
+  "automated": false,
+  "reason": "Требование к конфигурации профиля: наблюдаемый результат — выбор маршрута живой сессией на :3080, а перезапуск сервера запрещён; статическая часть (role-model + flash-guard + каталог) проверяется чтением profile/cordis.patch.yml и make verify, исполняемого приёмочного сценария для маршрута в этой задаче нет.",
+  "steps": [
+    "прочитать profile/cordis.patch.yml: правило role-model для роли architect (provider openai-codex, model gpt-6.2-sol, fallback deepseek-flash/max)",
+    "прочитать flash-guard allowedRoutes: там же пара openai-codex/gpt-6.2-sol, иначе сторож отказал бы каждому делегированному architect-ребёнку",
+    "проверить, что каталог моделей openai-codex по-прежнему содержит - id: gpt-6.2-astra, но astra не встречается как маршрут по умолчанию ни в role-model, ни в allowedRoutes",
+    "прогнать make verify и node --test plugins/role-model/test/role-model.test.mjs"
+  ],
+  "expected": "Свежая сессия роли architect идёт на openai-codex/gpt-6.2-sol с усилием high; делегированный architect-ребёнок не получает отказа flash-guard; при QUOTA шаг переключается на deepseek-official/deepseek-flash с усилием max и повторяется; gpt-6.2-astra остаётся только в каталоге провайдера; make verify завершается с exit 0.",
+  "tags": [
+    "owner-requirement",
+    "orchestrator",
+    "model-routing"
+  ],
+  "surfaceFiles": [],
+  "linkedTaskId": "task-mwp2exdp-0kchm3",
+  "authorRole": "BACKEND",
+  "revision": 2,
+  "createdAt": "2026-11-20T14:23:34.208Z",
+  "updatedAt": "2026-11-20T14:23:53.425Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-20T14:23:34.208Z",
+      "editedBy": "agent",
+      "note": "source corrected to human (the owner stated the route change) and the wrong reqId REQ-131 removed; REQ-141 still states the old astra route, so the case is linked to the task, not to a requirement that contradicts it",
+      "snapshot": {
+        "title": "The ARCHITECT role defaults to gpt-6.2-sol",
+        "requirement": "Роль ARCHITECT по умолчанию идёт на openai-codex/gpt-6.2-sol вместо openai-codex/gpt-6.2-astra: и правило role-model, и строка flash-guard allowedRoutes называют sol. Фолбэк deepseek-official/deepseek-flash с усилием max и правило «явный выбор модели человеком не перезаписывается» остаются. Модель gpt-6.2-astra остаётся в каталоге провайдера openai-codex (llm-pi-ai), но не как маршрут по умолчанию.",
+        "expected": "Свежая сессия роли architect идёт на openai-codex/gpt-6.2-sol с усилием high; делегированный architect-ребёнок не получает отказа flash-guard; при QUOTA шаг переключается на deepseek-official/deepseek-flash с усилием max и повторяется; gpt-6.2-astra остаётся только в каталоге провайдера; make verify завершается с exit 0.",
+        "steps": [
+          "прочитать profile/cordis.patch.yml: правило role-model для роли architect (provider openai-codex, model gpt-6.2-sol, fallback deepseek-flash/max)",
+          "прочитать flash-guard allowedRoutes: там же пара openai-codex/gpt-6.2-sol, иначе сторож отказал бы каждому делегированному architect-ребёнку",
+          "проверить, что каталог моделей openai-codex по-прежнему содержит - id: gpt-6.2-astra, но astra не встречается как маршрут по умолчанию ни в role-model, ни в allowedRoutes",
+          "прогнать make verify и node --test plugins/role-model/test/role-model.test.mjs"
+        ],
+        "automated": false,
+        "testPath": null,
+        "runCommand": null,
+        "reason": "Требование к конфигурации профиля: наблюдаемый результат — выбор маршрута живой сессией на :3080, а перезапуск сервера запрещён; статическая часть (role-model + flash-guard + каталог) проверяется чтением profile/cordis.patch.yml и make verify, исполняемого приёмочного сценария для маршрута в этой задаче нет.",
+        "status": "unverified",
+        "checks": [],
+        "negativeControl": null
+      }
+    }
+  ],
+  "evidence": {}
+}

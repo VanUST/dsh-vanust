@@ -30,7 +30,16 @@
  *
  * OUTPUTS
  *   One line per preset, then a summary line; exit 0 when no preset is red, 1 when one is.
- *   `--json` prints `{ ok, presets: [...], red: [...] }` and nothing else.
+ *
+ *   REFUSES, with a named reason and exit 1, when there is nothing to measure: no session store,
+ *   no session log, an empty budget table, or no kit-preset session carrying a request header.
+ *   Ten `no session` rows used to be a green run on a machine that has never run a session, and
+ *   a green run there says nothing about the product.
+ *
+ *   Every run also carries its own NEGATIVE CONTROL: the same refusal predicate is applied to a
+ *   deliberately empty/broken input and to a healthy one, and the run fails when the broken input
+ *   is accepted or the healthy one is refused. The control is printed in this script's output.
+ *   `--json` prints `{ ok, refused, negativeControl, presets: [...], red: [...] }`.
  */
 
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
@@ -204,6 +213,45 @@ function presetOf(events, headerEvent) {
   return headerEvent?.agentPreset ?? '(none)'
 }
 
+/**
+ * Why this run cannot be a gate, or null when it can.
+ *
+ * A preset with no session is a fact about the machine, not a verdict about the preset: when
+ * EVERY preset lands there the run has measured nothing, and "0 red" then means "not measured".
+ * The same holds for an empty budget table — every comparison would be against `undefined` and
+ * every verdict would come out ok. Both are refusals, and each names the input that was empty.
+ *
+ * @param input - What the run found.
+ * @returns A refusal code, or null when the run has something to decide.
+ */
+export function refusalFor({ storeExists, sessionLogs, budgetPresets, measuredPresets }) {
+  if (!storeExists) return 'session-store-missing'
+  if (sessionLogs === 0) return 'no-session-log'
+  if (budgetPresets === 0) return 'budget-table-empty'
+  if (measuredPresets === 0) return 'no-preset-session'
+  return null
+}
+
+/**
+ * The NEGATIVE CONTROL for the refusal above: the inputs that must be refused, and the one that
+ * must be accepted. A gate that refuses everything is as useless as one that refuses nothing, so
+ * both directions are checked and a failure here fails the run.
+ *
+ * @returns The accepted-but-should-refuse inputs, plus the healthy input if it was refused.
+ */
+export function negativeControlFailures() {
+  const healthy = { storeExists: true, sessionLogs: 12, budgetPresets: 10, measuredPresets: 10 }
+  const broken = [
+    ['no session store', { ...healthy, storeExists: false }],
+    ['no session log', { ...healthy, sessionLogs: 0 }],
+    ['an empty budget table', { ...healthy, budgetPresets: 0 }],
+    ['no kit-preset session', { ...healthy, measuredPresets: 0 }],
+  ]
+  const failures = broken.filter(([, input]) => refusalFor(input) === null).map(([name]) => `${name} was accepted`)
+  if (refusalFor(healthy) !== null) failures.push('a healthy input was refused')
+  return { inputs: broken.length, failures }
+}
+
 const budgetsFromProfile = budgetsFile !== ''
   ? JSON.parse(readFileSync(resolve(budgetsFile), 'utf8'))
   : parseBudgetsFromProfile(readFileSync(profilePath, 'utf8'))
@@ -226,6 +274,29 @@ for (const file of files) {
   const row = { preset, session: header.id, depth: header.delegationDepth ?? 0, file, createdAt: header.createdAt ?? 0, ...measured }
   const current = latest.get(preset)
   if (current === undefined || row.createdAt > current.createdAt) latest.set(preset, row)
+}
+
+// Refuse BEFORE the table is built: a table of `no session` rows is not a measurement, and
+// printing it with exit 0 is what made this check green on a machine that never ran a session.
+const refusal = refusalFor({
+  storeExists: existsSync(sessionsRoot),
+  sessionLogs: files.length,
+  budgetPresets: Object.keys(budgetsFromProfile).length,
+  measuredPresets: latest.size,
+})
+const refusalReason = refusal === null ? '' : refusalText(refusal)
+const control = negativeControlFailures()
+
+/** The named reason behind a refusal code, with the path or filter that produced it. */
+function refusalText(code) {
+  if (code === 'session-store-missing') return `no session store at ${sessionsRoot}: this run has no session log to measure, and a preset nobody measured is not a preset within budget`
+  if (code === 'no-session-log') return `no session log under ${sessionsRoot}: nothing was measured, so "0 red" would mean "not measured"`
+  if (code === 'budget-table-empty') return `the budget table in ${budgetsFile !== '' ? resolve(budgetsFile) : profilePath} is empty: every preset would be compared against no budget at all`
+  const filters = [
+    sessionPrefix === '' ? '' : `--session ${sessionPrefix}`,
+    onlyPresets === null ? '' : `--presets ${[...onlyPresets].join(',')}`,
+  ].filter((part) => part !== '')
+  return `no kit-preset session with a request header among ${files.length} session log(s) under ${sessionsRoot}${filters.length === 0 ? '' : ` (the filters ${filters.join(' and ')} left none)`}`
 }
 
 const rows = []
@@ -264,9 +335,14 @@ for (const preset of KIT_PRESETS) {
   rows.push({ preset, session: row.session, depth: row.depth, mode: ptcSession ? 'ptc' : 'native', tools: row.tools, toolsBudget, recommended, schemaBytes: row.schemaBytes, systemBytes: row.systemBytes, reminderBytes: row.reminderBytes, verdict: worst, details: verdicts })
 }
 
+const ok = refusal === null && control.failures.length === 0 && red.length === 0
+const controlLine = control.failures.length === 0
+  ? `negative control: ${control.inputs} empty/broken input(s) refused, a healthy input accepted`
+  : `negative control: FAILED — ${control.failures.join('; ')}`
+
 if (flag('--json')) {
-  console.log(JSON.stringify({ ok: red.length === 0, presets: rows, red }, null, 1))
-  process.exitCode = red.length === 0 ? 0 : 1
+  console.log(JSON.stringify({ ok, refused: refusal, refusalReason, negativeControl: control, presets: rows, red }, null, 1))
+  process.exitCode = ok ? 0 : 1
 } else {
   const n = (value) => (value === null || value === undefined ? '—' : String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ' '))
   console.log('| preset | tools | budget | recommended | schema B | system B | reminders B | verdict |')
@@ -285,5 +361,7 @@ if (flag('--json')) {
   }
   for (const warning of warnings) console.log(`  warning: ${warning}`)
   console.log(`\n${rows.filter((row) => row.verdict === 'ok').length}/${rows.length} presets within budget, ${red.length} red`)
-  process.exitCode = red.length === 0 ? 0 : 1
+  console.log(controlLine)
+  if (refusal !== null) console.log(`refused: ${refusalReason}`)
+  process.exitCode = ok ? 0 : 1
 }

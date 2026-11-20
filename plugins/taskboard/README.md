@@ -289,6 +289,20 @@ live session and is left alone.
   draft and offers Refresh. A malformed ledger fails the read loudly rather than
   replacing the human's work. The Host writes temp-file + rename, so a crash
   cannot leave half a JSON document.
+- **One writer at a time, across processes.** The read-modify-write holds a directory
+  lock next to the file (`<ledger>.lock`, created with `mkdir`, which is `O_EXCL` on the
+  filesystem). A second process WAITS for the lock (`lockWaitMs`, default 10 s) and then
+  writes, so it cannot replace a board it read before the first process wrote its rows; a
+  lock older than `lockStaleMs` (default 30 s) belongs to a process that died holding it
+  and is taken over. A wait that runs out is refused by name, never silently overwritten.
+- **A child that disappeared no longer blocks acceptance.** Whether a linked child is alive
+  is asked of the RUNTIME (`agents.get`/`agents.list`), not inferred from `subagent/end`:
+  that event only exists in the process that saw the child settle, so after a restart the
+  row says `active` forever. A child the runtime no longer holds is settled like a finished
+  one - the task closes as usual, the child row is marked settled, the role is freed, and the
+  tool result names it in `gone`. A child the runtime still runs is interrupted as before,
+  and a refused interrupt still fails closed. The first read of a board in a process settles
+  `active` rows whose linked children have finished or disappeared.
 - A write from another chat is refused with `other_chat` for an agent; the panel
   (the human) may still fix an old row it is reading, which is why Remove on an
   earlier chat's task works from the All-chats view.

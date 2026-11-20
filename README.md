@@ -128,7 +128,7 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   alive: before a fresh session's first request the preset's configured route is selected
   (`agent/model.select`), and a `QUOTA`/`ACCOUNT_QUOTA` failure selects the fallback and
   retries the step instead of failing it. The `architect` role is the first user:
-  `openai-codex/gpt-6.2-astra`, falling back to `deepseek-official/deepseek-flash` at max
+  `openai-codex/gpt-6.2-sol`, falling back to `deepseek-official/deepseek-flash` at max
   effort. No tool, no prompt section.
 - **`@cc/dsh-proof-guard`** — a `tools/pre-execute` waterfall that denies a write or edit to
   a test file unless it carries a `PROOF:` header naming the production behavior and the
@@ -424,10 +424,16 @@ verified on and the procedure for reproducing that verification are `rules/DEPLO
   contracts, and the artifacts win wherever they disagree.
 - **Enforcement** — `node scripts/check-portability.mjs` (platform + packaging + plugin
   inventory) and `node scripts/check-documentation.mjs` (the pin, the named scripts, the
-  plugin set). `make verify` runs them.
-  **There is no test suite**: the kit ships no automated tests, and what replaces them is
-  running the product and quoting what it produced. `rules/DEPLOYMENT.md` §4 is the same
-  list with the details.
+  plugin set). `make verify` runs them, together with the schema, context-budget, glossary
+  and session-identity checks; all of those READ the tree.
+- **The tests that run it** — `make test` runs every plugin test file through `node --test`
+  (then the tests under `scripts/test`), and then every `scripts/*-proof.mjs`, one process
+  each, stopping at the first failure with exit 1. `make test ONLY=taskboard` runs the paths
+  containing that word. There is no root `package.json` and no test framework to install:
+  the runner is `scripts/test-all.mjs` and the tests are plain `node:test` files.
+  A test exists only where one was asked for and the behaviour is non-trivial; what proves a
+  change is still running the product and quoting what it produced. `rules/DEPLOYMENT.md` §4
+  is the same pair with the details.
 
 **Upgrades:** the harness is pre-1.0 and breaking changes are policy. Install the
 candidate and rebuild the plugins against its checkout first:

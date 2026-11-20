@@ -2,10 +2,10 @@
 /**
  * PURPOSE
  *   Prove the root policy section of `@cc/dsh-orchestrator` against the REAL plugin modules,
- *   on a fake harness context: the section appears only for the preset it describes, it does
- *   not carry the old "you have no bash at all" literal, and the sentence about the session's
- *   tool set is derived from the facts `@cc/dsh-tool-families` publishes and frozen for the
- *   session.
+ *   on a fake harness context: every root renders the common working policy, only the preset
+ *   this policy describes appends the orchestration part, the section does not carry the old
+ *   "you have no bash at all" literal, and the sentence about the session's tool set is derived
+ *   from the facts `@cc/dsh-tool-families` publishes and frozen for the session.
  *
  * WHY IT EXISTS. The policy used to be registered on every root and stated a tool set as a
  * literal: a `cordis` root that carried `bash` among its tools read that it had no shell
@@ -208,7 +208,12 @@ check(
   const section = sectionFor(env, 'root-orchestrator', 'deployment:orchestrator-policy')
   check('a root on the described preset gets the orchestrator policy section', section !== undefined, env.sections.map((entry) => entry.name).join(','))
   const text = textOf(section) ?? ''
-  check('the section carries the root policy', text.startsWith('## Orchestration policy (deployment)'))
+  // Every root renders the common part first (d4de360: "Let every root read the speed rules"),
+  // and only the preset this policy describes appends ROOT_POLICY after it.
+  check(
+    'the section carries the common policy and then the root policy',
+    text.startsWith('## Working policy (deployment)') && text.includes(orchestratorModule.ROOT_POLICY),
+  )
   check('the section states the session tool set from the policy facts', text.includes('## Your tool set (deployment)'))
   const removed = removedIn(claimOf(text))
   check(
@@ -220,7 +225,9 @@ check(
   check('the claim is phrased as a removal, not as the old literal', /removed .* from this session's tool set/.test(text) && !OLD_LITERAL.test(text))
 }
 
-// ── a root whose preset this policy does not describe gets nothing ─────────────
+// ── a root whose preset this policy does not describe gets the common part only ──
+// The common working policy is safe for every root (ROOT_COMMON_POLICY); what a root outside
+// POLICY_PRESET must NOT receive is the orchestration part and its tool-set claim.
 for (const preset of ['cordis', 'backend', 'standard']) {
   const env = harness({ tools: hostTools() })
   const root = env.agentFor(`root-${preset}`, { preset: preset === 'standard' ? undefined : preset })
@@ -228,8 +235,10 @@ for (const preset of ['cordis', 'backend', 'standard']) {
   const section = sectionFor(env, `root-${preset}`, 'deployment:orchestrator-policy')
   const text = textOf(section)
   check(
-    `a root on preset "${preset}" has no orchestrator policy section in the system message`,
-    section !== undefined && text === '',
+    `a root on preset "${preset}" gets the common policy and no orchestration part`,
+    section !== undefined &&
+      String(text).startsWith('## Working policy (deployment)') &&
+      !String(text).includes(orchestratorModule.ROOT_POLICY),
     `text=${JSON.stringify(String(text ?? '').slice(0, 40))}`,
   )
 }
@@ -245,8 +254,8 @@ for (const preset of ['cordis', 'backend', 'standard']) {
   env.emitSelected(root.session, 'cordis')
   const text = textOf(sectionFor(env, 'root-switched', 'deployment:orchestrator-policy'))
   check(
-    'a session created under orchestrator and switched to cordis before the first message renders no section',
-    text === '',
+    'a session created under orchestrator and switched to cordis before the first message renders the common part only',
+    String(text).startsWith('## Working policy (deployment)') && !String(text).includes(orchestratorModule.ROOT_POLICY),
     `text=${JSON.stringify(String(text ?? '').slice(0, 40))}`,
   )
 }
@@ -275,7 +284,10 @@ for (const preset of ['cordis', 'backend', 'standard']) {
   const root = env.agentFor('root-noservice', { preset: 'orchestrator' })
   env.created(root)
   const text = textOf(sectionFor(env, 'root-noservice', 'deployment:orchestrator-policy')) ?? ''
-  check('without the policy service the section still exists', text.startsWith('## Orchestration policy (deployment)'))
+  check(
+    'without the policy service the section still exists',
+    text.startsWith('## Working policy (deployment)') && text.includes(orchestratorModule.ROOT_POLICY),
+  )
   check(
     'without the policy service the section asserts nothing about the tool set',
     !text.includes('## Your tool set (deployment)') && !OLD_LITERAL.test(text) && !text.includes('mcp__playwright__') && !text.includes('mcp__godot__'),

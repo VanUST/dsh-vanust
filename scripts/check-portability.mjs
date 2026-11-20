@@ -47,6 +47,13 @@
  *   - A `package.json` that cannot be parsed is reported with its path.
  *   - A tarball that cannot be read or parsed is reported as its own finding, never as
  *     an empty comparison that passes.
+ *   - An inventory with no plugin rows FAILS: comparing nothing against nothing is what
+ *     printed "0 plugin rows agree" on an empty file.
+ *   - A commented-out profile row is not a mounted row: the patch is stripped of whole-line
+ *     comments before it is searched for an id row.
+ *   - The run carries its own NEGATIVE CONTROL (negative-control:empty-and-commented-inputs-refuse):
+ *     a comment-only patch, an empty inventory and a real row are pushed through the same
+ *     predicates, and the run fails when the empty ones are accepted or the real one is rejected.
  *   - A line is reported once even when several patterns match it, so the output
  *     stays readable as the codebase grows.
  */
@@ -73,6 +80,31 @@ const KIT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
  */
 const isVersionOf = (name, prefix) =>
   name.endsWith('.tgz') && name.startsWith(`${prefix}-`) && /^\d/.test(name.slice(prefix.length + 1))
+
+/**
+ * The patch with its whole-line comments removed.
+ *
+ * A commented-out row is not a mounted row: `# - id: ghost` used to satisfy the inventory's
+ * "declared mounted" claim because the check searched the file's raw text for `id: ghost`. The
+ * same file is read for the generated-id collision check, where a comment naming an id is not an
+ * author of that id either. Both search this text, never the raw bytes.
+ */
+const withoutComments = (text) => text.split('\n').filter((line) => !/^\s*#/.test(line)).join('\n')
+
+/** Does this patch mount a loader row with exactly this id? */
+const mountedInPatch = (patchText, id) =>
+  new RegExp(`^\\s*-?\\s*id:\\s*['"]?${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['"]?\\s*$`, 'm').test(patchText)
+
+/**
+ * What an inventory with no plugin rows fails on, if anything.
+ *
+ * An empty inventory made every packaging check pass over nothing and print "0 plugin rows agree
+ * with the tarballs" — a sentence that is true and worth nothing. Kept as its own function so the
+ * negative control below runs the SAME rule against the empty input the real run refuses.
+ */
+const inventoryCoverageProblems = (rows) => (rows.length === 0
+  ? ['plugins/inventory.json declares no plugin rows, so the tarball, source and mount checks below had nothing to compare']
+  : [])
 
 /**
  * One check: what it looks for, why it matters, and where it may look.
@@ -667,8 +699,9 @@ for (const spec of CHECKS) {
     const claimed = new Set()
     const PROVENANCE = new Set(['in-repo', 'reconstruction', 'snapshot'])
     const pluginDir = join(KIT, 'plugins')
-    const patch = readFileSync(join(KIT, 'profile', 'cordis.patch.yml'), 'utf8')
+    const patch = withoutComments(readFileSync(join(KIT, 'profile', 'cordis.patch.yml'), 'utf8'))
     const readme = readFileSync(join(KIT, 'README.md'), 'utf8')
+    problems.push(...inventoryCoverageProblems(rows))
     for (const row of rows) {
       const id = row.id ?? '(unnamed row)'
       if (typeof row.package !== 'string' || row.package.length === 0) problems.push(`${id}: declares no package name`)
@@ -714,7 +747,7 @@ for (const spec of CHECKS) {
         )
       }
       for (const version of versions) claimed.add(version)
-      if (row.mounted === true && !patch.includes(`id: ${id}`)) {
+      if (row.mounted === true && !mountedInPatch(patch, id)) {
         problems.push(`${id}: declared mounted but profile/cordis.patch.yml has no \`id: ${id}\` row`)
       }
       if (typeof row.package === 'string' && !readme.includes(row.package)) {
@@ -733,6 +766,34 @@ for (const spec of CHECKS) {
         : problems.join(' | '),
     )
   }
+}
+
+// ── the negative control: an input that would pass silently must be REFUSED ───────────────
+// The failure shape shared by the checks above is a search that finds nothing and reports
+// success. This pushes the empty and comment-only inputs through the SAME predicates the real
+// run uses and fails the run when one is accepted; the healthy input is checked too, so a
+// predicate that refuses everything cannot pass here either.
+{
+  const controlProblems = []
+  if (mountedInPatch(withoutComments('# - id: ghost-plugin\n'), 'ghost-plugin')) {
+    controlProblems.push('a commented-out # - id: ghost-plugin row is still counted as a mounted row')
+  }
+  if (!mountedInPatch(withoutComments('- id: real-plugin\n'), 'real-plugin')) {
+    controlProblems.push('a real - id: real-plugin row is no longer recognised, so every mounted row would fail')
+  }
+  if (inventoryCoverageProblems([]).length === 0) {
+    controlProblems.push('an inventory with no plugin rows is still accepted')
+  }
+  if (inventoryCoverageProblems([{ id: 'a-plugin' }]).length !== 0) {
+    controlProblems.push('an inventory that has a row is now refused')
+  }
+  check(
+    'negative-control:empty-and-commented-inputs-refuse',
+    controlProblems.length === 0,
+    controlProblems.length === 0
+      ? 'a commented-out row is not a mount, an empty inventory is refused, and a real row is still accepted'
+      : controlProblems.join(' | '),
+  )
 }
 
 // ── an id the deployment GENERATES must not spell an id somebody AUTHORED ───
@@ -757,11 +818,8 @@ for (const spec of CHECKS) {
     // to read is the silence this file exists to remove.
     check('generated-row-ids:namespaced', false, `${specPath}: ${spec.errors.join('; ')}`)
   } else {
-    const patch = readFileSync(patchPath, 'utf8')
-    const escape = (id) => id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const collisions = [...rowIdsFor(spec).current].filter((id) =>
-      new RegExp(`^\\s*-?\\s*id:\\s*['"]?${escape(id)}['"]?\\s*$`, 'm').test(patch),
-    )
+    const patch = withoutComments(readFileSync(patchPath, 'utf8'))
+    const collisions = [...rowIdsFor(spec).current].filter((id) => mountedInPatch(patch, id))
     check(
       'generated-row-ids:namespaced',
       collisions.length === 0,

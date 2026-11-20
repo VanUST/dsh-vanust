@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "id": "kit-checks-refuse-when-there-is-nothing-to-measure",
+  "title": "Kit checks refuse when there is nothing to measure",
+  "requirement": "The three kit checks must fail, with a named reason, when their input is empty or broken: context-budget without a session store or session log, schema-lint with no tool matched or no preset parsed, check-portability with an inventory that declares no plugin rows or a mounted row that exists only as a comment. Each run also records its own negative control in its output.",
+  "kind": "regression",
+  "status": "unverified",
+  "source": "agent",
+  "automated": false,
+  "reason": "The three checks are command-line programs run by make verify; they print a human table, not the CASE_SUMMARY JSON a case_run driver must emit, and the negative control they carry is their own output line rather than a CASE_NEGATIVE_CONTROL run. The behaviour is verified by running them and quoting exit codes (see the task note).",
+  "steps": [
+    "cd /home/iustimov/dsh-kit && make verify  -> exit 0, and the output carries 'negative control: 2 empty/broken input(s) refused, a healthy input accepted' (schema-lint) and 'negative control: 4 empty/broken input(s) refused, a healthy input accepted' (context-budget), plus check-portability PASS for negative-control:empty-and-commented-inputs-refuse",
+    "node scripts/context-budget.mjs --sessions /tmp/no-such-store -> exit 1 with 'refused: no session store at /tmp/no-such-store: ...'",
+    "echo '{}' > /tmp/empty-budgets.json && node scripts/context-budget.mjs --budgets /tmp/empty-budgets.json -> exit 1 with 'refused: the budget table in ... is empty'",
+    "comment out a mounted row in profile/cordis.patch.yml on a scratch copy of the kit and run scripts/check-portability.mjs -> inventory:matches-disk FAIL naming the row",
+    "replace plugins/inventory.json with an empty plugin list and remove the tarballs on a scratch copy -> inventory:matches-disk FAIL with 'declares no plugin rows'"
+  ],
+  "expected": "Every empty or broken input is refused with exit 1 and a reason that names the file or directory, and every run prints its negative-control line so a green run shows the control was exercised. A healthy run stays exit 0.",
+  "tags": [
+    "kit-checks",
+    "negative-control",
+    "empty-input",
+    "FR4"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "scripts/context-budget.mjs",
+      "sha256": "62c96cd6efdad253fc1907b9e15d2013c00cc6a9039f11b869ab4ac37bf4957c"
+    },
+    {
+      "path": "scripts/schema-lint.mjs",
+      "sha256": "7fa8f7166f9b1fad6d1fb4805d56854029cfebb22e6376b207ba10653e5f6800"
+    },
+    {
+      "path": "scripts/check-portability.mjs",
+      "sha256": "846809959e9bc7734d358e0d79d3173b41196185d3f961cc21bf220619dcc47c"
+    }
+  ],
+  "linkedTaskId": "task-mwox4hwu-426mqw",
+  "reqId": "REQ-175",
+  "authorRole": "backend",
+  "revision": 1,
+  "createdAt": "2026-11-20T12:09:36.646Z",
+  "updatedAt": "2026-11-20T12:09:36.646Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [],
+  "evidence": {}
+}

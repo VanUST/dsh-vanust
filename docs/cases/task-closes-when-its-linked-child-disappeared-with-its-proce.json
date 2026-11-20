@@ -1,0 +1,197 @@
+{
+  "schemaVersion": 1,
+  "id": "task-closes-when-its-linked-child-disappeared-with-its-proce",
+  "title": "task closes when its linked child disappeared with its process",
+  "requirement": "A task whose linked child disappeared (its process died, the Host restarted, no subagent/end ever arrived) closes through the ordinary acceptance path: status done, result recorded, the child row marked settled, the role row freed, and the disappearance named - no force flag and no lost acceptance. The first read of a board in a process settles active rows whose children the runtime can prove it no longer holds.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "plugins/taskboard/test/dead-child-close.test.mjs",
+  "runCommand": "node --test plugins/taskboard/test/dead-child-close.test.mjs",
+  "steps": [
+    "node --test plugins/taskboard/test/dead-child-close.test.mjs",
+    "Red first: TASKBOARD_MODULE=.dsh/red-first/taskboard.mjs node --test plugins/taskboard/test/dead-child-close.test.mjs (module materialised from git HEAD)",
+    "The close test writes a board row in review with one linked child the fake runtime roster does not hold, then calls the real service.close",
+    "The load test writes an active row with the same missing child and calls service.list once"
+  ],
+  "expected": "close returns ok with status done, the result kept, gone:[{childId,state:'gone'}], the child row sleeping and the role currentTaskId null; the first list settles the active row to review with a reconciled timeline entry naming the disappeared child. On the pre-fix module the close returns interrupt_failed with 'Cannot read properties of undefined (reading id)' and the sweep leaves the row active.",
+  "tags": [
+    "taskboard",
+    "lifecycle",
+    "dead-child",
+    "reconcile"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/taskboard/taskboard.mjs",
+      "sha256": "0ec466c59a221292d6f87a3860a2c204279328c381468fce38e959222524252f"
+    },
+    {
+      "path": "plugins/taskboard/test/dead-child-close.test.mjs",
+      "sha256": "671976568b1a36da0acb0ef45a1eabf644e07685d2068c48c2e2f9ee6992c08a"
+    }
+  ],
+  "linkedTaskId": "task-mwox49d1-p0sybd",
+  "reqId": "REQ-173",
+  "authorRole": "backend",
+  "revision": 5,
+  "createdAt": "2026-11-20T12:03:02.709Z",
+  "updatedAt": "2026-11-20T12:25:32.029Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-20T12:03:09.040Z",
+      "editedBy": "agent",
+      "action": "ran-needs-red",
+      "reason": "1 run(s), 1 passed; no red run recorded, so the case is not verified"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-20T12:03:09.040Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "task closes when its linked child disappeared with its process",
+        "requirement": "A task whose linked child disappeared (its process died, the Host restarted, no subagent/end ever arrived) closes through the ordinary acceptance path: status done, result recorded, the child row marked settled, the role row freed, and the disappearance named - no force flag and no lost acceptance. The first read of a board in a process settles active rows whose children the runtime can prove it no longer holds.",
+        "expected": "close returns ok with status done, the result kept, gone:[{childId,state:'gone'}], the child row sleeping and the role currentTaskId null; the first list settles the active row to review with a reconciled timeline entry naming the disappeared child. On the pre-fix module the close returns interrupt_failed with 'Cannot read properties of undefined (reading id)' and the sweep leaves the row active.",
+        "steps": [
+          "node --test plugins/taskboard/test/dead-child-close.test.mjs",
+          "Red first: TASKBOARD_MODULE=.dsh/red-first/taskboard.mjs node --test plugins/taskboard/test/dead-child-close.test.mjs (module materialised from git HEAD)",
+          "The close test writes a board row in review with one linked child the fake runtime roster does not hold, then calls the real service.close",
+          "The load test writes an active row with the same missing child and calls service.list once"
+        ],
+        "automated": true,
+        "testPath": "plugins/taskboard/test/dead-child-close.test.mjs",
+        "runCommand": "node --test plugins/taskboard/test/dead-child-close.test.mjs",
+        "status": "unverified",
+        "checks": [],
+        "negativeControl": null
+      }
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-20T12:25:24.552Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-pre-fix\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-20T12:25:32.029Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mwoxjvsr-adc6c-1",
+      "at": "2026-11-20T12:03:09.039Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 332,
+      "commandSha256": "6bdf822d1bd6de0969826bb9fb59801c6b356b7c232440f9fb39bf76b7521b89",
+      "head": "a1eb322fc1bec2f902c2c67c6f00f6cf36d286b4",
+      "dirty": true,
+      "stdout": "docs/cases/runs/task-closes-when-its-linked-child-disappeared-with-its-proce/mwoxjvsr-adc6c-1/stdout.log",
+      "stderr": "docs/cases/runs/task-closes-when-its-linked-child-disappeared-with-its-proce/mwoxjvsr-adc6c-1/stderr.log",
+      "summary": "docs/cases/runs/task-closes-when-its-linked-child-disappeared-with-its-proce/mwoxjvsr-adc6c-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mwoyciq4-hmuks-1",
+      "at": "2026-11-20T12:25:24.550Z",
+      "mode": "red",
+      "control": "expect-pre-fix",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 299,
+      "commandSha256": "6bdf822d1bd6de0969826bb9fb59801c6b356b7c232440f9fb39bf76b7521b89",
+      "head": "a1eb322fc1bec2f902c2c67c6f00f6cf36d286b4",
+      "dirty": true,
+      "stdout": "docs/cases/runs/task-closes-when-its-linked-child-disappeared-with-its-proce/mwoyciq4-hmuks-1/stdout.log",
+      "stderr": "docs/cases/runs/task-closes-when-its-linked-child-disappeared-with-its-proce/mwoyciq4-hmuks-1/stderr.log",
+      "summary": "docs/cases/runs/task-closes-when-its-linked-child-disappeared-with-its-proce/mwoyciq4-hmuks-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwoyco43-m4b81-1",
+      "at": "2026-11-20T12:25:32.028Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 281,
+      "commandSha256": "6bdf822d1bd6de0969826bb9fb59801c6b356b7c232440f9fb39bf76b7521b89",
+      "head": "a1eb322fc1bec2f902c2c67c6f00f6cf36d286b4",
+      "dirty": true,
+      "stdout": "docs/cases/runs/task-closes-when-its-linked-child-disappeared-with-its-proce/mwoyco43-m4b81-1/stdout.log",
+      "stderr": "docs/cases/runs/task-closes-when-its-linked-child-disappeared-with-its-proce/mwoyco43-m4b81-1/stderr.log",
+      "summary": "docs/cases/runs/task-closes-when-its-linked-child-disappeared-with-its-proce/mwoyco43-m4b81-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "lastVerified": {
+    "at": "2026-11-20T12:25:32.029Z",
+    "command": "node --test plugins/taskboard/test/dead-child-close.test.mjs",
+    "exitCode": 0,
+    "runId": "mwoyco43-m4b81-1",
+    "source": "runner",
+    "commit": null
+  },
+  "negativeControl": "expect-pre-fix",
+  "redFirst": {
+    "at": "2026-11-20T12:25:24.552Z",
+    "runId": "mwoyciq4-hmuks-1",
+    "exitCode": 1,
+    "control": "expect-pre-fix",
+    "command": "node --test plugins/taskboard/test/dead-child-close.test.mjs",
+    "source": "negative-control"
+  }
+}

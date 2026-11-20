@@ -27,6 +27,13 @@ banner is returned, and the model reads it back with the ordinary file tools whe
 the middle. A projection that cannot save at least `minSavingRatio` of the original is not
 made at all.
 
+The recovery read is guaranteed, not hoped for: a `read` whose `file_path` lies inside
+`spillDir` is never projected, at any size, so the path in the banner always returns the
+whole text. `read` also carries its own floor of 64 KiB (`TOOL_MIN_BYTES`), so an ordinary
+document reaches the model complete instead of as a banner — measured 2026-11-20: reads of
+53 916 and 12 852 bytes arrived with their middle cut, and reading the spill file back was
+projected a second time.
+
 Measured on the real fixture in `proof/` (a `run_code` result from this machine's session
 log, call `call_00_N2I4YMAgAKyOuSQJsXDo0908`): **27 200 → 4 897 characters (82.0% saved)**;
 a 41 208-character result goes to 4 915 characters (88.1%).
@@ -57,6 +64,7 @@ content that would otherwise reach the model.
 | `minSavingRatio` | `0.25` | skip unless this fraction of the original bytes is saved. |
 | `maxSpillBytes` | `8388608` | larger results are left untouched (no banner without a file). |
 | `spillDir` | `.dsh/spill` | directory under the session workspace for the full text. |
+| *(no key)* | `read`: `65536` | `read` has its own floor, exported as `TOOL_MIN_BYTES`; `minBytes` can raise it and cannot lower it. |
 
 Head and tail cuts use `@deepseek-ai/dsh-output-retention`'s `TextRetainer`, so a cut can
 never introduce a replacement character or a lone surrogate in the durable log.
@@ -66,7 +74,8 @@ never introduce a replacement character or a lone surrogate in the durable log.
 - any tool not in `tools` (and every tool the kit keeps intact: `task_get`, `task_update`, `task_close`, `analysis_*`, `delegation_*`, `skill`);
 - a failed result (`isError`), and a decision that blocks or replaces `value`;
 - content that is not exactly one text block (images, media, multi-block results);
-- a result below `minBytes`, or one whose projection would not save `minSavingRatio`;
+- a result below `minBytes` (for `read`: below its 64 KiB floor), or one whose projection would not save `minSavingRatio`;
+- a `read` of a file inside `spillDir`, at any size: that is the recovery path the banner names;
 - an aborted call;
 - content that already starts with the banner (idempotent: a second pass creates no file);
 - a session with no workspace `cwd` — there would be nowhere legitimate to put the text.
@@ -84,7 +93,10 @@ work is wrapped; a projection failure can never turn a successful tool call into
 node plugins/run-code-projection/proof/proof.mjs
 ```
 
-It also checks the tool list: `read` and `bash` above `minBytes` are projected (the banner names the tool and the spill file starts with its name), a `task_get` result is untouched, a tool outside the list is untouched, and a result already carrying the 0.1.x banner is not projected twice.
+It also checks the tool list: `bash` above `minBytes` is projected and the banner names the
+tool, an ordinary 12 000-byte document is read whole (under the 64 KiB read floor), a
+`read` above that floor is projected, a `task_get` result is untouched, a tool outside the
+list is untouched, and a result already carrying the 0.1.x banner is not projected twice.
 
 It drives the plugin's real `tools/post-execute` listener against a real `run_code` result
 (fixture extracted read-only from `$DSH_HOME/sessions` with `zstd -dc`), a temporary
@@ -92,3 +104,20 @@ directory standing in for the session workspace, and prints before/after charact
 then feeds the projection back (idempotency), and checks every untouched case: short,
 error, image, other tool, aborted, blocked, value-replaced, no workspace, unwritable spill,
 insufficient saving. Exit code 0 is the pass.
+
+The recovery is proven on the agent's path: the same listener is run again as a `read` whose
+`file_path` is the path printed in the banner — that path as printed, the same file named
+relative to the workspace, and a 217 600-byte spill above the read floor — and the result
+must come back identical, unbannered and without a second spill file. A `readFileSync` of the spill (what
+this proof did up to 0.1.2) cannot see the difference, which is why the defect shipped.
+
+That proof is itself checked against the code it replaced:
+
+```
+node plugins/run-code-projection/proof/negative-control.mjs            # pre-fix module at HEAD
+node plugins/run-code-projection/proof/negative-control.mjs --ref <pre-fix commit>
+```
+
+It copies the module from git into a scratch directory inside the kit, runs the same
+`proof.mjs` against it, and requires a non-zero exit with the recovery rows red; a ref that
+already carries the fix is refused.

@@ -1,11 +1,13 @@
 # dsh-kit installer -- Windows (fresh machine setup).
 # What it does:
-#   1. checks Node >= 24 (node-pty ABI),
+#   1. checks Node >= 24.9.0 (the pinned harness declares engines node >= 24.9.0),
 #   2. installs the pinned harness version globally (npm i -g),
 #   3. creates $env:DSH_HOME\profiles\web from the kit's canonical profile files,
 #   4. installs every plugin tarball in plugins\ into the profile (see
 #      plugins\inventory.json for the set),
 #   5. installs the DEPLOYMENT.md procedure to $env:DSH_HOME,
+#   6. installs optional external binaries (best effort), and
+#   7. installs the convergence wrapper to $env:DSH_HOME\bin\dsh.ps1,
 #
 # Usage (PowerShell):
 #   git clone <your-remote>/dsh-kit.git; cd dsh-kit
@@ -41,12 +43,28 @@ function Assert-Step([string]$Step) {
 
 Write-Host "== dsh-kit installer (harness $DSH_VERSION) =="
 
-# 1. Node check.
+# 1. Node check: >= 24.9.0, MAJOR AND MINOR.
+#
+#    The pinned harness declares engines node >= 24.9.0, so a major-only check let Node
+#    24.0-24.8 through and it failed at the harness start - after the installer had
+#    stopped explaining. A major above 24 is accepted whatever its minor.
 $node = Get-Command node -ErrorAction SilentlyContinue
-if (-not $node) { Write-Error 'Node.js not found -- install Node >= 24 first (https://nodejs.org).'; exit 1 }
-$nodeMajor = [int]((& node -p 'process.versions.node.split(".")[0]').Trim())
-if ($nodeMajor -lt 24) { Write-Error "Node $nodeMajor detected -- dsh-kit requires Node >= 24."; exit 1 }
-Write-Host "   node: $(& node -v) (ok)"
+if (-not $node) { Write-Error 'Node.js not found -- install Node >= 24.9.0 first (https://nodejs.org).'; exit 1 }
+$nodeVersion = (& node -p 'process.versions.node').Trim()
+$nodeParts = $nodeVersion.Split('.')
+$nodeMajor = 0
+$nodeMinor = 0
+if ($nodeParts.Length -lt 2 -or
+    -not [int]::TryParse($nodeParts[0], [ref]$nodeMajor) -or
+    -not [int]::TryParse($nodeParts[1], [ref]$nodeMinor)) {
+  Write-Error "cannot read the Node version (expected 24.9.0 or newer, got '$nodeVersion')."
+  exit 1
+}
+if ($nodeMajor -lt 24 -or ($nodeMajor -eq 24 -and $nodeMinor -lt 9)) {
+  Write-Error "Node $nodeVersion detected -- dsh-kit requires Node >= 24.9.0 (the pinned harness declares engines node >= 24.9.0, so 24.0-24.8 stops at its first start)."
+  exit 1
+}
+Write-Host "   node: $(& node -v) (ok, >= 24.9.0)"
 
 # 2. Pinned harness install (user-local prefix, no admin needed). Keep an
 #    existing user-local prefix; only switch a system-wide one.
@@ -95,9 +113,24 @@ Assert-Step 'npm install -g (pinned harness)'
 $env:PATH = "$npmPrefix;$env:PATH"
 
 # 3. Web profile from the canonical kit files.
+#
+#    A cordis.patch.yml that DIFFERS from the kit is the machine's own layer - the rows
+#    somebody added here - so it is kept, and a timestamped copy is left beside it. The
+#    unconditional -Force copy this step used to do was the one place the two platforms
+#    disagreed in MEANING, not in syntax: Linux kept the file and warned, Windows
+#    silently replaced the machine's rows with the kit's.
 $profileDir = Join-Path $DSH_HOME 'profiles\web'
 New-Item -ItemType Directory -Force -Path $profileDir | Out-Null
-Copy-Item (Join-Path $KIT_DIR 'profile\cordis.patch.yml') (Join-Path $profileDir 'cordis.patch.yml') -Force
+$patchSource = Join-Path $KIT_DIR 'profile\cordis.patch.yml'
+$patchDestination = Join-Path $profileDir 'cordis.patch.yml'
+$patchDiffers = (Test-Path $patchDestination) -and ((Get-FileHash $patchSource).Hash -ne (Get-FileHash $patchDestination).Hash)
+if ($patchDiffers) {
+  $patchBackup = "$patchDestination.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+  Copy-Item $patchDestination $patchBackup -Force
+  Write-Host "   WARN: existing cordis.patch.yml differs from the kit - keeping yours (copy saved at $patchBackup)."
+} else {
+  Copy-Item $patchSource $patchDestination -Force
+}
 Copy-Item (Join-Path $KIT_DIR 'profile\package.json') (Join-Path $profileDir 'package.json') -Force
 Copy-Item (Join-Path $KIT_DIR 'profile\pnpm-workspace.yaml') (Join-Path $profileDir 'pnpm-workspace.yaml') -Force
 
@@ -132,6 +165,27 @@ if ($env:SKIP_TOOLS -ne '1' -and (Test-Path (Join-Path $KIT_DIR 'scripts\provisi
   if ($LASTEXITCODE -ne 0) {
     Write-Host '   some tools are still missing; the features that need them degrade and say so'
   }
+}
+
+# 7. The convergence wrapper: checks the kit before every launch, so a plain `dsh web`
+#    is also the moment the machine catches up. This is the Windows counterpart of the
+#    `$DSH_HOME/bin/dsh` wrapper install.sh writes.
+#
+#    The installed copy lives OUTSIDE the checkout, so the kit path is baked in here
+#    (the source carries the @KIT_DIR@ placeholder). The copy is written as UTF-8 WITH a
+#    BOM: Windows PowerShell 5.1 decodes a BOM-less file with the system ANSI code page,
+#    which would mangle a non-ASCII path baked into it. The wrapper SOURCE stays ASCII
+#    for the same reason this file does.
+$binDir = Join-Path $DSH_HOME 'bin'
+New-Item -ItemType Directory -Force -Path $binDir | Out-Null
+$wrapperSource = Join-Path $KIT_DIR 'scripts\dsh-wrapper.ps1'
+$wrapperDestination = Join-Path $binDir 'dsh.ps1'
+$wrapperText = [IO.File]::ReadAllText($wrapperSource).Replace('@KIT_DIR@', $KIT_DIR)
+[IO.File]::WriteAllText($wrapperDestination, $wrapperText, (New-Object System.Text.UTF8Encoding($true)))
+Write-Host "   wrapper: $wrapperDestination (checks the kit before every dsh launch)"
+$pathEntries = @($env:PATH -split ';')
+if ($pathEntries -notcontains $binDir) {
+  Write-Host "   PATH: add $binDir BEFORE the npm global directory (or call dsh.ps1 explicitly)"
 }
 
 Write-Host

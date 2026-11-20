@@ -31,6 +31,9 @@
  *     timelineLimit maximum timeline entries per task. Default 120.
  *     staleAfterMs  how old an untouched role row must be to report `stale`.
  *                   Default 86400000 (one day).
+ *     lockWaitMs    how long a writer waits for another process's board lock before it
+ *                   refuses by name. Default 10000.
+ *     lockStaleMs   age at which a lock left by a dead process is taken over. Default 30000.
  *
  * OUTPUTS
  *   A `taskboard` service (ctx.provide) used by the orchestrator's `delegate_task`
@@ -47,12 +50,16 @@
  *   - A malformed ledger fails the operation loudly; silently replacing it would
  *     lose the human's edits.
  *   - A write is temp-file + rename, so a crash cannot leave half a JSON document.
+ *   - Every read-modify-write holds a directory lock next to the file (<file>.lock, created
+ *     with mkdir, which is O_EXCL on the filesystem). A second process WAITS for the lock
+ *     instead of overwriting the first process's rows; a lock left by a killed process is
+ *     taken over once it is older than lockStaleMs.
  *   - A stale `expectedRevision` returns `stale` with the current task; it never
  *     overwrites the newer value.
  *   - A child start/end with no linked task is ignored; the orchestrator can link
  *     it later with `task_link`.
- *   - One process serializes writes per file with a promise chain; the file is the
- *     cross-process authority and is not locked across processes.
+ *   - Writes are serialized inside one process by the synchronous mutate() and across
+ *     processes by the file lock; the file stays the authority for both.
  *   - Role rows are annotated when read, never rewritten by a read: `orphan: true` when
  *     the row's lastTaskId is no longer in the board, `stale: true` when it has not been
  *     touched for staleAfterMs. Both mean "nothing is running behind this role" - measured
@@ -121,8 +128,8 @@
  */
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { mirrorTask } from './mirror.mjs'
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { mirrorTask, registerStatus } from './mirror.mjs'
+import { existsSync, mkdirSync, readFileSync, renameSync, rmdirSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 
@@ -460,16 +467,107 @@ function readBoard(path) {
 }
 
 /**
- * Write a board atomically.
+ * Write a board atomically. A crash leaves the previous document, never half of one.
+ *
+ * NOT LOCKED ON ITS OWN: the read-modify-write in `mutate` holds the file lock around the
+ * read AND this write. A direct caller that skips the lock can still lose a concurrent
+ * writer's rows, so the exported `writeBoard` takes the lock itself.
  *
  * @param path - Absolute ledger path.
  * @param board - Complete board.
  */
-function writeBoard(path, board) {
+function writeBoardNow(path, board) {
   mkdirSync(dirname(path), { recursive: true })
   const temp = `${path}.${process.pid}.${Date.now()}.tmp`
   writeFileSync(temp, `${JSON.stringify(board, null, 2)}\n`, 'utf8')
   renameSync(temp, path)
+}
+
+/** How long a writer waits for another process's lock before it refuses by name. */
+const LOCK_WAIT_MS = 10000
+/** A lock older than this was left by a process that died holding it; it is taken over. */
+const LOCK_STALE_MS = 30000
+/** The pause between two lock attempts. Short: a board write is milliseconds, not seconds. */
+const LOCK_POLL_MS = 10
+
+/** Sleep without a timer: every ledger operation is synchronous by design. */
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+/**
+ * Run `operation` while holding the cross-process lock of one ledger file.
+ *
+ * WHY A DIRECTORY. `mkdir` is atomic and fails with EEXIST on every filesystem this kit
+ * runs on, which is the O_EXCL primitive Node does not expose for files; the lock is
+ * released by `rmdir` in a `finally`, so a thrown operation cannot keep the board locked.
+ * A second process WAITS (see LOCK_POLL_MS) instead of writing a board it read before the
+ * first process wrote its rows - that lost update is why two servers on one workspace
+ * dropped tasks (§4.6 of docs/review/HARNESS-ARCHITECTURE-REVIEW-2026-11-20.md).
+ *
+ * A lock whose directory is older than `staleMs` is treated as a dead process's leftover
+ * and taken over once; the age is the directory's own mtime, so it needs no content.
+ *
+ * @param path - Absolute ledger path; the lock lives next to it as `<path>.lock`.
+ * @param operation - Synchronous work.
+ * @param options - `{waitMs, staleMs}` overrides, for tests and constrained filesystems.
+ * @returns Whatever `operation` returns.
+ */
+function withBoardLock(path, operation, options = {}) {
+  const waitMs = Number.isSafeInteger(options.waitMs) && options.waitMs >= 0 ? options.waitMs : LOCK_WAIT_MS
+  const staleMs = Number.isSafeInteger(options.staleMs) && options.staleMs > 0 ? options.staleMs : LOCK_STALE_MS
+  const lock = `${path}.lock`
+  mkdirSync(dirname(path), { recursive: true })
+  const started = Date.now()
+  let held = false
+  while (!held) {
+    try {
+      mkdirSync(lock)
+      held = true
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error
+      let age = 0
+      try {
+        age = Date.now() - statSync(lock).mtimeMs
+      } catch {
+        continue
+      }
+      if (age > staleMs) {
+        // The holder is gone: a write does not take this long. Taking the lock over beats
+        // refusing every write until someone deletes the directory by hand.
+        try {
+          rmdirSync(lock)
+        } catch {
+          // Somebody else took it over first; the next attempt sees their lock.
+        }
+        continue
+      }
+      if (Date.now() - started >= waitMs) {
+        throw new Error(`taskboard: timed out after ${waitMs} ms waiting for the lock ${lock}; another process is writing this board`)
+      }
+      sleepSync(LOCK_POLL_MS)
+    }
+  }
+  try {
+    return operation()
+  } finally {
+    try {
+      rmdirSync(lock)
+    } catch {
+      // The operation may have removed it (a stale-takeover race); nothing to release.
+    }
+  }
+}
+
+/**
+ * Write a board atomically under the file lock: the public single-write entry.
+ *
+ * @param path - Absolute ledger path.
+ * @param board - Complete board.
+ * @param options - `{waitMs, staleMs}` lock overrides.
+ */
+function writeBoard(path, board, options = {}) {
+  withBoardLock(path, () => writeBoardNow(path, board), options)
 }
 
 /** A role row untouched for this long is a tombstone, not an active specialist. */
@@ -492,18 +590,39 @@ const FAILED_STOP_REASONS = ['error', 'aborted', 'interrupted', 'cancelled', 'ti
  * "work in flight" forever. Measured in ~/tasks/autolabel_pipeline (2026-11-11): RESEARCH task
  * task-mwc4h93k-2v3s0c stayed `active` after child d864c24f ended with `error` at 32 s.
  *
- * WHAT IT MAY DECIDE. Only what the ledger itself records: a task with linked children whose
- * every `children[]` entry is settled (status not `active`/`paused`) has no running child. A
- * child with no `children[]` entry at all is NOT evidence of anything - it may be running -
- * so the row is reported as `unknown` and left alone. A task with no linked children is the
- * root's own inline work and is skipped.
+ * WHAT IT MAY DECIDE. Only what the ledger records plus what the RUNTIME can prove: a task
+ * with linked children whose every `children[]` entry is settled (status not
+ * `active`/`paused`) has no running child. A child with no `children[]` entry at all is NOT
+ * evidence of anything - it may be running - so the row is reported as `unknown` and left
+ * alone, and the same holds for a child whose entry still reads `active`: the entry is only
+ * the last write the process managed. `options.gone` closes that gap for the runtime that
+ * holds the session: a child it can prove it no longer has is settled like a finished one.
+ * The one case it cannot see is a child still running in ANOTHER process on the same
+ * workspace - that process sends no event here, so its child reads gone. A task with no
+ * linked children is the root's own inline work and is skipped.
  *
  * @param board - Parsed board; mutated in place.
  * @param limit - Timeline entries per task.
+ * @param options - `{gone}`: `(childId) => boolean`, true only when the runtime proves the
+ *   child is not there. Absent keeps the ledger-only rule.
  * @returns Counts and the ids it changed, so a caller can quote them.
  */
-export function reconcileTasks(board, limit = 120) {
-  const result = { checked: 0, fixed: 0, blocked: 0, review: 0, running: 0, unknown: 0, ids: [] }
+export function reconcileTasks(board, limit = 120, options = {}) {
+  const result = { checked: 0, fixed: 0, blocked: 0, review: 0, running: 0, unknown: 0, vanished: 0, ids: [] }
+  // THE SECOND WITNESS. The ledger's `children[].status` is written when a child links and when
+  // one settles; a child that died with its process wrote neither, so the row says `active`
+  // forever. `options.gone` is the runtime's answer for one session id (`true` only when the
+  // runtime can prove it holds no such child), and it is what lets a load-time sweep settle
+  // the rows a restart left behind. Without the predicate this function keeps its old rule and
+  // touches nothing it cannot prove from the ledger.
+  const goneProof = typeof options?.gone === 'function' ? options.gone : () => false
+  const vanished = (childId) => {
+    try {
+      return goneProof(childId) === true
+    } catch {
+      return false
+    }
+  }
   for (const task of Array.isArray(board?.tasks) ? board.tasks : []) {
     if (displayStatus(task?.status) !== 'active') continue
     const linked = Array.isArray(task.childSessionIds) ? task.childSessionIds.filter((id) => typeof id === 'string' && id !== '') : []
@@ -511,23 +630,36 @@ export function reconcileTasks(board, limit = 120) {
     result.checked += 1
     const children = Array.isArray(task.children) ? task.children : []
     const known = linked.map((id) => children.find((entry) => entry?.sessionId === id))
-    if (known.some((entry) => entry !== undefined && (entry.status === 'active' || entry.status === 'paused'))) {
+    const running = linked.findIndex((childId, index) => {
+      const entry = known[index]
+      return entry !== undefined && (entry.status === 'active' || entry.status === 'paused') && !vanished(childId)
+    })
+    if (running >= 0) {
       // A genuinely running child is never touched: that is the one claim `active` makes.
       result.running += 1
       continue
     }
-    if (known.some((entry) => entry === undefined)) {
+    const unproven = linked.findIndex((childId, index) => known[index] === undefined && !vanished(childId))
+    if (unproven >= 0) {
       result.unknown += 1
       continue
     }
-    const failed = known.filter((entry) => FAILED_STOP_REASONS.includes(String(entry.stopReason ?? '').toLowerCase()))
+    const disappeared = linked.filter((childId, index) => {
+      const entry = known[index]
+      return vanished(childId) && (entry === undefined || entry.status === 'active' || entry.status === 'paused')
+    })
+    if (disappeared.length > 0) result.vanished += disappeared.length
+    const failed = known.filter((entry) => entry !== undefined && FAILED_STOP_REASONS.includes(String(entry.stopReason ?? '').toLowerCase()))
     task.status = failed.length === 0 ? 'review' : 'blocked'
     if (failed.length > 0) task.reason = `reconciled: child ${failed[0].sessionId} ended with ${failed[0].stopReason}`
     task.revision = (Number.isSafeInteger(task.revision) ? task.revision : 1) + 1
     task.updatedAt = now()
+    const vanishedNote = disappeared.length === 0
+      ? ''
+      : `; ${disappeared.length} of them had disappeared from the runtime (no subagent/end arrived)`
     timeline(task, 'reconciled', 'orchestrator', failed.length === 0
-      ? `Task moved to review: its ${linked.length} linked child session(s) had all settled`
-      : `Task blocked: child ${failed[0].sessionId} ended with ${failed[0].stopReason}`, { sessionIds: linked }, limit)
+      ? `Task moved to review: its ${linked.length} linked child session(s) had all settled${vanishedNote}`
+      : `Task blocked: child ${failed[0].sessionId} ended with ${failed[0].stopReason}${vanishedNote}`, { sessionIds: linked }, limit)
     result.fixed += 1
     result[failed.length === 0 ? 'review' : 'blocked'] += 1
     result.ids.push(task.id)
@@ -611,6 +743,10 @@ function createService(config, logger, hooks = {}) {
   const maxRows = Number.isSafeInteger(config.maxRows) && config.maxRows > 0 ? config.maxRows : NO_ROW_LIMIT
   const timelineLimit = Number.isSafeInteger(config.timelineLimit) && config.timelineLimit > 0 ? config.timelineLimit : 120
   const staleAfterMs = Number.isSafeInteger(config.staleAfterMs) && config.staleAfterMs > 0 ? config.staleAfterMs : STALE_AFTER_MS
+  // The cross-process lock: a writer WAITS for another process for `lockWaitMs`, and a lock
+  // directory older than `lockStaleMs` belongs to a process that died holding it.
+  const lockWaitMs = Number.isSafeInteger(config.lockWaitMs) && config.lockWaitMs >= 0 ? config.lockWaitMs : LOCK_WAIT_MS
+  const lockStaleMs = Number.isSafeInteger(config.lockStaleMs) && config.lockStaleMs > 0 ? config.lockStaleMs : LOCK_STALE_MS
   const linksFile = typeof config.linksFile === 'string' && config.linksFile !== '' ? config.linksFile : join(process.env.DSH_HOME || join(homedir(), '.dsh'), 'taskboard-child-links.json')
   /** Persisted child -> task/workspace links survive a Host or plugin reload. */
   const readLinks = () => {
@@ -643,21 +779,28 @@ function createService(config, logger, hooks = {}) {
   const pathFor = (cwd) => isAbsolute(file) ? file : resolve(cwd, file)
 
   /**
-   * Read one board, run a synchronous operation, and write it atomically when
-   * the operation reports a change. The ledger is a small JSON file and every
-   * mutation is synchronous, so two callers cannot interleave inside one turn.
+   * Read one board, run a synchronous operation, and write it atomically when the operation
+   * reports a change.
+   *
+   * THE READ AND THE WRITE SIT INSIDE ONE LOCK. Serializing only the write keeps a second
+   * process's read-then-write pair intact, and that pair is what loses rows: two servers on
+   * one workspace each read the whole board, each add a row, and the later rename drops the
+   * earlier row (§4.6 of docs/review/HARNESS-ARCHITECTURE-REVIEW-2026-11-20.md). With the
+   * lock around both, the second process reads what the first one wrote.
    */
   const mutate = (cwd, operation) => {
     const path = pathFor(cwd)
-    const board = readBoard(path)
-    const before = board.revision
-    const result = operation(board)
-    const changed = board.revision !== before || result?.changed === true
-    if (changed) {
-      board.revision = before + 1
-      writeBoard(path, { ...board, tasks: board.tasks, agents: board.agents ?? [] })
-    }
-    return result?.value ?? result
+    return withBoardLock(path, () => {
+      const board = readBoard(path)
+      const before = board.revision
+      const result = operation(board)
+      const changed = board.revision !== before || result?.changed === true
+      if (changed) {
+        board.revision = before + 1
+        writeBoardNow(path, { ...board, tasks: board.tasks, agents: board.agents ?? [] })
+      }
+      return result?.value ?? result
+    }, { waitMs: lockWaitMs, staleMs: lockStaleMs })
   }
 
   /**
@@ -739,6 +882,20 @@ function createService(config, logger, hooks = {}) {
    * stop exists to end work on THIS task, and killing a child that has since been handed
    * another one is the 2026-11-12 defect that aborted a frame-deletion child when an
    * unrelated schema task was closed.
+   *
+   * LIVENESS COMES FROM THE RUNTIME, NOT FROM `subagent/end`. The end event exists only in
+   * the process that saw the child settle: a child that died with its process, or whose Host
+   * was restarted, leaves the ledger saying `active` and sends nothing. Asking the runtime
+   * for the child (`hooks.childLiveness`) is the only honest answer, and it changes the
+   * outcome: a child the runtime still runs is interrupted as before, while a child it no
+   * longer holds is SETTLED - reported in `gone`, never attempted. Attempting it is what
+   * broke acceptance: the runtime dereferences the target it no longer has and throws
+   * (measured: `Cannot read properties of undefined (reading 'id')` on a task with a linked
+   * child), so every such close returned `interrupt_failed` and the only way out was to
+   * cancel the task and lose its acceptance. An `idle` child has no running turn to stop, so
+   * it is settled too. When the runtime cannot answer (no roster to prove absence from, or an
+   * error), the old fail-closed interrupt runs unchanged: an unproven child is never silently
+   * declared dead.
    */
   const interruptChildren = (task, requestedParent, board) => {
     const parentSessionId = typeof task.parentSessionId === 'string' && task.parentSessionId !== ''
@@ -747,10 +904,22 @@ function createService(config, logger, hooks = {}) {
     const interrupted = []
     const errors = []
     const skipped = []
+    const gone = []
+    const liveness = typeof hooks.childLiveness === 'function' ? hooks.childLiveness : () => undefined
     for (const childId of Array.isArray(task.childSessionIds) ? task.childSessionIds : []) {
       const lease = leaseOf(board, childId)
       if (lease !== '' && lease !== task.id) {
         skipped.push({ childId, taskId: lease })
+        continue
+      }
+      let live
+      try {
+        live = liveness(childId)
+      } catch {
+        live = undefined
+      }
+      if (live === 'gone' || live === 'idle') {
+        gone.push({ childId, state: live })
         continue
       }
       if (typeof hooks.interrupt !== 'function') {
@@ -764,7 +933,7 @@ function createService(config, logger, hooks = {}) {
         errors.push(childId + ': ' + (error instanceof Error ? error.message : String(error)))
       }
     }
-    return { parentSessionId, interrupted, errors, skipped }
+    return { parentSessionId, interrupted, errors, skipped, gone }
   }
 
   /** Record a committed stop on the task's child rows and the workspace role rows. */
@@ -822,8 +991,8 @@ function createService(config, logger, hooks = {}) {
     // longer exists cannot be interrupted, and a fail-closed cancel would leave it in review
     // forever. The owner asserts the work is dropped; children are marked settled, not stopped.
     const forced = input?.force === true
-    const { interrupted, errors, skipped } = forced
-      ? { interrupted: [], errors: [], skipped: [] }
+    const { interrupted, errors, skipped, gone } = forced
+      ? { interrupted: [], errors: [], skipped: [], gone: [] }
       : interruptChildren(task, input?.parentSessionId, board)
     if (errors.length > 0) return { ok: false, code: 'interrupt_failed', task, interrupted, errors }
     markChildren(board, task, 'sleeping', 'sleeping')
@@ -834,7 +1003,7 @@ function createService(config, logger, hooks = {}) {
     task.revision += 1
     task.updatedAt = now()
     timeline(task, 'cancelled', input?.actor === 'human' ? 'human' : 'orchestrator', note, { sessionIds: interrupted }, timelineLimit)
-    return { ok: true, task, interrupted, errors, skipped, note, changed: true }
+    return { ok: true, task, interrupted, errors, skipped, gone, note, changed: true }
   }
 
   /**
@@ -853,7 +1022,7 @@ function createService(config, logger, hooks = {}) {
     const next = fillResult(task.result, incoming)
     const refusal = acceptanceRefusal(next)
     if (refusal !== null) return { ok: false, code: refusal, task }
-    const { interrupted, errors, skipped } = interruptChildren(task, input?.parentSessionId, board)
+    const { interrupted, errors, skipped, gone } = interruptChildren(task, input?.parentSessionId, board)
     if (errors.length > 0) return { ok: false, code: 'interrupt_failed', task, interrupted, errors }
     const recorded = JSON.stringify(next) !== JSON.stringify(task.result ?? {})
     task.result = Object.keys(next).length > 0 ? next : undefined
@@ -861,8 +1030,12 @@ function createService(config, logger, hooks = {}) {
     task.status = 'done'
     task.revision += 1
     task.updatedAt = now()
-    timeline(task, 'closed', input?.actor === 'human' ? 'human' : 'orchestrator', 'Closed as done' + (recorded ? '; result recorded at acceptance' : ''), { sessionIds: interrupted }, timelineLimit)
-    return { ok: true, task, interrupted, errors, skipped, changed: true, resultRecorded: recorded }
+    // A CLOSE THAT RAN WITH A DISAPPEARED CHILD SAYS SO in the timeline: the owner reads the
+    // same record the tool returned, and "the child was gone" is the fact that made the close
+    // possible without a force flag.
+    const settledNote = gone.length > 0 ? `; child ${gone.map((entry) => entry.childId).join(', ')} had disappeared (${gone[0].state})` : ''
+    timeline(task, 'closed', input?.actor === 'human' ? 'human' : 'orchestrator', 'Closed as done' + (recorded ? '; result recorded at acceptance' : '') + settledNote, { sessionIds: interrupted }, timelineLimit)
+    return { ok: true, task, interrupted, errors, skipped, gone, changed: true, resultRecorded: recorded }
   }
 
   /**
@@ -919,11 +1092,65 @@ function createService(config, logger, hooks = {}) {
     }
   }
 
+  /**
+   * Does the RUNTIME prove it holds no such child?
+   *
+   * `false` means "not proven", never "alive": a composition without the liveness hook keeps
+   * the old fail-closed rules, and a runtime that cannot answer is not asked twice.
+   */
+  const runtimeGone = (childId) => {
+    if (typeof hooks.childLiveness !== 'function') return false
+    try {
+      return hooks.childLiveness(childId) === 'gone'
+    } catch {
+      return false
+    }
+  }
+
+  /** Settle `active` rows whose children have finished or disappeared, and mirror what it changed. */
+  const reconcileBoard = (cwd) => {
+    const out = mutate(cwd, (board) => {
+      const result = reconcileTasks(board, timelineLimit, { gone: runtimeGone })
+      return { changed: result.fixed > 0, value: { ok: true, ...result } }
+    })
+    if (out?.ok === true && Array.isArray(out.ids) && out.ids.length > 0) mirrorByIds(cwd, out.ids)
+    return out
+  }
+
+  /**
+   * THE LOAD-TIME SWEEP. A board is swept once per process: the first read of a workspace
+   * settles the `active` rows a restart left behind (the child's `subagent/end` never arrived
+   * in THIS process), so the panel and the orchestrator see "review, waiting for acceptance"
+   * instead of "in flight" forever. Once per process and path, because a read that writes on
+   * every call would turn the panel's polling into a write loop; a refusal is logged and the
+   * board is left exactly as it was.
+   */
+  const swept = new Set()
+  const sweepOnLoad = (cwd) => {
+    let path
+    try {
+      path = pathFor(cwd)
+    } catch {
+      return
+    }
+    if (swept.has(path)) return
+    swept.add(path)
+    try {
+      reconcileBoard(cwd)
+      // The register check rides the same once-per-process load: it is the half of the mirror
+      // that heals a divergence no retry could see (the write never happened at all).
+      hooks.onLoad?.(cwd)
+    } catch (error) {
+      logger?.warn?.(`taskboard: the load-time sweep of ${path} failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
   return {
     file,
     pathFor,
     /** One chat's board, or the whole workspace with `all`. */
     list(cwd, options = {}) {
+      sweepOnLoad(cwd)
       const chatId = typeof options?.chatId === 'string' ? options.chatId : ''
       const all = options?.all === true
       return readBoard(pathFor(cwd)).tasks
@@ -940,6 +1167,7 @@ function createService(config, logger, hooks = {}) {
      * Omitting `chatId` keeps the whole-board read the panel and the catalog use.
      */
     agents(cwd, chatId) {
+      sweepOnLoad(cwd)
       const rows = annotateAgents(readBoard(pathFor(cwd)), staleAfterMs)
       if (typeof chatId !== 'string' || chatId === '') return rows
       return rows.filter((agent) => (typeof agent.chatSessionId === 'string' ? agent.chatSessionId : '') === chatId)
@@ -1078,6 +1306,7 @@ function createService(config, logger, hooks = {}) {
     },
     /** One full task, or undefined. */
     get(cwd, id) {
+      sweepOnLoad(cwd)
       const task = readBoard(pathFor(cwd)).tasks.find((entry) => entry.id === id)
       return task === undefined ? undefined : withLiveChildren(task)
     },
@@ -1440,14 +1669,11 @@ function createService(config, logger, hooks = {}) {
      * Board-level by design: it is not a transition of one task, so it takes no revision and
      * never writes a task whose children are still running (see reconcileTasks). `changed`
      * comes from the result, because the helper bumps the per-task revision, not the board's.
+     * A child the runtime proves it no longer holds counts as settled, exactly as the
+     * load-time sweep does.
      */
     reconcile(cwd) {
-      const out = mutate(cwd, (board) => {
-        const result = reconcileTasks(board, timelineLimit)
-        return { changed: result.fixed > 0, value: { ok: true, ...result } }
-      })
-      if (out?.ok === true) mirrorByIds(cwd, out.ids)
-      return out
+      return reconcileBoard(cwd)
     },
     /** Pause a task and interrupt its linked children; fail closed on interrupt errors. */
     pause(cwd, input) {
@@ -1459,14 +1685,14 @@ function createService(config, logger, hooks = {}) {
         if (task === undefined) return { value: { ok: false, code: 'not_found' } }
         if (!writable(task, chatId, input?.actor, input?.scope)) return otherChat(task)
         if (['done', 'cancelled'].includes(displayStatus(task.status))) return { value: { ok: false, code: 'closed', task } }
-        const { interrupted, errors, skipped } = interruptChildren(task, requestedParent, board)
+        const { interrupted, errors, skipped, gone } = interruptChildren(task, requestedParent, board)
         if (errors.length > 0) return { value: { ok: false, code: 'interrupt_failed', task, interrupted, errors } }
         markChildren(board, task, 'paused', 'paused')
         task.status = 'paused'
         task.revision += 1
         task.updatedAt = now()
         timeline(task, 'paused', input?.actor === 'human' ? 'human' : 'orchestrator', `Paused${interrupted.length === 0 ? '' : `; interrupted ${interrupted.length} child session(s)`}`, { sessionIds: interrupted }, timelineLimit)
-        return { changed: true, value: { ok: true, task, interrupted, errors, skipped } }
+        return { changed: true, value: { ok: true, task, interrupted, errors, skipped, gone } }
       })
       if (paused?.ok === true) mirrorTasks(cwd, [paused.task])
       return paused
@@ -1575,6 +1801,7 @@ function createService(config, logger, hooks = {}) {
             interrupted: outcome.interrupted,
             errors: outcome.errors,
             ...(Array.isArray(outcome.skipped) && outcome.skipped.length === 0 ? {} : { skipped: outcome.skipped }),
+            ...(Array.isArray(outcome.gone) && outcome.gone.length === 0 ? {} : { gone: outcome.gone }),
             ...(outcome.note === undefined ? {} : { note: outcome.note }),
             ...(outcome.resultRecorded === true ? { resultRecorded: true } : {}),
           },
@@ -1619,7 +1846,7 @@ function createService(config, logger, hooks = {}) {
         if (from === wanted) return { value: { ok: true, unchanged: true, task, from, to: wanted, interrupted: [], errors: [] } }
         // No work may outlive a status that says "nothing is running here".
         const held = wanted === 'done' || wanted === 'cancelled' || wanted === 'paused'
-        const stop = held ? interruptChildren(task, input?.parentSessionId, board) : { interrupted: [], errors: [], skipped: [] }
+        const stop = held ? interruptChildren(task, input?.parentSessionId, board) : { interrupted: [], errors: [], skipped: [], gone: [] }
         if (stop.errors.length > 0) return { value: { ok: false, code: 'interrupt_failed', task, interrupted: stop.interrupted, errors: stop.errors } }
         if (held) markChildren(board, task, 'sleeping', 'sleeping')
         task.status = wanted
@@ -1630,7 +1857,7 @@ function createService(config, logger, hooks = {}) {
         task.revision += 1
         task.updatedAt = now()
         timeline(task, 'status', 'human', `Owner set the status ${from} -> ${wanted}${reason === '' ? '' : `: ${reason}`}`, { from, to: wanted, ...(reason === '' ? {} : { reason }) }, timelineLimit)
-        return { changed: true, value: { ok: true, task, from, to: wanted, interrupted: stop.interrupted, errors: stop.errors, ...(Array.isArray(stop.skipped) && stop.skipped.length === 0 ? {} : { skipped: stop.skipped }) } }
+        return { changed: true, value: { ok: true, task, from, to: wanted, interrupted: stop.interrupted, errors: stop.errors, ...(Array.isArray(stop.skipped) && stop.skipped.length === 0 ? {} : { skipped: stop.skipped }), ...(Array.isArray(stop.gone) && stop.gone.length === 0 ? {} : { gone: stop.gone }) } }
       })
       if (outcome === undefined || outcome.ok === false) return outcome ?? { ok: false, code: 'write_failed', message: 'the board write did not report a result' }
       if (outcome.unchanged === true) return outcome
@@ -1903,25 +2130,98 @@ export function apply(ctx, config = {}) {
       return undefined
     }
   }
+  /**
+   * A MIRROR FAILURE IS RETRIED. The register write can fail for a reason that goes away on
+   * its own - the state file is being replaced, another process holds its CAS revision, the
+   * view regeneration was mid-flight - and the old code answered with one `warn` line, so the
+   * board and the register diverged until someone noticed (§4.7 of the review: "the panel
+   * shows an old status"). Each attempt waits longer than the last; the failure is reported
+   * only after the last one, and `flushMirror` still resolves when the queue drains.
+   */
+  const MIRROR_ATTEMPTS = 4
+  const MIRROR_BACKOFF_MS = 250
+  /** Refusals the register makes on PURPOSE: every retry gets the same answer. */
+  const PERMANENT_MIRROR_REFUSALS = new Set(['req_required'])
+  const delay = (ms) => new Promise((done) => {
+    const timer = setTimeout(done, ms)
+    if (typeof timer.unref === 'function') timer.unref()
+  })
+  const mirrorOnce = async (core, cwd, task) => {
+    try {
+      return await mirrorTask(core, { cwd, task })
+    } catch (error) {
+      return { ok: false, code: 'mirror_failed', message: error instanceof Error ? error.message : String(error) }
+    }
+  }
   const scheduleMirror = (cwd, task) => {
     const core = coreOf()
     if (core === undefined || core === null || task === undefined || task === null) return undefined
     const run = async () => {
+      let result
+      for (let attempt = 1; attempt <= MIRROR_ATTEMPTS; attempt += 1) {
+        result = await mirrorOnce(core, cwd, task)
+        if (result?.ok !== false) break
+        if (PERMANENT_MIRROR_REFUSALS.has(result.code)) break
+        if (attempt < MIRROR_ATTEMPTS) await delay(MIRROR_BACKOFF_MS * 2 ** (attempt - 1))
+      }
+      mirrorResults.set(cwd, result)
+      if (result?.ok === false) {
+        ctx.logger?.warn?.(`taskboard: TASK mirror for ${task.id} failed after ${MIRROR_ATTEMPTS} attempt(s): ${result.code ?? 'unknown'} ${result.message ?? ''}`.trim())
+        return result
+      }
       try {
-        const result = await mirrorTask(core, { cwd, task })
-        mirrorResults.set(cwd, result)
-        if (result.ok === false) ctx.logger?.warn?.(`taskboard: TASK mirror for ${task.id} failed: ${result.code ?? 'unknown'}`)
         const state = typeof core.open === 'function' ? core.open(cwd) : core
         if (typeof state.regenerateViews === 'function') await state.regenerateViews()
-        return result
       } catch (error) {
-        ctx.logger?.warn?.(`taskboard: TASK mirror for ${task.id} threw: ${error instanceof Error ? error.message : String(error)}`)
-        return { ok: false, code: 'mirror_failed' }
+        ctx.logger?.warn?.(`taskboard: could not regenerate views after mirroring ${task.id}: ${error instanceof Error ? error.message : String(error)}`)
       }
+      return result
     }
     const previous = mirrorQueue.get(cwd) ?? Promise.resolve()
     mirrorQueue.set(cwd, previous.then(run, run))
     return mirrorQueue.get(cwd)
+  }
+
+  /**
+   * THE STARTUP CHECK OF THE REGISTER. The retry above heals a write that failed; this heals
+   * a row that failed while the process was not running (a crash between the board write and
+   * the mirror, or a mirror that ran in a process that then died). It compares the board's
+   * status with its TASK row by `boardId` and re-mirrors only the rows that disagree, once
+   * per process and workspace, on the first board read.
+   *
+   * @returns `{checked, repaired}`, or `{checked: 0, repaired: 0, skipped}` when the core or
+   *   its task listing is unavailable.
+   */
+  const mirrorCheck = async (cwd) => {
+    const core = coreOf()
+    if (core === undefined || core === null) return { checked: 0, repaired: 0, skipped: 'no-core' }
+    const state = typeof core.open === 'function' ? core.open(cwd) : core
+    if (state === null || state === undefined || typeof state.list !== 'function') return { checked: 0, repaired: 0, skipped: 'no-state' }
+    let rows = []
+    try {
+      const listed = await state.list('task')
+      rows = Array.isArray(listed?.rows) ? listed.rows : []
+    } catch (error) {
+      return { checked: 0, repaired: 0, skipped: 'unreadable' }
+    }
+    const byBoard = new Map()
+    for (const row of rows) {
+      if (typeof row?.boardId === 'string' && row.boardId !== '') byBoard.set(row.boardId, row)
+    }
+    let checked = 0
+    let repaired = 0
+    for (const row of service.list(cwd, { all: true })) {
+      const register = byBoard.get(row.id)
+      if (register === undefined) continue
+      checked += 1
+      if (register.status === registerStatus(row.status)) continue
+      const task = service.get(cwd, row.id)
+      if (task === undefined) continue
+      await scheduleMirror(cwd, task)
+      repaired += 1
+    }
+    if (repaired > 0) ctx.logger?.info?.(`taskboard: the startup register check re-mirrored ${repaired} of ${checked} task row(s)`)
+    return { checked, repaired }
   }
   const service = createService(config, ctx.logger, {
     rootOf,
@@ -1951,6 +2251,37 @@ export function apply(ctx, config = {}) {
     },
     mirror: scheduleMirror,
     mirrorActive: () => coreOf() !== undefined,
+    // The register check rides the board's own load path, once per workspace and process.
+    onLoad: (cwd) => {
+      mirrorCheck(cwd).catch((error) => {
+        ctx.logger?.warn?.(`taskboard: the startup register check failed: ${error instanceof Error ? error.message : String(error)}`)
+      })
+    },
+    /**
+     * WHAT THE RUNTIME HOLDS, per linked child: `'running'`, `'idle'`, `'gone'`, or `undefined`
+     * when it cannot answer.
+     *
+     * `agents.get` is the loaded-session registry of THIS process and `agents.list()` is its
+     * roster; a child in neither is not working here - it died with its process or the Host
+     * restarted, and no `subagent/end` will ever arrive for it. Without a roster the absence
+     * proves nothing (a minimal or fake registry answers only for the ids it holds), so the
+     * answer is `undefined` and the caller stays fail-closed.
+     */
+    childLiveness(childId) {
+      if (typeof childId !== 'string' || childId === '') return undefined
+      try {
+        const agents = ctx.get('agents')
+        if (agents === undefined || agents === null || typeof agents.get !== 'function') return undefined
+        const agent = agents.get(childId)
+        if (agent !== undefined && agent !== null) return agent.status === 'running' ? 'running' : 'idle'
+        if (typeof agents.list !== 'function') return undefined
+        const roster = agents.list()
+        if (!Array.isArray(roster)) return undefined
+        return roster.some((entry) => entry?.id === childId) ? 'idle' : 'gone'
+      } catch {
+        return undefined
+      }
+    },
     // The task list says who is working NOW; a task can stay `active` long after its child
     // stopped, so the status alone cannot answer it. `agents.list()`/`get()` is the runtime's
     // live view; an absent service leaves the fields out instead of guessing.

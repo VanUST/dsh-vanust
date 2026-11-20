@@ -1,0 +1,543 @@
+{
+  "schemaVersion": 1,
+  "id": "harness-hardening-non-ui",
+  "rev": 11,
+  "status": "completed",
+  "createdAt": "2026-11-20T11:50:25.466Z",
+  "updatedAt": "2026-11-20T12:27:25.633Z",
+  "updatedBy": "agent",
+  "title": "Устойчивость харнесса без изменения интерфейса: проекция, жизненный цикл задачи, доска, проверки, установка",
+  "requestedSolution": "Владелец 2026-11-20: делать изменения, которые не затрагивают текущий интерфейс на :3080 (сервер не трогать, перезапустит сам). Остальное из ревью — согласен. Значит: правим код кита и скрипты в рабочем дереве, живой профиль $DSH_HOME и запущенный сервер не трогаем; изменения доедут при следующем перезапуске через start.sh/start.ps1 и kit-update.",
+  "businessOutcome": {
+    "problem": "Ревью 2026-11-20 нашло отказы, которые уже вредят: (1) проекция выдачи делает середину файлов больше 8 КиБ недоступной агенту, а proof доказывает это на уровне диска; (2) задача с мёртвым после рестарта ребёнком не закрывается — только отмена с потерей приёмки; (3) доска .dsh/taskboard.json пишется двумя процессами без блокировки и зеркалится в state/ без повтора; (4) три проверки кита проходят на пустом входе; (5) на Windows нет обёртки сходимости, сторож живого сервера работает только на Linux, install.ps1 затирает машинный cordis.patch.yml, отката нет, установщик проверяет мажор Node вместо >= 24.9.0.",
+    "outcome": "Агент снова может прочитать полный текст любого результата; задача закрывается после исчезновения ребёнка без потери приёмки; доска имеет одного писателя и не теряет задачи; проверки падают, когда проверять нечего; установка и обновление одинаково безопасны на Linux и Windows и имеют описанный откат. Живой интерфейс на :3080 и его файлы не изменяются.",
+    "successMetrics": [
+      "read файла 53 КиБ и повторное чтение спилла дают полный текст",
+      "task_close после убийства процесса ребёнка возвращает done, а не interrupt_failed",
+      "два процесса, пишущих доску, не теряют задач: второй ждёт блокировку",
+      "context-budget без сессий и schema-lint на пустом наборе пресетов возвращают отказ",
+      "make verify и make test проходят; 28 тарболов перепакованы, версии подняты",
+      "живой профиль ~/.npm/dsh/profiles/web и порт 3080 не тронуты"
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CURRENT",
+        "name": "Отказы, которые видит владелец",
+        "actors": [
+          "агент",
+          "сервис таскборда",
+          "проекция выдачи",
+          "kit-update"
+        ],
+        "steps": [
+          "read большого файла приходит баннером; чтение спилла проецируется снова, середина недоступна.",
+          "Ребёнок задачи умирает вместе с процессом; subagent/end не приходит; task_close отказывает interrupt_failed; force есть только у отмены.",
+          "Доска пишется полной перезаписью без кросс-процессной блокировки; зеркало в state/ вызывается без ожидания и без повтора.",
+          "Проверки context-budget и schema-lint возвращают успех, когда вход пуст.",
+          "На Windows нет обёртки сходимости и сторожа живого сервера; install.ps1 затирает машинный слой; откат не описан."
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-TARGET",
+        "name": "Отказы закрыты, интерфейс не тронут",
+        "actors": [
+          "агент",
+          "сервис таскборда",
+          "проекция выдачи",
+          "kit-update"
+        ],
+        "steps": [
+          "Проекция не применяется к чтению спилла и к read ниже нового порога; proof проверяет путь агента, а не диск.",
+          "Лизинг ребёнка сверяется с живостью процесса: мёртвый ребёнок освобождает задачу, закрытие проходит без force.",
+          "Доска пишется под блокировкой и атомарно; зеркало получает повтор и сверку при старте.",
+          "Проверки падают, когда вход пуст, и каждая имеет негативный контроль.",
+          "Установщики проверяют >= 24.9.0, сохраняют отличающийся слой, сторож сервера по порту работает на всех платформах, откат описан и проверен на временном профиле."
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "FR1",
+      "kind": "FR",
+      "text": "Агент может прочитать полный текст результата, спроецированного в спилл, независимо от размера файла.",
+      "acceptance": [
+        "read по пути из баннера не проецируется повторно",
+        "порог проекции для read поднят или спилл исключён из проекции",
+        "proof проверяет путь агента (tools/post-execute), а не readFileSync",
+        "негативный контроль на старом коде падает"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR2",
+      "kind": "FR",
+      "text": "Задача закрывается без потери приёмки, если её ребёнок исчез вместе с процессом.",
+      "acceptance": [
+        "task_close для задачи с мёртвым ребёнком возвращает done, а не interrupt_failed",
+        "ребёнок помечается завершённым, роль освобождается",
+        "сверка при старте осаживает active-задачи с завершившимися детьми",
+        "негативный контроль на старом коде падает"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR3",
+      "kind": "FR",
+      "text": "Доска задач имеет одного писателя и не теряет данные при двух процессах; зеркало в реестр состояния не теряет обновления.",
+      "acceptance": [
+        ".dsh/taskboard.json пишется атомарно (temp+rename) под кросс-процессной блокировкой",
+        "второй процесс ждёт блокировку и не затирает файл",
+        "зеркало повторяется при ошибке и сверяется при старте",
+        "тест двух процессов доказывает отсутствие потери"
+      ],
+      "status": "proven"
+    },
+    {
+      "id": "FR4",
+      "kind": "FR",
+      "text": "Проверки кита падают, когда проверять нечего.",
+      "acceptance": [
+        "context-budget без сессий возвращает отказ",
+        "schema-lint обходит каталоги рекурсивно и отказывает на пустом наборе пресетов",
+        "check-portability не считает закомментированную строку монтированием",
+        "у каждой из трёх есть негативный контроль"
+      ],
+      "status": "deferred",
+      "reason": "Доказано прогонами: копии из git HEAD на том же пустом входе давали exit 0, текущие дают exit 1; make verify печатает оба негативных контроля. TEST-сущность не создавалась — у проверок нет драйвера CASE_SUMMARY."
+    },
+    {
+      "id": "FR5",
+      "kind": "FR",
+      "text": "Установка, обновление и откат безопасны и одинаковы по смыслу на Linux и Windows.",
+      "acceptance": [
+        "оба установщика проверяют Node >= 24.9.0",
+        "install.ps1 не затирает отличающийся cordis.patch.yml, а предупреждает и сохраняет",
+        "сторож живого сервера работает по порту на всех платформах",
+        "перед --apply снимается бэкап слоя и mcp-servers.json",
+        "процедура отката описана в rules/DEPLOYMENT.md и проверена на временном DSH_HOME"
+      ],
+      "status": "deferred",
+      "reason": "Доказано: installer-steps-proof 14/14 против 10/14 на установщиках из git HEAD; прогоны на временном DSH_HOME (Node 24.8 отказ, 24.9 успех, бэкап и --restore). Windows-часть проверена только статически — pwsh на машине нет."
+    },
+    {
+      "id": "FR6",
+      "kind": "FR",
+      "text": "У кита есть один вход в тесты: make test запускает тесты плагинов и proof-скрипты.",
+      "acceptance": [
+        "scripts/test-all.mjs обходит plugins/*/test/*.test.mjs и scripts/*-proof.mjs",
+        "цель make test возвращает отказ при первом падении",
+        "README и rules/DEPLOYMENT.md называют новую команду"
+      ],
+      "status": "deferred",
+      "reason": "Доказано: make test 70/70 passed exit 0, пустая выборка --only даёт отказ; до работы цели не существовало. TEST-сущность не создавалась: раннер — команда, а не драйвер CASE_SUMMARY."
+    },
+    {
+      "id": "NFR1",
+      "kind": "NFR",
+      "text": "Упаковка и документация остаются согласованными, живой сервер не тронут.",
+      "acceptance": [
+        "make verify exit 0",
+        "изменённые плагины перепакованы с подъёмом версии",
+        "plugins/inventory.json, README, USERGUIDE, rules/DEPLOYMENT.md согласованы",
+        "~/.npm/dsh/profiles/web и порт 3080 не изменялись"
+      ],
+      "status": "deferred",
+      "reason": "Сведено прогонами: make verify 19/19 exit 0, check-portability 19/19, make test 70/70; живой профиль не тронут (mtime файлов прежние, каталога бэкапов нет). TEST-сущность не создавалась."
+    }
+  ],
+  "architecture": {
+    "contractImpact": "additive",
+    "components": [
+      {
+        "id": "C-PROJ",
+        "name": "Проекция выдачи",
+        "responsibility": "заменять большие результаты инструментов головой, хвостом и путём к спиллу",
+        "owner": "BACKEND",
+        "owns": [
+          "D-SPILL"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "C-BOARD",
+        "name": "Таскборд и сервис задач",
+        "responsibility": "журнал задач, жизненный цикл, лизинг детей, зеркало в реестр состояния",
+        "owner": "BACKEND",
+        "owns": [
+          "D-BOARD"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "C-GATES",
+        "name": "Проверки кита",
+        "responsibility": "make verify, make test, proof-скрипты",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": []
+      },
+      {
+        "id": "C-INSTALL",
+        "name": "Установка и обновление",
+        "responsibility": "install.sh, install.ps1, start.sh, start.ps1, kit-update.mjs",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": []
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "D-SPILL",
+      "name": "Спилл проекции",
+      "owner": "kit",
+      "ownerComponentId": "C-PROJ",
+      "description": "полный текст результата; должен читаться агентом"
+    },
+    {
+      "id": "D-BOARD",
+      "name": "Файл доски задач",
+      "owner": "kit",
+      "ownerComponentId": "C-BOARD",
+      "description": "один файл на воркспейс, запись полная; нужен кросс-процессный лок"
+    }
+  ],
+  "contracts": [
+    {
+      "id": "CT-TOOLRESULT",
+      "name": "Контракт результата инструмента",
+      "between": [
+        "C-PROJ"
+      ],
+      "change": "additive",
+      "description": "Добавляется правило исключения: чтение спилла не проецируется; порог для read отдельный. Формат баннера не меняется."
+    },
+    {
+      "id": "CT-CLOSE",
+      "name": "Контракт закрытия задачи",
+      "between": [
+        "C-BOARD"
+      ],
+      "change": "additive",
+      "description": "Закрытие принимает мёртвого ребёнка как завершённого; флаг force у закрытия не вводится — отказ заменяется проверкой живости процесса."
+    },
+    {
+      "id": "CT-BOARD-FILE",
+      "name": "Формат файла доски",
+      "between": [
+        "C-BOARD"
+      ],
+      "change": "none",
+      "description": "Формат .dsh/taskboard.json не меняется; меняется способ записи (лок + temp+rename)."
+    }
+  ],
+  "invariants": [
+    {
+      "id": "INV-READ",
+      "text": "Любой результат инструмента, показанный агенту, имеет доступный полный текст по указанному пути.",
+      "scope": "проекция выдачи"
+    },
+    {
+      "id": "INV-LOCK",
+      "text": "Файл доски имеет одного писателя в каждый момент времени; второй процесс ждёт или получает названный отказ.",
+      "scope": "таскборд"
+    },
+    {
+      "id": "INV-GATE",
+      "text": "Проверка, у которой нет входа, возвращает отказ, а не успех.",
+      "scope": "проверки кита"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "D-NOUI",
+      "decision": "Не менять интерфейс и не трогать запущенный сервер: правки только в рабочем дереве кита.",
+      "rationale": "Прямое указание владельца 2026-11-20: перезапустит сам.",
+      "alternatives": [
+        "индикатор расхождения в панели — отложен, потому что меняет интерфейс"
+      ]
+    },
+    {
+      "id": "D-PROCESS",
+      "decision": "Живость ребёнка определять по процессу, а не по приходу subagent/end.",
+      "rationale": "subagent/end приходит только в живом процессе; после рестарта событие не придёт никогда",
+      "alternatives": [
+        "force у task_close — теряет приёмку"
+      ]
+    },
+    {
+      "id": "D-EXCEPTION",
+      "decision": "Изолированный бюджет компакции роли architect (136K при 272K) оставлен как объявленное исключение и запинован проверкой по имени и значению; общие 9 блоков проверяются общим правилом, число исключений ровно 1.",
+      "rationale": "Исключение внесено осознанно для дорогого маршрута (e86ae20); проверка должна охранять контракт, а не отрицать его. Тихая вторая исключительная группа теперь ломает прогон.",
+      "alternatives": [
+        "вернуть роль architect на общий бюджет от окна"
+      ]
+    }
+  ],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L1",
+    "reasons": [
+      "правки внутри существующих плагинов и скриптов",
+      "форматы данных не меняются",
+      "живой сервер не трогается"
+    ]
+  },
+  "designRef": {
+    "mapRev": 32,
+    "at": "2026-11-20T11:50:00.000Z",
+    "source": "designmap/manifest.json"
+  },
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "FR1",
+      "processId": "P-TARGET",
+      "componentId": "C-PROJ",
+      "contractIds": [
+        "CT-TOOLRESULT"
+      ],
+      "dataIds": [
+        "D-SPILL"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwox48ef-jxrknk",
+          "role": "BACKEND",
+          "at": "2026-11-20T12:03:30.000Z",
+          "evidence": [
+            "node plugins/run-code-projection/proof/proof.mjs -> PASS 22 checks, exit 0; спилл 219 040 Б читается целиком",
+            "негативный контроль на модуле из git HEAD (a1eb322) -> exit 1, 4 красные строки",
+            "TEST-078 spill-read-back-returns-the-projected-full-text: red exit 1 -> green exit 0, verified"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR2",
+      "processId": "P-TARGET",
+      "componentId": "C-BOARD",
+      "contractIds": [
+        "CT-CLOSE"
+      ],
+      "dataIds": [],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwox49d1-p0sybd",
+          "role": "BACKEND",
+          "at": "2026-11-20T12:27:00.000Z",
+          "evidence": [
+            "node --test plugins/taskboard/test/dead-child-close.test.mjs -> 5/5 exit 0",
+            "CASE_NEGATIVE_CONTROL=expect-pre-fix -> pass 3 / fail 2, exit 1: interrupt_failed и 'Cannot read properties of undefined (reading id)'",
+            "case task-closes-when-its-linked-child-disappeared-with-its-proce: red exit 1 -> green exit 0, verified rev 5"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR3",
+      "processId": "P-TARGET",
+      "componentId": "C-BOARD",
+      "contractIds": [
+        "CT-BOARD-FILE"
+      ],
+      "dataIds": [
+        "D-BOARD"
+      ],
+      "status": "proven",
+      "tasks": [
+        {
+          "taskId": "task-mwox49d1-p0sybd",
+          "role": "BACKEND",
+          "at": "2026-11-20T12:27:00.000Z",
+          "evidence": [
+            "node --test plugins/taskboard/test/board-lock.test.mjs -> 4/4 exit 0",
+            "CASE_NEGATIVE_CONTROL=expect-pre-fix -> pass 1 / fail 3, exit 1: '23 task(s) were lost by the two-process write'",
+            "case two-processes-writing-one-board-lose-no-task: red exit 1 -> green exit 0, verified rev 5",
+            "каталог-лок <ledger>.lock (mkdir = O_EXCL), ожидание, устаревание, release в finally; запись temp+rename; зеркало 4 попытки 250/500/1000 мс + сверка при старте"
+          ]
+        }
+      ]
+    },
+    {
+      "requirementId": "FR4",
+      "processId": "P-TARGET",
+      "componentId": "C-GATES",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwox4hwu-426mqw",
+          "role": "BACKEND",
+          "at": "2026-11-20T12:12:00.000Z",
+          "evidence": [
+            "make verify -> exit 0 с 'negative control: 2 … refused' и 'negative control: 4 … refused'",
+            "context-budget без сессий: HEAD exit 0 -> exit 1; schema-lint 45 -> 52 инструмента и отказ на пустом families; check-portability — комментарий больше не монтирование"
+          ]
+        }
+      ],
+      "reason": "Прогоны и негативные контроли есть; TEST-сущности нет."
+    },
+    {
+      "requirementId": "FR5",
+      "processId": "P-TARGET",
+      "componentId": "C-INSTALL",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwox4jco-x23i62",
+          "role": "BACKEND",
+          "at": "2026-11-20T12:12:00.000Z",
+          "evidence": [
+            "installer-steps-proof 14/14 exit 0; на установщиках из git HEAD 10/14 exit 1",
+            "временный DSH_HOME: Node 24.8 -> exit 1, 24.9 -> exit 0; бэкап и --restore"
+          ]
+        }
+      ],
+      "reason": "Доказано proof-скриптом; Windows не проверен прогоном (нет pwsh); TEST-сущности нет."
+    },
+    {
+      "requirementId": "FR6",
+      "processId": "P-TARGET",
+      "componentId": "C-GATES",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwox4hwu-426mqw",
+          "role": "BACKEND",
+          "at": "2026-11-20T12:12:00.000Z",
+          "evidence": [
+            "make test -> 70/70 passed exit 0 (54 test files, 16 proof scripts)",
+            "--only no-such-path -> exit 1"
+          ]
+        }
+      ],
+      "reason": "Доказано прогонами; TEST-сущности нет."
+    },
+    {
+      "requirementId": "NFR1",
+      "processId": "P-TARGET",
+      "componentId": "C-INSTALL",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwoxv322-ht8iaf",
+          "role": "BACKEND",
+          "at": "2026-11-20T12:20:00.000Z",
+          "evidence": [
+            "make verify 19/19 exit 0; check-portability 19/19; make test 70/70",
+            "живой профиль не тронут: mtime 12:00:32 и 14:25:51, каталога .dsh-kit-backups нет"
+          ]
+        }
+      ],
+      "reason": "Сведено прогонами; TEST-сущности нет."
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "eb2f1a74c0bde63e1f79e58d5c0ad998008f5b0c1beccc2aa1615d7c63fcc8ba",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-20T11:50:25.466Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-20T11:50:29.293Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-20T11:50:57.947Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwox48ef-jxrknk -> FR1"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-20T11:50:59.193Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwox49d1-p0sybd -> FR2, FR3"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-20T11:51:10.279Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwox4hwu-426mqw -> FR4, FR6"
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-20T11:51:12.145Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwox4jco-x23i62 -> FR5"
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-20T12:11:50.740Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwoxv322-ht8iaf -> NFR1"
+    },
+    {
+      "revision": 8,
+      "at": "2026-11-20T12:24:14.685Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR2 changed, FR3 changed, FR4 changed, FR5 changed, FR6 changed, NFR1 changed; impacts: 7"
+    },
+    {
+      "revision": 9,
+      "at": "2026-11-20T12:24:18.324Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 10,
+      "at": "2026-11-20T12:27:21.372Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR2 changed, FR3 changed; impacts: 2"
+    },
+    {
+      "revision": 11,
+      "at": "2026-11-20T12:27:25.633Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "completed",
+      "summary": ""
+    }
+  ]
+}

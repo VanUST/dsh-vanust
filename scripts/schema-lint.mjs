@@ -10,7 +10,15 @@
  *   so `make verify` fails on a schema that has grown a second body.
  *
  * INPUTS
- *   plugins/**\/*.mjs (tests and client bundles excluded), profile/cordis.patch.yml (allow rows).
+ *   plugins/**\/*.mjs, RECURSIVELY (tests, proofs and client bundles excluded), and
+ *   profile/cordis.patch.yml (allow rows).
+ *
+ * REFUSALS
+ *   Exit 1 with a named reason when there is nothing to measure: the description regex matched no
+ *   tool at all, or the `families:` allow rows yielded no preset. Both used to print "0 red" with
+ *   exit 0 — the same output a healthy kit prints. Every run also carries its NEGATIVE CONTROL:
+ *   the refusal predicate is applied to an empty toolkit, an empty preset set and a healthy input,
+ *   and the run fails if the empty ones are accepted or the healthy one is refused.
  *
  * USAGE
  *   node scripts/schema-lint.mjs [--json] [--warn 600] [--red 1200] [--preset-warn 45000] [--preset-red 90000]
@@ -29,18 +37,40 @@ const PRESET_RED = flag('--preset-red', 90000)
 
 const bytes = (text) => Buffer.byteLength(text ?? '', 'utf8')
 
+const TOOL_PATTERN = /name:\s*'([a-z][a-z0-9_]*)'([\s\S]{0,800}?)description:\s*'((?:[^'\\]|\\.)*)'/g
+
+// A plugin's own sources are not all at its root: `designmap/src/tools.mjs` declares seven tools
+// and a root-only walk measured none of them. Tests and proofs are excluded because they declare
+// tools that are not shipped, and a proof's fake tool is not a cost any preset pays.
+const SKIPPED_DIRS = new Set(['node_modules', 'test', 'proof', 'dist', '.git'])
+
+/** Every shipped source file under one directory, recursively. */
+async function sourceFiles(dir) {
+  const files = []
+  let entries = []
+  try { entries = await readdir(dir, { withFileTypes: true }) } catch { return files }
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      if (SKIPPED_DIRS.has(entry.name)) continue
+      files.push(...(await sourceFiles(path)))
+      continue
+    }
+    if (entry.name.endsWith('.mjs') && !entry.name.includes('.test.')) files.push(path)
+  }
+  return files
+}
+
 /** Tool name -> description text, from the plugin sources. */
 async function collectTools() {
   const tools = []
   for (const entry of (await readdir(join(KIT, 'plugins'), { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
     if (!entry.isDirectory()) continue
     const dir = join(KIT, 'plugins', entry.name)
-    let files = []
-    try { files = (await readdir(dir)).filter((name) => name.endsWith('.mjs') && !name.includes('.test.')) } catch { continue }
-    for (const file of files.sort()) {
-      const source = await readFile(join(dir, file), 'utf8')
-      const pattern = /name:\s*'([a-z][a-z0-9_]*)'([\s\S]{0,800}?)description:\s*'((?:[^'\\]|\\.)*)'/g
-      for (const match of source.matchAll(pattern)) {
+    for (const path of await sourceFiles(dir)) {
+      const file = path.slice(dir.length + 1)
+      const source = await readFile(path, 'utf8')
+      for (const match of source.matchAll(TOOL_PATTERN)) {
         tools.push({ tool: match[1], plugin: entry.name, file, bytes: bytes(match[3].replace(/\\(.)/g, '$1')) })
       }
     }
@@ -75,8 +105,41 @@ async function collectPresets() {
   return presets
 }
 
+/**
+ * Why this run cannot be a gate, or null when it can.
+ *
+ * Zero tools or zero presets is not a clean schema: it is a regex that stopped matching or an
+ * allow-list the profile no longer has. Both printed `0 red` and exit 0, which is the same
+ * output a healthy kit prints, so the measurement has to refuse instead.
+ *
+ * @param input - The counts the scan produced.
+ * @returns A refusal code, or null when the scan measured something.
+ */
+export function refusalFor({ tools, presets }) {
+  if (tools === 0) return 'no-tool-matched'
+  if (presets === 0) return 'preset-set-empty'
+  return null
+}
+
+/**
+ * The NEGATIVE CONTROL for the refusal above: an empty toolkit and an empty preset set must both
+ * be refused and a healthy input must be accepted. A predicate that refuses everything would be
+ * as useless as one that refuses nothing, so the healthy direction is checked too.
+ *
+ * @returns What the control fed in and the inputs it accepted that it should have refused.
+ */
+export function negativeControlFailures() {
+  const failures = []
+  if (refusalFor({ tools: 0, presets: 3 }) === null) failures.push('an empty toolkit was accepted')
+  if (refusalFor({ tools: 3, presets: 0 }) === null) failures.push('an empty preset set was accepted')
+  if (refusalFor({ tools: 3, presets: 3 }) !== null) failures.push('a healthy input was refused')
+  return { inputs: 2, failures }
+}
+
 const tools = await collectTools()
 const presets = await collectPresets()
+const refusal = refusalFor({ tools: tools.length, presets: Object.keys(presets).length })
+const control = negativeControlFailures()
 const pluginTotals = new Map()
 for (const tool of tools) pluginTotals.set(tool.plugin, (pluginTotals.get(tool.plugin) ?? 0) + tool.bytes)
 for (const tool of tools) tool.level = tool.bytes > RED ? 'RED' : tool.bytes > WARN ? 'WARN' : 'ok'
@@ -93,8 +156,19 @@ for (const [preset, patterns] of Object.entries(presets)) {
 
 const reds = [...tools.filter((tool) => tool.level === 'RED'), ...presetRows.filter((row) => row.level === 'RED')]
 const warns = [...tools.filter((tool) => tool.level === 'WARN'), ...presetRows.filter((row) => row.level === 'WARN')]
+const refusalReason = refusal === null ? '' : refusal === 'no-tool-matched'
+  ? `the description regex matched none of the plugin sources under ${join(KIT, 'plugins')}; it expects \`name: '<tool>'\` followed by \`description: '<text>'\`, so a reformatted tool table measures nothing`
+  : `the \`families:\` allow rows in ${join(KIT, 'profile', 'cordis.patch.yml')} yielded no preset, so no preset total means anything`
+const ok = refusal === null && control.failures.length === 0 && reds.length === 0
+const controlLine = control.failures.length === 0
+  ? `negative control: ${control.inputs} empty/broken input(s) refused, a healthy input accepted`
+  : `negative control: FAILED — ${control.failures.join('; ')}`
+
 const result = {
-  ok: reds.length === 0,
+  ok,
+  refused: refusal,
+  refusalReason,
+  negativeControl: control,
   thresholds: { warn: WARN, red: RED, presetWarn: PRESET_WARN, presetRed: PRESET_RED },
   totalDescriptionBytes: tools.reduce((sum, tool) => sum + tool.bytes, 0),
   toolCount: tools.length,
@@ -111,6 +185,8 @@ else {
   console.log('')
   for (const row of presetRows) console.log(`${row.level.padEnd(4)} ${String(row.descBytes).padStart(6)} B  preset ${row.preset} (${row.tools} tools)`)
   console.log(`\ntotal ${result.totalDescriptionBytes} B across ${tools.length} tools; ${warns.length} warning(s), ${reds.length} red(s)`)
+  console.log(controlLine)
+  if (refusal !== null) console.log(`refused: ${refusalReason}`)
 }
 
-process.exit(result.ok ? 0 : 1)
+process.exit(ok ? 0 : 1)

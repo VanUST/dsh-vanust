@@ -4,8 +4,11 @@
  *   an oversized tool result from a tool the profile lists arrives as a banner plus a readable
  *   full-text file; the workspace board is paged instead of dumped; the orchestrator allow row
  *   decides what per-agent kit plugins may register; and the compaction threshold is the
- *   per-window budget (about 500K at a 1M window, at most 218K at 272K, never the old flat
- *   136K).
+ *   per-window budget for the general presets (about 500K at a 1M window, at most 218K at
+ *   272K, never the old flat 136K), with ONE declared exception: preset-architect keeps half
+ *   of its 272K window (136K) because that route is the expensive one. The exception is
+ *   pinned by NAME and VALUE, so a second quiet exception, or a changed value, breaks the
+ *   run instead of passing as a general block.
  *
  * INPUTS
  *   profile/cordis.patch.yml (read-only): the real allow row, the run-code-projection tool
@@ -22,8 +25,9 @@
  *
  *   CASE_NEGATIVE_CONTROL=pre-change re-runs the SAME assertions against the pre-change values:
  *   the one-tool projection list (run_code only), the old allow row, a flat 0.5 compaction with
- *   no model policy, and a whole-board task_list request. It must exit 1; that is the control
- *   proving the checks reject the regression they exist for.
+ *   no model policy in EVERY block (including the general ones), and a whole-board task_list
+ *   request. It must exit 1; that is the control proving the checks reject the regression they
+ *   exist for.
  *
  * KEYWORDS
  *   context bounds, projection, spill file, task_list paging, allow row, tool registration,
@@ -95,10 +99,18 @@ function parseProjectionTools(lines) {
   return names
 }
 
-/** Every compaction-basic block: its default ratio and its per-model policies. */
+/**
+ * Every compaction-basic block: its default ratio, its per-model policies and the preset it
+ * belongs to. The preset is what separates the general budget from the one declared exception
+ * (preset-architect), so ownership is read from the nearest preceding `- id: preset-*` row
+ * rather than assumed from the block's position in the file.
+ */
 function parseCompactionBlocks(lines) {
   const blocks = []
+  let preset = null
   for (let index = 0; index < lines.length; index += 1) {
+    const presetHead = /^\s*- id: (preset-[a-z0-9-]+)\s*$/.exec(lines[index])
+    if (presetHead !== null) preset = presetHead[1]
     const head = /^(\s*)- id: compaction-basic\s*$/.exec(lines[index])
     if (head === null) continue
     const indent = head[1].length
@@ -128,7 +140,7 @@ function parseCompactionBlocks(lines) {
       const ratio = /^(\s*)thresholdRatio:\s*([0-9.]+)\s*$/.exec(line)
       if (ratio !== null && current !== null && ratio[1].length > baseIndent) current.ratio = Number(ratio[2])
     }
-    blocks.push({ defaultRatio: Number(defaults[0][2]), policies })
+    blocks.push({ preset, defaultRatio: Number(defaults[0][2]), policies })
   }
   return blocks
 }
@@ -253,9 +265,11 @@ try {
     taskListProjected === null ? 'not projected' : taskListProjected.length + ' chars',
   )
 
-  const readText = Array.from({ length: 700 }, (_, index) => 'line ' + index + ' of the file').join('\n')
+  // `read` carries its own floor of 64 KiB (TOOL_MIN_BYTES in the projection plugin): a
+  // document under it is what the model asked to see whole. The fixture is a file above it.
+  const readText = Array.from({ length: 3400 }, (_, index) => 'line ' + index + ' of the file').join('\n')
   const readContent = await projectResult(listener, { name: 'read', text: readText, cwd: workspace })
-  check('a read result above the threshold is projected too', parseBanner(textOf(readContent)) !== null, 'read bounded')
+  check('a read above the 64 KiB read floor is projected too', parseBanner(textOf(readContent)) !== null, 'read bounded, ' + readText.length + ' chars')
 
   const getText = JSON.stringify({ task: { id: 'task-1', revision: 7 }, notes: 'x'.repeat(9000) })
   const getContent = await projectResult(listener, { name: 'task_get', text: getText, cwd: workspace })
@@ -318,29 +332,63 @@ try {
   metrics.allowRowEntries = allowNames.length
   metrics.allowRowChecks = surface.status === 0 ? surfaceChecks : 0
 
-  // ── compaction: a per-window budget, never the flat half-window cut ────────
+  // ── compaction: one budget for the general presets, one declared exception ──
+  // The profile isolates a compaction group per preset, so "isolated" cannot mean the YAML
+  // shape. The exception is the PRESET that owns a block with its own budget: preset-architect
+  // keeps half of its 272K window (136K) because that route is the expensive one. Everything
+  // else is general and must follow the per-window budget. A new preset that quietly deviates
+  // lands in the general set and fails its checks; a value change inside the exception fails
+  // the pinned 136K check and the isolatedBlocks count.
+  const EXCEPTION_PRESET = 'preset-architect'
   blocks = parseCompactionBlocks(lines)
-  if (preChange) blocks = blocks.map(() => ({ defaultRatio: 0.5, policies: [] }))
+  if (preChange) blocks = blocks.map((block) => ({ ...block, defaultRatio: 0.5, policies: [] }))
   check('every preset carries a compaction block', blocks.length >= 8, blocks.length + ' blocks')
-  check('no block compacts later than 80% of the window', blocks.every((block) => block.defaultRatio <= 0.8), 'max ratio ' + Math.max(...blocks.map((block) => block.defaultRatio)))
-  check('no block keeps the flat half-window cut for a 272K window', blocks.every((block) => block.defaultRatio > 0.5), 'min ratio ' + Math.min(...blocks.map((block) => block.defaultRatio)))
+
+  const general = blocks.filter((block) => block.preset !== EXCEPTION_PRESET)
+  const isolated = blocks.filter((block) => block.preset === EXCEPTION_PRESET)
+  check('exactly one isolated compaction exception exists (preset-architect)', isolated.length === 1, isolated.map((block) => block.preset).join(',') || 'none')
+
+  check('no general block compacts later than 80% of the window', general.every((block) => block.defaultRatio <= 0.8), 'max ratio ' + Math.max(...general.map((block) => block.defaultRatio)))
+  check('every general block compacts a 272K window at 0.8, above 136K', general.every((block) => block.defaultRatio === 0.8), 'min ratio ' + Math.min(...general.map((block) => block.defaultRatio)))
 
   const flashRatioOf = (block) => {
     const policy = block.policies.find((entry) => entry.provider === 'deepseek-official' && entry.model === 'deepseek-flash')
     return policy === undefined || policy.ratio === null ? null : policy.ratio
   }
-  const flashRatios = blocks.map(flashRatioOf)
-  check('every block overrides deepseek-flash to 0.5', flashRatios.every((ratio) => ratio === 0.5), JSON.stringify(flashRatios))
+  const generalFlash = general.map(flashRatioOf)
+  check('every general block overrides deepseek-flash to 0.5', generalFlash.every((ratio) => ratio === 0.5), JSON.stringify(generalFlash))
 
-  const allFlash = flashRatios.every((ratio) => ratio !== null)
+  const allGeneralFlash = generalFlash.every((ratio) => ratio !== null)
   metrics.compactionBlocks = blocks.length
-  metrics.compactionDefaultRatio = Math.max(...blocks.map((block) => block.defaultRatio))
-  metrics.compactionFlashRatio = allFlash ? Math.min(...flashRatios) : 0
-  metrics.compaction1M = Math.round((allFlash ? Math.min(...flashRatios) : 0) * WINDOW_1M)
-  metrics.compaction272K = Math.round(Math.max(...blocks.map((block) => block.defaultRatio)) * WINDOW_272K)
+  metrics.compactionGeneralBlocks = general.length
+  metrics.isolatedBlocks = isolated.length
+  metrics.compactionGeneralRatio = allGeneralFlash ? Math.min(...generalFlash) : 0
+  metrics.compactionGeneralDefaultRatio = Math.max(...general.map((block) => block.defaultRatio))
+  metrics.compactionGeneral1M = Math.round((allGeneralFlash ? Math.min(...generalFlash) : 0) * WINDOW_1M)
+  metrics.compactionGeneral272K = Math.round(Math.max(...general.map((block) => block.defaultRatio)) * WINDOW_272K)
+  metrics.compactionIsolated272K = isolated.length === 1 ? Math.round(isolated[0].defaultRatio * WINDOW_272K) : 0
+  metrics.compactionIsolatedRatio = isolated.length === 1 ? isolated[0].defaultRatio : 0
 
-  check('a 1M window compacts near 500K tokens', metrics.compaction1M >= 480000 && metrics.compaction1M <= 540000, metrics.compaction1M + ' tokens')
-  check('a 272K window compacts at or below 218K tokens', metrics.compaction272K > 136000 && metrics.compaction272K <= 218000, metrics.compaction272K + ' tokens')
+  check(
+    'the general blocks compact a 1M window at half of it (524 288 tokens)',
+    metrics.compactionGeneral1M === Math.round(0.5 * WINDOW_1M),
+    metrics.compactionGeneral1M + ' tokens',
+  )
+  check(
+    'the general blocks compact a 272K window at 0.8 (217 600 tokens, above 136K)',
+    metrics.compactionGeneral272K > 136000 && metrics.compactionGeneral272K <= 218000,
+    metrics.compactionGeneral272K + ' tokens',
+  )
+  check(
+    'the declared architect exception compacts a 272K window at exactly 136 000 tokens (0.5)',
+    isolated.length === 1 && isolated[0].defaultRatio === 0.5 && metrics.compactionIsolated272K === 136000,
+    metrics.compactionIsolated272K + ' tokens',
+  )
+  check(
+    'the architect exception has no 1M flash policy (its route is the 272K one)',
+    isolated.length === 1 && flashRatioOf(isolated[0]) === null,
+    'flashRatio=' + String(isolated.length === 1 ? flashRatioOf(isolated[0]) : 'none'),
+  )
 } catch (error) {
   check('the four settings parse and run', false, error instanceof Error ? error.message : String(error))
 } finally {

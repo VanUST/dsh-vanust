@@ -5,6 +5,15 @@
  *   is readable from the exact path the banner names, and that every result the brief says
  *   must not be touched is not touched.
  *
+ *   The recovery is proven on the AGENT's path, not on the filesystem: the same
+ *   `tools/post-execute` listener is run again as a `read` whose `file_path` is the path in
+ *   the banner, and the result must come back whole. Reading the spill with `readFileSync`
+ *   (what this proof did up to 0.1.2) proves the file exists and says nothing about what the
+ *   model would receive — the defect measured 2026-11-20: `read` was itself a projected tool,
+ *   so the recovery read arrived as a second banner with its own middle cut,
+ *   `proof/negative-control.mjs` runs THIS proof against the pre-fix module and requires it
+ *   to fail.
+ *
  * INPUTS
  *   `proof/fixture-run-code.json` — a real `run_code` result extracted read-only from
  *   `$DSH_HOME/sessions/--home-iustimov-dsh-kit--/session-7ba8040c-…/session.v4.jsonl.zstd`
@@ -24,7 +33,13 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { BANNER_PREFIX, LEGACY_BANNER_PREFIX, apply, parseBanner } from '../run-code-projection.mjs'
+import * as projectionModule from '../run-code-projection.mjs'
+import { BANNER_PREFIX, LEGACY_BANNER_PREFIX, apply, isProjected, parseBanner } from '../run-code-projection.mjs'
+
+// Read from the module object, not by name: the negative control runs this proof against the
+// pre-fix module, which has no `TOOL_MIN_BYTES`, and a missing named export would crash the
+// proof instead of turning the read-floor rows red.
+const READ_FLOOR = Math.max(8192, projectionModule.TOOL_MIN_BYTES?.read ?? 0)
 
 const fixture = JSON.parse(readFileSync(new URL('./fixture-run-code.json', import.meta.url), 'utf8'))
 
@@ -63,11 +78,11 @@ function createHarness(config) {
 }
 
 /** Run the plugin's real post-execute listener once. */
-async function run(harness, { name = 'run_code', content, isError = false, cwd, aborted = false }) {
+async function run(harness, { name = 'run_code', content, isError = false, cwd, aborted = false, args }) {
   const exec = {
     name,
     callId: 'call_00_PROOF000000000000000000000',
-    arguments: { code: 'console.log(1)', description: 'proof' },
+    arguments: args ?? { code: 'console.log(1)', description: 'proof' },
     ...(cwd === undefined ? {} : { agent: { session: { header: { cwd } } } }),
     signal: { aborted },
   }
@@ -85,6 +100,20 @@ async function run(harness, { name = 'run_code', content, isError = false, cwd, 
 /** The content the harness would materialize: a replacement when accepted, else the result's own. */
 function effectiveContent(decision, result) {
   return Array.isArray(decision?.content) ? decision.content : result.content
+}
+
+/**
+ * The text the `read` tool would return for a file: one `N\t<line>` row per line. The
+ * projection decision turns on the call's `file_path`, never on this text; the rendering is
+ * here so the recovery checks carry a realistic size, including above the read floor.
+ */
+function asReadToolRenders(text) {
+  return text.split('\n').map((line, index) => `${index + 1}\t${line}`).join('\n')
+}
+
+/** How many full texts the spill directory holds. */
+function spillFiles(dir) {
+  return existsSync(dir) ? readdirSync(dir).length : 0
 }
 
 /** The single text block of a content array, or null. */
@@ -120,6 +149,73 @@ try {
   console.log('projected banner (real fixture):')
   for (const line of projected.split('\n', 2)) console.log(`  ${line}`)
   console.log('')
+
+  // ── the agent's own recovery path: read the banner's file back ──────────
+  // The banner promises that the middle is readable. The proof therefore follows the path a
+  // session actually takes — the same `tools/post-execute` listener, a `read` call naming the
+  // file the banner named — and requires the full text back, not a second banner. Reading the
+  // spill with readFileSync (as this proof did before) never exercised the listener, so it
+  // could not see that the recovery read was itself projected.
+  const recoveryFilesBefore = spillFiles(spillDir)
+  const spillText = spillReadBack ?? ''
+  const reread = await run(harness, {
+    name: 'read',
+    args: { file_path: bannerPath ?? join(spillDir, 'missing') },
+    content: [{ type: 'text', text: asReadToolRenders(spillText) }],
+    cwd: workspace,
+  })
+  const rereadText = textOf(effectiveContent(reread.decision, reread.result))
+  const rereadFiles = spillFiles(spillDir)
+  check(
+    "read of the banner's file — full text returned, not projected again",
+    bannerPath !== null &&
+      rereadText === asReadToolRenders(spillText) &&
+      !isProjected(rereadText) &&
+      parseBanner(rereadText) === null &&
+      rereadFiles === recoveryFilesBefore,
+    `${(bannerPath ?? 'no path').replace(workspace, '.')} • spill files ${recoveryFilesBefore} -> ${rereadFiles}`,
+    { before: asReadToolRenders(spillText).length, after: rereadText.length },
+  )
+
+  // The same read, named by a workspace-relative path: the read tool resolves it against the
+  // session workspace, so the exception must too.
+  const relativePath = bannerPath === null ? '.dsh/spill/missing' : bannerPath.slice(workspace.length + 1)
+  const relativeReread = await run(harness, {
+    name: 'read',
+    args: { file_path: relativePath },
+    content: [{ type: 'text', text: asReadToolRenders(spillText) }],
+    cwd: workspace,
+  })
+  const relativeText = textOf(effectiveContent(relativeReread.decision, relativeReread.result))
+  check(
+    'read of the banner file by its relative path — full text, not projected',
+    bannerPath !== null && relativeText === asReadToolRenders(spillText) && !isProjected(relativeText),
+    relativePath,
+    { before: asReadToolRenders(spillText).length, after: relativeText.length },
+  )
+
+  // The same read, from a spill LARGER than the read floor: "independent of the file size".
+  const hugeText = fixture.text.repeat(8)
+  const huge = await run(harness, { content: [{ type: 'text', text: hugeText }], cwd: workspace })
+  const hugePath = parseBanner(textOf(effectiveContent(huge.decision, huge.result)))
+  const hugeReread = await run(harness, {
+    name: 'read',
+    args: { file_path: hugePath ?? join(spillDir, 'missing') },
+    content: [{ type: 'text', text: asReadToolRenders(hugeText) }],
+    cwd: workspace,
+  })
+  const hugeRereadText = textOf(effectiveContent(hugeReread.decision, hugeReread.result))
+  check(
+    'read of a spill above the read floor (217,600 bytes) — full text, not projected',
+    hugePath !== null &&
+      Buffer.byteLength(hugeText, 'utf8') > 64 * 1024 &&
+      existsSync(hugePath) &&
+      readFileSync(hugePath, 'utf8') === hugeText &&
+      hugeRereadText === asReadToolRenders(hugeText) &&
+      !isProjected(hugeRereadText),
+    `${hugePath === null ? 'no path' : Buffer.byteLength(hugeText, 'utf8') + ' bytes'} • read back identical`,
+    { before: asReadToolRenders(hugeText).length, after: hugeRereadText.length },
+  )
 
   // ── the brief's example size: 41 208 characters ─────────────────────────
   const bigText = fixture.text.repeat(3).slice(0, 41208)
@@ -217,11 +313,34 @@ try {
     { before: 1100, after: 1100 },
   )
   // ── the tool list: bulk tools project, contract tools pass through ──────
-  const readLike = 'r'.repeat(12_000)
-  const readResult = await run(harness, { name: 'read', content: [{ type: 'text', text: readLike }], cwd: workspace })
+  // `read` has its own, higher floor: an ordinary document must arrive whole, so a read
+  // between `minBytes` and the read floor is not a candidate at all.
+  const readFloor = READ_FLOOR
+  const documentText = 'doc '.repeat(3000) // 12 000 bytes, above minBytes, below the read floor
+  const documentRead = await run(harness, {
+    name: 'read',
+    args: { file_path: join(workspace, 'workspace-notes.md') },
+    content: [{ type: 'text', text: documentText }],
+    cwd: workspace,
+  })
+  const documentReadText = textOf(effectiveContent(documentRead.decision, documentRead.result))
+  check(
+    `ordinary document (12,000 bytes, under the read floor) — read whole`,
+    documentReadText === documentText && !isProjected(documentReadText),
+    `read floor ${readFloor} bytes; the agent sees the document`,
+    { before: documentText.length, after: documentReadText.length },
+  )
+
+  const readLike = 'r'.repeat(readFloor + 5000)
+  const readResult = await run(harness, {
+    name: 'read',
+    args: { file_path: join(workspace, 'large-file.txt') },
+    content: [{ type: 'text', text: readLike }],
+    cwd: workspace,
+  })
   const readProjected = textOf(effectiveContent(readResult.decision, readResult.result))
   const readBanner = parseBanner(readProjected)
-  check('read above minBytes — projected', readBanner !== null && readBanner.includes('/read-'), readBanner ?? 'not projected', {
+  check(`read above the read floor (${readLike.length} bytes) — projected`, readBanner !== null && readBanner.includes('/read-'), readBanner ?? 'not projected', {
     before: readLike.length,
     after: readProjected.length,
   })
@@ -242,6 +361,18 @@ try {
   check('legacy banner — untouched', textOf(effectiveContent(legacyResult.decision, legacyResult.result)).startsWith(LEGACY_BANNER_PREFIX), 'no second projection')
 } finally {
   rmSync(workspace, { recursive: true, force: true })
+}
+
+// ── the negative control the case harness runs ────────────────────────────
+// `case_run mode:"red"` sets CASE_NEGATIVE_CONTROL and requires a non-zero exit: the driver
+// breaks its own assertion so a green run cannot be mistaken for a verification. The stronger
+// control — this proof run against the pre-fix module — is `proof/negative-control.mjs`.
+if (typeof process.env.CASE_NEGATIVE_CONTROL === 'string' && process.env.CASE_NEGATIVE_CONTROL !== '') {
+  check(
+    `negative control ${process.env.CASE_NEGATIVE_CONTROL} — the driver breaks its own assertion`,
+    false,
+    'expected red under CASE_NEGATIVE_CONTROL',
+  )
 }
 
 // ── the table ─────────────────────────────────────────────────────────────

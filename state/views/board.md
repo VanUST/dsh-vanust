@@ -10,15 +10,27 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-237 | Stop the state feed from writing unidentified messages, and repair the sessions it corrupted | — | 0/7 | yes |
 | TASK-243 | Остаток окна Codex и цена модели — в сессии | REQ-132, REQ-133 | 0/4 | no |
 
-## review (3)
+## active (2)
+
+| id | title | reqs | steps | chore |
+|---|---|---|---|---|
+| TASK-268 | Роль ARCHITECT: маршрут по умолчанию gpt-6.2-sol вместо gpt-6.2-astra | — | — | yes |
+| TASK-269 | Коммит и push изменений в origin/main | — | — | yes |
+
+## review (8)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
 | TASK-240 | Ограничить контекст на входе: проекция выдачи и task_list | REQ-128, REQ-129, REQ-134 | 4/4 | no |
 | TASK-241 | Абсолютный бюджет контекста ~500K вместо доли окна | REQ-131 | 2/2 | no |
 | TASK-242 | Allow-список ролей не действует на инструменты кита | REQ-130 | 4/4 | no |
+| TASK-261 | Проекция: полный текст снова читается агентом | REQ-172 | — | no |
+| TASK-263 | Проверки: отказ на пустом входе, негативный контроль, make test | REQ-175, REQ-177 | — | no |
+| TASK-264 | Установка: Node 24.9, сохранение слоя, сторож сервера, бэкап и откат, обёртка Windows | REQ-176 | — | no |
+| TASK-265 | Сведение: make verify, make test, тарболы, кейс компакции, живой профиль | REQ-178 | — | no |
+| TASK-267 | Кейсы таскборда: негативный контроль через CASE_NEGATIVE_CONTROL | REQ-173, REQ-174 | — | no |
 
-## done (168)
+## done (174)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -190,6 +202,12 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-254 | Доказательство пресета: скрипт, второй сервер, ТЗ про prefix caching | REQ-159, REQ-160, REQ-162 | 5/5 | no |
 | TASK-255 | Панель состояния: читаемый список статусов, без колонки Evidence, смена статуса доходит до реестра | REQ-164, REQ-165, REQ-166, REQ-167 | 6/6 | no |
 | TASK-256 | Обрезка результатов инструментов от хвоста: плагин tail-pruner | REQ-168, REQ-169, REQ-170, REQ-171 | 7/7 | no |
+| TASK-257 | Архитектурное ревью харнесса (поддерживаемость, стабильность, установка Linux/Windows) | — | — | yes |
+| TASK-258 | Карта установки и переносимости Linux/Windows | — | — | yes |
+| TASK-259 | Карта поддерживаемости кода кита | — | — | yes |
+| TASK-260 | Карта отказных режимов харнесса | — | — | yes |
+| TASK-262 | Таскборд: закрытие с мёртвым ребёнком, один писатель доски, повтор зеркала | REQ-173, REQ-174 | — | no |
+| TASK-266 | Проверка компакции: общий бюджет и объявленное исключение architect | REQ-131 | — | no |
 
 ## cancelled (82)
 

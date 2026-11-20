@@ -1,0 +1,141 @@
+{
+  "schemaVersion": 1,
+  "id": "spill-read-back-returns-the-projected-full-text",
+  "title": "Spill read-back returns the projected full text",
+  "requirement": "A tool result that was projected into a spill file can be read back whole by the agent through the same tools/post-execute listener: a read whose file_path lies in .dsh/spill is never projected again at any size, and read carries its own 64 KiB floor so an ordinary document arrives complete (REQ-172, REQ-128).",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "plugins/run-code-projection/proof/proof.mjs",
+  "runCommand": "node plugins/run-code-projection/proof/proof.mjs",
+  "steps": [
+    "run the real tools/post-execute listener of plugins/run-code-projection on the 27 380-byte run_code fixture with a temporary workspace; keep the banner and the path it names",
+    "run the same listener as a read whose file_path is that banner path, and again with the same file named relative to the workspace, and again for a 217 600-byte spill above the read floor: each result must come back identical, without a banner and without a second spill file",
+    "run the listener as a read of a 12 000-byte document in the workspace: under the read floor, it must arrive whole; a read above the floor must be projected and the banner must name the tool",
+    "keep the untouched cases: short, error, image, other tool, aborted, blocked, value-replaced, no workspace, unwritable spill, insufficient saving, legacy banner",
+    "proof/negative-control.mjs takes the module from git at a pre-fix revision, runs this same proof against it, and requires a non-zero exit with the read-back rows red"
+  ],
+  "expected": "The driver exits 0 with 22 checks PASS. CASE_NEGATIVE_CONTROL=pre-change exits 1 (23 checks, the control row red); against the pre-fix module (git revision a1eb322, 13 950 bytes) the same proof exits 1 with four red rows — read of the banner file, read by relative path, read of a 217 600-byte spill, and the ordinary 12 000-byte document — because that module projected a read at 8192 bytes and had no spill exception.",
+  "tags": [
+    "projection",
+    "spill",
+    "tools-post-execute",
+    "read",
+    "proof"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/run-code-projection/run-code-projection.mjs",
+      "sha256": "3bedc44be8b9c1739b967f7c82d2ae47694d7383368efbd9f51664b994061f7b"
+    },
+    {
+      "path": "plugins/run-code-projection/proof/proof.mjs",
+      "sha256": "3e678c783dfbb003010d34abe836d08747edb4da4db4fc1804f157cc8b5946ad"
+    }
+  ],
+  "linkedTaskId": "task-mwox48ef-jxrknk",
+  "reqId": "REQ-172",
+  "authorRole": "backend",
+  "negativeControl": "pre-change",
+  "revision": 3,
+  "createdAt": "2026-11-20T11:57:26.007Z",
+  "updatedAt": "2026-11-20T12:02:34.962Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-20T11:57:30.210Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"pre-change\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-20T12:02:34.962Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mwoxcmdl-w6x7k-1",
+      "at": "2026-11-20T11:57:30.208Z",
+      "mode": "red",
+      "control": "pre-change",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 138,
+      "commandSha256": "a6260f60daf7e348d4f02027f8fa1b8b559ec3b2a18c3918c2d2e15e347850ce",
+      "head": "a1eb322fc1bec2f902c2c67c6f00f6cf36d286b4",
+      "dirty": true,
+      "stdout": "docs/cases/runs/spill-read-back-returns-the-projected-full-text/mwoxcmdl-w6x7k-1/stdout.log",
+      "stderr": "docs/cases/runs/spill-read-back-returns-the-projected-full-text/mwoxcmdl-w6x7k-1/stderr.log",
+      "summary": "docs/cases/runs/spill-read-back-returns-the-projected-full-text/mwoxcmdl-w6x7k-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwoxj62t-02oa7-1",
+      "at": "2026-11-20T12:02:34.960Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 135,
+      "commandSha256": "a6260f60daf7e348d4f02027f8fa1b8b559ec3b2a18c3918c2d2e15e347850ce",
+      "head": "a1eb322fc1bec2f902c2c67c6f00f6cf36d286b4",
+      "dirty": true,
+      "stdout": "docs/cases/runs/spill-read-back-returns-the-projected-full-text/mwoxj62t-02oa7-1/stdout.log",
+      "stderr": "docs/cases/runs/spill-read-back-returns-the-projected-full-text/mwoxj62t-02oa7-1/stderr.log",
+      "summary": "docs/cases/runs/spill-read-back-returns-the-projected-full-text/mwoxj62t-02oa7-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "redFirst": {
+    "at": "2026-11-20T11:57:30.210Z",
+    "runId": "mwoxcmdl-w6x7k-1",
+    "exitCode": 1,
+    "control": "pre-change",
+    "command": "node plugins/run-code-projection/proof/proof.mjs",
+    "source": "negative-control"
+  },
+  "lastVerified": {
+    "at": "2026-11-20T12:02:34.962Z",
+    "command": "node plugins/run-code-projection/proof/proof.mjs",
+    "exitCode": 0,
+    "runId": "mwoxj62t-02oa7-1",
+    "source": "runner",
+    "commit": null
+  }
+}

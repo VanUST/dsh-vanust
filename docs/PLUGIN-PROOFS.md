@@ -53,7 +53,7 @@
 | `project-rules` | 0.1.10 | да | раздел `project:rules` из `.dsh/rules.md` и панель Rules; правка файла агенту запрещена (`rules_human_only`) (`plugins/project-rules/index.js:323,348,361`) | своего прогона нет | не проверено |
 | `test-cases` | 0.1.17 | да | 12 инструментов `case_*`, регистрируются только если allow-строка пресета их называет (`surfaceAllows`), команда, сервисы, панель | `node --test plugins/test-cases/test/runner.test.mjs` → exit 0, 12 pass | подтверждено прогоном |
 | `analysis` | 0.1.9 | да | 4 корневых инструмента `analysis_*` и раздел `deployment:analysis-policy` (`plugins/analysis/analysis.mjs:203`) | тот же прогон `analysis-before-decomposition-proof` → exit 0, 130/130 | подтверждено прогоном |
-| `run-code-projection` | 0.1.2 | да | 0 инструментов; перехват `tools/post-execute` для набора инструментов (`run_code`, `bash`, `pwsh`, `read`, `web_fetch`, `hindsight_read_page`, `hindsight_search_pages`, `grep`, `glob`, `outline`, `task_list`) | `node plugins/run-code-projection/proof/proof.mjs` → exit 0, 18 проверок PASS | подтверждено прогоном |
+| `run-code-projection` | 0.1.3 | да | 0 инструментов; перехват `tools/post-execute` для набора инструментов (`run_code`, `bash`, `pwsh`, `read`, `web_fetch`, `hindsight_read_page`, `hindsight_search_pages`, `grep`, `glob`, `outline`, `task_list`); у `read` свой порог 64 КиБ (`TOOL_MIN_BYTES`), а чтение файла из `.dsh/spill` не проецируется ни при каком размере | `node plugins/run-code-projection/proof/proof.mjs` → exit 0, 22 проверки PASS; `node plugins/run-code-projection/proof/negative-control.mjs` → exit 0: тот же proof падает на коде 0.1.2 (4 красные строки: три чтения по пути из баннера и порог `read`) | подтверждено прогоном |
 | `tool-families` | 0.1.14 | да | 0 инструментов; 4 перехвата и сервис `toolFamilies` с `allows()` — регистрация инструментов кита в контексте агента теперь спрашивает политику (2026-11-18: `tools.restrict` маскирует только глобальные регистрации) | `node scripts/tool-families-proof.mjs` → exit 0, 97/97 (перепроверено); политика доказана для native, в PTC не действует — см. «Оговорка PTC» | частично |
 | `designmap` | 0.1.17 | да | 7 инструментов `designmap_*` только для `orchestrator` (`plugins/designmap/index.js:53-56`), команда `/designmap`, панель Design map | `cd plugins/designmap && node --test test/*.test.mjs` → exit 0, 125 тестов, 125 pass (перепроверено); упаковка 0.1.17 совпадает с исходником — см. «Упаковка `designmap` 0.1.17» | подтверждено прогоном |
 
@@ -146,6 +146,7 @@ node scripts/tool-families-proof.mjs
 node scripts/notify-selftest.mjs --dry-run
 
 node plugins/run-code-projection/proof/proof.mjs
+node plugins/run-code-projection/proof/negative-control.mjs
 node --test plugins/test-cases/test/runner.test.mjs
 cd plugins/designmap && node --test test/*.test.mjs
 ```

@@ -32,7 +32,7 @@ tests, visual goldens, a11y/keyboard audit, Maestro flows, run observability),
 allowed routes; the old effort cap is gone because the effort is part of the frozen selection),
 **`@cc/dsh-role-model`** (a role's own route before a fresh session's first request, and a
 fallback on a quota failure that retries the step instead of failing the turn — the `architect`
-role runs on `gpt-6.2-astra` and falls back to `deepseek-flash` at max effort),
+role runs on `gpt-6.2-sol` and falls back to `deepseek-flash` at max effort),
 **`@cc/dsh-tool-families`** (per-preset MCP/tool families: a family leaves the request
 header instead of staying in it unused), **`@cc/dsh-proof-guard`** (denies a test-file write
 without a `PROOF:` header),
@@ -211,13 +211,17 @@ cd dsh-vanust
 powershell -ExecutionPolicy Bypass -File install.ps1
 ```
 
-The installer does four things (idempotent; re-running upgrades to the pin):
-1. checks Node ≥ 24,
+The installer does five things (idempotent; re-running upgrades to the pin):
+1. checks Node **>= 24.9.0** - major and minor, because the pinned harness declares
+   `engines: node >= 24.9.0` and Node 24.0-24.8 passes a major-only check and then
+   fails at the harness start,
 2. `npm i -g @deepseek-ai/dsh@0.2.2-rc.3` (exact pin),
 3. writes `$DSH_HOME/profiles/web/{package.json,cordis.patch.yml,pnpm-workspace.yaml}`
    from the kit's canonical copies and installs every `plugins/*.tgz` into the
-   profile,
-4. installs the operating procedure to `$DSH_HOME/DEPLOYMENT.md`.
+   profile. A `cordis.patch.yml` that differs from the kit is kept, and a copy is
+   written beside it as `cordis.patch.yml.bak-<stamp>`; both installers behave this way,
+4. installs the operating procedure to `$DSH_HOME/DEPLOYMENT.md`,
+5. installs the convergence wrapper (see §2.1).
 
 `$DSH_HOME` = `~/.npm/dsh` (Linux) / `%USERPROFILE%\.npm\dsh` (Windows) —
 override with the `DSH_HOME` env var if you prefer another location.
@@ -243,18 +247,27 @@ credentials there** (each machine keeps its own keys in
 ### 2.1 Start from the kit so updates apply themselves
 
 The harness composes a profile once, at boot: a plugin, a patch row or a harness
-pin changed in the kit reaches a machine only after a restart. The installer puts
-a `dsh` wrapper in `$DSH_HOME/bin` that makes every launch that restart:
+pin changed in the kit reaches a machine only after a restart. Each installer puts
+a wrapper in `$DSH_HOME/bin` that makes every launch that restart:
 
 ```bash
-dsh web --port 3080        # converges the kit, then boots
+dsh web --port 3080        # Linux: $DSH_HOME/bin/dsh converges the kit, then boots
 ```
 
-The wrapper runs `scripts/kit-update.mjs --apply --no-harness --no-tools
+```powershell
+dsh web --port 3080        # Windows: $DSH_HOME\bin\dsh.ps1 checks the kit, offers the update
+dsh.ps1 web --port 3080    # ...or call it explicitly if dsh still resolves to the npm shim
+```
+
+On Linux the wrapper runs `scripts/kit-update.mjs --apply --no-harness --no-tools
 --keep-model-config` before the harness starts, when no `dsh web` server is
-running, and logs to `$DSH_HOME/kit-boot.log`. It skips with one line when a
-server is already up, because editing the profile patch under a live server
-disposes live plugins. Two things it deliberately does not do: it does not touch
+running, and logs to `$DSH_HOME/kit-boot.log`. On Windows it runs the same
+convergence as a read-only `--check` first, prints the pending actions and asks
+once before applying, so a surprise update never lands unseen. Both wrappers skip
+with one line when a server answers on the profile port, because editing the
+profile patch under a live server disposes live plugins. Put `$DSH_HOME\bin`
+before the npm global directory in `PATH` for the Windows wrapper to win over
+`dsh.cmd`. Two things it deliberately does not do: it does not touch
 the pinned harness or the optional external binaries (run `kit-update --apply`
 without the flags for that), and it preserves the machine's
 `agent-default-model` row - provider, model and reasoning effort are a cost
@@ -478,9 +491,9 @@ Then restart `dsh web` and open the token URL it prints. `$DSH_HOME/specs` and
 |---|---|
 | `http://127.0.0.1:3080/` says authentication required | Expected since 0.1.5 — reopen the `?token=` URL printed by `dsh web` |
 | Agent fails `MISSING_CREDENTIAL` | Credentials not stored — finish onboarding / the Models page |
-| `dsh web` won't start | port 3080 busy (`PORT=3081 ./start.sh`) or Node < 24 |
+| `dsh web` won't start | port 3080 busy (`PORT=3081 ./start.sh`) or Node < 24.9.0 |
 | A plugin row not active after a config edit | The row registers at boot — restart `dsh web` |
-| Sessions from the old harness missing/odd after an upgrade | Session formats are not guaranteed across versions; restore the backup taken before the upgrade |
+| Sessions from the old harness missing/odd after an upgrade | Session formats are not guaranteed across versions. The installation rollback (§4 of `DEPLOYMENT.md`) restores the profile patch and `mcp-servers.json` from `$DSH_HOME/.dsh-kit-backups/<stamp>` with `kit-update --restore <stamp>`; it does not restore sessions, so keep your own copy before a harness upgrade |
 | **All chats disappeared and a new one cannot be created** (every session file is still in `$DSH_HOME/sessions`) | one log the OS refuses to read aborts the whole session listing — dsh treats it as fatal, the `workspace` service never activates, and the UI loses history *and* New Session. Run `make session-doctor` to name it, `node scripts/session-store.mjs ensure` to quarantine it (bytes kept, `README.txt` restores it), then restart. `./start.sh` now does this on every boot; `SESSION_STORE=0` skips it |
 
 ## 7. Upgrades (short version)
@@ -496,8 +509,8 @@ node scripts/check-portability.mjs                  # 3. the checks must pass
 
 ## Activating a newly added plugin on an already-installed machine
 
-`install.sh` protects an existing profile: if your `$DSH_HOME/profiles/<name>/cordis.patch.yml` differs
-from the kit's, it keeps yours and warns instead of overwriting. That is deliberate — the live profile
+`install.sh` and `install.ps1` protect an existing profile: if your `$DSH_HOME/profiles/<name>/cordis.patch.yml` differs
+from the kit's, it keeps yours, writes a timestamped copy beside it and warns instead of overwriting. That is deliberate — the live profile
 holds machine-local configuration — but it means a plugin added to the kit after you installed does not
 reach your profile automatically.
 

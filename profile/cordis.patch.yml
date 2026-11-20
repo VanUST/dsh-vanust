@@ -285,7 +285,7 @@
           # in `subagent-model-selection-settings.allowedModels`, so a `workflow` script still
           # cannot name it explicitly, and `delegate_task` cannot ask for it either.
           - provider: openai-codex
-            model: gpt-6.2-astra
+            model: gpt-6.2-sol
         deniedModels:
           - '*highspeed*'
 
@@ -1029,12 +1029,13 @@
 # ── role-model: a role's own route, and a fallback when its quota is gone ───
 # A preset has no model field (`PresetDefinition` is identity + plugins), so a role that must run
 # on an expensive model was re-routed by hand in every session. This row is that rule, and the
-# first entry is the ARCHITECT role: `openai-codex/gpt-6.2-astra` for a fresh session whose human
-# has not picked a model, and `deepseek-official/deepseek-flash` at max effort — the deployment
+# first entry is the ARCHITECT role: `openai-codex/gpt-6.2-sol` for a fresh session whose human
+# has not picked a model (the owner moved it off `gpt-6.2-astra` on 2026-11-20), and
+# `deepseek-official/deepseek-flash` at max effort — the deployment
 # default from `agent-default-model` above — when the provider answers QUOTA. The switch happens
 # at `agent/request-error` and the step is RETRIED, so an exhausted subscription costs one retried
 # step instead of a dead turn. Nothing else is routed: a preset without a rule keeps the default,
-# and `gpt-6.2-astra` is not in `subagent-model-selection-settings`, so no delegation or workflow
+# and `gpt-6.2-sol` is not in `subagent-model-selection-settings`, so no delegation or workflow
 # script can name it.
 - insert:
     - id: role-model
@@ -1043,7 +1044,7 @@
         roles:
           architect:
             provider: openai-codex
-            model: gpt-6.2-astra
+            model: gpt-6.2-sol
             reasoningEffort: high
             fallback:
               provider: deepseek-official
@@ -1181,7 +1182,7 @@
     # reads what its brief gave it and names what is missing. That split is deliberate and is
     # stated in the persona.
     #
-    # ROUTE: `role-model` above selects gpt-6.2-astra for this preset before the first request and
+    # ROUTE: `role-model` above selects gpt-6.2-sol for this preset before the first request and
     # falls back to flash at max effort on a quota failure.
     - id: preset-architect
       name: '@deepseek-ai/dsh-agent-preset'

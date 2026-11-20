@@ -3,13 +3,13 @@ id: TEST-071
 kind: test
 title: "Context bounds hold: projection, paging, allow row, compaction"
 status: verified
-revision: 3
+revision: 6
 createdAt: 2026-11-18T16:05:03.472Z
-updatedAt: 2026-11-18T16:05:11.423Z
+updatedAt: 2026-11-20T12:22:21.997Z
 authorRole: BACKEND
 caseId: context-bounds-hold-projection-paging-allow-row-compaction
 command: "node scripts/context-bounds-proof.mjs"
-evidenceRefs: [mwmbbcyz-z3q7b-1:red:fail, mwmbbg1e-dsvs7-1:green:pass]
+evidenceRefs: [mwmbbcyz-z3q7b-1:red:fail, mwmbbg1e-dsvs7-1:green:pass, mwoy094q-sr8tl-1:green:fail, mwoy8hfx-4iehy-1:red:fail, mwoy8l23-iqnkx-1:green:pass]
 frozenHash: 2398f3b58f79a91bb77d1ee5af7c69d4caa10a59ef76fa32b5b03c095f693e30
 reqId: REQ-128
 testPath: scripts/context-bounds-proof.mjs

@@ -1,0 +1,199 @@
+{
+  "schemaVersion": 1,
+  "id": "two-processes-writing-one-board-lose-no-task",
+  "title": "two processes writing one board lose no task",
+  "requirement": "The board file has one writer at a time across processes: the read-modify-write holds a directory lock with a wait and a stale takeover, so two processes that create tasks into the same .dsh/taskboard.json both land every row, and no lock is left behind.",
+  "kind": "regression",
+  "status": "verified",
+  "source": "agent",
+  "automated": true,
+  "testPath": "plugins/taskboard/test/board-lock.test.mjs",
+  "runCommand": "node --test plugins/taskboard/test/board-lock.test.mjs",
+  "steps": [
+    "node --test plugins/taskboard/test/board-lock.test.mjs",
+    "Red first: TASKBOARD_MODULE=.dsh/red-first/taskboard.mjs node --test plugins/taskboard/test/board-lock.test.mjs (module materialised from git HEAD)",
+    "The test spawns two real node processes that each create 25 tasks through the plugin's createService against one board file, then reads the file"
+  ],
+  "expected": "All 50 titles are present with unique ids and no .lock directory remains; a stale lock is taken over and released; a writer waits for a young lock instead of writing through it. On the pre-fix module 25 of 50 tasks are lost (the later rename drops the earlier writer's rows).",
+  "tags": [
+    "taskboard",
+    "lock",
+    "two-process",
+    "lost-update"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "plugins/taskboard/taskboard.mjs",
+      "sha256": "0ec466c59a221292d6f87a3860a2c204279328c381468fce38e959222524252f"
+    },
+    {
+      "path": "plugins/taskboard/test/board-lock.test.mjs",
+      "sha256": "31280637d3641771ca29d5e7d1d0ba9341aeb5cd43880437aa409cac04f17053"
+    },
+    {
+      "path": "plugins/taskboard/test/fixtures/board-writer.mjs",
+      "sha256": "f817da1f0c803055647ee26507db7784e9006850021c2e789c31f05a85f7f022"
+    }
+  ],
+  "linkedTaskId": "task-mwox49d1-p0sybd",
+  "reqId": "REQ-174",
+  "authorRole": "backend",
+  "revision": 5,
+  "createdAt": "2026-11-20T12:03:03.272Z",
+  "updatedAt": "2026-11-20T12:25:34.506Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-20T12:03:12.648Z",
+      "editedBy": "agent",
+      "action": "ran-needs-red",
+      "reason": "1 run(s), 1 passed; no red run recorded, so the case is not verified"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-20T12:03:12.648Z",
+      "editedBy": "agent",
+      "snapshot": {
+        "title": "two processes writing one board lose no task",
+        "requirement": "The board file has one writer at a time across processes: the read-modify-write holds a directory lock with a wait and a stale takeover, so two processes that create tasks into the same .dsh/taskboard.json both land every row, and no lock is left behind.",
+        "expected": "All 50 titles are present with unique ids and no .lock directory remains; a stale lock is taken over and released; a writer waits for a young lock instead of writing through it. On the pre-fix module 25 of 50 tasks are lost (the later rename drops the earlier writer's rows).",
+        "steps": [
+          "node --test plugins/taskboard/test/board-lock.test.mjs",
+          "Red first: TASKBOARD_MODULE=.dsh/red-first/taskboard.mjs node --test plugins/taskboard/test/board-lock.test.mjs (module materialised from git HEAD)",
+          "The test spawns two real node processes that each create 25 tasks through the plugin's createService against one board file, then reads the file"
+        ],
+        "automated": true,
+        "testPath": "plugins/taskboard/test/board-lock.test.mjs",
+        "runCommand": "node --test plugins/taskboard/test/board-lock.test.mjs",
+        "status": "unverified",
+        "checks": [],
+        "negativeControl": null
+      }
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-20T12:25:27.444Z",
+      "editedBy": "agent",
+      "action": "red",
+      "reason": "negative control \"expect-pre-fix\" failed as expected (exit 1)"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-20T12:25:34.506Z",
+      "editedBy": "agent",
+      "action": "ran-verified",
+      "reason": "1 run(s), 1 passed"
+    }
+  ],
+  "evidence": {},
+  "runs": [
+    {
+      "runId": "mwoxjxcv-pkqcy-1",
+      "at": "2026-11-20T12:03:12.647Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 1193,
+      "commandSha256": "4ed6d5da8eb454201a0759f242627608d0b58af74784ccb7f9117859542a0bfc",
+      "head": "a1eb322fc1bec2f902c2c67c6f00f6cf36d286b4",
+      "dirty": true,
+      "stdout": "docs/cases/runs/two-processes-writing-one-board-lose-no-task/mwoxjxcv-pkqcy-1/stdout.log",
+      "stderr": "docs/cases/runs/two-processes-writing-one-board-lose-no-task/mwoxjxcv-pkqcy-1/stderr.log",
+      "summary": "docs/cases/runs/two-processes-writing-one-board-lose-no-task/mwoxjxcv-pkqcy-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    },
+    {
+      "runId": "mwoycjxx-fygl5-1",
+      "at": "2026-11-20T12:25:27.442Z",
+      "mode": "red",
+      "control": "expect-pre-fix",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 1077,
+      "commandSha256": "4ed6d5da8eb454201a0759f242627608d0b58af74784ccb7f9117859542a0bfc",
+      "head": "a1eb322fc1bec2f902c2c67c6f00f6cf36d286b4",
+      "dirty": true,
+      "stdout": "docs/cases/runs/two-processes-writing-one-board-lose-no-task/mwoycjxx-fygl5-1/stdout.log",
+      "stderr": "docs/cases/runs/two-processes-writing-one-board-lose-no-task/mwoycjxx-fygl5-1/stderr.log",
+      "summary": "docs/cases/runs/two-processes-writing-one-board-lose-no-task/mwoycjxx-fygl5-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 1,
+          "pass": false,
+          "reason": "the command exited non-zero"
+        }
+      ],
+      "passed": false,
+      "artifacts": []
+    },
+    {
+      "runId": "mwoycp9a-rp9am-1",
+      "at": "2026-11-20T12:25:34.505Z",
+      "mode": "green",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 1247,
+      "commandSha256": "4ed6d5da8eb454201a0759f242627608d0b58af74784ccb7f9117859542a0bfc",
+      "head": "a1eb322fc1bec2f902c2c67c6f00f6cf36d286b4",
+      "dirty": true,
+      "stdout": "docs/cases/runs/two-processes-writing-one-board-lose-no-task/mwoycp9a-rp9am-1/stdout.log",
+      "stderr": "docs/cases/runs/two-processes-writing-one-board-lose-no-task/mwoycp9a-rp9am-1/stderr.log",
+      "summary": "docs/cases/runs/two-processes-writing-one-board-lose-no-task/mwoycp9a-rp9am-1/summary.json",
+      "summaryError": "no summary written (CASE_SUMMARY was not used)",
+      "metrics": {},
+      "checks": [
+        {
+          "name": "exit code",
+          "metric": "exitCode",
+          "op": "==",
+          "threshold": 0,
+          "measured": 0,
+          "pass": true
+        }
+      ],
+      "passed": true,
+      "artifacts": []
+    }
+  ],
+  "lastVerified": {
+    "at": "2026-11-20T12:25:34.506Z",
+    "command": "node --test plugins/taskboard/test/board-lock.test.mjs",
+    "exitCode": 0,
+    "runId": "mwoycp9a-rp9am-1",
+    "source": "runner",
+    "commit": null
+  },
+  "negativeControl": "expect-pre-fix",
+  "redFirst": {
+    "at": "2026-11-20T12:25:27.444Z",
+    "runId": "mwoycjxx-fygl5-1",
+    "exitCode": 1,
+    "control": "expect-pre-fix",
+    "command": "node --test plugins/taskboard/test/board-lock.test.mjs",
+    "source": "negative-control"
+  }
+}

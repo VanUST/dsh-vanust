@@ -134,7 +134,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | REQ-128 | done | — | TEST-071 | — | no |
 | REQ-129 | done | — | — | — | no |
 | REQ-130 | done | — | — | — | no |
-| REQ-131 | done | — | — | — | no |
+| REQ-131 | done | — | TEST-083 | — | no |
 | REQ-132 | rejected | — | — | — | no |
 | REQ-133 | rejected | — | — | — | no |
 | REQ-134 | done | — | — | — | no |
@@ -175,6 +175,13 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | REQ-169 | rejected | — | — | — | no |
 | REQ-170 | rejected | — | — | — | no |
 | REQ-171 | rejected | — | — | — | no |
+| REQ-172 | done | — | TEST-078 | — | no |
+| REQ-173 | done | — | TEST-079 | — | no |
+| REQ-174 | done | — | TEST-080 | — | no |
+| REQ-175 | rejected | — | TEST-081 | — | no |
+| REQ-176 | rejected | — | — | — | no |
+| REQ-177 | rejected | — | TEST-082 | — | no |
+| REQ-178 | rejected | — | — | — | no |
 
 ## Tests
 
@@ -257,3 +264,9 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | TEST-075 | REQ-138 | verified | TASK-246 |
 | TEST-076 | REQ-147 | verified | TASK-249 |
 | TEST-077 | REQ-160 | verified | — |
+| TEST-078 | REQ-172 | verified | — |
+| TEST-079 | REQ-173 | verified | — |
+| TEST-080 | REQ-174 | verified | — |
+| TEST-081 | REQ-175 | unverified | — |
+| TEST-082 | REQ-177 | unverified | — |
+| TEST-083 | REQ-131 | unverified | — |

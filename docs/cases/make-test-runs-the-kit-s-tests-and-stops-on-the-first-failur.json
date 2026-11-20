@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "id": "make-test-runs-the-kit-s-tests-and-stops-on-the-first-failur",
+  "title": "make test runs the kit's tests and stops on the first failure",
+  "requirement": "The kit has one entry to the checks that execute it: make test runs every plugin test file (and the files under scripts/test) through node --test, then every scripts/*-proof.mjs, in path order, one process each; the first non-zero exit stops the run with a non-zero status, and ONLY=<substring> runs a subset.",
+  "kind": "regression",
+  "status": "unverified",
+  "source": "agent",
+  "automated": false,
+  "reason": "The runner is itself the command under test; it has no test file and the red it stops on today is a stale plugin test owned by another task (plugins/orchestrator/test/policy-gating.test.mjs), so an automated case here would encode a red suite. Verified by running make test and node scripts/test-all.mjs and quoting exit codes.",
+  "steps": [
+    "cd /home/iustimov/dsh-kit && make test ONLY=delegation -> 3/3 passed (2 plugin test files, 1 proof script), exit 0",
+    "node scripts/test-all.mjs --list -> 70 of 70 step(s) selected (53 plugin test files, 1 scripts/test file, 16 proof scripts)",
+    "node scripts/test-all.mjs --only no-such-path -> exit 1 with 'refused: no test file or proof script matches --only ...'",
+    "make test -> stops at plugins/orchestrator/test/policy-gating.test.mjs with 'FAIL ... (exit 1, ... ms); stopped after 34 of 70 step(s), 36 never ran'; the runner exits 1 and make reports status 2"
+  ],
+  "expected": "A subset runs green and lists its own summary; a filter that matches nothing is refused with exit 1 instead of reporting a pass over zero files; the first failing file stops the whole run, names the file and counts the steps that never ran.",
+  "tags": [
+    "make-test",
+    "test-runner",
+    "FR6"
+  ],
+  "surfaceFiles": [
+    {
+      "path": "scripts/test-all.mjs",
+      "sha256": "80840b3d892ef886971132d08db225a376f9fe3cdd3fed5488cd3efe3fabb3d7"
+    },
+    {
+      "path": "Makefile",
+      "sha256": "3aba0abb5decefc39bc1ce27c852c832aed1d40fdfa8b4b107598710d7956bc6"
+    }
+  ],
+  "linkedTaskId": "task-mwox4hwu-426mqw",
+  "reqId": "REQ-177",
+  "authorRole": "backend",
+  "revision": 1,
+  "createdAt": "2026-11-20T12:09:41.359Z",
+  "updatedAt": "2026-11-20T12:09:41.359Z",
+  "createdBy": "backend",
+  "createdByKind": "agent",
+  "history": [],
+  "evidence": {}
+}

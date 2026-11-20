@@ -27,7 +27,15 @@
  *                      task_list. Tools with a compare-and-set contract (task_get,
  *                      task_update, task_close, analysis_*, delegation_*) and skill (whose
  *                      full text is instructions the model must follow) are not in it.
- *     minBytes         shortest result worth projecting, in bytes. Default 8192.
+ *     minBytes         shortest result worth projecting, in bytes. Default 8192. `read`
+ *                      has its own floor of 64 KiB (TOOL_MIN_BYTES), which `minBytes` can
+ *                      only raise: a document is what the model asked to see whole, so an
+ *                      ordinary one is not split by a banner.
+ *     (no key)         a `read` whose `file_path` lies inside `spillDir` is never projected,
+ *                      at any size. That read is the recovery path the banner promises; a
+ *                      second projection of it would hide the middle again, which is the
+ *                      defect measured 2026-11-20 (a 53 916-byte document arrived with its
+ *                      middle cut, and the spill file read back was projected a second time).
  *     headBytes        retained prefix, UTF-8 boundary safe. Default 3072.
  *     tailBytes        retained suffix, UTF-8 boundary safe. Default 1536.
  *     minSavingRatio   skip unless the projection saves at least this fraction of the
@@ -67,7 +75,7 @@
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { dirname, resolve, sep } from 'node:path'
 
 import { TextRetainer } from '@deepseek-ai/dsh-output-retention'
 
@@ -89,6 +97,14 @@ export const DEFAULT_TOOLS = Object.freeze([
   'hindsight_read_page', 'hindsight_search_pages',
   'grep', 'glob', 'outline', 'task_list',
 ])
+
+/**
+ * Per-tool floor on `minBytes`, in bytes. `read` gets its own, higher one: a file is a thing
+ * the model asked to see whole, and a document of ordinary size (measured 2026-11-20: 12 852
+ * and 53 916 bytes) must arrive complete. A larger `minBytes` in the config raises this floor;
+ * a smaller one does not lower it.
+ */
+export const TOOL_MIN_BYTES = Object.freeze({ read: 64 * 1024 })
 
 /**
  * First line of every projection. It doubles as the idempotency mark: content that already
@@ -140,6 +156,25 @@ export function resolveConfig(config = {}) {
     maxSpillBytes: nonNegativeInteger(config.maxSpillBytes) ?? DEFAULTS.maxSpillBytes,
     spillDir: typeof config.spillDir === 'string' && config.spillDir !== '' ? config.spillDir : DEFAULTS.spillDir,
   }
+}
+
+/**
+ * Whether a call reads a file that lies inside the session's spill directory — the recovery
+ * path a banner names. Such a read must return the full text, so it is never projected again.
+ *
+ * @param exec - the tool call; `read` names its file in `arguments.file_path`.
+ * @param spillDir - the configured spill directory, relative to the workspace.
+ * @param cwd - the session workspace.
+ * @returns true when the named file is inside the spill directory.
+ */
+export function isSpillRead(exec, spillDir, cwd) {
+  const args = exec?.arguments
+  if (args === null || typeof args !== 'object') return false
+  const target = args.file_path
+  if (typeof target !== 'string' || target === '') return false
+  const root = resolve(cwd, spillDir)
+  const named = resolve(cwd, target)
+  return named === root || named.startsWith(root + sep)
 }
 
 /** The session workspace a result's spill file belongs in, or null when the session names none. */
@@ -259,8 +294,11 @@ function project(exec, result, decision, config, warnOnce) {
     warnOnce('no-cwd', 'the session names no workspace; leaving the result untouched')
     return decision
   }
+  // The recovery path first: a read of a spill file returns what the banner promised instead
+  // of being projected a second time, which would hide the middle again.
+  if (isSpillRead(exec, config.spillDir, cwd)) return decision
   const plan = planProjection(text, {
-    minBytes: config.minBytes,
+    minBytes: Math.max(config.minBytes, TOOL_MIN_BYTES[tool] ?? 0),
     headBytes: config.headBytes,
     tailBytes: config.tailBytes,
     minSavingRatio: config.minSavingRatio,

@@ -19,8 +19,8 @@
 #                  must never put a window on screen. Interactive launchers pass it.
 # OUTPUTS
 #   Exit code of `dsh web` (0 when it exits cleanly), or 1 when the kit check
-#   fails. The update decision, the composed plugin rows and the token URL are
-#   printed to the console.
+#   fails or a server already answers on the profile port. The update decision,
+#   the composed plugin rows and the token URL are printed to the console.
 # KEYWORDS
 #   dsh-kit, startup, convergence, DSH_HOME, port, token URL
 #
@@ -56,7 +56,7 @@ if (-not (Test-Path $profile)) {
 }
 
 if (-not $NoUpdate -and (Test-Path $updater)) {
-  $updateArgs = @($updater, '--check', '--fetch', '--json', '--kit', $kit, '--home', $env:DSH_HOME)
+  $updateArgs = @($updater, '--check', '--fetch', '--json', '--port', $port, '--kit', $kit, '--home', $env:DSH_HOME)
   $reportFile = Join-Path $env:TEMP "dsh-kit-start-$PID.json"
   # Capture through a file: the updater logs to stderr by design, and merging
   # streams would corrupt the single JSON object parsed here.
@@ -70,15 +70,25 @@ if (-not $NoUpdate -and (Test-Path $updater)) {
     Remove-Item $reportFile -Force -ErrorAction SilentlyContinue
   }
   $actions = @($report.plan | ForEach-Object { $_.action })
+  # The live-server watchdog, read from the same check: a server that answers HTTP on
+  # the profile port makes an apply unsafe (the patch is edited under a live server, and
+  # its next page load dies with "Failed to load plugins"). Windows has no /proc, so the
+  # port answer is the check that exists here; kit-update reports it on every platform.
+  $serverRunning = [bool]($report -and $report.server -and $report.server.running)
   if ($actions.Count -gt 0) {
     Write-Host "dsh-kit has pending changes: $($actions -join ', ')"
     if ($CheckOnly) { exit 0 }
+    if ($serverRunning) {
+      Write-Host "a server already answers on the profile port $port - stop it, then run this again"
+      Write-Host 'the kit is not applied under a live server: its profile is composed at boot and a reload mid-apply composes a half-applied state'
+      exit 1
+    }
     $apply = $Yes
     if (-not $apply -and [Environment]::UserInteractive) {
       $apply = (Read-Host 'apply now? [y/N]') -match '^(y|yes)$'
     }
     if ($apply) {
-      & node $updater '--apply' '--kit' $kit '--home' $env:DSH_HOME
+      & node $updater '--apply' '--port' $port '--kit' $kit '--home' $env:DSH_HOME
       if ($LASTEXITCODE -ne 0) { Write-Error 'kit update failed; not booting.'; exit 1 }
       & dsh --profile web --dump-config | Select-String -Pattern '^- id: (notify|diagrams|work-modes|godot-mcp)$' -Context 0,3
     } else {

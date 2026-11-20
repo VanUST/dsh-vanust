@@ -20,6 +20,8 @@ import { join } from 'node:path'
 import { GUARD_WINDOW, inspectInstallerSteps } from '../../scripts/lib/installer-steps.mjs'
 
 const INSTALLER = readFileSync(join(process.cwd(), 'install.ps1'), 'utf8')
+const SHELL_INSTALLER = readFileSync(join(process.cwd(), 'install.sh'), 'utf8')
+const WRAPPER = readFileSync(join(process.cwd(), 'scripts', 'dsh-wrapper.ps1'), 'utf8')
 const control = process.env.CASE_NEGATIVE_CONTROL ?? ''
 
 test('negative control expect-pre-fix keeps the pre-fix installer shape', () => {
@@ -73,4 +75,49 @@ test(`a guard more than ${GUARD_WINDOW} code lines after the command is refused`
   ))
   assert.equal(inspected.ok, false)
   assert.ok(inspected.findings.some((finding) => finding.code === 'unguarded-command'))
+})
+
+// The rest of the installer contract: the Node gate is >= 24.9.0 (major AND minor), the
+// Windows installer keeps the machine's own profile layer instead of overwriting it, and
+// it installs the convergence wrapper. Each assertion also names the pre-fix shape it
+// rejects, so the test cannot pass on a comment that merely mentions the property.
+
+const nodeGateSh = (source) =>
+  /NODE_MINOR=/.test(source) && /NODE_MINOR[^\n]*-lt 9/.test(source) && /NODE_MAJOR[^\n]*-lt 24/.test(source)
+const nodeGatePs1 = (source) =>
+  /\$nodeMinor/.test(source) && /\$nodeMinor -lt 9/.test(source) && /\$nodeMajor -lt 24/.test(source)
+
+test('install.sh gates Node on the minor version, not only the major', () => {
+  assert.ok(nodeGateSh(SHELL_INSTALLER), 'install.sh must compare the Node minor against 9')
+  assert.equal(nodeGateSh('NODE_MAJOR="$(node -p x)"\nif [ "$NODE_MAJOR" -lt 24 ]; then exit 1; fi'), false)
+})
+
+test('install.ps1 gates Node on the minor version, not only the major', () => {
+  assert.ok(nodeGatePs1(INSTALLER), 'install.ps1 must compare the Node minor against 9')
+  assert.equal(nodeGatePs1('$nodeMajor = [int]((& node -p x).Trim())\nif ($nodeMajor -lt 24) { exit 1 }'), false)
+})
+
+test('install.ps1 keeps a differing cordis.patch.yml and saves a timestamped copy', () => {
+  assert.match(INSTALLER, /Get-FileHash \$patchSource/)
+  assert.match(INSTALLER, /Copy-Item \$patchDestination \$patchBackup -Force/)
+  assert.match(INSTALLER, /"\$patchDestination\.bak-/)
+  // The pre-fix shape: one unconditional -Force copy, no comparison and no backup.
+  assert.equal(
+    /Copy-Item \(Join-Path \$KIT_DIR 'profile\\cordis\.patch\.yml'\) \(Join-Path \$profileDir 'cordis\.patch\.yml'\) -Force/.test(INSTALLER),
+    false,
+  )
+})
+
+test('install.ps1 installs the Windows convergence wrapper into $DSH_HOME\\bin', () => {
+  assert.match(INSTALLER, /dsh-wrapper\.ps1/)
+  assert.match(INSTALLER, /Join-Path \$binDir 'dsh\.ps1'/)
+  assert.match(INSTALLER, /@KIT_DIR@/)
+})
+
+test('the Windows wrapper checks the kit and offers the update before booting', () => {
+  assert.match(WRAPPER, /@KIT_DIR@/)
+  assert.match(WRAPPER, /--check/)
+  assert.match(WRAPPER, /--apply/)
+  assert.match(WRAPPER, /report\.server\.running/)
+  assert.equal(/[^\x00-\x7F]/.test(WRAPPER), false, 'a BOM-less .ps1 is decoded with the ANSI codepage; keep it ASCII')
 })

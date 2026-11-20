@@ -92,7 +92,7 @@ have the full shell and filesystem.
 
 **`architect` is the system designer on the expensive route, and it exists to be small.** The
 owner opens a chat on it, or the orchestrator delegates one design question; every step is paid at
-`openai-codex/gpt-6.2-astra`, so the preset is the decision surface only: `read`, `glob`, `grep`,
+`openai-codex/gpt-6.2-sol`, so the preset is the decision surface only: `read`, `glob`, `grep`,
 `outline`, `designmap_apply` / `designmap_lint` / `designmap_status`, `delegate_task`,
 `task_note` and the three Hindsight read tools. It has no shell, no `write`/`edit`, no web tools,
 no case tools and **no `skill-filesystem`/`tool-skill`** — `tool-skill` emits the skill catalog
@@ -850,8 +850,10 @@ node "$KIT/scripts/kit-update.mjs" --apply                  # converge, then rec
   first, because pnpm keys a `file:` dependency by its path string), installs the pinned
   harness when it differs, provisions every missing external binary (see §1.2), then records
   what it applied. `--no-harness` and `--no-tools` skip those last two steps.
-- A machine that disagrees with the kit cannot look converged: `--check` exits non-zero
-  and names the files.
+- A machine that disagrees with the kit cannot look converged: `--check` reports the
+  differing files in `drift` and the work in `plan` (use `--json` for the machine-readable
+  form). Every `--apply` first keeps the patch and the MCP server list in
+  `$DSH_HOME/.dsh-kit-backups/<stamp>/` and prints that path; §4 is the rollback procedure.
 - Restart `dsh web` afterwards — the profile is composed once, at boot. **A restart through
   `./start.sh` does NOT converge by itself:** with no interactive stdin it prints
   "no interactive stdin; booting without applying the kit update" and boots whatever the profile
@@ -876,7 +878,70 @@ node "$KIT/scripts/kit-update.mjs" --apply                  # converge, then rec
 `$KIT` is the clone's directory. If you do not know it, read it from
 `$DSH_HOME/.dsh-kit-state.json` (`kit`), or ask: `node <kit>/scripts/kit-update.mjs --help`.
 
-## 4. Checks you can still run
+## 4. Rollback the installation («Откат»)
+
+Rollback means: put the kit back on the commit this machine was running, converge again, and
+prove the machine matches that commit. It does NOT touch sessions, storages, credentials or
+any database — this is rollback of the INSTALLATION, never of data.
+
+The updater keeps the only two files it cannot reconstruct for you — the profile patch and the
+MCP server list — before it overwrites them:
+
+```bash
+node "$KIT/scripts/kit-update.mjs" --apply
+# ... backup.created path=/home/<you>/.npm/dsh/.dsh-kit-backups/20261120-150039
+```
+
+Every `--apply` prints that path (`backup.created`); a machine with no profile patch yet
+prints `backup.empty` instead, because there is nothing to keep. Neither installer overwrites
+a `cordis.patch.yml` that differs from the kit: it stays, and a timestamped copy is written
+beside it as `cordis.patch.yml.bak-<stamp>`.
+
+### 4.1 Roll back to a previous kit commit
+
+```bash
+# 0. Stop dsh web first. The profile is composed at boot, and an apply under a live server
+#    leaves it half-applied (new patch, old installed plugins).
+
+# 1. Find the commit the machine ran before the change.
+git -C "$KIT" log --oneline -10
+
+# 2. Put the kit back on it.
+git -C "$KIT" checkout <previous-commit>
+
+# 3. Converge the machine onto that commit. This takes its own backup first, so the
+#    rollback is itself reversible by the same procedure.
+node "$KIT/scripts/kit-update.mjs" --apply
+
+# 4. Prove it: the JSON must report no drift and no pending action.
+node "$KIT/scripts/kit-update.mjs" --check --json
+# expect: "drift": null, "plan": []
+```
+
+If step 4 still lists a `write-profile-files`, `install-plugins` or `install-harness`
+action, the rollback is NOT finished — do not boot and call it done. Read the action, fix the
+reason (a plugin tarball the old commit no longer ships, a harness pin the machine still holds),
+and run `--apply` again.
+
+### 4.2 Restore one file from a backup
+
+```bash
+ls "$DSH_HOME/.dsh-kit-backups"                              # the stamps, newest last
+node "$KIT/scripts/kit-update.mjs" --restore 20261120-150039   # put both files back, then stop
+node "$KIT/scripts/kit-update.mjs" --check --json              # what the kit says now
+```
+
+`--restore` copies back exactly the files that backup lists, prints each restored path, and
+stops WITHOUT converging: the point of a rollback is to stay where the machine was, not to
+re-impose the kit it just left. Restart `dsh web` afterwards. An unknown stamp names the
+stamps that do exist; a stamp containing a path separator is refused, and a backup whose
+manifest names a file outside the harness home is refused rather than followed.
+
+A backup holds the patch and the server list, nothing else. It does not bring back sessions,
+storages, credentials or plugin tarballs: those are either not the kit's or not a file a
+rollback should guess at.
+
+## 5. Checks you can still run
 
 These check the kit's own source; the deployment does not need them.
 
@@ -885,23 +950,39 @@ node "$KIT/scripts/check-portability.mjs" # platform assumptions, packaging, plu
 node "$KIT/scripts/check-documentation.mjs" # the pin, the named scripts and the plugin set
 ```
 
-`make verify` runs both checks.
+`make verify` runs both checks, plus the schema, context-budget, glossary and session-identity
+checks. Every one of them READS the tree; none of them executes it.
 
-**There is no test suite, and none of the above is one.** The kit ships no automated tests:
-a test about code the same agent just wrote restates that code's assumptions, passes because
-it was written to pass, and becomes maintenance somebody else pays for. What replaces it is
-running the product and reading what it produced — the commands above, a command's own output
-and its exit code, the file it wrote. A test exists in this kit only when a human asks for one
-as a verification or an evaluation, and then it is exactly what was asked for and nothing more.
+**`make test` is the entry that executes it, and `make verify` is not.**
+
+```bash
+cd "$KIT" && make test        # every plugin test file, then every proof script
+make test ONLY=taskboard      # only the paths containing that word
+```
+
+It runs each `.test.mjs` file in a plugin's `test` directory and under `scripts/test` through
+`node --test` (one process per file), then every `scripts/*-proof.mjs` through `node`, in path
+order. The first file that exits non-zero stops the run: `scripts/test-all.mjs` exits 1, names
+the file and says how many steps never ran (under `make`, GNU make reports the failed recipe with
+its own status 2 — the runner's 1 is what the command itself returns). A file that exceeds its
+per-file budget counts as a failure.
+
+**A green `make test` is not a verdict on a change.** It is evidence about the behaviours those
+files name, and nothing more: a test about code the same agent just wrote restates that code's
+assumptions, passes because it was written to pass, and becomes maintenance somebody else pays
+for. What still proves a change is running the product and reading what it produced — a
+command's own output and its exit code, the file it wrote. A test exists in this kit only when a
+human asks for one as a verification or an evaluation, and then it is exactly what was asked for
+and nothing more.
 
 There is no release gate and no law compiler. Treat a green check as evidence about that
 check's own subject — never as a verdict on a change, and never as authorisation to touch a
 live profile.
 
-## 5. Rules you must not break while operating this
+## 6. Rules you must not break while operating this
 
 1. **The harness pin is exact.** Never `npm i -g @deepseek-ai/dsh` without a version. A
-   harness upgrade rests on your own judgement and on the checks in section 4: install a
+   harness upgrade rests on your own judgement and on the checks in section 5: install a
    candidate, run those checks against a checkout pinned to it, and only then converge a live
    profile.
    **Never replace the installed harness while a `dsh web` server runs** (a manual
@@ -927,7 +1008,7 @@ live profile.
 8. **A rule is real only where a command fails.** Before claiming something is enforced,
    name the command that exits non-zero when it is broken.
 
-## 6. First-run checks (1 minute, human-visible)
+## 7. First-run checks (1 minute, human-visible)
 
 ```bash
 dsh --profile web --dump-config | grep -E "id: (notify|diagrams|subagent|godot-mcp)"   # every row mounted
@@ -939,7 +1020,7 @@ Two failures worth recognising: a missing plugin row means the patch layer was o
 and an agent with no `mcp__godot__*` / `mcp__playwright__*` tools means the MCP rows were not
 written — both are fixed by re-installing the profile files (§3).
 
-## 7. Troubleshooting
+## 8. Troubleshooting
 
 | Symptom | Cause / fix |
 |---|---|
@@ -949,6 +1030,7 @@ written — both are fixed by re-installing the profile files (§3).
 | The UI shows no history and New Session does nothing, on a machine whose sessions are all on disk | one unreadable session log aborted the whole listing (scanner `EPERM`): `make session-doctor` names it, `node scripts/session-store.mjs ensure` quarantines it, then restart. `start.sh` does this on every boot |
 | `dsh: warning: N entries did not activate` at boot | read the named rows: a plugin package that is not installed (`ERR_MODULE_NOT_FOUND`) is a stale patch row, a `pending (waiting for service: …)` chain starts at the first failed service |
 | A subagent stopped mid-task with no report | the server restarted under it; ping it to resume (see §3) — it is not lost, and only its in-flight work is |
-| A repacked tarball had no effect | its version was not bumped (§5.2) |
+| A repacked tarball had no effect | its version was not bumped (§6.2) |
+| An update broke the machine | roll back to the previous kit commit, then prove no drift (§4.1); a single overwritten file comes back with `--restore <stamp>` (§4.2) |
 | A command you read here no longer exists | the kit moved on: `node $KIT/scripts/check-documentation.mjs` fails on a named script or plugin that is missing, so run it before trusting the prose |
 | A non-Flash model is dispatched for a delegated child | `@cc/dsh-flash-guard` should rewrite or refuse it; check that the row is active and that the child is going through DSH's LLM. An external ACP/SDK/Claude Code provider bypasses `agent/request` by design. The root agent is deliberately not forced (`enforceRoot: false`) |

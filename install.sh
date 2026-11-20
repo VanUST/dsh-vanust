@@ -2,7 +2,7 @@
 # dsh-kit installer — Linux/macOS (fresh machine setup).
 #
 # What it does:
-#   1. checks Node >= 24 (node-pty ABI),
+#   1. checks Node >= 24.9.0 (the pinned harness declares engines node >= 24.9.0),
 #   2. installs the pinned harness version globally (`npm i -g`),
 #   3. creates $DSH_HOME/profiles/web from the kit's canonical profile files,
 #   4. installs every plugin tarball in plugins/ into the profile (see
@@ -25,17 +25,30 @@ DSH_HOME="${DSH_HOME:-$HOME/.npm/dsh}"
 
 echo "== dsh-kit installer (harness ${DSH_VERSION}) =="
 
-# 1. Node check (node-pty is ABI-sensitive; keep the same major across machines).
+# 1. Node check: >= 24.9.0, MAJOR AND MINOR.
+#    The pinned harness declares engines node >= 24.9.0, so Node 24.0-24.8 passed a
+#    major-only check and then failed at the harness start - the one moment the
+#    installer had stopped explaining. A major above 24 is accepted whatever its minor.
 if ! command -v node >/dev/null 2>&1; then
-  echo "ERROR: Node.js not found — install Node >= 24 first (https://nodejs.org)." >&2
+  echo "ERROR: Node.js not found — install Node >= 24.9.0 first (https://nodejs.org)." >&2
   exit 1
 fi
-NODE_MAJOR="$(node -p 'Number(process.versions.node.split(".")[0])')"
-if [ "${NODE_MAJOR}" -lt 24 ]; then
-  echo "ERROR: Node ${NODE_MAJOR} detected — dsh-kit requires Node >= 24." >&2
+NODE_VERSION="$(node -p 'process.versions.node' 2>/dev/null || true)"
+case "${NODE_VERSION}" in
+  ''|*[!0-9.]*)
+    echo "ERROR: cannot read the Node version (expected 24.9.0 or newer, got '${NODE_VERSION}')." >&2
+    exit 1
+    ;;
+esac
+NODE_MAJOR="${NODE_VERSION%%.*}"
+NODE_REST="${NODE_VERSION#*.}"
+NODE_MINOR="${NODE_REST%%.*}"
+if [ "${NODE_MAJOR}" -lt 24 ] ||
+   { [ "${NODE_MAJOR}" -eq 24 ] && [ "${NODE_MINOR}" -lt 9 ]; }; then
+  echo "ERROR: Node ${NODE_VERSION} detected — dsh-kit requires Node >= 24.9.0 (the pinned harness declares engines node >= 24.9.0, so 24.0-24.8 stops at its first start)." >&2
   exit 1
 fi
-echo "   node: $(node -v) (ok)"
+echo "   node: $(node -v) (ok, >= 24.9.0)"
 
 # 2. Pinned harness install (idempotent; re-running upgrades to the pin).
 #    Keep an existing user-local npm prefix (e.g. ~/.npm/node); only switch a
@@ -62,7 +75,12 @@ esac
 mkdir -p "${DSH_HOME}/profiles/web"
 if [ -f "${DSH_HOME}/profiles/web/cordis.patch.yml" ] &&
    ! diff -q "${KIT_DIR}/profile/cordis.patch.yml" "${DSH_HOME}/profiles/web/cordis.patch.yml" >/dev/null 2>&1; then
-  echo "   WARN: existing cordis.patch.yml differs from the kit — keeping yours." >&2
+  # Keep the machine's layer AND a copy of it next to the original: the file is the
+  # only record of the rows this machine added, and "keeping yours" without a copy
+  # leaves the next hand-edit as the first thing that can lose it.
+  PATCH_BACKUP="${DSH_HOME}/profiles/web/cordis.patch.yml.bak-$(date +%Y%m%d-%H%M%S)"
+  cp "${DSH_HOME}/profiles/web/cordis.patch.yml" "${PATCH_BACKUP}"
+  echo "   WARN: existing cordis.patch.yml differs from the kit — keeping yours (copy saved at ${PATCH_BACKUP})." >&2
 else
   cp "${KIT_DIR}/profile/cordis.patch.yml" "${DSH_HOME}/profiles/web/cordis.patch.yml"
 fi

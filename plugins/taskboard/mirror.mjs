@@ -22,6 +22,9 @@ const STATUS = {
   paused: 'blocked',
 }
 
+/** What the register calls one board status. Exported: the startup check compares with it. */
+export const registerStatus = (status) => STATUS[status] ?? 'open'
+
 /** Does this task carry a requirement reference or a justified chore? */
 export function hasRequirement(task) {
   const reqId = typeof task?.reqId === 'string' ? task.reqId.trim() : ''
@@ -102,7 +105,7 @@ export function taskPayload(task) {
   const reqId = typeof task?.reqId === 'string' && task.reqId.trim() !== '' ? task.reqId.trim() : undefined
   return {
     title: String(task?.title ?? '').slice(0, 140),
-    status: STATUS[task?.status] ?? 'open',
+    status: registerStatus(task?.status),
     ...(reqId === undefined ? {} : { reqId }),
     // FR15: the batch — several requirements, the steps and their progress — travels with the
     // TASK, so the register and the board agree on what one acceptance unit covers.

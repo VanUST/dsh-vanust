@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-run-code-projection",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Bounds a large tool result in the model context: on tools/post-execute a result of a configured tool (run_code, bash, read, web_fetch, hindsight pages, task_list, ...) above minBytes is replaced by a banner naming a spill file inside the session workspace plus its head and tail, so the full text stays readable with the ordinary file tools while the middle stops being re-sent every step. Errors, short results, images, contract tools and already-projected content pass through untouched.",
   "type": "module",
   "main": "run-code-projection.mjs",
