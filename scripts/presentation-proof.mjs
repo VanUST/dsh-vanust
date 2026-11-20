@@ -232,6 +232,24 @@ function renderArtifacts() {
   }
   check('five themes define five different accents', accents.size === 5 && new Set(accents.values()).size === 5, [...accents].map(([name, value]) => `${name}=${value}`).join(' '))
 
+  // A visual slide whose SVG is built up ONE CELL AT A TIME: the fragment rule
+  // inside an SVG must not clobber each group's own transform, so this fixture is
+  // the fail-capable half of the cache-rack story.
+  const cells = [0, 1, 2].map((index) =>
+    `<g data-frag="dim" transform="translate(${40 + index * 180},60)"><rect width="140" height="90" rx="12" fill="none" stroke="var(--accent)"/><text x="70" y="56" text-anchor="middle" fill="var(--ink)" font-size="24">${index + 1}</text></g>`).join('')
+  // The control replays the pre-fix rule (a CSS transform on an SVG group), so the
+  // coordinate check below can be seen to fail.
+  const svgCss = CONTROL === 'before-svg-fragment-fix' ? `${CSS}\nsvg [data-frag]{transform:translateY(10px) !important}` : CSS
+  const svgDeck = renderDeck({ theme: 'ember', title: 'Кэш по ячейкам', slides: [
+    { type: 'cover', title: 'Кэш по ячейкам' },
+    { type: 'visual', title: 'Кэш заполняется по ячейкам', visual: { svg: `<svg viewBox="0 0 620 220">${cells}</svg>`, caption: 'каждая ячейка — пара ключ-значение' } },
+  ] }, { css: svgCss })
+  check('svg fragments render', svgDeck.errors.length === 0 && (svgDeck.html.match(/<g data-frag/g) ?? []).length === 3, `${(svgDeck.html.match(/<g data-frag/g) ?? []).length} groups`)
+  if (svgDeck.html !== null) {
+    files.svgFragments = join(OUT, 'svg-fragments.html')
+    writeFileSync(files.svgFragments, svgDeck.html)
+  }
+
   const board = renderBoard(BOARD, { css: CSS })
   check('board renders without errors', board.errors.length === 0, board.errors.join('; ') || `${board.tiles} tiles, ${board.charts} charts`)
   check('board draws every chart', board.charts === BOARD.charts.length, `${board.charts}/${BOARD.charts.length}`)
@@ -384,6 +402,37 @@ async function proveInBrowser(files) {
 
   check('browser: no console error on the deck', errors.length === 0, errors.slice(0, 3).join(' | '))
   await page.close()
+
+  // The cache-rack mechanism: inside one SVG, each group reveals on its own
+  // advance and keeps its own coordinates. A CSS transform on the fragment would
+  // collapse every group onto the origin, which is exactly what this catches.
+  if (files.svgFragments !== undefined) {
+    const svgPage = await context.newPage()
+    const svgErrors = []
+    svgPage.on('pageerror', (error) => svgErrors.push(String(error.message)))
+    await svgPage.goto(pathToFileURL(files.svgFragments).href)
+    await svgPage.waitForSelector('.slide.is-current')
+    await svgPage.evaluate(() => { window.location.hash = '#2' })
+    await svgPage.waitForTimeout(320)
+    const cellsAt = () => svgPage.evaluate(() => Array.from(document.querySelectorAll('.slide.is-current [data-frag]')).map((group) => ({
+      x: Math.round(group.getBoundingClientRect().x),
+      here: group.classList.contains('is-here'),
+      opacity: Number(getComputedStyle(group).opacity),
+    })))
+    const before = await cellsAt()
+    await svgPage.keyboard.press('ArrowRight')
+    await svgPage.waitForTimeout(380)
+    const after = await cellsAt()
+    check('browser: an SVG fragment reveals one group at a time', before.every((cell) => cell.here === false) && after.filter((cell) => cell.here).length === 1, `${after.filter((cell) => cell.here).length} of ${after.length} revealed`)
+    check('browser: an SVG fragment keeps its own coordinates', new Set(after.map((cell) => cell.x)).size === after.length, after.map((cell) => cell.x).join(', '))
+    // The transition ends at 1; a mid-flight read is not a defect, so the check
+    // asserts "visibly revealed" (≥ .9) against the hidden groups (≤ .5).
+    const shown = after.filter((cell) => cell.here)
+    const hidden = after.filter((cell) => !cell.here)
+    check('browser: the revealed SVG group is visible and the rest stays dim', shown.every((cell) => cell.opacity >= 0.9) && hidden.every((cell) => cell.opacity <= 0.5), `shown ${shown.map((cell) => cell.opacity).join(',')} · hidden ${hidden.map((cell) => cell.opacity).join(',')}`)
+    check('browser: no page error on the SVG-fragment deck', svgErrors.length === 0, svgErrors.slice(0, 2).join(' | '))
+    await svgPage.close()
+  }
 
   // The real reader path: the Sidebar document preview mounts the bytes in a
   // sandboxed iframe, so the deck must work with an opaque origin and no network.

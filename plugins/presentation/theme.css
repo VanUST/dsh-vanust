@@ -436,9 +436,16 @@ body.is-notes .deck-notes{display:block}
 
 /* Fragments: an element with [data-frag] appears on the next advance, so a
    slide can show a transformation instead of its result. */
-[data-frag]{opacity:0; transform:translateY(10px); transition:opacity var(--t-med) var(--ease), transform var(--t-med) var(--ease)}
-[data-frag].is-here{opacity:1; transform:none}
-[data-frag="dim"]{opacity:.28; transform:none; filter:saturate(.5)}
+[data-frag]{opacity:0; transition:opacity var(--t-med) var(--ease), transform var(--t-med) var(--ease)}
+/* The rise belongs to HTML blocks only: on an SVG element a CSS `transform`
+   REPLACES the element's own transform ATTRIBUTE, so every translated group
+   collapses onto the origin (measured 2026-11-20 with the cache-rack probe). An
+   SVG fragment therefore fades in place and keeps its own coordinates. */
+[data-frag]:not(svg *){transform:translateY(10px)}
+[data-frag].is-here{opacity:1}
+[data-frag]:not(svg *).is-here{transform:none}
+[data-frag="dim"]{opacity:.28; filter:saturate(.5)}
+[data-frag="dim"]:not(svg *){transform:none}
 [data-frag="dim"].is-here{opacity:1; filter:none}
 
 /* Count-up: the player writes the final text and the element pops once. */
