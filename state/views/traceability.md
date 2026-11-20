@@ -158,6 +158,19 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | REQ-152 | rejected | — | — | — | no |
 | REQ-153 | rejected | — | — | — | no |
 | REQ-154 | rejected | — | — | — | no |
+| REQ-155 | done | — | — | — | no |
+| REQ-156 | done | — | — | — | no |
+| REQ-157 | done | — | — | — | no |
+| REQ-158 | done | — | — | — | no |
+| REQ-159 | done | — | — | — | no |
+| REQ-160 | done | — | TEST-077 | — | no |
+| REQ-161 | done | — | — | — | no |
+| REQ-162 | done | — | — | — | no |
+| REQ-163 | done | — | — | — | no |
+| REQ-164 | rejected | — | — | — | no |
+| REQ-165 | rejected | — | — | — | no |
+| REQ-166 | rejected | — | — | — | no |
+| REQ-167 | rejected | — | — | — | no |
 
 ## Tests
 
@@ -239,3 +252,4 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | TEST-074 | REQ-146 | verified | TASK-246 |
 | TEST-075 | REQ-138 | verified | TASK-246 |
 | TEST-076 | REQ-147 | verified | TASK-249 |
+| TEST-077 | REQ-160 | verified | — |

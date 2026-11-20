@@ -10,16 +10,15 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-237 | Stop the state feed from writing unidentified messages, and repair the sessions it corrupted | — | 0/7 | yes |
 | TASK-243 | Остаток окна Codex и цена модели — в сессии | REQ-132, REQ-133 | 0/4 | no |
 
-## review (4)
+## review (3)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
 | TASK-240 | Ограничить контекст на входе: проекция выдачи и task_list | REQ-128, REQ-129, REQ-134 | 4/4 | no |
 | TASK-241 | Абсолютный бюджет контекста ~500K вместо доли окна | REQ-131 | 2/2 | no |
 | TASK-242 | Allow-список ролей не действует на инструменты кита | REQ-130 | 4/4 | no |
-| TASK-244 | Red/green proof for the context-bounds changes | REQ-128, REQ-129, REQ-130, REQ-131, REQ-134 | 4/4 | no |
 
-## done (162)
+## done (167)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -178,6 +177,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-236 | State: конкретика задачи в TASK и переход к сессии субагента | REQ-124, REQ-125, REQ-126, REQ-127 | 4/5 | no |
 | TASK-238 | Починить гейт delegation_brief: REQ, который реестр реально может иметь | REQ-083 | 3/3 | no |
 | TASK-239 | Почистить список задач: синхронизировать статусы реестра с доской и закрыть заброшенные строки | — | 4/4 | yes |
+| TASK-244 | Red/green proof for the context-bounds changes | REQ-128, REQ-129, REQ-130, REQ-131, REQ-134 | 4/4 | no |
 | TASK-245 | Убрать класс ошибок «unidentified message»: починить старые логи и закрыть источник | — | 6/6 | yes |
 | TASK-246 | Ручной статус задачи в панели Project state и доска без предела строк | REQ-136, REQ-137, REQ-138, REQ-146 | 6/6 | no |
 | TASK-247 | Роль ARCHITECT: пресет, маршрут astra с фолбэком, границы секций промпта | REQ-139, REQ-140, REQ-141, REQ-142, REQ-143, REQ-144, REQ-145 | 9/9 | no |
@@ -185,6 +185,10 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-249 | Скрыть chore-задачи из вида доски задач | REQ-147 | 4/4 | no |
 | TASK-250 | Основание задачи в delegate_task и остановка install.ps1 на сбойном шаге | REQ-148, REQ-149, REQ-150 | 7/7 | no |
 | TASK-251 | Ручное редактирование REQ, TASK и TEST из панели состояния | REQ-151, REQ-152, REQ-153, REQ-154 | 7/7 | no |
+| TASK-252 | Плагин presentation: колода и доска из спецификации | REQ-156, REQ-157, REQ-163 | 6/6 | no |
+| TASK-253 | Пресет presenter: роль, профиль, политика инструментов, документы | REQ-155, REQ-158, REQ-161 | 5/5 | no |
+| TASK-254 | Доказательство пресета: скрипт, второй сервер, ТЗ про prefix caching | REQ-159, REQ-160, REQ-162 | 5/5 | no |
+| TASK-255 | Панель состояния: читаемый список статусов, без колонки Evidence, смена статуса доходит до реестра | REQ-164, REQ-165, REQ-166, REQ-167 | 6/6 | no |
 
 ## cancelled (82)
 

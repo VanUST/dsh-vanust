@@ -184,3 +184,40 @@ test('the same status is a no-op, not a new revision', async () => {
   const journal = await readFile(join(cwd, 'state', 'events.jsonl'), 'utf8').catch(() => '')
   assert.equal(journal.includes('owner_status_override'), false)
 })
+
+test('an owner status change on an existing row WITHOUT a requirement reaches the register', async () => {
+  const { cwd, core, service, flush } = await board()
+  // A row created with a requirement is mirrored, so a TASK exists for it.
+  const created = service.create(cwd, { title: 'A legacy row', role: 'BACKEND', reqId: 'REQ-001', chatId: 'chat-1' })
+  assert.equal(accepted(created), true, JSON.stringify(created))
+  await flush()
+  const rows = (await core.list('task')).rows
+  const stateRow = rows.find((row) => row.boardId === created.id)
+  assert.ok(stateRow !== undefined, 'the first mirror must create the TASK')
+
+  // The row loses its requirement (239 of the live board's 265 rows predate the rule).
+  const boardPath = join(cwd, '.dsh', 'taskboard.json')
+  const stored = JSON.parse(await readFile(boardPath, 'utf8'))
+  const row = stored.tasks.find((entry) => entry.id === created.id)
+  delete row.reqId
+  delete row.reqIds
+  writeBoard(boardPath, stored)
+
+  const applied = await service.applyOp(cwd, { op: 'owner-status', id: created.id, expectedRevision: row.revision, status: 'active', reason: 'no requirement on this row' }, 'human', 'session-owner')
+  await flush()
+  assert.equal(applied.ok, true, JSON.stringify(applied))
+
+  // THE BUG: the board changed and the register did not, so the panel (which reads state/)
+  // showed the old status. An existing row follows its board row without a requirement.
+  const stateTask = await readFile(join(cwd, 'state', 'task', `${stateRow.id}.md`), 'utf8')
+  assert.match(stateTask, /status: active/, 'the existing TASK must follow the board status')
+
+  // CREATION still needs the basis: a row that exists only on the board (written by an older
+  // version, or by hand) gets no TASK of its own while it has no requirement.
+  const legacyRow = { id: 'task-legacy-1', revision: 1, title: 'A row with no basis', status: 'open', createdAt: clock(), updatedAt: clock() }
+  const legacyMirror = await mirrorTask(core, { cwd, task: legacyRow })
+  assert.equal(legacyMirror.ok, false)
+  assert.equal(legacyMirror.code, 'req_required')
+  const after = (await core.list('task')).rows
+  assert.equal(after.some((row2) => row2.boardId === legacyRow.id), false, 'a new row without a requirement must not create a TASK')
+})

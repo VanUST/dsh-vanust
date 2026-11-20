@@ -639,8 +639,14 @@ window.__ModuleLoader__.load({
 /* THE BADGE IS THE SELECT: a native dropdown wearing the status chip, with a CSS caret. */
 .ps-statuswrap { position: relative; display: inline-flex; align-items: center; }
 .ps-statuswrap::after { content: "▾"; position: absolute; right: 5px; pointer-events: none; font-size: 9px; line-height: 1; color: var(--ps-muted); }
-.ps-status.ps-statusselect { display: inline-block; appearance: none; -webkit-appearance: none; padding: 1px 16px 1px 7px; line-height: 1.6; cursor: pointer; font-family: inherit; }
+.ps-status.ps-statusselect { display: inline-block; appearance: none; -webkit-appearance: none; padding: 1px 16px 1px 7px; line-height: 1.6; cursor: pointer; font-family: inherit; /* THE STATUS CHIP IS A NATIVE SELECT, and its popup is drawn by the browser: a translucent
+   chip background left the option list on the default WHITE sheet while the option text
+   inherited the status colour (amber/green), which is the unreadable white-on-yellow the
+   owner reported. An opaque surface plus explicit option colours keep the list inside the
+   theme; the status colour stays in the chip's own text and border. */
+  background: var(--ps-surface); }
 .ps-status.ps-statusselect:disabled { cursor: progress; opacity: .7; }
+.ps-status.ps-statusselect option { background-color: var(--ps-surface); color: var(--ps-ink); }
 .ps-statuscontrol { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .ps-input { border: 1px solid var(--ps-line); background: var(--ps-surface); color: var(--ps-ink); border-radius: 6px; padding: 3px 6px; font: inherit; font-size: 12px; width: 100%; }
 .ps-input:focus-visible { outline: 2px solid var(--ps-accent); outline-offset: 1px; }
@@ -1571,12 +1577,12 @@ window.__ModuleLoader__.load({
           h('th', { scope: 'col' }, 'Test'),
           h('th', { scope: 'col' }, 'Requirement'),
           h('th', { scope: 'col' }, 'Status'),
-          h('th', { scope: 'col' }, 'Evidence'),
+          // No Evidence column: the evidence of a test is shown in its card, and the trace
+          // matrix already names the TEST it belongs to. A second chip row here repeated it.
         )),
         h('tbody', null, tests.map((test) => {
           const entity = data.entities.get(test.id)
           const fm = entity?.frontmatter ?? {}
-          const refs = [...(Array.isArray(test.evidenceRefs) ? test.evidenceRefs : []), ...(Array.isArray(fm.evidenceRefs) ? fm.evidenceRefs.map((id) => ({ kind: kindOfId(id), id })) : [])]
           return h('tr', {
             key: test.id,
             tabIndex: 0,
@@ -1591,9 +1597,6 @@ window.__ModuleLoader__.load({
             ),
             h('td', null, test.reqId ? h(TypeChip, { kind: 'req', id: test.reqId, onClick: (event) => { event.stopPropagation(); onSelectReq(test.reqId) } }) : h(Gap, { static: true }, 'no requirement')),
             h('td', null, h(Status, { status: test.status })),
-            h('td', null, refs.length > 0
-              ? h('div', { className: 'ps-cellchips' }, refs.map((ref, index) => h(TypeChip, { key: `${ref.id}-${index}`, kind: kindOfId(ref.id), id: ref.id, title: ref.hash ? `${ref.kind ?? kindOfId(ref.id)} ${ref.id}, ${shortHash(ref.hash)}` : undefined, static: true })))
-              : h(Gap, { static: true, title: 'No evidence reference is recorded on this test' }, 'no evidence')),
           )
         })),
       )

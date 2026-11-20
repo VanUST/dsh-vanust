@@ -2,10 +2,10 @@
 id: TASK-244
 kind: task
 title: "Red/green proof for the context-bounds changes"
-status: review
-revision: 4
+status: done
+revision: 6
 createdAt: 2026-11-18T15:59:31.998Z
-updatedAt: 2026-11-18T16:10:31.811Z
+updatedAt: 2026-11-20T10:18:19.745Z
 acceptance:
   - text: "case_record automated:true"
     done: false

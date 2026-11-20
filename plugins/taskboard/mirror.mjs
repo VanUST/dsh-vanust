@@ -121,7 +121,6 @@ export function taskPayload(task) {
  */
 export async function mirrorTask(core, { cwd, task }) {
   if (core === undefined || core === null) return { ok: true, skipped: 'no-core' }
-  if (!hasRequirement(task)) return reqRefusal()
   const state = typeof core.open === 'function' ? core.open(cwd) : core
   const payload = taskPayload(task)
   let rows = []
@@ -132,6 +131,13 @@ export async function mirrorTask(core, { cwd, task }) {
     rows = []
   }
   const existing = rows.find((row) => row.boardId === task.id)
+  // THE REQUIREMENT RULE IS A CREATION RULE. A TASK exists because its board row had a
+  // requirement (or a recorded chore waiver) when it was first mirrored; 239 of the board's
+  // 265 rows predate that rule and have none, and refusing to UPDATE their existing TASK left
+  // the register frozen: the owner changed a status on the board, the board wrote it, the
+  // mirror refused, and the panel - which reads state/ - showed nothing. An existing row
+  // follows its board row; only a NEW row needs the basis.
+  if (existing === undefined && !hasRequirement(task)) return reqRefusal()
   try {
     if (existing === undefined) {
       const created = await state.create('task', payload)

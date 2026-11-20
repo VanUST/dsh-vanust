@@ -3,9 +3,9 @@ id: TASK-001
 kind: task
 title: "Hindsight integration"
 status: done
-revision: 2
+revision: 4
 createdAt: 2026-11-17T15:52:38.962Z
-updatedAt: 2026-11-17T15:52:38.962Z
+updatedAt: 2026-11-20T10:09:11.790Z
 acceptance:
   - text: "a fact retained in session A is recalled in session B"
     done: false
@@ -21,5 +21,3 @@ scope: ["server or token", "bank config", "retain + recall smoke test", "one-pag
 ---
 
 Finish the Hindsight memory integration: choose a daemon or Cloud bank, remove the disabled flag, and prove a retained fact is recalled in a new session.
-
-Migrated from .dsh/taskboard.json (task task-mvjjzc4e-b9ieff, revision 4).
