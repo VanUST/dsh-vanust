@@ -40,6 +40,15 @@ export function niceMax(value) {
   return step * power
 }
 
+/** Every plotted value of a bar or line chart, so the axis is scaled once. */
+function plotValues(spec) {
+  const rows = Array.isArray(spec.data) ? spec.data : []
+  const extra = Array.isArray(spec.series)
+    ? spec.series.flatMap((series) => (Array.isArray(series?.points) ? series.points : []))
+    : []
+  return [...rows, ...extra].map((row) => num(row?.value)).filter((value) => value !== null)
+}
+
 /** Grid lines and their labels: four bands over the plot area. */
 function grid({ left, right, top, bottom }, max, unit) {
   const rows = []
@@ -66,7 +75,7 @@ function bar(spec, box) {
   const { left, right, top, bottom } = box
   const innerW = right - left
   const innerH = bottom - top
-  const max = niceMax(Math.max(...data.map((row) => Math.abs(num(row.value)))))
+  const max = box.max ?? niceMax(Math.max(...data.map((row) => Math.abs(num(row.value)))))
   const band = innerW / data.length
   const barW = Math.max(10, Math.min(band * 0.58, 150))
   const parts = [grid(box, max, spec.unit ? ` ${spec.unit}` : '')]
@@ -106,8 +115,7 @@ function line(spec, box) {
   const { left, right, top, bottom } = box
   const innerW = right - left
   const innerH = bottom - top
-  const all = [...primary, ...extra.flatMap((series) => series.points)]
-  const max = niceMax(Math.max(...all.map((row) => Math.abs(num(row.value)))))
+  const max = box.max ?? niceMax(Math.max(...[...primary, ...extra.flatMap((series) => series.points)].map((row) => Math.abs(num(row.value)))))
   const labels = primary.length > 0 ? primary : extra[0].points
   const count = Math.max(labels.length, 2)
   const xAt = (index) => left + (count === 1 ? innerW / 2 : (index / (count - 1)) * innerW)
@@ -215,8 +223,16 @@ export function chartSvg(spec) {
   }
   const width = size(spec.width, DEFAULTS.width, 220, 2000)
   const height = size(spec.height, DEFAULTS.height, 120, 1200)
+  // The axis gutter must fit the WIDEST tick label, not a guessed 62 px: a deck
+  // that plots `2 000 мс` clipped the leading digits to `000 мс` on 2026-11-20.
+  const values = kind === 'bar' || kind === 'line' ? plotValues(spec) : []
+  const max = values.length > 0 ? niceMax(Math.max(...values.map((value) => Math.abs(value)))) : null
+  const unitText = spec.unit ? ` ${spec.unit}` : ''
+  const tickChars = max === null ? 0 : fmt(max, 0).length + unitText.length
+  const gutter = Math.max(size(spec.padLeft, DEFAULTS.padLeft, 0, width / 3), 22 + Math.round(tickChars * 8))
   const box = {
-    left: size(spec.padLeft, DEFAULTS.padLeft, 0, width / 3),
+    left: gutter,
+    max,
     right: width - size(spec.padRight, DEFAULTS.padRight, 0, width / 3),
     top: size(spec.padTop, DEFAULTS.padTop, 0, height / 3),
     bottom: height - size(spec.padBottom, DEFAULTS.padBottom, 0, height / 3),

@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-presentation",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Two tools that render a JSON spec into one standalone HTML document: presentation (an animated deck with five themes, fragments and a keyboard player) and dashboard (KPI tiles, SVG charts and status lists). The harness's Sidebar document preview displays them; nothing is fetched at view time.",
   "type": "module",
   "main": "index.js",
