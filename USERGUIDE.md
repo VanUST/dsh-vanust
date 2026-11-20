@@ -8,6 +8,10 @@ This kit installs **DeepSeek Harness (dsh)** on any of your machines (2× Linux,
 **`@cc/dsh-image-window`** (keeps only the newest screenshot in the request: the image that
 falls out of the window is offloaded as a new one arrives, so the provider re-bills the new
 batch instead of the whole context),
+**`@cc/dsh-tail-pruner`** (holds a session under a token budget by pruning the newest over-sized
+tool results first, so the point where the provider's prefix cache breaks stays at the tail; the
+harness's own pruner rewrites from the oldest, which re-bills almost the whole context — the two
+tokens of advice are `budgetRatio` and `protectResults`),
 **`@cc/dsh-diagrams`** (one tool that renders a JSON diagram spec into a standalone
 HTML document with inline SVG — flowcharts and algorithm illustrations, layered system
 designs, sequence diagrams and state machines; you describe nodes and relationships and

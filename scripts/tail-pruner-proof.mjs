@@ -8,9 +8,6 @@
  * The hermetic half is the gate: it fails when the order, the protection window, the budget stop,
  * the replay-safe event pair, the per-route override or the config guards regress.
  */
-import { spawnSync } from 'node:child_process'
-import { readdirSync, statSync } from 'node:fs'
-import { join } from 'node:path'
 import {
   DEFAULTS,
   PRUNE_MARKER,
@@ -131,7 +128,6 @@ check('replacement keeps the pruned content', replacements.every((w, index) => w
 
 // ── 5. the plugin registers a prepended step listener and walks the session ─
 const hookFixture = fakeSession([20000, 20000, 20000, 20000, 20000, 20000, 20000, 20000])
-const hookTotal = hookFixture.session.surface.nodes.reduce((sum, seq) => sum + estimate(hookFixture.session.deriveEventMessage(hookFixture.session.eventAt(seq))), 0)
 const listeners = []
 const ctx = {
   tokenMeter: meterFor(hookFixture.session, 600000),
@@ -150,6 +146,12 @@ const quiet = []
 apply({ tokenMeter: meterFor(underBudget.session, 10), on(name, listener) { quiet.push(listener) }, logger: { info() {}, warn() {} } }, {})
 await quiet[0]({ agent: { session: underBudget.session }, signal: { aborted: false } }, () => Promise.resolve({ kind: 'enter' }))
 check('nothing is written when the context is under budget', underBudget.writes.length === 0)
+const noRoute = fakeSession([20000, 20000, 20000, 20000, 20000, 20000, 20000, 20000])
+const noRouteListeners = []
+apply({ tokenMeter: meterFor(noRoute.session, 600000), on(name, listener) { noRouteListeners.push(listener) }, logger: { info() {}, warn() {} } }, {})
+const bareSession = { ...noRoute.session, requestContext() { return {} } }
+await noRouteListeners[0]({ agent: { session: bareSession }, signal: { aborted: false } }, () => Promise.resolve({ kind: 'enter' }))
+check('no contextWindow means the plugin stays quiet', noRoute.writes.length === 0)
 const disabled = []
 apply({ tokenMeter: meterFor(underBudget.session, 10), on(name, listener) { disabled.push(listener) }, logger: { info() {}, warn() {} } }, { enabled: false })
 check('disabled plugin registers no listener', disabled.length === 0)
