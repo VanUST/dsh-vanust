@@ -57,6 +57,7 @@
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -106,11 +107,25 @@ const PATCHES = [
   },
 ]
 
-/** The global npm root, asked once; undefined when npm cannot answer. */
+/** Node's own directory; npm's global install sits beside it on Windows. */
+const NODE_DIR = dirname(process.execPath)
+/** The npm CLI behind the Windows `npm.cmd` shim - a plain argv spawn of the shim is refused. */
+const NPM_CLI = join(NODE_DIR, 'node_modules', 'npm', 'bin', 'npm-cli.js')
+/** Where npm puts global packages on Windows when no custom prefix is configured. */
+const GLOBAL_BIN = join(process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming'), 'npm')
+
+/** The global npm root, asked of npm itself; undefined when npm cannot answer. */
 function globalNpmRoot() {
-  const result = spawnSync('npm', ['root', '-g'], { encoding: 'utf8' })
+  const result = process.platform === 'win32' && existsSync(NPM_CLI)
+    ? spawnSync(process.execPath, [NPM_CLI, 'root', '-g'], { encoding: 'utf8' })
+    : spawnSync('npm', ['root', '-g'], { encoding: 'utf8' })
   const text = (result.stdout ?? '').trim()
-  return result.status === 0 && text !== '' ? text : undefined
+  const answered = result.status === 0 && text !== ''
+  if (answered) return text
+  // Windows runs npm through a .cmd shim that a plain argv spawn cannot start, and a
+  // machine with no npm on PATH still has its global packages in the conventional place.
+  if (process.platform === 'win32' && existsSync(join(GLOBAL_BIN, 'node_modules'))) return join(GLOBAL_BIN, 'node_modules')
+  return undefined
 }
 
 /** Resolve the harness install root: --install, then $DSH_INSTALL_DIR, then the global layouts. */

@@ -26,7 +26,7 @@
  *   measured evidence, docs/cases/runs
  */
 
-import { execFileSync, spawn } from 'node:child_process'
+import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
@@ -54,7 +54,10 @@ export function spawnExec() {
     const args = windows ? ['/d', '/s', '/c', String(command)] : ['-c', String(command)]
     let child
     try {
-      child = spawn(shell, args, { cwd, env, detached: !windows, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+      // Windows: pass the command line VERBATIM. Node's default argv quoting wraps the whole
+      // /c command, and cmd.exe then mishandles embedded quotes (measured: 'node -e "console.log(process.cwd())"'
+      // exited 0 and printed nothing). Verbatim is also how cmd expects its own syntax.
+      child = spawn(shell, args, { cwd, env, detached: !windows, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, windowsVerbatimArguments: windows })
     } catch (error) {
       resolve({ exitCode: null, signal: null, timedOut: false, stdout: '', stderr: String(error?.message ?? error), truncated: false, durationMs: Date.now() - started })
       return
@@ -75,8 +78,16 @@ export function spawnExec() {
     child.stderr?.on('data', (chunk) => { stderr = collect(stderr, chunk) })
     const killTree = () => {
       try {
-        if (!windows && Number.isInteger(child.pid)) process.kill(-child.pid, 'SIGKILL')
-        else child.kill('SIGKILL')
+        if (!windows && Number.isInteger(child.pid)) {
+          process.kill(-child.pid, 'SIGKILL')
+        } else if (windows && Number.isInteger(child.pid)) {
+          // Killing cmd.exe alone leaves the node child holding the pipes, so close waits for
+          // the full command to finish (measured: a 200 ms timeout returned after 5 s). /T kills
+          // the whole tree /F has to stop.
+          spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
+        } else {
+          child.kill('SIGKILL')
+        }
       } catch {
         // Already gone; close settles the promise.
       }
@@ -88,7 +99,10 @@ export function spawnExec() {
     })
     child.on('close', (code, signal) => {
       clearTimeout(timer)
-      resolve({ exitCode: Number.isInteger(code) ? code : null, signal: signal ?? null, timedOut, stdout, stderr, truncated, durationMs: Date.now() - started })
+      // A killed run has no meaningful exit status: Windows reports the signal as exit 1,
+      // POSIX as a signal. Report the same "no exit code" on both, and let timedOut/checks
+      // decide the verdict.
+      resolve({ exitCode: timedOut ? null : (Number.isInteger(code) ? code : null), signal: signal ?? null, timedOut, stdout, stderr, truncated, durationMs: Date.now() - started })
     })
   })
 }

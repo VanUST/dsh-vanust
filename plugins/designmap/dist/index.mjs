@@ -35,7 +35,7 @@ import { defineTool } from "@deepseek-ai/dsh-tools";
 
 // src/host.mjs
 import { appendFileSync, existsSync as existsSync2, mkdirSync as mkdirSync2, readFileSync as readFileSync2, statSync, writeFileSync as writeFileSync2 } from "node:fs";
-import { basename, dirname as dirname2, isAbsolute as isAbsolute2, join as join2, relative as relative2, resolve as resolve2 } from "node:path";
+import { basename, dirname as dirname2, isAbsolute as isAbsolute2, join as join2, relative as relative2, resolve as resolve2, sep } from "node:path";
 
 // src/manifest.mjs
 import { createHash } from "node:crypto";
@@ -270,6 +270,9 @@ function sceneToSvg(scene, { colours = /* @__PURE__ */ new Map() } = {}) {
 
 // src/host.mjs
 var LOG_FILE = "events.jsonl";
+function repoRelative(root, absolute) {
+  return (relative2(root, absolute) || absolute).split(sep).join("/");
+}
 var MAX_ANNOTATIONS = 200;
 var ANNOTATION_TYPES = /* @__PURE__ */ new Set(["rectangle", "ellipse", "diamond", "arrow", "line", "text", "freedraw"]);
 var DEFAULT_SCAN_ROOTS = ["src"];
@@ -481,7 +484,7 @@ function createHostService({ designmapDir, repoRoot, git, clock = () => /* @__PU
   const envelopeFor = (result, staleReport) => ({
     ok: true,
     viewId: result.viewId,
-    scenePath: relative2(root, workspace.scenePath(result.viewId)) || workspace.scenePath(result.viewId),
+    scenePath: repoRelative(root, workspace.scenePath(result.viewId)),
     sceneHash: result.sceneHash,
     bytes: result.bytes,
     scene: result.scene,
@@ -525,7 +528,7 @@ function createHostService({ designmapDir, repoRoot, git, clock = () => /* @__PU
           generatedAt: now(),
           commit: staleReport.head,
           sceneHash: result.sceneHash,
-          scenePath: relative2(root, workspace.scenePath(id)) || workspace.scenePath(id),
+          scenePath: repoRelative(root, workspace.scenePath(id)),
           stale: {
             stale: staleReport.stale,
             commitBehind: staleReport.commitBehind,
@@ -660,7 +663,7 @@ function createHostService({ designmapDir, repoRoot, git, clock = () => /* @__PU
     for (const row of bundle.rendered) envelopes.push(envelopeFor(row, staleReport));
     const index = {
       ok: true,
-      indexPath: relative2(root, workspace.paths.index) || workspace.paths.index,
+      indexPath: repoRelative(root, workspace.paths.index),
       indexHash: bundle.indexHash,
       views: envelopes,
       stale: { stale: staleReport.stale, staleNodes: staleReport.staleNodes, commitBehind: staleReport.commitBehind, missingManifest: staleReport.missingManifest, warnings: staleReport.warnings },
@@ -738,7 +741,7 @@ function createHostService({ designmapDir, repoRoot, git, clock = () => /* @__PU
     });
     const written = workspace.writeAnnotations(cleaned);
     logger?.log("annotate.write", { elements: cleaned.length, bytes: Buffer.byteLength(written.text) });
-    return { ok: true, elements: cleaned.length, bytes: Buffer.byteLength(written.text), annotationsPath: relative2(root, written.path) || written.path, hash: written.hash };
+    return { ok: true, elements: cleaned.length, bytes: Buffer.byteLength(written.text), annotationsPath: repoRelative(root, written.path), hash: written.hash };
   };
   const overlay = async (payload = {}) => {
     const model = workspace.readModel().model;
@@ -809,7 +812,7 @@ function createHostService({ designmapDir, repoRoot, git, clock = () => /* @__PU
         adjusted: placement?.moved === true ? { x: kept.x, y: kept.y, from: placement.from } : null,
         finding: placement?.unresolved === true ? { code: "overlap_unresolved", severity: "warning", nodeId, message: `no free position found for "${nodeId}"; the overlap stays and the scene lint reports it` } : placement?.moved === true ? { code: "overlap_adjusted", severity: "info", nodeId, from: placement.from, to: { x: kept.x, y: kept.y }, message: `"${nodeId}" was placed ${Math.round(placement.x - placement.from.x)},${Math.round(placement.y - placement.from.y)} px aside to keep it clear of the other nodes` } : null,
         rows: Object.keys(current).length,
-        overlaysPath: relative2(root, written.path) || written.path
+        overlaysPath: repoRelative(root, written.path)
       };
     }
     if (action === "replace") {
@@ -830,7 +833,7 @@ function createHostService({ designmapDir, repoRoot, git, clock = () => /* @__PU
       }
       const written = workspace.writeOverlays(current);
       logger?.log("overlay.write", { action, nodeId, keys: Object.keys(current[nodeId] ?? {}).sort(), rows: Object.keys(current).length });
-      return { ok: true, action, nodeId, keys: Object.keys(current[nodeId] ?? {}).sort(), rows: Object.keys(current).length, overlaysPath: relative2(root, written.path) || written.path };
+      return { ok: true, action, nodeId, keys: Object.keys(current[nodeId] ?? {}).sort(), rows: Object.keys(current).length, overlaysPath: repoRelative(root, written.path) };
     }
     if (action === "resetNode") {
       const nodeId = payload.nodeId;
@@ -840,7 +843,7 @@ function createHostService({ designmapDir, repoRoot, git, clock = () => /* @__PU
       delete current[nodeId];
       const written = workspace.writeOverlays(current);
       logger?.log("overlay.write", { action, nodeId, rows: Object.keys(current).length });
-      return { ok: true, action, nodeId, rows: Object.keys(current).length, overlaysPath: relative2(root, written.path) || written.path };
+      return { ok: true, action, nodeId, rows: Object.keys(current).length, overlaysPath: repoRelative(root, written.path) };
     }
     if (action === "resetView") {
       const view = viewsDoc.views.find((candidate) => candidate.id === payload.viewId);
@@ -857,7 +860,7 @@ function createHostService({ designmapDir, repoRoot, git, clock = () => /* @__PU
       }
       const written = workspace.writeOverlays(current);
       logger?.log("overlay.write", { action, viewId: view.id, removed, rows: Object.keys(current).length });
-      return { ok: true, action, viewId: view.id, removed, rows: Object.keys(current).length, overlaysPath: relative2(root, written.path) || written.path };
+      return { ok: true, action, viewId: view.id, removed, rows: Object.keys(current).length, overlaysPath: repoRelative(root, written.path) };
     }
     throw new DesignmapRefusal("invalid_overlay", `unknown overlay action "${String(action)}" (upsert | replace | resetNode | resetView)`, { action });
   };
@@ -883,7 +886,7 @@ function createHostService({ designmapDir, repoRoot, git, clock = () => /* @__PU
     return {
       ok: true,
       viewId: id,
-      svgPath: relative2(root, path) || path,
+      svgPath: repoRelative(root, path),
       bytes: Buffer.byteLength(svg),
       hash: sha256(svg),
       sceneHash: result.sceneHash,
@@ -924,7 +927,7 @@ function createHostService({ designmapDir, repoRoot, git, clock = () => /* @__PU
       ...svgResult,
       format: "png",
       svgPath: svgResult.svgPath,
-      pngPath: relative2(root, pngAbsolute) || pngAbsolute,
+      pngPath: repoRelative(root, pngAbsolute),
       pngBytes: statSync(pngAbsolute).size,
       pngHash: `sha256:${createHash2("sha256").update(bytes).digest("hex")}`,
       converter: converter.command

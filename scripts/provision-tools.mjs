@@ -66,7 +66,7 @@
 
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { basename, delimiter, dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -719,6 +719,10 @@ function npmManifestDrift(directory) {
 function installNpmPrefix(directory) {
   mkdirSync(directory, { recursive: true })
   const manifest = join(directory, 'package.json')
+  // A lockfile that names the PREVIOUS pins cannot be reconciled with the new manifest: the old
+  // hooks-claude-code pins hook-protocol exactly, so npm aborts with ERESOLVE before installing
+  // (measured on the 0.2.1 -> 0.2.2 bump). Drop it and let npm resolve the pinned set fresh.
+  const drifted = npmManifestDrift(directory) !== null
   // ALWAYS rewritten from PINS. Writing it only when absent is why a PINS bump installed the
   // old set: the manifest still named the previous versions, npm kept them, and --check then
   // reported a healthy install of a version nobody pinned.
@@ -728,6 +732,9 @@ function installNpmPrefix(directory) {
     type: 'module',
     dependencies: kitToolDependencies(),
   }, null, 2)}\n`, 'utf8')
+  if (drifted) {
+    try { rmSync(join(directory, 'package-lock.json'), { force: true }) } catch { /* npm regenerates it */ }
+  }
   const argv = npmArgv(['install', '--prefix', directory, '--no-audit', '--no-fund'])
   return argv !== null && run(argv)
 }
