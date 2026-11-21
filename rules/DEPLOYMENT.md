@@ -238,8 +238,12 @@ Change the kit's `profile/cordis.patch.yml`, then restart: `KIT_UPDATE=0 ./start
 `$DSH_HOME/bin/dsh` (canonical source `scripts/dsh-wrapper.sh`) after the nvm/npm PATH lines, so
 it wins over the npm bin. Before the harness boots it runs
 `scripts/kit-update.mjs --apply --no-harness --no-tools --keep-model-config`, logging to
-`$DSH_HOME/kit-boot.log`. Three consequences worth knowing: (1) it skips with one line while a
-`dsh web` server runs, which is exactly the rule above; (2) it preserves the machine's
+`$DSH_HOME/kit-boot.log`. Three consequences worth knowing: (1) it never edits a live
+profile. The Windows wrapper reports that dsh is already running when nothing is pending, and
+with work pending asks once, stops the server on the requested port, applies, and boots the new
+version. It refuses when the wrapper itself runs inside a `dsh web` server, so an agent cannot
+kill the session that hosts it; the POSIX wrapper still skips with one line while a server runs;
+(2) it preserves the machine's
 `agent-default-model` row, so an automatic update cannot change provider/model/reasoning effort;
 (3) it does not touch the harness pin or the optional external binaries — `node
 scripts/kit-update.mjs --apply` (or `./start.sh`) remains the full convergence. `DSH_KIT_BOOT=0`

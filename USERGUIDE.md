@@ -263,9 +263,12 @@ On Linux the wrapper runs `scripts/kit-update.mjs --apply --no-harness --no-tool
 --keep-model-config` before the harness starts, when no `dsh web` server is
 running, and logs to `$DSH_HOME/kit-boot.log`. On Windows it runs the same
 convergence as a read-only `--check` first, prints the pending actions and asks
-once before applying, so a surprise update never lands unseen. Both wrappers skip
-with one line when a server answers on the profile port, because editing the
-profile patch under a live server disposes live plugins. Put `$DSH_HOME\bin`
+once before applying, so a surprise update never lands unseen. Neither wrapper
+edits the profile patch under a live server. The Windows wrapper reports that dsh
+is already running when nothing is pending, and with work pending offers to stop
+the server, apply, and boot the new version (that restart ends its sessions); it
+refuses outright when the wrapper is itself running inside a dsh web server. The
+POSIX wrapper still skips with one line while a server runs. Put `$DSH_HOME\bin`
 before the npm global directory in `PATH` for the Windows wrapper to win over
 `dsh.cmd`. Two things it deliberately does not do: it does not touch
 the pinned harness or the optional external binaries (run `kit-update --apply`
