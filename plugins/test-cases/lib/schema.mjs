@@ -9,9 +9,14 @@
  *   slugify(title) -> kebab-case id (never empty).
  *   driftFor(record, workspace, { hash }) -> { status, changedFiles, missingTest, reason }, where
  *   `status` is the next status when it differs from the record's, else null.
+ *   testHashOf(record, workspace, { hash }) -> sha256 of the case's test file, or null when the
+ *   case is documented-only or has no testPath.
+ *   testHashState(record, workspace, { hash }) -> { recorded, actual, ok }: the hash stored when
+ *   the case was registered or its test was re-pinned, the hash of the file now, and whether
+ *   they are the same bytes. `recorded: null` is a case written before the hash existed.
  *
  * KEYWORDS
- *   case id, slug, drift, surface hash, stale, missing test, pure rule
+ *   case id, slug, drift, surface hash, test hash, stale, missing test, pure rule
  */
 
 import { createHash } from 'node:crypto'
@@ -25,6 +30,51 @@ export function fileHash(path) {
   } catch {
     return null
   }
+}
+
+/**
+ * sha256 of a file's TEXT with CRLF collapsed to LF, or null when it is absent.
+ *
+ * WHY IT EXISTS. A checkout with `core.autocrlf=true` stores the same lines with different bytes
+ * (12 bytes of text become 14). The wrong-product red asks "is this the same check?", and the
+ * answer is about the lines: comparing raw bytes refused a legitimate clone of the previous
+ * version on Windows. The recorded `testHash` keeps raw bytes on purpose (it binds the run to the
+ * exact bytes that executed); this hash is for comparing two checkouts, not for pinning a run.
+ */
+export function textHash(path) {
+  try {
+    return createHash('sha256').update(readFileSync(path, 'utf8').replaceAll('\r\n', '\n')).digest('hex')
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The sha256 of the case's test file, or null when the case has none.
+ *
+ * WHY A CASE KEEPS IT. The run must execute the bytes the case was registered with. Without a
+ * stored hash, a test file edited after the verification leaves the case `verified` over a check
+ * nobody ran - the record names a command, not the code it runs.
+ */
+export function testHashOf(record, workspace, options = {}) {
+  const hash = typeof options.hash === 'function' ? options.hash : fileHash
+  if (record === null || typeof record !== 'object' || record.automated !== true) return null
+  const path = typeof record.testPath === 'string' ? record.testPath.trim() : ''
+  if (path === '') return null
+  return hash(join(workspace, path))
+}
+
+/**
+ * Compare the hash stored on the case with the file on disk now.
+ *
+ * @returns `{ recorded, actual, ok }`; `ok` is true only when a recorded hash exists AND matches.
+ *   `recorded === null` means the case predates the hash (legacy): the caller refuses the run
+ *   instead of trusting bytes the record never named.
+ */
+export function testHashState(record, workspace, options = {}) {
+  const recorded = typeof record?.testHash === 'string' && record.testHash !== '' ? record.testHash : null
+  const actual = testHashOf(record, workspace, options)
+  return { recorded, actual, ok: recorded !== null && actual !== null && recorded === actual }
 }
 
 /** Stable, filesystem-safe id from a title. */

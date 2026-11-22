@@ -20,6 +20,7 @@
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { appendCaseEvent } from './journal.mjs'
 
 /** A refusal is a value with a stable code; the tool layer never sees an exception. */
 export class Refusal extends Error {
@@ -96,7 +97,14 @@ export function readCase(dir, id) {
   return { record, path }
 }
 
-/** Atomic write: a reader never sees a half-written case, and a write failure is a refusal. */
+/**
+ * Atomic write: a reader never sees a half-written case, and a write failure is a refusal.
+ *
+ * THE WRITE IS RECORDED. Every path that changes a case file goes through here, so the journal
+ * event is appended in the same place: one seam, no forgotten call site. A journal that cannot be
+ * written does not fail the case (the file is the product); it leaves the case unrecorded, which the
+ * next check reports as legacy rather than as signed.
+ */
 export function writeCase(dir, record) {
   safeCaseId(record?.id)
   const path = casePath(dir, record.id)
@@ -108,6 +116,7 @@ export function writeCase(dir, record) {
   } catch (error) {
     throw new Refusal('CASE_WRITE_FAILED', `${path}: ${error.message}`)
   }
+  appendCaseEvent(dir, 'write', record.id, path)
   return path
 }
 

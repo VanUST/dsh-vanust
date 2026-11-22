@@ -13,6 +13,7 @@ Production path: plugins/test-cases/test-cases.mjs (case_run cwd, resolveCwd, pi
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -34,6 +35,9 @@ const PRINT_CWD = 'node -e "console.log(process.cwd())"'
 function automation(cwd, overrides = {}) {
   mkdirSync(join(cwd, 'test'), { recursive: true })
   writeFileSync(join(cwd, 'test', 'anything.test.mjs'), '// placeholder for the case binding\n', 'utf8')
+  // A case recorded by the tool freezes the test file's hash; a fixture written straight to disk
+  // has to carry the same fields, or case_run refuses it as legacy (TEST_HASH_MISSING).
+  const testHash = createHash('sha256').update(readFileSync(join(cwd, 'test', 'anything.test.mjs'))).digest('hex')
   return {
     schemaVersion: 1,
     id: 'prints-its-directory',
@@ -47,11 +51,15 @@ function automation(cwd, overrides = {}) {
     runCommand: PRINT_CWD,
     status: 'unverified',
     reqId: 'REQ-180',
-    authorRole: 'BACKEND',
+    authorRole: 'backend',
+    authorPreset: 'backend',
+    purpose: 'acceptance',
+    testHash,
+    // An automated acceptance case names its surface; the fixture keeps the one file it has.
+    surfaceFiles: [{ path: 'test/anything.test.mjs', sha256: testHash }],
     revision: 1,
     steps: ['run it'],
     tags: [],
-    surfaceFiles: [],
     history: [],
     evidence: {},
     ...overrides,
@@ -63,7 +71,7 @@ function writeCase(dir, record) {
   return record
 }
 
-const exec = (cwd) => ({ agent: { session: { header: { cwd } } } })
+const exec = (cwd) => ({ agent: { session: { id: 'sess-backend', header: { cwd, agentPreset: 'backend' } } } })
 
 test('negative control expect-pre-fix: a pinned command used to be accepted', async () => {
   if (control !== 'expect-pre-fix') return
@@ -161,7 +169,13 @@ test('a relative command, including a relative cd, is still accepted', async () 
   const verdict = await tools.case_record.execute({
     title: 'Relative command stays valid', requirement: 'r', expected: 'e', automated: true,
     testPath: 'test/anything.test.mjs', runCommand: 'cd plugins/designmap && node --test test/x.test.mjs',
-    reqId: 'REQ-180', authorRole: 'BACKEND',
+    reqId: 'REQ-180', authorRole: 'BACKEND', surfaceFiles: ['test/anything.test.mjs'],
+    failsWhen: 'the command does not run in the directory it was given',
+    trigger: 'a run with cwd',
+    oracle: 'the command prints the directory it ran in',
+    realism: 'the pinned-command bug report',
+    realismReviewedBy: 'reviewer',
+    realismReviewedAt: '2026-01-01T00:00:00.000Z',
   }, exec(cwd))
   assert.equal(verdict.ok, true, JSON.stringify(verdict))
 })

@@ -13,6 +13,7 @@
  */
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -65,6 +66,9 @@ function record(overrides = {}) {
     source: 'agent',
     automated: true,
     testPath: 'driver.mjs',
+    // The case freezes the bytes of its test file; a fixture that skips the hash is a legacy
+    // record, and case_run/case_suite/the CLI refuse those by name.
+    testHash: createHash('sha256').update(DRIVER).digest('hex'),
     runCommand: 'node driver.mjs default.json',
     checks: [{ metric: 'p95', op: '<=', threshold: 250, unit: 'ms', name: 'p95 latency' }],
     steps: ['run it'],
@@ -89,6 +93,7 @@ async function run(record, options = {}) {
     timeoutMs: options.timeoutMs ?? 30_000,
     mode: options.mode ?? 'green',
     control: options.control ?? '',
+    runBy: options.runBy ?? null,
     exec: spawnExec(),
   })
   return { attempt, dir, workspace: dirname(dirname(dir)) }
@@ -122,16 +127,23 @@ test('a green run is measured, then a negative control makes it verified', async
   assert.equal(stored.checks.find((check) => check.name === 'p95 latency').pass, true)
   assert.equal(stored.checks[0].name, 'exit code')
 
-  const red = await run(firstFold.record, { runId: 'red-1', mode: 'red', control: 'break' })
+  const reviewer = { preset: 'reviewer', sessionId: 'sess-reviewer' }
+  const red = await run(firstFold.record, { runId: 'red-1', mode: 'red', control: 'break', runBy: reviewer })
   assert.equal(red.attempt.controlHeld, true, 'the control must fail')
-  const redFold = recordRun(firstFold.record, { workspace: red.workspace, attempt: red.attempt, mode: 'red' })
+  const redFold = recordRun(firstFold.record, { workspace: red.workspace, attempt: red.attempt, mode: 'red', runBy: reviewer })
   assert.equal(redFold.record.redFirst.source, 'negative-control')
+  assert.equal(redFold.record.redFirst.redSource, 'runner', 'the reserved redSource is not written')
 
-  const green = await run(redFold.record, { runId: 'green-2' })
-  const verified = recordRun(redFold.record, { workspace: green.workspace, attempt: green.attempt })
+  const green = await run(redFold.record, { runId: 'green-2', runBy: reviewer })
+  const verified = recordRun(redFold.record, { workspace: green.workspace, attempt: green.attempt, runBy: reviewer })
   assert.equal(verified.record.status, 'verified')
   assert.equal(verified.record.lastVerified.source, 'runner')
   assert.equal(verified.record.lastVerified.runId, 'green-2-1')
+  // WHO ran it travels with the run and with the verification: the gate compares this preset with
+  // the task's implementer, so a run without it could not be judged independent.
+  assert.deepEqual(verified.record.lastVerified.runBy, { ...reviewer, taskId: null })
+  const greenRun = JSON.parse(readFileSync(join(green.dir, 'runs', base.id, 'green-2-1', 'run.json'), 'utf8'))
+  assert.deepEqual(greenRun.runBy, { ...reviewer, taskId: null })
 })
 
 test('an artifact the driver wrote is hashed into the run', async () => {
@@ -253,6 +265,33 @@ test('the CLI runs a filtered suite, writes the report and exits non-zero on a r
   }
   assert.equal(gateAudit.ok, false, 'an unverified automated case blocks the gate')
   assert.equal(gateAudit.blockers[0].id, 'suite-fail')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('the CLI prints SKIP, never PASS, for a case it could not bind to its test bytes', () => {
+  const dir = workspace()
+  const library = join(dir, 'docs', 'cases')
+  const bound = record({
+    id: 'skip-bound',
+    title: 'Bound',
+    tags: ['skip-proof'],
+    redFirst: { at: new Date().toISOString(), exitCode: 1, control: 'break', source: 'negative-control' },
+  })
+  const unbound = record({ id: 'skip-unbound', title: 'Unbound', tags: ['skip-proof'] })
+  delete unbound.testHash
+  writeCase(library, bound)
+  writeCase(library, unbound)
+  let code = 0
+  let output = ''
+  try {
+    output = execFileSync(process.execPath, [CLI, 'suite', '--tag', 'skip-proof', '--workspace', dir], { encoding: 'utf8' })
+  } catch (error) {
+    code = error.status
+    output = String(error.stdout ?? '')
+  }
+  assert.equal(code, 1, 'a skipped case must make the suite exit 1')
+  assert.match(output, /SKIP\s+skip-unbound\s+\(TEST_HASH_MISSING\)/, output)
+  assert.match(output, /PASS\s+skip-bound/, output)
   rmSync(dir, { recursive: true, force: true })
 })
 

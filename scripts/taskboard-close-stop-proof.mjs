@@ -56,6 +56,7 @@ const linksPath = join(dir, 'links.json')
 writeFileSync(boardPath, JSON.stringify({ version: 1, revision: 1, tasks: [], agents: [] }, null, 2) + '\n')
 
 const { apply } = await import(pathToFileURL(taskboardModule).href)
+const { appendRowEvent } = await import(pathToFileURL(join(dirname(taskboardModule), 'lib', 'journal.mjs')).href)
 
 const results = []
 const check = (name, ok, detail) => {
@@ -65,11 +66,17 @@ const check = (name, ok, detail) => {
 }
 const readBoard = () => JSON.parse(readFileSync(boardPath, 'utf8'))
 const writeBoard = (board) => writeFileSync(boardPath, JSON.stringify(board, null, 2) + '\n')
+/**
+ * Move a row by hand and RECORD the write, the way the service does: a hand edit that leaves no
+ * journal event is what the close refuses, so a setup that needs the row in another status must
+ * state that it made the change.
+ */
 const setStatus = (id, status) => {
   const board = readBoard()
   const task = board.tasks.find((entry) => entry.id === id)
   if (task !== undefined) task.status = status
   writeBoard(board)
+  if (task !== undefined) appendRowEvent(dir, 'update', task)
 }
 
 function harness() {
@@ -129,14 +136,33 @@ function harness() {
 const h = harness()
 const { service, call } = h
 const makeTask = (title) => service.create(dir, { title, role: 'REVIEWER', preset: 'reviewer', chatId: 'root' })
+/**
+ * A row that is already in review when the proof starts - the shape a settled child leaves.
+ *
+ * WRITTEN BY HAND ON PURPOSE, and that is now meaningful: a row with no journal event is LEGACY,
+ * which is exactly what the proof needs to exercise the close's own refusals (needs_result,
+ * needs_evidence). A row created through the service would be journaled, and a hand edit of it
+ * would - correctly - be refused as TASK_JOURNAL_MISMATCH before the close ever ran.
+ */
 const makeReview = (title, result) => {
-  const task = makeTask(title)
+  const id = `task-${Math.random().toString(36).slice(2, 10)}`
   const board = readBoard()
-  const row = board.tasks.find((entry) => entry.id === task.id)
-  row.status = 'review'
-  if (result !== undefined) row.result = result
+  board.tasks.push({
+    id,
+    revision: 1,
+    title,
+    status: 'review',
+    priority: 'normal',
+    chatId: 'root',
+    caseIds: [],
+    childSessionIds: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    ...(result === undefined ? {} : { result }),
+  })
+  board.revision = (board.revision ?? 0) + 1
   writeBoard(board)
-  return row
+  return board.tasks[board.tasks.length - 1]
 }
 const rev = () => readBoard().revision
 

@@ -63,6 +63,7 @@ const linksPath = join(dir, 'links.json')
 writeFileSync(boardPath, JSON.stringify({ version: 1, revision: 1, tasks: [], agents: [] }, null, 2) + '\n')
 
 const { apply } = await import(pathToFileURL(taskboardModule).href)
+const { appendRowEvent } = await import(pathToFileURL(join(dirname(taskboardModule), 'lib', 'journal.mjs')).href)
 const orchestrator = await import(pathToFileURL(orchestratorModule).href)
 
 const results = []
@@ -72,7 +73,7 @@ const check = (name, ok, detail) => {
   process.stdout.write((ok ? 'PASS' : 'FAIL') + '  ' + name + suffix + '\n')
 }
 const readBoard = () => JSON.parse(readFileSync(boardPath, 'utf8'))
-const writeBoard = (board) => writeFileSync(boardPath, JSON.stringify(board, null, 2) + '\n')
+const writeBoard = (board) => { writeFileSync(boardPath, JSON.stringify(board, null, 2) + '\n'); for (const row of board.tasks ?? []) appendRowEvent(dir, 'update', row) }
 
 function harness() {
   const root = { id: 'root', session: { header: { cwd: dir } } }

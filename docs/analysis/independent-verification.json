@@ -1,0 +1,1503 @@
+{
+  "schemaVersion": 1,
+  "id": "independent-verification",
+  "rev": 40,
+  "status": "ready",
+  "createdAt": "2026-11-22T10:30:07.036Z",
+  "updatedAt": "2026-11-22T20:10:43.229Z",
+  "updatedBy": "agent",
+  "title": "Независимая проверка: происхождение доказательства, роль TESTER и условие приёмки без самопроверки",
+  "requestedSolution": "Владелец 2026-11-22: нельзя давать агенту, который пишет код, делать для этого же кода тесты, замеры и верификацию — риск подгонки проверки под реализацию. Нужен независимый тестировщик отдельным пресетом либо внутри CRITIC; тестирование должно идти по ограничениям задачи, а ограничения должны знать оркестратор и любой субагент. Владелец отдельно уточнил: red-first и негативный контроль — необходимое, но не достаточное условие; тест может синтетически падать в недостижимом сценарии и формально быть «красным». Владелец отдельно предупредил: не бюрократизировать — полный цикл имплементация-тесты-ревью-критик-принятие не должен становиться обязательным для каждой фичи; уровень проверки выбирается по риску. Порядок: P0 — происхождение доказательства и условие приёмки без самопроверки; P1 — пилот отдельного TESTER; P2 — сделать TESTER стандартом для L2 и риск-триггеров, а L0/L1 оставить лёгкими.",
+  "businessOutcome": {
+    "problem": "Сейчас исполнитель владеет всей цепочкой доказательства: backend получает case_record/update/verify/run/suite, case_verify ставит verified по введённым вручную данным, условие приёмки принимает любой verified, автор и исполнитель прогона не записываются, а кейс можно переписать или перевести в documented-only. Поэтому задача может быть закрыта самопроверкой, а «зелёный» кейс не доказывает независимую проверку. Дополнительно red-first не гарантирует реалистичности: тест может падать только при синтетическом, недостижимом входе или при правке самого теста.",
+    "outcome": "Закрытая задача опирается на кейс приёмки, автор и исполнитель прогона которого отличаются от исполнителя задачи; подтверждение получено измеренным прогоном, оракул и тест защищены от правки, а сценарий отказа записан как достижимый и связан с реальным поведением продукта. Владелец видит происхождение доказательства. P1 добавляет отдельного TESTER, который пишет и прогоняет кейсы приёмки, не правит продукт и не подписывает собственную реализацию. P2 делает это стандартом для L1/L2.",
+    "successMetrics": [
+      "P0: case_record берёт автора из сессии; case_run пишет runBy; case_verify не ставит verified автоматическому кейсу; условие приёмки отказывает самопроверке",
+      "P0: изменение expected/steps/checks/surfaceFiles/automated сбрасывает подтверждение; case_run отказывает при изменённом тестовом файле",
+      "P0: негативный контроль на копии до правки показывает, что старый код принимает самопроверку, новый — отказывает",
+      "P1: TESTER пишет кейс приёмки, backend реализует, TESTER прогоняет; кейс содержит failsWhen, trigger, oracle и обоснование достижимости",
+      "P1: красный прогон — против прошлой версии или названной неверной реализации, а не только против собственной проверки",
+      "P2: у каждого критерия приёмки задачи уровня independent есть кейс; task_close без покрытия отказывает",
+      "L0/L1 проходят без кейса, тестировщика и ревью; L2 и риск-триггеры (контракт, данные, безопасность, деньги, миграция, конкурентность) требуют независимого измеренного прогона",
+      "make verify и make test зелёные; существующие кейсы читаемы; живой профиль и :3080 не тронуты"
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CURRENT",
+        "name": "Исполнитель сам пишет кейс, сам подтверждает и сам закрывает",
+        "actors": [
+          "оркестратор",
+          "BACKEND",
+          "REVIEWER",
+          "CRITIC"
+        ],
+        "steps": [
+          "Оркестратор ставит задачу и передаёт критерии приёмки текстом.",
+          "BACKEND пишет код и кейс, запускает его или вводит наблюдение вручную.",
+          "case_verify или case_run ставит verified; автор и исполнитель прогона не записываются.",
+          "Оркестратор видит зелёное условие приёмки и закрывает задачу.",
+          "Red-first может быть синтетическим: тест падает только при недостижимом входе или при правке самого теста."
+        ]
+      },
+      {
+        "id": "P-CURRENT-2",
+        "name": "Кейс можно переписать под результат",
+        "actors": [
+          "BACKEND",
+          "библиотека кейсов"
+        ],
+        "steps": [
+          "case_update меняет expected, steps, surfaceFiles или automated, не сбрасывая подтверждение.",
+          "Перевод в documented-only выводит кейс из-под условия приёмки.",
+          "Тестовый файл не хешируется; его можно отредактировать и прогнать."
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-TARGET",
+        "name": "Независимый автор и независимый прогон, достижимый сценарий отказа",
+        "actors": [
+          "оркестратор",
+          "TESTER",
+          "BACKEND",
+          "REVIEWER",
+          "CRITIC",
+          "владелец"
+        ],
+        "steps": [
+          "Оркестратор формулирует критерии приёмки с id и ограничения задачи; кейс приёмки пишет независимый автор — оркестратор в P0, TESTER в P1.",
+          "Backend реализует, не трогая кейс и тест приёмки; implementation-кейсы исполнителя не закрывают задачу.",
+          "Независимый исполнитель прогоняет кейс измеренно; runBy и автор записываются из сессии.",
+          "Кейс фиксирует failsWhen, trigger, oracle и достижимость триггера; красный прогон делается против прошлой версии или названной неверной реализации.",
+          "CRITIC атакует сам тест: ищет вход, который проходит проверку, но нарушает требование, или сценарий, недостижимый в продукте.",
+          "Условие приёмки проверяет происхождение, измеренность, независимость, хеш теста и отсутствие расхождения; оркестратор закрывает задачу.",
+          "Владелец видит, кто написал кейс, кто его прогнал и почему сценарий считается реальным."
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "BR1",
+      "kind": "BR",
+      "text": "Владелец может отличить независимую проверку от самопроверки: задача не закрывается доказательством, которое создал или подтвердил её исполнитель.",
+      "acceptance": [
+        "в карточке кейса видны автор кейса, исполнитель прогона и источник подтверждения",
+        "закрытие задачи с самопроверкой отказано и названо",
+        "негативный контроль: на копии до правки та же задача закрывается, после правки — нет"
+      ],
+      "status": "deferred",
+      "reason": "P0/P1/P2 реализованы; самопроверка и SELF_* остаются отказами. Живой пилот подтвердил независимость: TESTER автор кейса, BACKEND фикс, TESTER green, оркестратор закрыл. Формальный TEST не создан; evidence в task-mws8z37y-r56l8q и %TEMP%\\p1-pilot."
+    },
+    {
+      "id": "FR1",
+      "kind": "FR",
+      "text": "Автор кейса и исполнитель прогона записываются из сессии, а не из аргументов вызывающего агента.",
+      "acceptance": [
+        "case_record записывает authorPreset и authorSessionId из сессии",
+        "case_run и case_suite записывают runBy с пресетом, сессией и задачей",
+        "подмена authorRole агентом отклоняется; человек может назвать автора",
+        "негативный контроль: агент с пресетом backend не может записать себя автором-тестировщиком"
+      ],
+      "status": "deferred",
+      "reason": "P0 реализован и проверен; живой пилот показал автора-тестера и прогон; TEST-сущности с парой red/green в ките нет."
+    },
+    {
+      "id": "FR2",
+      "kind": "FR",
+      "text": "Автоматический кейс приёмки подтверждается только измеренным прогоном; ручное наблюдение не даёт verified.",
+      "acceptance": [
+        "case_verify для automated case оставляет unverified при успехе и фиксирует manual-наблюдение",
+        "case_run без записанного red не даёт verified",
+        "условие приёмки отличает measured от manual и отказывает manual",
+        "негативный контроль: ручное подтверждение с exit 0 не закрывает задачу"
+      ],
+      "status": "deferred",
+      "reason": "Реализовано и проверено; живой пилот: red run exit 1, green run exit 0, case verified. Формальный TEST не создан."
+    },
+    {
+      "id": "FR3",
+      "kind": "FR",
+      "text": "Условие приёмки отказывает кейсу, который подтверждён исполнителем задачи, и возвращает происхождение доказательства.",
+      "acceptance": [
+        "task_close получает от taskboard пресет исполнителя и передаёт его в cases.gateForTask",
+        "кейс с authorPreset или runBy, равным пресету исполнителя, блокирует закрытие",
+        "ответ case_gate содержит evidence по каждому кейсу: автор, runBy, source, runId, at",
+        "негативный контроль: backend-автор и backend-прогон блокируются, reviewer-прогон проходит"
+      ],
+      "status": "deferred",
+      "reason": "Реализовано и проверено: SELF_AUTHORED/SELF_RUN, IMPLEMENTER_UNKNOWN, caseIds, CASE_FOREIGN; живой пилот закрыл задачу после независимого прогона. TEST-сущности нет."
+    },
+    {
+      "id": "FR4",
+      "kind": "FR",
+      "text": "Оракул кейса, привязка к тесту и статус автоматизации защищены: изменение сбрасывает подтверждение, содержимое теста проверяется хешем.",
+      "acceptance": [
+        "изменение expected, steps, checks, surfaceFiles или automated сбрасывает verified в stale и очищает доказательство",
+        "case_run отказывает, если хеш тестового файла отличается от записанного",
+        "case_update не позволяет не-автору менять кейс; смена автора отклонена",
+        "перевод acceptance-кейса в documented-only отклонён; нужен новый кейс или человеческий waiver",
+        "негативный контроль: правка expected после verified не оставляет кейс зелёным"
+      ],
+      "status": "deferred",
+      "reason": "Реализовано и проверено (AUTHOR_ONLY/AUTHOR_IMMUTABLE, TEST_CHANGED, stale, RUN_ARTIFACT). Пилот нашёл отдельную низкую находку: case_update молча игнорирует незнакомое поле status; это не откат P1. TEST-сущности нет."
+    },
+    {
+      "id": "FR5",
+      "kind": "FR",
+      "text": "Кейс приёмки записывает сценарий отказа, триггер, источник оракула и обоснование достижимости; без них автоматический кейс приёмки не регистрируется.",
+      "acceptance": [
+        "case_record требует failsWhen, trigger, oracle и realism для automated acceptance case",
+        "trigger описывает вход или последовательность через публичный интерфейс, а не внутреннюю деталь",
+        "realism называет источник: сообщение о дефекте, пользовательский путь, контракт, производственный профиль данных или инвариант предметной области",
+        "case_get возвращает эти поля; условие приёмки показывает их в evidence",
+        "негативный контроль: кейс без trigger или с триггером, запрещённым контрактом, отклоняется"
+      ],
+      "status": "deferred",
+      "reason": "P1 реализован и принят; живой пилот: кейс с четырьмя полями, wrong-product red на копии предыдущего коммита, BACKEND fix, green, verified. Формальный TEST не создан."
+    },
+    {
+      "id": "FR6",
+      "kind": "FR",
+      "text": "Красный прогон кейса приёмки доказывает не только способность проверки падать, но и обнаружение неверного поведения продукта.",
+      "acceptance": [
+        "case_run различает redSource wrong-product и negative-control",
+        "для acceptance case условие приёмки требует wrong-product red: прошлая версия, копия с названным дефектом или названная неверная реализация",
+        "negative-control остаётся самопроверкой драйвера и не считается достаточным red",
+        "для новой возможности допускается названная неверная заглушка или фикстура, если прошлой версии нет",
+        "негативный контроль: red только через CASE_NEGATIVE_CONTROL не даёт acceptance verified"
+      ],
+      "status": "deferred",
+      "reason": "P1 реализован и принят; живой пилот: wrong-product red на внешней копии коммита 210648e (exit 1, sum(1,2,3)=5 expected 6), green после фикса 7841704 (exit 0, sum ok), case verified. S4 остаётся названной границей B1; human realism проверен PILOT."
+    },
+    {
+      "id": "FR7",
+      "kind": "FR",
+      "text": "В развёртывании появляется отдельный пресет TESTER: он пишет и прогоняет кейсы приёмки, не правит продукт и не подписывает собственную реализацию.",
+      "acceptance": [
+        "PRESET_IDS и ROLE_PRESETS содержат tester; TESTER и QA ведут на него, CRITIC остаётся атакующим",
+        "пресет tester получает shell, чтение, запись только в docs/cases и тестовые корни, полный набор case_*",
+        "попытка записи в продуктовый файл отклоняется",
+        "оркестраторская политика называет порядок: критерии → TESTER → BACKEND → TESTER → REVIEWER/CRITIC → закрытие",
+        "пилот на двух-трёх задачах L2 или L1 с риск-триггером показывает, что TESTER ловит дефект, который самопроверка пропускает"
+      ],
+      "status": "deferred",
+      "reason": "Живой пилот проведён: временный web-профиль 3081, ключ из C:\\Users\\1\\.dsh\\.credentials.yaml только в env, 8 задач (7 done, 1 cancelled), TESTER case с failsWhen/trigger/oracle/realism, wrong-product red на копии предыдущего коммита, BACKEND fix, green, case verified; WRITE_SCOPE на edit продукта, shell-запись — названная граница, S4 — названная граница B1. Live :3080 и profiles/web не тронуты (хеши до/после). Формальный TEST не создан; отчёт %TEMP%\\p1-pilot\\PILOT-REPORT.md."
+    },
+    {
+      "id": "FR8",
+      "kind": "FR",
+      "text": "Ограничения задачи и критерии приёмки с id передаются в каждый бриф; покрытие критериев проверяется только для задачи уровня independent.",
+      "acceptance": [
+        "task contract содержит цель, объём, вне объёма, критерии с id, контракт, среду/данные, время, запреты и форму доказательства",
+        "delegate_task рендерит тот же блок исполнителю, тестировщику и ревьюверу",
+        "для задачи уровня independent кейс привязывается к criterionId, и task_close отказывает, если критерий не покрыт",
+        "для задачи уровня proof или case кейс не обязателен; отсутствие кейса не блокирует закрытие",
+        "негативный контроль: задача proof закрывается без кейса, задача independent с непокрытым критерием — нет"
+      ],
+      "status": "deferred",
+      "reason": "P2 реализован и принят независимым ревью (PASS); task contract/verification/criteria, contractBlock, покрытие только independent. Формальный TEST и живой профиль отложены."
+    },
+    {
+      "id": "NFR1",
+      "kind": "NFR",
+      "text": "Существующие кейсы и проверки кита остаются рабочими; старые подтверждения без происхождения не принимаются молча.",
+      "acceptance": [
+        "все существующие кейсы читаются; отсутствие authorPreset/runBy не роняет чтение",
+        "старый verified без происхождения блокирует приёмку как legacy и требует нового прогона",
+        "node --test plugins/test-cases/test/*.test.mjs и make test зелёные",
+        "make verify exit 0; тарболы перепакованы при изменении плагинов"
+      ],
+      "status": "deferred",
+      "reason": "Гейты зелёные (test-cases 67/67, taskboard 48/48, make test 84/84, make verify 19/19), тарболы совпадают; живой пилот не менял docs/cases кита."
+    },
+    {
+      "id": "NFR2",
+      "kind": "NFR",
+      "text": "Живой сервер, профиль и данные владельца не трогаются; проверка идёт на копии или втором профиле.",
+      "acceptance": [
+        "~/.npm/dsh/profiles/web не переписывается во время работы :3080",
+        "правки и прогоны идут в рабочем дереве кита и docs/cases/runs",
+        "негативный контроль не касается производственных данных"
+      ],
+      "status": "deferred",
+      "reason": "Живой пилот: live :3080 и profiles/web не тронуты (хеши cordis.patch.yml и .credentials.yaml до/после совпадают), временный профиль 3081 и Chrome остановлены, :3081 не отвечает. Формальный TEST NFR2 не создан."
+    }
+  ],
+  "architecture": {
+    "contractImpact": "breaking",
+    "components": [
+      {
+        "id": "C-CASES",
+        "name": "@cc/dsh-test-cases",
+        "responsibility": "схема кейса, инструменты case_*, запись прогонов, условие приёмки",
+        "owner": "BACKEND",
+        "owns": [
+          "D-CASE",
+          "D-RUN"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "C-TASKBOARD",
+        "name": "@cc/dsh-taskboard",
+        "responsibility": "жизненный цикл задачи и вызов условия приёмки при закрытии; передаёт пресет исполнителя",
+        "owner": "BACKEND",
+        "owns": [
+          "D-TASK"
+        ],
+        "dependsOn": [
+          "C-CASES"
+        ]
+      },
+      {
+        "id": "C-ORCH",
+        "name": "@cc/dsh-orchestrator",
+        "responsibility": "каталог ролей, политика делегирования, бриф и task contract",
+        "owner": "BACKEND",
+        "owns": [
+          "D-BRIEF"
+        ],
+        "dependsOn": [
+          "C-TASKBOARD"
+        ]
+      },
+      {
+        "id": "C-PROFILE",
+        "name": "profile/cordis.patch.yml",
+        "responsibility": "объявление пресета TESTER и его набора инструментов",
+        "owner": "BACKEND",
+        "owns": [
+          "D-ROLES"
+        ],
+        "dependsOn": [
+          "C-ORCH"
+        ]
+      },
+      {
+        "id": "C-PROOF",
+        "name": "@cc/dsh-proof-guard",
+        "responsibility": "ограничение записи тестировщика кейсами и тестовыми путями",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": [
+          "C-PROFILE"
+        ]
+      },
+      {
+        "id": "C-DOCS",
+        "name": "README, rules/DEPLOYMENT, docs/TERMINOLOGY, inventory",
+        "responsibility": "документация ролей, контрактов и терминов",
+        "owner": "DOCS",
+        "owns": [],
+        "dependsOn": [
+          "C-PROFILE"
+        ]
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "D-CASE",
+      "name": "docs/cases/*.json",
+      "owner": "kit",
+      "ownerComponentId": "C-CASES",
+      "description": "запись кейса: автор, сессия, purpose, testHash, failsWhen, trigger, oracle, realism, lastVerified"
+    },
+    {
+      "id": "D-RUN",
+      "name": "docs/cases/runs/**",
+      "owner": "kit",
+      "ownerComponentId": "C-CASES",
+      "description": "артефакт прогона: run.json с runBy, redSource, head/dirty, команда, checks, artifacts"
+    },
+    {
+      "id": "D-TASK",
+      "name": ".dsh/taskboard.json",
+      "owner": "kit",
+      "ownerComponentId": "C-TASKBOARD",
+      "description": "задача, её роль и пресет исполнителя; вход условия приёмки"
+    },
+    {
+      "id": "D-BRIEF",
+      "name": "бриф задачи",
+      "owner": "kit",
+      "ownerComponentId": "C-ORCH",
+      "description": "task contract: критерии с id, ограничения, форма доказательства"
+    },
+    {
+      "id": "D-ROLES",
+      "name": "profile/cordis.patch.yml и plugins/inventory.json",
+      "owner": "kit",
+      "ownerComponentId": "C-PROFILE",
+      "description": "объявление TESTER, его инструменты и учёт в инвентаре"
+    }
+  ],
+  "contracts": [
+    {
+      "id": "CT-CASE",
+      "name": "Инструменты case_record/case_update/case_run/case_verify",
+      "between": [
+        "C-CASES"
+      ],
+      "change": "breaking",
+      "description": "case_record больше не принимает authorRole агента как факт; case_run возвращает runBy; case_verify не даёт verified автоматическому кейсу; case_update ограничен автором и сбрасывает подтверждение при изменении оракула."
+    },
+    {
+      "id": "CT-GATE",
+      "name": "cases.gateForTask",
+      "between": [
+        "C-CASES",
+        "C-TASKBOARD"
+      ],
+      "change": "breaking",
+      "description": "принимает пресет исполнителя и возвращает evidence по каждому кейсу; отказ при самопроверке, manual, расхождении или изменённом тесте."
+    },
+    {
+      "id": "CT-TASK",
+      "name": "task_close",
+      "between": [
+        "C-TASKBOARD",
+        "C-CASES"
+      ],
+      "change": "additive",
+      "description": "закрытие задачи вызывает условие приёмки с контекстом задачи; отказ называет кейс и причину."
+    },
+    {
+      "id": "CT-ROLE",
+      "name": "Пресет TESTER",
+      "between": [
+        "C-PROFILE",
+        "C-ORCH",
+        "C-PROOF"
+      ],
+      "change": "additive",
+      "description": "идентификатор tester, роль TESTER/QA, набор инструментов, ограниченная запись в docs/cases и тестовые корни."
+    },
+    {
+      "id": "CT-BRIEF",
+      "name": "Task contract в брифе",
+      "between": [
+        "C-ORCH"
+      ],
+      "change": "additive",
+      "description": "блок с критериями id и ограничениями, одинаковый для исполнителя, тестировщика и ревьювера; возврат по критериям."
+    }
+  ],
+  "invariants": [
+    {
+      "id": "INV-MEASURED",
+      "text": "Ручное наблюдение не даёт verified автоматическому кейсу приёмки.",
+      "scope": "C-CASES"
+    },
+    {
+      "id": "INV-INDEPENDENT",
+      "text": "Автор кейса приёмки и исполнитель его прогона не совпадают с пресетом исполнителя задачи.",
+      "scope": "C-CASES"
+    },
+    {
+      "id": "INV-ORACLE",
+      "text": "Изменение ожидания, шагов, проверок, поверхности или автоматизации сбрасывает подтверждение.",
+      "scope": "C-CASES"
+    },
+    {
+      "id": "INV-TESTHASH",
+      "text": "Прогон выполняется только над тем тестовым файлом, который был записан при регистрации или последней правке кейса.",
+      "scope": "C-CASES"
+    },
+    {
+      "id": "INV-FAILCLOSED",
+      "text": "Отсутствие происхождения доказательства — отказ, а не зелёный результат.",
+      "scope": "C-TASKBOARD"
+    },
+    {
+      "id": "INV-REALISTIC",
+      "text": "Проверка, которая может упасть только при правке самой проверки или при недостижимом входе, не является доказательством приёмки.",
+      "scope": "C-CASES"
+    },
+    {
+      "id": "INV-LEGACY",
+      "text": "Старые кейсы остаются читаемыми; их подтверждение без происхождения не удаляется, но и не принимается молча.",
+      "scope": "C-CASES"
+    },
+    {
+      "id": "INV-PROPORTIONAL",
+      "text": "Задача с уровнем проверки proof не блокируется условием приёмки из-за отсутствия кейса; кейс, тестировщик, ревью и критик не обязательны без риск-триггера.",
+      "scope": "C-TASKBOARD"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "D-RED-NOT-ENOUGH",
+      "decision": "Red-first и негативный контроль считаются необходимыми, но не достаточными. Для кейса приёмки дополнительно требуются достижимый триггер, красный прогон против неверного продукта и независимая проверка источника ожидаемого результата.",
+      "rationale": "Тест может падать только в синтетическом сценарии, недостижимом в продукте, или только при правке собственного утверждения; формальная краснота тогда ничего не доказывает.",
+      "alternatives": [
+        "оставить только red-first",
+        "доверить реалистичность автоматической проверке"
+      ]
+    },
+    {
+      "id": "D-NO-NEW-STATUS",
+      "decision": "Не вводить новый статус reported в P0: ручной успех автоматического кейса оставляет unverified и записывает manual-наблюдение; провал остаётся failing.",
+      "rationale": "Меньше миграции и панели; условие приёмки всё равно требует measured runner.",
+      "alternatives": [
+        "новый статус reported",
+        "оставить verified, но помечать manual"
+      ]
+    },
+    {
+      "id": "D-PURPOSE",
+      "decision": "Добавить purpose: acceptance | implementation. Только acceptance закрывает задачу; implementation-кейсы исполнителя полезны, но не считаются.",
+      "rationale": "Исполнитель может писать свои тесты, не блокируя приёмку и не подменяя её",
+      "alternatives": [
+        "запретить исполнителю любые тесты",
+        "считать все кейсы приёмкой"
+      ]
+    },
+    {
+      "id": "D-AUTHOR-IMMUTABLE",
+      "decision": "Автор кейса берётся из сессии и не меняется агентом; case_update доступен только автору или человеку.",
+      "rationale": "Иначе авторство подделывается одним аргументом, а кейс переписывается под результат",
+      "alternatives": [
+        "оставить authorRole входным параметром"
+      ]
+    },
+    {
+      "id": "D-TASK-PRESET",
+      "decision": "Условие приёмки получает пресет исполнителя из taskboard; inline-задача считается orchestrator.",
+      "rationale": "Сравнение идёт по фактическому набору инструментов, а не по метке роли",
+      "alternatives": [
+        "читать пресет из заголовка сессии кейса"
+      ]
+    },
+    {
+      "id": "D-P0-NO-ROLE",
+      "decision": "В P0 не добавлять пресет: кейс приёмки пишет оркестратор, измеренно прогоняет REVIEWER. Отдельный TESTER — P1.",
+      "rationale": "Сначала закрыть самопроверку на уровне доказательств; новая роль без этого унаследует дыру",
+      "alternatives": [
+        "сразу добавить TESTER"
+      ]
+    },
+    {
+      "id": "D-TESTER-SEPARATE",
+      "decision": "В P1 добавить отдельный пресет TESTER, а CRITIC оставить атакующим.",
+      "rationale": "У критика стимул найти падение, у тестировщика — подписать приёмку; разные инструменты и разные роли",
+      "alternatives": [
+        "вшить проверку в CRITIC"
+      ]
+    },
+    {
+      "id": "D-REALISM-HUMAN",
+      "decision": "Реалистичность триггера не проверяется автоматически: кейс её записывает, независимый ревьювер проверяет, человек выборочно аудитирует.",
+      "rationale": "Гейт может проверить наличие полей, но не правдоподобность сценария; это суждение",
+      "alternatives": [
+        "считать presence полей доказательством",
+        "полностью автоматизировать оценку"
+      ]
+    },
+    {
+      "id": "D-PROPORTIONAL",
+      "decision": "Уровень проверки выбирается по риску, а не по факту изменения, и записывается в task contract как proof | case | independent. L0 (локальная правка без контракта, архитектуры и данных) — прогон продукта и закрытие, без кейса, тестировщика, ревью и критика. L1 (ограниченная фича внутри существующих компонентов) — прогон продукта и, если поведение стоит закрепить, один кейс; независимый прогон только при риск-триггере. L2 (контракт, данные, архитектура, безопасность, деньги, миграция, конкурентность) — независимый автор кейса и независимый измеренный прогон. CRITIC — инструмент под конкретный риск, не обязательная фаза.",
+      "rationale": "Полный цикл на каждую фичу превращает получасовую правку в возню с формализмом; проверка должна стоить меньше риска, который она снимает.",
+      "alternatives": [
+        "полный цикл для любой фичи",
+        "никакой независимой проверки"
+      ]
+    }
+  ],
+  "openQuestions": [
+    {
+      "id": "Q-1",
+      "question": "Кто подписывает достижимость и реалистичность триггера — TESTER, REVIEWER или человек?",
+      "owner": "",
+      "blocks": false,
+      "answer": ""
+    },
+    {
+      "id": "Q-2",
+      "question": "Должен ли documented-only кейс когда-либо закрывать критерий приёмки, и кто даёт waiver?",
+      "owner": "",
+      "blocks": false,
+      "answer": ""
+    },
+    {
+      "id": "Q-3",
+      "question": "Как мигрировать старые verified-кейсы без authorPreset/runBy: блокировать до нового прогона или помечать legacy навсегда?",
+      "owner": "",
+      "blocks": false,
+      "answer": ""
+    },
+    {
+      "id": "Q-4",
+      "question": "Критерии приёмки берутся из REQ (REQ-…-C01) или из задачи (AC-1) для chore?",
+      "owner": "",
+      "blocks": false,
+      "answer": ""
+    },
+    {
+      "id": "Q-5",
+      "question": "Для новой возможности без прошлой версии что считать wrong-product red: неверная заглушка, фикстура или эталонная реализация?",
+      "owner": "",
+      "blocks": false,
+      "answer": ""
+    }
+  ],
+  "sizing": {
+    "class": "L2",
+    "reasons": [
+      "меняется контракт инструментов кейсов и условие приёмки",
+      "меняется схема записи кейса и прогона (автор, runBy, testHash, purpose, realism)",
+      "добавляется пресет и ограничение записи",
+      "меняется политика оркестратора и формат брифа",
+      "затрагиваются taskboard, test-cases, proof-guard, профиль и документация"
+    ]
+  },
+  "designRef": {
+    "mapRev": 31,
+    "at": "2026-11-22T10:30:31.134Z",
+    "source": "designmap/manifest.json"
+  },
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "BR1",
+      "processId": "P-TARGET",
+      "componentId": "C-CASES",
+      "contractIds": [
+        "CT-GATE",
+        "CT-TASK"
+      ],
+      "dataIds": [
+        "D-CASE",
+        "D-RUN"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "taskId": "task-mws8uh2x-uqkuuf",
+          "role": "BACKEND",
+          "at": "2026-11-22T19:42:36.543Z",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "requirementId": "FR1",
+      "processId": "P-TARGET",
+      "componentId": "C-CASES",
+      "contractIds": [
+        "CT-CASE"
+      ],
+      "dataIds": [
+        "D-CASE",
+        "D-RUN"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "taskId": "task-mwrp79fk-ewaclo",
+          "role": "BACKEND",
+          "at": "2026-11-22T10:32:40.835Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrpz79i-hngkiv",
+          "role": "REVIEWER",
+          "at": "2026-11-22T10:54:24.394Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrpz7bh-fdgtjd",
+          "role": "CRITIC",
+          "at": "2026-11-22T10:54:24.464Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrqqbgp-xuv16c",
+          "role": "REVIEWER",
+          "at": "2026-11-22T11:15:29.549Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrqqbkg-96m7gq",
+          "role": "CRITIC",
+          "at": "2026-11-22T11:15:29.684Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrr6cp1-rkyiua",
+          "role": "REVIEWER",
+          "at": "2026-11-22T11:27:57.641Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrr6cte-i584f1",
+          "role": "CRITIC",
+          "at": "2026-11-22T11:27:57.798Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrrfoj5-y81qjw",
+          "role": "REVIEWER",
+          "at": "2026-11-22T11:35:12.885Z",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "requirementId": "FR2",
+      "processId": "P-TARGET",
+      "componentId": "C-CASES",
+      "contractIds": [
+        "CT-CASE",
+        "CT-GATE"
+      ],
+      "dataIds": [
+        "D-CASE"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "taskId": "task-mwrp79fk-ewaclo",
+          "role": "BACKEND",
+          "at": "2026-11-22T10:32:40.835Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrpz79i-hngkiv",
+          "role": "REVIEWER",
+          "at": "2026-11-22T10:54:24.394Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrpz7bh-fdgtjd",
+          "role": "CRITIC",
+          "at": "2026-11-22T10:54:24.464Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrqqbgp-xuv16c",
+          "role": "REVIEWER",
+          "at": "2026-11-22T11:15:29.549Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrqqbkg-96m7gq",
+          "role": "CRITIC",
+          "at": "2026-11-22T11:15:29.684Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrr6cp1-rkyiua",
+          "role": "REVIEWER",
+          "at": "2026-11-22T11:27:57.641Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrr6cte-i584f1",
+          "role": "CRITIC",
+          "at": "2026-11-22T11:27:57.798Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrrfoj5-y81qjw",
+          "role": "REVIEWER",
+          "at": "2026-11-22T11:35:12.885Z",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "requirementId": "FR3",
+      "processId": "P-TARGET",
+      "componentId": "C-TASKBOARD",
+      "contractIds": [
+        "CT-GATE",
+        "CT-TASK"
+      ],
+      "dataIds": [
+        "D-TASK",
+        "D-CASE"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "taskId": "task-mwrp79fk-ewaclo",
+          "role": "BACKEND",
+          "at": "2026-11-22T10:32:40.835Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrpz79i-hngkiv",
+          "role": "REVIEWER",
+          "at": "2026-11-22T10:54:24.394Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrpz7bh-fdgtjd",
+          "role": "CRITIC",
+          "at": "2026-11-22T10:54:24.464Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrqqbgp-xuv16c",
+          "role": "REVIEWER",
+          "at": "2026-11-22T11:15:29.549Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrqqbkg-96m7gq",
+          "role": "CRITIC",
+          "at": "2026-11-22T11:15:29.684Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrr6cp1-rkyiua",
+          "role": "REVIEWER",
+          "at": "2026-11-22T11:27:57.641Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrr6cte-i584f1",
+          "role": "CRITIC",
+          "at": "2026-11-22T11:27:57.798Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrrfoj5-y81qjw",
+          "role": "REVIEWER",
+          "at": "2026-11-22T11:35:12.885Z",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "requirementId": "FR4",
+      "processId": "P-TARGET",
+      "componentId": "C-CASES",
+      "contractIds": [
+        "CT-CASE"
+      ],
+      "dataIds": [
+        "D-CASE"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "taskId": "task-mwrp79fk-ewaclo",
+          "role": "BACKEND",
+          "at": "2026-11-22T10:32:40.835Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrpz79i-hngkiv",
+          "role": "REVIEWER",
+          "at": "2026-11-22T10:54:24.394Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrpz7bh-fdgtjd",
+          "role": "CRITIC",
+          "at": "2026-11-22T10:54:24.464Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrqqbgp-xuv16c",
+          "role": "REVIEWER",
+          "at": "2026-11-22T11:15:29.549Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrqqbkg-96m7gq",
+          "role": "CRITIC",
+          "at": "2026-11-22T11:15:29.684Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrr6cp1-rkyiua",
+          "role": "REVIEWER",
+          "at": "2026-11-22T11:27:57.641Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrr6cte-i584f1",
+          "role": "CRITIC",
+          "at": "2026-11-22T11:27:57.798Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrrfoj5-y81qjw",
+          "role": "REVIEWER",
+          "at": "2026-11-22T11:35:12.885Z",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "requirementId": "FR5",
+      "processId": "P-TARGET",
+      "componentId": "C-CASES",
+      "contractIds": [
+        "CT-CASE"
+      ],
+      "dataIds": [
+        "D-CASE"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "taskId": "task-mwrrkv6d-7ii8t0",
+          "role": "BACKEND",
+          "at": "2026-11-22T11:39:14.777Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrry7yr-yxfwfg",
+          "role": "REVIEWER",
+          "at": "2026-11-22T11:49:37.879Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrry83d-ic6mvm",
+          "role": "CRITIC",
+          "at": "2026-11-22T11:49:38.045Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrs9pwz-khfarj",
+          "role": "REVIEWER",
+          "at": "2026-11-22T11:58:34.359Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrs9q2f-eplgve",
+          "role": "CRITIC",
+          "at": "2026-11-22T11:58:34.556Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrsjxt2-gfgbxq",
+          "role": "REVIEWER",
+          "at": "2026-11-22T12:06:31.146Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrsjxyw-urz7wc",
+          "role": "CRITIC",
+          "at": "2026-11-22T12:06:31.356Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrsq5aq-0h21aq",
+          "role": "REVIEWER",
+          "at": "2026-11-22T12:11:20.791Z",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "requirementId": "FR6",
+      "processId": "P-TARGET",
+      "componentId": "C-CASES",
+      "contractIds": [
+        "CT-CASE"
+      ],
+      "dataIds": [
+        "D-CASE",
+        "D-RUN"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "taskId": "task-mwrrkv6d-7ii8t0",
+          "role": "BACKEND",
+          "at": "2026-11-22T11:39:14.777Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrry7yr-yxfwfg",
+          "role": "REVIEWER",
+          "at": "2026-11-22T11:49:37.879Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrry83d-ic6mvm",
+          "role": "CRITIC",
+          "at": "2026-11-22T11:49:38.045Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrs9pwz-khfarj",
+          "role": "REVIEWER",
+          "at": "2026-11-22T11:58:34.359Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrs9q2f-eplgve",
+          "role": "CRITIC",
+          "at": "2026-11-22T11:58:34.556Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrsjxt2-gfgbxq",
+          "role": "REVIEWER",
+          "at": "2026-11-22T12:06:31.146Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrsjxyw-urz7wc",
+          "role": "CRITIC",
+          "at": "2026-11-22T12:06:31.356Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrsq5aq-0h21aq",
+          "role": "REVIEWER",
+          "at": "2026-11-22T12:11:20.791Z",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "requirementId": "FR7",
+      "processId": "P-TARGET",
+      "componentId": "C-PROFILE",
+      "contractIds": [
+        "CT-ROLE"
+      ],
+      "dataIds": [
+        "D-ROLES"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "taskId": "task-mwrrkv6d-7ii8t0",
+          "role": "BACKEND",
+          "at": "2026-11-22T11:39:14.777Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrry7yr-yxfwfg",
+          "role": "REVIEWER",
+          "at": "2026-11-22T11:49:37.879Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrry83d-ic6mvm",
+          "role": "CRITIC",
+          "at": "2026-11-22T11:49:38.045Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrs9pwz-khfarj",
+          "role": "REVIEWER",
+          "at": "2026-11-22T11:58:34.359Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrs9q2f-eplgve",
+          "role": "CRITIC",
+          "at": "2026-11-22T11:58:34.556Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrsjxt2-gfgbxq",
+          "role": "REVIEWER",
+          "at": "2026-11-22T12:06:31.146Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrsjxyw-urz7wc",
+          "role": "CRITIC",
+          "at": "2026-11-22T12:06:31.356Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrsq5aq-0h21aq",
+          "role": "REVIEWER",
+          "at": "2026-11-22T12:11:20.791Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrsq5ge-yns4e4",
+          "role": "BACKEND",
+          "at": "2026-11-22T12:11:20.995Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mws8z37y-r56l8q",
+          "role": "PILOT",
+          "at": "2026-11-22T19:46:11.859Z",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "requirementId": "FR8",
+      "processId": "P-TARGET",
+      "componentId": "C-ORCH",
+      "contractIds": [
+        "CT-BRIEF"
+      ],
+      "dataIds": [
+        "D-BRIEF",
+        "D-TASK"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "taskId": "task-mws8uh2x-uqkuuf",
+          "role": "BACKEND",
+          "at": "2026-11-22T19:42:36.543Z",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "requirementId": "NFR1",
+      "processId": "P-TARGET",
+      "componentId": "C-CASES",
+      "contractIds": [],
+      "dataIds": [
+        "D-CASE"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "taskId": "task-mwrp79fk-ewaclo",
+          "role": "BACKEND",
+          "at": "2026-11-22T10:32:40.835Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrpz79i-hngkiv",
+          "role": "REVIEWER",
+          "at": "2026-11-22T10:54:24.394Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrpz7bh-fdgtjd",
+          "role": "CRITIC",
+          "at": "2026-11-22T10:54:24.464Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrqqbgp-xuv16c",
+          "role": "REVIEWER",
+          "at": "2026-11-22T11:15:29.549Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrqqbkg-96m7gq",
+          "role": "CRITIC",
+          "at": "2026-11-22T11:15:29.684Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrr6cp1-rkyiua",
+          "role": "REVIEWER",
+          "at": "2026-11-22T11:27:57.641Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrr6cte-i584f1",
+          "role": "CRITIC",
+          "at": "2026-11-22T11:27:57.798Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrrfoj5-y81qjw",
+          "role": "REVIEWER",
+          "at": "2026-11-22T11:35:12.885Z",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "requirementId": "NFR2",
+      "processId": "P-TARGET",
+      "componentId": "C-PROFILE",
+      "contractIds": [],
+      "dataIds": [],
+      "status": "planned",
+      "tasks": [
+        {
+          "taskId": "task-mwrrkv6d-7ii8t0",
+          "role": "BACKEND",
+          "at": "2026-11-22T11:39:14.777Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrry7yr-yxfwfg",
+          "role": "REVIEWER",
+          "at": "2026-11-22T11:49:37.879Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrry83d-ic6mvm",
+          "role": "CRITIC",
+          "at": "2026-11-22T11:49:38.045Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrs9pwz-khfarj",
+          "role": "REVIEWER",
+          "at": "2026-11-22T11:58:34.359Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrs9q2f-eplgve",
+          "role": "CRITIC",
+          "at": "2026-11-22T11:58:34.556Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrsjxt2-gfgbxq",
+          "role": "REVIEWER",
+          "at": "2026-11-22T12:06:31.146Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrsjxyw-urz7wc",
+          "role": "CRITIC",
+          "at": "2026-11-22T12:06:31.356Z",
+          "evidence": []
+        },
+        {
+          "taskId": "task-mwrsq5aq-0h21aq",
+          "role": "REVIEWER",
+          "at": "2026-11-22T12:11:20.791Z",
+          "evidence": []
+        }
+      ]
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "e80e7f759b6019629c3d5ec36e99560bbadf00893bffc71de22bb3a9ad9cbdb0",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-22T10:30:07.036Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-22T10:30:33.969Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-22T10:30:42.706Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-22T10:32:40.835Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwrp79fk-ewaclo -> FR1, FR2, FR3, FR4, NFR1"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-22T10:42:54.482Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "impacts: 1"
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-22T10:43:27.165Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "requirements: FR7 changed, FR8 changed; impacts: 2"
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-22T10:54:24.394Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwrpz79i-hngkiv -> FR1, FR2, FR3, FR4, NFR1"
+    },
+    {
+      "revision": 8,
+      "at": "2026-11-22T10:54:24.464Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwrpz7bh-fdgtjd -> FR1, FR2, FR3, FR4, NFR1"
+    },
+    {
+      "revision": 9,
+      "at": "2026-11-22T11:04:48.242Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwrp79fk-ewaclo -> FR1, FR2, FR3, FR4, NFR1"
+    },
+    {
+      "revision": 10,
+      "at": "2026-11-22T11:15:29.549Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwrqqbgp-xuv16c -> FR1, FR2, FR3, FR4, NFR1"
+    },
+    {
+      "revision": 11,
+      "at": "2026-11-22T11:15:29.684Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwrqqbkg-96m7gq -> FR1, FR2, FR3, FR4, NFR1"
+    },
+    {
+      "revision": 12,
+      "at": "2026-11-22T11:21:53.776Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwrp79fk-ewaclo -> FR1, FR2, FR3, FR4, NFR1"
+    },
+    {
+      "revision": 13,
+      "at": "2026-11-22T11:27:57.641Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwrr6cp1-rkyiua -> FR1, FR2, FR3, FR4, NFR1"
+    },
+    {
+      "revision": 14,
+      "at": "2026-11-22T11:27:57.798Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwrr6cte-i584f1 -> FR1, FR2, FR3, FR4, NFR1"
+    },
+    {
+      "revision": 15,
+      "at": "2026-11-22T11:31:46.886Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwrp79fk-ewaclo -> FR1, FR2, FR3, FR4, NFR1"
+    },
+    {
+      "revision": 16,
+      "at": "2026-11-22T11:35:12.885Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwrrfoj5-y81qjw -> FR1, FR2, FR3, FR4, NFR1"
+    },
+    {
+      "revision": 17,
+      "at": "2026-11-22T11:35:34.468Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "requirements: FR1 changed, FR2 changed, FR3 changed, FR4 changed, NFR1 changed; impacts: 5"
+    },
+    {
+      "revision": 18,
+      "at": "2026-11-22T11:39:14.777Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwrrkv6d-7ii8t0 -> FR5, FR6, FR7, NFR2"
+    },
+    {
+      "revision": 19,
+      "at": "2026-11-22T11:49:37.879Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwrry7yr-yxfwfg -> FR5, FR6, FR7, NFR2"
+    },
+    {
+      "revision": 20,
+      "at": "2026-11-22T11:49:38.045Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwrry83d-ic6mvm -> FR5, FR6, FR7, NFR2"
+    },
+    {
+      "revision": 21,
+      "at": "2026-11-22T11:54:13.937Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwrrkv6d-7ii8t0 -> FR5, FR6, FR7, NFR2"
+    },
+    {
+      "revision": 22,
+      "at": "2026-11-22T11:58:34.359Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwrs9pwz-khfarj -> FR5, FR6, FR7, NFR2"
+    },
+    {
+      "revision": 23,
+      "at": "2026-11-22T11:58:34.556Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwrs9q2f-eplgve -> FR5, FR6, FR7, NFR2"
+    },
+    {
+      "revision": 24,
+      "at": "2026-11-22T12:01:29.850Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwrrkv6d-7ii8t0 -> FR5, FR6, FR7, NFR2"
+    },
+    {
+      "revision": 25,
+      "at": "2026-11-22T12:06:31.146Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwrsjxt2-gfgbxq -> FR5, FR6, FR7, NFR2"
+    },
+    {
+      "revision": 26,
+      "at": "2026-11-22T12:06:31.356Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwrsjxyw-urz7wc -> FR5, FR6, FR7, NFR2"
+    },
+    {
+      "revision": 27,
+      "at": "2026-11-22T12:08:38.593Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwrrkv6d-7ii8t0 -> FR5, FR6, FR7, NFR2"
+    },
+    {
+      "revision": 28,
+      "at": "2026-11-22T12:11:20.791Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwrsq5aq-0h21aq -> FR5, FR6, FR7, NFR2"
+    },
+    {
+      "revision": 29,
+      "at": "2026-11-22T12:11:20.995Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwrsq5ge-yns4e4 -> FR7"
+    },
+    {
+      "revision": 30,
+      "at": "2026-11-22T19:41:58.206Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR1 changed, FR2 changed, FR5 changed, FR6 changed, FR7 changed, NFR1 changed, NFR2 changed; impacts: 7"
+    },
+    {
+      "revision": 31,
+      "at": "2026-11-22T19:42:01.994Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 32,
+      "at": "2026-11-22T19:42:05.660Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 33,
+      "at": "2026-11-22T19:42:36.543Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mws8uh2x-uqkuuf -> BR1, FR8"
+    },
+    {
+      "revision": 34,
+      "at": "2026-11-22T19:45:59.618Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR5 changed, FR6 changed, FR7 changed, NFR2 changed; impacts: 4"
+    },
+    {
+      "revision": 35,
+      "at": "2026-11-22T19:46:03.411Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 36,
+      "at": "2026-11-22T19:46:11.859Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mws8z37y-r56l8q -> FR7"
+    },
+    {
+      "revision": 37,
+      "at": "2026-11-22T19:59:33.754Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: BR1 changed, FR1 changed, FR5 changed, FR6 changed, FR8 changed, NFR1 changed, NFR2 changed; impacts: 7"
+    },
+    {
+      "revision": 38,
+      "at": "2026-11-22T19:59:38.177Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 39,
+      "at": "2026-11-22T20:10:38.639Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: BR1 changed, FR1 changed, FR2 changed, FR3 changed, FR4 changed, FR5 changed, FR6 changed, FR7 changed, FR8 changed, NFR1 changed, NFR2 changed; impacts: 11"
+    },
+    {
+      "revision": 40,
+      "at": "2026-11-22T20:10:43.229Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    }
+  ]
+}

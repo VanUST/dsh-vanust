@@ -206,9 +206,9 @@ invent a justification.
   running, `codex_signin_status` reports pending/authorized/cancelled/failed, and
   `codex_signin_cancel` withdraws it. The pi-ai flow writes the grant; the tools never see a
   token.
-- **Role presets** — nine `@deepseek-ai/dsh-agent-preset` declarations in
+- **Role presets** — ten `@deepseek-ai/dsh-agent-preset` declarations in
   `profile/cordis.patch.yml`: `orchestrator`, `ux`, `presenter`, `backend`, `research`,
-  `gatherer`, `reviewer`, `critic`, `docs`. **`presenter`** makes an idea land for a
+  `gatherer`, `reviewer`, `critic`, `tester`, `docs`. **`presenter`** makes an idea land for a
   person outside the subject: it storyboards the explanation, renders it with
   `presentation`/`dashboard`/`diagram` and proves every slide in a browser — the deck is
   the deliverable, and a slide nobody looked at is not finished.
@@ -228,7 +228,14 @@ invent a justification.
   running algorithm or service on a disposable copy, find realistic non-trivial inputs that
   crash, hang, corrupt state or return a wrong answer, and report the smallest reproducible
   failure — never a fix. It is not the reviewer (which judges a diff) and not UX/UI (which
-  tests an interface); `delegate_task` maps CRITIC / CRITIC-GENERAL / TESTER / QA to it.
+  tests an interface); `delegate_task` maps CRITIC / CRITIC-GENERAL to it.
+  **`tester` is the independent acceptance tester**: it writes the acceptance case and its
+  test/driver from the requirement and the task constraints, never from the implementation;
+  its `write`/`edit` tools are scoped to `docs/cases/` and the test roots by `proof-guard`
+  (`WRITE_SCOPE` otherwise), and it never fixes product code. A case records `failsWhen`,
+  `trigger`, `oracle` and `realism`; a red run is made against the previous version or a named
+  wrong implementation, not only against `CASE_NEGATIVE_CONTROL`. `delegate_task` maps
+  TESTER / QA / TEST to it.
 - **`@cc/dsh-papers`** — the literature-research tool family: `papers_search` across arXiv
   and Hugging Face, `papers_trending` for the HF daily list, and `papers_download` to save an
   arXiv PDF under `.dsh/papers/` with a `pdftotext` extraction. No API key; one source can

@@ -305,6 +305,19 @@
       name: '@cc/dsh-proof-guard'
       config:
         mode: deny
+        # THE TESTER'S WRITE SCOPE (P1). An independent acceptance tester that can edit the
+        # product can make its own test green: the scope is what keeps the two jobs apart. The
+        # paths are the case library and the test roots; a product file is refused WRITE_SCOPE
+        # before the tool runs. Other presets have no row and keep their full surface.
+        roles:
+          tester:
+            # Only the case library and the test ROOTS. A product file named *.test.* outside
+            # tests/ is the product (B3): a global '**/*.test.*' allowed it by name, which is the
+            # one thing the scope exists to prevent. A test belongs in test/ or tests/.
+            allow:
+              - docs/cases/
+              - test/
+              - tests/
 
 # ── tool-families: each preset gets only the tool families its job needs ────
 # MCP tools are registered at the HOST by the bridge rows above, before a preset is chosen,
@@ -422,6 +435,15 @@
             ptc:
               tools: 2
               promptBytes: 53365
+          # The independent acceptance tester: a shell to run drivers and copies of the previous
+          # version, read/search, scoped write/edit, the full case surface and the two board tools.
+          # No browser, no Godot, no present, no PTC: the driver is a script, not a UI session.
+          tester:
+            tools: 30
+            recommended: 20
+            schemaBytes: 50000
+            promptBytes: 26000
+            remindersBytes: 70000
           gatherer:
             tools: 16
             recommended: 10
@@ -558,6 +580,45 @@
               - task_get
               - task_note
               - todo_write
+          # ACCEPTANCE TESTING: the independent tester writes the case and its driver under
+          # docs/cases/ or a test root (the proof-guard row enforces the scope), runs them with a
+          # shell, and reads the product without editing it. Playwright and Godot are denied: a
+          # driver is a script, and a browser family is UX/UI's surface. The case tools come from
+          # the test-cases plugin's own row, not from this list.
+          tester:
+            allow:
+              - bash
+              - case_deprecate
+              - case_gate
+              - case_get
+              - case_list
+              - case_record
+              - case_run
+              - case_suite
+              - case_supersede
+              - case_update
+              - case_verify
+              - edit
+              - glob
+              - grep
+              - job_kill
+              - job_list
+              - job_output
+              - outline
+              - read
+              - read_image
+              - skill
+              - task_get
+              - task_note
+              - todo_write
+              - web_fetch
+              - web_search
+              - working_directory
+              - write
+            projectDeny:
+              - mcp__godot__*
+            deny:
+              - 'mcp__playwright__*'
           # Adversarial review: the same read-only surface plus background-job reading for
           # long negative runs.
           critic:
@@ -1826,6 +1887,99 @@
           # only; removing this row is the rollback.
           - id: tool-executor-ptc
             name: '@deepseek-ai/dsh-tool-executor-ptc'
+
+    # ── tester: the independent acceptance tester ──────────────────────────────
+    # P1. The seat between BACKEND's implementation and REVIEWER's judgement: it derives the
+    # expected result from the requirement, the criteria and the constraints (never from the
+    # implementation), writes the case and its driver under docs/cases/ or a test root, and
+    # measures TWO runs - the red against the previous version (or a named wrong implementation)
+    # and the green against the change. The proof-guard row refuses a write outside that scope, so
+    # the tester cannot fix what it tests; a defect goes back to BACKEND and the tester reruns.
+    # No browser (UX/UI drives a UI), no Godot, no present/PTC: a driver is a script.
+    - id: preset-tester
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: tester
+        name: Tester
+        description: Independent acceptance tester. Derives the expected result from the requirement, not the implementation; writes the case and its driver, measures a wrong-product red and a green, and never edits product code.
+        order: 52
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |-
+                You are the independent acceptance tester for this workspace. Your expected result comes from the requirement, the acceptance criteria, the contract and the domain invariants - never from reading the implementation, because an oracle copied from the code can only agree with the code. Write the case and its driver under docs/cases/ or a test root; you cannot write product code, and you never fix what you test: a defect goes back to the implementer and you rerun. For an automatic acceptance case state four things: failsWhen (the defect it must catch), trigger (the public input or sequence a real user or producer sends that reaches it), oracle (where the expected result comes from) and realism (the source that makes the scenario real - a bug report, a user path, production-shaped data, a contract, a domain invariant). Measure TWO runs, not one: the RED against the previous version or a named wrong implementation (case_run mode:"red" redSource:"wrong-product" with cwd pointing at that tree - it must FAIL there), and the GREEN against the change. A driver that breaks its own assertion proves the check can fail, not that the claim is right; only the wrong-product red is acceptance evidence. When the product passes a case that should have failed, the case is wrong or the red was never real: say so instead of making it green.
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+            disabled: !!js process.platform !== 'win32'
+          # write/edit exist for the case files and the drivers; the proof-guard row scopes them
+          # to docs/cases/ and the test roots, so a product path is refused before it is written.
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              write: true
+              edit: true
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-jobs
+            name: '@deepseek-ai/dsh-tool-jobs'
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+                config:
+                  thresholdRatio: 0.8
+                  retainRatio: 0.08
+                  modelPolicies:
+                    - provider: deepseek-official
+                      model: deepseek-flash
+                      thresholdRatio: 0.5
+                    - provider: kimi-coding
+                      model: k3.1-pro
+                      thresholdRatio: 0.5
+                    - provider: kimi-coding
+                      model: kimi-for-coding
+                      thresholdRatio: 0.5
+                    - provider: kimi-coding
+                      model: k3
+                      thresholdRatio: 0.5
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config:
+              fetch: true
+              searchTimeoutMs: 60000
 
     # ── critic: the adversary, not the fixer, not the UI tester ──────────────
     # The seventh role exists because "make sure it works" and "try to break it" are

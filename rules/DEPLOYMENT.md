@@ -76,10 +76,11 @@ request, which is why the budget stays bounded and the mode is `normal`, not `al
 
 ### 1.0 The role presets — tool sets, not prompts
 
-Ten `@deepseek-ai/dsh-agent-preset` declarations sit in the profile patch, and
+Eleven `@deepseek-ai/dsh-agent-preset` declarations sit in the profile patch, and
 `@deepseek-ai/dsh-agent-preset-registry` defaults new sessions to it:
 `preset-orchestrator`, `preset-architect`, `preset-ux`, `preset-presenter`, `preset-backend`,
-`preset-research`, `preset-gatherer`, `preset-reviewer`, `preset-critic`, `preset-docs`. A preset is the persona AND the tool list, so
+`preset-research`, `preset-gatherer`, `preset-reviewer`, `preset-tester`, `preset-critic`,
+`preset-docs`. A preset is the persona AND the tool list, so
 the isolation is
 registration, not a brief: the orchestrator reads and writes (`read`, `readImage`, `write`,
 `edit`) but has no `bash` or `pwsh` at all - it can change a file and cannot run anything, so a
@@ -142,8 +143,8 @@ diff and does not write; the critic attacks a RUNNING behaviour - a service, a C
 algorithm - with realistic non-trivial inputs and sequences, on a disposable copy (`/tmp`, a
 scratch checkout, a copy of the data), and reports the smallest reproducible failure or what
 it tried and what stayed untested. It never fixes and never touches production data, and its
-preset carries no browser: UI crash testing stays with `ux`. `delegate_task` maps CRITIC,
-CRITIC-GENERAL, TESTER and QA to `critic`, CONTEXT/GATHERER to `gatherer`, and REVIEWER/REVIEW to
+preset carries no browser: UI crash testing stays with `ux`. `delegate_task` maps CRITIC and
+CRITIC-GENERAL to `critic`, TESTER and QA to `tester`, CONTEXT/GATHERER to `gatherer`, and REVIEWER/REVIEW to
 `reviewer`. **AUDIT maps to
 neither**: it was the one name that meant both jobs, and the ledger collapsed the two rows that
 wore it (measured 2026-11-11 in `~/tasks/autolabel_pipeline`: `AUDIT [reviewer]` and

@@ -17,6 +17,7 @@ a golden hash) is part of the durable case; the measurement is part of the run.
 | `backend` | `case_record`, `case_update`, `case_verify`, `case_run`, `case_suite`, `case_get`, `case_list` — the role that owns the case repairs its text and records the observation |
 | `reviewer` | `case_get`, `case_list`, `case_run`, `case_gate`, `case_verify` — records an observation, never edits the case it judges |
 | `critic` | `case_get`, `case_list`, `case_run` |
+| `tester` | `case_record`, `case_update`, `case_verify`, `case_run`, `case_suite`, `case_gate`, `case_list`, `case_get`, `case_supersede`, `case_deprecate` — the independent acceptance tester: authors the cases, measures the red and the green, never edits product code |
 | `ux` | `case_record`, `case_list` |
 | `research` | `case_get`, `case_list` |
 | `docs` | `case_record`, `case_list`, `case_get` |
@@ -38,12 +39,12 @@ All tools return a JSON value; a refusal is `{ ok:false, code, message }` with a
 
 | tool | rule |
 |---|---|
-| `case_record` | one case; `automated:true` needs `testPath`+`runCommand`, otherwise a `reason`; optional `checks`, `negativeControl`, `surfaceFiles`, `source`, `linkedTaskId` |
-| `case_update` | compare-and-set on `revision`; a changed requirement/command/test/checks returns the case to `stale`; a changed command or test drops the recorded red too |
-| `case_verify` | the **manual** report: `{command, output, exitCode, cwd}` typed by the caller, stamped `source: manual`, the directory recorded with it; automated passes need the observed red run of the same command |
-| `case_run` | **executes** the stored `runCommand` (1–5 runs, timeout) in `cwd` — absolute or workspace-relative, default the session workspace — and records the measured result with that directory (`cwd`, `cwdRelative`); `mode:"red"` runs the negative control and must FAIL. Use `cwd` for a red-first run in a COPY of the tree instead of pinning the command to one checkout |
-| `case_suite` | runs every automated case matching tag/kind/status, records each, writes `docs/cases/runs/suites/<id>.json` |
-| `case_gate` | read-only verdict: which linked AUTOMATED cases are not verified |
+| `case_record` | one case; `automated:true` needs `testPath`+`runCommand`, otherwise a `reason`; optional `checks`, `negativeControl`, `source`, `linkedTaskId`, `purpose`. An automated ACCEPTANCE case also needs a non-empty `surfaceFiles` (`SURFACE_FILES_REQUIRED`). The AUTHOR is taken from the calling session (`authorPreset`, `authorSessionId`); an agent that names another author is refused `AUTHOR_IMMUTABLE`, and its `authorRole` is its own preset. For an automated case the sha256 of `testPath` is frozen as `testHash` |
+| `case_update` | compare-and-set on `revision`, and **the author's or a human's** (`AUTHOR_ONLY` for any other agent); re-attribution is refused (`AUTHOR_IMMUTABLE`). A changed requirement, expected outcome, steps, checks, surface list, automation or test binding returns the case to `stale` and drops its evidence and red; a changed command or test also re-pins `testHash` and drops the recorded red |
+| `case_verify` | the **manual** report: `{command, output, exitCode, cwd}` typed by the caller, stamped `source: manual`, the directory recorded with it. On an AUTOMATED case a manual pass is an OBSERVATION: the case stays `unverified` and `lastVerified` stays null (a case already verified by the runner keeps that verification); a manual failure sets `failing`. A documented-only case is unchanged |
+| `case_run` | **executes** the stored `runCommand` (1–5 runs, timeout) in `cwd` — absolute or workspace-relative, default the session workspace — and records the measured result with that directory (`cwd`, `cwdRelative`) and WHO ran it (`runBy: {preset, sessionId}`, from the session); `mode:"red"` runs the negative control and must FAIL. Refuses a case with no `testHash` (`TEST_HASH_MISSING`) or whose test file no longer hashes to it (`TEST_CHANGED`). Use `cwd` for a red-first run in a COPY of the tree instead of pinning the command to one checkout |
+| `case_suite` | runs every automated case matching tag/kind/status, records each with the same `runBy` and the same test-hash binding, writes `docs/cases/runs/suites/<id>.json`; a case it could not bind is reported with `skipped` and makes the suite not green |
+| `case_gate` | read-only acceptance verdict: every linked automated ACCEPTANCE case with its provenance and the reasons it is refused. Independence is judged against the **implementer's preset** read from the task row through the taskboard; an agent cannot name it (the argument is ignored and the answer says so), a human may, and the answer carries `presetSource: "task" \| "argument"`. With no preset it fails closed (`IMPLEMENTER_UNKNOWN`). Every case file that cannot be read is returned in `errors` and makes the verdict not-ok |
 | `case_list` / `case_get` | summaries with counts / the full record plus `directories.lastRun` and `directories.lastObservation` — the directory the last measured run and the last manual observation were taken in |
 | `case_supersede` / `case_deprecate` | closed status, requirement kept |
 | `case_remove` | the only destructive verb, terminal status only, audit line in `docs/cases/.removed.jsonl` |
@@ -57,6 +58,117 @@ Refusal codes include `CASE_NOT_FOUND`, `CASE_EXISTS`, `REVISION_REQUIRED`, `REV
 `EVIDENCE_REQUIRED`, `EVIDENCE_NOT_GREEN`, `SELF_SUPERSEDE`, `CASE_UNREADABLE`, `INVALID_CASE`,
 `INVALID_CHECKS`, `PINNED_COMMAND` (the command carries an absolute path: make it relative and pass
 `cwd`), `CWD_NOT_FOUND`, `CWD_INVALID`.
+
+The provenance refusals: `AUTHOR_ONLY` (the caller is not the recorded author and not a human),
+`AUTHOR_IMMUTABLE` (an agent tried to record or re-attribute a case under another author),
+`AUTOMATED_IMMUTABLE` and `PURPOSE_IMMUTABLE` (an agent tried to switch automation off, or to move
+an automated acceptance case to `implementation`; a human needs `WAIVER_REQUIRED`-style
+`{reason, by: "human"}`), `TEST_HASH_MISSING` (no hash was ever recorded: re-record the case or
+re-pin the test with `case_update { testPath }`) and `TEST_CHANGED` (the test file's bytes are not
+the ones the case recorded).
+
+## Provenance and the acceptance rule
+
+A case says WHO wrote it and WHO ran it, and a task closes only on evidence whose two ends are
+different from the session that did the work.
+
+| field | where it comes from | meaning |
+|---|---|---|
+| `authorPreset` / `authorSessionId` | the CALLING SESSION (`agentPreset` after the tool-families resolution, `session.id`) | who wrote the case. An agent cannot pass a different value (`AUTHOR_IMMUTABLE`), and its `authorRole` is its own preset; a human using the panel may name one |
+| `purpose` | `case_record`/`case_update`, default `acceptance` | `acceptance` can close a task; `implementation` is the implementer's own test and never does |
+| `testHash` | computed at registration and at every re-pin of `testPath` | the sha256 of the test file the case was written against |
+| `lastVerified.source` | `runner` from `case_run`, `manual` from `case_verify` | a measurement or a report |
+| `runBy: {preset, sessionId, taskId}` | the session that called `case_run`/`case_suite`, written into `run.json`, the run and `lastVerified`; `taskId` is the case's `linkedTaskId` or null | who ran it, and for which task |
+
+Only a KNOWN preset can be an author or a runner: the list is `KNOWN_PRESETS` in
+`lib/acceptance.mjs`, and a test checks it against `DEFAULT_ROLE_TOOLS`, so a preset added to the
+tool policy without adding it there fails the suite. A session with no preset records `agent`,
+which is not a preset and therefore never counts as independent.
+
+An automated acceptance case linked to a task is acceptable evidence only when ALL of these hold;
+each one is a named reason, and `case_gate` returns the whole list per case. An automated
+acceptance case must also name at least one `surfaceFiles` entry (a product file its test
+exercises): the test hash pins the test, the surface list is what notices a changed product file.
+That list is as good as the author's care - a forgotten import is still invisible, and this rule
+does not pretend otherwise:
+
+```
+CASE_MISSING        the task row names a case that is not in the library any more
+CASE_NOT_ACCEPTANCE it is not an automated acceptance case, so it cannot close the task
+DEGRADED            its test file is gone, so the case was degraded to documented-only
+RUN_ARTIFACT_MISSING the run it names left no artifact (docs/cases/runs/<case>/<runId>/run.json)
+RUN_MISMATCH        the run artifact does not match the recorded run
+TEST_CHANGED        its test file changed after the verification
+STALE               a surface file changed after the verification
+SELF_AUTHORED       the case was authored by the implementer
+SELF_RUN            the case was run by the implementer
+NOT_MEASURED        the last confirmation was reported manually, not measured by a run
+UNKNOWN_PRESET      its author or its run is not a known preset (agent, human, standard, unknown)
+IMPLEMENTER_UNKNOWN the implementer preset is unknown, so independence cannot be established
+LEGACY_NO_AUTHOR    the case records no author
+LEGACY_NO_RUN_BY    the case records no preset for the run that verified it
+SURFACE_FILES_MISSING it names no surface files, so a changed surface cannot be noticed
+TEST_HASH_MISSING   the case records no hash of its test file
+NOT_VERIFIED        its status is not verified
+```
+
+P2 adds two CONTRACT refusals, and they are not case problems: the task's verification level is
+`independent`, and its criteria are not all covered.
+
+```
+CRITERIA_REQUIRED  the level is independent and the task states no criteria, so "another preset checked it" cannot be judged
+CRITERIA_UNCOVERED a criterion has no acceptable case that names it (criterionId)
+```
+
+A case covers a criterion ONLY when it names it (`case_record criterionId: "AC-1"`) and it is
+acceptable evidence: measured, authored and run by another preset, not stale. Level `proof` and
+`case` owe no case at all, and the taskboard does not ask this gate for them.
+
+The list is in reporting order: the FIRST reason is the specific fact a closer needs, and the
+generic "not verified" is last. The FIRST two are about the link itself: a case the row names but
+the library does not hold, and a case that is not an acceptance case.
+
+KNOWN BOUNDARIES (P1, named rather than papered over):
+
+- **B1** - `RUN_ARTIFACT_*` compares the case with the run artifact, it does not sign it. Whoever
+  can write both files can forge the pair; closing that is the journal's job.
+- **B1'** - the task ROW is trusted host state. An editor of `.dsh/taskboard.json` can empty
+  `caseIds` or change the row's `preset`, and the gate then judges the row as written. Detecting a
+  hand-edited row is the journal's job (P1), not this rule's.
+- **R1** - `surfaceFiles` is a list the author writes: a forgotten import is invisible to this rule.
+- **S10** - the CLI's `--board` points the gate at a ledger file. It is a diagnostic for a terminal
+  operator, not a close gate: the close is decided by the taskboard service in the host.
+- **legacy** - a row without `caseIds` is scanned by `linkedTaskId`, so an unrelated broken file can
+  still block it. Re-write the row's links (or re-record its case) to leave the legacy shape.
+- **W1 (enforced)** - a wrong-product red runs in a tree that must be REAL: not the workspace, the
+  test file present there, and a git checkout whose HEAD is recorded (`WRONG_PRODUCT_TREE_INVALID`
+  otherwise). What is not checked is that the tree is *the previous version*: a committed
+  implementation that is merely different would pass. Naming that tree is the tester's job.
+- **B1 repeat (S4)** - a fake git tree outside the workspace with the correct product bytes, the
+  right test and a deliberate break passes every wrong-product check and can close the task. The
+  gate checks that the evidence is consistent, not that its author is honest; naming the tree and
+  judging the realism of the scenario remain the tester's and the human's job. This is the B1
+  forgery boundary, not a path bypass.
+- **B2/B3 (P1 boundaries)** - the write scope is a path rule: a hard link (`docs/cases/link.mjs`
+  pointing at the product) and a product file that happens to be named `*.test.*` are outside what
+  it can see. The scope stops accidents and casual edits, not a determined operator.
+
+A verified-looking record is not enough on its own: the run it names must exist in `runs` as a
+passing green run AND as `docs/cases/runs/<case>/<runId>/run.json`, agreeing on
+`commandSha256`, `exitCode: 0`, `passed: true` and `runBy`. That check catches a typed-in
+verification and an artifact that was edited afterwards. It is NOT a signature: someone who can
+write both the case file and the run directory can still forge them, which is the journal's job.
+
+A case written before these fields existed stays READABLE (INV-LEGACY), and it blocks
+(INV-FAILCLOSED): its verification is not deleted and not accepted silently. Re-record it or run
+it again with `case_run` — a measured red plus a measured green by another preset is what makes a
+new verification.
+
+```
+orchestrator   case_record  ->   reviewer   case_run --red  ->  case_run  ->  verified
+                                          (runBy: reviewer)
+task_close     reads task.preset (orchestrator for an inline task) and asks the case gate
+```
 
 ## The runner and the driver contract
 
@@ -125,13 +237,17 @@ non-zero for the control to count. `case_verify` remains for a human observation
   "steps": ["…"], "expected": "…", "fixture": "optional", "tags": ["…"],
   "surfaceFiles": [{ "path": "src/x.mjs", "sha256": "…" }],
   "linkedTaskId": "optional",
+  "purpose": "acceptance|implementation",
+  "authorPreset": "orchestrator", "authorSessionId": "…", "testHash": "sha256 of testPath",
   "revision": 3, "createdAt": "…", "updatedAt": "…", "createdBy": "…",
-  "lastVerified": { "at": "…", "command": "…", "exitCode": 0, "source": "runner|manual", "runId": "…" },
+  "lastVerified": { "at": "…", "command": "…", "exitCode": 0, "source": "runner|manual", "runId": "…",
+                    "runBy": { "preset": "reviewer", "sessionId": "…" } },
   "runs": [{ "runId": "…", "mode": "green|red", "exitCode": 0, "timedOut": false, "durationMs": 812,
              "checks": [{ "name": "exit code", "pass": true }], "artifacts": [], "head": "…", "dirty": false,
              "stdout": "docs/cases/runs/…/stdout.log", "stderr": "…", "summary": "…" }],
-  "redFirst": { "at": "…", "runId": "…", "exitCode": 1, "control": "break", "source": "negative-control|manual" },
-  "evidence": { "run": {…}, "redFirst": {…}, "commit": null, "source": "manual" },
+  "redFirst": { "at": "…", "runId": "…", "exitCode": 1, "control": "break", "source": "negative-control|manual",
+                "redSource": "runner", "runBy": { "preset": "reviewer", "sessionId": "…" } },
+  "evidence": { "run": {…}, "redFirst": {…}, "observation": {…, "source": "manual"}, "commit": null, "source": "manual" },
   "needsReverification": { "at": "…", "changedFiles": ["…"], "reason": "…" },
   "supersededBy": "optional", "deprecateReason": "optional",
   "history": [{ "revision": 2, "at": "…", "editedBy": "agent", "action": "ran-verified" }]
@@ -164,15 +280,48 @@ keeps the manual form as **Record manual run**.
 node plugins/test-cases/bin/cases.mjs list  [--status s] [--tag t] [--automated]
 node plugins/test-cases/bin/cases.mjs run   --id <case> [--runs 1..5] [--set-baseline] [--red --control <name>]
 node plugins/test-cases/bin/cases.mjs suite [--tag t] [--kind k] [--status s]
-node plugins/test-cases/bin/cases.mjs gate  (--task <taskId> | --id <case>)
+node plugins/test-cases/bin/cases.mjs gate  (--task <taskId> | --id <case>) [--implementer <preset>]
 ```
 
 `make cases` runs the suite and exits non-zero when a case is not verified (`TAG=…`/`ARGS=…`
-narrow it). `make verify` stays the packaging/doc gate.
+narrow it). `make verify` stays the packaging/doc gate. The CLI reads the same acceptance rule as
+the host tools, so `gate` needs the preset that did the work (`--implementer`): without it every
+acceptance case is refused as `IMPLEMENTER_UNKNOWN` instead of passing because nothing was
+compared. A case the suite could not bind to its recorded test bytes is printed as `SKIP` with the
+code, never as `PASS`, and a case file that cannot be read makes `gate` exit 1 with the file named.
 
 ## Taskboard gate
 
+THE TASK ROW NAMES ITS CASES. `case_record { linkedTaskId }` attaches the new case to the row
+(`caseIds`), through the taskboard service; without the service the case is still written and the
+answer says `linked: false` with a warning, and the orchestrator attaches it with
+`task_update { caseIds: [...] }`. The link lives on the row because the library is a directory of
+files: a deleted file cannot be distinguished from a task that never had a case.
+
 The plugin provides `ctx.provide('cases', { gateForTask })`. The taskboard looks it up on
-`task_close`; a linked AUTOMATED case that is not `verified` refuses the close with
-`cases_not_green` and names the case. A profile without this plugin keeps the legacy close.
-`case_gate` exposes the same verdict to the orchestrator before it accepts work.
+`task_close` and passes the row's own `preset` (`orchestrator` for an inline task) and its
+`caseIds`. Two modes, and the difference matters:
+
+- **the row names its cases** (`caseIds` is an array): only those ids are judged, and each one
+  must BELONG to the row. `CASE_MISSING` for an id that is not in the library (deleting the file
+  cannot close the task), `CASE_FOREIGN` for a case whose `linkedTaskId` is another task (its
+  evidence is real and about other work), `CASE_UNLINKED` for a case that names no task at all,
+  `CASE_UNREADABLE` for a broken linked file (that task alone), `CASE_NOT_ACCEPTANCE` for a
+  documented-only or implementation case. An EMPTY list is a task that owes no case - a legitimate
+  green, and unrelated broken files in the library do not touch it. A task created through
+  `task_create` always states its links, even as `[]`: the absent field is the legacy shape, and a
+  fresh task must not inherit that ambiguity.
+- **a row written before the link** (no `caseIds`): the previous scan by `linkedTaskId`, where an
+  unreadable file blocks every task question because its link is inside the file nobody can read.
+
+A linked automated ACCEPTANCE case that is not acceptable evidence refuses the close with
+`cases_not_green`, names the case and says which fact refused it. A row with a role
+and no recorded preset passes no preset, and the gate then refuses rather than assume. A profile
+without this plugin keeps the legacy close. `case_gate` exposes the same verdict, with the evidence
+of every case it judged, before the orchestrator accepts work.
+
+`scripts/independent-verification-proof.mjs` is the end-to-end check: it runs six bypasses
+(self-authored confirmation, a manual pass with exit 0, an edited expected outcome, automation
+switched off, an edited test file, a legacy verified case) against this tree and against the same
+code from `git HEAD`, and shows each one refused now and accepted before, while the independent
+run (the orchestrator writes, the reviewer measures) still closes the task.

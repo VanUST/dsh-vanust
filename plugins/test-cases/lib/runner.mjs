@@ -12,10 +12,16 @@
  * INPUTS / OUTPUTS
  *   spawnExec() -> the default executor (sh -c, timeout, bounded tail of both streams).
  *   shellExec(shell) -> an executor over the harness `ctx.shell` (sandbox, caps, timeout).
- *   runAttempts({workspace, dir, record, runId, runs, timeoutMs, mode, control, exec})
+ *   runAttempts({workspace, dir, record, runId, runs, timeoutMs, mode, control, runBy, exec})
  *     -> { runId, attempts, metrics, passed, flaky, failed }.
- *   recordRun(record, {workspace, attempt, mode, at, setBaseline, commit})
+ *   recordRun(record, {workspace, attempt, mode, at, setBaseline, commit, runBy})
  *     -> { record, verdict }; the caller writes the returned record (compare-and-set).
+ *
+ *   `runBy` is `{ preset, sessionId }` of the session that ran the command. It is written into
+ *   run.json and into `lastVerified`: the acceptance rule compares it with the preset of the
+ *   session that did the work, so a run has to say who ran it. A red taken by the runner also
+ *   carries `redSource: 'runner'` (reserved for the later "who produced the red" rule; nothing in
+ *   P0 reads it).
  *   commandHash / gitState / collectArtifacts are exported for the tools and the tests.
  *
  *   A run directory holds `stdout.log`, `stderr.log`, `summary.json` (driver), `run.json` and the
@@ -43,6 +49,20 @@ const COLLECTED_FILES = new Set(['stdout.log', 'stderr.log', 'summary.json', 'ru
 /** sha256 of the stored command: binds a run record to the bytes that were executed. */
 export function commandHash(command) {
   return createHash('sha256').update(String(command ?? '')).digest('hex')
+}
+
+/**
+ * Who ran it, and for which task.
+ *
+ * The task travels with the run because the acceptance rule compares the run with the row the
+ * run answers to; a run recorded with no task cannot be checked against any implementer later.
+ */
+export function runByOf(value, record) {
+  if (value === null || typeof value !== 'object') return null
+  const taskId = record !== null && typeof record === 'object' && typeof record.linkedTaskId === 'string' && record.linkedTaskId !== ''
+    ? record.linkedTaskId
+    : null
+  return { preset: value.preset ?? null, sessionId: value.sessionId ?? null, taskId }
 }
 
 /** The executor used outside a host: sh -c, a bounded tail of each stream, a kill on timeout. */
@@ -172,7 +192,15 @@ function pruneRuns(runRoot, keep) {
 }
 
 /** One execution: logs, summary, checks, artifacts, run.json. */
-export async function runAttempt({ workspace, cwd, dir, record, runId, timeoutMs, mode = 'green', control = '', exec }) {
+/**
+ * One execution.
+ *
+ * A RED WITH `redSource: 'wrong-product'` runs the case's command with NO negative-control hooks:
+ * the tree under `cwd` is expected to be the previous version (or a named wrong implementation),
+ * and the test must fail against it. That is the red the acceptance rule asks for, because a
+ * driver that breaks its own assertion proves the CHECK can fail, not that the CLAIM is right.
+ */
+export async function runAttempt({ workspace, cwd, dir, record, runId, timeoutMs, mode = 'green', control = '', redSource = 'negative-control', runBy = null, exec }) {
   const runRoot = join(dir, 'runs', record.id)
   const runDir = join(runRoot, runId)
   mkdirSync(runDir, { recursive: true })
@@ -183,7 +211,9 @@ export async function runAttempt({ workspace, cwd, dir, record, runId, timeoutMs
     CASE_RUN_ID: runId,
     CASE_SUMMARY: summaryPath,
     CASE_ARTIFACTS: runDir,
-    ...(mode === 'red' && control !== '' ? { CASE_NEGATIVE_CONTROL: control } : {}),
+    // A wrong-product red is a NORMAL run of the test against other bytes; only the driver
+    // self-check receives the control name.
+    ...(mode === 'red' && redSource !== 'wrong-product' && control !== '' ? { CASE_NEGATIVE_CONTROL: control } : {}),
   }
   // The command runs in `cwd` (the session workspace unless the caller named a tree), and the run
   // says WHERE: a red observed in a copy of the tree is only evidence if the record can tell that
@@ -199,7 +229,9 @@ export async function runAttempt({ workspace, cwd, dir, record, runId, timeoutMs
     runId,
     at,
     mode,
-    ...(mode === 'red' ? { control } : {}),
+    // WHO ran it: the gate refuses a run by the task's own implementer, so the run must say.
+    runBy: runByOf(runBy, record),
+    ...(mode === 'red' ? { control, redSource } : {}),
     exitCode: outcome.exitCode,
     signal: outcome.signal ?? null,
     timedOut: outcome.timedOut === true,
@@ -231,20 +263,22 @@ export async function runAttempt({ workspace, cwd, dir, record, runId, timeoutMs
  * A red run is the negative control: it must FAIL on EVERY attempt, otherwise the control is not
  * demonstrating anything and the caller refuses to record it.
  */
-export async function runAttempts({ workspace, cwd = workspace, dir, record, runId, runs = 1, timeoutMs = DEFAULT_TIMEOUT_MS, mode = 'green', control = '', exec = spawnExec() }) {
+export async function runAttempts({ workspace, cwd = workspace, dir, record, runId, runs = 1, timeoutMs = DEFAULT_TIMEOUT_MS, mode = 'green', control = '', redSource = 'negative-control', runBy = null, exec = spawnExec() }) {
   const count = Number.isInteger(runs) && runs > 0 ? Math.min(runs, 5) : 1
   const timeout = Number.isInteger(timeoutMs) && timeoutMs > 0 ? Math.min(Math.max(timeoutMs, 1000), MAX_TIMEOUT_MS) : DEFAULT_TIMEOUT_MS
   const runRoot = join(dir, 'runs', record.id)
   mkdirSync(runRoot, { recursive: true })
   const attempts = []
   for (let index = 1; index <= count; index += 1) {
-    attempts.push(await runAttempt({ workspace, cwd, dir, record, runId: `${runId}-${index}`, timeoutMs: timeout, mode, control, exec }))
+    attempts.push(await runAttempt({ workspace, cwd, dir, record, runId: `${runId}-${index}`, timeoutMs: timeout, mode, control, redSource, runBy, exec }))
   }
   pruneRuns(runRoot, KEEP_RUNS * 5)
   const metrics = aggregateMetrics(attempts.map((attempt) => attempt.run.metrics))
   if (mode === 'red') {
+    // The red held when the command FAILED every time it ran against the other tree. Nothing about
+    // the driver's own controls is involved for a wrong-product red: the test simply fails there.
     const controlHeld = attempts.every((attempt) => attempt.run.exitCode !== 0 && attempt.run.timedOut !== true)
-    return { runId, attempts, metrics, mode, passed: false, flaky: false, failed: false, controlHeld }
+    return { runId, attempts, metrics, mode, redSource, passed: false, flaky: false, failed: false, controlHeld }
   }
   const passedCount = attempts.filter((attempt) => attempt.passed).length
   return {
@@ -272,7 +306,7 @@ export function hasRedEvidence(record) {
  * cannot disagree. A green run on a case with no recorded red is a measurement but NOT a
  * verification: the verdict says `needsRed` and the status is left where it was.
  */
-export function recordRun(record, { workspace, attempt, mode = 'green', at = new Date().toISOString(), setBaseline = false, commit = null }) {
+export function recordRun(record, { workspace, attempt, mode = 'green', at = new Date().toISOString(), setBaseline = false, commit = null, runBy = null }) {
   const next = { ...record }
   const runs = attempt.attempts.map((entry) => entry.run)
   next.runs = [...(Array.isArray(record.runs) ? record.runs : []), ...runs].slice(-KEEP_RUNS)
@@ -287,7 +321,15 @@ export function recordRun(record, { workspace, attempt, mode = 'green', at = new
       exitCode: last.exitCode,
       control: last.control ?? '',
       command: record.runCommand,
-      source: 'negative-control',
+      // WHICH RED IT WAS. `negative-control` is the driver breaking its own assertion;
+      // `wrong-product` is the test failing against the previous version or a named wrong
+      // implementation. The acceptance rule asks for the second one.
+      source: last.redSource === 'wrong-product' ? 'wrong-product' : 'negative-control',
+      redSource: 'runner',
+      cwd: last.cwd,
+      head: last.head,
+      dirty: last.dirty,
+      runBy: last.runBy ?? null,
     }
     history.push({ revision: next.revision - 1, at, editedBy: 'agent', action: 'red', reason: `negative control "${last.control ?? ''}" failed as expected (exit ${last.exitCode})` })
     next.history = history
@@ -298,7 +340,17 @@ export function recordRun(record, { workspace, attempt, mode = 'green', at = new
   let lastVerified = record.lastVerified ?? null
   if (attempt.passed && hasRed) {
     status = 'verified'
-    lastVerified = { at, command: record.runCommand, exitCode: 0, runId: last.runId, source: 'runner', commit: commit ?? null }
+    lastVerified = {
+      at,
+      command: record.runCommand,
+      exitCode: 0,
+      runId: last.runId,
+      source: 'runner',
+      commit: commit ?? null,
+      // WHO verified it. Absent on every case written before this field existed: the gate reads
+      // that absence as legacy and refuses it rather than assuming an independent run.
+      runBy: last.runBy ?? runByOf(runBy, record),
+    }
     delete next.needsReverification
   } else if (attempt.flaky) {
     status = 'flaky'
