@@ -225,13 +225,19 @@ function Start-HindsightDaemon {
     } catch { }
   }
   if (Test-PortOpen $apiPort) { return }
-  $starting = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -and $_.CommandLine -match '(?i)daemon-start\.js' }
+  $supervisor = Join-Path $Kit 'scriptshindsight-supervisor.ps1'
+  $runner = if (Test-Path $supervisor) { $supervisor } else { $launcher }
+  $starting = Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='node.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -and $_.CommandLine -match '(?i)hindsight-supervisor\.ps1|daemon-start\.js' }
   if ($starting) { return }
   try {
-    $line = 'cmd.exe /d /s /c "set DSH_HOME=' + $dshHome + '&& set HINDSIGHT_API_PORT=' + $apiPort + '&& powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ' + $launcher + '"'
+    $line = 'cmd.exe /d /s /c "set DSH_HOME=' + $dshHome + '&& set HINDSIGHT_API_PORT=' + $apiPort + '&& powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ' + $runner + '"'
     Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $line } | Out-Null
-    Write-Host "dsh: starting the local Hindsight daemon on $apiPort"
+    if ($runner -eq $supervisor) {
+      Write-Host "dsh: starting the local Hindsight supervisor on $apiPort"
+    } else {
+      Write-Host "dsh: starting the local Hindsight daemon on $apiPort"
+    }
   } catch {
     Write-Host "dsh: Hindsight daemon did not start - $($_.Exception.Message)"
   }

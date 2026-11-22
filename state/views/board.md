@@ -2,7 +2,7 @@
 
 GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`.
 
-## open (5)
+## open (4)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -10,7 +10,6 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-237 | Stop the state feed from writing unidentified messages, and repair the sessions it corrupted | — | 0/7 | yes |
 | TASK-243 | Остаток окна Codex и цена модели — в сессии | REQ-132, REQ-133 | 0/4 | no |
 | TASK-273 | Codex sign-in tool: codex_signin_start/status/cancel | REQ-111, REQ-112, REQ-113, REQ-114 | 0/5 | no |
-| TASK-274 | Hindsight starts with dsh web; harness pin is enforced | — | 0/4 | yes |
 
 ## active (1)
 
@@ -18,7 +17,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 |---|---|---|---|---|
 | TASK-272 | Коммит и push правки библиотеки кейсов | — | — | yes |
 
-## review (8)
+## review (9)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -30,6 +29,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-264 | Установка: Node 24.9, сохранение слоя, сторож сервера, бэкап и откат, обёртка Windows | REQ-176 | — | no |
 | TASK-265 | Сведение: make verify, make test, тарболы, кейс компакции, живой профиль | REQ-178 | — | no |
 | TASK-267 | Кейсы таскборда: негативный контроль через CASE_NEGATIVE_CONTROL | REQ-173, REQ-174 | — | no |
+| TASK-274 | Hindsight starts with dsh web; harness pin is enforced | — | 4/4 | yes |
 
 ## done (178)
 

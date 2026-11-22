@@ -272,8 +272,9 @@ is already running when nothing is pending, and with work pending offers to stop
 the server, apply, and boot the new version (that restart ends its sessions); it
 refuses outright when the wrapper is itself running inside a dsh web server. The
 POSIX wrapper still skips with one line while a server runs. On Windows the same
-wrapper also starts the local Hindsight daemon when it is installed but not listening, and
-compares the installed harness with the kit pin, running the full convergence when they differ.
+wrapper also starts the Hindsight supervisor when the daemon is installed but not listening; the
+supervisor starts the daemon and restarts it if it exits. The wrapper also compares the installed
+harness with the kit pin, running the full convergence when they differ.
 Put `$DSH_HOME\bin`
 before the npm global directory in `PATH` for the Windows wrapper to win over
 `dsh.cmd`. Two things it deliberately does not do: it does not touch

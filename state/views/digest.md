@@ -2,7 +2,7 @@
 
 GENERATED — DO NOT EDIT.
 
-REQ 183 · TASK 274 · TEST 86 · event 1309
+REQ 183 · TASK 274 · TEST 86 · event 1310
 
 ## Gaps
 
@@ -23,7 +23,6 @@ REQ 183 · TASK 274 · TEST 86 · event 1309
 - TASK-237 open: Stop the state feed from writing unidentified messages, and repair the sessions it corrupted
 - TASK-243 open: Остаток окна Codex и цена модели — в сессии
 - TASK-273 open: Codex sign-in tool: codex_signin_start/status/cancel
-- TASK-274 open: Hindsight starts with dsh web; harness pin is enforced
 - TASK-272 active: Коммит и push правки библиотеки кейсов
 - TASK-240 review: Ограничить контекст на входе: проекция выдачи и task_list
 - TASK-241 review: Абсолютный бюджет контекста ~500K вместо доли окна
@@ -33,4 +32,5 @@ REQ 183 · TASK 274 · TEST 86 · event 1309
 - TASK-264 review: Установка: Node 24.9, сохранение слоя, сторож сервера, бэкап и откат, обёртка Windows
 - TASK-265 review: Сведение: make verify, make test, тарболы, кейс компакции, живой профиль
 - TASK-267 review: Кейсы таскборда: негативный контроль через CASE_NEGATIVE_CONTROL
+- TASK-274 review: Hindsight starts with dsh web; harness pin is enforced
 

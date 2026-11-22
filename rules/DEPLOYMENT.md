@@ -247,9 +247,9 @@ kill the session that hosts it; the POSIX wrapper still skips with one line whil
 (2) it preserves the machine's
 `agent-default-model` row, so an automatic update cannot change provider/model/reasoning effort;
 (3) it does not install the optional external binaries; `node scripts/kit-update.mjs --apply`
-(or `./start.sh`) remains the full convergence for those; (4) on Windows it starts the local
-Hindsight daemon when the daemon is installed but its port is closed, detached through WMI so a
-later server restart does not take the daemon with it; (5) it compares the installed harness with
+(or `./start.sh`) remains the full convergence for those; (4) on Windows it starts the Hindsight supervisor when the daemon is installed but its port is
+closed, detached through WMI so a later server restart does not take it with it; the supervisor
+starts the launcher and restarts it when it exits; (5) it compares the installed harness with
 the kit pin and runs the full convergence when they differ, because a profile written for one
 harness does not boot unchanged on another. `DSH_KIT_BOOT=0`
 opts out for one launch, `DSH_KIT_DIR` relocates the kit. `npx @deepseek-ai/dsh web` runs the
@@ -295,10 +295,12 @@ at launch and never stores it, with the kit's own provider settings:
 
 - Linux: unit `~/.config/systemd/user/hindsight-memory.service`, enabled at `default.target`,
   launcher `~/.hindsight/start-coding-agent.sh`; `systemctl --user status|restart`.
-- Windows: launcher `~/.hindsight/start-coding-agent.ps1` and a per-user `Run` value
-  `DshHindsightDaemon` (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`). The Run key, not a
-  scheduled task: registering an at-logon task needs elevation here (`Access is denied`), while
-  the per-user Run value does not.
+- Windows: launcher `~/.hindsight/start-coding-agent.ps1`, the supervisor
+  `~/.hindsight/hindsight-supervisor.ps1`, and a per-user `Run` value `DshHindsightDaemon`
+  (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`) that runs the supervisor. The Run key,
+  not a scheduled task: registering an at-logon task needs elevation here (`Access is denied`),
+  while the per-user Run value does not. The kit's wrapper starts the same supervisor when the
+  port is closed, so a daemon that crashes mid-session is restarted rather than left refused.
 - Either way `HINDSIGHT_API_LLM_PROVIDER=deepseek`, `HINDSIGHT_API_LLM_MODEL=deepseek-chat`,
   `HINDSIGHT_API_PORT=18888`, and `uvx hindsight-embed` runs embedded PostgreSQL on 127.0.0.1.
 - On Windows, `dsh web` starts the launcher itself when the daemon is not listening and no start
