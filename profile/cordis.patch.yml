@@ -463,6 +463,9 @@
               - case_get
               - case_list
               - case_record
+              - codex_signin_cancel
+              - codex_signin_start
+              - codex_signin_status
               - delegate_task
               - delegation_brief
               - designmap_apply
@@ -967,9 +970,10 @@
       # The harness's own pi-ai catalog already ships this provider: baseUrl
       # https://chatgpt.com/backend-api, protocol openai-codex-responses, and an OAuth
       # grant named "OpenAI (ChatGPT Plus/Pro)" with isSubscription: true. Naming the
-      # route here activates that catalog entry; the sign-in happens in Settings ->
-      # Models and the credential is stored as llm-pi-ai/openai-codex. No API key and
-      # no prepaid credits are involved, so a ChatGPT subscription is enough.
+      # route here activates that catalog entry. The web Models page has no button for
+      # this OAuth-only route, so the sign-in is started from chat by the codex-signin
+      # plugin (codex_signin_start); the grant is stored as llm-pi-ai/openai-codex. No
+      # API key and no prepaid credits are involved, so a ChatGPT subscription is enough.
       # The installed pi-ai catalog (1.5.2 in DSH 0.2.2-rc.3) stops at GPT-6.1: it has no
       # GPT-6.2 family, so the picker cannot offer the models this subscription serves. The
       # route accepts them (measured: POST /codex/responses with gpt-6.2-astra -> 200 and a
@@ -1055,6 +1059,17 @@
               provider: deepseek-official
               model: deepseek-flash
               reasoningEffort: max
+
+# ── codex-signin: ChatGPT Plus/Pro device login outside the GUI ─────────────
+# The web build has no provider sign-in control for the OAuth-only openai-codex route;
+# these three tools give the orchestrator the device-code flow from chat. The pi-ai
+# authorization flow owns the grant write; the tools only surface URL, code and status.
+- insert:
+    - id: codex-signin
+      name: '@cc/dsh-codex-signin'
+      config:
+        presets:
+          - orchestrator
 
 # ── roles: the nine compositions this deployment runs ──────────────────────
 # A role is an agent preset, not a prompt request: the preset IS the tool list and

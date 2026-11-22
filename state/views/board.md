@@ -2,13 +2,15 @@
 
 GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`.
 
-## open (3)
+## open (5)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
 | TASK-233 | OpenAI Codex: вход по подписке через инструмент харнесса | REQ-111, REQ-112, REQ-113, REQ-114 | 0/4 | no |
 | TASK-237 | Stop the state feed from writing unidentified messages, and repair the sessions it corrupted | — | 0/7 | yes |
 | TASK-243 | Остаток окна Codex и цена модели — в сессии | REQ-132, REQ-133 | 0/4 | no |
+| TASK-273 | Codex sign-in tool: codex_signin_start/status/cancel | REQ-111, REQ-112, REQ-113, REQ-114 | 0/5 | no |
+| TASK-274 | Hindsight starts with dsh web; harness pin is enforced | — | 0/4 | yes |
 
 ## active (1)
 

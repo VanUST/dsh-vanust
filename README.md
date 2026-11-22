@@ -1,6 +1,6 @@
 # dsh-kit
 
-Portable setup for **DeepSeek Harness (dsh)** plus the 28 plugins this
+Portable setup for **DeepSeek Harness (dsh)** plus the 29 plugins this
 deployment needs beyond upstream, across all your machines (2× Linux, 1× Windows).
 `plugins/inventory.json` is the single source of truth for the set:
 
@@ -200,6 +200,12 @@ invent a justification.
   brief (objective, scope, non-scope, inputs, acceptance, output, proof, timebox), starts a
   child on the role's **agent preset** and links the child id. It applies to every preset; no
   preset is duplicated.
+- **`@cc/dsh-codex-signin`** — the ChatGPT Plus/Pro device-code sign-in for the
+  `openai-codex` route, which the web Models page does not expose. Three orchestrator-only
+  tools: `codex_signin_start` returns the verification URL and user code and keeps the flow
+  running, `codex_signin_status` reports pending/authorized/cancelled/failed, and
+  `codex_signin_cancel` withdraws it. The pi-ai flow writes the grant; the tools never see a
+  token.
 - **Role presets** — nine `@deepseek-ai/dsh-agent-preset` declarations in
   `profile/cordis.patch.yml`: `orchestrator`, `ux`, `presenter`, `backend`, `research`,
   `gatherer`, `reviewer`, `critic`, `docs`. **`presenter`** makes an idea land for a
@@ -272,7 +278,7 @@ invent a justification.
 
 **Third-party add-on: Hindsight memory.** `@vectorize-io/hindsight-coding-agents@0.8.2`
 is installed separately by its own command (`npx @vectorize-io/hindsight-coding-agents install dsh`),
-not from this repository, and is therefore not one of the 28 in-repo plugins. It writes a
+not from this repository, and is therefore not one of the 29 in-repo plugins. It writes a
 row into `$DSH_HOME/cordis.patch.yml` (the home layer, shared by every profile) and a
 companion skill into `~/.agents/skills/hindsight-coding-agent`. Its settings live in
 `~/.hindsight/coding-agent.json`; this machine's file is enabled with `serverMode: daemon`
@@ -318,7 +324,7 @@ cd dsh-vanust               # the repository is dsh-vanust; the kit it contains 
 ```
 
 **What a clone alone gives you, stated exactly.** Everything the deployment
-installs is in the repository: the 28 plugin tarballs, the canonical profile, the
+installs is in the repository: the 29 plugin tarballs, the canonical profile, the
 procedure and the pinned version in both installers. Every plugin's source is here
 too — `plugins/notify/`, `plugins/diagrams/`,
 `plugins/work-modes/`, `plugins/godot-mcp/`, `plugins/skills/`, `plugins/flash-guard/`,
@@ -344,7 +350,7 @@ dsh-kit/
 │                              #   session-analysis`: every session, in seconds per question)
 ├── scripts/kit-update.mjs     # update path: hash drift check + convergence for an existing machine
 ├── plugins/inventory.json     # the shipped plugin set (the source of truth)
-├── plugins/*.tgz              # plugin tarballs: 28 packages, including notify, diagrams, presentation,
+├── plugins/*.tgz              # plugin tarballs: 29 packages, including notify, diagrams, presentation,
 │                              #                  work-modes, godot-mcp, skills, flash-guard, role-model,
 │                              #                  proof-guard, taskboard, orchestrator
 ├── plugins/notify/            # source of @cc/dsh-notify (desktop notifications; packed above)
@@ -417,7 +423,7 @@ verified on and the procedure for reproducing that verification are `rules/DEPLO
   `plugins/papers/`.
   `plugins/inventory.json` is the set.
 - **Reviewer's overview** — `docs/HARNESS-OVERVIEW.md`: the harness composition, all 8 kit
-  presets and the 4 built-in presets with their personas, the 28 plugins, the system-prompt
+  presets and the 4 built-in presets with their personas, the 29 plugins, the system-prompt
   section map with its source files, and the discrepancies a reviewer should check.
 - **Design rationale** — `docs/` carries the analysis notes this kit was built from
   (`docs/HARNESS-COMPACTION-REVIEW.md`, `docs/SESSION-CONTEXT.md`); they are readings, not

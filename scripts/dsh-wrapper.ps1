@@ -151,6 +151,94 @@ function Invoke-KitApply {
   }
 }
 
+
+# The harness version the kit installers pin, or $null when the installer is absent.
+function Get-KitHarnessPin {
+  $installer = Join-Path $Kit 'install.ps1'
+  if (-not (Test-Path $installer)) { return $null }
+  try {
+    $match = [regex]::Match((Get-Content $installer -Raw), '(?m)^\s*\$DSH_VERSION\s*=\s*''([^'']+)''')
+    if ($match.Success) { return $match.Groups[1].Value }
+  } catch { }
+  return $null
+}
+
+# The harness package version the wrapper is about to boot.
+function Get-InstalledHarnessVersion {
+  $manifest = Join-Path $npmPrefix 'node_modules\@deepseek-ai\dsh\package.json'
+  try { return (Get-Content $manifest -Raw | ConvertFrom-Json).version } catch { return $null }
+}
+
+# Align the installed harness with the kit pin before booting.
+#
+# The normal boot path skips the harness on purpose (fast, offline). This is the one
+# check that is too important to skip: a profile written for 0.2.2 booted on 0.2.1
+# loses plugins in a way that looks like a broken kit. A mismatch runs the full
+# convergence, which installs the pin and records it; a failure warns and boots what
+# is installed.
+function Sync-HarnessPin {
+  $pin = Get-KitHarnessPin
+  if ($pin -eq $null -or $pin -eq '') { return }
+  $installed = Get-InstalledHarnessVersion
+  if ($installed -eq $pin) { return }
+  Write-Host "dsh: harness $installed does not match the kit pin $pin; installing the pin"
+  $applyArgs = @($update, '--apply', '--no-tools', '--keep-model-config', '--port', $port, '--kit', $Kit, '--home', $dshHome)
+  $previous = $ErrorActionPreference
+  $code = 1
+  try {
+    $ErrorActionPreference = 'Continue'
+    & node @applyArgs *>> $log
+    $code = $LASTEXITCODE
+  } catch {
+    $code = 1
+  } finally {
+    $ErrorActionPreference = $previous
+  }
+  $after = Get-InstalledHarnessVersion
+  if ($after -eq $pin) {
+    Write-Host "dsh: harness updated to $pin"
+  } elseif ($code -ne 0) {
+    Write-Host "dsh: harness pin install failed; booting $after (see $log)"
+  } else {
+    Write-Host "dsh: harness is still $after (kit pin $pin); booting the installed version"
+  }
+}
+
+# Start the local Hindsight daemon when it is installed but not listening.
+#
+# serverMode daemon means the plugin only talks to a daemon that is already up; it
+# does not start one (measured on hindsight-coding-agents 0.8.3). The Run key covers
+# a logon, but a daemon that died, or a launch before the logon script ran, leaves
+# every hindsight_* tool refused. Starting it from the same command that launches the
+# harness makes "dsh web" the single entry point. It is detached through WMI so a
+# later server kill cannot take the daemon with it, and a start already in progress
+# (daemon-start.js) is left alone.
+function Start-HindsightDaemon {
+  $launcher = Join-Path $env:USERPROFILE '.hindsight\start-coding-agent.ps1'
+  if (-not (Test-Path $launcher)) { return }
+  $apiPort = 18888
+  $configPath = Join-Path $env:USERPROFILE '.hindsight\coding-agent.json'
+  if (Test-Path $configPath) {
+    try {
+      $configured = (Get-Content $configPath -Raw | ConvertFrom-Json).apiPort
+      if ($configured) { $apiPort = [int]$configured }
+    } catch { }
+  }
+  if (Test-PortOpen $apiPort) { return }
+  $starting = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -and $_.CommandLine -match '(?i)daemon-start\.js' }
+  if ($starting) { return }
+  try {
+    $line = 'cmd.exe /d /s /c "set DSH_HOME=' + $dshHome + '&& set HINDSIGHT_API_PORT=' + $apiPort + '&& powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ' + $launcher + '"'
+    Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $line } | Out-Null
+    Write-Host "dsh: starting the local Hindsight daemon on $apiPort"
+  } catch {
+    Write-Host "dsh: Hindsight daemon did not start - $($_.Exception.Message)"
+  }
+}
+
+if ($isWeb) { Start-HindsightDaemon }
+
 if ($isWeb -and $env:DSH_KIT_BOOT -ne '0' -and (Test-Path $update)) {
   $reportFile = Join-Path ([IO.Path]::GetTempPath()) ("dsh-kit-wrapper-" + $PID + ".json")
   $report = $null
@@ -181,6 +269,11 @@ if ($isWeb -and $env:DSH_KIT_BOOT -ne '0' -and (Test-Path $update)) {
 
   if ($report -and $actions.Count -eq 0) {
     if ($serverRunning) {
+      $pin = Get-KitHarnessPin
+      $installed = Get-InstalledHarnessVersion
+      if ($pin -and $pin -ne '' -and $installed -ne $pin) {
+        Write-Host "dsh: harness $installed does not match the kit pin $pin; stop the server and rerun dsh web to align it"
+      }
       Write-Host "dsh: already running on http://127.0.0.1:$port/ - nothing to update"
       exit 0
     }
@@ -234,6 +327,8 @@ if ($isWeb -and $env:DSH_KIT_BOOT -ne '0' -and (Test-Path $update)) {
     exit 1
   }
 }
+
+if ($isWeb -and $env:DSH_KIT_BOOT -ne '0') { Sync-HarnessPin }
 
 & node $entry @args
 exit $LASTEXITCODE

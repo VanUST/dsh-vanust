@@ -257,6 +257,16 @@
       "source": "plugins/delegation-brief",
       "pack": "scripts/pack-plugin.mjs",
       "mounted": true
+    },
+    {
+      "id": "codex-signin",
+      "package": "@cc/dsh-codex-signin",
+      "tarballPrefix": "cc-dsh-codex-signin",
+      "provenance": "in-repo",
+      "source": "plugins/codex-signin",
+      "pack": "scripts/pack-plugin.mjs",
+      "mounted": true,
+      "note": "ChatGPT Plus/Pro device sign-in for the orchestrator"
     }
   ]
 }
