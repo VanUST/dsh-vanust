@@ -27,6 +27,21 @@ even when its facts are right.
 - The prose is in the human's language; identifiers, paths and codes stay verbatim in their own
   language. Do not calque an identifier into an invented local word.
 
+## The project ledger across machines
+
+`state/` is the project ledger, not one machine's notebook: rows are identified by what they
+are (`boardId`, `caseId`, `analysisRef`) and the journal is merged across machines. A `git pull`
+that stops on `state/` is not resolved by picking a side.
+
+1. `node scripts/state-merge.mjs --check` prints the plan — which rows would be renumbered,
+   which are one row under two numbers, which were edited on both sides. Nothing is written.
+2. `node scripts/state-merge.mjs` writes the merged ledger from git (`HEAD`, `MERGE_HEAD`, the
+   merge base), regenerates `state/views/`, stages `state/` and prints the same report.
+3. Read the collisions to the owner, then finish the merge with `git commit`.
+
+`make pull` does the pull and step 2 in one command. Never `git checkout --ours/--theirs --
+state/`: one machine's rows and events disappear and the journal stops replaying.
+
 ## Reports
 
 - A report goes to a human who did not watch the work. Lead with the outcome, name the change,

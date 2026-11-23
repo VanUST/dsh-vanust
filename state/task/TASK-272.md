@@ -2,10 +2,10 @@
 id: TASK-272
 kind: task
 title: "Коммит и push правки библиотеки кейсов"
-status: review
-revision: 3
+status: done
+revision: 4
 createdAt: 2026-11-20T15:02:19.014Z
-updatedAt: 2026-11-20T15:04:36.626Z
+updatedAt: 2026-11-23T08:44:56.312Z
 boardId: task-mwp3y9u9-luv90r
 chore: true
 choreReason: "Публикация готовой правки библиотеки кейсов: коммит и push в origin/main, без изменения кода."

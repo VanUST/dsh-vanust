@@ -1,6 +1,6 @@
 {
   "name": "@cc/dsh-project-state",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "description": "The project state core: the single writer of state/ — entity schema (REQ/DECISION/TASK/TEST) with YAML frontmatter and a body, typed sequential IDs allocated under a lock, links that store the content hash of their target, compare-and-set TASK transitions, an append-only JSONL journal with replay, snapshot() and verify(). Publishes the ccProjectState host service; no model tools.",
   "type": "module",
   "main": "index.mjs",

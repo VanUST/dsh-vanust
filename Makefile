@@ -48,7 +48,7 @@ endif
 CORPUS   ?= .cache/session-analysis/corpus.json
 ANALYSIS ?= .cache/session-analysis/analysis.json
 
-.PHONY: help usage usage-check usage-gate session-corpus session-analysis notify-selftest session-doctor session-identity harness-guard harness-guard-apply verify test cases
+.PHONY: help usage usage-check usage-gate session-corpus session-analysis notify-selftest session-doctor session-identity harness-guard harness-guard-apply verify test cases pull
 
 help:
 	@echo "make usage                    - newest usage export in ~/Downloads, write and open the report"
@@ -67,6 +67,7 @@ help:
 	@echo "  ONLY=<substring>            - run only the test and proof paths containing it"
 	@echo "make cases                    - execute the automated cases in docs/cases; exit 1 when one is not verified"
 	@echo "  TAG=<tag> ARGS=<cli args>   - e.g. make cases TAG=benchmark, or ARGS=\"--id <case>\""
+	@echo "make pull                     - git pull, then merge state/ from git and print the collisions"
 
 usage:
 	@$(NODE) $(ANALYTICS) $(EXPORT_ARG) $(OPEN_ARG)
@@ -157,6 +158,19 @@ test:
 # Artifacts land under docs/cases/runs/ (gitignored).
 cases:
 	@$(NODE) plugins/test-cases/bin/cases.mjs suite $(if $(TAG),--tag $(TAG),) $(ARGS)
+
+# A pull is the one operation that can bring another machine's ledger into this checkout: git stops
+# on an add/add row conflict and on state/events.jsonl. The resolver reads both sides from git,
+# renumbers what collided, regenerates the projections and prints every collision; a conflict
+# outside state/ is left to the human. Never pick a side with git checkout --ours/--theirs.
+pull:
+	@git pull --no-rebase || { \
+	  if git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then \
+	    echo "pull stopped: merging the project state from git"; \
+	    $(NODE) scripts/state-merge.mjs; \
+	  else \
+	    echo "pull failed before a merge started; nothing to merge"; exit 1; \
+	  fi; }
 
 # The session corpus: one pass over every stored session log (~2 min for ~1,000 logs), producing a
 # single JSON the questions can be answered from in seconds instead of re-reading ~1 GB of zstd on

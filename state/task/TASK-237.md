@@ -2,10 +2,10 @@
 id: TASK-237
 kind: task
 title: "Stop the state feed from writing unidentified messages, and repair the sessions it corrupted"
-status: open
-revision: 1
+status: done
+revision: 2
 createdAt: 2026-11-18T14:23:27.840Z
-updatedAt: 2026-11-18T14:23:27.840Z
+updatedAt: 2026-11-23T08:45:30.363Z
 boardId: task-mwm7on1p-lc69tx
 chore: true
 choreReason: "A defect in the state-feed plugin makes every session it touched unloadable; repairing it is required before the state panel can be used at all, and it maps to no existing requirement."

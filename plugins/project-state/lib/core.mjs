@@ -203,8 +203,14 @@ export function createStateService(options = {}) {
   async function appendJournal(event) {
     await mkdir(root, { recursive: true })
     const events = await readJournal()
-    const seq = events.filter((entry) => typeof entry?.seq === 'number').length + 1
+    // `seq` is the line number, not an identity: a merged journal can hold a malformed line, so
+    // the next number is one past the HIGHEST, never the line count (which would repeat a number).
+    const seq = events.reduce((max, entry) => (typeof entry?.seq === 'number' && entry.seq > max ? entry.seq : max), 0) + 1
     const record = { seq, at: now(), ...event }
+    // `eid` is the event's content identity: two machines can write the same change, and the
+    // state merge (scripts/state-merge.mjs) deduplicates on it. `seq` cannot serve, because each
+    // machine numbers its own lines.
+    record.eid = sha256([record.at, record.op ?? '', record.kind ?? '', record.id ?? '', JSON.stringify(record.record ?? null), typeof record.body === 'string' ? record.body : ''].join('|'))
     await writeFile(join(root, 'events.jsonl'), `${JSON.stringify(record)}\n`, { flag: 'a', encoding: 'utf8' })
     return record
   }

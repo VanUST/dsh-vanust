@@ -890,6 +890,18 @@ node "$KIT/scripts/kit-update.mjs" --apply                  # converge, then rec
   report is coming. Treat an unfinished subagent as an outstanding item, not as a silent
   failure.
 
+**A pull that touches `state/`.** `state/` is the project ledger, shared by every machine that
+clones this repository, so a pull can stop on the same row number claimed by both sides and on
+`state/events.jsonl`. Do not pick a side: `make pull` (or `node scripts/state-merge.mjs` after
+a conflicted `git pull`) reads both sides from git — `HEAD`, `MERGE_HEAD` and their merge base —
+keeps one row per identity, renumbers the row that lost its number, merges one row known under
+two numbers, unions the journal by event content, regenerates `state/views/` and prints every
+collision it resolved (the same report is in `.dsh/state-merge-report.json`). It writes nothing
+outside `state/` and exits 1 only while a conflict outside `state/` remains; `--check` prints
+the report and writes nothing. The result is idempotent: a second run over the same refs writes
+the same bytes, and `verify()`/`replay()` pass afterwards (`node scripts/state-merge-proof.mjs`
+is the two-clone proof).
+
 `$KIT` is the clone's directory. If you do not know it, read it from
 `$DSH_HOME/.dsh-kit-state.json` (`kit`), or ask: `node <kit>/scripts/kit-update.mjs --help`.
 
@@ -1022,6 +1034,9 @@ live profile.
    change or a harness bump is invisible in `--dump-config` beyond the row itself.
 8. **A rule is real only where a command fails.** Before claiming something is enforced,
    name the command that exits non-zero when it is broken.
+9. **Never resolve a `state/` conflict by choosing a side.** `git checkout --ours/--theirs --
+   state/` deletes the other machine's rows and leaves the journal unable to replay; run
+   `node scripts/state-merge.mjs`, read its collision report, then commit (section 3).
 
 ## 7. First-run checks (1 minute, human-visible)
 

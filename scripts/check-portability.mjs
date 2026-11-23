@@ -205,7 +205,7 @@ const CHECKS = [
     // check-documentation reads `git ls-files` for one purpose: a plugin whose source is not
     // committed yet (another chat's working-tree row) must not move the count the documents
     // state. Same prerequisite as here - git is what makes a checkout a checkout.
-    allow: ['scripts/check-portability.mjs', 'scripts/check-documentation.mjs', 'scripts/independent-verification-proof.mjs'],
+    allow: ['scripts/check-portability.mjs', 'scripts/check-documentation.mjs', 'scripts/independent-verification-proof.mjs', 'scripts/state-merge-proof.mjs'],
     allowReason:
       'git is required to have a checkout at all, so it cannot be "unavailable on Linux" the way npm is unresolvable on Windows; unlike npm it is on PATH everywhere the kit runs. The P1 proof commits the wrong-product tree so its HEAD can be named (W1), which only git can do',
   },

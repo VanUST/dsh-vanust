@@ -2,10 +2,10 @@
 id: TASK-267
 kind: task
 title: "Кейсы таскборда: негативный контроль через CASE_NEGATIVE_CONTROL"
-status: review
-revision: 4
+status: done
+revision: 5
 createdAt: 2026-11-20T12:24:38.409Z
-updatedAt: 2026-11-20T14:20:01.773Z
+updatedAt: 2026-11-23T08:45:00.542Z
 boardId: task-mwoybhye-voa1qg
 nonScope: ["Не менять поведение плагина и формат доски", "Не трогать ~/.npm/dsh и :3080", "Не менять другие тесты и кейсы"]
 owner:

@@ -2,21 +2,7 @@
 
 GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`.
 
-## open (2)
-
-| id | title | reqs | steps | chore |
-|---|---|---|---|---|
-| TASK-233 | OpenAI Codex: вход по подписке через инструмент харнесса | REQ-111, REQ-112, REQ-113, REQ-114 | 0/4 | no |
-| TASK-237 | Stop the state feed from writing unidentified messages, and repair the sessions it corrupted | — | 0/7 | yes |
-
-## review (2)
-
-| id | title | reqs | steps | chore |
-|---|---|---|---|---|
-| TASK-267 | Кейсы таскборда: негативный контроль через CASE_NEGATIVE_CONTROL | REQ-173, REQ-174 | — | no |
-| TASK-272 | Коммит и push правки библиотеки кейсов | — | — | yes |
-
-## done (188)
+## done (204)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -170,9 +156,11 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-230 | P1: выход в чат, скрытие окон, без дубля Tasks | REQ-104, REQ-105, REQ-106, REQ-107 | — | no |
 | TASK-231 | P1-T: red→green тест навигации панелей | REQ-104, REQ-105, REQ-106, REQ-107 | — | no |
 | TASK-232 | P2: правая колонка панели, верхняя панель без Tasks и Design map | REQ-108, REQ-109, REQ-110 | 0/6 | no |
+| TASK-233 | OpenAI Codex: вход по подписке через инструмент харнесса | REQ-111, REQ-112, REQ-113, REQ-114 | 0/4 | no |
 | TASK-234 | P3: счётчики State и список задач с сортировкой | REQ-115, REQ-116, REQ-117 | 0/5 | no |
 | TASK-235 | P5: правила скорости для всех корней, L0 для локальных правок, один кейс на пачку | REQ-118, REQ-119, REQ-120 | 0/5 | no |
 | TASK-236 | State: конкретика задачи в TASK и переход к сессии субагента | REQ-124, REQ-125, REQ-126, REQ-127 | 4/5 | no |
+| TASK-237 | Stop the state feed from writing unidentified messages, and repair the sessions it corrupted | — | 0/7 | yes |
 | TASK-238 | Починить гейт delegation_brief: REQ, который реестр реально может иметь | REQ-083 | 3/3 | no |
 | TASK-239 | Почистить список задач: синхронизировать статусы реестра с доской и закрыть заброшенные строки | — | 4/4 | yes |
 | TASK-240 | Ограничить контекст на входе: проекция выдачи и task_list | REQ-128, REQ-129, REQ-134 | 4/4 | no |
@@ -201,13 +189,27 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-264 | Установка: Node 24.9, сохранение слоя, сторож сервера, бэкап и откат, обёртка Windows | REQ-176 | — | no |
 | TASK-265 | Сведение: make verify, make test, тарболы, кейс компакции, живой профиль | REQ-178 | — | no |
 | TASK-266 | Проверка компакции: общий бюджет и объявленное исключение architect | REQ-131 | — | no |
+| TASK-267 | Кейсы таскборда: негативный контроль через CASE_NEGATIVE_CONTROL | REQ-173, REQ-174 | — | no |
 | TASK-268 | Роль ARCHITECT: маршрут по умолчанию gpt-6.2-sol вместо gpt-6.2-astra | — | — | yes |
 | TASK-269 | Коммит и push изменений в origin/main | — | — | yes |
 | TASK-270 | Догоняющий коммит и push после 9f11674 | — | — | yes |
 | TASK-271 | Библиотека кейсов: правка и наблюдение доступны, каталог в доказательстве, запрет прибитых команд | REQ-179, REQ-180, REQ-181, REQ-182, REQ-183 | — | no |
+| TASK-272 | Коммит и push правки библиотеки кейсов | — | — | yes |
 | TASK-273 | Фрагменты внутри SVG: схема заполняется по ячейкам | REQ-156, REQ-159 | 4/4 | no |
 | TASK-274 | Блок motion: анимация по часам вместо библиотеки | REQ-156 | 6/6 | no |
 | TASK-275 | Pull the remote kit and verify the updated kit locally | — | 4/4 | yes |
+| TASK-276 | A1: аудит плагинов и пресетов — кто вызывается, кто мёртвый, кто дорогой | — | — | no |
+| TASK-277 | U1: провижн impeccable — скилл, движок, make design-audit | — | — | no |
+| TASK-278 | U2: UX-процесс с impeccable — существующий проект, новый проект, мокапы для выбора | — | — | no |
+| TASK-279 | T1: поверхность инструментов — удалить мёртвое, вернуть designmap, включить godot-deny и outline | — | — | no |
+| TASK-280 | U3: Night desk в панели состояния — тёмная тема и постоянный рельс доказательства | — | — | no |
+| TASK-281 | B2: адаптер OpenAI/Codex в харнессе, выбор модели и вход внешнего агента | — | — | no |
+| TASK-282 | U4: State в верхнюю панель и адаптивная светлая/тёмная тема | — | — | no |
+| TASK-283 | O1: измерить и закрепить экономию outline (bench + журнальный аудит) | — | — | no |
+| TASK-284 | O2: outline — всем ролям, не только оркестратору | — | — | no |
+| TASK-285 | B3: прокси только для OpenAI — транспорт в адаптере (HTTP и SOCKS5) | — | — | no |
+| TASK-286 | R1: готовность новой экосистемы — флаг IPv4 и второй сервер | — | — | no |
+| TASK-287 | Проектный журнал state/: слияние двух машин по git | REQ-184, REQ-185, REQ-186, REQ-187 | 5/5 | no |
 
 ## cancelled (83)
 

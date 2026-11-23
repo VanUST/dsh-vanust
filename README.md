@@ -152,7 +152,10 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   that store the sha256 of their target, compare-and-set transitions, an append-only
   `state/events.jsonl` with replay, `snapshot()` and a read-only `verify()` whose findings
   (orphan, broken link, REQ without criteria, TASK without REQ unless chore+reason, stale hash,
-  broken frontmatter) leave a human edit blocked rather than silently overwritten.
+  broken frontmatter) leave a human edit blocked rather than silently overwritten. The same
+  directory is the project's ledger across machines: `scripts/state-merge.mjs` resolves a
+  `state/` conflict from git, renumbers the row that lost its number, merges one row known
+  under two numbers and prints every collision it resolved (`make pull` runs it after a pull).
 - **`@cc/dsh-project-state-panel`** — one read-only panel over the generated projections,
   with four modes that share a selection: business requirements, the task board, the design
   map and tests/traceability. It reads `state/views/index.json` for the link contract and the
