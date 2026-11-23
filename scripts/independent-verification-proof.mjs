@@ -2,9 +2,10 @@
 /**
  * PURPOSE
  *   P0 proof for independent verification: reproduce the real ways an implementer used to sign
- *   off its own work, run each one against the code in this tree AND against the code at HEAD,
- *   and show that every bypass is refused now while HEAD accepted it - plus the one path that
- *   must still pass (a case authored by the orchestrator and measured by the reviewer).
+ *   off its own work, run each one against the code in this tree AND against the PRE-FIX tree
+ *   (the commit before the acceptance gate landed, resolved from history), and show that every
+ *   bypass is refused now while the pre-fix tree accepted it - plus the one path that must still
+ *   pass (a case authored by the orchestrator and measured by the reviewer).
  *
  *   WHY THE OLD TREE IS RUN, NOT ASSERTED. A check that only asserts the new code's refusal
  *   cannot tell a closed hole from a hole that was never there. The red is the OLD code ACCEPTING
@@ -29,17 +30,17 @@
  *        -> accepted in both trees; without this the six refusals would prove nothing.
  *
  * INPUTS
- *   None. Reads git HEAD for the pre-fix modules and writes its scratch trees under
+ *   None. Reads the pre-fix commit for the modules it compares and writes its scratch trees under
  *   `.cache/independent-verification/` (derived, gitignored, removed on exit).
  *
  * OUTPUTS
- *   One PASS/FAIL line per check (new refusal + HEAD acceptance), a summary line, and exit 0
- *   only when every check held: the six bypasses are refused here and were accepted at HEAD, and
+ *   One PASS/FAIL line per check (new refusal + pre-fix acceptance), a summary line, and exit 0
+ *   only when every check held: the six bypasses are refused here and were accepted before, and
  *   the control passes in both trees. Exit 1 otherwise, naming the check that failed.
  *
  * KEYWORDS
  *   independent verification, self-verification, provenance, acceptance gate, task close,
- *   test hash, legacy cases, red against HEAD
+ *   test hash, legacy cases, red against the pre-fix commit
  */
 
 import { execFileSync, spawnSync } from 'node:child_process'
@@ -50,6 +51,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const KIT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const SCRATCH = join(KIT, '.cache', 'independent-verification')
+// The module that only exists from the acceptance gate onwards: the pre-fix commit is the one
+// before this file was added, so it is what names the code the red is measured against.
+const PRE_FIX_MODULE = 'plugins/test-cases/lib/acceptance.mjs'
 const OLD_FILES = [
   'plugins/test-cases/test-cases.mjs',
   'plugins/test-cases/mirror.mjs',
@@ -78,13 +82,33 @@ function check(name, ok, detail) {
   console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${detail === undefined || detail === '' ? '' : `  [${detail}]`}`)
 }
 
-/** The pre-fix module tree: the files above, exactly as HEAD has them. */
-function oldTree() {
-  const root = join(SCRATCH, `head-${process.pid}`)
+/**
+ * The commit the pre-fix modules are read from: the parent of the commit that ADDED the
+ * acceptance gate. It is resolved from history on every run because HEAD stops being the
+ * pre-fix tree the moment the gate is committed: on a clean checkout HEAD and this tree are the
+ * same code, the collected tree is missing the gate's own module, and the red half silently
+ * becomes a copy of the green half. A shallow clone has no adding commit, so the resolution
+ * refuses loudly instead of pretending the two trees differ.
+ */
+function preFixRef() {
+  const added = spawnSync('git', ['-C', KIT, 'log', '--diff-filter=A', '--format=%H', '-1', '--', PRE_FIX_MODULE], { encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 })
+  const sha = String(added.stdout ?? '').trim()
+  if (added.status !== 0 || sha === '') {
+    throw new Error(`cannot resolve the pre-fix commit: no commit in this clone added ${PRE_FIX_MODULE} (a shallow clone has no such history)`)
+  }
+  const parent = spawnSync('git', ['-C', KIT, 'rev-parse', `${sha}^`], { encoding: 'utf8' })
+  const ref = String(parent.stdout ?? '').trim()
+  if (parent.status !== 0 || ref === '') throw new Error(`cannot resolve the parent of ${sha} (the commit that added ${PRE_FIX_MODULE})`)
+  return ref
+}
+
+/** The pre-fix module tree: the files above, exactly as the pre-fix commit has them. */
+function oldTree(ref) {
+  const root = join(SCRATCH, `pre-fix-${process.pid}`)
   for (const file of OLD_FILES) {
-    const shown = spawnSync('git', ['-C', KIT, 'show', `HEAD:${file}`], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 })
+    const shown = spawnSync('git', ['-C', KIT, 'show', `${ref}:${file}`], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 })
     if (shown.status !== 0) {
-      throw new Error(`could not read ${file} from HEAD: ${String(shown.stderr ?? '').trim() || 'git show failed'}`)
+      throw new Error(`could not read ${file} from the pre-fix commit ${ref}: ${String(shown.stderr ?? '').trim() || 'git show failed'}`)
     }
     const target = join(root, file)
     mkdirSync(dirname(target), { recursive: true })
@@ -96,7 +120,7 @@ function oldTree() {
 async function load(treeRoot) {
   const testCases = await import(pathToFileURL(join(treeRoot, 'plugins/test-cases/test-cases.mjs')).href)
   const taskboard = await import(pathToFileURL(join(treeRoot, 'plugins/taskboard/taskboard.mjs')).href)
-  return { name: treeRoot === KIT ? 'new' : 'HEAD', createTools: testCases.createTools, gateForTask: testCases.gateForTask, apply: taskboard.apply }
+  return { name: treeRoot === KIT ? 'new' : 'pre-fix', createTools: testCases.createTools, gateForTask: testCases.gateForTask, apply: taskboard.apply }
 }
 
 /**
@@ -509,8 +533,11 @@ const SCENARIOS = [
 async function main() {
   mkdirSync(SCRATCH, { recursive: true })
   let oldRoot = ''
+  let preFixLog = 'unresolved'
   try {
-    oldRoot = oldTree()
+    const preFix = preFixRef()
+    preFixLog = `${preFix.slice(0, 7)}: ${String(spawnSync('git', ['-C', KIT, 'log', '-1', '--format=%s', preFix], { encoding: 'utf8' }).stdout ?? '').trim()}`
+    oldRoot = oldTree(preFix)
     const [now, before] = await Promise.all([load(KIT), load(oldRoot)])
     // P1: the tester seat, its write scope, and the red that counts.
     const { PRESET_IDS, presetForRole } = await import(pathToFileURL(join(KIT, 'plugins/orchestrator/orchestrator.mjs')).href)
@@ -559,7 +586,7 @@ async function main() {
       try {
         old = await scenario.run(before)
       } catch (error) {
-        check(`${scenario.id}: HEAD runs the scenario`, false, String(error?.message ?? error))
+        check(`${scenario.id}: the pre-fix tree runs the scenario`, false, String(error?.message ?? error))
         continue
       }
       const wanted = scenario.expect === 'accepted'
@@ -567,11 +594,11 @@ async function main() {
       const said = typeof fresh.message === 'string' && fresh.message !== '' ? ` · "${fresh.message}"` : ''
       check(`${scenario.id}: the new tree ${wanted ? 'accepts' : 'refuses'} it`, newOk, `${fresh.code}${fresh.status ? ` · case ${fresh.status}` : ''}${fresh.edit ? ` · ${fresh.edit}` : ''}${fresh.rerun ? ` · ${fresh.rerun}` : ''}${said}`)
       if (!wanted) {
-        // The red half: the SAME sequence against HEAD must get through, or this scenario was
-        // never a bypass and its refusal here proves nothing.
-        check(`${scenario.id}: HEAD accepted the bypass (the red)`, old.accepted === true, `${old.code}${old.status ? ` · case ${old.status}` : ''}${old.edit ? ` · ${old.edit}` : ''}${old.rerun ? ` · ${old.rerun}` : ''}`)
+        // The red half: the SAME sequence against the pre-fix tree must get through, or this
+        // scenario was never a bypass and its refusal here proves nothing.
+        check(`${scenario.id}: the pre-fix tree accepted the bypass (the red)`, old.accepted === true, `${old.code}${old.status ? ` · case ${old.status}` : ''}${old.edit ? ` · ${old.edit}` : ''}${old.rerun ? ` · ${old.rerun}` : ''}`)
       } else {
-        check(`${scenario.id}: HEAD accepts it too (the gate is not simply always red)`, old.accepted === true, old.code)
+        check(`${scenario.id}: the pre-fix tree accepts it too (the gate is not simply always red)`, old.accepted === true, old.code)
       }
     }
   } finally {
@@ -579,7 +606,7 @@ async function main() {
   }
   const failed = results.filter((entry) => !entry.ok)
   const bypasses = SCENARIOS.filter((scenario) => scenario.expect === 'blocked').length
-  console.log(`\n${results.length - failed.length}/${results.length} checks held: ${bypasses} bypass(es) refused here and accepted at HEAD, 1 independent run accepted in both trees`)
+  console.log(`\n${results.length - failed.length}/${results.length} checks held: ${bypasses} bypass(es) refused here and accepted by the pre-fix tree (${preFixLog}), 1 independent run accepted in both trees`)
   if (failed.length > 0) {
     console.log(`FAILED: ${failed.map((entry) => entry.name).join('; ')}`)
     process.exit(1)
