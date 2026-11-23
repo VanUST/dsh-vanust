@@ -61,7 +61,7 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join, relative, resolve } from 'node:path'
+import { dirname, join, posix, relative, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 import { inspectInstallerSteps } from './lib/installer-steps.mjs'
@@ -923,6 +923,46 @@ for (const spec of CHECKS) {
     problems.length === 0
       ? `${compared} packed file(s) match the source tree byte for byte`
       : problems.slice(0, 6).join(' | '),
+  )
+
+  // ── every relative import of a packed module must resolve INSIDE the tarball ──
+  // THE FAILURE THIS CATCHES: a plugin's `files` list is the allow-list npm pack obeys, so a
+  // module added later can be imported by packed code while nobody adds it to `files`. The
+  // tarball installs, the required row dies with ERR_MODULE_NOT_FOUND, and the tools that row
+  // registered disappear from every session — while `tarball:matches-source` stays green,
+  // because every file it compared did match. Measured 2026-11-23: taskboard 0.1.84 and
+  // test-cases 0.1.35 omitted lib/journal.mjs, both rows failed to import, and the orchestrator
+  // (waiting for the taskboard service) lost delegate_task too.
+  const importProblems = []
+  let importsCompared = 0
+  for (const row of inventory?.plugins ?? []) {
+    if (typeof row.tarballPrefix !== 'string') continue
+    const versions = readdirSync(pluginDir).filter((name) => isVersionOf(name, row.tarballPrefix))
+    if (versions.length !== 1) continue
+    const entries = readTarball(join(pluginDir, versions[0]))
+    if (entries === null) continue
+    const packed = new Set(entries.keys())
+    for (const [name, bytes] of entries) {
+      if (!/\.(mjs|js|cjs)$/.test(name)) continue
+      const source = bytes.toString('utf8')
+      const specs = new Set()
+      for (const match of source.matchAll(/(?:from|import)\s*\(?\s*['"](\.[^'"]+)['"]/g)) specs.add(match[1])
+      for (const spec of specs) {
+        importsCompared += 1
+        const target = posix.normalize(posix.join(posix.dirname(name), spec))
+        const candidates = [target, `${target}.mjs`, `${target}.js`, `${target}.cjs`, `${target}/index.mjs`, `${target}/index.js`]
+        if (!candidates.some((candidate) => packed.has(candidate))) {
+          importProblems.push(`${row.id}: ${name.replace(/^package\//, '')} imports ${spec}, which ${versions[0]} does not carry`)
+        }
+      }
+    }
+  }
+  check(
+    'tarball:imports-resolve',
+    importProblems.length === 0,
+    importProblems.length === 0
+      ? `${importsCompared} relative module specifier(s) resolve inside their tarballs`
+      : importProblems.slice(0, 6).join(' | '),
   )
 
   // ── a repack of an existing version must have changed the version ──────────
