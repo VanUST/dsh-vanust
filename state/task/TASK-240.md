@@ -2,10 +2,10 @@
 id: TASK-240
 kind: task
 title: "Ограничить контекст на входе: проекция выдачи и task_list"
-status: review
-revision: 2
+status: done
+revision: 3
 createdAt: 2026-11-18T15:41:01.409Z
-updatedAt: 2026-11-18T15:47:00.393Z
+updatedAt: 2026-11-23T08:24:09.665Z
 acceptance:
   - text: "read выше 8 KiB приходит баннером с путём и полный текст читается по этому пути"
     done: false

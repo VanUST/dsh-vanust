@@ -2,10 +2,10 @@
 id: TASK-242
 kind: task
 title: "Allow-список ролей не действует на инструменты кита"
-status: review
-revision: 2
+status: done
+revision: 3
 createdAt: 2026-11-18T15:41:03.159Z
-updatedAt: 2026-11-18T15:57:21.853Z
+updatedAt: 2026-11-23T08:24:12.271Z
 acceptance:
   - text: "в заголовке запроса корня не больше 38 инструментов"
     done: false

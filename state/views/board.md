@@ -2,29 +2,21 @@
 
 GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`.
 
-## open (3)
+## open (2)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
 | TASK-233 | OpenAI Codex: вход по подписке через инструмент харнесса | REQ-111, REQ-112, REQ-113, REQ-114 | 0/4 | no |
 | TASK-237 | Stop the state feed from writing unidentified messages, and repair the sessions it corrupted | — | 0/7 | yes |
-| TASK-243 | Остаток окна Codex и цена модели — в сессии | REQ-132, REQ-133 | 0/4 | no |
 
-## review (9)
+## review (2)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
-| TASK-240 | Ограничить контекст на входе: проекция выдачи и task_list | REQ-128, REQ-129, REQ-134 | 4/4 | no |
-| TASK-241 | Абсолютный бюджет контекста ~500K вместо доли окна | REQ-131 | 2/2 | no |
-| TASK-242 | Allow-список ролей не действует на инструменты кита | REQ-130 | 4/4 | no |
-| TASK-261 | Проекция: полный текст снова читается агентом | REQ-172 | — | no |
-| TASK-263 | Проверки: отказ на пустом входе, негативный контроль, make test | REQ-175, REQ-177 | — | no |
-| TASK-264 | Установка: Node 24.9, сохранение слоя, сторож сервера, бэкап и откат, обёртка Windows | REQ-176 | — | no |
-| TASK-265 | Сведение: make verify, make test, тарболы, кейс компакции, живой профиль | REQ-178 | — | no |
 | TASK-267 | Кейсы таскборда: негативный контроль через CASE_NEGATIVE_CONTROL | REQ-173, REQ-174 | — | no |
 | TASK-272 | Коммит и push правки библиотеки кейсов | — | — | yes |
 
-## done (180)
+## done (188)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -183,6 +175,9 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-236 | State: конкретика задачи в TASK и переход к сессии субагента | REQ-124, REQ-125, REQ-126, REQ-127 | 4/5 | no |
 | TASK-238 | Починить гейт delegation_brief: REQ, который реестр реально может иметь | REQ-083 | 3/3 | no |
 | TASK-239 | Почистить список задач: синхронизировать статусы реестра с доской и закрыть заброшенные строки | — | 4/4 | yes |
+| TASK-240 | Ограничить контекст на входе: проекция выдачи и task_list | REQ-128, REQ-129, REQ-134 | 4/4 | no |
+| TASK-241 | Абсолютный бюджет контекста ~500K вместо доли окна | REQ-131 | 2/2 | no |
+| TASK-242 | Allow-список ролей не действует на инструменты кита | REQ-130 | 4/4 | no |
 | TASK-244 | Red/green proof for the context-bounds changes | REQ-128, REQ-129, REQ-130, REQ-131, REQ-134 | 4/4 | no |
 | TASK-245 | Убрать класс ошибок «unidentified message»: починить старые логи и закрыть источник | — | 6/6 | yes |
 | TASK-246 | Ручной статус задачи в панели Project state и доска без предела строк | REQ-136, REQ-137, REQ-138, REQ-146 | 6/6 | no |
@@ -200,7 +195,11 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-258 | Карта установки и переносимости Linux/Windows | — | — | yes |
 | TASK-259 | Карта поддерживаемости кода кита | — | — | yes |
 | TASK-260 | Карта отказных режимов харнесса | — | — | yes |
+| TASK-261 | Проекция: полный текст снова читается агентом | REQ-172 | — | no |
 | TASK-262 | Таскборд: закрытие с мёртвым ребёнком, один писатель доски, повтор зеркала | REQ-173, REQ-174 | — | no |
+| TASK-263 | Проверки: отказ на пустом входе, негативный контроль, make test | REQ-175, REQ-177 | — | no |
+| TASK-264 | Установка: Node 24.9, сохранение слоя, сторож сервера, бэкап и откат, обёртка Windows | REQ-176 | — | no |
+| TASK-265 | Сведение: make verify, make test, тарболы, кейс компакции, живой профиль | REQ-178 | — | no |
 | TASK-266 | Проверка компакции: общий бюджет и объявленное исключение architect | REQ-131 | — | no |
 | TASK-268 | Роль ARCHITECT: маршрут по умолчанию gpt-6.2-sol вместо gpt-6.2-astra | — | — | yes |
 | TASK-269 | Коммит и push изменений в origin/main | — | — | yes |
@@ -208,8 +207,9 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-271 | Библиотека кейсов: правка и наблюдение доступны, каталог в доказательстве, запрет прибитых команд | REQ-179, REQ-180, REQ-181, REQ-182, REQ-183 | — | no |
 | TASK-273 | Фрагменты внутри SVG: схема заполняется по ячейкам | REQ-156, REQ-159 | 4/4 | no |
 | TASK-274 | Блок motion: анимация по часам вместо библиотеки | REQ-156 | 6/6 | no |
+| TASK-275 | Pull the remote kit and verify the updated kit locally | — | 4/4 | yes |
 
-## cancelled (82)
+## cancelled (83)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -295,3 +295,4 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-128 | Исправить Analysis Record schema integrity | — | — | no |
 | TASK-203 | V1.2: состав пресетов под бюджеты полного заголовка | — | — | no |
 | TASK-206 | FR2: бюджеты контекста — ждёт решения о PTC-пресетах | — | — | no |
+| TASK-243 | Остаток окна Codex и цена модели — в сессии | REQ-132, REQ-133 | 0/4 | no |

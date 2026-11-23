@@ -2,10 +2,10 @@
 id: TASK-243
 kind: task
 title: "Остаток окна Codex и цена модели — в сессии"
-status: open
-revision: 1
+status: cancelled
+revision: 2
 createdAt: 2026-11-18T15:41:04.372Z
-updatedAt: 2026-11-18T15:41:04.372Z
+updatedAt: 2026-11-23T08:24:13.161Z
 acceptance:
   - text: "команда/панель показывает used_percent и reset"
     done: false

@@ -2,10 +2,10 @@
 id: TASK-241
 kind: task
 title: "Абсолютный бюджет контекста ~500K вместо доли окна"
-status: review
-revision: 2
+status: done
+revision: 3
 createdAt: 2026-11-18T15:41:01.972Z
-updatedAt: 2026-11-18T15:46:54.707Z
+updatedAt: 2026-11-23T08:24:10.941Z
 acceptance:
   - text: "deepseek-flash компактится на 500K"
     done: false

@@ -2,10 +2,10 @@
 id: TASK-261
 kind: task
 title: "Проекция: полный текст снова читается агентом"
-status: review
-revision: 3
+status: done
+revision: 4
 createdAt: 2026-11-20T11:51:00.973Z
-updatedAt: 2026-11-20T12:03:09.693Z
+updatedAt: 2026-11-23T08:24:13.880Z
 boardId: task-mwox48ef-jxrknk
 nonScope: ["Не трогать ~/.npm/dsh (живой профиль :3080), не перезапускать сервер, не запускать kit-update --apply против реального DSH_HOME", "Не менять формат баннера, имена инструментов и схему конфигурации", "Не чинить taskboard, установщики и проверки — это другие задачи", "Не менять интерфейс и клиентские панели"]
 owner:
@@ -14,6 +14,8 @@ owner:
   sessionId: 25f5300e-7000-4abc-9a45-31577fa3d215
 preset: backend
 reqIds: [REQ-172]
+resultEvidence: ["node plugins/run-code-projection/proof/proof.mjs -> PASS 22 checks exit 0 (спилл 219 040 Б читается целиком)", "негативный контроль на модуле из git HEAD a1eb322 -> exit 1, 4 красные строки", "TEST-078 red exit 1 -> green exit 0, verified", "перепакован cc-dsh-run-code-projection-0.1.3.tgz"]
+resultSummary: "Полный текст спроецированного результата снова читается агентом: isSpillRead исключает спилл из проекции, у read порог 64 КиБ, proof прогоняет настоящий слушатель tools/post-execute дважды, негативный контроль на коде HEAD падает 4 строками."
 role: BACKEND
 scope: ["plugins/run-code-projection/** (плагин, proof, тесты)", "profile/cordis.patch.yml — только конфигурация строки run-code-projection", "docs/PLUGIN-PROOFS.md, если там описан этот плагин", "plugins/cc-dsh-run-code-projection-*.tgz (перепаковка)"]
 sessions:
