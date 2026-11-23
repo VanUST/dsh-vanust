@@ -10,13 +10,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-237 | Stop the state feed from writing unidentified messages, and repair the sessions it corrupted | — | 0/7 | yes |
 | TASK-243 | Остаток окна Codex и цена модели — в сессии | REQ-132, REQ-133 | 0/4 | no |
 
-## active (1)
-
-| id | title | reqs | steps | chore |
-|---|---|---|---|---|
-| TASK-272 | Коммит и push правки библиотеки кейсов | — | — | yes |
-
-## review (8)
+## review (9)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -28,8 +22,9 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-264 | Установка: Node 24.9, сохранение слоя, сторож сервера, бэкап и откат, обёртка Windows | REQ-176 | — | no |
 | TASK-265 | Сведение: make verify, make test, тарболы, кейс компакции, живой профиль | REQ-178 | — | no |
 | TASK-267 | Кейсы таскборда: негативный контроль через CASE_NEGATIVE_CONTROL | REQ-173, REQ-174 | — | no |
+| TASK-272 | Коммит и push правки библиотеки кейсов | — | — | yes |
 
-## done (178)
+## done (180)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -211,6 +206,8 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-269 | Коммит и push изменений в origin/main | — | — | yes |
 | TASK-270 | Догоняющий коммит и push после 9f11674 | — | — | yes |
 | TASK-271 | Библиотека кейсов: правка и наблюдение доступны, каталог в доказательстве, запрет прибитых команд | REQ-179, REQ-180, REQ-181, REQ-182, REQ-183 | — | no |
+| TASK-273 | Фрагменты внутри SVG: схема заполняется по ячейкам | REQ-156, REQ-159 | 4/4 | no |
+| TASK-274 | Блок motion: анимация по часам вместо библиотеки | REQ-156 | 6/6 | no |
 
 ## cancelled (82)
 
