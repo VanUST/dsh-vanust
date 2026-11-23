@@ -99,7 +99,10 @@ function realPathOf(path) {
  */
 export function resolveWithin(cwd, path) {
   const base = realPathOf(resolve(typeof cwd === 'string' && cwd !== '' ? cwd : process.cwd()))
-  const target = resolve(base, path)
+  // Mixed separators are normalised BEFORE the resolution, not only for display: on POSIX
+  // `resolve()` treats `..\..\src` as one file name, so the documented "mixed separators" above
+  // was true on Windows only and a Windows-style climb was allowed on Linux.
+  const target = resolve(base, normalizePath(path))
   const real = realPathOf(target)
   const rel = relative(base, real)
   const inside = rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
