@@ -35,4 +35,19 @@ if [ "${DSH_KIT_BOOT:-1}" != "0" ] && [ -f "$KIT/scripts/kit-update.mjs" ]; then
   fi
 fi
 
+# EGRESS HOOK: a machine can need the harness's model traffic to leave by a specific path -
+# here a selective proxy whose OpenAI/ChatGPT destinations go through a VPN the rest of the
+# machine does not use. The kit stays portable, so the variables live in a machine-owned file,
+# and they are applied only while that proxy's port answers: a stopped proxy must not break
+# every model call. The port is declared in the file as "# dsh-egress-port: <port>".
+EGRESS_ENV_FILE="${DSH_EGRESS_ENV_FILE:-$HOME/.config/dsh/egress.env}"
+if [ -f "$EGRESS_ENV_FILE" ]; then
+  EGRESS_PORT=$(sed -n 's/^# dsh-egress-port:[[:space:]]*//p' "$EGRESS_ENV_FILE" | head -n 1)
+  if [ -n "$EGRESS_PORT" ] && command -v bash >/dev/null 2>&1 && timeout 1 bash -c "exec 3<>/dev/tcp/127.0.0.1/$EGRESS_PORT" 2>/dev/null; then
+    set -a
+    . "$EGRESS_ENV_FILE"
+    set +a
+  fi
+fi
+
 exec "$NODE" "$ENTRY" "$@"

@@ -293,6 +293,18 @@ without the flags for that), and it preserves the machine's
 `agent-default-model` row - provider, model and reasoning effort are a cost
 decision, not a kit artefact. `DSH_KIT_BOOT=0 dsh web` opts out for one launch.
 
+### 2.2 Свой выход в сеть только для части моделей
+
+Машина может направить часть трафика харнесса через отдельный канал (например, VPN только для
+ChatGPT), не меняя маршруты всей машины. Обёртка `dsh` читает машинный файл
+`${DSH_EGRESS_ENV_FILE:-$HOME/.config/dsh/egress.env}` и применяет его только тогда, когда
+порт, указанный в нём строкой `# dsh-egress-port: <порт>`, отвечает: остановленный прокси не
+ломает все вызовы моделей, харнесс просто стартует без него. Файл задаёт `HTTP_PROXY`,
+`HTTPS_PROXY`, `NO_PROXY` и `NODE_USE_ENV_PROXY=1` (глобальный `fetch` Node 24 их
+учитывает). Это машинное состояние, не артефакт кита: в репозиторий его не кладут. Уже
+запущенный сервер держит окружение, с которым стартовал, — изменения применяются после
+перезапуска `dsh web`.
+
 `npx @deepseek-ai/dsh web` runs the package's own bin and cannot be intercepted by
 the wrapper; use `dsh web` (or the explicit steps below) when you want the
 convergence.

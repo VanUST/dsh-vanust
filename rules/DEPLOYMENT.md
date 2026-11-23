@@ -902,6 +902,17 @@ the report and writes nothing. The result is idempotent: a second run over the s
 the same bytes, and `verify()`/`replay()` pass afterwards (`node scripts/state-merge-proof.mjs`
 is the two-clone proof).
 
+**A machine can route only part of the harness's traffic through a proxy.** The `dsh` wrapper
+applies a machine-owned environment file when it exists **and its port answers**:
+`${DSH_EGRESS_ENV_FILE:-$HOME/.config/dsh/egress.env}`. The file sets `HTTP_PROXY`,
+`HTTPS_PROXY`, `NO_PROXY` and `NODE_USE_ENV_PROXY=1` (Node 24's global `fetch` honours them)
+and declares its port as `# dsh-egress-port: <port>`; the wrapper probes that port for one
+second and applies nothing when it does not answer, so a stopped proxy cannot break every model
+call. This is how one machine sends only OpenAI/ChatGPT through a VPN: a selective proxy decides
+per destination, while the rest of the harness's traffic — and the whole machine — keeps its
+normal route. The file is machine state, not a kit artefact: never commit it. A running server
+keeps the environment it was started with, so a change needs a restart.
+
 `$KIT` is the clone's directory. If you do not know it, read it from
 `$DSH_HOME/.dsh-kit-state.json` (`kit`), or ask: `node <kit>/scripts/kit-update.mjs --help`.
 
