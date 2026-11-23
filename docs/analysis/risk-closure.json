@@ -1,0 +1,336 @@
+{
+  "schemaVersion": 1,
+  "id": "risk-closure",
+  "rev": 10,
+  "status": "ready",
+  "createdAt": "2026-11-22T20:14:29.992Z",
+  "updatedAt": "2026-11-22T20:52:39.920Z",
+  "updatedBy": "agent",
+  "title": "Закрытие остаточных рисков независимой проверки",
+  "requestedSolution": "Владелец 2026-11-22: «закрой все риски (кроме живого профиля), потом закрой задачи в таскборде и запуши изменения». Закрыть или явно ограничить остаточные риски P0/P1/P2 и пакетного ревью: молчаливое игнорирование case_update, рассинхронизация task_update whitelist/parameters, неполный тест reviewResults, flake taskboard под параллельной нагрузкой, B2 hard link, B3 продуктовый файл с тестовым именем, shell-обход scoped write, S4/B1 синтетический красный, B1′ доверие строке задачи. Живой профиль не устанавливать и не трогать.",
+  "businessOutcome": {
+    "problem": "P0/P1/P2 закрыты, но остались риски: часть — реальные дефекты инструментов (case_update молча игнорирует status; task_update может потерять новое поле; reviewResults без reviewedTaskIds не покрыт тестом; suite flake под нагрузкой; hard link и продуктовый файл с тестовым именем обходят область; shell пишет продукт; S4/B1 подделка; B1′ ручная правка строки). Если их не закрыть, зелёный гейт снова может быть куплен обходом.",
+    "outcome": "Все перечисленные риски либо закрыты кодом и тестом, либо сведены к явно названной, проверяемой границе: неизвестные поля инструментов отклоняются; whitelist и parameters синхронны; taskboard стабилен под нагрузкой; hard link и тестовое имя вне тестовых корней не дают писать продукт; shell-изменение продукта детектируется и блокирует приёмку; S4 требует человеческого/независимого realism-подтверждения; ручная правка строки/кейса обнаруживается журналом. Живой профиль не тронут.",
+    "successMetrics": [
+      "неизвестное поле case_update -> отказ с кодом; status не меняется молча",
+      "тест проверяет, что каждый ключ parameters task_update доходит до patch; reviewResults без reviewedTaskIds покрыт",
+      "taskboard suite стабилен при параллельном make test/повторе",
+      "hard link и продуктовый *.test.* вне tests/ -> WRITE_SCOPE; легитимный tests/ разрешён",
+      "shell-команда, меняющая продукт, детектируется и блокирует case gate/task close; shell не песочница, но риск обнаружен",
+      "independent acceptance без realism sign-off -> отказ; S4 остаётся человеческим суждением",
+      "ручная правка кейса/строки задачи без журнала -> отказ; журнал tamper-evident",
+      "make test, make verify, proof зелёные; live :3080/profiles/web не тронуты"
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CURRENT",
+        "name": "Остаточные обходы и молчаливые поля",
+        "actors": [
+          "оркестратор",
+          "BACKEND",
+          "TESTER",
+          "REVIEWER"
+        ],
+        "steps": [
+          "Инструменты объявляют поля, но whitelist может их потерять; неизвестное поле молча ok.",
+          "Hard link/продуктовое имя обходят область; shell пишет продукт.",
+          "S4 синтетический красный и B1′ ручная правка не обнаруживаются.",
+          "Taskboard suite иногда падает под параллельной нагрузкой."
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-TARGET",
+        "name": "Риски закрыты кодом/тестом или названы проверяемой границей",
+        "actors": [
+          "оркестратор",
+          "BACKEND",
+          "TESTER",
+          "REVIEWER"
+        ],
+        "steps": [
+          "Инструменты отклоняют неизвестные поля; тест сверяет parameters с patch.",
+          "Hard link/тестовое имя вне тестовых корней не пишут продукт; shell-изменение детектируется и блокирует гейт.",
+          "Independent acceptance требует realism sign-off; журнал ловит ручную правку.",
+          "Suite стабилен; живой профиль не тронут."
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "FR1",
+      "kind": "FR",
+      "text": "Остаточные риски P0/P1/P2 и пакетного ревью закрыты кодом и тестом или сведены к явно названной проверяемой границе; живой профиль не тронут.",
+      "acceptance": [
+        "case_update отклоняет неизвестные поля, включая status, с кодом; тест",
+        "каждый ключ parameters task_update доходит до patch; reviewResults без reviewedTaskIds покрыт тестом",
+        "taskboard suite стабилен под параллельной нагрузкой; причина flake устранена или тест изолирован",
+        "hard link и продуктовый *.test.* вне tests/ дают WRITE_SCOPE; tests/ разрешён; тесты",
+        "shell-команда, меняющая продукт, детектируется и блокирует case gate/task close; scoped write не называется песочницей",
+        "independent acceptance без realism sign-off отклоняется; S4 остаётся человеческим суждением в границах",
+        "ручная правка кейса/строки задачи без журнала отклоняется; журнал tamper-evident; тесты",
+        "make test/make verify/proof зелёные; live профиль и :3080 не тронуты"
+      ],
+      "status": "deferred",
+      "reason": "Все 7 рисков закрыты или названы: case_update/task_update parity, reviewResults, B2/B3, realism sign-off, shell audit (детектор), case journal + task journal (tamper-evident), board-lock EPERM причина и flake-probe. D5 (close по всем сессиям строки), D4 (profile roots), LOW (двусторонний паритет) подтверждены третьим ревьювером PASS. make test 87/87, make verify 19/19, proof 29/29, taskboard 56/56, proof-guard 11/11. Живой профиль не установлен (граница); формального TEST-а нет; push отдельной задачей."
+    }
+  ],
+  "architecture": {
+    "contractImpact": "additive",
+    "components": [
+      {
+        "id": "C-CASES",
+        "name": "@cc/dsh-test-cases",
+        "responsibility": "case_update validation, realism sign-off, case/run journal",
+        "owner": "BACKEND",
+        "owns": [
+          "D-CASE",
+          "D-RUN",
+          "D-JOURNAL"
+        ],
+        "dependsOn": [
+          "C-PROOF"
+        ]
+      },
+      {
+        "id": "C-TASKBOARD",
+        "name": "@cc/dsh-taskboard",
+        "responsibility": "whitelist/params sync, reviewResults test, task row journal, close gate",
+        "owner": "BACKEND",
+        "owns": [
+          "D-TASK"
+        ],
+        "dependsOn": [
+          "C-CASES"
+        ]
+      },
+      {
+        "id": "C-PROOF",
+        "name": "@cc/dsh-proof-guard",
+        "responsibility": "hard link, test-name scope, shell product audit",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": []
+      },
+      {
+        "id": "C-ORCH",
+        "name": "@cc/dsh-orchestrator",
+        "responsibility": "delegate_review/contract unchanged; risk brief/docs",
+        "owner": "BACKEND",
+        "owns": [
+          "D-BRIEF"
+        ],
+        "dependsOn": [
+          "C-TASKBOARD"
+        ]
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "D-CASE",
+      "name": "docs/cases/*.json",
+      "owner": "kit",
+      "ownerComponentId": "C-CASES",
+      "description": "case record incl. realism sign-off"
+    },
+    {
+      "id": "D-RUN",
+      "name": "docs/cases/runs/**",
+      "owner": "kit",
+      "ownerComponentId": "C-CASES",
+      "description": "run artifact"
+    },
+    {
+      "id": "D-JOURNAL",
+      "name": "docs/cases/journal.ndjson + .dsh/taskboard-journal.ndjson",
+      "owner": "kit",
+      "ownerComponentId": "C-CASES",
+      "description": "hash-chain journal for case/run and task rows"
+    },
+    {
+      "id": "D-TASK",
+      "name": ".dsh/taskboard.json",
+      "owner": "kit",
+      "ownerComponentId": "C-TASKBOARD",
+      "description": "task row, reviewedTaskIds, reviewResults, verification"
+    },
+    {
+      "id": "D-BRIEF",
+      "name": "бриф задачи",
+      "owner": "kit",
+      "ownerComponentId": "C-ORCH",
+      "description": "task contract and risk brief"
+    }
+  ],
+  "contracts": [
+    {
+      "id": "CT-CASE",
+      "name": "case_update",
+      "between": [
+        "C-CASES"
+      ],
+      "change": "breaking",
+      "description": "unknown fields refused; realism sign-off for independent acceptance"
+    },
+    {
+      "id": "CT-TASK",
+      "name": "task_update/task_close",
+      "between": [
+        "C-TASKBOARD"
+      ],
+      "change": "additive",
+      "description": "params/whitelist sync; task journal; close verifies journal and shell violation"
+    },
+    {
+      "id": "CT-PROOF",
+      "name": "proof-guard write scope",
+      "between": [
+        "C-PROOF"
+      ],
+      "change": "additive",
+      "description": "hard link nlink, only test roots, shell product audit"
+    }
+  ],
+  "invariants": [],
+  "decisions": [
+    {
+      "id": "D-RISK-CLOSURE",
+      "decision": "Закрывать риски по одному: реальный обход — код+тест; S4/B1 и shell — детектор/человеческое realism-подтверждение, не песочница; журнал — tamper-evident, не криптографическая подпись; живой профиль не устанавливать.",
+      "rationale": "Механически нельзя доказать намерение; можно не дать обходу остаться незамеченным и сохранить пропорциональность.",
+      "alternatives": [
+        "оставить риски",
+        "песочница/криптоподпись"
+      ]
+    }
+  ],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L2",
+    "reasons": [
+      "меняются case/task/proof контракты",
+      "журнал и shell audit",
+      "несколько плагинов и тестов"
+    ]
+  },
+  "designRef": {
+    "mapRev": 31,
+    "at": "2026-11-22T23:15:00.000Z",
+    "source": "designmap/manifest.json"
+  },
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "FR1",
+      "processId": "P-TARGET",
+      "componentId": "C-PROOF",
+      "contractIds": [
+        "CT-CASE",
+        "CT-TASK",
+        "CT-PROOF"
+      ],
+      "dataIds": [
+        "D-JOURNAL",
+        "D-TASK"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "taskId": "task-mws9zwaa-ontgwx",
+          "role": "BACKEND",
+          "at": "2026-11-22T20:14:49.146Z",
+          "evidence": []
+        }
+      ]
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "fef01094c665fa1f2de71563baaa1e4494aa319e5507eb59a0659ba5fba8b6ad",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-22T20:14:29.992Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-22T20:14:37.751Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-22T20:14:49.146Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mws9zwaa-ontgwx -> FR1"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-22T20:19:52.085Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mws9zwaa-ontgwx -> FR1"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-22T20:25:45.201Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mws9zwaa-ontgwx -> FR1"
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-22T20:31:27.480Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mws9zwaa-ontgwx -> FR1"
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-22T20:37:07.823Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mws9zwaa-ontgwx -> FR1"
+    },
+    {
+      "revision": 8,
+      "at": "2026-11-22T20:47:55.444Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mws9zwaa-ontgwx -> FR1"
+    },
+    {
+      "revision": 9,
+      "at": "2026-11-22T20:52:35.640Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR1 changed; impacts: 1"
+    },
+    {
+      "revision": 10,
+      "at": "2026-11-22T20:52:39.920Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    }
+  ]
+}

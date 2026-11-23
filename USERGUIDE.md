@@ -1,7 +1,7 @@
 # USERGUIDE.md — setting up and starting the harness on a new machine
 
 This kit installs **DeepSeek Harness (dsh)** on any of your machines (2× Linux,
-1× Windows) plus the **28** plugins this deployment adds beyond upstream:
+1× Windows) plus the **29** plugins this deployment adds beyond upstream:
 **`@cc/dsh-notify`** (raises a desktop notification — `notify-send`, a PowerShell toast or
 `osascript` — when an agent finishes a turn and when it asks you a question; silence it with
 `DSH_NOTIFY_DISABLED=1` in the server's environment),
@@ -55,6 +55,9 @@ records the override in the state journal, and the panel writes no file),
 initiative with a completeness checker and impact analysis; `delegate_task` refuses L1/L2
 without a ready record and `analysis_stale` after an affected change, while an L0 local fix
 needs no document — the record is the only trace store),
+**`@cc/dsh-codex-signin`** (the ChatGPT Plus/Pro device-code sign-in for the
+`openai-codex` route: `codex_signin_start`/status/cancel, orchestrator only; the pi-ai
+flow writes the grant, the tools never see a token),
 **`@cc/dsh-orchestrator`** (root and child policy sections plus the root-only
 `delegate_task` tool: it lists the workspace's roles in the root policy, refuses a
 near-duplicate new role unless `forceRole` is passed, attaches to an existing task when
@@ -263,9 +266,16 @@ On Linux the wrapper runs `scripts/kit-update.mjs --apply --no-harness --no-tool
 --keep-model-config` before the harness starts, when no `dsh web` server is
 running, and logs to `$DSH_HOME/kit-boot.log`. On Windows it runs the same
 convergence as a read-only `--check` first, prints the pending actions and asks
-once before applying, so a surprise update never lands unseen. Both wrappers skip
-with one line when a server answers on the profile port, because editing the
-profile patch under a live server disposes live plugins. Put `$DSH_HOME\bin`
+once before applying, so a surprise update never lands unseen. Neither wrapper
+edits the profile patch under a live server. The Windows wrapper reports that dsh
+is already running when nothing is pending, and with work pending offers to stop
+the server, apply, and boot the new version (that restart ends its sessions); it
+refuses outright when the wrapper is itself running inside a dsh web server. The
+POSIX wrapper still skips with one line while a server runs. On Windows the same
+wrapper also starts the Hindsight supervisor when the daemon is installed but not listening; the
+supervisor starts the daemon and restarts it if it exits. The wrapper also compares the installed
+harness with the kit pin, running the full convergence when they differ.
+Put `$DSH_HOME\bin`
 before the npm global directory in `PATH` for the Windows wrapper to win over
 `dsh.cmd`. Two things it deliberately does not do: it does not touch
 the pinned harness or the optional external binaries (run `kit-update --apply`

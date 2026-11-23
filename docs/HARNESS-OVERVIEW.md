@@ -229,6 +229,7 @@ node /home/iustimov/.npm/node/lib/node_modules/@deepseek-ai/dsh/lib/bin.js \
 | `research` | Research | 40 | Finds existing solutions and papers, reads the source, and returns a cited shortlist. No implementation. | **без shell**; `write` есть, `edit` нет | `papers_*` |
 | `gatherer` | Context gatherer | 45 | Reads the current architecture, algorithm and decisions and returns one cited report for the orchestrator to design from. Read-only; never edits and never delegates. | shell есть; **без write/edit** (правило чтения — в персоне) | PTC-исполнитель; без web |
 | `reviewer` | Reviewer | 50 | Reviews against the requirement and the design; runs the change, reports defects with evidence, edits nothing. | shell; **без write/edit** | PTC-исполнитель |
+| `tester` | Tester | 52 | Independent acceptance tester. Derives the expected result from the requirement, writes the case and its driver under `docs/cases/` or a test root, measures a wrong-product red and a green; writes no product code. | shell, scoped fs write/edit (proof-guard), fs search, jobs, skills, todo, web; full `case_*`; no Playwright, no Godot |
 | `critic` | Critic | 55 | Adversarial general tester. Breaks a running algorithm or service within the brief's constraints and reports reproducible failures; never fixes, never touches production data. | shell; **без write/edit** | без PTC |
 | `docs` | Docs | 60 | Steward of documentation - prunes and corrects instead of adding, prefers inline docs, checks links and commands. | shell, пишет и правит | — |
 
@@ -311,7 +312,8 @@ You are the documentation steward for this workspace. Documentation is a liabili
 - `RESEARCH` → `research`;
 - `CONTEXT`, `GATHERER` → `gatherer`;
 - `REVIEW` → `reviewer`;
-- `CRITIC`, `QA`, `TESTER` → `critic`;
+- `CRITIC` → `critic`;
+- `TESTER`, `QA`, `TEST` → `tester`;
 - `DOCS`, `DOCUMENTATION` → `docs`.
 
 `AUDIT` намеренно отсутствует: агент получает отказ, который просит выбрать `REVIEWER` или `CRITIC`. Роль вне таблицы требует явного `preset`; `forceRole: true` разрешает переиспользовать похожее имя.
@@ -329,6 +331,7 @@ You are the documentation steward for this workspace. Documentation is a liabili
 | `backend` | `mcp__playwright__*` | `mcp__godot__*` |
 | `reviewer` | `mcp__playwright__*` | `mcp__godot__*` |
 | `critic` | `mcp__playwright__*` | `mcp__godot__*` |
+| `tester` | `mcp__playwright__*` | `mcp__godot__*` |
 | `research` | `mcp__playwright__*`, `mcp__godot__*` | — |
 | `gatherer` | `mcp__playwright__*` | `mcp__godot__*` |
 | `docs` | `mcp__playwright__*`, `mcp__godot__*` | — |

@@ -130,6 +130,7 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { mirrorTask, registerStatus } from './mirror.mjs'
 import { existsSync, mkdirSync, readFileSync, renameSync, rmdirSync, statSync, writeFileSync } from 'node:fs'
+import { appendRowEvent, checkRow as checkJournalRow } from './lib/journal.mjs'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 
@@ -204,6 +205,141 @@ function statusOf(value, fallback = 'open') {
   if (Object.hasOwn(LEGACY_STATUS, value)) return LEGACY_STATUS[value]
   return STATUSES.includes(value) ? value : fallback
 }
+
+/**
+ * Why the case gate refused one acceptance case, in the words the closer reads.
+ *
+ * The case library returns stable codes; a close that printed `SELF_RUN` would send the reader to
+ * another file to find out what happened. The raw code stays on the blocker for the tools.
+ */
+const CASE_GATE_REASON = {
+  CASE_MISSING: 'the task links to a case that is not in the library any more',
+  CASE_FOREIGN: 'it belongs to another task',
+  CASE_UNLINKED: 'it names no task of its own',
+  CASE_NOT_ACCEPTANCE: 'it is not an automated acceptance case',
+  DEGRADED: 'its test file is gone, so the case was degraded to documented-only',
+  RUN_ARTIFACT_MISSING: 'the run it was verified by left no artifact',
+  RUN_MISMATCH: 'the run artifact does not match the recorded run',
+  TEST_CHANGED: 'its test file changed after the verification',
+  STALE: 'it is stale: a surface file changed after the verification',
+  SELF_AUTHORED: 'the implementer authored it',
+  SELF_RUN: 'the implementer ran it',
+  NOT_MEASURED: 'confirmed manually, not measured by a run',
+  UNKNOWN_PRESET: 'its author or run is not a known preset',
+  IMPLEMENTER_UNKNOWN: 'the implementer preset is unknown, so independence cannot be shown',
+  LEGACY_NO_AUTHOR: 'it records no author',
+  LEGACY_NO_RUN_BY: 'it records no preset for the run that verified it',
+  SURFACE_FILES_MISSING: 'it names no surface files, so a changed surface cannot be noticed',
+  TEST_HASH_MISSING: 'it records no hash of its test file',
+  NOT_VERIFIED: 'its status is not verified',
+}
+
+/** One refusal line: which case, which fact. */
+function describeBlocker(entry) {
+  const id = typeof entry?.id === 'string' && entry.id !== '' ? entry.id : 'unknown case'
+  const status = typeof entry?.status === 'string' && entry.status !== ''
+    ? entry.status
+    : (entry?.reason === 'CASE_MISSING' ? 'missing' : 'unknown status')
+  const reason = CASE_GATE_REASON[entry?.reason] ?? 'its provenance does not support acceptance'
+  return `${id} (${status}: ${reason})`
+}
+
+/**
+ * The case ids a task row owns.
+ *
+ * WHY THE ROW CARRIES THEM. The case library is a directory of files: a deleted file is
+ * indistinguishable from a task that never had a case, so the LINK has to live somewhere that
+ * outlives the deletion. It lives on the task row. Ids are de-duplicated and bounded: this is a
+ * reference list, not a payload.
+ */
+function caseIdsOf(value) {
+  if (!Array.isArray(value)) return []
+  const list = value
+    .map((entry) => (typeof entry === 'string' ? entry.trim().slice(0, 120) : ''))
+    .filter((entry) => entry !== '')
+  return [...new Set(list)].slice(0, 50)
+}
+
+/**
+ * The verification level a task declares (P2, the proportional standard).
+ *
+ * `proof` - run the product and quote it (L0, a local edit). `case` - the same, plus one case when
+ * the behaviour is worth pinning (L1, a contained feature). `independent` - another preset wrote
+ * and ran the acceptance case against a wrong-product red (L2, or any risk trigger). A row written
+ * before the level existed has none, and keeps the pre-P2 behaviour: the case gate decides.
+ */
+export const VERIFICATION_LEVELS = ['proof', 'case', 'independent']
+
+/** A declared level, or '' for a row that predates the field. */
+function verificationOf(value) {
+  return typeof value === 'string' && VERIFICATION_LEVELS.includes(value.trim()) ? value.trim() : ''
+}
+
+/**
+ * Acceptance criteria with STABLE ids.
+ *
+ * The id is what a case names (`criterionId`) and what the close counts, so it must survive an
+ * edit of its text: a bare string gets `AC-<n>` by position, an object keeps the id it was given.
+ * Duplicates are dropped - two criteria with one id cannot be counted twice.
+ */
+function criteriaOf(value) {
+  const entries = Array.isArray(value) ? value : []
+  const seen = new Set()
+  const list = []
+  for (const entry of entries) {
+    let id = ''
+    let text = ''
+    if (typeof entry === 'string') text = entry.trim()
+    else if (entry !== null && typeof entry === 'object') {
+      id = typeof entry.id === 'string' ? entry.id.trim() : ''
+      text = typeof entry.text === 'string' ? entry.text.trim() : ''
+    }
+    if (text === '') continue
+    if (id === '') id = `AC-${list.length + 1}`
+    if (seen.has(id)) continue
+    seen.add(id)
+    list.push({ id: id.slice(0, 40), text: text.slice(0, 500) })
+    if (list.length >= 40) break
+  }
+  return list
+}
+
+/**
+ * The ids a REVIEW task reviews in one pass (P2.1 batch review), or null when the value is not a
+ * usable batch.
+ *
+ * WHY IT IS A FIELD AND NOT A LINK LIST. One REVIEWER child judges SEVERAL tasks and returns a
+ * verdict per task; the row has to name them, or the brief and the close cannot tell which tasks
+ * one review covered. The batch is 2-8: one task is a normal review (delegate_task), more than
+ * eight is a queue that hides a task instead of reviewing it.
+ */
+export const REVIEW_BATCH_MIN = 2
+export const REVIEW_BATCH_MAX = 8
+
+function reviewedTaskIdsOf(value) {
+  if (!Array.isArray(value)) return null
+  const ids = [...new Set(value.filter((entry) => typeof entry === 'string' && entry.trim() !== '').map((entry) => entry.trim()))].slice(0, REVIEW_BATCH_MAX + 1)
+  return ids
+}
+
+/** Why a batch is unusable, or null. `board` and `self` are checked by the caller that can see them. */
+function batchRefusal(ids, selfId) {
+  if (ids === null || ids.length === 0) return null
+  if (ids.length < REVIEW_BATCH_MIN) return 'review_batch_too_small'
+  if (ids.length > REVIEW_BATCH_MAX) return 'review_batch_too_large'
+  if (selfId !== undefined && ids.includes(selfId)) return 'review_batch_self'
+  return null
+}
+
+/**
+ * The fields task_update copies from the call into the row.
+ *
+ * WHY IT IS EXPORTED AND TESTED. The tool declares its parameters and then copies this list; the
+ * two drifted once already (`reviewedTaskIds`/`reviewResults` were declared, accepted and dropped,
+ * and the row came back {ok:true} with nothing written). A test now compares this list with the
+ * tool's own parameters, so a field declared and not written fails the suite instead of the caller.
+ */
+export const TASK_UPDATE_FIELDS = Object.freeze(['status', 'title', 'objective', 'scope', 'nonScope', 'acceptance', 'priority', 'reason', 'reqIds', 'steps', 'stepsDone', 'caseIds', 'verification', 'criteria', 'constraints', 'reviewedTaskIds', 'reviewResults', 'chore', 'choreReason', 'waiver'])
 
 /** A task's specialty: a role with its preset, or `inline` for work the owner does itself. */
 function assignmentOf(task) {
@@ -525,7 +661,11 @@ function withBoardLock(path, operation, options = {}) {
       mkdirSync(lock)
       held = true
     } catch (error) {
-      if (error?.code !== 'EEXIST') throw error
+      // WINDOWS: mkdir can fail with EPERM instead of EEXIST when the other writer is creating or
+      // removing the same directory at that instant (measured: a parallel suite run died with
+      // "EPERM ... taskboard.json.lock"). It is the SAME contention EEXIST describes, so it is
+      // treated as contention - wait and retry - instead of failing the writer.
+      if (error?.code !== 'EEXIST' && error?.code !== 'EPERM' && error?.code !== 'EACCES') throw error
       let age = 0
       try {
         age = Date.now() - statSync(lock).mtimeMs
@@ -1314,6 +1454,15 @@ function createService(config, logger, hooks = {}) {
     create(cwd, input, actor = 'orchestrator') {
       const title = typeof input?.title === 'string' ? input.title.trim() : ''
       if (title === '') throw new Error('taskboard: a task needs a non-empty title')
+      // P2.1: a review batch names 2-8 tasks that must exist on this board.
+      const batch = reviewedTaskIdsOf(input?.reviewedTaskIds)
+      const batchProblem = batchRefusal(batch)
+      if (batchProblem !== null) return { ok: false, code: batchProblem }
+      if (batch !== null && batch.length > 0) {
+        const known = new Map((readBoard(pathFor(cwd)).tasks ?? []).map((entry) => [entry.id, entry]))
+        const missing = batch.filter((id) => !known.has(id))
+        if (missing.length > 0) return { ok: false, code: 'review_batch_unknown', missing }
+      }
       // NO ROLE-LESS TASK. A task belongs to a specialist role (which carries the preset
       // its child runs with) or it is explicitly inline work the owner does itself. The
       // refusal is here rather than in the panel because `delegate_task`, `task_create`
@@ -1382,6 +1531,15 @@ function createService(config, logger, hooks = {}) {
           ...(role === '' ? {} : { owner: { kind: 'agent', label: role } }),
           ...(inline ? { inline: true } : {}),
           ...(role !== '' && typeof input.preset === 'string' && input.preset.trim() !== '' ? { preset: input.preset.trim().slice(0, 80) } : {}),
+          // A NEW task always states its links, even when it has none: an absent field is the
+          // legacy shape ("scan the library"), and a fresh task must not inherit that ambiguity.
+          caseIds: caseIdsOf(input?.caseIds),
+          // P2: the contract the task is accepted against. A level with no criteria is a claim
+          // nobody can check, and the close refuses it by name (see beforeClose).
+          ...(verificationOf(input?.verification) === '' ? {} : { verification: verificationOf(input?.verification) }),
+          criteria: criteriaOf(input?.criteria),
+          ...(batch !== null && batch.length > 0 ? { reviewedTaskIds: batch } : {}),
+          ...(strings(input?.constraints).length === 0 ? {} : { constraints: strings(input?.constraints) }),
           ...(typeof input?.reason === 'string' && input.reason.trim() !== '' ? { reason: input.reason.trim().slice(0, 1000) } : {}),
           ...(reqId === '' ? {} : { reqId: reqId.slice(0, 80) }),
           ...(reqIds.length === 0 ? {} : { reqIds: reqIds.map((id) => id.slice(0, 80)) }),
@@ -1407,7 +1565,10 @@ function createService(config, logger, hooks = {}) {
         board.tasks.push(task)
         return { changed: true, value: task }
       })
-      if (created !== undefined && created?.ok !== false) hooks.mirror?.(cwd, created)
+      if (created !== undefined && created?.ok !== false) {
+        appendRowEvent(cwd, 'create', created)
+        hooks.mirror?.(cwd, created)
+      }
       return created
     },
     /** Compare-and-set update; a stale revision returns the current task untouched. */
@@ -1456,6 +1617,48 @@ function createService(config, logger, hooks = {}) {
           delete task.inline
         }
         if (typeof patch.preset === 'string' && patch.preset.trim() !== '') task.preset = patch.preset.trim().slice(0, 80)
+        // The link between a row and its cases. An empty list is a real value: it says the task
+        // owes no case, which is different from a row written before the field existed.
+        if (patch.caseIds !== undefined) task.caseIds = caseIdsOf(patch.caseIds)
+      if (patch.verification !== undefined) {
+        const level = verificationOf(patch.verification)
+        if (level === '') delete task.verification
+        else task.verification = level
+      }
+      if (patch.criteria !== undefined) task.criteria = criteriaOf(patch.criteria)
+      if (patch.reviewedTaskIds !== undefined) {
+        const ids = reviewedTaskIdsOf(patch.reviewedTaskIds)
+        const problem = batchRefusal(ids, task.id)
+        if (problem !== null) return { value: { ok: false, code: problem, task } }
+        const missing = ids.filter((entry) => !board.tasks.some((other) => other.id === entry))
+        if (missing.length > 0) return { value: { ok: false, code: 'review_batch_unknown', missing, task } }
+        if (ids.length === 0) delete task.reviewedTaskIds
+        else task.reviewedTaskIds = ids
+      }
+      // P2.1: the verdict per reviewed task. Every id exactly once; the close of the reviewed rows
+      // is the orchestrator's, so this is a REPORT on the review row, not an action.
+      if (patch.reviewResults !== undefined) {
+        const list = Array.isArray(patch.reviewResults) ? patch.reviewResults : []
+        const wanted = Array.isArray(task.reviewedTaskIds) ? task.reviewedTaskIds : []
+        const got = list.map((entry) => (entry !== null && typeof entry === 'object' && typeof entry.taskId === 'string' ? entry.taskId.trim() : ''))
+        const verdicts = list.map((entry) => (entry !== null && typeof entry === 'object' && (entry.verdict === 'pass' || entry.verdict === 'fail') ? entry.verdict : ''))
+        const missing = wanted.filter((id) => !got.includes(id))
+        const unknown = got.filter((id) => !wanted.includes(id))
+        if (verdicts.includes('') || missing.length > 0 || unknown.length > 0 || got.length !== wanted.length) {
+          return { value: { ok: false, code: 'review_results_incomplete', missing, unknown, task } }
+        }
+        task.reviewResults = list.map((entry) => ({
+          taskId: entry.taskId.trim(),
+          verdict: entry.verdict,
+          findings: strings(entry.findings),
+          evidence: strings(entry.evidence),
+        }))
+      }
+      if (patch.constraints !== undefined) {
+        const constraints = strings(patch.constraints)
+        if (constraints.length === 0) delete task.constraints
+        else task.constraints = constraints
+      }
         if (typeof patch.reason === 'string') {
           if (patch.reason.trim() === '') delete task.reason
           else task.reason = patch.reason.trim().slice(0, 1000)
@@ -1507,7 +1710,10 @@ function createService(config, logger, hooks = {}) {
         timeline(task, 'edited', input?.actor === 'human' ? 'human' : 'orchestrator', 'Task edited' + editedOrigin, {}, timelineLimit)
         return { changed: true, value: { ok: true, task } }
       })
-      if (updated !== undefined && updated?.ok !== false) hooks.mirror?.(cwd, updated.task)
+      if (updated !== undefined && updated?.ok !== false) {
+        appendRowEvent(cwd, 'update', updated.task)
+        hooks.mirror?.(cwd, updated.task)
+      }
       return updated
     },
     /** Append a note without changing the structured fields. */
@@ -1783,14 +1989,84 @@ function createService(config, logger, hooks = {}) {
     /** Close a task as done and interrupt its linked children; fail closed. */
     close(cwd, input) {
       const id = typeof input?.id === 'string' ? input.id : ''
+      // P2.1: THE REVIEWER REPORTS, THE ORCHESTRATOR CLOSES. A child that runs one batch review
+      // names several tasks; none of them is its to close, or "reviewed" would mean "accepted by
+      // the reviewer" and the orchestrator's per-task acceptance would be a formality.
+      const child = typeof input?.parentSessionId === 'string' ? input.parentSessionId : ''
+      // SHELL AUDIT (P1 residual): a scoped role's shell is NOT sandboxed; when the audit recorded a
+      // product change for a session that worked THIS row, the row is not accepted on its own word.
+      // The sessions are the row's own: every child it linked, plus the closing session when it is
+      // the row's parent. Checking only the closing session let a row closed by the orchestrator
+      // walk past a violation its CHILD recorded.
+      {
+        let violations = []
+        try {
+          const parsed = JSON.parse(readFileSync(join(cwd, '.dsh', 'proof-guard-violations.json'), 'utf8'))
+          if (Array.isArray(parsed)) violations = parsed
+        } catch {
+          violations = []
+        }
+        const row = readBoard(pathFor(cwd)).tasks.find((entry) => entry.id === id)
+        const sessions = new Set(Array.isArray(row?.childSessionIds) ? row.childSessionIds.filter((value) => typeof value === 'string') : [])
+        if (child !== '') sessions.add(child)
+        if (typeof row?.parentSessionId === 'string' && row.parentSessionId !== '') sessions.add(row.parentSessionId)
+        const hit = violations.find((entry) => entry !== null && typeof entry === 'object' && sessions.has(entry.sessionId) && Array.isArray(entry.files) && entry.files.length > 0)
+        if (hit !== undefined) {
+          return {
+            ok: false,
+            code: 'product_shell_violation',
+            message: `the shell driven by session ${hit.sessionId} changed product file(s) that this role may not edit (${hit.files.slice(0, 5).join(', ')}); the change is recorded in .dsh/proof-guard-violations.json and the row cannot be accepted on the tester's word - revert it or have the owning role redo it`,
+            files: hit.files,
+          }
+        }
+      }
+      if (child !== '' && id !== '') {
+        const board = readBoard(pathFor(cwd))
+        const owner = (board.tasks ?? []).find((task) => Array.isArray(task.reviewedTaskIds)
+          && task.reviewedTaskIds.includes(id)
+          && Array.isArray(task.childSessionIds)
+          && task.childSessionIds.includes(child)
+          && task.status !== 'done'
+          && task.status !== 'cancelled')
+        if (owner !== undefined) {
+          return {
+            ok: false,
+            code: 'reviewed_task_close',
+            message: `task ${id} is reviewed in batch ${owner.id}; a reviewer reports a verdict per task, and the orchestrator closes each reviewed task itself`,
+          }
+        }
+      }
       // THE CASE GATE. An optional consumer: a workspace without the test-cases row keeps the
       // legacy close. A linked AUTOMATED case that is not verified stops the acceptance, and the
       // refusal names it, so a red case cannot be closed away.
+      // THE JOURNAL, WHEN THE BOARD HAS ONE. A row the journal has seen must still be the row it
+      // saw; a row with no event is legacy (an older tool, a fixture) and closes normally.
+      let journalRow
+      try {
+        journalRow = readBoard(pathFor(cwd)).tasks.find((entry) => entry.id === id)
+      } catch {
+        journalRow = undefined
+      }
+      if (journalRow !== undefined) {
+        const journal = checkJournalRow(cwd, journalRow)
+        if (journal.status === 'mismatch' || journal.status === 'broken') {
+          return { ok: false, code: 'TASK_JOURNAL_MISMATCH', message: journal.detail ?? 'the task does not match its journal' }
+        }
+      }
       const gate = typeof hooks.beforeClose === 'function' ? hooks.beforeClose(cwd, id) : undefined
       if (gate !== undefined && gate !== null && gate.ok === false) return gate
       const closed = mutate(cwd, (board) => {
         const task = board.tasks.find((entry) => entry.id === id)
         if (task === undefined) return { value: { ok: false, code: 'not_found' } }
+        // A batch review closes with a verdict for EVERY task it names: a review of three tasks
+        // that reports two verdicts is not a review, it is a partial pass dressed as one.
+        if (Array.isArray(task.reviewedTaskIds) && task.reviewedTaskIds.length > 0) {
+          const reported = Array.isArray(task.reviewResults) ? task.reviewResults.map((entry) => entry?.taskId) : []
+          const missing = task.reviewedTaskIds.filter((id) => !reported.includes(id))
+          if (missing.length > 0) {
+            return { value: { ok: false, code: 'review_results_missing', missing, task } }
+          }
+        }
         const outcome = closeOne(board, task, input, input?.result)
         if (outcome.ok === false) return { value: outcome }
         return {
@@ -1807,7 +2083,10 @@ function createService(config, logger, hooks = {}) {
           },
         }
       })
-      if (closed?.ok === true) mirrorTasks(cwd, [closed.task])
+      if (closed?.ok === true) {
+        appendRowEvent(cwd, 'close', closed.task)
+        mirrorTasks(cwd, [closed.task])
+      }
       return closed
     },
     /**
@@ -2322,6 +2601,13 @@ export function apply(ctx, config = {}) {
      * The service is looked up on every close instead of injected: a profile without the row
      * keeps the legacy behaviour, and a case library that cannot be read fails CLOSED (a gate
      * that cannot see its evidence must not answer "green").
+     *
+     * THE IMPLEMENTER'S PRESET TRAVELS WITH THE QUESTION. Independence is a comparison: the
+     * author of the acceptance case and the session that ran it must not be the preset that did
+     * the work. That preset is a property of THIS row (`preset`, or the orchestrator for an
+     * inline task), so the taskboard reads it and hands it over instead of letting the case
+     * library guess from the closing session. A row with a role and no recorded preset leaves it
+     * unknown, and the case gate then refuses: an unknown implementer is not an independent one.
      */
     beforeClose(cwd, id) {
       let cases
@@ -2331,19 +2617,78 @@ export function apply(ctx, config = {}) {
         cases = undefined
       }
       if (cases === undefined || cases === null || typeof cases.gateForTask !== 'function') return undefined
+      let implementerPreset
+      let caseIds
+      let verification = ''
+      let criteria = []
+      try {
+        const task = service.get(cwd, id)
+        // A task that does not exist is not this gate's refusal to make: the close reports
+        // `not_found` itself, with the board as the evidence.
+        if (task === undefined || task === null) return undefined
+        // P2: the level decides whether a case is evidence at all. `proof` and `case` close on
+        // the owner's own proof, and no case is owed; `independent` counts criteria coverage.
+        // A row without a level keeps the pre-P2 behaviour (the case gate decides), so an old
+        // board and an old library read exactly as they did.
+        verification = verificationOf(task.verification)
+        criteria = Array.isArray(task.criteria) ? task.criteria : []
+        if (verification === 'proof' || verification === 'case') return undefined
+        if (typeof task.preset === 'string' && task.preset.trim() !== '') implementerPreset = task.preset.trim()
+        else if (task.inline === true || typeof task.role !== 'string' || task.role.trim() === '') implementerPreset = 'orchestrator'
+        // THE ROW OWNS THE LINK. An array (even an empty one) is passed as the truth about which
+        // cases this task owes; an absent field is a row written before the link existed, and the
+        // case library falls back to its scan by linkedTaskId.
+        if (Array.isArray(task.caseIds)) caseIds = task.caseIds
+      } catch {
+        implementerPreset = undefined
+        caseIds = undefined
+      }
       let gate
       try {
-        gate = cases.gateForTask(cwd, id)
+        gate = cases.gateForTask(cwd, id, {
+          implementerPreset,
+          ...(caseIds === undefined ? {} : { caseIds }),
+          ...(verification === '' ? {} : { verification }),
+          ...(criteria.length === 0 ? {} : { criteria }),
+        })
       } catch (error) {
         return { ok: false, code: 'cases_unreadable', message: `the case library could not be read: ${error?.message ?? error}` }
       }
       if (gate === undefined || gate === null || gate.ok !== false) return undefined
-      const names = Array.isArray(gate.blockers) ? gate.blockers.map((entry) => `${entry.id} (${entry.status}${entry.provenance === 'manual' ? ', reported manually' : ''})`) : []
+      // AN UNREADABLE FILE IS REFUSED BY NAME. The case library reports it instead of dropping it
+      // (a deleted requirement must not look like a satisfied one), and the close says which file
+      // and why, because "cases not green" over a file nobody can read is not actionable.
+      const broken = Array.isArray(gate.errors) ? gate.errors : []
+      if (broken.length > 0) {
+        const files = broken.map((entry) => `${entry.id} (${entry.code})`)
+        return {
+          ok: false,
+          code: 'cases_unreadable',
+          message: `the case library holds case file(s) that cannot be read: ${files.join(', ')}; a file that cannot be read cannot be judged, so the task cannot be accepted`,
+          blockers: Array.isArray(gate.blockers) ? gate.blockers : [],
+          errors: broken,
+          evidence: Array.isArray(gate.evidence) ? gate.evidence : [],
+        }
+      }
+      // P2: a level that demands criteria coverage is refused as a CONTRACT problem, not as a
+      // case problem: the message names the criterion and the file the owner must record or fix.
+      if (gate.code === 'CRITERIA_UNCOVERED' || gate.code === 'CRITERIA_REQUIRED') {
+        return {
+          ok: false,
+          code: gate.code,
+          message: gate.message,
+          ...(Array.isArray(gate.coverage) ? { coverage: gate.coverage } : {}),
+          blockers: Array.isArray(gate.blockers) ? gate.blockers : [],
+          evidence: Array.isArray(gate.evidence) ? gate.evidence : [],
+        }
+      }
+      const names = Array.isArray(gate.blockers) ? gate.blockers.map(describeBlocker) : []
       return {
         ok: false,
         code: 'cases_not_green',
-        message: `linked automated case(s) are not verified: ${names.join(', ') || 'unknown'}; run them with case_run or fix the case before accepting the task`,
+        message: `linked automated acceptance case(s) are not acceptable evidence: ${names.join('; ') || 'unknown'}; a case closes a task only when the run measured it, another preset wrote and ran it, and its test file still matches`,
         blockers: gate.blockers,
+        evidence: Array.isArray(gate.evidence) ? gate.evidence : [],
       }
     },
   })
@@ -2401,6 +2746,11 @@ export function apply(ctx, config = {}) {
       waiver: { type: 'object', additionalProperties: false, description: 'Explicit waiver of a lifecycle gate: {reason, by: "human"}. Both fields are required; the waiver is written to the state journal.', properties: { reason: { type: 'string' }, by: { type: 'string' } } },
       steps: { type: 'array', items: { type: 'string' }, description: 'The steps of the batch, in order; the board shows how many are done.' },
       stepsDone: { type: 'integer', description: 'How many of steps are done (0..steps.length).' },
+      verification: { type: 'string', enum: ['proof', 'case', 'independent'], description: 'P2 verification level. proof: run the product and quote it (L0 local edit, no case, no tester). case: proof plus one case when the behaviour is worth pinning (L1). independent: another preset writes and runs the acceptance case against a wrong-product red, and EVERY criterion must be covered by a case (L2, or a risk trigger: contract, data, architecture, security, money, migration, concurrency). Omit it only for a row that predates P2.' },
+      criteria: { type: 'array', items: { type: 'object', properties: { id: { type: 'string', description: 'Stable id, for example AC-1 or REQ-12-C01.' }, text: { type: 'string', description: 'One checkable sentence.' } }, additionalProperties: false, description: 'Acceptance criteria with stable ids. A bare string gets AC-n. A case names one by criterionId, and an independent task closes only when every criterion has an acceptable case.' } },
+      constraints: { type: 'array', items: { type: 'string' }, description: 'Standing rules the work must obey (no new dependency, no schema change, keep the public CLI).' },
+      reviewedTaskIds: { type: 'array', items: { type: 'string' }, description: 'Batch review: the 2-8 task ids ONE review task covers. The reviewer returns a verdict per id and closes none of them; the orchestrator closes each one itself.' },
+      caseIds: { type: 'array', items: { type: 'string' }, description: 'The cases this task owes for acceptance (their ids). case_record attaches them automatically; set them here to attach or repair by hand. An empty list means the task owes no case.' },
       chore: { type: 'boolean', description: 'true when the work is justified housekeeping rather than a requirement; needs a non-empty choreReason.' },
       choreReason: { type: 'string', description: 'Why this chore is needed; required with chore:true.' },
     },
@@ -2487,6 +2837,12 @@ export function apply(ctx, config = {}) {
       waiver: { type: 'object', additionalProperties: false, description: 'Explicit waiver: {reason, by: "human"} for a lifecycle refusal (steps_incomplete, req_required).', properties: { reason: { type: 'string' }, by: { type: 'string' } } },
       steps: { type: 'array', items: { type: 'string' }, description: 'The steps of the batch, in order.' },
       stepsDone: { type: 'integer', description: 'How many steps are done (0..steps.length); the board shows the progress.' },
+      verification: { type: 'string', enum: ['proof', 'case', 'independent'], description: 'P2 verification level. proof: run the product and quote it. case: proof plus one case when worthwhile. independent: every criterion needs another preset to write and run the acceptance case against a wrong-product red. Change it before work starts; the close reads it.' },
+      criteria: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, text: { type: 'string' } }, additionalProperties: false, description: 'Acceptance criteria with stable ids; a bare string gets AC-n. An independent task closes only when every criterion is covered by an acceptable case.' } },
+      constraints: { type: 'array', items: { type: 'string' }, description: 'Standing rules the work must obey.' },
+      reviewedTaskIds: { type: 'array', items: { type: 'string' }, description: 'Batch review: the 2-8 task ids this ONE review task covers.' },
+      reviewResults: { type: 'array', items: { type: 'object', properties: { taskId: { type: 'string' }, verdict: { type: 'string', enum: ['pass', 'fail'] }, findings: { type: 'array', items: { type: 'string' } }, evidence: { type: 'array', items: { type: 'string' } } }, additionalProperties: false, description: 'The per-task verdict of a batch review: one entry for every reviewedTaskIds entry. The review task closes only when every reviewed task has a verdict.' } },
+      caseIds: { type: 'array', items: { type: 'string' }, description: 'The case ids this task owes for acceptance. Use it to attach a case that case_record could not link (no taskboard mounted at write time) or to detach one. An empty list means the task owes no case.' },
       chore: { type: 'boolean' }, choreReason: { type: 'string' },
       scope: { type: 'string', enum: ['workspace'], description: "'workspace' lets a ROOT agent write a task another chat created (the ledger is one per workspace). Refused for child sessions." },
     },
@@ -2495,7 +2851,7 @@ export function apply(ctx, config = {}) {
       const widened = workspaceScope(args, exec)
       if (widened.refused !== undefined) return Promise.resolve(widened.refused)
       const patch = {}
-      for (const key of ['status', 'title', 'objective', 'scope', 'nonScope', 'acceptance', 'priority', 'reason', 'reqId', 'reqIds', 'steps', 'stepsDone', 'chore', 'choreReason', 'waiver']) {
+      for (const key of TASK_UPDATE_FIELDS) {
         if (args[key] !== undefined) patch[key] = args[key]
       }
       if (args.resultSummary !== undefined || args.resultEvidence !== undefined || args.resultArtifacts !== undefined || args.resultDecisions !== undefined || args.resultRisks !== undefined) {

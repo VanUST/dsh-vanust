@@ -125,7 +125,9 @@ function harness(carriedOwners) {
       ctx: {
         on: () => {},
         systemPrompt: { getSectionOrder: () => undefined, section: (entry) => sections.push(entry) },
-        tools: { guard: () => {}, register: (definition) => { tool.definition = definition } },
+        // The root registers more than one tool now (delegate_task and delegate_review): capture the
+        // one this proof drives by name instead of assuming it is the last registration.
+        tools: { guard: () => {}, register: (definition) => { if (definition?.name === 'delegate_task') tool.definition = definition } },
       },
     }
     for (const handler of created) handler({ agent })

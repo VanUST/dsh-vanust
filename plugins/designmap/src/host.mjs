@@ -16,7 +16,7 @@
  *   export  — SVG of the current scene, overlays included
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { createWorkspace } from './workspace.mjs'
 import { applyToWorkspace } from './apply.mjs'
 import { renderView } from './render.mjs'
@@ -34,6 +34,11 @@ import { selectView } from './render.mjs'
 import { boxesWithinGap, findFreeSpot } from './overlays.mjs'
 
 export const LOG_FILE = 'events.jsonl'
+
+/** A repo-relative path in the form the kit reports everywhere: forward slashes on every platform. */
+function repoRelative(root, absolute) {
+  return (relative(root, absolute) || absolute).split(sep).join('/')
+}
 
 /** Annotation layer limits and the element types the Excalidraw canvas can produce. */
 const MAX_ANNOTATIONS = 200
@@ -302,7 +307,7 @@ export function createHostService({ designmapDir, repoRoot, git, clock = () => n
   const envelopeFor = (result, staleReport) => ({
     ok: true,
     viewId: result.viewId,
-    scenePath: relative(root, workspace.scenePath(result.viewId)) || workspace.scenePath(result.viewId),
+    scenePath: repoRelative(root, workspace.scenePath(result.viewId)),
     sceneHash: result.sceneHash,
     bytes: result.bytes,
     scene: result.scene,
@@ -357,7 +362,7 @@ export function createHostService({ designmapDir, repoRoot, git, clock = () => n
           generatedAt: now(),
           commit: staleReport.head,
           sceneHash: result.sceneHash,
-          scenePath: relative(root, workspace.scenePath(id)) || workspace.scenePath(id),
+          scenePath: repoRelative(root, workspace.scenePath(id)),
           stale: {
             stale: staleReport.stale,
             commitBehind: staleReport.commitBehind,
@@ -526,7 +531,7 @@ export function createHostService({ designmapDir, repoRoot, git, clock = () => n
     for (const row of bundle.rendered) envelopes.push(envelopeFor(row, staleReport))
     const index = {
       ok: true,
-      indexPath: relative(root, workspace.paths.index) || workspace.paths.index,
+      indexPath: repoRelative(root, workspace.paths.index),
       indexHash: bundle.indexHash,
       views: envelopes,
       stale: { stale: staleReport.stale, staleNodes: staleReport.staleNodes, commitBehind: staleReport.commitBehind, missingManifest: staleReport.missingManifest, warnings: staleReport.warnings },
@@ -615,7 +620,7 @@ export function createHostService({ designmapDir, repoRoot, git, clock = () => n
     })
     const written = workspace.writeAnnotations(cleaned)
     logger?.log('annotate.write', { elements: cleaned.length, bytes: Buffer.byteLength(written.text) })
-    return { ok: true, elements: cleaned.length, bytes: Buffer.byteLength(written.text), annotationsPath: relative(root, written.path) || written.path, hash: written.hash }
+    return { ok: true, elements: cleaned.length, bytes: Buffer.byteLength(written.text), annotationsPath: repoRelative(root, written.path), hash: written.hash }
   }
 
   /**
@@ -708,7 +713,7 @@ export function createHostService({ designmapDir, repoRoot, git, clock = () => n
             ? { code: 'overlap_adjusted', severity: 'info', nodeId, from: placement.from, to: { x: kept.x, y: kept.y }, message: `"${nodeId}" was placed ${Math.round(placement.x - placement.from.x)},${Math.round(placement.y - placement.from.y)} px aside to keep it clear of the other nodes` }
             : null,
         rows: Object.keys(current).length,
-        overlaysPath: relative(root, written.path) || written.path,
+        overlaysPath: repoRelative(root, written.path),
       }
     }
 
@@ -730,7 +735,7 @@ export function createHostService({ designmapDir, repoRoot, git, clock = () => n
       }
       const written = workspace.writeOverlays(current)
       logger?.log('overlay.write', { action, nodeId, keys: Object.keys(current[nodeId] ?? {}).sort(), rows: Object.keys(current).length })
-      return { ok: true, action, nodeId, keys: Object.keys(current[nodeId] ?? {}).sort(), rows: Object.keys(current).length, overlaysPath: relative(root, written.path) || written.path }
+      return { ok: true, action, nodeId, keys: Object.keys(current[nodeId] ?? {}).sort(), rows: Object.keys(current).length, overlaysPath: repoRelative(root, written.path) }
     }
 
     if (action === 'resetNode') {
@@ -741,7 +746,7 @@ export function createHostService({ designmapDir, repoRoot, git, clock = () => n
       delete current[nodeId]
       const written = workspace.writeOverlays(current)
       logger?.log('overlay.write', { action, nodeId, rows: Object.keys(current).length })
-      return { ok: true, action, nodeId, rows: Object.keys(current).length, overlaysPath: relative(root, written.path) || written.path }
+      return { ok: true, action, nodeId, rows: Object.keys(current).length, overlaysPath: repoRelative(root, written.path) }
     }
 
     if (action === 'resetView') {
@@ -759,7 +764,7 @@ export function createHostService({ designmapDir, repoRoot, git, clock = () => n
       }
       const written = workspace.writeOverlays(current)
       logger?.log('overlay.write', { action, viewId: view.id, removed, rows: Object.keys(current).length })
-      return { ok: true, action, viewId: view.id, removed, rows: Object.keys(current).length, overlaysPath: relative(root, written.path) || written.path }
+      return { ok: true, action, viewId: view.id, removed, rows: Object.keys(current).length, overlaysPath: repoRelative(root, written.path) }
     }
 
     throw new DesignmapRefusal('invalid_overlay', `unknown overlay action "${String(action)}" (upsert | replace | resetNode | resetView)`, { action })
@@ -787,7 +792,7 @@ export function createHostService({ designmapDir, repoRoot, git, clock = () => n
     return {
       ok: true,
       viewId: id,
-      svgPath: relative(root, path) || path,
+      svgPath: repoRelative(root, path),
       bytes: Buffer.byteLength(svg),
       hash: sha256(svg),
       sceneHash: result.sceneHash,
@@ -835,7 +840,7 @@ export function createHostService({ designmapDir, repoRoot, git, clock = () => n
       ...svgResult,
       format: 'png',
       svgPath: svgResult.svgPath,
-      pngPath: relative(root, pngAbsolute) || pngAbsolute,
+      pngPath: repoRelative(root, pngAbsolute),
       pngBytes: statSync(pngAbsolute).size,
       pngHash: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
       converter: converter.command,

@@ -1,0 +1,230 @@
+{
+  "schemaVersion": 1,
+  "id": "batch-review",
+  "rev": 6,
+  "status": "ready",
+  "createdAt": "2026-11-22T19:50:29.318Z",
+  "updatedAt": "2026-11-22T20:03:44.228Z",
+  "updatedBy": "agent",
+  "title": "Пакетное ревью: один REVIEWER на несколько задач",
+  "requestedSolution": "Владелец 2026-11-22: «Речь о ревью нескольких задач одним агентом сразу. Сейчас один агент может делать сразу несколько задач, и с ревью надо так же». Нужно, чтобы один REVIEWER получал несколько задач в одной задаче ревью и возвращал вердикт по каждой; это способ не плодить отдельного ревьювера на каждую задачу и не бюрократизировать приёмку.",
+  "businessOutcome": {
+    "problem": "Сейчас каждая задача ревью — отдельная задача и отдельный child: N задач дают N ревьюверов, N брифов и N сессий, хотя один ревьювер может прочитать несколько дифов и вернуть N вердиктов. Это перерасход агентов и бюрократия вокруг одной и той же работы.",
+    "outcome": "Оркестратор создаёт одну задачу ревью с reviewedTaskIds и запускает одного REVIEWER. Ревьювер получает контракт каждой задачи и возвращает вердикт по каждой отдельно. Проверяемые задачи остаются в review; оркестратор закрывает их по одной своим task_close и своим условием приёмки. Ревьювер не закрывает проверяемые задачи.",
+    "successMetrics": [
+      "N задач в review дают одну задачу ревью, один child и N вердиктов",
+      "бриф содержит title/objective/scope/nonScope/acceptance/result/evidence каждой задачи",
+      "reviewed tasks остаются в review до task_close оркестратора; вердикт pass по одной не закрывает остальные",
+      "дефект по одной задаче возвращает в active только её",
+      "P2 task contract, критерии и гейты не меняются"
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CURRENT",
+        "name": "Один ревьювер на задачу",
+        "actors": [
+          "оркестратор",
+          "REVIEWER"
+        ],
+        "steps": [
+          "Оркестратор создаёт отдельную задачу ревью для каждой проверяемой задачи.",
+          "На каждую задачу стартует отдельный REVIEWER-child.",
+          "Каждый ревьювер возвращает вердикт по одной задаче.",
+          "Оркестратор закрывает каждую задачу отдельно."
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-TARGET",
+        "name": "Один ревьювер на пакет задач",
+        "actors": [
+          "оркестратор",
+          "REVIEWER"
+        ],
+        "steps": [
+          "Оркестратор создаёт одну задачу ревью с reviewedTaskIds = [A, B, C] и запускает одного REVIEWER.",
+          "Ревьювер получает контракт и результат каждой задачи в одном брифе.",
+          "Ревьювер возвращает вердикт по каждой задаче: pass/fail, находки, evidence.",
+          "Оркестратор применяет вердикты: закрывает прошедшие по одной, возвращает в active только дефектные; задача ревью закрывается отдельно."
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "FR1",
+      "kind": "FR",
+      "text": "Один REVIEWER может проверить несколько задач за одну задачу ревью и вернуть вердикт по каждой, не закрывая их.",
+      "acceptance": [
+        "delegate_review (или reviewedTaskIds в задаче ревью) принимает 2–8 taskId, создаёт одну задачу ревью и одного REVIEWER-child",
+        "бриф содержит по каждой задаче title, objective, scope, nonScope, acceptance, result и evidence",
+        "ответ ревьювера содержит вердикт по каждому taskId: pass/fail, находки, evidence",
+        "проверяемые задачи остаются в review; task_close оркестратора закрывает их по одной; задача ревью закрывается отдельно",
+        "негативный контроль: N задач -> один child, N вердиктов; fail по одной возвращает в active только её"
+      ],
+      "status": "deferred",
+      "reason": "Пакетное ревью реализовано и дважды проверено одним REVIEWER: P2 PASS, batch FAIL (task_update не писал reviewResults), фикс taskboard 0.1.77 PASS. Остаточная граница: белый список task_update и parameters могут рассинхронизироваться; вердикты пишет сессия ревьювера (B1′). Живой профиль не установлен, live end-to-end delegate_review не наблюдался."
+    }
+  ],
+  "architecture": {
+    "contractImpact": "additive",
+    "components": [
+      {
+        "id": "C-ORCH",
+        "name": "@cc/dsh-orchestrator",
+        "responsibility": "delegate_review, бриф пакета и per-task verdict",
+        "owner": "BACKEND",
+        "owns": [
+          "D-BRIEF"
+        ],
+        "dependsOn": [
+          "C-TASKBOARD"
+        ]
+      },
+      {
+        "id": "C-TASKBOARD",
+        "name": "@cc/dsh-taskboard",
+        "responsibility": "reviewedTaskIds в задаче ревью; проверяемые задачи не закрываются ревьювером",
+        "owner": "BACKEND",
+        "owns": [
+          "D-TASK"
+        ],
+        "dependsOn": []
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "D-TASK",
+      "name": ".dsh/taskboard.json",
+      "owner": "kit",
+      "ownerComponentId": "C-TASKBOARD",
+      "description": "задача ревью с reviewedTaskIds; проверяемые задачи остаются в review"
+    },
+    {
+      "id": "D-BRIEF",
+      "name": "бриф задачи ревью",
+      "owner": "kit",
+      "ownerComponentId": "C-ORCH",
+      "description": "контракт и результат каждой проверяемой задачи + формат per-task verdict"
+    }
+  ],
+  "contracts": [
+    {
+      "id": "CT-REVIEW-BATCH",
+      "name": "delegate_review / reviewedTaskIds",
+      "between": [
+        "C-ORCH",
+        "C-TASKBOARD"
+      ],
+      "change": "additive",
+      "description": "одна задача ревью с массивом reviewedTaskIds, один REVIEWER-child, per-task verdict; закрытие проверяемых задач остаётся у оркестратора"
+    }
+  ],
+  "invariants": [],
+  "decisions": [
+    {
+      "id": "D-BATCH-REVIEW",
+      "decision": "Пакетное ревью — одна задача ревью и один REVIEWER на 2–8 задач; вердикт по каждой; проверяемые задачи закрываются оркестратором по одной. Это не слияние TESTER и REVIEWER: тестировщик по-прежнему пишет кейсы, ревьювер судит изменение.",
+      "rationale": "Один ревьювер читает несколько дифов за одну сессию; N отдельных ревьюверов — перерасход. Закрытие по одной сохраняет собственный гейт каждой задачи.",
+      "alternatives": [
+        "N ревьюверов",
+        "один ревьювер закрывает всё пакетом"
+      ]
+    }
+  ],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L2",
+    "reasons": [
+      "новый контракт delegate_review/reviewedTaskIds",
+      "меняются orchestrator и taskboard",
+      "нужны per-task verdict и тесты"
+    ]
+  },
+  "designRef": {
+    "mapRev": 31,
+    "at": "2026-11-22T19:50:00.000Z",
+    "source": "designmap/manifest.json"
+  },
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "FR1",
+      "processId": "P-TARGET",
+      "componentId": "C-ORCH",
+      "contractIds": [
+        "CT-REVIEW-BATCH"
+      ],
+      "dataIds": [
+        "D-TASK",
+        "D-BRIEF"
+      ],
+      "status": "planned",
+      "tasks": [
+        {
+          "taskId": "task-mws94ysj-1i5rsm",
+          "role": "BACKEND",
+          "at": "2026-11-22T19:50:46.056Z",
+          "evidence": []
+        }
+      ]
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "44c01ac3193af7dfb214c69ffb0b6807df02604a9556581d0ff3e2f15daddc45",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-22T19:50:29.318Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-22T19:50:36.554Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-22T19:50:46.056Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mws94ysj-1i5rsm -> FR1"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-22T19:59:18.045Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mws94ysj-1i5rsm -> FR1"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-22T20:03:41.257Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR1 changed; impacts: 1"
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-22T20:03:44.228Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    }
+  ]
+}

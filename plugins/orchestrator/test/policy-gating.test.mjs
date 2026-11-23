@@ -28,7 +28,7 @@ test('negative control expect-pre-fix keeps the pre-fix policy shape', () => {
 })
 
 const COMMON_MARKERS = ['## Working policy', 'Batch the work', 'Answering is not work', 'Report once, when the work is done']
-const ORCHESTRATOR_MARKERS = ['## Orchestration policy', '## Delegation rules', 'The nine roles are the tool sets']
+const ORCHESTRATOR_MARKERS = ['## Orchestration policy', '## Delegation rules', 'The ten roles are the tool sets', 'TESTER is the independent acceptance tester']
 
 function harness() {
   const sections = []

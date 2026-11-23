@@ -14,7 +14,7 @@ unless the `DSH_HOME` environment variable overrides it.
 
 ## 1. What this deployment is
 
-The upstream harness plus 28 plugins, all pinned and installed from one kit repository:
+The upstream harness plus 29 plugins, all pinned and installed from one kit repository:
 
 | Piece | What it does |
 |---|---|
@@ -51,6 +51,7 @@ The upstream harness plus 28 plugins, all pinned and installed from one kit repo
 | `@cc/dsh-delegation-brief` | root-only tools that render a delegation brief from the register and validate the return. `delegation_brief` returns deterministic bytes and `briefHash` over the accepted REQ (criteria verbatim with stable `REQ-…-Cnn` ids, related decisions, mandatory TESTs with commands, non-scope, return format); `delegation_return` rerenders and refuses `brief_stale` when the criteria changed and `return_unmapped` when a criterion is unknown/duplicated/omitted. Refusals: `cold_start_required` (no core or no `state/views/index.json`), `feature_required` (REQ missing or not accepted), `criteria_missing`. Registers a short static prompt section for the root preset only. Tests: `node --test plugins/delegation-brief/test/*.test.mjs`. |
 | `@cc/dsh-taskboard` | the workspace task ledger and the Tasks panel. One `.dsh/taskboard.json` per workspace holds objective, scope, non-scope, acceptance, status, owner, results and a timeline; `task_create`/`task_get`/`task_list`/`task_update` (CAS)/`task_note`/`task_link` share one Host service with the `/taskboard` command. The client half reads through `workspaceFiles`, writes through `commands`, registers `main` key `tasks`, the `sidebar.panellist` entry and the `subagent-catalog` header cell. It replaces the subagent catalog; `@deepseek-ai/dsh-client-ui-subagent` is disabled in the profile so the header has one cell, and child sessions open from the task detail. Pause/Resume, **Stop child**, Close and Remove are lifecycle actions: pause/cancel/close interrupt linked children through `ctx.subagents` (the hook passes the runtime's tagged `{kind:'ancestor',agent}` or `{kind:'user',parentSessionId}` authority, so the orchestrator and the owner both can stop a child; a refused interrupt fails closed), `task_stop` force-stops a task's children or one session without changing the status, close marks done (with an optional result in the same call) and interrupts, remove deletes the ledger row and leaves children running. Each workspace keeps persistent `agents[]` roles (one child per role), and each linked child records the role plus active/sleeping/paused state for the panel roster. **A chat has its own board**: every task records `chatId`, the root session of the lineage that created it, so a delegated child's task lands on the parent chat's board; reads default to the caller's chat and `task_list` scope `workspace` (or the panel's All chats toggle) reads the whole history. A chatless row (written before `chatId`) is visible only in the workspace scope and writable only by the human; an agent write from another chat is refused with `other_chat` |
 | `@cc/dsh-orchestrator` | root-only policy section (`deployment:orchestrator-policy`), child-only section (`deployment:specialist-policy`) and a root-only `delegate_task` tool. The tool creates the task, renders a self-contained brief (objective, scope, non-scope, inputs, acceptance, output, proof, timebox), starts a child on the configured child route (flash by default) with `agentOptions`, and links the child id. `provider`/`model` are accepted only for a route enabled in Subagent model selection, so delegation can move to the Kimi workhorse when the default route is throttled; an unavailable route fails the call before the task row is written. The task is created before the child, so a failed start leaves a visible blocked task |
+| `@cc/dsh-codex-signin` | the ChatGPT Plus/Pro (OpenAI Codex) device-code sign-in the web Models page does not expose: orchestrator-only `codex_signin_start` (returns the verification URL and user code, keeps the flow in the background), `codex_signin_status` (pending/authorized/cancelled/failed, falls back to the stored grant) and `codex_signin_cancel`. The pi-ai authorization flow owns the grant write to `llm-pi-ai/openai-codex`; the tools never read, return or log a token |
 | `@cc/dsh-papers` | the paper-research tool family: `papers_search` (arXiv Atom + Hugging Face JSON, one source can fail while the other returns), `papers_trending` (HF daily papers) and `papers_download` (arXiv PDF into `.dsh/papers/`, capped at 30 MB, `pdftotext` when installed). No key; 20 s timeout with one retry; the literature-review skill calls these tools |
 | `@deepseek-ai/dsh-client-ui-subagent` | shipped client package, **disabled** in this profile: its `subagent-catalog` header cell is replaced by the taskboard's Tasks trigger. Its right-pane child chat tab and `@` reference source are not mounted; child sessions open from the task detail. Re-enable it and use a fresh header id if the lineage popover is needed more than the one-cell replacement |
 
@@ -75,10 +76,11 @@ request, which is why the budget stays bounded and the mode is `normal`, not `al
 
 ### 1.0 The role presets — tool sets, not prompts
 
-Ten `@deepseek-ai/dsh-agent-preset` declarations sit in the profile patch, and
+Eleven `@deepseek-ai/dsh-agent-preset` declarations sit in the profile patch, and
 `@deepseek-ai/dsh-agent-preset-registry` defaults new sessions to it:
 `preset-orchestrator`, `preset-architect`, `preset-ux`, `preset-presenter`, `preset-backend`,
-`preset-research`, `preset-gatherer`, `preset-reviewer`, `preset-critic`, `preset-docs`. A preset is the persona AND the tool list, so
+`preset-research`, `preset-gatherer`, `preset-reviewer`, `preset-tester`, `preset-critic`,
+`preset-docs`. A preset is the persona AND the tool list, so
 the isolation is
 registration, not a brief: the orchestrator reads and writes (`read`, `readImage`, `write`,
 `edit`) but has no `bash` or `pwsh` at all - it can change a file and cannot run anything, so a
@@ -141,8 +143,8 @@ diff and does not write; the critic attacks a RUNNING behaviour - a service, a C
 algorithm - with realistic non-trivial inputs and sequences, on a disposable copy (`/tmp`, a
 scratch checkout, a copy of the data), and reports the smallest reproducible failure or what
 it tried and what stayed untested. It never fixes and never touches production data, and its
-preset carries no browser: UI crash testing stays with `ux`. `delegate_task` maps CRITIC,
-CRITIC-GENERAL, TESTER and QA to `critic`, CONTEXT/GATHERER to `gatherer`, and REVIEWER/REVIEW to
+preset carries no browser: UI crash testing stays with `ux`. `delegate_task` maps CRITIC and
+CRITIC-GENERAL to `critic`, TESTER and QA to `tester`, CONTEXT/GATHERER to `gatherer`, and REVIEWER/REVIEW to
 `reviewer`. **AUDIT maps to
 neither**: it was the one name that meant both jobs, and the ledger collapsed the two rows that
 wore it (measured 2026-11-11 in `~/tasks/autolabel_pipeline`: `AUDIT [reviewer]` and
@@ -238,11 +240,19 @@ Change the kit's `profile/cordis.patch.yml`, then restart: `KIT_UPDATE=0 ./start
 `$DSH_HOME/bin/dsh` (canonical source `scripts/dsh-wrapper.sh`) after the nvm/npm PATH lines, so
 it wins over the npm bin. Before the harness boots it runs
 `scripts/kit-update.mjs --apply --no-harness --no-tools --keep-model-config`, logging to
-`$DSH_HOME/kit-boot.log`. Three consequences worth knowing: (1) it skips with one line while a
-`dsh web` server runs, which is exactly the rule above; (2) it preserves the machine's
+`$DSH_HOME/kit-boot.log`. Five consequences worth knowing: (1) it never edits a live
+profile. The Windows wrapper reports that dsh is already running when nothing is pending, and
+with work pending asks once, stops the server on the requested port, applies, and boots the new
+version. It refuses when the wrapper itself runs inside a `dsh web` server, so an agent cannot
+kill the session that hosts it; the POSIX wrapper still skips with one line while a server runs;
+(2) it preserves the machine's
 `agent-default-model` row, so an automatic update cannot change provider/model/reasoning effort;
-(3) it does not touch the harness pin or the optional external binaries — `node
-scripts/kit-update.mjs --apply` (or `./start.sh`) remains the full convergence. `DSH_KIT_BOOT=0`
+(3) it does not install the optional external binaries; `node scripts/kit-update.mjs --apply`
+(or `./start.sh`) remains the full convergence for those; (4) on Windows it starts the Hindsight supervisor when the daemon is installed but its port is
+closed, detached through WMI so a later server restart does not take it with it; the supervisor
+starts the launcher and restarts it when it exits; (5) it compares the installed harness with
+the kit pin and runs the full convergence when they differ, because a profile written for one
+harness does not boot unchanged on another. `DSH_KIT_BOOT=0`
 opts out for one launch, `DSH_KIT_DIR` relocates the kit. `npx @deepseek-ai/dsh web` runs the
 package's bin directly and bypasses the wrapper; use `dsh web` when the convergence matters.
 
@@ -286,12 +296,17 @@ at launch and never stores it, with the kit's own provider settings:
 
 - Linux: unit `~/.config/systemd/user/hindsight-memory.service`, enabled at `default.target`,
   launcher `~/.hindsight/start-coding-agent.sh`; `systemctl --user status|restart`.
-- Windows: launcher `~/.hindsight/start-coding-agent.ps1` and a per-user `Run` value
-  `DshHindsightDaemon` (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`). The Run key, not a
-  scheduled task: registering an at-logon task needs elevation here (`Access is denied`), while
-  the per-user Run value does not.
+- Windows: launcher `~/.hindsight/start-coding-agent.ps1`, the supervisor
+  `~/.hindsight/hindsight-supervisor.ps1`, and a per-user `Run` value `DshHindsightDaemon`
+  (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`) that runs the supervisor. The Run key,
+  not a scheduled task: registering an at-logon task needs elevation here (`Access is denied`),
+  while the per-user Run value does not. The kit's wrapper starts the same supervisor when the
+  port is closed, so a daemon that crashes mid-session is restarted rather than left refused.
 - Either way `HINDSIGHT_API_LLM_PROVIDER=deepseek`, `HINDSIGHT_API_LLM_MODEL=deepseek-chat`,
   `HINDSIGHT_API_PORT=18888`, and `uvx hindsight-embed` runs embedded PostgreSQL on 127.0.0.1.
+- On Windows, `dsh web` starts the launcher itself when the daemon is not listening and no start
+  is already in progress, so a daemon that died does not leave every `hindsight_*` tool refused
+  until the next logon. The WMI launch keeps it outside the server's process tree.
 
 Verify with `curl -s http://127.0.0.1:18888/health` →
 `{"status":"healthy","database":"connected"}`, and prove it serves memory, not just health:

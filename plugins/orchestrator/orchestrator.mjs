@@ -111,9 +111,9 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
  * for AUDIT is told to choose REVIEWER or CRITIC, and a board that still holds the label keeps
  * it as history (scripts/taskboard-migrate.mjs splits the rows it can still prove).
  */
-export const PRESET_IDS = ['architect', 'ux', 'presenter', 'backend', 'research', 'gatherer', 'reviewer', 'critic', 'docs']
+export const PRESET_IDS = ['architect', 'ux', 'presenter', 'backend', 'research', 'gatherer', 'reviewer', 'critic', 'tester', 'docs']
 
-/** Role spellings that denote one of the nine child compositions. Keys are normalizedRole() output. */
+/** Role spellings that denote one of the ten child compositions. Keys are normalizedRole() output. */
 export const ROLE_PRESETS = {
   // The system designer on the expensive route. `architect` is a role NAME; the profession the
   // owner calls "системный дизайнер" is this preset. `designer` stays UX/UI: an interface
@@ -150,9 +150,12 @@ export const ROLE_PRESETS = {
   critic: 'critic',
   criticgeneral: 'critic',
   generalcritic: 'critic',
-  qa: 'critic',
-  tester: 'critic',
-  test: 'critic',
+  // TESTER is the independent acceptance tester: it authors the acceptance case and measures the
+  // red and the green. It is NOT the critic (which attacks a running behaviour and reports a
+  // failure) and not the reviewer (which judges a diff). QA and "test" are what a person calls it.
+  qa: 'tester',
+  tester: 'tester',
+  test: 'tester',
   docs: 'docs',
   doc: 'docs',
   documentation: 'docs',
@@ -457,7 +460,7 @@ That ledger is not bookkeeping for delegation: it is the record that outlives th
 2. Create a goal with \`create_goal\`, and break the work into tasks: the goal is the objective, the tasks are what the panel shows and what can be delegated.
 3. Delegate the independent tasks with \`delegate_task\`. One task per child. The brief must be self-contained and name the non-scope. Never delegate final integration or the human's judgment.
 4. Use \`workflow\` for deterministic fan-out with structured results. There is no two-child cap, but each parallel child is a full agent turn: fan out as wide as the work justifies and no wider, and prefer one child doing several steps over several children doing one step each.
-5. Integrate and verify yourself: run the product, read the output, check the diff. A child's report is a claim, not evidence.
+5. Integrate and verify yourself: run the product, read the output, check the diff. A child's report is a claim, not evidence. In L2 the order is: criteria and constraints -> delegate TESTER to write the cases -> BACKEND implements -> TESTER measures the accepted behaviour (wrong-product red, then green) -> REVIEWER/CRITIC -> close. L0/L1 stay light: run the product and quote it; a case, a tester seat and a review are for work whose acceptance is a claim, not for a one-line edit.
 6. Update the taskboard before you speak to the human, and report the evidence in the reply. Close the tasks and the goal.
 7. Close the loop on what the work taught. If the task produced a non-obvious procedure - a build incantation, a trap, an order of operations that cost a retry - call \`skill_inventory\` and, when nothing covers it, \`skill_evolve\` with the exact steps. That library is the only place the knowledge survives this chat: a solution nobody can find again gets rediscovered.
 
@@ -466,8 +469,9 @@ A question never needs this ceremony. A change never skips the task.
 ## Delegation rules
 
 - Reuse a role from the catalog appended below this policy. \`delegate_task\` refuses a near-duplicate new role unless the work really is a new domain; \`forceRole: true\` overrides that refusal.
-- **The nine roles are the tool sets**: ARCHITECT, UX/UI, PRESENTER, BACKEND, RESEARCH, CONTEXT, REVIEWER, CRITIC, DOCS. The orchestrator is the tenth and is you. The role picks the child's preset, so the child literally has that role's tools - a BACKEND child cannot run \`papers_*\`. You CAN read, create and edit files yourself: a small, self-evident change is yours to make, and delegating it only to satisfy a ritual wastes a child session. A change whose acceptance is a command's output - a build, a test, a lint, a migration, a scan - is delegated, or you make the edit and hand the proof to the role that owns the binary. Choose the role by the work, not by seniority; a role outside those nine needs an explicit \`preset\` argument. PRESENTER makes an idea land for a person outside the subject: an animated HTML deck, a KPI board or a diagram, built from the kit's own renderers and verified slide by slide in a browser. ARCHITECT is the system designer on the deployment's expensive route: delegate a design question to it when the DECISION is the work, not the reading - it records the design map and returns the decision, and as a child it reads only what your brief gave it. CONTEXT reads the current system and returns a cited report (it never edits, never tests, never delegates); RESEARCH finds what exists outside the repository; do not use either one to avoid reading the file in front of you. Use REVIEWER to judge a change and CRITIC to attack a running behaviour: the critic breaks the algorithm or service on a disposable copy and reports the smallest reproducible failure, it never fixes and never touches production data - reach for it when "it works" is a claim rather than a measurement.
+- **The ten roles are the tool sets**: ARCHITECT, UX/UI, PRESENTER, BACKEND, RESEARCH, CONTEXT, REVIEWER, CRITIC, TESTER, DOCS. The orchestrator is the eleventh seat and is you. **TESTER is the independent acceptance tester**: it derives the expected result from the requirement, the criteria and the constraints (never from the implementation), writes the case and its driver under docs/cases/ or a test root, and measures the red against the previous version and the green against the change. It never edits product code and never signs off its own implementation: a defect goes back to BACKEND and the tester reruns. The role picks the child's preset, so the child literally has that role's tools - a BACKEND child cannot run \`papers_*\`. You CAN read, create and edit files yourself: a small, self-evident change is yours to make, and delegating it only to satisfy a ritual wastes a child session. A change whose acceptance is a command's output - a build, a test, a lint, a migration, a scan - is delegated, or you make the edit and hand the proof to the role that owns the binary. Choose the role by the work, not by seniority; a role outside those nine needs an explicit \`preset\` argument. PRESENTER makes an idea land for a person outside the subject: an animated HTML deck, a KPI board or a diagram, built from the kit's own renderers and verified slide by slide in a browser. ARCHITECT is the system designer on the deployment's expensive route: delegate a design question to it when the DECISION is the work, not the reading - it records the design map and returns the decision, and as a child it reads only what your brief gave it. CONTEXT reads the current system and returns a cited report (it never edits, never tests, never delegates); RESEARCH finds what exists outside the repository; do not use either one to avoid reading the file in front of you. Use REVIEWER to judge a change and CRITIC to attack a running behaviour: the critic breaks the algorithm or service on a disposable copy and reports the smallest reproducible failure, it never fixes and never touches production data - reach for it when "it works" is a claim rather than a measurement.
 - Pass \`taskId\` when one of your own tasks is the work: the brief then attaches to that task instead of creating a second row for the same thing.
+- **The standard is proportional: a level, not a ritual.** Every task states a verification level: proof (L0 - run the product, quote the command, output and exit code; no case, no tester, no review), case (L1 - the same plus one case when the behaviour is worth pinning), or independent (L2, or any risk trigger - contract, data, architecture, security, money, migration, concurrency - where another preset writes the case, measures a wrong-product red and covers every criterion). Pass criteria (stable ids) and constraints with the task: the child brief and the close read the same contract. Do not run the full TESTER/REVIEWER/CRITIC cycle on a proof task.
 - **A created task must carry its basis.** When \`delegate_task\` creates the row, pass \`reqIds\` (or \`reqId\` for one) naming the requirements the work implements; for work that implements no requirement - a standalone review of existing code, for instance - pass \`chore: true\` with a \`choreReason\`. The board refuses the call without one (\`req_required\`) before a child starts, and an attach with \`taskId\` needs neither: the row already carries its basis. Never invent a requirement to get a delegation through.
 - A specialist session belongs to the chat that created it. A later chat gets a new one, and the brief then carries the role's earlier results forward - say so in the brief you write, and never assume the child remembers.
 - Children run on the configured child route (flash by default), and that is the right default: volume work belongs on the cheap route. You may name a \`provider\`/\`model\` on \`delegate_task\` ONLY when the environment demands it - the default route is throttled, unavailable, or the task needs a capability only the other route has - and only a route listed in Subagent model selection is accepted. Never name a highspeed variant: highspeed routes are refused outright by the model guard.
@@ -528,6 +532,65 @@ export function activationSpec({ provider, label, signal, delivery, request }) {
   return { provider, label, ...request, request, signal, delivery }
 }
 
+/**
+ * The task contract, as the child sees it (P2).
+ *
+ * THE SAME BLOCK FOR EVERY ROLE. The backend, the tester and the reviewer get one text: what is
+ * checked, at which level, against which criteria and standing constraints. A brief that only the
+ * tester received the criteria would let the implementer and the reviewer judge a different task.
+ *
+ * A row written before P2 has no level and no criteria: the block says so instead of inventing a
+ * standard, so an old task reads exactly as before.
+ */
+  /**
+   * One task's block in a batch-review brief (P2.1).
+   *
+   * The reviewer judges an OUTCOME against the task's own contract: title, objective, scope,
+   * non-scope, acceptance, the result the implementer reported, its evidence, and the P2 level and
+   * criteria. Rendering it from the row - not from the orchestrator's memory - is what lets one
+   * reviewer cover several tasks without seeing a merged story.
+   */
+export function reviewTargetBlock(task) {
+    const listOf = (values) => (Array.isArray(values) ? values.filter((value) => typeof value === 'string' && value.trim() !== '') : [])
+    const result = task?.result !== null && typeof task?.result === 'object' ? task.result : {}
+    const criteria = Array.isArray(task?.criteria) ? task.criteria : []
+    const lines = []
+    lines.push(`### ${task.id}: ${task.title ?? ''}`)
+    if (typeof task.objective === 'string' && task.objective !== '') lines.push(`Objective: ${task.objective}`)
+    for (const [label, values] of [['Scope', listOf(task.scope)], ['Non-scope', listOf(task.nonScope)]]) {
+      if (values.length > 0) lines.push(`${label}:\n${values.map((value) => `  - ${value}`).join('\n')}`)
+    }
+    const acceptance = (Array.isArray(task.acceptance) ? task.acceptance : []).map((entry) => (typeof entry === 'string' ? entry : entry?.text)).filter((value) => typeof value === 'string' && value !== '')
+    if (acceptance.length > 0) lines.push(`Acceptance:\n${acceptance.map((value) => `  - ${value}`).join('\n')}`)
+    if (typeof task.verification === 'string' && task.verification !== '') lines.push(`Verification level: ${task.verification}`)
+    if (criteria.length > 0) lines.push(`Criteria:\n${criteria.map((entry) => `  - ${entry.id}: ${entry.text ?? ''}`).join('\n')}`)
+    if (typeof result.summary === 'string' && result.summary !== '') lines.push(`Result (the implementer's claim): ${result.summary}`)
+    const evidence = listOf(result.evidence)
+    if (evidence.length > 0) lines.push(`Evidence (the implementer's):\n${evidence.map((value) => `  - ${value}`).join('\n')}`)
+    return lines.join('\n')
+  }
+
+
+export function contractBlock(task) {
+  const level = typeof task?.verification === 'string' ? task.verification : ''
+  const criteria = Array.isArray(task?.criteria) ? task.criteria.filter((entry) => entry !== null && typeof entry === 'object' && typeof entry.id === 'string') : []
+  const constraints = Array.isArray(task?.constraints) ? task.constraints.filter((entry) => typeof entry === 'string' && entry.trim() !== '') : []
+  if (level === '' && criteria.length === 0 && constraints.length === 0) return ''
+  const standing = {
+    proof: 'This task is accepted on the owner\'s own proof: run the product and quote the command, the output and the exit code. No case, no tester and no review are owed unless a risk trigger appears.',
+    case: 'This task is accepted on proof plus one case when the behaviour is worth pinning. Independence is not required; a case that exists must still be measured.',
+    independent: 'This task is accepted only when ANOTHER preset wrote and ran the acceptance case against a wrong-product red, and every criterion below is covered by an acceptable case that names it.',
+  }
+  const lines = []
+  lines.push(`\n## Task contract`)
+  lines.push(`- Verification level: ${level === '' ? '(not stated; the row predates P2)' : level}`)
+  if (level !== '') lines.push(`- What that means: ${standing[level] ?? standing.proof}`)
+  lines.push(criteria.length === 0 ? '- Acceptance criteria: (none stated)' : `- Acceptance criteria:\n${criteria.map((entry) => `  - ${entry.id}: ${typeof entry.text === 'string' ? entry.text : ''}`).join('\n')}`)
+  if (constraints.length > 0) lines.push(`- Constraints:\n${constraints.map((entry) => `  - ${entry}`).join('\n')}`)
+  lines.push(level === 'independent' ? '- Do not sign off your own implementation: a defect goes back to the implementer and the tester reruns.' : '- Report the product run you performed; the orchestrator decides acceptance.')
+  return `${lines.join('\n')}\n`
+}
+
 export function renderBrief(task, input, limit = 20000, extra = {}) {
   const list = (label, values) => {
     const entries = Array.isArray(values) ? values.filter((value) => typeof value === 'string' && value.trim() !== '') : []
@@ -541,6 +604,7 @@ ${list('Scope (you may touch)', task.scope)}
 ${list('Non-scope (do not touch)', task.nonScope)}
 ${list('Inputs', input.inputs)}
 ${list('Acceptance (the orchestrator decides)', task.acceptance.map((entry) => entry.text))}
+${contractBlock(task)}
 ${typeof extra.carryForward === 'string' && extra.carryForward.trim() !== '' ? `\n${extra.carryForward}\n` : ''}
 ## Required output
 
@@ -725,6 +789,9 @@ export function apply(ctx, config = {}) {
       scope: { type: 'array', items: { type: 'string' }, description: 'What the child may touch.' },
       nonScope: { type: 'array', items: { type: 'string' }, description: 'What the child must not touch, with the reason.' },
       acceptance: { type: 'array', items: { type: 'string' }, description: 'How you will judge the result.' },
+      verification: { type: 'string', enum: ['proof', 'case', 'independent'], description: 'P2 verification level for the task the child owns. proof: the child runs the product and quotes it (L0). case: proof plus one case when the behaviour is worth pinning (L1). independent: another preset writes and runs the acceptance case against a wrong-product red, and every criterion must be covered (L2, or a risk trigger: contract, data, architecture, security, money, migration, concurrency). Default proof: the standard is proportional, not a full cycle for every task.' },
+      criteria: { type: 'array', items: { type: 'object', properties: { id: { type: 'string', description: 'Stable id, for example AC-1.' }, text: { type: 'string', description: 'One checkable sentence.' } }, additionalProperties: false, description: 'Acceptance criteria with stable ids. A bare string gets AC-n. Required for level independent: without criteria there is nothing for a case to cover.' } },
+      constraints: { type: 'array', items: { type: 'string' }, description: 'Standing rules the work must obey (no new dependency, no schema change, keep the public CLI). Rendered into the child brief with the rest of the contract.' },
       inputs: { type: 'array', items: { type: 'string' }, description: 'Files, decisions and links the child needs.' },
       timebox: { type: 'string', description: 'Optional timebox or stopping condition.' },
       parentTaskId: { type: 'string', description: 'Optional parent task id.' },
@@ -766,7 +833,7 @@ export function apply(ctx, config = {}) {
       }
       const preset = typeof args.preset === 'string' && args.preset !== '' ? args.preset : presetForRole(role)
       if (preset === undefined) {
-        throw new Error(`delegate_task: role "${role}" names none of the nine tool compositions (${PRESET_IDS.join(', ')}). Reuse one of those role names (CRITIC/QA/TESTER map to the adversarial tester, CONTEXT/GATHERER to reconnaissance), or pass preset explicitly when the role is a genuine specialty.`)
+        throw new Error(`delegate_task: role "${role}" names none of the ten tool compositions (${PRESET_IDS.join(', ')}). Reuse one of those role names (CRITIC/QA/TESTER map to the adversarial tester, CONTEXT/GATHERER to reconnaissance), or pass preset explicitly when the role is a genuine specialty.`)
       }
       if (!PRESET_IDS.includes(preset)) {
         throw new Error(`delegate_task: "${preset}" is not one of the role presets (${PRESET_IDS.join(', ')}).`)
@@ -938,6 +1005,11 @@ export function apply(ctx, config = {}) {
           scope: args.scope,
           nonScope: args.nonScope,
           acceptance: args.acceptance,
+          // P2: the contract the task is accepted against travels WITH the row, so the brief and
+          // the close read the same fields.
+          ...(typeof args.verification === 'string' && args.verification !== '' ? { verification: args.verification } : {}),
+          ...(Array.isArray(args.criteria) ? { criteria: args.criteria } : {}),
+          ...(Array.isArray(args.constraints) ? { constraints: args.constraints } : {}),
           parentId: args.parentTaskId,
           parentSessionId: parent.id,
           chatId,
@@ -1270,6 +1342,65 @@ export function apply(ctx, config = {}) {
     return record
   }
 
+
+  // The per-task block is module-level so a test can read exactly what the brief carries.
+  const blockOf = reviewTargetBlock
+
+  const reviewTool = defineTool({
+    name: 'delegate_review',
+    description: 'Review SEVERAL tasks with ONE reviewer. Pass 2-8 task ids of tasks waiting in review; this creates ONE review task, starts ONE REVIEWER child and renders every reviewed task (title, objective, scope, non-scope, acceptance, verification level, criteria, the result and the evidence the implementer reported) into its brief. The child answers with a verdict per task - pass or fail, findings and evidence - and closes NONE of them: the reviewed tasks stay in review and you close each one yourself with task_close when its verdict and your own reading agree, so a failed task goes back to active while its neighbours are unaffected. Use delegate_task with REVIEWER for a single task. This is not a merge of TESTER and REVIEWER: the acceptance case still belongs to the tester, and the reviewer judges the change.',
+    parameters: {
+      taskIds: { type: 'array', items: { type: 'string' }, required: true, description: 'The 2-8 task ids one reviewer covers. Every task must exist and be in review.' },
+      focus: { type: 'string', description: 'Optional shared focus for the batch (for example "the CLI contract only"); per-task scope stays its own.' },
+      title: { type: 'string', description: 'Optional title for the review task.' },
+      timebox: { type: 'string', description: 'Optional timebox or stopping condition for the reviewer.' },
+    },
+    output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
+    async execute(args, exec) {
+      const raw = Array.isArray(args?.taskIds) ? args.taskIds : []
+      const ids = [...new Set(raw.filter((entry) => typeof entry === 'string' && entry.trim() !== '').map((entry) => entry.trim()))]
+      if (ids.length < 2 || ids.length > 8) throw new Error(`delegate_review: pass 2-8 task ids, got ${ids.length}. One task is a normal review - use delegate_task with REVIEWER`)
+      let taskboard
+      try { taskboard = ctx.get('taskboard') } catch { taskboard = undefined }
+      if (taskboard === undefined || taskboard === null) throw new Error('delegate_review: the taskboard service is not mounted, so the reviewed tasks cannot be read')
+      const cwd = workingDir(exec.agent)
+      const tasks = ids.map((id) => taskboard.get(cwd, id))
+      const missing = ids.filter((id, index) => tasks[index] === undefined)
+      if (missing.length > 0) throw new Error(`delegate_review: no such task: ${missing.join(', ')}`)
+      const notInReview = tasks.filter((task) => task.status !== 'review').map((task) => `${task.id} (${task.status})`)
+      if (notInReview.length > 0) throw new Error(`delegate_review: a batch review judges tasks that are in review; not ready: ${notInReview.join(', ')}`)
+      const already = []
+      for (const task of (taskboard.list(cwd, { all: true }) ?? [])) {
+        if (task?.status === 'done' || task?.status === 'cancelled') continue
+        if (Array.isArray(task?.reviewedTaskIds) && task.reviewedTaskIds.some((id) => ids.includes(id))) already.push(task.id)
+      }
+      if (already.length > 0) throw new Error(`delegate_review: these tasks are already covered by an open batch review: ${already.join(', ')}`)
+      const blocks = tasks.map(blockOf)
+      const focus = typeof args?.focus === 'string' && args.focus.trim() !== '' ? args.focus.trim() : ''
+      const result = await definition.execute({
+        title: typeof args?.title === 'string' && args.title.trim() !== '' ? args.title.trim() : `Batch review: ${ids.length} tasks`,
+        role: 'REVIEWER',
+        objective: `Judge ${ids.length} tasks against their own contracts in one pass: ${ids.join(', ')}. Report a verdict per task and close none of them.`,
+        scope: blocks,
+        nonScope: ['Do not close any reviewed task: the orchestrator closes each one itself', 'Do not edit product code', 'Do not author or edit acceptance cases: the tester owns them'],
+        acceptance: [
+          `One entry per reviewed task in \`results\`: {taskId, verdict: "pass" | "fail", findings: [...], evidence: [...]}`,
+          'A fail names the defect and the command or file that shows it; a pass names what you ran',
+          'No reviewed task is closed from this session',
+        ],
+        inputs: [`Focus for the batch: ${focus === '' ? '(each task\'s own contract)' : focus}`],
+        chore: true,
+        choreReason: `batch review of ${ids.length} tasks by one reviewer`,
+        ...(typeof args?.timebox === 'string' && args.timebox !== '' ? { timebox: args.timebox } : {}),
+      }, exec)
+      if (result === undefined || result === null || result.ok === false) return result
+      const reviewTaskId = result.task?.id ?? result.id
+      if (typeof reviewTaskId !== 'string' || reviewTaskId === '') return result
+      const patched = taskboard.update(cwd, { id: reviewTaskId, patch: { reviewedTaskIds: ids } })
+      return { ...result, reviewedTaskIds: ids, ...(patched?.ok === true ? { reviewTask: patched.task } : {}) }
+    },
+  })
+
   ctx.on('agent/created', ({ agent }) => {
     // Lineage, not depth alone: a subagent child can report depth 0 and still name its
     // parent (see isRootAgent).
@@ -1338,6 +1469,7 @@ export function apply(ctx, config = {}) {
         ].join(' ')
       })
       agent.ctx.tools.register(definition)
+      agent.ctx.tools.register(reviewTool)
     }
   })
 }

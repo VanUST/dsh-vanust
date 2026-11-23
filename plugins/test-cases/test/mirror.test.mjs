@@ -31,7 +31,8 @@ async function harness() {
       return result
     },
   })
-  return { cwd, core, tools, exec: { agent: { session: { header: { cwd } } } } }
+  // The author comes from the session now, so the harness names the role that writes here.
+  return { cwd, core, tools, exec: { agent: { session: { id: 'sess-mirror', header: { cwd, agentPreset: 'orchestrator' } } } } }
 }
 
 const baseCase = (overrides = {}) => JSON.parse(JSON.stringify({
@@ -93,6 +94,13 @@ test('a recorded run lands in the TEST evidenceRefs', async () => {
     reason: undefined,
     testPath: 'tiny.mjs',
     runCommand: 'node tiny.mjs',
+    surfaceFiles: ['tiny.mjs'],
+    failsWhen: 'the tiny driver writes no summary',
+    trigger: 'running the tiny driver once',
+    oracle: 'the case library reads the run it produced',
+    realism: 'the mirror proof needs a measured run',
+    realismReviewedBy: 'reviewer',
+    realismReviewedAt: '2026-01-01T00:00:00.000Z',
   }), exec)
   assert.equal(created.ok, true, JSON.stringify(created))
   const run = await tools.case_run.execute({ id: created.case.id, expectedRevision: created.case.revision ?? 1 }, exec)

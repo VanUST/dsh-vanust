@@ -1,0 +1,19 @@
+{
+  "name": "@cc/dsh-codex-signin",
+  "version": "0.1.0",
+  "description": "ChatGPT Plus/Pro device-code sign-in tools for the llm-pi-ai openai-codex route.",
+  "type": "module",
+  "main": "codex-signin.mjs",
+  "files": [
+    "README.md",
+    "codex-signin.mjs"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/dsh-tools": "^0.2.0-rc.2"
+  },
+  "license": "MIT"
+}

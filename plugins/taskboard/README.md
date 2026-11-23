@@ -3,6 +3,14 @@
 The task-centered dashboard that replaces the subagent catalog as the place work
 is tracked.
 
+## P2.1 — пакетное ревью (batch review)
+
+Одна задача ревью покрывает 2–8 задач: поле `reviewedTaskIds` на строке ревью, вердикт по каждой —
+`reviewResults: [{taskId, verdict: "pass"|"fail", findings, evidence}]`. Строка ревью не закрывается,
+пока вердикта нет по каждой задаче (`review_results_missing`), а сессия, выполняющая ревью, не
+закрывает проверяемые задачи (`reviewed_task_close`): их закрывает оркестратор по одной. Вердикт
+`fail` возвращает в работу только свою задачу, соседние остаются в `review`.
+
 ## What it stores
 
 One JSON ledger per session workspace, `.dsh/taskboard.json`:

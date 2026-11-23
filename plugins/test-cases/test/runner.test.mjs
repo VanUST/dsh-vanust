@@ -13,6 +13,7 @@
  */
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -28,6 +29,10 @@ const CLI = join(HERE, '..', 'bin', 'cases.mjs')
 
 const DRIVER = `import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+// The fixture's environment comes from a JSON file named on the command line, not from a
+// POSIX VAR=value prefix: that syntax sh accepts and cmd.exe does not,
+// so the same recorded command has to be portable to run on both platforms.
+if (process.argv[2]) Object.assign(process.env, JSON.parse(readFileSync(process.argv[2], 'utf8')))
 const metrics = JSON.parse(process.env.DRIVER_METRICS ?? '{}')
 const hashes = JSON.parse(process.env.DRIVER_HASHES ?? '{}')
 if (process.env.CASE_SUMMARY) writeFileSync(process.env.CASE_SUMMARY, JSON.stringify({ metrics, hashes, artifacts: [] }))
@@ -46,6 +51,7 @@ function workspace() {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-cases-'))
   mkdirSync(join(dir, 'docs', 'cases'), { recursive: true })
   writeFileSync(join(dir, 'driver.mjs'), DRIVER)
+  writeFileSync(join(dir, 'default.json'), JSON.stringify({ DRIVER_METRICS: '{"p95":212}' }))
   return dir
 }
 
@@ -60,7 +66,10 @@ function record(overrides = {}) {
     source: 'agent',
     automated: true,
     testPath: 'driver.mjs',
-    runCommand: "DRIVER_METRICS='{\"p95\":212}' node driver.mjs",
+    // The case freezes the bytes of its test file; a fixture that skips the hash is a legacy
+    // record, and case_run/case_suite/the CLI refuse those by name.
+    testHash: createHash('sha256').update(DRIVER).digest('hex'),
+    runCommand: 'node driver.mjs default.json',
     checks: [{ metric: 'p95', op: '<=', threshold: 250, unit: 'ms', name: 'p95 latency' }],
     steps: ['run it'],
     expected: 'p95 under 250ms',
@@ -72,9 +81,11 @@ function record(overrides = {}) {
 }
 
 async function run(record, options = {}) {
-  const dir = join(options.workspace ?? workspace(), 'docs', 'cases')
+  const root = options.workspace ?? workspace()
+  for (const [name, env] of Object.entries(options.envFiles ?? {})) writeFileSync(join(root, name), JSON.stringify(env))
+  const dir = join(root, 'docs', 'cases')
   const attempt = await runAttempts({
-    workspace: dirname(dirname(dir)),
+    workspace: root,
     dir,
     record,
     runId: options.runId ?? 'run-1',
@@ -82,6 +93,7 @@ async function run(record, options = {}) {
     timeoutMs: options.timeoutMs ?? 30_000,
     mode: options.mode ?? 'green',
     control: options.control ?? '',
+    runBy: options.runBy ?? null,
     exec: spawnExec(),
   })
   return { attempt, dir, workspace: dirname(dirname(dir)) }
@@ -115,21 +127,28 @@ test('a green run is measured, then a negative control makes it verified', async
   assert.equal(stored.checks.find((check) => check.name === 'p95 latency').pass, true)
   assert.equal(stored.checks[0].name, 'exit code')
 
-  const red = await run(firstFold.record, { runId: 'red-1', mode: 'red', control: 'break' })
+  const reviewer = { preset: 'reviewer', sessionId: 'sess-reviewer' }
+  const red = await run(firstFold.record, { runId: 'red-1', mode: 'red', control: 'break', runBy: reviewer })
   assert.equal(red.attempt.controlHeld, true, 'the control must fail')
-  const redFold = recordRun(firstFold.record, { workspace: red.workspace, attempt: red.attempt, mode: 'red' })
+  const redFold = recordRun(firstFold.record, { workspace: red.workspace, attempt: red.attempt, mode: 'red', runBy: reviewer })
   assert.equal(redFold.record.redFirst.source, 'negative-control')
+  assert.equal(redFold.record.redFirst.redSource, 'runner', 'the reserved redSource is not written')
 
-  const green = await run(redFold.record, { runId: 'green-2' })
-  const verified = recordRun(redFold.record, { workspace: green.workspace, attempt: green.attempt })
+  const green = await run(redFold.record, { runId: 'green-2', runBy: reviewer })
+  const verified = recordRun(redFold.record, { workspace: green.workspace, attempt: green.attempt, runBy: reviewer })
   assert.equal(verified.record.status, 'verified')
   assert.equal(verified.record.lastVerified.source, 'runner')
   assert.equal(verified.record.lastVerified.runId, 'green-2-1')
+  // WHO ran it travels with the run and with the verification: the gate compares this preset with
+  // the task's implementer, so a run without it could not be judged independent.
+  assert.deepEqual(verified.record.lastVerified.runBy, { ...reviewer, taskId: null })
+  const greenRun = JSON.parse(readFileSync(join(green.dir, 'runs', base.id, 'green-2-1', 'run.json'), 'utf8'))
+  assert.deepEqual(greenRun.runBy, { ...reviewer, taskId: null })
 })
 
 test('an artifact the driver wrote is hashed into the run', async () => {
-  const base = record({ runCommand: "DRIVER_ARTIFACT=a11y.json node driver.mjs" })
-  const { attempt, dir } = await run(base)
+  const base = record({ runCommand: 'node driver.mjs artifact.json' })
+  const { attempt, dir } = await run(base, { envFiles: { 'artifact.json': { DRIVER_ARTIFACT: 'a11y.json' } } })
   const artifacts = attempt.attempts[0].run.artifacts
   assert.equal(artifacts.length, 1)
   assert.equal(artifacts[0].path.endsWith('docs/cases/runs/benchmark-smoke/run-1-1/a11y.json'), true)
@@ -138,7 +157,7 @@ test('an artifact the driver wrote is hashed into the run', async () => {
 })
 
 test('a metric over its threshold fails the case, and a missing metric never passes', async () => {
-  const over = await run(record({ runCommand: "DRIVER_METRICS='{\"p95\":260}' node driver.mjs" }))
+  const over = await run(record({ runCommand: 'node driver.mjs over.json' }), { envFiles: { 'over.json': { DRIVER_METRICS: '{"p95":260}' } } })
   assert.equal(over.attempt.passed, false)
   const folded = recordRun(record(), { workspace: over.workspace, attempt: over.attempt })
   assert.equal(folded.record.status, 'failing')
@@ -155,15 +174,16 @@ test('a metric over its threshold fails the case, and a missing metric never pas
 test('a hash check compares the digest the driver reported', async () => {
   const digest = 'sha256:abc'
   const checks = [{ metric: 'golden', expected: digest, op: '==', name: 'golden screenshot' }]
-  const base = record({ checks, runCommand: `DRIVER_HASHES='{"golden":"${digest}"}' node driver.mjs` })
-  assert.equal((await run(base)).attempt.passed, true)
-  const wrong = record({ checks, runCommand: 'DRIVER_HASHES=\'{"golden":"sha256:zzz"}\' node driver.mjs' })
-  assert.equal((await run(wrong)).attempt.passed, false)
+  const base = record({ checks, runCommand: 'node driver.mjs hash-ok.json' })
+  assert.equal((await run(base, { envFiles: { 'hash-ok.json': { DRIVER_HASHES: JSON.stringify({ golden: digest }) } } })).attempt.passed, true)
+  const wrong = record({ checks, runCommand: 'node driver.mjs hash-bad.json' })
+  assert.equal((await run(wrong, { envFiles: { 'hash-bad.json': { DRIVER_HASHES: JSON.stringify({ golden: 'sha256:zzz' }) } } })).attempt.passed, false)
 })
 
 test('repeated runs keep the series, aggregate median/p95 and record a mixed outcome as flaky', async () => {
   const dir = workspace()
-  const base = record({ runCommand: `DRIVER_COUNTER=${join(dir, 'flaky.count')} DRIVER_METRICS='{\"p95\":212}' node driver.mjs` })
+  writeFileSync(join(dir, 'flaky.json'), JSON.stringify({ DRIVER_COUNTER: join(dir, 'flaky.count'), DRIVER_METRICS: '{"p95":212}' }))
+  const base = record({ runCommand: 'node driver.mjs flaky.json' })
   const attempt = await runAttempts({ workspace: dir, dir: join(dir, 'docs', 'cases'), record: base, runId: 'flaky-1', runs: 2, exec: spawnExec() })
   assert.equal(attempt.flaky, true)
   const folded = recordRun(base, { workspace: dir, attempt })
@@ -176,14 +196,14 @@ test('repeated runs keep the series, aggregate median/p95 and record a mixed out
 })
 
 test('a baseline ratchet fails a regression beyond the band and passes inside it', async () => {
-  const seed = await run(record({ runCommand: "DRIVER_METRICS='{\"p95\":200}' node driver.mjs" }))
+  const seed = await run(record({ runCommand: 'node driver.mjs baseline-seed.json' }), { envFiles: { 'baseline-seed.json': { DRIVER_METRICS: '{"p95":200}' } } })
   const seeded = recordRun(record(), { workspace: seed.workspace, attempt: seed.attempt, setBaseline: true })
   assert.deepEqual(seeded.record.baseline.metrics, { p95: 200 })
   assert.equal(seeded.record.checks[0].baseline, undefined, 'the seed run used the fixed threshold, not the baseline')
   const ratchet = record({ ...seeded.record, checks: [{ metric: 'p95', op: '<=', baseline: true, band: 0.05, name: 'p95 ratchet' }] })
-  const inside = await run({ ...ratchet, runCommand: "DRIVER_METRICS='{\"p95\":205}' node driver.mjs" }, { workspace: seed.workspace })
+  const inside = await run({ ...ratchet, runCommand: 'node driver.mjs baseline-inside.json' }, { workspace: seed.workspace, envFiles: { 'baseline-inside.json': { DRIVER_METRICS: '{"p95":205}' } } })
   assert.equal(inside.attempt.passed, true, '205 is within 200 * 1.05')
-  const outside = await run({ ...ratchet, runCommand: "DRIVER_METRICS='{\"p95\":215}' node driver.mjs" }, { workspace: seed.workspace })
+  const outside = await run({ ...ratchet, runCommand: 'node driver.mjs baseline-outside.json' }, { workspace: seed.workspace, envFiles: { 'baseline-outside.json': { DRIVER_METRICS: '{"p95":215}' } } })
   assert.equal(outside.attempt.passed, false, '215 is beyond 200 * 1.05')
 })
 
@@ -206,16 +226,18 @@ test('median and p95 are nearest-rank over a numeric series', () => {
 test('the CLI runs a filtered suite, writes the report and exits non-zero on a red case', () => {
   const dir = workspace()
   const library = join(dir, 'docs', 'cases')
+  writeFileSync(join(dir, 'suite-pass.json'), JSON.stringify({ DRIVER_METRICS: '{"p95":212}' }))
+  writeFileSync(join(dir, 'suite-fail.json'), JSON.stringify({ DRIVER_METRICS: '{"p95":999}' }))
   const passing = record({
     id: 'suite-pass',
     title: 'Suite pass',
-    runCommand: "DRIVER_METRICS='{\"p95\":212}' node driver.mjs",
+    runCommand: 'node driver.mjs suite-pass.json',
     tags: ['suite-proof'],
     // A measured red already exists, so a green run verifies this case. Without one the green
     // run would correctly stay unverified (needsRed) and the suite would not be green either.
     redFirst: { at: new Date().toISOString(), exitCode: 1, control: 'break', source: 'negative-control' },
   })
-  const failing = record({ id: 'suite-fail', title: 'Suite fail', runCommand: "DRIVER_METRICS='{\"p95\":999}' node driver.mjs", tags: ['suite-proof'] })
+  const failing = record({ id: 'suite-fail', title: 'Suite fail', runCommand: 'node driver.mjs suite-fail.json', tags: ['suite-proof'] })
   writeCase(library, passing)
   writeCase(library, failing)
   let code = 0
@@ -243,6 +265,33 @@ test('the CLI runs a filtered suite, writes the report and exits non-zero on a r
   }
   assert.equal(gateAudit.ok, false, 'an unverified automated case blocks the gate')
   assert.equal(gateAudit.blockers[0].id, 'suite-fail')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('the CLI prints SKIP, never PASS, for a case it could not bind to its test bytes', () => {
+  const dir = workspace()
+  const library = join(dir, 'docs', 'cases')
+  const bound = record({
+    id: 'skip-bound',
+    title: 'Bound',
+    tags: ['skip-proof'],
+    redFirst: { at: new Date().toISOString(), exitCode: 1, control: 'break', source: 'negative-control' },
+  })
+  const unbound = record({ id: 'skip-unbound', title: 'Unbound', tags: ['skip-proof'] })
+  delete unbound.testHash
+  writeCase(library, bound)
+  writeCase(library, unbound)
+  let code = 0
+  let output = ''
+  try {
+    output = execFileSync(process.execPath, [CLI, 'suite', '--tag', 'skip-proof', '--workspace', dir], { encoding: 'utf8' })
+  } catch (error) {
+    code = error.status
+    output = String(error.stdout ?? '')
+  }
+  assert.equal(code, 1, 'a skipped case must make the suite exit 1')
+  assert.match(output, /SKIP\s+skip-unbound\s+\(TEST_HASH_MISSING\)/, output)
+  assert.match(output, /PASS\s+skip-bound/, output)
   rmSync(dir, { recursive: true, force: true })
 })
 

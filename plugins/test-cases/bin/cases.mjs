@@ -10,8 +10,13 @@
  *   cases run   --id <case> [--runs 1..5] [--timeout <ms>] [--set-baseline] [--commit <sha>]
  *               [--red --control <name>] [--json]
  *   cases suite [--tag <t>] [--kind <k>] [--status <s>] [--runs 1..5] [--timeout <ms>] [--json]
- *   cases gate  (--task <taskId> | --id <case>) [--json]
+ *   cases gate  (--task <taskId> | --id <case>) [--implementer <preset>] [--json]
  *   Common: --workspace <dir> (default: cwd), --dir <library> (default: docs/cases).
+ *
+ *   `gate` reads the SAME acceptance rule as the host `case_gate` and the taskboard's close
+ *   (lib/acceptance.mjs). Independence is judged against the preset that did the work, so a
+ *   terminal caller must name it with `--implementer`; without it every acceptance case is
+ *   refused as IMPLEMENTER_UNKNOWN rather than passing because nothing was compared.
  *
  * OUTPUTS
  *   Human text or JSON on stdout. Exit 0 = the case/suite/gate is green; 1 = ran but not green;
@@ -21,8 +26,10 @@
  *   case runner CLI, make cases, suite report, task gate, measured evidence
  */
 
-import { existsSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { join, relative, resolve } from 'node:path'
+import { KNOWN_PRESETS, REASONS, gateRows } from '../lib/acceptance.mjs'
+import { testHashState } from '../lib/schema.mjs'
 import { readCase, readCases, writeCase, libraryDir, Refusal } from '../lib/store.mjs'
 import { runAttempts, recordRun, spawnExec } from '../lib/runner.mjs'
 
@@ -32,7 +39,7 @@ function usage() {
   node plugins/test-cases/bin/cases.mjs run   --id <case> [--runs 1..5] [--timeout ms] [--set-baseline] [--json]
   node plugins/test-cases/bin/cases.mjs run   --id <case> --red --control <name> [--json]
   node plugins/test-cases/bin/cases.mjs suite [--tag t] [--kind k] [--status s] [--runs 1..5] [--json]
-  node plugins/test-cases/bin/cases.mjs gate  (--task <taskId> | --id <case>) [--json]
+  node plugins/test-cases/bin/cases.mjs gate  (--task <taskId> | --id <case>) [--implementer <preset>] [--board <path>] [--json]
 
 Common: --workspace <dir> (default cwd), --dir <library> (default docs/cases).`
 }
@@ -91,6 +98,15 @@ function requireAutomated(record) {
   if (typeof record.runCommand !== 'string' || record.runCommand.trim() === '') throw new Refusal('TEST_REQUIRED', 'the case has no runCommand')
   if (typeof record.testPath !== 'string' || record.testPath === '' || !existsSync(join(workspace, record.testPath))) {
     throw new Refusal('TEST_REQUIRED', `automated case needs its test file present: ${record.testPath ?? '(no testPath)'}`)
+  }
+  // THE SAME BINDING THE HOST TOOL ENFORCES: a run executes the bytes the case recorded. Without
+  // this, `make cases` would measure a test file the case never named while case_run refused it.
+  const hashes = testHashState(record, workspace)
+  if (hashes.recorded === null) {
+    throw new Refusal('TEST_HASH_MISSING', `case "${record.id}" records no hash of ${record.testPath}; re-record it with case_record or re-pin it with case_update { testPath }`)
+  }
+  if (!hashes.ok) {
+    throw new Refusal('TEST_CHANGED', `${record.testPath} changed since the case recorded its hash; review the change, re-pin it with case_update { testPath } and run again`)
   }
 }
 
@@ -161,12 +177,19 @@ async function commandSuite() {
   const results = []
   for (const row of cases) {
     const record = row.record
+    // A case whose test bytes are unknown or changed is reported, not measured: the suite is the
+    // CI hook, so skipping it silently would make a red suite look green.
+    const hashes = testHashState(record, workspace)
+    if (hashes.recorded === null || !hashes.ok) {
+      results.push({ id: record.id, status: record.status, skipped: hashes.recorded === null ? 'TEST_HASH_MISSING' : 'TEST_CHANGED', passed: false, flaky: false, needsRed: false, checks: [] })
+      continue
+    }
     const attempt = await runAttempts({ workspace, dir, record, runId: `${suiteId}-${record.id}`, runs: options.runs === undefined ? 1 : Number(options.runs), timeoutMs: options.timeout === undefined ? undefined : Number(options.timeout), exec })
     const result = recordRun(record, { workspace, attempt, at: now(), commit: typeof options.commit === 'string' ? options.commit : null })
     writeCase(dir, result.record)
     results.push({ id: record.id, status: result.verdict.status, runId: result.verdict.runId, needsRed: result.verdict.needsRed === true, passed: result.verdict.passed, flaky: result.verdict.flaky, checks: result.verdict.checks })
   }
-  const failed = results.filter((entry) => entry.status !== 'verified')
+  const failed = results.filter((entry) => entry.status !== 'verified' || entry.skipped !== undefined)
   const report = { suiteId, at: now(), filter, checked: results.length, verified: results.length - failed.length, failed: failed.length, cases: results }
   const reportDir = join(dir, 'runs', 'suites')
   const reportPath = join(reportDir, `${suiteId}.json`)
@@ -183,38 +206,86 @@ async function commandSuite() {
   else {
     say(`suite: ${suiteId}`)
     say(`checked: ${results.length} · verified: ${report.verified} · not green: ${failed.length}`)
-    for (const entry of results) say(`  ${entry.status === 'verified' ? 'PASS' : 'FAIL'}  ${entry.id}  (${entry.status}${entry.needsRed ? ', needs red' : ''})`)
+    // A case the suite could not bind to its recorded test bytes was NOT measured: printing PASS
+    // for its unchanged `status` is how a skipped case read as a green one.
+    for (const entry of results) {
+      const mark = entry.skipped !== undefined ? 'SKIP' : (entry.status === 'verified' ? 'PASS' : 'FAIL')
+      const note = entry.skipped !== undefined ? entry.skipped : `${entry.status}${entry.needsRed ? ', needs red' : ''}`
+      say(`  ${mark}  ${entry.id}  (${note})`)
+    }
     say(`report: ${relative(workspace, reportPath).split('\\').join('/')}`)
   }
   process.exit(failed.length === 0 ? 0 : 1)
 }
 
-function blockersFor(record, taskId) {
-  if (record.automated !== true) return false
-  if (taskId !== undefined && record.linkedTaskId !== taskId) return false
-  return record.status !== 'verified'
+/**
+ * The task row the gate must agree with: `{ preset, caseIds }`, or a named reason it cannot.
+ *
+ * A terminal has no taskboard service, so it reads the ledger file the host writes. Guessing is
+ * not an option here: without the row the gate would judge a different set of cases (or a
+ * different implementer) than task_close, and the two answers would disagree.
+ */
+function readTaskRow(taskId) {
+  const boardPath = typeof options.board === 'string' && options.board !== ''
+    ? resolve(workspace, options.board)
+    : join(workspace, '.dsh', 'taskboard.json')
+  if (!existsSync(boardPath)) return { error: `no taskboard at ${boardPath}` }
+  let board
+  try {
+    board = JSON.parse(readFileSync(boardPath, 'utf8'))
+  } catch (error) {
+    return { error: `${boardPath} is not readable JSON: ${error.message}` }
+  }
+  const list = Array.isArray(board?.tasks) ? board.tasks : []
+  const task = list.find((entry) => entry !== null && typeof entry === 'object' && entry.id === taskId)
+  if (task === undefined) return { error: `no task "${taskId}" in ${boardPath}` }
+  const preset = typeof task.preset === 'string' && task.preset !== ''
+    ? task.preset
+    : (task.inline === true || typeof task.role !== 'string' || task.role === '' ? 'orchestrator' : undefined)
+  return { task, preset, boardPath }
 }
 
 function commandGate() {
   const taskId = typeof options.task === 'string' ? options.task : undefined
   const id = typeof options.id === 'string' ? options.id : undefined
   if (taskId === undefined && id === undefined) fail('usage', 'gate needs --task <taskId> or --id <case>')
-  const rows = readCases(dir)
-  const blockers = []
-  const errors = []
-  for (const row of rows) {
-    if (row.error !== undefined) { errors.push({ id: row.id, code: row.error }); continue }
-    if (id !== undefined && row.record.id !== id) continue
-    if (taskId !== undefined && row.record.linkedTaskId !== taskId) continue
-    if (!blockersFor(row.record, taskId)) continue
-    blockers.push({ id: row.record.id, status: row.record.status, automated: true, lastVerified: row.record.lastVerified ?? null, linkedTaskId: row.record.linkedTaskId ?? null })
+  let implementerPreset = typeof options.implementer === 'string' ? options.implementer : undefined
+  let caseIds
+  if (taskId !== undefined) {
+    const row = readTaskRow(taskId)
+    if (row.error !== undefined) {
+      fail('TASKBOARD_UNREADABLE', `${row.error}; the gate refuses to guess the task's cases and implementer - pass --board <path> or --id <case>`)
+    }
+    if (implementerPreset === undefined) implementerPreset = row.preset
+    if (Array.isArray(row.task.caseIds)) caseIds = row.task.caseIds
   }
-  const gate = { ok: blockers.length === 0, taskId: taskId ?? null, caseId: id ?? null, blockers, errors, checked: rows.length }
+  const rows = readCases(dir)
+  // ONE RULE: the CLI judges the rows with the same function the host uses (lib/acceptance.mjs),
+  // with the same known-preset list and the same task-owned links.
+  const verdict = gateRows(rows, {
+    taskId,
+    id,
+    ...(caseIds === undefined ? {} : { caseIds }),
+    workspace,
+    dir,
+    implementerPreset,
+    knownPresets: KNOWN_PRESETS,
+  })
+  const { blockers, evidence, errors } = verdict
+  const gate = { ...verdict, taskId: taskId ?? null, caseId: id ?? null, implementerPreset: implementerPreset ?? null, checked: rows.length }
   if (json) say(gate)
   else {
-    say(gate.ok ? 'gate: green' : `gate: ${blockers.length} automated case(s) are not verified`)
-    for (const blocker of blockers) say(`  BLOCK  ${blocker.id}  (${blocker.status}${blocker.lastVerified?.source === 'manual' ? ', reported manually' : ''})`)
+    if (gate.ok) say('gate: green')
+    else {
+      // The two failures are different questions: a refused case, and a library that cannot be
+      // read. Saying "0 acceptance case(s) are not acceptable" over a broken file hides the cause.
+      if (blockers.length > 0) say(`gate: ${blockers.length} acceptance case(s) are not acceptable evidence`)
+      if (errors.length > 0) say(`gate: ${errors.length} case file(s) cannot be read, so the task cannot be judged`)
+    }
+    for (const blocker of blockers) say(`  BLOCK  ${blocker.id}  (${blocker.status}: ${blocker.reasons.map((reason) => REASONS[reason] ?? reason).join('; ')})`)
+    for (const entry of evidence) if (!entry.blocked) say(`  PASS   ${entry.id}  (author ${entry.authorPreset}, run by ${entry.runBy?.preset ?? 'unknown'})`)
     for (const error of errors) say(`  ERROR  ${error.id}  (${error.code})`)
+    if (implementerPreset === undefined && blockers.some((entry) => entry.reasons.includes('IMPLEMENTER_UNKNOWN'))) say('  hint: pass --implementer <preset> (the preset that did the work) so independence can be judged')
   }
   process.exit(gate.ok ? 0 : 1)
 }
