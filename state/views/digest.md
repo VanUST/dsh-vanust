@@ -2,12 +2,12 @@
 
 GENERATED — DO NOT EDIT.
 
-REQ 250 · TASK 313 · TEST 88 · event 1759
+REQ 250 · TASK 315 · TEST 88 · event 1774
 
 ## Gaps
 
 - REQ without TASK: 249 (REQ-001, REQ-002, REQ-003, REQ-004, REQ-005, REQ-006, REQ-007, REQ-008, REQ-009, REQ-010, …)
-- TASK without reqId: 312
+- TASK without reqId: 314
 - TEST without reqId: 52
 
 ## Open requirements (14)
@@ -29,5 +29,6 @@ REQ 250 · TASK 313 · TEST 88 · event 1759
 
 ## Open work (2)
 
-- TASK-313 active: Commit the project ledger through its own merge pass and push
-[truncated: the digest budget is 3072 bytes; read index.json or state/req/]
+- TASK-315 active: Commit and push the open-tasks block and the ledger
+- TASK-309 review: P4: installed 1.0.0 in the browser, no v1 names in the artefact
+

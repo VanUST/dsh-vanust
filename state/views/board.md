@@ -6,7 +6,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
-| TASK-313 | Commit the project ledger through its own merge pass and push | — | — | yes |
+| TASK-315 | Commit and push the open-tasks block and the ledger | — | — | yes |
 
 ## review (1)
 
@@ -14,7 +14,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 |---|---|---|---|---|
 | TASK-309 | P4: installed 1.0.0 in the browser, no v1 names in the artefact | REQ-246, REQ-247 | — | no |
 
-## done (228)
+## done (230)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -246,6 +246,8 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-310 | Close the two remaining risks: the unload console line and the stale recorded case | — | — | yes |
 | TASK-311 | State feed must not block the step it injects into | — | — | yes |
 | TASK-312 | Commit the finished work by path and push it | — | — | yes |
+| TASK-313 | Commit the project ledger through its own merge pass and push | — | — | yes |
+| TASK-314 | State notification names active tasks and lists open task titles | — | — | yes |
 
 ## cancelled (83)
 
