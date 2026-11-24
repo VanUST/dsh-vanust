@@ -3,12 +3,17 @@
 One host row that puts the project state into the CONVERSATION, not into the system prompt:
 
 - **L1** — at `agent/created` of a ROOT session whose workspace has `state/views/digest.md`, one
-  user message: `digest.md`, then `state/plan.yaml` (when present), then `snapshot.md`. It is
-  composed once and never edited or repeated.
+  user message: `digest.md`, then the open tasks, then `state/plan.yaml` (when present), then
+  `snapshot.md`. It is composed once and never edited or repeated.
 - **L2** — at a turn boundary (`agent/pre-step`, `step === 1`): if the sha256 of
   `digest.md + board.md + snapshot.md` differs from the hash the session last received, one
-  aggregated delta (≤ 1200 bytes) with the counts and the open-work bullets. A second change
-  inside the same turn is not injected; the next turn picks the newest hash up.
+  aggregated delta (≤ 1200 bytes) with the counts, the open-work bullets and the open tasks. A
+  second change inside the same turn is not injected; the next turn picks the newest hash up.
+- **Open tasks** — both messages carry a line naming how many tasks sit in each open status
+  (`active`, `open`, `review` — each number is that status's own count), then the titles of the
+  open tasks with their status, parsed from the `board.md` table: at most twelve titles, then a
+  `+N more` line; a board with no open task says `no open tasks` instead of leaving the heading
+  alone. Done and cancelled tasks are not listed.
 - **Nothing** — a delegated worker (depth > 0, a `parentSession`, or `origin: subagent`) and a
   workspace without `state/views/digest.md` get no injection at all.
 

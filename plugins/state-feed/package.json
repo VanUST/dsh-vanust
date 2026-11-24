@@ -1,7 +1,7 @@
 {
   "name": "@cc/dsh-state-feed",
-  "version": "0.1.4",
-  "description": "Delivers the project state into the conversation: L1 once as the first model-visible message of a root session (digest + plan + last snapshot) and L2 as one aggregated delta at a turn boundary only when the projection hash changed. Injections go through agent.inject(), so the harness logs them as user/message; a delegated worker and a workspace without state/ receive nothing.",
+  "version": "0.1.7",
+  "description": "Delivers the project state into the conversation: L1 once as the first model-visible message of a root session (digest, open tasks, plan, last snapshot) and L2 as one aggregated delta at a turn boundary only when the projection hash changed. Both name the count of each open status (open, active, review) and list the open task titles from state/views/board.md; the delta enters the step through the pre-step decision, so the harness logs it as user/message. A delegated worker and a workspace without state/ receive nothing.",
   "type": "module",
   "main": "index.mjs",
   "exports": {

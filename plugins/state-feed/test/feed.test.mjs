@@ -5,10 +5,14 @@ Behavior: a root session receives L1 exactly once as a model-visible message con
   nothing; a delegated worker gets nothing; at a turn boundary one aggregated L2 delta enters
   the step through the agent/pre-step decision only when the projection hash changed, capped at
   1200 bytes, and never twice in the same turn even when the state changes more than once.
+  Both the first message and the delta name the active task count and list the open tasks
+  (open, active and review; each count is that status's own) from state/views/board.md, at most
+  twelve titles with a "+N more" line, and say "no open tasks" when there are none.
 Fails when: L1 repeats, a worker or a stateless workspace receives an injection, L2 fires on an
   unchanged hash, a second change inside one turn produces a second delta, the pre-step
   participant writes the session itself (agent.inject() inside the hook, which parks the delta
-  behind the step it was preparing), or a capped delta keeps a section header with no rows.
+  behind the step it was preparing), a capped delta keeps a section header with no rows, or the
+  open-task section names a closed task, drifts past twelve titles, or is missing from L1.
 Production path: plugins/state-feed/index.mjs (apply) with lib/feed.mjs; the loop appends the
   decision's messages as user/message (dsh-agent-loop/lib/index.js:873-878), so the state is in
   the conversation and "model-visible means logged" still holds.
@@ -16,7 +20,7 @@ Production path: plugins/state-feed/index.mjs (apply) with lib/feed.mjs; the loo
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, writeFile, mkdir } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createStateService } from '../../project-state/lib/core.mjs'
@@ -272,4 +276,150 @@ test('every injected message carries a fresh identity', async () => {
   assert.equal(decision.messages.length, 0)
   // A second injection must not reuse the first identity.
   assert.notEqual(stateMessage('another').id, message.id)
+})
+
+/**
+ * A board in the projection's own format, copied from state/views/board.md: the status heading
+ * carries its count, the separator row follows the header, and a row is
+ * `| TASK-nnn | title | reqs | steps | chore |`.
+ */
+const REAL_BOARD = `# Board
+
+GENERATED — DO NOT EDIT. Regenerated from \`state/task/\` by \`regenerateViews()\`.
+
+## open (2)
+
+| id | title | reqs | steps | chore |
+|---|---|---|---|---|
+| TASK-315 | A task waiting to be claimed | — | — | no |
+| TASK-316 | Another unclaimed task | — | — | no |
+
+## active (1)
+
+| id | title | reqs | steps | chore |
+|---|---|---|---|---|
+| TASK-314 | State notification names active tasks and lists open task titles | — | — | yes |
+
+## review (1)
+
+| id | title | reqs | steps | chore |
+|---|---|---|---|---|
+| TASK-309 | P4: installed 1.0.0 in the browser, no v1 names in the artefact | REQ-246, REQ-247 | — | no |
+
+## done (1)
+
+| id | title | reqs | steps | chore |
+|---|---|---|---|---|
+| TASK-001 | Hindsight integration | — | — | no |
+
+## cancelled (1)
+
+| id | title | reqs | steps | chore |
+|---|---|---|---|---|
+| TASK-200 | A cancelled task | — | — | no |
+`
+
+/** A board with `count` tasks in one open status. */
+function boardWith(count, { status = 'active', title = (index) => `Task ${index}` } = {}) {
+  const rows = Array.from({ length: count }, (_, index) => `| TASK-${400 + index} | ${title(index + 1)} | — | — | no |`)
+  return `# Board\n\n## ${status} (${count})\n\n| id | title | reqs | steps | chore |\n|---|---|---|---|---|\n${rows.join('\n')}\n`
+}
+
+/*
+PROOF: the state messages say what is in flight
+Behavior: both L1 and the delta name the count of each open status (open, active, review) and
+  list the open task titles with their status, parsed from state/views/board.md; at most twelve
+  titles are listed and a "+N more" line follows a longer board; a board with no open task says
+  "no open tasks"; done and cancelled rows never appear.
+Fails when: the feed invents a second source for the list, counts a closed task as open, stops
+  the list at some other number, leaves the heading with nothing under it, or omits the section
+  from the first message.
+*/
+test('the delta names the active count and lists the open titles from the board', () => {
+  const delta = composeL2({ digest: '', snapshot: '', board: REAL_BOARD, hash: 'a'.repeat(64) }, 'b'.repeat(64))
+  assert.match(delta, /## Open tasks/)
+  assert.match(delta, /active: 1, open: 2, review: 1/)
+  assert.match(delta, /- TASK-315 \[open\] A task waiting to be claimed/)
+  assert.match(delta, /- TASK-316 \[open\] Another unclaimed task/)
+  assert.match(delta, /- TASK-314 \[active\] State notification names active tasks and lists open task titles/)
+  assert.match(delta, /- TASK-309 \[review\] P4: installed 1\.0\.0 in the browser, no v1 names in the artefact/)
+  assert.equal(delta.includes('Hindsight integration'), false, 'a done task is not open')
+  assert.equal(delta.includes('A cancelled task'), false, 'a cancelled task is not open')
+})
+
+/*
+PROOF: the counts line counts statuses, not rows
+Behavior: "active", "open" and "review" are the board's three open statuses and each number is
+  the count of that status, so a board with one open, two active and three review tasks reads
+  "active: 2, open: 1, review: 3" and lists six titles.
+Fails when: the middle number is the list length (the shipped defect), so a board whose open
+  status is empty still reports a non-zero "open", or an open task is missing from the list.
+*/
+test('the counts line names each open status, not the length of the list', () => {
+  const board = [
+    '# Board', '',
+    '## open (1)', '', '| id | title | reqs | steps | chore |', '|---|---|---|---|---|', '| TASK-401 | Waiting one | — | — | no |', '',
+    '## active (2)', '', '| id | title | reqs | steps | chore |', '|---|---|---|---|---|', '| TASK-402 | Active one | — | — | no |', '| TASK-403 | Active two | — | — | no |', '',
+    '## review (3)', '', '| id | title | reqs | steps | chore |', '|---|---|---|---|---|', '| TASK-404 | Review one | — | — | no |', '| TASK-405 | Review two | — | — | no |', '| TASK-406 | Review three | — | — | no |', '',
+  ].join('\n')
+  const delta = composeL2({ digest: '', snapshot: '', board, hash: 'a'.repeat(64) }, 'b'.repeat(64))
+  assert.match(delta, /active: 2, open: 1, review: 3/)
+  assert.equal((delta.match(/^- TASK-\d+ \[(open|active|review)\] /gm) ?? []).length, 6)
+  // An empty open status reads 0 even though the list is not empty.
+  const noOpen = composeL2({ digest: '', snapshot: '', board: boardWith(2), hash: 'a'.repeat(64) }, 'b'.repeat(64))
+  assert.match(noOpen, /active: 2, open: 0, review: 0/)
+  assert.equal((noOpen.match(/^- TASK-\d+ \[active\] /gm) ?? []).length, 2)
+})
+
+test('the open-task list stops at twelve titles and says how many more there are', () => {
+  const delta = composeL2({ digest: '', snapshot: '', board: boardWith(15), hash: 'a'.repeat(64) }, 'b'.repeat(64))
+  assert.equal((delta.match(/^- TASK-\d+ \[active\] /gm) ?? []).length, 12)
+  assert.match(delta, /- \+3 more \(state\/views\/board\.md\)/)
+  assert.equal(delta.includes('Task 13'), false)
+})
+
+test('a board with no open task says so instead of leaving the heading alone', () => {
+  const board = `# Board\n\n## done (1)\n\n| id | title | reqs | steps | chore |\n|---|---|---|---|---|\n| TASK-001 | Hindsight integration | — | — | no |\n`
+  const delta = composeL2({ digest: '', snapshot: '', board, hash: 'a'.repeat(64) }, 'b'.repeat(64))
+  assert.match(delta, /## Open tasks\n\nactive: 0, open: 0, review: 0\n\nno open tasks/)
+})
+
+test('the first message carries the same open-tasks section once', () => {
+  const text = composeL1({ digest: 'digest body', board: REAL_BOARD, snapshot: '', plan: null })
+  assert.equal((text.match(/## Open tasks/g) ?? []).length, 1)
+  assert.match(text, /active: 1, open: 2, review: 1/)
+  assert.match(text, /- TASK-315 \[open\] /)
+  assert.match(text, /- TASK-314 \[active\] /)
+  assert.match(text, /- TASK-309 \[review\] /)
+})
+
+test('the workspace board parses: open, active and review are open, done and cancelled are not', async (t) => {
+  let board
+  try {
+    board = await readFile(new URL('../../../state/views/board.md', import.meta.url), 'utf8')
+  } catch {
+    return t.skip('this checkout has no state/views/board.md')
+  }
+  const counts = {}
+  for (const match of board.matchAll(/^## (\S+) \((\d+)\)$/gm)) counts[match[1]] = Number(match[2])
+  const listed = (counts.open ?? 0) + (counts.active ?? 0) + (counts.review ?? 0)
+  const delta = composeL2({ digest: '', snapshot: '', board, hash: 'a'.repeat(64) }, 'b'.repeat(64))
+  if (listed === 0) {
+    assert.match(delta, /no open tasks/)
+    return
+  }
+  // Each number is that status's own count, even when the list is longer than any one of them.
+  assert.match(
+    delta,
+    new RegExp(`active: ${counts.active ?? 0}, open: ${counts.open ?? 0}, review: ${counts.review ?? 0}`),
+  )
+  assert.match(delta, /^- TASK-\d+ \[(open|active|review)\] /m)
+})
+
+test('a delta whose open-task rows do not fit drops the section, not just its heading', () => {
+  const board = boardWith(1, { title: () => 'x'.repeat(1400) })
+  const delta = composeL2({ digest: '', snapshot: '', board, hash: 'a'.repeat(64) }, 'b'.repeat(64))
+  assert.ok(Buffer.byteLength(delta, 'utf8') <= L2_LIMIT_BYTES)
+  assert.ok(delta.includes('[state delta truncated; read state/views/digest.md]'))
+  assert.equal(delta.includes('## Open tasks'), false, 'the heading went with the rows it introduced')
 })

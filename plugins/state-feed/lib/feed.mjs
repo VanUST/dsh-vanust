@@ -44,9 +44,10 @@ export function readState(cwd) {
   return { ok: true, digest, board, snapshot, plan, hash }
 }
 
-/** L1: header + digest + plan + last snapshot. One message, composed once. */
+/** L1: header + digest + open tasks + plan + last snapshot. One message, composed once. */
 export function composeL1(state) {
   const parts = [L1_HEADER, '', state.digest.trim()]
+  if (typeof state.board === 'string' && state.board.trim() !== '') parts.push('', ...openTaskLines(state.board))
   if (typeof state.plan === 'string' && state.plan.trim() !== '') {
     parts.push('', '## Plan', '', state.plan.trim())
   }
@@ -54,6 +55,62 @@ export function composeL1(state) {
     parts.push('', '## Last snapshot', '', state.snapshot.trim())
   }
   return parts.join('\n')
+}
+
+/**
+ * The task statuses that count as open, the same three the digest's "Open work" calls open:
+ * `open`, `active` and `review` (`plugins/project-state/lib/core.mjs:29` names all six task
+ * statuses; done and cancelled are closed, and `blocked` is neither listed nor counted).
+ */
+const OPEN_STATUSES = ['open', 'active', 'review']
+
+/** How many titles the open-tasks section lists before it says how many are left. */
+export const OPEN_TASK_ROWS = 12
+
+/**
+ * The open tasks of `state/views/board.md`, in board order.
+ *
+ * The board is the projection the feed already reads, and its table is the only row format:
+ * `## <status> (<count>)` opens a section, then `| TASK-nnn | title | reqs | steps | chore |`
+ * rows follow. A task is open when its section is `open`, `active` or `review`.
+ *
+ * @param {string} board - the board projection's text.
+ * @returns {{id: string, title: string, status: string}[]}
+ */
+function openTasks(board) {
+  const tasks = []
+  let status = null
+  for (const line of String(board ?? '').split('\n')) {
+    const section = /^##\s+(\S+)\s+\((\d+)\)\s*$/.exec(line.trim())
+    if (section !== null) {
+      status = section[1]
+      continue
+    }
+    if (!OPEN_STATUSES.includes(status)) continue
+    const row = /^\|\s*(TASK-\d+)\s*\|\s*(.*?)\s*\|/.exec(line)
+    if (row !== null) tasks.push({ id: row[1], title: row[2], status })
+  }
+  return tasks
+}
+
+/**
+ * The `## Open tasks` block: a counts line naming how many tasks sit in each open status, then
+ * the titles with their status, at most `OPEN_TASK_ROWS` of them and a `+N more` line when the
+ * board holds more. An empty board says so instead of leaving the heading with nothing under it.
+ *
+ * @param {string} board - the board projection's text.
+ * @returns {string[]} the block's lines, without the blank line that separates it from the rest.
+ */
+export function openTaskLines(board) {
+  const tasks = openTasks(board)
+  const count = (status) => tasks.filter((task) => task.status === status).length
+  // Each number is the count of that status; `open` is the board's own status, not the list length.
+  const lines = ['## Open tasks', '', `active: ${count('active')}, open: ${count('open')}, review: ${count('review')}`]
+  if (tasks.length === 0) return [...lines, '', 'no open tasks']
+  lines.push('')
+  for (const task of tasks.slice(0, OPEN_TASK_ROWS)) lines.push(`- ${task.id} [${task.status}] ${task.title}`)
+  if (tasks.length > OPEN_TASK_ROWS) lines.push(`- +${tasks.length - OPEN_TASK_ROWS} more (state/views/board.md)`)
+  return lines
 }
 
 /** The open-work bullets of the digest, used as the body of a delta. */
@@ -90,11 +147,25 @@ function cap(text, limit) {
     if (utf8(`${kept.join('\n')}\n${line}`) > budget) break
     kept.push(line)
   }
-  // Work back over what is left: trailing blanks, then a header left with no rows under it.
-  while (kept.length > 0) {
-    const last = kept[kept.length - 1]
-    if (last.trim() === '' || last.startsWith('## ')) kept.pop()
-    else break
+  // Work back over what is left: trailing blanks, then a header left with no rows under it. A
+  // section whose preamble survived but none of its rows did (its counts line, say) goes too,
+  // so the marker never follows a heading that promises rows the cut removed.
+  for (;;) {
+    while (kept.length > 0) {
+      const last = kept[kept.length - 1]
+      if (last.trim() === '' || last.startsWith('## ')) kept.pop()
+      else break
+    }
+    const header = kept.findLastIndex((line) => line.startsWith('## '))
+    if (header < 0) break
+    // A section is complete when at least one row survived: a dash row, or the empty-board
+    // sentence that stands in for rows. Its counts line alone is not a row.
+    const hasRows = kept.slice(header + 1).some((line) => {
+      const text = line.trim()
+      return text.startsWith('- ') || text === 'no open tasks'
+    })
+    if (hasRows) break
+    kept.length = header
   }
   return `${kept.join('\n')}${marker}`
 }
@@ -102,7 +173,7 @@ function cap(text, limit) {
 /**
  * L2: one aggregated delta for a turn, never more than `limit` bytes.
  *
- * @param {{snapshot: string, digest: string, hash: string}} state - the state NOW.
+ * @param {{snapshot: string, digest: string, board: string, hash: string}} state - the state NOW.
  * @param {string} previousHash - the hash the session already saw.
  */
 export function composeL2(state, previousHash) {
@@ -111,6 +182,7 @@ export function composeL2(state, previousHash) {
   if (countsLines.length > 0) parts.push('', '## Counts', '', ...countsLines)
   const bullets = openWork(state.digest)
   if (bullets.length > 0) parts.push('', '## Open work', '', ...bullets)
+  if (typeof state.board === 'string' && state.board.trim() !== '') parts.push('', ...openTaskLines(state.board))
   if (parts.length <= 4) parts.push('', 'state/views changed; read state/views/digest.md for the current summary.')
   return cap(parts.join('\n'), L2_LIMIT_BYTES)
 }
