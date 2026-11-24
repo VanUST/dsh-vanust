@@ -4,14 +4,11 @@
  *   `docs/analysis/<initiative>.json`, with compare-and-set writes, an atomic temp-file +
  *   rename, a semantic fingerprint, a completeness checker and an impact calculator. It is
  *   the only place requirement → process → component → task → evidence is stored; the
- *   taskboard stays a lifecycle ledger and the design map stays a visual scene.
+ *   taskboard stays a lifecycle ledger and the design map stays a drawing.
  *
  * INPUTS
  *   Config (all optional):
  *     dir            store directory relative to the session workspace. Default 'docs/analysis'.
- *     designMapFile  design-map file whose `rev` the record references, relative to the
- *                    workspace. Default 'designmap/manifest.json' (written by @cc/dsh-designmap);
- *                    a legacy 'design.excalidraw' scene is still read, for a rollback configuration.
  *     historyLimit   retained history entries. Default 50.
  *   The service is created by `analysis.mjs` and provided as `analysis`.
  *
@@ -23,7 +20,7 @@
  *
  * KEYWORDS
  *   analysis record, CAS, atomic rename, semantic fingerprint, completeness, trace,
- *   requirement, process, component, contract, invariant, designMapRev, impact
+ *   requirement, process, component, contract, invariant, impact
  *
  * BEHAVIOUR ON EDGE CASES
  *   - A missing record is `{exists:false}` for a read and `analysis_required` for a gate,
@@ -40,8 +37,8 @@
  *   - A record becomes `ready` only when the completeness checker has no errors; it becomes
  *     `completed` only when every requirement is proven with task+evidence or explicitly
  *     deferred/rejected with a reason.
- *   - The design map revision is a reference, not a second store: a ready record captures it
- *     at the transition, and a newer map makes an architecture-affecting delegation stale.
+ *   - `designRef` is dead data from the retired design-map v1: an existing record keeps it,
+ *     and no write captures it, no check reports drift and no gate refuses on it.
  */
 
 import { createHash } from 'node:crypto'
@@ -417,7 +414,7 @@ function normalizeDesignRef(value) {
   return {
     mapRev,
     at,
-    source: asString(raw.source) || 'designmap/manifest.json',
+    source: asString(raw.source),
   }
 }
 
@@ -951,7 +948,7 @@ function addFinding(findings, code, severity, path, message) {
  * Completeness: the part a shape validator cannot see.
  *
  * @param record - A normalized record.
- * @param context - `{ design, fingerprintMatches }`.
+ * @param context - `{ fingerprintMatches }`.
  * @returns `{ ok, findings, errors, warnings }` where `ok` means no error-severity finding.
  */
 export function checkRecord(record, context = {}) {
@@ -963,7 +960,6 @@ export function checkRecord(record, context = {}) {
   if (record.architecture.components.length === 0) addFinding(findings, 'missing_architecture', 'error', 'architecture.components', 'name at least one component and who owns it')
   if (record.requirements.length === 0) addFinding(findings, 'missing_requirements', 'error', 'requirements', 'name at least one BR/FR/NFR requirement')
   if (record.sizing.class === '') addFinding(findings, 'missing_change_class', 'error', 'sizing.class', 'classify the change as L0, L1 or L2')
-  if (record.designRef === null) addFinding(findings, 'missing_design_ref', 'error', 'designRef', 'the record must reference the design map revision it was written against')
 
   for (let at = 0; at < record.requirements.length; at += 1) {
     const requirement = record.requirements[at]
@@ -1041,11 +1037,6 @@ export function checkRecord(record, context = {}) {
   }
   if (context.legacyFingerprint === true) {
     addFinding(findings, 'legacy_fingerprint', 'warning', 'fingerprint', `the stored fingerprint matches the ${context.legacyVersion || 'legacy'} algorithm; the record is recognised as legacy, and the next analysis_upsert migrates it to the current schema`)
-  }
-  if (context?.design?.exists === true && record.designRef !== null && context.design.rev > record.designRef.mapRev) {
-    // A moved map is a warning for ordinary work: only an architecture-affecting delegation
-    // (or an explicit analysis_impact on the design) has to wait for the analysis to catch up.
-    addFinding(findings, 'design_drift', 'warning', 'designRef', `the design map is at rev ${context.design.rev}, the record references ${record.designRef.mapRev}`)
   }
   const errors = findings.filter((finding) => finding.severity === 'error').length
   return { ok: errors === 0, findings, errors, warnings: findings.length - errors }
@@ -1220,33 +1211,15 @@ function affectedOf(record, input) {
 /**
  * Create the service over one workspace.
  *
- * @param config - `{ dir, designMapFile, historyLimit }`.
+ * @param config - `{ dir, historyLimit }`.
  * @param logger - Optional logger; failures never depend on it.
  */
 export function createService(config = {}, logger = undefined) {
   const dirName = asString(config.dir) || 'docs/analysis'
-  const designMapFile = asString(config.designMapFile) || 'designmap/manifest.json'
   const historyLimit = Number.isSafeInteger(config.historyLimit) && config.historyLimit > 0 ? config.historyLimit : 50
   const storeDir = (cwd) => (isAbsolute(dirName) ? dirName : resolve(cwd, dirName))
   const recordPath = (cwd, initiative) => join(storeDir(cwd), `${initiative}.json`)
   const timestamp = () => new Date().toISOString()
-
-  const designOf = (cwd) => {
-    const path = isAbsolute(designMapFile) ? designMapFile : resolve(cwd, designMapFile)
-    if (!existsSync(path)) return { exists: false, rev: 0, path }
-    try {
-      const document = JSON.parse(readFileSync(path, 'utf8'))
-      // `designmap/manifest.json` keeps the revision at the top level. The retired
-      // `design.excalidraw` scene keeps it under `designMap`; reading both shapes keeps an
-      // explicitly configured old path working, while the default and the profile name the
-      // manifest, which is the only file designmap still advances.
-      const rev = Number.isSafeInteger(document?.rev) ? document.rev : document?.designMap?.rev
-      return { exists: true, rev: Number.isSafeInteger(rev) && rev >= 0 ? rev : 0, path }
-    } catch {
-      // A broken map file is the design map's own problem; the analysis does not pretend it moved.
-      return { exists: true, rev: 0, path, error: 'malformed design map' }
-    }
-  }
 
   const load = (cwd, initiative) => {
     const path = recordPath(cwd, initiative)
@@ -1286,20 +1259,17 @@ export function createService(config = {}, logger = undefined) {
     renameSync(temp, path)
   }
 
-  const staleOf = (record, design, fingerprintState) => {
+  const staleOf = (record, fingerprintState) => {
     if (!fingerprintState.matches) return { code: 'fingerprint_mismatch', message: 'the semantic contents no longer match the recorded fingerprint' }
     if (record.pendingImpacts.length > 0) {
       return { code: 'pending_impact', message: `${record.pendingImpacts.length} unresolved impact(s): ${record.pendingImpacts.map((impact) => impact.id || impact.change).join(', ')}` }
     }
-    if (design.exists && record.designRef !== null && design.rev > record.designRef.mapRev) {
-      return { code: 'design_drift', message: `the design map moved to rev ${design.rev}, the record references ${record.designRef.mapRev}` }
-    }
     return null
   }
 
-  const describe = (record, design, fingerprintState = fingerprintStatusOf(record)) => {
+  const describe = (record, fingerprintState = fingerprintStatusOf(record)) => {
     const fingerprintMatches = fingerprintState.matches
-    const check = checkRecord(record, { design, fingerprintMatches, legacyFingerprint: fingerprintState.legacy, legacyVersion: fingerprintState.version })
+    const check = checkRecord(record, { fingerprintMatches, legacyFingerprint: fingerprintState.legacy, legacyVersion: fingerprintState.version })
     const completion = completionOf(record, check)
     return {
       rev: record.rev,
@@ -1308,8 +1278,7 @@ export function createService(config = {}, logger = undefined) {
       fingerprint: record.fingerprint,
       fingerprintMatches,
       legacyFingerprint: fingerprintState.legacy ? { recognized: true, version: fingerprintState.version } : null,
-      stale: staleOf(record, design, fingerprintState),
-      design: { currentRev: design.rev, designRefRev: record.designRef?.mapRev ?? null, drift: record.designRef !== null && design.rev > record.designRef.mapRev },
+      stale: staleOf(record, fingerprintState),
       readiness: check,
       check,
       completion,
@@ -1321,14 +1290,13 @@ export function createService(config = {}, logger = undefined) {
     const loaded = load(cwd, initiative)
     if (!loaded.ok) return { ok: false, code: loaded.code, message: loaded.message }
     if (!loaded.exists) return { ok: true, exists: false, initiative }
-    const design = designOf(cwd)
     return {
       ok: true,
       exists: true,
       initiative,
       record: loaded.record,
       ambiguousOwnership: loaded.ambiguousOwnership === true,
-      ...describe(loaded.record, design, loaded.fingerprint),
+      ...describe(loaded.record, loaded.fingerprint),
     }
   }
 
@@ -1354,7 +1322,7 @@ export function createService(config = {}, logger = undefined) {
         updatedAt: loaded.record.updatedAt,
         legacyFingerprint: loaded.fingerprint?.legacy === true ? { recognized: true, version: loaded.fingerprint.version } : null,
         ambiguousOwnership: loaded.ambiguousOwnership === true,
-        stale: staleOf(loaded.record, designOf(cwd), loaded.fingerprint ?? { matches: false }),
+        stale: staleOf(loaded.record, loaded.fingerprint ?? { matches: false }),
       })
     }
     return { ok: true, records }
@@ -1372,7 +1340,7 @@ export function createService(config = {}, logger = undefined) {
     } catch {
       return []
     }
-    const check = checkRecord(normalized, { design: designOf(cwd), fingerprintMatches: true })
+    const check = checkRecord(normalized, { fingerprintMatches: true })
     const broken = structural.map((finding) => finding.path).filter((path) => typeof path === 'string' && path !== '')
     const suppressed = (path) => broken.some((prefix) => path === prefix || path.startsWith(`${prefix}.`) || path.startsWith(`${prefix}[`))
     const seen = new Set(structural.map((finding) => `${finding.code}@${finding.path}`))
@@ -1528,16 +1496,6 @@ export function createService(config = {}, logger = undefined) {
           affected: affectedOf(current, { kind: 'architecture' }),
         })
       }
-      const previousMapRev = current.designRef?.mapRev ?? null
-      const nextMapRev = next.designRef?.mapRev ?? null
-      if (previousMapRev !== null && nextMapRev !== null && previousMapRev !== nextMapRev) {
-        semanticImpacts.push({
-          kind: 'design',
-          requirementId: '',
-          change: `designRef moved from rev ${previousMapRev} to ${nextMapRev} in analysis_upsert`,
-          affected: affectedOf(current, { kind: 'design' }),
-        })
-      }
     }
     if (semanticImpacts.length > 0) {
       for (const impact of semanticImpacts) {
@@ -1567,13 +1525,9 @@ export function createService(config = {}, logger = undefined) {
         return { ok: false, code: 'invalid_resolve', message: "resolveImpacts must be 'all' or an array of impact ids" }
       }
     }
-    const design = designOf(cwd)
-    if (next.status === 'ready' && next.designRef === null) {
-      next.designRef = { mapRev: design.rev, at: now, source: designMapFile }
-    }
     if (next.designRef !== null && next.designRef.at === '') next.designRef.at = now
     next.fingerprint = fingerprintOf(next)
-    const readiness = checkRecord(next, { design, fingerprintMatches: true })
+    const readiness = checkRecord(next, { fingerprintMatches: true })
     const completion = completionOf(next, readiness)
     if (next.status === 'ready' && !readiness.ok) {
       return { ok: false, code: 'analysis_incomplete', currentRev: current.rev, findings: readiness.findings, message: `"${initiative}" cannot be ready: ${readiness.errors} error(s), first: ${readiness.findings.find((finding) => finding.severity === 'error')?.message ?? 'unknown'}` }
@@ -1602,9 +1556,9 @@ export function createService(config = {}, logger = undefined) {
       created: !exists,
       rev: next.rev,
       record: next,
-      readiness: checkRecord(next, { design, fingerprintMatches: true }),
-      check: checkRecord(next, { design, fingerprintMatches: true }),
-      completion: completionOf(next, checkRecord(next, { design, fingerprintMatches: true })),
+      readiness: checkRecord(next, { fingerprintMatches: true }),
+      check: checkRecord(next, { fingerprintMatches: true }),
+      completion: completionOf(next, checkRecord(next, { fingerprintMatches: true })),
     }
   }
 
@@ -1613,8 +1567,7 @@ export function createService(config = {}, logger = undefined) {
     const loaded = load(cwd, initiative)
     if (!loaded.ok) return { ok: false, code: loaded.code, message: loaded.message }
     if (!loaded.exists) return { ok: false, code: 'analysis_required', message: `no Analysis Record "${initiative}" in ${storeDir(cwd)}` }
-    const design = designOf(cwd)
-    const described = describe(loaded.record, design)
+    const described = describe(loaded.record)
     const forCompletion = input.forCompletion === true
     const findings = forCompletion ? [...described.check.findings, ...described.completion.findings] : described.check.findings
     return {
@@ -1680,7 +1633,6 @@ export function createService(config = {}, logger = undefined) {
       status: next.status,
       summary: change,
     }].slice(-historyLimit)
-    const design = designOf(cwd)
     write(loaded.path, next)
     return {
       ok: true,
@@ -1691,7 +1643,6 @@ export function createService(config = {}, logger = undefined) {
       impactId: entry.id,
       affected,
       status: next.status,
-      design: { currentRev: design.rev, designRefRev: next.designRef?.mapRev ?? null },
       message: `"${initiative}" is stale after: ${change}; affected requirement(s): ${affected.requirementIds.join(', ') || 'all'}. Update the record and resolve the impact before delegating again.`,
     }
   }
@@ -1857,7 +1808,7 @@ export function createService(config = {}, logger = undefined) {
         return { ok: false, code: 'analysis_stale', message: `goal "${id}" is linked to "${initiative}", which has ${record.pendingImpacts.length} unresolved impact(s)` }
       }
       if (record.status !== 'completed') {
-        const completion = completionOf(record, checkRecord(record, { design: designOf(cwd), fingerprintMatches: true }))
+        const completion = completionOf(record, checkRecord(record, { fingerprintMatches: true }))
         return { ok: false, code: 'analysis_incomplete', message: `goal "${id}" is linked to "${initiative}", which is ${record.status} (${completion.counts.proven} proven, ${completion.counts.planned} planned); complete the analysis before completing the goal` }
       }
     }
@@ -1909,7 +1860,6 @@ export function createService(config = {}, logger = undefined) {
     if (!loaded.ok) return { ok: false, code: 'analysis_required', message: `the Analysis Record "${normalized}" is ${loaded.code}: ${loaded.message}` }
     if (!loaded.exists) return { ok: false, code: 'analysis_required', message: `no Analysis Record "${normalized}" in ${storeDir(cwd)}; write one with analysis_upsert before delegating ${effective} work` }
     const record = loaded.record
-    const design = designOf(cwd)
     const fingerprintState = loaded.fingerprint ?? { matches: false }
     if (fingerprintState.matches !== true) {
       return { ok: false, code: 'analysis_stale', rev: record.rev, message: `the Analysis Record "${normalized}" no longer matches its semantic fingerprint; re-run analysis_upsert after inspecting the hand edit` }
@@ -1933,9 +1883,6 @@ export function createService(config = {}, logger = undefined) {
         message: `the Analysis Record "${normalized}" is stale: ${record.pendingImpacts.map((impact) => impact.change || impact.id).join('; ')}. Update it, call analysis_upsert with resolveImpacts, and try again.`,
       }
     }
-    if (input.architectureImpact === true && design.exists && record.designRef !== null && design.rev > record.designRef.mapRev) {
-      return { ok: false, code: 'analysis_stale', rev: record.rev, message: `the design map moved to rev ${design.rev} after "${normalized}" recorded rev ${record.designRef.mapRev}; re-read the map and update the analysis before an architecture-affecting delegation` }
-    }
     if (record.status !== 'ready') {
       return { ok: false, code: 'analysis_required', rev: record.rev, message: `the Analysis Record "${normalized}" is ${record.status}, not ready; an ${effective} delegation cannot start against it` }
     }
@@ -1958,7 +1905,7 @@ export function createService(config = {}, logger = undefined) {
     if (input.architectureImpact === true && record.architecture.components.length === 0) {
       return { ok: false, code: 'analysis_required', rev: record.rev, message: `architectureImpact was declared but "${normalized}" names no component` }
     }
-    const readiness = checkRecord(record, { design, fingerprintMatches: true })
+    const readiness = checkRecord(record, { fingerprintMatches: true })
     if (!readiness.ok) {
       return {
         ok: false,
@@ -1980,7 +1927,7 @@ export function createService(config = {}, logger = undefined) {
     }
   }
 
-  return { read, list, upsert, check, impact, linkTask, gate, taskCloseRefusal, goalRefusal, dir: storeDir, designOf }
+  return { read, list, upsert, check, impact, linkTask, gate, taskCloseRefusal, goalRefusal, dir: storeDir }
 }
 
 export const service = { createService, fingerprints: { fingerprintOf, requirementSpecHash } }

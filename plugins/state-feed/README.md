@@ -12,10 +12,16 @@ One host row that puts the project state into the CONVERSATION, not into the sys
 - **Nothing** — a delegated worker (depth > 0, a `parentSession`, or `origin: subagent`) and a
   workspace without `state/views/digest.md` get no injection at all.
 
-Both messages go through `agent.inject()`, which the harness writes to the journal as
-`user/message` with `source.kind: "state-feed"` — so "model-visible means logged" holds without
-a second mechanism. `inject` does not wake an idle driver: the text arrives at the next step
-boundary of a running turn, and it is lost on `cancel` (a known property of that seam).
+L1 goes through `agent.inject()` at `agent/created` (not a step boundary). L2 does not: the
+harness claims a step's batch before it runs the `agent/pre-step` waterfall
+(`dsh-agent-loop/lib/index.js:683` then `:698`), and `inject()` queues for the *next* step
+without waking the driver (`:585-587`) — so a delta injected from inside the hook could never
+join the turn boundary that asked for it and stayed pending when that turn had no further step.
+The delta therefore enters the step through the waterfall decision, the same seam the harness's
+own `agent-instructions` participant uses (`lib/index.js:1480-1497`), and the loop appends it
+to the journal as `user/message` with `source.kind: "state-feed"`
+(`dsh-agent-loop/lib/index.js:873-878`) — "model-visible means logged" still holds without a
+second mechanism.
 
 The plugin never writes state and never parses the projections back: `digest.md`, `board.md`
 and `snapshot.md` are produced by `@cc/dsh-project-state`.
@@ -26,5 +32,6 @@ and `snapshot.md` are produced by `@cc/dsh-project-state`.
 
 ## Tests
 
-`node --test plugins/state-feed/test/*.test.mjs` — L1 once, no state, worker exclusion, L2 by
-hash, aggregation within a turn, delta size cap, and the L1 composition order.
+`node --test plugins/state-feed/test/*.test.mjs` — L1 once, no state, worker exclusion, the
+delta entering the step decision with no session write in the hook, L2 by hash, aggregation
+within a turn, delta size cap with no dangling section header, and the L1 composition order.

@@ -1,0 +1,810 @@
+{
+  "schemaVersion": 1,
+  "id": "behaviour-only-cases",
+  "rev": 8,
+  "status": "ready",
+  "createdAt": "2026-11-24T08:24:20.878Z",
+  "updatedAt": "2026-11-24T08:34:38.651Z",
+  "updatedBy": "agent",
+  "title": "Кейсы приёмки проверяют поведение через публичную поверхность",
+  "requestedSolution": "Владелец 2026-11-24: (1) кейс проверяет поведение, никаких проверок «вещь существует в коде»; (2) каждый кейс исполняется автоматически, а если невозможно — точная пошаговая процедура для агентов: тестировщик сначала исполняет действия, затем записывает скрипт и проверяет, что скрипт повторяет исполненное; (3) кейс — произвольный набор исполняемых операций и проверок: клик в интерфейсе, чтение лога работающей программы, замер задержки, бенчмарк, упорядоченный набор команд; (4) кейс никогда не проверяет код напрямую — только фактическое поведение алгоритма, интерфейса, продукта или сервиса. Решения владельца по пяти вопросам дизайна: фикстура не является поверхностью кейса приёмки; публичный экспорт — законная поверхность (api); documented-only остаётся только как observed с исполненной пробой; строгий режим включается после опустошения очереди аудита; case_probe доступен тестировщику для кейсов приёмки и исполнителю для собственных кейсов реализации.",
+  "businessOutcome": {
+    "problem": "Библиотека исполняет кейсы, но не знает, чего они касались: в записи нет поверхности и обращений, провал драйвера — необязательный текст, а кейс можно записать, ни разу не выполнив. Поэтому кейсом приёмки может быть сверка README с исходником или замер рукописной фикстуры, и такая запись закрывает задачу наравне с измеренным поведением продукта. Два verified-кейса в библиотеке — ровно такие: case-surface-per-role-matches-the-readme-table (оба прогона без CASE_SUMMARY, метрик нет) и panel-accessibility-stays-clean-under-axe (измеряет docs/cases/fixtures/a11y-page.html, не панель).",
+    "outcome": "Закрытая задача опирается на кейс, который объявил публичную поверхность продукта, записал обращения к ней и прошёл прогон с пошаговым результатом; кейс без наблюдённого исполнения не записывается, сверка файлов и замер фикстуры задачу не закрывают, а владелец видит поверхность, обращения и шаги в карточке кейса.",
+    "successMetrics": [
+      "P0: cases.mjs audit перечисляет кейсы без измерения и без драйвера; согласие таблицы ролей с README проверяет make verify, а не кейс библиотеки",
+      "P1: автоматический кейс приёмки без surface отказан (SURFACE_MISSING); прогон без обращения к объявленной поверхности не даёт verified (NO_INTERACTION); кейс, импортирующий внутренности, отказан",
+      "P1: failureMode structure отказан (STRUCTURE_CASE); кейс wrong-result проходит",
+      "P2: запись автоматического кейса приёмки без пробы отказана (UNOBSERVED); правка драйвера после пробы даёт OBSERVATION_VOID; шаги кейса — наблюдённые обращения",
+      "P3: прогон, упавший на шаге 2 из 3, называет шаг; проба с тремя шагами и прогон с двумя дают STEP_DIVERGED",
+      "P4: make cases зелёный при cases.strict; двадцать существующих причин отказа сохранены; make verify остаётся читателем без браузера и хранилища сессий"
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CURRENT",
+        "name": "Кейс записывается из прозы и закрывает задачу без наблюдённого поведения",
+        "actors": [
+          "оркестратор",
+          "BACKEND",
+          "TESTER",
+          "библиотека кейсов"
+        ],
+        "steps": [
+          "Агент пишет кейс: требование, steps текстом, expected текстом; автоматизация не обязательна — достаточно reason.",
+          "Автоматический кейс требует testPath и runCommand, но не требует, чтобы драйвер к чему-то обращался: сверка README с исходником проходит все правила.",
+          "Прогон хранит exit code, метрики и артефакты; шаги прогона не записываются, провал не называет операцию.",
+          "Ручное наблюдение (case_verify) — введённые строки; связи с тем, что агент реально делал, нет.",
+          "Условие приёмки сравнивает автора и исполнителя прогона, но не спрашивает, чего касался кейс, поэтому фикстура и документ закрывают задачу."
+        ]
+      },
+      {
+        "id": "P-CURRENT-2",
+        "name": "Скрипт не обязан повторять исполненное",
+        "actors": [
+          "TESTER",
+          "библиотека кейсов"
+        ],
+        "steps": [
+          "Тестировщик исследует продукт инструментами вручную.",
+          "Пишет драйвер по памяти об исследовании.",
+          "Записывает кейс сразу с драйвером; ничто не требует, чтобы драйвер хоть раз выполнился до записи и чтобы он делал те же действия.",
+          "Правка драйвера после записи меняет только testHash, и кейс остаётся verified до следующего прогона."
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-TARGET",
+        "name": "Наблюдение, затем кейс, затем измерение",
+        "actors": [
+          "оркестратор",
+          "TESTER",
+          "BACKEND",
+          "REVIEWER",
+          "владелец",
+          "библиотека кейсов"
+        ],
+        "steps": [
+          "Тестировщик читает требование и критерии и берёт оракул из них, а не из реализации.",
+          "Исполняет действия через публичную поверхность продукта, кодируя их драйвером, который пишет CASE_SUMMARY с interactions и steps.",
+          "Прогоняет драйвер пробой (case_probe), пока тот не покажет наблюдённое поведение; проба хранит хеш байтов драйвера, обращения и сессию.",
+          "Записывает кейс из пробы: поверхность, шаги-обращения, тип отказа; драйвер привязан к тем же байтам.",
+          "Измеряет красный прогон на прошлой версии или названном неверном продукте и зелёный на изменении.",
+          "Другой пресет повторяет прогон; условие приёмки проверяет поверхность, обращения, измеренность, независимость и покрытие критериев.",
+          "Владелец видит в карточке кейса поверхность, обращения и шаги прогона, а не пересказ."
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "BR1",
+      "kind": "BR",
+      "text": "Владелец видит, что закрытая задача опирается на измеренное поведение продукта через его публичную поверхность, а не на сверку файлов, замер фикстуры или прозу.",
+      "acceptance": [
+        "кейс приёмки без обращения к продукту не может закрыть задачу и назван в очереди аудита",
+        "кейс, измеряющий фикстуру вместо продукта, отклоняется условием приёмки (решение владельца 2026-11-24)",
+        "в карточке кейса видны поверхность, обращения к ней и шаги прогона"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR1",
+      "kind": "FR",
+      "text": "Автоматический кейс приёмки объявляет публичную поверхность продукта, к которой обращается.",
+      "acceptance": [
+        "case_record и case_get хранят surface {kind, entry}; kinds: http, ui, cli, process, api",
+        "условие приёмки отказывает автоматическому кейсу приёмки без поверхности (SURFACE_MISSING)",
+        "api допускается только для публичного экспорта пакета; внутренний путь отклоняется",
+        "негативный контроль: кейс без поверхности, записанный до правки, проходит; после правки — отказан"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR2",
+      "kind": "FR",
+      "text": "Драйвер записывает свои обращения к объявленной поверхности, и прогон без них не подтверждает кейс.",
+      "acceptance": [
+        "CASE_SUMMARY.interactions сохраняются в run.json и видны в case_get",
+        "прогон без обращения нужного вида не переводит кейс в verified (NO_INTERACTION)",
+        "обращение вне объявленной entry — отказ INTERACTION_OUTSIDE_ENTRY",
+        "негативный контроль: драйвер, который импортирует модуль и проверяет внутренности, отказан"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR3",
+      "kind": "FR",
+      "text": "Кейс объявляет тип дефекта, который умеет ловить, и структурный тип не закрывает задачу приёмки.",
+      "acceptance": [
+        "failureMode обязателен для автоматического кейса приёмки: wrong-result, missing-behaviour, structure",
+        "structure отказан условием приёмки (STRUCTURE_CASE) без waiver {reason, by: human}",
+        "подпись realismReviewedBy остаётся и покрывает тип дефекта",
+        "негативный контроль: кейс-сверка README, записанный как structure, отказан; кейс wrong-result проходит"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR4",
+      "kind": "FR",
+      "text": "Кейс не записывается без исполненной пробы того же драйвера, а правка драйвера после пробы аннулирует наблюдение.",
+      "acceptance": [
+        "case_probe исполняет драйвер, который ещё не кейс, и пишет docs/cases/probes/<id>/ с хешем драйвера, обращениями, метриками, артефактами и сессией",
+        "case_record автоматического кейса приёмки без probeId отказан (UNOBSERVED)",
+        "изменение байтов драйвера после пробы даёт OBSERVATION_VOID на case_run",
+        "steps кейса формируются из наблюдённых обращений, а не из введённого текста"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR5",
+      "kind": "FR",
+      "text": "Прогон хранит пошаговый результат, поэтому упорядоченный набор операций судится по шагам, а провал называет шаг.",
+      "acceptance": [
+        "CASE_SUMMARY.steps с id, name, ok, metrics, artifacts сохраняются в run.json и печатаются в CLI и панели",
+        "провал называет шаг: «шаг 2 из 3», с артефактами шага",
+        "проверка может назвать шаг (checks[].step)",
+        "проба с тремя шагами и прогон с двумя дают STEP_DIVERGED"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "FR6",
+      "kind": "FR",
+      "text": "Аудит библиотеки перечисляет кейсы без измерения и без драйвера, ничего не записывая.",
+      "acceptance": [
+        "node plugins/test-cases/bin/cases.mjs audit [--json] перечисляет группы documented, unmeasured, exit-code-only, legacy-v1 с id и счётчиками",
+        "кейс case-surface-per-role-matches-the-readme-table попадает в exit-code-only (оба прогона без CASE_SUMMARY)",
+        "аудит не пишет ни одного файла и завершается кодом 0",
+        "живой прогон на текущей библиотеке напечатан в отчёте задачи"
+      ],
+      "status": "deferred",
+      "reason": "P0 исполнен и проверен выводом команд: audit → exit 0, 42 documented / 49 unmeasured / 16 exit-code-only / 79 legacy-v1, известный кейс в exit-code-only со своей причиной; запись не производится (git status и 412 хешей docs/cases/ до/после). Формальный кейс не создан по решению об уровне проверки proof; его форма (cli-поверхность) появляется в P1. Evidence: task-mwufiz15-ssm9v7."
+    },
+    {
+      "id": "FR7",
+      "kind": "FR",
+      "text": "Согласие таблицы ролей и README проверяется статической проверкой дерева, а не кейсом библиотеки.",
+      "acceptance": [
+        "scripts/check-role-table.mjs сверяет каждую строку README с DEFAULT_ROLE_TOOLS и называет расхождение",
+        "правка строки README делает проверку красной, восстановление — зелёной",
+        "проверка добавлена в make verify и не читает тестовый файл плагина"
+      ],
+      "status": "deferred",
+      "reason": "P0 исполнен и проверен: check-role-table → exit 0, красный на удалённом case_verify (row reviewer) и на удалённой строке critic, восстановление доказано sha256 03803e7c… и git diff 0; make verify exit 0 с проверкой на строке 42. Кейсом это быть не должно по дизайну (M1: правило о документе живёт в make verify), поэтому формального TEST не будет — это решение, а не долг. Evidence: task-mwufiz15-ssm9v7."
+    },
+    {
+      "id": "FR8",
+      "kind": "FR",
+      "text": "Кейс доступности измеряет панель продукта, а не рукописную фикстуру, либо помечается кейсом исполнителя с названной причиной.",
+      "acceptance": [
+        "либо драйвер открывает панель продукта и записывает обращения ui, либо кейс помечен purpose implementation с причиной",
+        "судьбу записи решает её автор или человек: запись source: human не переписывается агентом",
+        "после решения кейс либо закрывает задачу как ui-поверхность, либо исчезает из очереди приёмки"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "NFR1",
+      "kind": "NFR",
+      "text": "Существующие записи schemaVersion 1 остаются закрывающими, пока очередь аудита не пуста; строгий режим включается флагом и обратим.",
+      "acceptance": [
+        "v1-запись сохраняет текущий вердикт условия приёмки",
+        "флаг cases.strict включает отказы новых правил для v1 и выключается без миграции",
+        "make cases --audit печатает очередь миграции"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "NFR2",
+      "kind": "NFR",
+      "text": "Четыре правила относятся к слою приёмки; тесты исполнителя остаются белыми и задачу не закрывают.",
+      "acceptance": [
+        "purpose implementation по-прежнему не участвует в условии приёмки",
+        "make test продолжает исполнять тесты плагинов и proof-скрипты",
+        "R4 не запрещает тестам плагинов импортировать модули"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "NFR3",
+      "kind": "NFR",
+      "text": "Действующее условие приёмки не регрессирует: причины отказов, происхождение доказательства и три Makefile-цели сохраняются.",
+      "acceptance": [
+        "двадцать существующих причин отказа и их порядок сохранены",
+        "task_close по-прежнему отказывает по условию приёмки; provenance-правила (AUTHOR_IMMUTABLE, SELF_*, TEST_CHANGED) не ослаблены",
+        "make verify остаётся читателем: без браузера, хранилища сессий и сети"
+      ],
+      "status": "planned"
+    }
+  ],
+  "architecture": {
+    "contractImpact": "breaking",
+    "components": [
+      {
+        "id": "C-CASES",
+        "name": "@cc/dsh-test-cases",
+        "responsibility": "схема кейса, инструменты case_*, прогон и проба, условие приёмки, CLI cases.mjs",
+        "owner": "BACKEND",
+        "owns": [
+          "D-CASE",
+          "D-RUN",
+          "D-PROBE"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "C-LIBRARY",
+        "name": "docs/cases",
+        "responsibility": "записи кейсов, драйверы, пробы; никто не правит чужую запись",
+        "owner": "TESTER",
+        "owns": [
+          "D-DRIVER"
+        ],
+        "dependsOn": [
+          "C-CASES"
+        ]
+      },
+      {
+        "id": "C-TASKBOARD",
+        "name": "@cc/dsh-taskboard",
+        "responsibility": "закрытие задачи, пресет исполнителя, потребление условия приёмки",
+        "owner": "BACKEND",
+        "owns": [
+          "D-TASK"
+        ],
+        "dependsOn": [
+          "C-CASES"
+        ]
+      },
+      {
+        "id": "C-VERIFY",
+        "name": "Makefile и scripts/check-*.mjs",
+        "responsibility": "статические проверки дерева: упаковка, документация, глоссарий, схема, таблица ролей",
+        "owner": "BACKEND",
+        "owns": [
+          "D-CHECKS"
+        ],
+        "dependsOn": [
+          "C-LIBRARY"
+        ]
+      },
+      {
+        "id": "C-PROFILE",
+        "name": "profile/cordis.patch.yml",
+        "responsibility": "персона тестировщика, набор инструментов, ограничение записи",
+        "owner": "BACKEND",
+        "owns": [
+          "D-ROLES"
+        ],
+        "dependsOn": [
+          "C-CASES"
+        ]
+      },
+      {
+        "id": "C-DOCS",
+        "name": "README, docs/CASE-LIBRARY-BEHAVIOUR-DESIGN.md, docs/TERMINOLOGY.md",
+        "responsibility": "контракт библиотеки, процедура тестировщика, термины",
+        "owner": "DOCS",
+        "owns": [],
+        "dependsOn": [
+          "C-PROFILE",
+          "C-VERIFY"
+        ]
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "D-CASE",
+      "name": "docs/cases/*.json",
+      "owner": "kit",
+      "ownerComponentId": "C-CASES",
+      "description": "запись кейса: requirement, surface, failureMode, steps-обращения, checks, probeId, testHash, purpose, автор и прогон"
+    },
+    {
+      "id": "D-RUN",
+      "name": "docs/cases/runs/**",
+      "owner": "kit",
+      "ownerComponentId": "C-CASES",
+      "description": "артефакт прогона: run.json с runBy, head/dirty, interactions, steps, checks, artifacts"
+    },
+    {
+      "id": "D-PROBE",
+      "name": "docs/cases/probes/**",
+      "owner": "kit",
+      "ownerComponentId": "C-CASES",
+      "description": "артефакт пробы: хеш байтов драйвера, surface, interactions, steps, метрики, артефакты, сессия и пресет"
+    },
+    {
+      "id": "D-DRIVER",
+      "name": "docs/cases/drivers/** и тестовые корни",
+      "owner": "kit",
+      "ownerComponentId": "C-LIBRARY",
+      "description": "драйвер кейса: исполняет действия через поверхность и пишет CASE_SUMMARY"
+    },
+    {
+      "id": "D-TASK",
+      "name": ".dsh/taskboard.json",
+      "owner": "kit",
+      "ownerComponentId": "C-TASKBOARD",
+      "description": "задача, её роль и пресет исполнителя; вход условия приёмки"
+    },
+    {
+      "id": "D-CHECKS",
+      "name": "Makefile, scripts/check-*.mjs",
+      "owner": "kit",
+      "ownerComponentId": "C-VERIFY",
+      "description": "статические проверки: что читают дерево, а не исполняют его"
+    },
+    {
+      "id": "D-ROLES",
+      "name": "profile/cordis.patch.yml, plugins/inventory.json",
+      "owner": "kit",
+      "ownerComponentId": "C-PROFILE",
+      "description": "персона и набор инструментов тестировщика, ограничение записи"
+    }
+  ],
+  "contracts": [
+    {
+      "id": "CT-CASE",
+      "name": "Запись кейса: surface, failureMode, probeId, steps",
+      "between": [
+        "C-CASES",
+        "C-LIBRARY"
+      ],
+      "change": "breaking",
+      "description": "schemaVersion 2 добавляет surface {kind, entry}, failureMode, probeId и шаги-обращения; v1 остаётся читаемым"
+    },
+    {
+      "id": "CT-DRIVER",
+      "name": "CASE_SUMMARY: interactions и steps",
+      "between": [
+        "C-CASES",
+        "C-LIBRARY"
+      ],
+      "change": "additive",
+      "description": "драйвер пишет обращения к поверхности и пошаговый результат; прогон сохраняет их и отказывает кейсу приёмки без обращения"
+    },
+    {
+      "id": "CT-PROBE",
+      "name": "case_probe и артефакт пробы",
+      "between": [
+        "C-CASES"
+      ],
+      "change": "additive",
+      "description": "новая операция: исполнить драйвер до записи кейса и сохранить наблюдение, привязанное к байтам драйвера"
+    },
+    {
+      "id": "CT-GATE",
+      "name": "Причины отказа условия приёмки",
+      "between": [
+        "C-CASES",
+        "C-TASKBOARD"
+      ],
+      "change": "additive",
+      "description": "SURFACE_MISSING, NO_INTERACTION, INTERACTION_OUTSIDE_ENTRY, STRUCTURE_CASE, UNOBSERVED, OBSERVATION_VOID, STEP_DIVERGED"
+    },
+    {
+      "id": "CT-VERIFY",
+      "name": "make verify и cases.mjs audit",
+      "between": [
+        "C-VERIFY",
+        "C-CASES"
+      ],
+      "change": "additive",
+      "description": "проверка таблицы ролей как читатель дерева; аудит библиотеки как чтение записей без записи"
+    }
+  ],
+  "invariants": [
+    {
+      "id": "INV-SURFACE",
+      "text": "Автоматический кейс приёмки не подтверждается без обращения к объявленной поверхности продукта.",
+      "scope": "C-CASES"
+    },
+    {
+      "id": "INV-OBSERVED",
+      "text": "Автоматический кейс приёмки не записывается без исполненной пробы того же драйвера.",
+      "scope": "C-CASES"
+    },
+    {
+      "id": "INV-NOT-VOID",
+      "text": "Изменение байтов драйвера после пробы аннулирует наблюдение и требует новой пробы.",
+      "scope": "C-CASES"
+    },
+    {
+      "id": "INV-STEP",
+      "text": "Наблюдённый шаг, отсутствующий в прогоне, — отказ, а не молчаливое сокращение.",
+      "scope": "C-CASES"
+    },
+    {
+      "id": "INV-STRUCTURE",
+      "text": "Кейс со структурным типом отказа не закрывает задачу приёмки.",
+      "scope": "C-CASES"
+    },
+    {
+      "id": "INV-LEGACY-V1",
+      "text": "Записи schemaVersion 1 сохраняют вердикт до включения cases.strict.",
+      "scope": "C-CASES"
+    },
+    {
+      "id": "INV-NO-WRITE-AUDIT",
+      "text": "Аудит библиотеки и проверка таблицы ролей ничего не пишут.",
+      "scope": "C-VERIFY"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "D-NO-FIXTURE",
+      "decision": "Фикстура не является поверхностью кейса приёмки; кейс приёмки называет вход продукта, фикстура допустима только для кейса исполнителя.",
+      "rationale": "Владелец 2026-11-24. Замер настоящего числа на ненастоящем объекте доказывает работу драйвера, а не продукта: панель могла стать недоступной, а кейс остался бы зелёным.",
+      "alternatives": [
+        "разрешить фикстуру с пометкой",
+        "решать каждый раз waiver-ом"
+      ]
+    },
+    {
+      "id": "D-API-SURFACE",
+      "decision": "Публичный экспорт пакета — законная поверхность (kind api); внутренний путь — нет.",
+      "rationale": "Владелец 2026-11-24. R4 запрещает судить внутренности; объявленный экспорт — это интерфейс алгоритма.",
+      "alternatives": [
+        "только запущенный продукт",
+        "api только при наличии exports в package.json"
+      ]
+    },
+    {
+      "id": "D-OBSERVED-ONLY",
+      "decision": "automated:false остаётся только как observed: проба исполнена, драйвера ещё нет, задачу такой кейс не закрывает.",
+      "rationale": "Владелец 2026-11-24. Прозаические шаги без исполнения — то, что правило 2 запрещает.",
+      "alternatives": [
+        "запретить совсем",
+        "оставить как сегодня"
+      ]
+    },
+    {
+      "id": "D-STRICT-AFTER-QUEUE",
+      "decision": "Строгий режим (cases.strict) включается, когда очередь аудита пуста; v1-записи до этого сохраняют вердикт.",
+      "rationale": "Владелец 2026-11-24. Массовое перезаписывание всех записей сразу ломает закрытие без выигрыша в доказательности.",
+      "alternatives": [
+        "сразу fail-closed",
+        "никогда для v1"
+      ]
+    },
+    {
+      "id": "D-PROBE-CALLERS",
+      "decision": "case_probe доступен тестировщику для кейсов приёмки и исполнителю для собственных кейсов реализации; проба исполнителя задачу не закрывает.",
+      "rationale": "Владелец 2026-11-24. Проба — акт авторства; независимость приёмки не затрагивается, пока purpose implementation.",
+      "alternatives": [
+        "только тестировщик",
+        "тестировщик и ревьювер"
+      ]
+    },
+    {
+      "id": "D-TWO-SHELVES",
+      "decision": "Сверка артефактов (README, схема, упаковка) живёт в make verify как проверка дерева; библиотека кейсов держит только поведение.",
+      "rationale": "R1 и R4: проверка документа не может быть красной из-за поведения продукта, значит это линтер, а не кейс.",
+      "alternatives": [
+        "оставить такие сверки кейсами с пометкой"
+      ]
+    },
+    {
+      "id": "D-RULES-SCOPE-ACCEPTANCE",
+      "decision": "Четыре правила относятся к слою приёмки; purpose implementation остаётся белым тестом исполнителя.",
+      "rationale": "Иначе kit теряет дешёвый слой быстрых тестов и оставляет только дорогой.",
+      "alternatives": [
+        "применить R4 ко всем тестам"
+      ]
+    },
+    {
+      "id": "D-INTERACTIONS-SELF-REPORTED",
+      "decision": "Обращения и пробы — самодекларация драйвера, как артефакт прогона; свидетельство процесса (проверка дерева потомков прогона) остаётся опцией, а не доказательством.",
+      "rationale": "Подделка пары «кейс + прогон» — известная граница B1; менять надо умолчание: молча пропустить взаимодействие станет нельзя.",
+      "alternatives": [
+        "обещать полную проверку обращений",
+        "не вводить обращения вовсе"
+      ]
+    }
+  ],
+  "openQuestions": [
+    {
+      "id": "Q-AUDIT-RED",
+      "question": "Должен ли cases.mjs audit завершаться ненулевым кодом при непустой очереди, или только печатать очередь?",
+      "owner": "владелец",
+      "blocks": false,
+      "answer": ""
+    },
+    {
+      "id": "Q-OBSERVED-AGE",
+      "question": "Нужен ли срок годности у observed-кейса (например, 14 дней) и кто его продлевает?",
+      "owner": "владелец",
+      "blocks": false,
+      "answer": ""
+    },
+    {
+      "id": "Q-WITNESS",
+      "question": "Делать ли свидетеля процесса (проверка дерева потомков прогона) в P1 или отложить?",
+      "owner": "владелец",
+      "blocks": false,
+      "answer": ""
+    }
+  ],
+  "sizing": {
+    "class": "L2",
+    "reasons": [
+      "меняется запись кейса и прогона (surface, interactions, steps, probeId)",
+      "меняется контракт драйвера и условие приёмки",
+      "добавляется операция case_probe и новый артефакт пробы",
+      "затрагиваются библиотека кейсов, CLI, make verify, профиль тестировщика и документация",
+      "два действующих кейса перестают закрывать задачи"
+    ]
+  },
+  "designRef": {
+    "mapRev": 32,
+    "at": "2026-11-24T08:30:00.000Z",
+    "source": "designmap/manifest.json"
+  },
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "BR1",
+      "processId": "P-TARGET",
+      "componentId": "C-CASES",
+      "contractIds": [
+        "CT-CASE",
+        "CT-GATE"
+      ],
+      "dataIds": [
+        "D-CASE",
+        "D-RUN"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR1",
+      "processId": "P-TARGET",
+      "componentId": "C-CASES",
+      "contractIds": [
+        "CT-CASE",
+        "CT-GATE"
+      ],
+      "dataIds": [
+        "D-CASE"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR2",
+      "processId": "P-TARGET",
+      "componentId": "C-CASES",
+      "contractIds": [
+        "CT-DRIVER",
+        "CT-GATE"
+      ],
+      "dataIds": [
+        "D-RUN"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR3",
+      "processId": "P-TARGET",
+      "componentId": "C-CASES",
+      "contractIds": [
+        "CT-CASE",
+        "CT-GATE"
+      ],
+      "dataIds": [
+        "D-CASE"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR4",
+      "processId": "P-TARGET",
+      "componentId": "C-CASES",
+      "contractIds": [
+        "CT-PROBE",
+        "CT-CASE",
+        "CT-GATE"
+      ],
+      "dataIds": [
+        "D-PROBE",
+        "D-CASE"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR5",
+      "processId": "P-TARGET",
+      "componentId": "C-CASES",
+      "contractIds": [
+        "CT-DRIVER",
+        "CT-GATE"
+      ],
+      "dataIds": [
+        "D-RUN"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "FR6",
+      "processId": "P-TARGET",
+      "componentId": "C-CASES",
+      "contractIds": [
+        "CT-VERIFY"
+      ],
+      "dataIds": [
+        "D-CASE"
+      ],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwufiz15-ssm9v7",
+          "role": "BACKEND",
+          "at": "2026-11-24T08:34:00.000Z",
+          "evidence": [
+            "node plugins/test-cases/bin/cases.mjs audit -> exit 0: documented 42, unmeasured 49, exit-code-only 16, legacy-v1 79",
+            "case-surface-per-role-matches-the-readme-table in exit-code-only: 'all 2 run(s) carried no summary'",
+            "git status and a 412-file sha256 list of docs/cases/ identical before and after both audit runs"
+          ]
+        }
+      ],
+      "reason": "Исполнено и проверено выводом команд в P0 (уровень proof): формального кейса нет, его форма появляется в P1."
+    },
+    {
+      "requirementId": "FR7",
+      "processId": "P-TARGET",
+      "componentId": "C-VERIFY",
+      "contractIds": [
+        "CT-VERIFY"
+      ],
+      "dataIds": [
+        "D-CHECKS"
+      ],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwufiz15-ssm9v7",
+          "role": "BACKEND",
+          "at": "2026-11-24T08:34:00.000Z",
+          "evidence": [
+            "node scripts/check-role-table.mjs -> exit 0 'role table ok'; red on a removed case_verify (row reviewer) and on a removed critic row; restore sha256 03803e7c… and git diff 0",
+            "make verify -> exit 0; check at log line 42, 'role table ok' at line 52"
+          ]
+        }
+      ],
+      "reason": "Исполнено и проверено в P0; кейсом это быть не должно по дизайну M1 (правило о документе живёт в make verify), поэтому формального TEST не будет — это решение, а не долг."
+    },
+    {
+      "requirementId": "FR8",
+      "processId": "P-TARGET",
+      "componentId": "C-LIBRARY",
+      "contractIds": [
+        "CT-CASE"
+      ],
+      "dataIds": [
+        "D-CASE"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "NFR1",
+      "processId": "P-TARGET",
+      "componentId": "C-CASES",
+      "contractIds": [
+        "CT-GATE"
+      ],
+      "dataIds": [
+        "D-CASE"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "NFR2",
+      "processId": "P-TARGET",
+      "componentId": "C-CASES",
+      "contractIds": [
+        "CT-GATE"
+      ],
+      "dataIds": [
+        "D-TASK"
+      ],
+      "status": "planned",
+      "tasks": []
+    },
+    {
+      "requirementId": "NFR3",
+      "processId": "P-TARGET",
+      "componentId": "C-CASES",
+      "contractIds": [
+        "CT-GATE",
+        "CT-VERIFY"
+      ],
+      "dataIds": [
+        "D-CASE",
+        "D-CHECKS"
+      ],
+      "status": "planned",
+      "tasks": []
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "4dd410e399153fcecbe886b518fb306cbe439e387aea500dc6e700adf50c2226",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-24T08:24:20.878Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-24T08:24:31.301Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-24T08:24:41.804Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: BR1 added, FR1 added, FR2 added, FR3 added, FR4 added, FR5 added, FR6 added, FR7 added, FR8 added, NFR1 added, NFR2 added, NFR3 added"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-24T08:24:58.746Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-24T08:25:09.619Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwufiz15-ssm9v7 -> FR6, FR7"
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-24T08:34:26.480Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR6 changed, FR7 changed; impacts: 2"
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-24T08:34:33.632Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 8,
+      "at": "2026-11-24T08:34:38.651Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    }
+  ]
+}

@@ -11,6 +11,7 @@
  *               [--red --control <name>] [--json]
  *   cases suite [--tag <t>] [--kind <k>] [--status <s>] [--runs 1..5] [--timeout <ms>] [--json]
  *   cases gate  (--task <taskId> | --id <case>) [--implementer <preset>] [--json]
+ *   cases audit [--json]
  *   Common: --workspace <dir> (default: cwd), --dir <library> (default: docs/cases).
  *
  *   `gate` reads the SAME acceptance rule as the host `case_gate` and the taskboard's close
@@ -20,7 +21,8 @@
  *
  * OUTPUTS
  *   Human text or JSON on stdout. Exit 0 = the case/suite/gate is green; 1 = ran but not green;
- *   2 = a refusal (bad id, not automated, no red control, a write failure).
+ *   2 = a refusal (bad id, not automated, no red control, a write failure). `audit` is the
+ *   read-only listing of the queue: it writes nothing and exits 0 even when every group is full.
  *
  * KEYWORDS
  *   case runner CLI, make cases, suite report, task gate, measured evidence
@@ -40,6 +42,7 @@ function usage() {
   node plugins/test-cases/bin/cases.mjs run   --id <case> --red --control <name> [--json]
   node plugins/test-cases/bin/cases.mjs suite [--tag t] [--kind k] [--status s] [--runs 1..5] [--json]
   node plugins/test-cases/bin/cases.mjs gate  (--task <taskId> | --id <case>) [--implementer <preset>] [--board <path>] [--json]
+  node plugins/test-cases/bin/cases.mjs audit [--json]
 
 Common: --workspace <dir> (default cwd), --dir <library> (default docs/cases).`
 }
@@ -308,9 +311,76 @@ function commandList() {
   for (const row of cases) say(`  ${row.record.status.padEnd(11)} ${row.record.automated === true ? 'auto' : 'doc '} ${provenance(row.record).padEnd(8)} ${row.record.id}`)
 }
 
+/**
+ * The audit queue: which records cannot prove behaviour, and why.
+ *
+ * WHY THE GROUPS OVERLAP. They answer four independent questions about one record, and a record
+ * can fail several: a documented-only case has no driver at all, while an automated case can have
+ * a driver nobody has measured. Merging them into one bucket would let the fullest reason hide
+ * the others, so every group lists its own ids.
+ *
+ * WHY NOTHING IS WRITTEN. The records belong to their authors and a non-author edit is refused
+ * (AUTHOR_ONLY), so this is the read half of the library: it names the queue, leaves every file
+ * untouched, and leaves the repair to the author or a human.
+ *
+ * WHY A RECORD WITH NO RUN IS NOT "exit-code-only". "Its only judgement is an exit code" is a
+ * statement about a run that happened: with no run at all there is no judgement to suppress, and
+ * the record is reported by `unmeasured` instead.
+ */
+function auditGroups(rows) {
+  const groups = { documented: [], unmeasured: [], 'exit-code-only': [], 'legacy-v1': [] }
+  const errors = []
+  for (const row of rows) {
+    if (row.record === undefined) { errors.push({ id: row.id, code: row.error, message: row.message }); continue }
+    const record = row.record
+    const runs = Array.isArray(record.runs) ? record.runs : []
+    if (record.automated === false) {
+      const reason = typeof record.reason === 'string' && record.reason !== '' ? record.reason : 'no reason recorded'
+      groups.documented.push({ id: record.id, reason })
+    }
+    const verified = record.lastVerified
+    if (verified === null || verified === undefined) groups.unmeasured.push({ id: record.id, reason: 'no runner evidence: lastVerified is absent' })
+    else if (verified.source !== 'runner') groups.unmeasured.push({ id: record.id, reason: `no runner evidence: lastVerified came from "${verified.source}"` })
+    if (record.automated === true && runs.length > 0 && runs.every((run) => run.summaryError !== null && run.summaryError !== undefined)) {
+      const causes = [...new Set(runs.map((run) => run.summaryError))]
+      groups['exit-code-only'].push({ id: record.id, reason: `all ${runs.length} run(s) carried no summary: ${causes.join('; ')}` })
+    }
+    if (record.schemaVersion === 1) groups['legacy-v1'].push({ id: record.id, reason: 'schemaVersion 1' })
+  }
+  for (const list of Object.values(groups)) list.sort((left, right) => left.id.localeCompare(right.id))
+  return { groups, errors }
+}
+
+/** One line per record: an author's reason can be a paragraph, and a queue is read by scanning. */
+function oneLine(text, max = 110) {
+  const flat = String(text).replace(/\s+/g, ' ').trim()
+  return flat.length <= max ? flat : `${flat.slice(0, max - 1)}…`
+}
+
+function commandAudit() {
+  const rows = readCases(dir)
+  const { groups, errors } = auditGroups(rows)
+  const total = rows.filter((row) => row.record !== undefined).length
+  const result = {
+    ok: true,
+    library: dir,
+    total,
+    groups: Object.fromEntries(Object.entries(groups).map(([name, list]) => [name, { count: list.length, cases: list }])),
+    errors,
+  }
+  if (json) { say(result); return }
+  say(`cases: ${total} in ${dir} (audit; nothing written, --json carries the full reasons)`)
+  for (const [name, entry] of Object.entries(result.groups)) {
+    say(`${name}: ${entry.count}`)
+    for (const item of entry.cases) say(`  ${item.id}  (${oneLine(item.reason)})`)
+  }
+  for (const error of errors) say(`  ERROR  ${error.id}  (${error.code}: ${error.message})`)
+}
+
 const command = options._[0]
 try {
   if (command === 'list') commandList()
+  else if (command === 'audit') commandAudit()
   else if (command === 'run') await commandRun()
   else if (command === 'suite') await commandSuite()
   else if (command === 'gate') commandGate()

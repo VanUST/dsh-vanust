@@ -9,6 +9,8 @@
  * way the viewer addressed it before; a relative `plugins/...` would resolve against the
  * document and break under a path prefix.
  */
+import { patchUnloadRegistration } from './bundle-patch.js'
+
 const PKG = '@cc/dsh-designmap'
 export const FRAME_FILE = 'client.frame.js'
 export const FRAME_SOURCE = 'design-map-frame'
@@ -33,7 +35,10 @@ export async function loadFrameText(fetchImpl = globalThis.fetch) {
  * they draw is persisted as a separate annotation layer — never as scene geometry.
  */
 export function frameDocument(script, look = { surface: '#ffffff' }, { editing = false } = {}) {
-  const safe = script.replaceAll('</script', '<\\/script')
+  // The bundle's beforeunload registration is stripped here, after a marker check
+  // (bundle-patch.js): a re-vendored bundle refuses by name instead of silently printing the
+  // unload violation once per frame build.
+  const safe = patchUnloadRegistration(script).replaceAll('</script', '<\\/script')
   const background = /^#[0-9a-f]{3,8}$/iu.test(String(look?.surface ?? '')) ? look.surface : '#ffffff'
   // Read-only hides the whole editing chrome: the map is a document. Edit mode keeps the
   // drawing tools (the annotation layer) and hides the editor's own entry points: the panel

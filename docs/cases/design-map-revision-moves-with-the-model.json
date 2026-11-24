@@ -4,7 +4,7 @@
   "title": "design map revision moves with the model",
   "requirement": "Правка семантической модели карты дизайна двигает ревизию, которую читает запись анализа, поэтому условие «карта ушла вперёд» срабатывает от реальной правки.",
   "kind": "regression",
-  "status": "unverified",
+  "status": "superseded",
   "source": "human",
   "automated": false,
   "reason": "Проверка опирается на живой сервис карты дизайна и на запись анализа; автоматический прогон появится вместе с изменением designmap/analysis в задаче P0.4.",
@@ -22,11 +22,21 @@
   ],
   "surfaceFiles": [],
   "linkedTaskId": "task-mwko195o-a1q0nu",
-  "revision": 1,
+  "revision": 2,
   "createdAt": "2026-11-17T12:25:44.412Z",
-  "updatedAt": "2026-11-17T12:25:44.412Z",
+  "updatedAt": "2026-11-24T12:47:03.226Z",
   "createdBy": "orchestrator",
   "createdByKind": "agent",
-  "history": [],
-  "evidence": {}
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-24T12:47:03.226Z",
+      "editedBy": "agent",
+      "action": "superseded",
+      "reason": "design-map v1 удалён в P3 (2026-11-24): шаги кейса используют удалённые designmap_apply и designmap/manifest.json; требование снято вместе с моделью, замены нет."
+    }
+  ],
+  "evidence": {},
+  "supersededBy": null,
+  "supersedeReason": "design-map v1 удалён в P3 (2026-11-24): шаги кейса используют удалённые designmap_apply и designmap/manifest.json; требование снято вместе с моделью, замены нет."
 }

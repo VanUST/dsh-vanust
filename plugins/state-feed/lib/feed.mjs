@@ -74,7 +74,13 @@ function counts(snapshot) {
   return snapshot.split('\n').filter((line) => /^- (REQ|DECISION|TASK|TEST|last journal event):/.test(line.trim())).map((line) => line.trim())
 }
 
-/** Truncate on a line boundary with a fixed marker. */
+/**
+ * Truncate on a line boundary with a fixed marker.
+ *
+ * A section header whose rows were cut is dropped with them: keeping `## Counts` alone (and
+ * the blank line after it) is the artefact a reader saw as "a header with nothing under it",
+ * and it says less than the marker that follows.
+ */
 function cap(text, limit) {
   if (utf8(text) <= limit) return text
   const marker = '\n[state delta truncated; read state/views/digest.md]'
@@ -83,6 +89,12 @@ function cap(text, limit) {
   for (const line of text.split('\n')) {
     if (utf8(`${kept.join('\n')}\n${line}`) > budget) break
     kept.push(line)
+  }
+  // Work back over what is left: trailing blanks, then a header left with no rows under it.
+  while (kept.length > 0) {
+    const last = kept[kept.length - 1]
+    if (last.trim() === '' || last.startsWith('## ')) kept.pop()
+    else break
   }
   return `${kept.join('\n')}${marker}`
 }

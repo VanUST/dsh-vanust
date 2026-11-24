@@ -11,7 +11,7 @@ import { driftFor, slugify } from '../../../plugins/test-cases/lib/schema.mjs'
 
 test('slugify produces a stable kebab id', () => {
   assert.equal(slugify('Reviewer has NO write/edit'), 'reviewer-has-no-write-edit')
-  assert.equal(slugify('  …  '), 'case')
+  assert.match(slugify('  …  '), /^case-[0-9a-f]{12}$/)
 })
 
 test('driftFor keeps a verified case verified while its surface hash matches', () => {

@@ -39,8 +39,8 @@ const bytes = (text) => Buffer.byteLength(text ?? '', 'utf8')
 
 const TOOL_PATTERN = /name:\s*'([a-z][a-z0-9_]*)'([\s\S]{0,800}?)description:\s*'((?:[^'\\]|\\.)*)'/g
 
-// A plugin's own sources are not all at its root: `designmap/src/tools.mjs` declares seven tools
-// and a root-only walk measured none of them. Tests and proofs are excluded because they declare
+// A plugin's own sources are not all at its root: `designmap/src/page-tools.mjs` declares the
+// four page tools and a root-only walk measured none of them. Tests and proofs are excluded because they declare
 // tools that are not shipped, and a proof's fake tool is not a cost any preset pays.
 const SKIPPED_DIRS = new Set(['node_modules', 'test', 'proof', 'dist', '.git'])
 

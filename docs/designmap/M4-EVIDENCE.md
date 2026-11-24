@@ -1,3 +1,5 @@
+> **Историческая запись (design-map v1).** v1 удалён в P3 2026-11-24: файлы модели, сцена-контракт и семь инструментов `designmap_*` больше не существуют; имена ниже — история, не инструкция. Актуальное описание — `docs/DESIGNMAP-V2.md`.
+
 # M4 — package, docs, profile wiring and retirement
 
 Date: 2026-11-16 · package `@cc/dsh-designmap` **0.1.1** · author: BACKEND (M4 task

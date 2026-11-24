@@ -2,13 +2,16 @@
 PROOF: state-feed delivery contract
 Behavior: a root session receives L1 exactly once as a model-visible message containing the
   digest (and the plan/snapshot when present); a workspace without state/views/digest.md gets
-  nothing; a delegated worker gets nothing; at a turn boundary one aggregated L2 delta is
-  injected only when the projection hash changed, capped at 1200 bytes, and never twice in the
-  same turn even when the state changes more than once.
+  nothing; a delegated worker gets nothing; at a turn boundary one aggregated L2 delta enters
+  the step through the agent/pre-step decision only when the projection hash changed, capped at
+  1200 bytes, and never twice in the same turn even when the state changes more than once.
 Fails when: L1 repeats, a worker or a stateless workspace receives an injection, L2 fires on an
-  unchanged hash, or a second change inside one turn produces a second delta.
-Production path: plugins/state-feed/index.mjs (apply) with lib/feed.mjs; the injected message is
-  written by the harness as user/message, so it satisfies "model-visible means logged".
+  unchanged hash, a second change inside one turn produces a second delta, the pre-step
+  participant writes the session itself (agent.inject() inside the hook, which parks the delta
+  behind the step it was preparing), or a capped delta keeps a section header with no rows.
+Production path: plugins/state-feed/index.mjs (apply) with lib/feed.mjs; the loop appends the
+  decision's messages as user/message (dsh-agent-loop/lib/index.js:873-878), so the state is in
+  the conversation and "model-visible means logged" still holds.
 */
 
 import { test } from 'node:test'
@@ -30,18 +33,31 @@ function host() {
       if (handlers[event] !== undefined) handlers[event].push(handler)
     },
     logger: { warn() {} },
-    root: null,
   }
-  ctx.root = ctx
   return { ctx, handlers }
 }
 
 const created = async (env, agent) => {
   for (const handler of env.handlers['agent/created']) await handler({ agent })
 }
-const preStep = async (env, agent, turn, step) => {
-  for (const handler of env.handlers['agent/pre-step']) await handler({ agent, turn, step }, async () => ({ ok: true }))
+
+/**
+ * Run one pre-step. `claimed` is the batch the harness claimed before the waterfall, and
+ * `next` enters the step with it — the shape dsh-agent-loop/lib/index.js:683-710 gives a
+ * participant. Returns the decision the participant chain produced.
+ */
+const preStep = async (env, agent, turn, step, claimed = []) => {
+  let decision
+  for (const handler of env.handlers['agent/pre-step']) {
+    decision = await handler(
+      { agent, turn, step, messages: claimed },
+      async () => ({ kind: 'enter', messages: claimed }),
+    )
+  }
+  return decision
 }
+
+const human = (text = 'continue') => ({ id: `human-${text}`, role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } })
 
 function agentOf(cwd, { id = 'root-1', depth = 0, parent } = {}) {
   const injected = []
@@ -77,8 +93,9 @@ test('root receives L1 once, with the digest and the plan', async () => {
   assert.match(text, /## Plan/)
   assert.match(text, /name: probe/)
   assert.equal(injected[0].source.kind, 'state-feed')
-  await preStep(env, agent, 2, 1)
+  const decision = await preStep(env, agent, 2, 1, [human()])
   assert.equal(injected.length, 1, 'L1 is never repeated')
+  assert.equal(decision.messages.length, 1, 'a first step with no delta enters only the claimed batch')
 })
 
 test('no state/views/digest.md means no injection at all', async () => {
@@ -87,8 +104,10 @@ test('no state/views/digest.md means no injection at all', async () => {
   apply(env.ctx)
   const { agent, injected } = agentOf(cwd)
   await created(env, agent)
-  await preStep(env, agent, 2, 1)
+  const claimed = [human()]
+  const decision = await preStep(env, agent, 2, 1, claimed)
   assert.equal(injected.length, 0)
+  assert.deepEqual(decision.messages, claimed)
 })
 
 test('a delegated worker receives neither L1 nor L2', async () => {
@@ -97,9 +116,45 @@ test('a delegated worker receives neither L1 nor L2', async () => {
   apply(env.ctx)
   const { agent, injected } = agentOf(cwd, { depth: 1 })
   await created(env, agent)
-  await preStep(env, agent, 2, 1)
+  const claimed = [human()]
+  const decision = await preStep(env, agent, 2, 1, claimed)
   assert.equal(injected.length, 0)
+  assert.deepEqual(decision.messages, claimed)
   assert.equal(isRootAgent(agent), false)
+})
+
+/*
+PROOF: the delta enters the step through the decision, never through a session write in the hook
+Behavior: the agent/pre-step participant awaits the rest of the waterfall and returns its
+  decision with the delta appended after the claimed batch; agent.inject() is not called for L2,
+  so the delta cannot be parked in the "next-step" inbox behind the step it was preparing, and a
+  second step of the same turn adds no second delta.
+Fails when: the participant calls agent.inject() before returning next() (the shipped defect: the
+  message went to the next-step inbox, inject never wakes the driver, and a turn with no further
+  step left the delta pending until a new user message woke it), or a turn gets two deltas.
+*/
+test('the delta enters the step decision and never the session inbox', async () => {
+  const { cwd, state, req } = await workspace()
+  const env = host()
+  apply(env.ctx)
+  const { agent, injected } = agentOf(cwd)
+  await created(env, agent)
+  assert.equal(injected.length, 1)
+  await state.create('task', { title: 'Second task', reqId: req.id })
+  await state.regenerateViews()
+  const claimed = [human()]
+  const decision = await preStep(env, agent, 3, 1, claimed)
+  assert.equal(injected.length, 1, 'the pre-step participant makes no session write: no inject() call')
+  assert.equal(decision.kind, 'enter')
+  assert.equal(decision.messages.length, 2, 'the claimed batch plus exactly one delta')
+  assert.equal(decision.messages[0], claimed[0])
+  const delta = decision.messages[1]
+  assert.equal(delta.source.kind, 'state-feed')
+  assert.ok(delta.content[0].text.startsWith(L2_HEADER))
+  // The next step of the same turn sees the newest hash already, so nothing is added again.
+  const second = await preStep(env, agent, 3, 2, [])
+  assert.equal(second.messages.length, 0, 'one delta per turn')
+  assert.equal(injected.length, 1)
 })
 
 test('L2 fires once on a changed hash and not again in the same turn', async () => {
@@ -109,26 +164,40 @@ test('L2 fires once on a changed hash and not again in the same turn', async () 
   const { agent, injected } = agentOf(cwd)
   await created(env, agent)
   assert.equal(injected.length, 1)
-  // Unchanged state: a turn boundary injects nothing.
-  await preStep(env, agent, 2, 1)
-  assert.equal(injected.length, 1)
+  // Unchanged state: a turn boundary adds nothing.
+  assert.equal((await preStep(env, agent, 2, 1, [])).messages.length, 0)
   // A real change between turns: one delta, capped.
   await state.create('task', { title: 'Second task', reqId: req.id })
   await state.regenerateViews()
-  await preStep(env, agent, 3, 1)
-  assert.equal(injected.length, 2)
-  const delta = injected[1].content[0].text
+  const first = await preStep(env, agent, 3, 1, [])
+  assert.equal(first.messages.length, 1)
+  const delta = first.messages[0].content[0].text
   assert.ok(delta.startsWith(L2_HEADER))
   assert.ok(Buffer.byteLength(delta, 'utf8') <= L2_LIMIT_BYTES)
   // Two more changes inside turn 3 still produce no second delta for that turn.
   await state.create('task', { title: 'Third task', reqId: req.id })
   await state.regenerateViews()
-  await preStep(env, agent, 3, 1)
-  await preStep(env, agent, 3, 2)
-  assert.equal(injected.length, 2, 'one delta per turn')
+  await preStep(env, agent, 3, 1, [])
+  await preStep(env, agent, 3, 2, [])
+  assert.equal(injected.length, 1)
   // The next turn sees the newest hash.
-  await preStep(env, agent, 4, 1)
-  assert.equal(injected.length, 3)
+  const next = await preStep(env, agent, 4, 1, [])
+  assert.equal(next.messages.length, 1)
+  assert.ok(next.messages[0].content[0].text.startsWith(L2_HEADER))
+})
+
+test('L1 that missed agent/created arrives in the first step, before the delta', async () => {
+  const { cwd } = await workspace()
+  const env = host()
+  apply(env.ctx)
+  const { agent, injected } = agentOf(cwd)
+  // No created event: the state appeared after the session began.
+  const claimed = [human()]
+  const decision = await preStep(env, agent, 2, 1, claimed)
+  assert.equal(injected.length, 0)
+  assert.equal(decision.messages.length, 2)
+  assert.ok(decision.messages[0].content[0].text.startsWith(L1_HEADER))
+  assert.equal(decision.messages[1], claimed[0])
 })
 
 test('composeL2 aggregates several changes into one bounded delta', async () => {
@@ -143,6 +212,29 @@ test('composeL2 aggregates several changes into one bounded delta', async () => 
   assert.ok(Buffer.byteLength(delta, 'utf8') <= L2_LIMIT_BYTES)
   assert.match(delta, /- TASK: 3/)
   assert.equal(delta.includes('\n- TASK: 1\n'), false)
+})
+
+/*
+PROOF: a capped delta does not end on a section header with no rows
+Behavior: when the byte cap cuts a section before its rows, the header and the blank line after
+  it are dropped with them and the truncation marker names where to read the rest.
+Fails when: the kept prefix ends on "## Counts" (or any "## " header) followed by nothing but
+  the marker — the artefact a reader saw as a header with no rows under it.
+*/
+test('a capped delta never leaves a section header with no rows', () => {
+  // The snapshot's counts line is what usually makes a delta long; one long line pushes the
+  // "## Counts" header past the budget while the header itself still fits.
+  const snapshot = `- last journal event: ${'x'.repeat(4000)}\n- REQ: 1`
+  const text = composeL2({ digest: '', snapshot, hash: 'a'.repeat(64) }, 'b'.repeat(64))
+  assert.ok(Buffer.byteLength(text, 'utf8') <= L2_LIMIT_BYTES)
+  assert.ok(text.includes('[state delta truncated; read state/views/digest.md]'))
+  assert.equal(text.includes('## Counts'), false, 'the header went with the rows it introduced')
+  const lines = text.split('\n')
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!lines[index].startsWith('## ')) continue
+    const rows = lines.slice(index + 1).filter((line) => line.trim() !== '' && !line.startsWith('['))
+    assert.ok(rows.length > 0, `header "${lines[index]}" has no rows under it`)
+  }
 })
 
 test('composeL1 keeps the digest, the plan and the snapshot in a fixed order', async () => {
@@ -169,7 +261,7 @@ test('every injected message carries a fresh identity', async () => {
   apply(env.ctx)
   const { agent, injected } = agentOf(cwd)
   await created(env, agent)
-  await preStep(env, agent, 2, 1)
+  const decision = await preStep(env, agent, 2, 1, [])
   assert.equal(injected.length, 1)
   const message = injected[0]
   assert.equal(typeof message.id, 'string')
@@ -177,6 +269,7 @@ test('every injected message carries a fresh identity', async () => {
   assert.equal(message.role, 'user')
   assert.equal(message.source.kind, 'state-feed')
   assert.ok(Array.isArray(message.content))
+  assert.equal(decision.messages.length, 0)
   // A second injection must not reuse the first identity.
   assert.notEqual(stateMessage('another').id, message.id)
 })

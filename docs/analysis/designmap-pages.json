@@ -1,0 +1,823 @@
+{
+  "schemaVersion": 1,
+  "id": "designmap-pages",
+  "rev": 25,
+  "status": "ready",
+  "createdAt": "2026-11-24T09:40:22.003Z",
+  "updatedAt": "2026-11-24T12:25:12.247Z",
+  "updatedBy": "agent",
+  "title": "Карта дизайна v2: страницы-рисунки вместо модели проекта",
+  "requestedSolution": "Владелец 2026-11-24: нужна карта дизайна, которую может править и читать и агент, и человек, с несколькими страницами, менее строгая и более визуальная, чем текущая. Решения владельца: обратная совместимость не нужна (старые карты могут исчезнуть), карта больше не связана с состоянием проекта, файл страницы — единственная правда (сцена Excalidraw), переносится только наша собственная карта.",
+  "businessOutcome": {
+    "problem": "Текущая карта — это типизированная семантическая модель с жёсткой схемой (шесть типов узлов, три типа связей, обязательные подписи), отдельным слоем геометрии (scene) и третьим хранилищем человеческих правок (overlays/annotations), плюс git-манифест со флагами устаревания. Панель не рисует то, что человек нарисовал: она рисует сцену, собранную сервером, поэтому любой нерешённый конфликт подписей = отказ рендера и пустая панель.",
+    "outcome": "Карта дизайна — это набор страниц-рисунков, каждая в своём файле: агент правит её четырьмя инструментами и читает компактным контуром, человек — на холсте Excalidraw напрямую в тот же файл. Сложная страница всё равно открывается и получает подсказки, а не отказ.",
+    "successMetrics": [
+      "страница = один файл designmap/pages/<slug>.excalidraw; пустая и перегруженная страница открываются без отказа",
+      "агент создаёт страницу из 4 узлов и 3 связей через один инструмент и читает её обратно тем же контуром, без seeds/versionNonce",
+      "правка на холсте и правка инструментом живут в одном файле; второй читает координаты первого",
+      "make verify зелёный; в дереве нет читателей manifest.json; в профиле названы только существующие инструменты",
+      "панель состояния показывает страницу через SVG и не импортирует клиент designmap"
+    ]
+  },
+  "process": {
+    "current": [
+      {
+        "id": "P-CURRENT",
+        "name": "Три хранилища и рендер, который может отказать",
+        "actors": [
+          "агент",
+          "человек",
+          "сервер"
+        ],
+        "steps": [
+          "Агент правит семантическую модель строгими операциями.",
+          "Сервер собирает сцену через ELK, раскладывает подписи и отказывает при коллизии.",
+          "Человек двигает узел — правка идёт в overlays.json, а геометрия пересобирается.",
+          "Свободные аннотации живут в аннотациях и не являются частью модели."
+        ]
+      }
+    ],
+    "target": [
+      {
+        "id": "P-TARGET",
+        "name": "Один файл, два редактора",
+        "actors": [
+          "агент",
+          "человек"
+        ],
+        "steps": [
+          "Агент вызывает map_edit: инструмент строит элементы Excalidraw и пишет файл страницы.",
+          "Человек открывает ту же страницу на холсте и правит её напрямую.",
+          "map_read возвращает контур и подсказки — не координаты сырого JSON.",
+          "map_render выдаёт SVG для колод, доков и панели состояния."
+        ]
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "FR1",
+      "kind": "FR",
+      "text": "Страница карты — один файл сцены Excalidraw.",
+      "acceptance": [
+        "страница — один файл, список — листинг каталога",
+        "пустая страница читается как пустой контур"
+      ],
+      "status": "deferred",
+      "reason": "Исполнено: importer 11/12/46; пустая страница 0/0. Evidence: task-mwui88ms-8qi4bz."
+    },
+    {
+      "id": "FR2",
+      "kind": "FR",
+      "text": "Агент работает с картой четырьмя инструментами.",
+      "acceptance": [
+        "четыре инструмента в allow-list",
+        "map_edit строит элементы сам",
+        "map_read — контур и json"
+      ],
+      "status": "deferred",
+      "reason": "Исполнено: после P3 плагин регистрирует ровно четыре map_*. Evidence: task-mwumsjzk-6thxg8."
+    },
+    {
+      "id": "FR3",
+      "kind": "FR",
+      "text": "Вид страницы не отказывает.",
+      "acceptance": [
+        "подсказки без отказов",
+        "tidy не теряет элементов"
+      ],
+      "status": "deferred",
+      "reason": "Исполнено: tidy 55→0 и 1→0; сохранение всех элементов пином теста. Evidence: task-mwulhg75-w3vwcv."
+    },
+    {
+      "id": "FR4",
+      "kind": "FR",
+      "text": "Человек правит ту же страницу на холсте.",
+      "acceptance": [
+        "панель открывает и сохраняет правку",
+        "первое перетаскивание работает"
+      ],
+      "status": "deferred",
+      "reason": "Доказано в браузере на 0.1.36: первый драг [90,248] → [190,288], сохранено, перезагрузка читает те же. Evidence: task-mwuiqz5q-edfec3."
+    },
+    {
+      "id": "FR5",
+      "kind": "FR",
+      "text": "v1 выведен из эксплуатации целиком.",
+      "acceptance": [
+        "v1-файлы и инструменты удалены",
+        "нет читателей manifest.json",
+        "доки и профиль называют только четыре map_*"
+      ],
+      "status": "deferred",
+      "reason": "Исполнено: плагин 1.0.0 с четырьмя инструментами; удалены модель, сцены, 19 модулей src, 4 клиентских, harness, fixtures, 5 скриптов bin, 26 тестов, scene-контракт; grep не находит читателя manifest.json и сломанных импортов среди 218 модулей. Evidence: task-mwumsjzk-6thxg8."
+    },
+    {
+      "id": "FR6",
+      "kind": "FR",
+      "text": "Запись анализа больше не сверяется с картой.",
+      "acceptance": [
+        "analysis не читает manifest.json",
+        "запись анализа открывается и сохраняет поля",
+        "design_drift и analysis_stale по карте сняты"
+      ],
+      "status": "deferred",
+      "reason": "Исполнено: из analysis убраны designMapFile/designOf, захват designRef и гейт design_drift/analysis_stale; proof 130/130. Evidence: task-mwumsjzk-6thxg8."
+    },
+    {
+      "id": "FR7",
+      "kind": "FR",
+      "text": "Рендеринг выполняет сам Excalidraw.",
+      "acceptance": [
+        "своего рендерера нет",
+        "map_render — PNG по границам страницы",
+        "отказ renderer_unavailable"
+      ],
+      "status": "deferred",
+      "reason": "Исполнено: page-svg.mjs удалён, PNG 640x2288 по границам 239x1096; отказ доказан. SVG нет по решению владельца. Evidence: task-mwukmy3k-7ek3d0, task-mwuky9dv-mtcxoh."
+    },
+    {
+      "id": "NFR1",
+      "kind": "NFR",
+      "text": "Круговой оборот сохраняет смысл.",
+      "acceptance": [
+        "оборот агент → человек → агент сохраняет координаты"
+      ],
+      "status": "deferred",
+      "reason": "Обе половины проверены. Evidence: task-mwuiqz5q-edfec3."
+    },
+    {
+      "id": "NFR2",
+      "kind": "NFR",
+      "text": "Сборка и упаковка целы.",
+      "acceptance": [
+        "make verify и make test зелёные",
+        "tarball совпадает с dist"
+      ],
+      "status": "deferred",
+      "reason": "make test 67/67, make verify 20/20, tarball 1.0.0 == dist. Evidence: task-mwumsjzk-6thxg8."
+    }
+  ],
+  "architecture": {
+    "contractImpact": "breaking",
+    "components": [
+      {
+        "id": "C-DESIGNMAP",
+        "name": "@cc/dsh-designmap",
+        "responsibility": "хост-плагин: страницы-файлы, четыре инструмента, перевод операций в элементы Excalidraw, tidy, SVG, экспорт компонента PageEditor",
+        "owner": "BACKEND",
+        "owns": [
+          "D-PAGE",
+          "D-OUT-SVG",
+          "D-ROLES"
+        ],
+        "dependsOn": []
+      },
+      {
+        "id": "C-STATEPANEL",
+        "name": "project-state-panel",
+        "responsibility": "режим Map панели состояния хостит PageEditor вместо SceneCanvas; карта живёт там, где живёт сейчас",
+        "owner": "BACKEND",
+        "owns": [],
+        "dependsOn": [
+          "C-DESIGNMAP"
+        ]
+      },
+      {
+        "id": "C-ANALYSIS",
+        "name": "@cc/dsh-analysis",
+        "responsibility": "удаление гейта design_drift/analysis_stale и захвата designRef",
+        "owner": "BACKEND",
+        "owns": [
+          "D-ANALYSIS-REC"
+        ],
+        "dependsOn": [
+          "C-DESIGNMAP"
+        ]
+      }
+    ]
+  },
+  "data": [
+    {
+      "id": "D-PAGE",
+      "name": "designmap/pages/*.excalidraw",
+      "owner": "kit",
+      "ownerComponentId": "C-DESIGNMAP",
+      "description": "один рисунок Excalidraw на страницу"
+    },
+    {
+      "id": "D-OUT-SVG",
+      "name": "designmap/out/*.svg",
+      "owner": "kit",
+      "ownerComponentId": "C-DESIGNMAP",
+      "description": "производный SVG одной страницы для доков, колод и панели состояния"
+    },
+    {
+      "id": "D-ANALYSIS-REC",
+      "name": "docs/analysis/*.json",
+      "owner": "kit",
+      "ownerComponentId": "C-ANALYSIS",
+      "description": "поле designRef/mapRev остаётся мёртвыми данными, никто его не читает"
+    },
+    {
+      "id": "D-ROLES",
+      "name": "profile/cordis.patch.yml",
+      "owner": "kit",
+      "ownerComponentId": "C-DESIGNMAP",
+      "description": "списки инструментов ролей: orchestrator и architect получают четыре существующих"
+    }
+  ],
+  "contracts": [
+    {
+      "id": "CT-PAGE",
+      "name": "Формат страницы",
+      "between": [
+        "C-DESIGNMAP",
+        "C-PAGES"
+      ],
+      "change": "breaking",
+      "description": "один файл на страницу; элементы Excalidraw как есть, без нашей схемы"
+    },
+    {
+      "id": "CT-TOOLS",
+      "name": "Четыре инструмента карты",
+      "between": [
+        "C-DESIGNMAP"
+      ],
+      "change": "breaking",
+      "description": "map_list, map_read (контур + json + подсказки), map_edit (один union операций), map_render (svg)"
+    },
+    {
+      "id": "CT-CMD",
+      "name": "Команда /designmap для панели",
+      "between": [
+        "C-DESIGNMAP",
+        "C-PANEL"
+      ],
+      "change": "additive",
+      "description": "операции панели: pages | page | edit | render — вместо views/overlay/annotate/label"
+    },
+    {
+      "id": "CT-ANALYSIS",
+      "name": "Запись анализа и карта",
+      "between": [
+        "C-ANALYSIS"
+      ],
+      "change": "breaking",
+      "description": "гейт design_drift/analysis_stale и захват designRef удаляются; record больше не сравнивается с картой"
+    },
+    {
+      "id": "CT-STATEPANEL",
+      "name": "Панель состояния и карта",
+      "between": [
+        "C-ANALYSIS",
+        "C-STATEPANEL"
+      ],
+      "change": "breaking",
+      "description": "панель состояния встраивает SVG одной страницы вместо SceneCanvas и scene-контракта"
+    }
+  ],
+  "invariants": [
+    {
+      "id": "INV-ONE-STORE",
+      "text": "Одно хранилище: страница — это только её файл; никаких второго и третьего слоя рядом.",
+      "scope": "C-DESIGNMAP"
+    },
+    {
+      "id": "INV-ALWAYS-OPENS",
+      "text": "Страница открывается всегда: пустая, перегруженная или с наложениями — без отказа.",
+      "scope": "C-DESIGNMAP"
+    },
+    {
+      "id": "INV-NO-STATE-LINK",
+      "text": "Ни один код не сравнивает Analysis Record с ревизией карты.",
+      "scope": "C-ANALYSIS"
+    },
+    {
+      "id": "INV-NO-COMPAT",
+      "text": "Старые файлы модели, видов, оверлеев, аннотаций и манифеста не читаются ничем после P3.",
+      "scope": "C-DESIGNMAP"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "D-NO-STATE-LINK",
+      "decision": "Карта больше не связана с состоянием проекта: манифест, stale, scan и designRef.mapRev удаляются целиком.",
+      "rationale": "Владелец: карта — визуальный инструмент, а не описание проекта.",
+      "alternatives": [
+        "оставить манифест",
+        "оставить только rev"
+      ]
+    },
+    {
+      "id": "D-PAGE-IS-TRUTH",
+      "decision": "Страница — это файл сцены Excalidraw, он единственная правда; агентские инструменты сами строят элементы.",
+      "rationale": "Владелец выбрал; один файл = нет рассинхронизации трёх хранилищ.",
+      "alternatives": [
+        "свой компактный формат с конвертацией",
+        "нативный холст"
+      ]
+    },
+    {
+      "id": "D-NO-COMPAT",
+      "decision": "Обратной совместимости нет: старые файлы удаляются из дерева, наша карта переносится одноразовым импортёром и он же удаляется.",
+      "rationale": "Владелец: существующие карты могут стать недоступны, это приемлемо.",
+      "alternatives": [
+        "мигратор",
+        "двойное чтение"
+      ]
+    },
+    {
+      "id": "D-HINTS-NOT-REFUSALS",
+      "decision": "Отказов за вид страницы нет: наложения, выход за холст и стрелки без подписи — подсказки; tidy — опциональная операция.",
+      "rationale": "Отказ рендера = пустая панель; это текущая боль владельца.",
+      "alternatives": [
+        "оставить lint-отказы",
+        "тихий рендер"
+      ]
+    },
+    {
+      "id": "D-EXCALIDRAW-RENDERS",
+      "decision": "Рендеринг только Excalidraw: фрейм в панели и тот же бандл в headless-браузере для инструмента; свой рендерер (page-svg.mjs) удаляется. Агентские ручки остаются: действия, линтер-подсказки, чтение контуром/JSON и просмотр картинки PNG через read_image.",
+      "rationale": "Владелец 2026-11-24: рендеринг не должен влиять на читаемость агентом; второй рендерер расходится с холстом (шрифт, стрелки, перенос текста).",
+      "alternatives": [
+        "свой писатель SVG",
+        "сторонний конвертер"
+      ]
+    }
+  ],
+  "openQuestions": [],
+  "sizing": {
+    "class": "L2",
+    "reasons": [
+      "меняется формат хранения карты и контракт четырёх инструментов",
+      "удаляются пять инструментов, scene-контракт и два хранилища",
+      "затрагиваются плагин карты, панель, плагин анализа и панель состояния",
+      "меняется политика: карта перестаёт быть входом гейта анализа"
+    ]
+  },
+  "designRef": {
+    "mapRev": 32,
+    "at": "2026-11-24T09:40:00.000Z",
+    "source": "designmap/manifest.json"
+  },
+  "goalId": "",
+  "goalHistory": [],
+  "trace": [
+    {
+      "requirementId": "FR1",
+      "processId": "P-TARGET",
+      "componentId": "C-DESIGNMAP",
+      "contractIds": [
+        "CT-PAGE"
+      ],
+      "dataIds": [
+        "D-PAGE"
+      ],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwui88ms-8qi4bz",
+          "role": "BACKEND",
+          "at": "2026-11-24T09:50:00.000Z",
+          "evidence": [
+            "importer 11/12/46; empty page 0/0"
+          ]
+        }
+      ],
+      "reason": "Отложено: уровень proof."
+    },
+    {
+      "requirementId": "FR2",
+      "processId": "P-TARGET",
+      "componentId": "C-DESIGNMAP",
+      "contractIds": [
+        "CT-TOOLS"
+      ],
+      "dataIds": [
+        "D-PAGE"
+      ],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwumsjzk-6thxg8",
+          "role": "BACKEND",
+          "at": "2026-11-24T15:20:00.000Z",
+          "evidence": [
+            "registered tools: map_edit, map_list, map_read, map_render"
+          ]
+        }
+      ],
+      "reason": "Отложено."
+    },
+    {
+      "requirementId": "FR3",
+      "processId": "P-TARGET",
+      "componentId": "C-DESIGNMAP",
+      "contractIds": [
+        "CT-TOOLS"
+      ],
+      "dataIds": [
+        "D-PAGE"
+      ],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwulhg75-w3vwcv",
+          "role": "BACKEND",
+          "at": "2026-11-24T14:20:00.000Z",
+          "evidence": [
+            "tidy 46 in / 46 out, no id lost"
+          ]
+        }
+      ],
+      "reason": "Отложено."
+    },
+    {
+      "requirementId": "FR4",
+      "processId": "P-TARGET",
+      "componentId": "C-STATEPANEL",
+      "contractIds": [
+        "CT-CMD",
+        "CT-STATEPANEL"
+      ],
+      "dataIds": [
+        "D-PAGE"
+      ],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwuilecz-gd1wly",
+          "role": "BACKEND",
+          "at": "2026-11-24T09:51:00.000Z",
+          "evidence": [
+            "editor inside Project state -> Map"
+          ]
+        },
+        {
+          "taskId": "task-mwulhg75-w3vwcv",
+          "role": "BACKEND",
+          "at": "2026-11-24T14:20:00.000Z",
+          "evidence": [
+            "tidy preserves 46 elements, render control renamed"
+          ]
+        },
+        {
+          "taskId": "task-mwulzyut-8tgu1v",
+          "role": "BACKEND",
+          "at": "2026-11-24T14:25:00.000Z",
+          "evidence": [
+            "no change message on a drag; panel path narrowed"
+          ]
+        },
+        {
+          "taskId": "task-mwum4ynf-b8kx6z",
+          "role": "BACKEND",
+          "at": "2026-11-24T14:30:00.000Z",
+          "evidence": [
+            "bisect: focus is the differing factor; iframe.focus() on load"
+          ]
+        },
+        {
+          "taskId": "task-mwuiqz5q-edfec3",
+          "role": "UX/UI",
+          "at": "2026-11-24T14:37:00.000Z",
+          "evidence": [
+            "browser: first drag [90,248] -> [190,288], saved, survives reload"
+          ]
+        }
+      ],
+      "reason": "Отложено: доказано браузерным прогоном."
+    },
+    {
+      "requirementId": "FR5",
+      "processId": "P-TARGET",
+      "componentId": "C-DESIGNMAP",
+      "contractIds": [
+        "CT-PAGE",
+        "CT-TOOLS"
+      ],
+      "dataIds": [
+        "D-PAGE",
+        "D-OUT-SVG"
+      ],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwumsjzk-6thxg8",
+          "role": "BACKEND",
+          "at": "2026-11-24T15:20:00.000Z",
+          "evidence": [
+            "designmap 1.0.0 registers 4 tools; v1 files deleted; 0 broken imports of 218 modules"
+          ]
+        }
+      ],
+      "reason": "Отложено: исполнено."
+    },
+    {
+      "requirementId": "FR6",
+      "processId": "P-TARGET",
+      "componentId": "C-ANALYSIS",
+      "contractIds": [
+        "CT-ANALYSIS",
+        "CT-STATEPANEL"
+      ],
+      "dataIds": [
+        "D-ANALYSIS-REC"
+      ],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwumsjzk-6thxg8",
+          "role": "BACKEND",
+          "at": "2026-11-24T15:20:00.000Z",
+          "evidence": [
+            "designMapFile/designOf/designRef/design_drift removed; analysis proof 130/130"
+          ]
+        }
+      ],
+      "reason": "Отложено: исполнено."
+    },
+    {
+      "requirementId": "FR7",
+      "processId": "P-TARGET",
+      "componentId": "C-DESIGNMAP",
+      "contractIds": [
+        "CT-TOOLS"
+      ],
+      "dataIds": [
+        "D-OUT-SVG"
+      ],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwukmy3k-7ek3d0",
+          "role": "BACKEND",
+          "at": "2026-11-24T14:00:00.000Z",
+          "evidence": [
+            "PNG 46504 B via headless Excalidraw; renderer_unavailable proven; custom writer deleted"
+          ]
+        },
+        {
+          "taskId": "task-mwuky9dv-mtcxoh",
+          "role": "BACKEND",
+          "at": "2026-11-24T14:10:00.000Z",
+          "evidence": [
+            "PNG 640x2288, bounds 239x1096, 0 elements outside"
+          ]
+        }
+      ],
+      "reason": "Отложено."
+    },
+    {
+      "requirementId": "NFR1",
+      "processId": "P-TARGET",
+      "componentId": "C-DESIGNMAP",
+      "contractIds": [
+        "CT-TOOLS"
+      ],
+      "dataIds": [
+        "D-PAGE"
+      ],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwuiqz5q-edfec3",
+          "role": "UX/UI",
+          "at": "2026-11-24T14:37:00.000Z",
+          "evidence": [
+            "human half: drag saved and read back after reload"
+          ]
+        }
+      ],
+      "reason": "Отложено."
+    },
+    {
+      "requirementId": "NFR2",
+      "processId": "P-TARGET",
+      "componentId": "C-DESIGNMAP",
+      "contractIds": [
+        "CT-PAGE"
+      ],
+      "dataIds": [
+        "D-OUT-SVG"
+      ],
+      "status": "deferred",
+      "tasks": [
+        {
+          "taskId": "task-mwumsjzk-6thxg8",
+          "role": "BACKEND",
+          "at": "2026-11-24T15:20:00.000Z",
+          "evidence": [
+            "make test 67/67, make verify 20/20, tarball 1.0.0 == dist"
+          ]
+        }
+      ],
+      "reason": "Отложено."
+    }
+  ],
+  "pendingImpacts": [],
+  "fingerprint": "0d0e2c9cfad2e7cd25a57ef44d4bc7fb998d23f37db321df84cc3448160a37c0",
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-24T09:40:22.003Z",
+      "editedBy": "agent",
+      "action": "create",
+      "status": "draft",
+      "summary": ""
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-24T09:40:31.517Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 3,
+      "at": "2026-11-24T09:40:47.695Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwui88ms-8qi4bz -> FR1, FR2, FR3, NFR1, NFR2"
+    },
+    {
+      "revision": 4,
+      "at": "2026-11-24T09:47:18.534Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwui88ms-8qi4bz -> FR1, FR2, FR3, NFR1, NFR2"
+    },
+    {
+      "revision": 5,
+      "at": "2026-11-24T09:50:26.611Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "requirements: FR1 changed, FR2 changed, FR3 changed, NFR1 changed, NFR2 changed; impacts: 5"
+    },
+    {
+      "revision": 6,
+      "at": "2026-11-24T09:51:01.652Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwuilecz-gd1wly -> FR4"
+    },
+    {
+      "revision": 7,
+      "at": "2026-11-24T10:20:06.342Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "impacts: 1"
+    },
+    {
+      "revision": 8,
+      "at": "2026-11-24T10:20:11.273Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 9,
+      "at": "2026-11-24T10:20:23.610Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwuilecz-gd1wly -> FR4"
+    },
+    {
+      "revision": 10,
+      "at": "2026-11-24T10:42:56.395Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwuilecz-gd1wly -> FR4"
+    },
+    {
+      "revision": 11,
+      "at": "2026-11-24T10:46:07.180Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "impacts: 1"
+    },
+    {
+      "revision": 12,
+      "at": "2026-11-24T10:47:28.171Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 13,
+      "at": "2026-11-24T10:47:50.363Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "requirements: FR1 changed, FR2 changed, FR3 changed, FR6 changed, FR7 added, NFR2 changed; impacts: 7"
+    },
+    {
+      "revision": 14,
+      "at": "2026-11-24T10:48:13.123Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwukmy3k-7ek3d0 -> FR7"
+    },
+    {
+      "revision": 15,
+      "at": "2026-11-24T11:02:37.155Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "draft",
+      "summary": "requirements: FR1 changed, FR7 changed, NFR2 changed; impacts: 3"
+    },
+    {
+      "revision": 16,
+      "at": "2026-11-24T11:02:48.389Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 17,
+      "at": "2026-11-24T11:11:56.269Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwulhg75-w3vwcv -> FR4"
+    },
+    {
+      "revision": 18,
+      "at": "2026-11-24T11:20:36.244Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "requirements: FR1 changed, FR2 changed, FR3 changed, FR4 changed, FR5 changed, FR6 changed, FR7 changed, NFR1 changed, NFR2 changed; impacts: 9"
+    },
+    {
+      "revision": 19,
+      "at": "2026-11-24T11:26:20.242Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwulzyut-8tgu1v -> FR4"
+    },
+    {
+      "revision": 20,
+      "at": "2026-11-24T11:30:13.254Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwum4ynf-b8kx6z -> FR4"
+    },
+    {
+      "revision": 21,
+      "at": "2026-11-24T11:38:00.616Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "requirements: FR3 changed, FR4 changed, FR7 changed, NFR1 changed, NFR2 changed; impacts: 5"
+    },
+    {
+      "revision": 22,
+      "at": "2026-11-24T11:48:33.993Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwumsjzk-6thxg8 -> FR5"
+    },
+    {
+      "revision": 23,
+      "at": "2026-11-24T11:52:04.439Z",
+      "editedBy": "agent",
+      "action": "link_task",
+      "status": "ready",
+      "summary": "task-mwumsjzk-6thxg8 -> FR5, FR6"
+    },
+    {
+      "revision": 24,
+      "at": "2026-11-24T12:25:03.412Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": ""
+    },
+    {
+      "revision": 25,
+      "at": "2026-11-24T12:25:12.247Z",
+      "editedBy": "agent",
+      "action": "upsert",
+      "status": "ready",
+      "summary": "requirements: FR1 changed, FR2 changed, FR3 changed, FR4 changed, FR5 changed, FR6 changed, FR7 changed, NFR1 changed, NFR2 changed; impacts: 9"
+    }
+  ]
+}

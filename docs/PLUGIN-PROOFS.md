@@ -52,10 +52,10 @@
 | `research-first` | 0.1.4 | да | перехват `tools/pre-execute`, инструмент `research_waive`, раздел `research:first` (`plugins/research-first/research-first.mjs:177,203,237`) | своего прогона нет | не проверено |
 | `project-rules` | 0.1.10 | да | раздел `project:rules` из `.dsh/rules.md` и панель Rules; правка файла агенту запрещена (`rules_human_only`) (`plugins/project-rules/index.js:323,348,361`) | своего прогона нет | не проверено |
 | `test-cases` | 0.1.17 | да | 12 инструментов `case_*`, регистрируются только если allow-строка пресета их называет (`surfaceAllows`), команда, сервисы, панель | `node --test plugins/test-cases/test/runner.test.mjs` → exit 0, 12 pass | подтверждено прогоном |
-| `analysis` | 0.1.9 | да | 4 корневых инструмента `analysis_*` и раздел `deployment:analysis-policy` (`plugins/analysis/analysis.mjs:203`) | тот же прогон `analysis-before-decomposition-proof` → exit 0, 130/130 | подтверждено прогоном |
+| `analysis` | 0.1.21 | да | 4 корневых инструмента `analysis_*` и раздел `deployment:analysis-policy` (`plugins/analysis/analysis.mjs:203`) | тот же прогон `analysis-before-decomposition-proof` → exit 0, 130/130 | подтверждено прогоном |
 | `run-code-projection` | 0.1.3 | да | 0 инструментов; перехват `tools/post-execute` для набора инструментов (`run_code`, `bash`, `pwsh`, `read`, `web_fetch`, `hindsight_read_page`, `hindsight_search_pages`, `grep`, `glob`, `outline`, `task_list`); у `read` свой порог 64 КиБ (`TOOL_MIN_BYTES`), а чтение файла из `.dsh/spill` не проецируется ни при каком размере | `node plugins/run-code-projection/proof/proof.mjs` → exit 0, 22 проверки PASS; `node plugins/run-code-projection/proof/negative-control.mjs` → exit 0: тот же proof падает на коде 0.1.2 (4 красные строки: три чтения по пути из баннера и порог `read`) | подтверждено прогоном |
 | `tool-families` | 0.1.14 | да | 0 инструментов; 4 перехвата и сервис `toolFamilies` с `allows()` — регистрация инструментов кита в контексте агента теперь спрашивает политику (2026-11-18: `tools.restrict` маскирует только глобальные регистрации) | `node scripts/tool-families-proof.mjs` → exit 0, 97/97 (перепроверено); политика доказана для native, в PTC не действует — см. «Оговорка PTC» | частично |
-| `designmap` | 0.1.17 | да | 7 инструментов `designmap_*` только для `orchestrator` (`plugins/designmap/index.js:53-56`), команда `/designmap`, панель Design map | `cd plugins/designmap && node --test test/*.test.mjs` → exit 0, 125 тестов, 125 pass (перепроверено); упаковка 0.1.17 совпадает с исходником — см. «Упаковка `designmap` 0.1.17» | подтверждено прогоном |
+| `designmap` | 1.0.0 | да | 4 страничных инструмента `map_*` только для `orchestrator` (`plugins/designmap/index.js`), команда `/designmap` (pages/page/save/tidy-page/render-page), редактор `PageEditor` в Project state → Map; v1 (модель, сцена-контракт, семь `designmap_*`) удалён в P3 | `cd plugins/designmap && node --test test/*.test.mjs` → exit 0, 18 тестов, 18 pass; `make verify` → exit 0, 20/20; упаковка 1.0.0 совпадает с исходником — см. «Упаковка `designmap` 1.0.0» | подтверждено прогоном |
 
 ## Godot: не проверено
 
@@ -69,7 +69,7 @@
 
 ## Оговорка PTC
 
-Все прогоны выше доказывают **native**-поведение: набор инструментов, который харнесс строит сам. В PTC набор строит сгенерированный SDK, и аудит измерил расхождение: в `ToolArgsMap` сессий gatherer и reviewer остаются 24 инструмента `mcp__playwright__*`, которые политика роли запрещает, плюс `designmap_*` (7), `presentation` и `diagram`, которых у этих ролей нет (`reports/plugin-audit/FINDINGS.md`, §5).
+Все прогоны выше доказывают **native**-поведение: набор инструментов, который харнесс строит сам. В PTC набор строит сгенерированный SDK, и аудит измерил расхождение: в `ToolArgsMap` сессий gatherer и reviewer остаются 24 инструмента `mcp__playwright__*`, которые политика роли запрещает, плюс `designmap_*` (в том снимке 7; после P3 плагин регистрирует 4 страничных `map_*`), `presentation` и `diagram`, которых у этих ролей нет (`reports/plugin-audit/FINDINGS.md`, §5).
 
 Из этого следуют ограничения статусов:
 
@@ -80,15 +80,15 @@
 
 Причина не изолирована, вызовность не проверена. Это работа для задачи о PTC, а не для этой страницы.
 
-## Упаковка `designmap` 0.1.17
+## Упаковка `designmap` 1.0.0
 
-Тарбол `plugins/cc-dsh-designmap-0.1.17.tgz` совпадает с исходником `plugins/designmap`:
+Тарбол `plugins/cc-dsh-designmap-1.0.0.tgz` совпадает с исходником `plugins/designmap`:
 
-- `node scripts/check-portability.mjs` → exit 0, 17/17 проверок, включая `tarball:matches-source` и `tarball:version-bumped` (перепроверено);
-- в тарболе 11 записей: `package.json`, `README.md`, `client.js`, `client.frame.js` и 6 модулей `dist/`; все 10 файлов, кроме манифеста, совпадают с исходником побайтово (`cmp`), манифест совпадает как документ (та же версия 0.1.17 и те же поля);
-- `sha256` тарбола: `b1e70df5363fee27d2b8f373a215b0cdae6272c4117cc9b67fe8c0bd46f8b62c`.
+- `make verify` → exit 0, `20/20 portability and packaging checks passed`, включая `tarball:matches-source` и `tarball:version-bumped`;
+- в тарболе 5 записей: `package.json`, `README.md`, `client.js`, `client.frame.js` и `dist/index.mjs`; `dist/index.mjs` и `client.js` совпадают с исходником побайтово (`diff` без вывода);
+- `sha256` тарбола: `29930baf8de6a49955effce8bb6ed5059c3361ad9421360a7cf9666d042b5cad`.
 
-Это закрывает находку аудита «`check-portability` exit 1: `cc-dsh-designmap-0.1.16.tgz` расходится с исходником по `README.md`» (`reports/plugin-audit/FINDINGS.md`, §6, последняя строка). Там описан тарбол 0.1.16; текущий 0.1.17 перепакован и проверку проходит. В отчёте аудита эта строка не исправлена — он остаётся снимком своего времени, а актуальное состояние упаковки — здесь.
+Новая мажорная версия 1.0.0: design-map v1 удалён (модель, сцена-контракт, семь `designmap_*`), старые карты больше не читаются — шима, алиаса и двойного читателя нет. Предыдущая запись об упаковке 0.1.17 относилась к v1 и снята с актуального состояния.
 
 ## Удалённый `babysitter` (2026-11-17)
 
@@ -105,7 +105,7 @@
 | `node scripts/tool-families-proof.mjs` | exit 0, 97/97 |
 | `node scripts/outline-selftest.mjs` | exit 0, 6 passed, 0 failed |
 | `node scripts/notify-selftest.mjs --dry-run` | exit 0, `dry-run: nothing was spawned` |
-| `cd plugins/designmap && node --test test/*.test.mjs` | exit 0, 125 tests, 125 pass |
+| `cd plugins/designmap && node --test test/*.test.mjs` | exit 0, 18 tests, 18 pass |
 
 ## Что осталось
 

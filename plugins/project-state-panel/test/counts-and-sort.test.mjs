@@ -17,7 +17,8 @@ Fails when: a counter stops following its rule, the Relevance order or one of it
   a sort stops being deterministic or mutates its input, the panel loses the Board/List toggle and
   the sort tags with aria-pressed, a task with reqIds reads as "no requirement", the status write
   stops being a two-call compare-and-set or swallows a refusal code, or any command call site other
-  than designmap views, taskboard owner-status and the state edit appears beside the reads.
+  than taskboard owner-status and the state edit appears beside the reads (the design map's
+  transport belongs to the page editor since v2 P2).
   CASE_NEGATIVE_CONTROL=expect-pre-fix flips the assertions to the pre-fix shape (no helpers, no
   list, no owner-status write), which must fail on the fixed files (the measured red).
 Production path: plugins/project-state-panel/client.js — the State header trigger, BoardMode,
@@ -259,12 +260,14 @@ async function violations() {
   }
   if (/workspaceFiles\.write/.test(source)) found.push('the panel declares a workspaceFiles.write call')
   // TWO COMMAND CALL SITES, ONE WRITE: designmap's read-only views and the board's owner-status.
-  // THREE call sites are allowed, and each is named below: designmap `views` (a read) and the
-  // owner's two writes - the taskboard's `owner-status` and the state core's `/state` edit.
-  // A fourth one means a new write path appeared without a decision.
+  // TWO call sites are allowed, and each is named below: the owner's two writes - the
+  // taskboard's `owner-status` and the state core's `/state` edit. The design map is no longer
+  // one of them: v2 P2 mounts the designmap PAGE EDITOR, which speaks to the host through its
+  // own bridge (@cc/dsh-designmap client), so a `/designmap` command here would be a second
+  // transport for the same store. A third call site means a new write path appeared.
   const commandCalls = source.match(/commands\.execute\(/g) ?? []
-  if (commandCalls.length !== 3) found.push(`the panel has ${commandCalls.length} command call sites; only designmap views (read), taskboard owner-status and the state edit are allowed`)
-  if (!/\/designmap /.test(source)) found.push('the designmap views command is missing')
+  if (commandCalls.length !== 2) found.push(`the panel has ${commandCalls.length} command call sites; only taskboard owner-status and the state edit are allowed`)
+  if (/\/designmap /.test(source)) found.push('the panel still sends designmap commands itself; the page editor owns that transport')
   if (!/\/taskboard /.test(source)) found.push('the taskboard owner-status command is missing')
   if (!/\/state /.test(source)) found.push('the state edit command is missing')
   if (!/buildEditPatch/.test(source)) found.push('the Edit tab builds no patch')

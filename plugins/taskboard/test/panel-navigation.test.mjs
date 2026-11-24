@@ -1,15 +1,18 @@
 /*
 PROOF: panel navigation controls live in the panel, not in the taskboard strip or the session header
-Behavior: the taskboard client registers only the Tasks panel in main, the designmap client registers
-  only the Design map panel in main (its bundle rebuilt from client/entry.jsx), and the state panel
-  renders Back to chat, the left-sidebar toggle and a right-column toggle (no third "Close right
-  sidebar" button) whose aria-pressed and
+Behavior: the taskboard client registers only the Tasks panel in main; the designmap client
+  registers no slot at all - its editor moved to Project state -> Map, so client/entry.jsx and its
+  built client.js export PageEditor and a deliberate no-op apply and register no main-slot panel;
+  and the state panel renders Back to chat, the left-sidebar toggle and a right-column toggle (no
+  third "Close right sidebar" button) whose aria-pressed and
   label ("Скрыть правую колонку" / "Показать правую колонку") reflect the ps-rail's presence.
 Fails when: conversation.session.header.actions is registered again in the taskboard or designmap
   client, the taskboard header button (aria-label "Open tasks") or the designmap HeaderTrigger comes
-  back, the panel loses Back to chat / the sidebar toggle / the rail toggle and its state, or the
-  rail stops leaving the grid when it is hidden. CASE_NEGATIVE_CONTROL=expect-pre-fix flips the
-  assertions to the pre-fix shape, which must fail on the fixed files (the measured red).
+  back, the designmap bundle registers a main-slot panel again (name: "main" / key: "designmap" /
+  LivePanel) or loses the PageEditor or apply export, the panel loses Back to chat / the sidebar
+  toggle / the rail toggle and its state, or the rail stops leaving the grid when it is hidden.
+  CASE_NEGATIVE_CONTROL=expect-pre-fix flips the assertions to the pre-fix shape, which must fail on
+  the fixed files (the measured red).
 Production path: plugins/taskboard/client.js, plugins/project-state-panel/client.js,
   plugins/designmap/client/entry.jsx and its built plugins/designmap/client.js; the browser proof is
   taken by the orchestrator on a second server, this test is the static regression.
@@ -51,8 +54,14 @@ function violations() {
   if (/conversation\.session\.header\.actions/.test(bundle)) found.push('conversation.session.header.actions is still registered in the built plugins/designmap/client.js')
   if (/HeaderTrigger/.test(bundle)) found.push('HeaderTrigger is still declared in the built plugins/designmap/client.js')
   if (/Open the design map/.test(bundle)) found.push('the designmap header button (aria-label "Open the design map") is still declared')
-  if (!/name: "main"/.test(bundle) || !/key: "designmap"/.test(bundle)) found.push('the Design map panel registration in main is missing from the built plugins/designmap/client.js')
-  if (!/function LivePanel\(/.test(bundle)) found.push('the built plugins/designmap/client.js lost the LivePanel the entry.jsx defines (stale or hand-edited bundle)')
+  // v2 P2: the main-slot panel was retired on purpose. The editor is the PageEditor export that
+  // Project state -> Map mounts; apply exists only so the shell activates the entry (a module with
+  // no apply is reported as "import failed" at boot and its exports are not offered to siblings).
+  if (/name: "main"/.test(bundle) || /key: "designmap"/.test(bundle) || /LivePanel/.test(bundle)) found.push('the retired Design map main-slot registration (name: "main" / key: "designmap" / LivePanel) is back in the built plugins/designmap/client.js')
+  if (!/export \{[^}]*\bPageEditor\b/.test(entry)) found.push('PageEditor is not exported from plugins/designmap/client/entry.jsx')
+  if (!/PageEditor: \(\) => PageEditor/.test(bundle)) found.push('the built plugins/designmap/client.js lost the PageEditor export the entry.jsx defines (stale or hand-edited bundle)')
+  if (!/export function apply\(/.test(entry)) found.push('the module entry apply() is not exported from plugins/designmap/client/entry.jsx')
+  if (!/apply: \(\) => apply/.test(bundle)) found.push('the built plugins/designmap/client.js lost the apply export the entry.jsx defines, so the shell would report the package as failed to import')
   // State panel: leave, left column, and the right-column toggle.
   if (!/Back to chat/.test(panel)) found.push('Back to chat is missing from plugins/project-state-panel/client.js')
   if (!/toggleSidebar\(\)/.test(panel)) found.push('layout.toggleSidebar() is missing from plugins/project-state-panel/client.js')

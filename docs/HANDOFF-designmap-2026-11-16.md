@@ -1,3 +1,5 @@
+> **Историческая запись (design-map v1).** v1 удалён в P3 2026-11-24: файлы модели, сцена-контракт и семь инструментов `designmap_*` больше не существуют; имена ниже — история, не инструкция. Актуальное описание — `docs/DESIGNMAP-V2.md`.
+
 # HANDOFF — Design map, 2026-11-16 (readability + human editing shipped)
 
 State: clean at the commit that adds the annotation layer (after `f94a98c` review

@@ -49,7 +49,7 @@ const PROFILE = join(ROOT, 'profile', 'cordis.patch.yml')
 const WINDOW_1M = 1_048_576
 const WINDOW_272K = 272_000
 const CONTRACT_TOOLS = ['task_get', 'task_update', 'task_close', 'analysis_read', 'analysis_upsert', 'skill', 'delegation_brief', 'delegation_return']
-const OLD_ROW = ['designmap_export', 'designmap_open', 'designmap_render', 'designmap_scan', 'hindsight_reflect', 'task_link', 'task_pause', 'task_remove', 'task_resume']
+const OLD_ROW = ['designmap_apply', 'designmap_export', 'designmap_lint', 'designmap_open', 'designmap_render', 'designmap_scan', 'designmap_status', 'hindsight_reflect', 'task_link', 'task_pause', 'task_remove', 'task_resume']
 const INTAKE = ['case_drift', 'case_get', 'case_list', 'case_record', 'delegation_brief']
 
 const control = process.env.CASE_NEGATIVE_CONTROL ?? ''

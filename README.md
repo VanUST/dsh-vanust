@@ -57,15 +57,13 @@ deployment needs beyond upstream, across all your machines (2× Linux, 1× Windo
   panel reads through `workspaceFiles` and saves through the `/design-map` command (not a
   tool, so it is never gated), one file carries one revision counter, and a read returns
   `updatedAt`/`stale` for the orchestrator.
-- **`@cc/dsh-designmap`** *(M4, replaces `@cc/dsh-design-map`)* — semantic
-  `designmap/model.yaml` + `designmap/views.yaml` rendered by a deterministic ELK
-  layered layout into `designmap/out/<viewId>.scene.json` and `out/index.json`, with a
-  zod-strict contract, overlay merge + GC and lint. Seven `designmap_*` host tools cover
-  status/scan/apply/render/lint/open/export; the human edits only the visual layer
-  (`designmap/overlays.json`) through `/designmap op:'overlay'`, and the read-only
-  sidebar panel renders the same scene (`client.js`). SVG is canonical; PNG is optional
-  and needs an external converter. The 0.2.0 Excalidraw panel is disabled in the profile
-  patch (files kept for rollback). The vision loop is deliberately not shipped.
+- **`@cc/dsh-designmap`** — the system design map as one Excalidraw page per map under
+  `designmap/pages/<slug>.excalidraw`, edited by the human in **Project state -> Map** and
+  by the orchestrator through four host tools (`map_list`, `map_read`, `map_edit`,
+  `map_render`); `map_render` renders a page to PNG/SVG with Excalidraw itself in a
+  headless browser. The page file is the only store — there is no model, view, overlay,
+  annotation or manifest behind it. The four tools are gated to the orchestrator preset, so
+  a delegated specialist cannot rewrite the design it was asked to work inside.
 - **`@cc/dsh-test-cases`** — the observed test-case library in `docs/cases/`. Twelve host tools (`case_record`, `case_update`, `case_verify`, `case_run`, `case_suite`, `case_gate`, `case_list`, `case_get`, `case_supersede`, `case_deprecate`, `case_remove`, `case_drift`) over one JSON file per case: compare-and-set edits keep history, an automated case records its test path, exact run command and the observed red/green runs, a documented-only case keeps steps, expected behaviour and the reason it cannot be a test. `case_run` executes the stored command through the host shell and records the measurement (exit code, duration, the declared checks evaluated over the driver's `CASE_SUMMARY`); a green run with no recorded red is a measurement, not a verification — the measured red is `case_run` with `mode:'red'` and a negative control. A changed surface file or a missing test marks a case stale instead of deleting the requirement; `case_gate` and the taskboard refuse to close a task whose linked automated case is not verified; the orchestrator gets only the intake subset (record a human requirement as unverified, read the library). The rule is observe first, then persist — no speculative tests.
 - **`@cc/dsh-analysis`** — analysis before decomposition. One repo-tracked
   `docs/analysis/<initiative>.json` per initiative keeps the business outcome **separate**

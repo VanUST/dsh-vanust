@@ -3,7 +3,7 @@
 One Analysis Record per initiative in `docs/analysis/<initiative>.json`, four root-only
 tools over it, and a proportional delegation gate. The record is the only place a
 requirement is traced to its process, component, task and evidence; the taskboard stays a
-lifecycle ledger and the design map stays a scene.
+lifecycle ledger and the design map is a drawing the record may name in prose.
 
 ## Why a repo-tracked record
 
@@ -42,12 +42,9 @@ written through the service only.
 - `trace[]` — `{requirementId, processId, componentId, contractIds, dataIds, status, tasks[]}`
   where a task carries its id, role and evidence. `delegate_task` appends the task id before
   the child starts.
-- `designRef` — `{mapRev, at, source}` captured when the record becomes `ready`; `at` is
-  filled on capture and must be a parseable ISO timestamp when supplied. `source` defaults
-  to `designmap/manifest.json`, whose `rev` the mounted designmap plugin advances on a
-  semantic model change (the retired `design.excalidraw` scene is still readable for a
-  rollback configuration). Drift compares only `mapRev`. A bare `designRef` bump reopens
-  the record and records an impact; it does not clear drift by itself.
+- `designRef` — dead data from the retired design-map v1: an existing record keeps
+  `{mapRev, at, source}` and a supplied value is still validated, but no write captures it,
+  no check reports drift and no gate refuses on it.
 - `goalId` / `goalHistory` — a commitment, not a label. `update_goal action:"complete"` is
   refused while a record that names the goal now or in its history is not `completed`; a
   linked record cannot be detached while it is ready/completed.
@@ -64,10 +61,10 @@ written through the service only.
 
 | Tool | What it does |
 |---|---|
-| `analysis_read` | Read one record, or list the store. Returns rev, status, fingerprint match, `legacyFingerprint` when the stored hash is a recognised earlier algorithm, `ambiguousOwnership`, design drift, `readiness` (the same object as `check`) and `completion` with `state:"complete"|"in_progress"`, counts and findings. |
-| `analysis_upsert` | Create or edit with `expectedRev`. The reply is a SUMMARY — `ok`, `created`, `rev`, `status`, `title`, counts, `readiness`, `check`, `completion`, `pendingImpacts` and `reqMirror` — not the record it just wrote (that was 10–15 KB per call); call `analysis_read` when the full record is actually needed. **Strict, aggregate and lossless:** unknown keys, wrong types, invalid enums, empty required nested fields and over-limit content are refused as `invalid_record` with a `findings[]` carrying the exact JSON path and, for limits, `max`/`actual`. Every independent structural error AND the independent readiness findings come back in one call; a semantic finding that merely cascades from a structurally broken subtree is suppressed. Ids are compared after the same trim the normalizer applies, and `process.current`/`process.target` share one id namespace. A refused call leaves the file byte-identical and the revision unchanged. **Nothing is truncated:** title 200, requestedSolution 8000, business/outcome text 4000, successMetrics 20, requirement text 4000, acceptance 30, sizingReasons/actors 20, steps 50, decision/rationale/question/answer 2000, name 200, responsibility/description 1000, owner 120, evidence 20, alternatives 10, goalHistory 50. Content is measured in UTF-16 code units and compared whole, so a surrogate pair is never split. `data.ownerComponentId` is canonical; `owns` is derived/legacy. `status:"ready"` is refused with `analysis_incomplete` unless the check has no errors; `status:"completed"` is refused with `completion_blocked` until every requirement is proven with evidence or explicitly deferred/rejected. Adding/removing a requirement, changing a requirement to/from deferred/rejected, changing a trace mapping, editing the process/business outcome/architecture/data/contracts/invariants/decisions/open questions/sizing, moving `designRef` or changing `goalId` on a ready record records a pending impact or is refused; a requirement with traced tasks cannot be removed (`requirement_has_tasks`) and a task link cannot be erased from any status (`trace_task_removal`). A hand-edited file is refused (`fingerprint_mismatch`) until the caller passes `acceptHandEdit: true`; a recognised `0.1.4` fingerprint is migrated instead (history action `migrate`). |
-| `analysis_check` | Completeness, not shape: acceptance, component/data role ownership, contract impact, unresolved trace, proven-without-task/evidence, deferred-without-reason, blocking questions, design drift, fingerprint. The response separates `readiness` from `completion`; a fresh ready record is `readiness.ok:true` and `completion.state:"in_progress"` with the planned count, not a second readiness error. `forCompletion:true` enforces completion. |
-| `analysis_impact` | Mark a requirement/component/contract/data/design change, return the affected ids and tasks, reopen the record as `draft`, and add a pending impact. The next L1/L2 delegation is refused `analysis_stale` until `analysis_upsert` resolves it. |
+| `analysis_read` | Read one record, or list the store. Returns rev, status, fingerprint match, `legacyFingerprint` when the stored hash is a recognised earlier algorithm, `ambiguousOwnership`, `readiness` (the same object as `check`) and `completion` with `state:"complete"|"in_progress"`, counts and findings. |
+| `analysis_upsert` | Create or edit with `expectedRev`. The reply is a SUMMARY — `ok`, `created`, `rev`, `status`, `title`, counts, `readiness`, `check`, `completion`, `pendingImpacts` and `reqMirror` — not the record it just wrote (that was 10–15 KB per call); call `analysis_read` when the full record is actually needed. **Strict, aggregate and lossless:** unknown keys, wrong types, invalid enums, empty required nested fields and over-limit content are refused as `invalid_record` with a `findings[]` carrying the exact JSON path and, for limits, `max`/`actual`. Every independent structural error AND the independent readiness findings come back in one call; a semantic finding that merely cascades from a structurally broken subtree is suppressed. Ids are compared after the same trim the normalizer applies, and `process.current`/`process.target` share one id namespace. A refused call leaves the file byte-identical and the revision unchanged. **Nothing is truncated:** title 200, requestedSolution 8000, business/outcome text 4000, successMetrics 20, requirement text 4000, acceptance 30, sizingReasons/actors 20, steps 50, decision/rationale/question/answer 2000, name 200, responsibility/description 1000, owner 120, evidence 20, alternatives 10, goalHistory 50. Content is measured in UTF-16 code units and compared whole, so a surrogate pair is never split. `data.ownerComponentId` is canonical; `owns` is derived/legacy. `status:"ready"` is refused with `analysis_incomplete` unless the check has no errors; `status:"completed"` is refused with `completion_blocked` until every requirement is proven with evidence or explicitly deferred/rejected. Adding/removing a requirement, changing a requirement to/from deferred/rejected, changing a trace mapping, editing the process/business outcome/architecture/data/contracts/invariants/decisions/open questions/sizing, changing `goalId` on a ready record records a pending impact or is refused; a requirement with traced tasks cannot be removed (`requirement_has_tasks`) and a task link cannot be erased from any status (`trace_task_removal`). A hand-edited file is refused (`fingerprint_mismatch`) until the caller passes `acceptHandEdit: true`; a recognised `0.1.4` fingerprint is migrated instead (history action `migrate`). |
+| `analysis_check` | Completeness, not shape: acceptance, component/data role ownership, contract impact, unresolved trace, proven-without-task/evidence, deferred-without-reason, blocking questions, fingerprint. The response separates `readiness` from `completion`; a fresh ready record is `readiness.ok:true` and `completion.state:"in_progress"` with the planned count, not a second readiness error. `forCompletion:true` enforces completion. |
+| `analysis_impact` | Mark a requirement/component/contract/data/architecture change, return the affected ids and tasks, reopen the record as `draft`, and add a pending impact. The next L1/L2 delegation is refused `analysis_stale` until `analysis_upsert` resolves it. |
 
 A delegated child gets none of these tools: keeping the system design is the root's job.
 
@@ -100,7 +97,7 @@ delegation behaviour.
 |---|---|
 | `L0` | A question or a local fix. No Analysis Record; the gate answers before reading a file. |
 | `L1` | A contained feature. Needs `analysisId`, `requirementIds` and a `ready` record. |
-| `L2` | Cross-component, contract or data change. Same, plus `architectureImpact: true` checks the design-map revision. |
+| `L2` | Cross-component, contract or data change. Same, plus `architectureImpact: true` records an architecture-affecting delegation. |
 
 **Exempt:** a read-only **preset** (`research`, `gatherer`, `reviewer`, `critic`) and a `taskId`
 attach with an explicit `legacyAttach: true`, with no `changeClass`/`analysisId`. The role label
@@ -111,11 +108,11 @@ A refused gate writes no task row and starts no child:
 
 - `analysis_required` — no record, not ready, a missing/unknown requirement, or an
   architecture impact with no component.
-- `analysis_stale` — an unresolved impact, a hand-edited fingerprint, a design map that moved
-  for architecture work, or a record that was `ready` but no longer checks.
+- `analysis_stale` — an unresolved impact, a hand-edited fingerprint, or a record that was
+  `ready` but no longer checks.
 
 The record is the trace store: there is no `analysisId`/`requirementIds` column in the
-taskboard and no second design store. `designMapRev` is a reference.
+taskboard and no second design store.
 
 ## Completion guards
 
@@ -136,7 +133,6 @@ A monotonic `tools.guard` on every agent (root and child) refuses:
 | key | default | meaning |
 |---|---|---|
 | `dir` | `docs/analysis` | store directory relative to the session workspace |
-| `designMapFile` | `designmap/manifest.json` | design-map file whose `rev` is referenced; the manifest written by `@cc/dsh-designmap` (a legacy `design.excalidraw` scene is still read) |
 | `historyLimit` | `50` | retained revision entries |
 | `promptSection` | `true` | register the short root policy section |
 
@@ -146,5 +142,4 @@ A monotonic `tools.guard` on every agent (root and child) refuses:
 `delegate_task` body and a real taskboard service over a disposable directory. It is the
 red-first/green proof for the owner cases in `docs/cases/` and covers the feature path,
 strict nested schema and aggregate findings, canonical ownership, a mid-work
-change/conflict, a new-chat reload, L0, readiness vs completion, design drift and a hand
-edit.
+change/conflict, a new-chat reload, L0, readiness vs completion and a hand edit.

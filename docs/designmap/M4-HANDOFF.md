@@ -1,3 +1,5 @@
+> **Историческая запись (design-map v1).** v1 удалён в P3 2026-11-24: файлы модели, сцена-контракт и семь инструментов `designmap_*` больше не существуют; имена ниже — история, не инструкция. Актуальное описание — `docs/DESIGNMAP-V2.md`.
+
 # M4 handoff — package, docs, profile wiring, retirement
 
 Status at handoff: **M4 deliverables written; install/restart deliberately not done.**

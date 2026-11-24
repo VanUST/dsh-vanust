@@ -77,15 +77,41 @@ export function testHashState(record, workspace, options = {}) {
   return { recorded, actual, ok: recorded !== null && actual !== null && recorded === actual }
 }
 
-/** Stable, filesystem-safe id from a title. */
+/**
+ * The ASCII letters this library uses for each letter of the Russian alphabet.
+ *
+ * WHY A TABLE AND NOT A LIBRARY. A title written in Russian must still become a case id, and no
+ * dependency is worth a fixed substitution table. Lowercase only: slugify lowercases first. The
+ * soft sign and hard sign are dropped, which is why they map to the empty string.
+ */
+const CYRILLIC_TO_ASCII = {
+  а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z', и: 'i', й: 'y',
+  к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f',
+  х: 'kh', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'shch', ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya',
+}
+
+/**
+ * Stable, filesystem-safe id from a title.
+ *
+ * A title is not always ASCII. The slug rules below keep only [a-z0-9], so before they run every
+ * Cyrillic letter is replaced by the table above; without that step a Russian title loses every
+ * letter, every such title collapses to the same id, and a second case cannot be recorded. When
+ * nothing transcribable survives (punctuation or an empty title) the id is a short sha1 of the
+ * title, so two titles still differ and no stored case can collide on a shared constant.
+ * ASCII titles are untouched by the table, so their ids stay byte-identical.
+ */
 export function slugify(title) {
-  const base = String(title)
+  const text = String(title)
+  const base = text
+    .normalize('NFC')
     .toLowerCase()
+    .replaceAll(/[\u0400-\u04ff]/gu, (letter) => CYRILLIC_TO_ASCII[letter] ?? '')
     .normalize('NFKD')
     .replaceAll(/[^a-z0-9]+/gu, '-')
     .replaceAll(/^-+|-+$/gu, '')
     .slice(0, 60)
-  return base === '' ? 'case' : base
+    .replaceAll(/-+$/gu, '')
+  return base === '' ? `case-${createHash('sha1').update(text).digest('hex').slice(0, 12)}` : base
 }
 
 /**

@@ -63,6 +63,8 @@ help:
 	@echo "make session-identity         - report stored messages with no identity (they refuse the whole session)"
 	@echo "make harness-guard            - check the harness patch that makes that class impossible (3 = unpatched)"
 	@echo "make verify                   - run every check the kit ships (they READ the tree)"
+	@echo "  check-role-table            - the README role table must name exactly DEFAULT_ROLE_TOOLS"
+	@echo "  check-prompt-playbooks      - every preset keeps its two-direction playbook and CHILD_POLICY stays current"
 	@echo "make test                     - run the tests that RUN the kit: plugin tests, then proof scripts"
 	@echo "  ONLY=<substring>            - run only the test and proof paths containing it"
 	@echo "make cases                    - execute the automated cases in docs/cases; exit 1 when one is not verified"
@@ -139,6 +141,8 @@ verify:
 	node scripts/check-portability.mjs
 	node scripts/check-documentation.mjs
 	node scripts/check-glossary.mjs
+	node scripts/check-role-table.mjs
+	node scripts/check-prompt-playbooks.mjs
 	node scripts/schema-lint.mjs
 	node scripts/context-budget.mjs
 	node scripts/harness-identity-guard.mjs --check

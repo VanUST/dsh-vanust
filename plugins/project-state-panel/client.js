@@ -3,7 +3,7 @@
  * One panel, four modes over ONE selection:
  *   Requirements   the REQ registry with criteria and its gaps
  *   Board          TASK grouped by status, filtered by the selected REQ
- *   Design map     the designmap scene, drawn by the existing React Flow renderer
+ *   Design map     the designmap PAGE EDITOR over designmap/pages/*.excalidraw (v2 P2)
  *   Tests & trace  TEST rows and the REQ x TASK/TEST/DECISION matrix
  *
  * Data: `state/views/index.json` is the link contract. The entity files under
@@ -27,7 +27,10 @@ window.__ModuleLoader__.load({
     const h = React.createElement
     const { useCallback, useEffect, useMemo, useRef, useState } = React
     const designmap = require('@cc/dsh-designmap')
-    const SceneCanvas = designmap !== null && typeof designmap === 'object' ? designmap.SceneCanvas : undefined
+    // v2 P2: the design map mode hosts the PAGE EDITOR, not the v1 React Flow scene. The client
+    // external stays in package.json; only the import target changes.
+    const PageEditor = designmap !== null && typeof designmap === 'object' ? designmap.PageEditor : undefined
+    const createDesignmapHost = designmap !== null && typeof designmap === 'object' ? designmap.createRemoteHost : undefined
 
     const PANEL_ID = 'project-state'
     const SESSION_KEY = 'dsh:project-state-panel:session'
@@ -1138,35 +1141,6 @@ window.__ModuleLoader__.load({
       return { kind, id, path, frontmatter: parsed.frontmatter, body: parsed.body }
     }
 
-    async function loadMapViews(remote, sessionId) {
-      if (remote?.commands === undefined || typeof remote.commands.execute !== 'function') {
-        return { ok: false, code: 'command_unavailable', message: 'This build has no command transport, so the designmap scene cannot be requested.' }
-      }
-      let result
-      try {
-        result = await remote.commands.execute(sessionId, `/designmap ${JSON.stringify({ op: 'views' })}`, [])
-      } catch (error) {
-        return { ok: false, code: 'command_failed', message: errorText(error) }
-      }
-      if (result?.ok !== true) return { ok: false, code: result?.error?.code ?? 'command_failed', message: errorText(result?.error) }
-      const outcome = result.value?.result
-      if (outcome?.kind === 'error') {
-        const text = String(outcome.text ?? '')
-        const match = /^designmap:\s*([A-Za-z0-9_]+):\s*([\s\S]*)$/.exec(text)
-        return { ok: false, code: match === null ? 'command_failed' : match[1], message: match === null ? text : match[2] }
-      }
-      if (outcome?.kind !== 'success') return { ok: false, code: 'command_failed', message: 'The designmap command returned an unexpected result.' }
-      let payload
-      try {
-        payload = JSON.parse(outcome.text)
-      } catch (error) {
-        return { ok: false, code: 'command_result_invalid', message: errorText(error) }
-      }
-      if (payload === null || typeof payload !== 'object' || !Array.isArray(payload.views)) {
-        return { ok: false, code: 'command_result_invalid', message: 'The designmap command returned no views.' }
-      }
-      return { ok: true, payload }
-    }
 
     /* ---------- cross-links ---------- */
 
@@ -1219,14 +1193,6 @@ window.__ModuleLoader__.load({
       return [...ids].sort()
     }
 
-    function nodesForRequirement(scene, reqId, links) {
-      const ids = new Set()
-      if (scene === null || scene === undefined) return ids
-      for (const node of scene.nodes ?? []) {
-        if (requirementsForNode(node, links).includes(reqId)) ids.add(node.id)
-      }
-      return ids
-    }
 
     /**
      * One class per status, not four shared tones: `active` and `review` used to be the same
@@ -1650,87 +1616,33 @@ window.__ModuleLoader__.load({
 
     /* ---------- map mode ---------- */
 
-    function MapMode({ data, analysisLinks, map, viewId, onView, filter, onOpenNode, onReload, onSelectReq }) {
-      if (map.phase === 'loading' || map.phase === 'idle') return h('div', null, h('p', { className: 'ps-kicker' }, 'Design map'), h('p', { className: 'ps-loading' }, 'Requesting the designmap scene…'))
-      if (map.phase === 'error') {
-        return h('div', null,
-          h('p', { className: 'ps-kicker' }, 'Design map'),
-          h(Alert, { code: map.code }, map.message),
-          h('p', { className: 'ps-muted', style: { color: 'var(--ps-muted)', fontSize: 12 } }, 'The map is drawn by designmap; this panel only asks for the rendered scene. A missing designmap row or an unrendered model is shown here, not worked around.'),
-          h('button', { type: 'button', className: 'ps-btn small', onClick: onReload }, 'Retry'),
-        )
-      }
-      const views = map.payload.views
-      if (views.length === 0) {
-        return h('div', null,
-          h('p', { className: 'ps-kicker' }, 'Design map'),
-          h(Empty, { title: 'No design map in this workspace' }, h('p', null, 'designmap has no rendered view here. The agent creates the model and renders it with designmap; this panel does not draw a map of its own.')),
-        )
-      }
-      const active = views.find((entry) => entry?.view?.viewId === viewId) ?? views[0]
-      const scene = active.scene
-      const highlight = filter === null ? null : nodesForRequirement(scene, filter, analysisLinks)
-      const badges = {}
-      let linkedNodes = 0
-      for (const node of scene.nodes ?? []) {
-        const reqs = requirementsForNode(node, analysisLinks)
-        if (reqs.length > 0) {
-          linkedNodes += 1
-          badges[node.id] = `REQ ${reqs.length}`
-        }
-      }
-      return h('div', null,
-        h('div', { className: 'ps-mapbar' },
-          h('span', { className: 'ps-kicker', style: { margin: 0 } }, 'Design map'),
-          views.length > 1
-            ? h('label', { className: 'ps-count' }, h('span', { className: 'ps-visually-hidden' }, 'Design map view'),
-                h('select', {
-                  className: 'ps-btn small',
-                  value: active.view.viewId,
-                  onChange: (event) => onView(event.target.value),
-                  'aria-label': 'Design map view',
-                }, views.map((entry) => h('option', { key: entry.view.viewId, value: entry.view.viewId }, entry.view.title || entry.view.viewId))),
-              )
-            : null,
-          h('span', { className: 'ps-meta' }, `${scene.nodes.length} nodes · ${scene.edges.length} edges · ${linkedNodes} traced to a requirement`),
-          h('span', { className: 'ps-spacer' }),
-          h('button', { type: 'button', className: 'ps-btn small', onClick: onReload }, 'Reload scene'),
-        ),
-        filter !== null
-          ? h('p', { className: 'ps-warnline' },
-              highlight.size > 0
-                ? `Highlighting ${highlight.size} node${highlight.size === 1 ? '' : 's'} traced to ${filter}. Other nodes are dimmed; the scene geometry is unchanged.`
-                : `No node on this view is traced to ${filter}. The map link comes from the analysis record trace[].componentId; a missing row is a gap in the projection, not a missing scene.`)
-          : null,
-        h('div', { className: 'ps-mapstage' },
-          SceneCanvas === undefined
-            ? h('div', { className: 'ps-empty' }, h('h2', null, 'The designmap renderer is not available'), h('p', null, 'The installed @cc/dsh-designmap client does not export SceneCanvas. This panel will not draw a second map.'))
-            : h(SceneCanvas, {
-                scene,
-                overlays: map.payload.overlays?.rows ?? {},
-                highlight,
-                dim: filter !== null,
-                overlay: h(React.Fragment, null, (scene.nodes ?? []).filter((node) => badges[node.id] !== undefined).map((node) => h('div', {
-                  key: `badge-${node.id}`,
-                  className: 'ps-nodebadge',
-                  style: { left: node.x + node.w - 9, top: node.y - 9 },
-                  title: `${badges[node.id]} traced to ${requirementsForNode(node, analysisLinks).join(', ')}`,
-                }, badges[node.id]))),
-                label: `${active.view.title || active.view.viewId}: design map, read-only`,
-                onNodeClick: (node) => onOpenNode(node, active),
-              }),
-        ),
-        h('p', { className: 'ps-meta', style: { marginTop: 6 } }, 'Click a node to see the requirements traced to it. Geometry: designmap (React Flow); this panel computes none.'),
-        linkedNodes > 0
-          ? h('div', null,
-              h('p', { className: 'ps-kicker', style: { marginTop: 12 } }, 'Requirements traced to this map'),
-              h('ul', { className: 'ps-maplist' }, (scene.nodes ?? []).filter((node) => requirementsForNode(node, analysisLinks).length > 0).map((node) => h('li', { key: node.id },
-                h('span', { className: 'ps-meta' }, node.label || node.id),
-                requirementsForNode(node, analysisLinks).map((reqId) => h(TypeChip, { key: reqId, kind: 'req', id: reqId, onClick: () => onSelectReq(reqId) })),
-              ))),
-            )
-          : null,
+    /**
+     * Design map = the page editor (v2 P2). The editor lives here because the state panel has a
+     * control that opens it and the designmap package no longer registers a main slot. The page
+     * file is the only store: the editor lists designmap/pages, opens one scene, and writes that
+     * scene back through the designmap command (pages | page | save | tidy-page | render-page).
+     */
+    function MapMode({ remote, sessionId }) {
+      const host = useMemo(
+        () => (createDesignmapHost === undefined || typeof createDesignmapHost !== 'function'
+          ? null
+          : createDesignmapHost({ remote, sessionId })),
+        [remote, sessionId],
       )
+      if (PageEditor === undefined) {
+        return h('div', null,
+          h('p', { className: 'ps-kicker' }, 'Design map'),
+          h(Empty, { title: 'The page editor is not available' },
+            h('p', null, 'The installed @cc/dsh-designmap client does not export PageEditor. Update the designmap plugin to the v2 build.')),
+        )
+      }
+      if (host === null) {
+        return h('div', null,
+          h('p', { className: 'ps-kicker' }, 'Design map'),
+          h('p', { className: 'ps-empty' }, 'Open a conversation to load the design map.'),
+        )
+      }
+      return h('div', { className: 'ps-mapstage', 'data-designmap-page-editor': 'true' }, h(PageEditor, { host }))
     }
 
     /* ---------- evidence block + drawer ---------- */
@@ -2289,9 +2201,6 @@ window.__ModuleLoader__.load({
       const [data, setData] = useState({ phase: 'loading' })
       const [drawer, setDrawer] = useState(null)
       const [drawerTab, setDrawerTab] = useState('overview')
-      const [map, setMap] = useState({ phase: 'idle' })
-      const [viewId, setViewId] = useState(null)
-      const [mapReload, setMapReload] = useState(0)
       // The evidence column belongs to the panel, not to the shell layout: layout has no
       // handle on it, so the panel keeps the show/hide state and the button reflects it.
       const [railOpen, setRailOpen] = useState(false)
@@ -2312,8 +2221,6 @@ window.__ModuleLoader__.load({
       useEffect(() => {
         setFilter(null)
         setDrawer(null)
-        setMap({ phase: 'idle' })
-        setViewId(null)
       }, [sessionId])
 
       useEffect(() => {
@@ -2348,26 +2255,8 @@ window.__ModuleLoader__.load({
         return () => controller.abort()
       }, [remote, sessionId, reloadToken])
 
-      useEffect(() => {
-        if (mode !== 'map' || sessionId === null || sessionId === undefined) return undefined
-        let cancelled = false
-        setMap((previous) => ({ ...previous, phase: 'loading', error: null }))
-        loadMapViews(remote, sessionId).then(
-          (result) => {
-            if (cancelled) return
-            if (result.ok !== true) {
-              setMap({ phase: 'error', code: result.code, message: result.message })
-              return
-            }
-            setMap({ phase: 'ready', payload: result.payload })
-            setViewId((current) => current ?? result.payload.rootId ?? result.payload.views[0]?.view?.viewId ?? null)
-          },
-          (error) => {
-            if (!cancelled) setMap({ phase: 'error', code: 'map_load_failed', message: errorText(error) })
-          },
-        )
-        return () => { cancelled = true }
-      }, [mode, sessionId, mapReload, remote])
+      // v2 P2: the Design map mode no longer asks designmap for a rendered scene; the page
+      // editor loads designmap/pages itself through the same command transport.
 
       // The analysis records are needed only by the Design map's REQ links: fetch them the
       // first time that mode opens instead of holding the first paint for ~20 JSON files.
@@ -2424,12 +2313,6 @@ window.__ModuleLoader__.load({
         }).catch(() => {})
       }, [remote, sessionId])
 
-      const openNode = useCallback((node, view) => {
-        returnFocus.current = document.activeElement
-        setDrawer({ kind: 'node', id: node.id, node, view })
-        setDrawerTab('overview')
-        setRailOpen(true)
-      }, [])
 
       const closeDrawer = useCallback(() => {
         setDrawer(null)
@@ -2719,17 +2602,7 @@ window.__ModuleLoader__.load({
               : mode === 'board'
                 ? h(BoardMode, { data, filter, onOpenTask: openEntity, onClearFilter: clearFilter, view: taskView, sort: taskSort, onView: setTaskView, onSort: setTaskSort, sessionsById, onChangeStatus: changeStatus, statusBusy, hideChores, onHideChores: setHideChores })
                 : mode === 'map'
-                  ? h(MapMode, {
-                      data,
-                      analysisLinks,
-                      map,
-                      viewId,
-                      onView: setViewId,
-                      filter,
-                      onOpenNode: openNode,
-                      onReload: () => setMapReload((value) => value + 1),
-                      onSelectReq: (reqId) => { setFilter(reqId); setModeState('req') },
-                    })
+                  ? h(MapMode, { remote, sessionId })
                   : h(TestsMode, { data, filter, subview, setSubview, onOpenTest: openEntity, onSelectReq: setFilter, onOpenMode: openMode }),
           ),
           railOpen && drawer !== null ? h('div', { className: 'ps-rail', id: 'ps-rail' },
