@@ -2,7 +2,19 @@
 
 GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`.
 
-## done (204)
+## active (1)
+
+| id | title | reqs | steps | chore |
+|---|---|---|---|---|
+| TASK-313 | Commit the project ledger through its own merge pass and push | — | — | yes |
+
+## review (1)
+
+| id | title | reqs | steps | chore |
+|---|---|---|---|---|
+| TASK-309 | P4: installed 1.0.0 in the browser, no v1 names in the artefact | REQ-246, REQ-247 | — | no |
+
+## done (228)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -210,6 +222,30 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-285 | B3: прокси только для OpenAI — транспорт в адаптере (HTTP и SOCKS5) | — | — | no |
 | TASK-286 | R1: готовность новой экосистемы — флаг IPv4 и второй сервер | — | — | no |
 | TASK-287 | Проектный журнал state/: слияние двух машин по git | REQ-184, REQ-185, REQ-186, REQ-187 | 5/5 | no |
+| TASK-288 | Assess the case library against the behaviour-only rules and design the enforcement layer | — | — | yes |
+| TASK-289 | P0: case-library audit command and the role-table check in make verify | REQ-231, REQ-232 | — | no |
+| TASK-290 | Preset playbooks in every persona plus the shared acceptance paragraph | REQ-237, REQ-238, REQ-239 | — | no |
+| TASK-291 | Batch the spike: two seats and one gate per batch in the orchestrator policy | REQ-240, REQ-241 | — | no |
+| TASK-292 | Verify the updated install: case CLI audit, tree gates, composed profile, versions | — | — | yes |
+| TASK-293 | Prove a child's rendered prompt from its session log, not from the profile | — | — | yes |
+| TASK-294 | Gate the prompt playbooks in make verify, red-first | REQ-237 | — | yes |
+| TASK-295 | Independent audit: capability fit, context overhead and prefix-cache churn per preset | — | — | yes |
+| TASK-296 | Reconnaissance: what the design-map subsystem is and what is coupled to it | — | — | yes |
+| TASK-297 | Design map v2: pages as drawings | — | 5/5 | yes |
+| TASK-298 | Design map v2 P1: page document, four agent tools, tidy and SVG | REQ-242, REQ-243, REQ-244, REQ-248, REQ-249 | — | no |
+| TASK-299 | Design map v2 P2: the panel edits the page file | REQ-245 | — | no |
+| TASK-300 | P2 proof in a browser: the page editor loads, saves and never writes in read mode | — | — | yes |
+| TASK-301 | One renderer: Excalidraw's own export, custom SVG writer deleted | REQ-250 | — | no |
+| TASK-302 | map_render: frame the page, do not crop it | REQ-250 | — | no |
+| TASK-303 | P2 defects: a loaded box must drag, tidy must not eat labels, and the button must not lie | REQ-245 | — | no |
+| TASK-304 | P2 drag: fix the vendored frame's injection path, named from the glue's own code | REQ-245 | — | no |
+| TASK-305 | P2 drag: bisect the panel's hosting, then fix the one factor that differs | REQ-245 | — | no |
+| TASK-306 | Case ids for Russian titles: transliterate, never collapse to one constant | — | — | yes |
+| TASK-307 | Update the stale designmap guard in the taskboard test | — | — | yes |
+| TASK-308 | P3: retire design-map v1 completely | REQ-246 | — | no |
+| TASK-310 | Close the two remaining risks: the unload console line and the stale recorded case | — | — | yes |
+| TASK-311 | State feed must not block the step it injects into | — | — | yes |
+| TASK-312 | Commit the finished work by path and push it | — | — | yes |
 
 ## cancelled (83)
 
