@@ -6,9 +6,9 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
-| TASK-331 | Commit the retirement contour, the policy and the ledger | — | — | yes |
+| TASK-332 | Push what is uncommitted, ledger only | — | — | yes |
 
-## done (246)
+## done (247)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -258,6 +258,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-328 | Retired cases must stop counting as live acceptance rows | — | — | yes |
 | TASK-329 | State batching and parallel work in the policy, and let the architect search the web | — | — | yes |
 | TASK-330 | A retirement from the shell must update the board too | — | — | yes |
+| TASK-331 | Commit the retirement contour, the policy and the ledger | — | — | yes |
 
 ## cancelled (84)
 

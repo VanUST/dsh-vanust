@@ -2,12 +2,12 @@
 
 GENERATED — DO NOT EDIT.
 
-REQ 250 · TASK 331 · TEST 88 · event 1869
+REQ 250 · TASK 332 · TEST 88 · event 1875
 
 ## Gaps
 
 - REQ without TASK: 249 (REQ-001, REQ-002, REQ-003, REQ-004, REQ-005, REQ-006, REQ-007, REQ-008, REQ-009, REQ-010, …)
-- TASK without reqId: 330
+- TASK without reqId: 331
 - TEST without reqId: 52
 
 ## Open requirements (14)
@@ -29,5 +29,5 @@ REQ 250 · TASK 331 · TEST 88 · event 1869
 
 ## Open work (1)
 
-- TASK-331 active: Commit the retirement contour, the policy and the ledger
+- TASK-332 active: Push what is uncommitted, ledger only
 
