@@ -95,9 +95,9 @@ have the full shell and filesystem.
 **`architect` is the system designer on the expensive route, and it exists to be small.** The
 owner opens a chat on it, or the orchestrator delegates one design question; every step is paid at
 `openai-codex/gpt-6.2-sol`, so the preset is the decision surface only: `read`, `glob`, `grep`,
-`outline`, `map_list` / `map_read` / `map_edit` / `map_render`, `delegate_task`,
-`task_note` and the three Hindsight read tools. It has no shell, no `write`/`edit`, no web tools,
-no case tools and **no `skill-filesystem`/`tool-skill`** — `tool-skill` emits the skill catalog
+`outline`, `web_fetch` / `web_search`, `map_list` / `map_read` / `map_edit` / `map_render`,
+`delegate_task`, `task_note` and the three Hindsight read tools. It has no shell, no
+`write`/`edit`, no case tools and **no `skill-filesystem`/`tool-skill`** — `tool-skill` emits the skill catalog
 only together with its own tool, so dropping the tool drops the catalog, which measured 30 304 B
 of the 34 188 B of reminders in a session before this change. Context arrives one of two ways:
 as a ROOT the role delegates a `GATHERER` (`delegate_task` is registered on root agents only), and

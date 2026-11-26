@@ -482,6 +482,7 @@ const MATRIX = {
     { task: 'delegate one gatherer instead of surveying', playbook: 'reading the repository on the expensive route instead of delegating one read', persona: 'delegate ONE GATHERER with delegate_task', needs: ['delegate_task'] },
     { task: 'record a design change in the design map', playbook: 'decides what should exist', persona: 'Record a design change in the design map with map_edit', needs: ['map_edit', 'map_read', 'map_render'] },
     { task: 'leave the decision on its task', playbook: 'decides what should exist', persona: 'answer in one text: the decision, why it is the right one', needs: ['task_note'] },
+    { task: 'check a fact the repository cannot give', playbook: 'decides what should exist, from given context', persona: 'search the web (web_search/web_fetch) when the decision needs a fact', needs: ['web_search', 'web_fetch'] },
   ],
   ux: [
     { task: 'render, snapshot and screenshot a page in a real browser', playbook: 'designs and proves an interface', persona: 'Build and prove in a real browser with Playwright', needs: ['mcp__playwright__*'] },
