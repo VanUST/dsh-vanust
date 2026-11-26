@@ -2,10 +2,10 @@
 id: TASK-323
 kind: task
 title: "The live snapshot has no agents line although the installed build writes one"
-status: review
-revision: 5
+status: done
+revision: 6
 createdAt: 2026-11-26T10:02:14.052Z
-updatedAt: 2026-11-26T10:07:15.817Z
+updatedAt: 2026-11-26T10:07:21.810Z
 acceptance:
   - text: "the writer of the live state/views files is named with file:line, and the reason the installed 0.1.17 does not produce the agents line is stated as a mechanism, not a guess"
     done: false
@@ -25,6 +25,7 @@ owner:
   kind: agent
   label: BACKEND
 preset: backend
+resultEvidence: ["writer named with file:line on the installed package: lib/core.mjs:662 regenerateViews -> lib/views.mjs:265 renderViews -> :272 snapshot.md -> :214 renderSnapshot", "the 0.1.16 tarball has 0 occurrences of 'active agents' and the installed 0.1.17 has 1; the write at seq 1817 came from the old module, seq 1818-1820 from the new one", "live file now carries '- active agents: 1' at last journal seq 1820, while the committed b17da57 snapshot lacks it", "the mechanism reproduced on this runtime: import old-build, rewrite the file, import the same URL -> still old-build; a fresh URL -> new-build", "counter with a working session: unclosed 1, active 1, agents 1; with every recorded session settled through the product's own path: agents 0 and '- active agents: 0'", "make test 69/69 and make verify exit 0; no product file changed and nothing repacked"]
 resultSummary: "No source defect: the live views are written by the running server's loaded copy of @cc/dsh-project-state, and at the moment the projection lacked the agents line that process was still executing 0.1.16, with 0.1.17 landing later. Node caches an ES module by URL for the process lifetime, so the package replaced on disk is not the code running; after the restart the next writes carry the line (seq 1818-1820, file written 13:02:18) and the counter reads a real figure: agents 1 while a session is recorded working, 0 when all are settled. Nothing changed in the code; both gates green."
 role: BACKEND
 scope: ["plugins/project-state — the live view writer", "scripts/state-merge.mjs or any other module that renders views, if that is the writer that runs", "tests for the writer path"]

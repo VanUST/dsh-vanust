@@ -2,7 +2,7 @@
 
 GENERATED — DO NOT EDIT.
 
-REQ 250 · TASK 324 · TEST 88 · event 1826
+REQ 250 · TASK 324 · TEST 88 · event 1827
 
 ## Gaps
 
@@ -27,7 +27,7 @@ REQ 250 · TASK 324 · TEST 88 · event 1826
 - REQ-235 proposed: Четыре правила относятся к слою приёмки; тесты исполнителя остаются белыми и задачу не закрывают.
 - REQ-236 proposed: Действующее условие приёмки не регрессирует: причины отказов, происхождение доказательства и три Mak
 
-## Open work (2)
+## Open work (1)
 
 - TASK-324 active: Record the ledger with the projection the reloaded build wrote
-[truncated: the digest budget is 3072 bytes; read index.json or state/req/]
+
