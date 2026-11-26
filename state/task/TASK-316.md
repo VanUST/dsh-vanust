@@ -2,10 +2,10 @@
 id: TASK-316
 kind: task
 title: "Verify the state notification with an independent behavioural test"
-status: review
-revision: 3
+status: done
+revision: 5
 createdAt: 2026-11-26T09:14:18.732Z
-updatedAt: 2026-11-26T09:23:49.590Z
+updatedAt: 2026-11-26T09:48:52.254Z
 acceptance:
   - text: "a test file exists under a test root with its exact run command, and it asserts the plugin's behaviour through its public surface (the composed messages and the pre-step decision), not through private internals"
     done: false
@@ -26,6 +26,8 @@ owner:
   label: TESTER
   sessionId: d900b3f7-4954-42d5-84f3-f595d19ad82d
 preset: tester
+resultEvidence: ["test file tests/state-feed/state-notification.test.mjs (315 lines), one command: node --test tests/state-feed/state-notification.test.mjs, now part of make test as the acceptance group", "green on 0.1.7: 9 tests, 9 pass, exit 0, one assertion per property", "red against the last committed previous build (0.1.4 via git archive 09b8323^): 1 pass / 8 fail, exit 1", "red against recovered 0.1.6 behaviour: 5 pass / 4 fail with 'open must be the one task in the board open section, not the number of listed titles … 5 !== 1'", "git diff --stat -- plugins/state-feed prints nothing: no product file was edited by the tester", "live delta observed after the tester settled: '## Open tasks / active: 1, open: 0, review: 0 / - TASK-316 [active] …', matching the board at that moment"]
+resultSummary: "The state notification's behaviour is verified by an independent test: tests/state-feed/state-notification.test.mjs, one command, now part of make test as its own acceptance group. Nine assertions cover the open-tasks block in the first message and the delta, per-status counts instead of list length, open and active tasks both listed, the twelve-title cap with '+N more', the empty board, the byte cap, and delivery through the pre-step decision rather than the session inbox. Green on 0.1.7 (9/9); red on the last committed previous build 0.1.4 (1 pass / 8 fail) and on reconstructed 0.1.6 (5/4, naming the counts property). No product file was edited."
 role: TESTER
 scope: ["a test file under a test root, with its run command", "the two builds from plugins/ used as the green and the wrong-product red"]
 sessions:

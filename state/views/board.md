@@ -6,15 +6,9 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
-| TASK-320 | Commit the acceptance group in the gate and the ledger | — | — | yes |
+| TASK-322 | Commit the three-figure counter and the regenerated projections | — | — | yes |
 
-## review (1)
-
-| id | title | reqs | steps | chore |
-|---|---|---|---|---|
-| TASK-316 | Verify the state notification with an independent behavioural test | — | — | yes |
-
-## done (235)
+## done (238)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -250,9 +244,12 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-313 | Commit the project ledger through its own merge pass and push | — | — | yes |
 | TASK-314 | State notification names active tasks and lists open task titles | — | — | yes |
 | TASK-315 | Commit and push the open-tasks block and the ledger | — | — | yes |
+| TASK-316 | Verify the state notification with an independent behavioural test | — | — | yes |
 | TASK-317 | Proof guard: the runtime's ledger is not a role's product edit | — | — | yes |
 | TASK-318 | Commit the guard fix, the independent test and the ledger | — | — | yes |
 | TASK-319 | Put the independent acceptance test inside make test | — | — | yes |
+| TASK-320 | Commit the acceptance group in the gate and the ledger | — | — | yes |
+| TASK-321 | Counter: unclosed tasks, active tasks, active agents | — | — | yes |
 
 ## cancelled (83)
 
