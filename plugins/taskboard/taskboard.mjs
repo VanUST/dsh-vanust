@@ -555,6 +555,15 @@ export const INITIAL_STATUSES = ['open', 'blocked']
 const ACTIVE_STATUSES = ['open', 'active', 'paused', 'review', 'blocked']
 
 /**
+ * The roots the runtime writes on its own (the project ledger and the session scratch directory).
+ * A shell audit record that names only files under them is not an edit the role made, so it does
+ * not refuse a close. Mirrors RUNTIME_ROOTS in plugins/proof-guard/proof-guard.mjs, which keeps
+ * them out of the product manifest in the first place; `reports/` and `docs/` are deliverables a
+ * role writes on purpose and stay in the product surface.
+ */
+const RUNTIME_ROOTS = ['state/', '.dsh/']
+
+/**
  * The row count past which the FILE, not the work, is the thing at risk. There is no default
  * limit: a board that grew past 1000 rows stopped accepting new work in a real workspace, and
  * "the file is full" was never the owner's decision. A workspace that wants a cap sets
@@ -2010,13 +2019,27 @@ function createService(config, logger, hooks = {}) {
         const sessions = new Set(Array.isArray(row?.childSessionIds) ? row.childSessionIds.filter((value) => typeof value === 'string') : [])
         if (child !== '') sessions.add(child)
         if (typeof row?.parentSessionId === 'string' && row.parentSessionId !== '') sessions.add(row.parentSessionId)
-        const hit = violations.find((entry) => entry !== null && typeof entry === 'object' && sessions.has(entry.sessionId) && Array.isArray(entry.files) && entry.files.length > 0)
+        // The project ledger and the session scratch directory are written by the runtime while a
+        // shell runs, not by the role: a record naming only those is not an edit the role made and
+        // must not refuse the row. Same two roots as the proof-guard manifest (RUNTIME_ROOTS in
+        // plugins/proof-guard/proof-guard.mjs); reports/ and docs/ stay in the product surface.
+        const productFiles = (entry) => (Array.isArray(entry.files) ? entry.files.filter((file) => typeof file === 'string' && !RUNTIME_ROOTS.some((root) => file === root.replace(/\/$/, '') || file.startsWith(root))) : [])
+        let hit
+        let hitFiles = []
+        for (const entry of violations) {
+          if (entry === null || typeof entry !== 'object' || !sessions.has(entry.sessionId)) continue
+          const files = productFiles(entry)
+          if (files.length === 0) continue
+          hit = entry
+          hitFiles = files
+          break
+        }
         if (hit !== undefined) {
           return {
             ok: false,
             code: 'product_shell_violation',
-            message: `the shell driven by session ${hit.sessionId} changed product file(s) that this role may not edit (${hit.files.slice(0, 5).join(', ')}); the change is recorded in .dsh/proof-guard-violations.json and the row cannot be accepted on the tester's word - revert it or have the owning role redo it`,
-            files: hit.files,
+            message: `the shell driven by session ${hit.sessionId} changed product file(s) that this role may not edit (${hitFiles.slice(0, 5).join(', ')}); the change is recorded in .dsh/proof-guard-violations.json and the row cannot be accepted on the tester's word - revert it or have the owning role redo it`,
+            files: hitFiles,
           }
         }
       }

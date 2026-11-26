@@ -269,7 +269,27 @@ export const VIOLATION_FILE = join('.dsh', 'proof-guard-violations.json')
 const OWNED_ROOTS = ['docs/cases/', 'test/', 'tests/']
 
 /**
- * The product manifest of a workspace: tracked files outside the role's own roots, hashed.
+ * Roots the runtime writes on its own while a shell runs: the project ledger (`state/`, whose
+ * journal and view projections every task transition appends) and the session scratch directory
+ * (`.dsh/`, where this guard records its own violations). They are tracked files, so without this
+ * exclusion every ledger append during a scoped shell was recorded as a product edit by that
+ * session and refused the row's close.
+ *
+ * The taskboard's close judgement mirrors this list (it reads the recorded file itself); keep the
+ * two in step, and keep the exclusion to these two roots: `reports/` and `docs/` are deliverables
+ * a role writes on purpose and stay in the product surface.
+ */
+export const RUNTIME_ROOTS = ['state/', '.dsh/']
+
+/** Whether a path belongs to the runtime (the ledger or the session scratch directory). */
+export function isRuntimePath(path) {
+  const normalized = normalizePath(path)
+  return RUNTIME_ROOTS.some((root) => normalized === root.replace(/\/$/, '') || normalized.startsWith(root))
+}
+
+/**
+ * The product manifest of a workspace: tracked files outside the role's own roots and outside
+ * the roots the runtime writes (the ledger, the session scratch directory), hashed.
  *
  * WHY GIT. The scope exists to protect the product, and 'the product' is what is under version
  * control; an untracked scratch file is not it. A workspace without git yields null, and the audit
@@ -282,7 +302,11 @@ export function productManifest(cwd) {
   } catch {
     return null
   }
-  const files = listed.split('\0').filter((path) => path !== '').filter((path) => !OWNED_ROOTS.some((root) => path.replaceAll('\\', '/').startsWith(root)))
+  const files = listed
+    .split('\0')
+    .filter((path) => path !== '')
+    .filter((path) => !isRuntimePath(path))
+    .filter((path) => !OWNED_ROOTS.some((root) => path.replaceAll('\\', '/').startsWith(root)))
   const manifest = {}
   for (const path of files.slice(0, 4000)) {
     try {
