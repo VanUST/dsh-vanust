@@ -22,7 +22,7 @@ const utf8 = (text) => Buffer.byteLength(text ?? '', 'utf8')
 const byId = (a, b) => String(a.id).localeCompare(String(b.id))
 
 /** Sort helpers: a fixed status order, then id. */
-const STATUS_ORDER = ['open', 'active', 'review', 'done', 'blocked', 'cancelled', 'unverified', 'verified', 'failing', 'stale', 'proposed', 'accepted', 'superseded', 'dropped']
+const STATUS_ORDER = ['open', 'active', 'review', 'done', 'blocked', 'cancelled', 'unverified', 'verified', 'failing', 'stale', 'proposed', 'accepted', 'superseded', 'dropped', 'deprecated']
 const statusRank = (status) => {
   const index = STATUS_ORDER.indexOf(status)
   return index < 0 ? STATUS_ORDER.length : index
@@ -96,7 +96,10 @@ export function renderIndex(model, { lastSeq = 0 } = {}) {
     counts: {
       req: model.reqs.length,
       task: model.tasks.length,
-      test: model.tests.length,
+      // Live TEST rows, plus the retired ones named on their own key: the panel's TEST counter
+      // must mean the same thing the snapshot's figure does.
+      test: testCounts(model).live,
+      testRetired: testCounts(model).retired,
       decision: model.decisions.length,
     },
     // THE PANEL'S FIRST PAINT READS THIS ONE FILE. It used to follow the index with one read
@@ -210,9 +213,30 @@ export function activeAgentCount(model) {
   return ids.size
 }
 
+/**
+ * A TEST row whose case was retired: the row stays (with its caseId) as the requirement's trace,
+ * but it is not live work, so the TEST figure does not count it. ONE meaning for the figure,
+ * shared by the snapshot, the digest and index.json.
+ */
+export const RETIRED_TEST_STATUSES = new Set(['deprecated'])
+
+/** How many TEST rows are live and how many are retired (terminal). */
+export function testCounts(model) {
+  const tests = Array.isArray(model.tests) ? model.tests : []
+  let retired = 0
+  for (const test of tests) if (RETIRED_TEST_STATUSES.has(test.status)) retired += 1
+  return { live: tests.length - retired, retired }
+}
+
+/** The one spelling of the TEST figure: live, with the retired rows named when there are any. */
+export function testFigure(model) {
+  const { live, retired } = testCounts(model)
+  return retired > 0 ? `${live} (${retired} retired)` : String(live)
+}
+
 /** `snapshot.md`: counts and the last journal sequence (never a wall clock). */
 export function renderSnapshot(model, { lastSeq = 0 } = {}) {
-  const lines = ['# State snapshot', '', 'GENERATED — DO NOT EDIT.', '', `- last journal event: ${lastSeq}`, `- REQ: ${model.reqs.length}`, `- DECISION: ${model.decisions.length}`, `- TASK: ${model.tasks.length}`, `- TEST: ${model.tests.length}`, `- active agents: ${activeAgentCount(model)}`, '', '## Tasks by status', '']
+  const lines = ['# State snapshot', '', 'GENERATED — DO NOT EDIT.', '', `- last journal event: ${lastSeq}`, `- REQ: ${model.reqs.length}`, `- DECISION: ${model.decisions.length}`, `- TASK: ${model.tasks.length}`, `- TEST: ${testFigure(model)}`, `- active agents: ${activeAgentCount(model)}`, '', '## Tasks by status', '']
   const counts = new Map()
   for (const task of model.tasks) counts.set(task.status, (counts.get(task.status) ?? 0) + 1)
   for (const status of [...counts.keys()].sort()) lines.push(`- ${status}: ${counts.get(status)}`)
@@ -221,7 +245,7 @@ export function renderSnapshot(model, { lastSeq = 0 } = {}) {
 
 /** `digest.md`: the small block the L1 layer will deliver; hard-capped. */
 export function renderDigest(model, { lastSeq = 0, limit = DIGEST_LIMIT_BYTES } = {}) {
-  const lines = ['# Project state', '', 'GENERATED — DO NOT EDIT.', '', `REQ ${model.reqs.length} · TASK ${model.tasks.length} · TEST ${model.tests.length} · event ${lastSeq}`, '']
+  const lines = ['# Project state', '', 'GENERATED — DO NOT EDIT.', '', `REQ ${model.reqs.length} · TASK ${model.tasks.length} · TEST ${testFigure(model)} · event ${lastSeq}`, '']
   // THE GAPS COME FIRST, so the hard cap can never hide them: a full register is exactly the
   // case where the reader must know that the REQ have no tasks and the tasks have no reqId.
   const OPEN_REQ = ['proposed', 'open', 'accepted', 'in_progress']

@@ -108,7 +108,8 @@ function taskPayload(task) {
 
 /** The TEST payload of one case, reusing the test-cases mirror's frozen hash and run refs. */
 function testPayload(record) {
-  const status = ['unverified', 'verified', 'failing', 'stale'].includes(record.status) ? record.status : 'unverified'
+  // A retired (or superseded) case is terminal in the register: the row is kept, not counted.
+  const status = ['unverified', 'verified', 'failing', 'stale', 'deprecated'].includes(record.status) ? record.status : 'unverified'
   const payload = {
     title: String(record.title ?? record.id ?? '').slice(0, 140),
     status,

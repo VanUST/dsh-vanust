@@ -84,7 +84,7 @@ import { driftFor, fileHash, slugify, testHashOf, testHashState, textHash } from
 import { normalizeChecks } from './lib/checks.mjs'
 import { gitState, recordRun, runAttempts, shellExec, spawnExec } from './lib/runner.mjs'
 import { mirrorCase } from './mirror.mjs'
-import { Refusal, appendAudit, libraryDir, readCase, readCases, removeCaseFile, safeCaseId, writeCase } from './lib/store.mjs'
+import { CLOSED, Refusal, appendAudit, deprecateCase, libraryDir, readCase, readCases, removeCaseFile, safeCaseId, writeCase } from './lib/store.mjs'
 
 export { driftFor, slugify, safeCaseId, readCase, writeCase }
 
@@ -240,7 +240,6 @@ export const DEFAULT_ROLE_TOOLS = {
 
 const STATUSES = ['unverified', 'verified', 'failing', 'flaky', 'stale', 'superseded', 'deprecated']
 const KINDS = ['regression', 'scenario']
-const CLOSED = new Set(['superseded', 'deprecated'])
 
 /** Resolve the session workspace the same way the other host plugins do. */
 function workingDir(agent) {
@@ -1428,18 +1427,18 @@ export function createTools(config = {}, env = {}) {
       reason: { type: 'string', required: true },
     },
     output: OUTPUT,
-    execute: (args, exec) => guarded(() => {
+    execute: (args, exec) => guarded(async () => {
       requireStrings(args, ['id', 'reason'])
-      const dir = dirFor(exec.agent)
-      const { record } = readCase(dir, args.id)
-      checkRevision(record, args.expectedRevision)
-      record.status = 'deprecated'
-      record.deprecateReason = args.reason
-      record.revision += 1
-      record.updatedAt = new Date().toISOString()
-      record.history = [...(record.history ?? []), { revision: record.revision - 1, at: record.updatedAt, editedBy: exec.actor === 'human' ? 'human' : 'agent', action: 'deprecated', reason: args.reason }]
-      writeCase(dir, record)
-      return { ok: true, case: summary(record) }
+      // The tool keeps its compare-and-set: a model that did not read the case first is refused
+      // here, while the CLI (one reader, one writer) lets the store read the case itself.
+      if (!Number.isInteger(args.expectedRevision)) throw new Refusal('REVISION_REQUIRED', 'expectedRevision is required (read the case first; the library is compare-and-set)')
+      // The SAME store path the CLI uses: one retirement implementation, so the shell and the
+      // model cannot disagree about the refusals, the revision or the history entry.
+      const { record } = deprecateCase(dirFor(exec.agent), args.id, { reason: args.reason, expectedRevision: args.expectedRevision, editedBy: exec.actor === 'human' ? 'human' : 'agent' })
+      // THE REGISTER LEARNS IT TOO, as it does for every other write: a retired case whose TEST
+      // row stayed 'unverified' would keep counting as live work in the projections.
+      const testMirror = await mirror(exec.agent, record)
+      return { ok: true, case: summary(record), ...(testMirror === null ? {} : { testMirror }) }
     }),
   })
 

@@ -129,7 +129,7 @@ the source of truth: the files are.
 | `board.md` | TASK grouped by status in a fixed order |
 | `traceability.md` | REQ → tasks/tests/decisions, and each TEST with its evidence |
 | `map/REQ-*.mmd` | one mermaid subgraph per REQ |
-| `snapshot.md` | counts, the agents the ledger records as working (`active agents`), tasks by status and the last journal sequence |
+| `snapshot.md` | counts, the agents the ledger records as working (`active agents`), tasks by status and the last journal sequence; the `TEST` figure counts live TEST rows and names the retired ones beside it (`- TEST: 86 (2 retired)`) |
 | `.hashes.json` | sha256 of every file above; `verify()` compares it and reports `view_modified` |
 
 Every list is sorted by id, the section order is fixed and no wall clock appears, so a second

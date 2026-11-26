@@ -27,7 +27,8 @@ const KINDS = {
   req: { prefix: 'REQ', status: ['proposed', 'open', 'accepted', 'done', 'rejected', 'dropped'] },
   decision: { prefix: 'DEC', status: ['proposed', 'accepted', 'superseded'] },
   task: { prefix: 'TASK', status: ['open', 'active', 'review', 'done', 'blocked', 'cancelled'] },
-  test: { prefix: 'TEST', status: ['unverified', 'verified', 'failing', 'stale'] },
+  // `deprecated` is terminal: its case was retired, the row stays as the requirement's trace.
+  test: { prefix: 'TEST', status: ['unverified', 'verified', 'failing', 'stale', 'deprecated'] },
 }
 const DIRS = { req: 'req', decision: 'decision', task: 'task', test: 'test' }
 const ID_PATTERN = /^(REQ|DEC|TASK|TEST)-(\d{3,})$/

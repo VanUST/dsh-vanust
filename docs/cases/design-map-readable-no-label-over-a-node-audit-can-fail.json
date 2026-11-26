@@ -4,7 +4,7 @@
   "title": "Design map readable: no label over a node, audit can fail",
   "requirement": "The owner requires the Design map to be visually readable: elements must not overlap each other (labels over nodes, labels over labels, edges through nodes), the map must be expressive and legible in the panel's light and dark themes, and a visual-consistency check must exist instead of silently emitting a broken map.",
   "kind": "regression",
-  "status": "unverified",
+  "status": "deprecated",
   "source": "human",
   "automated": true,
   "testPath": "plugins/designmap/test/readability.test.mjs",
@@ -49,11 +49,20 @@
     }
   ],
   "linkedTaskId": "task-mwjbs32u-pakwvu",
-  "revision": 1,
+  "revision": 2,
   "createdAt": "2026-11-16T13:57:03.431Z",
-  "updatedAt": "2026-11-16T13:57:03.431Z",
+  "updatedAt": "2026-11-26T12:30:26.371Z",
   "createdBy": "orchestrator",
   "createdByKind": "agent",
-  "history": [],
-  "evidence": {}
+  "history": [
+    {
+      "revision": 1,
+      "at": "2026-11-26T12:30:26.371Z",
+      "editedBy": "agent",
+      "action": "deprecated",
+      "reason": "Retired with the design map (v1): plugins/designmap/src/{layout,lint,render,text}.mjs, plugins/designmap/client/excalidraw.js, plugins/designmap/bin/audit-scene.mjs and the test plugins/designmap/test/readability.test.mjs were deleted with it; the requirement and the steps stay, the rewrite is the owner's decision."
+    }
+  ],
+  "evidence": {},
+  "deprecateReason": "Retired with the design map (v1): plugins/designmap/src/{layout,lint,render,text}.mjs, plugins/designmap/client/excalidraw.js, plugins/designmap/bin/audit-scene.mjs and the test plugins/designmap/test/readability.test.mjs were deleted with it; the requirement and the steps stay, the rewrite is the owner's decision."
 }

@@ -169,3 +169,38 @@ test('digest stays inside its byte cap and truncates deterministically', async (
   const again = await readFile(join(cwd, 'state', 'views', 'digest.md'), 'utf8')
   assert.equal(again, digest)
 })
+
+/*
+PROOF: a retired TEST row stays in the register and stops counting as live work
+Behavior: a TEST row whose case was retired (status deprecated) is kept with its reqId and shown in
+  the traceability table as terminal; the snapshot's TEST figure counts only live rows and names the
+  retired ones beside it ("- TEST: 1 (1 retired)"), the digest carries the same figure, and index.json
+  reports counts.test as live plus counts.testRetired. A register with no retired row prints the figure
+  it always printed, and the panel's index count agrees with the snapshot.
+Fails when: the figure counts a retired row, the retired row disappears from the register, or the
+  index count and the snapshot disagree.
+*/
+test('a retired TEST row stays in the register and stops counting as live work', async () => {
+  const { cwd, state } = await workspace()
+  const req = await state.create('req', { title: 'Retired cases', criteria: ['the figure counts live rows'] })
+  const live = await state.create('test', { title: 'A live case', reqId: req.id, status: 'unverified' })
+  const retired = await state.create('test', { title: 'A retired case', reqId: req.id, status: 'deprecated' })
+  assert.equal(retired.ok, true)
+  assert.equal(live.ok, true)
+  const regenerated = await state.regenerateViews()
+  assert.equal(regenerated.ok, true)
+  const snapshot = await readFile(join(cwd, 'state', 'views', 'snapshot.md'), 'utf8')
+  assert.match(snapshot, /^- TEST: 1 \(1 retired\)$/m)
+  const digest = await readFile(join(cwd, 'state', 'views', 'digest.md'), 'utf8')
+  assert.match(digest, /TEST 1 \(1 retired\)/)
+  const index = JSON.parse(await readFile(join(cwd, 'state', 'views', 'index.json'), 'utf8'))
+  assert.equal(index.counts.test, 1)
+  assert.equal(index.counts.testRetired, 1)
+  const traceability = await readFile(join(cwd, 'state', 'views', 'traceability.md'), 'utf8')
+  assert.match(traceability, new RegExp(`\\| ${retired.id} \\| ${req.id} \\| deprecated \\|`))
+  const kept = await state.get(retired.id)
+  assert.equal(kept.ok, true)
+  assert.equal(kept.frontmatter.status, 'deprecated')
+  assert.equal(kept.frontmatter.reqId, req.id)
+})
+

@@ -120,6 +120,51 @@ export function writeCase(dir, record) {
   return path
 }
 
+/** The statuses that close a case: the record, its steps and its history stay; edits refuse. */
+export const CLOSED = new Set(['superseded', 'deprecated'])
+
+/**
+ * Retire one case: status deprecated, the reason into its history, the requirement and steps kept.
+ *
+ * ONE PATH FOR TWO CALLERS. The host verb `case_deprecate` and the CLI `cases deprecate` both end
+ * up here, so a shell cannot write a retirement the tool would refuse (or the other way round):
+ * the same refusals, the same revision bump, the same history entry. A case that is already
+ * superseded or deprecated is refused by name (`CASE_CLOSED`), not retired twice.
+ *
+ * @param {string} dir   library root
+ * @param {string} id    case id
+ * @param {{reason: string, expectedRevision?: number, editedBy?: 'agent'|'human'}} options
+ *   `expectedRevision` is the compare-and-set the host verb passes; the CLI reads the case it is
+ *   about to retire and leaves it out (there is no second writer in one shell).
+ * @returns {{record: object, path: string}}
+ */
+export function deprecateCase(dir, id, options = {}) {
+  const { reason, expectedRevision, editedBy = 'agent' } = options
+  if (typeof reason !== 'string' || reason.trim() === '') {
+    throw new Refusal('INVALID_CASE', '`reason` must be a non-empty string')
+  }
+  const { record, path } = readCase(dir, id)
+  if (expectedRevision !== undefined) {
+    if (!Number.isInteger(expectedRevision)) {
+      throw new Refusal('REVISION_REQUIRED', 'expectedRevision is required (read the case first; the library is compare-and-set)')
+    }
+    if (record.revision !== expectedRevision) {
+      throw new Refusal('REVISION_CONFLICT', `case "${record.id}" is at revision ${record.revision}, not ${expectedRevision}`, { currentRevision: record.revision })
+    }
+  }
+  if (CLOSED.has(record.status)) {
+    throw new Refusal('CASE_CLOSED', `case "${record.id}" is ${record.status}; record a new case instead`)
+  }
+  const at = new Date().toISOString()
+  record.status = 'deprecated'
+  record.deprecateReason = reason
+  record.revision += 1
+  record.updatedAt = at
+  record.history = [...(record.history ?? []), { revision: record.revision - 1, at, editedBy: editedBy === 'human' ? 'human' : 'agent', action: 'deprecated', reason }]
+  writeCase(dir, record)
+  return { record, path }
+}
+
 /** Case ids present in the library (file names only; README/tests/fixtures are not cases). */
 export function listCaseIds(dir) {
   if (!existsSync(dir)) return []

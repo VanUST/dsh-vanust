@@ -4,7 +4,7 @@
   "title": "Project state panel: four modes over one selection, one owner write",
   "requirement": "The project state panel is one lens over the generated state projections: business requirements, the task board, the design map and tests/traceability share one selection, so picking a requirement filters the other modes; a task shows its requirement and tests, a test shows its requirement and evidence, and a design-map node shows the requirements traced to its component. The map is drawn by the existing designmap renderer and the panel writes no file: its one write is the owner changing a task status, which goes through the taskboard command (the board mirrors the TASK, regenerates the projections and records the override in the state journal). A task linked through reqIds shows every requirement.",
   "kind": "scenario",
-  "status": "unverified",
+  "status": "deprecated",
   "source": "agent",
   "automated": false,
   "reason": "The proof needs a live DSH web server on a second port, an isolated DSH_HOME and a seeded workspace, plus a real Chromium session; it is not a hermetic test, and the server is torn down after the run. The exact commands, fixture scripts, logs and screenshots are in reports/project-state-panel/ (PROOF.md, proof-panel.mjs, browser-log2.json, state-before.sha, state-after.sha, screens/).",
@@ -45,9 +45,9 @@
     }
   ],
   "linkedTaskId": "task-mwkq732m-ganepf",
-  "revision": 2,
+  "revision": 3,
   "createdAt": "2026-11-17T16:17:51.846Z",
-  "updatedAt": "2026-11-19T08:30:00.000Z",
+  "updatedAt": "2026-11-26T12:30:26.473Z",
   "createdBy": "ux",
   "createdByKind": "agent",
   "history": [
@@ -57,7 +57,15 @@
       "editedBy": "agent",
       "action": "reopened",
       "reason": "the panel gained one owner write (task status) and shows every linked requirement; the scenario must be re-run before it can be verified"
+    },
+    {
+      "revision": 2,
+      "at": "2026-11-26T12:30:26.473Z",
+      "editedBy": "agent",
+      "action": "deprecated",
+      "reason": "Retired with the design map (v1): plugins/designmap/client/view.jsx was deleted with it; the requirement and the steps stay, the rewrite is the owner's decision."
     }
   ],
-  "evidence": {}
+  "evidence": {},
+  "deprecateReason": "Retired with the design map (v1): plugins/designmap/client/view.jsx was deleted with it; the requirement and the steps stay, the rewrite is the owner's decision."
 }
