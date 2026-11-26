@@ -2,12 +2,12 @@
 
 GENERATED — DO NOT EDIT.
 
-REQ 250 · TASK 318 · TEST 88 · event 1788
+REQ 250 · TASK 320 · TEST 88 · event 1800
 
 ## Gaps
 
 - REQ without TASK: 249 (REQ-001, REQ-002, REQ-003, REQ-004, REQ-005, REQ-006, REQ-007, REQ-008, REQ-009, REQ-010, …)
-- TASK without reqId: 317
+- TASK without reqId: 319
 - TEST without reqId: 52
 
 ## Open requirements (14)
@@ -27,7 +27,7 @@ REQ 250 · TASK 318 · TEST 88 · event 1788
 - REQ-235 proposed: Четыре правила относятся к слою приёмки; тесты исполнителя остаются белыми и задачу не закрывают.
 - REQ-236 proposed: Действующее условие приёмки не регрессирует: причины отказов, происхождение доказательства и три Mak
 
-## Open work (3)
+## Open work (2)
 
-- TASK-318 active: Commit the guard fix, the independent test and the ledger
+- TASK-320 active: Commit the acceptance group in the gate and the ledger
 [truncated: the digest budget is 3072 bytes; read index.json or state/req/]

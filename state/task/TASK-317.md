@@ -2,10 +2,10 @@
 id: TASK-317
 kind: task
 title: "Proof guard: the runtime's ledger is not a role's product edit"
-status: review
-revision: 4
+status: done
+revision: 5
 createdAt: 2026-11-26T09:24:28.424Z
-updatedAt: 2026-11-26T09:29:30.190Z
+updatedAt: 2026-11-26T09:32:20.197Z
 acceptance:
   - text: "a change to state/events.jsonl during a shell command no longer counts as a product edit: the manifest excludes the ledger and the session scratch directory, and a test proves a manifest whose only change is state/events.jsonl yields no violation"
     done: false
@@ -23,6 +23,8 @@ owner:
   kind: agent
   label: BACKEND
 preset: backend
+resultEvidence: ["manifest quote: RUNTIME_ROOTS = ['state/', '.dsh/'] with isRuntimePath applied in productManifest beside the owned roots; productManifest on the real workspace hashes 481 tracked files, 0 under state/, 0 under .dsh/, 334 product", "product run on the real record and the real board: close with the ledger-only record gives ok true / status done; the same record plus src/app.mjs gives product_shell_violation naming only src/app.mjs", "proof-guard suite 13/13 and taskboard contract 11/11, red first 2/3 and 9/2", "the violation record was left on disk unchanged: it is judged, not deleted", "make test 68/68, make verify 20/20, both plugins repacked (0.1.10 and 0.1.86)"]
+resultSummary: "The proof guard no longer blames a role for the runtime's own writes: state/ and .dsh/ are out of the product manifest, and a recorded hit is judged by its product files only, so the tester's existing record no longer refuses its row while a real product edit beside a ledger change still records and still refuses with only the product file named. Proved against the real record and the real board in a copy, with both directions and red-first tests."
 role: BACKEND
 scope: ["plugins/proof-guard/proof-guard.mjs — the manifest roots and the violation judgement", "plugins/proof-guard/test/ — the new tests", "plugins/taskboard/taskboard.mjs only if the judgement lives there", "package.json versions, dist, tarballs"]
 ---
