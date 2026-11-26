@@ -441,10 +441,13 @@ verified on and the procedure for reproducing that verification are `rules/DEPLO
   plugin set). `make verify` runs them, together with the schema, context-budget, glossary
   and session-identity checks; all of those READ the tree.
 - **The tests that run it** — `make test` runs every plugin test file through `node --test`
-  (then the tests under `scripts/test`), and then every `scripts/*-proof.mjs`, one process
-  each, stopping at the first failure with exit 1. `make test ONLY=taskboard` runs the paths
-  containing that word. There is no root `package.json` and no test framework to install:
-  the runner is `scripts/test-all.mjs` and the tests are plain `node:test` files.
+  (then the tests under `scripts/test`), then every acceptance test under `tests/`, and then
+  every `scripts/*-proof.mjs`, one process each, stopping at the first failure with exit 1. The
+  acceptance group is reported separately because its author is a different seat from the
+  implementer, and a missing or empty `tests/` refuses the run rather than shrinking the gate.
+  `make test ONLY=taskboard` runs the paths containing that word. There is no root
+  `package.json` and no test framework to install: the runner is `scripts/test-all.mjs` and the
+  tests are plain `node:test` files.
   A test exists only where one was asked for and the behaviour is non-trivial; what proves a
   change is still running the product and quoting what it produced. `rules/DEPLOYMENT.md` §4
   is the same pair with the details.

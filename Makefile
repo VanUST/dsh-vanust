@@ -149,9 +149,11 @@ verify:
 
 # The other half of the gate. The checks above READ the tree - paths, packaging, documentation,
 # schema bytes, session headers - and none of them executes it. This target runs the files that
-# do: every plugin test file through `node --test`, then every proof script, one process each,
-# in a fixed order, stopping at the first failure with exit 1. `make test ONLY=taskboard` runs a
-# subset. It is a separate target on purpose: `verify` stays the cheap reader that needs no
+# do: every plugin test file through `node --test`, then every acceptance test under `tests/`,
+# then every proof script, one process each, in a fixed order, stopping at the first failure with
+# exit 1. The acceptance group is its own kind because its author is a different seat from the
+# implementer; a missing or empty `tests/` is a refusal, not a skip. `make test ONLY=taskboard`
+# runs a subset. It is a separate target on purpose: `verify` stays the cheap reader that needs no
 # session store and no browser.
 test:
 	@$(NODE) scripts/test-all.mjs $(if $(strip $(ONLY)),--only "$(strip $(ONLY))",)
