@@ -2,12 +2,12 @@
 
 GENERATED — DO NOT EDIT.
 
-REQ 250 · TASK 324 · TEST 88 · event 1827
+REQ 250 · TASK 331 · TEST 88 · event 1869
 
 ## Gaps
 
 - REQ without TASK: 249 (REQ-001, REQ-002, REQ-003, REQ-004, REQ-005, REQ-006, REQ-007, REQ-008, REQ-009, REQ-010, …)
-- TASK without reqId: 323
+- TASK without reqId: 330
 - TEST without reqId: 52
 
 ## Open requirements (14)
@@ -29,5 +29,5 @@ REQ 250 · TASK 324 · TEST 88 · event 1827
 
 ## Open work (1)
 
-- TASK-324 active: Record the ledger with the projection the reloaded build wrote
+- TASK-331 active: Commit the retirement contour, the policy and the ledger
 

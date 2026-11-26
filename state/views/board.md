@@ -6,9 +6,9 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
-| TASK-324 | Record the ledger with the projection the reloaded build wrote | — | — | yes |
+| TASK-331 | Commit the retirement contour, the policy and the ledger | — | — | yes |
 
-## done (240)
+## done (246)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -252,8 +252,14 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-321 | Counter: unclosed tasks, active tasks, active agents | — | — | yes |
 | TASK-322 | Commit the three-figure counter and the regenerated projections | — | — | yes |
 | TASK-323 | The live snapshot has no agents line although the installed build writes one | — | — | yes |
+| TASK-324 | Record the ledger with the projection the reloaded build wrote | — | — | yes |
+| TASK-326 | A command to retire a case, and the two rows here that assert removed behaviour | — | — | yes |
+| TASK-327 | Проверка запуска роли архитектора после переключения egress | — | — | yes |
+| TASK-328 | Retired cases must stop counting as live acceptance rows | — | — | yes |
+| TASK-329 | State batching and parallel work in the policy, and let the architect search the web | — | — | yes |
+| TASK-330 | A retirement from the shell must update the board too | — | — | yes |
 
-## cancelled (83)
+## cancelled (84)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -340,3 +346,4 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-203 | V1.2: состав пресетов под бюджеты полного заголовка | — | — | no |
 | TASK-206 | FR2: бюджеты контекста — ждёт решения о PTC-пресетах | — | — | no |
 | TASK-243 | Остаток окна Codex и цена модели — в сессии | REQ-132, REQ-133 | 0/4 | no |
+| TASK-325 | A command to retire a case, and the two cases that assert removed behaviour | — | — | yes |
