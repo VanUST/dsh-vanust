@@ -6,15 +6,16 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
-| TASK-315 | Commit and push the open-tasks block and the ledger | — | — | yes |
+| TASK-318 | Commit the guard fix, the independent test and the ledger | — | — | yes |
 
-## review (1)
+## review (2)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
-| TASK-309 | P4: installed 1.0.0 in the browser, no v1 names in the artefact | REQ-246, REQ-247 | — | no |
+| TASK-316 | Verify the state notification with an independent behavioural test | — | — | yes |
+| TASK-317 | Proof guard: the runtime's ledger is not a role's product edit | — | — | yes |
 
-## done (230)
+## done (232)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -243,11 +244,13 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-306 | Case ids for Russian titles: transliterate, never collapse to one constant | — | — | yes |
 | TASK-307 | Update the stale designmap guard in the taskboard test | — | — | yes |
 | TASK-308 | P3: retire design-map v1 completely | REQ-246 | — | no |
+| TASK-309 | P4: installed 1.0.0 in the browser, no v1 names in the artefact | REQ-246, REQ-247 | — | no |
 | TASK-310 | Close the two remaining risks: the unload console line and the stale recorded case | — | — | yes |
 | TASK-311 | State feed must not block the step it injects into | — | — | yes |
 | TASK-312 | Commit the finished work by path and push it | — | — | yes |
 | TASK-313 | Commit the project ledger through its own merge pass and push | — | — | yes |
 | TASK-314 | State notification names active tasks and lists open task titles | — | — | yes |
+| TASK-315 | Commit and push the open-tasks block and the ledger | — | — | yes |
 
 ## cancelled (83)
 
