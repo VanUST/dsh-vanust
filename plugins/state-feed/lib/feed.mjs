@@ -47,7 +47,7 @@ export function readState(cwd) {
 /** L1: header + digest + open tasks + plan + last snapshot. One message, composed once. */
 export function composeL1(state) {
   const parts = [L1_HEADER, '', state.digest.trim()]
-  if (typeof state.board === 'string' && state.board.trim() !== '') parts.push('', ...openTaskLines(state.board))
+  if (typeof state.board === 'string' && state.board.trim() !== '') parts.push('', ...openTaskLines(state.board, state.snapshot))
   if (typeof state.plan === 'string' && state.plan.trim() !== '') {
     parts.push('', '## Plan', '', state.plan.trim())
   }
@@ -58,26 +58,29 @@ export function composeL1(state) {
 }
 
 /**
- * The task statuses that count as open, the same three the digest's "Open work" calls open:
- * `open`, `active` and `review` (`plugins/project-state/lib/core.mjs:29` names all six task
- * statuses; done and cancelled are closed, and `blocked` is neither listed nor counted).
+ * The task statuses whose titles the block lists, the same three the digest's "Open work" calls
+ * open: `open`, `active` and `review` (`plugins/project-state/lib/core.mjs:29` names all six
+ * task statuses). A `blocked` task is not listed, but it is still UNCLOSED for the counter.
  */
 const OPEN_STATUSES = ['open', 'active', 'review']
+
+/** The task statuses that are closed; every other status is an unclosed task. */
+const CLOSED_STATUSES = ['done', 'cancelled']
 
 /** How many titles the open-tasks section lists before it says how many are left. */
 export const OPEN_TASK_ROWS = 12
 
 /**
- * The open tasks of `state/views/board.md`, in board order.
+ * Every task row of `state/views/board.md`, in board order.
  *
  * The board is the projection the feed already reads, and its table is the only row format:
  * `## <status> (<count>)` opens a section, then `| TASK-nnn | title | reqs | steps | chore |`
- * rows follow. A task is open when its section is `open`, `active` or `review`.
+ * rows follow.
  *
  * @param {string} board - the board projection's text.
  * @returns {{id: string, title: string, status: string}[]}
  */
-function openTasks(board) {
+function boardTasks(board) {
   const tasks = []
   let status = null
   for (const line of String(board ?? '').split('\n')) {
@@ -86,7 +89,7 @@ function openTasks(board) {
       status = section[1]
       continue
     }
-    if (!OPEN_STATUSES.includes(status)) continue
+    if (status === null) continue
     const row = /^\|\s*(TASK-\d+)\s*\|\s*(.*?)\s*\|/.exec(line)
     if (row !== null) tasks.push({ id: row[1], title: row[2], status })
   }
@@ -94,22 +97,43 @@ function openTasks(board) {
 }
 
 /**
- * The `## Open tasks` block: a counts line naming how many tasks sit in each open status, then
- * the titles with their status, at most `OPEN_TASK_ROWS` of them and a `+N more` line when the
- * board holds more. An empty board says so instead of leaving the heading with nothing under it.
+ * The agents the ledger records as working, read from the snapshot projection's own line
+ * (`- active agents: N`, rendered by project-state from the task rows' session statuses). It is
+ * the ledger's record, not a live probe: a session that has settled reads as not working.
+ *
+ * @param {string} snapshot - the snapshot projection's text.
+ * @returns {number}
+ */
+export function recordedAgents(snapshot) {
+  const match = /^- active agents:\s*(\d+)\s*$/m.exec(String(snapshot ?? ''))
+  return match === null ? 0 : Number(match[1])
+}
+
+/**
+ * The `## Open tasks` block: one counter line with the three figures the owner named, then the
+ * titles of the open tasks with their status, at most `OPEN_TASK_ROWS` of them and a `+N more`
+ * line when the board holds more. An empty board says so instead of leaving the heading alone.
+ *
+ * The counter reads `unclosed: N, active: A, agents: G`:
+ *   - unclosed - every task that is not done and not cancelled (blocked included);
+ *   - active   - the tasks whose status is exactly `active`;
+ *   - agents   - the sessions the ledger records as still working, from the snapshot's own
+ *                `- active agents:` line, not a live runtime probe.
  *
  * @param {string} board - the board projection's text.
+ * @param {string} snapshot - the snapshot projection's text (the agents figure).
  * @returns {string[]} the block's lines, without the blank line that separates it from the rest.
  */
-export function openTaskLines(board) {
-  const tasks = openTasks(board)
-  const count = (status) => tasks.filter((task) => task.status === status).length
-  // Each number is the count of that status; `open` is the board's own status, not the list length.
-  const lines = ['## Open tasks', '', `active: ${count('active')}, open: ${count('open')}, review: ${count('review')}`]
-  if (tasks.length === 0) return [...lines, '', 'no open tasks']
+export function openTaskLines(board, snapshot = '') {
+  const tasks = boardTasks(board)
+  const open = tasks.filter((task) => OPEN_STATUSES.includes(task.status))
+  const unclosed = tasks.filter((task) => !CLOSED_STATUSES.includes(task.status)).length
+  const active = tasks.filter((task) => task.status === 'active').length
+  const lines = ['## Open tasks', '', `unclosed: ${unclosed}, active: ${active}, agents: ${recordedAgents(snapshot)}`]
+  if (open.length === 0) return [...lines, '', 'no open tasks']
   lines.push('')
-  for (const task of tasks.slice(0, OPEN_TASK_ROWS)) lines.push(`- ${task.id} [${task.status}] ${task.title}`)
-  if (tasks.length > OPEN_TASK_ROWS) lines.push(`- +${tasks.length - OPEN_TASK_ROWS} more (state/views/board.md)`)
+  for (const task of open.slice(0, OPEN_TASK_ROWS)) lines.push(`- ${task.id} [${task.status}] ${task.title}`)
+  if (open.length > OPEN_TASK_ROWS) lines.push(`- +${open.length - OPEN_TASK_ROWS} more (state/views/board.md)`)
   return lines
 }
 
@@ -182,7 +206,7 @@ export function composeL2(state, previousHash) {
   if (countsLines.length > 0) parts.push('', '## Counts', '', ...countsLines)
   const bullets = openWork(state.digest)
   if (bullets.length > 0) parts.push('', '## Open work', '', ...bullets)
-  if (typeof state.board === 'string' && state.board.trim() !== '') parts.push('', ...openTaskLines(state.board))
+  if (typeof state.board === 'string' && state.board.trim() !== '') parts.push('', ...openTaskLines(state.board, state.snapshot))
   if (parts.length <= 4) parts.push('', 'state/views changed; read state/views/digest.md for the current summary.')
   return cap(parts.join('\n'), L2_LIMIT_BYTES)
 }

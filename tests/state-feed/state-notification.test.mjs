@@ -1,16 +1,20 @@
 /*
 PROOF: the state notification names the in-flight work
 Behavior: the first state message (L1) and the delta (L2) each carry one "## Open tasks"
-  block built from state/views/board.md: a counts line whose numbers are each status's own
-  count (active, open, review), the titles of open tasks with their status, at most twelve
-  titles plus a "+N more" line, and "no open tasks" when the board has none open. The delta
-  stays within the 1200-byte cap, and the pre-step participant adds the delta to the step
-  decision instead of writing it into the session inbox.
-Fails when: a message omits the open-tasks block or carries it twice; a count is the length
-  of the listed titles instead of that status's own count; a task in status open or active is
-  not listed; more than twelve titles are printed or the "+N more" line is missing; an empty
-  board leaves the heading without the "no open tasks" line; the delta exceeds the cap; the
-  pre-step hook calls agent.inject() instead of returning the message in its decision.
+  block: a counter line with the three figures the owner named - unclosed tasks (every task
+  that is not done and not cancelled, blocked included), active tasks (status active) and
+  active agents (the sessions the ledger records as still working, read from the snapshot
+  projection's own "active agents" line) - then the titles of open tasks with their status, at
+  most twelve titles plus a "+N more" line, and "no open tasks" when the board has none open.
+  The delta stays within the 1200-byte cap, and the pre-step participant adds the delta to the
+  step decision instead of writing it into the session inbox.
+Fails when: a message omits the open-tasks block or carries it twice; a figure is the length
+  of the listed titles instead of its own quantity; a closed task counts as unclosed or a
+  blocked task is dropped from it; the agents figure is invented instead of read from the
+  snapshot; a task in status open or active is not listed; more than twelve titles are printed
+  or the "+N more" line is missing; an empty board leaves the heading without the "no open
+  tasks" line; the delta exceeds the cap; the pre-step hook calls agent.inject() instead of
+  returning the message in its decision.
 Production path: plugins/state-feed/lib/feed.mjs (readState, composeL1, composeL2) and
   plugins/state-feed/index.mjs (apply), driven through the harness-shaped agent/created and
   agent/pre-step seams. The oracle is the owner's requirement and the task brief, not the
@@ -57,6 +61,7 @@ const SNAPSHOT = `# Snapshot
 - REQ: 2 open
 - TASK: 6 open
 - last journal event: TASK-906
+- active agents: 3
 `
 
 /** A board in the projection's own format: "## <status> (<count>)" then table rows. */
@@ -103,9 +108,9 @@ function openBlock(text) {
 }
 
 function countsLine(text) {
-  const matches = [...String(text).matchAll(/^active:\s*(\d+),\s*open:\s*(\d+),\s*review:\s*(\d+)\s*$/gm)]
-  assert.equal(matches.length, 1, 'the message must carry exactly one counts line')
-  return { active: Number(matches[0][1]), open: Number(matches[0][2]), review: Number(matches[0][3]) }
+  const matches = [...String(text).matchAll(/^unclosed:\s*(\d+),\s*active:\s*(\d+),\s*agents:\s*(\d+)\s*$/gm)]
+  assert.equal(matches.length, 1, 'the message must carry exactly one counter line')
+  return { unclosed: Number(matches[0][1]), active: Number(matches[0][2]), agents: Number(matches[0][3]) }
 }
 
 /** A fake host context: records the hooks the plugin registers. */
@@ -172,18 +177,33 @@ test('the delta carries the open-tasks block exactly once', async () => {
   assert.match(delta, /^STATE \(L2, delta\)/m, 'the second message is the delta')
 })
 
-test('each number in the counts line is that status\'s own count, not the length of the list', async () => {
+test('each figure is its own quantity, not the length of the list', async () => {
   const cwd = await workspace()
   const state = readState(cwd)
   const l1 = composeL1(state)
   const l2 = composeL2(state, '1'.repeat(64))
 
-  // The fixture holds six open tasks in total: one open, two active, three review. A counts
-  // line that prints the list length would say 6 for every status; the board says otherwise.
-  assert.equal(countsLine(l1).active, 2, 'active must be the two tasks in the board\'s active section')
-  assert.equal(countsLine(l1).open, 1, 'open must be the one task in the board\'s open section, not the number of listed titles (the fixture holds six open tasks in total)')
-  assert.equal(countsLine(l1).review, 3, 'review must be the three tasks in the board\'s review section')
-  assert.deepEqual(countsLine(l2), { active: 2, open: 1, review: 3 }, 'the delta counts each status from its own section too')
+  // The fixture holds six open tasks (one open, two active, three review) plus two done and one
+  // cancelled: unclosed is 6, active is 2. A counter that printed the list length would read 6
+  // for every figure; the board and the snapshot say otherwise.
+  assert.equal(countsLine(l1).unclosed, 6, 'unclosed is every task not done and not cancelled')
+  assert.equal(countsLine(l1).active, 2, 'active is the two tasks in the board\'s active section')
+  assert.equal(countsLine(l1).agents, 3, 'agents is the snapshot\'s recorded working-session count, not the list')
+  assert.deepEqual(countsLine(l2), { unclosed: 6, active: 2, agents: 3 }, 'the delta carries the same three figures')
+})
+
+test('a blocked task is unclosed but never listed', async () => {
+  const blockedBoard = boardOf({
+    active: [['TASK-902', 'a first active task']],
+    blocked: [['TASK-908', 'a blocked task']],
+    done: [['TASK-001', 'a finished task']],
+  })
+  const cwd = await workspace({ board: blockedBoard })
+  const state = readState(cwd)
+  const l2 = composeL2(state, '6'.repeat(64))
+  assert.equal(countsLine(l2).unclosed, 2, 'the blocked task is still unclosed')
+  assert.equal(countsLine(l2).active, 1)
+  assert.doesNotMatch(l2, /TASK-908 \[blocked\]/, 'a blocked task is not in the open list')
 })
 
 test('a task in status open and a task in status active are listed with their status', async () => {
@@ -217,17 +237,18 @@ test('more than twelve open titles collapse to twelve plus a "+N more" line', as
     const titles = block.filter((line) => line.startsWith('- TASK-'))
     assert.equal(titles.length, 12, `${name} must list at most twelve titles`)
     assert.ok(block.some((line) => /^-\s*\+2 more\b/.test(line)), `${name} must say how many titles were left out ("+2 more")`)
-    assert.equal(countsLine(message).open, 14, `${name} still counts all fourteen open tasks`)
+    assert.equal(countsLine(message).unclosed, 14, `${name} still counts all fourteen unclosed tasks`)
   }
 })
 
 test('a board with nothing open says "no open tasks"', async () => {
   const closedBoard = boardOf({ done: [['TASK-001', 'a finished task']], cancelled: [['TASK-002', 'a cancelled task']] })
-  const cwd = await workspace({ board: closedBoard })
+  const noAgents = '# Snapshot\n\n- last journal event: 0\n- active agents: 0\n'
+  const cwd = await workspace({ board: closedBoard, snapshot: noAgents })
   const state = readState(cwd)
 
   for (const [message, name] of [[composeL1(state), 'L1'], [composeL2(state, '4'.repeat(64)), 'L2']]) {
-    assert.deepEqual(countsLine(message), { active: 0, open: 0, review: 0 }, `${name} counts zero for every open status`)
+    assert.deepEqual(countsLine(message), { unclosed: 0, active: 0, agents: 0 }, `${name} counts zero for every figure`)
     assert.ok(openBlock(message).includes('no open tasks'), `${name} must say "no open tasks" instead of leaving the heading alone`)
   }
 })
@@ -298,11 +319,18 @@ test('the block is built from the workspace\'s own state/views/board.md', async 
   const state = readState(workspaceRoot)
   assert.equal(state.ok, true, 'the workspace has the state/views projection set')
   const open = boardOpenRows(state.board)
-  const expected = { active: open.filter((task) => task.status === 'active').length, open: open.filter((task) => task.status === 'open').length, review: open.filter((task) => task.status === 'review').length }
+  // Unclosed is every section that is not done/cancelled; the agents figure is the snapshot's line.
+  const sections = {}
+  for (const match of state.board.matchAll(/^## (\S+) \((\d+)\)$/gm)) sections[match[1]] = Number(match[2])
+  const expected = {
+    unclosed: Object.entries(sections).filter(([status]) => status !== 'done' && status !== 'cancelled').reduce((sum, [, value]) => sum + value, 0),
+    active: sections.active ?? 0,
+    agents: Number(/^- active agents:\s*(\d+)\s*$/m.exec(state.snapshot)?.[1] ?? 0),
+  }
 
   for (const [message, name] of [[composeL1(state), 'L1'], [composeL2(state, '5'.repeat(64)), 'L2']]) {
     assert.equal(occurrences(message, '## Open tasks'), 1, `${name} carries the real board's open-tasks block once`)
-    assert.deepEqual(countsLine(message), expected, `${name} counts the real board's open rows by status`)
+    assert.deepEqual(countsLine(message), expected, `${name} carries the real board's three figures`)
     if (open.length === 0) {
       assert.ok(openBlock(message).includes('no open tasks'), `${name} says "no open tasks" for the real empty board`)
     } else {

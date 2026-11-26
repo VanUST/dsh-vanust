@@ -9,8 +9,10 @@ One host row that puts the project state into the CONVERSATION, not into the sys
   `digest.md + board.md + snapshot.md` differs from the hash the session last received, one
   aggregated delta (≤ 1200 bytes) with the counts, the open-work bullets and the open tasks. A
   second change inside the same turn is not injected; the next turn picks the newest hash up.
-- **Open tasks** — both messages carry a line naming how many tasks sit in each open status
-  (`active`, `open`, `review` — each number is that status's own count), then the titles of the
+- **Open tasks** — both messages carry one counter line with the three figures the owner named:
+  `unclosed` (every task not done and not cancelled, blocked included), `active` (status
+  `active`) and `agents` (the sessions the ledger records as still working, from the snapshot's
+  own `active agents` line — the ledger's record, not a live probe). Below it, the titles of the
   open tasks with their status, parsed from the `board.md` table: at most twelve titles, then a
   `+N more` line; a board with no open task says `no open tasks` instead of leaving the heading
   alone. Done and cancelled tasks are not listed.

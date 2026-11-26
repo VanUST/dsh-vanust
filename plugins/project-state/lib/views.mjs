@@ -184,9 +184,35 @@ export function renderMaps(model) {
   return files
 }
 
+/**
+ * The session statuses that still mean working. The task ledger records `active`/`sleeping`
+ * (plus `paused`); `running` is the runtime's own word for the same thing, so both count. A
+ * settled session is `sleeping` and is not working.
+ */
+const WORKING_SESSION_STATUSES = ['active', 'running']
+
+/**
+ * How many agents the ledger records as working: the task rows' sessions whose status is still
+ * working, counted once per session id. This is a projection of the ledger, not a live probe of
+ * the runtime - the digest and the snapshot never touch a running process.
+ */
+export function activeAgentCount(model) {
+  const ids = new Set()
+  for (const task of model.tasks) {
+    if (!Array.isArray(task.sessions)) continue
+    for (const session of task.sessions) {
+      if (session === null || typeof session !== 'object') continue
+      if (typeof session.sessionId !== 'string' || session.sessionId === '') continue
+      if (!WORKING_SESSION_STATUSES.includes(session.status)) continue
+      ids.add(session.sessionId)
+    }
+  }
+  return ids.size
+}
+
 /** `snapshot.md`: counts and the last journal sequence (never a wall clock). */
 export function renderSnapshot(model, { lastSeq = 0 } = {}) {
-  const lines = ['# State snapshot', '', 'GENERATED — DO NOT EDIT.', '', `- last journal event: ${lastSeq}`, `- REQ: ${model.reqs.length}`, `- DECISION: ${model.decisions.length}`, `- TASK: ${model.tasks.length}`, `- TEST: ${model.tests.length}`, '', '## Tasks by status', '']
+  const lines = ['# State snapshot', '', 'GENERATED — DO NOT EDIT.', '', `- last journal event: ${lastSeq}`, `- REQ: ${model.reqs.length}`, `- DECISION: ${model.decisions.length}`, `- TASK: ${model.tasks.length}`, `- TEST: ${model.tests.length}`, `- active agents: ${activeAgentCount(model)}`, '', '## Tasks by status', '']
   const counts = new Map()
   for (const task of model.tasks) counts.set(task.status, (counts.get(task.status) ?? 0) + 1)
   for (const status of [...counts.keys()].sort()) lines.push(`- ${status}: ${counts.get(status)}`)

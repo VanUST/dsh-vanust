@@ -325,20 +325,24 @@ function boardWith(count, { status = 'active', title = (index) => `Task ${index}
   return `# Board\n\n## ${status} (${count})\n\n| id | title | reqs | steps | chore |\n|---|---|---|---|---|\n${rows.join('\n')}\n`
 }
 
+/** A snapshot carrying the ledger's recorded agents figure. */
+const SNAPSHOT_WITH_AGENTS = '# State snapshot\n\n- last journal event: 7\n- active agents: 3\n'
+
 /*
 PROOF: the state messages say what is in flight
-Behavior: both L1 and the delta name the count of each open status (open, active, review) and
-  list the open task titles with their status, parsed from state/views/board.md; at most twelve
-  titles are listed and a "+N more" line follows a longer board; a board with no open task says
-  "no open tasks"; done and cancelled rows never appear.
-Fails when: the feed invents a second source for the list, counts a closed task as open, stops
-  the list at some other number, leaves the heading with nothing under it, or omits the section
-  from the first message.
+Behavior: both L1 and the delta carry one counter line - unclosed tasks, active tasks, active
+  agents - and list the open task titles with their status, parsed from state/views/board.md and
+  the snapshot's "active agents" line; at most twelve titles are listed and a "+N more" line
+  follows a longer board; a board with no open task says "no open tasks"; done and cancelled rows
+  never appear.
+Fails when: the feed invents a second source for the figures, counts a closed task as unclosed,
+  omits the ledger's agents figure, stops the list at some other number, leaves the heading with
+  nothing under it, or omits the section from the first message.
 */
-test('the delta names the active count and lists the open titles from the board', () => {
-  const delta = composeL2({ digest: '', snapshot: '', board: REAL_BOARD, hash: 'a'.repeat(64) }, 'b'.repeat(64))
+test('the delta names the three figures and lists the open titles from the board', () => {
+  const delta = composeL2({ digest: '', snapshot: SNAPSHOT_WITH_AGENTS, board: REAL_BOARD, hash: 'a'.repeat(64) }, 'b'.repeat(64))
   assert.match(delta, /## Open tasks/)
-  assert.match(delta, /active: 1, open: 2, review: 1/)
+  assert.match(delta, /unclosed: 4, active: 1, agents: 3/)
   assert.match(delta, /- TASK-315 \[open\] A task waiting to be claimed/)
   assert.match(delta, /- TASK-316 \[open\] Another unclaimed task/)
   assert.match(delta, /- TASK-314 \[active\] State notification names active tasks and lists open task titles/)
@@ -348,31 +352,37 @@ test('the delta names the active count and lists the open titles from the board'
 })
 
 /*
-PROOF: the counts line counts statuses, not rows
-Behavior: "active", "open" and "review" are the board's three open statuses and each number is
-  the count of that status, so a board with one open, two active and three review tasks reads
-  "active: 2, open: 1, review: 3" and lists six titles.
-Fails when: the middle number is the list length (the shipped defect), so a board whose open
-  status is empty still reports a non-zero "open", or an open task is missing from the list.
+PROOF: the counter names the three figures the owner asked for, each its own quantity
+Behavior: "unclosed" is every task that is not done and not cancelled (a blocked task is
+  unclosed), "active" is the tasks whose status is exactly active, and "agents" is the snapshot's
+  recorded working-session count. A board with one open, two active, three review, one blocked and
+  one done task with agents 4 reads "unclosed: 7, active: 2, agents: 4" and lists six titles.
+Fails when: a figure is the length of the list (the shipped defect), a closed task counts as
+  unclosed, a blocked task is left out of unclosed, or the agents figure is invented rather than
+  read from the snapshot.
 */
-test('the counts line names each open status, not the length of the list', () => {
+test('the counter names unclosed, active and agents, each its own quantity', () => {
   const board = [
     '# Board', '',
     '## open (1)', '', '| id | title | reqs | steps | chore |', '|---|---|---|---|---|', '| TASK-401 | Waiting one | — | — | no |', '',
     '## active (2)', '', '| id | title | reqs | steps | chore |', '|---|---|---|---|---|', '| TASK-402 | Active one | — | — | no |', '| TASK-403 | Active two | — | — | no |', '',
     '## review (3)', '', '| id | title | reqs | steps | chore |', '|---|---|---|---|---|', '| TASK-404 | Review one | — | — | no |', '| TASK-405 | Review two | — | — | no |', '| TASK-406 | Review three | — | — | no |', '',
+    '## blocked (1)', '', '| id | title | reqs | steps | chore |', '|---|---|---|---|---|', '| TASK-407 | Blocked one | — | — | no |', '',
+    '## done (1)', '', '| id | title | reqs | steps | chore |', '|---|---|---|---|---|', '| TASK-408 | Finished one | — | — | no |', '',
   ].join('\n')
-  const delta = composeL2({ digest: '', snapshot: '', board, hash: 'a'.repeat(64) }, 'b'.repeat(64))
-  assert.match(delta, /active: 2, open: 1, review: 3/)
+  const snapshot = '# State snapshot\n\n- last journal event: 8\n- active agents: 4\n'
+  const delta = composeL2({ digest: '', snapshot, board, hash: 'a'.repeat(64) }, 'b'.repeat(64))
+  assert.match(delta, /unclosed: 7, active: 2, agents: 4/)
   assert.equal((delta.match(/^- TASK-\d+ \[(open|active|review)\] /gm) ?? []).length, 6)
-  // An empty open status reads 0 even though the list is not empty.
-  const noOpen = composeL2({ digest: '', snapshot: '', board: boardWith(2), hash: 'a'.repeat(64) }, 'b'.repeat(64))
-  assert.match(noOpen, /active: 2, open: 0, review: 0/)
-  assert.equal((noOpen.match(/^- TASK-\d+ \[active\] /gm) ?? []).length, 2)
+  // No working session reads 0 even though the list is not empty.
+  const noAgents = composeL2({ digest: '', snapshot: '# State snapshot\n\n- active agents: 0\n', board: boardWith(2), hash: 'a'.repeat(64) }, 'b'.repeat(64))
+  assert.match(noAgents, /unclosed: 2, active: 2, agents: 0/)
+  assert.equal((noAgents.match(/^- TASK-\d+ \[active\] /gm) ?? []).length, 2)
 })
 
 test('the open-task list stops at twelve titles and says how many more there are', () => {
   const delta = composeL2({ digest: '', snapshot: '', board: boardWith(15), hash: 'a'.repeat(64) }, 'b'.repeat(64))
+  assert.match(delta, /unclosed: 15, active: 15, agents: 0/)
   assert.equal((delta.match(/^- TASK-\d+ \[active\] /gm) ?? []).length, 12)
   assert.match(delta, /- \+3 more \(state\/views\/board\.md\)/)
   assert.equal(delta.includes('Task 13'), false)
@@ -381,38 +391,41 @@ test('the open-task list stops at twelve titles and says how many more there are
 test('a board with no open task says so instead of leaving the heading alone', () => {
   const board = `# Board\n\n## done (1)\n\n| id | title | reqs | steps | chore |\n|---|---|---|---|---|\n| TASK-001 | Hindsight integration | — | — | no |\n`
   const delta = composeL2({ digest: '', snapshot: '', board, hash: 'a'.repeat(64) }, 'b'.repeat(64))
-  assert.match(delta, /## Open tasks\n\nactive: 0, open: 0, review: 0\n\nno open tasks/)
+  assert.match(delta, /## Open tasks\n\nunclosed: 0, active: 0, agents: 0\n\nno open tasks/)
 })
 
 test('the first message carries the same open-tasks section once', () => {
-  const text = composeL1({ digest: 'digest body', board: REAL_BOARD, snapshot: '', plan: null })
+  const text = composeL1({ digest: 'digest body', board: REAL_BOARD, snapshot: SNAPSHOT_WITH_AGENTS, plan: null })
   assert.equal((text.match(/## Open tasks/g) ?? []).length, 1)
-  assert.match(text, /active: 1, open: 2, review: 1/)
+  assert.match(text, /unclosed: 4, active: 1, agents: 3/)
   assert.match(text, /- TASK-315 \[open\] /)
   assert.match(text, /- TASK-314 \[active\] /)
   assert.match(text, /- TASK-309 \[review\] /)
 })
 
-test('the workspace board parses: open, active and review are open, done and cancelled are not', async (t) => {
+test('the workspace board parses: the three figures come from the board and the snapshot', async (t) => {
   let board
+  let snapshot
   try {
     board = await readFile(new URL('../../../state/views/board.md', import.meta.url), 'utf8')
+    snapshot = await readFile(new URL('../../../state/views/snapshot.md', import.meta.url), 'utf8')
   } catch {
-    return t.skip('this checkout has no state/views/board.md')
+    return t.skip('this checkout has no state/views projection set')
   }
   const counts = {}
   for (const match of board.matchAll(/^## (\S+) \((\d+)\)$/gm)) counts[match[1]] = Number(match[2])
+  const unclosed = Object.entries(counts)
+    .filter(([status]) => status !== 'done' && status !== 'cancelled')
+    .reduce((sum, [, value]) => sum + value, 0)
+  const agents = Number(/^- active agents:\s*(\d+)\s*$/m.exec(snapshot)?.[1] ?? 0)
   const listed = (counts.open ?? 0) + (counts.active ?? 0) + (counts.review ?? 0)
-  const delta = composeL2({ digest: '', snapshot: '', board, hash: 'a'.repeat(64) }, 'b'.repeat(64))
+  const delta = composeL2({ digest: '', snapshot, board, hash: 'a'.repeat(64) }, 'b'.repeat(64))
+  // Unclosed is every non-closed status, active is the active section, agents the snapshot's line.
+  assert.match(delta, new RegExp(`unclosed: ${unclosed}, active: ${counts.active ?? 0}, agents: ${agents}`))
   if (listed === 0) {
     assert.match(delta, /no open tasks/)
     return
   }
-  // Each number is that status's own count, even when the list is longer than any one of them.
-  assert.match(
-    delta,
-    new RegExp(`active: ${counts.active ?? 0}, open: ${counts.open ?? 0}, review: ${counts.review ?? 0}`),
-  )
   assert.match(delta, /^- TASK-\d+ \[(open|active|review)\] /m)
 })
 
