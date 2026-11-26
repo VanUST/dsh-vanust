@@ -2,12 +2,12 @@
 
 GENERATED — DO NOT EDIT.
 
-REQ 250 · TASK 322 · TEST 88 · event 1814
+REQ 250 · TASK 324 · TEST 88 · event 1826
 
 ## Gaps
 
 - REQ without TASK: 249 (REQ-001, REQ-002, REQ-003, REQ-004, REQ-005, REQ-006, REQ-007, REQ-008, REQ-009, REQ-010, …)
-- TASK without reqId: 321
+- TASK without reqId: 323
 - TEST without reqId: 52
 
 ## Open requirements (14)
@@ -27,7 +27,7 @@ REQ 250 · TASK 322 · TEST 88 · event 1814
 - REQ-235 proposed: Четыре правила относятся к слою приёмки; тесты исполнителя остаются белыми и задачу не закрывают.
 - REQ-236 proposed: Действующее условие приёмки не регрессирует: причины отказов, происхождение доказательства и три Mak
 
-## Open work (1)
+## Open work (2)
 
-- TASK-322 active: Commit the three-figure counter and the regenerated projections
-
+- TASK-324 active: Record the ledger with the projection the reloaded build wrote
+[truncated: the digest budget is 3072 bytes; read index.json or state/req/]

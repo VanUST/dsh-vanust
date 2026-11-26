@@ -6,9 +6,15 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
-| TASK-322 | Commit the three-figure counter and the regenerated projections | — | — | yes |
+| TASK-324 | Record the ledger with the projection the reloaded build wrote | — | — | yes |
 
-## done (238)
+## review (1)
+
+| id | title | reqs | steps | chore |
+|---|---|---|---|---|
+| TASK-323 | The live snapshot has no agents line although the installed build writes one | — | — | yes |
+
+## done (239)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -250,6 +256,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-319 | Put the independent acceptance test inside make test | — | — | yes |
 | TASK-320 | Commit the acceptance group in the gate and the ledger | — | — | yes |
 | TASK-321 | Counter: unclosed tasks, active tasks, active agents | — | — | yes |
+| TASK-322 | Commit the three-figure counter and the regenerated projections | — | — | yes |
 
 ## cancelled (83)
 
