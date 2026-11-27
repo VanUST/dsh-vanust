@@ -282,6 +282,8 @@ GENERATED — DO NOT EDIT. Regenerated from `state/` by `regenerateViews()`.
 | REQ-276 | proposed | — | — | — | no |
 | REQ-277 | rejected | — | — | — | no |
 | REQ-278 | rejected | — | — | — | no |
+| REQ-279 | proposed | — | — | — | no |
+| REQ-280 | proposed | — | — | — | no |
 
 ## Tests
 
