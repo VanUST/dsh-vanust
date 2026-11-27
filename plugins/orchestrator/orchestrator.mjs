@@ -477,7 +477,7 @@ That ledger is not bookkeeping for delegation: it is the record that outlives th
 
 **Delegation is one way to run a task, never the trigger for one.** \`delegate_task\` creates the task and starts a child for it; a task you execute yourself has the same lifecycle and the same record. Create the task first, then choose: do it inline, or delegate it.
 
-**The board has a work-in-flight ceiling.** While this chat's board holds more than ${BOARD_WIP_LIMIT} unclosed tasks — done and cancelled do not count — \`delegate_task\` refuses a NEW task for an executor with \`board_limit\` and allows only the two checkers, TESTER and CRITIC. An attach to an already open task with taskId is allowed — the ceiling is on new work, not on finishing what is open. Close or cancel settled work before adding more.
+**The board has a work-in-flight ceiling.** While this chat's board holds more than ${BOARD_WIP_LIMIT} unclosed tasks — done and cancelled do not count — \`delegate_task\` refuses a NEW task for an executor with \`board_limit\` and allows only the two checkers, TESTER and CRITIC. An attach to an already open task with taskId is allowed — the ceiling is on new work, not on finishing what is open. The ceiling is about verification debt, not throughput: each change must be proved working before the next one starts (minimal viable change), and the refusal shows separately how many rows are waiting for acceptance (status review). Close or cancel settled work before adding more.
 
 **Stopping work.** \`task_cancel\`, \`task_pause\` and \`task_close\` interrupt every linked child before they change the task, and \`task_stop\` force-stops one task's children (or one \`sessionId\`) without changing the task status. A refused interrupt leaves the task where it was and names the child. The owner can stop the same children from the Tasks panel: a subagent belongs to both the orchestrator and the human, and both have the authority.
 
@@ -884,7 +884,7 @@ export function apply(ctx, config = {}) {
 
   const definition = defineTool({
     name: 'delegate_task',
-    description: `Create one task (or attach taskId), render a self-contained brief, start a child on the role preset and link its session. Roles: UX/UI, BACKEND, DEVOPS, RESEARCH, CONTEXT, REVIEWER, CRITIC, DOCS; another role needs an explicit preset. DEVOPS owns the running deployment and runs one live deployment task per chat: a second is refused with devops_lane_busy. While this chat's board holds more than \${BOARD_WIP_LIMIT} unclosed tasks a NEW task is refused with board_limit and only TESTER and CRITIC may be delegated; attaching to an already open task with taskId stays allowed. A near-duplicate new role is refused unless forceRole. Pass provider/model only when the default route cannot do the work.`,
+    description: `Create one task (or attach taskId), render a self-contained brief, start a child on the role preset and link its session. Roles: UX/UI, BACKEND, DEVOPS, RESEARCH, CONTEXT, REVIEWER, CRITIC, DOCS; another role needs an explicit preset. DEVOPS owns the running deployment and runs one live deployment task per chat: a second is refused with devops_lane_busy. While this chat's board holds more than \${BOARD_WIP_LIMIT} unclosed tasks a NEW task is refused with board_limit and only TESTER and CRITIC may be delegated; the refusal names the unclosed total, how many rows wait for acceptance and the verification debt behind the limit. Attaching to an already open task with taskId stays allowed. A near-duplicate new role is refused unless forceRole. Pass provider/model only when the default route cannot do the work.`,
     parameters: {
       title: { type: 'string', required: true, description: 'Short task title.' },
       role: { type: 'string', required: true, description: 'Specialist role, e.g. UX/UI, BACKEND, DEVOPS, RESEARCH, CONTEXT, REVIEWER, CRITIC, DOCS. The roles this workspace already has are listed in your policy section - reuse one of those exact names; all fitting tasks belong to it.' },
@@ -981,8 +981,9 @@ export function apply(ctx, config = {}) {
         } catch {
           unclosed = []
         }
+        const awaitingAcceptance = unclosed.filter((task) => task.status === 'review').length
         if (unclosed.length > BOARD_WIP_LIMIT) {
-          throw new Error(`delegate_task: board_limit - this chat's board holds ${unclosed.length} unclosed tasks, more than the limit of ${BOARD_WIP_LIMIT}. While the board is over the limit a NEW task is refused: only the checkers may be delegated a new task (TESTER, CRITIC), and attaching to an already open task with taskId is allowed. Finish or close open work with task_close or task_cancel before delegating a new ${role}.`)
+          throw new Error(`delegate_task: board_limit - this chat's board holds ${unclosed.length} unclosed tasks, more than the limit of ${BOARD_WIP_LIMIT}, and ${awaitingAcceptance} of them are waiting for acceptance (status review). The limit is about verification debt, not throughput: each change must be proved working before the next one starts (minimal viable change), so more than ${BOARD_WIP_LIMIT} unclosed tasks is work piling up unproven, not progress. While the board is over the limit a NEW task is refused: only the checkers may be delegated a new task (TESTER, CRITIC), and attaching to an already open task with taskId is allowed. Finish, prove or close open work with task_close or task_cancel before delegating a new ${role}.`)
         }
       }
       // DEVOPS OWNS THE RUNTIME LANE, AND ONE LANE HOLDS ONE LIVE TASK. The runtime is a

@@ -138,10 +138,32 @@ test('an attach to an already open task is allowed above the limit', async () =>
   assert.equal(calls.startActivation.length, 1, 'the child continues the open task')
 })
 
+test('the refusal names the reason: verification debt and minimal viable change', async () => {
+  // 8 open + 3 waiting for acceptance = 11 unclosed, 3 of them review.
+  const rows = openRows(8, Array.from({ length: 3 }, (_, index) => ({ id: 'task-review-' + index, revision: 1, title: 'awaiting acceptance ' + index, role: 'BACKEND', preset: 'backend', status: 'review' })))
+  const { delegate } = harness(rows)
+  await assert.rejects(
+    () => delegate(base()),
+    (error) => {
+      const message = String(error.message)
+      assert.match(message, /verification debt/i, 'the refusal names the debt the limit protects against')
+      assert.match(message, /minimal viable change/i, 'the refusal names the principle, not a reproach')
+      assert.match(message, /3 of them are waiting for acceptance/, 'the refusal names how many rows wait for acceptance')
+      assert.match(message, /11 unclosed/, 'the refusal names the total unclosed count')
+      assert.match(message, /limit of 10/, 'the refusal names the limit')
+      assert.match(message, /TESTER/, 'the refusal names the allowed roles')
+      return true
+    },
+  )
+})
+
 test('the limit is one constant and the policy text interpolates it', () => {
   assert.match(SOURCE, /export const BOARD_WIP_LIMIT = 10/)
   assert.match(SOURCE, /more than \$\{BOARD_WIP_LIMIT\} unclosed/)
   assert.match(ROOT_POLICY, /more than 10 unclosed/)
   assert.match(ROOT_POLICY, /board_limit/)
   assert.match(ROOT_POLICY, /TESTER and CRITIC|tester and critic/i)
+  assert.match(ROOT_POLICY, /verification debt/i, 'the policy names the reason')
+  assert.match(ROOT_POLICY, /minimal viable change/i, 'the policy names the principle')
+  assert.match(ROOT_POLICY, /waiting for acceptance/i, 'the policy says the count is shown separately')
 })

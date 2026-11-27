@@ -6,7 +6,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
-| TASK-382 | Закоммитить и запушить правило-блокер | — | — | yes |
+| TASK-383 | Отказ board_limit: назвать причину — долг проверки и minimal viable change | — | — | yes |
 
 ## review (1)
 
@@ -14,7 +14,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 |---|---|---|---|---|
 | TASK-337 | Independent acceptance case: devops role and the one-live-deployment lane | REQ-256, REQ-257, REQ-258, REQ-259, REQ-260, REQ-261, REQ-262, REQ-263 | — | no |
 
-## done (291)
+## done (292)
 
 | id | title | reqs | steps | chore |
 |---|---|---|---|---|
@@ -309,6 +309,7 @@ GENERATED — DO NOT EDIT. Regenerated from `state/task/` by `regenerateViews()`
 | TASK-379 | Закоммитить и запушить остаток журнала | REQ-280 | — | yes |
 | TASK-380 | Блокер: больше 10 незакрытых задач — только проверяющие роли | — | — | yes |
 | TASK-381 | Блокер: выше предела запрещать новую работу, но не прикрепление | — | — | yes |
+| TASK-382 | Закоммитить и запушить правило-блокер | — | — | yes |
 
 ## blocked (1)
 
